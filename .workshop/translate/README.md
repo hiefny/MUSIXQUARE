@@ -6,7 +6,8 @@ recruitment landing page. Its interface is English.
 
 ## Run and publish
 
-Use `npm run dev` and open `/translate`. The isolated editor is also available:
+Use `npm run dev` and open `/translate` for the static editor. Vite does not run
+the account or community Worker APIs. The isolated editor is also available:
 
 ```powershell
 node node_modules/vite/bin/vite.js --config .workshop/translate/dev/preview.config.ts
@@ -51,12 +52,44 @@ Catalog reads omit credentials, bypass caches, and have a bounded deadline. The
 build parses literal TypeScript dictionaries without executing app/About scripts.
 Restart a development preview after editing translation sources.
 
-## Current contribution boundary
+## Public suggestions and review
 
-This editor prepares suggestions. It does not automatically submit, approve, or
-apply translations, and the UI says so. Weblate, reviewer accounts, and server-side
-submission are not connected. Separate plural forms, account messages, and other
-page families are outside the App/About catalog.
+Anyone can browse language-scoped suggestions and sort by recommendations or
+newest. Existing MUSIXQUARE Google accounts can submit a suggestion, recommend it
+once, remove that recommendation, or withdraw their own unapplied suggestion.
+Unsubmitted drafts remain local. Submissions preserve the exact English, Korean,
+and current translation references and cannot be edited after publication.
+
+The App Worker owns `/api/translations/suggestions`. It checks the deployed
+catalog, wording constraints, account session scope, same-origin CSRF headers,
+and account-based rate limits. Public responses expose display names and total
+recommendations, never account IDs, emails, or voter identities. Lists are
+paginated and `no-store`; rejected/withdrawn proposals are not publicly listed.
+
+The protected `/admin` Translations tab provides recommendation-ordered review,
+revision-checked approval/rejection, and approved JSON export. One proposal per
+phrase can be approved at a time. Votes prioritize review; they do not change
+shipped wording automatically. An approved export fails if any unapplied approval
+has stale references; already applied approvals are omitted.
+
+Apply a reviewed export from the repository root:
+
+```text
+npm run translation:apply -- path/to/MUSIXQUARE-approved-translations.json
+npm run translation:apply -- path/to/MUSIXQUARE-approved-translations.json --write
+```
+
+The first command validates and previews. The second edits only the matching
+translation string literals after checking every baseline and proposal. Review
+the diff, run the normal checks, and publish through the App release workflow.
+Ordinary browser draft exports are not approved bundles and cannot be applied
+with this tool. Separate plural forms, account messages, and other page families
+remain outside the App/About catalog.
+
+The additive D1 tables and account-deletion behavior are documented in
+`docs/account-auth-operations.md`. App releases apply and verify the migration
+before deploying the Worker. Existing account/OAuth and admin protections are
+reused; no separate translation login or database is required.
 
 ## Sources and checks
 
@@ -64,11 +97,16 @@ page families are outside the App/About catalog.
 - `main.ts`: selection, references, editing, and export UI.
 - `drafts.ts` / `storage-session.ts`: validation and storage boundaries.
 - `catalog-client.ts`: static manifest and locale reads.
+- `community.ts` / `community-client.ts`: public contributions and account UI.
+- `src/i18n/translation-community.ts`: shared DTOs and wording checks.
+- `cloudflare/translation-community.ts`: public and protected review APIs.
+- `scripts/apply-translation-suggestions.mts`: reviewed source-file application.
 - `scripts/translation-catalog.ts`: literal source extraction.
 - `scripts/translation-catalog-assets.ts`: build/dev asset generation.
 - `dev/`: isolated preview and legacy read-only preview endpoint.
 
 Existing workshop/tooling TypeScript and ESLint projects include these files.
 Vitest covers drafts, export, storage conflicts, catalog packaging, navigation,
-Worker routes, and service-worker behavior. Local browser/preparation evidence is
-under `scratch/translate-preview-2026-09-08/`.
+Worker routes, account/CSRF checks, recommendation and approval concurrency,
+deletion cascades, literal application, and service-worker behavior. Local
+community verification evidence is under `scratch/translation-community-2026-09-08/`.

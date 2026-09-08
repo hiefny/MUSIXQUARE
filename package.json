@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.5.0",
+  "version": "8.6.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -33,6 +33,7 @@
     "generate:profanity-patterns": "node scripts/generate-profanity-patterns.mts",
     "generate:index-hreflang": "node scripts/sync-index-hreflang.mts",
     "generate:sitemap": "node scripts/generate-sitemap.mts",
+    "translation:apply": "node scripts/apply-translation-suggestions.mts",
     "generate:og-fonts": "node scripts/subset-og-fonts.mts",
     "generate:og-assets": "node scripts/generate-static-og.mts",
     "guard:profanity-patterns": "node scripts/generate-profanity-patterns.mts --check",

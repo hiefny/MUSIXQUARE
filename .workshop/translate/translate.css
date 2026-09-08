@@ -1,13 +1,9 @@
-/* Local translation workspace. Reuses the document layout without changing shared styles. */
+/* Translation workspace. Reuses the shared document layout. */
 [hidden] {
   display: none !important;
 }
 .translation-doc {
   --field-border: #444;
-}
-.policy-hero p.policy-date {
-  font-size: 13px;
-  color: var(--text-muted);
 }
 .translation-doc button,
 .translation-doc input,
@@ -58,6 +54,14 @@
   font-size: 13px;
   text-decoration: none;
   white-space: nowrap;
+}
+.translation-doc a.translation-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.translation-doc a.translation-button--primary {
+  color: #121212;
 }
 .translation-draft-link span {
   margin-left: 5px;
@@ -418,13 +422,106 @@
 .translation-export-actions {
   justify-content: flex-start;
 }
+.translation-local-actions {
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+.translation-local-actions > .translation-note {
+  margin-right: auto;
+}
+.translation-doc #submit-status:empty,
+.translation-doc #save-status:empty,
+.translation-doc #suggestions-status:empty {
+  display: none;
+}
+.translation-doc #submit-status {
+  margin-top: 12px;
+}
+.translation-drafts {
+  border-top: 1px solid var(--divider);
+  padding-top: 24px;
+}
+.translation-drafts > summary {
+  width: fit-content;
+  color: var(--text-sub);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.translation-drafts > summary span {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.translation-drafts > .translation-section-heading {
+  margin-top: 18px;
+}
+.translation-community-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.translation-community-item {
+  padding: 24px 0;
+  border-top: 1px solid var(--divider);
+}
+.translation-community-heading,
+.translation-community-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.translation-community-heading {
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.translation-community-status {
+  color: var(--text-sub);
+}
+.translation-doc .translation-community-item > .translation-saved-key {
+  margin-top: 5px;
+}
+.translation-doc .translation-community-wording {
+  margin-top: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.translation-doc .translation-community-wording + .translation-note {
+  margin-top: 10px;
+}
+.translation-community-expanded {
+  margin-top: 14px;
+}
+.translation-community-expanded summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.translation-community-actions {
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.translation-community-actions time {
+  margin-right: auto;
+}
+.translation-community-actions [aria-pressed='true'] {
+  color: var(--accent);
+}
+.translation-community-item .translation-text-preview .translation-reference-label {
+  margin-top: 14px;
+}
+.translation-community-item .translation-text-preview .translation-community-wording {
+  margin-top: 5px;
+}
 .translation-export-actions + .translation-note {
   margin-top: 14px;
 }
 #editor,
 #workspace,
 #saved,
-#guidelines {
+#suggestions {
   scroll-margin-top: 28px;
 }
 @media (max-width: 480px) {

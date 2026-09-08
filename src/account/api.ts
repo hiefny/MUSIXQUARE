@@ -246,7 +246,7 @@ async function requestJsonResponse(
         return { payload, status: response.status };
       },
       {
-        signal: init.signal ?? undefined,
+        ...(init.signal ? { signal: init.signal } : {}),
         timeoutMs,
         timeoutReason: 'ACCOUNT_REQUEST_TIMEOUT',
       },

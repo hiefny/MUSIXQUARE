@@ -87,6 +87,14 @@ remain authoritative as module and dependency counts evolve.
 
 ---
 
+## Translation contributions
+
+Suggest a translation or recommend an existing proposal at
+[Translate](https://musixquare.com/translate). Maintainers review proposals before
+they appear in a release.
+
+---
+
 ## Room Types Comparison
 
 | Attribute           | Standard Room                                       | Persistent PRO Room                                                 |

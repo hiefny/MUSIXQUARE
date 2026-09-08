@@ -44,9 +44,10 @@ database_id = "<the-real-database-id>"
 ```
 
 No placeholder binding is committed because Wrangler would treat it as a
-deployable production configuration. D1 contains only random account IDs,
+deployable production configuration. D1 contains random account IDs,
 HMAC-pseudonymized Google subjects, account nicknames, three account-scoped
-lifetime aggregate counters, and digests of random session tokens. The counters
+lifetime aggregate counters, digests of random session tokens, and the
+account-owned translation contributions described below. The counters
 record only sessions joined, listening seconds, and tracks played; they contain
 no room code, media identity, title, event timestamp, or per-play history.
 Google email, OAuth tokens, and raw browser session tokens are not stored.
@@ -76,6 +77,55 @@ The baseline schema also contains the one-to-one account statistics table. Do
 not expose `/api/auth/stats` when that table or its constraints do not match
 `cloudflare/auth.schema.sql`. Historical migration SQL remains immutable audit
 evidence; it is not part of a fresh launch deployment.
+
+### Translation community tables
+
+`/translate` stores submitted translation text, its exact English/Korean/target
+baseline, the contributor's reason, server timestamps, review revisions and
+votes in this existing database. No new database binding or secret is needed.
+The three additive tables are `mxqr_translation_suggestions`,
+`mxqr_translation_votes` and `mxqr_translation_reviews`.
+
+Public lists show pending/approved suggestions and the account's current
+nickname, or `Contributor` when no nickname is set. They never return the
+internal account ID, email, session digest or vote-owner list. Rejected and
+withdrawn suggestions remain available to administrators until account deletion.
+The reason field accepts up to 4,000 characters; translation fields retain the
+shared 32,768-character limit. Account mutations require the existing session
+cookie, exact expected account scope, same-origin request and account CSRF
+header. Submission and vote/withdrawal admission use the existing atomic
+service-control rate limiter and fail closed when it is unavailable.
+
+For an existing database, Production Release applies
+`cloudflare/auth.translation-community.migration.sql` before the new App Worker
+and reads back its required columns, unique approval index, vote triggers and
+cascade foreign keys. A fresh database receives the same objects from the
+baseline. Both paths are idempotent and recorded as
+`auth-translation-community-v1` in the D1 migration manifest. Recovery preserves
+the additive tables: older compatible App code ignores them. Roll forward or
+restore the provider database when schema/data recovery is required; do not
+drop contributions as a routine Worker rollback.
+
+One account has at most one vote on each suggestion. Counter triggers also
+remove its votes from other contributors' totals on account deletion. Foreign
+keys cascade account deletion to the account's suggestions and votes, and then
+to each deleted suggestion's review history. A deletion-in-progress fence blocks
+new contributions; public lists exclude authors behind that fence.
+
+Administrators use the existing protected `/api/admin/*` session and CSRF
+contract. Their queue is ordered by recommendations, with newest first for ties.
+Review uses the displayed revision. Approving an alternative atomically returns
+the previous approval for that locale/key to pending, increments its revision
+and records the supersession. Votes do not grant approval or publish copy.
+
+Approval export contains only approvals whose exact baseline still matches the
+deployed catalog. Already-applied text is omitted; any other stale approval
+rejects the entire export with `STALE_APPROVED_SUGGESTIONS` so it must be reviewed
+again. The reviewed export is applied to repository sources, checked in CI and
+released through the normal pipeline. No API rewrites running translations.
+An author may withdraw an approval before its text is applied. Removing an
+account or suggestion does not revert translations already accepted into source
+history; changing published wording requires a separate reviewed release.
 
 ## 2. Configure Google OpenID Connect
 

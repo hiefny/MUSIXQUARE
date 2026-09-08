@@ -268,8 +268,8 @@ describe('policy-page accordions', () => {
       ].map((path) => readFile(path, 'utf8')),
     );
 
-    expect(privacyText).toContain('Effective date: August 17, 2026');
-    expect(termsText).toContain('Effective date: August 17, 2026');
+    expect(privacyText).toContain('Effective date: September 8, 2026');
+    expect(termsText).toContain('Effective date: September 8, 2026');
     expect(faqText).toContain('Last updated: August 17, 2026');
 
     for (const phrase of [

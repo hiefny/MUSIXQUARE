@@ -409,6 +409,32 @@ describe('translation community actual auth and SQLite contract', () => {
     unavailable = false;
     expect((await submit()).status).toBe(200);
   });
+  it('fails closed when deployment bindings do not expose their required callable ports', async () => {
+    env.MUSIXQUARE_AUTH_DB = { prepare: db.prepare.bind(db), batch: null };
+    expect((await call(`${PREFIX}?locale=pt-br`, 'GET', undefined, null)).status).toBe(503);
+    env.MUSIXQUARE_AUTH_DB = db;
+    env.ASSETS = { fetch: 'unavailable' };
+    expect((await submit()).status).toBe(503);
+    expect(
+      db.native.prepare('SELECT COUNT(*) AS n FROM mxqr_translation_suggestions').get()?.n,
+    ).toBe(0);
+  });
+  it('rejects an incomplete or incorrectly typed database result instead of publishing a partial DTO', async () => {
+    await submit();
+    const stored = db.native
+      .prepare('SELECT *, NULL AS nickname, 0 AS voted FROM mxqr_translation_suggestions')
+      .get()!;
+    for (const sourceEn of [undefined, 123]) {
+      const statement = {
+        bind: () => statement,
+        all: async () => ({ results: [{ ...stored, source_en: sourceEn }] }),
+      };
+      env.MUSIXQUARE_AUTH_DB = { prepare: () => statement, batch: async () => [] };
+      const response = await call(`${PREFIX}?locale=pt-br`, 'GET', undefined, null);
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({ error: 'TRANSLATIONS_UNAVAILABLE' });
+    }
+  });
   it('rejects oversized request bytes before reading or storing copy', async () => {
     const result = await call(
       PREFIX,

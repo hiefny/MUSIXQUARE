@@ -71,22 +71,53 @@ function json(payload: unknown, status = 200, headers: Record<string, string> = 
 function fail(code: string, status = 400): never {
   throw new TranslationFailure(code, status);
 }
+function isDatabase(value: unknown): value is Database {
+  return record(value) && typeof value.prepare === 'function' && typeof value.batch === 'function';
+}
 function database(env: unknown): Database {
   const db = record(env) ? env.MUSIXQUARE_AUTH_DB : null;
-  if (!record(db) || typeof db.prepare !== 'function' || typeof db.batch !== 'function')
-    fail('TRANSLATIONS_UNAVAILABLE', 503);
-  return db as unknown as Database;
+  if (!isDatabase(db)) fail('TRANSLATIONS_UNAVAILABLE', 503);
+  return db;
+}
+function integer(value: unknown, minimum: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
+}
+function isSuggestionRow(value: unknown): value is SuggestionRow {
+  return (
+    record(value) &&
+    typeof value.suggestion_id === 'string' &&
+    UUID.test(value.suggestion_id) &&
+    typeof value.account_id === 'string' &&
+    value.account_id.length > 0 &&
+    typeof value.request_fingerprint === 'string' &&
+    /^[0-9a-f]{64}$/u.test(value.request_fingerprint) &&
+    typeof value.locale === 'string' &&
+    TARGETS.has(value.locale) &&
+    (value.surface === 'app' || value.surface === 'about') &&
+    text(value.translation_key, 200) &&
+    value.translation_key.length > 0 &&
+    text(value.source_en, 32_768) &&
+    text(value.source_ko, 32_768) &&
+    text(value.current_text, 32_768) &&
+    text(value.proposed_text, 32_768) &&
+    value.proposed_text.length > 0 &&
+    text(value.reason, 4000) &&
+    integer(value.created_at, 1) &&
+    integer(value.updated_at, value.created_at) &&
+    (value.status === 'pending' ||
+      value.status === 'approved' ||
+      value.status === 'rejected' ||
+      value.status === 'withdrawn') &&
+    integer(value.revision, 1) &&
+    integer(value.vote_count, 0) &&
+    (value.status === 'approved' ? integer(value.approved_at, 1) : value.approved_at === null) &&
+    (value.nickname === null || typeof value.nickname === 'string') &&
+    (value.voted === 0 || value.voted === 1)
+  );
 }
 function row(value: unknown): SuggestionRow {
-  if (
-    !record(value) ||
-    !UUID.test(String(value.suggestion_id)) ||
-    !['pending', 'approved', 'rejected', 'withdrawn'].includes(String(value.status)) ||
-    !Number.isSafeInteger(value.revision) ||
-    !Number.isSafeInteger(value.vote_count)
-  )
-    fail('TRANSLATIONS_UNAVAILABLE', 503);
-  return value as unknown as SuggestionRow;
+  if (!isSuggestionRow(value)) fail('TRANSLATIONS_UNAVAILABLE', 503);
+  return value;
 }
 function selection(accountId: string | null): { sql: string; values: SqlValue[] } {
   return {
@@ -188,19 +219,30 @@ function parseDraft(value: unknown): ProposalDraft {
     !record(value) ||
     !text(value.locale, 12) ||
     !TARGETS.has(value.locale) ||
-    typeof value.surface !== 'string' ||
-    !['app', 'about'].includes(value.surface) ||
+    (value.surface !== 'app' && value.surface !== 'about') ||
     !text(value.key, 200) ||
     !value.key ||
     value.id !== `${value.surface}:${value.key}` ||
-    ![value.sourceEn, value.sourceKo, value.current, value.proposed].every((item) =>
-      text(item, 32_768),
-    ) ||
+    !text(value.sourceEn, 32_768) ||
+    !text(value.sourceKo, 32_768) ||
+    !text(value.current, 32_768) ||
+    !text(value.proposed, 32_768) ||
     !text(value.reason, 4000) ||
     !text(value.updatedAt, 100)
   )
     fail('INVALID_DRAFT');
-  return value as unknown as ProposalDraft;
+  return {
+    id: `${value.surface}:${value.key}`,
+    locale: value.locale,
+    surface: value.surface,
+    key: value.key,
+    sourceEn: value.sourceEn,
+    sourceKo: value.sourceKo,
+    current: value.current,
+    proposed: value.proposed,
+    reason: value.reason,
+    updatedAt: value.updatedAt,
+  };
 }
 async function fingerprint(draft: ProposalDraft): Promise<string> {
   // Browser timestamps have no authority and do not change retry identity.
@@ -299,15 +341,13 @@ function readCursor(value: string | null, filter: string): Cursor | null {
     if (
       !record(parsed) ||
       parsed.filter !== filter ||
-      !Number.isSafeInteger(parsed.votes) ||
-      Number(parsed.votes) < 0 ||
-      !Number.isSafeInteger(parsed.created) ||
-      Number(parsed.created) <= 0 ||
+      !integer(parsed.votes, 0) ||
+      !integer(parsed.created, 1) ||
       typeof parsed.id !== 'string' ||
       !UUID.test(parsed.id)
     )
       fail('INVALID_CURSOR');
-    return parsed as unknown as Cursor;
+    return { filter, votes: parsed.votes, created: parsed.created, id: parsed.id };
   } catch {
     return fail('INVALID_CURSOR');
   }

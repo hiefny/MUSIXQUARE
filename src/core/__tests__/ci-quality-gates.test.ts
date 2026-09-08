@@ -251,6 +251,7 @@ describe('CI quality and supply-chain gates', () => {
     expect(job).not.toContain('secrets.');
 
     expect(toolingCoverageConfig.test?.include).toEqual([
+      'src/core/__tests__/apply-translation-suggestions.test.ts',
       'src/core/__tests__/d1-migration-contract.test.ts',
       'src/core/__tests__/durable-object-migration-contract.test.ts',
       'src/core/__tests__/emergency-deploy-guard.test.ts',
@@ -272,6 +273,7 @@ describe('CI quality and supply-chain gates', () => {
       >;
     };
     const coveredScripts = [
+      'scripts/apply-translation-suggestions.mts',
       'scripts/audit-ops-drift.mts',
       'scripts/check-d1-migration-contract.mts',
       'scripts/check-durable-object-migration-contract.mts',

@@ -82,6 +82,9 @@ export async function readTranslationRequest(request: Request): Promise<Record<s
 interface AssetsPort {
   fetch(request: Request): Promise<Response>;
 }
+function isAssetsPort(value: unknown): value is AssetsPort {
+  return record(value) && typeof value.fetch === 'function';
+}
 const snapshots = new WeakMap<AssetsPort, Map<string, Promise<Map<string, Entry>>>>();
 
 async function readAsset(assets: AssetsPort, pathname: string): Promise<unknown> {
@@ -136,9 +139,9 @@ export async function currentTranslationEntry(
   surface: string,
   key: string,
 ): Promise<Entry | null> {
-  if (!record(env) || !record(env.ASSETS) || typeof env.ASSETS.fetch !== 'function')
+  if (!record(env) || !isAssetsPort(env.ASSETS))
     throw new TranslationFailure('TRANSLATIONS_UNAVAILABLE', 503);
-  const assets = env.ASSETS as unknown as AssetsPort;
+  const assets = env.ASSETS;
   let cache = snapshots.get(assets);
   if (!cache) {
     cache = new Map();

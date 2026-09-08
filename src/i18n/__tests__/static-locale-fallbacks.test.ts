@@ -14,6 +14,41 @@ async function classicRuntime(outputPath: string): Promise<string> {
 }
 
 describe('static locale fallbacks without the shared resolver', () => {
+  it.each([
+    { path: '/about', appPreference: 'ko', expected: 'ko' },
+    { path: '/about.html', appPreference: 'ko', expected: 'ko' },
+    { path: '/about', appPreference: 'system', expected: 'ko' },
+    { path: '/about', appPreference: 'invalid', expected: 'ko' },
+    { path: '/about', appPreference: null, expected: 'ko' },
+    { path: '/en/about?lang=ja', appPreference: 'ko', expected: 'en' },
+    { path: '/en/about.html?lang=ja', appPreference: 'ko', expected: 'en' },
+    { path: '/ko/about?lang=ja', appPreference: 'en', expected: 'ko' },
+  ])(
+    'resolves $path with app preference $appPreference before first paint',
+    async ({ path, appPreference, expected }) => {
+      const source = await classicRuntime('landing-bootstrap.js');
+      const dom = new JSDOM('<!doctype html><html lang="en"><body></body></html>', {
+        runScripts: 'outside-only',
+        url: `https://musixquare.com${path}`,
+      });
+      dom.window.localStorage.setItem('mxqr-landing-lang', 'ja');
+      if (appPreference !== null) dom.window.localStorage.setItem('musixquare-lang', appPreference);
+      Object.defineProperty(dom.window.navigator, 'languages', { value: ['ko-KR'] });
+      const historyLength = dom.window.history.length;
+
+      dom.window.eval(source);
+
+      const window = dom.window as unknown as LandingWindow;
+      expect(window.__landingLang).toBe(expected);
+      expect(window.document.documentElement.lang).toBe(expected);
+      expect(window.location.pathname + window.location.search).toBe(path);
+      expect(window.history.length).toBe(historyLength);
+      expect(window.localStorage.getItem('musixquare-lang')).toBe(appPreference);
+      expect(window.localStorage.getItem('mxqr-landing-lang')).toBe('ja');
+      dom.window.close();
+    },
+  );
+
   it('resolves a regional query locale on the authored About alias before painting', async () => {
     const source = await classicRuntime('landing-bootstrap.js');
     const dom = new JSDOM('<!doctype html><html lang="en"><body></body></html>', {
@@ -35,7 +70,7 @@ describe('static locale fallbacks without the shared resolver', () => {
       '<!doctype html><html lang="en"><head><meta property="og:locale" content="en_US"></head><body><span data-i18n="header.try"></span></body></html>',
       {
         runScripts: 'outside-only',
-        url: 'https://musixquare.com/about?lang=zh-Hans-TW',
+        url: 'https://musixquare.com/zh-hans/about?lang=zh-Hans-TW',
       },
     );
     const window = dom.window as unknown as LandingWindow;

@@ -119,6 +119,10 @@ describe('localized static HTML materialization', () => {
       expect(alternateMap(aboutDocument), `${option.code} About alternate cluster`).toEqual(
         expectedAboutAlternates,
       );
+      expect(
+        appDocument.querySelectorAll(`a[href="/${option.code}/about"]`).length,
+        `${option.code} explicit About language links`,
+      ).toBeGreaterThan(0);
 
       for (const document of [appDocument, aboutDocument]) {
         expect(document.querySelectorAll('link[rel="alternate"][hreflang]').length).toBe(
@@ -308,7 +312,7 @@ describe('localized static HTML materialization', () => {
         const target = link ? new URL(link.getAttribute('href') || '/', SITE_ORIGIN) : null;
         expect(target, `${option.code} ${path} link`).not.toBeNull();
         expect(target?.searchParams.get('lang'), `${option.code} ${path} locale intent`).toBe(
-          option.code === 'en' ? null : option.code,
+          option.code,
         );
       }
     }

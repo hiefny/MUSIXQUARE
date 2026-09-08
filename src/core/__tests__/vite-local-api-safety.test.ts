@@ -167,6 +167,10 @@ describe('Vite local API safety', () => {
       '/ko/about.html?campaign=launch',
     );
     expect(pageAliasTarget('/about', true)).toBe('/about.html');
+    expect(pageAliasTarget('/en/about?campaign=launch')).toBe(
+      '/.workshop/landing/landing.html?campaign=launch',
+    );
+    expect(pageAliasTarget('/en/about?campaign=launch', true)).toBe('/about.html?campaign=launch');
     expect(pageAliasTarget('/123456')).toBeNull();
   });
 

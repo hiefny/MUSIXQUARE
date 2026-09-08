@@ -297,6 +297,11 @@ export function localizedAboutPath(code: LanguageCode): string {
   return code === DEFAULT_LANGUAGE ? '/about' : `/${code}/about`;
 }
 
+/** Explicit About language entry; English retains `/about` as its SEO canonical. */
+export function localizedAboutEntryPath(code: LanguageCode): string {
+  return `/${code}/about`;
+}
+
 export function appLanguageFromPathname(pathname: string): LanguageCode | null {
   const normalized = String(pathname || '/').toLowerCase();
   const match = /^\/([^/]+)(?:\/|\/index\.html)$/u.exec(normalized);

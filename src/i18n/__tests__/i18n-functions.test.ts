@@ -64,6 +64,23 @@ describe('i18n functions', () => {
     document.documentElement.removeAttribute('dir');
   });
 
+  it('keeps About links on the displayed language across app language changes', async () => {
+    localStorage.setItem('musixquare-lang', 'en');
+    Object.defineProperty(navigator, 'languages', { value: ['ko-KR'], configurable: true });
+    document.body.innerHTML = '<div data-i18n-html="legal.content_html"></div>';
+    const { initI18n, setLanguageMode } = await import('../index.ts');
+    await initI18n();
+    const aboutLink = (): HTMLAnchorElement | null =>
+      document.querySelector<HTMLAnchorElement>('a[href$="/about"]');
+
+    expect(aboutLink()?.getAttribute('href')).toBe('/en/about');
+    await setLanguageMode('ko');
+    expect(aboutLink()?.getAttribute('href')).toBe('/ko/about');
+    await setLanguageMode('en');
+    expect(aboutLink()?.getAttribute('href')).toBe('/en/about');
+    expect(window.location.pathname).toBe('/');
+  });
+
   describe('t()', () => {
     it('returns Korean translation by default (system → ko)', async () => {
       Object.defineProperty(navigator, 'languages', {

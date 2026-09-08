@@ -46,6 +46,7 @@ import { accountNicknameKey, normalizeAccountNickname } from './account-nickname
 import {
   LANGUAGE_OPTIONS,
   localizedAboutPath,
+  localizedAboutEntryPath,
   localizedAppEntryPath,
   type LanguageCode,
 } from '../src/i18n/locales.ts';
@@ -345,7 +346,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.7';
+const ADMIN_ASSET_VERSION = '8.6.8';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -15246,7 +15247,9 @@ function localizedStaticRoute(pathname: string): LocalizedStaticRoute | null {
     return {
       language,
       kind: 'about',
-      canonicalPathname: language === 'en' ? '/about' : `/${language}/about`,
+      // Normalize the public entry without discarding its explicit English intent.
+      // The shared English asset keeps `/about` as its search canonical.
+      canonicalPathname: `/${language}/about`,
       assetPathname: language === 'en' ? '/about.html' : `/${language}/about.html`,
     };
   }
@@ -15307,7 +15310,7 @@ function legacyAboutLanguageRedirect(url: URL): URL | null {
   }
 
   const target = new URL(url.href);
-  target.pathname = localizedAboutPath(language);
+  target.pathname = localizedAboutEntryPath(language);
   target.search = '';
   for (const [key, value] of url.searchParams) {
     if (key.toLowerCase() !== 'lang') target.searchParams.append(key, value);

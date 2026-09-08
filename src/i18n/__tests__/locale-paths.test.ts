@@ -5,6 +5,7 @@ import {
   appLanguageFromPathname,
   languageDirection,
   localizedAboutPath,
+  localizedAboutEntryPath,
   localizedAppEntryPath,
   localizedAppPath,
 } from '../locales.ts';
@@ -14,11 +15,13 @@ describe('localized canonical paths', () => {
     expect(localizedAppPath('en')).toBe('/');
     expect(localizedAppEntryPath('en')).toBe('/en/');
     expect(localizedAboutPath('en')).toBe('/about');
+    expect(localizedAboutEntryPath('en')).toBe('/en/about');
 
     for (const option of LANGUAGE_OPTIONS.filter(({ code }) => code !== 'en')) {
       expect(localizedAppPath(option.code)).toBe(`/${option.code}/`);
       expect(localizedAppEntryPath(option.code)).toBe(`/${option.code}/`);
       expect(localizedAboutPath(option.code)).toBe(`/${option.code}/about`);
+      expect(localizedAboutEntryPath(option.code)).toBe(`/${option.code}/about`);
     }
   });
 

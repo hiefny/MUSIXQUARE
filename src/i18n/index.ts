@@ -29,7 +29,7 @@ import {
 import {
   languageDirection,
   LANGUAGE_OPTIONS,
-  localizedAboutPath,
+  localizedAboutEntryPath,
   type LanguageCode,
 } from './locales.ts';
 export type { I18nKey };
@@ -349,7 +349,7 @@ function _translateElement(el: Element): void {
   const htmlKey = el.getAttribute('data-i18n-html');
   if (htmlKey) {
     el.innerHTML = tHtml(htmlKey as I18nKey);
-    const aboutPath = localizedAboutPath(_resolved);
+    const aboutPath = localizedAboutEntryPath(_resolved);
     el.querySelectorAll<HTMLAnchorElement>('a[href="/about"]').forEach((link) => {
       link.setAttribute('href', aboutPath);
     });

@@ -126,8 +126,8 @@
   function initLocaleAwareLinks(): void {
     const intent = resolveEditorialLanguage();
     const carryQuery = intent.code !== 'en' || intent.explicitQuery;
-    const aboutPath = intent.code === 'en' ? '/about' : `/${intent.code}/about`;
-    const appPath = intent.code === 'en' ? '/' : `/${intent.code}/`;
+    const aboutPath = `/${intent.code}/about`;
+    const appPath = intent.code === 'en' && !intent.explicitQuery ? '/' : `/${intent.code}/`;
 
     document.querySelectorAll<HTMLAnchorElement>('.editorial-site-tab[href]').forEach((link) => {
       const authoredHref = link.getAttribute('href');

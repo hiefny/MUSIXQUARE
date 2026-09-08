@@ -3983,16 +3983,20 @@
   }
 
   function normalizeSelection(lang: unknown): LocaleCode {
+    return normalizeLocale(lang) || 'en';
+  }
+
+  function normalizeLocale(lang: unknown): LocaleCode | null {
     const staticLang = landingWindow.MXQRStaticLang;
     if (staticLang) {
       const normalized = staticLang.normalize(lang);
-      return isLocaleCode(normalized) ? normalized : 'en';
+      return isLocaleCode(normalized) ? normalized : null;
     }
     const raw = String(lang || '')
       .trim()
       .toLowerCase()
       .replace(/_/gu, '-');
-    if (!raw || raw === 'system') return 'en';
+    if (!raw || raw === 'system') return null;
     if (isLocaleCode(raw)) return raw;
     if (raw === 'zh-hans' || raw.startsWith('zh-hans-')) return 'zh-hans';
     if (raw === 'zh-hant' || raw.startsWith('zh-hant-')) return 'zh-hant';
@@ -4002,9 +4006,10 @@
     if (raw === 'pt' || raw.startsWith('pt-')) return 'pt-br';
     if (raw === 'in' || raw.startsWith('in-')) return 'id';
     if (raw === 'iw' || raw.startsWith('iw-')) return 'he';
+    if (raw === 'no' || raw.startsWith('no-')) return 'nb';
     if (raw === 'tl' || raw.startsWith('tl-')) return 'fil';
     const [primary] = raw.split('-');
-    return isLocaleCode(primary) ? primary : 'en';
+    return isLocaleCode(primary) ? primary : null;
   }
 
   function fallbackHtmlLang(lang: LocaleCode): string {
@@ -4083,6 +4088,7 @@
     const staticLang = landingWindow.MXQRStaticLang;
     const selected = normalizeSelection(selection);
     const lang = contentLangFor(selected);
+    const sharedAbout = /^\/about(?:\.html)?\/*$/iu.test(location.pathname);
     if (staticLang) staticLang.setDocumentLang(lang);
     else {
       document.documentElement.lang = fallbackHtmlLang(lang);
@@ -4111,8 +4117,10 @@
       }
     }
 
-    // Meta tags. Crawlers see the HTML defaults (English); JS swaps for users.
-    document.title = t(lang, 'meta.title');
+    // The shared About document keeps its English search metadata while its
+    // visible copy follows user preferences. Explicit locale URLs own their head.
+    const documentLang = sharedAbout ? 'en' : lang;
+    document.title = t(documentLang, 'meta.title');
     const metaPairs = [
       ['meta[name="description"]', 'meta.description'],
       ['meta[property="og:title"]', 'meta.og_title'],
@@ -4123,16 +4131,48 @@
     ] as const satisfies readonly (readonly [string, TranslationKey])[];
     for (const [selector, translationKey] of metaPairs) {
       const metaElement = document.querySelector(selector);
-      if (metaElement) metaElement.setAttribute('content', t(lang, translationKey));
+      if (metaElement) metaElement.setAttribute('content', t(documentLang, translationKey));
     }
-    // The primary locale follows the rendered content. Alternate locale tags describe
-    // the complete set of localized documents and must remain exactly as materialized.
+    // Alternate locale tags describe the complete set of localized documents and
+    // must remain exactly as materialized.
     const ogLocale = document.querySelector('meta[property="og:locale"]');
     if (ogLocale)
       ogLocale.setAttribute(
         'content',
-        staticLang ? staticLang.locale(lang) : fallbackOgLocales[lang] || 'en_US',
+        staticLang ? staticLang.locale(documentLang) : fallbackOgLocales[documentLang] || 'en_US',
       );
+
+    if (sharedAbout) {
+      // The English static asset also serves /en/about. Only its shared entry
+      // should launch the adaptive app instead of forcing an English app URL.
+      const queryLanguage = normalizeLocale(new URLSearchParams(location.search).get('lang'));
+      const appPath = queryLanguage ? '/' + lang + '/' : '/';
+      const appLinks = queryLanguage
+        ? 'a[href="/en/"], a[href="https://musixquare.com"], a[href="https://musixquare.com/"]'
+        : 'a[href="/en/"]';
+      for (const link of document.querySelectorAll<HTMLAnchorElement>(appLinks)) {
+        link.setAttribute('href', appPath);
+      }
+    }
+    if (/^\/en\/about(?:\.html)?\/*$/iu.test(location.pathname)) {
+      for (const link of document.querySelectorAll<HTMLAnchorElement>('a[href="/about"]')) {
+        link.setAttribute('href', '/en/about');
+      }
+    }
+
+    // Editorial tabs keep their full-page loading transition and carry the
+    // displayed language, including English selected through /en/about.
+    for (const link of document.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+      const target = new URL(link.href, location.href);
+      if (
+        target.origin !== location.origin ||
+        !['/blog', '/history', '/designsystem'].includes(target.pathname)
+      ) {
+        continue;
+      }
+      target.searchParams.set('lang', lang);
+      link.setAttribute('href', target.pathname + target.search + target.hash);
+    }
 
     if (staticLang) staticLang.update(selected);
   }

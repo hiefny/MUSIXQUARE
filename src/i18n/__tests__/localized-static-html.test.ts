@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   CLASSIC_RUNTIME_ASSETS,
@@ -13,7 +13,12 @@ import {
   SITE_ORIGIN,
 } from '../../../scripts/localized-html-lib.mts';
 import { localeSeoMetadata } from '../../../scripts/locale-seo-metadata.mts';
-import { LANGUAGE_OPTIONS, localizedAboutPath, localizedAppPath } from '../locales.ts';
+import {
+  LANGUAGE_OPTIONS,
+  localizedAboutPath,
+  localizedAppPath,
+  type LanguageCode,
+} from '../locales.ts';
 
 const landingI18nAsset = CLASSIC_RUNTIME_ASSETS.find(
   ({ outputPath }) => outputPath === 'landing-i18n.js',
@@ -25,6 +30,9 @@ if (!landingI18nAsset)
 let appHtml = '';
 let aboutHtml = '';
 let landingI18nJavaScript = '';
+let inspectionRealm: JSDOM;
+const aboutOutputs = new Map<LanguageCode, ReturnType<typeof renderLocalizedAbout>>();
+const appOutputs = new Map<LanguageCode, string>();
 
 beforeAll(async () => {
   [appHtml, aboutHtml] = await Promise.all([
@@ -32,10 +40,37 @@ beforeAll(async () => {
     readFile('.workshop/landing/landing.html', 'utf8'),
   ]);
   landingI18nJavaScript = (await compileClassicRuntimeAsset(process.cwd(), landingI18nAsset)).code;
+  inspectionRealm = new JSDOM();
+});
+
+afterAll(() => {
+  inspectionRealm?.window.close();
+  aboutOutputs.clear();
+  appOutputs.clear();
 });
 
 function documentFor(html: string): Document {
-  return new JSDOM(html).window.document;
+  // Each inspection gets a distinct inert document without retaining another
+  // live window. Hydration tests below still use dedicated executable realms.
+  return new inspectionRealm.window.DOMParser().parseFromString(html, 'text/html');
+}
+
+function materializedAbout(code: LanguageCode): ReturnType<typeof renderLocalizedAbout> {
+  let output = aboutOutputs.get(code);
+  if (!output) {
+    output = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, code);
+    aboutOutputs.set(code, output);
+  }
+  return output;
+}
+
+function materializedApp(code: LanguageCode): string {
+  let output = appOutputs.get(code);
+  if (!output) {
+    output = renderLocalizedApp(appHtml, code, materializedAbout(code).metadata);
+    appOutputs.set(code, output);
+  }
+  return output;
 }
 
 function alternateMap(document: Document): Map<string, string> {
@@ -95,8 +130,8 @@ describe('localized static HTML materialization', () => {
     expectedAboutAlternates.set('x-default', `${SITE_ORIGIN}/about`);
 
     for (const option of LANGUAGE_OPTIONS) {
-      const about = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, option.code);
-      const app = renderLocalizedApp(appHtml, option.code, about.metadata);
+      const about = materializedAbout(option.code);
+      const app = materializedApp(option.code);
       const appDocument = documentFor(app);
       const aboutDocument = documentFor(about.html);
       const dictionary = APP_DICTIONARIES[option.code];
@@ -186,7 +221,7 @@ describe('localized static HTML materialization', () => {
 
   it('preserves every materialized Open Graph locale alternate during About hydration', () => {
     for (const option of LANGUAGE_OPTIONS) {
-      const about = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, option.code);
+      const about = materializedAbout(option.code);
       const dom = new JSDOM(about.html, {
         runScripts: 'outside-only',
         url: `${SITE_ORIGIN}${localizedAboutPath(option.code)}`,
@@ -214,8 +249,7 @@ describe('localized static HTML materialization', () => {
   });
 
   it('keeps the authored-license marker while omitting implementation comments from app output', () => {
-    const englishAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'en');
-    const englishApp = renderLocalizedApp(appHtml, 'en', englishAbout.metadata);
+    const englishApp = materializedApp('en');
 
     expect(englishApp).toContain('<!-- MUSIXQUARE-authored file:');
     expect(englishApp).not.toContain('Runtime insertion point');
@@ -228,10 +262,8 @@ describe('localized static HTML materialization', () => {
   });
 
   it('uses one uppercase app brand title while keeping localized descriptions', () => {
-    const koreanAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'ko');
-    const japaneseAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'ja');
-    const koreanApp = documentFor(renderLocalizedApp(appHtml, 'ko', koreanAbout.metadata));
-    const japaneseApp = documentFor(renderLocalizedApp(appHtml, 'ja', japaneseAbout.metadata));
+    const koreanApp = documentFor(materializedApp('ko'));
+    const japaneseApp = documentFor(materializedApp('ja'));
 
     for (const option of LANGUAGE_OPTIONS) {
       expect(APP_DICTIONARIES[option.code]['app.search_title'], option.code).toBe('MUSIXQUARE');
@@ -260,10 +292,8 @@ describe('localized static HTML materialization', () => {
   });
 
   it('keeps English as x-default and emits one canonical brand in root WebSite data', () => {
-    const englishAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'en');
-    const englishApp = documentFor(renderLocalizedApp(appHtml, 'en', englishAbout.metadata));
-    const koreanAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'ko');
-    const koreanApp = documentFor(renderLocalizedApp(appHtml, 'ko', koreanAbout.metadata));
+    const englishApp = documentFor(materializedApp('en'));
+    const koreanApp = documentFor(materializedApp('ko'));
 
     expect(englishApp.title).toBe('MUSIXQUARE');
     expect(englishApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
@@ -293,9 +323,7 @@ describe('localized static HTML materialization', () => {
 
   it('links each About locale to its explicit app-language entry without changing SEO paths', () => {
     for (const option of LANGUAGE_OPTIONS) {
-      const about = documentFor(
-        renderLocalizedAbout(aboutHtml, landingI18nJavaScript, option.code).html,
-      );
+      const about = documentFor(materializedAbout(option.code).html);
       const appLinks = about.querySelectorAll<HTMLAnchorElement>(`a[href="/${option.code}/"]`);
 
       expect(appLinks.length, option.code).toBeGreaterThan(0);

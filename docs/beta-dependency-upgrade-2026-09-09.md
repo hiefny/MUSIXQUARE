@@ -3,7 +3,7 @@
 The owner requested an experimental `mxqr_beta` branch starting from current
 `main`, rather than upgrading production through the existing Dependabot PR.
 The starting commit is `aa869dd0270bd203dae7d33138368ea5738a2c08` (8.6.8).
-This branch identifies its build as **8.6.9-beta.0**, with cache epoch **v570**.
+This branch identifies its build as **8.6.9-beta.0**, with cache epoch **v571**.
 Neither a beta push nor a successful beta CI run authorizes production release.
 
 ## Version choices
@@ -46,8 +46,13 @@ Intentional compatibility constraints:
   and types until a separate visual recalibration; the current npm-based
   promotional renderer uses the updated Three.js.
 - Satori 0.33.4 directly pins vulnerable fflate 0.7.3. A targeted override uses
-  patched 0.7.5, matching the existing OpenType override. The resulting audit
-  reports no vulnerabilities, without forcing an unrelated fflate major change.
+  patched 0.7.5, matching the existing OpenType override, without forcing an
+  unrelated fflate major change.
+- Wrangler 4.130.0 includes Miniflare 5.20260908.0-alpha, which pins sharp
+  0.35.2. A targeted Miniflare override uses sharp 0.35.4 to address
+  [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).
+  The combined overrides produce a clean npm security audit. No audit threshold
+  is relaxed, and Wrangler is not downgraded to bypass the advisory.
 
 ## Compatibility work
 
@@ -73,12 +78,19 @@ were not changed.
 Vitest retains the previous mock-clearing behavior explicitly. Sequential
 suites use the supported non-concurrent option. jsdom fixture assertions use
 actual CSS semantics where its serialization changed. Test budgets and coverage
-thresholds are retained. Prettier's formatting changes are included separately
-from the small functional adaptations.
+thresholds are retained. Static locale inspections reuse an inert DOM parser
+and materialized HTML strings; all 42 locales and hydration assertions remain
+covered without leaving a separate live window open for every inspection.
+Prettier also reformats existing source for its new formatting rules.
 
 ContentShield's Korean dictionary moved from `profanity` to `words`. Adapting
 the generator produces exactly the existing three regular-expression strings;
 chat filtering and the English-only account-name policy are unchanged.
+
+The updated Open Graph generator renders all four images successfully. Font
+subsets remain byte-identical, but newly rendered PNGs have small text-layout
+and rasterization differences. Existing public images are retained; a future
+image regeneration needs visual review before replacing those assets.
 
 npm 12 install scripts are approved only for the exact installed esbuild and
 workerd versions in `allowScripts`. Other dependency install scripts remain

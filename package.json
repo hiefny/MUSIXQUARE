@@ -186,6 +186,9 @@
     "qrcode": "^1.5.4"
   },
   "overrides": {
+    "miniflare": {
+      "sharp": "0.35.4"
+    },
     "satori": {
       "fflate": "0.7.5"
     },

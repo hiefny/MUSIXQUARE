@@ -342,7 +342,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.6.3';
+const ADMIN_SCRIPT_VERSION = '8.6.4';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -1680,9 +1680,9 @@ function renderServiceStatusUnavailable(message = 'Service status unavailable.')
   for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusDialog]) {
     if (element) element.dataset.state = state;
   }
-  if (serviceStatusLabel) serviceStatusLabel.textContent = 'Status unavailable';
+  if (serviceStatusLabel) serviceStatusLabel.textContent = 'Maintenance';
   if (serviceStatusTrigger)
-    serviceStatusTrigger.setAttribute('aria-label', 'Service status unavailable');
+    serviceStatusTrigger.setAttribute('aria-label', 'Maintenance, service status unavailable');
   if (serviceStatusStateEl) serviceStatusStateEl.textContent = 'Status unavailable';
   if (serviceStatusDescriptionEl) {
     serviceStatusDescriptionEl.textContent =
@@ -1702,28 +1702,20 @@ function renderServiceStatus(status: ServiceStatusState): void {
   serviceStatusRequestId = null;
   const state = serviceStatusStateName(status);
   const settling = isServiceStatusSettling(status);
-  const label =
-    state === 'activating'
-      ? 'Activating...'
-      : state === 'resuming'
-        ? 'Resuming...'
-        : status.enabled
-          ? 'Maintenance'
-          : 'Operational';
   for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusDialog]) {
     if (element) element.dataset.state = state;
   }
-  if (serviceStatusLabel) serviceStatusLabel.textContent = label;
+  if (serviceStatusLabel) serviceStatusLabel.textContent = 'Maintenance';
   if (serviceStatusTrigger) {
     serviceStatusTrigger.setAttribute(
       'aria-label',
       state === 'activating'
-        ? 'Service status: activating maintenance mode'
+        ? 'Maintenance, activating maintenance mode'
         : state === 'resuming'
-          ? 'Service status: resuming service'
+          ? 'Maintenance, resuming service'
           : status.enabled
-            ? 'Service status: maintenance active'
-            : 'Service status: operational',
+            ? 'Maintenance, maintenance active'
+            : 'Maintenance, service operational',
     );
   }
   if (serviceStatusStateEl) {
@@ -1829,7 +1821,7 @@ async function loadServiceStatus(
   options: { readonly updateTimestamp?: boolean } = {},
 ): Promise<ServiceStatusState> {
   const load = beginLatestAdminLoad('service-status');
-  if (!serviceStatusLoaded && serviceStatusLabel) serviceStatusLabel.textContent = 'Checking...';
+  if (!serviceStatusLoaded && serviceStatusLabel) serviceStatusLabel.textContent = 'Maintenance';
   try {
     const payload = await fetchJson('/api/admin/service-status', {
       signal: load.controller.signal,
@@ -5102,12 +5094,7 @@ function setActiveTab(tab: string): void {
   adminTabs.forEach((button) => {
     const active = button.dataset.adminTab === tab;
     button.classList.toggle('is-active', active);
-    if (button.closest('.header-actions')) {
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-      button.removeAttribute('aria-selected');
-    } else {
-      button.setAttribute('aria-selected', active ? 'true' : 'false');
-    }
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
   });
   adminViews.forEach((view) => {
     const active = view.dataset.adminView === tab;

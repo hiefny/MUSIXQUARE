@@ -37,7 +37,7 @@ function isEntry(value: unknown): value is Entry {
   );
 }
 
-/** Read the current static manifest before each load/export; suggestions never leave browser storage. */
+/** Read the current static manifest when loading phrases or checking a public submission. */
 export async function loadTranslationCatalog(
   locale: string,
   signal?: AbortSignal,

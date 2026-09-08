@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initCommunity } from '../../../.workshop/translate/community';
 import { CommunityApiError, type Suggestion } from '../../../.workshop/translate/community-client';
-import type { Draft } from '../../../.workshop/translate/drafts';
+import { DRAFT_STORAGE_KEY, type Draft } from '../../../.workshop/translate/drafts';
 
 const api = vi.hoisted(() => ({
   session: vi.fn(),
@@ -300,7 +300,12 @@ describe('translation editor submission integration', () => {
     expect(
       dom.window.document.querySelector('.translation-editor-actions')?.textContent,
     ).not.toContain('Public suggestion');
-    expect((dom.window.document.getElementById('saved') as HTMLDetailsElement).open).toBe(false);
+    expect(
+      dom.window.document.querySelector('#saved, #export, #wording-preview, #source-ko'),
+    ).toBeNull();
+    expect(
+      dom.window.document.querySelector('#source-en')?.previousElementSibling?.textContent,
+    ).toBe('Source(English)');
     const pending = deferred<Suggestion>();
     api.submit.mockReturnValueOnce(pending.promise);
     const input = typeProposal('Vamos ouvir juntos.');
@@ -310,13 +315,66 @@ describe('translation editor submission integration', () => {
     pending.resolve({ ...suggestion, locale: 'pt-br', proposed: 'Vamos ouvir juntos.' });
     await vi.waitFor(() => expect(button('submit-suggestion').disabled).toBe(false));
     expect(input.value).toBe('Vamos escutar juntos.');
-    expect(dom.window.document.getElementById('draft-count')?.textContent).toBe('1');
+    expect(button('clear-draft').disabled).toBe(false);
     api.submit.mockResolvedValue({ ...suggestion, locale: 'pt-br', proposed: input.value });
     button('submit-suggestion').click();
     await vi.waitFor(() => expect(input.value).toBe(''));
-    expect(dom.window.document.getElementById('draft-count')?.textContent).toBe('0');
+    expect(button('clear-draft').disabled).toBe(true);
     expect(dom.window.document.getElementById('submit-status')?.textContent).toBe(
       'Submitted · Pending review',
+    );
+  });
+
+  it('restores saved drafts, filters them, and clears only the selected language draft', async () => {
+    const saved = {
+      ...draft,
+      locale: 'pt-br',
+      current: 'Ouvir juntos.',
+      proposed: 'Vamos ouvir juntos.',
+    };
+    dom.window.localStorage.setItem(
+      DRAFT_STORAGE_KEY,
+      JSON.stringify({ version: 1, drafts: [saved, draft] }),
+    );
+    await startEditor();
+    const input = dom.window.document.getElementById('proposal') as HTMLTextAreaElement;
+    expect(input.value).toBe(saved.proposed);
+    expect((dom.window.document.getElementById('surface') as HTMLSelectElement).value).toBe('all');
+    const filter = dom.window.document.getElementById('drafts-only') as HTMLInputElement;
+    filter.checked = true;
+    filter.dispatchEvent(new dom.window.Event('change'));
+    expect(dom.window.document.querySelectorAll('#phrases button')).toHaveLength(1);
+    button('clear-draft').click();
+    expect(input.value).toBe('');
+    expect(dom.window.document.querySelectorAll('#phrases button')).toHaveLength(0);
+    expect(JSON.parse(dom.window.localStorage.getItem(DRAFT_STORAGE_KEY)!).drafts).toEqual([draft]);
+    expect(dom.window.document.activeElement).toBe(input);
+    typeProposal('Escutemos juntos.');
+    expect(dom.window.document.querySelectorAll('#phrases button')).toHaveLength(1);
+    typeProposal('');
+    expect(dom.window.document.querySelectorAll('#phrases button')).toHaveLength(0);
+  });
+
+  it('preserves another tab’s snapshot and keeps local edits available when saving is paused', async () => {
+    await startEditor();
+    const input = typeProposal('Vamos ouvir juntos.');
+    dom.window.dispatchEvent(new dom.window.PageTransitionEvent('pagehide'));
+    const remote = JSON.stringify({ version: 1, drafts: [{ ...draft, reason: 'Other tab' }] });
+    dom.window.localStorage.setItem(DRAFT_STORAGE_KEY, remote);
+    dom.window.dispatchEvent(
+      new dom.window.StorageEvent('storage', {
+        key: DRAFT_STORAGE_KEY,
+        newValue: remote,
+        storageArea: dom.window.localStorage,
+      }),
+    );
+    typeProposal('Vamos escutar juntos.');
+    dom.window.dispatchEvent(new dom.window.PageTransitionEvent('pagehide'));
+    expect(input.value).toBe('Vamos escutar juntos.');
+    expect(dom.window.localStorage.getItem(DRAFT_STORAGE_KEY)).toBe(remote);
+    expect(dom.window.document.getElementById('storage-warning')?.hidden).toBe(false);
+    expect(dom.window.document.getElementById('save-status')?.textContent).toContain(
+      'Copy your changes',
     );
   });
 

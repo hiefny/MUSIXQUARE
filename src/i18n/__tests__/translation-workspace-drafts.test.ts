@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  createExport,
   DRAFT_STORAGE_KEY,
   type Draft,
   type DraftStorage,
@@ -84,24 +83,12 @@ describe('translation proposal validation', () => {
   });
 });
 
-describe('translation draft storage and export', () => {
-  it('retains unfinished drafts locally but prevents submitting them in an export', () => {
+describe('translation draft storage', () => {
+  it('retains unfinished drafts locally', () => {
     const storage = memoryStorage();
     const unfinished = { ...draft, proposed: '' };
     expect(saveDrafts([unfinished], storage)).toEqual({ ok: true });
     expect(loadDrafts(storage)).toEqual({ drafts: [unfinished] });
-    expect(() => createExport([unfinished])).toThrow('Invalid proposal');
-  });
-
-  it('exports a verified independent copy with an explicit format version', () => {
-    const exportedAt = '2026-09-08T06:00:00.000Z';
-    const exported = createExport([draft], exportedAt);
-    expect(exported).toEqual({ version: 1, exportedAt, drafts: [draft] });
-    exported.drafts[0]!.proposed = 'Changed only in export';
-    expect(draft.proposed).toBe('Salut {{name}}, {{name}}!');
-    expect(() => createExport([draft], '2026-02-31T00:00:00.000Z')).toThrow(
-      'Invalid draft export data',
-    );
   });
 
   it('reports unavailable storage and quota errors without replacing the last saved work', () => {
@@ -158,7 +145,7 @@ describe('translation draft storage and export', () => {
     expect(Object.prototype).not.toHaveProperty('polluted');
   });
 
-  it('allows export above the local storage budget while keeping the last snapshot intact', () => {
+  it('keeps the last snapshot intact when drafts exceed the local storage budget', () => {
     const storage = memoryStorage();
     saveDrafts([draft], storage);
     const previous = storage.getItem(DRAFT_STORAGE_KEY);
@@ -169,18 +156,11 @@ describe('translation draft storage and export', () => {
     }));
     expect(saveDrafts(large, storage)).toEqual({ ok: false, warning: 'too-large' });
     expect(storage.getItem(DRAFT_STORAGE_KEY)).toBe(previous);
-    expect(createExport(large).drafts).toEqual(large);
     storage.setItem(DRAFT_STORAGE_KEY, ' '.repeat(524_289));
     expect(loadDrafts(storage)).toEqual({ drafts: [], warning: 'too-large' });
   });
 
-  it('bounds the independent export budget and number of local drafts', () => {
-    const oversized = Array.from({ length: 430 }, (_, index) => ({
-      ...draft,
-      id: `app:${index}`,
-      proposed: `${draft.proposed} ${'a'.repeat(10_000)}`,
-    }));
-    expect(() => createExport(oversized)).toThrow('8 MiB');
+  it('bounds the number of local drafts', () => {
     const tooMany = Array.from({ length: 1001 }, (_, index) => ({ ...draft, id: `app:${index}` }));
     expect(saveDrafts(tooMany, memoryStorage())).toEqual({ ok: false, warning: 'invalid-data' });
   });
@@ -238,7 +218,7 @@ describe('translation storage session', () => {
     expect(createStorageSession(memoryStorage()).observe(null, null)).toBe(false);
   });
 
-  it('leaves in-memory drafts available for export after a remote conflict', () => {
+  it('keeps in-memory edits intact after a remote conflict', () => {
     const storage = memoryStorage();
     saveDrafts([draft], storage);
     const session = createStorageSession(storage);
@@ -246,7 +226,7 @@ describe('translation storage session', () => {
     localDrafts[0]!.reason = 'Unsaved work in this tab';
     saveDrafts([{ ...draft, reason: 'Other tab' }], storage);
     expect(session.beforeSave()).toBe(false);
-    expect(createExport(localDrafts).drafts[0]!.reason).toBe('Unsaved work in this tab');
+    expect(localDrafts[0]!.reason).toBe('Unsaved work in this tab');
     expect(loadDrafts(storage).drafts[0]!.reason).toBe('Other tab');
   });
 

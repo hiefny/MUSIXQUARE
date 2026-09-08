@@ -1,5 +1,4 @@
 import {
-  createExport,
   loadDrafts,
   saveDrafts,
   validateProposal,
@@ -35,14 +34,12 @@ const draftsOnly = element<HTMLInputElement>('drafts-only');
 const proposal = element<HTMLTextAreaElement>('proposal');
 const reason = element<HTMLTextAreaElement>('reason');
 const phraseList = element<HTMLUListElement>('phrases');
-const exportButton = element<HTMLButtonElement>('export');
 const clearButton = element<HTMLButtonElement>('clear-draft');
 const reviewButton = element<HTMLButtonElement>('review-source');
 const storageSession = createStorageSession();
 const initial = loadDrafts();
 const draftKey = (locale: string, id: string) => `${locale}:${id}`;
 const drafts = new Map(initial.drafts.map((draft) => [draftKey(draft.locale, draft.id), draft]));
-const currentCatalogs = new Map<string, Catalog>();
 const pageSize = 20;
 let catalog: Catalog | null = null;
 let selectedId = 'about:hero.h1';
@@ -50,7 +47,6 @@ let page = 0;
 let requestedLocale = 'pt-br';
 let request: AbortController | undefined;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
-let exporting = false;
 const community = initCommunity({
   currentDraft,
   canSubmit: () => {
@@ -64,7 +60,7 @@ const community = initCommunity({
     );
   },
   prepareDraft: prepareSubmission,
-  onSubmitted: finishSubmission,
+  onSubmitted: removeDraft,
 });
 
 const issueMessages: Record<ProposalIssue, string> = {
@@ -75,18 +71,18 @@ const issueMessages: Record<ProposalIssue, string> = {
   markup: 'Keep the original HTML tags and attributes.',
 };
 const storageMessages: Record<StorageWarning, string> = {
-  unavailable: 'Local storage is unavailable. Export your drafts before leaving.',
+  unavailable: 'Local storage is unavailable. Copy your changes before leaving.',
   'invalid-data': 'Some saved data could not be read.',
-  'too-large': 'Local storage is full. Export your drafts before leaving.',
+  'too-large': 'Local storage is full. Copy your changes before leaving.',
   'read-failed': 'Saved drafts could not be read.',
-  'write-failed': 'Drafts could not be saved. Export a copy before leaving.',
+  'write-failed': 'Drafts could not be saved. Copy your changes before leaving.',
 };
 
 function setStorageWarning(warning?: StorageWarning): void {
   const target = element('storage-warning');
   target.hidden = !warning && !storageSession.hasConflict;
   target.textContent = storageSession.hasConflict
-    ? 'Drafts changed in another tab. Export this tab’s work before reloading.'
+    ? 'Drafts changed in another tab. Copy your changes before reloading.'
     : warning
       ? storageMessages[warning]
       : '';
@@ -103,13 +99,15 @@ function persist(): void {
   saveTimer = undefined;
   if (!storageSession.beforeSave()) {
     setStorageWarning();
-    element('save-status').textContent = 'Saving paused. Export before reloading.';
+    element('save-status').textContent = 'Saving paused. Copy your changes before reloading.';
     return;
   }
   const result = saveDrafts([...drafts.values()]);
   if (result.ok) storageSession.afterSave();
   setStorageWarning(result.warning);
-  element('save-status').textContent = result.ok ? 'Saved locally' : 'Not saved. Export a copy.';
+  element('save-status').textContent = result.ok
+    ? 'Saved locally'
+    : 'Not saved. Copy your changes.';
 }
 
 function selectedEntry(): Entry | undefined {
@@ -133,7 +131,6 @@ function referencesChanged(draft: Draft, entry: Entry): boolean {
 async function prepareSubmission(draft: Draft): Promise<boolean> {
   if (saveTimer !== undefined) persist();
   const next = await fetchCatalog(draft.locale);
-  currentCatalogs.set(draft.locale, next);
   if (catalog?.locale.code === draft.locale) {
     catalog = next;
     const entry = selectedEntry();
@@ -143,7 +140,7 @@ async function prepareSubmission(draft: Draft): Promise<boolean> {
       renderValidation();
     }
   }
-  renderDrafts();
+
   const entry = next.entries.find((candidate) => candidate.id === draft.id);
   return (
     currentDraft() === draft &&
@@ -153,26 +150,20 @@ async function prepareSubmission(draft: Draft): Promise<boolean> {
   );
 }
 
-function finishSubmission(draft: Draft): void {
+function removeDraft(draft: Draft, focusEditor = false): void {
   const key = draftKey(draft.locale, draft.id);
-  // A late response must never erase wording typed while submission was in flight.
+  // A late submission must never erase wording typed while the request was in flight.
   if (drafts.get(key) !== draft) return;
   const selected = currentDraft() === draft;
   drafts.delete(key);
-  if (selected) proposal.value = reason.value = '';
+  if (selected) {
+    proposal.value = reason.value = '';
+    community.clearSubmitStatus();
+  }
   persist();
   renderValidation();
-  renderDrafts();
   renderResults();
-}
-
-function draftStatus(draft: Draft, catalogs = currentCatalogs): string {
-  const current = catalogs.get(draft.locale);
-  const entry = current?.entries.find((item) => item.id === draft.id);
-  if (current && (!entry || referencesChanged(draft, entry))) return 'Needs review';
-  return validateProposal(entry ?? draft, draft.proposed).length
-    ? 'Needs editing'
-    : 'Ready to export';
+  if (focusEditor) proposal.focus({ preventScroll: true });
 }
 
 async function fetchCatalog(locale: string, signal?: AbortSignal): Promise<Catalog> {
@@ -270,9 +261,6 @@ function renderValidation(): void {
   list.hidden = issues.length === 0 && !needsReview;
   proposal.setAttribute('aria-invalid', String(issues.length > 0 || needsReview));
   element('character-count').textContent = `${Array.from(proposal.value).length} characters`;
-  const preview = element('wording-preview');
-  preview.textContent = plainPreview(proposal.value || entry.current);
-  preview.lang = catalog!.locale.htmlLang;
   clearButton.disabled = !currentDraft();
   community.updateSubmit();
 }
@@ -282,7 +270,6 @@ function renderReferences(entry: Entry): void {
   element('selected-surface').textContent = entry.surface === 'about' ? 'About' : 'App';
   element('selected-key').textContent = entry.key;
   element('source-en').textContent = entry.sourceEn;
-  element('source-ko').textContent = entry.sourceKo;
   element('current').textContent = entry.current;
   element('current').lang = catalog.locale.htmlLang;
   element('current-label').textContent = `Current · ${catalog.locale.nativeName}`;
@@ -310,61 +297,11 @@ function selectEntry(id: string): void {
   renderResults();
 }
 
-function renderDrafts(): void {
-  const all = [...drafts.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const ready = all.filter((draft) => draftStatus(draft) === 'Ready to export');
-  element('draft-count').textContent = String(all.length);
-  element('ready-count').textContent = `${ready.length} ready to export`;
-  exportButton.disabled = exporting || !ready.length;
-  element('empty-drafts').hidden = all.length > 0;
-  const list = element('saved-drafts');
-  list.replaceChildren();
-  for (const draft of all) {
-    const item = document.createElement('li');
-    const button = document.createElement('button');
-    button.type = 'button';
-    const head = document.createElement('span');
-    head.className = 'translation-saved-head';
-    const name = document.createElement('span');
-    name.textContent =
-      catalog?.languages.find((lang) => lang.code === draft.locale)?.nativeName ?? draft.locale;
-    const state = document.createElement('span');
-    state.className = 'translation-saved-state';
-    state.textContent = draftStatus(draft);
-    head.append(name, state);
-    const key = document.createElement('span');
-    key.className = 'translation-saved-key';
-    key.textContent = `${draft.surface === 'about' ? 'About' : 'App'} · ${draft.key}`;
-    const value = document.createElement('span');
-    value.className = 'translation-saved-value';
-    value.dir = 'auto';
-    value.textContent = draft.proposed || '(Empty suggestion)';
-    button.append(head, key, value);
-    button.addEventListener('click', () => {
-      openSavedDraft(draft).catch(reportActionFailure);
-    });
-    item.append(button);
-    list.append(item);
-  }
-}
-
-async function openSavedDraft(draft: Draft): Promise<void> {
-  surface.value = draft.surface;
-  search.value = '';
-  draftsOnly.checked = false;
-  page = 0;
-  if (catalog?.locale.code !== draft.locale) await loadCatalog(draft.locale, draft.id);
-  else selectEntry(draft.id);
-  if (catalog?.locale.code === draft.locale) {
-    element('editor').scrollIntoView({ behavior: 'auto', block: 'start' });
-    proposal.focus({ preventScroll: true });
-  }
-}
-
 function updateDraft(): void {
   const entry = selectedEntry();
   if (!entry || !catalog) return;
   const key = draftKey(catalog.locale.code, entry.id);
+  const hadDraft = drafts.has(key);
   if (!proposal.value && !reason.value) drafts.delete(key);
   else
     drafts.set(key, {
@@ -375,9 +312,10 @@ function updateDraft(): void {
       updatedAt: new Date().toISOString(),
     });
   renderValidation();
-  renderDrafts();
+
   community.clearSubmitStatus();
-  // Do not rebuild the phrase list here: preserve its focus and scroll position while typing.
+  // Rebuild filtered results only when a phrase enters or leaves the draft list.
+  if (draftsOnly.checked && hadDraft !== drafts.has(key)) renderResults();
   for (const button of phraseList.querySelectorAll<HTMLButtonElement>('button[data-entry-id]')) {
     if (button.dataset.entryId === entry.id) {
       const marker = button.querySelector('small');
@@ -385,7 +323,7 @@ function updateDraft(): void {
     }
   }
   element('save-status').textContent = storageSession.hasConflict
-    ? 'Saving paused. Export before reloading.'
+    ? 'Saving paused. Copy your changes before reloading.'
     : 'Saving…';
   if (saveTimer !== undefined) clearTimeout(saveTimer);
   saveTimer = setTimeout(persist, 300);
@@ -408,7 +346,6 @@ async function loadCatalog(locale: string, id = selectedId): Promise<void> {
   try {
     const next = await fetchCatalog(locale, active.signal);
     if (active.signal.aborted) return;
-    currentCatalogs.set(locale, next);
     catalog = next;
     if (language.options.length <= 1) {
       language.replaceChildren(
@@ -427,7 +364,6 @@ async function loadCatalog(locale: string, id = selectedId): Promise<void> {
         next.entries[0]?.id ??
         '',
     );
-    renderDrafts();
   } catch (error) {
     if (active.signal.aborted) return;
     element('load-error').textContent = 'Couldn’t load translations.';
@@ -480,15 +416,12 @@ window.addEventListener('storage', (event) => {
   }
   if (storageSession.observe(event.key, event.newValue)) {
     setStorageWarning();
-    element('save-status').textContent = 'Saving paused. Export before reloading.';
+    element('save-status').textContent = 'Saving paused. Copy your changes before reloading.';
   }
 });
 clearButton.addEventListener('click', () => {
-  proposal.value = reason.value = '';
-  updateDraft();
-  persist();
-  renderResults();
-  proposal.focus();
+  const draft = currentDraft();
+  if (draft) removeDraft(draft, true);
 });
 reviewButton.addEventListener('click', () => {
   const entry = selectedEntry();
@@ -501,73 +434,9 @@ reviewButton.addEventListener('click', () => {
   });
   persist();
   renderValidation();
-  renderDrafts();
+
   proposal.focus();
 });
-async function exportDrafts(): Promise<void> {
-  if (exporting) return;
-  if (saveTimer !== undefined) persist();
-  element('export-copy').hidden = true;
-  element<HTMLTextAreaElement>('export-json').value = '';
-  const candidates = [...drafts.values()];
-  exporting = true;
-  let jsonPrepared = false;
-  exportButton.disabled = true;
-  element('export-status').textContent = 'Checking references…';
-  try {
-    const locales = [...new Set(candidates.map((draft) => draft.locale))];
-    const refreshed = await Promise.all(locales.map((locale) => fetchCatalog(locale)));
-    const exportCatalogs = new Map(refreshed.map((next) => [next.locale.code, next]));
-    for (const [locale, next] of exportCatalogs) currentCatalogs.set(locale, next);
-    if (catalog && exportCatalogs.has(catalog.locale.code)) {
-      catalog = exportCatalogs.get(catalog.locale.code)!;
-      const entry = selectedEntry();
-      element('editor').hidden = !entry;
-      if (entry) {
-        renderReferences(entry);
-        renderValidation();
-      }
-    }
-    // Input stays usable during the reads. A changed or deleted draft belongs to
-    // a later export, not the snapshot whose references were just checked.
-    const ready = candidates.filter(
-      (draft) =>
-        drafts.get(draftKey(draft.locale, draft.id)) === draft &&
-        draftStatus(draft, exportCatalogs) === 'Ready to export',
-    );
-    if (!ready.length) {
-      element('export-status').textContent = 'No drafts are ready. Review or finish them first.';
-      return;
-    }
-    const json = JSON.stringify(createExport(ready), null, 2);
-    element<HTMLTextAreaElement>('export-json').value = json;
-    element('export-copy').hidden = false;
-    jsonPrepared = true;
-    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `MUSIXQUARE-translation-suggestions-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    const remaining = drafts.size - ready.length;
-    element('export-status').textContent =
-      `${ready.length} exported.${remaining ? ` ${remaining} remaining.` : ''}`;
-  } catch {
-    element('export-status').textContent = jsonPrepared
-      ? 'Download unavailable. Copy the JSON below.'
-      : 'Couldn’t export. Try again.';
-  } finally {
-    exporting = false;
-    renderDrafts();
-  }
-}
-
-exportButton.addEventListener('click', () => {
-  exportDrafts().catch(reportActionFailure);
-});
-
 setStorageWarning(initial.warning);
-renderDrafts();
+
 loadCatalog(requestedLocale).catch(reportActionFailure);

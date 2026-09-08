@@ -344,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.2';
+const ADMIN_ASSET_VERSION = '8.6.3';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11727,6 +11727,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
           <p data-updated-at>Loading metrics...</p>
         </div>
         <div class="header-actions">
+          <button class="is-active" type="button" aria-pressed="true" data-admin-tab="operations">Analytics</button>
           <button class="service-status-trigger is-loading" type="button" aria-haspopup="dialog" data-service-status-trigger>
             <span class="service-status-dot" aria-hidden="true" data-service-status-dot></span>
             <span data-service-status-label>Checking status</span>
@@ -11767,7 +11768,6 @@ function renderAdminPage(request: Request, env: AppEnv) {
         </div>
       </dialog>
       <nav class="admin-tabs" aria-label="Admin sections">
-        <button class="is-active" type="button" data-admin-tab="operations">Analytics</button>
         <button type="button" data-admin-tab="pro-rooms">PRO Rooms</button>
         <button type="button" data-admin-tab="articles">Articles</button>
         <button type="button" data-admin-tab="translations">Translations</button>
@@ -11879,7 +11879,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
         </section>
       </section>
       <section class="admin-view" data-admin-view="translations" hidden>
-        <section class="panel">
+        <section class="panel translation-review-panel">
           <div class="panel-head translation-review-head">
             <h2>Translation suggestions</h2>
             <div class="translation-review-filters">
@@ -11892,7 +11892,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
               <button type="button" data-translation-export>Export approved</button>
             </div>
           </div>
-          <p>Recommendations set the review order. Approved wording enters a release after repository review.</p>
+          <p class="translation-review-description">Recommendations set the review order. Approved wording enters a release after repository review.</p>
           <p role="status" data-translation-status></p>
           <div class="translation-review-list" data-translation-list></div>
           <button type="button" data-translation-more hidden>Load more</button>

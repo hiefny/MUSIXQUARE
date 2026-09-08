@@ -287,6 +287,14 @@
 .translation-text-preview .translation-note {
   margin-top: 12px;
 }
+.translation-doc .translation-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
 .translation-button {
   min-height: 42px;
   padding: 10px 16px;
@@ -294,9 +302,6 @@
   border-radius: 6px;
   background: var(--surface);
   color: var(--text-main);
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  line-height: 1.4;
 }
 .translation-button:hover:not(:disabled) {
   border-color: var(--text-sub);
@@ -357,6 +362,13 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.translation-submit-actions .translation-button {
+  /* Optical alignment: lower the label 1px without moving the button or changing its height. */
+  padding-block: 11px 9px;
+}
+.translation-submit-actions .translation-button--quiet {
+  padding-block: 10px 8px;
 }
 .translation-local-actions > .translation-note {
   margin-right: auto;

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, mxqr_beta]
+    branches: [main]
   pull_request:
-    branches: [main, mxqr_beta]
+    branches: [main]
 
 permissions:
   contents: read

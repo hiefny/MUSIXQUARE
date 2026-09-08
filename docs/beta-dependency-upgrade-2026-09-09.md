@@ -3,8 +3,9 @@
 The owner requested an experimental `mxqr_beta` branch starting from current
 `main`, rather than upgrading production through the existing Dependabot PR.
 The starting commit is `aa869dd0270bd203dae7d33138368ea5738a2c08` (8.6.8).
-This branch identifies its build as **8.6.9-beta.0**, with cache epoch **v571**.
-Neither a beta push nor a successful beta CI run authorizes production release.
+The validated experiment build was **8.6.9-beta.0**, with cache epoch **v571**,
+at commit `911b96e8cdc1df03c144401b89f5a622c070105e`.
+A beta push or successful beta CI run does not itself authorize production release.
 
 ## Version choices
 
@@ -79,8 +80,9 @@ Vitest retains the previous mock-clearing behavior explicitly. Sequential
 suites use the supported non-concurrent option. jsdom fixture assertions use
 actual CSS semantics where its serialization changed. Global test timeouts,
 CI job budgets, and coverage thresholds are retained. Static locale inspections
-reuse an inert DOM parser and materialized HTML strings; all 42 locales and hydration assertions remain
-covered without leaving a separate live window open for every inspection.
+reuse an inert DOM parser and materialized HTML strings; all 42 locales and
+hydration assertions remain covered without leaving a separate live window open
+for every inspection.
 Each locale's complete app/About inspection runs as an independent test under
 the shared 15-second timeout, so failures identify the affected language.
 Prettier also reformats existing source for its new formatting rules.
@@ -100,11 +102,25 @@ subject to npm's approval mechanism.
 
 ## Validation and release boundary
 
-Both `main` and `mxqr_beta` run the same CI checks. Only successful `main` push
-runs can create production candidate metadata. Production Release and candidate
-selection remain restricted to `main`; a regression test rejects beta CI as a
-production candidate.
+During the experiment, both `main` and `mxqr_beta` ran the same CI checks. The
+final beta CI passed all nine jobs, including 8,164 unit tests and 22 browser
+tests. Its Linux-only skip is the Windows cross-drive artifact-path test,
+which passed separately on Windows. The dependency audit reported zero
+vulnerabilities. Evidence is linked from
+[the exact beta CI run](https://github.com/hiefny/MUSIXQUARE/actions/runs/34286786686).
 
-Local evidence is saved under `scratch/beta-upgrade-2026-09-09/`. Final CI status
-and any remaining limitations must be checked before considering a future merge.
-This experiment does not deploy or merge to `main`.
+The owner subsequently requested promotion after checking for unintended
+visual or functional changes. The promotion uses product version **8.6.9** and
+cache epoch **v572**. It retires the experimental branch exception and restores
+the usual `main` push/PR CI scope. Only successful `main` push runs can create
+production candidate metadata; a regression test still rejects a successful
+non-main CI run as a production candidate.
+
+The release uses target `all`, with Developer API D1 application disabled.
+Worker runtime inputs changed through formatting and toolchain updates, so the
+partial-release source comparison cannot treat the other Workers as unchanged.
+The normal full release verifies and deploys the six Worker bundles together.
+
+Local evidence is saved under `scratch/beta-upgrade-2026-09-09/`. Visual
+comparison, promotion PR CI, and the exact merge-SHA main CI must pass before
+the normal Production Release workflow is dispatched.

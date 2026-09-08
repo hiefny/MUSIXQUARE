@@ -19,9 +19,9 @@ const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
 const e2eWorkflow = readFileSync(resolve('.github/workflows/e2e.yml'), 'utf8');
 
 describe('CI quality and supply-chain gates', () => {
-  it('validates the beta branch without making its artifacts eligible for production', () => {
-    expect(ciWorkflow).toMatch(/push:\s+branches: \[main, mxqr_beta\]/u);
-    expect(ciWorkflow).toMatch(/pull_request:\s+branches: \[main, mxqr_beta\]/u);
+  it('keeps production candidates restricted to main after beta promotion', () => {
+    expect(ciWorkflow).toMatch(/push:\s+branches: \[main\]/u);
+    expect(ciWorkflow).toMatch(/pull_request:\s+branches: \[main\]/u);
 
     for (const name of [
       'Record immutable main-CI production candidate',

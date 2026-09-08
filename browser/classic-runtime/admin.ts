@@ -144,6 +144,12 @@ interface AdminFetchOptions extends Omit<RequestInit, 'headers' | 'method' | 'si
 }
 
 interface AdminApiPayload {
+  readonly suggestions?: readonly AdminTranslationSuggestion[];
+  readonly nextCursor?: string | null;
+  readonly kind?: string;
+  readonly version?: number;
+  readonly exportedAt?: string;
+  readonly drafts?: readonly unknown[];
   readonly accounts?: AdminAccountSummary | null;
   readonly active?: boolean;
   readonly activationUrl?: string;
@@ -210,6 +216,25 @@ interface AdminArticle {
   readonly slug?: string;
   readonly source?: string;
   readonly title?: string;
+}
+
+interface AdminTranslationSuggestion {
+  readonly id: string;
+  readonly locale: string;
+  readonly surface: string;
+  readonly key: string;
+  readonly sourceEn: string;
+  readonly sourceKo: string;
+  readonly current: string;
+  readonly proposed: string;
+  readonly reason: string;
+  readonly author: string;
+  readonly createdAt: number;
+  readonly status: 'pending' | 'approved' | 'rejected' | 'withdrawn';
+  readonly revision: number;
+  readonly votes: number;
+  readonly outdated: boolean;
+  readonly applied: boolean;
 }
 
 interface AdminMetricCard {
@@ -317,7 +342,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.5.0';
+const ADMIN_SCRIPT_VERSION = '8.6.0';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -368,6 +393,18 @@ const proRoomClaimDismissBtn = document.querySelector<HTMLButtonElement>(
 );
 const articleListEl = document.querySelector<HTMLElement>('[data-article-list]');
 const articleStatusEl = document.querySelector<HTMLElement>('[data-article-status]');
+const translationListEl = document.querySelector<HTMLElement>('[data-translation-list]');
+const translationStatusEl = document.querySelector<HTMLElement>('[data-translation-status]');
+const translationStatusFilter = document.querySelector<HTMLSelectElement>(
+  '[data-translation-status-filter]',
+);
+const translationLocaleFilter = document.querySelector<HTMLInputElement>(
+  '[data-translation-locale-filter]',
+);
+const translationMoreBtn = document.querySelector<HTMLButtonElement>('[data-translation-more]');
+const translationExportBtn = document.querySelector<HTMLButtonElement>('[data-translation-export]');
+let translationsLoaded = false;
+let translationNextCursor: string | null = null;
 const announcementForm = document.querySelector<HTMLFormElement>('[data-announcement-form]');
 const announcementMessageEl = document.querySelector<HTMLTextAreaElement>(
   '[data-announcement-message]',
@@ -1522,6 +1559,14 @@ function showLogin(
   pendingProGrantVoucherExport = null;
   renderProGrantCampaignState(null);
   articlesLoaded = false;
+  translationsLoaded = false;
+  translationNextCursor = null;
+  translationListEl?.replaceChildren();
+  const translationCopy = document.querySelector<HTMLTextAreaElement>(
+    '[data-translation-export-json]',
+  );
+  if (translationCopy) translationCopy.value = '';
+  document.querySelector<HTMLElement>('[data-translation-export-copy]')?.setAttribute('hidden', '');
   announcementLoaded = false;
   currentAnnouncementRevision = null;
   pendingAnnouncementMutation = null;
@@ -1850,7 +1895,7 @@ async function openServiceStatusDialog(
 }
 
 function abortNonStatusDashboardLoads(): void {
-  for (const key of ['metrics', 'pro-rooms', 'articles', 'announcement']) {
+  for (const key of ['metrics', 'pro-rooms', 'articles', 'announcement', 'translations']) {
     adminLatestLoads.get(key)?.abort();
   }
 }
@@ -2125,6 +2170,7 @@ function formatAnnouncementAction(action: unknown): string {
 function announcementTitle(tab: string): string {
   if (tab === 'pro-rooms') return 'PRO Rooms';
   if (tab === 'articles') return 'Articles';
+  if (tab === 'translations') return 'Translations';
   if (tab === 'announcements') return 'Announcements';
   return 'Analytics';
 }
@@ -5507,6 +5553,187 @@ async function loadArticles(
   }
 }
 
+function validAdminTranslation(value: unknown): value is AdminTranslationSuggestion {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    [
+      'id',
+      'locale',
+      'surface',
+      'key',
+      'sourceEn',
+      'sourceKo',
+      'current',
+      'proposed',
+      'reason',
+      'author',
+    ].every((key) => typeof item[key] === 'string') &&
+    ['pending', 'approved', 'rejected', 'withdrawn'].includes(String(item.status)) &&
+    ['revision', 'votes', 'createdAt'].every(
+      (key) => Number.isSafeInteger(item[key]) && Number(item[key]) >= 0,
+    ) &&
+    typeof item.outdated === 'boolean' &&
+    typeof item.applied === 'boolean'
+  );
+}
+
+function reportTranslationAdminError(error: unknown): void {
+  if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
+  if (translationStatusEl)
+    translationStatusEl.textContent = adminErrorMessage(error, 'Translation request failed.');
+}
+
+function renderTranslationReview(item: AdminTranslationSuggestion): HTMLElement {
+  const row = document.createElement('article');
+  row.className = 'translation-review-item';
+  const heading = document.createElement('strong');
+  heading.textContent = `${item.locale} · ${item.surface} · ${item.key}`;
+  const meta = document.createElement('p');
+  const state = item.applied ? 'Applied' : item.outdated ? 'References changed' : item.status;
+  meta.className = 'translation-review-meta';
+  meta.textContent = `${item.votes} recommendations · ${item.author} · ${state} · ${formatAdminDateTime(item.createdAt)}`;
+  const current = document.createElement('p');
+  current.className = 'translation-review-current';
+  current.dir = 'auto';
+  current.lang = item.locale;
+  current.textContent = item.current;
+  const proposed = document.createElement('p');
+  proposed.className = 'translation-review-proposed';
+  proposed.dir = 'auto';
+  proposed.lang = item.locale;
+  proposed.textContent = item.proposed;
+  const references = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'References';
+  references.append(summary);
+  for (const [name, content] of [
+    ['English', item.sourceEn],
+    ['Korean', item.sourceKo],
+    ['Note', item.reason],
+  ]) {
+    if (!content) continue;
+    const label = document.createElement('strong');
+    label.textContent = name ?? '';
+    const text = document.createElement('p');
+    text.dir = 'auto';
+    text.textContent = content;
+    references.append(label, text);
+  }
+  const actions = document.createElement('div');
+  actions.className = 'translation-review-actions';
+  for (const [status, label] of [
+    ['approved', 'Approve'],
+    ['rejected', 'Reject'],
+    ['pending', 'Reopen'],
+  ] as const) {
+    if (item.status === status || item.status === 'withdrawn' || item.applied) continue;
+    if (status === 'pending' && item.status !== 'rejected') continue;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.disabled = status === 'approved' && item.outdated;
+    addAsyncAdminEventListener(button, 'click', async () => {
+      actions.querySelectorAll('button').forEach((control) => {
+        control.disabled = true;
+      });
+      try {
+        await fetchJson(`/api/admin/translations/${encodeURIComponent(item.id)}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ status, expectedRevision: item.revision }),
+        });
+        await loadTranslations();
+      } catch (error) {
+        reportTranslationAdminError(error);
+        actions.querySelectorAll('button').forEach((control) => {
+          control.disabled = item.outdated && control.textContent === 'Approve';
+        });
+      }
+    });
+    actions.append(button);
+  }
+  row.append(heading, meta, current, proposed, references, actions);
+  return row;
+}
+
+async function loadTranslations(append = false): Promise<void> {
+  if (!translationListEl) return;
+  const load = beginLatestAdminLoad('translations');
+  const query = new URLSearchParams({ status: translationStatusFilter?.value || 'pending' });
+  const locale = translationLocaleFilter?.value.trim();
+  if (locale) query.set('locale', locale);
+  if (append && translationNextCursor) query.set('cursor', translationNextCursor);
+  if (translationMoreBtn) translationMoreBtn.disabled = true;
+  if (translationStatusEl) translationStatusEl.textContent = 'Loading…';
+  try {
+    const payload = await fetchJson(`/api/admin/translations?${query}`, {
+      signal: load.controller.signal,
+      maxResponseBytes: 8 * 1024 * 1024,
+    });
+    throwIfAdminLoadStale(load);
+    if (
+      !Array.isArray(payload.suggestions) ||
+      !payload.suggestions.every(validAdminTranslation) ||
+      (payload.nextCursor !== null && typeof payload.nextCursor !== 'string')
+    ) {
+      throw new Error('Invalid translation response.');
+    }
+    const rows = payload.suggestions.map(renderTranslationReview);
+    if (append) translationListEl.append(...rows);
+    else translationListEl.replaceChildren(...rows);
+    translationNextCursor = payload.nextCursor;
+    translationsLoaded = true;
+    if (translationMoreBtn) translationMoreBtn.hidden = !translationNextCursor;
+    if (translationStatusEl)
+      translationStatusEl.textContent = translationListEl.childElementCount
+        ? `${translationListEl.childElementCount} suggestions · most recommended first`
+        : 'No suggestions.';
+  } finally {
+    if (isLatestAdminLoad(load) && translationMoreBtn) translationMoreBtn.disabled = false;
+    finishLatestAdminLoad(load);
+  }
+}
+
+async function exportApprovedTranslations(): Promise<void> {
+  if (!translationExportBtn || translationExportBtn.disabled) return;
+  translationExportBtn.disabled = true;
+  const copy = document.querySelector<HTMLTextAreaElement>('[data-translation-export-json]');
+  const details = document.querySelector<HTMLDetailsElement>('[data-translation-export-copy]');
+  if (copy) copy.value = '';
+  if (details) details.hidden = true;
+  try {
+    const payload = await fetchJson('/api/admin/translations/export', {
+      maxResponseBytes: 8 * 1024 * 1024,
+    });
+    if (
+      payload.version !== 1 ||
+      payload.kind !== 'musixquare-approved-translations' ||
+      !Array.isArray(payload.drafts)
+    ) {
+      throw new Error('Invalid approved translation export.');
+    }
+    // Preserve the API/tool byte limit even for an export near its 8 MiB bound.
+    const data = JSON.stringify(payload);
+    if (copy) copy.value = data;
+    if (details) details.hidden = false;
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'MUSIXQUARE-approved-translations.json';
+      link.click();
+    } finally {
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    if (translationStatusEl)
+      translationStatusEl.textContent = `${payload.drafts.length} approved suggestions exported. Review and apply the file in the repository before release.`;
+  } catch (error) {
+    reportTranslationAdminError(error);
+  } finally {
+    translationExportBtn.disabled = false;
+  }
+}
+
 function clearAnnouncementExpiryTimer(): void {
   if (announcementExpiryTimer !== null) {
     window.clearTimeout(announcementExpiryTimer);
@@ -5874,6 +6101,7 @@ async function refreshAllDashboardData(): Promise<void> {
     }),
     loadArticles({ updateTimestamp: false }),
     loadAnnouncement({ updateTimestamp: false }),
+    ...(translationsLoaded ? [loadTranslations().catch(reportTranslationAdminError)] : []),
   ]);
   if (refreshEpoch !== adminSessionEpoch || dashboard?.hidden) return;
   if (updatedAtEl) updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
@@ -5994,6 +6222,9 @@ adminTabs.forEach((button) => {
         }
       });
     }
+    if (tab === 'translations' && !translationsLoaded) {
+      loadTranslations().catch(reportTranslationAdminError);
+    }
     if (tab === 'announcements' && !announcementLoaded) {
       loadAnnouncement().catch((error) => {
         if (announcementStatusEl)
@@ -6001,6 +6232,19 @@ adminTabs.forEach((button) => {
       });
     }
   });
+});
+
+document.querySelector('[data-translation-filter]')?.addEventListener('click', () => {
+  loadTranslations().catch(reportTranslationAdminError);
+});
+translationStatusFilter?.addEventListener('change', () => {
+  loadTranslations().catch(reportTranslationAdminError);
+});
+translationMoreBtn?.addEventListener('click', () => {
+  loadTranslations(true).catch(reportTranslationAdminError);
+});
+translationExportBtn?.addEventListener('click', () => {
+  exportApprovedTranslations().catch(reportTranslationAdminError);
 });
 
 serviceStatusTrigger?.addEventListener('click', () => {

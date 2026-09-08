@@ -20,6 +20,7 @@ describe('MUSIXQUARE brand-capitalization guard', () => {
     'A musixquare-branded screen',
     'A musixquare-app-branded screen',
     'A musixquare-theme-inspired screen',
+    'A musixquare-approved-translations-inspired screen',
   ])('rejects user-facing copy with noncanonical casing: %s', (source) => {
     expect(violations(source)).toEqual([expect.stringMatching(/musixquare/iu)]);
   });
@@ -32,6 +33,7 @@ describe('MUSIXQUARE brand-capitalization guard', () => {
     'https://x.com/musixquare',
     'const cache = "musixquare-static-v428"; // brand-capitalization: allow-technical',
     'const audience = "musixquare-remote-share-upload";',
+    'const kind = "musixquare-approved-translations";',
     'X-Musixquare-Navigation-Source',
     'MusixquareServiceControl',
     '/\\bmusixquare\\b/iu; // brand-capitalization: allow-technical',

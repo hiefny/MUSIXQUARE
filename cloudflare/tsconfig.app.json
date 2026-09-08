@@ -3,6 +3,8 @@
   "files": [
     "types/app.generated.d.ts",
     "account-auth.ts",
+    "translation-community.ts",
+    "translation-community-catalog.ts",
     "account-assertion.ts",
     "pro-room-claims.ts",
     "pro-room-grants.ts",

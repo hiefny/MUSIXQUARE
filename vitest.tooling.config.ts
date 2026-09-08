@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     include: [
+      'src/core/__tests__/apply-translation-suggestions.test.ts',
       'src/core/__tests__/d1-migration-contract.test.ts',
       'src/core/__tests__/durable-object-migration-contract.test.ts',
       'src/core/__tests__/emergency-deploy-guard.test.ts',
@@ -30,6 +31,7 @@ export default defineConfig({
       reporter: ['text', 'text-summary', 'lcov'],
       reportsDirectory: 'coverage/release-tooling',
       include: [
+        'scripts/apply-translation-suggestions.mts',
         'scripts/audit-ops-drift.mts',
         'scripts/check-d1-migration-contract.mts',
         'scripts/check-durable-object-migration-contract.mts',

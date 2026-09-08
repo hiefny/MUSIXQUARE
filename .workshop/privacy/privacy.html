@@ -55,7 +55,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: August 17, 2026</p>
+        <p class="policy-date">Effective date: September 8, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -123,6 +123,16 @@
                 history. Google tokens, your email address, Google name, and profile photo are not
                 stored. Sign-in uses a Secure, HttpOnly cookie, and the database stores only a keyed
                 digest of the random session token.
+              </dd>
+            </div>
+            <div>
+              <dt>Translation contributions</dt>
+              <dd>
+                Submitted translations, optional notes, your display name, recommendation totals,
+                and review status are public. D1 stores the proposals, their source wording,
+                account-linked recommendations, review records, and timestamps. Individual voter
+                identities and internal account identifiers are not published. Unsubmitted drafts
+                stay in your browser.
               </dd>
             </div>
             <div>
@@ -218,8 +228,8 @@
               <dt>Cloudflare data stores</dt>
               <dd>
                 Cloudflare D1 databases hold optional-account and authentication records, aggregate
-                service metrics, administrator audit, PRO-room registry and grant records, and
-                Developer API records. Durable Objects hold live ordinary-room and PRO-room state plus
+                service metrics, administrator audit, translation contributions and recommendations,
+                PRO-room registry and grant records, and Developer API records. Durable Objects hold live ordinary-room and PRO-room state plus
                 service-control, quota, and rate-limit state. R2 holds temporary ordinary-room
                 remote-share objects, persistent PRO-room media, and mirrored Soro featured images.
                 Workers KV holds a backup copy of the public Soro RSS feed; it is not used for room
@@ -234,7 +244,7 @@
                 cookies for the room session and owner-recovery credential. Browser
                 <code>localStorage</code> and <code>sessionStorage</code> hold non-credential
                 preferences and limited browser coordination data, such as language, theme, audio
-                and synchronization settings, account-refresh signals, and short-lived return-route,
+                and synchronization settings, translation drafts, account-refresh signals, and short-lived return-route,
                 reconnection, update, or activity state. OAuth codes and state, Google tokens, room
                 passwords, and PRO claim or recovery credentials are not copied into Web Storage.
                 The service worker uses CacheStorage for app assets and offline navigation
@@ -284,7 +294,8 @@
             Data is processed to provide optional sign-in, keep a chosen nickname, represent a
             person across their devices, establish and protect rooms, synchronize playback, deliver
             requested sharing features, issue and redeem operator-controlled PRO grants, show
-            cumulative account activity totals, interpret individual AI BOT requests, diagnose
+            cumulative account activity totals, collect and review translation contributions,
+            interpret individual AI BOT requests, diagnose
             failures, prevent abuse, and understand aggregate service reliability.
           </p>
           <p>
@@ -347,6 +358,13 @@
             sign in or restore the deleted account. Account-linked permissions in an ordinary room
             last only while that room exists. Signed-in PRO-room membership and authority may remain
             until the room owner revokes them, the room is deleted, or the account is deleted.
+          </p>
+          <p>
+            Translation proposals and recommendations remain until withdrawn, moderated, or removed
+            with the account. Withdrawal hides a proposal from the public list; its record may
+            remain for review until account deletion. Deleting the account removes its proposals,
+            recommendations, and associated proposal review records. Wording already included in
+            the project's source and releases remains part of those releases.
           </p>
           <p>
             Once deletion is accepted, sign-in ends and MUSIXQUARE removes, or schedules removal of,

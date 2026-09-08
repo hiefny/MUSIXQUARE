@@ -1,6 +1,10 @@
 // MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 import { handleProBotRequest } from './pro-bot.ts';
 import {
+  handleTranslationCommunityRequest,
+  handleAdminTranslationCommunityRequest,
+} from './translation-community.ts';
+import {
   cleanupPendingAccountDeletions,
   cleanupExpiredAccountSessions,
   handleAccountAuthRequest,
@@ -340,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.5.0';
+const ADMIN_ASSET_VERSION = '8.6.0';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11766,6 +11770,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
         <button class="is-active" type="button" data-admin-tab="operations">Analytics</button>
         <button type="button" data-admin-tab="pro-rooms">PRO Rooms</button>
         <button type="button" data-admin-tab="articles">Articles</button>
+        <button type="button" data-admin-tab="translations">Translations</button>
         <button type="button" data-admin-tab="announcements">Announcements</button>
       </nav>
       <section class="admin-view is-active" data-admin-view="operations">
@@ -11871,6 +11876,30 @@ function renderAdminPage(request: Request, env: AppEnv) {
             </div>
             <div class="pro-room-list" id="pro-room-list" data-pro-room-list></div>
           </section>
+        </section>
+      </section>
+      <section class="admin-view" data-admin-view="translations" hidden>
+        <section class="panel">
+          <div class="panel-head translation-review-head">
+            <h2>Translation suggestions</h2>
+            <div class="translation-review-filters">
+              <label>Status <select data-translation-status-filter>
+                <option value="pending">Pending</option><option value="approved">Approved</option>
+                <option value="rejected">Rejected</option><option value="all">All</option>
+              </select></label>
+              <label>Language <input data-translation-locale-filter placeholder="All languages" maxlength="16"></label>
+              <button type="button" data-translation-filter>Filter</button>
+              <button type="button" data-translation-export>Export approved</button>
+            </div>
+          </div>
+          <p>Recommendations set the review order. Approved wording enters a release after repository review.</p>
+          <p role="status" data-translation-status></p>
+          <div class="translation-review-list" data-translation-list></div>
+          <button type="button" data-translation-more hidden>Load more</button>
+          <details data-translation-export-copy hidden>
+            <summary>Approved JSON</summary>
+            <textarea rows="8" readonly aria-label="Approved translation JSON" data-translation-export-json></textarea>
+          </details>
         </section>
       </section>
       <section class="admin-view" data-admin-view="articles" hidden>
@@ -15787,6 +15816,37 @@ export default {
           : {}),
       });
       return withSecurityHeaders(authResponse || json({ error: 'NOT_FOUND' }, 404));
+    }
+
+    if (url.pathname.startsWith('/api/translations/')) {
+      const reading = ['GET', 'HEAD'].includes(request.method);
+      if (
+        !(await checkRateLimit(
+          request,
+          reading ? 'translation-read' : 'translation-write',
+          reading ? 180 : 40,
+          60,
+        ))
+      ) {
+        return withSecurityHeaders(
+          json({ error: 'TRANSLATION_RATE_LIMITED' }, 429, { 'Retry-After': '60' }),
+        );
+      }
+      const response = await handleTranslationCommunityRequest(request, env, url);
+      return withSecurityHeaders(response || json({ error: 'NOT_FOUND' }, 404));
+    }
+
+    if (
+      url.pathname === '/api/admin/translations' ||
+      url.pathname.startsWith('/api/admin/translations/')
+    ) {
+      const methods = url.pathname.endsWith('/review') ? ['POST'] : ['GET', 'HEAD'];
+      const methodError = adminApiMethodAllowed(request, methods);
+      if (methodError) return withSecurityHeaders(methodError);
+      if (!(await verifyAdminSession(request, env)))
+        return withSecurityHeaders(json({ error: 'UNAUTHORIZED' }, 401));
+      const response = await handleAdminTranslationCommunityRequest(request, env, url);
+      return withSecurityHeaders(response || json({ error: 'NOT_FOUND' }, 404));
     }
 
     if (url.pathname.startsWith('/api/pro-grants/')) {

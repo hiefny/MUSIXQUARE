@@ -1,18 +1,12 @@
-export interface Entry {
-  id: string;
-  surface: 'app' | 'about';
-  key: string;
-  sourceEn: string;
-  sourceKo: string;
-  current: string;
-}
+import {
+  MAX_TRANSLATION_TEXT_LENGTH,
+  validateProposal,
+  type ProposalDraft,
+} from '../../src/i18n/translation-community';
 
-export interface Draft extends Entry {
-  locale: string;
-  proposed: string;
-  reason: string;
-  updatedAt: string;
-}
+export { validateProposal } from '../../src/i18n/translation-community';
+export type { Entry, ProposalIssue } from '../../src/i18n/translation-community';
+export type Draft = ProposalDraft;
 
 export interface DraftExport {
   version: 1;
@@ -20,7 +14,6 @@ export interface DraftExport {
   drafts: Draft[];
 }
 
-export type ProposalIssue = 'empty' | 'unchanged' | 'too-long' | 'placeholders' | 'markup';
 export type StorageWarning =
   | 'unavailable'
   | 'invalid-data'
@@ -33,36 +26,7 @@ export const DRAFT_STORAGE_KEY = 'musixquare.translate.drafts.v1';
 const MAX_DRAFTS = 1000;
 const MAX_STORAGE_BYTES = 1024 * 1024;
 const MAX_EXPORT_BYTES = 8 * 1024 * 1024;
-const MAX_TEXT_LENGTH = 32_768;
-
-function placeholders(text: string): string {
-  return JSON.stringify((text.match(/\{\{[^{}]*\}\}/g) ?? []).sort());
-}
-
-// Compare markup as literal tokens, never parse it into a live document. Requiring
-// identical tokens also keeps attribute values (including URLs) unchanged.
-function markup(text: string): string | null {
-  const tokens: string[] = [];
-  for (let offset = 0; offset < text.length; offset++) {
-    if (text[offset] !== '<' || !/[A-Za-z!/?]/.test(text[offset + 1] ?? '')) continue;
-    const token = /^<(?:[^<>"']|"[^"]*"|'[^']*')*>/.exec(text.slice(offset));
-    if (!token) return null;
-    tokens.push(token[0]);
-    offset += token[0].length - 1;
-  }
-  return JSON.stringify(tokens);
-}
-
-export function validateProposal(entry: Entry, proposed: string): ProposalIssue[] {
-  const issues: ProposalIssue[] = [];
-  if (!proposed.trim()) issues.push('empty');
-  if (proposed === entry.current) issues.push('unchanged');
-  if (proposed.length > MAX_TEXT_LENGTH) return [...issues, 'too-long'];
-  if (placeholders(proposed) !== placeholders(entry.sourceEn)) issues.push('placeholders');
-  const proposedMarkup = markup(proposed);
-  if (proposedMarkup === null || proposedMarkup !== markup(entry.current)) issues.push('markup');
-  return issues;
-}
+const MAX_TEXT_LENGTH = MAX_TRANSLATION_TEXT_LENGTH;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

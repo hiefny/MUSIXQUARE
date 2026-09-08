@@ -65,7 +65,9 @@ Repository publication has two distinct paths:
   wait for the exact merge-SHA `main` push CI candidate to succeed, then run
   `Production Release` with target `app` and Developer API D1 application
   disabled. The App target still applies and verifies its ordinary idempotent
-  admin-D1 baselines; it is not a generic no-op documentation deploy.
+  admin-D1 baselines and the additive translation-community tables in auth D1;
+  it is not a generic no-op documentation deploy. Translation records are retained
+  when rolling back to an older App; do not drop their tables during recovery.
 
 The repository does not provide an isolated full-stack preview environment: a
 static or tunneled frontend URL cannot open Standard or PRO rooms without the

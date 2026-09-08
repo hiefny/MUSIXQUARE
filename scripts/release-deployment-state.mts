@@ -434,6 +434,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-generation.ts',
     'cloudflare/pro-room-validation.ts',
     'cloudflare/account-auth.ts',
+    'cloudflare/translation-community.ts',
+    'cloudflare/translation-community-catalog.ts',
     ...APP_D1_PATHS,
     'cloudflare/d1-migrations.manifest.json',
     'cloudflare/account-assertion.ts',

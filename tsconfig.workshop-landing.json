@@ -9,6 +9,8 @@
     ".workshop/landing/main.ts",
     ".workshop/translate/main.ts",
     ".workshop/translate/catalog-client.ts",
+    ".workshop/translate/community-client.ts",
+    ".workshop/translate/community.ts",
     ".workshop/translate/drafts.ts",
     ".workshop/translate/storage-session.ts"
   ],

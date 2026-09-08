@@ -14,8 +14,8 @@ const LOCALIZED_LASTMOD = '2026-09-01';
 const ENGLISH_ONLY_PAGES = [
   { path: '/blog', lastmod: '2026-07-18', changefreq: 'weekly', priority: '0.8' },
   { path: '/history', lastmod: '2026-08-23', changefreq: 'monthly', priority: '0.8' },
-  { path: '/privacy', lastmod: '2026-08-17', changefreq: 'yearly', priority: '0.6' },
-  { path: '/terms', lastmod: '2026-08-17', changefreq: 'yearly', priority: '0.6' },
+  { path: '/privacy', lastmod: '2026-09-08', changefreq: 'yearly', priority: '0.6' },
+  { path: '/terms', lastmod: '2026-09-08', changefreq: 'yearly', priority: '0.6' },
   { path: '/faq', lastmod: '2026-08-17', changefreq: 'monthly', priority: '0.7' },
   { path: '/developers', lastmod: '2026-08-17', changefreq: 'monthly', priority: '0.7' },
   { path: '/designsystem', lastmod: '2026-08-31', changefreq: 'monthly', priority: '0.5' },

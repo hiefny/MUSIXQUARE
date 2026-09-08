@@ -33,9 +33,9 @@ describe('D1 migration contract', () => {
     expect(assertD1MigrationContract()).toEqual({
       schemaVersion: 1,
       databaseCount: 3,
-      migrationCount: 18,
+      migrationCount: 19,
       pairedMigrationCount: 1,
-      forwardOnlyMigrationCount: 17,
+      forwardOnlyMigrationCount: 18,
     });
   });
 

@@ -135,9 +135,9 @@
     {
       "database": "musixquare-auth",
       "baseline": "cloudflare/auth.schema.sql",
-      "baselineRevision": 5,
-      "baselineSha256": "5e2b59171bd4c952266a96d7472483b25d80cec58eb0990ddc18f4e9e9f21ab9",
-      "baselineMigration": "auth-launch-cleanup-v1",
+      "baselineRevision": 6,
+      "baselineSha256": "d8cea3d95be9c746f892d38538b932922326d9129c2a682a51e45c7281d54c68",
+      "baselineMigration": "auth-translation-community-v1",
       "baselineRecovery": {
         "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
         "runbook": "docs/account-auth-operations.md",
@@ -194,6 +194,19 @@
             "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
             "runbook": "docs/account-auth-operations.md",
             "note": "The launch contract keeps only generation-aware PRO reverse edges; recovery rolls forward with the matched Worker set or restores the provider database."
+          }
+        },
+        {
+          "id": "auth-translation-community-v1",
+          "forward": "cloudflare/auth.translation-community.migration.sql",
+          "forwardSha256": "15233a0d35bd7b565a1e4d496d32082ca6d87543503d0095d3b92ff98f71b559",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "docs/account-auth-operations.md",
+            "note": "The additive account-owned translation suggestions, votes and review history retain cascade deletion and atomic approval selection. Keep the tables during compatible Worker rollback; roll forward or restore the provider database instead of deleting contributions."
           }
         }
       ]

@@ -3086,6 +3086,59 @@ p {
   }
 }
 
+.translation-review-head,
+.translation-review-filters,
+.translation-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.translation-review-filters label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.translation-review-list {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.translation-review-item {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.translation-review-item p {
+  white-space: pre-wrap;
+}
+
+.translation-review-meta,
+.translation-review-current {
+  color: var(--text-sub);
+}
+
+.translation-review-proposed {
+  font-weight: 600;
+}
+
+.translation-review-actions {
+  margin-top: 16px;
+}
+
+[data-translation-export-json] {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+}
+
 /* Text-field clear affordances stay beside their editors for dialog and keyboard ownership. */
 .clearable-editor-active {
   padding-inline-end: calc(

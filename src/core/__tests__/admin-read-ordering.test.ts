@@ -52,19 +52,20 @@ afterEach(() => {
 
 describe('admin reads crossing a mutation', () => {
   it.each(['success', 'failure'] as const)(
-    'preserves a maintenance %s while an older dialog refresh body finishes later',
+    'preserves a maintenance %s while an older inline refresh body finishes later',
     async (outcome) => {
       installDom();
       document.querySelector('[data-dashboard]')!.insertAdjacentHTML(
         'afterbegin',
-        `<button data-service-status-trigger><span data-service-status-label></span></button>
-       <dialog data-service-status-dialog><h2 data-service-status-state></h2>
+        `<button data-admin-tab="maintenance" data-service-status-trigger><span data-service-status-label></span></button>
+       <section data-admin-view="maintenance" hidden><section data-service-status-panel><h2 data-service-status-state></h2>
          <p data-service-status-description></p><p data-service-status-updated></p>
-         <p data-service-status-error></p><div class="service-status-dialog-actions">
+         <p data-service-status-error></p><button data-service-status-change>Change</button>
+         <div data-service-status-confirmation hidden><p data-service-status-confirmation-copy></p>
            <button data-service-status-cancel>Cancel</button>
            <button data-service-status-confirm>Change</button>
          </div>
-       </dialog>`,
+       </section></section>`,
       );
       let reads = 0;
       let held: ReturnType<typeof heldJson> | undefined;
@@ -125,6 +126,7 @@ describe('admin reads crossing a mutation', () => {
       expect(label.textContent).toBe('Maintenance');
       trigger.click();
       await vi.waitFor(() => expect(held).toBeDefined());
+      document.querySelector<HTMLButtonElement>('[data-service-status-change]')!.click();
       expect(confirm.disabled).toBe(false);
       const focus = vi.spyOn(HTMLElement.prototype, 'focus');
       confirm.click();
@@ -151,13 +153,14 @@ describe('admin reads crossing a mutation', () => {
       expect(error.textContent).toBe(acceptedError);
       expect(writes).toHaveLength(1);
 
-      // A later real dialog read still accepts the current server revision and
+      // A later tab read still accepts the current server revision and
       // targets it in the next change, including retry after a rejected mutation.
       document.querySelector<HTMLButtonElement>('[data-service-status-cancel]')!.click();
       status = { enabled: true, revision: 2, updatedAt: new Date().toISOString(), settlesAt: null };
       trigger.click();
       await vi.waitFor(() => expect(trigger.dataset.state).toBe('maintenance'));
       expect(label.textContent).toBe('Maintenance');
+      document.querySelector<HTMLButtonElement>('[data-service-status-change]')!.click();
       expect(confirm.disabled).toBe(false);
       confirm.click();
       await vi.waitFor(() => expect(writes).toHaveLength(2));

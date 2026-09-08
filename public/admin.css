@@ -260,11 +260,6 @@ p {
   outline-offset: 3px;
 }
 
-[data-service-status-trigger]:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
 [data-service-status-dot] {
   display: none;
 }
@@ -336,6 +331,7 @@ p {
 }
 
 [data-admin-tab='announcements'].is-active.has-active-announcement::after,
+[data-service-status-trigger].is-active [data-service-status-dot],
 [data-admin-tab='announcements']:hover::after,
 [data-service-status-trigger]:hover [data-service-status-dot] {
   border-color: var(--surface-2);
@@ -2014,50 +2010,27 @@ p {
   font-size: 13px;
 }
 
-[data-service-status-dialog] {
-  position: fixed;
-  inset: 0;
-  width: min(440px, calc(100vw - 32px));
-  max-width: none;
-  max-height: min(640px, calc(100dvh - 32px));
-  margin: auto;
-  border: 0;
-  border-radius: 16px;
-  padding: 0;
-  overflow: auto;
-  background: var(--surface-1);
-  color: var(--text-main);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
-}
-
-[data-service-status-dialog]:not([open]) {
-  display: none;
-}
-
-[data-service-status-dialog]::backdrop {
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(2px);
-}
-
-.service-status-dialog-card {
+.maintenance-overview {
   display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.service-status-panel,
+.service-status-preview-panel {
+  display: grid;
+  min-width: 0;
   gap: 18px;
-  padding: 24px;
 }
 
-.service-status-dialog-head,
-.service-status-heading,
-.service-status-dialog-actions {
-  display: flex;
-  align-items: center;
-}
-
-.service-status-dialog-head {
-  justify-content: space-between;
-  gap: 16px;
+.service-status-preview-panel .panel-head {
+  margin-bottom: 0;
 }
 
 .service-status-heading {
+  display: flex;
+  align-items: center;
   min-width: 0;
   gap: 12px;
 }
@@ -2075,7 +2048,7 @@ p {
   letter-spacing: 0.08em;
 }
 
-.service-status-dialog-dot {
+.service-status-panel-dot {
   width: 11px;
   height: 11px;
   flex: 0 0 auto;
@@ -2084,39 +2057,16 @@ p {
   box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
 }
 
-[data-service-status-dialog][data-state='maintenance'] .service-status-dialog-dot {
+[data-service-status-panel][data-state='maintenance'] .service-status-panel-dot {
   background: var(--fail);
   box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.14);
 }
 
-[data-service-status-dialog][data-state='activating'] .service-status-dialog-dot,
-[data-service-status-dialog][data-state='resuming'] .service-status-dialog-dot,
-[data-service-status-dialog][data-state='unknown'] .service-status-dialog-dot {
+[data-service-status-panel][data-state='activating'] .service-status-panel-dot,
+[data-service-status-panel][data-state='resuming'] .service-status-panel-dot,
+[data-service-status-panel][data-state='unknown'] .service-status-panel-dot {
   background: var(--warn);
   box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.12);
-}
-
-.service-status-close {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 24px;
-  line-height: 1;
-}
-
-.service-status-close:hover {
-  background: var(--surface-2);
-  color: var(--text-main);
-}
-
-[data-service-status-dialog] h2 {
-  font-size: 20px;
-  line-height: 1.2;
 }
 
 [data-service-status-state] {
@@ -2125,13 +2075,13 @@ p {
   font-weight: 900;
 }
 
-[data-service-status-dialog][data-state='maintenance'] [data-service-status-state] {
+[data-service-status-panel][data-state='maintenance'] [data-service-status-state] {
   color: var(--fail);
 }
 
-[data-service-status-dialog][data-state='activating'] [data-service-status-state],
-[data-service-status-dialog][data-state='resuming'] [data-service-status-state],
-[data-service-status-dialog][data-state='unknown'] [data-service-status-state] {
+[data-service-status-panel][data-state='activating'] [data-service-status-state],
+[data-service-status-panel][data-state='resuming'] [data-service-status-state],
+[data-service-status-panel][data-state='unknown'] [data-service-status-state] {
   color: var(--warn);
 }
 
@@ -2157,6 +2107,7 @@ p {
 
 .service-status-preview p,
 .service-status-warning {
+  margin-top: 12px;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.55;
@@ -2181,14 +2132,17 @@ p {
   line-height: 1.45;
 }
 
-.service-status-dialog-actions {
-  flex-wrap: nowrap;
-  justify-content: flex-end;
+.service-status-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.service-status-dialog-actions button {
-  min-height: 38px;
+.service-status-actions button,
+[data-service-status-preview],
+[data-service-history-refresh] {
+  min-height: 40px;
   border-radius: var(--radius-pill);
   padding: 8px 16px;
   background: var(--surface-2);
@@ -2197,15 +2151,15 @@ p {
   font-weight: 800;
 }
 
-.service-status-dialog-actions [data-service-status-preview] {
-  margin-right: auto;
-  padding-inline: 4px;
-  background: transparent;
-  color: var(--text-sub);
+.service-status-actions button:hover,
+[data-service-status-preview]:hover,
+[data-service-history-refresh]:hover {
+  filter: brightness(1.1);
 }
 
-.service-status-dialog-actions [data-service-status-preview]:hover {
-  color: var(--text-main);
+.service-status-actions [data-service-status-change] {
+  background: var(--primary);
+  color: #fff;
 }
 
 [data-service-status-confirm][data-action='enter'] {
@@ -2218,16 +2172,100 @@ p {
   color: #fff;
 }
 
-.service-status-dialog-actions button:disabled {
+.service-status-actions button:disabled,
+[data-service-history-refresh]:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
 
-.service-status-dialog-actions button:focus-visible,
-.service-status-close:focus-visible,
-[data-service-status-trigger]:focus-visible {
+.service-status-actions button:focus-visible,
+[data-service-status-preview]:focus-visible,
+[data-service-history-refresh]:focus-visible,
+.service-status-details summary:focus-visible {
   outline: 2px solid rgba(var(--primary-rgb), 0.72);
   outline-offset: 2px;
+}
+
+.service-status-confirmation {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--bg);
+}
+
+.service-status-confirmation p {
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.service-status-details summary {
+  width: fit-content;
+  color: var(--text-sub);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+[data-service-history-status] {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+[data-service-history-status][data-state='error'] {
+  color: var(--fail);
+}
+
+.service-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.service-history-item {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  border-top: 1px solid var(--divider);
+  padding: 16px 0;
+}
+
+.service-history-item:first-child {
+  margin-top: 14px;
+}
+
+.service-history-item:last-child {
+  padding-bottom: 0;
+}
+
+.service-history-event {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.service-history-badge {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--pass);
+}
+
+.service-history-badge[data-enabled='true'] {
+  background: var(--fail);
+}
+
+.service-history-time {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .announcement-management {
@@ -2749,6 +2787,10 @@ p {
     flex-direction: column;
   }
 
+  .maintenance-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .article-item {
     align-items: stretch;
     flex-direction: column;
@@ -2838,28 +2880,23 @@ p {
     width: min(100vw - 24px, 1100px);
   }
 
-  [data-service-status-dialog] {
-    inset: auto 0 0;
-    width: 100%;
-    max-height: calc(100dvh - 12px);
-    margin: 0;
-    border: 0;
-    border-radius: 20px 20px 0 0;
-  }
-
-  .service-status-dialog-card {
-    gap: 16px;
-    padding: 20px 18px max(20px, env(safe-area-inset-bottom));
-  }
-
-  .service-status-dialog-actions {
+  .service-status-actions {
     display: grid;
     grid-template-columns: 1fr;
   }
 
-  .service-status-dialog-actions button {
+  .service-status-actions button {
     width: 100%;
     min-height: 44px;
+  }
+
+  .service-history-item {
+    grid-template-columns: 7px minmax(0, 1fr);
+    gap: 5px 10px;
+  }
+
+  .service-history-time {
+    grid-column: 2;
   }
 
   .metric-grid,

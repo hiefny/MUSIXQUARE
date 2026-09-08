@@ -2,6 +2,8 @@ export const SERVICE_CONTROL_OBJECT_NAME = 'musixquare-global-service-control-v1
 export const ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME = 'musixquare-global-admin-announcement-v1';
 export const SERVICE_CONTROL_STATUS_PATH = '/internal/service-maintenance/v1/status';
 export const SERVICE_CONTROL_STATE_PATH = '/internal/service-maintenance/v1/state';
+export const SERVICE_CONTROL_HISTORY_PATH = '/internal/service-maintenance/v1/history';
+export const SERVICE_CONTROL_HISTORY_LIMIT = 64;
 export const SERVICE_CONTROL_STATUS_VERSION_HEADER = 'X-Musixquare-Service-Control-Version';
 export const SERVICE_CONTROL_STATUS_ENABLED_HEADER = 'X-Musixquare-Service-Control-Enabled';
 export const SERVICE_CONTROL_STATUS_REVISION_HEADER = 'X-Musixquare-Service-Control-Revision';
@@ -102,6 +104,16 @@ export interface ServiceMaintenanceState {
 export interface ServiceMaintenanceEnvironment {
   readonly MUSIXQUARE_SERVICE_CONTROL?: unknown;
 }
+
+export interface ServiceMaintenanceHistoryEntry {
+  enabled: boolean;
+  revision: number;
+  updatedAt: number;
+}
+
+export type ServiceMaintenanceHistoryResult =
+  | { status: 'ok'; history: ServiceMaintenanceHistoryEntry[]; truncated: boolean }
+  | { status: 'unavailable' };
 
 export interface AdminAnnouncementControlResult {
   status: 'ok' | 'conflict' | 'rejected' | 'unavailable' | 'unbound';
@@ -1030,6 +1042,57 @@ async function fetchServiceMaintenanceState(
     return normalized || unavailableServiceMaintenanceState();
   } catch {
     return unavailableServiceMaintenanceState();
+  }
+}
+
+export async function readServiceMaintenanceHistory(
+  env: ServiceMaintenanceEnvironment,
+): Promise<ServiceMaintenanceHistoryResult> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return { status: 'unavailable' };
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return { status: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      new Request(`${SERVICE_CONTROL_ORIGIN}${SERVICE_CONTROL_HISTORY_PATH}`),
+    );
+    if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
+    const payload = outcome.payload;
+    if (
+      !isUnknownRecord(payload) ||
+      !Array.isArray(payload.history) ||
+      payload.history.length > SERVICE_CONTROL_HISTORY_LIMIT ||
+      typeof payload.truncated !== 'boolean'
+    ) {
+      return { status: 'unavailable' };
+    }
+    const history: ServiceMaintenanceHistoryEntry[] = [];
+    for (const entry of payload.history) {
+      if (
+        !isUnknownRecord(entry) ||
+        typeof entry.enabled !== 'boolean' ||
+        !isSafeInteger(entry.revision) ||
+        entry.revision < 1 ||
+        !isSafeInteger(entry.updatedAt) ||
+        entry.updatedAt <= 0 ||
+        !Number.isFinite(new Date(entry.updatedAt).getTime()) ||
+        (history.length > 0 && entry.revision >= history[history.length - 1]!.revision)
+      ) {
+        return { status: 'unavailable' };
+      }
+      history.push({
+        enabled: entry.enabled,
+        revision: entry.revision,
+        updatedAt: entry.updatedAt,
+      });
+    }
+    if (payload.truncated !== (history.length !== (history[0]?.revision ?? 0))) {
+      return { status: 'unavailable' };
+    }
+    return { status: 'ok', history, truncated: payload.truncated };
+  } catch {
+    return { status: 'unavailable' };
   }
 }
 

@@ -10,6 +10,7 @@ import {
   ABUSE_RATE_RESPONSE_PROTOCOL_HEADER,
   ABUSE_RATE_RESPONSE_RESULT_HEADER,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
+  SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_ENABLED_HEADER,
@@ -26,6 +27,7 @@ import {
   readAdminAnnouncementControl,
   readCachedServiceMaintenance,
   readServiceMaintenance,
+  readServiceMaintenanceHistory,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
   updateServiceMaintenance,
@@ -140,6 +142,67 @@ afterEach(() => {
 });
 
 describe('shared service-maintenance control', () => {
+  it('reads maintenance history without changing the cached maintenance gate', async () => {
+    const history = [{ enabled: true, revision: 3, updatedAt: 1_800_000_000_000 }];
+    const { env, fetch } = serviceControlEnv((request) => {
+      expect(new URL(request.url).pathname).toBe(SERVICE_CONTROL_HISTORY_PATH);
+      expect(request.method).toBe('GET');
+      return Response.json({ history, truncated: true });
+    });
+    await expect(readServiceMaintenanceHistory(env)).resolves.toEqual({
+      status: 'ok',
+      history,
+      truncated: true,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(readCachedServiceMaintenance(env).state).toBeNull();
+  });
+
+  it.each([
+    {
+      history: Array.from({ length: 65 }, (_, index) => ({
+        enabled: true,
+        revision: 65 - index,
+        updatedAt: 1_800_000_000_000,
+      })),
+      truncated: false,
+    },
+    { history: [{ enabled: true, revision: 0, updatedAt: 1_800_000_000_000 }], truncated: false },
+    {
+      history: [{ enabled: true, revision: 1, updatedAt: Number.MAX_SAFE_INTEGER }],
+      truncated: false,
+    },
+    {
+      history: [
+        { enabled: true, revision: 1, updatedAt: 1_800_000_000_000 },
+        { enabled: true, revision: 1, updatedAt: 1_800_000_000_000 },
+      ],
+      truncated: false,
+    },
+    { history: [{ enabled: true, revision: 2, updatedAt: 1_800_000_000_000 }], truncated: false },
+    { history: [], truncated: true },
+  ])(
+    'does not turn invalid maintenance history into a successful empty list (%#)',
+    async (value) => {
+      const { env } = serviceControlEnv(() => Response.json(value));
+      await expect(readServiceMaintenanceHistory(env)).resolves.toEqual({ status: 'unavailable' });
+    },
+  );
+
+  it('bounds an unavailable maintenance history read and supports an older producer without changing control state', async () => {
+    await expect(readServiceMaintenanceHistory({})).resolves.toEqual({ status: 'unavailable' });
+    const oldProducer = serviceControlEnv(() => new Response(null, { status: 404 }));
+    await expect(readServiceMaintenanceHistory(oldProducer.env)).resolves.toEqual({
+      status: 'unavailable',
+    });
+    vi.useFakeTimers();
+    const stalled = serviceControlEnv(() => new Promise<Response>(() => {}));
+    const read = readServiceMaintenanceHistory(stalled.env);
+    await vi.advanceTimersByTimeAsync(SERVICE_CONTROL_READ_TIMEOUT_MS);
+    await expect(read).resolves.toEqual({ status: 'unavailable' });
+    expect(readCachedServiceMaintenance(stalled.env).state).toBeNull();
+  });
+
   it('hard-limits 121 barrier-concurrent consumes through a named rate object', async () => {
     const control = createAtomicRateControlBinding(121);
     const input = {

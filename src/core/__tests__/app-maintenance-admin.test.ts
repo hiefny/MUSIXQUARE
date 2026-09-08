@@ -4,6 +4,7 @@ import appWorker from '../../../cloudflare/app-worker.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+  SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_ENABLED_HEADER,
@@ -31,10 +32,21 @@ function createServiceControl(initialEnabled = false) {
     activatedAt: initialEnabled ? Date.now() : null,
   };
   const requests = new Map<string, { enabled: boolean; revision: number }>();
+  const history: ControlState[] = initialEnabled ? [state] : [];
   const fetch = vi.fn(async (request: Request) => {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === SERVICE_CONTROL_STATUS_PATH) {
       return Response.json({ serviceStatus: state });
+    }
+    if (request.method === 'GET' && url.pathname === SERVICE_CONTROL_HISTORY_PATH) {
+      return Response.json({
+        history: history.map(({ enabled, revision, updatedAt }) => ({
+          enabled,
+          revision,
+          updatedAt,
+        })),
+        truncated: false,
+      });
     }
     if (request.method !== 'POST' || url.pathname !== SERVICE_CONTROL_STATE_PATH) {
       return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
@@ -74,6 +86,7 @@ function createServiceControl(initialEnabled = false) {
         updatedAt: now,
         activatedAt: body.enabled ? now : null,
       };
+      history.unshift(state);
     }
     requests.set(body.requestId, { enabled: body.enabled, revision: state.revision });
     return Response.json({ ok: true, serviceStatus: state });
@@ -127,6 +140,63 @@ afterEach(() => {
 });
 
 describe('app maintenance administration', () => {
+  it('requires an admin session for read-only history, keeps it available during maintenance, and returns no-store records', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-08T12:00:00Z'));
+    const control = createServiceControl(true);
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+    };
+    const endpoint = 'https://musixquare.com/api/admin/service-status/history';
+    const unauthorized = await appWorker.fetch(new Request(endpoint), env);
+    expect(unauthorized.status).toBe(401);
+    expect(control.fetch).not.toHaveBeenCalled();
+    const cookie = await login(env);
+    const response = await appWorker.fetch(
+      new Request(endpoint, { headers: { Cookie: cookie } }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(await response.json()).toEqual({
+      generatedAt: '2026-09-08T12:00:00.000Z',
+      history: [{ enabled: true, revision: 1, updatedAt: '2026-09-08T12:00:00.000Z' }],
+      truncated: false,
+    });
+    expect(control.state().enabled).toBe(true);
+    const head = await appWorker.fetch(
+      new Request(endpoint, { method: 'HEAD', headers: { Cookie: cookie } }),
+      env,
+    );
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe('');
+    control.fetch.mockClear();
+    const mutation = await appWorker.fetch(
+      new Request(endpoint, {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: '{}',
+      }),
+      env,
+    );
+    expect(mutation.status).toBe(405);
+    expect(mutation.headers.get('Allow')).toBe('GET, HEAD');
+    expect(control.fetch).not.toHaveBeenCalled();
+
+    control.fetch.mockImplementationOnce(async () =>
+      Response.json({ history: null }, { status: 200 }),
+    );
+    const unavailable = await appWorker.fetch(
+      new Request(endpoint, { headers: { Cookie: cookie } }),
+      env,
+    );
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.headers.get('Cache-Control')).toContain('no-store');
+    expect(await unavailable.json()).toEqual({ error: 'SERVICE_CONTROL_HISTORY_UNAVAILABLE' });
+  });
+
   it('never waits for a cold maintenance refresh before serving public traffic', async () => {
     vi.useFakeTimers();
     const statusFetch = vi.fn((_request: Request) => new Promise<Response>(() => {}));
@@ -357,7 +427,9 @@ describe('app maintenance administration', () => {
     const adminBody = await admin.text();
     expect(admin.status).toBe(200);
     expect(adminBody).toContain('data-service-status-trigger');
-    expect(adminBody).toContain('data-service-status-dialog');
+    expect(adminBody).toContain('data-admin-view="maintenance"');
+    expect(adminBody).toContain('data-service-history-list');
+    expect(adminBody).not.toContain('data-service-status-dialog');
     expect(adminBody).toContain('data-service-status-preview');
     expect(adminBody).not.toContain('Global service status');
     expect(adminBody).toContain('data-admin-tab="operations">Analytics');

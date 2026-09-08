@@ -194,6 +194,7 @@ interface AdminApiPayload {
   readonly targetAccountId?: string;
   readonly targetNickname?: string;
   readonly transferUrl?: string;
+  readonly truncated?: boolean;
   readonly voucherCounts?: ProGrantCounts;
 }
 
@@ -342,7 +343,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.6.4';
+const ADMIN_SCRIPT_VERSION = '8.6.5';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -432,14 +433,16 @@ const serviceStatusTrigger = document.querySelector<HTMLButtonElement>(
 );
 const serviceStatusDot = document.querySelector<HTMLElement>('[data-service-status-dot]');
 const serviceStatusLabel = document.querySelector<HTMLElement>('[data-service-status-label]');
-const serviceStatusDialog = document.querySelector<HTMLDialogElement>(
-  '[data-service-status-dialog]',
+const serviceStatusPanel = document.querySelector<HTMLElement>('[data-service-status-panel]');
+const serviceStatusConfirmation = document.querySelector<HTMLElement>(
+  '[data-service-status-confirmation]',
 );
-const serviceStatusForm =
-  document.querySelector<HTMLFormElement>('[data-service-status-form]') ||
-  document
-    .querySelector<HTMLButtonElement>('[data-service-status-confirm]')
-    ?.closest<HTMLFormElement>('form');
+const serviceStatusConfirmationCopy = document.querySelector<HTMLElement>(
+  '[data-service-status-confirmation-copy]',
+);
+const serviceStatusChangeBtn = document.querySelector<HTMLButtonElement>(
+  '[data-service-status-change]',
+);
 const serviceStatusStateEl = document.querySelector<HTMLElement>('[data-service-status-state]');
 const serviceStatusDescriptionEl = document.querySelector<HTMLElement>(
   '[data-service-status-description]',
@@ -457,6 +460,11 @@ const serviceStatusPreviewBtn = document.querySelector<HTMLButtonElement>(
 const serviceStatusCancelBtns = [
   ...document.querySelectorAll<HTMLButtonElement>('[data-service-status-cancel]'),
 ];
+const serviceHistoryStatusEl = document.querySelector<HTMLElement>('[data-service-history-status]');
+const serviceHistoryListEl = document.querySelector<HTMLElement>('[data-service-history-list]');
+const serviceHistoryRefreshBtn = document.querySelector<HTMLButtonElement>(
+  '[data-service-history-refresh]',
+);
 const updatedAtEl = document.querySelector<HTMLElement>('[data-updated-at]');
 const refreshBtn = document.querySelector<HTMLButtonElement>('[data-refresh]');
 const logoutBtn = document.querySelector<HTMLButtonElement>('[data-logout]');
@@ -475,7 +483,8 @@ let announcementMutationBusy = false;
 let serviceStatusLoaded = false;
 let currentServiceStatus: ServiceStatusState | null = null;
 let serviceStatusBusy = false;
-let serviceStatusRestoreFocus: HTMLElement | null = null;
+let serviceStatusConfirmationRevision: number | null = null;
+let serviceStatusRestoreConfirmationFocus = false;
 let serviceStatusRequestId: string | null = null;
 let serviceStatusSettleTimer: number | null = null;
 let announcementExpiryTimer: number | null = null;
@@ -1356,6 +1365,7 @@ function invalidateAdminSession(): void {
   adminRequestControllers.clear();
   for (const controller of adminLatestLoads.values()) controller.abort();
   adminLatestLoads.clear();
+  closeServiceStatusConfirmation({ restoreFocus: false });
   setServiceStatusBusy(false);
 }
 
@@ -1538,7 +1548,6 @@ function showLogin(
   { invalidateSession = true }: { readonly invalidateSession?: boolean } = {},
 ): void {
   if (invalidateSession) invalidateAdminSession();
-  closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
   closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
   closeProRoomTransferDialog({ restoreFocus: false });
@@ -1574,6 +1583,12 @@ function showLogin(
   serviceStatusLoaded = false;
   currentServiceStatus = null;
   serviceStatusRequestId = null;
+  serviceHistoryListEl?.replaceChildren();
+  if (serviceHistoryStatusEl) {
+    serviceHistoryStatusEl.textContent = '';
+    delete serviceHistoryStatusEl.dataset.state;
+  }
+  if (serviceHistoryRefreshBtn) serviceHistoryRefreshBtn.disabled = false;
   setAnnouncementActiveIndicator(false);
   renderServiceStatusUnavailable('');
   root?.classList.add('is-login');
@@ -1674,10 +1689,11 @@ function scheduleServiceStatusSettlement(status: ServiceStatusState): void {
 
 function renderServiceStatusUnavailable(message = 'Service status unavailable.'): void {
   clearServiceStatusSettleTimer();
+  closeServiceStatusConfirmation();
   serviceStatusLoaded = false;
   currentServiceStatus = null;
   const state = 'unknown';
-  for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusDialog]) {
+  for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusPanel]) {
     if (element) element.dataset.state = state;
   }
   if (serviceStatusLabel) serviceStatusLabel.textContent = 'Maintenance';
@@ -1694,15 +1710,18 @@ function renderServiceStatusUnavailable(message = 'Service status unavailable.')
     serviceStatusErrorEl.hidden = !message;
   }
   if (serviceStatusConfirmBtn) serviceStatusConfirmBtn.disabled = true;
+  if (serviceStatusChangeBtn) serviceStatusChangeBtn.disabled = true;
+  restoreServiceStatusConfirmationFocus();
 }
 
 function renderServiceStatus(status: ServiceStatusState): void {
+  if (serviceStatusConfirmationRevision !== status.revision) closeServiceStatusConfirmation();
   currentServiceStatus = status;
   serviceStatusLoaded = true;
   serviceStatusRequestId = null;
   const state = serviceStatusStateName(status);
   const settling = isServiceStatusSettling(status);
-  for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusDialog]) {
+  for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusPanel]) {
     if (element) element.dataset.state = state;
   }
   if (serviceStatusLabel) serviceStatusLabel.textContent = 'Maintenance';
@@ -1731,12 +1750,12 @@ function renderServiceStatus(status: ServiceStatusState): void {
   if (serviceStatusDescriptionEl) {
     serviceStatusDescriptionEl.textContent =
       state === 'activating'
-        ? 'The maintenance state is refreshing across services. Cold App isolates may briefly admit traffic while their local snapshot warms.'
+        ? 'Maintenance mode is being applied across services.'
         : state === 'resuming'
-          ? 'The operational state is refreshing across services. Some edge requests may remain unavailable for a moment.'
+          ? 'Service is resuming. Some requests may remain unavailable briefly.'
           : status.enabled
-            ? 'Services that observed maintenance block new public traffic. Cold App isolates may briefly admit traffic, and direct uploads authorized earlier may still finish.'
-            : 'MUSIXQUARE is available. Maintenance mode suppresses new public traffic but is not a strict global freeze.';
+            ? 'Maintenance mode is enabled. New public traffic is restricted.'
+            : 'MUSIXQUARE is available.';
   }
   const statusTime = status.enabled ? status.activatedAt || status.updatedAt : status.updatedAt;
   if (serviceStatusUpdatedAtEl) {
@@ -1751,75 +1770,112 @@ function renderServiceStatus(status: ServiceStatusState): void {
     serviceStatusErrorEl.hidden = true;
   }
   if (serviceStatusConfirmBtn) {
-    serviceStatusConfirmBtn.textContent = status.enabled
+    serviceStatusConfirmBtn.textContent = status.enabled ? 'Resume service' : 'Enter maintenance';
+    serviceStatusConfirmBtn.dataset.action = status.enabled ? 'end' : 'enter';
+    serviceStatusConfirmBtn.disabled =
+      serviceStatusBusy || settling || serviceStatusConfirmationRevision !== status.revision;
+  }
+  if (serviceStatusChangeBtn) {
+    serviceStatusChangeBtn.textContent = status.enabled
       ? 'End maintenance mode'
       : 'Enter maintenance mode';
-    serviceStatusConfirmBtn.dataset.action = status.enabled ? 'end' : 'enter';
-    serviceStatusConfirmBtn.disabled = serviceStatusBusy || settling;
+    serviceStatusChangeBtn.dataset.action = status.enabled ? 'end' : 'enter';
+    serviceStatusChangeBtn.disabled = serviceStatusBusy || settling;
   }
   scheduleServiceStatusSettlement(status);
+  restoreServiceStatusConfirmationFocus();
 }
 
 function setServiceStatusBusy(busy: boolean, targetEnabled: boolean | null = null): void {
   serviceStatusBusy = busy;
-  const busyContainer = serviceStatusForm || serviceStatusDialog;
-  if (busyContainer) {
-    if (busy) busyContainer.setAttribute('aria-busy', 'true');
-    else busyContainer.removeAttribute('aria-busy');
+  if (serviceStatusPanel) {
+    if (busy) serviceStatusPanel.setAttribute('aria-busy', 'true');
+    else serviceStatusPanel.removeAttribute('aria-busy');
   }
-  if (serviceStatusTrigger) serviceStatusTrigger.disabled = busy;
+  if (serviceStatusChangeBtn) {
+    serviceStatusChangeBtn.disabled =
+      busy || !serviceStatusLoaded || isServiceStatusSettling(currentServiceStatus);
+  }
   for (const button of serviceStatusCancelBtns) button.disabled = busy;
   if (serviceStatusConfirmBtn) {
     serviceStatusConfirmBtn.disabled =
-      busy || !serviceStatusLoaded || isServiceStatusSettling(currentServiceStatus);
+      busy ||
+      !serviceStatusLoaded ||
+      isServiceStatusSettling(currentServiceStatus) ||
+      serviceStatusConfirmationRevision !== currentServiceStatus?.revision;
     if (busy) {
       serviceStatusConfirmBtn.textContent = targetEnabled ? 'Entering...' : 'Ending...';
     } else if (currentServiceStatus) {
       serviceStatusConfirmBtn.textContent = currentServiceStatus.enabled
-        ? 'End maintenance mode'
-        : 'Enter maintenance mode';
+        ? 'Resume service'
+        : 'Enter maintenance';
     }
   }
+  if (!busy) restoreServiceStatusConfirmationFocus();
 }
 
-function finishServiceStatusDialogClose(): void {
-  const restoreFocus = serviceStatusRestoreFocus;
-  serviceStatusRestoreFocus = null;
-  if (serviceStatusErrorEl) {
-    serviceStatusErrorEl.textContent = '';
-    serviceStatusErrorEl.hidden = true;
+function closeServiceStatusConfirmation({ restoreFocus = true } = {}): void {
+  if (!restoreFocus) serviceStatusRestoreConfirmationFocus = false;
+  else if (serviceStatusConfirmation?.contains(document.activeElement)) {
+    serviceStatusRestoreConfirmationFocus = true;
   }
-  if (restoreFocus?.isConnected) restoreFocus.focus();
+  serviceStatusConfirmationRevision = null;
+  if (serviceStatusConfirmation) serviceStatusConfirmation.hidden = true;
+  if (serviceStatusConfirmBtn) serviceStatusConfirmBtn.disabled = true;
+  serviceStatusChangeBtn?.setAttribute('aria-expanded', 'false');
 }
 
-function closeServiceStatusDialog({
-  restoreFocus = true,
-  force = false,
-}: {
-  readonly force?: boolean;
-  readonly restoreFocus?: boolean;
-} = {}): void {
-  if (!serviceStatusDialog || (serviceStatusBusy && !force)) return;
-  if (!restoreFocus) serviceStatusRestoreFocus = null;
-  if (!serviceStatusDialog.open && !serviceStatusDialog.hasAttribute('open')) {
-    finishServiceStatusDialogClose();
+function restoreServiceStatusConfirmationFocus(): void {
+  if (!serviceStatusRestoreConfirmationFocus || serviceStatusBusy) return;
+  serviceStatusRestoreConfirmationFocus = false;
+  if (
+    dashboard?.hidden ||
+    document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')?.hidden !== false ||
+    (document.activeElement !== null &&
+      document.activeElement !== document.body &&
+      !serviceStatusConfirmation?.contains(document.activeElement))
+  ) {
     return;
   }
-  if (typeof serviceStatusDialog.close === 'function') {
-    try {
-      serviceStatusDialog.close();
-      return;
-    } catch {
-      // Lightweight DOM implementations may not implement the full dialog API.
-    }
+  // While the new state settles, the change action is disabled; keep keyboard
+  // focus on the selected Maintenance tab instead of the now-hidden action.
+  const target = !serviceStatusConfirmation?.hidden
+    ? serviceStatusConfirmBtn
+    : serviceStatusChangeBtn?.disabled
+      ? serviceStatusTrigger
+      : serviceStatusChangeBtn;
+  target?.focus();
+}
+
+function openServiceStatusConfirmation(): void {
+  if (
+    !serviceStatusConfirmation ||
+    !serviceStatusLoaded ||
+    !currentServiceStatus ||
+    serviceStatusBusy ||
+    isServiceStatusSettling(currentServiceStatus)
+  ) {
+    return;
   }
-  serviceStatusDialog.removeAttribute('open');
-  serviceStatusDialog.dispatchEvent(new Event('close'));
+  serviceStatusConfirmationRevision = currentServiceStatus.revision;
+  if (serviceStatusConfirmationCopy) {
+    serviceStatusConfirmationCopy.textContent = currentServiceStatus.enabled
+      ? 'Resume service?'
+      : 'Enter maintenance mode?';
+  }
+  serviceStatusConfirmation.hidden = false;
+  serviceStatusChangeBtn?.setAttribute('aria-expanded', 'true');
+  if (serviceStatusConfirmBtn) serviceStatusConfirmBtn.disabled = false;
+  serviceStatusCancelBtns[0]?.focus();
 }
 
 async function loadServiceStatus(
-  options: { readonly updateTimestamp?: boolean } = {},
+  options: { readonly updateTimestamp?: boolean; readonly reconcileMutation?: boolean } = {},
 ): Promise<ServiceStatusState> {
+  // A refresh started during a mutation must not replace its pending state.
+  if (serviceStatusBusy && currentServiceStatus && !options.reconcileMutation) {
+    return currentServiceStatus;
+  }
   const load = beginLatestAdminLoad('service-status');
   if (!serviceStatusLoaded && serviceStatusLabel) serviceStatusLabel.textContent = 'Maintenance';
   try {
@@ -1852,38 +1908,81 @@ async function loadServiceStatus(
   }
 }
 
-async function openServiceStatusDialog(
-  trigger: HTMLElement | null = serviceStatusTrigger,
-): Promise<void> {
-  if (!serviceStatusDialog || serviceStatusBusy) return;
-  serviceStatusRestoreFocus = trigger;
-  if (typeof serviceStatusDialog.showModal === 'function') {
-    try {
-      serviceStatusDialog.showModal();
-    } catch {
-      serviceStatusDialog.setAttribute('open', '');
-    }
-  } else {
-    serviceStatusDialog.setAttribute('open', '');
-  }
-  if (serviceStatusErrorEl) {
-    serviceStatusErrorEl.textContent = '';
-    serviceStatusErrorEl.hidden = true;
+interface ServiceHistoryEntry {
+  readonly enabled: boolean;
+  readonly revision: number;
+  readonly updatedAt: string;
+}
+
+function isServiceHistoryEntry(value: unknown): value is ServiceHistoryEntry {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<ServiceHistoryEntry>;
+  return (
+    typeof entry.enabled === 'boolean' &&
+    typeof entry.revision === 'number' &&
+    Number.isSafeInteger(entry.revision) &&
+    entry.revision > 0 &&
+    typeof entry.updatedAt === 'string' &&
+    Number.isFinite(Date.parse(entry.updatedAt))
+  );
+}
+
+async function loadServiceStatusHistory(): Promise<void> {
+  if (!serviceHistoryListEl) return;
+  const load = beginLatestAdminLoad('service-history');
+  if (serviceHistoryRefreshBtn) serviceHistoryRefreshBtn.disabled = true;
+  if (serviceHistoryStatusEl) {
+    serviceHistoryStatusEl.textContent = 'Loading history…';
+    serviceHistoryStatusEl.dataset.state = 'loading';
   }
   try {
-    await loadServiceStatus({ updateTimestamp: false });
-  } catch (error) {
-    if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
-    if (serviceStatusErrorEl) {
-      serviceStatusErrorEl.textContent = adminErrorMessage(error, 'Service status refresh failed.');
-      serviceStatusErrorEl.hidden = false;
+    const payload = await fetchJson('/api/admin/service-status/history', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    const history: unknown = payload.history;
+    if (
+      !Array.isArray(history) ||
+      history.length > 64 ||
+      !history.every(isServiceHistoryEntry) ||
+      typeof payload.truncated !== 'boolean'
+    ) {
+      throw new Error('Invalid maintenance history response.');
     }
+    const rows = history.map((entry: ServiceHistoryEntry) => {
+      const item = document.createElement('li');
+      item.className = 'service-history-item';
+      const event = document.createElement('strong');
+      event.className = 'service-history-event';
+      event.textContent = entry.enabled ? 'Entered maintenance' : 'Service resumed';
+      const badge = document.createElement('span');
+      badge.className = 'service-history-badge';
+      badge.dataset.enabled = String(entry.enabled);
+      badge.setAttribute('aria-hidden', 'true');
+      const time = document.createElement('time');
+      time.className = 'service-history-time';
+      time.dateTime = entry.updatedAt;
+      time.textContent = formatAdminDateTime(entry.updatedAt);
+      item.append(badge, event, time);
+      return item;
+    });
+    serviceHistoryListEl.replaceChildren(...rows);
+    if (serviceHistoryStatusEl) {
+      serviceHistoryStatusEl.dataset.state = rows.length ? 'ready' : 'empty';
+      serviceHistoryStatusEl.textContent = rows.length
+        ? `${payload.truncated ? 'Latest ' : ''}${rows.length} recorded ${rows.length === 1 ? 'change' : 'changes'}`
+        : 'No maintenance changes recorded.';
+    }
+  } catch (error) {
+    if (isLatestAdminLoad(load) && serviceHistoryStatusEl) {
+      serviceHistoryStatusEl.dataset.state = 'error';
+      serviceHistoryStatusEl.textContent = adminErrorMessage(error, 'History could not be loaded.');
+    }
+  } finally {
+    if (isLatestAdminLoad(load) && serviceHistoryRefreshBtn)
+      serviceHistoryRefreshBtn.disabled = false;
+    finishLatestAdminLoad(load);
   }
-  const initialFocus =
-    serviceStatusDialog.querySelector<HTMLButtonElement>(
-      '.service-status-dialog-actions [data-service-status-cancel]',
-    ) || serviceStatusCancelBtns[0];
-  initialFocus?.focus();
 }
 
 function abortNonStatusDashboardLoads(): void {
@@ -1893,7 +1992,15 @@ function abortNonStatusDashboardLoads(): void {
 }
 
 async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
-  if (!currentServiceStatus || !serviceStatusLoaded || serviceStatusBusy) return;
+  if (
+    !currentServiceStatus ||
+    !serviceStatusLoaded ||
+    serviceStatusBusy ||
+    isServiceStatusSettling(currentServiceStatus) ||
+    serviceStatusConfirmationRevision !== currentServiceStatus.revision
+  ) {
+    return;
+  }
   const sessionEpoch = adminSessionEpoch;
   const previous = currentServiceStatus;
   const targetEnabled = !previous.enabled;
@@ -1901,6 +2008,10 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
   serviceStatusRequestId = requestId;
   let next: ServiceStatusState;
   adminLatestLoads.get('service-status')?.abort();
+  // Chromium blurs a focused button as soon as it is disabled. Capture focus
+  // before locking the controls so completion can restore it if it stayed here.
+  serviceStatusRestoreConfirmationFocus =
+    serviceStatusConfirmation?.contains(document.activeElement) === true;
   setServiceStatusBusy(true, targetEnabled);
   if (serviceStatusErrorEl) {
     serviceStatusErrorEl.textContent = '';
@@ -1939,7 +2050,8 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
               : `Updated ${formatAdminDateTime(next.updatedAt || Date.now())}`;
     }
     setServiceStatusBusy(false);
-    closeServiceStatusDialog();
+    closeServiceStatusConfirmation();
+    loadServiceStatusHistory().catch(() => {});
   } catch (error) {
     if (sessionEpoch !== adminSessionEpoch) return;
     const responseStatus = isAdminRequestFailure(error) ? error.payload?.serviceStatus : undefined;
@@ -1956,7 +2068,7 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
       (error instanceof Error && error.message === 'SERVICE_STATUS_CONFLICT')
     ) {
       try {
-        await loadServiceStatus({ updateTimestamp: false });
+        await loadServiceStatus({ updateTimestamp: false, reconcileMutation: true });
       } catch {
         // Keep the original mutation error as the actionable message.
       }
@@ -2068,6 +2180,9 @@ function adminErrorMessage(error: unknown, fallback: string): string {
   if (message === 'SERVICE_STATUS_AUDIT_UNAVAILABLE') {
     return 'The change was withheld because the service-status audit is unavailable.';
   }
+  if (message === 'SERVICE_CONTROL_HISTORY_UNAVAILABLE') {
+    return 'History is temporarily unavailable. Try again.';
+  }
   if (message === 'SERVICE_STATUS_UNAVAILABLE' || message === 'SERVICE_CONTROL_UNAVAILABLE') {
     return 'Service status is temporarily unavailable.';
   }
@@ -2160,6 +2275,7 @@ function formatAnnouncementAction(action: unknown): string {
 }
 
 function announcementTitle(tab: string): string {
+  if (tab === 'maintenance') return 'Maintenance';
   if (tab === 'pro-rooms') return 'PRO Rooms';
   if (tab === 'articles') return 'Articles';
   if (tab === 'translations') return 'Translations';
@@ -5091,6 +5207,7 @@ async function registerProRoom(): Promise<AdminApiPayload> {
 }
 
 function setActiveTab(tab: string): void {
+  if (tab !== 'maintenance') closeServiceStatusConfirmation({ restoreFocus: false });
   adminTabs.forEach((button) => {
     const active = button.dataset.adminTab === tab;
     button.classList.toggle('is-active', active);
@@ -6085,6 +6202,9 @@ async function loadAuthenticatedDashboard({
 
 async function refreshAllDashboardData(): Promise<void> {
   const refreshEpoch = adminSessionEpoch;
+  if (document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')?.hidden === false) {
+    loadServiceStatusHistory().catch(() => {});
+  }
   // Refresh data without replaying the tab selected before the requests began.
   if (serviceStatusTrigger) {
     if (updatedAtEl) updatedAtEl.textContent = 'Checking service status...';
@@ -6229,6 +6349,10 @@ adminTabs.forEach((button) => {
   button.addEventListener('click', () => {
     const tab = button.dataset.adminTab || 'operations';
     setActiveTab(tab);
+    if (tab === 'maintenance') {
+      loadServiceStatusHistory().catch(() => {});
+      loadServiceStatus({ updateTimestamp: false }).catch(() => {});
+    }
     if (tab === 'pro-rooms' && !proRoomsLoaded) {
       loadProRooms().catch((error) => {
         if (proRoomListStatusEl) {
@@ -6277,35 +6401,27 @@ translationExportBtn?.addEventListener('click', () => {
   exportApprovedTranslations().catch(reportTranslationAdminError);
 });
 
-serviceStatusTrigger?.addEventListener('click', () => {
-  openServiceStatusDialog(serviceStatusTrigger).catch(() => {});
-});
+serviceStatusChangeBtn?.addEventListener('click', openServiceStatusConfirmation);
 
 for (const button of serviceStatusCancelBtns) {
-  button.addEventListener('click', () => closeServiceStatusDialog());
+  button.addEventListener('click', () => {
+    if (serviceStatusBusy) return;
+    closeServiceStatusConfirmation();
+    restoreServiceStatusConfirmationFocus();
+  });
 }
 
-serviceStatusDialog?.addEventListener('cancel', (event) => {
-  event.preventDefault();
-  closeServiceStatusDialog();
+serviceHistoryRefreshBtn?.addEventListener('click', () => {
+  loadServiceStatusHistory().catch(() => {});
 });
-
-serviceStatusDialog?.addEventListener('close', finishServiceStatusDialogClose);
 
 serviceStatusPreviewBtn?.addEventListener('click', () => {
   window.open('/admin/maintenance-preview', '_blank', 'noopener');
 });
 
-serviceStatusForm?.addEventListener('submit', (event) => {
-  event.preventDefault();
+serviceStatusConfirmBtn?.addEventListener('click', () => {
   saveServiceStatus().catch(() => {});
 });
-
-if (!serviceStatusForm || serviceStatusConfirmBtn?.type !== 'submit') {
-  serviceStatusConfirmBtn?.addEventListener('click', () => {
-    saveServiceStatus().catch(() => {});
-  });
-}
 
 function bindProGrantCampaignEvents(): void {
   mountProGrantCampaignPanel();
@@ -6465,7 +6581,6 @@ window.addEventListener('pagehide', () => {
   if (proRoomSearchTimer !== null) window.clearTimeout(proRoomSearchTimer);
   clearAnnouncementExpiryTimer();
   clearServiceStatusSettleTimer();
-  closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
   closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
   closeProRoomTransferDialog({ restoreFocus: false });
@@ -6487,7 +6602,6 @@ window.addEventListener('beforeunload', (event) => {
   }
   clearAnnouncementExpiryTimer();
   clearServiceStatusSettleTimer();
-  closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
   closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
   clearProRoomClaimState();

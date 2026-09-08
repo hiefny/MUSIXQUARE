@@ -12,6 +12,7 @@ import {
   ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_ENABLED_HEADER,
   SERVICE_CONTROL_STATUS_PATH,
@@ -1070,6 +1071,101 @@ describe('MusixquareServiceControl', () => {
       control.fetch(stateRequest(true, 0, '123e4567-e89b-42d3-a456-426614174006')),
     ]);
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+  });
+
+  it('reads only recorded maintenance revisions across restarts without writing or exposing request IDs', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-08T12:00:00Z'));
+    const { control, storage } = setup();
+    const historyRequest = () =>
+      new Request(`https://service-control.internal${SERVICE_CONTROL_HISTORY_PATH}`);
+    expect(await payload(await control.fetch(historyRequest()))).toEqual({
+      history: [],
+      truncated: false,
+    });
+    await control.fetch(stateRequest(false, 0, 'initial-noop-request'));
+    await control.fetch(stateRequest(true, 0, 'enable-history-request'));
+    await control.fetch(stateRequest(true, 0, 'enable-history-request'));
+    await control.fetch(stateRequest(true, 1, 'enabled-noop-request'));
+    vi.advanceTimersByTime(1000);
+    await control.fetch(stateRequest(false, 1, 'disable-history-request'));
+    await control.fetch(stateRequest(true, 1, 'stale-history-request'));
+
+    const beforeRead = structuredClone(storage.data);
+    const restarted = setup(storage).control;
+    const response = await restarted.fetch(historyRequest());
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(await payload(response)).toEqual({
+      history: [
+        { enabled: false, revision: 2, updatedAt: Date.parse('2026-09-08T12:00:01Z') },
+        { enabled: true, revision: 1, updatedAt: Date.parse('2026-09-08T12:00:00Z') },
+      ],
+      truncated: false,
+    });
+    expect(storage.data).toEqual(beforeRead);
+  });
+
+  it('reports incomplete history when request retention evicts earlier changes, including no-op churn', async () => {
+    const { control, storage } = setup();
+    for (let revision = 0; revision < 66; revision += 1) {
+      await control.fetch(stateRequest(revision % 2 === 0, revision, `history-change-${revision}`));
+    }
+    const readHistory = () =>
+      control.fetch(new Request(`https://service-control.internal${SERVICE_CONTROL_HISTORY_PATH}`));
+    const recent = await payload(await readHistory());
+    expect(recent).toMatchObject({ truncated: true });
+    expect(recent.history).toHaveLength(64);
+    expect(recent.history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ revision: 66 }),
+        expect.objectContaining({ revision: 3 }),
+      ]),
+    );
+    for (let index = 0; index < 64; index += 1) {
+      await control.fetch(stateRequest(false, 66, `history-noop-${index}`));
+    }
+    expect(await payload(await readHistory())).toEqual({
+      history: [expect.objectContaining({ enabled: false, revision: 66 })],
+      truncated: true,
+    });
+    storage.data.delete('service-maintenance-requests');
+    const restarted = setup(storage).control;
+    expect(
+      await payload(
+        await restarted.fetch(
+          new Request(`https://service-control.internal${SERVICE_CONTROL_HISTORY_PATH}`),
+        ),
+      ),
+    ).toEqual({
+      history: [expect.objectContaining({ enabled: false, revision: 66 })],
+      truncated: true,
+    });
+  });
+
+  it('keeps maintenance history isolated from announcement and abuse-rate objects and rejects conflicting snapshots', async () => {
+    for (const name of [
+      ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+      'musixquare-abuse-rate-v1:test',
+      'musixquare-abuse-rate-pair-v1:test',
+    ]) {
+      const isolated = setup(new ServiceControlStorage(), name).control;
+      const response = await isolated.fetch(
+        new Request(`https://service-control.internal${SERVICE_CONTROL_HISTORY_PATH}`),
+      );
+      expect(response.status).toBe(404);
+    }
+    const { control, storage } = setup();
+    await control.fetch(stateRequest(true, 0, 'history-valid-request'));
+    const state = storage.data.get('service-maintenance-state') as Record<string, unknown>;
+    storage.data.set('service-maintenance-requests', [
+      { requestId: 'history-corrupt-request', enabled: false, state: { ...state, enabled: false } },
+    ]);
+    const restarted = setup(storage).control;
+    const response = await restarted.fetch(
+      new Request(`https://service-control.internal${SERVICE_CONTROL_HISTORY_PATH}`),
+    );
+    expect(response.status).toBe(503);
+    expect(await payload(response)).toEqual({ error: 'SERVICE_CONTROL_HISTORY_INVALID' });
   });
 
   it('stores announcement current state and history atomically with fenced idempotent writes', async () => {

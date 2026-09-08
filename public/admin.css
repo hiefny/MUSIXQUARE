@@ -2029,16 +2029,11 @@ p {
 }
 
 .service-status-heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: 11px minmax(0, 1fr);
   align-items: center;
   min-width: 0;
-  gap: 12px;
-}
-
-.service-status-heading > div {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
+  gap: 3px 12px;
 }
 
 .service-status-preview > span {
@@ -2051,7 +2046,6 @@ p {
 .service-status-panel-dot {
   width: 11px;
   height: 11px;
-  flex: 0 0 auto;
   border-radius: 50%;
   background: var(--pass);
   box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
@@ -2119,10 +2113,14 @@ p {
 }
 
 [data-service-status-updated] {
-  min-height: 1.4em;
+  grid-column: 2;
   color: var(--text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+[data-service-status-updated]:empty {
+  display: none;
 }
 
 [data-service-status-error] {

@@ -114,6 +114,18 @@ async function openApp(page: Page): Promise<void> {
   await waitForBootstrapReady(page);
 }
 
+function normalizeHexColorTokens<Key extends string>(
+  tokens: Record<Key, string>,
+): Record<Key, string> {
+  const normalized = { ...tokens };
+  // CSS custom properties preserve text spelling. Compare exact colors even
+  // when the minifier shortens #000000 to #000 or #ffffff to #fff.
+  for (const key in normalized) {
+    normalized[key] = normalized[key].replace(/^#([\da-f])([\da-f])([\da-f])$/iu, '#$1$1$2$2$3$3');
+  }
+  return normalized;
+}
+
 async function contrastTokens(page: Page): Promise<ContrastTokens> {
   const tokens = await page.evaluate<{ root: ContrastTokens; body: ContrastTokens }>(() => {
     const readTokens = (element: Element): ContrastTokens => {
@@ -130,7 +142,7 @@ async function contrastTokens(page: Page): Promise<ContrastTokens> {
     };
   });
   expect(tokens.body).toEqual(tokens.root);
-  return tokens.body;
+  return normalizeHexColorTokens(tokens.body);
 }
 
 async function semanticFillTokens(page: Page): Promise<SemanticFillTokens> {
@@ -151,7 +163,7 @@ async function semanticFillTokens(page: Page): Promise<SemanticFillTokens> {
     };
   });
   expect(tokens.body).toEqual(tokens.root);
-  return tokens.body;
+  return normalizeHexColorTokens(tokens.body);
 }
 
 async function lightContrastHierarchy(page: Page): Promise<LightContrastHierarchy> {
@@ -176,7 +188,7 @@ async function lightContrastHierarchy(page: Page): Promise<LightContrastHierarch
     };
   });
   expect(hierarchy.body).toEqual(hierarchy.root);
-  return hierarchy.body;
+  return normalizeHexColorTokens(hierarchy.body);
 }
 
 async function firstContrastMutation(page: Page): Promise<ContrastFirstMutation | null> {

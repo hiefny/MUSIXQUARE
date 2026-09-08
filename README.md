@@ -126,8 +126,8 @@ To inquire about PRO access, email
 
 ## Local Development
 
-Use the exact Node.js version in [`.node-version`](./.node-version) (`24.13.1`).
-Corepack then selects the pinned `npm@11.8.0` from `package.json`:
+Use the exact Node.js version in [`.node-version`](./.node-version) (`24.20.0`).
+Corepack then selects the pinned `npm@12.0.2` from `package.json`:
 
 ### Installation & Startup
 

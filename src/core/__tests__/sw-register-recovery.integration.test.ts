@@ -121,10 +121,9 @@ function installIntegrationHarness(
 }
 
 async function registerAndLoadCoordinator(): Promise<typeof import('../session-reset.ts')> {
-  const [{ registerServiceWorker }, coordinator] = await Promise.all([
-    import('../../sw-register.ts'),
-    import('../session-reset.ts'),
-  ]);
+  // Resolve hoisted mocks before another import can initialize their dependencies.
+  const { registerServiceWorker } = await import('../../sw-register.ts');
+  const coordinator = await import('../session-reset.ts');
   registerServiceWorker();
   await vi.waitFor(() => expect(navigator.serviceWorker.register).toHaveBeenCalledOnce());
   return coordinator;

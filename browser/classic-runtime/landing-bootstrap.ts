@@ -95,19 +95,14 @@ interface LandingRuntimeWindow extends Window {
       // Localized About URLs own their language even when the shared resolver fails.
       const pathname = location.pathname.toLowerCase().replace(/\/+$/gu, '') || '/';
       const pathLanguage = normalizeFallback(/^\/([^/]+)\/about(?:\.html)?$/u.exec(pathname)?.[1]);
-      const fromPath =
-        pathname === '/about' || pathname === '/about.html'
-          ? 'en'
-          : pathLanguage !== 'en'
-            ? pathLanguage
-            : null;
       const qLang = new URLSearchParams(location.search).get('lang');
-      let resolved = fromPath || normalizeFallback(qLang);
+      let resolved = pathLanguage || normalizeFallback(qLang);
       if (!resolved) {
         try {
-          resolved =
-            normalizeFallback(localStorage.getItem('mxqr-landing-lang')) ||
-            normalizeFallback(localStorage.getItem('musixquare-lang'));
+          const fromStaticStore = /^\/about(?:\.html)?$/u.test(pathname)
+            ? null
+            : normalizeFallback(localStorage.getItem('mxqr-landing-lang'));
+          resolved = fromStaticStore || normalizeFallback(localStorage.getItem('musixquare-lang'));
         } catch {
           /* Storage may be unavailable in private or restricted contexts. */
         }

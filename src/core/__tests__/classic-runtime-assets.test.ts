@@ -699,7 +699,30 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(english.window.document.querySelector<HTMLAnchorElement>('.lp-logo')?.pathname).toBe(
       '/',
     );
+    expect(
+      english.window.document.querySelector<HTMLAnchorElement>('.editorial-site-tab')?.pathname,
+    ).toBe('/en/about');
     english.window.close();
+
+    const explicitEnglish = new JSDOM(markup, {
+      runScripts: 'outside-only',
+      url: 'https://musixquare.com/history?lang=en',
+    });
+    explicitEnglish.window.localStorage.setItem('musixquare-lang', 'ko');
+    explicitEnglish.window.eval(code);
+    explicitEnglish.window.document.dispatchEvent(
+      new explicitEnglish.window.Event('DOMContentLoaded'),
+    );
+    expect(
+      explicitEnglish.window.document.querySelector<HTMLAnchorElement>('.editorial-site-tab')
+        ?.pathname,
+    ).toBe('/en/about');
+    for (const selector of ['.lp-try', '.lp-logo', 'footer a']) {
+      expect(
+        explicitEnglish.window.document.querySelector<HTMLAnchorElement>(selector)?.pathname,
+      ).toBe('/en/');
+    }
+    explicitEnglish.window.close();
   });
 
   it.each(['editorial', 'about'])(
@@ -1275,7 +1298,9 @@ describe('strict TypeScript classic browser runtimes', () => {
     ['/ko/about?lang=ja', 'ko', 'ltr'],
     ['/ar/about', 'ar', 'rtl'],
     ['/pt-br/about', 'pt-BR', 'ltr'],
-    ['/about?lang=ko', 'en', 'ltr'],
+    ['/about?lang=ko', 'ko', 'ltr'],
+    ['/about', 'de', 'ltr'],
+    ['/en/about?lang=ko', 'en', 'ltr'],
   ])(
     'preserves the About document language if its shared helper fails: %s',
     async (path, lang, dir) => {
@@ -1387,7 +1412,7 @@ describe('strict TypeScript classic browser runtimes', () => {
 
     try {
       landingWindow.eval(code);
-      expect(landingWindow.document.title).toBe('Over MUSIXQUARE');
+      expect(landingWindow.document.title).toBe('About · MUSIXQUARE');
       expect(landingWindow.document.documentElement.lang).toBe('nl');
       expect(landingWindow.document.documentElement.dir).toBe('ltr');
       expect(landingWindow.document.querySelector('[data-i18n="header.try"]')?.textContent).toBe(
@@ -1404,10 +1429,10 @@ describe('strict TypeScript classic browser runtimes', () => {
       expect(landingWindow.__landingLang).toBe('zh-hant');
       expect(landingWindow.document.documentElement.lang).toBe('zh-Hant');
       expect(landingWindow.document.documentElement.dir).toBe('ltr');
-      expect(landingWindow.document.title).toBe('關於 MUSIXQUARE');
+      expect(landingWindow.document.title).toBe('About · MUSIXQUARE');
       expect(
         landingWindow.document.querySelector('meta[property="og:locale"]')?.getAttribute('content'),
-      ).toBe('zh_TW');
+      ).toBe('en_US');
       expect(updates).toEqual(['nl', 'zh-hant']);
     } finally {
       landingWindow.close();

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   CLASSIC_RUNTIME_ASSETS,
@@ -54,6 +54,148 @@ async function loadStaticLanguageOptions(): Promise<StaticLanguageOption[]> {
 }
 
 describe('landing-page translation integrity', () => {
+  it.each([
+    { path: '/about', saved: 'ko', browser: 'en-US', visible: 'ko', head: 'en', appPath: '/' },
+    { path: '/about.html', saved: 'ko', browser: 'en-US', visible: 'ko', head: 'en', appPath: '/' },
+    { path: '/about', saved: 'system', browser: 'ko-KR', visible: 'ko', head: 'en', appPath: '/' },
+    { path: '/about', saved: 'en', browser: 'ko-KR', visible: 'en', head: 'en', appPath: '/' },
+    {
+      path: '/en/about',
+      saved: 'ko',
+      browser: 'ko-KR',
+      visible: 'en',
+      head: 'en',
+      appPath: '/en/',
+    },
+    {
+      path: '/ko/about',
+      saved: 'en',
+      browser: 'en-US',
+      visible: 'ko',
+      head: 'ko',
+      appPath: '/ko/',
+    },
+    {
+      path: '/about?lang=ja',
+      saved: 'ko',
+      browser: 'en-US',
+      visible: 'ja',
+      head: 'en',
+      appPath: '/ja/',
+    },
+  ])(
+    'keeps $path metadata, app links, and editorial language consistent with saved $saved',
+    async ({ path, saved, browser, visible, head, appPath }) => {
+      const [dictionaries, html, runtimeSources] = await Promise.all([
+        loadLandingDictionary(),
+        readFile('.workshop/landing/landing.html', 'utf8'),
+        Promise.all(
+          ['static-language.js', 'landing-bootstrap.js', 'landing-i18n.js'].map(
+            async (outputPath) => {
+              const asset = CLASSIC_RUNTIME_ASSETS.find(
+                (candidate) => candidate.outputPath === outputPath,
+              );
+              if (!asset) throw new Error(`Classic runtime is missing: ${outputPath}`);
+              return (await compileClassicRuntimeAsset(process.cwd(), asset)).code;
+            },
+          ),
+        ),
+      ]);
+      const dom = new JSDOM(html, {
+        runScripts: 'outside-only',
+        url: `https://musixquare.com${path}`,
+      });
+      try {
+        const { document } = dom.window;
+        const canonical =
+          head === 'ko' ? 'https://musixquare.com/ko/about' : 'https://musixquare.com/about';
+        document.querySelector<HTMLLinkElement>('link[rel="canonical"]')!.href = canonical;
+        document.querySelector<HTMLMetaElement>('meta[property="og:url"]')!.content = canonical;
+        if (head === 'ko') {
+          for (const link of document.querySelectorAll<HTMLAnchorElement>('a[href="/about"]')) {
+            link.href = '/ko/about';
+          }
+        }
+        // Materialized English About assets point at the explicit app entry.
+        const appLinks = [
+          ...document.querySelectorAll<HTMLAnchorElement>('a[href="https://musixquare.com"]'),
+        ];
+        for (const link of appLinks) link.href = head === 'ko' ? '/ko/' : '/en/';
+        document.querySelector<HTMLAnchorElement>('a[href="/history"]')!.href =
+          '/history?campaign=nav#releases';
+        document.head.insertAdjacentHTML(
+          'beforeend',
+          '<meta property="og:locale:alternate" content="ja_JP">',
+        );
+        dom.window.localStorage.setItem('musixquare-lang', saved);
+        dom.window.localStorage.setItem('mxqr-landing-lang', 'ja');
+        Object.defineProperty(dom.window.navigator, 'languages', { value: [browser] });
+        const historyState = { source: 'about-session' };
+        dom.window.history.replaceState(historyState, '', dom.window.location.href);
+        const historyLength = dom.window.history.length;
+        const replaceState = vi.spyOn(dom.window.history, 'replaceState');
+
+        for (const source of runtimeSources) dom.window.eval(source);
+
+        expect(document.documentElement.lang).toBe(visible);
+        expect(document.querySelector('[data-i18n="hero.lead"]')?.textContent).toBe(
+          dictionaries[visible]['hero.lead'],
+        );
+        expect(document.title).toBe(dictionaries[head]['meta.title']);
+        for (const [selector, key] of [
+          ['meta[name="description"]', 'meta.description'],
+          ['meta[property="og:title"]', 'meta.og_title'],
+          ['meta[property="og:description"]', 'meta.og_description'],
+          ['meta[property="og:image:alt"]', 'meta.og_image_alt'],
+          ['meta[name="twitter:title"]', 'meta.tw_title'],
+          ['meta[name="twitter:description"]', 'meta.tw_description'],
+        ]) {
+          expect(document.querySelector<HTMLMetaElement>(selector)?.content, selector).toBe(
+            dictionaries[head][key],
+          );
+        }
+        expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
+          canonical,
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content).toBe(
+          canonical,
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content).toBe(
+          head === 'ko' ? 'ko_KR' : 'en_US',
+        );
+        expect(
+          document.querySelector<HTMLMetaElement>('meta[property="og:locale:alternate"]')?.content,
+        ).toBe('ja_JP');
+        for (const link of appLinks) {
+          expect(link.isConnected).toBe(true);
+          expect(link.getAttribute('href')).toBe(appPath);
+        }
+        expect(
+          document
+            .querySelector<HTMLAnchorElement>('.editorial-site-tab.is-active')
+            ?.getAttribute('href'),
+        ).toBe(path === '/en/about' ? '/en/about' : head === 'ko' ? '/ko/about' : '/about');
+        for (const route of ['/blog', '/history', '/designsystem']) {
+          const link = document.querySelector<HTMLAnchorElement>(`a[href^="${route}"]`)!;
+          expect(new URL(link.href).searchParams.get('lang'), route).toBe(visible);
+        }
+        const historyLink = new URL(
+          document.querySelector<HTMLAnchorElement>('a[href^="/history"]')!.href,
+        );
+        expect(historyLink.searchParams.get('campaign')).toBe('nav');
+        expect(historyLink.hash).toBe('#releases');
+        expect(dom.window.localStorage.getItem('musixquare-lang')).toBe(saved);
+        expect(dom.window.localStorage.getItem('mxqr-landing-lang')).toBe('ja');
+        expect(dom.window.location.pathname + dom.window.location.search).toBe(path);
+        expect(dom.window.history.state).toEqual(historyState);
+        expect(dom.window.history.length).toBe(historyLength);
+        expect(replaceState).not.toHaveBeenCalled();
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
+
   it('keeps the app, landing dictionaries, and static language picker in sync', async () => {
     const [dictionaries, options] = await Promise.all([
       loadLandingDictionary(),

@@ -6,6 +6,7 @@ import {
   LANGUAGE_OPTIONS,
   languageDirection,
   localizedAboutPath,
+  localizedAboutEntryPath,
   localizedAppEntryPath,
   localizedAppPath,
   type LanguageCode,
@@ -57,7 +58,7 @@ export function applyAppDictionary(document: Document, code: LanguageCode): void
     }
   }
 
-  const aboutPath = localizedAboutPath(code);
+  const aboutPath = localizedAboutEntryPath(code);
   for (const link of document.querySelectorAll<HTMLAnchorElement>('a[href="/about"]')) {
     link.setAttribute('href', aboutPath);
   }

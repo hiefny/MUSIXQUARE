@@ -350,17 +350,15 @@
         String(location.pathname || '/')
           .toLowerCase()
           .replace(/\/+$/gu, '') || '/';
-      if (pathname === '/about' || pathname === '/about.html') return 'en';
       const match = /^\/([^/]+)\/about(?:\.html)?$/u.exec(pathname);
-      const code = normalize(match?.[1]);
-      return code && code !== 'en' ? code : null;
+      return normalize(match?.[1]);
     } catch {
       return null;
     }
   }
 
   function localizedAboutPath(code: string): string {
-    return code === 'en' ? '/about' : '/' + code + '/about';
+    return '/' + code + '/about';
   }
 
   function localizedAboutHref(code: string): string {
@@ -389,9 +387,12 @@
     const fromQuery = normalize(qLang);
     if (fromQuery) return fromQuery;
 
-    const fromStaticStore = normalize(readStore(STATIC_STORE_KEY));
-    if (fromStaticStore) return fromStaticStore;
-
+    // The shared About entry follows the same saved mode as the shared app.
+    // A stale static-page choice must not override the app's system preference.
+    if (!/^\/about(?:\.html)?\/*$/iu.test(location.pathname)) {
+      const fromStaticStore = normalize(readStore(STATIC_STORE_KEY));
+      if (fromStaticStore) return fromStaticStore;
+    }
     const fromAppStore = normalize(readStore(APP_STORE_KEY));
     if (fromAppStore) return fromAppStore;
 

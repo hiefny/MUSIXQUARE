@@ -12648,14 +12648,39 @@ describe('Cloudflare app worker invite route', () => {
     expect(await aboutResponse.text()).toBe('');
   });
 
+  it.each(['GET', 'HEAD'] as const)(
+    'serves the explicit English About entry without redirecting away its language on %s',
+    async (method) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/en/about?campaign=launch#story', {
+          method,
+          headers: { 'Accept-Language': 'ko-KR' },
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Location')).toBeNull();
+      expect(response.headers.get('Cache-Control')).toBe(
+        'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      );
+      const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+      expect(new URL(assetRequest.url).pathname).toBe('/about.html');
+      if (method === 'HEAD') expect(await response.text()).toBe('');
+      else expect(await response.text()).toContain('/about.html');
+    },
+  );
+
   it.each([
     ['/en', '/en/'],
     ['/EN/', '/en/'],
     ['/en///', '/en/'],
     ['/EN/INDEX.HTML', '/en/'],
-    ['/en/about', '/about'],
-    ['/EN/About/', '/about'],
-    ['/en/about.html', '/about'],
+    ['/EN/About/', '/en/about'],
+    ['/en/about/', '/en/about'],
+    ['/en/about///', '/en/about'],
+    ['/en/about.html', '/en/about'],
     ['/KO', '/ko/'],
     ['/KO/', '/ko/'],
     ['/KO///', '/ko/'],
@@ -12699,6 +12724,7 @@ describe('Cloudflare app worker invite route', () => {
   it.each([
     ['/KO//', '/ko/'],
     ['/EN//', '/en/'],
+    ['/EN/About/', '/en/about'],
     ['/TL//', '/fil/'],
     ['/HISTORY/', '/history'],
   ])(
@@ -12744,6 +12770,23 @@ describe('Cloudflare app worker invite route', () => {
     const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
     expect(new URL(assetRequest.url).pathname).toBe('/about.html');
   });
+
+  it.each(['/about', '/about.html', '/landing'])(
+    'keeps explicit English intent when redirecting the legacy %s language query',
+    async (path) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request(`https://musixquare.com${path}?lang=en&campaign=launch#story`),
+        env,
+      );
+
+      expect(response.status).toBe(301);
+      expect(response.headers.get('Location')).toBe(
+        'https://musixquare.com/en/about?campaign=launch#story',
+      );
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not reinterpret unsupported locale-shaped paths as generated locale pages', async () => {
     const env = createAssetEnv();

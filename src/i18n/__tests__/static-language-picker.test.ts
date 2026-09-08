@@ -279,9 +279,10 @@ describe('static page language picker', () => {
     dom.window.close();
   });
 
-  it('lets the About pathname own the language ahead of legacy query and storage hints', async () => {
-    const english = await createPickerHarness(false, 'https://musixquare.com/about?lang=ko');
+  it('lets explicit About pathnames own the language ahead of query and storage hints', async () => {
+    const english = await createPickerHarness(false, 'https://musixquare.com/en/about?lang=ko');
     english.dom.window.localStorage.setItem('mxqr-landing-lang', 'ja');
+    english.dom.window.localStorage.setItem('musixquare-lang', 'ko');
     expect(languageApi(english.dom).resolve('ko')).toBe('en');
     english.dom.window.close();
 
@@ -289,6 +290,50 @@ describe('static page language picker', () => {
     japanese.dom.window.localStorage.setItem('mxqr-landing-lang', 'ko');
     expect(languageApi(japanese.dom).resolve('en')).toBe('ja');
     japanese.dom.window.close();
+  });
+
+  it.each([
+    { path: '/about', appPreference: 'ko', browserLanguage: 'en-US', expected: 'ko' },
+    { path: '/about.html', appPreference: 'ko', browserLanguage: 'en-US', expected: 'ko' },
+    { path: '/about', appPreference: 'system', browserLanguage: 'ko-KR', expected: 'ko' },
+    { path: '/about', appPreference: 'invalid', browserLanguage: 'ko-KR', expected: 'ko' },
+    { path: '/about', appPreference: null, browserLanguage: 'ko-KR', expected: 'ko' },
+  ])(
+    'resolves $path from app preference $appPreference without reviving a stale static choice',
+    async ({ path, appPreference, browserLanguage, expected }) => {
+      const { dom } = await createPickerHarness(false, `https://musixquare.com${path}`);
+      dom.window.localStorage.setItem('mxqr-landing-lang', 'ja');
+      if (appPreference !== null) {
+        dom.window.localStorage.setItem('musixquare-lang', appPreference);
+      }
+      Object.defineProperty(dom.window.navigator, 'languages', {
+        configurable: true,
+        value: [browserLanguage],
+      });
+      const replaceState = vi.spyOn(dom.window.history, 'replaceState');
+
+      expect(languageApi(dom).resolve('en')).toBe(expected);
+      expect(dom.window.localStorage.getItem('mxqr-landing-lang')).toBe('ja');
+      expect(dom.window.localStorage.getItem('musixquare-lang')).toBe(appPreference);
+      expect(dom.window.location.pathname).toBe(path);
+      expect(replaceState).not.toHaveBeenCalled();
+      dom.window.close();
+    },
+  );
+
+  it('retains legacy static-page precedence outside the shared About entry', async () => {
+    const { dom } = await createPickerHarness(false, 'https://musixquare.com/history');
+    dom.window.localStorage.setItem('mxqr-landing-lang', 'ja');
+    dom.window.localStorage.setItem('musixquare-lang', 'ko');
+    expect(languageApi(dom).resolve('en')).toBe('ja');
+    dom.window.close();
+  });
+
+  it('honors a valid legacy query on the shared About preview', async () => {
+    const { dom } = await createPickerHarness(false, 'https://musixquare.com/about?lang=ko-KR');
+    dom.window.localStorage.setItem('musixquare-lang', 'ja');
+    expect(languageApi(dom).resolve('en')).toBe('ko');
+    dom.window.close();
   });
 
   it('maps generic Norwegian URLs to the supported Bokmål locale', async () => {
@@ -308,7 +353,7 @@ describe('static page language picker', () => {
     const korean = options.find((option) => option.dataset.langSet === 'ko');
 
     expect(options.every((option) => option.tagName === 'A')).toBe(true);
-    expect(english?.getAttribute('href')).toBe('/about?campaign=launch#features');
+    expect(english?.getAttribute('href')).toBe('/en/about?campaign=launch#features');
     expect(korean?.getAttribute('href')).toBe('/ko/about?campaign=launch#features');
 
     dom.window.close();

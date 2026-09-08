@@ -13,8 +13,7 @@ export interface E2EQueueSnapshot {
 export async function readQueueSnapshot(page: Page): Promise<E2EQueueSnapshot> {
   return page.evaluate(() => {
     const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-      | ((path: string) => unknown)
-      | undefined;
+      ((path: string) => unknown) | undefined;
     const items = get?.('playlist.items');
     const currentQueueItemId = get?.('playlist.currentQueueItemId');
     const revision = get?.('playlist.revision');
@@ -47,8 +46,7 @@ export async function setCurrentQueueItemByIndex(page: Page, index: number): Pro
     const root = window as unknown as Record<string, unknown>;
     const get = root.__MUSIXQUARE_GET_STATE__ as ((path: string) => unknown) | undefined;
     const set = root.__MUSIXQUARE_SET_STATE__ as
-      | ((path: string, value: unknown) => void)
-      | undefined;
+      ((path: string, value: unknown) => void) | undefined;
     const items = get?.('playlist.items');
     const item = Array.isArray(items) ? items[nextIndex] : undefined;
     const queueItemId =
@@ -69,8 +67,7 @@ export async function waitForCurrentQueueIndex(
   await page.waitForFunction(
     (expected) => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((path: string) => unknown)
-        | undefined;
+        ((path: string) => unknown) | undefined;
       const items = get?.('playlist.items');
       const currentQueueItemId = get?.('playlist.currentQueueItemId');
       return (
@@ -96,8 +93,7 @@ export async function waitForCurrentQueueItemId(
   await page.waitForFunction(
     (expected) => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((path: string) => unknown)
-        | undefined;
+        ((path: string) => unknown) | undefined;
       return get?.('playlist.currentQueueItemId') === expected;
     },
     expectedQueueItemId,

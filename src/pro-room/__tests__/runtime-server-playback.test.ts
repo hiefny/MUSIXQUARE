@@ -215,7 +215,7 @@ function createReconciliationLiveness(): {
   };
 }
 
-describe.sequential('coordinator-free PRO playback runtime', () => {
+describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   const restoreSpies: Array<{ mockRestore(): void }> = [];
   let prepareResult: 'ready' | 'failed';
   let prepareMedia: Mock<ProPlaybackMediaEndpoint['prepare']>;

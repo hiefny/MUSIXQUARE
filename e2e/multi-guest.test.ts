@@ -151,8 +151,7 @@ test.describe('Multi-Guest', () => {
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         const peers = get?.('network.connectedPeers') as
-          | Array<{ status?: string; conn?: { open?: boolean } }>
-          | undefined;
+          Array<{ status?: string; conn?: { open?: boolean } }> | undefined;
         return peers?.length === 1 && peers[0]?.status === 'connected' && peers[0]?.conn?.open;
       },
       undefined,
@@ -265,8 +264,7 @@ test.describe('Multi-Guest', () => {
       (peerId) => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         const peers = get?.('network.connectedPeers') as
-          | Array<{ id?: string; status?: string; conn?: { open?: boolean } }>
-          | undefined;
+          Array<{ id?: string; status?: string; conn?: { open?: boolean } }> | undefined;
         return (
           peers?.length === 1 &&
           peers[0]?.id === peerId &&

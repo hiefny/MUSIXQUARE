@@ -1,5 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import postcss from 'postcss';
 
@@ -53,7 +54,7 @@ function appAssetUrls(html: string): { cssUrl: string; mainUrl: string } {
   return { cssUrl: localStylesheets[0]!, mainUrl: mainScripts[0]! };
 }
 
-function assertLegacyCss(css: string): void {
+export function assertLegacyCss(css: string): void {
   const root = postcss.parse(css);
   const layers: string[] = [];
   root.walkAtRules('layer', (rule) => {
@@ -89,12 +90,27 @@ function assertLegacyCss(css: string): void {
     throw new Error('Built CSS lost the selector-safe delayed boot failure surface.');
   }
 
+  let hasPhysicalOverlayEdges = false;
+  root.walkRules((rule) => {
+    if (!rule.selectors.includes('.file-drop-feedback')) return;
+    const edges = new Map(
+      rule.nodes.flatMap((node) =>
+        node.type === 'decl' ? [[node.prop, node.value] as const] : [],
+      ),
+    );
+    if (['top', 'right', 'bottom', 'left'].every((edge) => edges.get(edge) === '0')) {
+      hasPhysicalOverlayEdges = true;
+    }
+  });
+  if (!hasPhysicalOverlayEdges) {
+    throw new Error('Built CSS lost physical fullscreen overlay edges required by Chromium 79.');
+  }
+
   for (const sentinel of [
     '--bg:',
     '.onboarding-overlay',
     'body.fouc-loaded',
     'body.overlay-open .bottom-nav',
-    'top:0;right:0;bottom:0;left:0',
   ]) {
     if (!css.includes(sentinel)) throw new Error(`Built CSS lost legacy sentinel: ${sentinel}`);
   }
@@ -174,4 +190,5 @@ async function main(): Promise<void> {
   );
 }
 
-await main();
+const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';
+if (invokedPath === import.meta.url) await main();

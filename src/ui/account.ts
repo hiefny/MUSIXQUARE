@@ -743,8 +743,7 @@ function focusAccountLoginPopup(popup: Window): void {
 }
 
 function openIsolatedAccountLoginPopup():
-  | { outcome: 'opened'; popup: Window }
-  | { outcome: 'blocked' | 'error' } {
+  { outcome: 'opened'; popup: Window } | { outcome: 'blocked' | 'error' } {
   let loginUrl: string;
   let popup: Window | null;
   try {

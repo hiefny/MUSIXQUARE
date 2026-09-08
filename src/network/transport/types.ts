@@ -385,9 +385,7 @@ export interface TransportMediaConnection {
 }
 
 export type TransportBackgroundRecoveryStatus =
-  | 'not-applicable'
-  | 'monitoring'
-  | 'stale-connection-closed';
+  'not-applicable' | 'monitoring' | 'stale-connection-closed';
 
 /**
  * Exact Remote Share /session authority requested from an authenticated

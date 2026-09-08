@@ -507,8 +507,7 @@ interface LifecycleRuleOptions extends ExactKeysOptions {
 }
 
 type NormalizedLifecycleCondition =
-  | { type: 'Age'; maxAge: number }
-  | { type: 'Date'; date: string };
+  { type: 'Age'; maxAge: number } | { type: 'Date'; date: string };
 
 interface NormalizedLifecycleRule {
   id: string;

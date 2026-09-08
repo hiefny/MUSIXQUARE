@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 
+import { performance as nodePerformance } from 'node:perf_hooks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const moduleMocks = vi.hoisted(() => ({
@@ -142,6 +143,8 @@ function installServiceWorkerHarness(
     value: container,
   });
   vi.stubGlobal('performance', {
+    // Vitest 5 also reads this clock while evaluating the first dynamic import.
+    now: nodePerformance.now.bind(nodePerformance),
     getEntriesByType: vi.fn((type: string) =>
       type === 'navigation' ? [{ type: navigationType }] : [],
     ),

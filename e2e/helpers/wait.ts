@@ -56,8 +56,7 @@ function projectPlaybackState(snapshot: PlaybackSnapshot): PlaybackProjection {
 async function readPlaybackSnapshot(page: Page): Promise<PlaybackSnapshot> {
   return page.evaluate(() => {
     const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-      | ((p: string) => unknown)
-      | undefined;
+      ((p: string) => unknown) | undefined;
     if (!get) {
       return {
         mode: undefined,
@@ -112,14 +111,11 @@ export async function waitForPlaybackProjectionIn(
       if (typeof hook === 'function') return allowed.includes(hook() as PlaybackProjection);
 
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return false;
 
       const meta = get('player.currentTrackMeta') as
-        | { systemAudioPlaceholder?: boolean }
-        | null
-        | undefined;
+        { systemAudioPlaceholder?: boolean } | null | undefined;
       const mode = get('playback.mode');
       const activity = get('playback.activity');
       const lifecycle = get('playback.lifecycle');
@@ -156,8 +152,7 @@ export async function waitForPlaybackProjectionReady(page: Page, timeout = 10_00
       if (typeof hook === 'function') return hook() !== undefined;
 
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       return typeof get === 'function';
     },
     undefined,
@@ -178,8 +173,7 @@ export async function waitForState(
   await page.waitForFunction(
     ([path, val]) => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return false;
       const current = get(path as string);
       if (val !== null && typeof val === 'object') {
@@ -271,8 +265,7 @@ export async function waitForFilePlaybackReady(page: Page, timeout = 15_000): Pr
   await page.waitForFunction(
     () => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return false;
       const lifecycle = get('playback.lifecycle');
       return (
@@ -346,8 +339,7 @@ export async function waitForChatMessage(
 export async function readState(page: Page, statePath: string): Promise<unknown> {
   return page.evaluate((path) => {
     const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-      | ((p: string) => unknown)
-      | undefined;
+      ((p: string) => unknown) | undefined;
     if (!get) return undefined;
     return get(path);
   }, statePath);

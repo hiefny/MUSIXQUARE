@@ -15,10 +15,7 @@ const CAMERA_MUTE_GRACE_MS = 1_500;
 const CAMERA_ATTEMPTS = 2;
 
 type GuestQrScannerError =
-  | 'permission-denied'
-  | 'camera-not-found'
-  | 'camera-unavailable'
-  | 'camera-start-stalled';
+  'permission-denied' | 'camera-not-found' | 'camera-unavailable' | 'camera-start-stalled';
 
 interface GuestQrScannerCallbacks {
   isCurrent: () => boolean;
@@ -669,7 +666,11 @@ export function initGuestQrScanner(nextCallbacks: GuestQrScannerCallbacks): void
   const elements = scannerElements();
   if (!elements) return;
   controlsBound = true;
-  elements.button.addEventListener('click', () => void startGuestQrScanner());
+  elements.button.addEventListener('click', () => {
+    startGuestQrScanner().catch((error: unknown) => {
+      log.warn('[Setup QR] Scanner start failed', error);
+    });
+  });
   elements.closeButton.addEventListener('click', () => {
     stopGuestQrScanner();
     elements.button.focus({ preventScroll: true });

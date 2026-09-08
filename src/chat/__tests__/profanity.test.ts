@@ -5,7 +5,7 @@ import { filterProfanity } from '../profanity.ts';
 
 function sourceProjection(): { words: string[]; korean: RegExp | null; english: RegExp | null } {
   const words = new Set<string>();
-  for (const entry of KO.profanity) {
+  for (const entry of KO.words) {
     if (entry.severity >= 2) {
       for (const variation of entry.variations ?? []) words.add(variation.toLowerCase());
     }

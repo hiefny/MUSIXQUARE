@@ -6773,22 +6773,20 @@ export class MusixquareProRoom {
       ) {
         return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
       }
-      const items = mutation.items.map(
-        (candidate): PlaylistItem => ({
-          queueItemId: randomQueueItemId(),
-          name: candidate.name,
-          ...(candidate.title === undefined ? {} : { title: candidate.title }),
-          ...(candidate.artist === undefined ? {} : { artist: candidate.artist }),
-          ...(candidate.thumbnail === undefined ? {} : { thumbnail: candidate.thumbnail }),
-          source: {
-            kind: 'youtube',
-            videoId: candidate.videoId,
-            ...(candidate.playlistId === undefined ? {} : { playlistId: candidate.playlistId }),
-            ...(candidate.videoIds === undefined ? {} : { videoIds: [...candidate.videoIds] }),
-          },
-          developerOwnerKeyId: developerKeyId,
-        }),
-      );
+      const items = mutation.items.map((candidate): PlaylistItem => ({
+        queueItemId: randomQueueItemId(),
+        name: candidate.name,
+        ...(candidate.title === undefined ? {} : { title: candidate.title }),
+        ...(candidate.artist === undefined ? {} : { artist: candidate.artist }),
+        ...(candidate.thumbnail === undefined ? {} : { thumbnail: candidate.thumbnail }),
+        source: {
+          kind: 'youtube',
+          videoId: candidate.videoId,
+          ...(candidate.playlistId === undefined ? {} : { playlistId: candidate.playlistId }),
+          ...(candidate.videoIds === undefined ? {} : { videoIds: [...candidate.videoIds] }),
+        },
+        developerOwnerKeyId: developerKeyId,
+      }));
       this.activeRoom.playlist.push(...items);
       playlistChanged = true;
     } else if (mutation.type === 'remove') {

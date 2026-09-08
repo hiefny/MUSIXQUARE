@@ -1513,8 +1513,7 @@ describe('YouTube Player', () => {
       document.body.appendChild(wrapper);
 
       let onStateChange:
-        | ((event: { data: number; target: YouTubePlayerInstance }) => void)
-        | undefined;
+        ((event: { data: number; target: YouTubePlayerInstance }) => void) | undefined;
       const player: YouTubePlayerInstance = {
         loadVideoById: vi.fn(),
         loadPlaylist: vi.fn(),
@@ -1596,8 +1595,7 @@ describe('YouTube Player', () => {
       document.body.appendChild(wrapper);
 
       let onStateChange:
-        | ((event: { data: number; target: YouTubePlayerInstance }) => void)
-        | undefined;
+        ((event: { data: number; target: YouTubePlayerInstance }) => void) | undefined;
       const player: YouTubePlayerInstance = {
         loadVideoById: vi.fn(),
         loadPlaylist: vi.fn(),

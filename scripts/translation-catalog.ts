@@ -261,26 +261,22 @@ export async function loadCatalogs(repoRoot: string): Promise<Map<string, Catalo
     assertKeys(app, appKeys, `app:${locale.code}`);
     assertKeys(currentAbout, aboutKeys, `about:${locale.code}`);
     const entries: CatalogEntry[] = [
-      ...appKeys.map(
-        (key): CatalogEntry => ({
-          id: `app:${key}`,
-          surface: 'app',
-          key,
-          sourceEn: english[key]!,
-          sourceKo: korean[key]!,
-          current: app[key]!,
-        }),
-      ),
-      ...aboutKeys.map(
-        (key): CatalogEntry => ({
-          id: `about:${key}`,
-          surface: 'about',
-          key,
-          sourceEn: aboutEn[key]!,
-          sourceKo: aboutKo[key]!,
-          current: currentAbout[key]!,
-        }),
-      ),
+      ...appKeys.map((key): CatalogEntry => ({
+        id: `app:${key}`,
+        surface: 'app',
+        key,
+        sourceEn: english[key]!,
+        sourceKo: korean[key]!,
+        current: app[key]!,
+      })),
+      ...aboutKeys.map((key): CatalogEntry => ({
+        id: `about:${key}`,
+        surface: 'about',
+        key,
+        sourceEn: aboutEn[key]!,
+        sourceKo: aboutKo[key]!,
+        current: currentAbout[key]!,
+      })),
     ];
     catalogs.set(locale.code, { locale, languages, entries });
   }

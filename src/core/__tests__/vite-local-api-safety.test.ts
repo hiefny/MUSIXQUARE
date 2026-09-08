@@ -101,7 +101,17 @@ describe('Vite local API safety', () => {
       const bundle = {
         [authored]: { type: 'asset', fileName: authored, source: `<title>${page}</title>` },
       };
-      flatten.generateBundle({}, bundle);
+      flatten.generateBundle.call(
+        {
+          ...flatten,
+          emitFile(asset: { source: string; fileName: string; type: string }) {
+            bundle[asset.fileName] = asset;
+            return asset.fileName;
+          },
+        },
+        {},
+        bundle,
+      );
       expect(bundle[authored]).toBeUndefined();
       const aliases = pluginNamed('dev-page-aliases') as {
         configureServer(server: { middlewares: { use(value: DevMiddleware): void } }): void;
@@ -337,7 +347,7 @@ describe('Vite dynamic/static overlap policy', () => {
     );
     expect(isExpectedPlaylistImportOverlapWarning(changedWarning)).toBe(false);
 
-    const onwarn = createViteConfig({}).build?.rollupOptions?.onwarn;
+    const onwarn = createViteConfig({}).build?.rolldownOptions?.onwarn;
     expect(typeof onwarn).toBe('function');
     expect(() =>
       (onwarn as unknown as (warning: { message: string }, warn: () => void) => void)(
@@ -501,6 +511,25 @@ describe('service-worker build entry manifest', () => {
       './primary-font.css',
       './designsystem/fonts/PretendardVariable.woff2',
     ]);
+  });
+
+  it('discovers Vite 8 static templates and string-coerced Worker URL bases', () => {
+    const source = [
+      'new Worker(new URL(`/assets/sync.worker.js`, `` + import.meta.url));',
+      'new SharedWorker(new URL(`/assets/shared.worker.js`, import.meta.url + ""));',
+      'new Worker(new URL(`/assets/${name}.js`, `` + import.meta.url));',
+      'new Worker(new URL(`/assets/prefixed.js`, "/prefix" + import.meta.url));',
+      'new Worker(new URL(`https://outside.test/worker.js`, `` + import.meta.url));',
+    ].join('\n');
+    expect(collectRenderedWorkerAssets(source)).toEqual([
+      '/assets/shared.worker.js',
+      '/assets/sync.worker.js',
+    ]);
+  });
+
+  it('rejects invalid module syntax instead of silently omitting Worker dependencies', () => {
+    expect(() => collectRenderedWorkerAssets('return;')).toThrow('Invalid startup module');
+    expect(() => collectRenderedWorkerAssets('new Worker(')).toThrow('Invalid startup module');
   });
 
   it('discovers only same-origin rendered Worker URL module expressions', () => {

@@ -25,9 +25,7 @@ interface DiagnosticTimelineEntry {
 }
 
 type SnapshotReadResult<T> =
-  | { status: 'ok'; value: T }
-  | { status: 'timeout' }
-  | { status: 'error'; error: unknown };
+  { status: 'ok'; value: T } | { status: 'timeout' } | { status: 'error'; error: unknown };
 
 interface DebugNetworkInformation extends EventTarget {
   type?: unknown;
@@ -180,8 +178,7 @@ function markerAge(key: string, now: number): string {
 function navigationSummary(): string {
   try {
     const navigation = performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     if (!navigation) return 'unavailable';
     return [
       `type=${navigation.type}`,

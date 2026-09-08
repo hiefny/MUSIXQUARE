@@ -66,8 +66,7 @@ export interface ProSystemAudioSfuPublisherPreflight {
 }
 
 type PublisherPreflightResult =
-  | { ok: true; rtcConfig: RTCConfiguration }
-  | { ok: false; error: unknown };
+  { ok: true; rtcConfig: RTCConfiguration } | { ok: false; error: unknown };
 
 interface PublisherPreflightState {
   controller: AbortController;

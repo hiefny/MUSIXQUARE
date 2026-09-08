@@ -1181,8 +1181,7 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
       ) => Promise<void>)
     | null = null;
   private closeHandler:
-    | ((mediaConn: CloudflareMediaConnection, notifyRemote: boolean) => void)
-    | null = null;
+    ((mediaConn: CloudflareMediaConnection, notifyRemote: boolean) => void) | null = null;
 
   constructor(
     readonly peer: string,
@@ -1445,10 +1444,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly standardRoomIdentityActiveRefreshGenerations = new Set<number>();
   private standardRoomIdentityRefreshGeneration = 0;
   private remoteShareUploadAssertionStatus:
-    | 'unknown'
-    | 'unsupported'
-    | 'supported'
-    | 'unavailable' = 'unknown';
+    'unknown' | 'unsupported' | 'supported' | 'unavailable' = 'unknown';
   private remoteShareUploadAssertionObserved = false;
   private readonly pendingRemoteShareUploadAssertions = new Map<
     string,

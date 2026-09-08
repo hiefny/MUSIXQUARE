@@ -90,8 +90,7 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
 function isReloadNavigation(): boolean {
   try {
     const navigation = performance.getEntriesByType('navigation')[0] as
-      | PerformanceNavigationTiming
-      | undefined;
+      PerformanceNavigationTiming | undefined;
     return navigation?.type === 'reload';
   } catch {
     return false;
@@ -143,10 +142,7 @@ export function registerServiceWorker(): void {
     let handleControllerGeneration: (controller: ServiceWorker) => Promise<void> = async () =>
       undefined;
     let activationState:
-      | 'passive'
-      | 'prompting'
-      | 'awaiting-local-controller'
-      | 'reload-scheduled' = 'passive';
+      'passive' | 'prompting' | 'awaiting-local-controller' | 'reload-scheduled' = 'passive';
 
     const probeCacheStatus = () => {
       navigator.serviceWorker.controller?.postMessage({ type: CACHE_STATUS_PROBE });

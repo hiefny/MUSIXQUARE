@@ -168,8 +168,7 @@ interface PlaylistMutation {
 }
 
 type PlaylistMutationAttempt =
-  | { outcome: 'accepted'; snapshot: ProRoomSnapshot }
-  | { outcome: 'conflict'; error: unknown };
+  { outcome: 'accepted'; snapshot: ProRoomSnapshot } | { outcome: 'conflict'; error: unknown };
 
 type PlaylistIntent = (snapshot: ProRoomSnapshot, isRebase: boolean) => PlaylistMutation | null;
 

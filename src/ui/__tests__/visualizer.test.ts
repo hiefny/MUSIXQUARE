@@ -79,10 +79,9 @@ vi.mock('../../core/constants.ts', async (importOriginal) => {
 
 beforeEach(async () => {
   vi.useFakeTimers();
-  const [{ resetState }, { getAnalyser }] = await Promise.all([
-    import('../../core/state.ts'),
-    import('../../audio/engine.ts'),
-  ]);
+  // Resolve the hoisted mock queue before a second dynamic import can bypass it.
+  const { resetState } = await import('../../core/state.ts');
+  const { getAnalyser } = await import('../../audio/engine.ts');
   resetState();
   vi.mocked(getAnalyser).mockReturnValue(null);
   localStorage.clear();

@@ -164,8 +164,7 @@ describe('YouTube Sync', () => {
       const { registerHandlers } = await import('../../network/protocol.ts');
       initYouTubeSync();
       const handlers = vi.mocked(registerHandlers).mock.calls.at(-1)?.[0] as
-        | Record<string, SyncHandler>
-        | undefined;
+        Record<string, SyncHandler> | undefined;
       const handler = handlers?.[MSG.YOUTUBE_SYNC];
       expect(handler).toBeTypeOf('function');
       return (data, conn = hostConn) => handler?.({ queueItemId: QUEUE_ITEM_ID, ...data }, conn);

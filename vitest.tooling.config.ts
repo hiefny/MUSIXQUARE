@@ -25,6 +25,8 @@ export default defineConfig({
     ],
     environment: 'node',
     globals: true,
+    // Keep initialization calls available to assertions; Vitest 5 clears them by default.
+    clearMocks: false,
     testTimeout: 30_000,
     coverage: {
       provider: 'v8',

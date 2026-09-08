@@ -38,9 +38,7 @@ export async function injectPeerServer(page: Page): Promise<void> {
       const lifecycle = rawGetState('playback.lifecycle');
       const isReceivingSystemAudio = rawGetState('systemAudio.isReceiving');
       const meta = rawGetState('player.currentTrackMeta') as
-        | { systemAudioPlaceholder?: boolean }
-        | null
-        | undefined;
+        { systemAudioPlaceholder?: boolean } | null | undefined;
 
       if (mode === 'youtube') return 'PLAYING_YOUTUBE';
       if (

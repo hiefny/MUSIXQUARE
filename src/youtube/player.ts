@@ -1431,8 +1431,7 @@ export function initYouTube(): void {
     });
   };
   let pendingReplacementFallback:
-    | (ZeroStartLegacyTarget & { peerId: string; token: number })
-    | null = null;
+    (ZeroStartLegacyTarget & { peerId: string; token: number }) | null = null;
   let replacementFallbackToken = 0;
 
   const clearZeroStartExternalFallback = (transferPlayerState = false): boolean => {

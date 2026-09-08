@@ -1056,8 +1056,7 @@ describe('standard-room account identity refresh', () => {
   it('authenticates a host immediately and attaches account identity after peer-open', async () => {
     installFakeWebSocket();
     let resolveAssertions:
-      | ((value: { accountAssertion: string; deletionAssertion: null }) => void)
-      | undefined;
+      ((value: { accountAssertion: string; deletionAssertion: null }) => void) | undefined;
     const assertionProvider = vi.fn(
       () =>
         new Promise<{ accountAssertion: string; deletionAssertion: null }>((resolve) => {
@@ -2258,8 +2257,7 @@ describe('standard-room account identity refresh', () => {
   it('drops a late host account assertion after the peer is destroyed', async () => {
     installFakeWebSocket();
     let resolveAssertions:
-      | ((value: { accountAssertion: string; deletionAssertion: null }) => void)
-      | undefined;
+      ((value: { accountAssertion: string; deletionAssertion: null }) => void) | undefined;
     const assertionProvider = vi.fn(
       () =>
         new Promise<{ accountAssertion: string; deletionAssertion: null }>((resolve) => {

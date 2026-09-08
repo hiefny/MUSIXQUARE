@@ -198,7 +198,7 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-describe.sequential('PRO runtime account identity lease', () => {
+describe('PRO runtime account identity lease', { concurrent: false }, () => {
   let visibilityDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {

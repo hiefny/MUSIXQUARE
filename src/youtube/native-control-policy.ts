@@ -2,11 +2,7 @@
 
 export type NativeYouTubeMediaAction = 'play' | 'pause';
 type NativeYouTubeControlRoute =
-  | 'standard-host'
-  | 'standard-controller'
-  | 'pro-controller'
-  | 'local-pause'
-  | 'local-rejoin';
+  'standard-host' | 'standard-controller' | 'pro-controller' | 'local-pause' | 'local-rejoin';
 
 export interface NativeYouTubeControlContext {
   action: NativeYouTubeMediaAction;

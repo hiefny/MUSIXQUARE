@@ -1,11 +1,7 @@
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
 
 type RoomEffectsReverbField =
-  | 'mixPercent'
-  | 'decaySeconds'
-  | 'preDelaySeconds'
-  | 'lowCutPercent'
-  | 'highCutPercent';
+  'mixPercent' | 'decaySeconds' | 'preDelaySeconds' | 'lowCutPercent' | 'highCutPercent';
 
 export type RoomEffectsReverb = Record<RoomEffectsReverbField, number>;
 

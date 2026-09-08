@@ -29,7 +29,13 @@ describe('settings sync checkpoint retry state', () => {
       } catch (error) {
         expect(isTransientSettingsSyncFailure(error)).toBe(true);
         const delay = state.nextRetryDelay(token);
-        if (delay !== null) setTimeout(() => void attempt(), delay);
+        if (delay !== null) {
+          setTimeout(() => {
+            attempt().catch((error: unknown) => {
+              expect.unreachable(`Unexpected retry failure: ${String(error)}`);
+            });
+          }, delay);
+        }
       }
     };
 

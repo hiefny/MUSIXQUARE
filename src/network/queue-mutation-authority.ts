@@ -238,8 +238,7 @@ function recordStandardQueueMutationSettlementInternal(
   conn: DataConnection,
   requestId: string,
   settlement:
-    | { outcome: 'applied' }
-    | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
+    { outcome: 'applied' } | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
 ): HostMutationSettlement | null {
   const record = requestsByConnection.get(conn)?.get(requestId);
   if (!record) {
@@ -262,8 +261,7 @@ export function recordStandardQueueMutationSettlement(
   conn: DataConnection,
   requestId: string,
   settlement:
-    | { outcome: 'applied' }
-    | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
+    { outcome: 'applied' } | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
 ): boolean {
   return recordStandardQueueMutationSettlementInternal(conn, requestId, settlement) !== null;
 }
@@ -272,8 +270,7 @@ export function settleStandardQueueMutationRequest(
   conn: DataConnection,
   requestId: string,
   settlement:
-    | { outcome: 'applied' }
-    | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
+    { outcome: 'applied' } | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
 ): boolean {
   const recorded = recordStandardQueueMutationSettlementInternal(conn, requestId, settlement);
   if (!recorded) return false;

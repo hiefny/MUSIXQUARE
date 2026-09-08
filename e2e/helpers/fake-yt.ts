@@ -407,8 +407,7 @@ export async function waitForFakeYtOp(
   await page.waitForFunction(
     ({ expectedOp, expectedCount }) => {
       const log = (window as unknown as Record<string, unknown>).__fakeYtLog as
-        | Array<{ op: string }>
-        | undefined;
+        Array<{ op: string }> | undefined;
       return (log?.filter((entry) => entry.op === expectedOp).length ?? 0) >= expectedCount;
     },
     { expectedOp: op, expectedCount: count },

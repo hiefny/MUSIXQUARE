@@ -268,8 +268,11 @@ const flattenWorkshopHtml = (): Plugin => ({
       const normalized = key.replace(/\\/g, '/');
       const outputName = outputs[normalized];
       if (outputName) {
-        const chunk = bundle[key];
-        bundle[outputName] = { ...chunk, fileName: outputName };
+        const asset = bundle[key];
+        if (asset.type !== 'asset') this.error(`Workshop HTML is not an asset: ${key}`);
+        // Rolldown does not accept assigning new entries to the output bundle.
+        // Emit the renamed asset so later hooks and the written output see it.
+        this.emitFile({ type: 'asset', fileName: outputName, source: asset.source });
         delete bundle[key];
       }
     }
@@ -813,7 +816,6 @@ export function injectBuildEntryAssets(
 export const serviceWorkerAsset = (): Plugin => {
   let repoRoot = '';
   let productionBuild = false;
-  let emittedReferenceId = '';
   return {
     name: 'musixquare-service-worker-asset',
     configResolved(config) {
@@ -852,10 +854,6 @@ export const serviceWorkerAsset = (): Plugin => {
     async buildStart() {
       if (!productionBuild) return;
       await assertServiceWorkerSourceCompleteness(repoRoot);
-      emittedReferenceId = this.emitFile({
-        type: 'asset',
-        fileName: SERVICE_WORKER_OUTPUT_PATH,
-      });
     },
     async generateBundle(_options, bundle) {
       if (!productionBuild) return;
@@ -869,14 +867,14 @@ export const serviceWorkerAsset = (): Plugin => {
         buildEntryAssets: assets,
         optionalPrimaryFontAssets,
       });
-      if (!emittedReferenceId) this.error('Service-worker output reference was not emitted.');
-      this.setAssetSource(emittedReferenceId, compiled.code);
-      const output = bundle[SERVICE_WORKER_OUTPUT_PATH];
-      if (!output || output.type !== 'asset') {
-        this.error(`Service-worker build output is missing: ${SERVICE_WORKER_OUTPUT_PATH}`);
-      }
-      output.source = compiled.code;
       assertServiceWorkerJavaScript(compiled.code);
+      // Emit once its manifest is complete; Rolldown requires asset source at
+      // emission time and does not support the old source-less placeholder.
+      this.emitFile({
+        type: 'asset',
+        fileName: SERVICE_WORKER_OUTPUT_PATH,
+        source: compiled.code,
+      });
       if (bundle[`${SERVICE_WORKER_OUTPUT_PATH}.map`]) {
         this.error(
           `Service-worker sourcemap must not be emitted: ${SERVICE_WORKER_OUTPUT_PATH}.map`,
@@ -943,7 +941,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
     publicDir: 'public',
     resolve: {
       alias: {
-        '@': resolve(__dirname, 'src'),
+        '@': resolve(import.meta.dirname, 'src'),
       },
     },
     plugins: [
@@ -963,7 +961,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
     css: {
       // css/app.css imports the complete base + desktop cascade. Vite runs its
       // internal postcss-import pass before this plugin, so layer lowering sees
-      // the whole ordered cascade before Rollup computes the immutable asset hash.
+      // the whole ordered cascade before the bundler computes the immutable asset hash.
       postcss: {
         plugins: legacyCssPlugins(),
       },
@@ -978,7 +976,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       // warning at its architectural ceiling; the build plugin above retains a
       // strict 500 kB raw limit for every other emitted JavaScript chunk.
       chunkSizeWarningLimit: INITIAL_TRANSFER_BUDGET.entryScriptRawBytes / 1_000,
-      rollupOptions: {
+      rolldownOptions: {
         onwarn(warning, warn) {
           // playlist.ts is already part of the startup graph, but its reviewed
           // dynamic imports deliberately defer calls across player/preload
@@ -996,17 +994,17 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
           warn(warning);
         },
         input: {
-          main: resolve(__dirname, 'index.html'),
-          landing: resolve(__dirname, '.workshop/landing/landing.html'),
-          privacy: resolve(__dirname, '.workshop/privacy/privacy.html'),
-          terms: resolve(__dirname, '.workshop/terms/terms.html'),
-          faq: resolve(__dirname, '.workshop/faq/faq.html'),
-          developers: resolve(__dirname, '.workshop/developers/developers.html'),
-          translate: resolve(__dirname, '.workshop/translate/translate.html'),
+          main: resolve(import.meta.dirname, 'index.html'),
+          landing: resolve(import.meta.dirname, '.workshop/landing/landing.html'),
+          privacy: resolve(import.meta.dirname, '.workshop/privacy/privacy.html'),
+          terms: resolve(import.meta.dirname, '.workshop/terms/terms.html'),
+          faq: resolve(import.meta.dirname, '.workshop/faq/faq.html'),
+          developers: resolve(import.meta.dirname, '.workshop/developers/developers.html'),
+          translate: resolve(import.meta.dirname, '.workshop/translate/translate.html'),
         },
         output: {
-          manualChunks: {
-            peerjs: ['peerjs'],
+          codeSplitting: {
+            groups: [{ name: 'peerjs', test: /[\\/]node_modules[\\/]peerjs[\\/]/u }],
           },
         },
       },

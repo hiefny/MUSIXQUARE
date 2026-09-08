@@ -52,8 +52,7 @@ test.describe('Playback Sync', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         return get && get('files.current') !== null;
       },
       undefined,
@@ -84,8 +83,7 @@ test.describe('Playback Sync', () => {
 
     const guestPlaylist = await pair.guestPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return [];
       return get('playlist.items') as unknown[];
     });
@@ -101,8 +99,7 @@ test.describe('Playback Sync', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         return get && get('files.current') !== null;
       },
       undefined,

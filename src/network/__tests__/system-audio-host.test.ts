@@ -208,8 +208,7 @@ describe('bounded direct system-audio host delivery', () => {
     const timeout = vi
       .mocked(setManagedTimer)
       .mock.calls.find(([name]) => name === `sys-audio-direct-connect:${remote.id}`)?.[1] as
-      | (() => void)
-      | undefined;
+      (() => void) | undefined;
     expect(timeout).toBeTypeOf('function');
     timeout!();
 

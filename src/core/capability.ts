@@ -5,11 +5,7 @@ import {
 } from './request-lifetime.ts';
 
 export type CapabilityScope =
-  | 'turn'
-  | 'realtime'
-  | 'youtube-search'
-  | 'remote-share'
-  | 'standard-signaling';
+  'turn' | 'realtime' | 'youtube-search' | 'remote-share' | 'standard-signaling';
 
 interface SecurityConfig {
   capabilityRequired: boolean;

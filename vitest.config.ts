@@ -7,6 +7,8 @@ export default defineConfig({
     setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     environment: 'node',
     globals: true,
+    // Keep initialization calls available to assertions; Vitest 5 clears them by default.
+    clearMocks: false,
     testTimeout: 15000,
     typecheck: {
       tsconfig: './tsconfig.test.json',

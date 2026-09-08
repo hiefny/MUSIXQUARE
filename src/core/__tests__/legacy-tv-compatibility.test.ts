@@ -7,6 +7,7 @@ import {
   CLASSIC_RUNTIME_ASSETS,
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
+import { assertLegacyCss } from '../../../scripts/check-legacy-tv-build.mts';
 import {
   createViteConfig,
   LEGACY_APP_BROWSER_TARGET,
@@ -15,6 +16,25 @@ import {
 } from '../../../vite.config.ts';
 
 describe('legacy smart-TV app compatibility', () => {
+  it('checks fullscreen physical edges independently of minifier declaration order', () => {
+    const css = `
+      :root{--bg:#fff}
+      .onboarding-overlay{position:fixed}
+      body.fouc-loaded{opacity:1}
+      body.overlay-open .bottom-nav{display:none}
+      html.setup-boot-block body{animation:boot 1s}
+      body > .bootstrap-failure{display:block}
+      .file-drop-feedback{top:0;bottom:0;left:0;right:0}
+    `;
+    expect(() => assertLegacyCss(css)).not.toThrow();
+    expect(() => assertLegacyCss(css.replace('right:0', 'right:1px'))).toThrow(
+      'physical fullscreen overlay edges',
+    );
+    expect(() => assertLegacyCss(css.replace('top:0;bottom:0;left:0;right:0', 'inset:0'))).toThrow(
+      'physical fullscreen overlay edges',
+    );
+  });
+
   it('builds the app, CSS, and first-paint cleanup for the Chromium 79 floor', () => {
     const config = createViteConfig({});
     expect(LEGACY_APP_BROWSER_TARGET).toBe('chrome79');

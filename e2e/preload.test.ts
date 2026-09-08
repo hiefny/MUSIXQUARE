@@ -59,8 +59,7 @@ test.describe('Preload System', () => {
 
     const playlist = await pair.hostPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return [];
       return get('playlist.items') as unknown[];
     });
@@ -137,8 +136,7 @@ test.describe('Preload System', () => {
 
     const guestPlaylist = await pair.guestPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return [];
       return get('playlist.items') as unknown[];
     });

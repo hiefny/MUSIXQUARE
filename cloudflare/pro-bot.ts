@@ -93,8 +93,7 @@ interface ResponsePort {
 }
 
 type ReadOutcome =
-  | { kind: 'read'; value: ReadableStreamReadResult<Uint8Array> }
-  | { kind: 'invalid' };
+  { kind: 'read'; value: ReadableStreamReadResult<Uint8Array> } | { kind: 'invalid' };
 type StreamStopOutcome = { kind: 'timeout' } | { kind: 'aborted' };
 
 const PRO_ROOM_CODE_RE = /^0\d{5}$/;
@@ -588,9 +587,7 @@ async function awaitWithAbort<T>(
   signal: AbortSignal,
 ): Promise<T> {
   type Outcome =
-    | { kind: 'aborted' }
-    | { kind: 'value'; value: T }
-    | { kind: 'error'; error: unknown };
+    { kind: 'aborted' } | { kind: 'value'; value: T } | { kind: 'error'; error: unknown };
   let settleAbort: ((outcome: Outcome) => void) | undefined;
   const aborted = new Promise<Outcome>((resolve) => {
     settleAbort = resolve;
@@ -1751,9 +1748,7 @@ async function callRoomInternal(
   const stub = invokeMethod(namespace, 'get', [objectId]);
   if (!hasMethod(stub, 'fetch')) throw new BotUpstreamError('BOT_NOT_CONFIGURED', 503);
   type RoomOutcome =
-    | { kind: 'aborted' }
-    | { kind: 'failed' }
-    | { kind: 'response'; response: ResponsePort };
+    { kind: 'aborted' } | { kind: 'failed' } | { kind: 'response'; response: ResponsePort };
   let settleAbort: ((outcome: RoomOutcome) => void) | undefined;
   const aborted = new Promise<RoomOutcome>((resolve) => {
     settleAbort = resolve;

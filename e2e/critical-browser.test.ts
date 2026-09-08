@@ -233,8 +233,7 @@ test.describe('Critical browser release gate', () => {
             .__MUSIXQUARE_GET_STATE__ as ((path: string) => unknown) | undefined;
           if (!getState) return false;
           const context = getState('room.context') as
-            | { kind?: unknown; role?: unknown; capabilities?: unknown }
-            | undefined;
+            { kind?: unknown; role?: unknown; capabilities?: unknown } | undefined;
           return (
             context?.kind === 'pro' &&
             context.role === 'member' &&
@@ -249,8 +248,7 @@ test.describe('Critical browser release gate', () => {
     } catch (error) {
       const diagnostic = await page.evaluate(() => {
         const getState = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((path: string) => unknown)
-          | undefined;
+          ((path: string) => unknown) | undefined;
         return {
           context: getState?.('room.context'),
           dialogTitle: document.getElementById('dialog-title')?.textContent,

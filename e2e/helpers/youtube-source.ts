@@ -32,8 +32,7 @@ export async function submitYouTubeSource(page: Page, url: string): Promise<void
   await page.waitForFunction(
     (priorIds) => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((path: string) => unknown)
-        | undefined;
+        ((path: string) => unknown) | undefined;
       const items = get?.('playlist.items') as PlaylistItem[] | undefined;
       return items?.some((item) => item.type === 'youtube' && !priorIds.includes(item.queueItemId));
     },
@@ -55,11 +54,9 @@ export async function waitForYouTubePlayback(page: Page, videoId: string): Promi
   await page.waitForFunction(
     (expectedId) => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((path: string) => unknown)
-        | undefined;
+        ((path: string) => unknown) | undefined;
       const items = get?.('playlist.items') as
-        | Array<{ queueItemId: string; type: string; videoId?: string }>
-        | undefined;
+        Array<{ queueItemId: string; type: string; videoId?: string }> | undefined;
       const currentId = get?.('playlist.currentQueueItemId');
       return items?.some(
         (item) =>

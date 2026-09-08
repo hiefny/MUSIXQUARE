@@ -425,8 +425,7 @@ describe('logo hard reset update hand-off', () => {
     expect(hardResetNavigation.navigateToAppHome).not.toHaveBeenCalled();
 
     const resetAction = hardResetNavigation.scheduleSessionReset.mock.calls[0]?.[1] as
-      | (() => void)
-      | undefined;
+      (() => void) | undefined;
     resetAction?.();
     await vi.waitFor(() =>
       expect(hardResetNavigation.activatePendingServiceWorkerForHardReset).toHaveBeenCalledOnce(),
@@ -447,8 +446,7 @@ describe('logo hard reset update hand-off', () => {
     document.getElementById('app-logo')?.click();
     await vi.waitFor(() => expect(hardResetNavigation.scheduleSessionReset).toHaveBeenCalledOnce());
     const resetAction = hardResetNavigation.scheduleSessionReset.mock.calls[0]?.[1] as
-      | (() => void)
-      | undefined;
+      (() => void) | undefined;
     resetAction?.();
 
     await vi.waitFor(() => expect(hardResetNavigation.navigateToAppHome).toHaveBeenCalledOnce());

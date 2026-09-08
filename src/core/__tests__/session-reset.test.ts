@@ -33,12 +33,16 @@ describe('session reset coordinator', () => {
 
   afterEach(() => {
     coordinator?.__resetSessionResetForTests();
+    // Vitest 5 forwards these descriptors to the DOM window. Fake-timer teardown
+    // must still be able to restore the writable native animation APIs.
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,
+      writable: true,
       value: originalRequestAnimationFrame,
     });
     Object.defineProperty(window, 'cancelAnimationFrame', {
       configurable: true,
+      writable: true,
       value: originalCancelAnimationFrame,
     });
     vi.useRealTimers();

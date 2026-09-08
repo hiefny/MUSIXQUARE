@@ -71,8 +71,7 @@ function snapshotControlFrame(
     }
 
     return Object.freeze({ type, version, bootstrapId }) as
-      | JoinBootstrapHello
-      | JoinBootstrapApplied;
+      JoinBootstrapHello | JoinBootstrapApplied;
   } catch {
     return null;
   }

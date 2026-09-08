@@ -139,7 +139,7 @@ describe('primary font recovery runtime', () => {
           .getComputedStyle(document.documentElement)
           .getPropertyValue('--font-primary')
           .trim(),
-      ).toBe("'MUSIXQUARE Pretendard Recovery'");
+      ).toBe('"MUSIXQUARE Pretendard Recovery"');
     } finally {
       dom.window.close();
     }

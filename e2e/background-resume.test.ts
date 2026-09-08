@@ -104,8 +104,7 @@ async function readFileIdentity(page: Page): Promise<{
 }> {
   return page.evaluate(() => {
     const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-      | ((path: string) => unknown)
-      | undefined;
+      ((path: string) => unknown) | undefined;
     if (!get) throw new Error('E2E state hook unavailable');
     const resident = get('files.current') as { queueItemId?: unknown } | null;
     const queueItemId = get('playlist.currentQueueItemId');
@@ -121,8 +120,7 @@ async function emitDetectedClockStall(page: Page): Promise<void> {
     const w = window as unknown as Record<string, unknown>;
     const get = w.__MUSIXQUARE_GET_STATE__ as ((path: string) => unknown) | undefined;
     const bus = w.__MUSIXQUARE_BUS__ as
-      | { emit: (type: string, payload: unknown) => void }
-      | undefined;
+      { emit: (type: string, payload: unknown) => void } | undefined;
     if (!get || !bus) throw new Error('E2E app hooks unavailable');
     bus.emit('audio:output-recovery-needed', {
       reason: 'clock-stalled',

@@ -55,11 +55,7 @@ interface DecodeMemoryWarningThreshold {
 }
 
 type DecodeAdmissionReason =
-  | 'estimated-pcm'
-  | 'working-set'
-  | 'decoded-pcm'
-  | 'receive-working-set'
-  | 'transport-working-set';
+  'estimated-pcm' | 'working-set' | 'decoded-pcm' | 'receive-working-set' | 'transport-working-set';
 
 class AudioDecodeAdmissionError extends Error {
   readonly reason: DecodeAdmissionReason;

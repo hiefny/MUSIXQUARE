@@ -20,7 +20,7 @@ export function buildPatterns(): ProfanityPatterns {
   const words = new Set<string>();
   const accountEnglishWords = new Set<string>();
 
-  for (const entry of KO.profanity) {
+  for (const entry of KO.words) {
     if (entry.severity < 2) continue;
     for (const variation of entry.variations ?? []) words.add(variation.toLowerCase());
   }

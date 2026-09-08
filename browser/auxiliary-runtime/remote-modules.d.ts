@@ -1,3 +1,7 @@
+// These local promo studies retain their original r162 lighting and materials.
+// Later Three.js releases change environment intensity and RoomEnvironment
+// lighting, so keep their declarations matched to the remote runtime until the
+// scenes receive a visual migration. The current promo renderer uses npm Three.js.
 declare module 'https://esm.sh/three@0.162.0' {
   export * from 'three-types-0162';
 }

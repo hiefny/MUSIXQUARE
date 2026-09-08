@@ -252,11 +252,9 @@ function isAppD1Database(value: unknown): value is AppD1Database {
 
 type BodyReadError = 'invalid' | 'too-large' | 'timeout' | 'aborted';
 type BodyReadResult =
-  | { body: Uint8Array | null; error?: undefined }
-  | { error: BodyReadError; body?: undefined };
+  { body: Uint8Array | null; error?: undefined } | { error: BodyReadError; body?: undefined };
 type JsonBodyReadResult =
-  | { value: unknown; error?: undefined }
-  | { error: BodyReadError; value?: undefined };
+  { value: unknown; error?: undefined } | { error: BodyReadError; value?: undefined };
 
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
@@ -346,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.8';
+const ADMIN_ASSET_VERSION = '8.6.9';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -3639,16 +3637,14 @@ async function markAdminProRoomOperationalState(
   );
   const payload = result.payload;
   if (result.response?.status === 409) return false;
-  if (
-    !(
-      result.response?.ok === true &&
-      proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) &&
-      payload.ok === true &&
-      payload.projected === true &&
-      payload.status === status &&
-      payload.suspensionReason === suspensionReason
-    )
-  )
+  if (!(
+    result.response?.ok === true &&
+    proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) &&
+    payload.ok === true &&
+    payload.projected === true &&
+    payload.status === status &&
+    payload.suspensionReason === suspensionReason
+  ))
     throw new Error('PRO room canonical registry projection unavailable');
   return true;
 }
@@ -13270,8 +13266,7 @@ function serializeJsonForHtmlScript(value: {
   url: string;
   mainEntityOfPage: string;
   publisher:
-    | { '@type': string; name: string; url: string }
-    | { '@type': string; name: string; url: string };
+    { '@type': string; name: string; url: string } | { '@type': string; name: string; url: string };
 }) {
   return JSON.stringify(value)
     .replace(/</g, '\\u003c')
@@ -13397,9 +13392,7 @@ function responseContentLength(response: Response) {
 }
 
 type CancelableResponseBody =
-  | Response
-  | ReadableStream<Uint8Array>
-  | ReadableStreamDefaultReader<Uint8Array>;
+  Response | ReadableStream<Uint8Array> | ReadableStreamDefaultReader<Uint8Array>;
 
 function cancelResponseBody(responseOrBody: CancelableResponseBody | null, reason: unknown) {
   const body = responseOrBody instanceof Response ? responseOrBody.body : responseOrBody;

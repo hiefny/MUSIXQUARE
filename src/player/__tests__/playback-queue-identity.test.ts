@@ -263,8 +263,7 @@ describe('operator current-occurrence control boundary', () => {
     );
 
     const options = mocks.startHostFileAndBroadcastPlay.mock.calls[0]?.[0] as
-      | { shouldApply?: () => boolean }
-      | undefined;
+      { shouldApply?: () => boolean } | undefined;
     expect(options?.shouldApply?.()).toBe(true);
     setState('network.connectedPeers', []);
     expect(options?.shouldApply?.()).toBe(false);

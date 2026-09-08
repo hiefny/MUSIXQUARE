@@ -134,8 +134,7 @@ describe('same-track zero replay resync', () => {
       hostConn,
     );
     const recovery = transportMocks.play.mock.calls[0]?.[4] as
-      | { onRecoveredStarted?: () => void }
-      | undefined;
+      { onRecoveredStarted?: () => void } | undefined;
     expect(armInitial).not.toHaveBeenCalled();
 
     recovery?.onRecoveredStarted?.();

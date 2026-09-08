@@ -78,8 +78,7 @@ interface PreparedVoucher extends DigestedVoucher {
 }
 
 type VoucherBatchReplay =
-  | { state: 'missing' | 'conflict' | 'unavailable' }
-  | { state: 'replayed'; mappings: JsonRecord[] };
+  { state: 'missing' | 'conflict' | 'unavailable' } | { state: 'replayed'; mappings: JsonRecord[] };
 
 interface D1StatementPort {
   bind(...values: D1Value[]): D1StatementPort;

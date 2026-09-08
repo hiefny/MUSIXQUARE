@@ -264,7 +264,7 @@ async function executeReportViewer(report: Record<string, unknown>): Promise<JSD
 }
 
 describe('strict TypeScript auxiliary browser assets', () => {
-  it('pins local and remote Three.js types to their exact runtime versions', async () => {
+  it('keeps current local dependencies separate from the original remote Three.js runtime', async () => {
     const packageManifest = JSON.parse(await readFile('package.json', 'utf8')) as {
       devDependencies: Record<string, string>;
     };
@@ -279,13 +279,13 @@ describe('strict TypeScript auxiliary browser assets', () => {
     };
     const declarations = await readFile('browser/auxiliary-runtime/remote-modules.d.ts', 'utf8');
 
-    expect(packageManifest.devDependencies.three).toBe('0.184.0');
-    expect(packageManifest.devDependencies['@types/three']).toBe('0.184.0');
+    expect(packageManifest.devDependencies.three).toBe('0.186.0');
+    expect(packageManifest.devDependencies['@types/three']).toBe('0.185.4');
     expect(packageManifest.devDependencies['three-types-0162']).toBe('npm:@types/three@0.162.0');
-    expect(packageManifest.devDependencies['lil-gui']).toBe('0.19.2');
+    expect(packageManifest.devDependencies['lil-gui']).toBe('0.21.0');
     expect(remoteConfig.compilerOptions.paths).toEqual({
-      three: ['node_modules/three-types-0162/index.d.ts'],
-      'three/*': ['node_modules/three-types-0162/*'],
+      three: ['./node_modules/three-types-0162/index.d.ts'],
+      'three/*': ['./node_modules/three-types-0162/*'],
     });
     expect(remoteConfig.include).toContain('browser/auxiliary-runtime/promo/music-note-3d.ts');
     expect(localConfig.exclude).toEqual(expect.arrayContaining(remoteConfig.include));
@@ -333,19 +333,25 @@ describe('strict TypeScript auxiliary browser assets', () => {
   it('serves every stable URL over GET and HEAD with exact compiler bytes', async () => {
     const server = await startAuxiliaryDevServer();
     try {
-      for (const asset of AUXILIARY_BROWSER_ASSETS) {
-        const expected = await compileAuxiliaryBrowserAsset(REPOSITORY, asset);
-        const get = await requestDevServer(server.origin, `/${asset.outputPath}`, 'GET');
-        expect(get.status, asset.outputPath).toBe(200);
-        expect(get.contentType, asset.outputPath).toBe('text/javascript; charset=utf-8');
-        expect(get.cacheControl, asset.outputPath).toBe('no-cache');
-        expect(get.body, asset.outputPath).toBe(expected.code);
+      // These assets do not share state. Verify their real HTTP responses in
+      // parallel instead of accumulating fourteen independent socket delays.
+      await Promise.all(
+        AUXILIARY_BROWSER_ASSETS.map(async (asset) => {
+          const [expected, get, head] = await Promise.all([
+            compileAuxiliaryBrowserAsset(REPOSITORY, asset),
+            requestDevServer(server.origin, `/${asset.outputPath}`, 'GET'),
+            requestDevServer(server.origin, `/${asset.outputPath}`, 'HEAD'),
+          ]);
+          expect(get.status, asset.outputPath).toBe(200);
+          expect(get.contentType, asset.outputPath).toBe('text/javascript; charset=utf-8');
+          expect(get.cacheControl, asset.outputPath).toBe('no-cache');
+          expect(get.body, asset.outputPath).toBe(expected.code);
 
-        const head = await requestDevServer(server.origin, `/${asset.outputPath}`, 'HEAD');
-        expect(head.status, asset.outputPath).toBe(200);
-        expect(head.contentType, asset.outputPath).toBe('text/javascript; charset=utf-8');
-        expect(head.body, asset.outputPath).toBe('');
-      }
+          expect(head.status, asset.outputPath).toBe(200);
+          expect(head.contentType, asset.outputPath).toBe('text/javascript; charset=utf-8');
+          expect(head.body, asset.outputPath).toBe('');
+        }),
+      );
     } finally {
       await server.close();
     }

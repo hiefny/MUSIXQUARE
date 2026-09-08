@@ -54,18 +54,22 @@ export function currentAppPathMatchesLanguage(code: LanguageCode): boolean {
 }
 
 /**
- * Keep the canonical root English, and replace it or one explicit locale entry
- * with the selected locale without adding history or discarding live app
- * state. Six-digit room URLs and every other non-locale path remain unowned. A
+ * The shared root keeps its URL and canonical while its UI follows the user's
+ * language. Only explicit locale entries switch paths, without adding history
+ * or discarding live app state. Room URLs and other paths remain unowned. A
  * real navigation remains the fail-safe for browsers whose History API is
  * unavailable, throws, or silently no-ops.
  */
 export function updateLocalizedAppPath(resolved: LanguageCode): LocalizedAppPathUpdate {
-  const currentLanguage = currentAppPathLanguage();
-  const ownsCanonicalRoot = currentLanguage === null && isCanonicalRootAppPath();
-  if (currentLanguage === null && !ownsCanonicalRoot) return 'unowned';
+  if (isCanonicalRootAppPath()) {
+    updateKnownLocalizedAppUrlMetadata('en');
+    return 'unchanged';
+  }
 
-  const nextPath = ownsCanonicalRoot && resolved === 'en' ? '/' : localizedAppEntryPath(resolved);
+  const currentLanguage = currentAppPathLanguage();
+  if (currentLanguage === null) return 'unowned';
+
+  const nextPath = localizedAppEntryPath(resolved);
   if (window.location.pathname === nextPath) return 'unchanged';
 
   const search = window.location.search;

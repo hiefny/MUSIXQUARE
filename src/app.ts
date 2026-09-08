@@ -1108,7 +1108,7 @@ async function bootstrap(): Promise<void> {
   safeInit('Dialog', initDialog);
   safeInit('Tabs', initTabs);
   // A standalone PWA may relaunch at `/` with a durable PRO-room return.
-  // Restore that room route before i18n projects `/` onto a locale pathname.
+  // Restore that room route before initializing its language and account state.
   safeInit('Account login return path', restoreAccountLoginReturnPath);
   await runBootstrapStepAsync(bootstrapReadiness, 'I18n', initI18n, (e) =>
     log.error('[App] I18n init failed:', e),

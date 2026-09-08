@@ -126,8 +126,7 @@ interface AuthenticatedStoredSession extends StoredSessionBase {
 type StoredSession = AnonymousStoredSession | AuthenticatedStoredSession;
 
 type RequiredSession =
-  | { error: Response; session?: never }
-  | { error?: never; session: AuthenticatedStoredSession };
+  { error: Response; session?: never } | { error?: never; session: AuthenticatedStoredSession };
 
 interface AccountStatsDeltas {
   sessionCount: number;
@@ -646,8 +645,7 @@ async function readBodyBytesLimited(
   let total = 0;
   type StopOutcome = { kind: 'timeout' } | { kind: 'aborted' };
   type ReadOutcome =
-    | { kind: 'read'; value: ReadableStreamReadResult<Uint8Array> }
-    | { kind: 'invalid' };
+    { kind: 'read'; value: ReadableStreamReadResult<Uint8Array> } | { kind: 'invalid' };
   let stop: (outcome: StopOutcome) => void = () => {};
   const stopped = new Promise<StopOutcome>((resolve) => {
     stop = resolve;

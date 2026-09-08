@@ -62,10 +62,7 @@ interface ServiceControlReadableBody {
 }
 
 type CancelableServiceControlBody =
-  | ServiceControlReadableBody
-  | ServiceControlReader
-  | null
-  | undefined;
+  ServiceControlReadableBody | ServiceControlReader | null | undefined;
 
 interface ServiceControlHttpResponse {
   body: ServiceControlReadableBody | null;
@@ -139,8 +136,7 @@ export interface AbuseRateLimitInput {
 }
 
 export type AbuseRateLimitResult =
-  | ({ status: 'ok' } & AbuseRateCounterResult)
-  | { status: 'unavailable' | 'unbound' };
+  ({ status: 'ok' } & AbuseRateCounterResult) | { status: 'unavailable' | 'unbound' };
 
 export interface AbuseRateLimitPairInput {
   scope: string;
@@ -523,14 +519,10 @@ function deferServiceControlBodyCancellation(reader: CancelableServiceControlBod
 }
 
 type ServiceControlStatusHeaderResult =
-  | { kind: 'absent' }
-  | { kind: 'invalid' }
-  | { kind: 'state'; state: ServiceMaintenanceState };
+  { kind: 'absent' } | { kind: 'invalid' } | { kind: 'state'; state: ServiceMaintenanceState };
 
 type AbuseRateResponseHeaderResult =
-  | { kind: 'absent' }
-  | { kind: 'invalid' }
-  | { kind: 'payload'; payload: unknown };
+  { kind: 'absent' } | { kind: 'invalid' } | { kind: 'payload'; payload: unknown };
 
 function parseServiceControlNullableTimestamp(value: unknown): number | null | undefined {
   if (value === 'null') return null;

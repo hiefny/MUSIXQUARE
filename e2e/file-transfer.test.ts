@@ -78,8 +78,7 @@ test.describe('File Transfer', () => {
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         const state = get('transfer.state');
         const resident = get('files.current') as {
@@ -108,11 +107,9 @@ test.describe('File Transfer', () => {
       const w = window as unknown as Record<string, unknown>;
       const get = w.__MUSIXQUARE_GET_STATE__ as ((path: string) => unknown) | undefined;
       const set = w.__MUSIXQUARE_SET_STATE__ as
-        | ((path: string, value: unknown) => void)
-        | undefined;
+        ((path: string, value: unknown) => void) | undefined;
       const bus = w.__MUSIXQUARE_BUS__ as
-        | { emit: (type: string, ...args: unknown[]) => void }
-        | undefined;
+        { emit: (type: string, ...args: unknown[]) => void } | undefined;
       if (!get || !set || !bus) throw new Error('E2E state hooks unavailable');
 
       const hostConn = get('network.hostConn');
@@ -152,8 +149,7 @@ test.describe('File Transfer', () => {
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((path: string) => unknown)
-          | undefined;
+          ((path: string) => unknown) | undefined;
         return (
           get?.('playback.lifecycle') === 'DOWNLOADING' &&
           get?.('playback.loadSource') === 'fresh' &&
@@ -170,8 +166,7 @@ test.describe('File Transfer', () => {
 
     const promotedState = await pair.guestPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((path: string) => unknown)
-        | undefined;
+        ((path: string) => unknown) | undefined;
       return {
         lifecycle: get?.('playback.lifecycle'),
         loadSource: get?.('playback.loadSource'),

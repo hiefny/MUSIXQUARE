@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom';
-import { parseAst } from 'rollup/parseAst';
+import { parseSync } from 'vite';
 
 const STARTUP_DOCUMENT_URL = new URL('https://musixquare.invalid/index.html');
 const CLASSIC_SCRIPT_MIME_TYPES = new Set([
@@ -127,8 +127,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function staticString(node: unknown): string | null {
+  if (!isRecord(node)) return null;
+  if (node.type === 'Literal' && typeof node.value === 'string') return node.value;
+  if (
+    node.type !== 'TemplateLiteral' ||
+    !Array.isArray(node.expressions) ||
+    node.expressions.length !== 0 ||
+    !Array.isArray(node.quasis) ||
+    node.quasis.length !== 1
+  ) {
+    return null;
+  }
+  const quasi = node.quasis[0];
+  const value = isRecord(quasi) ? quasi.value : null;
+  return isRecord(value) && typeof value.cooked === 'string' ? value.cooked : null;
+}
+
 function isImportMetaUrl(node: unknown): boolean {
   if (!isRecord(node)) return false;
+  // Vite 8 renders URL bases as an explicit string coercion. Only an empty
+  // static prefix/suffix preserves the import.meta.url base we can resolve.
+  if (node.type === 'BinaryExpression' && node.operator === '+') {
+    return (
+      (staticString(node.left) === '' && isImportMetaUrl(node.right)) ||
+      (staticString(node.right) === '' && isImportMetaUrl(node.left))
+    );
+  }
   const property = node.property;
   const object = node.object;
   if (!isRecord(property) || !isRecord(object)) return false;
@@ -175,18 +200,13 @@ function renderedWorkerAsset(node: unknown): string | null {
   ) {
     return null;
   }
-  const assetLiteral = urlArguments[0];
-  if (
-    !isRecord(assetLiteral) ||
-    assetLiteral.type !== 'Literal' ||
-    typeof assetLiteral.value !== 'string' ||
-    !isImportMetaUrl(urlArguments[1])
-  ) {
+  const assetUrl = staticString(urlArguments[0]);
+  if (assetUrl === null || !isImportMetaUrl(urlArguments[1])) {
     return null;
   }
   try {
     const buildOrigin = new URL('https://musixquare.invalid/');
-    const url = new URL(assetLiteral.value, buildOrigin);
+    const url = new URL(assetUrl, buildOrigin);
     return url.origin === buildOrigin.origin ? decodeURIComponent(url.pathname) : null;
   } catch {
     return null;
@@ -195,9 +215,18 @@ function renderedWorkerAsset(node: unknown): string | null {
 
 /** Discover same-origin Worker URLs from rendered module syntax, not filenames. */
 export function collectRenderedWorkerAssets(javascript: string): string[] {
-  const ast = parseAst(javascript, { allowReturnOutsideFunction: false });
+  const parsed = parseSync('startup.mjs', javascript, {
+    lang: 'js',
+    sourceType: 'module',
+    preserveParens: false,
+  });
+  if (parsed.errors.length > 0) {
+    throw new Error(
+      `Invalid startup module: ${parsed.errors.map(({ message }) => message).join('; ')}`,
+    );
+  }
   const assets = new Set<string>();
-  const pending: unknown[] = [ast];
+  const pending: unknown[] = [parsed.program];
   while (pending.length > 0) {
     const value = pending.pop();
     if (!isRecord(value)) continue;

@@ -2657,8 +2657,7 @@ class FakeState {
 
 function storedCanonicalRoom(state: FakeState): StoredRoom & Record<string, any> {
   const stored = state.storage.data.get('pro-room:v2:core') as
-    | { core?: Record<string, any>; playlistOrder?: string[] }
-    | undefined;
+    { core?: Record<string, any>; playlistOrder?: string[] } | undefined;
   if (!stored?.core || !Array.isArray(stored.playlistOrder)) {
     throw new Error('canonical PRO room state is missing');
   }

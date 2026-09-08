@@ -1,7 +1,7 @@
 const IDEMPOTENCY_RANDOM_BYTES = 24;
 
 interface ProRoomCryptoRandomSource {
-  getRandomValues<T extends ArrayBufferView>(array: T): T;
+  getRandomValues<T extends ArrayBufferView<ArrayBuffer>>(array: T): T;
 }
 
 export type { ProRoomCryptoRandomSource as ProRoomCryptoRandomSourceForTests };

@@ -932,8 +932,7 @@ function handleUploadStatus(
   }
 
   const code = (data.code || (data.status === 'aborted' ? 'cancelled' : 'upload-failed')) as
-    | UplinkTerminalCode
-    | 'upload-failed';
+    UplinkTerminalCode | 'upload-failed';
   const error = new UplinkError(code);
   upload.failure = error;
   emitSendProgress(upload, data.status === 'aborted' ? 'aborted' : 'error', data.loaded, code);

@@ -2,12 +2,14 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { selectLatestSuccessfulRun } from '../../../scripts/release-evidence.mts';
 import criticalCoverageConfig from '../../../vitest.critical.config.ts';
 import toolingCoverageConfig from '../../../vitest.tooling.config.ts';
 
 const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
   devDependencies: Record<string, string>;
   engines: Record<string, string>;
+  packageManager: string;
   scripts: Record<string, string>;
 };
 const toolingTsconfig = JSON.parse(readFileSync(resolve('tsconfig.tooling.json'), 'utf8')) as {
@@ -17,6 +19,43 @@ const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
 const e2eWorkflow = readFileSync(resolve('.github/workflows/e2e.yml'), 'utf8');
 
 describe('CI quality and supply-chain gates', () => {
+  it('validates the beta branch without making its artifacts eligible for production', () => {
+    expect(ciWorkflow).toMatch(/push:\s+branches: \[main, mxqr_beta\]/u);
+    expect(ciWorkflow).toMatch(/pull_request:\s+branches: \[main, mxqr_beta\]/u);
+
+    for (const name of [
+      'Record immutable main-CI production candidate',
+      'Upload immutable main-CI production candidate',
+    ]) {
+      const step = ciWorkflow.split('      - name: ').find((source) => source.startsWith(name));
+      expect(step).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+    }
+    const releaseWorkflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    expect(releaseWorkflow).toMatch(
+      /validate:\s+name: Validate release candidate\s+if: github\.ref == 'refs\/heads\/main'/u,
+    );
+
+    const sha = 'a'.repeat(40);
+    expect(
+      selectLatestSuccessfulRun(
+        {
+          workflow_runs: [
+            {
+              id: 1,
+              run_attempt: 1,
+              head_sha: sha,
+              head_branch: 'mxqr_beta',
+              event: 'push',
+              status: 'completed',
+              conclusion: 'success',
+            },
+          ],
+        },
+        { sha, event: 'push' },
+      ),
+    ).toBeNull();
+  });
+
   it('runs browser smoke against the exact production candidate before rebuilding for deep E2E', () => {
     expect(packageJson.scripts['test:e2e:candidate']).toContain(
       '--config=playwright.candidate.config.ts',
@@ -86,8 +125,10 @@ describe('CI quality and supply-chain gates', () => {
   });
 
   it('loads both strict TypeScript ESLint configs through the pinned Node contract', () => {
-    expect(packageJson.engines.node).toBe('24.13.1');
-    expect(packageJson.devDependencies.eslint).toBe('^10.0.2');
+    expect(packageJson.engines.node).toBe('24.20.0');
+    expect(readFileSync(resolve('.node-version'), 'utf8').trim()).toBe(packageJson.engines.node);
+    expect(packageJson.packageManager).toBe('npm@12.0.2');
+    expect(packageJson.devDependencies.eslint).toBe('^10.10.0');
     expect(packageJson.devDependencies.jiti).toBe('2.7.0');
     expect(toolingTsconfig.include).toEqual(
       expect.arrayContaining([

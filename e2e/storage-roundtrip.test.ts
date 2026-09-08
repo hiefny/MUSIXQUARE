@@ -39,8 +39,7 @@ test.describe('Storage Round-Trip', () => {
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return get('transfer.state') === 'READY' && get('files.current') != null;
       },
@@ -52,8 +51,7 @@ test.describe('Storage Round-Trip', () => {
     // cannot detect reordered or corrupted chunks of the same total size.
     const hostInfo = await pair.hostPage.evaluate(async () => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return null;
       const current = get('files.current') as {
         blob?: Blob;
@@ -78,8 +76,7 @@ test.describe('Storage Round-Trip', () => {
 
     const guestInfo = await pair.guestPage.evaluate(async () => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return null;
       const current = get('files.current') as {
         blob?: Blob;
@@ -121,8 +118,7 @@ test.describe('Storage Round-Trip', () => {
     await pair.guestPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return get('transfer.state') === 'READY' && get('files.current') != null;
       },
@@ -138,12 +134,9 @@ test.describe('Storage Round-Trip', () => {
     // browser Blob's properties when the containing state object is serialized.
     const current = await pair.guestPage.evaluate(() => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       const resident = get?.('files.current') as
-        | { name?: string; queueItemId?: string; blob?: Blob }
-        | null
-        | undefined;
+        { name?: string; queueItemId?: string; blob?: Blob } | null | undefined;
       if (!resident) return null;
       return {
         name: resident.name,

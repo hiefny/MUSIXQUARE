@@ -8,11 +8,7 @@ export type { Entry, ProposalIssue } from '../../src/i18n/translation-community'
 export type Draft = ProposalDraft;
 
 export type StorageWarning =
-  | 'unavailable'
-  | 'invalid-data'
-  | 'too-large'
-  | 'read-failed'
-  | 'write-failed';
+  'unavailable' | 'invalid-data' | 'too-large' | 'read-failed' | 'write-failed';
 export type DraftStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 export const DRAFT_STORAGE_KEY = 'musixquare.translate.drafts.v1';

@@ -1464,8 +1464,7 @@ function namedRoomStub(binding: unknown, name: string): FetcherPort | null {
 }
 
 type StandardWsRateFetchOutcome =
-  | { kind: 'response'; response: Response }
-  | { kind: 'unavailable' };
+  { kind: 'response'; response: Response } | { kind: 'unavailable' };
 
 async function fetchStandardWsRate(
   stub: FetcherPort,

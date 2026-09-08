@@ -464,8 +464,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   let selectedSurface: SystemAudioSurface = DEFAULT_SYSTEM_AUDIO_SURFACE;
   try {
     const settings = videoTracks[0]?.getSettings() as
-      | (MediaTrackSettings & { displaySurface?: unknown })
-      | undefined;
+      (MediaTrackSettings & { displaySurface?: unknown }) | undefined;
     selectedSurface = normalizeSystemAudioSurface(settings?.displaySurface);
   } catch (error) {
     // Legacy engines and test doubles may reject getSettings(). Surface

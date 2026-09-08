@@ -25,12 +25,7 @@ interface PlaylistSnapshot {
 }
 
 type PlaylistSnapshotApplyOutcome =
-  | 'rebased'
-  | 'applied'
-  | 'duplicate'
-  | 'stale'
-  | 'conflict'
-  | 'invalid';
+  'rebased' | 'applied' | 'duplicate' | 'stale' | 'conflict' | 'invalid';
 
 type PlaylistSnapshotApplyMode = 'monotonic' | 'rebase';
 

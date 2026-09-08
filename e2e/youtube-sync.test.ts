@@ -47,8 +47,7 @@ async function waitForBus(page: Page, timeout = 20_000): Promise<void> {
 async function hostLoadYouTube(page: Page, url: string): Promise<void> {
   await page.evaluate((u) => {
     const bus = (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ as
-      | { emit: (type: string, ...args: unknown[]) => void }
-      | undefined;
+      { emit: (type: string, ...args: unknown[]) => void } | undefined;
     if (!bus) throw new Error('bus not exposed via __MUSIXQUARE_BUS__');
     // Natural entry point — same path chat-link clicks use. Runs the full
     // _addYouTubeToPlaylist pipeline: playlist.items update → loadYouTubeVideo
@@ -182,11 +181,9 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
       const w = window as unknown as Record<string, unknown>;
       const get = w.__MUSIXQUARE_GET_STATE__ as ((p: string) => unknown) | undefined;
       const bus = w.__MUSIXQUARE_BUS__ as
-        | { emit: (type: string, ...args: unknown[]) => void }
-        | undefined;
+        { emit: (type: string, ...args: unknown[]) => void } | undefined;
       const player = w.__fakeYtLastPlayer as
-        | { __state?: number; __currentTime?: number }
-        | undefined;
+        { __state?: number; __currentTime?: number } | undefined;
       const hostConn = get?.('network.hostConn');
       const queueItemId = get?.('playlist.currentQueueItemId');
       if (!bus || !hostConn || !player || typeof queueItemId !== 'string') {
@@ -251,8 +248,7 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     // Host triggers stop-mode (listener → stopYouTubeMode → YOUTUBE_STOP broadcast)
     await pair.hostPage.evaluate(() => {
       const bus = (window as unknown as Record<string, unknown>).__MUSIXQUARE_BUS__ as
-        | { emit: (type: string, ...args: unknown[]) => void }
-        | undefined;
+        { emit: (type: string, ...args: unknown[]) => void } | undefined;
       bus?.emit('youtube:stop-mode');
     });
 

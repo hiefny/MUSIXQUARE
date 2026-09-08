@@ -19,7 +19,7 @@ export class BootstrapReadinessError extends Error {
 }
 
 async function readBootstrapObservation(page: Page): Promise<BootstrapObservation> {
-  return page.locator('html').evaluate<BootstrapObservation>((root) => ({
+  return page.locator('html').evaluate((root): BootstrapObservation => ({
     state: root.getAttribute('data-bootstrap-state'),
     stepCount: root.getAttribute('data-bootstrap-step-count'),
     failureCount: root.getAttribute('data-bootstrap-failure-count'),

@@ -379,8 +379,7 @@ describe('shared Standard-room TURN configuration', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
 
     handler!(
       {
@@ -551,8 +550,7 @@ describe('single original stereo SFU contract', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     handler!(
       {
         version: 2,
@@ -978,8 +976,7 @@ describe('bounded large-room SFU failure policy', () => {
     const capabilityHandler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_CAPABILITY)?.[1] as
-      | ((data: unknown, conn?: DataConnection) => void)
-      | undefined;
+      ((data: unknown, conn?: DataConnection) => void) | undefined;
     expect(capabilityHandler).toBeDefined();
 
     capabilityHandler!({ version: 2, localAudience: true }, localPeer.conn as DataConnection);
@@ -1021,8 +1018,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       const handler = vi
         .mocked(registerHandler)
         .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-        | ((data: unknown, conn?: DataConnection) => void)
-        | undefined;
+        ((data: unknown, conn?: DataConnection) => void) | undefined;
       expect(handler).toBeDefined();
 
       handler!(
@@ -1084,8 +1080,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
 
     handler!(
       {
@@ -1124,8 +1119,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     handler!(
       {
         version: 2,
@@ -1162,8 +1156,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
     handler!(
@@ -1212,8 +1205,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
     handler!(
@@ -1304,8 +1296,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
     bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
@@ -1349,8 +1340,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
     handler!(
@@ -1420,8 +1410,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
 
     handler!(
       {
@@ -1462,8 +1451,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
     handler!(
@@ -1552,8 +1540,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const sfuReadyHandler = vi
       .mocked(registerHandler)
       .mock.calls.find((c) => c[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(sfuReadyHandler).toBeDefined();
 
     sfuReadyHandler!(
@@ -1652,8 +1639,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     const sfuReadyHandler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(sfuReadyHandler).toBeDefined();
 
     sfuReadyHandler!(
@@ -1743,8 +1729,7 @@ describe('LAN SFU audience negotiation', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
     handler!(
@@ -1788,8 +1773,7 @@ describe('LAN SFU audience negotiation', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     handler!(
       {
         version: 2,
@@ -1935,8 +1919,7 @@ describe('guest SFU receive limit', () => {
     const handler = vi
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      | ((data: unknown, conn?: unknown) => void)
-      | undefined;
+      ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
     handler!(

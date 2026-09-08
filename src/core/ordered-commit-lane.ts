@@ -11,8 +11,7 @@ interface OrderedCommitTask<T> {
 }
 
 type Prepared<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: unknown };
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
 
 const LANE_ABORTED = Symbol('ordered-commit-lane-aborted');
 

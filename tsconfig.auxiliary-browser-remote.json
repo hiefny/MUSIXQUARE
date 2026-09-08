@@ -1,10 +1,9 @@
 {
   "extends": "./tsconfig.auxiliary-browser.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": {
-      "three": ["node_modules/three-types-0162/index.d.ts"],
-      "three/*": ["node_modules/three-types-0162/*"]
+      "three": ["./node_modules/three-types-0162/index.d.ts"],
+      "three/*": ["./node_modules/three-types-0162/*"]
     }
   },
   "include": [

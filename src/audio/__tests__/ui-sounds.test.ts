@@ -207,14 +207,11 @@ describe('UI sounds', () => {
     const attentionInput = context.createGain.mock.results[1]?.value as GainNode | undefined;
     const attentionOutput = context.createGain.mock.results[2]?.value as GainNode | undefined;
     const touchCompressor = context.createDynamicsCompressor.mock.results[0]?.value as
-      | DynamicsCompressorNode
-      | undefined;
+      DynamicsCompressorNode | undefined;
     const attentionCompressor = context.createDynamicsCompressor.mock.results[1]?.value as
-      | DynamicsCompressorNode
-      | undefined;
+      DynamicsCompressorNode | undefined;
     const touchSource = context.createBufferSource.mock.results[0]?.value as
-      | AudioBufferSourceNode
-      | undefined;
+      AudioBufferSourceNode | undefined;
 
     expect(touchInput?.gain.value).toBe(1);
     expect(attentionInput?.gain.value).toBe(1);

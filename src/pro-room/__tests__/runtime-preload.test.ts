@@ -153,7 +153,7 @@ function signalingAccess(): ProRoomSignalingAccess {
   };
 }
 
-describe.sequential('PRO room runtime preload adoption', () => {
+describe('PRO room runtime preload adoption', { concurrent: false }, () => {
   const restoreSpies: Array<{ mockRestore(): void }> = [];
   let download: ReturnType<typeof vi.spyOn>;
 

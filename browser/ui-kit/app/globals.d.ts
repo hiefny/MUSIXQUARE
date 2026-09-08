@@ -10,13 +10,7 @@ interface UiKitReactElement {
 }
 
 type UiKitReactNode =
-  | UiKitReactElement
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | readonly UiKitReactNode[];
+  UiKitReactElement | string | number | boolean | null | undefined | readonly UiKitReactNode[];
 
 interface UiKitComponent<Props> {
   (props: Props): UiKitReactElement | null;

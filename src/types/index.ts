@@ -169,11 +169,7 @@ export interface ProPlaybackUiControlSettledEvent {
 export type YouTubeZeroStartPlatform = 'ios' | 'android' | 'other';
 export type YouTubeZeroStartCommitReason = 'all-ready' | 'guest-timeout' | 'host-delayed';
 export type YouTubeZeroStartAbortReason =
-  | 'superseded'
-  | 'cancelled'
-  | 'authority-changed'
-  | 'player-unavailable'
-  | 'prepare-failed';
+  'superseded' | 'cancelled' | 'authority-changed' | 'player-unavailable' | 'prepare-failed';
 
 export interface PlaylistWireItem {
   queueItemId: QueueItemId;

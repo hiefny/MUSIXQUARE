@@ -722,24 +722,40 @@ describe('public design-system page contract', () => {
     expect(copy).toMatch(/stroke[\s\S]*(?:exception|reserved)/iu);
     expect(filled.length).toBeGreaterThan(stroked.length);
     expect(stroked.length).toBeGreaterThanOrEqual(1);
-    expect(
-      filled.every(
-        (sample) =>
-          getComputedStyle(sample.querySelector('svg')!).fill.toLowerCase() === 'currentcolor',
-      ),
-    ).toBe(true);
+    // Computed SVG paint now resolves currentColor to its actual color in jsdom.
+    // Changing that color also proves the paint follows it instead of being fixed.
+    function expectCurrentColorPaint(element: SVGElement, property: 'fill' | 'stroke'): void {
+      const originalColor = element.style.color;
+      try {
+        for (const color of ['rgb(12, 34, 56)', 'rgb(65, 43, 21)']) {
+          element.style.color = color;
+          const computed = getComputedStyle(element);
+          expect(computed.color).toBe(color);
+          expect(computed[property]).toBe(color);
+        }
+      } finally {
+        element.style.color = originalColor;
+      }
+    }
+    for (const sample of filled) {
+      expectCurrentColorPaint(sample.querySelector('svg')!, 'fill');
+    }
     expect(pureStroke).toBeTruthy();
-    expect(getComputedStyle(pureStroke!.querySelector('svg')!).fill).toBe('none');
-    expect(getComputedStyle(pureStroke!.querySelector('svg')!).stroke.toLowerCase()).toBe(
-      'currentcolor',
-    );
+    // jsdom 30 serializes fill:none as transparent. Retain the authored no-paint
+    // requirement as well as checking the resulting transparent paint.
+    expect(designStylesheet).toMatch(/\.icon-grid \.stroke-icon svg\s*\{\s*fill:\s*none;/u);
+    expect(getComputedStyle(pureStroke!.querySelector('svg')!).fill).toBe('rgba(0, 0, 0, 0)');
+    expectCurrentColorPaint(pureStroke!.querySelector('svg')!, 'stroke');
     expect(mixed).toBeTruthy();
-    expect(getComputedStyle(mixed!.querySelector('.volume-speaker')!).fill.toLowerCase()).toBe(
-      'currentcolor',
+    expectCurrentColorPaint(mixed!.querySelector('.volume-speaker')!, 'fill');
+    expect(designStylesheet).toMatch(
+      /\.icon-grid \.mixed-icon :is\(\.volume-wave-inner, \.volume-wave-outer\)\s*\{\s*fill:\s*none;/u,
     );
-    for (const wave of mixed!.querySelectorAll('.volume-wave-inner, .volume-wave-outer')) {
-      expect(getComputedStyle(wave).fill).toBe('none');
-      expect(getComputedStyle(wave).stroke.toLowerCase()).toBe('currentcolor');
+    for (const wave of mixed!.querySelectorAll<SVGElement>(
+      '.volume-wave-inner, .volume-wave-outer',
+    )) {
+      expect(getComputedStyle(wave).fill).toBe('rgba(0, 0, 0, 0)');
+      expectCurrentColorPaint(wave, 'stroke');
     }
     expect(iconography.querySelector('.youtube-icon')).toBeNull();
     expect(copy).not.toMatch(/YouTube/iu);

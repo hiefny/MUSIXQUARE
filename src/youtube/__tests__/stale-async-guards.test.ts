@@ -209,12 +209,10 @@ interface YtTestHandle {
 
 function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
   let capturedOnStateChange:
-    | ((event: { data: number; target: YouTubePlayerInstance }) => void)
-    | undefined;
+    ((event: { data: number; target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnReady: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnError:
-    | ((event: { data: number; target: YouTubePlayerInstance }) => void)
-    | undefined;
+    ((event: { data: number; target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnAutoplayBlocked: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnApiChange: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   (window as unknown as { YT: unknown }).YT = {

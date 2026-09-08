@@ -17,12 +17,7 @@ export const PRO_CHAT_MODERATION_KINDS = new Set<string>([
 export type IncomingMessageValidation = 'valid' | 'ignore' | 'oversized';
 
 type NormalizedJson =
-  | null
-  | boolean
-  | number
-  | string
-  | NormalizedJson[]
-  | { [key: string]: NormalizedJson };
+  null | boolean | number | string | NormalizedJson[] | { [key: string]: NormalizedJson };
 
 interface NormalizationBudget {
   keys: number;

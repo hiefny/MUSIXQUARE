@@ -184,7 +184,7 @@ async function firstContrastMutation(page: Page): Promise<ContrastFirstMutation 
 }
 
 async function controlStyles(page: Page, selector: string): Promise<ControlStyles> {
-  return page.locator(selector).evaluate<ControlStyles>((element) => {
+  return page.locator(selector).evaluate((element): ControlStyles => {
     const style = getComputedStyle(element);
     return {
       backgroundColor: style.backgroundColor,

@@ -180,8 +180,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return (get('audio.reverbMix') as number) > 0;
       },
@@ -204,8 +203,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return (get('audio.reverbMix') as number) > 0;
       },
@@ -261,8 +259,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       (initial) => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return (get('audio.stereoWidth') as number) !== initial;
       },
@@ -288,8 +285,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return (get('audio.stereoWidth') as number) > 1;
       },
@@ -324,8 +320,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return (get('audio.virtualBass') as number) > 0;
       },
@@ -350,8 +345,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return (get('audio.virtualBass') as number) > 0;
       },
@@ -374,8 +368,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return Boolean(get('audio.exciter')) && (get('audio.stereoWidth') as number) > 1;
       },
@@ -398,8 +391,7 @@ test.describe('Audio Effects', () => {
     await pair.hostPage.waitForFunction(
       () => {
         const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-          | ((p: string) => unknown)
-          | undefined;
+          ((p: string) => unknown) | undefined;
         if (!get) return false;
         return (
           (get('audio.virtualBass') as number) === 0 &&

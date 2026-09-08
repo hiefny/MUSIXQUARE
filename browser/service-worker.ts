@@ -88,9 +88,7 @@ const SENSITIVE_NAVIGATION_QUERY_PARAMETER =
 // static JS/CSS closure at build time.
 // Keeping this manifest deterministic makes a first successful install usable
 // offline, rather than depending on each hashed asset having been requested.
-const BUILD_ENTRY_ASSETS: readonly string[] = [
-  /* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */
-];
+const BUILD_ENTRY_ASSETS: readonly string[] = [/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */];
 
 // Vite injects the lazy Pretendard CSS closure here. The canonical 2 MiB font
 // is included in the same optional group, never in core APP_SHELL/addAll.

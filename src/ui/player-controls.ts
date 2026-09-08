@@ -1103,8 +1103,7 @@ export function initPlayerControls(): void {
     };
     const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
     const videoWrapper = document.querySelector('.video-wrapper') as
-      | (HTMLElement & { webkitRequestFullscreen?: () => void })
-      | null;
+      (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;
     const target = videoWrapper || el;
 
     const enterFake = () => {

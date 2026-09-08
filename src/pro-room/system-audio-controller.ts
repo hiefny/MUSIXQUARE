@@ -38,9 +38,7 @@ interface ProRoomSystemAudioApi {
 export type { ProRoomSystemAudioApi as ProRoomSystemAudioApiForTests };
 
 export type ProRoomSystemAudioLeaseLossReason =
-  | 'authoritative-revocation'
-  | 'session-changed'
-  | 'reset';
+  'authoritative-revocation' | 'session-changed' | 'reset';
 
 export interface ProRoomSystemAudioViewState {
   roomCode: string | null;

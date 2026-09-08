@@ -76,11 +76,7 @@ function observeAccountSessionOperation(
 }
 
 export type AccountLoginPopupOutcome =
-  | 'authenticated'
-  | 'profile-incomplete'
-  | 'cancelled'
-  | 'error'
-  | 'blocked';
+  'authenticated' | 'profile-incomplete' | 'cancelled' | 'error' | 'blocked';
 
 export type AccountLoginPopupOptions = {
   /**

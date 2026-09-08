@@ -222,7 +222,11 @@ export class StandardHttpSignalingSocket extends EventTarget {
     this.url = `${this.#endpoint}/open`;
     globalThis.addEventListener?.('online', this.refreshPollRoute);
     globalThis.document?.addEventListener?.('visibilitychange', this.refreshVisiblePollRoute);
-    queueMicrotask(() => void this.openBridge());
+    queueMicrotask(() => {
+      this.openBridge().catch((error: unknown) => {
+        if (!this.lifetimeController.signal.aborted) this.fail('open', null, error);
+      });
+    });
   }
 
   send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {

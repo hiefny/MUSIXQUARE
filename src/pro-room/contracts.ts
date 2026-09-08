@@ -201,8 +201,7 @@ interface ProRoomSystemAudioDirectPublication {
 }
 
 export type ProRoomSystemAudioPublication =
-  | ProRoomSystemAudioSfuPublication
-  | ProRoomSystemAudioDirectPublication;
+  ProRoomSystemAudioSfuPublication | ProRoomSystemAudioDirectPublication;
 
 export function isProRoomSystemAudioSfuPublication(
   publication: ProRoomSystemAudioPublication,
@@ -266,9 +265,7 @@ interface ProRoomSystemAudioLiveState extends ProRoomSystemAudioStateBase {
  * strict clients can keep joining during a rolling deployment.
  */
 export type ProRoomSystemAudioState =
-  | ProRoomSystemAudioIdleState
-  | ProRoomSystemAudioPreparingState
-  | ProRoomSystemAudioLiveState;
+  ProRoomSystemAudioIdleState | ProRoomSystemAudioPreparingState | ProRoomSystemAudioLiveState;
 
 /** Authoritative, fully validated room state returned after activation/authentication. */
 interface ProRoomSnapshotV1 {

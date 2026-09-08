@@ -78,9 +78,7 @@ interface AccountActivityStatsDependencies {
 }
 
 type AccountActivityStatsFlushResult =
-  | { status: 'updated'; stats: AccountStats }
-  | { status: 'idle' }
-  | { status: 'uncertain' };
+  { status: 'updated'; stats: AccountStats } | { status: 'idle' } | { status: 'uncertain' };
 
 function observeActivityStatsFlush(operation: Promise<void>, source: string): void {
   operation.catch((error) => {

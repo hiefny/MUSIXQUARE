@@ -106,10 +106,7 @@ interface DirectCloseSignal extends DirectSignalBase {
 }
 
 type DirectSignal =
-  | DirectOfferSignal
-  | DirectAnswerSignal
-  | DirectCandidateSignal
-  | DirectCloseSignal;
+  DirectOfferSignal | DirectAnswerSignal | DirectCandidateSignal | DirectCloseSignal;
 
 interface ProSystemAudioDirectPublicationDescriptor {
   publicationId: string;

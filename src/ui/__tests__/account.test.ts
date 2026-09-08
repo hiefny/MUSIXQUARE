@@ -1656,8 +1656,7 @@ describe('optional account UI', () => {
 
     const runNextFrame = (now: number): void => {
       const nextFrame = pendingFrames.entries().next().value as
-        | [number, FrameRequestCallback]
-        | undefined;
+        [number, FrameRequestCallback] | undefined;
       expect(nextFrame).toBeDefined();
       if (!nextFrame) return;
       pendingFrames.delete(nextFrame[0]);
@@ -1768,8 +1767,7 @@ describe('optional account UI', () => {
 
     const runNextFrame = (now: number): void => {
       const nextFrame = pendingFrames.entries().next().value as
-        | [number, FrameRequestCallback]
-        | undefined;
+        [number, FrameRequestCallback] | undefined;
       expect(nextFrame).toBeDefined();
       if (!nextFrame) return;
       pendingFrames.delete(nextFrame[0]);

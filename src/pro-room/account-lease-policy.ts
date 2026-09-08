@@ -12,10 +12,7 @@ const PRO_ACCOUNT_IDENTITY_LEASE_RETRY_EXPIRY_GUARD_MS = 5_000;
 
 type ProAccountIdentityLeaseAction = 'none' | 'renew' | 'reattach';
 type ProAccountIdentityLeaseFailure =
-  | 'terminal-room-session'
-  | 'reattach'
-  | 'revoke-local'
-  | 'grace';
+  'terminal-room-session' | 'reattach' | 'revoke-local' | 'grace';
 
 /**
  * Convert the server-authoritative expiry into a duration-based renewal timer.

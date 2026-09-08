@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "None",
-    "moduleResolution": "Classic",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "legacy",
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,

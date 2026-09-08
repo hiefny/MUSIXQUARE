@@ -98,7 +98,7 @@ function roomSnapshot(): ProRoomSnapshot {
   };
 }
 
-describe.sequential('PRO BOT runtime session lease', () => {
+describe('PRO BOT runtime session lease', { concurrent: false }, () => {
   const restoreSpies: Array<{ mockRestore(): void }> = [];
 
   afterAll(async () => {

@@ -91,9 +91,7 @@ interface RetainedPlayerTargetIdentity {
 }
 
 type RetainedPlayerHardMuteProof =
-  | { status: 'confirmed' }
-  | { status: 'pending' }
-  | { status: 'failed'; reason: string };
+  { status: 'confirmed' } | { status: 'pending' } | { status: 'failed'; reason: string };
 
 interface RetainedPlayerControllerPorts {
   loadTarget(request: RetainedPlayerTargetRequest): void;

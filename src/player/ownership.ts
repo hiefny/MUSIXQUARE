@@ -289,11 +289,7 @@ export function getPlaybackOwnership(): PlaybackOwnership {
  * read mode/activity directly.
  */
 type PlaybackProjection =
-  | 'IDLE'
-  | 'PAUSED'
-  | 'PLAYING_AUDIO'
-  | 'PLAYING_YOUTUBE'
-  | 'PLAYING_SYSTEM_AUDIO';
+  'IDLE' | 'PAUSED' | 'PLAYING_AUDIO' | 'PLAYING_YOUTUBE' | 'PLAYING_SYSTEM_AUDIO';
 
 export function getPlaybackProjection(): PlaybackProjection {
   const o = getPlaybackOwnership();

@@ -74,8 +74,7 @@ async function waitForSyncOffset(
   await page.waitForFunction(
     ([expected]) => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
+        ((p: string) => unknown) | undefined;
       if (!get) return false;
       const current = get('sync.localOffset') as number;
       return Math.abs(current - expected) < 0.0001;

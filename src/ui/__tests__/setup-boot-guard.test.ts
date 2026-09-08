@@ -151,6 +151,9 @@ describe('first setup paint with a deferred native View Transition', () => {
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
     document.body.innerHTML = parsed.body.innerHTML;
     document.documentElement.className = 'setup-boot-block';
+    // This DOM fixture omits app.css. Model its initially transparent failure
+    // surface explicitly now that jsdom resolves the default opacity to 1.
+    document.getElementById('bootstrap-failure')!.style.opacity = '0';
     vi.stubGlobal(
       'matchMedia',
       vi.fn((media: string) => ({

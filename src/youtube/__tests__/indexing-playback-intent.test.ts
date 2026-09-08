@@ -162,8 +162,7 @@ interface YtTestHandle {
 function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
   let capturedOnReady: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnStateChange:
-    | ((event: { data: number; target: YouTubePlayerInstance }) => void)
-    | undefined;
+    ((event: { data: number; target: YouTubePlayerInstance }) => void) | undefined;
   (window as unknown as { YT: unknown }).YT = {
     Player: vi.fn(function (
       _target: string,

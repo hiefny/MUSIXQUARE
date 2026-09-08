@@ -12,12 +12,7 @@ import type { YouTubePlayerInstance } from './_state.ts';
 export type YouTubeStableActivity = 'playing' | 'paused';
 type YouTubeStableStateOrigin = 'programmatic' | 'native' | 'unsupported';
 type StableMethodName =
-  | 'playVideo'
-  | 'pauseVideo'
-  | 'loadVideoById'
-  | 'loadPlaylist'
-  | 'cueVideoById'
-  | 'cuePlaylist';
+  'playVideo' | 'pauseVideo' | 'loadVideoById' | 'loadPlaylist' | 'cueVideoById' | 'cuePlaylist';
 
 type PlayerMethod = (...args: unknown[]) => unknown;
 

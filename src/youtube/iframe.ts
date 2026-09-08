@@ -1464,11 +1464,7 @@ type YouTubeAuthorityPreparationResult =
   | {
       ready: false;
       reason:
-        | 'superseded'
-        | 'player-unavailable'
-        | 'identity-mismatch'
-        | 'audio-locked'
-        | 'timeout';
+        'superseded' | 'player-unavailable' | 'identity-mismatch' | 'audio-locked' | 'timeout';
     };
 
 let proAuthorityPreparationGeneration = 0;

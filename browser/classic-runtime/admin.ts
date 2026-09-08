@@ -342,7 +342,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.6.2';
+const ADMIN_SCRIPT_VERSION = '8.6.3';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -5102,7 +5102,12 @@ function setActiveTab(tab: string): void {
   adminTabs.forEach((button) => {
     const active = button.dataset.adminTab === tab;
     button.classList.toggle('is-active', active);
-    button.setAttribute('aria-selected', active ? 'true' : 'false');
+    if (button.closest('.header-actions')) {
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      button.removeAttribute('aria-selected');
+    } else {
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    }
   });
   adminViews.forEach((view) => {
     const active = view.dataset.adminView === tab;
@@ -5580,45 +5585,74 @@ function validAdminTranslation(value: unknown): value is AdminTranslationSuggest
 
 function reportTranslationAdminError(error: unknown): void {
   if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
-  if (translationStatusEl)
+  if (translationStatusEl) {
+    translationStatusEl.dataset.state = 'error';
     translationStatusEl.textContent = adminErrorMessage(error, 'Translation request failed.');
+  }
 }
 
 function renderTranslationReview(item: AdminTranslationSuggestion): HTMLElement {
   const row = document.createElement('article');
   row.className = 'translation-review-item';
+  const head = document.createElement('div');
+  head.className = 'translation-review-card-head';
   const heading = document.createElement('strong');
   heading.textContent = `${item.locale} · ${item.surface} · ${item.key}`;
+  const state = document.createElement('span');
+  state.className = 'translation-review-state';
+  state.dataset.state = item.applied ? 'applied' : item.outdated ? 'outdated' : item.status;
+  state.textContent = item.applied ? 'Applied' : item.outdated ? 'References changed' : item.status;
+  head.append(heading, state);
   const meta = document.createElement('p');
-  const state = item.applied ? 'Applied' : item.outdated ? 'References changed' : item.status;
   meta.className = 'translation-review-meta';
-  meta.textContent = `${item.votes} recommendations · ${item.author} · ${state} · ${formatAdminDateTime(item.createdAt)}`;
-  const current = document.createElement('p');
-  current.className = 'translation-review-current';
-  current.dir = 'auto';
-  current.lang = item.locale;
-  current.textContent = item.current;
-  const proposed = document.createElement('p');
-  proposed.className = 'translation-review-proposed';
-  proposed.dir = 'auto';
-  proposed.lang = item.locale;
-  proposed.textContent = item.proposed;
+  const author = document.createElement('bdi');
+  author.textContent = item.author;
+  meta.append(
+    `${item.votes} recommendations · `,
+    author,
+    ` · ${formatAdminDateTime(item.createdAt)}`,
+  );
+  const comparison = document.createElement('div');
+  comparison.className = 'translation-review-comparison';
+  for (const [name, content, kind] of [
+    ['Current translation', item.current, 'current'],
+    ['Suggested translation', item.proposed, 'proposed'],
+  ] as const) {
+    const field = document.createElement('div');
+    field.className = `translation-review-field translation-review-field--${kind}`;
+    const label = document.createElement('span');
+    label.className = 'translation-review-label';
+    label.textContent = name;
+    const value = document.createElement('p');
+    value.className = `translation-review-${kind}`;
+    value.dir = 'auto';
+    value.lang = item.locale;
+    value.textContent = content;
+    field.append(label, value);
+    comparison.append(field);
+  }
   const references = document.createElement('details');
+  references.className = 'translation-review-references';
   const summary = document.createElement('summary');
   summary.textContent = 'References';
   references.append(summary);
-  for (const [name, content] of [
-    ['English', item.sourceEn],
-    ['Korean', item.sourceKo],
-    ['Note', item.reason],
-  ]) {
+  for (const [name, content, lang] of [
+    ['Source(English)', item.sourceEn, 'en'],
+    ['Reference(Korean)', item.sourceKo, 'ko'],
+    ['Contributor note', item.reason, ''],
+  ] as const) {
     if (!content) continue;
-    const label = document.createElement('strong');
-    label.textContent = name ?? '';
+    const field = document.createElement('div');
+    field.className = 'translation-review-reference';
+    const label = document.createElement('span');
+    label.className = 'translation-review-label';
+    label.textContent = name;
     const text = document.createElement('p');
     text.dir = 'auto';
+    if (lang) text.lang = lang;
     text.textContent = content;
-    references.append(label, text);
+    field.append(label, text);
+    references.append(field);
   }
   const actions = document.createElement('div');
   actions.className = 'translation-review-actions';
@@ -5631,6 +5665,8 @@ function renderTranslationReview(item: AdminTranslationSuggestion): HTMLElement 
     if (status === 'pending' && item.status !== 'rejected') continue;
     const button = document.createElement('button');
     button.type = 'button';
+    button.className =
+      status === 'approved' ? 'is-primary' : status === 'rejected' ? 'is-danger' : 'is-secondary';
     button.textContent = label;
     button.disabled = status === 'approved' && item.outdated;
     addAsyncAdminEventListener(button, 'click', async () => {
@@ -5652,7 +5688,7 @@ function renderTranslationReview(item: AdminTranslationSuggestion): HTMLElement 
     });
     actions.append(button);
   }
-  row.append(heading, meta, current, proposed, references, actions);
+  row.append(head, meta, comparison, references, actions);
   return row;
 }
 
@@ -5664,7 +5700,10 @@ async function loadTranslations(append = false): Promise<void> {
   if (locale) query.set('locale', locale);
   if (append && translationNextCursor) query.set('cursor', translationNextCursor);
   if (translationMoreBtn) translationMoreBtn.disabled = true;
-  if (translationStatusEl) translationStatusEl.textContent = 'Loading…';
+  if (translationStatusEl) {
+    translationStatusEl.dataset.state = 'loading';
+    translationStatusEl.textContent = 'Loading…';
+  }
   try {
     const payload = await fetchJson(`/api/admin/translations?${query}`, {
       signal: load.controller.signal,
@@ -5684,10 +5723,12 @@ async function loadTranslations(append = false): Promise<void> {
     translationNextCursor = payload.nextCursor;
     translationsLoaded = true;
     if (translationMoreBtn) translationMoreBtn.hidden = !translationNextCursor;
-    if (translationStatusEl)
+    if (translationStatusEl) {
+      translationStatusEl.dataset.state = translationListEl.childElementCount ? 'ready' : 'empty';
       translationStatusEl.textContent = translationListEl.childElementCount
         ? `${translationListEl.childElementCount} suggestions · most recommended first`
         : 'No suggestions.';
+    }
   } finally {
     if (isLatestAdminLoad(load) && translationMoreBtn) translationMoreBtn.disabled = false;
     finishLatestAdminLoad(load);
@@ -5725,8 +5766,10 @@ async function exportApprovedTranslations(): Promise<void> {
     } finally {
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
-    if (translationStatusEl)
+    if (translationStatusEl) {
+      translationStatusEl.dataset.state = 'ready';
       translationStatusEl.textContent = `${payload.drafts.length} approved suggestions exported. Review and apply the file in the repository before release.`;
+    }
   } catch (error) {
     reportTranslationAdminError(error);
   } finally {

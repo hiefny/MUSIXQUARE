@@ -237,12 +237,14 @@ p {
 }
 
 .header-actions button {
+  min-height: 36px;
   padding: 7px 14px;
   border-radius: var(--radius-pill);
   background: var(--surface-1);
   color: var(--text-sub);
   font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
   transition:
     color 0.2s,
     background 0.2s;
@@ -251,6 +253,16 @@ p {
 .header-actions button:hover {
   background: var(--surface-2);
   color: var(--text-main);
+}
+
+.header-actions [data-admin-tab].is-active {
+  background: rgba(var(--primary-rgb), 0.16);
+  color: var(--primary);
+}
+
+.header-actions button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 
 .header-actions [data-service-status-trigger] {
@@ -334,6 +346,11 @@ p {
 .admin-tabs button.is-active {
   background: var(--surface-2);
   color: var(--text-main);
+}
+
+.admin-tabs button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 
 [data-admin-tab='announcements'] {
@@ -941,7 +958,9 @@ p {
 .pro-room-label-field input,
 .pro-room-api-field input,
 .pro-room-api-field select,
-.pro-room-api-secret-row input {
+.pro-room-api-secret-row input,
+.translation-review-filters input,
+.translation-review-filters select {
   width: 100%;
   height: 42px;
   border: 0;
@@ -964,7 +983,9 @@ p {
 .pro-room-label-field input:focus,
 .pro-room-api-field input:focus,
 .pro-room-api-field select:focus,
-.pro-room-api-secret-row input:focus {
+.pro-room-api-secret-row input:focus,
+.translation-review-filters input:focus,
+.translation-review-filters select:focus {
   box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
 }
 
@@ -980,7 +1001,10 @@ p {
 .pro-room-actions button,
 .pro-room-api-form button,
 .pro-room-api-key-actions button,
-.pro-room-api-secret-row button {
+.pro-room-api-secret-row button,
+.translation-review-filters > button,
+.translation-review-actions button,
+[data-translation-more] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1005,7 +1029,10 @@ p {
 .pro-room-actions button:disabled,
 .pro-room-api-form button:disabled,
 .pro-room-api-key-actions button:disabled,
-.pro-room-api-secret-row button:disabled {
+.pro-room-api-secret-row button:disabled,
+.translation-review-filters > button:disabled,
+.translation-review-actions button:disabled,
+[data-translation-more]:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
@@ -2822,12 +2849,13 @@ p {
   }
 
   .header-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
-    justify-content: flex-start;
   }
 
   .header-actions [data-service-status-trigger] {
-    margin-right: auto;
+    justify-content: center;
   }
 
   [data-service-status-dialog] {
@@ -3038,14 +3066,20 @@ p {
   }
 
   .admin-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+    gap: 3px;
+    border-radius: 14px;
+    overflow: visible;
   }
 
   .admin-tabs button {
-    flex: 1;
     min-width: 0;
-    padding-inline: 8px;
-    font-size: 12px;
+    min-height: 40px;
+    padding: 9px 12px;
+    border-radius: 11px;
+    font-size: 13px;
   }
 
   .spectrum-chart {
@@ -3086,31 +3120,153 @@ p {
   }
 }
 
-.translation-review-head,
-.translation-review-filters,
-.translation-review-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+.translation-review-panel {
+  min-width: 0;
+}
+
+.translation-review-head {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.translation-review-filters {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.8fr) minmax(160px, 1.2fr) auto auto;
+  align-items: end;
+  gap: 10px;
 }
 
 .translation-review-filters label {
   display: grid;
-  gap: 6px;
-  font-size: 12px;
+  min-width: 0;
+  gap: 7px;
   color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.translation-review-filters input,
+.translation-review-filters select {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.translation-review-filters input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.translation-review-filters > button,
+.translation-review-actions button,
+[data-translation-more] {
+  min-height: 36px;
+  height: auto;
+  padding: 9px 15px;
+  background: var(--surface-2);
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+.translation-review-filters > button {
+  min-height: 42px;
+}
+
+.translation-review-filters > [data-translation-filter],
+.translation-review-actions .is-primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+.translation-review-actions .is-danger {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+.translation-review-filters > button:hover:not(:disabled),
+.translation-review-actions button:hover:not(:disabled),
+[data-translation-more]:hover:not(:disabled) {
+  filter: brightness(1.16);
+}
+
+.translation-review-filters > button:focus-visible,
+.translation-review-actions button:focus-visible,
+[data-translation-more]:focus-visible,
+.translation-review-references > summary:focus-visible,
+[data-translation-export-copy] > summary:focus-visible,
+[data-translation-export-json]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.translation-review-description,
+[data-translation-status] {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.translation-review-description {
+  max-width: 72ch;
+  line-height: 1.6;
+}
+
+[data-translation-status] {
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-translation-status]:empty,
+.translation-review-list:empty {
+  display: none;
+}
+
+[data-translation-status][data-state='empty'] {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  margin-top: 20px;
+  border-radius: var(--radius);
+  padding: 20px;
+  background: var(--surface-2);
+  color: var(--text-sub);
+  text-align: center;
+  font-size: 13px;
+}
+
+[data-translation-status][data-state='error'] {
+  color: var(--fail);
+}
+
+.translation-review-card-head,
+.translation-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.translation-review-card-head {
+  justify-content: space-between;
+}
+
+.translation-review-card-head > strong {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .translation-review-list {
   display: grid;
-  gap: 16px;
+  min-width: 0;
+  gap: 12px;
   margin: 20px 0;
 }
 
 .translation-review-item {
   min-width: 0;
-  padding: 20px;
+  padding: 18px;
   border: 1px solid var(--divider);
   border-radius: var(--radius);
   overflow-wrap: anywhere;
@@ -3118,25 +3274,167 @@ p {
 
 .translation-review-item p {
   white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.65;
 }
 
-.translation-review-meta,
+.translation-review-item .translation-review-meta {
+  margin-top: 7px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.translation-review-state {
+  flex: 0 0 auto;
+  max-width: 100%;
+  border-radius: var(--radius-pill);
+  padding: 4px 9px;
+  background: var(--surface-2);
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.translation-review-state[data-state='approved'],
+.translation-review-state[data-state='applied'] {
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--pass);
+}
+
+.translation-review-state[data-state='pending'],
+.translation-review-state[data-state='outdated'] {
+  background: rgba(250, 204, 21, 0.12);
+  color: var(--warn);
+}
+
+.translation-review-state[data-state='rejected'] {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+.translation-review-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.translation-review-field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 8px;
+  border-radius: var(--radius);
+  padding: 14px;
+  background: var(--surface-2);
+}
+
+.translation-review-field--proposed {
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.35);
+}
+
+.translation-review-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .translation-review-current {
   color: var(--text-sub);
 }
 
 .translation-review-proposed {
+  color: var(--text-main);
   font-weight: 600;
+}
+
+.translation-review-references {
+  margin-top: 16px;
+}
+
+.translation-review-references > summary,
+[data-translation-export-copy] > summary {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 0;
+  color: var(--text-sub);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.translation-review-reference {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  border-inline-start: 2px solid var(--divider);
+  padding-inline-start: 12px;
+}
+
+.translation-review-reference p {
+  color: var(--text-sub);
 }
 
 .translation-review-actions {
   margin-top: 16px;
 }
 
+.translation-review-actions:empty {
+  display: none;
+}
+
+[data-translation-export-copy] {
+  margin-top: 18px;
+  border-top: 1px solid var(--divider);
+  padding-top: 14px;
+}
+
 [data-translation-export-json] {
   display: block;
   width: 100%;
+  min-height: 180px;
   margin-top: 12px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  padding: 13px 14px;
+  background: var(--surface-2);
+  color: var(--text-sub);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  direction: ltr;
+  resize: vertical;
+}
+
+@media (max-width: 720px) {
+  .translation-review-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .translation-review-panel,
+  .translation-review-item {
+    padding: 14px;
+  }
+
+  .translation-review-filters input,
+  .translation-review-filters select,
+  [data-translation-export-json] {
+    font-size: 16px;
+  }
+
+  .translation-review-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 380px) {
+  .translation-review-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Text-field clear affordances stay beside their editors for dialog and keyboard ownership. */

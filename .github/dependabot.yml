@@ -8,7 +8,8 @@ updates:
       day: monday
       time: '01:00'
       timezone: Asia/Seoul
-    open-pull-requests-limit: 5
+    # Routine version-update PRs are paused; security alerts remain enabled.
+    open-pull-requests-limit: 0
     labels:
       - dependencies
 
@@ -19,7 +20,7 @@ updates:
       day: monday
       time: '01:30'
       timezone: Asia/Seoul
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels:
       - dependencies
       - ci

@@ -52,7 +52,8 @@
 }
 .translation-doc .translation-draft-link {
   font-size: 13px;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
   white-space: nowrap;
 }
 .translation-doc a.translation-button {
@@ -350,6 +351,12 @@
 .translation-local-actions {
   margin-top: 10px;
   justify-content: flex-end;
+}
+.translation-submit-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .translation-local-actions > .translation-note {
   margin-right: auto;

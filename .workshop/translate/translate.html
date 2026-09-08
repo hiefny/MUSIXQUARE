@@ -56,7 +56,7 @@
       <article class="policy-doc translation-doc">
         <section id="workspace" aria-labelledby="choose-heading">
           <div class="translation-section-heading">
-            <h2 id="choose-heading">Translations</h2>
+            <h2 id="choose-heading">1. Select a phrase</h2>
           </div>
 
           <div class="translation-filters">
@@ -120,7 +120,7 @@
 
         <section id="editor" aria-labelledby="editor-heading" hidden>
           <div class="translation-section-heading">
-            <h2 id="editor-heading">Suggest a change</h2>
+            <h2 id="editor-heading">2. Suggest a change</h2>
             <a class="translation-draft-link" href="#workspace">Choose another phrase</a>
           </div>
           <div class="translation-keyline">
@@ -165,21 +165,31 @@
           </label>
 
           <div class="translation-editor-actions">
-            <button
-              id="submit-suggestion"
-              class="translation-button translation-button--primary"
-              type="button"
-              disabled
-            >
-              Submit publicly
-            </button>
-            <a
-              id="suggest-sign-in"
-              class="translation-button translation-button--primary"
-              href="/api/auth/google/start?returnTo=%2Ftranslate"
-              hidden
-              >Sign in to suggest</a
-            >
+            <div class="translation-submit-actions">
+              <button
+                id="submit-suggestion"
+                class="translation-button translation-button--primary"
+                type="button"
+                disabled
+              >
+                Submit publicly
+              </button>
+              <a
+                id="suggest-sign-in"
+                class="translation-button translation-button--primary"
+                href="/api/auth/google/start?returnTo=%2Ftranslate"
+                hidden
+                >Sign in to suggest</a
+              >
+              <button
+                id="clear-draft"
+                class="translation-button translation-button--quiet"
+                type="button"
+                disabled
+              >
+                Clear draft
+              </button>
+            </div>
             <span id="community-account" class="translation-note"></span>
           </div>
           <p id="submit-status" class="translation-note" role="status"></p>
@@ -194,20 +204,12 @@
             >
               Use current references
             </button>
-            <button
-              id="clear-draft"
-              class="translation-button translation-button--quiet"
-              type="button"
-              disabled
-            >
-              Clear draft
-            </button>
           </div>
         </section>
 
         <section id="suggestions" aria-labelledby="suggestions-heading">
           <div class="translation-section-heading">
-            <h2 id="suggestions-heading">Suggestions</h2>
+            <h2 id="suggestions-heading">3. Suggestions</h2>
             <a
               id="vote-sign-in"
               class="translation-draft-link"

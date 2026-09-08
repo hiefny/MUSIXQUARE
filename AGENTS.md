@@ -5,7 +5,9 @@
 - After a task is merged, delete its temporary local and remote branches and
   return the checkout to `main`. Do not delete another task's active branch or
   discard uncommitted work.
-- Merged pull request branches are automatically deleted on GitHub. Routine
-  Dependabot version-update PRs are paused; retain security alerts and checks.
+- Merged pull request branches are automatically deleted on GitHub. Keep routine
+  Dependabot version updates in the single `dependencies` multi-ecosystem group
+  for npm and GitHub Actions. Its open bot branch is an intentional exception
+  to completed-task cleanup; retain security updates, alerts, and checks.
 - Follow `docs/hotfix-procedure.md` and `docs/release-versioning.md` for production
   changes, including the exact-commit CI candidate and release workflow.

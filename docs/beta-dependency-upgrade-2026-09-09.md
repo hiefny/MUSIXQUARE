@@ -77,10 +77,12 @@ were not changed.
 
 Vitest retains the previous mock-clearing behavior explicitly. Sequential
 suites use the supported non-concurrent option. jsdom fixture assertions use
-actual CSS semantics where its serialization changed. Test budgets and coverage
-thresholds are retained. Static locale inspections reuse an inert DOM parser
-and materialized HTML strings; all 42 locales and hydration assertions remain
+actual CSS semantics where its serialization changed. Global test timeouts,
+CI job budgets, and coverage thresholds are retained. Static locale inspections
+reuse an inert DOM parser and materialized HTML strings; all 42 locales and hydration assertions remain
 covered without leaving a separate live window open for every inspection.
+Each locale's complete app/About inspection runs as an independent test under
+the shared 15-second timeout, so failures identify the affected language.
 Prettier also reformats existing source for its new formatting rules.
 
 ContentShield's Korean dictionary moved from `profanity` to `words`. Adapting

@@ -113,23 +113,26 @@ describe('localized static HTML materialization', () => {
     }
   });
 
-  it(`renders complete, self-canonical app and About documents for all ${LANGUAGE_OPTIONS.length} locales`, () => {
-    const expectedAppAlternates = new Map(
-      LANGUAGE_OPTIONS.map(
-        ({ code }) =>
-          [localeSeoMetadata(code).hrefLang, `${SITE_ORIGIN}${localizedAppPath(code)}`] as const,
-      ),
-    );
-    expectedAppAlternates.set('x-default', `${SITE_ORIGIN}/`);
-    const expectedAboutAlternates = new Map(
-      LANGUAGE_OPTIONS.map(
-        ({ code }) =>
-          [localeSeoMetadata(code).hrefLang, `${SITE_ORIGIN}${localizedAboutPath(code)}`] as const,
-      ),
-    );
-    expectedAboutAlternates.set('x-default', `${SITE_ORIGIN}/about`);
+  const expectedAppAlternates = new Map(
+    LANGUAGE_OPTIONS.map(
+      ({ code }) =>
+        [localeSeoMetadata(code).hrefLang, `${SITE_ORIGIN}${localizedAppPath(code)}`] as const,
+    ),
+  );
+  expectedAppAlternates.set('x-default', `${SITE_ORIGIN}/`);
+  const expectedAboutAlternates = new Map(
+    LANGUAGE_OPTIONS.map(
+      ({ code }) =>
+        [localeSeoMetadata(code).hrefLang, `${SITE_ORIGIN}${localizedAboutPath(code)}`] as const,
+    ),
+  );
+  expectedAboutAlternates.set('x-default', `${SITE_ORIGIN}/about`);
 
-    for (const option of LANGUAGE_OPTIONS) {
+  // Report each locale independently under the normal per-test timeout while
+  // still validating its complete cross-locale canonical/alternate cluster.
+  it.each(LANGUAGE_OPTIONS)(
+    'renders complete, self-canonical app and About documents for $code',
+    (option) => {
       const about = materializedAbout(option.code);
       const app = materializedApp(option.code);
       const appDocument = documentFor(app);
@@ -216,8 +219,8 @@ describe('localized static HTML materialization', () => {
         appDocument.querySelectorAll('[data-nosnippet]'),
         `${option.code} snippet exclusions`,
       ).toHaveLength(0);
-    }
-  }, 45_000);
+    },
+  );
 
   it('preserves every materialized Open Graph locale alternate during About hydration', () => {
     for (const option of LANGUAGE_OPTIONS) {

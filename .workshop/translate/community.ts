@@ -206,7 +206,7 @@ export function initCommunity(options: CommunityOptions, root: Document = docume
       comparison.className = 'translation-text-preview';
       comparison.append(text('summary', 'Compare'));
       for (const [label, value] of [
-        ['English', suggestion.sourceEn],
+        ['Source(English)', suggestion.sourceEn],
         ['Current translation', suggestion.current],
       ]) {
         comparison.append(text('p', label!, 'translation-reference-label'));

@@ -24,29 +24,28 @@ ordinary exact-commit App release workflow in `docs/hotfix-procedure.md`.
 
 ## Editing and storage
 
-- 40 target languages, with English and Korean references.
+- 40 target languages, with English shown as the source. Korean references remain
+  in stored proposals for maintainer review and baseline validation.
 - Actual App/About strings: currently 728 App and 74 About keys per locale.
   The generator validates source key sets dynamically.
-- Search, page filtering, reference comparison, optional explanation, character
-  count, and a plain text wording preview up to 320 pixels wide.
-- Automatic local drafts, restored drafts, and explicit draft removal.
+- Search, page filtering (All by default), reference comparison, optional explanation,
+  and character count.
+- Automatic local drafts, restored drafts, My drafts only filtering, and Clear draft
+  in the editor. There is no separate draft list or browser export step.
 - Exact placeholder counts and existing markup/attribute protection.
-- Explicit re-review of changed references and fresh catalog checks before export.
-- Versioned JSON containing original text, suggestion, locale, key, reason, and
-  timestamps. A readonly JSON field remains available if a browser skips downloads.
+- Explicit re-review of changed references and fresh catalog checks before submission.
 
-Translations use textContent/value. The wording preview only replaces literal
-`<br>` notation with line breaks; imported HTML is never rendered.
+Translations use textContent/value; imported HTML is never rendered.
 
 Drafts use localStorage key `musixquare.translate.drafts.v1`, specific to the
 browser and origin. Local preview drafts are not copied to production. Clearing
-browser data removes them. Limits are 1,000 drafts, 1 MiB storage, and 8 MiB export.
-Export includes valid complete proposals; unfinished drafts remain in the editor.
+browser data removes them. Limits are 1,000 drafts and 1 MiB storage. Existing
+drafts retain their versioned storage format when the interface changes.
 
 When another tab changes stored drafts, automatic saving pauses in this tab.
-In-memory work remains available for export before reloading the latest saved
-state. Storage failures are shown explicitly. This overwrite guard is not a
-multi-user collaboration system.
+In-memory edits remain available to copy before reloading the latest saved state.
+Storage failures are shown explicitly. This overwrite guard is not a multi-user
+collaboration system.
 
 Catalog reads omit credentials, bypass caches, and have a bounded deadline. The
 build parses literal TypeScript dictionaries without executing app/About scripts.
@@ -82,9 +81,9 @@ npm run translation:apply -- path/to/MUSIXQUARE-approved-translations.json --wri
 The first command validates and previews. The second edits only the matching
 translation string literals after checking every baseline and proposal. Review
 the diff, run the normal checks, and publish through the App release workflow.
-Ordinary browser draft exports are not approved bundles and cannot be applied
-with this tool. Separate plural forms, account messages, and other page families
-remain outside the App/About catalog.
+Only approved admin exports can be applied with this tool; legacy browser draft
+exports are not approved bundles. Separate plural forms, account messages, and
+other page families remain outside the App/About catalog.
 
 The additive D1 tables and account-deletion behavior are documented in
 `docs/account-auth-operations.md`. App releases apply and verify the migration
@@ -94,7 +93,7 @@ reused; no separate translation login or database is required.
 ## Sources and checks
 
 - `translate.html` / `translate.css`: document layout and editor controls.
-- `main.ts`: selection, references, editing, and export UI.
+- `main.ts`: selection, references, editing, and local draft persistence.
 - `drafts.ts` / `storage-session.ts`: validation and storage boundaries.
 - `catalog-client.ts`: static manifest and locale reads.
 - `community.ts` / `community-client.ts`: public contributions and account UI.
@@ -106,7 +105,7 @@ reused; no separate translation login or database is required.
 - `dev/`: isolated preview and legacy read-only preview endpoint.
 
 Existing workshop/tooling TypeScript and ESLint projects include these files.
-Vitest covers drafts, export, storage conflicts, catalog packaging, navigation,
+Vitest covers drafts, storage conflicts, catalog packaging, navigation,
 Worker routes, account/CSRF checks, recommendation and approval concurrency,
 deletion cascades, literal application, and service-worker behavior. Local
 community verification evidence is under `scratch/translation-community-2026-09-08/`.

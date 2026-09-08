@@ -1,18 +1,11 @@
 import {
   MAX_TRANSLATION_TEXT_LENGTH,
-  validateProposal,
   type ProposalDraft,
 } from '../../src/i18n/translation-community';
 
 export { validateProposal } from '../../src/i18n/translation-community';
 export type { Entry, ProposalIssue } from '../../src/i18n/translation-community';
 export type Draft = ProposalDraft;
-
-export interface DraftExport {
-  version: 1;
-  exportedAt: string;
-  drafts: Draft[];
-}
 
 export type StorageWarning =
   | 'unavailable'
@@ -25,7 +18,6 @@ export type DraftStorage = Pick<Storage, 'getItem' | 'setItem'>;
 export const DRAFT_STORAGE_KEY = 'musixquare.translate.drafts.v1';
 const MAX_DRAFTS = 1000;
 const MAX_STORAGE_BYTES = 1024 * 1024;
-const MAX_EXPORT_BYTES = 8 * 1024 * 1024;
 const MAX_TEXT_LENGTH = MAX_TRANSLATION_TEXT_LENGTH;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -84,11 +76,11 @@ function browserStorage(): DraftStorage | null {
   return typeof window === 'undefined' ? null : window.localStorage;
 }
 
-function exceedsTextBudget(drafts: readonly Draft[], limit = MAX_STORAGE_BYTES): boolean {
+function exceedsTextBudget(drafts: readonly Draft[]): boolean {
   let bytes = 0;
   for (const draft of drafts) {
     for (const value of Object.values(draft)) bytes += value.length * 2;
-    if (bytes > limit) return true;
+    if (bytes > MAX_STORAGE_BYTES) return true;
   }
   return false;
 }
@@ -134,24 +126,4 @@ export function saveDrafts(
   } catch {
     return { ok: false, warning: 'write-failed' };
   }
-}
-
-export function createExport(
-  drafts: readonly Draft[],
-  exportedAt = new Date().toISOString(),
-): DraftExport {
-  const checked = readDrafts(drafts);
-  if (!checked || !isTimestamp(exportedAt)) throw new Error('Invalid draft export data.');
-  if (exceedsTextBudget(checked, MAX_EXPORT_BYTES)) {
-    throw new Error('Draft export exceeds the 8 MiB limit.');
-  }
-  for (const draft of checked) {
-    const issues = validateProposal(draft, draft.proposed);
-    if (issues.length) throw new Error(`Invalid proposal ${draft.id}: ${issues.join(', ')}.`);
-  }
-  const result: DraftExport = { version: 1, exportedAt, drafts: checked };
-  if (JSON.stringify(result).length * 2 > MAX_EXPORT_BYTES) {
-    throw new Error('Draft export exceeds the 8 MiB limit.');
-  }
-  return result;
 }

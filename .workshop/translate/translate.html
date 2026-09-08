@@ -69,9 +69,9 @@
             <label class="translation-field" for="surface">
               <span>Page</span>
               <select id="surface" disabled>
-                <option value="about" selected>About</option>
+                <option value="all" selected>All</option>
                 <option value="app">App</option>
-                <option value="all">App &amp; About</option>
+                <option value="about">About</option>
               </select>
             </label>
           </div>
@@ -128,12 +128,8 @@
           </div>
 
           <div class="translation-reference">
-            <div class="translation-reference-label">English</div>
+            <div class="translation-reference-label">Source(English)</div>
             <p id="source-en" lang="en" dir="ltr"></p>
-            <details class="translation-korean">
-              <summary>Korean</summary>
-              <p id="source-ko" lang="ko" dir="ltr"></p>
-            </details>
           </div>
           <div class="translation-reference translation-reference--current">
             <div class="translation-reference-label" id="current-label">Current translation</div>
@@ -187,6 +183,7 @@
             <span id="community-account" class="translation-note"></span>
           </div>
           <p id="submit-status" class="translation-note" role="status"></p>
+          <p id="storage-warning" class="translation-alert" role="alert" hidden></p>
           <div class="translation-editor-actions translation-local-actions">
             <p id="save-status" class="translation-note" role="status"></p>
             <button
@@ -206,10 +203,6 @@
               Clear draft
             </button>
           </div>
-          <details class="translation-text-preview">
-            <summary>Preview</summary>
-            <div id="wording-preview" class="translation-preview-box" dir="auto"></div>
-          </details>
         </section>
 
         <section id="suggestions" aria-labelledby="suggestions-heading">
@@ -253,26 +246,6 @@
             Load more
           </button>
         </section>
-
-        <p id="storage-warning" class="translation-alert" role="alert" hidden></p>
-        <details id="saved" class="translation-drafts">
-          <summary>Drafts <span id="draft-count">0</span></summary>
-          <div class="translation-section-heading">
-            <span id="ready-count" class="translation-note">0 ready to export</span>
-          </div>
-          <ul id="saved-drafts" class="translation-saved" aria-label="Saved suggestions"></ul>
-          <p id="empty-drafts" class="translation-empty">No drafts.</p>
-          <div class="translation-export-actions">
-            <button id="export" class="translation-button" type="button" disabled>
-              Export JSON
-            </button>
-            <span id="export-status" class="translation-note" role="status"></span>
-          </div>
-          <details id="export-copy" class="translation-text-preview" hidden>
-            <summary>View JSON</summary>
-            <textarea id="export-json" rows="8" readonly aria-label="Exported JSON"></textarea>
-          </details>
-        </details>
       </article>
       <noscript
         ><p class="translation-alert">

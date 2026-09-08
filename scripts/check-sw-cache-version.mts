@@ -182,10 +182,18 @@ function isRuntimeAppPath(rawPath: string): boolean {
   ) {
     return true;
   }
+  if (
+    filePath.startsWith('.workshop/translate/') &&
+    !filePath.startsWith('.workshop/translate/dev/')
+  ) {
+    return true;
+  }
 
   return new Set([
     'index.html',
     'scripts/classic-runtime-assets.ts',
+    'scripts/translation-catalog.ts',
+    'scripts/translation-catalog-assets.ts',
     'scripts/service-worker-asset.ts',
     'scripts/service-worker-app-shell-guard-lib.mts',
     'scripts/materialize-localized-html.mts',

@@ -5,6 +5,12 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true
   },
-  "include": [".workshop/landing/main.ts"],
+  "include": [
+    ".workshop/landing/main.ts",
+    ".workshop/translate/main.ts",
+    ".workshop/translate/catalog-client.ts",
+    ".workshop/translate/drafts.ts",
+    ".workshop/translate/storage-session.ts"
+  ],
   "exclude": []
 }

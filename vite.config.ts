@@ -16,6 +16,7 @@ import {
 import { uiKitAsset } from './scripts/ui-kit-asset.ts';
 import { auxiliaryBrowserAssets } from './scripts/auxiliary-browser-assets.ts';
 import { useAsyncConnectMiddleware } from './scripts/async-connect-middleware.ts';
+import { translationCatalogAssets } from './scripts/translation-catalog-assets.ts';
 import { LANGUAGE_OPTIONS } from './src/i18n/locales.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
@@ -261,6 +262,7 @@ const flattenWorkshopHtml = (): Plugin => ({
       '.workshop/terms/terms.html': 'terms.html',
       '.workshop/faq/faq.html': 'faq.html',
       '.workshop/developers/developers.html': 'developers.html',
+      '.workshop/translate/translate.html': 'translate.html',
     };
     for (const key of Object.keys(bundle)) {
       const normalized = key.replace(/\\/g, '/');
@@ -534,6 +536,8 @@ export function pageAliasTarget(rawUrl: string, built = false): string | null {
     target = built ? '/faq.html' : '/.workshop/faq/faq.html';
   } else if (normalizedPath === '/developers' || normalizedPath === '/developers.html') {
     target = built ? '/developers.html' : '/.workshop/developers/developers.html';
+  } else if (normalizedPath === '/translate' || normalizedPath === '/translate.html') {
+    target = built ? '/translate.html' : '/.workshop/translate/translate.html';
   } else if (
     normalizedPath === '/history' ||
     normalizedPath === '/changelog' ||
@@ -947,6 +951,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       classicRuntimeAssets(),
       uiKitAsset(),
       auxiliaryBrowserAssets(),
+      translationCatalogAssets(),
       flattenWorkshopHtml(),
       bindStaticLocaleFontAssets(),
       devPageAliases(),
@@ -997,6 +1002,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
           terms: resolve(__dirname, '.workshop/terms/terms.html'),
           faq: resolve(__dirname, '.workshop/faq/faq.html'),
           developers: resolve(__dirname, '.workshop/developers/developers.html'),
+          translate: resolve(__dirname, '.workshop/translate/translate.html'),
         },
         output: {
           manualChunks: {

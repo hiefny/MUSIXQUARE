@@ -93,6 +93,8 @@ Suggest a translation or recommend an existing proposal at
 [Translate](https://musixquare.com/translate). Maintainers review proposals before
 they appear in a release.
 
+Thank you to everyone who helps translate MUSIXQUARE. Your time and care mean a lot.
+
 ---
 
 ## Room Types Comparison

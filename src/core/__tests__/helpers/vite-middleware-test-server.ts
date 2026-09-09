@@ -25,6 +25,9 @@ export async function startViteMiddlewareTestServer(
       middlewareMode: true,
       preTransformRequests: false,
       ws: false,
+      // These fixtures verify HTTP routes, not file-change reloads. A root
+      // watcher needlessly crawls local media and diagnostics during requests.
+      watch: null,
     },
   });
   const http = createHttpServer(vite.middlewares);

@@ -130,6 +130,9 @@ describe('service-worker CACHE_VERSION guard', () => {
 
   it.each([
     ['browser/classic-runtime/wordmark-anim.ts', 'document.body.dataset.ready = "true";\n'],
+    ['browser/service-worker.ts', 'self.addEventListener("message", () => {});\n'],
+    ['browser/auxiliary-runtime/promo-next.ts', 'export const runtime = true;\n'],
+    ['browser/auxiliary-runtime/promo-next/entry.ts', 'export const runtime = true;\n'],
     ['scripts/classic-runtime-assets.ts', 'export const target = "wordmark-anim.js";\n'],
     ['browser/ui-kit/app/entry.tsx', 'document.body.dataset.kit = "ready";\n'],
     ['scripts/ui-kit-asset.ts', 'export const target = "app.js";\n'],
@@ -189,6 +192,24 @@ describe('service-worker CACHE_VERSION guard', () => {
     const result = runGuard(repository);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('PASS: v2');
+  });
+
+  it('allows removing retired promo studies without exempting adjacent browser runtime', () => {
+    const repository = createRepository();
+    const promoSource = 'browser/auxiliary-runtime/promo/logo-animation.ts';
+    write(repository, promoSource, 'export const study = true;\n');
+    commit(repository, 'add local promo study');
+    expect(runGuard(repository).status).toBe(0);
+
+    rmSync(join(repository, promoSource));
+    commit(repository, 'retire local promo study');
+    expect(runGuard(repository).status).toBe(0);
+
+    write(repository, 'browser/classic-runtime/wordmark-anim.ts', 'export const app = true;\n');
+    commit(repository, 'change actual app wordmark');
+    const result = runGuard(repository);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('browser/classic-runtime/wordmark-anim.ts');
   });
 
   it('allows only the reviewed Static Assets build-policy transition', () => {

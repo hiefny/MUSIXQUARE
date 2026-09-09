@@ -150,6 +150,8 @@ export default defineConfig(
       'coverage/**',
       'release-artifacts/**',
       'test-results/**',
+      '.workshop/promo/source/**',
+      '.workshop/promo/output/**',
       '.wrangler/**',
       'cloudflare/.wrangler/**',
       'cloudflare/types/**',

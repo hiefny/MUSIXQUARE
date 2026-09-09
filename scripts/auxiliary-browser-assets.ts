@@ -8,9 +8,6 @@ import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
 
 export const AUXILIARY_BROWSER_SOURCE_DIRECTORY = 'browser/auxiliary-runtime';
 export const AUXILIARY_BROWSER_DECLARATION_PATH = `${AUXILIARY_BROWSER_SOURCE_DIRECTORY}/remote-modules.d.ts`;
-export const AUXILIARY_BROWSER_SUPPORT_SOURCES = [
-  `${AUXILIARY_BROWSER_SOURCE_DIRECTORY}/promo/product-hero-runtime.ts`,
-] as const;
 
 export interface AuxiliaryBrowserAsset {
   readonly sourcePath: string;
@@ -25,42 +22,6 @@ export interface CompiledAuxiliaryBrowserAsset extends AuxiliaryBrowserAsset {
 }
 
 export const AUXILIARY_BROWSER_ASSETS = [
-  {
-    sourcePath: 'browser/auxiliary-runtime/promo/logo-animation.ts',
-    outputPath: '.workshop/promo/scenes/logo-animation.js',
-    htmlPath: '.workshop/promo/scenes/logo-animation.html',
-    scriptType: 'classic',
-  },
-  {
-    sourcePath: 'browser/auxiliary-runtime/promo/music-note-3d.ts',
-    outputPath: '.workshop/promo/scenes/music-note-3d.js',
-    htmlPath: '.workshop/promo/scenes/music-note-3d.html',
-    scriptType: 'module',
-  },
-  {
-    sourcePath: 'browser/auxiliary-runtime/promo/product-hero-2.ts',
-    outputPath: '.workshop/promo/scenes/product-hero-2.js',
-    htmlPath: '.workshop/promo/scenes/product-hero-2.html',
-    scriptType: 'module',
-  },
-  {
-    sourcePath: 'browser/auxiliary-runtime/promo/product-hero.ts',
-    outputPath: '.workshop/promo/scenes/product-hero.js',
-    htmlPath: '.workshop/promo/scenes/product-hero.html',
-    scriptType: 'module',
-  },
-  {
-    sourcePath: 'browser/auxiliary-runtime/promo/ui-showcase-2.ts',
-    outputPath: '.workshop/promo/scenes/ui-showcase-2.js',
-    htmlPath: '.workshop/promo/scenes/ui-showcase-2.html',
-    scriptType: 'module',
-  },
-  {
-    sourcePath: 'browser/auxiliary-runtime/promo/ui-showcase.ts',
-    outputPath: '.workshop/promo/scenes/ui-showcase.js',
-    htmlPath: '.workshop/promo/scenes/ui-showcase.html',
-    scriptType: 'classic',
-  },
   {
     sourcePath: 'browser/auxiliary-runtime/report-viewer.ts',
     outputPath: 'e2e/report-viewer.js',
@@ -192,10 +153,7 @@ export async function assertAuxiliaryBrowserSourceCompleteness(
     ownedPaths.filter((file) => file !== AUXILIARY_BROWSER_DECLARATION_PATH),
   );
   const unsupported = [...discovered].filter((file) => path.posix.extname(file) !== '.ts').sort();
-  const expected = new Set([
-    ...entries.map((entry) => entry.sourcePath),
-    ...AUXILIARY_BROWSER_SUPPORT_SOURCES,
-  ]);
+  const expected = new Set(entries.map((entry) => entry.sourcePath));
   const unmanaged = sortedDifference(discovered, expected);
   const missing = sortedDifference(expected, discovered);
   const declarations = ownedPaths.filter((file) => file.endsWith('.d.ts'));

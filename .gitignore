@@ -16,6 +16,8 @@ promo/frames/
 promo/output/
 .workshop/promo/frames/
 .workshop/promo/output/
+# Frozen advertisement scenes, native captures, licensed audio and vendored render assets.
+.workshop/promo/source/
 
 # Test reports
 e2e-report.json

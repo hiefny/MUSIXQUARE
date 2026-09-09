@@ -6,12 +6,6 @@
       "three/*": ["./node_modules/three-types-0162/*"]
     }
   },
-  "include": [
-    "browser/auxiliary-runtime/remote-modules.d.ts",
-    "browser/auxiliary-runtime/promo/music-note-3d.ts",
-    "browser/auxiliary-runtime/promo/product-hero-runtime.ts",
-    "browser/auxiliary-runtime/promo/product-hero.ts",
-    "browser/auxiliary-runtime/promo/product-hero-2.ts"
-  ],
+  "include": ["browser/auxiliary-runtime/remote-modules.d.ts"],
   "exclude": []
 }

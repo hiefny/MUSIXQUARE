@@ -168,6 +168,8 @@ function isRuntimeAppPath(rawPath: string): boolean {
   const filePath = rawPath.replaceAll('\\', '/').replace(/^\.\//u, '');
 
   if (filePath.startsWith('src/')) return !isTestOnlySourcePath(filePath);
+  // Retired local promo studies were never emitted into the hosted App bundle.
+  if (filePath.startsWith('browser/auxiliary-runtime/promo/')) return false;
   if (filePath.startsWith('browser/')) return !isTestOnlySourcePath(filePath);
   if (filePath.startsWith('css/')) return true;
   if (filePath.startsWith('fonts/noto/')) return true;

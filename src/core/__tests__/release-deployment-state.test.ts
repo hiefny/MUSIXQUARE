@@ -447,6 +447,54 @@ describe('release deployment rollback state', () => {
     expect(diffCall).toContain(':(exclude)src/**/*.test.tsx');
   });
 
+  it('excludes retired promo inputs while preserving real and adjacent browser runtime paths', () => {
+    const repository = createDirectory();
+    const git = (args: string[]): string =>
+      execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8', stdio: 'pipe' }).trim();
+    const promo = 'browser/auxiliary-runtime/promo/logo-animation.ts';
+    const tooling = [
+      'scripts/auxiliary-browser-assets.ts',
+      'tsconfig.auxiliary-browser.json',
+      'tsconfig.auxiliary-browser-remote.json',
+      '.workshop/promo/render.ts',
+    ];
+    const runtime = [
+      'browser/classic-runtime/wordmark-anim.ts',
+      'browser/service-worker.ts',
+      'browser/ui-kit/app/entry.tsx',
+      'browser/auxiliary-runtime/promo-next/entry.ts',
+      'browser/auxiliary-runtime/promo-next.ts',
+    ];
+    git(['init', '--quiet']);
+    git(['config', 'user.email', 'release-test@musixquare.invalid']);
+    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+    for (const file of [promo, ...tooling, ...runtime]) {
+      mkdirSync(dirname(resolve(repository, file)), { recursive: true });
+      writeFileSync(resolve(repository, file), 'baseline\n');
+    }
+    git(['add', '.']);
+    git(['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'baseline']);
+    const baseline = git(['rev-parse', 'HEAD']);
+    rmSync(resolve(repository, promo));
+    for (const file of tooling) writeFileSync(resolve(repository, file), 'retired promo\n');
+    git(['add', '.']);
+    git(['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'retire promo']);
+    expect(
+      changedRuntimePaths(baseline, git(['rev-parse', 'HEAD']), runtimePathsForWorker('app'), {
+        runner: git,
+      }),
+    ).toEqual([]);
+
+    for (const file of runtime) writeFileSync(resolve(repository, file), 'changed runtime\n');
+    git(['add', '.']);
+    git(['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'change actual runtime']);
+    expect(
+      changedRuntimePaths(baseline, git(['rev-parse', 'HEAD']), runtimePathsForWorker('app'), {
+        runner: git,
+      }),
+    ).toEqual([...runtime].sort());
+  });
+
   it('treats the remote-share contract marker as runtime for both sides', () => {
     const marker = 'cloudflare/remote-share-contract-version.txt';
     expect(runtimePathsForWorker('remote-share')).toContain(marker);
@@ -1151,13 +1199,13 @@ describe('release deployment rollback state', () => {
         expect(paths).toContain('scripts/classic-runtime-assets.ts');
         expect(paths).toContain('scripts/translation-catalog.ts');
         expect(paths).toContain('scripts/translation-catalog-assets.ts');
-        expect(paths).toContain('scripts/auxiliary-browser-assets.ts');
+        expect(paths).not.toContain('scripts/auxiliary-browser-assets.ts');
         expect(paths).toContain('scripts/service-worker-asset.ts');
         expect(paths).toContain('scripts/ui-kit-asset.ts');
         expect(paths).toContain('scripts/materialize-app-static-headers.mts');
         expect(paths).toContain('tsconfig.browser-classic.json');
-        expect(paths).toContain('tsconfig.auxiliary-browser.json');
-        expect(paths).toContain('tsconfig.auxiliary-browser-remote.json');
+        expect(paths).not.toContain('tsconfig.auxiliary-browser.json');
+        expect(paths).not.toContain('tsconfig.auxiliary-browser-remote.json');
         expect(paths).toContain('tsconfig.workshop-landing.json');
         expect(paths).toContain('tsconfig.service-worker.json');
         expect(paths).toContain('tsconfig.ui-kit.json');

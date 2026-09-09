@@ -77,8 +77,6 @@ function approvedExport(value: unknown): ApprovedTranslationsExport {
       item.id !== `${item.surface}:${item.key}` ||
       !isText(item.locale, 32) ||
       !/^[a-z]{2,3}(?:-[a-z]+)?$/u.test(item.locale) ||
-      item.locale === 'en' ||
-      item.locale === 'ko' ||
       !isText(item.sourceEn, MAX_TRANSLATION_TEXT_LENGTH) ||
       !isText(item.sourceKo, MAX_TRANSLATION_TEXT_LENGTH) ||
       !isText(item.current, MAX_TRANSLATION_TEXT_LENGTH) ||

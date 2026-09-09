@@ -349,9 +349,7 @@ async function loadCatalog(locale: string, id = selectedId): Promise<void> {
     catalog = next;
     if (language.options.length <= 1) {
       language.replaceChildren(
-        ...next.languages
-          .filter((lang) => !['en', 'ko'].includes(lang.code))
-          .map((lang) => new Option(lang.nativeName, lang.code)),
+        ...next.languages.map((lang) => new Option(lang.nativeName, lang.code)),
       );
     }
     language.value = next.locale.code;

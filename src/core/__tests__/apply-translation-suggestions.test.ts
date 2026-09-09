@@ -185,6 +185,115 @@ describe('approved translation application', () => {
       expect(await fs.readFile(path.join(root, file), 'utf8')).toBe(originals.get(file));
   });
 
+  it.each([
+    {
+      locale: 'en',
+      current: 'Hello {{name}}',
+      proposed: 'Welcome {{name}}',
+      aboutCurrent: '<b>Help</b>',
+      aboutProposed: '<b>Get started</b>',
+    },
+    {
+      locale: 'ko',
+      current: '안녕 {{name}}',
+      proposed: '반가워요 {{name}}',
+      aboutCurrent: '<b>도움</b>',
+      aboutProposed: '<b>시작하기</b>',
+    },
+  ])(
+    'applies approved $locale wording to app and About while retaining other languages',
+    async (target) => {
+      await setInput(
+        approved([
+          proposal({ locale: target.locale, current: target.current, proposed: target.proposed }),
+          aboutProposal({
+            locale: target.locale,
+            current: target.aboutCurrent,
+            proposed: target.aboutProposed,
+          }),
+        ]),
+      );
+      await applyTranslationSuggestions(root, input);
+      await expectOriginals();
+      await applyTranslationSuggestions(root, input, true);
+      for (const [file, text] of originals) {
+        const expected =
+          file === `src/i18n/${target.locale}.ts`
+            ? text.replace(`'${target.current}'`, `'${target.proposed}'`)
+            : file === aboutPath
+              ? text.replace(`'${target.aboutCurrent}'`, `'${target.aboutProposed}'`)
+              : text;
+        expect(await fs.readFile(path.join(root, file), 'utf8'), file).toBe(expected);
+      }
+      const catalogs = await loadCatalogs(root);
+      expect(
+        catalogs.get(target.locale)?.entries.find(({ id }) => id === 'app:greet')?.current,
+      ).toBe(target.proposed);
+      expect(
+        catalogs.get(target.locale)?.entries.find(({ id }) => id === 'about:hero.h1')?.current,
+      ).toBe(target.aboutProposed);
+      const sourceEn = target.locale === 'en' ? target.proposed : 'Hello {{name}}';
+      for (const catalog of catalogs.values())
+        expect(catalog.entries.find(({ id }) => id === 'app:greet')?.sourceEn).toBe(sourceEn);
+    },
+  );
+
+  it('validates one shared baseline before applying the same app and About keys in EN, KO and French', async () => {
+    const english = proposal({
+      locale: 'en',
+      current: 'Hello {{name}}',
+      proposed: 'Welcome {{name}}',
+      suggestionId: 'approved-en-app',
+    });
+    const korean = proposal({
+      locale: 'ko',
+      current: '안녕 {{name}}',
+      proposed: '반가워요 {{name}}',
+      suggestionId: 'approved-ko-app',
+    });
+    const englishAbout = aboutProposal({
+      locale: 'en',
+      current: '<b>Help</b>',
+      proposed: '<b>Get started</b>',
+      suggestionId: 'approved-en-about',
+    });
+    const koreanAbout = aboutProposal({
+      locale: 'ko',
+      current: '<b>도움</b>',
+      proposed: '<b>시작하기</b>',
+      suggestionId: 'approved-ko-about',
+    });
+    const drafts = [english, korean, proposal(), englishAbout, koreanAbout, aboutProposal()];
+    await setInput(approved(drafts));
+    await expect(applyTranslationSuggestions(root, input, true)).resolves.toEqual({
+      mode: 'write',
+      suggestions: 6,
+      files: [
+        { path: 'src/i18n/en.ts', changes: 1 },
+        { path: 'src/i18n/ko.ts', changes: 1 },
+        { path: 'src/i18n/fr.ts', changes: 1 },
+        { path: aboutPath, changes: 3 },
+      ],
+    });
+    const catalogs = await loadCatalogs(root);
+    for (const draft of drafts)
+      expect(catalogs.get(draft.locale)?.entries.find(({ id }) => id === draft.id)?.current).toBe(
+        draft.proposed,
+      );
+    for (const catalog of catalogs.values()) {
+      expect(catalog.entries.find(({ id }) => id === 'app:greet')).toMatchObject({
+        sourceEn: english.proposed,
+        sourceKo: korean.proposed,
+      });
+      expect(catalog.entries.find(({ id }) => id === 'about:hero.h1')).toMatchObject({
+        sourceEn: englishAbout.proposed,
+        sourceKo: koreanAbout.proposed,
+      });
+    }
+    for (const file of ['src/i18n/locales.ts', 'src/i18n/ja.ts'])
+      expect(await fs.readFile(path.join(root, file), 'utf8')).toBe(originals.get(file));
+  });
+
   it('applies multiple different-length literals in one file without shifting later edit ranges', async () => {
     await setInput(
       approved([
@@ -263,12 +372,12 @@ describe('approved translation application', () => {
 
   it.each([
     proposal({ locale: '../en' }),
-    proposal({ locale: 'en' }),
-    proposal({ locale: 'ko' }),
+    proposal({ locale: 'EN' }),
+    proposal({ locale: 'ko/../fr' }),
     proposal({ id: 'app:plain' }),
     proposal({ reviewRevision: 0 }),
     proposal({ approvedAt: -1 }),
-  ])('rejects malformed/protected target or review metadata without mutations', async (invalid) => {
+  ])('rejects malformed target or review metadata without mutations', async (invalid) => {
     await setInput(approved([invalid]));
     await expect(applyTranslationSuggestions(root, input, true)).rejects.toThrow(
       'Invalid approved translation fields',

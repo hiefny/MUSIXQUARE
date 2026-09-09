@@ -24,8 +24,9 @@ ordinary exact-commit App release workflow in `docs/hotfix-procedure.md`.
 
 ## Editing and storage
 
-- 40 target languages, with English shown as the source. Korean references remain
-  in stored proposals for maintainer review and baseline validation.
+- All 42 languages, including English and Korean, accept wording suggestions.
+  English is shown as the source for every language. Korean references remain in
+  stored proposals for maintainer review and baseline validation.
 - Actual App/About strings: currently 728 App and 74 About keys per locale.
   The generator validates source key sets dynamically.
 - Search, page filtering (All by default), reference comparison, optional explanation,
@@ -67,7 +68,7 @@ paginated and `no-store`; rejected/withdrawn proposals are not publicly listed.
 
 The protected `/admin` Translations tab provides recommendation-ordered review,
 revision-checked approval/rejection, and approved JSON export. One proposal per
-phrase can be approved at a time. Votes prioritize review; they do not change
+language and phrase can be approved at a time. Votes prioritize review; they do not change
 shipped wording automatically. An approved export fails if any unapplied approval
 has stale references; already applied approvals are omitted.
 

@@ -290,6 +290,51 @@ describe('translation editor submission integration', () => {
     return input;
   }
 
+  it.each([
+    { code: 'en', nativeName: 'English', current: draft.sourceEn, proposed: 'Listen as one.' },
+    { code: 'ko', nativeName: '한국어', current: draft.sourceKo, proposed: '같이 들어요.' },
+  ])('submits $code wording suggestions with the English source intact', async (target) => {
+    await startEditor();
+    const language = dom.window.document.getElementById('language') as HTMLSelectElement;
+    expect(Array.from(language.options, (option) => option.value)).toEqual(['en', 'ko', 'pt-br']);
+    const locale = { code: target.code, nativeName: target.nativeName, htmlLang: target.code };
+    api.catalog.mockResolvedValue({
+      locale,
+      languages: [locale, portuguese],
+      entries: [{ ...draft, current: target.current }],
+    });
+    api.submit.mockResolvedValue({
+      ...suggestion,
+      locale: target.code,
+      current: target.current,
+      proposed: target.proposed,
+    });
+    language.value = target.code;
+    language.dispatchEvent(new dom.window.Event('change'));
+    await vi.waitFor(() =>
+      expect(dom.window.document.getElementById('current-label')?.textContent).toBe(
+        `Current · ${target.nativeName}`,
+      ),
+    );
+    expect(dom.window.document.getElementById('source-en')?.textContent).toBe(draft.sourceEn);
+    expect(dom.window.document.getElementById('current')?.textContent).toBe(target.current);
+    const input = typeProposal(target.proposed);
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledOnce());
+    expect(api.submit.mock.calls[0]?.[0]).toMatchObject({
+      locale: target.code,
+      key: draft.key,
+      sourceEn: draft.sourceEn,
+      sourceKo: draft.sourceKo,
+      current: target.current,
+      proposed: target.proposed,
+    });
+    await vi.waitFor(() => expect(input.value).toBe(''));
+    expect(dom.window.document.getElementById('submit-status')?.textContent).toBe(
+      'Submitted · Pending review',
+    );
+  });
+
   it('boots the concise page, preserves edits made during submission, then clears only an acknowledged draft', async () => {
     await startEditor();
     const hero = dom.window.document.querySelector('.policy-hero p')!;

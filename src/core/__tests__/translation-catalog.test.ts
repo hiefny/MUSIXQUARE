@@ -174,28 +174,31 @@ describe('translation catalog production packaging', () => {
     },
   );
 
-  it('reads current manifest then only the requested catalog with no-store freshness', async () => {
-    const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => {
-      const source = assets.get(url.slice(1));
-      return new Response(source, {
-        status: source === undefined ? 404 : 200,
-        headers: { 'Content-Type': 'application/json' },
+  it.each(['en', 'ko', 'pt-br'])(
+    'reads the %s catalog through the current manifest with no-store freshness',
+    async (locale) => {
+      const fetchMock = vi.fn(async (url: string, _options?: RequestInit) => {
+        const source = assets.get(url.slice(1));
+        return new Response(source, {
+          status: source === undefined ? 404 : 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const controller = new AbortController();
-    await expect(loadTranslationCatalog('pt-br', controller.signal)).resolves.toEqual(
-      catalogs.get('pt-br'),
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('/translation-catalogs.json');
-    for (const call of fetchMock.mock.calls)
-      expect(call[1]).toEqual({
-        cache: 'no-store',
-        credentials: 'omit',
-        signal: expect.any(AbortSignal),
-      });
-  });
+      vi.stubGlobal('fetch', fetchMock);
+      const controller = new AbortController();
+      await expect(loadTranslationCatalog(locale, controller.signal)).resolves.toEqual(
+        catalogs.get(locale),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0]?.[0]).toBe('/translation-catalogs.json');
+      for (const call of fetchMock.mock.calls)
+        expect(call[1]).toEqual({
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: expect.any(AbortSignal),
+        });
+    },
+  );
 
   it.each([
     'https://attacker.invalid/catalog.json',

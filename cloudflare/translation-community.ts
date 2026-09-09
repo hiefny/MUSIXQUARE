@@ -50,9 +50,7 @@ interface SuggestionRow {
 const PREFIX = '/api/translations/suggestions';
 const ADMIN_PREFIX = '/api/admin/translations';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
-const TARGETS = new Set<string>(
-  LANGUAGE_OPTIONS.map(({ code }) => code).filter((code) => code !== 'en' && code !== 'ko'),
-);
+const TARGETS = new Set<string>(LANGUAGE_OPTIONS.map(({ code }) => code));
 const PAGE_SIZE = 20;
 const MAX_RESPONSE_BYTES = 768 * 1024;
 const ACTIVE_ACCOUNT = `EXISTS (SELECT 1 FROM mxqr_accounts a WHERE a.account_id = ? AND a.status = 'active' AND NOT EXISTS (SELECT 1 FROM mxqr_account_deletions d WHERE d.account_id = a.account_id))`;

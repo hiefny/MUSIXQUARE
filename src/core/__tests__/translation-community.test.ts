@@ -160,11 +160,11 @@ beforeEach(async () => {
 afterEach(() => {
   db.native.close();
 });
-function draft(proposed = 'Encerrar'): ProposalDraft {
-  const entry = catalogs.get('pt-br')!.entries.find((item) => item.id === 'app:common.close')!;
+function draft(proposed = 'Encerrar', locale = 'pt-br', id = 'app:common.close'): ProposalDraft {
+  const entry = catalogs.get(locale)!.entries.find((item) => item.id === id)!;
   return {
     ...entry,
-    locale: 'pt-br',
+    locale,
     proposed,
     reason: 'A natural alternative.',
     updatedAt: '2099-01-01T00:00:00.000Z',
@@ -273,6 +273,123 @@ describe('translation community actual auth and SQLite contract', () => {
   it('admits authenticated unfinished profiles using Contributor display identity', async () => {
     expect((await submit('Concluir', TOKEN_B)).body.suggestion.author).toBe('Contributor');
   });
+  it.each([
+    ['en', 'app:common.close', 'Dismiss'],
+    ['ko', 'app:common.close', '닫을게요'],
+    ['en', 'about:header.try', 'Give it a try'],
+    ['ko', 'about:header.try', '지금 사용하기'],
+  ])(
+    'reviews and exports %s wording for %s with the original English reference',
+    async (locale, id, proposed) => {
+      const submitted = draft(proposed, locale, id);
+      expect(submitted.current).toBe(locale === 'en' ? submitted.sourceEn : submitted.sourceKo);
+      const result = await call(PREFIX, 'POST', {
+        requestId: crypto.randomUUID(),
+        draft: submitted,
+      });
+      expect(result.status).toBe(200);
+      const suggestion = result.body.suggestion;
+      expect(suggestion).toMatchObject({
+        locale,
+        surface: submitted.surface,
+        key: submitted.key,
+        sourceEn: submitted.sourceEn,
+        sourceKo: submitted.sourceKo,
+        current: submitted.current,
+        proposed,
+        status: 'pending',
+        outdated: false,
+        applied: false,
+      });
+      const publicList = await call(`${PREFIX}?locale=${locale}`, 'GET', undefined, null);
+      expect(publicList.status).toBe(200);
+      expect(publicList.body.suggestions).toHaveLength(1);
+      expect(publicList.body.suggestions[0]).toMatchObject({ id: suggestion.id, owned: false });
+      for (let retry = 0; retry < 2; retry++) {
+        const vote = await call(`${PREFIX}/${suggestion.id}/vote`, 'PUT', {}, TOKEN_B);
+        expect(vote.status).toBe(200);
+        expect(vote.body.suggestion).toMatchObject({ votes: 1, voted: true });
+      }
+      const queue = await handleAdminTranslationCommunityRequest(
+        new Request(`${ORIGIN}/api/admin/translations?locale=${locale}&status=pending`),
+        env,
+      );
+      expect(queue?.status).toBe(200);
+      expect(await queue!.json()).toMatchObject({ suggestions: [{ id: suggestion.id, locale }] });
+      expect((await admin(suggestion.id, 'approved', 1)).status).toBe(200);
+      const approved = await handleAdminTranslationCommunityRequest(
+        new Request(`${ORIGIN}/api/admin/translations/export`),
+        env,
+      );
+      expect(approved?.status).toBe(200);
+      expect(await approved!.json()).toMatchObject({
+        drafts: [
+          {
+            id,
+            locale,
+            sourceEn: submitted.sourceEn,
+            sourceKo: submitted.sourceKo,
+            current: submitted.current,
+            proposed,
+            suggestionId: suggestion.id,
+            reviewRevision: 2,
+          },
+        ],
+      });
+
+      // Applying a reference-language edit refreshes that reference in every catalog.
+      const changed = new Map<string, Catalog>();
+      for (const [code, catalog] of catalogs) {
+        const next = structuredClone(catalog);
+        const entry = next.entries.find((item) => item.id === id)!;
+        if (locale === 'en') entry.sourceEn = proposed;
+        else entry.sourceKo = proposed;
+        if (code === locale) entry.current = proposed;
+        changed.set(code, next);
+      }
+      env.ASSETS = assetsPort(createTranslationCatalogAssets(changed));
+      const applied = await call(`${PREFIX}?locale=${locale}`);
+      expect(applied.body.suggestions[0]).toMatchObject({ applied: true });
+      expect((await call(`${PREFIX}/${suggestion.id}`, 'DELETE', {})).body.error).toBe(
+        'ALREADY_APPLIED',
+      );
+      const after = await handleAdminTranslationCommunityRequest(
+        new Request(`${ORIGIN}/api/admin/translations/export`),
+        env,
+      );
+      expect(after?.status).toBe(200);
+      expect(await after!.json()).toMatchObject({ drafts: [] });
+    },
+  );
+  it.each(['en', 'ko'])(
+    'keeps canonical keys, references, variables and HTML protected for %s',
+    async (locale) => {
+      const canonical = draft('Welcome, {{name}}!', locale, 'app:account.welcome_back');
+      for (const patch of [
+        { sourceEn: 'Invented English {{name}}' },
+        { sourceKo: '가짜 원문 {{name}}' },
+        { current: 'Invented current {{name}}' },
+        { key: 'new.key', id: 'app:new.key' },
+        { proposed: 'Welcome!' },
+        { proposed: 'Welcome, {{other}}!' },
+        { proposed: '<script>alert(1)</script>{{name}}' },
+      ]) {
+        const result = await call(PREFIX, 'POST', {
+          requestId: crypto.randomUUID(),
+          draft: { ...canonical, ...patch },
+        });
+        expect([400, 409]).toContain(result.status);
+      }
+      const markup = await call(PREFIX, 'POST', {
+        requestId: crypto.randomUUID(),
+        draft: draft('Every device, one system.', locale, 'about:hero.h1'),
+      });
+      expect(markup.body.error).toBe('INVALID_PROPOSAL');
+      expect(
+        db.native.prepare('SELECT COUNT(*) AS n FROM mxqr_translation_suggestions').get()?.n,
+      ).toBe(0);
+    },
+  );
   it('rejects anonymous, cross-origin, missing CSRF and replaced-session mutations', async () => {
     const body = { requestId: crypto.randomUUID(), draft: draft() };
     expect((await call(PREFIX, 'POST', body, null)).status).toBe(401);
@@ -297,7 +414,7 @@ describe('translation community actual auth and SQLite contract', () => {
     for (const patch of [
       { current: 'invented baseline' },
       { sourceKo: 'invented Korean' },
-      { locale: 'en' },
+      { locale: 'unsupported' },
       { id: 'app:wrong.key' },
       { proposed: '<script>alert(1)</script>' },
     ]) {

@@ -42,6 +42,11 @@ interface Stream {
   duration?: string;
   sample_rate?: string;
   channels?: number;
+  pix_fmt?: string;
+  color_space?: string;
+  color_transfer?: string;
+  color_primaries?: string;
+  color_range?: string;
 }
 declare global {
   interface Window {
@@ -133,13 +138,18 @@ async function verify(variant: Variant, manifest: Manifest): Promise<void> {
     video.height !== variant.height ||
     video.r_frame_rate !== `${manifest.fps}/1` ||
     Number(video.nb_frames) !== manifest.frames ||
-    Number(video.duration) !== manifest.durationSeconds
+    Number(video.duration) !== manifest.durationSeconds ||
+    video.pix_fmt !== 'yuv420p' ||
+    video.color_space !== 'bt709' ||
+    video.color_transfer !== 'bt709' ||
+    video.color_primaries !== 'bt709' ||
+    video.color_range !== 'tv'
   )
     throw new Error(`Video specification mismatch: ${variant.id}`);
   if (!audio || audio.codec_name !== 'aac' || audio.sample_rate !== '48000' || audio.channels !== 2)
     throw new Error(`Audio specification mismatch: ${variant.id}`);
   console.log(
-    `Verified ${variant.id}: master SHA-256, ${variant.sourceFiles.length} source files, ${variant.width}×${variant.height}, ${manifest.fps} fps, ${manifest.durationSeconds}s, stereo AAC 48 kHz.`,
+    `Verified ${variant.id}: master SHA-256, ${variant.sourceFiles.length} source files, ${variant.width}×${variant.height}, ${manifest.fps} fps, ${manifest.durationSeconds}s, BT.709 limited YUV420P, stereo AAC 48 kHz.`,
   );
 }
 
@@ -185,6 +195,7 @@ async function withFilm(
       deviceScaleFactor: 1,
     });
     page.on('pageerror', (error) => errors.push(error));
+    page.setDefaultTimeout(120000);
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Preview server did not start');
     await page.goto(`http://127.0.0.1:${address.port}/`);
@@ -193,13 +204,31 @@ async function withFilm(
       if (typeof film.draw !== 'function' || typeof film.ready?.then !== 'function')
         throw new Error('Source does not expose window.ready and window.draw');
       await film.ready;
+      await document.fonts.ready;
     });
     const size = await page.locator('#film').evaluate((element) => {
       if (!(element instanceof HTMLCanvasElement)) throw new Error('Missing film canvas');
-      return { width: element.width, height: element.height };
+      const rect = element.getBoundingClientRect();
+      return {
+        width: element.width,
+        height: element.height,
+        cssWidth: rect.width,
+        cssHeight: rect.height,
+        viewportWidth: innerWidth,
+        viewportHeight: innerHeight,
+      };
     });
-    if (size.width !== variant.width || size.height !== variant.height)
-      throw new Error('Film canvas dimensions differ from manifest');
+    if (
+      size.width !== variant.width ||
+      size.height !== variant.height ||
+      size.cssWidth !== variant.width ||
+      size.cssHeight !== variant.height ||
+      size.viewportWidth !== variant.width ||
+      size.viewportHeight !== variant.height
+    )
+      throw new Error(
+        `Film canvas, CSS or viewport dimensions differ from manifest: ${JSON.stringify(size)}`,
+      );
     if (errors.length) throw new AggregateError(errors, 'Source page failed');
     await action(page, source, errors);
   } catch (error) {
@@ -254,7 +283,7 @@ async function render(variant: Variant, manifest: Manifest): Promise<void> {
         '-i',
         await localFile(source, 'assets/score-arena.wav'),
       );
-      args.push(...'-map 0:v:0 -map 1:a:0 -c:v libx264 -preset medium -crf 17 -vf'.split(' '), vf);
+      args.push(...'-map 0:v:0 -map 1:a:0 -c:v libx264 -preset medium -crf 16 -vf'.split(' '), vf);
       args.push(
         ...'-pix_fmt yuv420p -force_key_frames'.split(' '),
         `expr:eq(n,${manifest.whiteFromFrame})`,
@@ -273,7 +302,7 @@ async function render(variant: Variant, manifest: Manifest): Promise<void> {
       );
       args.push(
         '-metadata',
-        `title=MUSIXQUARE | ${variant.language === 'ko' ? 'Korean' : 'English'} | Semibold captions`,
+        `title=MUSIXQUARE | ${variant.language === 'ko' ? 'Korean' : 'English'} | 4K 60 fps | Semibold captions`,
         temporary,
       );
       const encoder = spawn(ffmpeg, args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });

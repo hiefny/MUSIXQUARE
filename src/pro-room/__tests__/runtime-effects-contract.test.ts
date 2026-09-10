@@ -107,7 +107,9 @@ describe('PRO room effects runtime contract', () => {
     expect(runtimeSource).toContain("error.code === 'SETTINGS_SYNC_REVISION_CONFLICT'");
     expect(runtimeSource).toContain('snapshot.effectsRevision > acceptedEffects.revision');
     expect(runtimeSource).toContain('snapshot.queueModeRevision > acceptedQueueMode.revision');
-    expect(runtimeSource).toContain('acceptCanonicalRoomSettings(effects, masterVolume)');
+    expect(runtimeSource).toContain(
+      'acceptCanonicalRoomSettings(effects, masterVolume, { notifyRemoteChange })',
+    );
     expect(runtimeSource).toContain("'state:audio.exciter'");
     expect(runtimeSource).toContain('let desired = captureRoomEffectsState()');
     expect(runtimeSource).toContain('hasEffectsCheckpointAuthority');

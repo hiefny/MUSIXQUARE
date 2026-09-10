@@ -27,6 +27,7 @@ import { showDialog } from '../ui/dialog.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import {
   acceptCanonicalRoomSettings,
+  cancelSettingsChangeNotification,
   canPublishSynchronizedSettings,
   captureRoomEffectsState,
   captureRoomSettingsSyncState,
@@ -214,6 +215,10 @@ let playlistRuntimeLease: PlaylistRuntimeLease | null = null;
 let effectsMutationTail: Promise<void> = Promise.resolve();
 let effectsRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedEffects: ProRoomSettingsSyncSnapshot | null = null;
+let effectsNotificationGeneration = 0;
+let effectsSilentThroughRevision = -1;
+let effectsNotificationBaselinePending = false;
+let effectsSilentRefreshPending = false;
 let suppressEffectsCheckpoint = false;
 let effectsSessionBaseline: ReturnType<typeof captureRoomSettingsSyncState> | null = null;
 const effectsCheckpointState = new SettingsSyncCheckpointState();
@@ -1393,6 +1398,11 @@ function resetPlaylistRuntime(): void {
   effectsMutationTail = Promise.resolve();
   effectsRefreshInFlight = null;
   acceptedEffects = null;
+  effectsNotificationGeneration += 1;
+  effectsSilentThroughRevision = -1;
+  effectsNotificationBaselinePending = false;
+  effectsSilentRefreshPending = false;
+  cancelSettingsChangeNotification();
   suppressEffectsCheckpoint = false;
   effectsSessionBaseline = null;
   effectsCheckpointState.cancel();
@@ -1531,14 +1541,43 @@ function effectsRuntimeSnapshot(): ProRoomSnapshot | null {
   return playlistManager?.snapshot ?? controller.snapshot;
 }
 
-function applyCanonicalRoomEffects(effects: RoomEffectsState, masterVolume: number): boolean {
+function applyCanonicalRoomEffects(
+  effects: RoomEffectsState,
+  masterVolume: number,
+  notifyRemoteChange = false,
+): boolean {
   suppressEffectsCheckpoint = true;
   try {
     // PRO settings state is server-fanned-out. Applying it locally must never
     // create a second browser-originated broadcast path.
-    return acceptCanonicalRoomSettings(effects, masterVolume);
+    return acceptCanonicalRoomSettings(effects, masterVolume, { notifyRemoteChange });
   } finally {
     suppressEffectsCheckpoint = false;
+  }
+}
+
+function shouldNotifyCanonicalEffects(
+  previousBase: ProRoomSettingsSyncSnapshot | null,
+  canonical: ProRoomSettingsSyncSnapshot,
+  notificationGeneration: number,
+): boolean {
+  // Initial hydration and reconnect/opt-in baselines are silent. Own PUT ACKs
+  // never apply audio; reconciliation preserves local intent before this check.
+  return (
+    previousBase !== null &&
+    canonical.revision > previousBase.revision &&
+    canonical.revision > effectsSilentThroughRevision &&
+    !effectsNotificationBaselinePending &&
+    !effectsSilentRefreshPending &&
+    notificationGeneration === effectsNotificationGeneration
+  );
+}
+
+function completeCanonicalEffectsBaseline(canonical: ProRoomSettingsSyncSnapshot): void {
+  if (!effectsNotificationBaselinePending && canonical.revision >= effectsSilentThroughRevision) {
+    // A GET started before opt-in may still satisfy the fresh heartbeat head.
+    // Its generation suppresses its toast, not completion of this baseline.
+    effectsSilentRefreshPending = false;
   }
 }
 
@@ -1675,6 +1714,7 @@ async function persistRoomEffects(): Promise<void> {
   }
   const token = effectsCheckpointState.begin();
   if (!token) return;
+  const notificationGeneration = effectsNotificationGeneration;
   await enqueueEffectsMutation(async () => {
     const snapshot = effectsRuntimeSnapshot();
     if (
@@ -1718,8 +1758,13 @@ async function persistRoomEffects(): Promise<void> {
         base = canonical;
         acceptedEffects = canonical;
         if (!roomEffectsEqual(latestLocal, desired) || latestLocalVolume !== desiredVolume) {
-          applyCanonicalRoomEffects(desired, desiredVolume);
+          applyCanonicalRoomEffects(
+            desired,
+            desiredVolume,
+            shouldNotifyCanonicalEffects(previousBase, canonical, notificationGeneration),
+          );
         }
+        completeCanonicalEffectsBaseline(canonical);
       }
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1802,8 +1847,13 @@ async function persistRoomEffects(): Promise<void> {
           base = canonical;
           acceptedEffects = canonical;
           if (!roomEffectsEqual(latestLocal, desired) || latestLocalVolume !== desiredVolume) {
-            applyCanonicalRoomEffects(desired, desiredVolume);
+            applyCanonicalRoomEffects(
+              desired,
+              desiredVolume,
+              shouldNotifyCanonicalEffects(previousBase, canonical, notificationGeneration),
+            );
           }
+          completeCanonicalEffectsBaseline(canonical);
           if (transient) {
             if (roomEffectsEqual(base.effects, desired) && base.masterVolume === desiredVolume) {
               effectsCheckpointState.succeed(token);
@@ -1845,7 +1895,10 @@ function scheduleEffectsCheckpoint(): void {
   armEffectsCheckpoint(EFFECTS_CHECKPOINT_DEBOUNCE_MS, lease);
 }
 
-async function refreshPersistedEffectsUnlocked(snapshot: ProRoomSnapshot): Promise<boolean> {
+async function refreshPersistedEffectsUnlocked(
+  snapshot: ProRoomSnapshot,
+  notificationGeneration: number,
+): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!lease || !isPlaylistLeaseCurrent(lease) || lease.roomCode !== snapshot.roomCode)
     return false;
@@ -1875,7 +1928,15 @@ async function refreshPersistedEffectsUnlocked(snapshot: ProRoomSnapshot): Promi
     desiredVolume = rebased.masterVolume;
   }
   acceptedEffects = accepted;
-  if (!applyCanonicalRoomEffects(desired, desiredVolume)) return false;
+  if (
+    !applyCanonicalRoomEffects(
+      desired,
+      desiredVolume,
+      shouldNotifyCanonicalEffects(previousBase, accepted, notificationGeneration),
+    )
+  )
+    return false;
+  completeCanonicalEffectsBaseline(accepted);
   if (
     isSettingsSyncEnabled() &&
     canPublishSynchronizedSettings() &&
@@ -1907,6 +1968,7 @@ function newerEffectsRefreshSnapshot(
 
 async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boolean> {
   const generation = playlistRuntimeGeneration;
+  const notificationGeneration = effectsNotificationGeneration;
   const existing = effectsRefreshInFlight;
   if (existing && existing.generation === generation && existing.roomCode === snapshot.roomCode) {
     existing.pendingSnapshot = existing.pendingSnapshot
@@ -1929,8 +1991,9 @@ async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boole
         let failure: unknown = null;
         try {
           applied =
-            (await enqueueEffectsMutation(() => refreshPersistedEffectsUnlocked(target))) ||
-            applied;
+            (await enqueueEffectsMutation(() =>
+              refreshPersistedEffectsUnlocked(target, notificationGeneration),
+            )) || applied;
         } catch (error) {
           failure = error;
         }
@@ -2731,6 +2794,16 @@ async function runHeartbeat(
       snapshot.roomCode === lease.roomCode
     ) {
       recoverAccountMediaHooksFromCanonicalSnapshot(snapshot);
+      if (effectsNotificationBaselinePending) {
+        effectsSilentThroughRevision = Math.max(
+          effectsSilentThroughRevision,
+          snapshot.effectsRevision,
+        );
+        effectsNotificationBaselinePending = false;
+        // A reconnect/opt-in GET may already see a newer revision than this
+        // heartbeat. Keep that first successful baseline read silent as well.
+        effectsSilentRefreshPending = effectsRefreshStillRequired(snapshot);
+      }
       refreshHeartbeatAdjunctState(snapshot, playbackIsCurrent);
     }
   } catch (error) {
@@ -2793,6 +2866,9 @@ async function runControlChannelRecovery(): Promise<void> {
 }
 
 function beginControlChannelRecovery(): Promise<void> {
+  effectsNotificationGeneration += 1;
+  effectsNotificationBaselinePending = true;
+  cancelSettingsChangeNotification();
   controlChannelRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
   playbackController.beginControlChannelRecovery();
@@ -3438,6 +3514,7 @@ for (const event of [
 bus.on('settings-sync:publish-local', () => scheduleEffectsCheckpoint());
 
 bus.on('settings-sync:changed', (enabled) => {
+  effectsNotificationGeneration += 1;
   if (!enabled) {
     cancelEffectsCheckpoint();
     return;
@@ -3449,6 +3526,7 @@ bus.on('settings-sync:changed', (enabled) => {
     effectsCheckpointState.beginFullPublishIntent();
     return;
   }
+  effectsNotificationBaselinePending = true;
   const snapshot = effectsRuntimeSnapshot();
   if (!snapshot) return;
   if (acceptedEffects?.roomCode === snapshot.roomCode) {

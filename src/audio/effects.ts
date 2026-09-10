@@ -18,6 +18,7 @@ import {
 } from '../core/room-effects.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { broadcast } from '../network/peer.ts';
+import { broadcastExcept } from '../network/peer-state.ts';
 import type { DataConnection, AnyProtocolMsg, RoomSettingsSyncState } from '../types/index.ts';
 import {
   applyMasterVolume,
@@ -386,9 +387,11 @@ interface PendingStandardSettingsPublish {
 
 let pendingStandardSettingsPublish: PendingStandardSettingsPublish | null = null;
 let pendingStandardSettingsRequestRoomKey: string | null = null;
+let standardSettingsNotificationReady = false;
 
 /** @internal Focused protocol tests only. */
 export function resetSettingsSyncAuthorityForTests(): void {
+  resetSettingsChangeFeedback();
   settingsAuthorityCache = null;
   pendingStandardSettingsPublish = null;
   pendingStandardSettingsRequestRoomKey = null;
@@ -404,6 +407,34 @@ function currentSettingsRoomKey(): string {
 function currentSettingsEpoch(): number {
   const epoch = getState('room.context').epoch;
   return Number.isSafeInteger(epoch) && epoch >= 0 ? epoch : 0;
+}
+
+/** Cancel feedback when a session, connection or settings-sync baseline ends. */
+export function cancelSettingsChangeNotification(): void {
+  clearManagedTimer('settings-change-toast');
+}
+
+function resetSettingsChangeFeedback(): void {
+  standardSettingsNotificationReady = false;
+  cancelSettingsChangeNotification();
+}
+
+function notifyRemoteSettingsChange(): void {
+  if (!getState('setup.sessionStarted') || !isSettingsSyncEnabled()) return;
+  const roomKey = currentSettingsRoomKey();
+  setManagedTimer(
+    'settings-change-toast',
+    () => {
+      if (
+        getState('setup.sessionStarted') &&
+        isSettingsSyncEnabled() &&
+        currentSettingsRoomKey() === roomKey
+      ) {
+        showToast(t('toast.host_changed_setting'));
+      }
+    },
+    300,
+  );
 }
 
 function hasRetainedStandardSettingsAuthority(): boolean {
@@ -583,9 +614,10 @@ export function isSynchronizedVolumeLocked(): boolean {
   );
 }
 
-function applySettingsSyncState(value: RoomSettingsSyncState): boolean {
+function applySettingsSyncState(value: RoomSettingsSyncState, notifyRemoteChange = false): boolean {
   const settings = parseSettingsSyncState(value);
   if (!settings) return false;
+  const before = notifyRemoteChange ? JSON.stringify(captureRoomSettingsSyncState()) : null;
   bus.emit('audio:set-volume', settings.masterVolume);
   // The audio engine normally commits this state in its event handler. Keep
   // the authority projection deterministic during early bootstrap/tests where
@@ -593,7 +625,11 @@ function applySettingsSyncState(value: RoomSettingsSyncState): boolean {
   if (getState('audio.masterVolume') !== settings.masterVolume) {
     setState('audio.masterVolume', settings.masterVolume);
   }
-  return applyRoomEffectsState(settings.effects, { broadcast: false });
+  const applied = applyRoomEffectsState(settings.effects, { broadcast: false });
+  if (applied && notifyRemoteChange && before !== JSON.stringify(captureRoomSettingsSyncState())) {
+    notifyRemoteSettingsChange();
+  }
+  return applied;
 }
 
 /**
@@ -603,6 +639,7 @@ function applySettingsSyncState(value: RoomSettingsSyncState): boolean {
 export function acceptCanonicalRoomSettings(
   effectsValue: RoomEffectsState,
   masterVolumeValue?: number,
+  options: { notifyRemoteChange?: boolean } = {},
 ): boolean {
   const effects = parseRoomEffectsState(effectsValue);
   const masterVolume = masterVolumeValue === undefined ? undefined : Number(masterVolumeValue);
@@ -622,7 +659,7 @@ export function acceptCanonicalRoomSettings(
     ...cached,
     settings,
   };
-  return !isSettingsSyncEnabled() || applySettingsSyncState(settings);
+  return !isSettingsSyncEnabled() || applySettingsSyncState(settings, options.notifyRemoteChange);
 }
 
 function sendAuthoritySnapshot(conn: DataConnection, bootstrap = false): void {
@@ -700,6 +737,7 @@ function broadcastLegacySettingsSnapshot(settings: RoomSettingsSyncState): void 
 function commitCoordinatorSettingsAuthority(
   settingsValue: RoomSettingsSyncState,
   applyLocally: boolean,
+  sourceConnection?: DataConnection,
 ): boolean {
   const settings = parseSettingsSyncState(settingsValue);
   if (!settings) return false;
@@ -713,14 +751,25 @@ function commitCoordinatorSettingsAuthority(
     sequence,
     settings,
   };
-  if (applyLocally && !applySettingsSyncState(settings)) return false;
-  broadcast({
+  if (applyLocally && !applySettingsSyncState(settings, !!sourceConnection)) return false;
+  const snapshot: AnyProtocolMsg = {
     type: MSG.SETTINGS_SYNC_SNAPSHOT,
     version: 1,
     epoch,
     sequence,
     settings,
-  });
+  };
+  if (sourceConnection) {
+    broadcastExcept(sourceConnection.peer, snapshot);
+    // The controller still needs its sequenced acknowledgement. Reuse the
+    // existing silent-frame flag so even an older local edit echoed after a
+    // newer edit cannot be mistaken for someone else's change. No wire change.
+    try {
+      if (sourceConnection.open) sourceConnection.send({ ...snapshot, _bootstrap: true });
+    } catch (error) {
+      log.warn('[Effects] Settings acknowledgement send failed:', error);
+    }
+  } else broadcast(snapshot);
   broadcastLegacySettingsSnapshot(settings);
   return true;
 }
@@ -808,6 +857,7 @@ export function setSettingsSyncEnabled(enabled: boolean): void {
   }
   bus.emit('settings-sync:changed', normalized);
   if (!normalized) {
+    resetSettingsChangeFeedback();
     clearPendingStandardSettingsPublish();
     clearPendingStandardSettingsRequest();
     return;
@@ -865,6 +915,7 @@ function handleSettingsSyncSessionStarted(started: unknown): void {
   // The host can deliver its bootstrap before the setup success projection.
   // Never overwrite an already-accepted authority snapshot in that ordering.
   if (!started) {
+    resetSettingsChangeFeedback();
     settingsAuthorityCache = null;
     clearPendingStandardSettingsPublish();
     clearPendingStandardSettingsRequest();
@@ -874,6 +925,7 @@ function handleSettingsSyncSessionStarted(started: unknown): void {
 }
 
 function handleSettingsSyncRoomContextChanged(): void {
+  if (settingsAuthorityCache?.roomKey !== currentSettingsRoomKey()) resetSettingsChangeFeedback();
   if (
     pendingStandardSettingsPublish &&
     pendingStandardSettingsPublish.roomKey !== currentSettingsRoomKey()
@@ -1160,10 +1212,16 @@ function registerSettingsSyncBusHandlers(): void {
   bus.on('state:room.context', handleSettingsSyncRoomContextChanged);
   bus.on('network:peer-connected', handleSettingsSyncPeerConnected);
   bus.on('effects:resync-peer', handleSettingsSyncPeerResync);
+  bus.on('state:network.hostConn', resetSettingsChangeFeedback);
   bus.on('state:network.hostConn', handleSettingsSyncAuthorityProjectionChanged);
+  bus.on('state:network.isConnecting', handleSettingsSyncConnecting);
   bus.on('state:network.standardRoomCapabilities', handleSettingsSyncAuthorityProjectionChanged);
   bus.on('state:network.isOperator', handleSettingsSyncAuthorityProjectionChanged);
   bus.on('settings-sync:authority-revoked', handleSettingsSyncAuthorityRevoked);
+}
+
+function handleSettingsSyncConnecting(connecting: unknown): void {
+  if (connecting && usesStandardSettingsSyncTransport()) resetSettingsChangeFeedback();
 }
 
 registerSettingsSyncBusHandlers();
@@ -1205,6 +1263,14 @@ function handleSettingsSyncSnapshot(data: Record<string, unknown>, conn?: DataCo
     log.warn('[Effects] Rejected conflicting equal-sequence settings snapshot');
     return;
   }
+  const notifyRemoteChange =
+    standardSettingsNotificationReady &&
+    epoch === cached.epoch &&
+    sequence > cached.sequence &&
+    !data._bootstrap &&
+    !getState('network.isConnecting') &&
+    pendingStandardSettingsRequestRoomKey !== currentSettingsRoomKey();
+  standardSettingsNotificationReady = true;
   settingsAuthorityCache = {
     roomKey: currentSettingsRoomKey(),
     epoch,
@@ -1218,7 +1284,7 @@ function handleSettingsSyncSnapshot(data: Record<string, unknown>, conn?: DataCo
   // local takeover intent. Cache bootstrap authority for later, but do not
   // overwrite that local surface before it can be published on reconnect.
   if (hasPendingStandardSettingsIntent()) return;
-  if (isSettingsSyncEnabled()) applySettingsSyncState(settings);
+  if (isSettingsSyncEnabled()) applySettingsSyncState(settings, notifyRemoteChange);
 }
 
 function handleRequestSettingsSyncSnapshot(
@@ -1244,7 +1310,7 @@ function handlePublishSettingsSyncSnapshot(
   if (!settings) return;
   // A coordinator that opted out remains locally divergent while still
   // sequencing and relaying the newest authorized admin snapshot.
-  commitCoordinatorSettingsAuthority(settings, isSettingsSyncEnabled());
+  commitCoordinatorSettingsAuthority(settings, isSettingsSyncEnabled(), conn);
 }
 
 function shouldApplyLegacySettingsFrame(conn?: DataConnection): boolean {

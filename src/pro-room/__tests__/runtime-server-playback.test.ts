@@ -3,11 +3,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
+import { setSettingsSyncEnabled } from '../../audio/effects.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { getManagedTimer } from '../../core/timers.ts';
 import { capturePlaylistQueueModeState } from '../../player/playlist.ts';
 import type { QueueItemId } from '../../types/index.ts';
+import { t } from '../../i18n/index.ts';
+import * as toastUi from '../../ui/toast.ts';
 import {
   ProRoomApiClient,
   ProRoomApiError,
@@ -1349,6 +1352,235 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
     await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalled());
     await vi.waitFor(() => expect(getState('audio.exciter')).toBe(true));
+  });
+
+  function canonicalSettings(revision: number, masterVolume = 1, reverbMix = 0) {
+    const effects = createDefaultRoomEffectsState();
+    effects.reverb.mixPercent = reverbMix;
+    return {
+      schemaVersion: 1 as const,
+      view: 'settings-sync' as const,
+      roomCode: ROOM_CODE,
+      revision,
+      updatedAtMs: revision + 1,
+      masterVolume,
+      effects,
+    };
+  }
+
+  function settingsHead(revision: number): ProRoomSnapshot {
+    return {
+      ...snapshot(),
+      revision: revision + 1,
+      effectsRevision: revision,
+      presence: { ...snapshot().presence, revision: revision + 1 },
+    };
+  }
+
+  async function observeSettingsNotifications() {
+    await vi.waitFor(() => expect(ProRoomApiClient.prototype.getSettingsSync).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    setState('setup.sessionStarted', true);
+    const shown = vi.spyOn(toastUi, 'showToast').mockImplementation(() => {});
+    restoreSpies.push(shown);
+    return () =>
+      shown.mock.calls.filter(([message]) => message === t('toast.host_changed_setting'));
+  }
+
+  async function receiveSettings(revision: number, masterVolume = 1, reverbMix = 0) {
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+    const before = getSettingsSync.mock.calls.length;
+    getSettingsSync.mockResolvedValue(canonicalSettings(revision, masterVolume, reverbMix));
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(revision));
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({
+        type: 'pro-room-invalidated',
+        roomRevision: revision + 1,
+        effectsRevision: revision,
+      }),
+    );
+    await vi.waitFor(() => expect(getSettingsSync.mock.calls.length).toBeGreaterThan(before));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  async function refreshUnchangedSettingsHead() {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const before = heartbeat.mock.calls.length;
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 1 }),
+    );
+    await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(before));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it('notifies a receiving effects controller once when remote volume and DSP actually change', async () => {
+    const notifications = await observeSettingsNotifications();
+    await receiveSettings(1, 0.62, 41);
+    expect(getState('audio.masterVolume')).toBe(0.62);
+    expect(getState('audio.reverbMix')).toBe(0.41);
+    await vi.waitFor(() => expect(notifications()).toHaveLength(1));
+    await receiveSettings(2, 0.62, 41);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(notifications()).toHaveLength(1);
+  });
+
+  it.each(['acknowledged', 'response-lost'] as const)(
+    'keeps consecutive local changes silent when the first PUT is %s',
+    async (outcome) => {
+      const notifications = await observeSettingsNotifications();
+      let resolveFirst!: (value: ReturnType<typeof canonicalSettings>) => void;
+      let rejectFirst!: (error: unknown) => void;
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              resolveFirst = resolve;
+              rejectFirst = reject;
+            }),
+        )
+        .mockImplementation(async (input) => ({
+          ...canonicalSettings(2, input.masterVolume),
+          effects: input.effects,
+        }));
+      restoreSpies.push(update);
+      setState('audio.masterVolume', 0.4);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+      setState('audio.masterVolume', 0.5);
+      if (outcome === 'acknowledged') resolveFirst(canonicalSettings(1, 0.4));
+      else {
+        vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockResolvedValue(
+          canonicalSettings(1, 0.4),
+        );
+        rejectFirst(new ProRoomApiError('NETWORK_ERROR', 0));
+      }
+      await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+      expect(update.mock.calls[1]?.[0]).toMatchObject({ masterVolume: 0.5 });
+      expect(getState('audio.masterVolume')).toBe(0.5);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(notifications()).toHaveLength(0);
+    },
+  );
+
+  it('notifies only the remote part of a CAS rebase while retaining the local volume edit', async () => {
+    const notifications = await observeSettingsNotifications();
+    const update = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+      .mockRejectedValueOnce(new ProRoomApiError('SETTINGS_SYNC_REVISION_CONFLICT', 409))
+      .mockImplementation(async (input) => ({
+        ...canonicalSettings(2, input.masterVolume),
+        effects: input.effects,
+      }));
+    restoreSpies.push(update);
+    vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockResolvedValue(
+      canonicalSettings(1, 1, 43),
+    );
+    setState('audio.masterVolume', 0.4);
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(getState('audio.masterVolume')).toBe(0.4);
+    expect(getState('audio.reverbMix')).toBe(0.43);
+    expect(update.mock.calls[1]?.[0]).toMatchObject({
+      masterVolume: 0.4,
+      effects: { reverb: { mixPercent: 43 } },
+    });
+    await vi.waitFor(() => expect(notifications()).toHaveLength(1));
+  });
+
+  it('silently hydrates changed settings after leaving and rejoining the same PRO room', async () => {
+    const notifications = await observeSettingsNotifications();
+    await receiveSettings(1, 0.6);
+    expect(getManagedTimer('settings-change-toast')).not.toBeNull();
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(settingsHead(1));
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(1));
+    vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockResolvedValue(
+      canonicalSettings(2, 0.35, 29),
+    );
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(getState('audio.masterVolume')).toBe(0.35));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(notifications()).toHaveLength(0);
+  });
+
+  it('silences the reconnect baseline and resumes notifications at the following revision', async () => {
+    const notifications = await observeSettingsNotifications();
+    const reconfigure = vi
+      .spyOn(ServerProRoomNetworkBridge.prototype, 'reconfigure')
+      .mockResolvedValue(undefined);
+    restoreSpies.push(reconfigure);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(1));
+    vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockResolvedValue(
+      canonicalSettings(2, 0.35, 29),
+    );
+    expect(requestProRoomTransportRecovery()).toBe(true);
+    await vi.waitFor(() => expect(reconfigure).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getState('audio.masterVolume')).toBe(0.35));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(notifications()).toHaveLength(0);
+    await receiveSettings(3, 0.6, 29);
+    await vi.waitFor(() => expect(notifications()).toHaveLength(1));
+  });
+
+  it('cancels pending feedback on OFF and silently rebaselines a listener on ON', async () => {
+    const notifications = await observeSettingsNotifications();
+    await receiveSettings(1, 0.6);
+    expect(getManagedTimer('settings-change-toast')).not.toBeNull();
+    setSettingsSyncEnabled(false);
+    await receiveSettings(2, 0.3, 32);
+    expect(getState('audio.masterVolume')).toBe(0.6);
+    expect(getState('audio.reverbMix')).toBe(0);
+    setState('room.context', { ...getState('room.context'), capabilities: [] });
+    setSettingsSyncEnabled(true);
+    expect(getState('audio.masterVolume')).toBe(0.3);
+    expect(getState('audio.reverbMix')).toBe(0.32);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(notifications()).toHaveLength(0);
+    await refreshUnchangedSettingsHead();
+    await receiveSettings(3, 0.45, 32);
+    await vi.waitFor(() => expect(notifications()).toHaveLength(1));
+  });
+
+  it('silently catches up changes not fetched while OFF before notifying later revisions', async () => {
+    const notifications = await observeSettingsNotifications();
+    setSettingsSyncEnabled(false);
+    setState('room.context', { ...getState('room.context'), capabilities: [] });
+    setSettingsSyncEnabled(true);
+    expect(getState('audio.masterVolume')).toBe(1);
+    await receiveSettings(1, 0.35, 29);
+    expect(getState('audio.masterVolume')).toBe(0.35);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(notifications()).toHaveLength(0);
+    await receiveSettings(2, 0.6, 29);
+    await vi.waitFor(() => expect(notifications()).toHaveLength(1));
+  });
+
+  it('keeps a GET crossing OFF and ON silent without suppressing later remote changes', async () => {
+    const notifications = await observeSettingsNotifications();
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+    const before = getSettingsSync.mock.calls.length;
+    let resolveRead!: (value: ReturnType<typeof canonicalSettings>) => void;
+    getSettingsSync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(1));
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
+    );
+    await vi.waitFor(() => expect(getSettingsSync.mock.calls.length).toBeGreaterThan(before));
+    setSettingsSyncEnabled(false);
+    setState('room.context', { ...getState('room.context'), capabilities: [] });
+    setSettingsSyncEnabled(true);
+    await refreshUnchangedSettingsHead();
+    resolveRead(canonicalSettings(1, 0.35, 29));
+    await vi.waitFor(() => expect(getState('audio.masterVolume')).toBe(0.35));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(notifications()).toHaveLength(0);
+    await receiveSettings(2, 0.6, 29);
+    await vi.waitFor(() => expect(notifications()).toHaveLength(1));
   });
 
   it('preserves a newer settings edit when an older PUT repairs an epoch mismatch', async () => {

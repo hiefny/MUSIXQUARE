@@ -16,6 +16,7 @@ interface SourceFile {
 interface Variant {
   id: string;
   source: string;
+  language: 'en' | 'ko';
   label: string;
   width: number;
   height: number;
@@ -63,6 +64,7 @@ const mime: Record<string, string> = {
   '.json': 'application/json',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2',
   '.wav': 'audio/wav',
 };
@@ -271,7 +273,7 @@ async function render(variant: Variant, manifest: Manifest): Promise<void> {
       );
       args.push(
         '-metadata',
-        `title=MUSIXQUARE | Together${variant.width > variant.height ? ' | Landscape' : ''}`,
+        `title=MUSIXQUARE | ${variant.language === 'ko' ? 'Korean' : 'English'} | Semibold captions`,
         temporary,
       );
       const encoder = spawn(ffmpeg, args, { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });

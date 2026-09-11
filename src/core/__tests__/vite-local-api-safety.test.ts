@@ -78,7 +78,7 @@ function invoke(middleware: DevMiddleware, url: string, method = 'GET') {
 }
 
 describe('Vite local API safety', () => {
-  it.each(['privacy', 'terms', 'faq', 'developers'])(
+  it.each(['privacy', 'terms', 'faq', 'developers', 'sitemap'])(
     'serves flattened %s output through the actual preview alias middleware',
     (page) => {
       const plugins = createViteConfig({}).plugins || [];

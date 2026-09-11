@@ -344,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.12';
+const ADMIN_ASSET_VERSION = '8.6.13';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -15324,6 +15324,7 @@ function redirectTarget(pathname: string) {
   }
   if (['/landing', '/landing/'].includes(lower)) return '/about';
   if (/^\/translate(?:\.html)?\/*$/.test(lower) && pathname !== '/translate') return '/translate';
+  if (/^\/sitemap(?:\.html)?\/*$/.test(lower) && pathname !== '/sitemap') return '/sitemap';
   if (['/changelog', '/changelog/', '/roadmap', '/roadmap/'].includes(lower)) return '/history';
   const canonical = new Map([
     ['/about', '/about'],
@@ -15333,6 +15334,7 @@ function redirectTarget(pathname: string) {
     ['/faq', '/faq'],
     ['/developers', '/developers'],
     ['/translate', '/translate'],
+    ['/sitemap', '/sitemap'],
     ['/history', '/history'],
     ['/designsystem', '/designsystem'],
   ]);
@@ -15386,6 +15388,7 @@ function routeStaticPath(pathname: string) {
   if (path === '/faq' || path === '/faq/') return '/faq.html';
   if (path === '/developers' || path === '/developers/') return '/developers.html';
   if (path === '/translate' || path === '/translate/') return '/translate.html';
+  if (path === '/sitemap' || path === '/sitemap/') return '/sitemap.html';
   if (path === '/history' || path === '/history/') return '/history/index.html';
   if (path === '/designsystem' || path === '/designsystem/') return '/designsystem/index.html';
   if (eventCampaignSlugFromPath(path)) return EVENT_PAGE_ASSET_PATH;
@@ -15435,6 +15438,7 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
       '/faq',
       '/developers',
       '/translate',
+      '/sitemap',
       '/history',
       '/designsystem',
     ].includes(pathname.toLowerCase().replace(/\/$/, ''))
@@ -15522,7 +15526,7 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
     const preserveUrlState =
       localizedRoute !== null ||
       legacyLocalePathRedirect(url.pathname) !== null ||
-      /^\/(?:about(?:\.html)?|translate(?:\.html)?|blog|privacy|terms|faq|developers|history|designsystem)\/*$/iu.test(
+      /^\/(?:about(?:\.html)?|translate(?:\.html)?|sitemap(?:\.html)?|blog|privacy|terms|faq|developers|history|designsystem)\/*$/iu.test(
         url.pathname,
       );
     const target = new URL(redirect, url);

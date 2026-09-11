@@ -263,6 +263,7 @@ const flattenWorkshopHtml = (): Plugin => ({
       '.workshop/faq/faq.html': 'faq.html',
       '.workshop/developers/developers.html': 'developers.html',
       '.workshop/translate/translate.html': 'translate.html',
+      '.workshop/sitemap/sitemap.html': 'sitemap.html',
     };
     for (const key of Object.keys(bundle)) {
       const normalized = key.replace(/\\/g, '/');
@@ -541,6 +542,8 @@ export function pageAliasTarget(rawUrl: string, built = false): string | null {
     target = built ? '/developers.html' : '/.workshop/developers/developers.html';
   } else if (normalizedPath === '/translate' || normalizedPath === '/translate.html') {
     target = built ? '/translate.html' : '/.workshop/translate/translate.html';
+  } else if (normalizedPath === '/sitemap' || normalizedPath === '/sitemap.html') {
+    target = built ? '/sitemap.html' : '/.workshop/sitemap/sitemap.html';
   } else if (
     normalizedPath === '/history' ||
     normalizedPath === '/changelog' ||
@@ -1001,6 +1004,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
           faq: resolve(import.meta.dirname, '.workshop/faq/faq.html'),
           developers: resolve(import.meta.dirname, '.workshop/developers/developers.html'),
           translate: resolve(import.meta.dirname, '.workshop/translate/translate.html'),
+          sitemap: resolve(import.meta.dirname, '.workshop/sitemap/sitemap.html'),
         },
         output: {
           codeSplitting: {

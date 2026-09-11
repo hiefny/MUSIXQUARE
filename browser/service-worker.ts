@@ -766,10 +766,10 @@ function canonicalNavigationShell(request: Request): string {
   const url = new URL(request.url);
   if (
     url.origin === serviceWorker.location.origin &&
-    /^\/translate(?:\.html)?\/*$/iu.test(url.pathname)
+    /^\/(?:translate|sitemap)(?:\.html)?\/*$/iu.test(url.pathname)
   ) {
-    // Reuse a previously visited editor, or fail offline; never substitute the room App UI.
-    return './translate.html';
+    // Reuse the visited document, or fail offline; never substitute the room App UI.
+    return /^\/sitemap/iu.test(url.pathname) ? './sitemap.html' : './translate.html';
   }
   return url.origin === serviceWorker.location.origin && url.pathname === ACCOUNT_COMPLETION_PATH
     ? ACCOUNT_COMPLETION_SHELL

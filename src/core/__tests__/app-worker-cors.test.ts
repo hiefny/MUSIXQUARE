@@ -12461,6 +12461,23 @@ describe('Cloudflare app worker invite route', () => {
               },
             );
           }
+          if (url.pathname === '/sitemap.html') {
+            return new Response(
+              request.method === 'HEAD'
+                ? null
+                : '<!doctype html><title>Sitemap · MUSIXQUARE</title>',
+              {
+                status: 200,
+                headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              },
+            );
+          }
+          if (url.pathname === '/sitemap.xml') {
+            return new Response(request.method === 'HEAD' ? null : '<urlset></urlset>', {
+              status: 200,
+              headers: { 'Content-Type': 'application/xml; charset=utf-8' },
+            });
+          }
           if (
             url.pathname === '/translation-catalogs.json' ||
             url.pathname === '/assets/translation-catalog-pt-br-aBcD1234.json'
@@ -12985,6 +13002,61 @@ describe('Cloudflare app worker invite route', () => {
       expect(env.ASSETS.fetch).not.toHaveBeenCalled();
     },
   );
+
+  it.each(['GET', 'HEAD'])(
+    'serves the sitemap directory for %s as a public secure document without article lookup',
+    async (method) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/sitemap', { method }),
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+      expect(response.headers.get('X-Robots-Tag')).toBeNull();
+      expect(response.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('Cache-Control')).toBe(
+        'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      );
+      expect(await response.text()).toBe(
+        method === 'HEAD' ? '' : '<!doctype html><title>Sitemap · MUSIXQUARE</title>',
+      );
+      expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+      expect(new URL((env.ASSETS.fetch.mock.calls[0]![0] as Request).url).pathname).toBe(
+        '/sitemap.html',
+      );
+    },
+  );
+
+  it.each(['/sitemap/', '/Sitemap', '/SITEMAP.HTML', '/sitemap.html/'])(
+    'canonicalizes sitemap directory %s without discarding query or fragment',
+    async (pathname) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request(`https://musixquare.com${pathname}?from=footer#languages`),
+        env,
+      );
+      expect(response.status).toBe(301);
+      expect(response.headers.get('Location')).toBe(
+        'https://musixquare.com/sitemap?from=footer#languages',
+      );
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the XML sitemap independent from the HTML directory route', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('https://musixquare.com/sitemap.xml'), env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
+    expect(response.headers.get('Location')).toBeNull();
+    expect(await response.text()).toBe('<urlset></urlset>');
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+    expect(new URL((env.ASSETS.fetch.mock.calls[0]![0] as Request).url).pathname).toBe(
+      '/sitemap.xml',
+    );
+  });
 
   it.each([
     ['/translation-catalogs.json', 'no-store'],

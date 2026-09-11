@@ -60,7 +60,7 @@ Repository publication has two distinct paths:
   test/guard contracts that feed neither an App nor Worker bundle are published
   by merging to GitHub. Do not run a Cloudflare Production Release for them.
 - Changes under `public/**` or the production
-  `.workshop/{landing,privacy,terms,faq,developers,translate}/**` trees are hosted App
+  `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap}/**` trees are hosted App
   inputs. Advance the required product/cache identifiers, merge the change,
   wait for the exact merge-SHA `main` push CI candidate to succeed, then run
   `Production Release` with target `app` and Developer API D1 application
@@ -509,7 +509,7 @@ bump covers the resulting app tree. Repository-only documents such as `README.md
 `CONTRIBUTING.md`, `docs/**`, and `cloudflare/*ops.md`, plus Worker-only and
 test-only changes that do not advance product SemVer or its browser admin
 mirror, do not require a bump. Files under `public/**` and the
-production `.workshop/{landing,privacy,terms,faq,developers,translate}/**` trees are App
+production `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap}/**` trees are App
 artifact inputs and do require a covering bump. The guard reads committed
 first-parent `HEAD`, not the working tree, so rerun `npm run build:checked` after
 the final bump commit and before pushing. The check

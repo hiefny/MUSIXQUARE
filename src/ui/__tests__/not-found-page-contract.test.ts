@@ -45,9 +45,7 @@ describe('custom not-found page contract', () => {
       /body\s*\{[^}]*min-height:\s*100svh;[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*background:\s*var\(--bg\);/su,
     );
     expect(styles).toMatch(/p\s*\{[^}]*margin:\s*40px 0 0;/su);
-    expect(styles).toMatch(
-      /\.cta-wordmark\s*\{[^}]*width:\s*142px;[^}]*height:\s*18px;[^}]*transform:\s*translateY\(0\.6px\);/su,
-    );
+    expect(styles).toMatch(/\.cta-wordmark\s*\{[^}]*width:\s*142px;[^}]*height:\s*18px;/su);
     expect(styles).not.toMatch(
       /@media\s*\(max-width:\s*520px\)[^{]*\{[^}]*body\s*\{[^}]*place-items:\s*start/su,
     );

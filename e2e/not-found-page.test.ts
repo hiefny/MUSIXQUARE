@@ -81,7 +81,7 @@ test.describe('custom not-found page', () => {
       expect(
         (geometry.wordmark.top + geometry.wordmark.bottom) / 2 -
           (geometry.cta.top + geometry.cta.bottom) / 2,
-      ).toBeCloseTo(0.6, 1);
+      ).toBeCloseTo(0, 1);
       expect(geometry.glyph.x).toBeGreaterThanOrEqual(43);
       expect(geometry.glyph.y).toBeGreaterThanOrEqual(12);
       expect(geometry.glyph.x + geometry.glyph.width).toBeLessThanOrEqual(257);

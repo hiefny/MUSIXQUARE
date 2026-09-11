@@ -10,7 +10,9 @@ const EDGE_TOLERANCE_PX = 1;
 
 test.describe('custom not-found page', () => {
   for (const viewport of VIEWPORTS) {
-    test(`keeps its approved CTA centered and unclipped in ${viewport.name}`, async ({ page }) => {
+    test(`keeps its return link left-aligned and unclipped in ${viewport.name}`, async ({
+      page,
+    }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.setContent(await readFile('public/404.html', 'utf8'), {
         waitUntil: 'domcontentloaded',
@@ -18,9 +20,15 @@ test.describe('custom not-found page', () => {
 
       const heading = page.getByRole('heading', { level: 1, name: 'Invalid URL.' });
       const cta = page.getByRole('link', { name: 'Go to MUSIXQUARE' });
+      const goToLabel = cta.getByText('Go to', { exact: true });
       await expect(heading).toBeVisible();
       await expect(cta).toBeVisible();
+      await expect(goToLabel).toBeVisible();
       await expect(cta).toHaveAttribute('href', 'https://musixquare.com/');
+      await expect(cta).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
+      const labelBox = await goToLabel.boundingBox();
+      if (!labelBox) throw new Error('Missing visible Go to label geometry');
 
       const geometry = await page.evaluate(() => {
         const box = (selector: string) => {
@@ -65,6 +73,7 @@ test.describe('custom not-found page', () => {
         Math.abs((geometry.main.top + geometry.main.bottom) / 2 - viewport.height / 2),
       ).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
       expect(geometry.cta.top - geometry.heading.bottom).toBeCloseTo(40, 0);
+      expect(Math.abs(labelBox.x - geometry.heading.left)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
       expect(geometry.wordmark.left).toBeGreaterThanOrEqual(geometry.cta.left - EDGE_TOLERANCE_PX);
       expect(geometry.wordmark.right).toBeLessThanOrEqual(geometry.cta.right + EDGE_TOLERANCE_PX);
       expect(geometry.wordmark.top).toBeGreaterThanOrEqual(geometry.cta.top - EDGE_TOLERANCE_PX);

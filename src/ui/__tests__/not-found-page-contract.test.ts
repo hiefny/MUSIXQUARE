@@ -27,7 +27,7 @@ describe('custom not-found page contract', () => {
     expect(document.querySelector('h1 .headline-lead > span')?.textContent).toBe('Invalid URL.');
   });
 
-  it('uses the unclipped wordmark-only CTA to return to the app', () => {
+  it('uses an accessible wordmark link to return to the app', () => {
     const cta = document.querySelector<HTMLAnchorElement>('a.cta');
     const wordmark = cta?.querySelector<SVGElement>('svg.cta-wordmark');
 
@@ -40,14 +40,11 @@ describe('custom not-found page contract', () => {
     expect(cta?.querySelector('.cta-arrow')?.textContent).toBe('→');
   });
 
-  it('matches the approved centered maintenance shell and About CTA geometry', () => {
+  it('preserves the centered shell and unclipped wordmark geometry', () => {
     expect(styles).toMatch(
       /body\s*\{[^}]*min-height:\s*100svh;[^}]*display:\s*grid;[^}]*place-items:\s*center;[^}]*background:\s*var\(--bg\);/su,
     );
     expect(styles).toMatch(/p\s*\{[^}]*margin:\s*40px 0 0;/su);
-    expect(styles).toMatch(
-      /\.cta\s*\{[^}]*height:\s*56px;[^}]*padding:\s*0 28px 0 36px;[^}]*border-radius:\s*999px;/su,
-    );
     expect(styles).toMatch(
       /\.cta-wordmark\s*\{[^}]*width:\s*142px;[^}]*height:\s*18px;[^}]*transform:\s*translateY\(0\.6px\);/su,
     );

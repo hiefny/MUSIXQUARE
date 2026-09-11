@@ -17,8 +17,9 @@
   <a href="https://musixquare.com/about">About</a> &bull;
   <a href="https://musixquare.com/history">History</a> &bull;
   <a href="https://musixquare.com/designsystem">Design System</a> &bull;
-  <a href="./docs/README.md">Documentation</a> &bull;
-  <a href="https://github.com/hiefny/MUSIXQUARE">GitHub</a>
+  <a href="https://musixquare.com/sitemap">Sitemap</a> &bull;
+  <a href="https://github.com/hiefny/MUSIXQUARE">GitHub</a> &bull;
+  <a href="https://discord.gg/PmmFhGTBsX">Discord</a>
 </p>
 
 ---

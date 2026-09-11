@@ -5752,6 +5752,17 @@
     text-decoration: underline;
   }
 
+  /* Strictly below 420px, including fractional viewport heights. */
+  @media not all and (min-height: 420px) {
+    .language-translate-link {
+      display: none;
+    }
+
+    .language-dialog .dialog-actions {
+      padding-bottom: 30px;
+    }
+  }
+
   .language-dialog .dialog-primary {
     flex: 1 1 auto;
     min-width: 0;
@@ -5806,9 +5817,11 @@
     outline: none;
   }
 
+  /* Keep the ring inside the scrollport without moving buttons or edge fades. */
+  .language-option:focus-visible,
   .language-option.language-option-initial-keyboard-focus:focus {
     outline: 2px solid var(--primary);
-    outline-offset: 2px;
+    outline-offset: -2px;
   }
 
   .language-option-label {
@@ -11834,6 +11847,16 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
   ):focus-visible {
     outline: 3px solid Highlight !important;
     outline-offset: 2px !important;
+  }
+
+  .language-dialog .language-option:focus-visible,
+  .language-dialog .language-option.language-option-initial-keyboard-focus:focus {
+    outline-offset: -3px !important;
+  }
+
+  .language-dialog .language-option.active:focus-visible,
+  .language-dialog .language-option.active.language-option-initial-keyboard-focus:focus {
+    outline-color: HighlightText !important;
   }
 
   :is(button, [role='button'], [role='switch'], [role='tab']):is(

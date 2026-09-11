@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { JSDOM } from 'jsdom';
 
 import {
   ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
@@ -2179,6 +2180,51 @@ describe('shared service-maintenance control', () => {
     expect(body).not.toMatch(/(?:class="[^"]*\b(?:card|dot|pulse)\b|[.#](?:card|dot|pulse)\b)/u);
     expect(body).not.toMatch(/@keyframes|\banimation(?:-name)?\s*:/u);
   });
+
+  it.each(['en-US', 'ko-KR', 'ar-EG'])(
+    'shares a maintenance image and matching visible description for %s without relaxing the outage response',
+    async (language) => {
+      const response = serviceMaintenanceResponse(
+        new Request('https://musixquare.com/about', {
+          headers: { Accept: 'text/html', 'Accept-Language': language },
+        }),
+        activeState(),
+      );
+      const dom = new JSDOM(await response.text());
+      try {
+        const { document } = dom.window;
+        const content = (selector: string) =>
+          document.querySelector<HTMLMetaElement>(selector)?.content;
+        const description = document.querySelector('main p')?.textContent;
+
+        expect(description).toBeTruthy();
+        expect(content('meta[name="description"]')).toBe(description);
+        expect(content('meta[property="og:description"]')).toBe(description);
+        expect(content('meta[name="twitter:description"]')).toBe(description);
+        expect(content('meta[property="og:title"]')).toBe(document.title);
+        expect(content('meta[name="twitter:title"]')).toBe(document.title);
+        expect(content('meta[property="og:image"]')).toBe(
+          'https://musixquare.com/og-maintenance.png',
+        );
+        expect(content('meta[name="twitter:image"]')).toBe(content('meta[property="og:image"]'));
+        expect(content('meta[property="og:image:width"]')).toBe('1200');
+        expect(content('meta[property="og:image:height"]')).toBe('630');
+        expect(content('meta[property="og:image:alt"]')).toBe('Maintenance · MUSIXQUARE');
+        expect(content('meta[name="twitter:image:alt"]')).toBe('Maintenance · MUSIXQUARE');
+        expect(content('meta[name="twitter:card"]')).toBe('summary_large_image');
+        expect(content('meta[name="robots"]')).toBe('noindex,nofollow');
+        expect(response.status).toBe(503);
+        expect(response.headers.get('Retry-After')).toBe('60');
+        expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+        expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+        expect(response.headers.get('Content-Security-Policy')).toBe(
+          "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        );
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
 
   it('serves a visually exact, no-store maintenance preview without 503 semantics', async () => {
     const headers = { Accept: 'text/html', 'Accept-Language': 'ko-KR, en;q=0.8' };

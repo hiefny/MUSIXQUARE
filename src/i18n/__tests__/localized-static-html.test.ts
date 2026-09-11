@@ -143,6 +143,14 @@ describe('localized static HTML materialization', () => {
 
       expect(appDocument.documentElement.lang, `${option.code} app lang`).toBe(option.htmlLang);
       expect(aboutDocument.documentElement.lang, `${option.code} About lang`).toBe(option.htmlLang);
+      for (const selector of ['meta[property="og:image"]', 'meta[name="twitter:image"]']) {
+        expect(appDocument.querySelector<HTMLMetaElement>(selector)?.content).toBe(
+          `${SITE_ORIGIN}/og-image.png`,
+        );
+        expect(aboutDocument.querySelector<HTMLMetaElement>(selector)?.content).toBe(
+          `${SITE_ORIGIN}/og-about.png`,
+        );
+      }
       expect(
         appDocument.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href,
         `${option.code} app canonical`,

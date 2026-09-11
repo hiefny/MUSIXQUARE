@@ -25,7 +25,6 @@
         --bg: #e4e4e1;
         --text: #171717;
         --muted: #5f5f5b;
-        --primary: #3b82f6;
         font-family:
           Inter,
           Pretendard,
@@ -102,15 +101,12 @@
 
       .cta {
         height: 56px;
-        padding: 0 28px 0 36px;
-        border: 1px solid var(--primary);
-        border-radius: 999px;
+        padding: 0;
         display: inline-flex;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
         gap: 8px;
-        background: var(--primary);
-        color: #ffffff;
+        color: var(--text);
         font-size: 15px;
         font-weight: 600;
         letter-spacing: 0.01em;
@@ -118,6 +114,7 @@
         transition:
           opacity 160ms ease,
           transform 160ms ease;
+        transform-origin: left center;
         -webkit-tap-highlight-color: transparent;
       }
 
@@ -218,6 +215,7 @@
       </h1>
       <p>
         <a class="cta" href="https://musixquare.com/" aria-label="Go to MUSIXQUARE">
+          <span>Go to</span>
           <svg class="cta-wordmark" viewBox="43 12 214 26" fill="currentColor" aria-hidden="true">
             <use href="#brand-wordmark" />
           </svg>

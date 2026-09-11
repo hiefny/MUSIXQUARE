@@ -6,8 +6,8 @@
  * Render them once and commit the PNGs under public/. The main App keeps
  * its existing og-image.png; article sharing reuses og-blog.png.
  *
- * Cards share the invite card's visual language (blue gradient, white
- * Pretendard) so the /musixquare.com namespace reads as one family.
+ * Cards share the invite card's layout and Pretendard typography. Resources
+ * use a yellow gradient; Admin and error pages use a plain white background.
  *
  * Usage: node scripts/generate-static-og.mts
  */
@@ -23,10 +23,18 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 
 // ─── Card templates ──────────────────────────────────────────────
+const CARD_THEMES = {
+  blue: { background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', color: 'white' },
+  yellow: { background: 'linear-gradient(135deg, #ffca00 0%, #f39a00 100%)', color: 'white' },
+  // Light-theme --text-main from css/style.css.
+  white: { background: '#ffffff', color: '#303540' },
+} as const;
+
 interface CardProps {
   readonly wordmarkDataUrl: string;
   readonly headline: string;
   readonly tagline: string;
+  readonly theme?: keyof typeof CARD_THEMES;
 }
 
 interface StaticCardDefinition {
@@ -47,7 +55,8 @@ export interface RenderedStaticOgCard {
   readonly elapsedMs: number;
 }
 
-function card({ wordmarkDataUrl, headline, tagline }: CardProps) {
+function card({ wordmarkDataUrl, headline, tagline, theme = 'blue' }: CardProps) {
+  const secondaryOpacity = theme === 'yellow' ? 0.95 : 0.85;
   return {
     type: 'div',
     props: {
@@ -58,8 +67,8 @@ function card({ wordmarkDataUrl, headline, tagline }: CardProps) {
         justifyContent: 'center',
         width: '100%',
         height: '100%',
-        background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
-        color: 'white',
+        background: CARD_THEMES[theme].background,
+        color: CARD_THEMES[theme].color,
         fontFamily: 'Pretendard',
       },
       children: [
@@ -72,7 +81,7 @@ function card({ wordmarkDataUrl, headline, tagline }: CardProps) {
             src: wordmarkDataUrl,
             width: 250,
             height: 30,
-            style: { opacity: 0.85 },
+            style: { opacity: secondaryOpacity },
           },
         },
         {
@@ -94,7 +103,7 @@ function card({ wordmarkDataUrl, headline, tagline }: CardProps) {
               fontSize: 30,
               fontWeight: 700,
               marginTop: 32,
-              opacity: 0.85,
+              opacity: secondaryOpacity,
               letterSpacing: -0.2,
             },
             children: tagline,
@@ -105,7 +114,7 @@ function card({ wordmarkDataUrl, headline, tagline }: CardProps) {
   };
 }
 
-const CARDS = [
+const CARDS: readonly StaticCardDefinition[] = [
   {
     outFile: 'public/og-invite.png',
     props: {
@@ -140,27 +149,31 @@ const CARDS = [
   },
   {
     outFile: 'public/og-faq.png',
-    props: { headline: 'FAQ', tagline: 'Answers to common questions' },
+    props: { headline: 'FAQ', tagline: 'Answers to common questions', theme: 'yellow' },
   },
   {
     outFile: 'public/og-privacy.png',
-    props: { headline: 'Privacy Policy', tagline: 'Your data and privacy' },
+    props: { headline: 'Privacy Policy', tagline: 'Your data and privacy', theme: 'yellow' },
   },
   {
     outFile: 'public/og-terms.png',
-    props: { headline: 'Terms', tagline: 'Terms of use' },
+    props: { headline: 'Terms', tagline: 'Terms of use', theme: 'yellow' },
   },
   {
     outFile: 'public/og-developers.png',
-    props: { headline: 'Developers', tagline: 'Build with the MUSIXQUARE API' },
+    props: { headline: 'Developers', tagline: 'Build with the MUSIXQUARE API', theme: 'yellow' },
   },
   {
     outFile: 'public/og-translate.png',
-    props: { headline: 'Translate', tagline: 'Help MUSIXQUARE feel natural in your language.' },
+    props: {
+      headline: 'Translate',
+      tagline: 'Help MUSIXQUARE feel natural in your language.',
+      theme: 'yellow',
+    },
   },
   {
     outFile: 'public/og-sitemap.png',
-    props: { headline: 'Sitemap', tagline: 'Explore MUSIXQUARE' },
+    props: { headline: 'Sitemap', tagline: 'Explore MUSIXQUARE', theme: 'yellow' },
   },
   {
     outFile: 'public/og-events.png',
@@ -168,7 +181,7 @@ const CARDS = [
   },
   {
     outFile: 'public/og-admin.png',
-    props: { headline: 'Admin', tagline: 'Manage MUSIXQUARE' },
+    props: { headline: 'Admin', tagline: 'Staff only', theme: 'white' },
   },
   {
     outFile: 'public/og-account.png',
@@ -176,13 +189,17 @@ const CARDS = [
   },
   {
     outFile: 'public/og-404.png',
-    props: { headline: 'Not Found', tagline: 'That page could not be found' },
+    props: { headline: 'Not Found', tagline: 'That page could not be found', theme: 'white' },
   },
   {
     outFile: 'public/og-maintenance.png',
-    props: { headline: 'Maintenance', tagline: 'Temporarily unavailable' },
+    props: {
+      headline: 'Maintenance',
+      tagline: 'Service temporarily unavailable',
+      theme: 'white',
+    },
   },
-] as const satisfies readonly StaticCardDefinition[];
+];
 
 export async function renderStaticOgCards({
   bold,
@@ -192,13 +209,13 @@ export async function renderStaticOgCards({
 }: StaticOgInputs): Promise<RenderedStaticOgCard[]> {
   await initWasm(wasm);
 
-  // Bake white fill into the wordmark SVG (Satori <img> doesn't propagate
-  // currentColor), then embed as a data URL.
-  const wordmarkDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(wordmarkRaw.replace(/currentColor/g, 'white'))}`;
-
   const renderedCards: RenderedStaticOgCard[] = [];
   for (const { outFile, props } of CARDS) {
     const t0 = performance.now();
+    // Satori <img> doesn't inherit currentColor, so bake the theme's text
+    // color into the wordmark before embedding it.
+    const color = CARD_THEMES[props.theme ?? 'blue'].color;
+    const wordmarkDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(wordmarkRaw.replace(/currentColor/g, color))}`;
     const svg = await satori(card({ wordmarkDataUrl, ...props }), {
       width: 1200,
       height: 630,

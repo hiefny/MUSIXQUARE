@@ -17,6 +17,7 @@ const ENGLISH_ONLY_PAGES = [
   { path: '/developers', lastmod: '2026-08-17', changefreq: 'monthly', priority: '0.7' },
   { path: '/designsystem', lastmod: '2026-08-31', changefreq: 'monthly', priority: '0.5' },
   { path: '/translate', lastmod: '2026-09-08', changefreq: 'monthly', priority: '0.5' },
+  { path: '/sitemap', lastmod: '2026-09-11', changefreq: 'monthly', priority: '0.5' },
 ] as const;
 
 function absoluteUrl(path: string): string {

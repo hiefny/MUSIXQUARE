@@ -68,6 +68,20 @@ a {
   text-decoration: none;
 }
 
+.policy-home--app {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.policy-home--app svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  transform: rotate(-45deg);
+}
+
 .policy-home:hover {
   color: var(--text-main);
 }

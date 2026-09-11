@@ -1601,8 +1601,16 @@ describe('service worker cache policy', () => {
     expect(cachePut).not.toHaveBeenCalled();
   });
 
-  it.each(['/translate', '/translate/', '/translate.html'])(
-    'does not replace the translation workspace %s with the room shell when offline',
+  it.each([
+    '/translate',
+    '/translate/',
+    '/translate.html',
+    '/sitemap',
+    '/sitemap/',
+    '/sitemap.html',
+    '/SITEMAP.HTML',
+  ])(
+    'does not replace the public document %s with the room shell when offline',
     async (pathname) => {
       fetchMock.mockRejectedValue(new Error('offline'));
       cacheMatch.mockImplementation(
@@ -1624,24 +1632,27 @@ describe('service worker cache policy', () => {
     },
   );
 
-  it('reopens the previously visited translation workspace offline without using the room shell', async () => {
-    fetchMock.mockRejectedValue(new Error('offline'));
-    cacheMatch.mockImplementation(
-      async (request: RequestInfo, options?: { cacheName?: string }) => {
-        const url = typeof request === 'string' ? request : request.url;
-        return options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}` &&
-          url === 'https://musixquare.com/translate'
-          ? new Response('Translation workspace')
-          : undefined;
-      },
-    );
-    const response = await dispatch(
-      new Request('https://musixquare.com/translate', { headers: { accept: 'text/html' } }),
-    );
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe('Translation workspace');
-    expect(cacheMatch).not.toHaveBeenCalledWith('./index.html', expect.anything());
-  });
+  it.each(['translate', 'sitemap'])(
+    'reopens the previously visited %s document offline without using the room shell',
+    async (page) => {
+      fetchMock.mockRejectedValue(new Error('offline'));
+      cacheMatch.mockImplementation(
+        async (request: RequestInfo, options?: { cacheName?: string }) => {
+          const url = typeof request === 'string' ? request : request.url;
+          return options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}` &&
+            url === `https://musixquare.com/${page}`
+            ? new Response(`${page} document`)
+            : undefined;
+        },
+      );
+      const response = await dispatch(
+        new Request(`https://musixquare.com/${page}`, { headers: { accept: 'text/html' } }),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(`${page} document`);
+      expect(cacheMatch).not.toHaveBeenCalledWith('./index.html', expect.anything());
+    },
+  );
 
   it('leaves translation reference refresh requests outside the service-worker cache', () => {
     for (const pathname of [

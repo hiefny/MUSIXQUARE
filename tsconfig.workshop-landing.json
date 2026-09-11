@@ -6,7 +6,9 @@
     "exactOptionalPropertyTypes": true
   },
   "include": [
+    "src/vite-env.d.ts",
     ".workshop/landing/main.ts",
+    ".workshop/sitemap/main.ts",
     ".workshop/translate/main.ts",
     ".workshop/translate/catalog-client.ts",
     ".workshop/translate/community-client.ts",

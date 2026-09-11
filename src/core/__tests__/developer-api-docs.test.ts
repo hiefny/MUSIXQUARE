@@ -54,7 +54,7 @@ describe('Developer API public documentation', () => {
     expect(html).toContain('<article class="policy-doc">');
     expect(html).toContain('<footer class="policy-footer">');
     expect(html).toContain('href="/developers/openapi.yaml"');
-    expect(html).toContain('<p class="policy-kicker">PUBLIC API</p>');
+    expect(html).toContain('<h1>Developer API</h1>');
     expect(html).not.toMatch(/private beta/i);
   });
 

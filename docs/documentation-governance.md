@@ -114,6 +114,6 @@ Repository-only documentation (`README.md`, `CONTRIBUTING.md`, `docs/**`, and
 changes that feed neither an App nor Worker bundle are published by a reviewed
 merge to GitHub `main`; they do not justify a Cloudflare Production Release.
 Files under `public/**`, hosted
-`.workshop/{landing,privacy,terms,faq,developers}/**`, and App/Worker runtime
+`.workshop/{landing,privacy,terms,faq,developers,translate,sitemap}/**`, and App/Worker runtime
 inputs must use the applicable version/cache/exact-SHA release path in
 [`hotfix-procedure.md`](hotfix-procedure.md).

@@ -283,6 +283,9 @@ describe('service-worker CACHE_VERSION guard', () => {
 
   it.each([
     '.workshop/faq/faq.html',
+    '.workshop/sitemap/sitemap.html',
+    '.workshop/sitemap/main.ts',
+    '.workshop/sitemap/sitemap.css',
     '.workshop/translate/translate.html',
     '.workshop/translate/catalog-client.ts',
     'scripts/translation-catalog.ts',

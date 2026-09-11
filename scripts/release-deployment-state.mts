@@ -405,6 +405,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     '.workshop/faq',
     '.workshop/developers',
     '.workshop/translate',
+    '.workshop/sitemap',
     'index.html',
     'vite.config.ts',
     'tsconfig.json',

@@ -68,13 +68,13 @@ a {
   text-decoration: none;
 }
 
-.policy-home--app {
+.policy-home--shortcut {
   display: inline-flex;
   align-items: center;
   gap: 7px;
 }
 
-.policy-home--app svg {
+.policy-home--shortcut svg {
   display: block;
   width: 16px;
   height: 16px;

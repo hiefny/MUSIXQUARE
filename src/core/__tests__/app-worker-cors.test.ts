@@ -5248,6 +5248,11 @@ describe('Cloudflare app worker admin dashboard', () => {
       expect(html).toContain('Visible Article');
       expect(html).toContain('<p>Visible body</p>');
       expect(html).not.toContain('<time');
+      if (fallback) {
+        const footer = html.match(/<footer>[\s\S]*?<\/footer>/)?.[0];
+        expect(footer).toContain('<a href="/sitemap">Sitemap</a>');
+        expect(footer).not.toContain('>App</a>');
+      }
       const serialized = html.match(
         /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
       )?.[1];

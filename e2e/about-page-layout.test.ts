@@ -44,13 +44,13 @@ async function expectEnglishAboutHead(page: Page): Promise<void> {
 }
 
 async function expectAppEntryLinks(page: Page, expectedPath: string): Promise<void> {
-  for (const selector of [
-    '.lp-try',
-    '.lp-cta .lp-btn--lg',
-    '.lp-footer a[data-i18n="footer.app"]',
-  ]) {
+  for (const selector of ['.lp-try', '.lp-cta .lp-btn--lg']) {
     await expect(page.locator(selector)).toHaveAttribute('href', expectedPath);
   }
+  await expect(page.locator('.lp-footer a', { hasText: 'Sitemap' })).toHaveAttribute(
+    'href',
+    '/sitemap',
+  );
 }
 
 test.describe('About page closing divider', () => {

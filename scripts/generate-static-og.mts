@@ -1,15 +1,10 @@
 #!/usr/bin/env node
 /**
- * Static OG PNG generator for /history and /designsystem.
+ * Static OG PNG generator for MUSIXQUARE's page families.
  *
- * Unlike the invite card which renders per-request at the edge, these
- * pages have fixed copy — so we render them once here and commit
- * the resulting PNGs under public/. The runtime cost of this is zero.
- *
- * Output:
- *   public/og-invite.png
- *   public/og-history.png
- *   public/og-designsystem.png
+ * Cards, including invitations and the shared Blog card, have fixed copy.
+ * Render them once and commit the PNGs under public/. The main App keeps
+ * its existing og-image.png; article sharing reuses og-blog.png.
  *
  * Cards share the invite card's visual language (blue gradient, white
  * Pretendard) so the /musixquare.com namespace reads as one family.
@@ -138,6 +133,54 @@ const CARDS = [
       headline: 'Blog',
       tagline: 'Articles · Tips · Guides',
     },
+  },
+  {
+    outFile: 'public/og-about.png',
+    props: { headline: 'About', tagline: 'Every device, one system.' },
+  },
+  {
+    outFile: 'public/og-faq.png',
+    props: { headline: 'FAQ', tagline: 'Answers to common questions' },
+  },
+  {
+    outFile: 'public/og-privacy.png',
+    props: { headline: 'Privacy Policy', tagline: 'Your data and privacy' },
+  },
+  {
+    outFile: 'public/og-terms.png',
+    props: { headline: 'Terms', tagline: 'Terms of use' },
+  },
+  {
+    outFile: 'public/og-developers.png',
+    props: { headline: 'Developers', tagline: 'Build with the MUSIXQUARE API' },
+  },
+  {
+    outFile: 'public/og-translate.png',
+    props: { headline: 'Translate', tagline: 'Help MUSIXQUARE feel natural in your language.' },
+  },
+  {
+    outFile: 'public/og-sitemap.png',
+    props: { headline: 'Sitemap', tagline: 'Explore MUSIXQUARE' },
+  },
+  {
+    outFile: 'public/og-events.png',
+    props: { headline: 'Events', tagline: 'MUSIXQUARE PRO events' },
+  },
+  {
+    outFile: 'public/og-admin.png',
+    props: { headline: 'Admin', tagline: 'Manage MUSIXQUARE' },
+  },
+  {
+    outFile: 'public/og-account.png',
+    props: { headline: 'Account', tagline: 'Your MUSIXQUARE account' },
+  },
+  {
+    outFile: 'public/og-404.png',
+    props: { headline: 'Not Found', tagline: 'That page could not be found' },
+  },
+  {
+    outFile: 'public/og-maintenance.png',
+    props: { headline: 'Maintenance', tagline: 'Temporarily unavailable' },
   },
 ] as const satisfies readonly StaticCardDefinition[];
 

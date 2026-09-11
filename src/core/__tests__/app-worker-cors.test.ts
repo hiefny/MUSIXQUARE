@@ -24,6 +24,14 @@ import {
   MusixquareServiceControl,
 } from '../../../cloudflare/pro-room-worker.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
+import {
+  readServiceMaintenance,
+  SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_ENABLED_HEADER,
+  SERVICE_CONTROL_STATUS_REVISION_HEADER,
+  SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_VERSION_HEADER,
+} from '../../../cloudflare/service-maintenance.ts';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
 const PRODUCT_VERSION = (
@@ -4453,6 +4461,87 @@ describe('Cloudflare app worker admin dashboard', () => {
 </rss>`;
   }
 
+  it.each(['/admin', '/admin/'])(
+    'uses the dedicated Admin sharing image for the login and dashboard shell at %s',
+    async (path) => {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), {});
+      const html = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(html).toContain('data-login-panel');
+      expect(html).toContain('data-admin-tab="operations"');
+      expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
+      expect(html).toContain('<meta property="og:url" content="https://musixquare.com/admin">');
+      expect(html).toContain(
+        '<meta property="og:image" content="https://musixquare.com/og-admin.png">',
+      );
+      expect(html).toContain(
+        '<meta name="twitter:image" content="https://musixquare.com/og-admin.png">',
+      );
+      expect(html).toContain('<meta property="og:image:alt" content="MUSIXQUARE Admin">');
+      expect(html).toContain('<meta name="twitter:image:alt" content="MUSIXQUARE Admin">');
+      expect(html).not.toContain('/og-image.png');
+    },
+  );
+
+  it('serves only the exact Admin and Maintenance sharing images for read requests during maintenance', async () => {
+    const enabledAt = Date.now() - 30_000;
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(
+            async () =>
+              new Response(null, {
+                headers: {
+                  [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+                  [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: '1',
+                  [SERVICE_CONTROL_STATUS_REVISION_HEADER]: '1',
+                  [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: String(enabledAt),
+                  [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: String(enabledAt),
+                },
+              }),
+          ),
+        })),
+      },
+      ASSETS: {
+        fetch: vi.fn(async () => new Response('png', { headers: { 'Content-Type': 'image/png' } })),
+      },
+    };
+    await expect(readServiceMaintenance(env)).resolves.toMatchObject({
+      enabled: true,
+      revision: 1,
+    });
+
+    for (const path of ['/og-admin.png', '/og-maintenance.png']) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await appWorker.fetch(
+          new Request(`https://musixquare.com${path}`, { method }),
+          env,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('image/png');
+      }
+      for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+        const response = await appWorker.fetch(
+          new Request(`https://musixquare.com${path}`, { method }),
+          env,
+        );
+        expect(response.status).toBe(503);
+      }
+    }
+    for (const path of [
+      '/og-blog.png',
+      '/og-image.png',
+      '/og-admin.png/',
+      '/og-maintenance.png/',
+    ]) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
+      expect(response.status).toBe(503);
+    }
+    expect(env.ASSETS.fetch).toHaveBeenCalledTimes(4);
+  });
+
   it('does not treat the legacy unsalted SHA-256 fallback as an admin credential', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD_SHA256: 'sha256:legacy-digest',
@@ -5063,6 +5152,75 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(env.SORO_IMAGE_BUCKET.head).not.toHaveBeenCalled();
     expect(waitUntil).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['blog shell', 'standalone fallback'])(
+    'uses the common Blog sharing image while preserving article imagery in the %s',
+    async (renderer) => {
+      const shell = await readFile(
+        new URL('../../../public/blog/index.html', import.meta.url),
+        'utf8',
+      );
+      const fallback = renderer === 'standalone fallback';
+      const env = {
+        MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
+        SORO_RSS_BACKUP: createKvStore(),
+        ASSETS: {
+          fetch: vi.fn(
+            async () =>
+              new Response(fallback ? '' : shell, {
+                headers: { 'Content-Type': fallback ? 'application/octet-stream' : 'text/html' },
+              }),
+          ),
+        },
+      };
+      await env.SORO_RSS_BACKUP.put('soro-rss-latest-good.xml', createSoroRssWithImage());
+
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/blog/fast-article'),
+        env,
+      );
+      const html = await response.text();
+      const imageVersion = createHash('sha256')
+        .update('https://app.trysoro.com/images/fast-article.webp')
+        .digest('base64url');
+      const articleImage = `https://musixquare.com/soro-images/featured/fast-article.${imageVersion}.webp`;
+
+      expect(response.status).toBe(200);
+      expect(html).toContain('<meta property="og:title" content="Fast Article">');
+      expect(html).toContain('<meta property="og:description" content="Fast description">');
+      expect(html).toContain('<meta name="twitter:title" content="Fast Article">');
+      expect(html).toContain('<meta name="twitter:description" content="Fast description">');
+      expect(html).toContain(
+        '<meta property="og:image" content="https://musixquare.com/og-blog.png">',
+      );
+      expect(html).toContain(
+        '<meta name="twitter:image" content="https://musixquare.com/og-blog.png">',
+      );
+      expect(html).toContain('<meta property="og:image:alt" content="MUSIXQUARE Blog">');
+      expect(html).toContain('<meta name="twitter:image:alt" content="MUSIXQUARE Blog">');
+      expect(html.match(/<meta property="og:image"/g)).toHaveLength(1);
+      expect(html.match(/<meta name="twitter:image"/g)).toHaveLength(1);
+      expect(html).toContain(
+        `<img class="soro-${fallback ? 'article' : 'blog-article'}-image" src="${articleImage}"`,
+      );
+      expect(html).toContain('<p>Fast body</p>');
+      const serialized = html.match(
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+      )?.[1];
+      expect(JSON.parse(serialized || '')).toMatchObject({
+        '@type': 'BlogPosting',
+        headline: 'Fast Article',
+        image: articleImage,
+      });
+
+      if (!fallback) {
+        const index = await appWorker.fetch(new Request('https://musixquare.com/blog'), env);
+        expect(await index.text()).toContain(
+          `<img class="soro-blog-card-image" src="${articleImage}"`,
+        );
+      }
+    },
+  );
 
   it('sanitizes untrusted RSS article HTML before inserting it into the blog shell', async () => {
     const env = {

@@ -344,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.15';
+const ADMIN_ASSET_VERSION = '8.6.16';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11168,6 +11168,8 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
       pathname === '/admin.js' ||
       pathname === '/clearable-editors.js' ||
       pathname === '/admin.css' ||
+      pathname === '/og-admin.png' ||
+      pathname === '/og-maintenance.png' ||
       pathname === '/designsystem/assets/favicon.svg' ||
       pathname === '/designsystem/assets/logo-wordmark.svg' ||
       pathname === '/designsystem/fonts/PretendardVariable.woff2')
@@ -11707,6 +11709,7 @@ async function readLifetimeRoomCountSnapshot(
 }
 
 function renderAdminPage(request: Request, env: AppEnv) {
+  const origin = new URL(request.url).origin;
   const body =
     request.method === 'HEAD'
       ? null
@@ -11717,6 +11720,21 @@ function renderAdminPage(request: Request, env: AppEnv) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>MUSIXQUARE Admin</title>
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="MUSIXQUARE">
+  <meta property="og:title" content="MUSIXQUARE Admin">
+  <meta property="og:description" content="MUSIXQUARE administration.">
+  <meta property="og:url" content="${esc(origin)}/admin">
+  <meta property="og:image" content="${esc(origin)}/og-admin.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="MUSIXQUARE Admin">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="MUSIXQUARE Admin">
+  <meta name="twitter:description" content="MUSIXQUARE administration.">
+  <meta name="twitter:image" content="${esc(origin)}/og-admin.png">
+  <meta name="twitter:image:alt" content="MUSIXQUARE Admin">
   <link rel="icon" href="/designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="/admin.css?v=${ADMIN_ASSET_VERSION}">
   <script src="/clearable-editors.js?v=${ADMIN_ASSET_VERSION}" defer></script>
@@ -14715,6 +14733,7 @@ function renderSoroArticleInBlogShell(
   const title = `${article.title} · MUSIXQUARE`;
   const description = article.description || 'MUSIXQUARE blog article.';
   const image = soroArticleImageUrl(article, url.origin, source);
+  const socialImage = `${url.origin}/og-blog.png`;
   const published = soroArticleIsoDate(article.pubDate);
   const safeContent = sanitizeSoroArticleHtml(article.content);
   const jsonLd = {
@@ -14781,12 +14800,12 @@ function renderSoroArticleInBlogShell(
   html = replaceHtmlTag(
     html,
     /<meta property="og:image" content="[^"]*">/i,
-    `<meta property="og:image" content="${esc(image)}">`,
+    `<meta property="og:image" content="${esc(socialImage)}">`,
   );
   html = replaceHtmlTag(
     html,
     /<meta property="og:image:alt" content="[^"]*">/i,
-    `<meta property="og:image:alt" content="${esc(article.title)}">`,
+    '<meta property="og:image:alt" content="MUSIXQUARE Blog">',
   );
   html = replaceHtmlTag(
     html,
@@ -14801,8 +14820,13 @@ function renderSoroArticleInBlogShell(
   html = replaceHtmlTag(
     html,
     /<meta name="twitter:image" content="[^"]*">/i,
-    `<meta name="twitter:image" content="${esc(image)}">`,
+    `<meta name="twitter:image" content="${esc(socialImage)}">`,
   );
+  const imageAltPattern = /<meta\b(?=[^>]*\bname=["']twitter:image:alt["'])[^>]*>/i;
+  const imageAltTag = '<meta name="twitter:image:alt" content="MUSIXQUARE Blog">';
+  html = imageAltPattern.test(html)
+    ? replaceHtmlTag(html, imageAltPattern, imageAltTag)
+    : html.replace('</head>', `  ${imageAltTag}\n</head>`);
   return html.replace(
     '</head>',
     () =>
@@ -14824,6 +14848,7 @@ function renderSoroArticleHtml(
   const title = `${article.title} · MUSIXQUARE`;
   const description = article.description || 'MUSIXQUARE blog article.';
   const image = soroArticleImageUrl(article, url.origin, source);
+  const socialImage = `${url.origin}/og-blog.png`;
   const published = soroArticleIsoDate(article.pubDate);
   const safeContent = sanitizeSoroArticleHtml(article.content);
   const jsonLd = {
@@ -14859,12 +14884,13 @@ function renderSoroArticleHtml(
   <meta property="og:site_name" content="MUSIXQUARE">
   <meta property="og:locale" content="en_US">
   <meta property="og:url" content="${esc(pageUrl)}">
-  <meta property="og:image" content="${esc(image)}">
-  <meta property="og:image:alt" content="${esc(article.title)}">
+  <meta property="og:image" content="${esc(socialImage)}">
+  <meta property="og:image:alt" content="MUSIXQUARE Blog">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${esc(article.title)}">
   <meta name="twitter:description" content="${esc(description)}">
-  <meta name="twitter:image" content="${esc(image)}">
+  <meta name="twitter:image" content="${esc(socialImage)}">
+  <meta name="twitter:image:alt" content="MUSIXQUARE Blog">
   <link rel="icon" href="/designsystem/assets/favicon.svg">
   <link rel="preload" href="/designsystem/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css">

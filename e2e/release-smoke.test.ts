@@ -149,7 +149,10 @@ test.describe('Production release smoke', () => {
     await page.goto('/blog');
 
     await expect(page.locator('.lp-try')).toHaveAttribute('href', '/');
-    await expect(page.locator('footer a', { hasText: 'App' })).toHaveAttribute('href', '/');
+    await expect(page.locator('footer a', { hasText: 'Sitemap' })).toHaveAttribute(
+      'href',
+      '/sitemap',
+    );
   });
 
   test('keeps a saved non-English root at its original URL without reloading', async ({ page }) => {

@@ -344,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.16';
+const ADMIN_ASSET_VERSION = '8.6.17';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -15507,7 +15507,15 @@ async function customNotFoundResponse(
     return null;
   }
   const fetchDestination = String(request.headers.get('Sec-Fetch-Dest') || '').toLowerCase();
-  if (fetchDestination && fetchDestination !== 'document' && fetchDestination !== 'iframe') {
+  // Service-worker fetch(request, { signal }) forwards a navigation as
+  // destination "empty" while preserving its HTML Accept header. Explicit
+  // non-document destinations must still keep their original asset response.
+  if (
+    fetchDestination &&
+    fetchDestination !== 'empty' &&
+    fetchDestination !== 'document' &&
+    fetchDestination !== 'iframe'
+  ) {
     return null;
   }
 

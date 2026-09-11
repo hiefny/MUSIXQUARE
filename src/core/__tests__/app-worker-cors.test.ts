@@ -12978,9 +12978,14 @@ describe('Cloudflare app worker invite route', () => {
     expect(new URL(assetRequest.url).pathname).toBe('/xx/about//');
   });
 
-  it.each(['GET', 'HEAD'] as const)(
-    'serves the branded page with a true 404 status for unknown HTML routes on %s',
-    async (method) => {
+  it.each([
+    { method: 'GET', forwardedByServiceWorker: false },
+    { method: 'HEAD', forwardedByServiceWorker: false },
+    { method: 'GET', forwardedByServiceWorker: true },
+    { method: 'HEAD', forwardedByServiceWorker: true },
+  ] as const)(
+    'serves the branded page with a true 404 status on $method (service-worker forwarding: $forwardedByServiceWorker)',
+    async ({ method, forwardedByServiceWorker }) => {
       for (const pathname of [
         '/not-a-real-page.html',
         '/nested/not-found',
@@ -12992,6 +12997,9 @@ describe('Cloudflare app worker invite route', () => {
           new Request(`https://musixquare.com${pathname}`, {
             method,
             headers: {
+              ...(forwardedByServiceWorker
+                ? { 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Mode': 'same-origin' }
+                : {}),
               Accept: 'text/html,application/xhtml+xml',
               'If-None-Match': '"missing-route"',
               'If-Modified-Since': 'Wed, 02 Sep 2026 00:00:00 GMT',
@@ -13018,6 +13026,12 @@ describe('Cloudflare app worker invite route', () => {
         if (method === 'GET') {
           expect(body, pathname).toContain('Invalid URL.');
           expect(body, pathname).toContain('aria-label="Go to MUSIXQUARE"');
+          expect(body, pathname).toContain(
+            '<meta property="og:image" content="https://musixquare.com/og-404.png"',
+          );
+          expect(body, pathname).toContain(
+            '<meta name="twitter:image" content="https://musixquare.com/og-404.png"',
+          );
         } else {
           expect(body, pathname).toBe('');
         }
@@ -13077,13 +13091,18 @@ describe('Cloudflare app worker invite route', () => {
 
   it.each([
     { accept: 'application/javascript,*/*;q=0.1', destination: '' },
+    { accept: 'application/json', destination: 'empty' },
     { accept: 'text/html', destination: 'script' },
+    { accept: 'text/html', destination: 'style' },
+    { accept: 'text/html', destination: 'image' },
+    { accept: 'text/html', destination: 'font' },
   ])(
     'preserves the original asset 404 for non-document requests %#',
     async ({ accept, destination }) => {
       const env = createAssetEnv();
       const headers = new Headers({ Accept: accept });
       if (destination) headers.set('Sec-Fetch-Dest', destination);
+      if (destination === 'empty') headers.set('Sec-Fetch-Mode', 'same-origin');
       const response = await appWorker.fetch(
         new Request('https://musixquare.com/missing-audit.js', { headers }),
         env,

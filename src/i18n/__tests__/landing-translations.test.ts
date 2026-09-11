@@ -170,6 +170,9 @@ describe('landing-page translation integrity', () => {
           expect(link.isConnected).toBe(true);
           expect(link.getAttribute('href')).toBe(appPath);
         }
+        const footerLink = document.querySelector<HTMLAnchorElement>('.lp-footer__nav a');
+        expect(footerLink?.getAttribute('href')).toBe('/sitemap');
+        expect(footerLink?.textContent).toBe('Sitemap');
         expect(
           document
             .querySelector<HTMLAnchorElement>('.editorial-site-tab.is-active')
@@ -417,6 +420,7 @@ describe('landing-page translation integrity', () => {
       'hero.rooms_opened',
       'code.toast_success',
       'code.toast_fail',
+      'footer.app',
       'footer.history',
       'footer.designsystem',
       'sync.meta',

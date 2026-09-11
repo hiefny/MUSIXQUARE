@@ -344,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.13';
+const ADMIN_ASSET_VERSION = '8.6.14';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -14930,7 +14930,7 @@ function renderSoroArticleHtml(
     <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>
   </span>
   <span>
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
+    <a href="/sitemap">Sitemap</a>
     <a href="/translate">Translate</a>
     <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
     <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer">Discord</a>

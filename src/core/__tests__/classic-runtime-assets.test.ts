@@ -634,7 +634,7 @@ describe('strict TypeScript classic browser runtimes', () => {
         <a class="editorial-site-tab" href="/history">History</a>
         <a class="editorial-site-tab" href="/designsystem">Design</a>
       </nav>
-      <footer><a href="https://musixquare.com">App</a></footer>
+      <footer><a href="/sitemap">Sitemap</a></footer>
     </body></html>`;
 
     const explicit = new JSDOM(markup, {
@@ -658,9 +658,9 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(explicit.window.document.querySelector<HTMLAnchorElement>('.lp-try')?.pathname).toBe(
       '/ko/',
     );
-    expect(explicit.window.document.querySelector<HTMLAnchorElement>('footer a')?.pathname).toBe(
-      '/ko/',
-    );
+    expect(
+      explicit.window.document.querySelector<HTMLAnchorElement>('footer a')?.getAttribute('href'),
+    ).toBe('/sitemap');
     expect(explicit.window.document.querySelector<HTMLAnchorElement>('.lp-logo')?.pathname).toBe(
       '/ko/',
     );
@@ -693,9 +693,9 @@ describe('strict TypeScript classic browser runtimes', () => {
     english.window.document.dispatchEvent(new english.window.Event('DOMContentLoaded'));
 
     expect(english.window.document.querySelector<HTMLAnchorElement>('.lp-try')?.pathname).toBe('/');
-    expect(english.window.document.querySelector<HTMLAnchorElement>('footer a')?.pathname).toBe(
-      '/',
-    );
+    expect(
+      english.window.document.querySelector<HTMLAnchorElement>('footer a')?.getAttribute('href'),
+    ).toBe('/sitemap');
     expect(english.window.document.querySelector<HTMLAnchorElement>('.lp-logo')?.pathname).toBe(
       '/',
     );
@@ -717,11 +717,16 @@ describe('strict TypeScript classic browser runtimes', () => {
       explicitEnglish.window.document.querySelector<HTMLAnchorElement>('.editorial-site-tab')
         ?.pathname,
     ).toBe('/en/about');
-    for (const selector of ['.lp-try', '.lp-logo', 'footer a']) {
+    for (const selector of ['.lp-try', '.lp-logo']) {
       expect(
         explicitEnglish.window.document.querySelector<HTMLAnchorElement>(selector)?.pathname,
       ).toBe('/en/');
     }
+    expect(
+      explicitEnglish.window.document
+        .querySelector<HTMLAnchorElement>('footer a')
+        ?.getAttribute('href'),
+    ).toBe('/sitemap');
     explicitEnglish.window.close();
   });
 

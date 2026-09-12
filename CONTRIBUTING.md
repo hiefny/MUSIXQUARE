@@ -69,9 +69,23 @@ npm test
 npm run typecheck
 npm run lint
 npm run format:check
-npm run check:workers
+node --check cloudflare/app-worker.ts
+npm run guard:developer-api-boundaries
+npm run guard:d1-migrations
+npm run guard:ops-drift-contract
 npm run build:checked
 ```
+
+`typecheck` includes every Worker type project and declaration ownership; the
+four commands after formatting cover the remaining Worker policies. Use
+`npm run check:workers` for a standalone Worker check when the full typecheck
+has not already run. For production changes, commit the fix and required version
+updates before the single `build:checked` run, since its cache guard reads Git
+history. Follow [`docs/hotfix-procedure.md`](docs/hotfix-procedure.md).
+
+CI runs the full unit suite once in two coverage-enabled shards, then merges
+their reports and enforces the broad coverage thresholds without rerunning
+tests. The focused runtime, Worker, and tooling coverage gates remain separate.
 
 The exact-SHA automated suite is the ordinary release-confidence gate. It also
 runs the security/coverage ratchets, Worker bundle dry-runs, and blocking

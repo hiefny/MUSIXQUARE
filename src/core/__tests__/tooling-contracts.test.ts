@@ -67,6 +67,7 @@ describe('tooling reproducibility contracts', () => {
         'scripts/ui-kit-asset.ts',
         'vite.config.ts',
         'vitest.config.ts',
+        'vitest.ci-shard.config.ts',
         'vitest.critical.config.ts',
         'vitest.tooling.config.ts',
         'vitest.workers.config.ts',

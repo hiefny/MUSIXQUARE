@@ -16,7 +16,7 @@ Use this path for ordinary production bugs that do not require immediate client 
 ```bash
 git switch main
 git pull --ff-only origin main
-git switch -c hotfix/describe-the-fix
+git switch -c codex/describe-the-fix
 
 # make the fix
 
@@ -28,16 +28,19 @@ npm run typecheck
 npm run lint
 npm run format:check
 npm test
-npm run check:workers
-npm run build:checked
+# typecheck already covers Worker types and declaration ownership.
+node --check cloudflare/app-worker.ts
+npm run guard:developer-api-boundaries
+npm run guard:d1-migrations
+npm run guard:ops-drift-contract
 
 git add <files>
 git commit -m "fix(domain): describe the fix"
 
-# The cache-history guard reads committed HEAD, not uncommitted files.
+# Build once against committed HEAD so the cache-history guard checks the fix.
 npm run build:checked
 
-git push -u origin hotfix/describe-the-fix
+git push -u origin codex/describe-the-fix
 
 # Open a pull request into main, wait for CI, and merge the reviewed PR.
 ```
@@ -52,6 +55,23 @@ without rebuilding; Worker sources are revalidated and bundled from the pinned
 checkout. The release still rechecks the manifest and hashes, time-sensitive
 production-security rules, and Worker bundles before running live smokes with
 an immutable recovery checkpoint and fail-closed forward-repair reporting.
+
+Within each CI run, the full unit suite executes once across two shards with
+coverage enabled. `Broad unit coverage` requires both shard reports and merges
+them without rerunning tests, applying the original whole-suite thresholds.
+Critical runtime, Worker, and release-tooling coverage retain their independent
+scopes and thresholds. Type/source checks run alongside lint/formatting; the
+`Static checks` result requires both lanes to succeed. Worker policy checks reuse
+the type validation already included in `npm run typecheck`.
+The full tooling lint runs in the lint lane; unit tests verify its resolved
+configuration and zero-warning command instead of scanning the repository again.
+
+PR and `main` CI remain separate: a PR merge candidate and the final `main`
+commit have different identities, even when their file trees match. Production
+Release still requires the successful exact-commit `main` candidate. Do not
+replace this evidence with a PR result or skip a failed/missing coverage shard.
+Shard artifacts are scoped to the commit and run, so rerunning failed jobs can
+reuse a successful sibling from that same run.
 
 Repository publication has two distinct paths:
 
@@ -511,8 +531,10 @@ test-only changes that do not advance product SemVer or its browser admin
 mirror, do not require a bump. Files under `public/**` and the
 production `.workshop/{landing,privacy,terms,faq,developers,translate,sitemap}/**` trees are App
 artifact inputs and do require a covering bump. The guard reads committed
-first-parent `HEAD`, not the working tree, so rerun `npm run build:checked` after
-the final bump commit and before pushing. The check
+first-parent `HEAD`, not the working tree, so run `npm run build:checked` after
+the final bump commit and before pushing. A build performed before that commit
+does not replace this check; the normal procedure builds once after committing.
+The check
 intentionally fails on a shallow clone because it cannot prove where the latest
 bump occurred, so the CI candidate build and release deployment checkout must
 retain full git history (`fetch-depth: 0`).
@@ -565,7 +587,7 @@ If a deployment is bad:
    ```bash
    git switch main
    git pull --ff-only origin main
-   git switch -c rollback/restore-known-good-behavior
+   git switch -c codex/restore-known-good-behavior
    git revert --no-commit <bad-commit-sha>
 
    # If the bad release advanced product SemVer, keep moving forward to a new
@@ -576,15 +598,17 @@ If a deployment is bad:
    npm run lint
    npm run format:check
    npm test
-   npm run check:workers
-   npm run build:checked
+   node --check cloudflare/app-worker.ts
+   npm run guard:developer-api-boundaries
+   npm run guard:d1-migrations
+   npm run guard:ops-drift-contract
 
    git add <revert-and-forward-version-files>
    git commit -m "revert: restore the last known-good behavior"
 
-   # Recheck committed first-parent history, including monotonic cache/version guards.
+   # Build once against committed history, including monotonic cache/version guards.
    npm run build:checked
-   git push -u origin rollback/restore-known-good-behavior
+   git push -u origin codex/restore-known-good-behavior
 
    # Open a pull request into main, wait for CI, and merge the reviewed rollback.
    ```

@@ -91,7 +91,7 @@
       'standin.platform_label': 'Platform',
       'standin.platform_value': 'Chromium-based browsers on computers',
       'standin.caveat':
-        'Beta: desktop Chromium only, up to four connected devices including the publisher. Remote shares and all Cloudflare-relayed (SFU) shares end after two hours; a verified PRO LAN-direct share may continue while room authority remains healthy. Live audio has unavoidable latency, so the sharing device should lower its volume.',
+        'Beta: desktop Chromium only, up to 4 devices including the sharing device. Direct sharing on the same network has no time limit; remote or relayed sharing ends automatically after 2 hours. Live audio has unavoidable delay, so lower the sharing device’s volume.',
 
       'cta.h2': 'Start a session.',
       'cta.btn': 'Launch MUSIXQUARE',
@@ -183,7 +183,7 @@
       'standin.platform_label': '플랫폼',
       'standin.platform_value': '컴퓨터의 Chromium 기반 브라우저',
       'standin.caveat':
-        'Beta: 컴퓨터용 Chromium 브라우저에서만 지원하며, 송신 중인 기기를 포함해 최대 4대까지 연결할 수 있어요. 원격 공유와 Cloudflare 경유(SFU) 공유는 2시간 후 종료돼요. 검증된 PRO LAN 직결 공유는 방 권한 연결이 정상인 동안 계속할 수 있어요. 실시간 오디오는 지연이 불가피하므로 송신 중인 기기의 볼륨을 낮춰 주세요.',
+        'Beta: 컴퓨터용 Chromium 브라우저에서만 지원하며, 송신 중인 기기를 포함해 최대 4대까지 연결할 수 있어요. 같은 네트워크의 직결 공유는 시간 제한이 없고, 원격·중계 공유는 2시간 후 자동 종료돼요. 실시간 오디오 공유는 지연이 불가피하므로 송신 중인 기기의 볼륨을 낮춰 주세요.',
 
       'cta.h2': '지금 시작해봐요!',
       'cta.btn': 'MUSIXQUARE 시작하기',
@@ -343,7 +343,7 @@
     'standin.platform_label': 'プラットフォーム',
     'standin.platform_value': 'パソコン上のChromiumベースブラウザ',
     'standin.caveat':
-      'Beta: パソコンのChromiumブラウザのみ。共有元を含め最大4台です。リモート共有とCloudflare経由（SFU）の共有は2時間で終了します。検証済みのPRO LAN直接共有は、ルーム権限との接続が正常な間は継続できます。ライブ音声には遅延があるため、共有元デバイスの音量を下げてください。',
+      'Beta: パソコンのChromiumブラウザのみ。共有元デバイスを含め最大4台です。同じネットワーク内の直接共有には時間制限がなく、リモート共有や中継経由の共有は2時間後に自動終了します。ライブ音声の遅延は避けられないため、共有元デバイスの音量を下げてください。',
     'cta.h2': '今すぐ始めましょう',
     'cta.btn': 'MUSIXQUAREを始める',
     'footer.app': 'アプリ',
@@ -424,7 +424,7 @@
     'standin.platform_label': '平台',
     'standin.platform_value': '电脑上的 Chromium 内核浏览器',
     'standin.caveat':
-      'Beta：仅支持电脑端 Chromium 浏览器，包含发布设备最多四台。远程共享和经 Cloudflare 中继的（SFU）共享会在两小时后结束；经验证的 PRO 局域网直连共享可在房间权限连接正常期间继续。实时音频无法避免延迟，请调低共享设备音量。',
+      'Beta：仅支持电脑端 Chromium 浏览器，最多4台设备（含发起共享的设备）。同一网络内直接共享不限时；远程或经中继共享会在2小时后自动结束。实时音频无法避免延迟，请调低发起共享的设备音量。',
     'cta.h2': '现在就开始',
     'cta.btn': '打开 MUSIXQUARE',
     'footer.app': '应用',
@@ -505,7 +505,7 @@
     'standin.platform_label': '平台',
     'standin.platform_value': '電腦上以 Chromium 為核心的瀏覽器',
     'standin.caveat':
-      'Beta：僅支援電腦版 Chromium 瀏覽器，包含分享裝置最多四台。遠端分享和經 Cloudflare 中繼的（SFU）分享會在兩小時後結束；通過驗證的 PRO 區域網路直連分享可在房間權限連線正常期間繼續。即時音訊無法避免延遲，請調低分享裝置音量。',
+      'Beta：僅支援電腦版 Chromium 瀏覽器，最多4台裝置（含發起分享的裝置）。同一網路內直接分享不限時；遠端或經中繼分享會在2小時後自動結束。即時音訊無法避免延遲，請調低發起分享的裝置音量。',
     'cta.h2': '現在就開始',
     'cta.btn': '啟動 MUSIXQUARE',
     'footer.app': 'App',
@@ -592,7 +592,7 @@
     'standin.platform_label': 'Plataforma',
     'standin.platform_value': 'Navegadores basados en Chromium en ordenadores',
     'standin.caveat':
-      'Beta: solo Chromium en ordenadores, hasta cuatro dispositivos conectados incluido el emisor. Al compartir audio de forma remota o a través de Cloudflare (SFU), la transmisión termina a las dos horas; con una conexión PRO LAN directa verificada puede continuar mientras la autoridad de la sala esté disponible y funcione correctamente. El audio en vivo tiene latencia inevitable; baja el volumen del dispositivo emisor.',
+      'Beta: solo Chromium en ordenadores, hasta 4 dispositivos incluido el emisor. La transmisión directa en la misma red no tiene límite de tiempo; las transmisiones remotas o retransmitidas terminan automáticamente tras 2 horas. El audio en vivo tiene un retraso inevitable; baja el volumen del dispositivo emisor.',
     'cta.h2': 'Abre una sala.',
     'cta.btn': 'Abrir MUSIXQUARE',
     'footer.app': 'App',
@@ -681,7 +681,7 @@
     'standin.platform_label': 'Plataforma',
     'standin.platform_value': 'Navegadores baseados em Chromium em computadores',
     'standin.caveat':
-      'Beta: somente Chromium no computador, até quatro dispositivos conectados incluindo o transmissor. Todo compartilhamento remoto e todo compartilhamento retransmitido pela Cloudflare (SFU) termina após duas horas; um compartilhamento PRO LAN-direct verificado pode continuar enquanto a autoridade da sala estiver disponível e funcionar corretamente. O áudio ao vivo tem latência inevitável; reduza o volume do dispositivo transmissor.',
+      'Beta: somente Chromium em computadores, até 4 dispositivos, incluindo o transmissor. O compartilhamento direto na mesma rede não tem limite de tempo; o remoto ou retransmitido termina automaticamente após 2 horas. O áudio ao vivo tem um atraso inevitável; reduza o volume do dispositivo transmissor.',
     'cta.h2': 'Comece agora',
     'cta.btn': 'Abrir o MUSIXQUARE',
     'footer.app': 'App',
@@ -770,7 +770,7 @@
     'standin.platform_label': 'Plateforme',
     'standin.platform_value': 'Navigateurs pour ordinateur basés sur Chromium',
     'standin.caveat':
-      'Beta : Chromium sur ordinateur uniquement, jusqu’à quatre appareils connectés, émetteur compris. Chaque partage à distance et chaque partage relayé par Cloudflare (SFU) prend fin après deux heures ; un partage PRO LAN-direct vérifié peut continuer tant que l’autorité du salon reste joignable et fonctionne correctement. L’audio en direct a une latence inévitable ; baissez le volume de l’appareil émetteur.',
+      'Beta : Chromium sur ordinateur uniquement, jusqu’à 4 appareils, émetteur compris. Le partage direct sur le même réseau n’a pas de limite de durée ; le partage à distance ou relayé s’arrête automatiquement après 2 heures. L’audio en direct a un décalage inévitable ; baissez le volume de l’appareil émetteur.',
     'cta.h2': 'Créez un salon.',
     'cta.btn': 'Lancer MUSIXQUARE',
     'footer.app': 'Application',
@@ -859,7 +859,7 @@
     'standin.platform_label': 'Plattform',
     'standin.platform_value': 'Chromium-basierte Browser auf Computern',
     'standin.caveat':
-      'Beta: nur Chromium auf Computern, bis zu vier verbundene Geräte einschließlich Sender. Jede Remote-Freigabe und jede über Cloudflare übertragene Freigabe (SFU) endet nach zwei Stunden; eine verifizierte PRO-LAN-Direktfreigabe kann fortgesetzt werden, solange die Raumautorisierung erreichbar bleibt und ordnungsgemäß funktioniert. Live-Audio hat unvermeidbare Latenz; die Lautstärke des sendenden Geräts sollte gesenkt werden.',
+      'Beta: nur Chromium auf Computern, bis zu 4 Geräte einschließlich des sendenden Geräts. Die direkte Übertragung im selben Netzwerk hat kein Zeitlimit; Übertragungen aus der Ferne oder über eine Zwischenstation enden automatisch nach 2 Stunden. Live-Audio hat eine unvermeidbare Verzögerung; senke die Lautstärke des sendenden Geräts.',
     'cta.h2': 'Jetzt starten',
     'cta.btn': 'MUSIXQUARE starten',
     'footer.app': 'App',
@@ -947,7 +947,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Chromium-browsers op computers',
     'standin.caveat':
-      'Beta: alleen Chromium op computers, maximaal vier verbonden apparaten inclusief zender. Het delen van audio op afstand of via Cloudflare (SFU) stopt na twee uur; via een geverifieerde PRO LAN-direct-verbinding kan het delen doorgaan zolang de kamerautoriteit bereikbaar blijft en correct functioneert. Live audio heeft onvermijdelijke vertraging; zet het volume van het delende apparaat lager.',
+      'Beta: alleen Chromium op computers, maximaal 4 apparaten inclusief het delende apparaat. Direct delen binnen hetzelfde netwerk heeft geen tijdslimiet; delen op afstand of via een tussenstation stopt automatisch na 2 uur. Live audio heeft onvermijdelijke vertraging; zet het volume van het delende apparaat lager.',
     'cta.h2': 'Start een sessie',
     'cta.btn': 'MUSIXQUARE openen',
     'footer.app': 'App',
@@ -1034,7 +1034,7 @@
     'standin.platform_label': 'Piattaforma',
     'standin.platform_value': 'Browser basati su Chromium sui computer',
     'standin.caveat':
-      'Beta: solo Chromium su computer, fino a quattro dispositivi connessi incluso chi trasmette. Ogni condivisione remota e ogni condivisione inoltrata da Cloudflare (SFU) termina dopo due ore; una condivisione PRO LAN-direct verificata può continuare finché l’autorità della stanza resta raggiungibile e funziona correttamente. L’audio live ha latenza inevitabile; abbassa il volume del dispositivo che condivide.',
+      'Beta: solo Chromium su computer, fino a 4 dispositivi incluso quello che condivide. La condivisione diretta sulla stessa rete non ha limiti di tempo; quella remota o tramite un intermediario termina automaticamente dopo 2 ore. L’audio in diretta ha un ritardo inevitabile; abbassa il volume del dispositivo che condivide.',
     'cta.h2': 'Inizia ora',
     'cta.btn': 'Avvia MUSIXQUARE',
     'footer.app': 'App',
@@ -1121,7 +1121,7 @@
     'standin.platform_label': 'Platforma',
     'standin.platform_value': 'Przeglądarki oparte na Chromium działające na komputerach',
     'standin.caveat':
-      'Beta: tylko Chromium na komputerze, maksymalnie cztery urządzenia łącznie z nadającym. Każde zdalne udostępnianie i każde udostępnianie przekazywane przez Cloudflare (SFU) kończy się po dwóch godzinach; zweryfikowane udostępnianie PRO LAN-direct może trwać, dopóki autoryzacja pokoju pozostaje dostępna i działa prawidłowo. Dźwięk na żywo ma nieuniknione opóźnienie; zmniejsz głośność urządzenia udostępniającego.',
+      'Beta: tylko Chromium na komputerze, maksymalnie 4 urządzenia, łącznie z urządzeniem udostępniającym. Bezpośrednie udostępnianie w tej samej sieci nie ma limitu czasu; udostępnianie zdalne lub przez pośrednika kończy się automatycznie po 2 godzinach. Dźwięk na żywo ma nieuniknione opóźnienie; zmniejsz głośność urządzenia udostępniającego.',
     'cta.h2': 'Utwórz pokój.',
     'cta.btn': 'Uruchom MUSIXQUARE',
     'footer.app': 'Aplikacja',
@@ -1207,7 +1207,7 @@
     'standin.platform_label': 'Платформа',
     'standin.platform_value': 'Браузеры на базе Chromium на компьютерах',
     'standin.caveat':
-      'Beta: только Chromium на компьютере, до четырёх устройств вместе с источником. Каждая удалённая трансляция и каждая трансляция через Cloudflare (SFU) завершается через два часа; проверенная прямая PRO-трансляция по локальной сети может продолжаться, пока авторизация комнаты доступна и работает исправно. У живого звука неизбежна задержка; уменьшите громкость устройства-источника.',
+      'Beta: только Chromium на компьютере, до 4 устройств, включая устройство-источник. Прямая трансляция в одной сети не ограничена по времени; удалённая трансляция или передача через ретранслятор автоматически завершается через 2 часа. У живого звука неизбежна задержка; уменьшите громкость устройства-источника.',
     'cta.h2': 'Создайте комнату.',
     'cta.btn': 'Запустить MUSIXQUARE',
     'footer.app': 'Приложение',
@@ -1294,7 +1294,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Bilgisayarlardaki Chromium tabanlı tarayıcılar',
     'standin.caveat':
-      'Beta: yalnızca bilgisayarda Chromium, yayıncı dahil en fazla dört cihaz. Uzaktan yapılan her paylaşım ve Cloudflare üzerinden aktarılan her paylaşım (SFU) iki saat sonra sona erer; doğrulanmış bir PRO LAN-direct paylaşımı oda yetkilendirmesi erişilebilir kaldığı ve düzgün çalıştığı sürece devam edebilir. Canlı seste kaçınılmaz gecikme vardır; paylaşan cihazın sesini kısın.',
+      'Beta: yalnızca bilgisayarda Chromium, paylaşan cihaz dahil en fazla 4 cihaz. Aynı ağda doğrudan paylaşımda süre sınırı yoktur; uzaktan veya aracı üzerinden yapılan paylaşım 2 saat sonra otomatik olarak sona erer. Canlı seste gecikme kaçınılmazdır; paylaşan cihazın sesini kısın.',
     'cta.h2': 'Şimdi başla',
     'cta.btn': 'MUSIXQUARE’i aç',
     'footer.app': 'Uygulama',
@@ -1382,7 +1382,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Browser berbasis Chromium di komputer',
     'standin.caveat':
-      'Beta: hanya Chromium di komputer, maksimal empat perangkat termasuk pengirim. Setiap sesi berbagi audio jarak jauh dan setiap sesi berbagi audio melalui relai Cloudflare (SFU) berakhir setelah dua jam; berbagi audio PRO melalui LAN langsung yang terverifikasi dapat berlanjut selama otoritas ruang tetap dapat dijangkau dan berfungsi dengan baik. Audio langsung memiliki latensi yang tak terhindarkan; kecilkan volume perangkat pengirim.',
+      'Beta: hanya Chromium di komputer, maksimal 4 perangkat termasuk perangkat pengirim. Berbagi langsung di jaringan yang sama tidak dibatasi waktu; berbagi jarak jauh atau melalui relai berakhir otomatis setelah 2 jam. Audio langsung memiliki jeda yang tak terhindarkan; kecilkan volume perangkat pengirim.',
     'cta.h2': 'Mulai sesi.',
     'cta.btn': 'Buka MUSIXQUARE',
     'footer.app': 'Aplikasi',
@@ -1468,7 +1468,7 @@
     'standin.platform_label': 'Nền tảng',
     'standin.platform_value': 'Trình duyệt nền Chromium trên máy tính',
     'standin.caveat':
-      'Beta: chỉ Chromium trên máy tính, tối đa bốn thiết bị kể cả thiết bị phát. Mọi phiên chia sẻ từ xa và mọi phiên được chuyển tiếp qua Cloudflare (SFU) đều kết thúc sau hai giờ; phiên PRO LAN-direct đã xác minh có thể tiếp tục khi hệ thống quản lý quyền của phòng vẫn hoạt động bình thường. Âm thanh trực tiếp có độ trễ không tránh khỏi; hãy giảm âm lượng thiết bị phát.',
+      'Beta: chỉ Chromium trên máy tính, tối đa 4 thiết bị kể cả thiết bị phát. Chia sẻ trực tiếp trong cùng mạng không giới hạn thời gian; chia sẻ từ xa hoặc qua trung gian sẽ tự động kết thúc sau 2 giờ. Âm thanh trực tiếp có độ trễ không tránh khỏi; hãy giảm âm lượng thiết bị phát.',
     'cta.h2': 'Mở một phòng.',
     'cta.btn': 'Mở MUSIXQUARE',
     'footer.app': 'Ứng dụng',
@@ -1552,7 +1552,7 @@
     'standin.platform_label': 'แพลตฟอร์ม',
     'standin.platform_value': 'เบราว์เซอร์ Chromium บนคอมพิวเตอร์',
     'standin.caveat':
-      'Beta: ใช้ได้เฉพาะ Chromium บนคอมพิวเตอร์ สูงสุดสี่อุปกรณ์รวมเครื่องที่แชร์ การแชร์ระยะไกล และการแชร์ผ่าน Cloudflare (SFU) จะสิ้นสุดหลังสองชั่วโมง ส่วนการแชร์ PRO แบบ LAN-direct ที่ผ่านการตรวจสอบสามารถทำงานต่อได้ตราบใดที่การเชื่อมต่อกับระบบจัดการสิทธิ์ของห้องยังทำงานปกติ เสียงสดมีความหน่วงที่หลีกเลี่ยงไม่ได้ โปรดลดเสียงของเครื่องที่แชร์',
+      'Beta: ใช้ได้เฉพาะ Chromium บนคอมพิวเตอร์ รองรับสูงสุด 4 อุปกรณ์ รวมเครื่องที่แชร์เสียง การแชร์โดยตรงบนเครือข่ายเดียวกันไม่จำกัดเวลา ส่วนการแชร์ระยะไกลหรือผ่านตัวกลางจะสิ้นสุดอัตโนมัติหลัง 2 ชั่วโมง เสียงสดมีความหน่วงที่หลีกเลี่ยงไม่ได้ จึงควรลดเสียงของเครื่องที่แชร์',
     'cta.h2': 'เริ่มเลย',
     'cta.btn': 'เปิด MUSIXQUARE',
     'footer.app': 'แอป',
@@ -1647,7 +1647,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Pelayar berasaskan Chromium pada komputer',
     'standin.caveat':
-      'Beta: Chromium pada komputer sahaja, sehingga empat peranti bersambung termasuk peranti penghantar. Setiap perkongsian jarak jauh dan setiap perkongsian yang disampaikan melalui Cloudflare (SFU) tamat selepas dua jam; perkongsian PRO LAN-direct yang disahkan boleh diteruskan selagi autoriti bilik kekal dapat dicapai dan berfungsi dengan baik. Audio langsung mempunyai kependaman yang tidak dapat dielakkan, jadi rendahkan kelantangan peranti yang berkongsi.',
+      'Beta: Chromium pada komputer sahaja, sehingga 4 peranti termasuk peranti yang berkongsi audio. Perkongsian terus pada rangkaian yang sama tiada had masa; perkongsian jarak jauh atau melalui perantara tamat secara automatik selepas 2 jam. Kelewatan audio langsung tidak dapat dielakkan, jadi rendahkan kelantangan peranti yang berkongsi audio.',
 
     'cta.h2': 'Mulakan sesi.',
     'cta.btn': 'Lancarkan MUSIXQUARE',
@@ -1744,7 +1744,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Mga Chromium-based browser sa computer',
     'standin.caveat':
-      'Beta: Chromium sa computer lang, hanggang apat na nakakonektang device kasama ang nagpapadala. Natatapos pagkalipas ng dalawang oras ang bawat malayuang pagbabahagi at bawat pagbabahaging ni-relay sa Cloudflare (SFU); maaaring magpatuloy ang na-verify na PRO LAN-direct share habang maayos ang koneksyon sa awtoridad ng room. Hindi maiiwasan ang latency sa live audio, kaya hinaan ang volume ng device na nagbabahagi.',
+      'Beta: Chromium sa computer lang, hanggang 4 na device kasama ang device na nagbabahagi. Walang limitasyon sa oras ang direktang pagbabahagi sa iisang network; awtomatikong natatapos pagkalipas ng 2 oras ang malayuang pagbabahagi o pagbabahaging dumaraan sa tagapamagitan. Hindi maiiwasan ang pagkaantala ng live audio, kaya hinaan ang volume ng device na nagbabahagi.',
 
     'cta.h2': 'Magsimula ng session.',
     'cta.btn': 'Buksan ang MUSIXQUARE',
@@ -1840,7 +1840,7 @@
     'standin.platform_label': 'Платформа',
     'standin.platform_value': 'Браузери на основі Chromium для комп’ютерів',
     'standin.caveat':
-      'Beta: лише Chromium на комп’ютерах, щонайбільше чотири підключені пристрої разом із передавачем. Кожна віддалена трансляція і кожна трансляція через ретранслятор Cloudflare (SFU) завершується через дві години; перевірена трансляція PRO LAN-direct може тривати, доки повноваження кімнати залишаються доступними та справними. Живий звук має неминучу затримку, тому на пристрої, який транслює звук, варто зменшити гучність.',
+      'Beta: лише Chromium на комп’ютерах, до 4 пристроїв разом із пристроєм, що передає звук. Пряма трансляція в одній мережі не має обмеження часу; віддалена трансляція або трансляція через ретранслятор автоматично завершується через 2 години. Живий звук має неминучу затримку, тож зменште гучність пристрою, що передає звук.',
 
     'cta.h2': 'Почніть сеанс.',
     'cta.btn': 'Запустити MUSIXQUARE',
@@ -1937,7 +1937,7 @@
     'standin.platform_label': 'Platformă',
     'standin.platform_value': 'Browsere bazate pe Chromium pe computere',
     'standin.caveat':
-      'Beta: numai Chromium pe computere, maximum patru dispozitive conectate, inclusiv dispozitivul care transmite. Fiecare partajare la distanță și fiecare partajare retransmisă prin Cloudflare (SFU) se încheie după două ore; o partajare PRO LAN-direct verificată poate continua cât timp autoritatea camerei rămâne accesibilă și funcțională. Sunetul live are o latență inevitabilă, așadar volumul dispozitivului care partajează trebuie redus.',
+      'Beta: numai Chromium pe computere, maximum 4 dispozitive, inclusiv dispozitivul care transmite. Partajarea directă în aceeași rețea nu are limită de timp; partajarea la distanță sau printr-un server intermediar se încheie automat după 2 ore. Sunetul live are o întârziere inevitabilă, așa că reduceți volumul dispozitivului care transmite.',
 
     'cta.h2': 'Pornește o sesiune.',
     'cta.btn': 'Deschide MUSIXQUARE',
@@ -2034,7 +2034,7 @@
     'standin.platform_label': 'Platforma',
     'standin.platform_value': 'Prohlížeče založené na platformě Chromium v počítačích',
     'standin.caveat':
-      'Beta: pouze Chromium na počítačích, nejvýše čtyři připojená zařízení včetně vysílajícího zařízení. Každé vzdálené sdílení a každé sdílení přenášené přes Cloudflare (SFU) skončí po dvou hodinách; ověřené sdílení PRO LAN-direct může pokračovat, dokud zůstává spojení pro ověření oprávnění místnosti dostupné a funkční. Živý zvuk má nevyhnutelnou latenci, proto je vhodné snížit hlasitost sdílejícího zařízení.',
+      'Beta: pouze Chromium na počítačích, nejvýše 4 zařízení včetně vysílajícího zařízení. Přímé sdílení ve stejné síti nemá časový limit; vzdálené nebo zprostředkované sdílení se automaticky ukončí po 2 hodinách. Živý zvuk má nevyhnutelné zpoždění, proto snižte hlasitost vysílajícího zařízení.',
 
     'cta.h2': 'Spusťte relaci.',
     'cta.btn': 'Spustit MUSIXQUARE',
@@ -2132,7 +2132,7 @@
     'standin.platform_label': 'Πλατφόρμα',
     'standin.platform_value': 'Φυλλομετρητές βασισμένοι στο Chromium σε υπολογιστές',
     'standin.caveat':
-      'Beta: μόνο Chromium σε υπολογιστές, έως τέσσερις συνδεδεμένες συσκευές μαζί με τη συσκευή μετάδοσης. Κάθε απομακρυσμένη κοινοποίηση και κάθε κοινοποίηση που αναμεταδίδεται μέσω Cloudflare (SFU) λήγει μετά από δύο ώρες· μια επαληθευμένη κοινοποίηση PRO LAN-direct μπορεί να συνεχιστεί όσο η εξουσιοδότηση του δωματίου παραμένει προσβάσιμη και λειτουργική. Ο ζωντανός ήχος έχει αναπόφευκτη καθυστέρηση, επομένως πρέπει να μειώνεται η ένταση της συσκευής που κοινοποιεί.',
+      'Beta: μόνο Chromium σε υπολογιστές, έως 4 συσκευές μαζί με τη συσκευή μετάδοσης. Η απευθείας μετάδοση στο ίδιο δίκτυο δεν έχει χρονικό όριο· η απομακρυσμένη ή αναμεταδιδόμενη μετάδοση σταματά αυτόματα μετά από 2 ώρες. Ο ζωντανός ήχος έχει αναπόφευκτη καθυστέρηση, οπότε χαμηλώστε την ένταση στη συσκευή μετάδοσης.',
 
     'cta.h2': 'Ξεκινήστε μια συνεδρία.',
     'cta.btn': 'Εκκίνηση MUSIXQUARE',
@@ -2225,7 +2225,7 @@
     'standin.platform_label': 'المنصة',
     'standin.platform_value': 'متصفحات مبنية على Chromium في أجهزة الكمبيوتر',
     'standin.caveat':
-      'Beta: متاح فقط على Chromium في أجهزة الكمبيوتر، وبحد أقصى أربعة أجهزة متصلة، بما فيها الجهاز الناشر. تنتهي كل مشاركة عن بُعد وكل مشاركة مُرحّلة عبر Cloudflare (SFU) بعد ساعتين؛ ويمكن لمشاركة PRO موثّقة عبر LAN-direct أن تستمر ما دام نظام التحكم في الغرفة يعمل بصورة سليمة. لا يمكن تجنب زمن التأخير في الصوت المباشر، لذا ينبغي خفض مستوى صوت الجهاز الذي يشارك الصوت.',
+      'Beta: Chromium على الكمبيوتر فقط، حتى 4 أجهزة بما فيها الجهاز الذي يشارك الصوت. المشاركة المباشرة على الشبكة نفسها بلا حد زمني؛ أما المشاركة عن بُعد أو عبر وسيط فتنتهي تلقائيًا بعد ساعتين. لا يمكن تجنّب التأخير في الصوت المباشر، لذا اخفض مستوى صوت الجهاز الذي يشارك الصوت.',
 
     'cta.h2': 'ابدأ جلسة.',
     'cta.btn': 'تشغيل MUSIXQUARE',
@@ -2317,7 +2317,7 @@
     'standin.platform_label': 'پلتفرم',
     'standin.platform_value': 'مرورگرهای مبتنی بر Chromium در کامپیوتر',
     'standin.caveat':
-      'Beta: فقط Chromium روی کامپیوتر، با حداکثر چهار دستگاه متصل شامل دستگاه فرستنده. هر اشتراک‌گذاری از راه دور و هر اشتراک‌گذاری انتقال‌یافته از Cloudflare (SFU) پس از دو ساعت پایان می‌یابد؛ اشتراک‌گذاری تأییدشدهٔ PRO از مسیر LAN-direct می‌تواند تا زمانی که سامانهٔ کنترل اتاق به‌درستی کار می‌کند ادامه یابد. صدای زنده به‌ناچار تأخیر دارد، بنابراین دستگاه فرستنده باید صدای خود را کم کند.',
+      'Beta: فقط Chromium روی رایانه، حداکثر 4 دستگاه با احتساب دستگاه فرستنده. اشتراک‌گذاری مستقیم در یک شبکهٔ مشترک محدودیت زمانی ندارد؛ اشتراک‌گذاری از راه دور یا از طریق واسطه پس از 2 ساعت خودکار پایان می‌یابد. تأخیر صدای زنده اجتناب‌ناپذیر است، پس صدای دستگاه فرستنده را کم کنید.',
 
     'cta.h2': 'یک جلسه آغاز کنید.',
     'cta.btn': 'اجرای MUSIXQUARE',
@@ -2411,7 +2411,7 @@
     'standin.platform_label': 'پلیٹ فارم',
     'standin.platform_value': 'کمپیوٹرز پر Chromium پر مبنی براؤزرز',
     'standin.caveat':
-      'Beta: صرف کمپیوٹر پر Chromium، اور نشر کرنے والی ڈیوائس سمیت زیادہ سے زیادہ چار منسلک ڈیوائسز۔ ہر ریموٹ شیئرنگ اور Cloudflare کے ذریعے ریلے ہونے والی (SFU) ہر شیئرنگ دو گھنٹے بعد ختم ہو جاتی ہے؛ تصدیق شدہ PRO LAN-direct شیئرنگ اس وقت تک جاری رہ سکتی ہے جب تک روم کا کنٹرول نظام درست طور پر کام کرتا رہے۔ لائیو آڈیو میں تاخیر ناگزیر ہے، اس لیے شیئر کرنے والی ڈیوائس کا والیوم کم رکھیں۔',
+      'Beta: صرف کمپیوٹر پر Chromium، آواز شیئر کرنے والی ڈیوائس سمیت زیادہ سے زیادہ 4 ڈیوائسز۔ ایک ہی نیٹ ورک پر براہ راست شیئرنگ کے لیے وقت کی کوئی حد نہیں؛ دور سے یا کسی واسطے سے ہونے والی شیئرنگ 2 گھنٹے بعد خود بخود ختم ہو جاتی ہے۔ لائیو آڈیو میں تاخیر ناگزیر ہے، اس لیے آواز شیئر کرنے والی ڈیوائس کا والیوم کم کریں۔',
 
     'cta.h2': 'ایک سیشن شروع کریں۔',
     'cta.btn': 'MUSIXQUARE چلائیں',
@@ -2502,7 +2502,7 @@
     'standin.platform_label': 'פלטפורמה',
     'standin.platform_value': 'דפדפנים מבוססי Chromium במחשבים',
     'standin.caveat':
-      'Beta: זמין רק ב-Chromium במחשבים, לעד ארבעה מכשירים מחוברים כולל המכשיר המשדר. כל שיתוף מרחוק וכל שיתוף שמועבר דרך Cloudflare (SFU) מסתיימים לאחר שעתיים; שיתוף PRO מאומת דרך LAN-direct יכול להימשך כל עוד מנגנון השליטה בחדר פועל באופן תקין. באודיו חי יש השהיה בלתי נמנעת, ולכן יש להנמיך את עוצמת הקול במכשיר המשתף.',
+      'Beta: רק Chromium במחשב, עד 4 מכשירים כולל המכשיר שמשתף. לשיתוף ישיר באותה רשת אין הגבלת זמן; שיתוף מרחוק או דרך שרת מתווך מסתיים אוטומטית אחרי שעתיים. בשמע חי יש עיכוב בלתי נמנע, לכן הנמיכו את עוצמת הקול במכשיר שמשתף.',
 
     'cta.h2': 'פותחים חדר.',
     'cta.btn': 'פתיחת MUSIXQUARE',
@@ -2598,7 +2598,7 @@
     'standin.platform_label': 'Plattform',
     'standin.platform_value': 'Chromium-baserade webbläsare på datorer',
     'standin.caveat':
-      'Beta: endast Chromium på datorer, med högst fyra anslutna enheter inklusive den sändande enheten. Varje fjärrdelning och varje delning som förmedlas via Cloudflare (SFU) avslutas efter två timmar; en verifierad PRO-delning via LAN-direct kan fortsätta så länge rummets styrfunktion fungerar som den ska. Direktsänt ljud har oundviklig fördröjning, så den delande enheten bör sänka volymen.',
+      'Beta: endast Chromium på datorer, högst 4 enheter inklusive den sändande enheten. Direkt delning i samma nätverk har ingen tidsgräns; fjärrdelning eller delning via en mellanserver avslutas automatiskt efter 2 timmar. Direktsänt ljud har oundviklig fördröjning, så sänk volymen på den sändande enheten.',
 
     'cta.h2': 'Starta en session.',
     'cta.btn': 'Starta MUSIXQUARE',
@@ -2691,7 +2691,7 @@
     'standin.platform_label': 'प्लेटफ़ॉर्म',
     'standin.platform_value': 'कंप्यूटर पर Chromium आधारित ब्राउज़र',
     'standin.caveat':
-      'Beta: केवल कंप्यूटर के Chromium ब्राउज़र पर; भेजने वाले डिवाइस समेत अधिकतम 4 कनेक्टेड डिवाइस। हर रिमोट शेयर और Cloudflare के ज़रिए रिले किया गया हर शेयर (SFU) 2 घंटे बाद समाप्त हो जाता है। सत्यापित PRO LAN-direct शेयर तब तक जारी रह सकता है, जब तक रूम की अनुमति से कनेक्शन उपलब्ध और सही रूप से काम कर रहा हो। लाइव ऑडियो में देरी होना अनिवार्य है, इसलिए साझा करने वाले डिवाइस का वॉल्यूम कम रखें।',
+      'Beta: केवल कंप्यूटर पर Chromium के लिए, आवाज़ साझा करने वाले डिवाइस सहित अधिकतम 4 डिवाइस। एक ही नेटवर्क पर सीधे साझा करने की कोई समय सीमा नहीं है; दूर से या किसी मध्यस्थ के ज़रिए साझा करना 2 घंटे बाद अपने आप बंद हो जाता है। लाइव ऑडियो में देरी से बचा नहीं जा सकता, इसलिए आवाज़ साझा करने वाले डिवाइस का वॉल्यूम कम करें।',
 
     'cta.h2': 'सेशन शुरू करें।',
     'cta.btn': 'MUSIXQUARE खोलें',
@@ -2784,7 +2784,7 @@
     'standin.platform_label': 'প্ল্যাটফর্ম',
     'standin.platform_value': 'কম্পিউটারে Chromium-ভিত্তিক ব্রাউজার',
     'standin.caveat':
-      'Beta: শুধু কম্পিউটারের Chromium ব্রাউজারে; যে ডিভাইস থেকে পাঠানো হচ্ছে সেটিসহ সর্বোচ্চ 4টি সংযুক্ত ডিভাইস। প্রতিটি রিমোট শেয়ার এবং Cloudflare-এর মাধ্যমে রিলে করা প্রতিটি শেয়ার (SFU) 2 ঘণ্টা পর শেষ হয়। যাচাই করা PRO LAN-direct শেয়ার রুমের অনুমোদন সংযোগ সচল ও ঠিকভাবে কার্যকর থাকা পর্যন্ত চলতে পারে। লাইভ অডিওতে বিলম্ব অনিবার্য, তাই যে ডিভাইস থেকে শেয়ার করা হচ্ছে তার ভলিউম কমিয়ে রাখুন।',
+      'Beta: শুধু কম্পিউটারে Chromium-এর জন্য, অডিও শেয়ার করা ডিভাইসসহ সর্বোচ্চ 4টি ডিভাইস। একই নেটওয়ার্কে সরাসরি শেয়ারিংয়ের কোনো সময়সীমা নেই; দূরবর্তী বা মধ্যস্থ সার্ভারের মাধ্যমে শেয়ারিং 2 ঘণ্টা পর স্বয়ংক্রিয়ভাবে বন্ধ হয়। লাইভ অডিওতে দেরি এড়ানো যায় না, তাই অডিও শেয়ার করা ডিভাইসের ভলিউম কমিয়ে রাখুন।',
 
     'cta.h2': 'একটি সেশন শুরু করুন।',
     'cta.btn': 'MUSIXQUARE চালু করুন',
@@ -2882,7 +2882,7 @@
     'standin.platform_label': 'தளம்',
     'standin.platform_value': 'கணினிகளில் Chromium சார்ந்த உலாவிகள்',
     'standin.caveat':
-      'Beta: கணினியின் Chromium உலாவியில் மட்டுமே; அனுப்பும் சாதனம் உட்பட அதிகபட்சம் 4 இணைக்கப்பட்ட சாதனங்கள். ஒவ்வொரு தொலைநிலைப் பகிர்வும் Cloudflare வழியாக ரிலே செய்யப்படும் ஒவ்வொரு பகிர்வும் (SFU) 2 மணி நேரத்திற்குப் பிறகு முடியும். சரிபார்க்கப்பட்ட PRO LAN-direct பகிர்வு, அறை அதிகார இணைப்பு கிடைக்கக்கூடியதாகவும் ஆரோக்கியமாகவும் இருக்கும் வரை தொடரலாம். நேரலை ஆடியோவில் தாமதத்தைத் தவிர்க்க முடியாது; எனவே பகிரும் சாதனத்தின் ஒலியளவைக் குறைக்கவும்.',
+      'Beta: கணினியில் Chromium மட்டும்; ஒலியைப் பகிரும் சாதனம் உட்பட அதிகபட்சம் 4 சாதனங்கள். ஒரே நெட்வொர்க்கில் நேரடியாகப் பகிர்வதற்கு நேர வரம்பு இல்லை; தொலைவிலிருந்து அல்லது இடைநிலைச் சேவையகம் வழியாகப் பகிர்வது 2 மணிநேரத்திற்குப் பிறகு தானாக முடியும். நேரலை ஒலியில் தாமதத்தைத் தவிர்க்க முடியாது, எனவே ஒலியைப் பகிரும் சாதனத்தின் ஒலியளவைக் குறைக்கவும்.',
 
     'cta.h2': 'ஆரம்பி.',
     'cta.btn': 'MUSIXQUARE-ஐத் தொடங்கு',
@@ -2977,7 +2977,7 @@
     'standin.platform_label': 'ప్లాట్‌ఫారమ్',
     'standin.platform_value': 'కంప్యూటర్లలో Chromium ఆధారిత బ్రౌజర్‌లు',
     'standin.caveat':
-      'Beta: కంప్యూటర్‌లోని Chromium బ్రౌజర్‌లో మాత్రమే; పంపే పరికరంతో కలిపి గరిష్ఠంగా 4 కనెక్ట్ అయిన పరికరాలు. ప్రతి రిమోట్ షేర్, Cloudflare ద్వారా రిలే చేసిన ప్రతి షేర్ (SFU) 2 గంటల తర్వాత ముగుస్తుంది. ధృవీకరించిన PRO LAN-direct షేర్, గది అధికారం కనెక్షన్ అందుబాటులో ఉండి సక్రమంగా పనిచేసేంత వరకు కొనసాగవచ్చు. లైవ్ ఆడియోలో ఆలస్యం తప్పనిసరి, కాబట్టి షేర్ చేస్తున్న పరికరం వాల్యూమ్‌ను తగ్గించండి.',
+      'Beta: కంప్యూటర్‌లో Chromium మాత్రమే, ఆడియో పంచుకునే పరికరంతో సహా గరిష్ఠంగా 4 పరికరాలు. ఒకే నెట్‌వర్క్‌లో నేరుగా పంచుకోవడానికి సమయ పరిమితి లేదు; దూరం నుంచి లేదా మధ్యవర్తి ద్వారా పంచుకోవడం 2 గంటల తర్వాత స్వయంచాలకంగా ముగుస్తుంది. లైవ్ ఆడియోలో ఆలస్యం తప్పదు, కాబట్టి ఆడియో పంచుకునే పరికరం వాల్యూమ్ తగ్గించండి.',
 
     'cta.h2': 'ప్రారంభిద్దాం.',
     'cta.btn': 'MUSIXQUAREను ప్రారంభించు',
@@ -3074,7 +3074,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Chromium-alapú böngészők számítógépen',
     'standin.caveat':
-      'Beta: csak számítógépen futó Chromium-alapú böngészőkben, és a közvetítővel együtt legfeljebb négy csatlakoztatott eszközt támogat. Minden távoli megosztás és minden Cloudflare által közvetített (SFU) megosztás két óra után véget ér; az ellenőrzött PRO LAN-direct megosztás addig folytatódhat, amíg a szoba jogosultság-ellenőrzése megfelelően működik. Az élő hang szükségszerűen késik, ezért a közvetítő eszköz hangerejét csökkenteni kell.',
+      'Beta: csak számítógépen futó Chromium böngészőben, legfeljebb 4 eszközzel, a hangot megosztó eszközt is beleértve. Az azonos hálózaton történő közvetlen megosztásnak nincs időkorlátja; a távoli vagy közvetített megosztás 2 óra után automatikusan véget ér. Az élő hang elkerülhetetlenül késik, ezért csökkentse a hangot megosztó eszköz hangerejét.',
 
     'cta.h2': 'Hozz létre egy szobát.',
     'cta.btn': 'A MUSIXQUARE indítása',
@@ -3171,7 +3171,7 @@
     'standin.platform_label': 'Платформа',
     'standin.platform_value': 'Браузъри, базирани на Chromium, на компютър',
     'standin.caveat':
-      'Beta: само в браузъри, базирани на Chromium, на компютър и с поддръжка на до четири свързани устройства, включително изпращащото. Всяко отдалечено споделяне и всяко споделяне, препредавано през Cloudflare (SFU), приключва след два часа; потвърдено PRO LAN-direct споделяне може да продължи, докато проверката на правата за стаята работи нормално. Звукът на живо неизбежно има закъснение, затова силата на звука на изпращащото устройство трябва да бъде намалена.',
+      'Beta: само Chromium на компютър, до 4 устройства, включително споделящото устройство. Директното споделяне в една и съща мрежа няма времево ограничение; отдалеченото или препредаваното споделяне приключва автоматично след 2 часа. Звукът на живо неизбежно има закъснение, затова намалете силата на звука на споделящото устройство.',
 
     'cta.h2': 'Стартирай сесия.',
     'cta.btn': 'Стартиране на MUSIXQUARE',
@@ -3266,7 +3266,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Chromium-baserede browsere på computere',
     'standin.caveat':
-      'Beta: kun Chromium på computere og højst fire tilsluttede enheder inklusive den publicerende enhed. Al fjerndeling og al deling, der videresendes via Cloudflare (SFU), afsluttes efter to timer; en verificeret PRO LAN-direct-deling kan fortsætte, så længe rummets styringsfunktion fungerer korrekt. Live-lyd har uundgåelig forsinkelse, så den delende enhed bør skrue ned for lydstyrken.',
+      'Beta: kun Chromium på computere, højst 4 enheder inklusive den enhed, der deler. Direkte deling på samme netværk har ingen tidsgrænse; fjerndeling eller deling via en mellemserver afsluttes automatisk efter 2 timer. Live-lyd har uundgåelig forsinkelse, så skru ned for lydstyrken på den enhed, der deler.',
 
     'cta.h2': 'Start en session.',
     'cta.btn': 'Start MUSIXQUARE',
@@ -3362,7 +3362,7 @@
     'standin.platform_label': 'Plattform',
     'standin.platform_value': 'Chromium-baserte nettlesere på datamaskiner',
     'standin.caveat':
-      'Beta: bare Chromium på datamaskiner, med opptil fire tilkoblede enheter inkludert den publiserende enheten. All fjerndeling og all deling som videresendes via Cloudflare (SFU), avsluttes etter to timer; en verifisert PRO LAN-direct-deling kan fortsette så lenge rommets styringsfunksjon fungerer som den skal. Live-lyd har uunngåelig forsinkelse, så enheten som deler, bør senke volumet.',
+      'Beta: bare Chromium på datamaskiner, opptil 4 enheter inkludert enheten som deler. Direkte deling på samme nettverk har ingen tidsgrense; fjerndeling eller deling via en mellomserver avsluttes automatisk etter 2 timer. Live-lyd har uunngåelig forsinkelse, så senk volumet på enheten som deler.',
 
     'cta.h2': 'Start en økt.',
     'cta.btn': 'Start MUSIXQUARE',
@@ -3458,7 +3458,7 @@
     'standin.platform_label': 'Alusta',
     'standin.platform_value': 'Tietokoneiden Chromium-pohjaiset selaimet',
     'standin.caveat':
-      'Beta: vain tietokoneiden Chromium-selaimissa, enintään neljä yhdistettyä laitetta, lähettävä laite mukaan lukien. Jokainen etäjako ja jokainen Cloudflaren välittämä jako (SFU) päättyy kahden tunnin kuluttua; vahvistettu PRO LAN-direct -jako voi jatkua niin kauan kuin huoneen hallintatoiminto toimii normaalisti. Reaaliaikaiseen äänentoistoon liittyy väistämätöntä viivettä, joten jakavan laitteen äänenvoimakkuutta kannattaa pienentää.',
+      'Beta: vain tietokoneen Chromium-selaimessa, enintään 4 laitetta lähettävä laite mukaan lukien. Suoralla jaolla samassa verkossa ei ole aikarajaa; etäjako tai välitetty jako päättyy automaattisesti 2 tunnin kuluttua. Reaaliaikaisessa äänessä on väistämätöntä viivettä, joten pienennä lähettävän laitteen äänenvoimakkuutta.',
 
     'cta.h2': 'Aloita istunto.',
     'cta.btn': 'Käynnistä MUSIXQUARE',
@@ -3552,7 +3552,7 @@
     'standin.platform_label': 'प्लॅटफॉर्म',
     'standin.platform_value': 'कंप्युटरवरील Chromium-आधारित ब्राउझर',
     'standin.caveat':
-      'Beta: केवळ कंप्युटरवरील Chromium; ऑडिओ पाठवणाऱ्या डिव्हाइससह जास्तीत जास्त चार जोडलेली डिव्हाइस. प्रत्येक रिमोट शेअर आणि Cloudflare मार्फत रिले होणारा (SFU) प्रत्येक शेअर दोन तासांनंतर बंद होतो; पडताळलेला PRO LAN-direct शेअर मात्र रूमची नियंत्रण व्यवस्था सुरळीत असेपर्यंत सुरू राहू शकतो. लाइव्ह ऑडिओमध्ये काही विलंब टाळता येत नाही, त्यामुळे ऑडिओ शेअर करणाऱ्या डिव्हाइसचा आवाज कमी ठेवावा.',
+      'Beta: संगणकावरील Chromium साठीच, ऑडिओ शेअर करणाऱ्या डिव्हाइससह जास्तीत जास्त 4 डिव्हाइस. एकाच नेटवर्कवर थेट शेअरिंगला वेळेची मर्यादा नाही; दूरस्थ किंवा मध्यस्थामार्फत केलेले शेअरिंग 2 तासांनंतर आपोआप बंद होते. लाइव्ह ऑडिओमध्ये विलंब टाळता येत नाही, म्हणून ऑडिओ शेअर करणाऱ्या डिव्हाइसचा आवाज कमी करा.',
 
     'cta.h2': 'सेशन सुरू करा.',
     'cta.btn': 'MUSIXQUARE सुरू करा',
@@ -3646,7 +3646,7 @@
     'standin.platform_label': 'પ્લૅટફોર્મ',
     'standin.platform_value': 'કમ્પ્યુટર પર Chromium-આધારિત બ્રાઉઝર',
     'standin.caveat':
-      'Beta: ફક્ત કમ્પ્યુટર પર Chromium; ઑડિયો મોકલતા ડિવાઇસ સહિત વધુમાં વધુ ચાર જોડાયેલા ડિવાઇસ. દરેક રિમોટ શેર અને Cloudflare મારફતે રિલે થતું (SFU) દરેક શેર બે કલાક પછી બંધ થાય છે; ચકાસાયેલું PRO LAN-direct શેર રૂમની નિયંત્રણ વ્યવસ્થા યોગ્ય રીતે કાર્ય કરતી હોય ત્યાં સુધી ચાલુ રહી શકે છે. લાઇવ ઑડિયોમાં થોડો વિલંબ અનિવાર્ય છે, તેથી ઑડિયો શેર કરતા ડિવાઇસનું વૉલ્યુમ ઓછું રાખવું જોઈએ.',
+      'Beta: માત્ર કમ્પ્યુટર પર Chromium માટે, ઑડિયો શેર કરનાર ઉપકરણ સહિત વધુમાં વધુ 4 ઉપકરણો. એક જ નેટવર્ક પર સીધા શેરિંગ માટે સમય મર્યાદા નથી; દૂરથી અથવા મધ્યસ્થી મારફતે થતું શેરિંગ 2 કલાક પછી આપમેળે બંધ થાય છે. લાઇવ ઑડિયોમાં વિલંબ ટાળી શકાતો નથી, તેથી ઑડિયો શેર કરનાર ઉપકરણનો અવાજ ઓછો કરો.',
 
     'cta.h2': 'સત્ર શરૂ કરો.',
     'cta.btn': 'MUSIXQUARE શરૂ કરો',
@@ -3741,7 +3741,7 @@
     'standin.platform_label': 'ಪ್ಲಾಟ್‌ಫಾರ್ಮ್',
     'standin.platform_value': 'ಕಂಪ್ಯೂಟರ್‌ಗಳಲ್ಲಿನ Chromium-ಆಧಾರಿತ ಬ್ರೌಸರ್‌ಗಳು',
     'standin.caveat':
-      'Beta: ಕಂಪ್ಯೂಟರ್‌ನಲ್ಲಿ Chromium ಮಾತ್ರ; ಆಡಿಯೊ ಕಳುಹಿಸುವ ಸಾಧನ ಸೇರಿದಂತೆ ಗರಿಷ್ಠ ನಾಲ್ಕು ಸಂಪರ್ಕಿತ ಸಾಧನಗಳು. ಪ್ರತಿಯೊಂದು ರಿಮೋಟ್ ಹಂಚಿಕೆ ಮತ್ತು Cloudflare ಮೂಲಕ ರಿಲೇ ಆಗುವ (SFU) ಪ್ರತಿಯೊಂದು ಹಂಚಿಕೆ ಎರಡು ಗಂಟೆಗಳ ನಂತರ ಕೊನೆಗೊಳ್ಳುತ್ತದೆ; ಪರಿಶೀಲಿಸಿದ PRO LAN-direct ಹಂಚಿಕೆ ರೂಮ್‌ನ ನಿಯಂತ್ರಣ ವ್ಯವಸ್ಥೆ ಸರಿಯಾಗಿ ಕಾರ್ಯನಿರ್ವಹಿಸುವವರೆಗೆ ಮುಂದುವರಿಯಬಹುದು. ಲೈವ್ ಆಡಿಯೊದಲ್ಲಿ ತಪ್ಪಿಸಲಾಗದ ವಿಳಂಬ ಇರುತ್ತದೆ, ಆದ್ದರಿಂದ ಹಂಚುವ ಸಾಧನವು ತನ್ನ ಧ್ವನಿಮಟ್ಟವನ್ನು ಕಡಿಮೆ ಮಾಡಬೇಕು.',
+      'Beta: ಕಂಪ್ಯೂಟರ್‌ನಲ್ಲಿ Chromium ಮಾತ್ರ; ಹಂಚುವ ಸಾಧನ ಸೇರಿದಂತೆ ಗರಿಷ್ಠ 4 ಸಾಧನಗಳು. ಒಂದೇ ನೆಟ್‌ವರ್ಕ್‌ನಲ್ಲಿ ನೇರ ಹಂಚಿಕೆಗೆ ಸಮಯದ ಮಿತಿ ಇಲ್ಲ; ರಿಮೋಟ್ ಅಥವಾ ರಿಲೇ ಮೂಲಕದ ಹಂಚಿಕೆ 2 ಗಂಟೆಗಳ ನಂತರ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಕೊನೆಗೊಳ್ಳುತ್ತದೆ. ಲೈವ್ ಆಡಿಯೊದಲ್ಲಿ ವಿಳಂಬ ಅನಿವಾರ್ಯ, ಆದ್ದರಿಂದ ಹಂಚುವ ಸಾಧನದ ಧ್ವನಿಮಟ್ಟವನ್ನು ಕಡಿಮೆ ಮಾಡಿ.',
 
     'cta.h2': 'ಸೆಷನ್ ಆರಂಭಿಸಿ.',
     'cta.btn': 'MUSIXQUARE ಆರಂಭಿಸಿ',
@@ -3838,7 +3838,7 @@
     'standin.platform_label': 'പ്ലാറ്റ്‌ഫോം',
     'standin.platform_value': 'കമ്പ്യൂട്ടറുകളിലെ Chromium അടിസ്ഥാനമാക്കിയുള്ള ബ്രൗസറുകൾ',
     'standin.caveat':
-      'Beta: കമ്പ്യൂട്ടറിലെ Chromium ബ്രൗസറിൽ മാത്രം; ഓഡിയോ അയയ്ക്കുന്ന ഡിവൈസ് ഉൾപ്പെടെ പരമാവധി 4 ബന്ധിപ്പിച്ച ഡിവൈസുകൾ. ഓരോ റിമോട്ട് പങ്കിടലും Cloudflare വഴി റിലേ ചെയ്യുന്ന ഓരോ പങ്കിടലും (SFU) 2 മണിക്കൂറിന് ശേഷം അവസാനിക്കും; പരിശോധിച്ചുറപ്പിച്ച PRO LAN-direct പങ്കിടൽ, റൂം നിയന്ത്രണ ബന്ധം സാധുവായും പ്രവർത്തനക്ഷമമായും തുടരുന്നിടത്തോളം മാത്രം തുടരാം. തത്സമയ ഓഡിയോയിൽ ഒഴിവാക്കാനാകാത്ത കാലതാമസമുണ്ട്; അതിനാൽ പങ്കിടുന്ന ഡിവൈസിന്റെ ശബ്ദനില കുറയ്ക്കണം.',
+      'Beta: കമ്പ്യൂട്ടറിലെ Chromium-ൽ മാത്രം; പങ്കിടുന്ന ഡിവൈസ് ഉൾപ്പെടെ പരമാവധി 4 ഡിവൈസുകൾ. ഒരേ നെറ്റ്‌വർക്കിലെ നേരിട്ടുള്ള പങ്കിടലിന് സമയപരിധിയില്ല; റിമോട്ട് പങ്കിടലോ റിലേ വഴിയുള്ള പങ്കിടലോ 2 മണിക്കൂറിന് ശേഷം സ്വയമേവ അവസാനിക്കും. തത്സമയ ഓഡിയോയിൽ കാലതാമസം ഒഴിവാക്കാനാവില്ല, അതിനാൽ പങ്കിടുന്ന ഡിവൈസിന്റെ ശബ്ദനില കുറയ്ക്കുക.',
 
     'cta.h2': 'തുടങ്ങാം.',
     'cta.btn': 'MUSIXQUARE തുറക്കുക',
@@ -3925,7 +3925,7 @@
     'standin.platform_label': 'ਪਲੇਟਫਾਰਮ',
     'standin.platform_value': 'ਕੰਪਿਊਟਰਾਂ ਉੱਤੇ Chromium-ਆਧਾਰਿਤ ਬ੍ਰਾਊਜ਼ਰ',
     'standin.caveat':
-      'Beta: ਸਿਰਫ਼ ਕੰਪਿਊਟਰ ਉੱਤੇ Chromium, ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 4 ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ। ਹਰ ਰਿਮੋਟ ਸਾਂਝਾ ਸੈਸ਼ਨ ਅਤੇ Cloudflare ਰਾਹੀਂ ਰੀਲੇ ਕੀਤਾ ਹਰ (SFU) ਸਾਂਝਾ ਸੈਸ਼ਨ 2 ਘੰਟਿਆਂ ਬਾਅਦ ਖ਼ਤਮ ਹੋ ਜਾਂਦਾ ਹੈ; ਤਸਦੀਕਸ਼ੁਦਾ PRO LAN-direct ਸਾਂਝਾ ਸੈਸ਼ਨ ਉਦੋਂ ਤੱਕ ਜਾਰੀ ਰਹਿ ਸਕਦਾ ਹੈ ਜਦੋਂ ਤੱਕ ਰੂਮ ਦਾ ਨਿਯੰਤਰਣ ਕਨੈਕਸ਼ਨ ਠੀਕ ਅਤੇ ਉਪਲਬਧ ਰਹੇ। ਲਾਈਵ ਆਡੀਓ ਵਿੱਚ ਦੇਰੀ ਤੋਂ ਬਚਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ, ਇਸ ਲਈ ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘੱਟ ਰੱਖਣੀ ਚਾਹੀਦੀ ਹੈ।',
+      'Beta: ਸਿਰਫ਼ ਕੰਪਿਊਟਰ ਉੱਤੇ Chromium, ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 4 ਡਿਵਾਈਸਾਂ। ਇੱਕੋ ਨੈੱਟਵਰਕ ਉੱਤੇ ਸਿੱਧੇ ਸਾਂਝਾ ਕਰਨ ਦੀ ਕੋਈ ਸਮਾਂ ਸੀਮਾ ਨਹੀਂ; ਰਿਮੋਟ ਜਾਂ ਰੀਲੇ ਰਾਹੀਂ ਸਾਂਝਾ ਕਰਨ ਵਾਲੇ ਸੈਸ਼ਨ 2 ਘੰਟਿਆਂ ਬਾਅਦ ਆਪਣੇ ਆਪ ਖ਼ਤਮ ਹੋ ਜਾਂਦੇ ਹਨ। ਲਾਈਵ ਆਡੀਓ ਵਿੱਚ ਦੇਰੀ ਤੋਂ ਬਚਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ, ਇਸ ਲਈ ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘੱਟ ਰੱਖੋ।',
     'cta.h2': 'ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਕਰੋ।',
     'cta.btn': 'MUSIXQUARE ਖੋਲ੍ਹੋ',
     'footer.app': 'ਐਪ',

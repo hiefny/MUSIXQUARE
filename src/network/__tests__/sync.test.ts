@@ -287,7 +287,7 @@ describe('manual sync nudge routing', () => {
     bus.emit('sync:nudge', 10);
 
     expect(localApply).toHaveBeenCalledTimes(1);
-    expect(localApply).toHaveBeenLastCalledWith(0.01);
+    expect(localApply).toHaveBeenLastCalledWith(0.01, 'debounced');
     expect(guestApply).not.toHaveBeenCalled();
     // The iframe-side handler owns the actual state write after applying media
     // boundary clamps; the routing layer must not pre-write a host offset.
@@ -306,9 +306,22 @@ describe('manual sync nudge routing', () => {
     bus.emit('sync:set-manual-offset', 50_000);
 
     expect(localApply).toHaveBeenCalledTimes(1);
-    expect(localApply).toHaveBeenLastCalledWith(9.999);
+    expect(localApply).toHaveBeenLastCalledWith(9.999, 'committed');
     expect(guestApply).not.toHaveBeenCalled();
     expect(getState('sync.youtubeLocalOffset')).toBe(0);
+  });
+
+  it('marks a standard-host YouTube Reset as committed input', () => {
+    initSync();
+    const localApply = vi.fn();
+    bus.on('youtube:set-coordinator-manual-offset', localApply);
+    setActiveStandardHost();
+    setPlaybackYouTubePlaying();
+    setState('sync.youtubeLocalOffset', 0.2);
+
+    bus.emit('sync:auto-sync');
+
+    expect(localApply).toHaveBeenCalledExactlyOnceWith(0, 'committed');
   });
 
   it('applies and resets a PRO coordinator YouTube nudge locally', () => {

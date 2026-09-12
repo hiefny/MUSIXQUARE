@@ -1421,7 +1421,10 @@ interface BaseEventMap {
   'youtube:zero-start-readiness-changed': [];
   'youtube:broadcast-sync': [];
   'youtube:apply-manual-sync': [];
-  'youtube:set-coordinator-manual-offset': [requestedOffsetSeconds: number];
+  'youtube:set-coordinator-manual-offset': [
+    requestedOffsetSeconds: number,
+    inputMode?: 'debounced' | 'committed',
+  ];
   'youtube:preview': [url: string];
   'youtube:search-from-input': [];
   'youtube:load-from-input': [];

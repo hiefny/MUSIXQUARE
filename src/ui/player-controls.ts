@@ -194,12 +194,16 @@ function syncPlayButtonAuthority(): void {
   const roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle';
   const hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control');
   const authorityMessage = roomCapabilityRequiredMessage('playback.control');
+  const systemAudioLocked = isPlaybackModeSystemAudio();
   for (const id of ['play-btn', 'btn-prev', 'btn-next']) {
     const transportButton = getUiElement(id);
     if (!transportButton) continue;
+    // Sharing has no transport controls. Native disabled also blocks keyboard
+    // activation; authority/readiness alone remain clickable for feedback.
+    transportButton.toggleAttribute('disabled', systemAudioLocked);
     transportButton.setAttribute(
       'aria-disabled',
-      String(!hasAuthority || (id === 'play-btn' && !_playButtonMediaEnabled)),
+      String(systemAudioLocked || !hasAuthority || (id === 'play-btn' && !_playButtonMediaEnabled)),
     );
     if (!hasAuthority) transportButton.title = authorityMessage;
     else transportButton.removeAttribute('title');
@@ -1217,9 +1221,15 @@ export function initPlayerControls(): void {
   }
 
   // Player buttons
-  $on('btn-prev', 'click', () => bus.emit('playlist:prev-track'));
-  $on('play-btn', 'click', () => bus.emit('player:toggle-play'));
-  $on('btn-next', 'click', () => bus.emit('playlist:next-track'));
+  $on('btn-prev', 'click', () => {
+    if (!isPlaybackModeSystemAudio()) bus.emit('playlist:prev-track');
+  });
+  $on('play-btn', 'click', () => {
+    if (!isPlaybackModeSystemAudio()) bus.emit('player:toggle-play');
+  });
+  $on('btn-next', 'click', () => {
+    if (!isPlaybackModeSystemAudio()) bus.emit('playlist:next-track');
+  });
   // Disabled native controls cannot deliver clicks. Their wrapper receives
   // pointer attempts via CSS and stays keyboard reachable to explain the lock.
   getUiElement('volume-control-group')?.addEventListener('click', explainLockedVolume, {
@@ -1571,6 +1581,7 @@ export function initPlayerControls(): void {
   scopePlaybackModeActivity(
     _busScope,
     (playback) => {
+      syncPlayButtonAuthority();
       syncMainSyncButtonState();
       syncMediaSourceButtonAuthority();
       let playing = playback.activity === 'playing' && playback.mode !== null;

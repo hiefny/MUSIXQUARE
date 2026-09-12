@@ -11,7 +11,7 @@ import { MSG, type PlaybackActivityValue } from '../core/constants.ts';
 import { bus, createBusScope, type BusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import { isPlaybackActivityValue } from '../player/ownership.ts';
@@ -29,7 +29,8 @@ import {
   setYtAutoplayIntent,
   type YouTubePlayerInstance,
 } from './_state.ts';
-import { toCanonicalYouTubeTime } from './local-offset.ts';
+import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, toCanonicalYouTubeTime } from './local-offset.ts';
+import { isStandardHostManualOffsetTransactionPending } from './standard-host-manual-offset-gate.ts';
 import {
   classifyYouTubeStableStateOrigin,
   clearYouTubeStableControlExpectations,
@@ -88,7 +89,26 @@ function handlePlayerReady(): void {
 }
 
 function hasProtectedTransitionOwner(): boolean {
-  return isYtLoadInProgress() || isYtIndexing() || isYtPriming() || isYtPrimeBouncePending();
+  // A seek can emit stable callbacks without another playVideo/pauseVideo
+  // command. While synchronization owns that seek, unmatched callbacks are
+  // operation output, not fresh OS/headset input. Use the active owner rather
+  // than synthetic seek expectations that could swallow a later real PAUSE.
+  return (
+    isYtLoadInProgress() ||
+    isYtIndexing() ||
+    isYtPriming() ||
+    isYtPrimeBouncePending() ||
+    isStandardHostManualOffsetTransactionPending() ||
+    [
+      PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
+      'yt-auto-sync',
+      'yt-clock-action',
+      'yt-seek-play',
+      'yt-rendezvous-buffer',
+      'yt-rendezvous-play',
+      'yt-rendezvous-calibrate',
+    ].some((name) => getManagedTimer(name) !== null)
+  );
 }
 
 function resolveIntendedVideoId(queueItemId: QueueItemId): string | null {

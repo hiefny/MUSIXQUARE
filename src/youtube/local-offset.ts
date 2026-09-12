@@ -85,7 +85,10 @@ export function shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
 
 function getEffectiveProCoordinatorYouTubeOffset(): number {
   if (!isCanonicalYouTubeManualOffsetEndpoint()) return 0;
-  return clampOffset(getState('sync.youtubeCoordinatorAppliedOffset') || 0);
+  // The verified physical residual can exceed the input range by the time
+  // spent buffering. Preserve it so local-to-room conversion stays continuous.
+  const appliedOffset = getState('sync.youtubeCoordinatorAppliedOffset');
+  return Number.isFinite(appliedOffset) ? appliedOffset : 0;
 }
 
 function readActiveNudgeAnchor(duration: number, nowMs = Date.now()): number | null {

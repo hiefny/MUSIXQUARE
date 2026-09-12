@@ -3,7 +3,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import {
@@ -543,7 +543,7 @@ describe('YouTube Sync', () => {
       expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ time: 10 }));
     });
 
-    it('terminates rollback in BUFFERING without ever committing the request', async () => {
+    it('terminates paused-origin rollback in BUFFERING without ever committing the request', async () => {
       vi.useFakeTimers();
       const playerMod = await import('../_state.ts');
       const player = {
@@ -555,7 +555,7 @@ describe('YouTube Sync', () => {
         loadVideoById: vi.fn(),
       } as unknown as YouTubePlayerInstance;
       vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
-      setPlaybackYouTubePlaying();
+      setPlaybackYouTubePaused();
       setState('network.appRole', 'host');
       setState('network.sessionCode', '123456');
       setState('setup.sessionStarted', true);
@@ -682,42 +682,177 @@ describe('YouTube Sync', () => {
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
     });
 
-    it('preserves the prior pending generation when an initial getter throws', async () => {
-      vi.useFakeTimers();
-      const playerMod = await import('../_state.ts');
-      let currentTime = 10;
-      let throwDuration = false;
-      const player = {
-        getCurrentTime: vi.fn(() => currentTime),
-        getDuration: vi.fn(() => {
-          if (throwDuration) throw new Error('transient duration read');
-          return 120;
-        }),
-        getPlayerState: vi.fn(() => 2),
-        getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
-        seekTo: vi.fn(),
-      } as unknown as YouTubePlayerInstance;
-      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
-      setPlaybackYouTubePlaying();
-      setState('network.appRole', 'host');
-      setState('network.sessionCode', '123456');
-      setState('setup.sessionStarted', true);
+    it.each([
+      {
+        scenario: 'a superseding nudge observes transient BUFFERING',
+        physicalSeekDelayMs: 0,
+        observationDelayMs: 120,
+        supersede: true,
+        initiallyBuffering: false,
+        requestedOffset: 0.125,
+      },
+      {
+        scenario: 'physical seek latency exceeds the 25 ms target tolerance',
+        physicalSeekDelayMs: 150,
+        observationDelayMs: 0,
+        supersede: false,
+        initiallyBuffering: false,
+        requestedOffset: 1,
+      },
+      {
+        scenario: 'a fresh nudge starts during BUFFERING with playing intent',
+        physicalSeekDelayMs: 150,
+        observationDelayMs: 0,
+        supersede: false,
+        initiallyBuffering: true,
+        requestedOffset: 1,
+      },
+      {
+        scenario: 'negative-limit seek latency puts the measured offset outside the input range',
+        physicalSeekDelayMs: 150,
+        observationDelayMs: 0,
+        supersede: false,
+        initiallyBuffering: false,
+        requestedOffset: -9.999,
+      },
+    ])(
+      'settles playing standard-host manual sync when $scenario',
+      async ({
+        physicalSeekDelayMs,
+        observationDelayMs,
+        supersede,
+        initiallyBuffering,
+        requestedOffset,
+      }) => {
+        vi.useFakeTimers();
+        const startedAt = Date.now();
+        const playerMod = await import('../_state.ts');
+        let observedTime = 10;
+        let observedAt = startedAt;
+        let observedPlaying = !initiallyBuffering;
+        let playerState = initiallyBuffering ? 3 : 1;
+        let seekGeneration = 0;
+        const readTime = (): number =>
+          observedTime + (observedPlaying ? (Date.now() - observedAt) / 1000 : 0);
+        const player = {
+          getCurrentTime: vi.fn(readTime),
+          getDuration: vi.fn(() => 120),
+          getPlayerState: vi.fn(() => playerState),
+          getPlaylistIndex: vi.fn(() => -1),
+          getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
+          seekTo: vi.fn((time: number) => {
+            observedTime = readTime();
+            observedAt = Date.now();
+            observedPlaying = false;
+            playerState = 3;
+            const generation = ++seekGeneration;
+            // The iframe reports BUFFERING before a later PLAYING observation.
+            // Physical seek latency loses playback time; reporting latency merely
+            // delays observation of a seek that has already resumed playback.
+            setTimeout(() => {
+              if (generation !== seekGeneration) return;
+              observedTime = time + observationDelayMs / 1000;
+              observedAt = Date.now();
+              observedPlaying = true;
+              playerState = 1;
+            }, physicalSeekDelayMs + observationDelayMs);
+          }),
+          pauseVideo: vi.fn(),
+          playVideo: vi.fn(),
+          cueVideoById: vi.fn(),
+          loadVideoById: vi.fn(),
+        } as unknown as YouTubePlayerInstance;
+        vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
+        setPlaybackYouTubePlaying();
+        setState('network.appRole', 'host');
+        setState('network.sessionCode', '123456');
+        setState('setup.sessionStarted', true);
 
-      const { initYouTubeSync, isStandardHostManualOffsetTransactionPending } =
-        await import('../sync.ts');
-      initYouTubeSync();
-      bus.emit('youtube:set-coordinator-manual-offset', 0.5);
-      throwDuration = true;
-      bus.emit('youtube:set-coordinator-manual-offset', 1);
+        const {
+          initYouTubeSync,
+          broadcastYouTubeSync,
+          isStandardHostManualOffsetTransactionPending,
+        } = await import('../sync.ts');
+        const { broadcast } = await import('../../network/peer.ts');
+        initYouTubeSync();
+        bus.emit('youtube:set-coordinator-manual-offset', requestedOffset);
+        if (supersede) {
+          vi.advanceTimersByTime(40);
+          expect(player.getPlayerState()).toBe(3);
+          bus.emit('youtube:set-coordinator-manual-offset', 0.25);
+        }
+        vi.advanceTimersByTime(2_000 - (Date.now() - startedAt));
 
-      expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
-      expect(getState('sync.youtubeLocalOffset')).toBe(0.5);
-      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
-      throwDuration = false;
-      currentTime = 10.5;
-      vi.advanceTimersByTime(600);
-      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.5, 5);
-    });
+        // A short asynchronous seek must release transport controls, retain the
+        // playing intent, and stop issuing corrective commands. Never fabricate
+        // the requested offset when the physical iframe achieved a smaller one.
+        expect.soft(isStandardHostManualOffsetTransactionPending()).toBe(false);
+        expect.soft(player.seekTo).toHaveBeenCalledWith(10 + requestedOffset, true);
+        expect.soft(getState('sync.youtubeLocalOffset')).toBe(supersede ? 0.25 : requestedOffset);
+        expect
+          .soft(vi.mocked(player.seekTo).mock.calls.length)
+          .toBeLessThanOrEqual(supersede ? 3 : 2);
+        expect.soft(player.pauseVideo).not.toHaveBeenCalled();
+        expect.soft(player.cueVideoById).not.toHaveBeenCalled();
+        expect.soft(player.loadVideoById).not.toHaveBeenCalled();
+        expect.soft(player.getPlayerState()).toBe(1);
+        const canonicalTime = 10 + (Date.now() - startedAt) / 1000;
+        expect
+          .soft(getState('sync.youtubeCoordinatorAppliedOffset'))
+          .toBeCloseTo(player.getCurrentTime() - canonicalTime, 5);
+        vi.mocked(broadcast).mockClear();
+        broadcastYouTubeSync(true);
+        expect.soft(broadcast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: MSG.YOUTUBE_SYNC,
+            state: 1,
+            time: expect.closeTo(canonicalTime, 5),
+          }),
+        );
+      },
+    );
+
+    it.each(['throw-duration', 'nan-time'] as const)(
+      'preserves the prior pending generation after an invalid initial read (%s)',
+      async (failure) => {
+        vi.useFakeTimers();
+        const playerMod = await import('../_state.ts');
+        let currentTime = 10;
+        let failRead = false;
+        const player = {
+          getCurrentTime: vi.fn(() => (failRead && failure === 'nan-time' ? NaN : currentTime)),
+          getDuration: vi.fn(() => {
+            if (failRead && failure === 'throw-duration')
+              throw new Error('transient duration read');
+            return 120;
+          }),
+          getPlayerState: vi.fn(() => 2),
+          getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
+          seekTo: vi.fn(),
+        } as unknown as YouTubePlayerInstance;
+        vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
+        setPlaybackYouTubePlaying();
+        setState('network.appRole', 'host');
+        setState('network.sessionCode', '123456');
+        setState('setup.sessionStarted', true);
+
+        const { initYouTubeSync, isStandardHostManualOffsetTransactionPending } =
+          await import('../sync.ts');
+        initYouTubeSync();
+        bus.emit('youtube:set-coordinator-manual-offset', 0.5);
+        failRead = true;
+        bus.emit('youtube:set-coordinator-manual-offset', 1);
+
+        expect(player.seekTo).toHaveBeenCalledExactlyOnceWith(10.5, true);
+        expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
+        expect(getState('sync.youtubeLocalOffset')).toBe(0.5);
+        expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+        failRead = false;
+        currentTime = 10.5;
+        vi.advanceTimersByTime(600);
+        expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.5, 5);
+      },
+    );
 
     it('drops a stale pending generation when the queue/video identity changes', async () => {
       vi.useFakeTimers();
@@ -803,6 +938,122 @@ describe('YouTube Sync', () => {
       expect(currentTime).toBe(42.5);
       broadcastYouTubeSync(true);
       expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({ time: 42.5 }));
+    });
+
+    it('rolls back unstable playing observations at three seconds and bounds corrective commands', async () => {
+      vi.useFakeTimers();
+      const playerMod = await import('../_state.ts');
+      const player = {
+        // A stale iframe may claim PLAYING while its reported position is
+        // frozen. Its residual against the room clock never stabilizes.
+        getCurrentTime: vi.fn(() => 10),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 1),
+        getPlaylistIndex: vi.fn(() => -1),
+        getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
+        seekTo: vi.fn(),
+        loadVideoById: vi.fn(),
+        cueVideoById: vi.fn(),
+        pauseVideo: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
+      setPlaybackYouTubePlaying();
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '123456');
+      setState('setup.sessionStarted', true);
+
+      const { initYouTubeSync, broadcastYouTubeSync } = await import('../sync.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      initYouTubeSync();
+      bus.emit('youtube:set-coordinator-manual-offset', 1);
+      vi.advanceTimersByTime(2_999);
+      expect(getState('sync.youtubeLocalOffset')).toBe(1);
+      vi.advanceTimersByTime(1);
+      expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      expect(player.seekTo).toHaveBeenLastCalledWith(13, true);
+
+      vi.advanceTimersByTime(3_500);
+      const seekCount = vi.mocked(player.seekTo).mock.calls.length;
+      const reloadCount = vi.mocked(player.loadVideoById).mock.calls.length;
+      expect(seekCount).toBeGreaterThan(1);
+      expect(seekCount + reloadCount).toBeLessThanOrEqual(8);
+      vi.advanceTimersByTime(20_000);
+      expect(player.seekTo).toHaveBeenCalledTimes(seekCount);
+      expect(player.loadVideoById).toHaveBeenCalledTimes(reloadCount);
+      expect(player.cueVideoById).not.toHaveBeenCalled();
+      expect(player.pauseVideo).not.toHaveBeenCalled();
+      // Command retries are bounded independently of authority: unreadable or
+      // unstable playback must not expose an invented canonical wire boundary.
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+      vi.mocked(broadcast).mockClear();
+      broadcastYouTubeSync(true);
+      expect(broadcast).not.toHaveBeenCalled();
+    });
+
+    it('keeps slow rollback drift gated until the whole observation window stabilizes', async () => {
+      vi.useFakeTimers();
+      const startedAt = Date.now();
+      const playerMod = await import('../_state.ts');
+      let localTime = 10;
+      let localTimeAt = startedAt;
+      let rate = 0.8;
+      const readTime = (): number => localTime + ((Date.now() - localTimeAt) / 1000) * rate;
+      const player = {
+        // Each 100 ms sample drifts only 20 ms, but a 500 ms window drifts
+        // 100 ms. Comparing only adjacent samples would falsely settle it.
+        getCurrentTime: vi.fn(readTime),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 1),
+        getPlaylistIndex: vi.fn(() => -1),
+        getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
+        seekTo: vi.fn(),
+        loadVideoById: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
+      setPlaybackYouTubePlaying();
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '123456');
+      setState('setup.sessionStarted', true);
+
+      const {
+        initYouTubeSync,
+        broadcastYouTubeSync,
+        isStandardHostManualOffsetTransactionPending,
+      } = await import('../sync.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      initYouTubeSync();
+      bus.emit('youtube:set-coordinator-manual-offset', 1);
+      vi.advanceTimersByTime(6_600);
+      expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
+      const seekCount = vi.mocked(player.seekTo).mock.calls.length;
+      const reloadCount = vi.mocked(player.loadVideoById).mock.calls.length;
+      expect(seekCount + reloadCount).toBeLessThanOrEqual(8);
+      vi.advanceTimersByTime(5_000);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
+      expect(player.seekTo).toHaveBeenCalledTimes(seekCount);
+      expect(player.loadVideoById).toHaveBeenCalledTimes(reloadCount);
+      vi.mocked(broadcast).mockClear();
+      broadcastYouTubeSync(true);
+      expect(broadcast).not.toHaveBeenCalled();
+
+      // Recovery resumes at the current physical position; it does not invent
+      // a seek. The resulting stable residual is the one safe to publish.
+      localTime = readTime();
+      localTimeAt = Date.now();
+      rate = 1;
+      const recoveredOffset = localTime - (10 + (Date.now() - startedAt) / 1000);
+      vi.advanceTimersByTime(600);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(recoveredOffset, 5);
+      broadcastYouTubeSync(true);
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_SYNC,
+          state: 1,
+          time: expect.closeTo(10 + (Date.now() - startedAt) / 1000, 5),
+        }),
+      );
     });
 
     it('requires a post-timeout stable residual before releasing rollback', async () => {
@@ -975,6 +1226,72 @@ describe('YouTube Sync', () => {
       expect(repeatedDetach?.[0]).toBe('same-video');
       expect(repeatedDetach?.[1]).toBeCloseTo(42.75, 2);
     });
+
+    it.each([false, true])(
+      'applies the newest offset after a pending playlist detach (transient metadata: %s)',
+      async (transientMetadata) => {
+        vi.useFakeTimers();
+        const playerMod = await import('../_state.ts');
+        let currentTime = 30;
+        let playlistIndex = 0;
+        let liveVideoId = 'same-video';
+        const player = {
+          getCurrentTime: vi.fn(() => currentTime),
+          getDuration: vi.fn(() => 120),
+          getPlayerState: vi.fn(() => 2),
+          getPlaylistIndex: vi.fn(() => playlistIndex),
+          getVideoData: vi.fn(() => ({ video_id: liveVideoId, title: 'Same Video' })),
+          cueVideoById: vi.fn((_videoId: string, time?: number) => {
+            if (transientMetadata) liveVideoId = '';
+            setTimeout(() => {
+              currentTime = time ?? 0;
+              playlistIndex = -1;
+              liveVideoId = 'same-video';
+            }, 200);
+          }),
+          seekTo: vi.fn((time: number) => {
+            currentTime = time;
+          }),
+          loadVideoById: vi.fn(),
+          pauseVideo: vi.fn(),
+        } as unknown as YouTubePlayerInstance;
+        vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
+        setState('playlist.items', [
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            type: 'youtube',
+            name: 'Playlist',
+            videoId: 'same-video',
+            playlistId: 'PL-safe',
+          },
+        ]);
+        setState('youtube.subItemsMap', {
+          'PL-safe': { ids: ['same-video'], titles: ['Same Video'] },
+        });
+        setState('youtube.currentSubIndex', 0);
+        setPlaybackYouTubePaused();
+        setState('network.appRole', 'host');
+        setState('network.sessionCode', '123456');
+        setState('setup.sessionStarted', true);
+
+        const { initYouTubeSync, isStandardHostManualOffsetTransactionPending } =
+          await import('../sync.ts');
+        initYouTubeSync();
+        bus.emit('youtube:set-coordinator-manual-offset', 0.5);
+        vi.advanceTimersByTime(40);
+        bus.emit('youtube:set-coordinator-manual-offset', 1);
+        vi.advanceTimersByTime(1_000);
+
+        // Detaching an older request does not apply its successor. Once the
+        // native playlist releases ownership, the newest target needs a seek.
+        expect(player.cueVideoById).toHaveBeenCalledExactlyOnceWith('same-video', 30.5);
+        expect(player.seekTo).toHaveBeenCalledWith(31, true);
+        expect(player.loadVideoById).not.toHaveBeenCalled();
+        expect(getState('sync.youtubeLocalOffset')).toBe(1);
+        expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(1);
+        expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+      },
+    );
 
     it('does not commit when native playlist detach is a silent no-op', async () => {
       vi.useFakeTimers();

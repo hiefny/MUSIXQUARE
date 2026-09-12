@@ -8,7 +8,6 @@
 
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
-import { MANUAL_SYNC_OFFSET_LIMIT_SEC } from '../core/constants.ts';
 import { getState, setState } from '../core/state.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getRoomContext } from '../rooms/authority.ts';
@@ -62,6 +61,9 @@ interface StandardHostManualOffsetTransaction extends StandardHostManualOffsetId
   targetObservedSince: number;
   targetObservationCount: number;
   lastObservedResidual: number | null;
+  commandIssued: boolean;
+  commandBaselineOffset: number;
+  seekObserved: boolean;
 }
 
 let transaction: StandardHostManualOffsetTransaction | null = null;
@@ -156,13 +158,9 @@ function finish(
   clearTransactionRuntime();
   active.lease.commit(() => {
     setState('sync.youtubeLocalOffset', requestedOffset);
-    setState(
-      'sync.youtubeCoordinatorAppliedOffset',
-      Math.max(
-        -MANUAL_SYNC_OFFSET_LIMIT_SEC,
-        Math.min(MANUAL_SYNC_OFFSET_LIMIT_SEC, appliedOffset),
-      ),
-    );
+    // Input limits constrain the requested nudge, not the measured seek
+    // latency. Clamping this residual would move the room's canonical clock.
+    setState('sync.youtubeCoordinatorAppliedOffset', appliedOffset);
     emitDisplay(canonicalTime, duration);
   });
 }
@@ -202,6 +200,13 @@ function scheduleVerification(active: StandardHostManualOffsetTransaction): void
 
 function issueCommand(active: StandardHostManualOffsetTransaction, localTarget: number): void {
   const player = active.player;
+  const localTime = player.getCurrentTime();
+  active.commandIssued = true;
+  active.commandBaselineOffset = localTime - toCanonicalYouTubeTime(localTime, active.duration);
+  active.seekObserved = false;
+  active.targetObservedSince = 0;
+  active.targetObservationCount = 0;
+  active.lastObservedResidual = null;
   active.lastCommandAt = Date.now();
   if (active.requiresPlaylistDetach && !active.detachIssued) {
     active.detachIssued = true;
@@ -231,6 +236,7 @@ function beginRollback(active: StandardHostManualOffsetTransaction, reason: stri
   active.targetObservedSince = 0;
   active.targetObservationCount = 0;
   active.lastObservedResidual = null;
+  active.seekObserved = false;
   setState('sync.youtubeLocalOffset', 0);
   bus.emit('sync:display-update');
   armGate(active);
@@ -248,6 +254,7 @@ function beginRollback(active: StandardHostManualOffsetTransaction, reason: stri
     const duration = active.player.getDuration?.() || active.duration;
     const localTime = active.player.getCurrentTime();
     const canonicalTime = toCanonicalYouTubeTime(localTime, duration);
+    active.commandBaselineOffset = localTime - canonicalTime;
     if (shouldSupersedeDetachWithReload) {
       active.reloadAttempted = true;
       if (active.playing) {
@@ -285,6 +292,17 @@ function verify(active: StandardHostManualOffsetTransaction): void {
     const playerState = player.getPlayerState?.() ?? -1;
     const elapsedMs = Date.now() - active.phaseStartedAt;
     const liveVideoIdentityReady = hasLiveVideoIdentity(active);
+    const residualOffset = localTime - canonicalTime;
+    // seekTo is asynchronous. A BUFFERING observation or a changed local
+    // timeline shows that the command is being processed; sending another
+    // seek every 500ms would keep interrupting that same seek.
+    if (
+      liveVideoIdentityReady &&
+      (playerState === 3 ||
+        Math.abs(residualOffset - active.commandBaselineOffset) > TARGET_TOLERANCE_SEC)
+    ) {
+      active.seekObserved = true;
+    }
 
     if (active.phase === 'apply') {
       const target = resolveProCoordinatorYouTubeTarget(
@@ -305,14 +323,44 @@ function verify(active: StandardHostManualOffsetTransaction): void {
       }
 
       const playlistDetached = !active.requiresPlaylistDetach || player.getPlaylistIndex?.() === -1;
-      const targetObserved =
+      // Reusing an older in-flight detach avoids overlapping loads, but its
+      // eventual landing does not apply a newer slider value. Issue that
+      // value once the intended video is observable and the detach finishes.
+      if (
+        !active.commandIssued &&
+        liveVideoIdentityReady &&
+        (!active.detachIssued || playlistDetached) &&
+        elapsedMs < APPLY_TIMEOUT_MS
+      ) {
+        issueCommand(active, target.localTime);
+        scheduleVerification(active);
+        return;
+      }
+      const settled =
+        active.commandIssued &&
         liveVideoIdentityReady &&
         playlistDetached &&
-        isSettledPlayerState(active, playerState) &&
-        Math.abs(localTime - target.localTime) <= TARGET_TOLERANCE_SEC;
+        Number.isFinite(residualOffset) &&
+        isSettledPlayerState(active, playerState);
+      const targetObserved =
+        settled &&
+        (Math.abs(localTime - target.localTime) <= TARGET_TOLERANCE_SEC || active.seekObserved);
       if (targetObserved) {
-        active.targetObservationCount += 1;
-        if (!active.targetObservedSince) active.targetObservedSince = Date.now();
+        // A real iframe loses time while seeking and need not land within
+        // 25ms of a moving wall-clock target. Verify a stable observed offset
+        // instead, and publish that physical offset rather than inventing the
+        // requested one. Compare with the start of the observation window so
+        // a frozen PLAYING getter cannot look like steady playback.
+        if (
+          active.lastObservedResidual === null ||
+          Math.abs(residualOffset - active.lastObservedResidual) > TARGET_TOLERANCE_SEC
+        ) {
+          active.lastObservedResidual = residualOffset;
+          active.targetObservedSince = Date.now();
+          active.targetObservationCount = 1;
+        } else {
+          active.targetObservationCount += 1;
+        }
         if (
           active.targetObservationCount >= 2 &&
           Date.now() - active.targetObservedSince >= ROLLBACK_STABLE_MS
@@ -326,11 +374,16 @@ function verify(active: StandardHostManualOffsetTransaction): void {
           );
           return;
         }
+        if (elapsedMs >= APPLY_TIMEOUT_MS) {
+          beginRollback(active, 'apply-unstable');
+          return;
+        }
         scheduleVerification(active);
         return;
       }
       active.targetObservedSince = 0;
       active.targetObservationCount = 0;
+      active.lastObservedResidual = null;
 
       if (elapsedMs >= APPLY_TIMEOUT_MS) {
         beginRollback(active, 'apply-unverified');
@@ -339,16 +392,15 @@ function verify(active: StandardHostManualOffsetTransaction): void {
       if (
         liveVideoIdentityReady &&
         playlistDetached &&
+        !active.seekObserved &&
         Date.now() - active.lastCommandAt >= RETRY_INTERVAL_MS
       ) {
-        player.seekTo(target.localTime, true);
-        active.lastCommandAt = Date.now();
+        issueCommand(active, target.localTime);
       }
       scheduleVerification(active);
       return;
     }
 
-    const residualOffset = localTime - canonicalTime;
     const rollbackResidualIsZero = Math.abs(residualOffset) <= TARGET_TOLERANCE_SEC;
     if (liveVideoIdentityReady && Number.isFinite(residualOffset)) {
       const sameResidual =
@@ -356,10 +408,10 @@ function verify(active: StandardHostManualOffsetTransaction): void {
         Math.abs(residualOffset - active.lastObservedResidual) <= TARGET_TOLERANCE_SEC;
       if (sameResidual) active.targetObservationCount += 1;
       else {
+        active.lastObservedResidual = residualOffset;
         active.targetObservedSince = Date.now();
         active.targetObservationCount = 1;
       }
-      active.lastObservedResidual = residualOffset;
 
       const stableWindowStart = rollbackResidualIsZero
         ? active.targetObservedSince
@@ -382,14 +434,19 @@ function verify(active: StandardHostManualOffsetTransaction): void {
     if (
       liveVideoIdentityReady &&
       Number.isFinite(residualOffset) &&
-      rollbackResidualIsZero &&
+      (rollbackResidualIsZero ||
+        (active.playing && active.seekObserved && isSettledPlayerState(active, playerState))) &&
       active.targetObservationCount >= 2
     ) {
       scheduleVerification(active);
       return;
     }
 
-    if (liveVideoIdentityReady && Date.now() - active.lastCommandAt >= RETRY_INTERVAL_MS) {
+    if (
+      liveVideoIdentityReady &&
+      elapsedMs < ROLLBACK_TIMEOUT_MS &&
+      Date.now() - active.lastCommandAt >= RETRY_INTERVAL_MS
+    ) {
       if (!active.reloadAttempted && elapsedMs >= ROLLBACK_TIMEOUT_MS / 2) {
         active.reloadAttempted = true;
         if (active.playing) {
@@ -423,8 +480,16 @@ function begin(lease: StandardHostManualOffsetLease): void {
   const player = lease.player;
   const previous = transaction;
   const duration = player.getDuration?.() || 0;
-  const playing = player.getPlayerState?.() === 1;
-  const canonicalTime = beginProCoordinatorYouTubeNudge(player.getCurrentTime(), duration, playing);
+  const samePendingMedia = previous && hasHardIdentityData(previous);
+  const playerState = player.getPlayerState?.() ?? -1;
+  // A second +/- click can arrive while the first seek reports BUFFERING.
+  // Preserve the transaction's intent instead of changing it to PAUSED.
+  const playing = samePendingMedia
+    ? previous.playing
+    : playerState === 1 || (playerState === 3 && getState('playback.activity') === 'playing');
+  const localTime = player.getCurrentTime();
+  if (!Number.isFinite(localTime)) throw new Error('YouTube local position is unavailable');
+  const canonicalTime = beginProCoordinatorYouTubeNudge(localTime, duration, playing);
   const requestedTarget = resolveProCoordinatorYouTubeTarget(
     canonicalTime,
     lease.requestedOffsetSeconds,
@@ -488,16 +553,20 @@ function begin(lease: StandardHostManualOffsetLease): void {
     duration,
     playing,
     requiresPlaylistDetach:
-      target.requestedOffset !== 0 &&
-      nativePlaylistIndex !== -1 &&
-      (selectionIsPlaylist ||
-        (typeof nativePlaylistIndex === 'number' && nativePlaylistIndex >= 0)),
+      canReusePendingDetach ||
+      (target.requestedOffset !== 0 &&
+        nativePlaylistIndex !== -1 &&
+        (selectionIsPlaylist ||
+          (typeof nativePlaylistIndex === 'number' && nativePlaylistIndex >= 0))),
     detachIssued: canReusePendingDetach,
     lastCommandAt: canReusePendingDetach ? (previous?.lastCommandAt ?? now) : 0,
     reloadAttempted: false,
     targetObservedSince: 0,
     targetObservationCount: 0,
     lastObservedResidual: null,
+    commandIssued: false,
+    commandBaselineOffset: localTime - canonicalTime,
+    seekObserved: false,
   };
   transaction = next;
   if (!lease.bindRuntimeHooks(runtimeHooks())) {

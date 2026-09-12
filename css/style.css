@@ -2214,6 +2214,11 @@
     flex-shrink: 0;
   }
 
+  /* Keep locked volume attempts reachable through the group's explanation. */
+  .vol-group-playback > :disabled {
+    pointer-events: none;
+  }
+
   #volume-slider {
     width: 100%;
     margin: 0;

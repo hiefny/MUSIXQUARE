@@ -1,7 +1,7 @@
 /**
  * E2E: Audio Effects Tests
  *
- * Tests audio effect controls on the host:
+ * Tests audio effect controls and guest settings authority:
  * - EQ bands and presets
  * - Reverb controls and presets
  * - Stereo width toggle
@@ -409,6 +409,71 @@ test.describe('Audio Effects', () => {
   });
 
   // ── Volume Tests ──────────────────────────────────────────────
+
+  test('locked guest volume explains pointer and keyboard attempts and unlocks with settings sync off', async () => {
+    await pair.guestPage.addInitScript(() => localStorage.setItem('musixquare-lang', 'en'));
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await waitForState(pair.guestPage, 'audio.settingsSyncEnabled', true);
+    await waitForState(pair.guestPage, 'audio.masterVolume', 1);
+
+    const volumeGroup = pair.guestPage.locator('#volume-control-group');
+    const volumeSlider = pair.guestPage.locator('#volume-slider');
+    const muteButton = pair.guestPage.locator('#vol-icon-btn');
+    const toast = pair.guestPage.locator('#toast');
+    const denial = 'Settings sync is on.\nOnly room admins can change audio settings.';
+    await expect(volumeGroup).toBeVisible();
+    await expect(volumeGroup).toHaveAttribute('tabindex', '0');
+    await expect(volumeGroup).toHaveAccessibleName(denial);
+    await expect(volumeSlider).toBeDisabled();
+    await expect(muteButton).toBeDisabled();
+
+    async function expectLockedFeedback(attempt: () => Promise<void>): Promise<void> {
+      // A new visible toast must follow each attempt, not survive from the last one.
+      await expect(toast).not.toHaveClass(/\bshow\b/);
+      await attempt();
+      await expect(toast).toHaveClass(/\bshow\b/);
+      await expect(pair.guestPage.locator('#toast-msg')).toHaveText(denial, { useInnerText: true });
+      expect(await readState(pair.guestPage, 'audio.masterVolume')).toBe(1);
+      await expect(volumeSlider).toHaveValue('100');
+    }
+
+    for (const control of [volumeSlider, muteButton]) {
+      await expectLockedFeedback(async () => {
+        const bounds = await control.boundingBox();
+        if (!bounds) throw new Error('The locked volume control must have a pointer target');
+        // Native disabled controls cannot use locator.click(). Hit their real
+        // coordinates so the browser must route through the wrapper's CSS.
+        await pair.guestPage.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      });
+    }
+
+    await volumeGroup.focus();
+    await pair.guestPage.keyboard.press('Shift+Tab');
+    await expect(volumeGroup).not.toBeFocused();
+    await pair.guestPage.keyboard.press('Tab');
+    await expect(volumeGroup).toBeFocused();
+    await expectLockedFeedback(() => pair.guestPage.keyboard.press('Enter'));
+
+    await navigateToTab(pair.guestPage, 'settings');
+    await navigateToSubtab(pair.guestPage, 'general');
+    await pair.guestPage.locator('#grid-settings-sync [data-settings-sync="off"]').click();
+    await waitForState(pair.guestPage, 'audio.settingsSyncEnabled', false);
+    await navigateToTab(pair.guestPage, 'play');
+    await expect(volumeGroup).not.toHaveAttribute('tabindex', '0');
+    await expect(volumeSlider).toBeEnabled();
+    await expect(muteButton).toBeEnabled();
+
+    const bounds = await volumeSlider.boundingBox();
+    if (!bounds) throw new Error('The unlocked volume slider must have a pointer target');
+    await volumeSlider.click({ position: { x: bounds.width / 2, y: bounds.height / 2 } });
+    await expect.poll(() => readState(pair.guestPage, 'audio.masterVolume')).toBeCloseTo(0.5, 1);
+    await muteButton.click();
+    await waitForState(pair.guestPage, 'audio.masterVolume', 0);
+    expect(await readState(pair.hostPage, 'audio.masterVolume')).toBe(1);
+    await expect(pair.guestPage.locator('#toast-msg')).not.toHaveText(denial, {
+      useInnerText: true,
+    });
+  });
 
   test('volume slider changes master volume', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);

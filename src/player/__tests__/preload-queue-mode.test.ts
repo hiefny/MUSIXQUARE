@@ -5,6 +5,15 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
+import { initSync } from '../../network/sync.ts';
+import {
+  getClockOffset,
+  getSharedClockDiagnostics,
+  processSyncPong,
+  registerPing,
+  resetClockState,
+} from '../../network/shared-clock.ts';
 import { leaveSession } from '../../network/peer.ts';
 import { getCurrentAudioBuffer, setCurrentAudioBuffer } from '../_state.ts';
 import { initPlayback } from '../playback.ts';
@@ -64,6 +73,7 @@ beforeEach(() => {
 afterEach(() => {
   stopAllMedia({ cancelInFlight: true, clearBuffer: true });
   resetAllStoredFiles();
+  resetClockState();
   clearAllManagedTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -107,6 +117,148 @@ function decodedBuffer(): AudioBuffer {
     numberOfChannels: 2,
   } as AudioBuffer;
 }
+
+describe('preloaded guest playback synchronization', () => {
+  it('keeps the warm clock and corrects the current file before the successor preload finishes', async () => {
+    const host = {
+      open: true,
+      peer: 'host-preload-sync',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.connectionType', 'local');
+    markQueueAuthorityReady(host);
+    initPlayback();
+    initPreload();
+    initSync();
+    resetClockState();
+
+    // This room was already calibrated while the previous track was playing.
+    registerPing(900);
+    const calibratedAt = Date.now();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(processSyncPong(900, calibratedAt + 5_010)).toEqual({ rtt: 20, offset: 5_000 });
+
+    const file = new File(['selected-mp3'], 'selected.mp3', { type: 'audio/mpeg' });
+    const nextFile = new File(['successor-mp3'], 'successor.mp3', { type: 'audio/mpeg' });
+    const item: PlaylistItem = {
+      queueItemId: '11111111-1111-4111-8111-111111111111',
+      type: 'file',
+      name: file.name,
+      videoId: null,
+      playlistId: null,
+    };
+    const previous: PlaylistItem = { ...item, queueItemId: '22222222-2222-4222-8222-222222222222' };
+    const next: PlaylistItem = {
+      ...item,
+      queueItemId: '33333333-3333-4333-8333-333333333333',
+      name: nextFile.name,
+    };
+    setState('playlist.items', [previous, item, next]);
+    setState('playlist.currentQueueItemId', previous.queueItemId);
+    const preload = {
+      queueItemId: item.queueItemId,
+      indexHint: 1,
+      name: file.name,
+      mime: file.type,
+      size: file.size,
+      total: 1,
+      sessionId: 7,
+    };
+    setState('preload.activeTarget', preload);
+    setState('preload.ready', { ...preload, blob: file });
+    setState('preload.nextQueueItemId', item.queueItemId);
+    let finishDecode!: (value: AudioBuffer) => void;
+    native.decode.mockImplementationOnce(
+      () =>
+        new Promise<AudioBuffer>((resolve) => {
+          finishDecode = resolve;
+        }),
+    );
+    await handleData(
+      { type: MSG.PLAY_PRELOADED, queueItemId: item.queueItemId, name: item.name },
+      host,
+    );
+    await vi.waitFor(() => expect(native.decode).toHaveBeenCalledOnce());
+    await handleData({ type: MSG.PLAY, queueItemId: item.queueItemId, time: 0 }, host);
+
+    // A faster host starts C while the iPhone is still decoding B. Hold C's
+    // bytes beyond B's post-decode sync instead of letting completion hide it.
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        queueItemId: next.queueItemId,
+        name: nextFile.name,
+        mime: nextFile.type,
+        total: 1,
+        size: nextFile.size,
+        sessionId: 8,
+      },
+      host,
+    );
+    const buffer = decodedBuffer();
+    finishDecode(buffer);
+    await vi.waitFor(() => expect(getState('playback.activity')).toBe('playing'));
+    const startsBeforeSync = native.start.mock.calls.length;
+    expect(startsBeforeSync).toBe(1);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(getState('preload.sessionState').get(8)?.finalized).toBe(false);
+    expect(getState('preload.ready')).toBeNull();
+    expect(getSharedClockDiagnostics()).toMatchObject({
+      calibrated: true,
+      sampleCount: 1,
+      bestRttMs: 20,
+      bestOffsetMs: 5_000,
+    });
+
+    const ping = vi
+      .mocked(host.send)
+      .mock.calls.map(([frame]) => frame as Record<string, unknown>)
+      .filter((frame) => frame.type === MSG.SYNC_PING)
+      .at(-1)!;
+    expect(ping).toBeDefined();
+    // Congestion makes this RTT asymmetric. It must not replace the room's
+    // existing low-RTT clock or defer B's correction until C reaches END.
+    await vi.advanceTimersByTimeAsync(200);
+    await handleData(
+      {
+        type: MSG.SYNC_PONG,
+        pingId: ping.pingId,
+        hostTime: Date.now() + 4_990,
+        position: 0.15,
+        mode: 'file',
+        activity: 'playing',
+        queueItemId: item.queueItemId,
+      },
+      host,
+    );
+    await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(startsBeforeSync + 1));
+    expect(getClockOffset()).toBe(5_000);
+    expect(getCurrentAudioBuffer()).toBe(buffer);
+    expect(getState('files.current')?.queueItemId).toBe(item.queueItemId);
+    expect(getState('preload.sessionState').get(8)?.finalized).toBe(false);
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        queueItemId: next.queueItemId,
+        sessionId: 8,
+        chunkIndex: 0,
+        chunk: new Uint8Array(await nextFile.arrayBuffer()),
+      },
+      host,
+    );
+    await handleData(
+      { type: MSG.PRELOAD_END, queueItemId: next.queueItemId, sessionId: 8, name: next.name },
+      host,
+    );
+    await vi.waitFor(() => expect(getState('preload.ready')?.queueItemId).toBe(next.queueItemId));
+    expect(getCurrentAudioBuffer()).toBe(buffer);
+    expect(native.start).toHaveBeenCalledTimes(startsBeforeSync + 1);
+    expect(getClockOffset()).toBe(5_000);
+  });
+});
 
 describe('queue mode changes during current preload activation', () => {
   it.each([

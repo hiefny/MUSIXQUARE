@@ -1994,6 +1994,7 @@ describe('initPlayerControls track metadata subtitle', () => {
 describe('initPlayerControls volume icon', () => {
   function renderVolumeControls(): HTMLElement {
     document.body.innerHTML = `
+      <div id="volume-control-group" class="vol-group-playback" role="group">
       <button id="vol-icon-btn" aria-label="Toggle mute">
         <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z"></path>
@@ -2010,6 +2011,7 @@ describe('initPlayerControls volume icon', () => {
         </svg>
       </button>
       <input type="range" id="volume-slider" min="0" max="100" value="100" />
+      </div>
     `;
     return document.getElementById('vol-icon-btn') as HTMLElement;
   }
@@ -2054,6 +2056,112 @@ describe('initPlayerControls volume icon', () => {
     expect(button.disabled).toBe(false);
     expect(slider.disabled).toBe(false);
   });
+
+  it.each(['standard guest', 'standard restricted admin', 'pro member'] as const)(
+    'explains locked volume without changing or publishing settings for a %s',
+    (role) => {
+      renderVolumeControls();
+      setState('setup.sessionStarted', true);
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', makeConnection('host'));
+      setState('audio.settingsSyncEnabled', true);
+      setState('audio.masterVolume', 0.65);
+      if (role === 'standard restricted admin') {
+        setState('network.isOperator', true);
+        setState('network.standardRoomCapabilities', ['playback.control']);
+      } else if (role === 'pro member') {
+        setState('network.appRole', 'host');
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: [],
+        });
+      }
+      const setVolume = vi.fn();
+      const publish = vi.fn();
+      bus.on('audio:set-volume', setVolume);
+      bus.on('settings-sync:publish-local', publish);
+      initPlayerControls();
+      initPlayerControls(); // Re-init must not duplicate the explanation.
+
+      const group = document.getElementById('volume-control-group')!;
+      expect(group.tabIndex).toBe(0);
+      expect(group.getAttribute('aria-label')).toBe(t('toast.settings_sync_admin_required'));
+      group.click();
+      expect(showToast).toHaveBeenCalledExactlyOnceWith(t('toast.settings_sync_admin_required'));
+
+      vi.mocked(showToast).mockClear();
+      for (const key of ['Enter', ' ']) {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        group.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+      }
+      const repeat = new KeyboardEvent('keydown', {
+        key: ' ',
+        repeat: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      group.dispatchEvent(repeat);
+      expect(repeat.defaultPrevented).toBe(true);
+      expect(showToast).toHaveBeenCalledTimes(2);
+      expect(setVolume).not.toHaveBeenCalled();
+      expect(publish).not.toHaveBeenCalled();
+      expect(getState('audio.masterVolume')).toBe(0.65);
+
+      setState('audio.settingsSyncEnabled', false);
+      bus.emit('settings-sync:changed', false);
+      expect(group.hasAttribute('tabindex')).toBe(false);
+      expect(group.getAttribute('aria-label')).toBe(t('player.volume'));
+      vi.mocked(showToast).mockClear();
+      (document.getElementById('vol-icon-btn') as HTMLButtonElement).click();
+      expect(setVolume).toHaveBeenCalledExactlyOnceWith(0);
+      expect(showToast).toHaveBeenCalledExactlyOnceWith(t('common.muted'));
+      expect(publish).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['standard host', 'standard admin', 'pro controller'] as const)(
+    'keeps synchronized volume available for a %s',
+    (role) => {
+      const button = renderVolumeControls() as HTMLButtonElement;
+      setActiveStandardHost();
+      setState('audio.settingsSyncEnabled', true);
+      if (role === 'standard admin') {
+        setState('network.appRole', 'guest');
+        setState('network.hostConn', makeConnection('host'));
+        setState('network.isOperator', true);
+        setState('network.standardRoomCapabilities', ['effects.control']);
+      } else if (role === 'pro controller') {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: ['effects.control'],
+        });
+      }
+      const setVolume = vi.fn();
+      const publish = vi.fn();
+      bus.on('audio:set-volume', setVolume);
+      bus.on('settings-sync:publish-local', publish);
+      initPlayerControls();
+
+      expect(button.disabled).toBe(false);
+      expect((document.getElementById('volume-slider') as HTMLInputElement).disabled).toBe(false);
+      expect(document.getElementById('volume-control-group')!.hasAttribute('tabindex')).toBe(false);
+      button.click();
+      expect(setVolume).toHaveBeenCalledExactlyOnceWith(0);
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(showToast).toHaveBeenCalledExactlyOnceWith(t('common.muted'));
+    },
+  );
 });
 
 describe('initPlayerControls sync button', () => {

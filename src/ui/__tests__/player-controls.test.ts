@@ -1421,6 +1421,79 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(nextTrack).toHaveBeenCalledTimes(1);
   });
 
+  it.each([false, true])(
+    'blocks transport activation during system audio (pending: %s)',
+    (pending) => {
+      renderPlaybackControls();
+      setActiveStandardHost();
+      if (pending) {
+        setState('network.appRole', 'guest');
+        setState('network.hostConn', makeConnection('host-1'));
+        setState('network.isOperator', true);
+      }
+      initPlayerControls();
+      const commands = [vi.fn(), vi.fn(), vi.fn()];
+      bus.on('playlist:prev-track', commands[0]!);
+      bus.on('player:toggle-play', commands[1]!);
+      bus.on('playlist:next-track', commands[2]!);
+
+      claimPlaybackOwner('system-audio', {
+        pending,
+        currentTrackMeta: createSystemAudioTrackMeta(pending ? 'receiving' : 'sharing'),
+      });
+      // Media readiness and room authority refreshes must not unlock sharing.
+      bus.emit('ui:play-btn-state', true);
+      setState('network.isOperator', true);
+      for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
+        const button = document.getElementById(id) as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
+        expect(button.getAttribute('aria-disabled')).toBe('true');
+        button.click();
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
+      for (const command of commands) expect(command).not.toHaveBeenCalled();
+
+      setState('player.currentTrackMeta', null);
+      setState('playback.mode', 'file');
+      for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
+        const button = document.getElementById(id) as HTMLButtonElement;
+        expect(button.disabled).toBe(false);
+        expect(button.getAttribute('aria-disabled')).toBe('false');
+        button.click();
+      }
+      for (const command of commands) expect(command).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('locks an existing system-audio receiver and preserves guest feedback after sharing', () => {
+    renderPlaybackControls();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+    claimPlaybackOwner('system-audio', {
+      pending: true,
+      currentTrackMeta: createSystemAudioTrackMeta('receiving'),
+    });
+    initPlayerControls();
+    bus.emit('ui:play-btn-state', true);
+    for (const receiving of [false, true, false]) {
+      setSystemAudioReceiving(receiving);
+      for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
+        const button = document.getElementById(id) as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
+        expect(button.getAttribute('aria-disabled')).toBe('true');
+      }
+    }
+
+    setState('player.currentTrackMeta', null);
+    setState('playback.mode', null);
+    for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
+      const button = document.getElementById(id) as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      // Keep permission feedback reachable instead of silencing its handler.
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+    }
+  });
+
   it('shows the shield for pending PRO YouTube play and playing-seek controls', () => {
     renderPlaybackControls();
     setState('playback.mode', 'youtube');

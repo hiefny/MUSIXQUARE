@@ -705,6 +705,58 @@ describe('background resume recovery', () => {
       }),
     );
   });
+
+  it('preserves a calibrated clock while immediately relocking a decoded track', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+    const hostConn = mockDataConnection('host-warm-relock');
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setPlaybackFilePlaying();
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    const decisions: Array<{ decision: string }> = [];
+    bus.on('sync:diagnostic-standard-decision', (decision) => decisions.push(decision));
+
+    registerPing(99);
+    vi.setSystemTime(1020);
+    expect(processSyncPong(99, 5020)).not.toBeNull();
+
+    bus.emit('sync:force-resync', { preserveClock: true });
+
+    expect(getClockOffset()).toBe(4010);
+    expect(getSharedClockDiagnostics()).toMatchObject({
+      calibrated: true,
+      sampleCount: 1,
+      pendingPingCount: 1,
+      pongsReceived: 1,
+      bestRttMs: 20,
+    });
+    expect(hostConn.send).toHaveBeenCalledTimes(1);
+    const ping = hostConn.send.mock.calls[0][0] as { pingId: number };
+
+    // The next preload can delay this reply. Preserve the established low-RTT
+    // clock sample while applying the requested playback correction at once.
+    vi.setSystemTime(1520);
+    await handleData(
+      {
+        type: MSG.SYNC_PONG,
+        pingId: ping.pingId,
+        hostTime: 5040,
+        position: 0.01,
+        mode: 'file',
+        activity: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
+      },
+      hostConn,
+    );
+
+    expect(getClockOffset()).toBe(4010);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+    expect(transportMocks.play.mock.calls[0][0]).toBeCloseTo(0.5);
+    expect(decisions).toContainEqual(expect.objectContaining({ decision: 'initial' }));
+  });
 });
 
 describe('local-file sync correction', () => {

@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { CHUNK_SIZE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import { CHUNK_SIZE, LOAD_SOURCE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import type { DataConnection } from '../../types/index.ts';
 import {
   registerProRoomDirectFileHandler,
@@ -1289,6 +1289,177 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       expect.objectContaining({ type: 'guest-decode-failed' }),
     );
   });
+
+  it.each([false, true])(
+    'replaces a promoted next track after PLAY selects the previous occurrence (FILE_START=%s)',
+    async (hasFileStart) => {
+      const { handleFileStart, handleFileChunk } = await import('../transfer-receive.ts');
+      setState('playlist.currentQueueItemId', Q[0]!);
+      setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+      setState('playback.loadSource', LOAD_SOURCE.PRELOAD_PROMOTED);
+      setState('transfer.state', TRANSFER_STATE.READY);
+      setState('transfer.localSessionId', 5);
+      setState('transfer.receivedCount', 1);
+      const promoted = {
+        queueItemId: Q[1]!,
+        name: 'track-1.mp3',
+        sessionId: 5,
+        total: 1,
+        size: 1,
+      };
+      setState('transfer.meta', promoted);
+      setState('files.current', {
+        ...promoted,
+        indexHint: 1,
+        mime: 'audio/mpeg',
+        blob: new Blob([u8(0xbb)], { type: 'audio/mpeg' }),
+      });
+      // PLAY has selected A before the debounced PREPARE. B still owns the
+      // promoted resident while the host answers A's immediate file request.
+      const incoming = {
+        queueItemId: Q[0],
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        sessionId: 7,
+        total: 1,
+        size: 1,
+      };
+      if (hasFileStart) handleFileStart({ ...incoming, type: 'file-start' }, conn);
+      handleFileChunk({ ...incoming, type: 'file-chunk', chunkIndex: 0, chunk: u8(0xaa) }, conn);
+      await Promise.resolve();
+
+      expect(getState('transfer.meta')).toEqual(expect.objectContaining(incoming));
+      expect(getState('transfer.localSessionId')).toBe(7);
+      expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
+      await expectCompletedMime('song.mp3', 7, Q[0]!, 'audio/mpeg');
+    },
+  );
+
+  it.each([
+    { previousTotal: 1, headerAfterPrefix: false },
+    { previousTotal: 3, headerAfterPrefix: false },
+    { previousTotal: 3, headerAfterPrefix: true },
+  ])(
+    'receives a previous track across reordered FILE_START ($previousTotal prior chunks, prefix=$headerAfterPrefix)',
+    async ({ previousTotal, headerAfterPrefix }) => {
+      const { handleFilePrepare, handleFileStart, handleFileChunk } =
+        await import('../transfer-receive.ts');
+      const previousSize = (previousTotal - 1) * CHUNK_SIZE + 1;
+      setState('playlist.currentQueueItemId', Q[1]!);
+      setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+      setState('transfer.state', TRANSFER_STATE.READY);
+      setState('transfer.meta', {
+        queueItemId: Q[1],
+        name: 'track-1.mp3',
+        sessionId: 5,
+        total: previousTotal,
+        size: previousSize,
+      });
+      // Backward navigation cannot use the forward occurrence staged here.
+      setState('preload.activeTarget', {
+        queueItemId: Q[2]!,
+        indexHint: 2,
+        name: 'track-2.mp3',
+        sessionId: 6,
+      });
+      const incoming = {
+        queueItemId: Q[0],
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        sessionId: 7,
+        size: TWO_CHUNK_FILE_SIZE,
+      };
+      await handleFilePrepare({ ...incoming, type: 'file-prepare' }, conn);
+
+      // FILE_START travels on control, while chunks use the independent bulk
+      // channel. Their metadata must bootstrap the freshly prepared RAM slot.
+      handleFileChunk(
+        {
+          ...incoming,
+          type: 'file-chunk',
+          total: 2,
+          chunkIndex: 0,
+          chunk: new Uint8Array(CHUNK_SIZE),
+        },
+        conn,
+      );
+      if (headerAfterPrefix) {
+        await Promise.resolve();
+        handleFileStart({ ...incoming, type: 'file-start', total: 2 }, conn);
+      }
+      handleFileChunk(
+        { ...incoming, type: 'file-chunk', total: 2, chunkIndex: 1, chunk: u8(0xdd) },
+        conn,
+      );
+      await Promise.resolve();
+
+      expect(getState('transfer.meta')).toEqual(
+        expect.objectContaining({ queueItemId: Q[0], sessionId: 7, total: 2 }),
+      );
+      expect(getState('transfer.receivedCount')).toBe(2);
+      expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
+      await expectCompletedMime('song.mp3', 7, Q[0]!, 'audio/mpeg');
+
+      // A late control header must preserve the completed blob for decoding.
+      handleFileStart({ ...incoming, type: 'file-start', total: 2 }, conn);
+      await Promise.resolve();
+      expect(getState('transfer.receivedCount')).toBe(2);
+      await expectCompletedMime('song.mp3', 7, Q[0]!, 'audio/mpeg');
+    },
+  );
+
+  it.each([false, true])(
+    'recovers a missing suffix after chunks bootstrap PREPARE (late FILE_START=%s)',
+    async (lateFileStart) => {
+      vi.useFakeTimers();
+      const timers = await import('../../core/timers.ts');
+      const actualTimers =
+        await vi.importActual<typeof import('../../core/timers.ts')>('../../core/timers.ts');
+      vi.mocked(timers.setManagedTimer).mockImplementation(actualTimers.setManagedTimer);
+      vi.mocked(timers.clearManagedTimer).mockImplementation(actualTimers.clearManagedTimer);
+      const { handleFilePrepare, handleFileStart, handleFileChunk } =
+        await import('../transfer-receive.ts');
+      const { clearPreviousTrackState } = await import('../../player/decode.ts');
+      bus.on('storage:clear-previous-track', clearPreviousTrackState);
+      const recovery = vi.fn();
+      bus.on('storage:request-recovery', recovery);
+      const incoming = {
+        queueItemId: Q[0],
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        sessionId: 7,
+        size: TWO_CHUNK_FILE_SIZE,
+      };
+
+      try {
+        await handleFilePrepare({ ...incoming, type: 'file-prepare' }, conn);
+        handleFileChunk(
+          {
+            ...incoming,
+            type: 'file-chunk',
+            total: 2,
+            chunkIndex: 0,
+            chunk: new Uint8Array(CHUNK_SIZE),
+          },
+          conn,
+        );
+        await Promise.resolve();
+        if (lateFileStart) {
+          handleFileStart({ ...incoming, type: 'file-start', total: 2 }, conn);
+        }
+
+        expect(getState('transfer.receivedCount')).toBe(1);
+        await vi.advanceTimersByTimeAsync(13_001);
+        expect(recovery).toHaveBeenCalledTimes(1);
+        expect(ramContiguousCount('song.mp3', false, 7, Q[0]!)).toBe(1);
+      } finally {
+        actualTimers.clearAllManagedTimers();
+        vi.mocked(timers.setManagedTimer).mockReset();
+        vi.mocked(timers.clearManagedTimer).mockReset();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it('preserves the FILE_PREPARE queue item when chunk metadata replaces a lost FILE_START', async () => {
     const { handleFileChunk } = await import('../transfer-receive.ts');

@@ -1093,7 +1093,9 @@ export async function loadPreloadedTrack(
         () => {
           if (!ownsPublishedTarget()) return;
           log.debug('[Guest] Post-preload auto-sync');
-          bus.emit('sync:force-resync');
+          // This is a new file on the same live room clock. Keep its low-RTT
+          // samples while the host may already be transferring the successor.
+          bus.emit('sync:force-resync', { preserveClock: true });
         },
         500,
       );

@@ -13,8 +13,16 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { uploadFixture } from './helpers/file-upload.ts';
-import { readState, waitForPlaylistCount } from './helpers/wait.ts';
+import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
+import {
+  clickPlayButton,
+  navigateToTab,
+  readState,
+  waitForFilePlaybackReady,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
+  waitForState,
+} from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 
@@ -141,5 +149,129 @@ test.describe('Preload System', () => {
       return get('playlist.items') as unknown[];
     });
     expect(guestPlaylist).toHaveLength(2);
+  });
+
+  test('guest follows next and previous MP3 playback with a successor preloaded', async ({}, testInfo) => {
+    const messages: string[] = [];
+    for (const [name, page] of [
+      ['host', pair.hostPage],
+      ['guest', pair.guestPage],
+    ] as const) {
+      await page.addInitScript(() => localStorage.setItem('mxqr:logLevel', 'DEBUG'));
+      page.on('console', (message) => messages.push(`${name}: ${message.text()}`));
+    }
+    try {
+      await connectHostAndGuest(pair.hostPage, pair.guestPage);
+      await uploadFixtures(pair.hostPage, ['test01', 'test02', 'test03']);
+      await waitForPlaylistCount(pair.guestPage, 3);
+      const items = (await readState(pair.hostPage, 'playlist.items')) as Array<{
+        queueItemId: string;
+      }>;
+      const [first, second, third] = items.map((item) => item.queueItemId);
+      await waitForState(pair.hostPage, 'playlist.currentQueueItemId', first);
+      await waitForFilePlaybackReady(pair.hostPage);
+      await waitForFilePlaybackReady(pair.guestPage);
+      await clickPlayButton(pair.hostPage);
+      await waitForPlaybackProjection(pair.guestPage, 'PLAYING_AUDIO');
+      await expect
+        .poll(async () => {
+          const ready = (await readState(pair.guestPage, 'preload.ready')) as {
+            queueItemId?: string;
+          } | null;
+          return ready?.queueItemId;
+        })
+        .toBe(second);
+
+      await pair.hostPage.locator('#btn-next').click();
+      for (const page of [pair.hostPage, pair.guestPage]) {
+        await waitForState(page, 'playlist.currentQueueItemId', second);
+        await expect
+          .poll(async () => {
+            const resident = (await readState(page, 'files.current')) as {
+              queueItemId?: string;
+            } | null;
+            return resident?.queueItemId;
+          })
+          .toBe(second);
+        await waitForFilePlaybackReady(page);
+        await waitForPlaybackProjection(page, 'PLAYING_AUDIO');
+      }
+      await expect
+        .poll(async () => {
+          const ready = (await readState(pair.guestPage, 'preload.ready')) as {
+            queueItemId?: string;
+          } | null;
+          return ready?.queueItemId;
+        })
+        .toBe(third);
+
+      // After 3s, the first press restarts the current track; the second goes back.
+      // If playback is younger, the second press simply restarts the first track.
+      await pair.hostPage.locator('#btn-prev').click();
+      await pair.hostPage.locator('#btn-prev').click();
+      for (const page of [pair.hostPage, pair.guestPage]) {
+        await waitForState(page, 'playlist.currentQueueItemId', first);
+        await expect
+          .poll(async () => {
+            const resident = (await readState(page, 'files.current')) as {
+              queueItemId?: string;
+            } | null;
+            return resident?.queueItemId;
+          })
+          .toBe(first);
+        await waitForFilePlaybackReady(page);
+        await waitForPlaybackProjection(page, 'PLAYING_AUDIO');
+      }
+
+      // Direct playlist selection must also follow arbitrary earlier tracks,
+      // including another backward selection after moving forward again.
+      for (const queueItemId of [third, first, second, third, second, first]) {
+        await navigateToTab(pair.hostPage, 'playlist');
+        await pair.hostPage
+          .locator(`.track-name[data-action="play"][data-queue-item-id="${queueItemId}"]`)
+          .click();
+        for (const page of [pair.hostPage, pair.guestPage]) {
+          await waitForState(page, 'playlist.currentQueueItemId', queueItemId);
+          await expect
+            .poll(async () => {
+              const resident = (await readState(page, 'files.current')) as {
+                queueItemId?: string;
+              } | null;
+              return resident?.queueItemId;
+            })
+            .toBe(queueItemId);
+          await waitForFilePlaybackReady(page);
+          await waitForPlaybackProjection(page, 'PLAYING_AUDIO');
+        }
+      }
+    } finally {
+      await testInfo.attach('playback-console', {
+        body: messages.join('\n'),
+        contentType: 'text/plain',
+      });
+      for (const [name, page] of [
+        ['host', pair.hostPage],
+        ['guest', pair.guestPage],
+      ] as const) {
+        const state: Record<string, unknown> = {};
+        for (const key of [
+          'files.current',
+          'transfer.meta',
+          'transfer.localSessionId',
+          'transfer.receivedCount',
+          'transfer.state',
+          'playback.lifecycle',
+          'playback.activity',
+          'playlist.currentQueueItemId',
+          'preload.activeTarget',
+        ]) {
+          state[key] = await readState(page, key);
+        }
+        await testInfo.attach(`${name}-playback-state`, {
+          body: JSON.stringify(state, null, 2),
+          contentType: 'application/json',
+        });
+      }
+    }
   });
 });

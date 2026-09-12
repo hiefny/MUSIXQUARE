@@ -1041,12 +1041,29 @@ function syncVolumeSlider(): void {
 
 function syncVolumeAuthorityUI(): void {
   const locked = isSynchronizedVolumeLocked();
+  const group = getUiElement('volume-control-group');
+  if (group) {
+    if (locked) group.tabIndex = 0;
+    else group.removeAttribute('tabindex');
+    group.setAttribute(
+      'aria-label',
+      locked ? roomCapabilityRequiredMessage('effects.control') : t('player.volume'),
+    );
+  }
   for (const id of ['volume-slider', 'vol-icon-btn']) {
     const control = getUiElement(id) as HTMLInputElement | HTMLButtonElement | null;
     if (!control) continue;
     control.disabled = locked;
     control.setAttribute('aria-disabled', String(locked));
   }
+}
+
+function explainLockedVolume(event: Event): void {
+  if (!isSynchronizedVolumeLocked()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (event instanceof KeyboardEvent && event.repeat) return;
+  showRoomCapabilityRequired('effects.control');
 }
 
 // ─── Module State ───────────────────────────────────────────────
@@ -1203,6 +1220,16 @@ export function initPlayerControls(): void {
   $on('btn-prev', 'click', () => bus.emit('playlist:prev-track'));
   $on('play-btn', 'click', () => bus.emit('player:toggle-play'));
   $on('btn-next', 'click', () => bus.emit('playlist:next-track'));
+  // Disabled native controls cannot deliver clicks. Their wrapper receives
+  // pointer attempts via CSS and stays keyboard reachable to explain the lock.
+  getUiElement('volume-control-group')?.addEventListener('click', explainLockedVolume, {
+    capture: true,
+    signal: domSignal,
+  });
+  $on('volume-control-group', 'keydown', (event) => {
+    const { key } = event as KeyboardEvent;
+    if (key === 'Enter' || key === ' ') explainLockedVolume(event);
+  });
   // Mute button — native <button>, so Enter/Space auto-fires click
   $on('vol-icon-btn', 'click', () => toggleMute());
   $on('volume-slider', 'input', function (this: HTMLInputElement) {
@@ -1439,6 +1466,7 @@ export function initPlayerControls(): void {
     setTabTitleTrack(getTabTitleTrack());
     syncMediaSourceButtonAuthority();
     syncMainSyncButtonState();
+    syncVolumeAuthorityUI();
   };
   _busScope.on('i18n:changed', refreshPlayerText);
   _busScope.on('ui:player-panel-visible', refreshPlayerText);

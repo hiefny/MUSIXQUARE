@@ -1563,7 +1563,7 @@ interface BaseEventMap {
   'sync:arm-initial': [];
   'sync:close-manual': [];
   'sync:request-immediate-ping': [];
-  'sync:force-resync': [];
+  'sync:force-resync': [options?: { preserveClock?: boolean }];
   'sync:latency-update': [ms: number];
   /** Local-only inputs for the bounded, RAM-only sync flight recorder. */
   'sync:diagnostic-worker-tick': [id: string];

@@ -374,7 +374,13 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
       lifecycle === PLAYBACK_STATE.PAUSED) &&
     getState('playback.loadSource') === LOAD_SOURCE.PRELOAD_PROMOTED
   ) {
-    return !!data && queueItemId === getState('playlist.currentQueueItemId');
+    // PLAY can select a different occurrence before its FILE_PREPARE arrives.
+    // The old promoted resident must not suppress the new selection's bytes.
+    return (
+      !!data &&
+      queueItemId === getState('playlist.currentQueueItemId') &&
+      queueItemId === getState('files.current')?.queueItemId
+    );
   }
 
   // Same-transfer resident reuse: skip tail frames only when they belong to the exact
@@ -1133,9 +1139,10 @@ export async function handleFilePrepare(
     });
     bus.emit('storage:clear-previous-track', 'file-prepare');
     selectQueueItemById(queueItemId);
-    // Update meta
+    // A fresh occurrence cannot inherit the old transfer's chunk count. Bulk
+    // chunks may overtake FILE_START on the separate control channel; leaving
+    // total absent lets their metadata open the new RAM receive slot.
     setState('transfer.meta', {
-      ...meta,
       queueItemId,
       name: (data.name as string) || '',
       indexHint,
@@ -1294,6 +1301,27 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     clearManagedTimer('chunkWatchdog');
     completeAcceptedFileRequest(data, conn);
     log.debug(`[file-start] "${data.name}" already finalized in store; dropping stale restart`);
+    return;
+  }
+
+  // The independent bulk channel can deliver a valid prefix before its
+  // FILE_START control header. Keep that exact RAM prefix and reorder cursor;
+  // resetting here would discard chunks the sender has already delivered.
+  // Counters alone cannot prove ownership after an interrupted receive.
+  const receivedPrefix = finalizedIdentityMatches
+    ? ramContiguousCount(queueItemId, false, incomingSid)
+    : 0;
+  if (
+    incomingSid === localSid &&
+    getState('transfer.state') === TRANSFER_STATE.RECEIVING &&
+    receivedPrefix > 0 &&
+    getState('transfer.receivedCount') === receivedPrefix &&
+    nextExpectedChunk === receivedPrefix
+  ) {
+    clearManagedTimer('prepareWatchdog');
+    startChunkWatchdog();
+    completeAcceptedFileRequest(data, conn);
+    log.debug(`[file-start] Retaining exact received prefix (${receivedPrefix} chunks)`);
     return;
   }
 
@@ -1745,6 +1773,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       // Reset chunk pointer for new file (mirrors handleFileStart/handleFileResume)
       nextExpectedChunk = 0;
       setState('transfer.receivedCount', 0);
+      startChunkWatchdog();
       log.debug(`[FileChunk] Recovered meta from chunk: ${fname} (${recoveredMeta.total} chunks)`);
 
       // Re-read after meta-recovery updated state (prevents stale reference)

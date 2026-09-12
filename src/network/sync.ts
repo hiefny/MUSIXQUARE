@@ -874,13 +874,15 @@ export function initSync(): void {
     }
   });
 
-  // Long background resume recovery: force the next valid SYNC_PONG to
-  // re-lock local-file playback even when drift is under the normal 2s
-  // correction threshold.
-  bus.on('sync:force-resync', () => {
+  // Force the next valid SYNC_PONG to re-lock local-file playback even when
+  // drift is under the normal correction threshold. A background resume may
+  // have stepped the device clock, so it keeps the default cold calibration.
+  // A decoded track activation can preserve the current host clock while
+  // requesting the same immediate playback correction.
+  bus.on('sync:force-resync', (options) => {
     const hostConn = getState('network.hostConn');
     if (!hostConn?.open) return;
-    resetClockSamples();
+    if (options?.preserveClock !== true) resetClockSamples();
     _needsInitialSync = true;
     bus.emit('sync:request-immediate-ping');
   });

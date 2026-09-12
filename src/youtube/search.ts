@@ -452,13 +452,14 @@ function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
   status.style.color = color;
 }
 
-function setYouTubePrimaryButton(enabled: boolean): void {
+function setYouTubePrimaryButton(enabled: boolean, busy = false): void {
   const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
   if (!playBtn) return;
   playBtn.disabled = !enabled;
   playBtn.style.opacity = enabled ? '1' : '0.5';
-  playBtn.setAttribute('data-i18n', 'player.play_start');
-  playBtn.textContent = t('player.play_start');
+  const label: I18nKey = busy ? 'common.wait' : 'player.play_start';
+  playBtn.setAttribute('data-i18n', label);
+  playBtn.textContent = t(label);
 }
 
 function setYouTubeSearchButton(enabled: boolean, busy = false): void {
@@ -775,7 +776,7 @@ export function fetchYouTubePreview(url: string): void {
   }
 
   setStatus('youtube.fetching_info');
-  setYouTubePrimaryButton(false);
+  setYouTubePrimaryButton(false, true);
 
   setManagedTimer(
     'yt-preview-debounce',

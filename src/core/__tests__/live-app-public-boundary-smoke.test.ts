@@ -8,6 +8,8 @@ import {
   verifyProductionOriginBoundary,
   verifyUnknownHtmlRouteBoundary,
 } from '../../../scripts/live-app-public-boundary-smoke.mts';
+import ja from '../../i18n/ja.ts';
+import ko from '../../i18n/ko.ts';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
 describe('live app public boundary smoke', () => {
@@ -15,8 +17,8 @@ describe('live app public boundary smoke', () => {
     const records = [
       ['/', 'en', 'MUSIXQUARE', 'https://musixquare.com/', 'no-store'],
       ['/en/', 'en', 'MUSIXQUARE', 'https://musixquare.com/', 'no-store'],
-      ['/ko/', 'ko', 'MUSIXQUARE', 'https://musixquare.com/ko/', 'no-store'],
-      ['/ja/', 'ja', 'MUSIXQUARE', 'https://musixquare.com/ja/', 'no-store'],
+      ['/ko/', 'ko', ko['app.search_title'], 'https://musixquare.com/ko/', 'no-store'],
+      ['/ja/', 'ja', ja['app.search_title'], 'https://musixquare.com/ja/', 'no-store'],
       [
         '/zh-hans/about',
         'zh-Hans',

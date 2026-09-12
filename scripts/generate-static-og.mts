@@ -25,7 +25,7 @@ const repoRoot = path.resolve(__dirname, '..');
 // ─── Card templates ──────────────────────────────────────────────
 const CARD_THEMES = {
   blue: { background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', color: 'white' },
-  yellow: { background: 'linear-gradient(135deg, #ffb600 0%, #f39200 100%)', color: 'white' },
+  yellow: { background: 'linear-gradient(135deg, #ffae00 0%, #ed7b00 100%)', color: 'white' },
   // Light-theme --text-main from css/style.css.
   white: { background: '#ffffff', color: '#303540' },
 } as const;

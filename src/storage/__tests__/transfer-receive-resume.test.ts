@@ -1310,6 +1310,8 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       setState('transfer.meta', promoted);
       setState('files.current', {
         ...promoted,
+        indexHint: 1,
+        mime: 'audio/mpeg',
         blob: new Blob([u8(0xbb)], { type: 'audio/mpeg' }),
       });
       // PLAY has selected A before the debounced PREPARE. B still owns the

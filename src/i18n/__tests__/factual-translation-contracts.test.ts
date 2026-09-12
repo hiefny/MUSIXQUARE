@@ -22,8 +22,8 @@ const completedLanguageContracts = {
   ],
   ko: ['브라우저만 있으면', '지원되는 브라우저', '컴퓨터', '송신 중인 기기', '볼륨', /완벽|무오차/],
   ja: ['対応ブラウザ', '対応ブラウザ', 'パソコン', '共有元デバイス', '音量', /フレーム|正確/],
-  'zh-hans': ['受支持浏览器', '受支持的浏览器', '电脑', '共享设备', '音量', /帧|精准|准确/],
-  'zh-hant': ['支援瀏覽器', '支援的瀏覽器', '電腦', '分享裝置', '音量', /幀|精準|準確/],
+  'zh-hans': ['受支持浏览器', '受支持的浏览器', '电脑', '发起共享的设备', '音量', /帧|精准|准确/],
+  'zh-hant': ['支援瀏覽器', '支援的瀏覽器', '電腦', '發起分享的裝置', '音量', /幀|精準|準確/],
   es: [
     'navegador compatible',
     'navegadores compatibles',
@@ -172,23 +172,17 @@ describe('completed translation factual contracts', () => {
       expect(dictionary['standin.feature_value'], `${language}.standin.feature_value`).toContain(
         'Beta',
       );
-      if (!Object.prototype.hasOwnProperty.call(completedLanguageContracts, language)) {
-        // The two-hour limit follows remote/SFU delivery. Standard LAN-only
-        // sharing remains active, as covered by system-capture-stop.test.ts.
-        expect(
-          dictionary['standin.caveat'],
-          `${language}.standin.caveat duration scope`,
-        ).not.toMatch(/\bStandard\b/iu);
-        for (const token of ['Cloudflare', 'SFU', 'PRO', 'LAN-direct']) {
-          expect(dictionary['standin.caveat'], `${language}.standin.caveat ${token}`).toContain(
-            token,
-          );
-        }
+      // The consumer copy describes direct versus remote/relayed sharing without
+      // internal routing names. Runtime duration coverage lives in system-capture-stop.test.ts.
+      for (const token of ['Beta', 'Chromium']) {
+        expect(dictionary['standin.caveat'], `${language}.standin.caveat ${token}`).toContain(
+          token,
+        );
       }
       // Device and duration limits are deliberately written as inflected number words in many
       // locales (Arabic even uses a dual noun form), so ASCII-digit matching would reject the
       // more natural translation. Their semantic values are covered by the reviewed locale
-      // contracts while the invariant product and transport terms stay machine-verifiable here.
+      // contracts while the browser requirement and Beta label stay machine-verifiable here.
     }
 
     for (const [language, contract] of Object.entries(completedLanguageContracts)) {

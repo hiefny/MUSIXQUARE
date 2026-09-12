@@ -10,7 +10,6 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG } from '../core/constants.ts';
-import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { getRoomContext, subscribeRoomAuthorityLifecycle } from '../rooms/authority.ts';
@@ -76,16 +75,17 @@ import {
   RENDEZVOUS_CALIBRATE_DELAY_MS,
   RENDEZVOUS_DRIFT_SUPPRESS_MS,
   LATENCY_EMA_RATE,
-  ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS,
   LATENCY_CLAMP_MAX_MS,
   LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
+import { getEffectiveYouTubePlayLatencyMs } from './play-latency.ts';
 import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';
 import {
   cancelStandardHostManualOffsetTransaction,
   isStandardHostManualOffsetTransactionPending,
   repairStandardHostManualOffsetTransaction,
   requestStandardHostManualOffsetTransaction,
+  requestUserStandardHostManualOffsetTransaction,
   resetStandardHostManualOffsetTransaction,
 } from './standard-host-manual-offset-gate.ts';
 
@@ -114,13 +114,6 @@ let _manualOffsetEndpointIdentity: ManualOffsetEndpointIdentity = null;
 function cancelClockAction(): void {
   clearManagedTimer('yt-clock-action');
   bus.emit('youtube:sync-loading', false, CLOCK_ACTION_LOADING_OWNER);
-}
-
-/** Effective playVideo-to-audible latency for guest rendezvous calibration. */
-function getEffectiveGuestPlayLatencyMs(): number {
-  const learned = getState('youtube.guestPlayLatency') ?? 0;
-  if (IS_ANDROID) return Math.max(learned, ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS);
-  return learned;
 }
 
 function getYouTubeManualOffsetSec(): number {
@@ -568,7 +561,10 @@ function runManualOffsetApplyRendezvous(): void {
   clearPendingManualOffsetApply();
 }
 
-function setCoordinatorManualYouTubeOffset(requestedOffsetSeconds: number): void {
+function setCoordinatorManualYouTubeOffset(
+  requestedOffsetSeconds: number,
+  inputMode?: 'debounced' | 'committed',
+): void {
   if (
     isYouTubeZeroStartProtocolActive() ||
     !isCanonicalYouTubeManualOffsetEndpoint() ||
@@ -580,7 +576,11 @@ function setCoordinatorManualYouTubeOffset(requestedOffsetSeconds: number): void
   const player = getYouTubePlayer();
   if (!player?.getCurrentTime || !player.seekTo) return;
   if (isStandardHostYouTubeManualOffsetEndpoint()) {
-    requestStandardHostManualOffsetTransaction(player, requestedOffsetSeconds);
+    if (inputMode) {
+      requestUserStandardHostManualOffsetTransaction(player, requestedOffsetSeconds, inputMode);
+    } else {
+      requestStandardHostManualOffsetTransaction(player, requestedOffsetSeconds);
+    }
     return;
   }
   try {
@@ -926,7 +926,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
 
-  const guestPlayLatency = getEffectiveGuestPlayLatencyMs();
+  const guestPlayLatency = getEffectiveYouTubePlayLatencyMs();
 
   // Extrapolate host's current position
   const nowHost = getHostNow();

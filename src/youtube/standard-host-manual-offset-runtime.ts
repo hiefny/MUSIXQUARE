@@ -16,6 +16,7 @@ import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import { getYouTubePlayer, setYtAutoplayIntent } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
+import { createHostLocalRendezvous, type HostLocalRendezvous } from './standard-host-rendezvous.ts';
 import {
   beginProCoordinatorYouTubeNudge,
   clearProCoordinatorYouTubeNudgeAnchor,
@@ -54,6 +55,7 @@ interface StandardHostManualOffsetTransaction extends StandardHostManualOffsetId
   requestedOffset: number;
   duration: number;
   playing: boolean;
+  ownsPlayingPreparation: boolean;
   requiresPlaylistDetach: boolean;
   detachIssued: boolean;
   lastCommandAt: number;
@@ -64,6 +66,7 @@ interface StandardHostManualOffsetTransaction extends StandardHostManualOffsetId
   commandIssued: boolean;
   commandBaselineOffset: number;
   seekObserved: boolean;
+  rendezvous: HostLocalRendezvous | null;
 }
 
 let transaction: StandardHostManualOffsetTransaction | null = null;
@@ -75,6 +78,7 @@ function getStandardHostEndpointIdentity(): `standard-host:${string}` | null {
 }
 
 function clearTransactionRuntime(): void {
+  transaction?.rendezvous?.cancel();
   transaction = null;
   clearManagedTimer(VERIFY_TIMER);
   clearManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER);
@@ -82,6 +86,7 @@ function clearTransactionRuntime(): void {
 }
 
 function cancelForMediaTransition(): void {
+  transaction?.rendezvous?.cancel();
   transaction = null;
   clearManagedTimer(VERIFY_TIMER);
 }
@@ -222,10 +227,18 @@ function issueCommand(active: StandardHostManualOffsetTransaction, localTarget: 
     return;
   }
   player.seekTo(localTarget, true);
+  if (active.ownsPlayingPreparation) {
+    // An internal correction can replace a scheduled edit after its pause.
+    // The replacement inherits the obligation to resume this host only.
+    setYtAutoplayIntent(true);
+    player.playVideo();
+  }
 }
 
 function beginRollback(active: StandardHostManualOffsetTransaction, reason: string): void {
   if (transaction !== active || !active.lease.isCurrent()) return;
+  active.rendezvous?.cancel();
+  active.rendezvous = null;
   const shouldSupersedeDetachWithReload = active.requiresPlaylistDetach && active.detachIssued;
   active.phase = 'rollback';
   active.phaseStartedAt = Date.now();
@@ -237,7 +250,7 @@ function beginRollback(active: StandardHostManualOffsetTransaction, reason: stri
   active.targetObservationCount = 0;
   active.lastObservedResidual = null;
   active.seekObserved = false;
-  setState('sync.youtubeLocalOffset', 0);
+  active.lease.publishRequestedOffset(0);
   bus.emit('sync:display-update');
   armGate(active);
 
@@ -269,6 +282,10 @@ function beginRollback(active: StandardHostManualOffsetTransaction, reason: stri
     } else {
       active.player.seekTo(canonicalTime, true);
     }
+    if (active.ownsPlayingPreparation) {
+      setYtAutoplayIntent(true);
+      active.player.playVideo();
+    }
     active.lastCommandAt = Date.now();
     log.debug(`[YouTube Sync] Standard-host manual offset rollback (${reason})`);
   } catch (error) {
@@ -285,6 +302,22 @@ function verify(active: StandardHostManualOffsetTransaction): void {
   }
 
   try {
+    if (active.rendezvous) {
+      const result = active.rendezvous.poll();
+      if (result === 'failed') {
+        beginRollback(active, 'rendezvous-unready');
+        return;
+      }
+      if (result === 'pending') {
+        scheduleVerification(active);
+        return;
+      }
+      active.rendezvous = null;
+      active.commandIssued = true;
+      active.seekObserved = true;
+      active.phaseStartedAt = Date.now();
+      active.lastCommandAt = Date.now();
+    }
     const player = active.player;
     const duration = player.getDuration?.() || active.duration;
     const localTime = player.getCurrentTime();
@@ -552,6 +585,8 @@ function begin(lease: StandardHostManualOffsetLease): void {
     requestedOffset: target.requestedOffset,
     duration,
     playing,
+    ownsPlayingPreparation:
+      playing && (lease.scheduled || !!(samePendingMedia && previous.ownsPlayingPreparation)),
     requiresPlaylistDetach:
       canReusePendingDetach ||
       (target.requestedOffset !== 0 &&
@@ -567,18 +602,37 @@ function begin(lease: StandardHostManualOffsetLease): void {
     commandIssued: false,
     commandBaselineOffset: localTime - canonicalTime,
     seekObserved: false,
+    rendezvous: null,
   };
+  previous?.rendezvous?.cancel();
   transaction = next;
   if (!lease.bindRuntimeHooks(runtimeHooks())) {
     clearTransactionRuntime();
     return;
   }
-  setState('sync.youtubeLocalOffset', target.requestedOffset);
+  lease.publishRequestedOffset(target.requestedOffset);
   bus.emit('sync:display-update');
   armGate(next);
 
   try {
-    if (!canReusePendingDetach && !inheritedPendingIdentity) issueCommand(next, target.localTime);
+    if (lease.scheduled && playing && !inheritedPendingIdentity) {
+      next.rendezvous = createHostLocalRendezvous({
+        player,
+        videoId: next.videoId,
+        duration,
+        requestedOffset: target.requestedOffset,
+        detachPlaylist: next.requiresPlaylistDetach,
+        isCurrent: () => transaction === next && hasHardIdentity(next),
+        canonicalNow: () => toCanonicalYouTubeTime(0, duration),
+        onDetach: () => {
+          next.detachIssued = true;
+        },
+        onWake: () => verify(next),
+      });
+      next.rendezvous.start();
+    } else if (!canReusePendingDetach && !inheritedPendingIdentity) {
+      issueCommand(next, target.localTime);
+    }
     verify(next);
   } catch (error) {
     log.debug('[YouTube Sync] Standard-host local apply failed:', error);

@@ -164,7 +164,15 @@ function setYouTubeManualSyncOffset(nextOffset: number, applyImmediately: boolea
     clearManagedTimer('sync-youtube-nudge-apply');
     // The iframe handler stores the offset that was actually achievable at
     // 0/duration boundaries. Do not pre-write the requested value here.
-    bus.emit('youtube:set-coordinator-manual-offset', next);
+    if (getRoomContext().kind === 'standard') {
+      bus.emit(
+        'youtube:set-coordinator-manual-offset',
+        next,
+        applyImmediately ? 'committed' : 'debounced',
+      );
+    } else {
+      bus.emit('youtube:set-coordinator-manual-offset', next);
+    }
     return;
   }
   setState('sync.youtubeLocalOffset', next);
@@ -219,7 +227,11 @@ export function handleAutoSync(): void {
     isPlaybackModeYouTube();
   if (isCanonicalTimelineYouTubeReset) {
     clearManagedTimer('sync-youtube-nudge-apply');
-    bus.emit('youtube:set-coordinator-manual-offset', 0);
+    if (getRoomContext().kind === 'standard') {
+      bus.emit('youtube:set-coordinator-manual-offset', 0, 'committed');
+    } else {
+      bus.emit('youtube:set-coordinator-manual-offset', 0);
+    }
     showToast(t('toast.sync_reset'));
     return;
   }

@@ -272,15 +272,21 @@ describe('localized static HTML materialization', () => {
     }
   });
 
-  it('uses one uppercase app brand title while keeping localized descriptions', () => {
+  it('uses approved Korean and Japanese bilingual titles while keeping the shared site brand', () => {
     const koreanApp = documentFor(materializedApp('ko'));
     const japaneseApp = documentFor(materializedApp('ja'));
+    const bilingualTitles: Partial<Record<LanguageCode, string>> = {
+      ko: 'MUSIXQUARE 뮤직스퀘어',
+      ja: 'MUSIXQUARE ミュージックスクエア',
+    };
 
     for (const option of LANGUAGE_OPTIONS) {
-      expect(APP_DICTIONARIES[option.code]['app.search_title'], option.code).toBe('MUSIXQUARE');
+      expect(APP_DICTIONARIES[option.code]['app.search_title'], option.code).toBe(
+        bilingualTitles[option.code] ?? 'MUSIXQUARE',
+      );
     }
-    expect(koreanApp.title).toBe('MUSIXQUARE');
-    expect(japaneseApp.title).toBe('MUSIXQUARE');
+    expect(koreanApp.title).toBe(bilingualTitles.ko);
+    expect(japaneseApp.title).toBe(bilingualTitles.ja);
     expect(koreanApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
       '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
     );

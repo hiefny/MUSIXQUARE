@@ -21,6 +21,7 @@ import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
   getPlaybackSelectionTrackMeta,
+  isPlaybackModeYouTube,
   setPlaybackTrackMeta,
   updatePlaybackTrackDetails,
 } from '../player/ownership.ts';
@@ -106,6 +107,21 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   // Cancel any in-flight file transfer before switching to YouTube mode.
   cancelInFlightTransfer();
 
+  // Capture physical ownership before selecting the incoming logical queue
+  // occurrence. Two different rows may intentionally resolve to the same
+  // YouTube video; in that case the persistent guest iframe is already the
+  // correct decoder/buffer and must not receive an extra cueVideoById(sameId)
+  // immediately before ZeroStart PREPARE takes ownership of it.
+  const previousQueueItemId = getCurrentQueueItemId();
+  const residentPlayer = getYouTubePlayer();
+  let residentVideoId = '';
+  try {
+    residentVideoId = residentPlayer?.getVideoData?.()?.video_id || '';
+  } catch {
+    // An unreadable/rebuilding iframe falls through to the established load path.
+  }
+  const hadYouTubeOwnership = isPlaybackModeYouTube();
+
   // The ordered playlist snapshot must land first. queueItemId selects the
   // exact occurrence even if its position changed before this command.
   const playlistItem = getQueueItemById(queueItemId);
@@ -132,19 +148,37 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     }
   }
 
-  // When we have a videoId, force playlistId to null so the iframe's native
-  // playlist engine stays dormant — single-video mode only.
-  loadYouTubeVideo(
-    finalVideoId,
-    finalVideoId ? null : finalPlaylistId,
-    autoplay ?? false,
-    subIndex ?? 0,
+  const reusesResidentOccurrence = Boolean(
+    hadYouTubeOwnership &&
+      previousQueueItemId &&
+      previousQueueItemId !== queueItemId &&
+      finalVideoId &&
+      residentPlayer &&
+      residentVideoId === finalVideoId,
   );
-  // The host sends PLAYLIST_INFO before YOUTUBE_PLAY. A fresh iframe load
-  // tears down the prior mode and cancels that just-started title fetch, so
-  // restart population after the destructive boundary using the queue item's
-  // durable playlist identity (the physical command may have normalized it
-  // to null for single-video mode).
+
+  if (reusesResidentOccurrence) {
+    // This is a logical occurrence boundary, not a media replacement. Keep the
+    // exact resident iframe untouched so the following ZeroStart PREPARE can
+    // adopt it as `resident-reposition`. The host's legacy YOUTUBE_STATE path
+    // also carries queueItemId + target time, so non-ZeroStart cohorts still
+    // seek/restart this same resident deterministically without a fresh cue.
+    setYouTubeSubIndex(subIndex ?? 0);
+    log.debug('[YouTube] Guest duplicate-video occurrence: retaining resident iframe');
+  } else {
+    // When we have a videoId, force playlistId to null so the iframe's native
+    // playlist engine stays dormant — single-video mode only.
+    loadYouTubeVideo(
+      finalVideoId,
+      finalVideoId ? null : finalPlaylistId,
+      autoplay ?? false,
+      subIndex ?? 0,
+    );
+  }
+
+  // The host sends PLAYLIST_INFO before YOUTUBE_PLAY. A fresh iframe load can
+  // tear down the prior title fetch; a resident occurrence still needs the new
+  // row's durable playlist identity projected for navigation/title recovery.
   if (playlistItem.playlistId) {
     bus.emit('youtube:populate-sub-items', playlistItem.playlistId, queueItemId);
   }
@@ -328,18 +362,3 @@ export function handleRequestYouTubePlaylistInfo(
 
 /**
  * Encapsulates the cancellation of file transfers to prevent
- * leaky abstractions across module domains.
- */
-function cancelInFlightTransfer(): void {
-  // R2 download first, UNCONDITIONALLY: the remote path never sets
-  // transfer.state, so the RECEIVING/PROCESSING gate below is blind to it —
-  // without this an in-flight whole-object download keeps streaming over mobile
-  // data through the whole YouTube switch, repaints the loader on top of the
-  // new mode, and leaves the 5-minute wait timer armed. Idempotent no-op when
-  // nothing is in flight. (No cycle: remote-share imports no youtube/*.)
-  cancelRemoteShareWait('youtube-play');
-
-  clearManagedTimer('preloadRecoveryWatchdog');
-  clearManagedTimer('preloadUiWatchdog');
-  cancelIncomingFileTransfer('youtube-play');
-}

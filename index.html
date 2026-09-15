@@ -3,6 +3,12 @@
 <html lang="en" class="setup-boot-block">
   <head>
     <meta charset="UTF-8" />
+    <!-- MUSIXQUARE is a fixed-scale application surface, not a reflowing
+         document. Keep browser zoom disabled; see docs/mobile-app-zoom-policy.md. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <!-- Sync bootstrap: scrub one-time PRO credentials before app code, then
          apply Android viewport, language, and theme preflight. The main SPA
          deliberately does not load third-party analytics. Source:
@@ -11,4 +17,3816 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v593"></script>
+    <script src="/bootstrap.js?cache=v592"></script>
+
+    <link rel="canonical" href="https://musixquare.com/" />
+    <!-- mxqr-hreflang:start -->
+    <link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <link rel="alternate" hreflang="hi" href="https://musixquare.com/hi/" />
+    <link rel="alternate" hreflang="bn" href="https://musixquare.com/bn/" />
+    <link rel="alternate" hreflang="ta" href="https://musixquare.com/ta/" />
+    <link rel="alternate" hreflang="te" href="https://musixquare.com/te/" />
+    <link rel="alternate" hreflang="ms" href="https://musixquare.com/ms/" />
+    <link rel="alternate" hreflang="tl-PH" href="https://musixquare.com/fil/" />
+    <link rel="alternate" hreflang="ar" href="https://musixquare.com/ar/" />
+    <link rel="alternate" hreflang="ur" href="https://musixquare.com/ur/" />
+    <link rel="alternate" hreflang="he" href="https://musixquare.com/he/" />
+    <link rel="alternate" hreflang="uk" href="https://musixquare.com/uk/" />
+    <link rel="alternate" hreflang="ro" href="https://musixquare.com/ro/" />
+    <link rel="alternate" hreflang="cs" href="https://musixquare.com/cs/" />
+    <link rel="alternate" hreflang="el" href="https://musixquare.com/el/" />
+    <link rel="alternate" hreflang="fa" href="https://musixquare.com/fa/" />
+    <link rel="alternate" hreflang="mr" href="https://musixquare.com/mr/" />
+    <link rel="alternate" hreflang="gu" href="https://musixquare.com/gu/" />
+    <link rel="alternate" hreflang="kn" href="https://musixquare.com/kn/" />
+    <link rel="alternate" hreflang="ml" href="https://musixquare.com/ml/" />
+    <link rel="alternate" hreflang="pa" href="https://musixquare.com/pa/" />
+    <link rel="alternate" hreflang="sv" href="https://musixquare.com/sv/" />
+    <link rel="alternate" hreflang="da" href="https://musixquare.com/da/" />
+    <link rel="alternate" hreflang="nb" href="https://musixquare.com/nb/" />
+    <link rel="alternate" hreflang="fi" href="https://musixquare.com/fi/" />
+    <link rel="alternate" hreflang="hu" href="https://musixquare.com/hu/" />
+    <link rel="alternate" hreflang="bg" href="https://musixquare.com/bg/" />
+    <link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <!-- mxqr-hreflang:end -->
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+
+    <meta name="application-name" content="MUSIXQUARE" />
+    <meta name="apple-mobile-web-app-title" content="MUSIXQUARE" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="google-site-verification" content="7fu3Buf9PDMn-9nYRnTCz5-Xx14d4gQAM90ZY5wdfQE" />
+    <meta name="google-site-verification" content="coyQjmtD4yeX5jE4nThOTTJ0QUkAkAFNPeR-8QR2H2k" />
+    <meta name="naver-site-verification" content="34352e8940f2fd7c67d54d6641555dbcc89ba39f" />
+    <meta property="og:title" content="MUSIXQUARE" />
+    <meta
+      property="og:description"
+      content="Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MUSIXQUARE" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ko_KR" />
+    <meta property="og:url" content="https://musixquare.com/" />
+    <meta property="og:image" content="https://musixquare.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MUSIXQUARE: Play Together, Watch Together" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@musixquare" />
+    <meta name="twitter:title" content="MUSIXQUARE" />
+    <meta
+      name="twitter:description"
+      content="Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required."
+    />
+    <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
+    <title>MUSIXQUARE</title>
+    <meta
+      name="description"
+      content="Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required."
+    />
+    <script type="application/ld+json" data-mxqr-website-schema>
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": "https://musixquare.com/#website",
+        "url": "https://musixquare.com/",
+        "name": "MUSIXQUARE",
+        "sameAs": ["https://x.com/musixquare", "https://github.com/hiefny/MUSIXQUARE"],
+        "inLanguage": "en"
+      }
+    </script>
+    <link rel="icon" href="/icons/icon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/icon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <!-- FOUC guard lives inside style.css (`body { opacity: 0 }` unlayered)
+         and gets revealed by adding body.fouc-loaded once the stylesheet
+         parses. No inline <style> needed → CSP can drop style-src
+         'unsafe-inline'. -->
+    <link rel="stylesheet" href="css/app.css" />
+    <noscript><link rel="stylesheet" href="/noscript.css" /></noscript>
+
+    <!-- Reveal body (toggles body.fouc-loaded) once style.css has parsed.
+         Source: browser/classic-runtime/fouc-cleanup.ts -->
+    <script src="/fouc-cleanup.js"></script>
+
+    <!-- Apply wordmark animation timing (data-wt/data-wd → CSS custom props).
+         Source: browser/classic-runtime/wordmark-anim.ts -->
+    <script src="/wordmark-anim.js" defer></script>
+  </head>
+
+  <body>
+    <a href="#tab-play" class="skip-link">Skip to content</a>
+    <h1 class="sr-only" data-i18n="app.search_title">MUSIXQUARE</h1>
+    <p class="sr-only" data-i18n="app.search_description">
+      Turn phones, tablets, and computers into one synchronized wireless audio system. Play music,
+      YouTube, and system audio together in your browser, with no installation required.
+    </p>
+
+    <noscript>
+      <div class="noscript-fallback">
+        MUSIXQUARE requires JavaScript. Enable JavaScript in your browser settings and try again.
+      </div>
+    </noscript>
+
+    <section
+      id="bootstrap-failure"
+      class="bootstrap-failure"
+      role="alert"
+      aria-labelledby="bootstrap-failure-title"
+    >
+      <strong id="bootstrap-failure-title">MUSIXQUARE</strong>
+      <p>The app could not start.</p>
+      <form method="get">
+        <button id="bootstrap-retry" type="submit">Retry</button>
+      </form>
+    </section>
+
+    <header id="main-header">
+      <div class="header-progress-bg" id="header-progress-bg"></div>
+
+      <div class="header-content-wrapper">
+        <button
+          class="app-logo header-default-content"
+          id="app-logo"
+          type="button"
+          aria-label="Go to Home"
+          data-i18n-aria-label="nav.go_home"
+        >
+          <svg
+            class="logo-svg logo-header"
+            id="header-standard-wordmark"
+            viewBox="43 12 214 24"
+            aria-hidden="true"
+            fill="currentColor"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <polygon
+              points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"
+            />
+            <polygon
+              points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"
+            />
+            <polygon
+              points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"
+            />
+            <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5" />
+            <polygon
+              points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"
+            />
+            <path
+              d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"
+            />
+            <polygon
+              points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"
+            />
+            <path
+              d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"
+            />
+            <path
+              d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"
+            />
+            <rect x="237.2284599" y="12.7587935" width="18" height="4.5" />
+            <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
+            <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
+          </svg>
+          <svg
+            class="logo-svg logo-header header-pro-wordmark"
+            id="header-pro-wordmark"
+            viewBox="43 12 170 24"
+            aria-hidden="true"
+            fill="currentColor"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <!-- MXQR reuses the production MUSIXQUARE glyphs verbatim. P and O
+                 are the smallest possible derivatives of its R and Q bodies. -->
+            <polygon
+              data-glyph="M"
+              points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"
+            />
+            <polygon
+              data-glyph="X"
+              transform="translate(-54 0)"
+              points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"
+            />
+            <path
+              data-glyph="Q"
+              transform="translate(-54 0)"
+              d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"
+            />
+            <path
+              data-glyph="R"
+              transform="translate(-99 0)"
+              d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"
+            />
+            <g class="header-pro-suffix" data-wordmark-segment="pro">
+              <path
+                data-glyph="P"
+                transform="translate(-67.5 0)"
+                fill-rule="evenodd"
+                d="M232.7205633,27.7627963l-.0039999-14.9999994-17.9999992.0053333.0039999,14.9999994.0026666,7.4999996,4.4999998-.0013333-.0026666-7.4999996,13.4999994-.0039999ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,5.9999998-8.9999996.0026666-.0013333-5.9999998Z"
+              />
+              <path
+                data-glyph="R"
+                transform="translate(-45 0)"
+                d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"
+              />
+              <path
+                data-glyph="O"
+                transform="translate(46 0)"
+                fill-rule="evenodd"
+                d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,17.9999992-.0053333-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-8.9999996.0026666-.0039999-13.4999994,8.9999996-.0026666Z"
+              />
+            </g>
+          </svg>
+        </button>
+      </div>
+
+      <div class="header-loading-text" id="header-loading-text">
+        <span class="header-loading-text-content">Loading...</span>
+      </div>
+
+      <div class="header-right header-default-content flex-row-center">
+        <button
+          type="button"
+          class="role-badge"
+          id="role-badge"
+          aria-haspopup="dialog"
+          aria-controls="account-dialog"
+        >
+          <span id="role-text">LOGIN</span>
+        </button>
+        <button
+          class="header-help-btn"
+          id="btn-help-compact"
+          aria-label="Help"
+          data-i18n-aria-label="common.help"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
+            />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div
+      id="tab-play"
+      class="tab-content active"
+      role="tabpanel"
+      aria-labelledby="nav-play"
+      tabindex="-1"
+      data-custom-scroll
+    >
+      <div class="tab-header play-header-desktop">
+        <span class="tab-title" data-i18n="nav.home">Home</span>
+      </div>
+      <div class="tab-body" data-custom-scroll>
+        <div class="playback-stage">
+          <div class="vinyl-wrapper">
+            <canvas
+              id="visualizerCanvas"
+              role="button"
+              tabindex="0"
+              aria-pressed="false"
+              aria-labelledby="visualizer-accessible-label visualizer-current-mode"
+              aria-describedby="visualizer-mode-hint"
+            ></canvas>
+            <span id="visualizer-accessible-label" class="sr-only" data-i18n="player.visualizer"
+              >Audio visualizer</span
+            >
+            <span
+              id="visualizer-current-mode"
+              class="sr-only"
+              data-i18n="player.visualizer_circular"
+              >Circular</span
+            >
+            <span id="visualizer-mode-hint" class="sr-only" data-i18n="player.visualizer_mode_hint"
+              >Choose how sound is visualized.</span
+            >
+          </div>
+
+          <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
+          <div class="video-wrapper" aria-busy="false">
+            <div
+              id="youtube-sync-loading-overlay"
+              class="youtube-sync-loading-overlay"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              aria-hidden="true"
+              hidden
+            >
+              <span
+                class="material-elastic-spinner youtube-sync-loading-spinner"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                </svg>
+              </span>
+              <span data-i18n="toast.yt_sync_start">Syncing...</span>
+            </div>
+            <button
+              class="fullscreen-btn"
+              id="btn-fullscreen"
+              aria-label="Toggle fullscreen"
+              data-i18n-aria-label="player.fullscreen"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="track-box">
+          <div class="track-title-wrapper" dir="auto">
+            <div class="track-title" id="track-title" data-i18n="player.no_media">
+              No media playing
+            </div>
+          </div>
+          <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">
+            Select a file or check the playlist
+          </div>
+        </div>
+
+        <div class="controls-area">
+          <div class="progress-bar">
+            <input
+              type="range"
+              id="seek-slider"
+              min="0"
+              max="0"
+              value="0"
+              step="0.1"
+              aria-disabled="true"
+              aria-valuetext="No media playing"
+              aria-label="Seek"
+              data-i18n-aria-label="player.seek"
+            />
+            <div class="time-info">
+              <span id="time-curr">-:--</span>
+              <span id="time-dur">-:--</span>
+            </div>
+          </div>
+
+          <div class="play-controls-left">
+            <div class="play-btn-group">
+              <button
+                class="ctrl-btn"
+                id="btn-prev"
+                aria-label="Previous track"
+                data-i18n-aria-label="player.prev_track"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                </svg>
+              </button>
+              <button
+                class="play-fab"
+                id="play-btn"
+                aria-label="Play/Pause"
+                data-i18n-aria-label="player.play_pause"
+                aria-disabled="true"
+              >
+                <svg id="icon-play" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                <svg id="icon-pause" viewBox="0 0 24 24" aria-hidden="true" display="none">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                </svg>
+                <span class="material-elastic-spinner play-loading-spinner" aria-hidden="true">
+                  <svg viewBox="0 0 44 44">
+                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                  </svg>
+                </span>
+              </button>
+              <button
+                class="ctrl-btn"
+                id="btn-next"
+                aria-label="Next track"
+                data-i18n-aria-label="player.next_track"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="vol-group-playback" id="volume-control-group" role="group">
+              <button
+                id="vol-icon-btn"
+                type="button"
+                aria-label="Toggle mute"
+                data-i18n-aria-label="player.toggle_mute"
+              >
+                <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
+                  <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7" />
+                  <path class="volume-wave volume-wave-outer" d="M18 5.7a8.9 8.9 0 0 1 0 12.6" />
+                  <g class="volume-muted-backdrop">
+                    <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                    <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                  </g>
+                  <g class="volume-muted-mark">
+                    <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                    <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                  </g>
+                </svg>
+              </button>
+              <input
+                type="range"
+                id="volume-slider"
+                min="0"
+                max="100"
+                value="100"
+                aria-label="Adjust volume"
+                data-i18n-aria-label="player.volume"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="play-secondary-area">
+          <button
+            type="button"
+            class="chat-preview-btn"
+            id="chat-preview-btn"
+            aria-label="Open chat"
+            data-i18n-aria-label="chat.open"
+          >
+            <div class="chat-preview-left">
+              <div class="chat-icon-wrapper">
+                <svg viewBox="0 0 24 24" class="chat-preview-icon">
+                  <path
+                    d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"
+                  />
+                </svg>
+                <span class="chat-preview-badge" id="chat-preview-badge"></span>
+              </div>
+              <span
+                class="chat-preview-text"
+                id="chat-preview-text"
+                data-i18n="chat.start"
+                >Send a message to start!</span
+              >
+            </div>
+          </button>
+
+          <div class="play-action-buttons play-actions-row">
+            <button
+              class="file-select-btn file-select-btn-large flex-1"
+              id="btn-sync"
+              aria-label="Sync"
+              data-i18n-aria-label="common.sync"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+                />
+              </svg>
+              <span data-i18n="player.sync_compact">Sync</span>
+            </button>
+            <button
+              class="file-select-btn file-select-btn-large flex-1"
+              id="btn-media-source"
+              aria-label="Play media"
+              data-i18n-aria-label="player.play_media"
+            >
+              <svg viewBox="0 -960 960 960" aria-hidden="true">
+                <path
+                  d="m431-341 184-122q9-6 9-17t-9-17L431-619q-10-7-20.5-1.5T400-603v246q0 12 10.5 17.5T431-341Zm49 261q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-32 5-64t15-63q5-16 20.5-21.5T150-626q15 8 21.5 23.5T173-570q-6 22-9.5 44.5T160-480q0 134 93 227t227 93q134 0 227-93t93-227q0-134-93-227t-227-93q-24 0-47.5 3.5T386-786q-17 5-32-1t-22-21q-7-15-.5-30.5T354-859q30-11 62-16t64-5q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80ZM177.5-697.5Q160-715 160-740t17.5-42.5Q195-800 220-800t42.5 17.5Q280-765 280-740t-17.5 42.5Q245-680 220-680t-42.5-17.5ZM480-480Z"
+                />
+              </svg>
+              <span data-i18n="player.play_media_compact">Media</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="tab-playlist"
+      class="tab-content"
+      role="tabpanel"
+      aria-labelledby="nav-playlist"
+      tabindex="-1"
+      data-custom-scroll
+    >
+      <div class="tab-header">
+        <span class="tab-title" data-i18n="nav.playlist">Playlist</span>
+        <div class="playlist-title-area">
+          <button
+            class="tab-action-btn"
+            id="btn-repeat"
+            aria-pressed="false"
+            aria-label="Change repeat mode"
+            data-i18n-aria-label="player.repeat_mode"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+            </svg>
+          </button>
+          <button
+            class="tab-action-btn"
+            id="btn-shuffle"
+            aria-pressed="false"
+            aria-label="Change shuffle mode"
+            data-i18n-aria-label="player.shuffle_mode"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"
+              />
+            </svg>
+          </button>
+          <button
+            class="tab-action-btn"
+            id="btn-add-media"
+            aria-label="Add media"
+            data-i18n-aria-label="player.add_media"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="tab-body tab-body-anchor" data-custom-scroll>
+        <div class="system-audio-playlist-note" id="system-audio-playlist-note">
+          <span data-i18n="system_audio.sharing">Sharing System Audio</span>
+        </div>
+        <ul class="playlist-ul playlist-list" id="playlist-ui">
+          <li class="list-empty-state" data-i18n="playlist.empty_hint">No media yet.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div
+      id="tab-connect"
+      class="tab-content"
+      role="tabpanel"
+      aria-labelledby="nav-connect"
+      tabindex="-1"
+      data-custom-scroll
+    >
+      <div class="tab-header tab-header-spread">
+        <span class="tab-title" data-i18n="nav.connect">Connect</span>
+        <button
+          type="button"
+          class="settings-invite-wrapper invite-code-container invite-meta-cluster"
+          title="Click to copy invite code"
+          data-i18n-title="toast.click_copy_invite"
+        >
+          <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
+          <span class="invite-code-value invite-meta-value">------</span>
+        </button>
+      </div>
+      <div class="tab-body" data-custom-scroll>
+        <div class="section-group">
+          <div class="section-header-row">
+            <span class="section-title" data-i18n="connect.qr_title">Invite via QR or Link</span>
+          </div>
+          <div id="qr-container" class="qr-container">
+            <p class="qr-placeholder" data-i18n="connect.no_session">Start a session first</p>
+          </div>
+        </div>
+
+        <div class="section-group room-password-section">
+          <div class="section-header-row">
+            <span class="section-title" data-i18n="connect.room_password_title"
+              >Require password to join</span
+            >
+            <button
+              type="button"
+              class="room-password-toggle"
+              id="room-password-toggle"
+              aria-pressed="false"
+              aria-label="Toggle room password requirement"
+              data-i18n-aria-label="connect.room_password_toggle_aria"
+            >
+              <span class="room-password-toggle-knob" aria-hidden="true"></span>
+            </button>
+          </div>
+          <div class="room-password-code-row" id="room-password-code-row">
+            <span class="room-password-code" id="room-password-code">- - - - - - - -</span>
+            <button
+              type="button"
+              class="room-password-refresh"
+              id="room-password-refresh"
+              aria-label="Generate a new room password"
+              data-i18n-aria-label="connect.room_password_refresh_aria"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h8V3z"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="section-group administrator-section" id="connect-administrator-section" hidden>
+          <div class="section-header-row">
+            <span class="section-title" id="connect-administrator-title"></span>
+          </div>
+          <div id="connect-administrator-list" class="administrator-list"></div>
+        </div>
+
+        <div class="section-group">
+          <div class="section-header-row">
+            <span class="section-title" id="connect-device-title">0 Connected Devices</span>
+          </div>
+          <div id="connect-device-list" class="device-list"></div>
+          <button class="accent-action-btn" id="btn-change-nickname">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+              />
+            </svg>
+            <span data-i18n="account.change_nickname">Change nickname</span>
+          </button>
+          <button class="leave-session-btn" id="btn-leave-session">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+              />
+            </svg>
+            <span data-i18n="settings.leave_session">Leave Session</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="tab-guide"
+      class="tab-content"
+      role="tabpanel"
+      aria-labelledby="nav-guide"
+      tabindex="-1"
+      data-custom-scroll
+    >
+      <div class="tab-header tab-header-spread-pad">
+        <div class="flex-row-gap-8">
+          <span class="tab-title" data-i18n="nav.help">Help</span>
+        </div>
+        <button
+          type="button"
+          class="settings-invite-wrapper invite-code-container invite-meta-cluster"
+          title="Click to copy invite code"
+          data-i18n-title="toast.click_copy_invite"
+        >
+          <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
+          <span class="invite-code-value invite-meta-value">------</span>
+        </button>
+      </div>
+
+      <div class="tab-body" data-custom-scroll>
+        <div class="help-block">
+          <div class="help-title">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M17 1.01L7 1c-1.1 0-1.99.9-1.99 2L5 21c0 1.1.89 2 1.99 2H17c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z"
+              />
+            </svg>
+            <span data-i18n="help.install_app">Install Web App</span>
+          </div>
+          <div class="help-desc" data-i18n-html="help.install_app_html">Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul></div>
+        </div>
+
+        <div class="help-block">
+          <div class="help-title">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
+              />
+            </svg>
+            <span data-i18n="help.local_recommended">Local network recommended</span>
+          </div>
+          <div class="help-desc" data-i18n-html="help.local_recommended_html">Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul></div>
+        </div>
+
+        <div class="help-block">
+          <div class="help-title">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
+              />
+            </svg>
+            <span data-i18n="setup.how_to_connect">How to connect</span>
+          </div>
+          <div class="help-desc" data-i18n-html="setup.how_to_connect_html">Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I'll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul></div>
+        </div>
+
+        <div class="help-block">
+          <div class="help-title">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
+              />
+            </svg>
+            <span data-i18n="player.play_speakers">Use as Speaker</span>
+          </div>
+          <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+        </div>
+
+        <div class="help-block">
+          <div class="help-title">
+            <svg viewBox="0 0 24 24">
+              <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+            </svg>
+            <span data-i18n="player.play_media_action">Play media</span>
+          </div>
+          <div class="help-desc" data-i18n-html="player.play_media_action_html">The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul></div>
+        </div>
+
+        <div class="help-block">
+          <div class="help-title">
+            <svg
+              class="help-question-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                class="help-question-icon-cutout"
+                fill-rule="evenodd"
+                clip-rule="evenodd"
+                d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM11 18h2v-2h-2v2zm1-12c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
+              />
+            </svg>
+            <span data-i18n="help.need_help">Need help?</span>
+          </div>
+          <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
+        </div>
+
+        <button class="accent-action-btn divider-narrower" id="btn-demo-media-mobile">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
+            />
+          </svg>
+          <span data-i18n="setup.demo_button">Take a Tour</span>
+        </button>
+
+        <div class="help-block legal-block">
+          <div class="help-title">
+            <span data-i18n="legal.title">Service notes</span>
+          </div>
+          <div class="help-desc legal-desc" data-i18n-html="legal.content_html"><strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, most session content goes directly between devices. The signaling server only briefly processes room operation, authentication and reconnection data; some remote or large-session data goes via Cloudflare. Remote files are held for up to 24 hours in private Cloudflare storage; only room participants get temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span><span data-legal-pro-storage>PRO rooms store on Cloudflare the session, member, playlist, playback, and upload state needed for operation. Original playlist files stay in private Cloudflare storage; only room participants can download them via short-lived URLs. Files are erased when a room administrator removes them from the playlist or the operator deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service's policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Translate</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a></div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="tab-settings"
+      class="tab-content"
+      role="tabpanel"
+      aria-labelledby="nav-settings"
+      tabindex="-1"
+      data-custom-scroll
+    >
+      <div class="tab-header tab-header-spread">
+        <span class="tab-title" data-i18n="nav.settings">Settings</span>
+        <button
+          type="button"
+          class="settings-invite-wrapper invite-code-container invite-meta-cluster"
+          title="Click to copy invite code"
+          data-i18n-title="toast.click_copy_invite"
+        >
+          <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
+          <span class="invite-code-value invite-meta-value">------</span>
+        </button>
+      </div>
+
+      <div class="settings-subtab-nav">
+        <button
+          type="button"
+          id="settings-subtab-general"
+          class="subtab-pill active"
+          data-subtab="general"
+          aria-controls="settings-subtab-panel-general"
+          aria-pressed="true"
+          data-i18n="settings.subtab.general"
+        >
+          General
+        </button>
+        <button
+          type="button"
+          id="settings-subtab-audio"
+          class="subtab-pill"
+          data-subtab="audio"
+          aria-controls="settings-subtab-panel-audio"
+          aria-pressed="false"
+          data-i18n="settings.subtab.audio"
+        >
+          Audio
+        </button>
+        <button
+          type="button"
+          id="settings-subtab-connect"
+          class="subtab-pill"
+          data-subtab="connect"
+          aria-controls="settings-subtab-panel-connect"
+          aria-pressed="false"
+          data-i18n="settings.subtab.connect"
+        >
+          Connect
+        </button>
+        <button
+          type="button"
+          id="settings-subtab-help"
+          class="subtab-pill"
+          data-subtab="help"
+          aria-controls="settings-subtab-panel-help"
+          aria-pressed="false"
+          data-i18n="settings.subtab.help"
+        >
+          Help
+        </button>
+      </div>
+
+      <div class="tab-body" data-custom-scroll>
+        <div
+          class="settings-subtab-panel active"
+          id="settings-subtab-panel-general"
+          data-panel="general"
+        >
+          <div class="section-group" id="settings-language-section">
+            <div class="section-header-row">
+              <span class="section-title" id="settings-language-title" data-i18n="settings.language"
+                >Language Settings</span
+              >
+            </div>
+            <p
+              class="settings-option-description"
+              id="settings-language-description"
+              data-i18n="settings.language_desc"
+            >
+              Choose a language or follow your system language.
+            </p>
+            <div
+              class="channel-grid language-mode-grid"
+              id="grid-lang"
+              role="group"
+              aria-labelledby="settings-language-title"
+              aria-describedby="settings-language-description"
+            >
+              <button
+                type="button"
+                class="ch-opt"
+                id="btn-language-select"
+                data-lang-action="select"
+                aria-pressed="false"
+                data-i18n-aria-label="settings.language_select_aria"
+                aria-label="Open language list"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M3.5 12h17M12 3c2.4 2.4 3.6 5.4 3.6 9S14.4 18.6 12 21M12 3c-2.4 2.4-3.6 5.4-3.6 9s1.2 6.6 3.6 9"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-width="1.8"
+                  />
+                </svg>
+                <span data-i18n="settings.language_select">Select</span>
+              </button>
+              <button
+                type="button"
+                class="ch-opt"
+                id="btn-language-system"
+                data-lang-action="system"
+                aria-pressed="false"
+                data-i18n-aria-label="settings.language_system_aria"
+                aria-label="Use system language"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect
+                    x="4"
+                    y="5"
+                    width="16"
+                    height="12"
+                    rx="2.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+                  <path
+                    d="M9 20h6M12 17v3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-width="1.8"
+                  />
+                </svg>
+                <span data-i18n="settings.language_system">System</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section-group" id="theme-section">
+            <div class="section-header-row">
+              <span class="section-title" id="settings-theme-title" data-i18n="settings.theme"
+                >Theme</span
+              >
+            </div>
+            <p
+              class="settings-option-description"
+              id="settings-theme-description"
+              data-i18n="settings.theme_desc"
+            >
+              Choose a light or dark theme.
+            </p>
+            <div
+              class="channel-grid"
+              id="grid-theme"
+              role="group"
+              aria-labelledby="settings-theme-title"
+              aria-describedby="settings-theme-description"
+            >
+              <button type="button" class="ch-opt" data-theme="light" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0a.996.996 0 000-1.41l-1.06-1.06zm1.06-10.96a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"
+                  />
+                </svg>
+                <span data-i18n="settings.light">Light</span>
+              </button>
+              <button type="button" class="ch-opt" data-theme="dark" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 01-4.4 2.26 5.403 5.403 0 01-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"
+                  />
+                </svg>
+                <span data-i18n="settings.dark">Dark</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section-group" id="ui-sounds-section">
+            <div class="section-header-row">
+              <span
+                class="section-title"
+                id="settings-ui-sounds-title"
+                data-i18n="settings.ui_sounds"
+                >UI Sounds</span
+              >
+            </div>
+            <p
+              class="settings-option-description"
+              id="settings-ui-sounds-description"
+              data-i18n="settings.ui_sounds_desc"
+            >
+              Turn notification, join and leave, and touch sounds on or off.
+            </p>
+            <div
+              class="channel-grid"
+              id="grid-ui-sounds"
+              role="group"
+              aria-labelledby="settings-ui-sounds-title"
+              aria-describedby="settings-ui-sounds-description"
+            >
+              <button
+                type="button"
+                class="ch-opt"
+                data-ui-sounds="on"
+                data-ui-sound="off"
+                aria-pressed="false"
+              >
+                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                  <path
+                    d="m882-292-56-56q26-26 40-60.5t14-71.5q0-37-14-71.5T826-612l56-56q38 38 58 86t20 102q0 54-20 102t-58 86Zm-107-80-57-56q11-11 16.5-24t5.5-28q0-15-5.5-28T718-532l57-56q22 22 33.5 49.5T820-480q0 31-11.5 58.5T775-372ZM338.5-138.5Q280-197 280-280v-400q0-83 58.5-141.5T480-880q83 0 141.5 58.5T680-680v400q0 83-58.5 141.5T480-80q-83 0-141.5-58.5ZM565-195q35-35 35-85v-400q0-50-35-85t-85-35q-50 0-85 35t-35 85v400q0 50 35 85t85 35q50 0 85-35Zm-28.5-68.5Q560-287 560-320t-23.5-56.5Q513-400 480-400t-56.5 23.5Q400-353 400-320t23.5 56.5Q447-240 480-240t56.5-23.5Zm-85-28Q440-303 440-320t11.5-28.5Q463-360 480-360t28.5 11.5Q520-337 520-320t-11.5 28.5Q497-280 480-280t-28.5-11.5Zm85-292Q560-607 560-640t-23.5-56.5Q513-720 480-720t-56.5 23.5Q400-673 400-640t23.5 56.5Q447-560 480-560t56.5-23.5ZM480-480Z"
+                  />
+                </svg>
+                <span data-i18n="common.on">On</span>
+              </button>
+              <button
+                type="button"
+                class="ch-opt active"
+                data-ui-sounds="off"
+                data-ui-sound="off"
+                aria-pressed="true"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                  />
+                </svg>
+                <span data-i18n="common.off">Off</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="section-group" id="settings-sync-section">
+            <div class="section-header-row">
+              <span
+                class="section-title"
+                id="settings-sync-title"
+                data-i18n="settings.sync_settings"
+                >Settings sync</span
+              >
+            </div>
+            <p
+              class="settings-option-description"
+              id="settings-sync-description"
+              data-i18n="settings.sync_settings_desc"
+            >
+              Devices with this setting on sync their volume and audio effects.
+            </p>
+            <div
+              class="channel-grid"
+              id="grid-settings-sync"
+              role="group"
+              aria-labelledby="settings-sync-title"
+              aria-describedby="settings-sync-description"
+            >
+              <button
+                type="button"
+                class="ch-opt active"
+                data-settings-sync="on"
+                aria-pressed="true"
+              >
+                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                  <path
+                    d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
+                  />
+                </svg>
+                <span data-i18n="common.on">On</span>
+              </button>
+              <button type="button" class="ch-opt" data-settings-sync="off" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                  />
+                </svg>
+                <span data-i18n="common.off">Off</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-subtab-panel" id="settings-subtab-panel-audio" data-panel="audio">
+          <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
+          <div
+            class="youtube-settings-note"
+            id="youtube-settings-note"
+            role="note"
+            data-i18n="help.youtube_no_effects"
+          >
+            In YouTube mode, role settings and audio effects are unavailable.
+          </div>
+
+          <!-- File-only role/effect controls are disabled while YouTube owns playback. -->
+          <div id="youtube-settings-disabled-wrap" class="youtube-settings-disabled-wrap">
+            <div class="section-group">
+              <div class="section-header-row">
+                <span class="section-title" id="settings-role-title" data-i18n="setup.set_role"
+                  >Set this device's role</span
+                >
+              </div>
+
+              <p
+                class="settings-option-description settings-role-description"
+                id="settings-role-description"
+                data-i18n="settings.role_center_desc"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                This device is acting as the center speaker. Place it in the center.
+              </p>
+
+              <div
+                class="setup-graphic-container settings-role-diagram"
+                data-role-diagram="settings"
+              >
+                <svg
+                  class="setup-graphic-svg svg-overflow-visible"
+                  viewBox="0 0 340 170"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <linearGradient id="settings-grad-tl" x1="1" y1="1" x2="0" y2="0">
+                      <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                      <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                    </linearGradient>
+                    <linearGradient id="settings-grad-tr" x1="0" y1="1" x2="1" y2="0">
+                      <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                      <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                    </linearGradient>
+                    <linearGradient id="settings-grad-br" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                      <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                    </linearGradient>
+                    <linearGradient id="settings-grad-bl" x1="1" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                      <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <g class="graphic-room">
+                    <rect x="40" y="30" width="260" height="90" />
+                    <line x1="40" y1="30" x2="0" y2="0" stroke="url(#settings-grad-tl)" />
+                    <line x1="300" y1="30" x2="340" y2="0" stroke="url(#settings-grad-tr)" />
+                    <line x1="300" y1="120" x2="340" y2="170" stroke="url(#settings-grad-br)" />
+                    <line x1="40" y1="120" x2="0" y2="170" stroke="url(#settings-grad-bl)" />
+                  </g>
+                  <rect class="graphic-tv" x="115" y="38" width="110" height="62" rx="2" />
+                  <g class="graphic-speaker" data-role-mode="-1">
+                    <rect x="50" y="60" width="20" height="68" rx="2" />
+                    <circle cx="60" cy="75" r="3.5" class="spk-driver" />
+                    <circle cx="60" cy="92" r="4.5" class="spk-driver" />
+                    <circle cx="60" cy="112" r="4.5" class="spk-driver" />
+                    <rect x="49" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
+                  </g>
+                  <g class="graphic-speaker" data-role-mode="1">
+                    <rect x="272" y="60" width="20" height="68" rx="2" />
+                    <circle cx="282" cy="75" r="3.5" class="spk-driver" />
+                    <circle cx="282" cy="92" r="4.5" class="spk-driver" />
+                    <circle cx="282" cy="112" r="4.5" class="spk-driver" />
+                    <rect x="271" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
+                  </g>
+                  <g class="graphic-speaker" data-role-mode="0">
+                    <rect x="155" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                    <rect x="181" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                    <rect x="145" y="125" width="50" height="15" rx="2" />
+                    <circle cx="170" cy="132.5" r="3.5" class="spk-driver" />
+                    <circle cx="155" cy="132.5" r="4" class="spk-driver" />
+                    <circle cx="185" cy="132.5" r="4" class="spk-driver" />
+                  </g>
+                  <g class="graphic-speaker" data-role-mode="2">
+                    <rect x="111" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                    <rect x="133" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                    <rect x="108" y="108" width="32" height="32" rx="3" />
+                    <circle cx="124" cy="124" r="9" class="spk-driver svg-stroke-divider" />
+                  </g>
+                </svg>
+              </div>
+              <div
+                class="channel-grid"
+                id="grid-standard"
+                role="group"
+                aria-labelledby="settings-role-title"
+                aria-describedby="settings-role-description"
+              >
+                <button type="button" class="ch-opt" data-ch="-1" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg
+                  ><span data-i18n="role.left">Left Speaker</span>
+                </button>
+                <button type="button" class="ch-opt" data-ch="1" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg
+                  ><span data-i18n="role.right">Right Speaker</span>
+                </button>
+                <button type="button" class="ch-opt" data-ch="2" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+                    />
+                    <circle cx="12" cy="12" r="3" /></svg
+                  ><span data-i18n="role.subwoofer">Subwoofer</span>
+                </button>
+                <button type="button" class="ch-opt" data-ch="0" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
+                    /></svg
+                  ><span data-i18n="role.center">Center Speaker</span>
+                </button>
+              </div>
+              <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
+                <div class="collapsible-slider-content">
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span data-i18n="settings.subwoofer_adjust">Subwoofer Cutoff</span>
+                      <span class="val-disp" id="val-cutoff">120 Hz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="cutoff-slider"
+                      min="60"
+                      max="200"
+                      value="120"
+                      aria-label="Subwoofer Cutoff Frequency"
+                      data-i18n-aria-label="settings.subwoofer_cutoff"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="section-group">
+              <div class="section-header-row">
+                <span
+                  class="section-title"
+                  id="settings-reverb-title"
+                  data-i18n="settings.reverb_title"
+                  >Reverb</span
+                >
+                <span class="settings-sync-indicator-slot">
+                  <button
+                    type="button"
+                    class="settings-sync-indicator"
+                    data-settings-sync-indicator
+                    aria-label="Settings sync is on"
+                    data-i18n-aria-label="toast.settings_sync_enabled"
+                    hidden
+                  >
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
+                      <path
+                        d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
+                      />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+              <p
+                class="settings-option-description"
+                id="settings-reverb-description"
+                data-i18n="settings.reverb_desc"
+              >
+                Adjust the sound's reverb and resonance.
+              </p>
+              <div
+                class="channel-grid"
+                id="grid-reverb"
+                role="group"
+                aria-labelledby="settings-reverb-title"
+                aria-describedby="settings-reverb-description"
+              >
+                <button type="button" class="ch-opt" data-rvb-type="studio" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2z"
+                    /></svg
+                  ><span data-i18n="settings.rvb_studio">Studio</span>
+                </button>
+                <button type="button" class="ch-opt" data-rvb-type="arena" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z"
+                    /></svg
+                  ><span data-i18n="settings.rvb_arena">Arena</span>
+                </button>
+                <button type="button" class="ch-opt" data-rvb-type="advanced" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
+                    /></svg
+                  ><span data-i18n="settings.rvb_advanced">Advanced</span>
+                </button>
+                <button type="button" class="ch-opt active" data-rvb-type="off" aria-pressed="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                    /></svg
+                  ><span data-i18n="settings.rvb_off">Off</span>
+                </button>
+              </div>
+              <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
+                <div class="collapsible-slider-content">
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="common.mix">Mix</span>
+                        <span class="role-hint-label" data-i18n="settings.default_0pct"
+                          >Default 0%</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-reverb">0%</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-slider"
+                      min="0"
+                      max="100"
+                      value="0"
+                      aria-label="Reverb mix"
+                      data-i18n-aria-label="settings.reverb_mix"
+                    />
+                  </div>
+
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.decay_time">Decay time</span>
+                        <span class="role-hint-label" data-i18n="settings.default_5s"
+                          >Default 5.0s</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-decay">5.0s</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-decay-slider"
+                      min="0.1"
+                      max="10.0"
+                      step="0.1"
+                      value="5.0"
+                      aria-label="Reverb decay"
+                      data-i18n-aria-label="settings.reverb_decay"
+                    />
+                  </div>
+
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.predelay">Pre-delay</span>
+                        <span class="role-hint-label" data-i18n="settings.default_01s"
+                          >Default 0.1s</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-predelay">0.1s</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-predelay-slider"
+                      min="0"
+                      max="0.5"
+                      step="0.01"
+                      value="0.1"
+                      aria-label="Reverb pre-delay"
+                      data-i18n-aria-label="settings.reverb_predelay"
+                    />
+                  </div>
+
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.highpass">High-pass</span>
+                        <span class="role-hint-label" data-i18n="settings.default_20hz"
+                          >Default 20Hz</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-lowcut-slider"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value="0"
+                      aria-label="Reverb low-cut"
+                      data-i18n-aria-label="settings.reverb_lowcut"
+                    />
+                  </div>
+
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.lowpass">Low-pass</span>
+                        <span class="role-hint-label" data-i18n="settings.default_20khz"
+                          >Default 20.0kHz</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-highcut-slider"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value="0"
+                      aria-label="Reverb high-cut"
+                      data-i18n-aria-label="settings.reverb_highcut"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-group">
+              <div class="section-header-row">
+                <span class="section-title" id="settings-eq-title" data-i18n="settings.eq_title"
+                  >Equalizer</span
+                >
+                <span class="settings-sync-indicator-slot">
+                  <button
+                    type="button"
+                    class="settings-sync-indicator"
+                    data-settings-sync-indicator
+                    aria-label="Settings sync is on"
+                    data-i18n-aria-label="toast.settings_sync_enabled"
+                    hidden
+                  >
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
+                      <path
+                        d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
+                      />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+              <p
+                class="settings-option-description"
+                id="settings-eq-description"
+                data-i18n="settings.eq_desc"
+              >
+                Adjust the tone of the sound. Use it together with the volume control.
+              </p>
+              <div
+                class="channel-grid"
+                id="grid-eq"
+                role="group"
+                aria-labelledby="settings-eq-title"
+                aria-describedby="settings-eq-description"
+              >
+                <button type="button" class="ch-opt" data-eq-type="bright" aria-pressed="false">
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      d="M160-420v300h160v-300H160ZM400-580v460h160v-460H400ZM640-740v620h160v-620H640Z"
+                    /></svg
+                  ><span data-i18n="settings.eq_bright">Bright</span>
+                </button>
+                <button type="button" class="ch-opt" data-eq-type="warm" aria-pressed="false">
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      d="M160-740v620h160v-620H160ZM400-580v460h160v-460H400ZM640-420v300h160v-300H640Z"
+                    /></svg
+                  ><span data-i18n="settings.eq_warm">Warm</span>
+                </button>
+                <button type="button" class="ch-opt" data-eq-type="advanced" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
+                    /></svg
+                  ><span data-i18n="settings.eq_advanced">Advanced</span>
+                </button>
+                <button type="button" class="ch-opt active" data-eq-type="off" aria-pressed="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                    /></svg
+                  ><span data-i18n="settings.eq_off">Off</span>
+                </button>
+              </div>
+              <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
+                <div class="collapsible-slider-content">
+                  <div class="eq-container">
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-0">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-0"
+                        aria-label="EQ 60Hz"
+                      />
+                      <span class="eq-label">60</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-1">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-1"
+                        aria-label="EQ 230Hz"
+                      />
+                      <span class="eq-label">230</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-2">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-2"
+                        aria-label="EQ 910Hz"
+                      />
+                      <span class="eq-label">910</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-3">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-3"
+                        aria-label="EQ 3.6kHz"
+                      />
+                      <span class="eq-label">3.6k</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-4">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-4"
+                        aria-label="EQ 14kHz"
+                      />
+                      <span class="eq-label">14k</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-group" id="last-setting-section">
+              <div class="section-header-row">
+                <span
+                  class="section-title"
+                  id="settings-virtual-effects-title"
+                  data-i18n="settings.virtual_effects_title"
+                  >Virtual effects</span
+                >
+                <span class="settings-sync-indicator-slot">
+                  <button
+                    type="button"
+                    class="settings-sync-indicator"
+                    data-settings-sync-indicator
+                    aria-label="Settings sync is on"
+                    data-i18n-aria-label="toast.settings_sync_enabled"
+                    hidden
+                  >
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
+                      <path
+                        d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
+                      />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+              <p
+                class="settings-option-description"
+                id="settings-virtual-effects-description"
+                data-i18n="settings.virtual_effects_desc"
+              >
+                Apply synthesized effects to the audio. This may cause heavy distortion.
+              </p>
+              <div
+                class="channel-grid virtual-effects-grid"
+                id="grid-virtual-effects"
+                role="group"
+                aria-labelledby="settings-virtual-effects-title"
+                aria-describedby="settings-virtual-effects-description"
+              >
+                <button
+                  type="button"
+                  class="ch-opt"
+                  data-virtual-effect="bass"
+                  aria-pressed="false"
+                >
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z"
+                    />
+                  </svg>
+                  <span data-i18n="settings.virtual_effect_bass">Bass</span>
+                </button>
+                <button
+                  type="button"
+                  class="ch-opt"
+                  data-virtual-effect="treble"
+                  aria-pressed="false"
+                >
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M211.5-371.5Q200-383 200-400t11.5-28.5Q223-440 240-440t28.5 11.5Q280-417 280-400t-11.5 28.5Q257-360 240-360t-28.5-11.5Zm0 160Q200-223 200-240t11.5-28.5Q223-280 240-280t28.5 11.5Q280-257 280-240t-11.5 28.5Q257-200 240-200t-28.5-11.5Zm0-320Q200-543 200-560t11.5-28.5Q223-600 240-600t28.5 11.5Q280-577 280-560t-11.5 28.5Q257-520 240-520t-28.5-11.5ZM106-546q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm105.5-145.5Q200-703 200-720t11.5-28.5Q223-760 240-760t28.5 11.5Q280-737 280-720t-11.5 28.5Q257-680 240-680t-28.5-11.5ZM106-386q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm280 280q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm0-720q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm-14.5 134.5Q360-703 360-720t11.5-28.5Q383-760 400-760t28.5 11.5Q440-737 440-720t-11.5 28.5Q417-680 400-680t-28.5-11.5Zm-14 334Q340-375 340-400t17.5-42.5Q375-460 400-460t42.5 17.5Q460-425 460-400t-17.5 42.5Q425-340 400-340t-42.5-17.5Zm0-160Q340-535 340-560t17.5-42.5Q375-620 400-620t42.5 17.5Q460-585 460-560t-17.5 42.5Q425-500 400-500t-42.5-17.5Zm14 306Q360-223 360-240t11.5-28.5Q383-280 400-280t28.5 11.5Q440-257 440-240t-11.5 28.5Q417-200 400-200t-28.5-11.5ZM480-120v-80q116 0 198-82t82-198q0-116-82-198t-198-82v-80q74 0 139.5 28.5T734-734q49 49 77.5 114.5T840-480q0 74-28.5 139.5T734-226q-49 49-114.5 77.5T480-120Zm0-360Z"
+                    />
+                  </svg>
+                  <span data-i18n="settings.virtual_effect_treble">Treble</span>
+                </button>
+                <button
+                  type="button"
+                  class="ch-opt"
+                  data-virtual-effect="surround"
+                  aria-pressed="false"
+                >
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z"
+                    />
+                  </svg>
+                  <span data-i18n="settings.virtual_effect_surround">Surround</span>
+                </button>
+                <button
+                  type="button"
+                  class="ch-opt active"
+                  data-virtual-effect="off"
+                  aria-pressed="true"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                    />
+                  </svg>
+                  <span data-i18n="common.off">Off</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Desktop mirrors the mobile connection list rendered in #tab-connect. -->
+            <div class="section-group settings-device-section">
+              <div class="section-header-row">
+                <span class="section-title" data-i18n="settings.devices_title"
+                  >Connected Devices</span
+                >
+              </div>
+              <div id="device-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop mirror of the mobile connection panel. -->
+        <div class="settings-subtab-panel" id="settings-subtab-panel-connect" data-panel="connect">
+          <div id="desktop-connect-content">
+            <div class="section-group">
+              <div class="section-header-row">
+                <span class="section-title" data-i18n="connect.qr_title"
+                  >Invite via QR or Link</span
+                >
+              </div>
+              <div id="desktop-qr-container" class="qr-container">
+                <p class="qr-placeholder" data-i18n="connect.no_session">Start a session first</p>
+              </div>
+            </div>
+
+            <div class="section-group room-password-section">
+              <div class="section-header-row">
+                <span class="section-title" data-i18n="connect.room_password_title"
+                  >Require password to join</span
+                >
+                <button
+                  type="button"
+                  class="room-password-toggle"
+                  id="desktop-room-password-toggle"
+                  aria-pressed="false"
+                  aria-label="Toggle room password requirement"
+                  data-i18n-aria-label="connect.room_password_toggle_aria"
+                >
+                  <span class="room-password-toggle-knob" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="room-password-code-row" id="desktop-room-password-code-row">
+                <span class="room-password-code" id="desktop-room-password-code"
+                  >- - - - - - - -</span
+                >
+                <button
+                  type="button"
+                  class="room-password-refresh"
+                  id="desktop-room-password-refresh"
+                  aria-label="Generate a new room password"
+                  data-i18n-aria-label="connect.room_password_refresh_aria"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h8V3z"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div
+              class="section-group administrator-section"
+              id="desktop-administrator-section"
+              hidden
+            >
+              <div class="section-header-row">
+                <span class="section-title" id="desktop-administrator-title"></span>
+              </div>
+              <div id="desktop-administrator-list" class="administrator-list"></div>
+            </div>
+
+            <div class="section-group">
+              <div class="section-header-row">
+                <span class="section-title" id="desktop-device-title">0 Connected Devices</span>
+              </div>
+              <div id="desktop-device-list" class="device-list"></div>
+              <button class="accent-action-btn" id="desktop-btn-change-nickname">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                  />
+                </svg>
+                <span data-i18n="account.change_nickname">Change nickname</span>
+              </button>
+              <button class="leave-session-btn" id="desktop-btn-leave-session">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+                  />
+                </svg>
+                <span data-i18n="settings.leave_session">Leave Session</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-subtab-panel" id="settings-subtab-panel-help" data-panel="help">
+          <div class="desktop-help-section">
+            <div class="help-block">
+              <div class="help-title">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M17 1.01L7 1c-1.1 0-1.99.9-1.99 2L5 21c0 1.1.89 2 1.99 2H17c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z"
+                  />
+                </svg>
+                <span data-i18n="help.install_app">Install Web App</span>
+              </div>
+              <div class="help-desc" data-i18n-html="help.install_app_html">Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul></div>
+            </div>
+
+            <div class="help-block">
+              <div class="help-title">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
+                  />
+                </svg>
+                <span data-i18n="help.local_recommended">Local network recommended</span>
+              </div>
+              <div class="help-desc" data-i18n-html="help.local_recommended_html">Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul></div>
+            </div>
+
+            <div class="help-block">
+              <div class="help-title">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
+                  />
+                </svg>
+                <span data-i18n="setup.how_to_connect">How to connect</span>
+              </div>
+              <div class="help-desc" data-i18n-html="setup.how_to_connect_html">Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I'll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul></div>
+            </div>
+
+            <div class="help-block">
+              <div class="help-title">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
+                  />
+                </svg>
+                <span data-i18n="player.play_speakers">Use as Speaker</span>
+              </div>
+              <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+            </div>
+
+            <div class="help-block">
+              <div class="help-title">
+                <svg viewBox="0 0 24 24">
+                  <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+                </svg>
+                <span data-i18n="player.play_media_action">Play media</span>
+              </div>
+              <div class="help-desc" data-i18n-html="player.play_media_action_html">The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul></div>
+            </div>
+
+            <div class="help-block">
+              <div class="help-title">
+                <svg
+                  class="help-question-icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    class="help-question-icon-cutout"
+                    fill-rule="evenodd"
+                    clip-rule="evenodd"
+                    d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM11 18h2v-2h-2v2zm1-12c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
+                  />
+                </svg>
+                <span data-i18n="help.need_help">Need help?</span>
+              </div>
+              <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
+            </div>
+
+            <button class="accent-action-btn divider-narrow" id="btn-demo-media">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
+                />
+              </svg>
+              <span data-i18n="setup.demo_button">Take a Tour</span>
+            </button>
+
+            <div class="help-block legal-block">
+              <div class="help-title">
+                <span data-i18n="legal.title">Service notes</span>
+              </div>
+              <div class="help-desc legal-desc" data-i18n-html="legal.content_html"><strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, most session content goes directly between devices. The signaling server only briefly processes room operation, authentication and reconnection data; some remote or large-session data goes via Cloudflare. Remote files are held for up to 24 hours in private Cloudflare storage; only room participants get temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span><span data-legal-pro-storage>PRO rooms store on Cloudflare the session, member, playlist, playback, and upload state needed for operation. Original playlist files stay in private Cloudflare storage; only room participants can download them via short-lived URLs. Files are erased when a room administrator removes them from the playlist or the operator deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service's policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Translate</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-backdrop" id="chat-backdrop" aria-hidden="true"></div>
+
+    <div class="chat-drawer" id="chat-drawer" data-chat-snap="half" tabindex="-1">
+      <div class="chat-drawer-header">
+        <span class="chat-drawer-title" data-i18n="chat.title">Chat</span>
+        <button
+          class="chat-drawer-close"
+          id="btn-chat-close"
+          aria-label="Close chat"
+          data-i18n-aria-label="chat.close"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+            />
+          </svg>
+        </button>
+      </div>
+      <div
+        class="chat-pinned-notice"
+        id="chat-pinned-notice"
+        role="button"
+        tabindex="0"
+        aria-label="Dismiss notice"
+        data-i18n-aria-label="chat.pinned_close"
+        hidden
+      >
+        <div class="chat-pinned-notice-body">
+          <div class="chat-pinned-notice-header">
+            <div class="chat-pinned-notice-label" id="chat-pinned-notice-label" dir="auto"></div>
+            <span class="chat-pinned-notice-time" id="chat-pinned-notice-time"></span>
+            <svg
+              class="chat-pinned-notice-close"
+              viewBox="0 0 12 12"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+          <div class="chat-pinned-notice-text" id="chat-pinned-notice-text" dir="auto"></div>
+        </div>
+      </div>
+      <div class="chat-scroll-wrapper">
+        <span id="chat-copy-hint" class="sr-only" data-i18n="chat.copy_hint"
+          >Press Enter to copy this chat message</span
+        >
+        <div
+          class="chat-drawer-messages"
+          id="chat-messages"
+          role="log"
+          aria-live="polite"
+          tabindex="-1"
+          data-custom-scroll
+        >
+          <div class="chat-empty" dir="auto" data-i18n-html="chat.empty_html">No messages yet.<br>Send the first message!</div>
+        </div>
+        <button
+          class="chat-scroll-down-btn"
+          id="btn-chat-scroll-down"
+          type="button"
+          aria-label="Scroll to bottom"
+          aria-controls="chat-messages"
+          aria-hidden="true"
+          tabindex="-1"
+          data-i18n-aria-label="chat.scroll_to_bottom"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z" />
+          </svg>
+        </button>
+      </div>
+      <div class="chat-drawer-input">
+        <div class="chat-input-wrapper">
+          <!-- iOS Korean IME leak workaround: transient focus sink. On send,
+                     we focus this dummy briefly to force the OS-level composition
+                     buffer to close, then return focus to #chat-input. Off-screen
+                     and aria-hidden so it never takes tab order or AT focus. -->
+          <input
+            type="text"
+            id="chat-ime-dummy"
+            tabindex="-1"
+            aria-hidden="true"
+            data-clearable="false"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            class="visually-offscreen"
+          />
+          <div
+            class="chat-input"
+            id="chat-input"
+            dir="auto"
+            contenteditable="true"
+            tabindex="0"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="chat-command-suggestions"
+            aria-label="Message input"
+            data-i18n-aria-label="chat.input_label"
+            data-placeholder="Message or '/' for commands..."
+            data-i18n-data-placeholder="chat.placeholder"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            inputmode="text"
+          ></div>
+          <button
+            class="chat-send-btn"
+            id="btn-chat-send"
+            aria-label="Send message"
+            data-i18n-aria-label="chat.send"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="bottom-nav" role="tablist">
+      <button
+        class="nav-item active"
+        id="nav-play"
+        data-tab="play"
+        role="tab"
+        aria-selected="true"
+        aria-controls="tab-play"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
+          />
+        </svg>
+        <span data-i18n="nav.home">Home</span>
+      </button>
+      <button
+        class="nav-item"
+        id="nav-playlist"
+        data-tab="playlist"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-playlist"
+        aria-label="Playlist"
+        data-i18n-aria-label="nav.playlist"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"
+          />
+        </svg>
+        <span data-i18n="nav.playlist_compact">Playlist</span>
+      </button>
+      <button
+        class="nav-item"
+        id="nav-connect"
+        data-tab="connect"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-connect"
+        aria-label="Connect"
+        data-i18n-aria-label="nav.connect"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
+          />
+        </svg>
+        <span data-i18n="nav.connect_compact">Connect</span>
+      </button>
+      <button
+        class="nav-item"
+        id="nav-settings"
+        data-tab="settings"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-settings"
+        aria-label="Settings"
+        data-i18n-aria-label="nav.settings"
+      >
+        <svg viewBox="0 -960 960 960" aria-hidden="true">
+          <path
+            d="M433-80q-27 0-46.5-18T363-142l-9-66q-13-5-24.5-12T307-235l-62 26q-25 11-50 2t-39-32l-47-82q-14-23-8-49t27-43l53-40q-1-7-1-13.5v-27q0-6.5 1-13.5l-53-40q-21-17-27-43t8-49l47-82q14-23 39-32t50 2l62 26q11-8 23-15t24-12l9-66q4-26 23.5-44t46.5-18h94q27 0 46.5 18t23.5 44l9 66q13 5 24.5 12t22.5 15l62-26q25-11 50-2t39 32l47 82q14 23 8 49t-27 43l-53 40q1 7 1 13.5v27q0 6.5-2 13.5l53 40q21 17 27 43t-8 49l-48 82q-14 23-39 32t-50-2l-60-26q-11 8-23 15t-24 12l-9 66q-4 26-23.5 44T527-80h-94Zm7-80h79l14-106q31-8 57.5-23.5T639-327l99 41 39-68-86-65q5-14 7-29.5t2-31.5q0-16-2-31.5t-7-29.5l86-65-39-68-99 42q-22-23-48.5-38.5T533-694l-13-106h-79l-14 106q-31 8-57.5 23.5T321-633l-99-41-39 68 86 64q-5 15-7 30t-2 32q0 16 2 31t7 30l-86 65 39 68 99-42q22 23 48.5 38.5T427-266l13 106Zm42-180q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Zm-2-140Z"
+          />
+        </svg>
+        <span data-i18n="nav.settings_compact">Settings</span>
+      </button>
+      <button
+        class="nav-item"
+        id="nav-guide"
+        data-tab="guide"
+        role="tab"
+        aria-selected="false"
+        aria-controls="tab-guide"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
+          />
+        </svg>
+        <span data-i18n="nav.help">Help</span>
+      </button>
+    </nav>
+
+    <audio id="silent-trigger" src="/dummy_audio.mp3" preload="auto" playsinline></audio>
+
+    <div id="setup-overlay" class="onboarding-overlay">
+      <div class="onboarding-card setup-card full-screen">
+        <div id="setup-desktop-brand" class="setup-desktop-brand">
+          <div class="brand-content">
+            <svg
+              class="logo-svg logo-brand"
+              viewBox="43 12 214 24"
+              fill="currentColor"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <polygon
+                points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"
+              />
+              <polygon
+                points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"
+              />
+              <polygon
+                points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"
+              />
+              <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5" />
+              <polygon
+                points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"
+              />
+              <path
+                d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"
+              />
+              <polygon
+                points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"
+              />
+              <path
+                d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"
+              />
+              <path
+                d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"
+              />
+              <rect x="237.2284599" y="12.7587935" width="18" height="4.5" />
+              <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
+              <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
+            </svg>
+            <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html">Listen together, anywhere<br>The perfect sound experience</p>
+          </div>
+          <!-- JS mirrors the active setup step into the desktop presentation panel. -->
+          <div id="desktop-step-header" class="desktop-step-header"></div>
+          <div id="desktop-diagram-area" class="desktop-diagram-area"></div>
+        </div>
+
+        <div class="setup-mobile-view" data-custom-scroll>
+          <div class="setup-header-pill" hidden></div>
+
+          <div
+            id="setup-welcome-area"
+            class="setup-welcome-wrap"
+            data-custom-scroll
+            data-custom-scroll-contained
+          >
+            <div id="setup-welcome-header" class="setup-header-text">
+              <div class="setup-brand-greeting-stage">
+                <svg
+                  class="logo-svg logo-welcome"
+                  viewBox="43 12 214 24"
+                  fill="currentColor"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <g class="wg">
+                    <polygon
+                      points="45.5 17.3 45.5 35.3 50 35.3 50 17.3 54.5 17.3 54.5 35.3 59 35.3 59 17.3 63.5 17.3 63.5 35.3 68 35.3 68 17.3 68 12.8 45.5 12.8 45.5 17.3"
+                    />
+                    <polygon
+                      points="86 30.8 77 30.8 77 12.8 72.5 12.8 72.5 30.8 72.5 35.3 90.5 35.3 90.5 30.8 90.5 12.8 86 12.8 86 30.8"
+                    />
+                    <polygon
+                      points="95 17.3 95 21.8 95 26.3 108.5 26.3 108.5 30.8 95 30.8 95 35.3 113 35.3 113 30.8 113 26.3 113 21.8 99.5 21.8 99.5 17.3 113 17.3 113 12.8 95 12.8 95 17.3"
+                    />
+                    <rect x="117.5" y="12.8" width="4.5" height="22.5" />
+                    <polygon
+                      points="139.3 12.8 134.6 20.0 129.9 12.8 124.5 12.8 131.9 24.0 124.5 35.3 129.9 35.3 134.6 28.1 139.3 35.3 144.7 35.3 137.3 24.0 144.7 12.8 139.3 12.8"
+                    />
+                    <path
+                      d="M147.2,17.3l0,13.5 0,4.5 6.75,0 0,2.7 4.5,0 0-2.7 6.75,0 0-4.5 0-13.5 0-4.5-18,0 0,4.5ZM160.7,17.3l0,13.5-2.25,0 0-2.25-4.5,0 0,2.25-2.25,0 0-13.5 9,0Z"
+                    />
+                    <polygon
+                      points="183.2 30.8 174.2 30.8 174.2 12.8 169.7 12.8 169.7 30.8 169.7 35.3 187.7 35.3 187.7 30.8 187.7 12.8 183.2 12.8 183.2 30.8"
+                    />
+                    <path
+                      d="M192.2,17.3l0,18 4.5,0 0-9 9,0 0,9 4.5,0 0-18 0-4.5-18,0 0,4.5ZM205.7,17.3l0,4.5-9,0 0-4.5 9,0Z"
+                    />
+                    <path
+                      d="M232.7,26.3l0-13.5-18,0 0,13.5 0,9 4.5,0 0-9 4.6,0 5.8,10.1 3.9-2.3-4.5-7.8 3.7,0ZM219.2,17.3l9,0 0,4.5-9,0 0-4.5Z"
+                    />
+                    <rect x="237.2" y="12.8" width="18" height="4.5" />
+                    <rect x="237.2" y="21.8" width="13.5" height="4.5" />
+                    <rect x="237.2" y="30.8" width="18" height="4.5" />
+                  </g>
+                  <!--
+                  The animated bars intentionally overlap by 0.3 SVG units at
+                  internal joins. Exact shared edges can otherwise leave faint
+                  subpixel seams while separate primitives are being revealed.
+                -->
+                  <!-- M -->
+                  <rect
+                    class="wl wlr"
+                    x="45.5"
+                    y="12.8"
+                    width="22.5"
+                    height="4.8"
+                    data-wt="0"
+                    data-wd="1080"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="45.5"
+                    y="17.3"
+                    width="4.5"
+                    height="18"
+                    data-wt="120"
+                    data-wd="900"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="54.5"
+                    y="17.3"
+                    width="4.5"
+                    height="18"
+                    data-wt="400"
+                    data-wd="900"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="63.5"
+                    y="17.3"
+                    width="4.5"
+                    height="18"
+                    data-wt="660"
+                    data-wd="900"
+                  />
+                  <!-- U -->
+                  <rect
+                    class="wl wtb"
+                    x="72.5"
+                    y="12.8"
+                    width="4.5"
+                    height="18"
+                    data-wt="0"
+                    data-wd="840"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="72.5"
+                    y="30.5"
+                    width="18"
+                    height="4.8"
+                    data-wt="480"
+                    data-wd="840"
+                  />
+                  <rect
+                    class="wl wbt"
+                    x="86"
+                    y="12.8"
+                    width="4.5"
+                    height="18"
+                    data-wt="960"
+                    data-wd="840"
+                  />
+                  <!-- S -->
+                  <rect
+                    class="wl wrl"
+                    x="95"
+                    y="12.8"
+                    width="18"
+                    height="4.8"
+                    data-wt="0"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="95"
+                    y="17.3"
+                    width="4.5"
+                    height="4.5"
+                    data-wt="360"
+                    data-wd="300"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="95"
+                    y="21.5"
+                    width="18"
+                    height="5.1"
+                    data-wt="540"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="108.5"
+                    y="26.3"
+                    width="4.5"
+                    height="4.5"
+                    data-wt="900"
+                    data-wd="300"
+                  />
+                  <rect
+                    class="wl wrl"
+                    x="95"
+                    y="30.5"
+                    width="18"
+                    height="4.8"
+                    data-wt="1080"
+                    data-wd="600"
+                  />
+                  <!-- I -->
+                  <rect
+                    class="wl wtb"
+                    x="117.5"
+                    y="12.8"
+                    width="4.5"
+                    height="22.5"
+                    data-wt="0"
+                    data-wd="840"
+                  />
+                  <!-- X: / then \ -->
+                  <polygon
+                    class="wl wtb"
+                    points="144.7 12.8 139.3 12.8 124.5 35.3 129.9 35.3"
+                    data-wt="0"
+                    data-wd="700"
+                  />
+                  <polygon
+                    class="wl wtb"
+                    points="124.5 12.8 129.9 12.8 144.7 35.3 139.3 35.3"
+                    data-wt="400"
+                    data-wd="700"
+                  />
+                  <!-- Q -->
+                  <rect
+                    class="wl wrl"
+                    x="147.2"
+                    y="12.8"
+                    width="18"
+                    height="4.8"
+                    data-wt="0"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="147.2"
+                    y="17.3"
+                    width="4.5"
+                    height="13.5"
+                    data-wt="360"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="147.2"
+                    y="30.5"
+                    width="18"
+                    height="4.8"
+                    data-wt="780"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wbt"
+                    x="160.7"
+                    y="17.3"
+                    width="4.5"
+                    height="13.5"
+                    data-wt="1200"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="154"
+                    y="28.5"
+                    width="4.5"
+                    height="2.3"
+                    data-wt="1560"
+                    data-wd="180"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="154"
+                    y="35"
+                    width="4.5"
+                    height="3"
+                    data-wt="1660"
+                    data-wd="300"
+                  />
+                  <!-- U -->
+                  <rect
+                    class="wl wtb"
+                    x="169.7"
+                    y="12.8"
+                    width="4.5"
+                    height="18"
+                    data-wt="0"
+                    data-wd="840"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="169.7"
+                    y="30.5"
+                    width="18"
+                    height="4.8"
+                    data-wt="480"
+                    data-wd="840"
+                  />
+                  <rect
+                    class="wl wbt"
+                    x="183.2"
+                    y="12.8"
+                    width="4.5"
+                    height="18"
+                    data-wt="960"
+                    data-wd="840"
+                  />
+                  <!-- A -->
+                  <rect
+                    class="wl wbt"
+                    x="192.2"
+                    y="17.3"
+                    width="4.8"
+                    height="18"
+                    data-wt="0"
+                    data-wd="840"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="192.2"
+                    y="12.8"
+                    width="18"
+                    height="4.8"
+                    data-wt="480"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="205.4"
+                    y="17.3"
+                    width="4.8"
+                    height="18"
+                    data-wt="840"
+                    data-wd="840"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="196.7"
+                    y="21.8"
+                    width="9"
+                    height="4.5"
+                    data-wt="1380"
+                    data-wd="480"
+                  />
+                  <!-- R -->
+                  <rect
+                    class="wl wtb"
+                    x="214.7"
+                    y="12.8"
+                    width="4.8"
+                    height="22.5"
+                    data-wt="0"
+                    data-wd="1020"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="219.2"
+                    y="12.8"
+                    width="13.5"
+                    height="4.8"
+                    data-wt="600"
+                    data-wd="540"
+                  />
+                  <rect
+                    class="wl wtb"
+                    x="228.2"
+                    y="17.3"
+                    width="4.5"
+                    height="4.5"
+                    data-wt="960"
+                    data-wd="240"
+                  />
+                  <rect
+                    class="wl wrl"
+                    x="219.2"
+                    y="21.5"
+                    width="13.5"
+                    height="4.8"
+                    data-wt="1080"
+                    data-wd="540"
+                  />
+                  <polygon
+                    class="wl wdiag"
+                    points="223.8 26 229.6 36.4 233.5 34.1 229 26"
+                    data-wt="1440"
+                    data-wd="600"
+                  />
+                  <!-- E -->
+                  <rect
+                    class="wl wlr"
+                    x="237.2"
+                    y="12.8"
+                    width="18"
+                    height="4.5"
+                    data-wt="0"
+                    data-wd="600"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="237.2"
+                    y="21.8"
+                    width="13.5"
+                    height="4.5"
+                    data-wt="480"
+                    data-wd="480"
+                  />
+                  <rect
+                    class="wl wlr"
+                    x="237.2"
+                    y="30.8"
+                    width="18"
+                    height="4.5"
+                    data-wt="960"
+                    data-wd="600"
+                  />
+                </svg>
+                <div class="setup-greeting-row" aria-hidden="true">
+                  <h2 class="setup-greeting-heading">
+                    <button
+                      type="button"
+                      class="setup-language-button"
+                      data-setup-language-trigger
+                      aria-haspopup="dialog"
+                      aria-controls="language-dialog-overlay"
+                      data-i18n-aria-label="settings.language_select_aria"
+                      aria-label="Open language list"
+                    >
+                      <span class="setup-greeting-text" data-i18n="setup.greeting">Hello!</span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path
+                          d="M3.5 12h17M12 3c2.4 2.47 3.6 5.47 3.6 9s-1.2 6.53-3.6 9M12 3C9.6 5.47 8.4 8.47 8.4 12s1.2 6.53 3.6 9"
+                        ></path>
+                      </svg>
+                    </button>
+                  </h2>
+                </div>
+              </div>
+              <p class="setup-role-prompt" data-i18n="setup.hello_select_role">
+                Create a room or join one.
+              </p>
+            </div>
+
+            <div id="ob-slider-area" class="ob-slider-block">
+              <div class="ob-slider-viewport" id="ob-slider-viewport">
+                <div class="ob-slider-track" id="ob-slider-track" aria-live="off">
+                  <!-- Slide 1: Invite -->
+                  <div class="ob-slide active" aria-hidden="false">
+                    <div class="ob-icon-circle">
+                      <svg viewBox="0 0 24 24">
+                        <path
+                          d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"
+                        />
+                      </svg>
+                    </div>
+                    <div class="ob-title" data-i18n="settings.invite_share">Invite &amp; Share</div>
+                    <div class="ob-desc" data-i18n-html="setup.invite_share_desc_html">Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit invitation code to connect.</div>
+                  </div>
+                  <!-- Slide 2: Sync -->
+                  <div class="ob-slide" aria-hidden="true" inert>
+                    <div class="ob-icon-circle">
+                      <svg viewBox="0 0 24 24">
+                        <path
+                          d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
+                        />
+                      </svg>
+                    </div>
+                    <div class="ob-title" data-i18n="player.play_together">Play in Sync</div>
+                    <div class="ob-desc" data-i18n-html="setup.play_together_desc_html">When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.</div>
+                  </div>
+                  <!-- Slide 3: Surround -->
+                  <div class="ob-slide" aria-hidden="true" inert>
+                    <div class="ob-icon-circle">
+                      <svg viewBox="0 0 24 24">
+                        <path
+                          d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+                        />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </div>
+                    <div class="ob-title" data-i18n="settings.spatial_audio">Spatial audio</div>
+                    <div class="ob-desc" data-i18n-html="setup.spatial_audio_desc_html">Set the role for each device.<br>Play left and right audio separately<br>and feel deep bass from the woofer.</div>
+                  </div>
+                  <!-- Slide 4: Advanced Audio -->
+                  <div class="ob-slide" aria-hidden="true" inert>
+                    <div class="ob-icon-circle">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" />
+                      </svg>
+                    </div>
+                    <div class="ob-title" data-i18n="settings.advanced_audio">Advanced audio</div>
+                    <div class="ob-desc" data-i18n-html="setup.advanced_audio_desc_html">Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ob-nav-row">
+                <button
+                  type="button"
+                  class="ob-nav-arrow ob-nav-prev"
+                  id="ob-prev"
+                  aria-label="Previous"
+                  data-i18n-aria-label="common.previous"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M15 6l-6 6 6 6"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+                <div class="ob-dots" id="ob-dots">
+                  <button
+                    type="button"
+                    class="ob-dot active"
+                    data-idx="0"
+                    aria-label="1 / 4"
+                    aria-current="true"
+                  ></button>
+                  <button type="button" class="ob-dot" data-idx="1" aria-label="2 / 4"></button>
+                  <button type="button" class="ob-dot" data-idx="2" aria-label="3 / 4"></button>
+                  <button type="button" class="ob-dot" data-idx="3" aria-label="4 / 4"></button>
+                </div>
+                <button
+                  type="button"
+                  class="ob-nav-arrow ob-nav-next"
+                  id="ob-next"
+                  aria-label="Next"
+                  data-i18n-aria-label="common.next_desc"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path
+                      d="M9 6l6 6-6 6"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            id="setup-code-area"
+            class="setup-code-area"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
+            <div class="setup-header-text">
+              <h2 data-i18n="setup.last_step">Let's get started!</h2>
+              <p data-i18n="setup.connect_devices">Connect your other devices to begin.</p>
+            </div>
+            <div id="setup-host-invite-stage" class="setup-host-invite-stage" aria-busy="false">
+              <div
+                id="setup-host-qr-placeholder"
+                class="setup-host-qr setup-host-qr-placeholder"
+                aria-hidden="true"
+              >
+                <svg
+                  class="qr-svg"
+                  viewBox="0 0 25 25"
+                  shape-rendering="crispEdges"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    d="M2 2.5h7m1 0h1m3 0h1m1 0h7M2 3.5h1m5 0h1m1 0h2m1 0h1m2 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h4m1 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h7M2 10.5h2m2 0h3m5 0h1m2 0h1m1 0h4M3 11.5h2m1 0h1m2 0h2m3 0h1m3 0h1m2 0h2M4 12.5h3m1 0h3m3 0h2m5 0h2M4 13.5h1m1 0h1m2 0h1m3 0h4m1 0h1m1 0h3M3 14.5h1m2 0h1m1 0h1m3 0h2m2 0h4M10 15.5h2m1 0h4m2 0h1M2 16.5h7m2 0h1m1 0h1m1 0h1M2 17.5h1m5 0h1m1 0h1m1 0h1m4 0h2m2 0h2M2 18.5h1m1 0h3m1 0h1m1 0h1m3 0h1m2 0h1m1 0h1m2 0h1M2 19.5h1m1 0h3m1 0h1m2 0h2m1 0h2m5 0h2M2 20.5h1m1 0h3m1 0h1m2 0h2m1 0h1m2 0h1M2 21.5h1m5 0h1m1 0h1m1 0h3m2 0h1m2 0h1m1 0h1M2 22.5h7m1 0h1m1 0h2m1 0h2m1 0h1m2 0h2"
+                  />
+                </svg>
+              </div>
+              <div
+                id="setup-host-qr"
+                class="setup-host-qr setup-host-qr-room"
+                role="img"
+                aria-hidden="true"
+                data-i18n-aria-label="connect.qr_title"
+                aria-label="Invite via QR or Link"
+              ></div>
+              <span
+                class="material-elastic-spinner setup-host-qr-loading-spinner"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                </svg>
+              </span>
+            </div>
+
+            <div class="setup-code-area-bottom">
+              <div
+                class="setup-code-label"
+                id="setup-host-code-label"
+                data-i18n="setup.enter_code_connect"
+              >
+                Invitation code
+              </div>
+              <input
+                type="text"
+                class="setup-join-input code-input-active"
+                id="setup-code"
+                value="------"
+                readonly
+                aria-labelledby="setup-host-code-label"
+              />
+              <p
+                id="setup-host-error"
+                class="setup-inline-error"
+                role="alert"
+                aria-atomic="true"
+                hidden
+              ></p>
+            </div>
+          </div>
+
+          <div
+            id="setup-join-area"
+            class="setup-area-block"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
+            <div class="setup-header-text">
+              <h2 data-i18n="setup.last_step">Let's get started!</h2>
+              <p data-i18n="setup.enter_host_code_alt">Scan the QR code or enter the code.</p>
+            </div>
+            <div id="setup-guest-qr-stage" class="setup-guest-qr-stage">
+              <button
+                id="btn-setup-qr-scan"
+                class="setup-qr-scan-button"
+                type="button"
+                aria-busy="false"
+                data-i18n-aria-label="setup.scan_qr"
+                aria-label="Tap to scan"
+              >
+                <svg class="setup-qr-scan-symbol" viewBox="0 -960 960 960" aria-hidden="true">
+                  <path
+                    d="M480-260q75 0 127.5-52.5T660-440q0-75-52.5-127.5T480-620q-75 0-127.5 52.5T300-440q0 75 52.5 127.5T480-260Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM160-120q-33 0-56.5-23.5T80-200v-480q0-33 23.5-56.5T160-760h126l74-80h240l74 80h126q33 0 56.5 23.5T880-680v480q0 33-23.5 56.5T800-120H160Z"
+                  />
+                </svg>
+                <span class="material-elastic-spinner setup-qr-join-spinner" aria-hidden="true">
+                  <svg viewBox="0 0 44 44">
+                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                  </svg>
+                </span>
+              </button>
+              <div id="setup-qr-camera" class="setup-qr-camera" hidden>
+                <video id="setup-qr-video" preload="none" muted playsinline></video>
+                <div class="setup-qr-camera-blur" aria-hidden="true"></div>
+                <svg class="setup-qr-camera-frame" viewBox="0 0 100 100" aria-hidden="true">
+                  <path
+                    class="setup-qr-camera-corners"
+                    d="M30 12H12V30M70 12H88V30M88 70V88H70M30 88H12V70"
+                  />
+                </svg>
+                <button
+                  id="btn-setup-qr-close"
+                  class="setup-qr-close"
+                  type="button"
+                  data-i18n-aria-label="common.close"
+                  aria-label="Close"
+                ></button>
+              </div>
+            </div>
+            <div class="setup-code-area-bottom">
+              <div class="setup-code-label" data-i18n="setup.enter_host_code">
+                Enter invitation code
+              </div>
+              <input
+                type="text"
+                class="setup-join-input"
+                id="setup-join-code"
+                placeholder="000000"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="6"
+                autocomplete="one-time-code"
+                enterkeyhint="done"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                aria-label="Enter 6-digit invitation code"
+                data-i18n-aria-label="setup.enter_code"
+                aria-describedby="setup-guest-error"
+              />
+              <p
+                id="setup-guest-error"
+                class="setup-inline-error"
+                role="alert"
+                aria-atomic="true"
+                hidden
+              ></p>
+            </div>
+          </div>
+
+          <div
+            id="setup-auto-join-area"
+            class="setup-area-block setup-auto-join-area"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
+            <div class="setup-header-text">
+              <h2 data-i18n="setup.welcome_title">Welcome</h2>
+              <p id="setup-auto-join-subtitle"></p>
+            </div>
+            <p
+              id="setup-auto-join-error"
+              class="setup-inline-error"
+              role="alert"
+              aria-atomic="true"
+              hidden
+            ></p>
+          </div>
+
+          <!-- Reserved for an explicit role picker; the current flow assigns the center role. -->
+          <div
+            id="setup-role-area"
+            class="setup-area-block is-relative"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
+            <div class="setup-header-text">
+              <h2 data-i18n="setup.what_sound">What should this device play?</h2>
+              <p data-i18n="setup.change_later">You can adjust this anytime in Settings.</p>
+            </div>
+
+            <div class="setup-graphic-container wordmark-decor">
+              <svg class="setup-graphic-svg svg-overflow-visible" viewBox="0 0 340 170">
+                <defs>
+                  <linearGradient id="grad-tl" x1="1" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                  </linearGradient>
+                  <linearGradient id="grad-tr" x1="0" y1="1" x2="1" y2="0">
+                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                  </linearGradient>
+                  <linearGradient id="grad-br" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                  </linearGradient>
+                  <linearGradient id="grad-bl" x1="1" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                    <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                  </linearGradient>
+                </defs>
+                <g class="graphic-room">
+                  <rect x="40" y="30" width="260" height="90" />
+                  <line x1="40" y1="30" x2="0" y2="0" stroke="url(#grad-tl)" />
+                  <line x1="300" y1="30" x2="340" y2="0" stroke="url(#grad-tr)" />
+                  <line x1="300" y1="120" x2="340" y2="170" stroke="url(#grad-br)" />
+                  <line x1="40" y1="120" x2="0" y2="170" stroke="url(#grad-bl)" />
+                </g>
+
+                <rect class="graphic-tv" x="115" y="38" width="110" height="62" rx="2" />
+
+                <!-- FL (Front Left) -->
+                <g id="svg-spk-l" class="graphic-speaker" data-role-mode="-1">
+                  <rect x="50" y="60" width="20" height="68" rx="2" />
+                  <circle cx="60" cy="75" r="3.5" class="spk-driver" />
+                  <circle cx="60" cy="92" r="4.5" class="spk-driver" />
+                  <circle cx="60" cy="112" r="4.5" class="spk-driver" />
+                  <rect x="49" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
+                </g>
+
+                <!-- FR (Front Right) -->
+                <g id="svg-spk-r" class="graphic-speaker" data-role-mode="1">
+                  <rect x="272" y="60" width="20" height="68" rx="2" />
+                  <circle cx="282" cy="75" r="3.5" class="spk-driver" />
+                  <circle cx="282" cy="92" r="4.5" class="spk-driver" />
+                  <circle cx="282" cy="112" r="4.5" class="spk-driver" />
+                  <rect x="271" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
+                </g>
+
+                <!-- Center (C) -->
+                <g id="svg-spk-center" class="graphic-speaker" data-role-mode="0">
+                  <rect x="155" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                  <rect x="181" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                  <rect x="145" y="125" width="50" height="15" rx="2" />
+                  <circle cx="170" cy="132.5" r="3.5" class="spk-driver" />
+                  <circle cx="155" cy="132.5" r="4" class="spk-driver" />
+                  <circle cx="185" cy="132.5" r="4" class="spk-driver" />
+                </g>
+
+                <!-- Woofer (SW) -->
+                <g id="svg-spk-woofer" class="graphic-speaker" data-role-mode="2">
+                  <rect x="111" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                  <rect x="133" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                  <rect x="108" y="108" width="32" height="32" rx="3" />
+                  <circle cx="124" cy="124" r="9" class="spk-driver svg-stroke-divider" />
+                </g>
+              </svg>
+            </div>
+            <div class="channel-grid setup-card-tight" id="setup-role-grid">
+              <button type="button" class="ch-opt" data-join-ch="-1" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                </svg>
+                <span data-i18n="role.left">Left Speaker</span>
+              </button>
+              <button type="button" class="ch-opt" data-join-ch="1" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                </svg>
+                <span data-i18n="role.right">Right Speaker</span>
+              </button>
+              <button type="button" class="ch-opt" data-join-ch="2" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+                  />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span data-i18n="role.subwoofer">Subwoofer</span>
+              </button>
+              <button type="button" class="ch-opt" data-join-ch="0" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
+                  />
+                </svg>
+                <span data-i18n="role.center">Center Speaker</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="ob-actions" id="setup-actions">
+            <!-- JS will populate -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Blocks every interaction as soon as an app-owned hard reset is scheduled. -->
+    <div
+      id="session-reset-overlay"
+      class="session-reset-overlay"
+      role="status"
+      aria-live="assertive"
+      aria-atomic="true"
+      aria-hidden="true"
+      tabindex="-1"
+      hidden
+    >
+      <p id="session-reset-message" class="session-reset-message"></p>
+    </div>
+
+    <!-- App-owned dialog keeps session flows non-blocking. -->
+    <div class="dialog-overlay" id="dialog-overlay" aria-hidden="true">
+      <div
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title"
+        aria-describedby="dialog-message"
+      >
+        <div class="dialog-header">
+          <span class="dialog-title" id="dialog-title" data-i18n="common.info">Info</span>
+        </div>
+        <div class="dialog-message" id="dialog-message"></div>
+        <div class="dialog-actions adaptive-action-group">
+          <button
+            type="button"
+            class="dialog-secondary"
+            id="btn-dialog-secondary"
+            hidden
+            data-i18n="common.cancel"
+          >
+            Cancel
+          </button>
+          <button type="button" class="dialog-primary" id="btn-dialog-ok" data-i18n="common.ok">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay signaling-recovery-overlay"
+      id="signaling-recovery-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog"
+        id="signaling-recovery-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="signaling-recovery-title"
+        aria-describedby="signaling-recovery-message"
+        aria-busy="false"
+        data-state="failed"
+      >
+        <div class="dialog-header">
+          <span class="dialog-title" id="signaling-recovery-title"></span>
+        </div>
+        <div class="dialog-message" id="signaling-recovery-message"></div>
+        <div class="dialog-actions adaptive-action-group" id="signaling-recovery-actions">
+          <button
+            type="button"
+            class="dialog-secondary"
+            id="btn-signaling-recovery-confirm"
+          ></button>
+          <button type="button" class="dialog-primary" id="btn-signaling-recovery-retry"></button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay account-dialog-overlay"
+      id="account-dialog-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog account-dialog"
+        id="account-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="account-dialog-title"
+        aria-describedby="account-dialog-message"
+        aria-busy="false"
+        tabindex="-1"
+      >
+        <div class="dialog-header account-dialog-header">
+          <span class="dialog-title account-dialog-static-title" id="account-dialog-title"></span>
+          <button
+            type="button"
+            class="account-dialog-title-edit"
+            id="btn-account-title-edit"
+            aria-haspopup="dialog"
+            hidden
+          >
+            <span
+              class="dialog-title account-dialog-title-edit-label"
+              id="account-dialog-title-edit-label"
+            ></span>
+            <svg
+              class="account-dialog-title-edit-icon"
+              id="account-dialog-title-edit-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+              />
+            </svg>
+          </button>
+        </div>
+        <div
+          class="account-dialog-content"
+          id="account-dialog-content"
+          data-custom-scroll
+          data-custom-scroll-contained
+        >
+          <p class="account-dialog-message" id="account-dialog-message"></p>
+          <strong class="account-dialog-nickname" id="account-dialog-nickname" hidden></strong>
+        </div>
+        <div class="account-dialog-login-actions" id="account-dialog-login-actions" hidden>
+          <a class="account-google-button" id="btn-account-google" href="#" hidden>
+            <span class="account-google-mark" aria-hidden="true">
+              <!-- Standard-color Google G. Keep its colors and proportions unchanged. -->
+              <svg viewBox="0 0 18 18" focusable="false">
+                <path
+                  fill="#4285f4"
+                  d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.908c1.703-1.567 2.685-3.874 2.685-6.615Z"
+                />
+                <path
+                  fill="#34a853"
+                  d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.258c-.806.54-1.836.859-3.048.859-2.344 0-4.329-1.585-5.037-3.716H.956v2.333A9 9 0 0 0 9 18Z"
+                />
+                <path
+                  fill="#fbbc05"
+                  d="M3.963 10.705A5.42 5.42 0 0 1 3.68 9c0-.593.102-1.169.283-1.705V4.962H.956A9 9 0 0 0 0 9c0 1.453.347 2.827.956 4.038l3.007-2.333Z"
+                />
+                <path
+                  fill="#ea4335"
+                  d="M9 3.579c1.321 0 2.508.454 3.44 1.346l2.582-2.581C13.463.892 11.426 0 9 0A9 9 0 0 0 .956 4.962l3.007 2.333C4.67 5.165 6.656 3.579 9 3.579Z"
+                />
+              </svg>
+            </span>
+            <span class="account-google-label" id="account-google-label"></span>
+            <span class="account-google-balance" aria-hidden="true"></span>
+          </a>
+          <button
+            type="button"
+            class="dialog-secondary account-dialog-login-close"
+            id="btn-account-login-close"
+            hidden
+          ></button>
+          <nav class="account-legal-links" id="account-legal-links" hidden>
+            <a href="/terms" target="_blank" rel="noopener noreferrer" data-i18n="account.terms"
+              >Terms</a
+            >
+            <span aria-hidden="true">·</span>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" data-i18n="account.privacy"
+              >Privacy</a
+            >
+          </nav>
+        </div>
+        <dl
+          class="account-dialog-stats"
+          id="account-dialog-stats"
+          aria-live="polite"
+          aria-busy="false"
+          hidden
+        >
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label">
+              Sessions joined
+            </dt>
+            <dd id="account-stats-session-count">-</dd>
+          </div>
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label">
+              Listening time
+            </dt>
+            <dd id="account-stats-listening-time">-</dd>
+          </div>
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label">
+              Media played
+            </dt>
+            <dd id="account-stats-track-count">-</dd>
+          </div>
+        </dl>
+        <div
+          class="account-dialog-actions adaptive-action-group"
+          id="account-dialog-actions"
+          hidden
+        >
+          <button type="button" class="dialog-secondary" id="btn-account-logout"></button>
+          <button type="button" class="account-delete-button" id="btn-account-delete"></button>
+          <button
+            type="button"
+            class="dialog-primary account-dialog-account-close adaptive-action-group-full"
+            id="btn-account-center-close"
+          ></button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay administrator-permissions-overlay"
+      id="administrator-permissions-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog administrator-permissions-dialog"
+        id="administrator-permissions-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="administrator-permissions-title"
+        aria-busy="false"
+      >
+        <div class="dialog-header administrator-permissions-header">
+          <span class="dialog-title" id="administrator-permissions-title"></span>
+        </div>
+        <div class="administrator-permissions-list" data-custom-scroll data-custom-scroll-contained>
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="media.add"
+            role="switch"
+            aria-checked="false"
+          >
+            <span data-i18n="connect.permission_media_add">Manage media</span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="playback.control"
+            role="switch"
+            aria-checked="false"
+          >
+            <span class="administrator-permission-label">
+              <span data-i18n="connect.permission_playback_control">Playback control</span>
+              <small
+                class="administrator-permission-inherited"
+                hidden
+                data-i18n="connect.permission_inherited"
+                >Included</small
+              >
+            </span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="members.kick"
+            role="switch"
+            aria-checked="false"
+          >
+            <span data-i18n="connect.permission_members_kick">Kick members</span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="administrator-permission-row"
+            data-administrator-permission="chat.notice"
+            role="switch"
+            aria-checked="false"
+          >
+            <span data-i18n="connect.permission_chat_notice">Post chat notices</span>
+            <span class="administrator-permission-toggle" aria-hidden="true">
+              <span class="administrator-permission-toggle-knob"></span>
+            </span>
+          </button>
+        </div>
+        <div class="dialog-actions adaptive-action-group">
+          <button
+            type="button"
+            class="dialog-secondary"
+            id="btn-administrator-permissions-cancel"
+            data-i18n="common.cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="dialog-primary"
+            id="btn-administrator-permissions-save"
+            data-i18n="common.done"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay language-dialog-overlay"
+      id="language-dialog-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog language-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="language-dialog-title"
+      >
+        <div class="dialog-header">
+          <span
+            class="dialog-title"
+            id="language-dialog-title"
+            data-i18n="settings.language_dialog_title"
+            >Select Language</span
+          >
+          <span
+            class="feature-badge media-source-beta-badge language-dialog-beta-badge"
+            aria-label="Beta"
+          >
+            BETA
+          </span>
+        </div>
+        <div class="language-list-frame">
+          <div
+            class="language-list"
+            id="language-list"
+            role="group"
+            aria-labelledby="language-dialog-title"
+            data-custom-scroll
+            data-custom-scroll-contained
+          ></div>
+          <span class="language-list-edge language-list-edge-top" aria-hidden="true"></span>
+          <span class="language-list-edge language-list-edge-bottom" aria-hidden="true"></span>
+        </div>
+        <div class="dialog-actions adaptive-action-group">
+          <button
+            type="button"
+            class="dialog-primary"
+            id="btn-language-dialog-done"
+            data-i18n="common.done"
+          >
+            Done
+          </button>
+        </div>
+        <nav class="language-translate-link">
+          <a
+            href="/translate"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n="settings.help_translate"
+            >Help translate</a
+          >
+        </nav>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true">
+      <span id="toast-msg"></span>
+    </div>
+
+    <div class="manual-sync-overlay" id="manual-sync-overlay" aria-hidden="true">
+      <div
+        class="sync-glass-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Sync"
+        data-i18n-aria-label="common.sync"
+      >
+        <div class="sync-manual-display">
+          <span class="sync-col-label" data-i18n="player.manual_sync_label">Manual (ms)</span>
+          <div class="chat-input-wrapper sync-manual-input-wrapper">
+            <div
+              class="chat-input sync-col-value sync-manual-input"
+              id="manual-sync-value"
+              contenteditable="true"
+              tabindex="0"
+              role="textbox"
+              aria-label="Manual (ms)"
+              data-i18n-aria-label="player.manual_sync_label"
+              aria-describedby="manual-sync-range-hint"
+              data-placeholder="0"
+              inputmode="text"
+              enterkeyhint="done"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+            ></div>
+            <span id="manual-sync-range-hint" class="sr-only">-9999 … +9999 ms</span>
+          </div>
+        </div>
+        <div class="sync-nudge-row">
+          <button class="sync-nudge-btn" id="btn-nudge-minus10">-10</button>
+          <button class="sync-nudge-btn small" id="btn-nudge-minus1">-1</button>
+          <button class="sync-nudge-btn small" id="btn-nudge-plus1">+1</button>
+          <button class="sync-nudge-btn" id="btn-nudge-plus10">+10</button>
+        </div>
+        <div class="sync-bottom-row">
+          <button class="sync-reset-btn" id="btn-auto-sync" data-i18n="common.reset">Reset</button>
+          <button class="sync-done-btn" id="btn-sync-done" data-i18n="common.done">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="demo-overlay" class="demo-overlay" aria-hidden="true">
+      <div class="demo-mobile-shell">
+        <section
+          class="demo-visual-stage"
+          aria-label="Audio visualizer"
+          data-i18n-aria-label="player.visualizer"
+        >
+          <div id="demo-visualizer-slot" class="demo-visualizer-slot"></div>
+          <div class="demo-track-header">
+            <button
+              type="button"
+              class="demo-play-button"
+              data-demo-play
+              aria-label="Play/Pause"
+              data-i18n-aria-label="player.play_pause"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path data-demo-play-icon d="M8 5v14l11-7z" />
+              </svg>
+              <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
+                <svg viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                </svg>
+              </span>
+            </button>
+            <div class="demo-track-copy">
+              <div class="demo-track-title">Linelight OST - Adventure</div>
+              <div class="demo-track-artist">© Brett Taylor</div>
+            </div>
+          </div>
+          <div
+            class="demo-step-nav"
+            aria-label="Demo steps"
+            data-i18n-aria-label="demo.step_nav_label"
+          >
+            <button type="button" class="active" data-demo-step="1" aria-pressed="true">
+              <span data-i18n="demo.step_connect">1. Connect</span>
+            </button>
+            <button type="button" data-demo-step="2" aria-pressed="false">
+              <span data-i18n="demo.step_role">2. Set role</span>
+            </button>
+            <button type="button" data-demo-step="3" aria-pressed="false">
+              <span data-i18n="demo.step_effects">3. Audio effects</span>
+            </button>
+            <button
+              type="button"
+              class="demo-step-next"
+              data-demo-next
+              aria-label="Next"
+              data-i18n-aria-label="common.next"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6-6-6z" />
+              </svg>
+              <span data-i18n="demo.step_finish">4. Quit demo</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="demo-control-stage" data-custom-scroll>
+          <div class="demo-step-panels">
+            <article class="demo-step-panel active" data-demo-panel="1">
+              <div class="demo-step-copy">
+                <h2 data-demo-session-title></h2>
+                <p data-demo-session-subtitle></p>
+              </div>
+              <div class="demo-step-content demo-session-content">
+                <div id="demo-session-qr" class="demo-session-qr" aria-hidden="true"></div>
+                <p class="demo-step-body" data-demo-session-body></p>
+              </div>
+            </article>
+
+            <article class="demo-step-panel" data-demo-panel="2">
+              <div class="demo-step-copy">
+                <h2 data-i18n="setup.what_sound">What should this device play?</h2>
+                <p data-i18n="setup.change_later">You can adjust this anytime in Settings.</p>
+              </div>
+              <div class="demo-step-content demo-role-content">
+                <div class="setup-graphic-container demo-role-diagram" data-role-diagram="demo">
+                  <svg
+                    class="setup-graphic-svg svg-overflow-visible"
+                    viewBox="0 0 340 170"
+                    aria-hidden="true"
+                  >
+                    <defs>
+                      <linearGradient id="demo-grad-tl" x1="1" y1="1" x2="0" y2="0">
+                        <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                        <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                      </linearGradient>
+                      <linearGradient id="demo-grad-tr" x1="0" y1="1" x2="1" y2="0">
+                        <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                        <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                      </linearGradient>
+                      <linearGradient id="demo-grad-br" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                        <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                      </linearGradient>
+                      <linearGradient id="demo-grad-bl" x1="1" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="var(--text-muted)" stop-opacity="1" />
+                        <stop offset="100%" stop-color="var(--text-muted)" stop-opacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <g class="graphic-room">
+                      <rect x="40" y="30" width="260" height="90" />
+                      <line x1="40" y1="30" x2="0" y2="0" stroke="url(#demo-grad-tl)" />
+                      <line x1="300" y1="30" x2="340" y2="0" stroke="url(#demo-grad-tr)" />
+                      <line x1="300" y1="120" x2="340" y2="170" stroke="url(#demo-grad-br)" />
+                      <line x1="40" y1="120" x2="0" y2="170" stroke="url(#demo-grad-bl)" />
+                    </g>
+                    <rect class="graphic-tv" x="115" y="38" width="110" height="62" rx="2" />
+                    <g class="graphic-speaker" data-role-mode="-1">
+                      <rect x="50" y="60" width="20" height="68" rx="2" />
+                      <circle cx="60" cy="75" r="3.5" class="spk-driver" />
+                      <circle cx="60" cy="92" r="4.5" class="spk-driver" />
+                      <circle cx="60" cy="112" r="4.5" class="spk-driver" />
+                      <rect x="49" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
+                    </g>
+                    <g class="graphic-speaker" data-role-mode="1">
+                      <rect x="272" y="60" width="20" height="68" rx="2" />
+                      <circle cx="282" cy="75" r="3.5" class="spk-driver" />
+                      <circle cx="282" cy="92" r="4.5" class="spk-driver" />
+                      <circle cx="282" cy="112" r="4.5" class="spk-driver" />
+                      <rect x="271" y="128" width="22" height="3" rx="1" class="svg-fill-sub-05" />
+                    </g>
+                    <g class="graphic-speaker" data-role-mode="0">
+                      <rect x="155" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                      <rect x="181" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                      <rect x="145" y="125" width="50" height="15" rx="2" />
+                      <circle cx="170" cy="132.5" r="3.5" class="spk-driver" />
+                      <circle cx="155" cy="132.5" r="4" class="spk-driver" />
+                      <circle cx="185" cy="132.5" r="4" class="spk-driver" />
+                    </g>
+                    <g class="graphic-speaker" data-role-mode="2">
+                      <rect x="111" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                      <rect x="133" y="140" width="4" height="3" class="svg-fill-sub-08" />
+                      <rect x="108" y="108" width="32" height="32" rx="3" />
+                      <circle cx="124" cy="124" r="9" class="spk-driver svg-stroke-divider" />
+                    </g>
+                  </svg>
+                </div>
+                <div
+                  class="demo-role-segmented"
+                  role="group"
+                  aria-label="Set this device's role"
+                  data-i18n-aria-label="setup.set_role"
+                >
+                  <button type="button" data-demo-role="-1" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                    </svg>
+                    <span data-i18n="common.left">Left</span>
+                  </button>
+                  <button type="button" data-demo-role="2" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
+                      />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                    <span data-i18n="demo.role_bass_short">Bass</span>
+                  </button>
+                  <button type="button" data-demo-role="0" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.role_center_short">Center</span>
+                  </button>
+                  <button type="button" data-demo-role="1" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+                    </svg>
+                    <span data-i18n="common.right">Right</span>
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="demo-step-panel" data-demo-panel="3">
+              <div class="demo-step-copy">
+                <h2 data-i18n="demo.effects_step_title">Craft your premium sound.</h2>
+                <p data-i18n="demo.effects_step_subtitle">
+                  You can fine-tune these advanced acoustics anytime in Settings.
+                </p>
+              </div>
+              <div class="demo-step-content demo-effects-content">
+                <div class="demo-large-actions">
+                  <button
+                    type="button"
+                    class="ch-opt demo-choice"
+                    data-demo-effect="bass"
+                    aria-pressed="false"
+                  >
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
+                      <path
+                        d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.bass_boost">Bass Boost</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="ch-opt demo-choice"
+                    data-demo-effect="treble"
+                    aria-pressed="false"
+                  >
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
+                      <path
+                        fill="currentColor"
+                        d="M211.5-371.5Q200-383 200-400t11.5-28.5Q223-440 240-440t28.5 11.5Q280-417 280-400t-11.5 28.5Q257-360 240-360t-28.5-11.5Zm0 160Q200-223 200-240t11.5-28.5Q223-280 240-280t28.5 11.5Q280-257 280-240t-11.5 28.5Q257-200 240-200t-28.5-11.5Zm0-320Q200-543 200-560t11.5-28.5Q223-600 240-600t28.5 11.5Q280-577 280-560t-11.5 28.5Q257-520 240-520t-28.5-11.5ZM106-546q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm105.5-145.5Q200-703 200-720t11.5-28.5Q223-760 240-760t28.5 11.5Q280-737 280-720t-11.5 28.5Q257-680 240-680t-28.5-11.5ZM106-386q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm280 280q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm0-720q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm-14.5 134.5Q360-703 360-720t11.5-28.5Q383-760 400-760t28.5 11.5Q440-737 440-720t-11.5 28.5Q417-680 400-680t-28.5-11.5Zm-14 334Q340-375 340-400t17.5-42.5Q375-460 400-460t42.5 17.5Q460-425 460-400t-17.5 42.5Q425-340 400-340t-42.5-17.5Zm0-160Q340-535 340-560t17.5-42.5Q375-620 400-620t42.5 17.5Q460-585 460-560t-17.5 42.5Q425-500 400-500t-42.5-17.5Zm14 306Q360-223 360-240t11.5-28.5Q383-280 400-280t28.5 11.5Q440-257 440-240t-11.5 28.5Q417-200 400-200t-28.5-11.5ZM480-120v-80q116 0 198-82t82-198q0-116-82-198t-198-82v-80q74 0 139.5 28.5T734-734q49 49 77.5 114.5T840-480q0 74-28.5 139.5T734-226q-49 49-114.5 77.5T480-120Zm0-360Z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.treble_boost">Treble Boost</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="ch-opt demo-choice"
+                    data-demo-effect="reverb"
+                    aria-pressed="false"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.reverb">Reverb</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="ch-opt demo-choice"
+                    data-demo-effect="surround"
+                    aria-pressed="false"
+                  >
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
+                      <path
+                        d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.surround">Surround</span>
+                  </button>
+                </div>
+              </div>
+            </article>
+
+            <article class="demo-step-panel" data-demo-panel="4">
+              <div class="demo-step-copy">
+                <h2 data-i18n="demo.finish_step_title">You're all set!</h2>
+                <p data-i18n="demo.finish_step_subtitle">
+                  Jump right in and start playing together.
+                </p>
+              </div>
+              <div class="demo-step-content demo-finish-content">
+                <div
+                  class="demo-track-list"
+                  aria-label="Demo track list"
+                  data-i18n-aria-label="demo.track_list_label"
+                >
+                  <div class="demo-track-row" data-demo-track-index="0">
+                    <span>#1</span>
+                    <strong>Linelight OST - Adventure</strong>
+                  </div>
+                  <div class="demo-track-row" data-demo-track-index="1">
+                    <span>#2</span>
+                    <strong>Linelight OST - Lockstep Lunge</strong>
+                  </div>
+                  <div class="demo-track-row" data-demo-track-index="2">
+                    <span>#3</span>
+                    <strong>Linelight OST - Forgiveness Ballad</strong>
+                  </div>
+                  <div class="demo-track-row" data-demo-track-index="3">
+                    <span>#4</span>
+                    <strong>Linelight OST - Spring</strong>
+                  </div>
+                </div>
+                <div class="demo-large-actions">
+                  <button type="button" class="accent-action-btn demo-link-button" data-demo-info>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7zM19 19H5V5h5V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.track_info">Track info</span>
+                  </button>
+                  <button type="button" class="leave-session-btn demo-exit-button" data-demo-exit>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
+                      />
+                    </svg>
+                    <span data-i18n="demo.exit">Exit Demo</span>
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div id="demo-curtain" class="demo-curtain" aria-hidden="true"></div>
+
+    <div
+      id="media-source-overlay"
+      class="onboarding-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="media-source-dialog-title"
+      tabindex="-1"
+    >
+      <div class="onboarding-card setup-card full-screen">
+        <div class="setup-header-text">
+          <h2 id="media-source-dialog-title" data-i18n="player.select_media">
+            Select media to play
+          </h2>
+          <p data-i18n="help.media_synced_detail">
+            The selected media plays simultaneously on all connected devices.
+          </p>
+        </div>
+
+        <div class="setup-slot-list" data-custom-scroll data-custom-scroll-contained>
+          <button class="file-select-btn" id="btn-local-file">
+            <div class="btn-icon-bg">
+              <svg viewBox="0 0 24 24">
+                <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
+              </svg>
+            </div>
+            <span data-i18n="help.load_local">Load local file</span>
+          </button>
+          <input
+            type="file"
+            id="file-input"
+            multiple
+            aria-label="Choose local file"
+            data-i18n-aria-label="help.local_file"
+            accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aif,.aiff,.caf,audio/*"
+            hidden
+          />
+          <button class="file-select-btn" id="btn-youtube-source">
+            <div class="btn-icon-bg youtube">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M21.582,6.186c-0.23-0.86-0.908-1.538-1.768-1.768C18.254,4,12,4,12,4S5.746,4,4.186,4.418c-0.86,0.23-1.538,0.908-1.768,1.768C2,7.746,2,12,2,12s0,4.254,0.418,5.814c0.23,0.86,0.908,1.538,1.768,1.768C5.746,20,12,20,12,20s6.254,0,7.814-0.418c0.86-0.23,1.538-0.908,1.768-1.768C22,16.254,22,12,22,12S22,7.746,21.582,6.186z M10,15.464V8.536L16,12L10,15.464z"
+                />
+              </svg>
+            </div>
+            <span data-i18n="help.youtube_compat">YouTube (Compatibility Mode)</span>
+          </button>
+          <button class="file-select-btn" id="btn-system-audio">
+            <div class="btn-icon-bg">
+              <svg viewBox="0 0 24 24">
+                <path
+                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+                />
+              </svg>
+              <span
+                class="material-elastic-spinner system-audio-loading-spinner"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                </svg>
+              </span>
+            </div>
+            <span class="media-source-label-row">
+              <span class="media-source-label-text" data-i18n="system_audio.button"
+                >System Audio</span
+              >
+              <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
+            </span>
+          </button>
+        </div>
+
+        <div class="ob-actions">
+          <button
+            class="btn-ob-secondary flex-1"
+            id="btn-close-media-popup"
+            aria-label="Close"
+            data-i18n-aria-label="common.close"
+          >
+            <span data-i18n="common.close">Close</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="youtube-url-overlay"
+      class="onboarding-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="youtube-url-dialog-title"
+      tabindex="-1"
+    >
+      <div class="onboarding-card setup-card full-screen">
+        <div class="setup-header-text">
+          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together">
+            Watch YouTube together
+          </h2>
+          <p data-i18n-html="youtube.enter_link_desc_html">Only public videos or playlists can be played.</p>
+        </div>
+
+        <div class="setup-join-area setup-mt-0" data-custom-scroll data-custom-scroll-contained>
+          <div class="yt-search-input-wrapper">
+            <div
+              contenteditable="true"
+              id="youtube-url-input"
+              class="setup-join-input yt-intro-text"
+              dir="auto"
+              role="textbox"
+              aria-label="Enter YouTube link or search"
+              aria-describedby="youtube-preview-status"
+              data-i18n-aria-label="youtube.enter_source"
+              data-placeholder="Search term or https://youtube.com/"
+              data-i18n-data-placeholder="youtube.enter_source_placeholder"
+            ></div>
+            <button
+              type="button"
+              id="youtube-search-btn"
+              class="yt-search-submit-btn"
+              aria-label="Search"
+              aria-controls="youtube-search-results"
+              data-i18n-aria-label="youtube.search_button"
+              disabled
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                />
+              </svg>
+            </button>
+          </div>
+
+          <div id="youtube-preview" class="yt-preview-card" hidden>
+            <img
+              id="youtube-preview-thumb"
+              alt="YouTube preview thumbnail"
+              data-i18n-alt="youtube.thumbnail"
+              class="yt-preview-thumb"
+            />
+            <div class="setup-card-mt-8">
+              <p id="youtube-preview-title" class="yt-preview-title"></p>
+              <p id="youtube-preview-channel" class="yt-preview-channel"></p>
+            </div>
+          </div>
+
+          <div
+            id="youtube-search-results"
+            class="yt-search-results"
+            role="group"
+            data-custom-scroll
+            data-i18n-aria-label="youtube.search_results"
+            hidden
+            aria-label="YouTube search results"
+          ></div>
+
+          <p
+            id="youtube-preview-status"
+            class="yt-preview-meta"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            data-i18n="youtube.enter_link_prompt"
+          >
+            Enter a YouTube search term or link
+          </p>
+        </div>
+
+        <div class="ob-actions setup-card-mt-8-row">
+          <button class="btn-ob-secondary flex-1" id="btn-yt-cancel" data-i18n="common.cancel">
+            Cancel
+          </button>
+          <button
+            id="youtube-play-btn"
+            class="btn-ob-primary yt-play-btn-flex15"
+            disabled
+            data-i18n="player.play_start"
+          >
+            Add to Queue
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/app.ts"></script>
+  </body>
+</html>

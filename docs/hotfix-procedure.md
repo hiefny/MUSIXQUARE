@@ -16,7 +16,7 @@ Use this path for ordinary production bugs that do not require immediate client 
 ```bash
 git switch main
 git pull --ff-only origin main
-git switch -c codex/describe-the-fix
+git switch -c agent/describe-the-fix
 
 # make the fix
 
@@ -40,7 +40,7 @@ git commit -m "fix(domain): describe the fix"
 # Build once against committed HEAD so the cache-history guard checks the fix.
 npm run build:checked
 
-git push -u origin codex/describe-the-fix
+git push -u origin agent/describe-the-fix
 
 # Open a pull request into main, wait for CI, and merge the reviewed PR.
 ```
@@ -587,7 +587,7 @@ If a deployment is bad:
    ```bash
    git switch main
    git pull --ff-only origin main
-   git switch -c codex/restore-known-good-behavior
+   git switch -c agent/restore-known-good-behavior
    git revert --no-commit <bad-commit-sha>
 
    # If the bad release advanced product SemVer, keep moving forward to a new
@@ -608,7 +608,7 @@ If a deployment is bad:
 
    # Build once against committed history, including monotonic cache/version guards.
    npm run build:checked
-   git push -u origin codex/restore-known-good-behavior
+   git push -u origin agent/restore-known-good-behavior
 
    # Open a pull request into main, wait for CI, and merge the reviewed rollback.
    ```

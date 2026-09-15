@@ -82,6 +82,7 @@ export interface YouTubeZeroStartPlayer {
   setVolume(volume: number): void;
   getVolume(): number;
   getCurrentTime(): number;
+  getDuration?(): number;
   getPlayerState(): number;
   getVideoLoadedFraction(): number;
   getVideoData(): { video_id?: string };
@@ -1071,7 +1072,41 @@ class YouTubeZeroStartController {
             // cueVideoById/loadVideoById. The normal warm PLAYING boundary is
             // retained, so release timing and platform lead calibration remain
             // identical to a fresh media replacement.
-            player.playVideo();
+            const target = this.#resolveLocalTarget(0, run);
+            let state: number = YOUTUBE_ZERO_START_PLAYER_STATE.unstarted;
+            let currentTime = 0;
+            let duration = 0;
+            try {
+              state = player.getPlayerState();
+              currentTime = player.getCurrentTime();
+              duration = player.getDuration?.() ?? 0;
+            } catch {
+              state = YOUTUBE_ZERO_START_PLAYER_STATE.unstarted;
+            }
+            const isAtEnd =
+              state === YOUTUBE_ZERO_START_PLAYER_STATE.ended ||
+              (Number.isFinite(duration) && duration > 0 && currentTime >= duration - 0.5);
+            let seekFailed = false;
+            if (isAtEnd) {
+              try {
+                player.seekTo(target, true);
+              } catch (error) {
+                seekFailed = true;
+                this.#debug('resident-seek-failed', {
+                  runId: run.runId,
+                  videoId: run.videoId,
+                  target,
+                  error,
+                });
+              }
+            }
+            if (seekFailed) {
+              run.mediaAction = 'replace-media';
+              run.targetLoadIssued = true;
+              player.loadVideoById(run.videoId, target);
+            } else {
+              player.playVideo();
+            }
           } else {
             run.targetLoadIssued = true;
             player.loadVideoById(run.videoId, this.#resolveLocalTarget(0, run));
@@ -1163,7 +1198,11 @@ class YouTubeZeroStartController {
             this.#failLocalPrepare(run, 'player-replaced');
             return;
           }
-          player.seekTo(this.#resolveLocalTarget(0, run), true);
+          try {
+            player.seekTo(this.#resolveLocalTarget(0, run), true);
+          } catch {
+            // Settling poll will observe target mismatch and retry or time out safely.
+          }
           this.#later(() => this.#pollSettledAtTarget(run), YOUTUBE_ZERO_START_TIMING.settlePollMs);
         }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
       } catch (error) {

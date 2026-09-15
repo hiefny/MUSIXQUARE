@@ -3414,6 +3414,65 @@ describe('same-video queue occurrence handoff', () => {
     expect(cueVideoById).not.toHaveBeenCalled();
   });
 
+  it('completes same-video occurrence handoff immediately when player is in ended state', async () => {
+    const player = createMockYtPlayer();
+    player.cueVideoById = vi.fn();
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideoEnded' });
+    installYtNamespace(player);
+    const {
+      handoffSameVideoOccurrenceRestart,
+      loadYouTubeVideo,
+      prepareSameVideoOccurrenceRestart,
+    } = await import('../iframe.ts');
+    const { setPendingAutoSyncOnReady } = await import('../player.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'First occurrence',
+        videoId: 'sameVideoEnded',
+      } as unknown as PlaylistItem,
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Second occurrence',
+        videoId: 'sameVideoEnded',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('sameVideoEnded', null, false, 0);
+
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    expect(prepareSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideoEnded')).toBe(true);
+    // Simulate player having naturally finished playback and currently in ENDED (0) state
+    vi.mocked(player.getPlayerState!).mockReturnValue(0);
+    loadYouTubeVideo('sameVideoEnded', 'resolved-playlist', false, 0);
+
+    setPendingAutoSyncOnReady(true, {
+      isTrackTransition: true,
+      zeroStart: true,
+      targetTime: 0,
+      videoId: 'sameVideoEnded',
+      skipSeek: true,
+    });
+    const autoPlay = vi.fn();
+    bus.on('youtube:auto-play', autoPlay);
+
+    // Handoff should succeed immediately without waiting for any timer
+    expect(handoffSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideoEnded')).toBe(true);
+    expect(autoPlay).toHaveBeenCalledOnce();
+    expect(autoPlay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isTrackTransition: true,
+        zeroStart: true,
+        videoId: 'sameVideoEnded',
+      }),
+    );
+  });
+
   it('keeps the old cue behavior for a same-video load without playlist handoff', async () => {
     const player = createMockYtPlayer();
     const cueVideoById = vi.fn();

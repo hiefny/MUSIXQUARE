@@ -125,6 +125,9 @@ export function makeFakeYtPlayer(init?: Partial<FakeYtPlayer>): FakeYtPlayer {
 
     playVideo() {
       self.__log.push({ op: 'playVideo', at: Date.now() });
+      if (self.__state === 0 && self.__currentTime >= self.__duration) {
+        return;
+      }
       transition(self, 1);
     },
     pauseVideo() {

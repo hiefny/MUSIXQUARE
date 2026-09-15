@@ -469,7 +469,7 @@ function continueSameVideoOccurrenceHandoff(
     // The bounded retry below owns recovery from a transient unreadable state.
   }
 
-  if (state === 2 || state === 5 || Date.now() >= restart.handoffDeadlineAt) {
+  if (state === 0 || state === 2 || state === 5 || Date.now() >= restart.handoffDeadlineAt) {
     completeSameVideoOccurrenceHandoff(restart);
     return;
   }

@@ -511,6 +511,96 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.guest.getSnapshot().phase).toBe('playing');
   });
 
+  it('repositions resident host and guest media when already in ended state', () => {
+    const harness = makeHarness({
+      hostVideoId: VIDEO_ID,
+      guestVideoId: VIDEO_ID,
+      hostMediaAction: 'resident-reposition',
+      guestMediaAction: 'resident-reposition',
+    });
+    // Simulate both players naturally reaching the end of the previous track
+    harness.hostPlayer.__state = 0;
+    harness.hostPlayer.__currentTime = 300;
+    harness.hostPlayer.__duration = 300;
+    harness.guestPlayer.__state = 0;
+    harness.guestPlayer.__currentTime = 300;
+    harness.guestPlayer.__duration = 300;
+
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620);
+
+    for (const [controller, player] of [
+      [harness.host, harness.hostPlayer],
+      [harness.guest, harness.guestPlayer],
+    ] as const) {
+      expect(controller.getSnapshot()).toMatchObject({
+        phase: 'scheduled',
+        mediaAction: 'resident-reposition',
+      });
+      expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+      expect(player.__log.filter((call) => call.op === 'cueVideoById')).toHaveLength(0);
+      expect(player.__log.some((call) => call.op === 'playVideo')).toBe(true);
+      expect(player.__log.some((call) => call.op === 'pauseVideo')).toBe(true);
+      expect(player.__log.some((call) => call.op === 'seekTo')).toBe(true);
+      const firstSeekIdx = player.__log.findIndex((call) => call.op === 'seekTo');
+      const firstPlayIdx = player.__log.findIndex((call) => call.op === 'playVideo');
+      expect(firstSeekIdx).toBeGreaterThanOrEqual(0);
+      expect(firstPlayIdx).toBeGreaterThan(firstSeekIdx);
+    }
+
+    vi.advanceTimersByTime(700);
+    expect(harness.host.getSnapshot().phase).toBe('playing');
+    expect(harness.guest.getSnapshot().phase).toBe('playing');
+  });
+
+  it('degrades to replace-media loadVideoById when seekTo fails on ended resident player', () => {
+    const harness = makeHarness({
+      hostVideoId: VIDEO_ID,
+      guestVideoId: VIDEO_ID,
+      hostMediaAction: 'resident-reposition',
+      guestMediaAction: 'resident-reposition',
+    });
+    harness.hostPlayer.__state = 0;
+    harness.hostPlayer.__currentTime = 300;
+    let seekAttempts = 0;
+    const origSeekTo = harness.hostPlayer.seekTo.bind(harness.hostPlayer);
+    harness.hostPlayer.seekTo = (...args) => {
+      seekAttempts += 1;
+      if (seekAttempts === 1) {
+        throw new Error('seekTo failed');
+      }
+      origSeekTo(...args);
+    };
+
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+    vi.advanceTimersByTime(620);
+
+    expect(harness.hostPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(1);
+    expect(harness.host.getSnapshot()).toMatchObject({
+      phase: 'scheduled',
+      mediaAction: 'replace-media',
+    });
+
+    vi.advanceTimersByTime(700);
+    expect(harness.host.getSnapshot().phase).toBe('playing');
+  });
+
   it('degrades a stale resident decision to exactly one media replacement on that participant', () => {
     const harness = makeHarness({
       hostVideoId: VIDEO_ID,

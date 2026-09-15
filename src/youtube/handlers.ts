@@ -75,6 +75,13 @@ function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boo
 // ─── Network Handlers ──────────────────────────────────────────────
 
 export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConnection): void {
+  // Drop YOUTUBE_PLAY frames not arriving via hostConn. Without this, a
+  // malicious peer can send
+  // {type:'youtube-play', videoId:'<attacker_id>', autoplay:true} — the
+  // handler cancels in-flight file transfer, sets currentTrackMeta, and
+  // calls loadYouTubeVideo() which forces the target into YouTube mode
+  // playing arbitrary attacker-supplied content regardless of the target's
+  // current mode.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -90,23 +97,31 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   }
 
   setLocalYouTubePaused(false);
+
+  // A new host command arrived — cancel any pending guest-ENDED fallback
+  // from a prior track's ENDED event. Without this, the 5s fallback can
+  // fire AFTER a new YOUTUBE_PLAY has already loaded the next track and
+  // drop the guest out of YouTube mode on its own.
   clearManagedTimer('yt-guest-ended-fallback');
+
+  // Cancel any in-flight file transfer before switching to YouTube mode.
   cancelInFlightTransfer();
 
-  // Capture physical ownership before selecting the incoming logical queue
-  // occurrence. Different rows can intentionally resolve to the same video.
-  // In that case the resident iframe is already the correct decoder/buffer;
-  // cueVideoById(sameId) would race the following ZeroStart PREPARE.
+  // Capture the physical iframe identity before selecting the new logical
+  // queue occurrence. Distinct queue rows can intentionally resolve to the
+  // same video, and a redundant cueVideoById(sameId) can race ZeroStart.
   const previousQueueItemId = getCurrentQueueItemId();
   const residentPlayer = getYouTubePlayer();
+  const hadYouTubeOwnership = isPlaybackModeYouTube();
   let residentVideoId = '';
   try {
     residentVideoId = residentPlayer?.getVideoData?.()?.video_id || '';
   } catch {
     // An unreadable/rebuilding iframe falls through to the established load path.
   }
-  const hadYouTubeOwnership = isPlaybackModeYouTube();
 
+  // The ordered playlist snapshot must land first. queueItemId selects the
+  // exact occurrence even if its position changed before this command.
   const playlistItem = getQueueItemById(queueItemId);
   if (!playlistItem || playlistItem.type !== 'youtube') {
     log.warn('[YouTube] Ignored play for an unknown queue item:', queueItemId);
@@ -118,6 +133,10 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   let finalVideoId = videoId;
   let finalPlaylistId = playlistId;
 
+  // Early-guest fallback: if the host's payload only has a playlistId (no
+  // videoId) and we have cached IDs for that playlist, short-circuit to
+  // single-video mode. Without cached IDs we must fall through to the
+  // native playlist engine to avoid error 150.
   if (!finalVideoId && finalPlaylistId) {
     const subMap = getState('youtube.subItemsMap') || {};
     const knownIds = subMap[finalPlaylistId]?.ids;
@@ -137,15 +156,16 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   );
 
   if (reusesResidentOccurrence) {
-    // Logical occurrence boundary only. Leave the exact iframe untouched so
-    // ZeroStart can adopt it as resident-reposition. Legacy YOUTUBE_STATE also
-    // carries the new queueItemId and target time, so it can restart the same
-    // resident without a redundant same-ID cue.
+    // This is a logical occurrence boundary, not a media replacement. Keep the
+    // exact iframe/buffer resident so the following ZeroStart PREPARE can adopt
+    // it via resident-reposition instead of racing a same-ID cue. The legacy
+    // YOUTUBE_STATE path also carries the new queueItemId and seeks this same
+    // resident to the authoritative target when ZeroStart is unavailable.
     setYouTubeSubIndex(subIndex ?? 0);
     log.debug('[YouTube] Guest duplicate-video occurrence: retaining resident iframe');
   } else {
-    // A different physical target still follows the established single-video
-    // load path; keep YouTube's native playlist engine dormant when resolved.
+    // When we have a videoId, force playlistId to null so the iframe's native
+    // playlist engine stays dormant — single-video mode only.
     loadYouTubeVideo(
       finalVideoId,
       finalVideoId ? null : finalPlaylistId,
@@ -154,18 +174,29 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     );
   }
 
+  // The host sends PLAYLIST_INFO before YOUTUBE_PLAY. A fresh iframe load
+  // tears down the prior mode and cancels that just-started title fetch, so
+  // restart population after the destructive boundary using the queue item's
+  // durable playlist identity (the physical command may have normalized it
+  // to null for single-video mode).
   if (playlistItem.playlistId) {
     bus.emit('youtube:populate-sub-items', playlistItem.playlistId, queueItemId);
   }
 }
 
+/**
+ * Common guard for host-side request handlers: the host must be acting as host
+ * (not a guest), and the incoming request must be from the designated operator.
+ * Returns `true` if the handler should proceed, `false` otherwise (caller must
+ * early-return). Rejection is logged with the request name for context.
+ */
 function guardHostRequest(
   data: Record<string, unknown>,
   conn: DataConnection,
   requestName: string,
   requireCurrent = true,
 ): boolean {
-  if (getState('network.hostConn')) return false;
+  if (getState('network.hostConn')) return false; // Guest — not our job
   if (!verifyOperator(conn, data)) {
     log.warn(`[YouTube] Rejected ${requestName} from non-OP: ${conn?.peer}`);
     return false;
@@ -182,6 +213,7 @@ export function handleRequestYouTubePlay(
   conn: DataConnection,
 ): void {
   if (!guardHostRequest(data, conn, 'request-youtube-play')) return;
+
   const player = getYouTubePlayer();
   if (player?.getCurrentTime) {
     const currentTime = toCanonicalYouTubeTime(
@@ -204,6 +236,7 @@ export function handleRequestYouTubePause(
   conn: DataConnection,
 ): void {
   if (!guardHostRequest(data, conn, 'request-youtube-pause')) return;
+
   const player = getYouTubePlayer();
   if (player?.pauseVideo) {
     const time = toCanonicalYouTubeTime(
@@ -219,6 +252,7 @@ export function handleRequestYouTubeToggle(
   conn: DataConnection,
 ): void {
   if (!guardHostRequest(data, conn, 'request-youtube-toggle')) return;
+
   const player = getYouTubePlayer();
   if (!player) return;
   try {
@@ -230,6 +264,7 @@ export function handleRequestYouTubeToggle(
       );
       scheduleYtAutoSync(time, { state: 2 });
     } else {
+      // Play
       const currentTime = toCanonicalYouTubeTime(
         player.getCurrentTime?.() || 0,
         player.getDuration?.() || 0,
@@ -259,6 +294,8 @@ export function handleRequestYouTubeSubSeek(
   const queueItemId = data.queueItemId as QueueItemId;
   const currentQueueItemId = getCurrentQueueItemId();
 
+  // If the request targets a different playlist item, switch to it first
+  // (mirrors the local path in youtube/player.ts 'youtube:sub-seek' handler)
   if (queueItemId !== currentQueueItemId) {
     if (!getQueueItemById(queueItemId)) return;
     bus.emit('playlist:play-track', queueItemId, subIdx);
@@ -267,6 +304,9 @@ export function handleRequestYouTubeSubSeek(
 
   const player = getYouTubePlayer();
   if (player?.loadVideoById && typeof subIdx === 'number') {
+    // Single-video mode: resolve videoId from subItemsMap and loadVideoById.
+    // No playVideoAt — keeps the native playlist engine dormant so the
+    // iframe stays on one video at a time.
     const currentItem = getQueueItemById(currentQueueItemId);
     const subMap = getState('youtube.subItemsMap') || {};
     const ids = subMap[currentItem?.playlistId as string]?.ids || [];
@@ -287,19 +327,28 @@ export function handleRequestYouTubeSubSeek(
       subIndex: subIdx,
       videoId: targetVideoId,
       skipSeek: true,
+      // OP sub-seek loads a different video, so use the longer
+      // track-transition rendezvous so guests loadVideoById before synced play,
+      // matching navigateSubVideo and the loadVideoById siblings in player.ts.
       rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
     });
   }
 }
 
+/**
+ * Host responds to Guest's request for YouTube playlist sub-item data.
+ * Sends cached IDs and titles from subItemsMap.
+ */
 export function handleRequestYouTubePlaylistInfo(
   data: Record<string, unknown>,
   conn: DataConnection,
 ): void {
   const isGuest = !!getState('network.hostConn');
-  if (isGuest) return;
+  if (isGuest) return; // Only Host handles peer requests
+
   const pid = data.playlistId as string;
   if (!pid || !conn) return;
+
   const subMap = getState('youtube.subItemsMap') || {};
   if (subMap[pid]) {
     safeSend(conn, {
@@ -311,8 +360,19 @@ export function handleRequestYouTubePlaylistInfo(
   }
 }
 
+/**
+ * Encapsulates the cancellation of file transfers to prevent
+ * leaky abstractions across module domains.
+ */
 function cancelInFlightTransfer(): void {
+  // R2 download first, UNCONDITIONALLY: the remote path never sets
+  // transfer.state, so the RECEIVING/PROCESSING gate below is blind to it —
+  // without this an in-flight whole-object download keeps streaming over mobile
+  // data through the whole YouTube switch, repaints the loader on top of the
+  // new mode, and leaves the 5-minute wait timer armed. Idempotent no-op when
+  // nothing is in flight. (No cycle: remote-share imports no youtube/*.)
   cancelRemoteShareWait('youtube-play');
+
   clearManagedTimer('preloadRecoveryWatchdog');
   clearManagedTimer('preloadUiWatchdog');
   cancelIncomingFileTransfer('youtube-play');

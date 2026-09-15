@@ -4,6 +4,8 @@ name: Full E2E
 # release gate. It runs weekly at 03:17 KST every Tuesday and remains available
 # on demand.
 # The Chromium suite runs serially because its tests share a signaling server.
+# A production-live large-room smoke runs in the same weekly/manual workflow but
+# is explicitly non-blocking because it depends on deployed signaling and R2.
 
 on:
   schedule:
@@ -110,6 +112,50 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: webkit-mobile-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  production-large-room:
+    name: Production large-room R2 smoke
+    runs-on: ubuntu-latest
+    # This is real production monitoring, not a release/PR gate. Keep failures
+    # visible in the job while allowing the weekly/manual workflow to continue.
+    continue-on-error: true
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        timeout-minutes: 3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        timeout-minutes: 3
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        timeout-minutes: 8
+        run: corepack npm ci
+
+      - name: Install Chromium
+        timeout-minutes: 7
+        run: npx playwright install --with-deps chromium
+
+      - name: Run production 9-local-guest R2 smoke
+        timeout-minutes: 5
+        run: npx playwright test --config=playwright.production-live.config.ts --reporter=line,html
+
+      - name: Upload production-live failure artifacts
+        timeout-minutes: 4
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-large-room-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             playwright-report/
             test-results/

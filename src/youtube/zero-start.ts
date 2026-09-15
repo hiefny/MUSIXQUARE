@@ -208,6 +208,8 @@ interface YouTubeZeroStartDependencies {
   getHostNow(): number;
   getClockOffsetMs(): number;
   getLocalPlatform(): YouTubeZeroStartPlatform;
+  /** App-level canonical audio intent (volume and mute) independent of transient player state. */
+  getDesiredAudioState?(): { muted: boolean; volume: number };
   sendToPeer(peerId: string, message: YouTubeZeroStartWireMessage): boolean;
   sendToHost(message: YouTubeZeroStartWireMessage): boolean;
   /** Resolve canonical room time to this device's intentional local target. */
@@ -713,6 +715,13 @@ class YouTubeZeroStartController {
         return true;
       }
       run.phase = 'playing';
+      if (!run.originalMuted) {
+        try {
+          player.unMute();
+        } catch {
+          /* best-effort physical unMute on release */
+        }
+      }
       const playingAt = this.#now();
       const commit = run.commit;
       if (commit) {
@@ -884,14 +893,31 @@ class YouTubeZeroStartController {
         ? this.#relativeLead(localPlatform, message.hostPlatform)
         : { audibleBaseLeadMs: 0, timelineLeadMs: 0, totalLeadMs: 0 };
 
-    let originalMuted: boolean;
+    const desiredAudio = this.#deps.getDesiredAudioState?.();
+    let originalMuted = typeof desiredAudio?.muted === 'boolean' ? desiredAudio.muted : undefined;
+    if (originalMuted === undefined) {
+      try {
+        originalMuted = player.isMuted();
+      } catch (error) {
+        this.#deps.onError?.('player-audio-state-unavailable', error);
+        return false;
+      }
+    }
+
     let originalVolume: number;
     try {
-      originalMuted = player.isMuted();
-      originalVolume = clamp(Math.round(finiteOr(player.getVolume(), 100)), 0, 100);
+      originalVolume = clamp(
+        Math.round(finiteOr(player.getVolume(), desiredAudio?.volume ?? 100)),
+        0,
+        100,
+      );
     } catch (error) {
-      this.#deps.onError?.('player-audio-state-unavailable', error);
-      return false;
+      if (typeof desiredAudio?.volume === 'number' && Number.isFinite(desiredAudio.volume)) {
+        originalVolume = clamp(Math.round(desiredAudio.volume), 0, 100);
+      } else {
+        this.#deps.onError?.('player-audio-state-unavailable', error);
+        return false;
+      }
     }
 
     const run: LocalRun = {
@@ -956,17 +982,23 @@ class YouTubeZeroStartController {
     const localPlatform = this.#deps.getLocalPlatform();
     const lead = this.#relativeLead(localPlatform, message.hostPlatform);
     const player = this.#deps.getPlayer();
-    let originalMuted = false;
-    let originalVolume = 100;
-    let audioStateCaptured = false;
-    try {
-      if (player) {
-        originalMuted = player.isMuted();
-        originalVolume = clamp(Math.round(finiteOr(player.getVolume(), 100)), 0, 100);
-        audioStateCaptured = true;
+    const desiredAudio = this.#deps.getDesiredAudioState?.();
+    let originalMuted = typeof desiredAudio?.muted === 'boolean' ? desiredAudio.muted : false;
+    let originalVolume =
+      typeof desiredAudio?.volume === 'number' && Number.isFinite(desiredAudio.volume)
+        ? clamp(Math.round(desiredAudio.volume), 0, 100)
+        : 100;
+    let audioStateCaptured = typeof desiredAudio?.muted === 'boolean';
+    if (player) {
+      try {
+        if (!audioStateCaptured) {
+          originalMuted = player.isMuted();
+          audioStateCaptured = true;
+        }
+        originalVolume = clamp(Math.round(finiteOr(player.getVolume(), originalVolume)), 0, 100);
+      } catch {
+        // This run exists only to correlate the later COMMIT fallback.
       }
-    } catch {
-      // This run exists only to correlate the later COMMIT fallback.
     }
     return {
       runId: message.runId,

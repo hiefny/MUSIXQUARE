@@ -1725,6 +1725,11 @@ export function initYouTube(): void {
     getHostNow,
     getClockOffsetMs: getClockOffset,
     getLocalPlatform: getYouTubeZeroStartPlatform,
+    getDesiredAudioState: () => {
+      const masterVol = getState('audio.masterVolume');
+      const volume = Math.max(0, Math.min(100, Math.round((masterVol ?? 1) * 100)));
+      return { muted: (masterVol ?? 1) <= 0, volume };
+    },
     sendToPeer: sendYouTubeZeroStartToPeer,
     sendToHost: sendYouTubeZeroStartToHost,
     resolveLocalTargetSec: resolveZeroStartLocalTarget,
@@ -1737,9 +1742,12 @@ export function initYouTube(): void {
       if (context.role === 'guest') {
         return clampZeroStartTarget(localPositionSec - zeroStartAppliedGuestOffset, duration);
       }
-      return clampZeroStartTarget(localPositionSec, duration);
+      return localPositionSec;
     },
-    onPrepareSelection: ({ queueItemId, videoId, subIndex }) => {
+    onPrepareSelection: (selection) => {
+      const queueItemId = selection.queueItemId;
+      const videoId = selection.videoId;
+      const subIndex = selection.subIndex;
       const transferredFallback = clearZeroStartExternalFallback(true);
       if (transferredFallback) {
         const volume = Math.max(

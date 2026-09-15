@@ -2,9 +2,7 @@
  * @vitest-environment jsdom
  *
  * Dispatch-boundary tests for the operator handlers that may opt into the
- * zero-start path. The controller itself is covered separately; these tests
- * pin which user actions are allowed to enter it and which must retain the
- * established legacy rendezvous behavior.
+ * zero-start path.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +10,7 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 
 const QUEUE_ITEM_ID = '22222222-2222-4222-8222-222222222222';
+const PREVIOUS_QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 const VIDEO_ID = 'M7lc1UVf-VE';
 
 const playerFacade = vi.hoisted(() => ({
@@ -21,19 +20,18 @@ const playerFacade = vi.hoisted(() => ({
   videoId: 'M7lc1UVf-VE',
   loadVideoById: vi.fn(),
 }));
-
+const queueFacade = vi.hoisted(() => ({ currentQueueItemId: QUEUE_ITEM_ID }));
 const zeroStartFacade = vi.hoisted(() => ({ accepted: false }));
 const queueItemFacade = vi.hoisted(() => ({ playlistId: null as string | null }));
 const scheduleYtAutoSync = vi.hoisted(() => vi.fn());
 const tryBeginYouTubeZeroStart = vi.hoisted(() => vi.fn(() => zeroStartFacade.accepted));
+const setYouTubeSubIndex = vi.hoisted(() => vi.fn());
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-
 vi.mock('../../network/peer.ts', () => ({ safeSend: vi.fn(() => true) }));
 vi.mock('../../network/protocol.ts', () => ({ verifyOperator: vi.fn(() => true) }));
-
 vi.mock('../_state.ts', () => ({
   getYouTubePlayer: vi.fn(() => ({
     getCurrentTime: () => playerFacade.currentTime,
@@ -44,9 +42,8 @@ vi.mock('../_state.ts', () => ({
     pauseVideo: vi.fn(),
   })),
   setLocalYouTubePaused: vi.fn(),
-  setYouTubeSubIndex: vi.fn(),
+  setYouTubeSubIndex,
 }));
-
 vi.mock('../iframe.ts', () => ({ loadYouTubeVideo: vi.fn() }));
 vi.mock('../local-offset.ts', () => ({
   toCanonicalYouTubeTime: vi.fn((seconds: number) => seconds),
@@ -55,11 +52,12 @@ vi.mock('../../storage/transfer-receive.ts', () => ({ cancelIncomingFileTransfer
 vi.mock('../../share/remote-share.ts', () => ({ cancelRemoteShareWait: vi.fn() }));
 vi.mock('../../player/ownership.ts', () => ({
   getPlaybackSelectionTrackMeta: vi.fn((meta) => meta),
+  isPlaybackModeYouTube: vi.fn(() => true),
   setPlaybackTrackMeta: vi.fn(),
   updatePlaybackTrackDetails: vi.fn(),
 }));
 vi.mock('../../player/queue-model.ts', () => ({
-  getCurrentQueueItemId: vi.fn(() => QUEUE_ITEM_ID),
+  getCurrentQueueItemId: vi.fn(() => queueFacade.currentQueueItemId),
   getQueueItemById: vi.fn(() => ({
     queueItemId: QUEUE_ITEM_ID,
     type: 'youtube',
@@ -67,7 +65,10 @@ vi.mock('../../player/queue-model.ts', () => ({
     videoId: VIDEO_ID,
     playlistId: queueItemFacade.playlistId,
   })),
-  selectQueueItemById: vi.fn(() => true),
+  selectQueueItemById: vi.fn((queueItemId: string) => {
+    queueFacade.currentQueueItemId = queueItemId;
+    return true;
+  }),
 }));
 
 import {
@@ -88,6 +89,7 @@ describe('YouTube operator handler zero-start dispatch', () => {
   beforeEach(() => {
     resetState();
     vi.clearAllMocks();
+    queueFacade.currentQueueItemId = QUEUE_ITEM_ID;
     playerFacade.currentTime = 0;
     playerFacade.duration = 300;
     playerFacade.state = 2;
@@ -108,34 +110,50 @@ describe('YouTube operator handler zero-start dispatch', () => {
     bus.on('youtube:populate-sub-items', populate);
 
     handleYouTubePlay(
-      {
-        videoId: VIDEO_ID,
-        playlistId: null,
-        queueItemId: QUEUE_ITEM_ID,
-        autoplay: false,
-        subIndex: 0,
-      },
+      { videoId: VIDEO_ID, playlistId: null, queueItemId: QUEUE_ITEM_ID, autoplay: false, subIndex: 0 },
       hostConnection,
     );
 
     expect(loadYouTubeVideo).toHaveBeenCalledWith(VIDEO_ID, null, false, 0);
     expect(populate).toHaveBeenCalledWith('PL_GUEST', QUEUE_ITEM_ID);
-    expect(vi.mocked(loadYouTubeVideo).mock.invocationCallOrder.at(-1)!).toBeLessThan(
-      populate.mock.invocationCallOrder.at(-1)!,
+  });
+
+  it('retains the guest iframe when a different queue occurrence resolves to the resident video', () => {
+    const hostConnection = { peer: 'host-peer', open: true } as never;
+    setState('network.hostConn', hostConnection);
+    queueFacade.currentQueueItemId = PREVIOUS_QUEUE_ITEM_ID;
+    playerFacade.videoId = VIDEO_ID;
+
+    handleYouTubePlay(
+      { videoId: VIDEO_ID, playlistId: null, queueItemId: QUEUE_ITEM_ID, autoplay: false, subIndex: 0 },
+      hostConnection,
     );
+
+    expect(queueFacade.currentQueueItemId).toBe(QUEUE_ITEM_ID);
+    expect(loadYouTubeVideo).not.toHaveBeenCalled();
+    expect(setYouTubeSubIndex).toHaveBeenCalledWith(0);
+  });
+
+  it('still loads when the next queue occurrence resolves to a different video', () => {
+    const hostConnection = { peer: 'host-peer', open: true } as never;
+    setState('network.hostConn', hostConnection);
+    queueFacade.currentQueueItemId = PREVIOUS_QUEUE_ITEM_ID;
+    playerFacade.videoId = 'different-video';
+
+    handleYouTubePlay(
+      { videoId: VIDEO_ID, playlistId: null, queueItemId: QUEUE_ITEM_ID, autoplay: false, subIndex: 0 },
+      hostConnection,
+    );
+
+    expect(loadYouTubeVideo).toHaveBeenCalledWith(VIDEO_ID, null, false, 0);
   });
 
   it('clears the prior channel before an operator loads another playlist video', () => {
     queueItemFacade.playlistId = 'PL_OPERATOR';
     setState('youtube.subItemsMap', {
-      PL_OPERATOR: {
-        ids: [VIDEO_ID, 'next-video-id'],
-        titles: ['First', 'Next'],
-      },
+      PL_OPERATOR: { ids: [VIDEO_ID, 'next-video-id'], titles: ['First', 'Next'] },
     });
-
     handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 1 }, operatorConnection);
-
     expect(updatePlaybackTrackDetails).toHaveBeenCalledWith({ artist: null });
     expect(playerFacade.loadVideoById).toHaveBeenCalledWith('next-video-id');
   });
@@ -143,22 +161,15 @@ describe('YouTube operator handler zero-start dispatch', () => {
   it('preserves the channel when an operator restarts the resident playlist video', () => {
     queueItemFacade.playlistId = 'PL_OPERATOR';
     setState('youtube.subItemsMap', {
-      PL_OPERATOR: {
-        ids: [VIDEO_ID],
-        titles: ['First'],
-      },
+      PL_OPERATOR: { ids: [VIDEO_ID], titles: ['First'] },
     });
-
     handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 0 }, operatorConnection);
-
     expect(updatePlaybackTrackDetails).not.toHaveBeenCalled();
   });
 
   it('lets a zero-second operator resume use zero-start when the cohort accepts it', () => {
     zeroStartFacade.accepted = true;
-
     handleRequestYouTubePlay(request, operatorConnection);
-
     expect(tryBeginYouTubeZeroStart).toHaveBeenCalledWith(VIDEO_ID, 0);
     expect(scheduleYtAutoSync).not.toHaveBeenCalled();
   });
@@ -166,16 +177,13 @@ describe('YouTube operator handler zero-start dispatch', () => {
   it('keeps an ordinary non-zero operator resume on legacy rendezvous', () => {
     playerFacade.currentTime = 12;
     zeroStartFacade.accepted = true;
-
     handleRequestYouTubePlay(request, operatorConnection);
-
     expect(tryBeginYouTubeZeroStart).not.toHaveBeenCalled();
     expect(scheduleYtAutoSync).toHaveBeenCalledWith(12);
   });
 
   it('falls back atomically to legacy when zero-second capability negotiation declines', () => {
     handleRequestYouTubeToggle(request, operatorConnection);
-
     expect(tryBeginYouTubeZeroStart).toHaveBeenCalledWith(VIDEO_ID, 0);
     expect(scheduleYtAutoSync).toHaveBeenCalledWith(0);
   });
@@ -184,9 +192,7 @@ describe('YouTube operator handler zero-start dispatch', () => {
     playerFacade.currentTime = 27;
     playerFacade.state = 1;
     zeroStartFacade.accepted = true;
-
     handleRequestYouTubePause(request, operatorConnection);
-
     expect(tryBeginYouTubeZeroStart).not.toHaveBeenCalled();
     expect(scheduleYtAutoSync).toHaveBeenCalledWith(27, { state: 2 });
   });

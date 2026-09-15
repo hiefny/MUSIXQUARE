@@ -134,27 +134,30 @@ describe('YouTube operator handler zero-start dispatch', () => {
     );
   });
 
-  it('retains the guest iframe when a different queue occurrence resolves to the resident video', () => {
-    const hostConnection = { peer: 'host-peer', open: true } as never;
-    setState('network.hostConn', hostConnection);
-    queueFacade.currentQueueItemId = PREVIOUS_QUEUE_ITEM_ID;
-    playerFacade.videoId = VIDEO_ID;
+  it(
+    'retains the guest iframe when a different queue occurrence resolves to the resident video',
+    () => {
+      const hostConnection = { peer: 'host-peer', open: true } as never;
+      setState('network.hostConn', hostConnection);
+      queueFacade.currentQueueItemId = PREVIOUS_QUEUE_ITEM_ID;
+      playerFacade.videoId = VIDEO_ID;
 
-    handleYouTubePlay(
-      {
-        videoId: VIDEO_ID,
-        playlistId: null,
-        queueItemId: QUEUE_ITEM_ID,
-        autoplay: false,
-        subIndex: 0,
-      },
-      hostConnection,
-    );
+      handleYouTubePlay(
+        {
+          videoId: VIDEO_ID,
+          playlistId: null,
+          queueItemId: QUEUE_ITEM_ID,
+          autoplay: false,
+          subIndex: 0,
+        },
+        hostConnection,
+      );
 
-    expect(queueFacade.currentQueueItemId).toBe(QUEUE_ITEM_ID);
-    expect(loadYouTubeVideo).not.toHaveBeenCalled();
-    expect(setYouTubeSubIndex).toHaveBeenCalledWith(0);
-  });
+      expect(queueFacade.currentQueueItemId).toBe(QUEUE_ITEM_ID);
+      expect(loadYouTubeVideo).not.toHaveBeenCalled();
+      expect(setYouTubeSubIndex).toHaveBeenCalledWith(0);
+    },
+  );
 
   it('still loads when the next queue occurrence resolves to a different video', () => {
     const hostConnection = { peer: 'host-peer', open: true } as never;

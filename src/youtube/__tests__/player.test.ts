@@ -3158,9 +3158,8 @@ describe('YouTube Player', () => {
 
     it('prevents guest local iframe from overwriting host track title during multilingual playback', async () => {
       const { setYouTubePlayer } = await import('../_state.ts');
-      const { updateYouTubeUIForTests, expectYouTubeMetadataVideoIdForTests } = await import(
-        '../iframe.ts'
-      );
+      const { updateYouTubeUIForTests, expectYouTubeMetadataVideoIdForTests } =
+        await import('../iframe.ts');
 
       const fakePlayer = {
         getCurrentTime: vi.fn(() => 25),
@@ -3201,9 +3200,8 @@ describe('YouTube Player', () => {
 
     it('allows host local iframe to resolve track title when no hostConn exists', async () => {
       const { setYouTubePlayer } = await import('../_state.ts');
-      const { updateYouTubeUIForTests, expectYouTubeMetadataVideoIdForTests } = await import(
-        '../iframe.ts'
-      );
+      const { updateYouTubeUIForTests, expectYouTubeMetadataVideoIdForTests } =
+        await import('../iframe.ts');
 
       const fakePlayer = {
         getCurrentTime: vi.fn(() => 25),

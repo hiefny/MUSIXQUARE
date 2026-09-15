@@ -21,6 +21,7 @@ import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
   getPlaybackSelectionTrackMeta,
+  isPlaybackModeYouTube,
   setPlaybackTrackMeta,
   updatePlaybackTrackDetails,
 } from '../player/ownership.ts';
@@ -106,6 +107,19 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
   // Cancel any in-flight file transfer before switching to YouTube mode.
   cancelInFlightTransfer();
 
+  // Capture the physical iframe identity before selecting the new logical
+  // queue occurrence. Distinct queue rows can intentionally resolve to the
+  // same video, and a redundant cueVideoById(sameId) can race ZeroStart.
+  const previousQueueItemId = getCurrentQueueItemId();
+  const residentPlayer = getYouTubePlayer();
+  const hadYouTubeOwnership = isPlaybackModeYouTube();
+  let residentVideoId = '';
+  try {
+    residentVideoId = residentPlayer?.getVideoData?.()?.video_id || '';
+  } catch {
+    // An unreadable/rebuilding iframe falls through to the established load path.
+  }
+
   // The ordered playlist snapshot must land first. queueItemId selects the
   // exact occurrence even if its position changed before this command.
   const playlistItem = getQueueItemById(queueItemId);
@@ -132,14 +146,34 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     }
   }
 
-  // When we have a videoId, force playlistId to null so the iframe's native
-  // playlist engine stays dormant — single-video mode only.
-  loadYouTubeVideo(
-    finalVideoId,
-    finalVideoId ? null : finalPlaylistId,
-    autoplay ?? false,
-    subIndex ?? 0,
+  const reusesResidentOccurrence = Boolean(
+    hadYouTubeOwnership &&
+    previousQueueItemId &&
+    previousQueueItemId !== queueItemId &&
+    finalVideoId &&
+    residentPlayer &&
+    residentVideoId === finalVideoId,
   );
+
+  if (reusesResidentOccurrence) {
+    // This is a logical occurrence boundary, not a media replacement. Keep the
+    // exact iframe/buffer resident so the following ZeroStart PREPARE can adopt
+    // it via resident-reposition instead of racing a same-ID cue. The legacy
+    // YOUTUBE_STATE path also carries the new queueItemId and seeks this same
+    // resident to the authoritative target when ZeroStart is unavailable.
+    setYouTubeSubIndex(subIndex ?? 0);
+    log.debug('[YouTube] Guest duplicate-video occurrence: retaining resident iframe');
+  } else {
+    // When we have a videoId, force playlistId to null so the iframe's native
+    // playlist engine stays dormant — single-video mode only.
+    loadYouTubeVideo(
+      finalVideoId,
+      finalVideoId ? null : finalPlaylistId,
+      autoplay ?? false,
+      subIndex ?? 0,
+    );
+  }
+
   // The host sends PLAYLIST_INFO before YOUTUBE_PLAY. A fresh iframe load
   // tears down the prior mode and cancels that just-started title fetch, so
   // restart population after the destructive boundary using the queue item's

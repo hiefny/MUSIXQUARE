@@ -12,6 +12,7 @@ import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 
 const QUEUE_ITEM_ID = '22222222-2222-4222-8222-222222222222';
+const PREVIOUS_QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 const VIDEO_ID = 'M7lc1UVf-VE';
 
 const playerFacade = vi.hoisted(() => ({
@@ -21,11 +22,14 @@ const playerFacade = vi.hoisted(() => ({
   videoId: 'M7lc1UVf-VE',
   loadVideoById: vi.fn(),
 }));
-
+const queueFacade = vi.hoisted(() => ({
+  currentQueueItemId: '22222222-2222-4222-8222-222222222222',
+}));
 const zeroStartFacade = vi.hoisted(() => ({ accepted: false }));
 const queueItemFacade = vi.hoisted(() => ({ playlistId: null as string | null }));
 const scheduleYtAutoSync = vi.hoisted(() => vi.fn());
 const tryBeginYouTubeZeroStart = vi.hoisted(() => vi.fn(() => zeroStartFacade.accepted));
+const setYouTubeSubIndex = vi.hoisted(() => vi.fn());
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -44,7 +48,7 @@ vi.mock('../_state.ts', () => ({
     pauseVideo: vi.fn(),
   })),
   setLocalYouTubePaused: vi.fn(),
-  setYouTubeSubIndex: vi.fn(),
+  setYouTubeSubIndex,
 }));
 
 vi.mock('../iframe.ts', () => ({ loadYouTubeVideo: vi.fn() }));
@@ -55,11 +59,12 @@ vi.mock('../../storage/transfer-receive.ts', () => ({ cancelIncomingFileTransfer
 vi.mock('../../share/remote-share.ts', () => ({ cancelRemoteShareWait: vi.fn() }));
 vi.mock('../../player/ownership.ts', () => ({
   getPlaybackSelectionTrackMeta: vi.fn((meta) => meta),
+  isPlaybackModeYouTube: vi.fn(() => true),
   setPlaybackTrackMeta: vi.fn(),
   updatePlaybackTrackDetails: vi.fn(),
 }));
 vi.mock('../../player/queue-model.ts', () => ({
-  getCurrentQueueItemId: vi.fn(() => QUEUE_ITEM_ID),
+  getCurrentQueueItemId: vi.fn(() => queueFacade.currentQueueItemId),
   getQueueItemById: vi.fn(() => ({
     queueItemId: QUEUE_ITEM_ID,
     type: 'youtube',
@@ -67,7 +72,10 @@ vi.mock('../../player/queue-model.ts', () => ({
     videoId: VIDEO_ID,
     playlistId: queueItemFacade.playlistId,
   })),
-  selectQueueItemById: vi.fn(() => true),
+  selectQueueItemById: vi.fn((queueItemId: string) => {
+    queueFacade.currentQueueItemId = queueItemId;
+    return true;
+  }),
 }));
 
 import {
@@ -88,6 +96,7 @@ describe('YouTube operator handler zero-start dispatch', () => {
   beforeEach(() => {
     resetState();
     vi.clearAllMocks();
+    queueFacade.currentQueueItemId = QUEUE_ITEM_ID;
     playerFacade.currentTime = 0;
     playerFacade.duration = 300;
     playerFacade.state = 2;
@@ -123,6 +132,48 @@ describe('YouTube operator handler zero-start dispatch', () => {
     expect(vi.mocked(loadYouTubeVideo).mock.invocationCallOrder.at(-1)!).toBeLessThan(
       populate.mock.invocationCallOrder.at(-1)!,
     );
+  });
+
+  it('retains the guest iframe when a different queue occurrence resolves to the resident video', () => {
+    const hostConnection = { peer: 'host-peer', open: true } as never;
+    setState('network.hostConn', hostConnection);
+    queueFacade.currentQueueItemId = PREVIOUS_QUEUE_ITEM_ID;
+    playerFacade.videoId = VIDEO_ID;
+
+    handleYouTubePlay(
+      {
+        videoId: VIDEO_ID,
+        playlistId: null,
+        queueItemId: QUEUE_ITEM_ID,
+        autoplay: false,
+        subIndex: 0,
+      },
+      hostConnection,
+    );
+
+    expect(queueFacade.currentQueueItemId).toBe(QUEUE_ITEM_ID);
+    expect(loadYouTubeVideo).not.toHaveBeenCalled();
+    expect(setYouTubeSubIndex).toHaveBeenCalledWith(0);
+  });
+
+  it('still loads when the next queue occurrence resolves to a different video', () => {
+    const hostConnection = { peer: 'host-peer', open: true } as never;
+    setState('network.hostConn', hostConnection);
+    queueFacade.currentQueueItemId = PREVIOUS_QUEUE_ITEM_ID;
+    playerFacade.videoId = 'different-video';
+
+    handleYouTubePlay(
+      {
+        videoId: VIDEO_ID,
+        playlistId: null,
+        queueItemId: QUEUE_ITEM_ID,
+        autoplay: false,
+        subIndex: 0,
+      },
+      hostConnection,
+    );
+
+    expect(loadYouTubeVideo).toHaveBeenCalledWith(VIDEO_ID, null, false, 0);
   });
 
   it('clears the prior channel before an operator loads another playlist video', () => {

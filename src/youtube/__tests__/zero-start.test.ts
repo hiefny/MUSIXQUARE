@@ -81,6 +81,7 @@ function makeHarness(options?: {
   onGuestLearnedTimelineLeadMs?: YouTubeZeroStartDependencies['onLearnedTimelineLeadMs'];
   onHostPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
   onGuestPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
+  guestDesiredAudioState?: { muted: boolean; volume?: number };
 }): Harness {
   const hostOutbound: YouTubeZeroStartWireMessage[] = [];
   const guestOutbound: YouTubeZeroStartWireMessage[] = [];
@@ -153,6 +154,9 @@ function makeHarness(options?: {
     onPrepareSelection: () => options?.guestMediaAction,
     onLearnedTimelineLeadMs: options?.onGuestLearnedTimelineLeadMs,
     onPhaseChange: options?.onGuestPhaseChange,
+    getDesiredAudioState: options?.guestDesiredAudioState
+      ? () => options.guestDesiredAudioState
+      : undefined,
     resolveLocalTargetSec: (canonical) => canonical + guestOffset,
     toCanonicalPositionSec: (local) => local - guestOffset,
   } as YouTubeZeroStartDependencies);
@@ -270,6 +274,71 @@ describe('YouTubeZeroStartController', () => {
     expect(controller.getSnapshot()).toMatchObject({ phase: 'armed' });
     expect(player.isMuted()).toBe(false);
     expect(player.getVolume()).toBe(71);
+  });
+
+  it('does not adopt transient player hard mute when desired audio state is unmuted', () => {
+    const harness = makeHarness({
+      guestVolume: 65,
+      guestMuted: true,
+      guestDesiredAudioState: { muted: false, volume: 80 },
+    });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+    expect(harness.host.canBeginHostTransition()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+
+    vi.advanceTimersByTime(620);
+
+    const commit = harness.hostOutbound.find(
+      (message) => message.type === 'youtube-zero-start-commit',
+    );
+    expect(commit).toMatchObject({
+      reason: 'all-ready',
+      cohort: [HOST_ID, GUEST_ID],
+    });
+    expect(harness.guestPlayer.getVolume()).toBe(65);
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+
+    vi.advanceTimersByTime(700);
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+  });
+
+  it('respects desired audio state when explicitly muted', () => {
+    const harness = makeHarness({
+      guestVolume: 65,
+      guestMuted: false,
+      guestDesiredAudioState: { muted: true, volume: 0 },
+    });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+    expect(harness.host.canBeginHostTransition()).toBe(true);
+
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+
+    vi.advanceTimersByTime(620);
+
+    const commit = harness.hostOutbound.find(
+      (message) => message.type === 'youtube-zero-start-commit',
+    );
+    expect(commit).toMatchObject({
+      reason: 'all-ready',
+      cohort: [HOST_ID, GUEST_ID],
+    });
+    expect(harness.guestPlayer.isMuted()).toBe(true);
+
+    vi.advanceTimersByTime(700);
+    expect(harness.guestPlayer.isMuted()).toBe(true);
   });
 
   it('does not mutate a late player when a waiting-ready guest falls back', () => {

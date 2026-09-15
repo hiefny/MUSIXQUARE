@@ -966,14 +966,19 @@ export async function fetchPlaylistSubTitles(
       if (!currentEntry) return;
       // A manifest may be replaced while oEmbed is pending. Titles describe
       // the captured video, so an old index must never label its successor.
+      // Additionally, guests must never overwrite a canonical host-provided title
+      // that arrived while background oEmbed was in flight.
+      const hostConn = getState('network.hostConn');
+      const isGuest = Boolean(hostConn);
       const updates = batchBuffer.filter(
-        (update) => currentEntry.ids[update.index] === expectedIds[update.index],
+        (update) =>
+          currentEntry.ids[update.index] === expectedIds[update.index] &&
+          (!isGuest || !currentEntry.titles[update.index]?.trim()),
       );
       batchBuffer = [];
       if (updates.length === 0) return;
       updateSubItemTitlesBulk(playlistId, updates);
 
-      const hostConn = getState('network.hostConn');
       if (!hostConn) {
         for (const update of updates) {
           broadcast({

@@ -121,6 +121,27 @@ describe('YouTube playlist title batch completion', () => {
       expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ subIdx: partialIndex }));
     },
   );
+
+  it('does not overwrite existing host-provided titles on a connected guest', async () => {
+    const { broadcast } = prepareTitleFetch((index) =>
+      Response.json({ title: `Guest Title ${index}` }),
+    );
+    setState('network.hostConn', { open: true } as never);
+    // Host title arrived while oEmbed fetch was in flight
+    const subItemsMap = getState('youtube.subItemsMap');
+    subItemsMap[playlistId].titles[0] = 'Host Canonical Title 0';
+
+    const pending = fetchPlaylistSubTitles(playlistId, ids);
+    await vi.runAllTimersAsync();
+    await pending;
+
+    // Host title was preserved and NOT overwritten by guest oEmbed
+    expect(getState('youtube.subItemsMap')[playlistId]?.titles[0]).toBe('Host Canonical Title 0');
+    // Missing title was populated
+    expect(getState('youtube.subItemsMap')[playlistId]?.titles[1]).toBe('Guest Title 1');
+    // Guest did not broadcast sub-title update
+    expect(broadcast).not.toHaveBeenCalled();
+  });
 });
 
 describe('YouTube request lifetime', () => {

@@ -203,7 +203,8 @@ async function waitForTrackTitle(page: Page, fragment: string, timeout = 60_000)
 async function readCandidatePairs(hostPage: Page): Promise<CandidatePairObservation[]> {
   return hostPage.evaluate(async (key): Promise<CandidatePairObservation[]> => {
     const connections =
-      ((window as unknown as Record<string, unknown>)[key] as RTCPeerConnection[] | undefined) ?? [];
+      ((window as unknown as Record<string, unknown>)[key] as RTCPeerConnection[] | undefined) ??
+      [];
     const observations: CandidatePairObservation[] = [];
 
     const candidateType = (
@@ -278,7 +279,9 @@ async function readCandidatePairs(hostPage: Page): Promise<CandidatePairObservat
   }, RTC_PROBE_KEY);
 }
 
-async function requireNineLocalPeerConnections(hostPage: Page): Promise<CandidatePairObservation[]> {
+async function requireNineLocalPeerConnections(
+  hostPage: Page,
+): Promise<CandidatePairObservation[]> {
   let latest: CandidatePairObservation[] = [];
   await expect
     .poll(

@@ -97,7 +97,9 @@ function observeGuestDownloads(
     try {
       const url = new URL(response.url());
       if (url.hostname !== REMOTE_SHARE_HOST || !url.pathname.startsWith('/download/')) return;
-      console.log(`[production-live] guest ${guestNumber} GET ${response.status()} ${url.pathname}`);
+      console.log(
+        `[production-live] guest ${guestNumber} GET ${response.status()} ${url.pathname}`,
+      );
       if (isSuccessful(response.status())) successfulDownloads.add(url.pathname);
     } catch {
       // Ignore unrelated malformed/devtools URLs.
@@ -204,7 +206,10 @@ async function readCandidatePairs(hostPage: Page): Promise<CandidatePairObservat
       ((window as unknown as Record<string, unknown>)[key] as RTCPeerConnection[] | undefined) ?? [];
     const observations: CandidatePairObservation[] = [];
 
-    const candidateType = (stats: RTCStatsReport, candidateId: unknown): RTCIceCandidateType | null => {
+    const candidateType = (
+      stats: RTCStatsReport,
+      candidateId: unknown,
+    ): RTCIceCandidateType | null => {
       if (typeof candidateId !== 'string') return null;
       const candidate = stats.get(candidateId) as { candidateType?: unknown } | undefined;
       return typeof candidate?.candidateType === 'string'

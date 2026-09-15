@@ -341,6 +341,143 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.guestPlayer.isMuted()).toBe(true);
   });
 
+  it('unmutes on release when Sequence 2 supersedes Sequence 1 while warming under hard mute', () => {
+    const harness = makeHarness({
+      guestVolume: 65,
+      guestMuted: false,
+      guestDesiredAudioState: { muted: false, volume: 80 },
+    });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    const prepareAtHost1 = Date.now();
+    expect(
+      harness.guest.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'run-seq-1',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+        prepareAtHost: prepareAtHost1,
+        decisionAtHost: prepareAtHost1 + 2_300,
+        startDeadlineAtHost: prepareAtHost1 + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+
+    // Run 1 enters muting/warming -> player is hard muted
+    vi.advanceTimersByTime(20);
+    expect(harness.guestPlayer.isMuted()).toBe(true);
+    expect(harness.guest.getSnapshot()?.phase).toBe('warming');
+
+    // While Run 1 is still warming under hard mute, Sequence 2 PREPARE arrives!
+    const prepareAtHost2 = Date.now() + 50;
+    expect(
+      harness.guest.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'run-seq-2',
+        sequence: 2,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: 'SECOND_VIDEO_ID',
+        subIndex: null,
+        prepareAtHost: prepareAtHost2,
+        decisionAtHost: prepareAtHost2 + 2_300,
+        startDeadlineAtHost: prepareAtHost2 + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+
+    // Run 2 takes over player state, warms and arms
+    vi.advanceTimersByTime(620);
+    expect(harness.guest.getSnapshot()).toMatchObject({
+      runId: 'run-seq-2',
+      phase: 'armed',
+    });
+    expect(harness.guestPlayer.getVolume()).toBe(65);
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+
+    // Host commits Sequence 2
+    harness.guest.handleCommit(HOST_ID, {
+      type: 'youtube-zero-start-commit',
+      version: 1,
+      runId: 'run-seq-2',
+      sequence: 2,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: 'SECOND_VIDEO_ID',
+      startAtHost: prepareAtHost2 + 2_500,
+      reason: 'all-ready',
+      cohort: [HOST_ID, GUEST_ID],
+    });
+
+    vi.advanceTimersByTime(2_500);
+    harness.guestPlayer.__state = 1;
+    harness.guest.handlePlayerStateChange(1);
+    expect(harness.guest.getSnapshot()?.phase).toBe('playing');
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+  });
+
+  it('propagates desired audio intent to fallback when runtime readiness is unready', () => {
+    const player = makeFakeYtPlayer({ __muted: true, __volume: 23 });
+    const fallback = vi.fn();
+    const controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => player as YouTubeZeroStartPlayer,
+      isPlayerReady: () => false,
+      isAudioUnlocked: () => false,
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'other',
+      getDesiredAudioState: () => ({ muted: false, volume: 77 }),
+      sendToPeer: () => false,
+      sendToHost: () => true,
+      onFallbackRequired: fallback,
+    });
+    const prepareAtHost = Date.now();
+
+    expect(
+      controller.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'cold-unready-run',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+        prepareAtHost,
+        decisionAtHost: prepareAtHost + 2_300,
+        startDeadlineAtHost: prepareAtHost + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+    expect(controller.getSnapshot()).toMatchObject({ phase: 'waiting-ready' });
+
+    controller.handleCommit(HOST_ID, {
+      type: 'youtube-zero-start-commit',
+      version: 1,
+      runId: 'cold-unready-run',
+      sequence: 1,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      startAtHost: prepareAtHost + 2_500,
+      reason: 'guest-timeout',
+      cohort: [HOST_ID],
+    });
+
+    expect(fallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'cold-unready-run',
+        desiredMuted: false,
+        desiredVolume: 23,
+      }),
+    );
+  });
+
   it('does not mutate a late player when a waiting-ready guest falls back', () => {
     const player = makeFakeYtPlayer({ __muted: true, __volume: 23 });
     const fallback = vi.fn();

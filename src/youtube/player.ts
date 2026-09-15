@@ -1742,7 +1742,7 @@ export function initYouTube(): void {
       if (context.role === 'guest') {
         return clampZeroStartTarget(localPositionSec - zeroStartAppliedGuestOffset, duration);
       }
-      return localPositionSec;
+      return clampZeroStartTarget(localPositionSec, duration);
     },
     onPrepareSelection: (selection) => {
       const queueItemId = selection.queueItemId;

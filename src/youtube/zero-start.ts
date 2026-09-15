@@ -721,6 +721,17 @@ class YouTubeZeroStartController {
         } catch {
           /* best-effort physical unMute on release */
         }
+        this.#later(() => {
+          if (!this.#isCurrentRun(run) || run.phase !== 'playing') return;
+          const activePlayer = this.#deps.getPlayer();
+          if (activePlayer === player && !run.originalMuted) {
+            try {
+              if (activePlayer.isMuted()) activePlayer.unMute();
+            } catch {
+              /* best-effort retry */
+            }
+          }
+        }, 80);
       }
       const playingAt = this.#now();
       const commit = run.commit;

@@ -76,8 +76,11 @@ describe('local E2E report contract', () => {
     expect(workflow).toContain('if: failure() || cancelled()');
 
     const webkitStart = workflow.indexOf('\n  webkit-mobile:');
+    const productionLargeRoomStart = workflow.indexOf('\n  production-large-room:');
+    expect(productionLargeRoomStart).toBeGreaterThan(webkitStart);
+
     const fullE2eJob = workflow.slice(workflow.indexOf('\n  e2e:'), webkitStart);
-    const webkitJob = workflow.slice(webkitStart);
+    const webkitJob = workflow.slice(webkitStart, productionLargeRoomStart);
     const browserGateJob = ciWorkflow.slice(ciWorkflow.indexOf('\n  browser-gate:'));
 
     expectTimeoutBudget(fullE2eJob, 220, [

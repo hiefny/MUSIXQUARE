@@ -3122,16 +3122,26 @@ function updateYouTubeUI(): void {
       if (vData?.title && videoDataMatchesSelection) {
         const titleChanged = vData.title !== _ifr.lastVideoTitle;
         _ifr.lastVideoTitle = vData.title;
-        updatePlaybackTrackDetails({
-          title: vData.title,
-          ...(typeof vData.author === 'string' ? { artist: vData.author } : {}),
-        });
-        if (titleChanged) {
-          persistResolvedProYouTubeTitle(
-            getCurrentQueueItemId(),
-            vData.video_id || '',
-            vData.title,
-          );
+        // In a room with a host, the host is the sole authority for track title.
+        // The guest receives authoritative title via YOUTUBE_STATE/YOUTUBE_SYNC broadcasts.
+        // Overwriting title from guest's local iframe causes title flip-flop when
+        // YouTube serves localized titles (e.g. Host Korean vs Guest English).
+        if (!getState('network.hostConn')) {
+          updatePlaybackTrackDetails({
+            title: vData.title,
+            ...(typeof vData.author === 'string' ? { artist: vData.author } : {}),
+          });
+          if (titleChanged) {
+            persistResolvedProYouTubeTitle(
+              getCurrentQueueItemId(),
+              vData.video_id || '',
+              vData.title,
+            );
+          }
+        } else if (typeof vData.author === 'string') {
+          updatePlaybackTrackDetails({
+            artist: vData.author,
+          });
         }
       } else if (vData?.title) {
         // The iframe API can lag one tick behind loadVideoById. Keep the
@@ -3451,3 +3461,6 @@ function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
     log.warn('[YouTube Snapshot] Error:', e);
   }
 }
+
+export const updateYouTubeUIForTests = updateYouTubeUI;
+export const expectYouTubeMetadataVideoIdForTests = expectYouTubeMetadataVideoId;

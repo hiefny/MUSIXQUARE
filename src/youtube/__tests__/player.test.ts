@@ -3150,6 +3150,97 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('Standard room YouTube title ownership', () => {
+    afterEach(async () => {
+      const { setYouTubePlayer } = await import('../_state.ts');
+      setYouTubePlayer(null);
+    });
+
+    it('prevents guest local iframe from overwriting host track title during multilingual playback', async () => {
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { updateYouTubeUIForTests, expectYouTubeMetadataVideoIdForTests } =
+        await import('../iframe.ts');
+
+      const fakePlayer = {
+        getCurrentTime: vi.fn(() => 25),
+        getDuration: vi.fn(() => 180),
+        getPlayerState: vi.fn(() => 1),
+        getVideoData: vi.fn(() => ({
+          video_id: 'vid-multilingual',
+          title: 'English Title',
+          author: 'Channel Author',
+        })),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(fakePlayer);
+
+      setPlaybackYouTubePlaying();
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', dataConnection('host-peer'));
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: '한국어 제목',
+          videoId: 'vid-multilingual',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('player.currentTrackMeta', {
+        title: '한국어 제목',
+        queueItemId: QUEUE_ITEM_ID,
+      });
+
+      expectYouTubeMetadataVideoIdForTests('vid-multilingual');
+      updateYouTubeUIForTests();
+
+      expect(getState('player.currentTrackMeta')?.title).toBe('한국어 제목');
+      expect(getState('player.currentTrackMeta')?.artist).toBe('Channel Author');
+    });
+
+    it('allows host local iframe to resolve track title when no hostConn exists', async () => {
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { updateYouTubeUIForTests, expectYouTubeMetadataVideoIdForTests } =
+        await import('../iframe.ts');
+
+      const fakePlayer = {
+        getCurrentTime: vi.fn(() => 25),
+        getDuration: vi.fn(() => 180),
+        getPlayerState: vi.fn(() => 1),
+        getVideoData: vi.fn(() => ({
+          video_id: 'vid-multilingual',
+          title: '한국어 제목',
+          author: 'Channel Author',
+        })),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(fakePlayer);
+
+      setPlaybackYouTubePlaying();
+      setState('network.appRole', 'host');
+      setState('network.hostConn', null);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'vid-multilingual',
+          videoId: 'vid-multilingual',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('player.currentTrackMeta', {
+        title: 'vid-multilingual',
+        queueItemId: QUEUE_ITEM_ID,
+      });
+
+      expectYouTubeMetadataVideoIdForTests('vid-multilingual');
+      updateYouTubeUIForTests();
+
+      expect(getState('player.currentTrackMeta')?.title).toBe('한국어 제목');
+      expect(getState('player.currentTrackMeta')?.artist).toBe('Channel Author');
+    });
+  });
+
   describe('System audio restore bootstrap', () => {
     it('rebroadcasts YouTube playback when restoring the room after system audio', async () => {
       const { consumePendingAutoSyncOnReady, initYouTube } = await import('../player.ts');

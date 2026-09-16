@@ -2991,3 +2991,54 @@ describe('initPlayerControls sync button', () => {
     expect(document.activeElement).toBe(trigger);
   });
 });
+
+describe('demo button host gate', () => {
+  function renderDemoButtons(): { desktopBtn: HTMLButtonElement; mobileBtn: HTMLButtonElement } {
+    const desktopBtn = document.createElement('button');
+    desktopBtn.id = 'btn-demo-media';
+    const mobileBtn = document.createElement('button');
+    mobileBtn.id = 'btn-demo-media-mobile';
+    document.body.appendChild(desktopBtn);
+    document.body.appendChild(mobileBtn);
+    return { desktopBtn, mobileBtn };
+  }
+
+  it('allows the host to trigger demo:enter without showing toast', () => {
+    const { desktopBtn, mobileBtn } = renderDemoButtons();
+    setActiveStandardHost();
+    const enterListener = vi.fn();
+    bus.on('demo:enter', enterListener);
+
+    initPlayerControls();
+
+    desktopBtn.click();
+    expect(enterListener).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
+
+    mobileBtn.click();
+    expect(enterListener).toHaveBeenCalledTimes(2);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('blocks a guest from entering demo mode, showing host-only toast instead', () => {
+    const { desktopBtn, mobileBtn } = renderDemoButtons();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-peer'));
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+
+    const enterListener = vi.fn();
+    bus.on('demo:enter', enterListener);
+
+    initPlayerControls();
+
+    desktopBtn.click();
+    expect(enterListener).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
+
+    mobileBtn.click();
+    expect(enterListener).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledTimes(2);
+    expect(showToast).toHaveBeenLastCalledWith(t('demo.host_only_exit'));
+  });
+});

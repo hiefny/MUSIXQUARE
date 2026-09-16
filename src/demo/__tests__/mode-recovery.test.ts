@@ -14,6 +14,7 @@ import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { t } from '../../i18n/index.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { getCurrentAudioBuffer, setCurrentAudioBuffer } from '../../player/_state.ts';
@@ -212,6 +213,22 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(FakeXHR.pending).toHaveLength(0);
     expect(mocks.stopAllMedia).not.toHaveBeenCalled();
     expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('refuses demo:enter emitted by a guest in a standard room and shows the host-only toast', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+    setState('setup.sessionStarted', true);
+
+    bus.emit('demo:enter');
+    await flush();
+
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('demo.loading')).toBe(false);
+    expect(FakeXHR.pending).toHaveLength(0);
+    expect(mocks.stopAllMedia).not.toHaveBeenCalled();
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
   });
 
   it('tears down an in-flight standard demo when the room becomes PRO', async () => {

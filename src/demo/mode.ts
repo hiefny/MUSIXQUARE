@@ -1710,14 +1710,15 @@ export function initDemoMode(
   _suppressFirstRunPrompt = options.suppressFirstRunPrompt ?? hasAppUseRecord();
 
   _busScope.on('demo:enter', () => {
+    if (isProRoomDemoBlocked()) return;
+    if (!isDemoHost()) {
+      showToast(t('demo.host_only_exit'));
+      return;
+    }
     observeDemoOperation(
       enterDemoMode({ index: 0, autoplay: false, broadcastEntry: true }).then((result) => {
         if (!isCurrentDemoResult(result)) return;
-        if (getState('network.hostConn')) {
-          observeDemoOperation(play(0), 'guest entry playback');
-        } else {
-          startDemoPlayback(0);
-        }
+        startDemoPlayback(0);
       }),
       'entry',
     );

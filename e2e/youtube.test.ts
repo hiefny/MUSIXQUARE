@@ -6,9 +6,11 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { uploadFixture } from './helpers/file-upload.ts';
+import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import { installFakeYt } from './helpers/fake-yt.ts';
 import {
+  navigateToTab,
+  readState,
   readPlaybackProjection,
   waitForClass,
   waitForPlaylistCount,
@@ -247,5 +249,80 @@ test.describe('YouTube Integration', () => {
 
     await waitForPlaybackProjectionIn(pair.hostPage, ['PLAYING_AUDIO', 'PAUSED'], 15_000);
     expect(['PLAYING_AUDIO', 'PAUSED']).toContain(await readPlaybackProjection(pair.hostPage));
+  });
+
+  test('guest preloads each returning local successor while YouTube keeps playing', async () => {
+    await submitYouTubeUrl(pair.hostPage, YT_VIDEO);
+    for (const page of [pair.hostPage, pair.guestPage]) {
+      await waitForPlaybackProjection(page, 'PLAYING_YOUTUBE');
+    }
+    await uploadFixtures(pair.hostPage, ['test01', 'test02']);
+    await waitForPlaylistCount(pair.guestPage, 3);
+    const items = (await readState(pair.hostPage, 'playlist.items')) as Array<{
+      queueItemId: string;
+      name: string;
+    }>;
+    const [current, a, b] = items;
+    expect(current).toBeDefined();
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+
+    const waitForGuestPreload = async (queueItemId: string, name: string) => {
+      await expect
+        .poll(() =>
+          pair.guestPage.evaluate(() => {
+            const get = (window as unknown as Record<string, (path: string) => unknown>)
+              .__MUSIXQUARE_GET_STATE__;
+            const ready = get('preload.ready') as {
+              queueItemId: string;
+              name: string;
+              blob: Blob;
+            } | null;
+            return (
+              ready && {
+                queueItemId: ready.queueItemId,
+                name: ready.name,
+                hasBytes: ready.blob.size > 0,
+              }
+            );
+          }),
+        )
+        .toEqual({ queueItemId, name, hasBytes: true });
+      await pair.hostPage.waitForFunction((id) => {
+        const get = (window as unknown as Record<string, (path: string) => unknown>)
+          .__MUSIXQUARE_GET_STATE__;
+        const peers = get('network.connectedPeers') as Array<{
+          preloadedQueueItemIds: Set<string>;
+        }>;
+        return peers.some((peer) => peer.preloadedQueueItemIds.has(id));
+      }, queueItemId);
+    };
+    await waitForGuestPreload(a!.queueItemId, a!.name);
+    await navigateToTab(pair.hostPage, 'playlist');
+
+    // Complete each replacement before returning: this catches the stale ACK
+    // history that could suppress bytes after the guest had evicted that file.
+    for (const target of [b!, a!, b!, a!]) {
+      const handle = pair.hostPage.locator(
+        `.playlist-reorder-handle[data-queue-item-id="${target.queueItemId}"]`,
+      );
+      await handle.focus();
+      await handle.press('Enter');
+      await handle.press('ArrowUp');
+      await handle.press('Enter');
+      await expect
+        .poll(async () => {
+          const queue = (await readState(pair.guestPage, 'playlist.items')) as Array<{
+            queueItemId: string;
+          }>;
+          return queue[1]?.queueItemId;
+        })
+        .toBe(target.queueItemId);
+      await waitForGuestPreload(target.queueItemId, target.name);
+      for (const page of [pair.hostPage, pair.guestPage]) {
+        expect(await readState(page, 'playlist.currentQueueItemId')).toBe(current!.queueItemId);
+        await waitForPlaybackProjection(page, 'PLAYING_YOUTUBE');
+      }
+    }
   });
 });

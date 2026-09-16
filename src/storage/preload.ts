@@ -218,6 +218,24 @@ interface BackgroundTransferOwner {
 
 let _inFlightBackgroundOwner: BackgroundTransferOwner | null = null;
 
+/** A non-skipped START replaces the guest's prior speculative resident. */
+function invalidatePeerPreloadResidency(conn: DataConnection): void {
+  if (!isPeerConnectionCurrent(conn.peer, conn)) return;
+  const peers = getState('network.connectedPeers');
+  const peer = peers.find((candidate) => candidate.id === conn.peer && candidate.conn === conn);
+  if (!peer?.preloadedQueueItemIds?.size) return;
+
+  // Retire the old ACK before publishing START: the guest evicts its previous
+  // cache even if this replacement later fails admission or never reaches END.
+  // A reconnect with the same peer ID must retain its own independent state.
+  setState(
+    'network.connectedPeers',
+    peers.map((candidate) =>
+      candidate === peer ? { ...candidate, preloadedQueueItemIds: new Set<string>() } : candidate,
+    ),
+  );
+}
+
 function abortBackgroundPeer(owner: BackgroundTransferOwner, peer: ConnectedPeer): void {
   if (owner.abortedPeerIds.has(peer.id) || owner.completedPeerIds.has(peer.id)) return;
   owner.abortedPeerIds.add(peer.id);
@@ -992,6 +1010,7 @@ async function backgroundTransfer(
     targets.forEach((p) => {
       const conn = p.conn as DataConnection;
       const needsChunks = targetsWhoNeedChunks.includes(p);
+      if (needsChunks) invalidatePeerPreloadResidency(conn);
       safeSend(conn, { ...header, skipped: !needsChunks });
     });
 
@@ -1120,6 +1139,7 @@ export async function unicastPreload(
     const total = Math.ceil(file.size / CHUNK);
     const fileName = 'name' in file ? file.name : 'Track';
 
+    invalidatePeerPreloadResidency(conn);
     safeSend(conn, {
       type: MSG.PRELOAD_START,
       name: fileName,

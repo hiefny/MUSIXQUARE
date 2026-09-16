@@ -1319,6 +1319,21 @@ function installMediaHooks(
       );
       if (!item || item.type !== 'file') return null;
 
+      // A cache hit still changes the speculative target. Retire the old
+      // request before returning, or it can later evict this ready asset.
+      // Promoted/current downloads live in pendingFileDownload and continue.
+      const warm = pendingPreloadDownload;
+      if (warm && !pendingDownloadMatches(warm, queueItemId, lease)) warm.controller.abort();
+      const deferred = deferredPreloadRequest;
+      if (
+        deferred &&
+        (deferred.queueItemId !== queueItemId ||
+          deferred.leaseGeneration !== lease.generation ||
+          deferred.roomCode !== lease.roomCode)
+      ) {
+        cancelDeferredProRoomPreload();
+      }
+
       if (item.file) return Promise.resolve(item.file);
 
       const source = projection.sourceFor(queueItemId);
@@ -1334,9 +1349,7 @@ function installMediaHooks(
           : deferProRoomFilePreload(queueItemId, lease);
       }
 
-      const warm = pendingPreloadDownload;
       if (warm && pendingDownloadMatches(warm, queueItemId, lease)) return warm.promise;
-      if (warm) warm.controller.abort();
       return startProRoomFileDownload(queueItemId, lease, 'preload')?.promise ?? null;
     },
     hasPreloadedFile(queueItemId) {

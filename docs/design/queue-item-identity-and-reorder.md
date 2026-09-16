@@ -2,7 +2,7 @@
 
 Status: implemented current contract
 Date: 2026-07-11
-Last repository contract review: 2026-08-17
+Last repository contract review: 2026-09-17
 
 ## Decision
 
@@ -110,6 +110,24 @@ before the release is declared healthy.
   the same, retain its resident Blob and transfer session; if it changed, preload the new target.
 - Broadcast one post-commit snapshot.
 
+Preload reuse depends on current file residency, not a history of successful transfers:
+
+- In Standard rooms, a real replacement `PRELOAD_START` clears the guest's previous preload.
+  Invalidate that connection's older acknowledged cache entries before publishing the replacement
+  header, including unicast headers. Waiting for the replacement's completion ACK is too late:
+  cancellation or failed admission may already have removed the previous file.
+- Keep ACKs scoped to the current connection and expected queue occurrence/session. A late ACK
+  must not restore a superseded residency claim. A skipped transfer may reuse a still-resident
+  occurrence; moving unrelated rows must not force another download.
+- Host-local `preload.ready` is the host's resident source, not proof that every guest has received
+  it. Keep outbound transfer ownership separate, including while that source is promoted into
+  current playback. Superseded scheduler callbacks must not reschedule themselves over the latest
+  intent or cancel an otherwise valid running transfer.
+- In PRO rooms, returning a cached or local File must still retire another occurrence's obsolete
+  speculative download or deferred request. Otherwise that older download can evict the selected
+  next occurrence from the bounded asset cache. Preserve foreground/promoted downloads and valid
+  same-target work; do not increase the cache budget to hide stale work.
+
 ### Remove
 
 - Address the item by ID.
@@ -216,6 +234,12 @@ Interaction state priority is:
 
 - Reorder before, after, and during playback without restarting the current item.
 - Reorder a preloaded successor without another download or decode.
+- Complete preload A, start or complete B, then reorder A back to next. Verify actual guest A
+  bytes and the host's per-connection residency claim, including a cancelled B and late ACKs.
+- While A is still streaming, reorder to B and back to A; preserve the original valid A transfer.
+  If the latest target remains B, verify it starts after the existing transfer settles.
+- In PRO, return to cached A while B is awaiting its response; obsolete B must not survive to
+  evict A, even when A and B together exceed the existing cache bound. Exercise deferred B too.
 - Delete before a preloaded item without re-downloading that item.
 - Reorder during remote download and preserve the `queueItemId` + `sessionId` owner pair.
 - Resolve late YouTube titles into the original item after reorder.

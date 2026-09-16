@@ -724,7 +724,8 @@ class YouTubeZeroStartController {
         this.#later(() => {
           if (!this.#isCurrentRun(run) || run.phase !== 'playing') return;
           const activePlayer = this.#deps.getPlayer();
-          if (activePlayer === player && !run.originalMuted) {
+          const desiredMuted = this.#deps.getDesiredAudioState?.().muted ?? run.originalMuted;
+          if (activePlayer === player && !desiredMuted) {
             try {
               if (activePlayer.isMuted()) activePlayer.unMute();
             } catch {

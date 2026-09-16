@@ -418,6 +418,66 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.guestPlayer.isMuted()).toBe(false);
   });
 
+  it('does not re-unmute during 80ms verification if user intentionally muted after entering playing', () => {
+    const guestDesiredAudioState = { muted: false, volume: 80 };
+    const harness = makeHarness({
+      guestVolume: 80,
+      guestMuted: false,
+      guestDesiredAudioState,
+    });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+
+    const prepareAtHost = Date.now();
+    expect(
+      harness.guest.handlePrepare(HOST_ID, {
+        type: 'youtube-zero-start-prepare',
+        version: 1,
+        runId: 'run-user-mute-race',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+        prepareAtHost,
+        decisionAtHost: prepareAtHost + 2_300,
+        startDeadlineAtHost: prepareAtHost + 3_000,
+        hostPlatform: 'other',
+      }),
+    ).toBe(true);
+
+    vi.advanceTimersByTime(620);
+    expect(harness.guest.getSnapshot()?.phase).toBe('armed');
+
+    harness.guest.handleCommit(HOST_ID, {
+      type: 'youtube-zero-start-commit',
+      version: 1,
+      runId: 'run-user-mute-race',
+      sequence: 1,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      startAtHost: prepareAtHost + 2_500,
+      reason: 'all-ready',
+      cohort: [HOST_ID, GUEST_ID],
+    });
+
+    vi.advanceTimersByTime(2_500);
+    harness.guestPlayer.__state = 1;
+    harness.guest.handlePlayerStateChange(1);
+    expect(harness.guest.getSnapshot()?.phase).toBe('playing');
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+
+    // At t = 30ms after entering playing, user deliberately mutes the player
+    vi.advanceTimersByTime(30);
+    guestDesiredAudioState.muted = true;
+    harness.guestPlayer.mute();
+    expect(harness.guestPlayer.isMuted()).toBe(true);
+
+    // Advance past the 80ms post-release verification window
+    vi.advanceTimersByTime(60);
+
+    // The player must remain muted and NOT be forcibly unmuted by the 80ms verification
+    expect(harness.guestPlayer.isMuted()).toBe(true);
+  });
+
   it('propagates desired audio intent to fallback when runtime readiness is unready', () => {
     const player = makeFakeYtPlayer({ __muted: true, __volume: 23 });
     const fallback = vi.fn();

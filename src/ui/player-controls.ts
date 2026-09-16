@@ -1328,12 +1328,15 @@ export function initPlayerControls(): void {
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
 
   // Demo button (Help tab — desktop + mobile)
-  $on('btn-demo-media', 'click', () => {
+  function handleDemoMediaClick(): void {
+    if (!isCoordinator()) {
+      showToast(t('demo.host_only_exit'));
+      return;
+    }
     bus.emit('demo:enter');
-  });
-  $on('btn-demo-media-mobile', 'click', () => {
-    bus.emit('demo:enter');
-  });
+  }
+  $on('btn-demo-media', 'click', handleDemoMediaClick);
+  $on('btn-demo-media-mobile', 'click', handleDemoMediaClick);
 
   // YouTube popup (contenteditable)
   const ytInput = getUiElement('youtube-url-input');

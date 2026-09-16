@@ -9,6 +9,9 @@ artifact. Treat the production sources listed there as authoritative; files in
 `src_ref/` are archival extraction snapshots unless the README explicitly says
 otherwise.
 
+Use the design principles in `README.md` when describing the product's identity.
+Do not infer external design influences from visual similarities.
+
 For production work, preserve the existing accessibility, localization,
 responsive-layout, and synchronization constraints. For disposable mockups or
 presentations, reuse the provided brand assets and label the result as a

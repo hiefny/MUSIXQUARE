@@ -569,7 +569,8 @@ const pa: Record<I18nKey, string> = {
   'toast.member_management_required': 'ਮੈਂਬਰਾਂ ਨੂੰ ਕੱਢਣ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ।',
   'toast.chat_notice_required': 'ਚੈਟ ਸੂਚਨਾਵਾਂ ਪੋਸਟ ਕਰਨ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ।',
   'toast.room_owner_required': 'ਇਹ ਸਿਰਫ਼ ਰੂਮ ਦਾ ਮਾਲਕ ਬਦਲ ਸਕਦਾ ਹੈ।',
-  'toast.system_audio_owner_required': 'ਸਿਰਫ਼ ਰੂਮ ਦਾ ਮਾਲਕ ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਜਾਂ ਬੰਦ ਕਰ ਸਕਦਾ ਹੈ।',
+  'toast.system_audio_owner_required':
+    'ਤੁਸੀਂ ਸਿਰਫ਼ ਉਸੇ ਟੈਬ ਤੋਂ ਆਡੀਓ ਸਾਂਝਾ ਕਰ ਸਕਦੇ ਹੋ ਜਿਸ ਨੇ ਰੂਮ ਖੋਲ੍ਹਿਆ ਸੀ।',
   'toast.host_only_youtube': 'ਸਿਰਫ਼ ਹੋਸਟ YouTube ਲਿੰਕ ਜੋੜ ਸਕਦਾ ਹੈ।',
   'toast.host_only_control': 'ਇਸ ਨੂੰ ਸਿਰਫ਼ ਹੋਸਟ ਕੰਟਰੋਲ ਕਰ ਸਕਦਾ ਹੈ',
   'toast.host_setting_required': 'ਇਹ ਸੈਟਿੰਗ ਸਿਰਫ਼ ਹੋਸਟ ਬਦਲ ਸਕਦਾ ਹੈ',

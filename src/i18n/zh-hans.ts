@@ -509,7 +509,7 @@ const zhHans: Record<I18nKey, string> = {
   'toast.member_management_required': '需要移出成员的权限。',
   'toast.chat_notice_required': '需要发布聊天公告的权限。',
   'toast.room_owner_required': '只有房主可以更改此项。',
-  'toast.system_audio_owner_required': '只有房主可以共享或停止系统音频。',
+  'toast.system_audio_owner_required': '只能在直接创建房间的标签页中共享音频。',
   'toast.host_only_youtube': '只有房主可以添加 YouTube 链接。',
   'toast.host_only_control': '只有房主可以控制此项',
   'toast.host_setting_required': '只有房主可以更改此设置',

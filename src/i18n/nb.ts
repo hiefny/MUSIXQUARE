@@ -573,7 +573,7 @@ const nb: Record<I18nKey, string> = {
   'toast.member_management_required': 'Tillatelse til å fjerne medlemmer kreves.',
   'toast.chat_notice_required': 'Tillatelse til å legge ut chatvarsler kreves.',
   'toast.room_owner_required': 'Bare rommets eier kan endre dette.',
-  'toast.system_audio_owner_required': 'Bare rommets eier kan dele eller stoppe systemlyd.',
+  'toast.system_audio_owner_required': 'Du kan bare dele lyd fra fanen som åpnet rommet.',
   'toast.host_only_youtube': 'Bare verten kan legge til YouTube-lenker.',
   'toast.host_only_control': 'Bare verten kan styre dette',
   'toast.host_setting_required': 'Bare verten kan endre denne innstillingen',

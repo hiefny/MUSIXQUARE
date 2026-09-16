@@ -40,7 +40,12 @@ import type { DataConnection } from '../types/index.ts';
 import type { PlaybackModeActivity } from '../player/ownership.ts';
 import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
-import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
+import {
+  getRoomContext,
+  hasRoomCapability,
+  isCoordinator,
+  verifyPeerCapability,
+} from '../rooms/authority.ts';
 
 type DemoRoomIdentity = Readonly<{
   kind: 'standard' | 'pro';
@@ -1395,7 +1400,13 @@ function openDemoInfo(): void {
 }
 
 function requestDemoExit(): void {
-  if (getState('network.hostConn')) {
+  const hostConn = getState('network.hostConn');
+  if (hostConn) {
+    if (hasRoomCapability('room.configure') && hostConn.open) {
+      safeSend(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
+      showToast(t('demo.try_later_toast'));
+      return;
+    }
     showToast(t('demo.host_only_exit'));
     return;
   }
@@ -1675,6 +1686,21 @@ export function reconcileDemoFirstRunPrompt(): void {
   setManagedTimer('demo-first-run-prompt', maybeShowFirstRunPrompt, 700);
 }
 
+function handleRequestDemoEnterMessage(
+  _data: Record<string, unknown>,
+  conn?: DataConnection,
+): void {
+  if (!isDemoHost() || !conn) return;
+  if (!verifyPeerCapability(conn, 'room.configure')) return;
+  bus.emit('demo:enter');
+}
+
+function handleRequestDemoExitMessage(_data: Record<string, unknown>, conn?: DataConnection): void {
+  if (!isDemoHost() || !conn) return;
+  if (!verifyPeerCapability(conn, 'room.configure')) return;
+  bus.emit('demo:request-exit');
+}
+
 export function handleDemoProtocolMessage(
   data: Record<string, unknown>,
   conn: DataConnection,
@@ -1691,6 +1717,13 @@ export function handleDemoProtocolMessage(
       return;
     case MSG.DEMO_EXIT:
       handleDemoExitMessage(data, conn);
+      return;
+    case MSG.REQUEST_DEMO_ENTER:
+      handleRequestDemoEnterMessage(data, conn);
+      return;
+    case MSG.REQUEST_DEMO_EXIT:
+      handleRequestDemoExitMessage(data, conn);
+      return;
   }
 }
 
@@ -1705,6 +1738,8 @@ export function initDemoMode(
       [MSG.DEMO_PLAY]: handleDemoPlayMessage,
       [MSG.DEMO_PAUSE]: handleDemoPauseMessage,
       [MSG.DEMO_EXIT]: handleDemoExitMessage,
+      [MSG.REQUEST_DEMO_ENTER]: handleRequestDemoEnterMessage,
+      [MSG.REQUEST_DEMO_EXIT]: handleRequestDemoExitMessage,
     });
   }
   _suppressFirstRunPrompt = options.suppressFirstRunPrompt ?? hasAppUseRecord();
@@ -1712,6 +1747,11 @@ export function initDemoMode(
   _busScope.on('demo:enter', () => {
     if (isProRoomDemoBlocked()) return;
     if (!isDemoHost()) {
+      const hostConn = getState('network.hostConn');
+      if (hasRoomCapability('room.configure') && hostConn?.open) {
+        safeSend(hostConn, { type: MSG.REQUEST_DEMO_ENTER });
+        return;
+      }
       showToast(t('demo.host_only_exit'));
       return;
     }

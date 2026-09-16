@@ -573,7 +573,7 @@ const kn: Record<I18nKey, string> = {
   'toast.member_management_required': 'ಸದಸ್ಯರನ್ನು ಹೊರಹಾಕುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',
   'toast.chat_notice_required': 'ಚಾಟ್ ಸೂಚನೆಗಳನ್ನು ಪೋಸ್ಟ್ ಮಾಡುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',
   'toast.room_owner_required': 'ಇದನ್ನು ರೂಮ್ ಮಾಲೀಕ ಮಾತ್ರ ಬದಲಿಸಬಹುದು.',
-  'toast.system_audio_owner_required': 'ರೂಮ್ ಮಾಲೀಕ ಮಾತ್ರ ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಬಹುದು ಅಥವಾ ನಿಲ್ಲಿಸಬಹುದು.',
+  'toast.system_audio_owner_required': 'ರೂಮ್ ತೆರೆದ ಟ್ಯಾಬ್‌ನಿಂದ ಮಾತ್ರ ನೀವು ಆಡಿಯೊ ಹಂಚಿಕೊಳ್ಳಬಹುದು.',
   'toast.host_only_youtube': 'ಹೋಸ್ಟ್ ಮಾತ್ರ YouTube ಲಿಂಕ್‌ಗಳನ್ನು ಸೇರಿಸಬಹುದು.',
   'toast.host_only_control': 'ಇದನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ನಿಯಂತ್ರಿಸಬಹುದು',
   'toast.host_setting_required': 'ಈ ಸೆಟ್ಟಿಂಗ್ ಅನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ಬದಲಿಸಬಹುದು',

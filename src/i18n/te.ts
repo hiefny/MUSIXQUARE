@@ -574,7 +574,7 @@ const te: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతి అవసరం.',
   'toast.room_owner_required': 'గది యజమాని మాత్రమే దీన్ని మార్చగలరు.',
   'toast.system_audio_owner_required':
-    'గది యజమాని మాత్రమే సిస్టమ్ ఆడియోను షేర్ చేయగలరు లేదా ఆపగలరు.',
+    'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను భాగస్వామ్యం చేయగలరు.',
   'toast.host_only_youtube': 'హోస్ట్ మాత్రమే YouTube లింక్‌లను జోడించగలరు.',
   'toast.host_only_control': 'హోస్ట్ మాత్రమే దీన్ని నియంత్రించగలరు',
   'toast.host_setting_required': 'హోస్ట్ మాత్రమే ఈ సెట్టింగ్‌ను మార్చగలరు',

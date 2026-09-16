@@ -577,7 +577,7 @@ const bg: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Необходимо е разрешение за публикуване на съобщения в чата.',
   'toast.room_owner_required': 'Само собственикът на стаята може да промени това.',
   'toast.system_audio_owner_required':
-    'Само собственикът на стаята може да споделя или спира системния звук.',
+    'Можете да споделяте аудио само от раздела, който е отворил стаята.',
   'toast.host_only_youtube': 'Само хостът може да добавя връзки към YouTube.',
   'toast.host_only_control': 'Само хостът може да управлява това',
   'toast.host_setting_required': 'Само хостът може да промени тази настройка',

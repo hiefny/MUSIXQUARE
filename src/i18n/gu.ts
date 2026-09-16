@@ -561,7 +561,7 @@ const gu: Record<I18nKey, string> = {
   'toast.member_management_required': 'સભ્યોને દૂર કરવાની પરવાનગી જરૂરી છે.',
   'toast.chat_notice_required': 'ચૅટ સૂચના પોસ્ટ કરવાની પરવાનગી જરૂરી છે.',
   'toast.room_owner_required': 'આ ફક્ત રૂમનો માલિક બદલી શકે છે.',
-  'toast.system_audio_owner_required': 'ફક્ત રૂમનો માલિક સિસ્ટમ ઑડિયો શેર કે બંધ કરી શકે છે.',
+  'toast.system_audio_owner_required': 'તમે ફક્ત રૂમ ખોલનાર ટૅબમાંથી જ ઑડિયો શેર કરી શકો છો.',
   'toast.host_only_youtube': 'ફક્ત હોસ્ટ YouTube લિંક ઉમેરી શકે છે.',
   'toast.host_only_control': 'આ ફક્ત હોસ્ટ નિયંત્રિત કરી શકે છે',
   'toast.host_setting_required': 'આ સેટિંગ ફક્ત હોસ્ટ બદલી શકે છે',

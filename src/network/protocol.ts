@@ -1125,6 +1125,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isNonNegInt(d.index) && isFiniteNumber(d.time) && isFiniteNumber(d.hostPlayAt),
   [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),
   [MSG.DEMO_EXIT]: () => true,
+  [MSG.REQUEST_DEMO_ENTER]: () => true,
+  [MSG.REQUEST_DEMO_EXIT]: () => true,
 };
 
 /**

@@ -576,7 +576,7 @@ const uk: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Потрібен дозвіл на публікацію оголошень у чаті.',
   'toast.room_owner_required': 'Змінити це може лише власник кімнати.',
   'toast.system_audio_owner_required':
-    'Транслювати або зупиняти системне аудіо може лише власник кімнати.',
+    'Транслювати аудіо можна лише з вкладки, в якій було створено кімнату.',
   'toast.host_only_youtube': 'Додавати посилання YouTube може лише хост.',
   'toast.host_only_control': 'Керувати цим може лише хост',
   'toast.host_setting_required': 'Змінити цей параметр може лише хост',

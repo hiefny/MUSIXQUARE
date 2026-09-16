@@ -573,8 +573,7 @@ const fi: Record<I18nKey, string> = {
   'toast.member_management_required': 'Jäsenten poistamisoikeus vaaditaan.',
   'toast.chat_notice_required': 'Chat-ilmoitusten julkaisuoikeus vaaditaan.',
   'toast.room_owner_required': 'Vain huoneen omistaja voi muuttaa tätä.',
-  'toast.system_audio_owner_required':
-    'Vain huoneen omistaja voi aloittaa tai lopettaa järjestelmän äänen jakamisen.',
+  'toast.system_audio_owner_required': 'Voit jakaa ääntä vain välilehdeltä, joka avasi huoneen.',
   'toast.host_only_youtube': 'Vain isäntä voi lisätä YouTube-linkkejä.',
   'toast.host_only_control': 'Vain isäntä voi hallita tätä',
   'toast.host_setting_required': 'Vain isäntä voi muuttaa tätä asetusta',

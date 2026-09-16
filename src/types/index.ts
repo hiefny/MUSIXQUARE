@@ -368,6 +368,8 @@ export interface ProtocolMap {
     time: number;
     hostPlayAt: number;
   };
+  'request-demo-enter': NoPayload;
+  'request-demo-exit': NoPayload;
 
   // ── Audio Control ────────────────────────────────────────────────
   volume: { value: number; _bootstrap?: boolean };

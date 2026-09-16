@@ -566,7 +566,7 @@ const fa: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'مجوز ارسال اعلان در گفت‌وگو لازم است.',
   'toast.room_owner_required': 'فقط مالک اتاق می‌تواند این مورد را تغییر دهد.',
   'toast.system_audio_owner_required':
-    'فقط مالک اتاق می‌تواند صدای سیستم را به اشتراک بگذارد یا متوقف کند.',
+    'فقط می‌توانید صدا را از برگه‌ای که اتاق را باز کرده است به اشتراک بگذارید.',
   'toast.host_only_youtube': 'فقط میزبان می‌تواند پیوندهای YouTube را اضافه کند.',
   'toast.host_only_control': 'فقط میزبان می‌تواند این مورد را کنترل کند',
   'toast.host_setting_required': 'فقط میزبان می‌تواند این تنظیم را تغییر دهد',

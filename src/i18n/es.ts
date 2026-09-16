@@ -550,7 +550,7 @@ const es: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Se necesita permiso para publicar avisos en el chat.',
   'toast.room_owner_required': 'Solo el propietario de la sala puede cambiar esto.',
   'toast.system_audio_owner_required':
-    'Solo el propietario de la sala puede compartir o detener el audio del sistema.',
+    'Solo puedes compartir audio desde la pestaña que abrió la sala.',
   'toast.host_only_youtube': 'Solo el anfitrión puede añadir enlaces de YouTube.',
   'toast.host_only_control': 'Solo el anfitrión puede controlar esto',
   'toast.host_setting_required': 'Solo el anfitrión puede cambiar este ajuste',

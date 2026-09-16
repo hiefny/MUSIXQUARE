@@ -62,6 +62,8 @@ export function initDemoModeLoader(): void {
     [MSG.DEMO_PLAY]: forwardDemoProtocolMessage,
     [MSG.DEMO_PAUSE]: forwardDemoProtocolMessage,
     [MSG.DEMO_EXIT]: forwardDemoProtocolMessage,
+    [MSG.REQUEST_DEMO_ENTER]: forwardDemoProtocolMessage,
+    [MSG.REQUEST_DEMO_EXIT]: forwardDemoProtocolMessage,
   });
   scope.on('demo:enter', () => {
     if (runtime) return;

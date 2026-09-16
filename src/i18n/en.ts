@@ -567,7 +567,8 @@ const en: Record<I18nKey, string> = {
   'toast.member_management_required': 'Permission to kick members is required.',
   'toast.chat_notice_required': 'Permission to post chat notices is required.',
   'toast.room_owner_required': 'Only the room owner can change this.',
-  'toast.system_audio_owner_required': 'Only the room owner can share or stop system audio.',
+  'toast.system_audio_owner_required':
+    'You can only share audio from the tab that opened the room.',
   'toast.host_only_youtube': 'Only the host can add YouTube links.',
   'toast.host_only_control': 'Only the host can control this',
   'toast.host_setting_required': 'Only the host can change this setting',

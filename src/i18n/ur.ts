@@ -565,7 +565,8 @@ const ur: Record<I18nKey, string> = {
   'toast.member_management_required': 'ارکان کو نکالنے کی اجازت درکار ہے۔',
   'toast.chat_notice_required': 'چیٹ اطلاع پوسٹ کرنے کی اجازت درکار ہے۔',
   'toast.room_owner_required': 'صرف کمرے کا مالک یہ بدل سکتا ہے۔',
-  'toast.system_audio_owner_required': 'صرف کمرے کا مالک سسٹم آڈیو شیئر یا بند کر سکتا ہے۔',
+  'toast.system_audio_owner_required':
+    'آپ صرف اسی ٹیب سے آڈیو شیئر کر سکتے ہیں جس نے کمرہ کھولا تھا۔',
   'toast.host_only_youtube': 'صرف میزبان YouTube لنکس شامل کر سکتا ہے۔',
   'toast.host_only_control': 'صرف میزبان اسے کنٹرول کر سکتا ہے',
   'toast.host_setting_required': 'صرف میزبان یہ ترتیب بدل سکتا ہے',

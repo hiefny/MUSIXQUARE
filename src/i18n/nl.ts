@@ -581,7 +581,7 @@ const nl: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Toestemming voor chataankondigingen vereist.',
   'toast.room_owner_required': 'Alleen de kamereigenaar kan dit wijzigen.',
   'toast.system_audio_owner_required':
-    'Alleen de kamereigenaar kan systeemaudio delen of het delen stoppen.',
+    'Je kunt alleen audio delen vanuit het tabblad dat de ruimte heeft geopend.',
   'toast.host_only_youtube': 'Alleen de host kan YouTube-links toevoegen.',
   'toast.host_only_control': 'Alleen de host kan dit bedienen',
   'toast.host_setting_required': 'Alleen de host kan deze instelling wijzigen',

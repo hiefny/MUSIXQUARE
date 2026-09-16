@@ -535,8 +535,7 @@ const ja: Record<I18nKey, string> = {
   'toast.member_management_required': 'メンバーを退出させる権限が必要です。',
   'toast.chat_notice_required': 'チャットのお知らせ投稿権限が必要です。',
   'toast.room_owner_required': '変更できるのはルーム所有者だけです。',
-  'toast.system_audio_owner_required':
-    'システムオーディオを共有または停止できるのはルーム所有者だけです。',
+  'toast.system_audio_owner_required': '部屋を直接開いたタブからのみ共有できます。',
   'toast.host_only_youtube': 'YouTubeリンクを追加できるのはホストだけです。',
   'toast.host_only_control': '操作できるのはホストだけです',
   'toast.host_setting_required': 'この設定を変更できるのはホストだけです',

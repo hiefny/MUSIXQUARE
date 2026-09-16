@@ -533,8 +533,7 @@ const vi: Record<I18nKey, string> = {
   'toast.member_management_required': 'Cần quyền mời thành viên ra.',
   'toast.chat_notice_required': 'Cần quyền đăng thông báo trò chuyện.',
   'toast.room_owner_required': 'Chỉ chủ phòng mới có thể thay đổi mục này.',
-  'toast.system_audio_owner_required':
-    'Chỉ chủ phòng mới có thể chia sẻ hoặc dừng âm thanh hệ thống.',
+  'toast.system_audio_owner_required': 'Bạn chỉ có thể chia sẻ âm thanh từ thẻ đã mở phòng.',
   'toast.host_only_youtube': 'Chỉ chủ phòng mới có thể thêm liên kết YouTube.',
   'toast.host_only_control': 'Chỉ chủ phòng mới có thể điều khiển mục này',
   'toast.host_setting_required': 'Chỉ chủ phòng mới có thể đổi cài đặt này',

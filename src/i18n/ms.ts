@@ -580,7 +580,7 @@ const ms: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Kebenaran untuk menyiarkan notis sembang diperlukan.',
   'toast.room_owner_required': 'Hanya pemilik bilik boleh mengubah tetapan ini.',
   'toast.system_audio_owner_required':
-    'Hanya pemilik bilik boleh berkongsi atau menghentikan audio sistem.',
+    'Anda hanya boleh berkongsi audio daripada tab yang membuka bilik.',
   'toast.host_only_youtube': 'Hanya hos boleh menambah pautan YouTube.',
   'toast.host_only_control': 'Hanya hos boleh mengawal tindakan ini',
   'toast.host_setting_required': 'Hanya hos boleh mengubah tetapan ini',

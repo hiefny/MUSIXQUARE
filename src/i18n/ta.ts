@@ -585,7 +585,7 @@ const ta: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'அரட்டை அறிவிப்புகளை இடும் அனுமதி தேவை.',
   'toast.room_owner_required': 'அறை உரிமையாளர் மட்டுமே இதை மாற்ற முடியும்.',
   'toast.system_audio_owner_required':
-    'அறை உரிமையாளர் மட்டுமே சிஸ்டம் ஆடியோவைப் பகிரவோ நிறுத்தவோ முடியும்.',
+    'அறையைத் திறந்த தாவலில் இருந்து மட்டுமே ஆடியோவைப் பகிர முடியும்.',
   'toast.host_only_youtube': 'ஹோஸ்ட் மட்டுமே YouTube இணைப்புகளைச் சேர்க்க முடியும்.',
   'toast.host_only_control': 'ஹோஸ்ட் மட்டுமே இதைக் கட்டுப்படுத்த முடியும்',
   'toast.host_setting_required': 'ஹோஸ்ட் மட்டுமே இந்த அமைப்பை மாற்ற முடியும்',

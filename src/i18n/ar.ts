@@ -558,7 +558,8 @@ const ar: Record<I18nKey, string> = {
   'toast.member_management_required': 'يلزم إذن إزالة الأعضاء.',
   'toast.chat_notice_required': 'يلزم إذن نشر إشعارات الدردشة.',
   'toast.room_owner_required': 'لا يستطيع تغيير هذا إلا مالك الغرفة.',
-  'toast.system_audio_owner_required': 'لا يستطيع مشاركة صوت النظام أو إيقافه إلا مالك الغرفة.',
+  'toast.system_audio_owner_required':
+    'لا يمكنك مشاركة الصوت إلا من علامة التبويب التي فتحت الغرفة.',
   'toast.host_only_youtube': 'لا يستطيع إضافة روابط YouTube إلا المضيف.',
   'toast.host_only_control': 'لا يستطيع التحكم في هذا إلا المضيف',
   'toast.host_setting_required': 'لا يستطيع تغيير هذا الإعداد إلا المضيف',

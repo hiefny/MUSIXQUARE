@@ -575,8 +575,7 @@ const cs: Record<I18nKey, string> = {
   'toast.member_management_required': 'Je vyžadováno oprávnění k odebírání účastníků.',
   'toast.chat_notice_required': 'Je vyžadováno oprávnění zveřejňovat oznámení v chatu.',
   'toast.room_owner_required': 'Tuto volbu může změnit pouze vlastník místnosti.',
-  'toast.system_audio_owner_required':
-    'Systémový zvuk může sdílet nebo zastavit pouze vlastník místnosti.',
+  'toast.system_audio_owner_required': 'Zvuk můžete sdílet pouze z karty, která místnost otevřela.',
   'toast.host_only_youtube': 'Odkazy YouTube může přidávat pouze hostitel.',
   'toast.host_only_control': 'Tuto volbu může ovládat pouze hostitel',
   'toast.host_setting_required': 'Toto nastavení může změnit pouze hostitel',

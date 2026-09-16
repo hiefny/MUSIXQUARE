@@ -577,7 +577,7 @@ const sv: Record<I18nKey, string> = {
   'toast.member_management_required': 'Behörighet att ta bort medlemmar krävs.',
   'toast.chat_notice_required': 'Behörighet att publicera chattanslag krävs.',
   'toast.room_owner_required': 'Bara rumsägaren kan ändra detta.',
-  'toast.system_audio_owner_required': 'Bara rumsägaren kan dela eller stoppa systemljud.',
+  'toast.system_audio_owner_required': 'Du kan bara dela ljud från fliken som öppnade rummet.',
   'toast.host_only_youtube': 'Bara värden kan lägga till YouTube-länkar.',
   'toast.host_only_control': 'Bara värden kan styra detta',
   'toast.host_setting_required': 'Bara värden kan ändra den här inställningen',

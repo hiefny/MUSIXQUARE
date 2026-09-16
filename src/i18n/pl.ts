@@ -580,7 +580,7 @@ const pl: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Wymagane jest uprawnienie do publikowania ogłoszeń na czacie.',
   'toast.room_owner_required': 'Tylko właściciel pokoju może to zmienić.',
   'toast.system_audio_owner_required':
-    'Tylko właściciel pokoju może udostępniać lub zatrzymać dźwięk systemowy.',
+    'Możesz udostępniać dźwięk tylko z karty, w której utworzono pokój.',
   'toast.host_only_youtube': 'Tylko host może dodawać linki z YouTube.',
   'toast.host_only_control': 'Tylko host może sterować odtwarzaniem.',
   'toast.host_setting_required': 'Tylko host może zmienić to ustawienie',

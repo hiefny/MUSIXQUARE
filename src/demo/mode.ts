@@ -447,11 +447,7 @@ function normalizeDemoTrackIndex(index: unknown): number {
 }
 
 function isDemoHost(): boolean {
-  return (
-    !isProRoomDemoBlocked() &&
-    !getState('network.hostConn') &&
-    getState('network.appRole') === 'host'
-  );
+  return !isProRoomDemoBlocked() && isCoordinator();
 }
 
 function isTrustedDemoHostMessage(conn?: DataConnection): boolean {

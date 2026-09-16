@@ -64,7 +64,7 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
   ['src/audio/effects.ts', { appRole: 2, isOperator: 3, reason: 'standard-fenced' }],
   ['src/chat/commands.ts', { appRole: 1, isOperator: 0, reason: 'standard-fenced' }],
   ['src/chat/debug-console.ts', { appRole: 0, isOperator: 1, reason: 'compatibility-consumer' }],
-  ['src/demo/mode.ts', { appRole: 3, isOperator: 0, reason: 'standard-fenced' }],
+  ['src/demo/mode.ts', { appRole: 2, isOperator: 0, reason: 'standard-fenced' }],
   [
     'src/diagnostics/sync-flight-recorder.ts',
     { appRole: 1, isOperator: 0, reason: 'compatibility-consumer' },
@@ -222,7 +222,6 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
     [
       'event:appRole @ function:initDemoMode :: _busScope.on("state:network.appRole", (role) => { if (role === \'guest\') _suppressFirstRunPrompt = true; })',
       "read:appRole @ function:reconcileDemoFirstRunPrompt :: if (!getState('setup.sessionStarted') || getState('network.appRole') !== 'host')",
-      "read:appRole @ function:isDemoHost :: return (!isProRoomDemoBlocked() && !getState('network.hostConn') && getState('network.appRole') === 'host')",
       "read:appRole @ function:shouldShowFirstRunDemoPrompt :: if (getState('network.appRole') !== 'host')",
     ],
   ],

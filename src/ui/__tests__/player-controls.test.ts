@@ -3042,6 +3042,37 @@ describe('demo button host gate', () => {
     expect(showToast).toHaveBeenLastCalledWith(t('demo.host_only_exit'));
   });
 
+  it('blocks an operator without room.configure from entering demo mode, showing host-only toast instead', () => {
+    const { desktopBtn, mobileBtn } = renderDemoButtons();
+    const conn = makeConnection('host-peer');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'playback.control',
+      'members.manage',
+    ]);
+
+    const enterListener = vi.fn();
+    bus.on('demo:enter', enterListener);
+
+    initPlayerControls();
+
+    desktopBtn.click();
+    expect(enterListener).not.toHaveBeenCalled();
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
+
+    mobileBtn.click();
+    expect(enterListener).not.toHaveBeenCalled();
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledTimes(2);
+    expect(showToast).toHaveBeenLastCalledWith(t('demo.host_only_exit'));
+  });
+
   it('proxies demo:enter request to the host when a guest device has room.configure capability', () => {
     const { desktopBtn, mobileBtn } = renderDemoButtons();
     const conn = makeConnection('host-peer');

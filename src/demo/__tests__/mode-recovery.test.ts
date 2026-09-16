@@ -268,7 +268,11 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     setState('network.hostConn', hostConn);
     setState('setup.sessionStarted', true);
     setState('network.isOperator', true);
-    setState('network.standardRoomCapabilities', ['media.add', 'playback.control', 'members.manage']);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'playback.control',
+      'members.manage',
+    ]);
 
     bus.emit('demo:enter');
     await flush();

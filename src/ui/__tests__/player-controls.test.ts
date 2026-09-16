@@ -3050,7 +3050,11 @@ describe('demo button host gate', () => {
     setState('network.sessionCode', '123456');
     setState('setup.sessionStarted', true);
     setState('network.isOperator', true);
-    setState('network.standardRoomCapabilities', ['media.add', 'playback.control', 'members.manage']);
+    setState('network.standardRoomCapabilities', [
+      'media.add',
+      'playback.control',
+      'members.manage',
+    ]);
 
     const enterListener = vi.fn();
     bus.on('demo:enter', enterListener);

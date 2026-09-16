@@ -8,6 +8,19 @@ The production app is a responsive PWA. Public About, Blog, History, legal,
 and design-system pages share the same brand but are not part of the in-room
 application shell.
 
+## Design principles
+
+MUSIXQUARE pursues minimal, spacious design with a toasty feel: warm, soft,
+and welcoming. Concise language, clear hierarchy, rounded forms, and smooth
+motion make the interface easy to follow and comfortable to use.
+
+The foundations are typography, spacing, contrast, and predictable interaction.
+Accessibility is part of those foundations, including legible text, generous
+targets, keyboard access, and reduced-motion support.
+
+These are the product's own design principles. Describe them directly; do not
+infer another product's influence from a shared color, font, shape, or pattern.
+
 ## Source of truth
 
 Use production files as the authority for implementation details:

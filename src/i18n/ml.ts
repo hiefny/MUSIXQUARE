@@ -126,7 +126,7 @@ const ml: Record<I18nKey, string> = {
   'player.sync_compact': 'സിങ്ക്',
   'player.syncing_compact': 'സിങ്ക്…',
   'player.play_media': 'മീഡിയ പ്ലേ ചെയ്യുക',
-  'player.play_media_compact': 'മീഡിയ',
+  'player.play_media_compact': 'ഉറവിടം',
   'player.play_media_action': 'മീഡിയ പ്ലേ ചെയ്യുക',
   'player.add_media': 'മീഡിയ ചേർക്കുക',
   'player.play_start': 'ക്യൂവിൽ ചേർക്കുക',
@@ -852,7 +852,7 @@ const ml: Record<I18nKey, string> = {
   'system_audio.capture_denied': 'ഓഡിയോ പങ്കിടൽ റദ്ദാക്കി.',
   'system_audio.no_audio_track': '“ഓഡിയോ പങ്കിടുക” പ്രവർത്തനക്ഷമമാക്കിയില്ല.\nവീണ്ടും ശ്രമിക്കുക.',
   'system_audio.stop': 'പങ്കിടൽ നിർത്തുക',
-  'system_audio.stop_compact': 'നിർത്തുക',
+  'system_audio.stop_compact': 'നിർത്തൂ',
   'system_audio.started':
     'സിസ്റ്റം ഓഡിയോയിൽ നേരിയ കാലതാമസം ഉണ്ടാകാം.\nകഴിയുമെങ്കിൽ ഉറവിടത്തിന്റെ ശബ്ദനില കുറയ്ക്കുക.',
   'system_audio.stopped': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ അവസാനിച്ചു.\nപ്ലേലിസ്റ്റ് തുടരുന്നു.',

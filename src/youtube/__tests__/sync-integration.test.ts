@@ -144,7 +144,9 @@ vi.mock('../_state.ts', () => ({
 }));
 
 // iframe.ts — stub out side-effectful exports
-vi.mock('../iframe.ts', () => ({
+vi.mock('../iframe.ts', async (importOriginal) => ({
+  adoptResidentYouTubeOccurrence: (await importOriginal<typeof import('../iframe.ts')>())
+    .adoptResidentYouTubeOccurrence,
   loadYouTubeVideo: vi.fn(),
   refreshYouTubeDisplay: vi.fn(),
   markYtStateBroadcast: vi.fn(),
@@ -186,10 +188,12 @@ vi.mock('../../ui/toast.ts', () => ({
   showLoader: vi.fn(),
 }));
 
-// handlers.ts — stub handlers not under test
-vi.mock('../handlers.ts', () => ({
-  configureYouTubeHandlerRuntimeHooks: vi.fn(),
-  handleYouTubePlay: vi.fn(),
+vi.mock('../../storage/transfer-receive.ts', () => ({ cancelIncomingFileTransfer: vi.fn() }));
+vi.mock('../../share/remote-share.ts', () => ({ cancelRemoteShareWait: vi.fn() }));
+
+// Keep the incoming play/handoff path real; operator dispatch has its own suite.
+vi.mock('../handlers.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../handlers.ts')>()),
   handleRequestYouTubePlay: vi.fn(),
   handleRequestYouTubePause: vi.fn(),
   handleRequestYouTubeToggle: vi.fn(),
@@ -259,6 +263,35 @@ function installPlayer(init?: Parameters<typeof makeFakeYtPlayer>[0]): FakeYtPla
   const p = makeFakeYtPlayer(init);
   getYouTubePlayerMock.mockReturnValue(p);
   return p;
+}
+
+async function installDuplicateVideoGuest(currentTime = 0): Promise<FakeYtPlayer> {
+  const { handleYouTubeZeroStartPlayerState } = await import('../zero-start.ts');
+  setState('network.appRole', 'guest');
+  setState('network.myId', 'duplicate-video-guest');
+  setState('network.hostConn', mockHostConn);
+  setState(
+    'playlist.items',
+    [QUEUE_ITEM_ID, SECOND_QUEUE_ITEM_ID].map((queueItemId) => ({
+      queueItemId,
+      type: 'youtube',
+      name: 'Same video',
+      videoId: ZERO_START_VIDEO_ID,
+      playlistId: null,
+    })),
+  );
+  const player = installPlayer({
+    __videoId: ZERO_START_VIDEO_ID,
+    __currentTime: currentTime,
+    __state: 2,
+    __duration: 300,
+    __advanceClock: true,
+    __onStateChange: ({ data }) => {
+      handleYouTubeZeroStartPlayerState(data);
+    },
+  });
+  (await importPlayer()).initYouTube();
+  return player;
 }
 
 async function importPlayer() {
@@ -2354,6 +2387,147 @@ describe('YouTube Sync — Regression Integration', () => {
   });
 
   describe('guestRendezvousSync completion callback', () => {
+    it('retires an outgoing rendezvous before arming a duplicate video occurrence', async () => {
+      const { handleYouTubePlay } = await import('../handlers.ts');
+      const { guestRendezvousSync } = await importSync();
+      const { getYouTubeZeroStartSnapshot } = await import('../zero-start.ts');
+      const player = await installDuplicateVideoGuest(50);
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          time: 50,
+          state: 1,
+          videoId: ZERO_START_VIDEO_ID,
+          hostClock: Date.now(),
+        },
+        mockHostConn,
+      );
+      const onComplete = vi.fn();
+      expect(guestRendezvousSync({ silent: true, onComplete }).status).toBe('started');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(getManagedTimer('yt-rendezvous-play')).toBeTruthy();
+
+      handleYouTubePlay(
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          playlistId: null,
+          autoplay: false,
+          subIndex: 0,
+        },
+        mockHostConn,
+      );
+      capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE](
+        {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'duplicate-occurrence',
+          sequence: 1,
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          subIndex: 0,
+          prepareAtHost: Date.now(),
+          decisionAtHost: Date.now() + 2_300,
+          startDeadlineAtHost: Date.now() + 3_000,
+          hostPlatform: 'other',
+        },
+        mockHostConn,
+      );
+      await vi.advanceTimersByTimeAsync(650);
+      expect(getYouTubeZeroStartSnapshot()?.phase).toBe('armed');
+      expect(player.getPlayerState()).toBe(2);
+      expect(player.isMuted()).toBe(false);
+      player.__log.length = 0;
+
+      // The old rendezvous would release at t=1500, before the new COMMIT.
+      await vi.advanceTimersByTimeAsync(800);
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+      expect(player.getPlayerState()).toBe(2);
+      expect(getYouTubeZeroStartSnapshot()?.phase).toBe('armed');
+    });
+
+    it.each(['scheduled', 'playing'] as const)(
+      'retires an outgoing %s zero-start run and preserves successor audio intent',
+      async (outgoingPhase) => {
+        const { handleYouTubePlay } = await import('../handlers.ts');
+        const { getYouTubeZeroStartSnapshot } = await import('../zero-start.ts');
+        const player = await installDuplicateVideoGuest();
+        setState('audio.masterVolume', 0.4);
+        const prepare = {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'outgoing-duplicate',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: ZERO_START_VIDEO_ID,
+          subIndex: 0,
+          prepareAtHost: Date.now(),
+          decisionAtHost: Date.now() + 2_300,
+          startDeadlineAtHost: Date.now() + 3_000,
+          hostPlatform: 'other',
+        };
+        capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE](prepare, mockHostConn);
+        await vi.advanceTimersByTimeAsync(650);
+        expect(getYouTubeZeroStartSnapshot()?.phase).toBe('armed');
+        capturedHandlers[MSG.YOUTUBE_ZERO_START_COMMIT](
+          {
+            ...prepare,
+            type: MSG.YOUTUBE_ZERO_START_COMMIT,
+            startAtHost: prepare.prepareAtHost + 1_000,
+            reason: 'all-ready',
+            cohort: ['duplicate-video-guest'],
+          },
+          mockHostConn,
+        );
+        if (outgoingPhase === 'playing') await vi.advanceTimersByTimeAsync(350);
+        expect(getYouTubeZeroStartSnapshot()?.phase).toBe(outgoingPhase);
+
+        // A user mute immediately after release must survive the old 80ms retry.
+        const desiredVolume = outgoingPhase === 'playing' ? 0 : 40;
+        setState('audio.masterVolume', desiredVolume / 100);
+        bus.emit('youtube:set-volume', desiredVolume);
+        handleYouTubePlay(
+          {
+            queueItemId: SECOND_QUEUE_ITEM_ID,
+            videoId: ZERO_START_VIDEO_ID,
+            autoplay: false,
+            subIndex: 0,
+          },
+          mockHostConn,
+        );
+        expect(getYouTubeZeroStartSnapshot()?.phase).toBe('idle');
+        player.__log.length = 0;
+        await vi.advanceTimersByTimeAsync(500);
+        expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+        if (desiredVolume === 0) {
+          expect(player.__log.filter((call) => call.op === 'unMute')).toHaveLength(0);
+        }
+        expect(player.getPlayerState()).toBe(2);
+
+        capturedHandlers[MSG.YOUTUBE_ZERO_START_PREPARE](
+          {
+            ...prepare,
+            runId: 'successor-duplicate',
+            sequence: 2,
+            queueItemId: SECOND_QUEUE_ITEM_ID,
+            prepareAtHost: Date.now(),
+            decisionAtHost: Date.now() + 2_300,
+            startDeadlineAtHost: Date.now() + 3_000,
+          },
+          mockHostConn,
+        );
+        await vi.advanceTimersByTimeAsync(650);
+        expect(getYouTubeZeroStartSnapshot()?.phase).toBe('armed');
+        expect(player.getPlayerState()).toBe(2);
+        expect(player.getVolume()).toBe(desiredVolume);
+        expect(player.isMuted()).toBe(desiredVolume === 0);
+        expect(
+          player.__log.filter((call) => call.op === 'loadVideoById' || call.op === 'cueVideoById'),
+        ).toHaveLength(0);
+      },
+    );
+
     it('does not start without an open host connection', async () => {
       const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 300 });
       const { guestRendezvousSync } = await importSync();

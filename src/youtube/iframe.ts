@@ -1221,6 +1221,29 @@ export function handoffSameVideoOccurrenceRestart(
   return true;
 }
 
+function resetResidentYouTubeSync(player: YouTubePlayerInstance): void {
+  try {
+    // Pause preserves the resident buffer and iOS gesture without generating
+    // the ENDED event or discarded playback state of stopVideo().
+    player.pauseVideo?.();
+  } catch {
+    /* best-effort pause while the iframe is rebuilding */
+  }
+  clearManagedTimer('yt-clock-action');
+  clearManagedTimer('yt-seek-play');
+  clearManagedTimer('yt-auto-sync');
+  resetYouTubeSyncState();
+}
+
+/** Retire outgoing work while keeping this video's iframe and buffer resident. */
+export function adoptResidentYouTubeOccurrence(videoId: string): void {
+  const player = getYouTubePlayer();
+  if (player) resetResidentYouTubeSync(player);
+  // A previous cue may still be pending even while getVideoData reports the
+  // resident video. The successor, including any PREPARE reload, owns metadata.
+  expectYouTubeMetadataVideoId(videoId);
+}
+
 export function loadYouTubeVideo(
   videoId: string | null,
   playlistId: string | null = null,
@@ -1280,26 +1303,7 @@ export function loadYouTubeVideo(
 
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition. Reusing player, skipping stop-all-media');
-    try {
-      // A retained iframe has more media work immediately ahead. stopVideo()
-      // can emit ENDED and WebKit may discard reusable playback state; pause
-      // the outgoing occurrence instead. The concrete load below replaces it
-      // synchronously for both same- and different-video transitions.
-      player!.pauseVideo?.();
-    } catch {
-      /* noop */
-    }
-    // Light cleanup: reset sync state without destroying the player.
-    // yt-seek-play must be cleared too: the full-teardown path
-    // (stopYouTubeMode) cancels it, but this skip-teardown reuse branch did not,
-    // so a delayed seek-then-play scheduled for the OUTGOING video could fire
-    // against the incoming one. loadYouTubeVideo is the single funnel for every
-    // YT→YT transition, so clearing here covers all of them; the reuse branch
-    // never arms yt-seek-play itself, so no legit in-flight timer is lost.
-    clearManagedTimer('yt-clock-action');
-    clearManagedTimer('yt-seek-play');
-    clearManagedTimer('yt-auto-sync');
-    resetYouTubeSyncState();
+    resetResidentYouTubeSync(player!);
   } else {
     // Guard: destroy previous player to prevent concurrent player instances
     if (isYtLoadInProgress() && player) {

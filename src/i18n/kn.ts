@@ -126,7 +126,7 @@ const kn: Record<I18nKey, string> = {
   'player.sync_compact': 'ಸಿಂಕ್',
   'player.syncing_compact': 'ಸಿಂಕ್…',
   'player.play_media': 'ಮೀಡಿಯಾ ಪ್ಲೇ ಮಾಡಿ',
-  'player.play_media_compact': 'ಮೀಡಿಯಾ',
+  'player.play_media_compact': 'ಮಾಧ್ಯಮ',
   'player.play_media_action': 'ಮೀಡಿಯಾ ಪ್ಲೇ ಮಾಡಿ',
   'player.add_media': 'ಮೀಡಿಯಾ ಸೇರಿಸಿ',
   'player.play_start': 'ಸರತಿಗೆ ಸೇರಿಸಿ',

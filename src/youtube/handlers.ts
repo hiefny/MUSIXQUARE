@@ -13,7 +13,7 @@ import { clearManagedTimer } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
-import { loadYouTubeVideo } from './iframe.ts';
+import { adoptResidentYouTubeOccurrence, loadYouTubeVideo } from './iframe.ts';
 import { toCanonicalYouTubeTime } from './local-offset.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { isStandardHostManualOffsetTransactionPending } from './standard-host-manual-offset-gate.ts';
@@ -44,6 +44,7 @@ export interface YouTubeAutoSyncOverrides {
 }
 
 interface YouTubeHandlerRuntimeHooks {
+  cancelYtAutoSync(): void;
   scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSyncOverrides): void;
   tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boolean;
 }
@@ -161,6 +162,8 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     // it via resident-reposition instead of racing a same-ID cue. The legacy
     // YOUTUBE_STATE path also carries the new queueItemId and seeks this same
     // resident to the authoritative target when ZeroStart is unavailable.
+    requireRuntimeHooks().cancelYtAutoSync();
+    adoptResidentYouTubeOccurrence(finalVideoId!);
     setYouTubeSubIndex(subIndex ?? 0);
     log.debug('[YouTube] Guest duplicate-video occurrence: retaining resident iframe');
   } else {

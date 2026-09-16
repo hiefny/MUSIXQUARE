@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { setupGuest, setupHostAndStart } from '../helpers/setup-flow.ts';
 import { waitForDeviceCount, waitForPlaylistCount } from '../helpers/wait.ts';
+import {
+  observeRemoteDownloads,
+  waitForTrackPlaybackProgress,
+  type DownloadObservation,
+} from '../helpers/production-r2-observation.ts';
 
 const GUEST_COUNT = 9;
 const REMOTE_SHARE_HOST = 'share.musixquare.com';
@@ -20,8 +25,7 @@ interface LiveRoom {
   guestContexts: BrowserContext[];
   guestPages: Page[];
   successfulR2Puts: Set<string>;
-  successfulDownloads: Array<Set<string>>;
-  downloadRequestCounts: number[];
+  downloads: DownloadObservation[];
 }
 
 interface CandidatePairObservation {
@@ -74,39 +78,6 @@ function observeHostR2(context: BrowserContext, successfulR2Puts: Set<string>): 
   });
 }
 
-function observeGuestDownloads(
-  context: BrowserContext,
-  successfulDownloads: Set<string>,
-  onRequest: () => void,
-  guestNumber: number,
-): void {
-  context.on('request', (request) => {
-    if (request.method() !== 'GET') return;
-    try {
-      const url = new URL(request.url());
-      if (url.hostname === REMOTE_SHARE_HOST && url.pathname.startsWith('/download/')) {
-        onRequest();
-      }
-    } catch {
-      // Ignore unrelated malformed/devtools URLs.
-    }
-  });
-
-  context.on('response', (response) => {
-    if (response.request().method() !== 'GET') return;
-    try {
-      const url = new URL(response.url());
-      if (url.hostname !== REMOTE_SHARE_HOST || !url.pathname.startsWith('/download/')) return;
-      console.log(
-        `[production-live] guest ${guestNumber} GET ${response.status()} ${url.pathname}`,
-      );
-      if (isSuccessful(response.status())) successfulDownloads.add(url.pathname);
-    } catch {
-      // Ignore unrelated malformed/devtools URLs.
-    }
-  });
-}
-
 async function createLiveRoom(browser: Browser): Promise<LiveRoom> {
   const hostContext = await browser.newContext();
   await instrumentPeerConnections(hostContext);
@@ -116,23 +87,13 @@ async function createLiveRoom(browser: Browser): Promise<LiveRoom> {
 
   const guestContexts: BrowserContext[] = [];
   const guestPages: Page[] = [];
-  const successfulDownloads: Array<Set<string>> = [];
-  const downloadRequestCounts = Array.from({ length: GUEST_COUNT }, () => 0);
+  const downloads: DownloadObservation[] = [];
 
   for (let index = 0; index < GUEST_COUNT; index += 1) {
     const context = await browser.newContext();
-    const downloads = new Set<string>();
-    observeGuestDownloads(
-      context,
-      downloads,
-      () => {
-        downloadRequestCounts[index] += 1;
-      },
-      index + 1,
-    );
+    downloads.push(observeRemoteDownloads(context, REMOTE_SHARE_HOST, `guest ${index + 1}`));
     guestContexts.push(context);
     guestPages.push(await context.newPage());
-    successfulDownloads.push(downloads);
   }
 
   return {
@@ -141,8 +102,7 @@ async function createLiveRoom(browser: Browser): Promise<LiveRoom> {
     guestContexts,
     guestPages,
     successfulR2Puts,
-    successfulDownloads,
-    downloadRequestCounts,
+    downloads,
   };
 }
 
@@ -346,28 +306,34 @@ test('9 local guests use R2 fanout and promote the preloaded successor without a
       .toBe(2);
 
     await Promise.all(
-      room.successfulDownloads.map(async (downloads, index) => {
+      room.downloads.map(async (downloads, index) => {
         await expect
-          .poll(() => downloads.size, {
-            timeout: 120_000,
-            message: `Guest ${index + 1} did not complete current + preload R2 downloads.`,
-          })
-          .toBe(2);
+          .poll(
+            () => ({
+              completed: downloads.completed.size,
+              failures: Object.fromEntries(downloads.failures),
+            }),
+            {
+              timeout: 120_000,
+              message: `Guest ${index + 1} did not complete current + preload R2 downloads.`,
+            },
+          )
+          .toMatchObject({ completed: 2 });
       }),
     );
 
-    const requestsBeforeNext = [...room.downloadRequestCounts];
+    const requestsBeforeNext = room.downloads.map((downloads) => downloads.requestCount);
     await room.hostPage.locator('#btn-next').click();
     await Promise.all(
-      room.guestPages.map((page) => waitForTrackTitle(page, SECOND_TRACK_TITLE, 60_000)),
+      room.guestPages.map((page) => waitForTrackPlaybackProgress(page, SECOND_TRACK_TITLE)),
     );
 
     // Promotion must consume the resident preload rather than downloading the
     // selected successor again.
     await room.hostPage.waitForTimeout(3_000);
-    expect(room.downloadRequestCounts).toEqual(requestsBeforeNext);
+    expect(room.downloads.map((downloads) => downloads.requestCount)).toEqual(requestsBeforeNext);
     expect(room.successfulR2Puts.size).toBe(2);
-    for (const downloads of room.successfulDownloads) expect(downloads.size).toBe(2);
+    for (const downloads of room.downloads) expect(downloads.completed.size).toBe(2);
   } finally {
     await closeLiveRoom(room);
   }

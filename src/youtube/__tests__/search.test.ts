@@ -48,7 +48,7 @@ describe('YouTube playlist title batch completion', () => {
   });
 
   function prepareTitleFetch(
-    responseForIndex: (index: number) => Response = (index) =>
+    responseForIndex: (index: number) => Response | Promise<Response> = (index) =>
       Response.json({ title: `Title ${index}` }),
   ) {
     vi.useFakeTimers();
@@ -58,7 +58,7 @@ describe('YouTube playlist title batch completion', () => {
     const broadcast = vi.spyOn(peerState, 'broadcast').mockImplementation(() => undefined);
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const target = new URL(new URL(String(input)).searchParams.get('url')!);
-      return responseForIndex(ids.indexOf(target.searchParams.get('v')!));
+      return await responseForIndex(ids.indexOf(target.searchParams.get('v')!));
     });
     vi.stubGlobal('fetch', fetch);
     return { broadcast, fetch };
@@ -122,16 +122,28 @@ describe('YouTube playlist title batch completion', () => {
     },
   );
 
-  it('does not overwrite existing host-provided titles on a connected guest', async () => {
-    const { broadcast } = prepareTitleFetch((index) =>
-      Response.json({ title: `Guest Title ${index}` }),
-    );
+  it('does not overwrite existing host-provided titles when host title arrives while guest oEmbed is in flight', async () => {
+    let resolveIndex0!: (res: Response) => void;
+    const index0Promise = new Promise<Response>((resolve) => {
+      resolveIndex0 = resolve;
+    });
+
+    const { broadcast } = prepareTitleFetch((index) => {
+      if (index === 0) return index0Promise;
+      return Response.json({ title: `Guest Title ${index}` });
+    });
     setState('network.hostConn', { open: true } as never);
-    // Host title arrived while oEmbed fetch was in flight
+
+    // Initial state has NO title for index 0, so index 0 is included in pendingIndices
+    const pending = fetchPlaylistSubTitles(playlistId, ids);
+
+    // Host title arrives while index 0 oEmbed fetch is pending in flight
     const subItemsMap = getState('youtube.subItemsMap');
     subItemsMap[playlistId].titles[0] = 'Host Canonical Title 0';
 
-    const pending = fetchPlaylistSubTitles(playlistId, ids);
+    // Now guest oEmbed response for index 0 resolves
+    resolveIndex0(Response.json({ title: 'Guest Title 0' }));
+
     await vi.runAllTimersAsync();
     await pending;
 

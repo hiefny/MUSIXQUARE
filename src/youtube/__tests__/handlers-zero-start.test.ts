@@ -28,6 +28,7 @@ const queueFacade = vi.hoisted(() => ({
 const zeroStartFacade = vi.hoisted(() => ({ accepted: false }));
 const queueItemFacade = vi.hoisted(() => ({ playlistId: null as string | null }));
 const scheduleYtAutoSync = vi.hoisted(() => vi.fn());
+const cancelYtAutoSync = vi.hoisted(() => vi.fn());
 const tryBeginYouTubeZeroStart = vi.hoisted(() => vi.fn(() => zeroStartFacade.accepted));
 const setYouTubeSubIndex = vi.hoisted(() => vi.fn());
 
@@ -51,7 +52,10 @@ vi.mock('../_state.ts', () => ({
   setYouTubeSubIndex,
 }));
 
-vi.mock('../iframe.ts', () => ({ loadYouTubeVideo: vi.fn() }));
+vi.mock('../iframe.ts', () => ({
+  adoptResidentYouTubeOccurrence: vi.fn(),
+  loadYouTubeVideo: vi.fn(),
+}));
 vi.mock('../local-offset.ts', () => ({
   toCanonicalYouTubeTime: vi.fn((seconds: number) => seconds),
 }));
@@ -86,7 +90,7 @@ import {
   handleRequestYouTubeSubSeek,
   handleRequestYouTubeToggle,
 } from '../handlers.ts';
-import { loadYouTubeVideo } from '../iframe.ts';
+import { adoptResidentYouTubeOccurrence, loadYouTubeVideo } from '../iframe.ts';
 import { updatePlaybackTrackDetails } from '../../player/ownership.ts';
 
 const operatorConnection = { peer: 'operator-peer', open: true } as never;
@@ -104,7 +108,11 @@ describe('YouTube operator handler zero-start dispatch', () => {
     zeroStartFacade.accepted = false;
     queueItemFacade.playlistId = null;
     bus.clear();
-    configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
+    configureYouTubeHandlerRuntimeHooks({
+      cancelYtAutoSync,
+      scheduleYtAutoSync,
+      tryBeginYouTubeZeroStart,
+    });
     setState('youtube.currentSubIndex', 0);
     vi.stubGlobal('YT', { PlayerState: { PLAYING: 1 } });
   });
@@ -153,6 +161,8 @@ describe('YouTube operator handler zero-start dispatch', () => {
 
     expect(queueFacade.currentQueueItemId).toBe(QUEUE_ITEM_ID);
     expect(loadYouTubeVideo).not.toHaveBeenCalled();
+    expect(cancelYtAutoSync).toHaveBeenCalledOnce();
+    expect(adoptResidentYouTubeOccurrence).toHaveBeenCalledWith(VIDEO_ID);
     expect(setYouTubeSubIndex).toHaveBeenCalledWith(0);
   });
 

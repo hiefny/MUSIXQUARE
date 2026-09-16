@@ -126,7 +126,7 @@ const el: Record<I18nKey, string> = {
   'player.sync_compact': 'Συγχρ.',
   'player.syncing_compact': 'Συγχρ…',
   'player.play_media': 'Αναπαραγωγή πολυμέσων',
-  'player.play_media_compact': 'Πολυμέσα',
+  'player.play_media_compact': 'Μέσα',
   'player.play_media_action': 'Αναπαραγωγή πολυμέσων',
   'player.add_media': 'Προσθήκη πολυμέσων',
   'player.play_start': 'Προσθήκη στην ουρά',

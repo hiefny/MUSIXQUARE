@@ -1383,7 +1383,11 @@ function isFallbackAudioRestored(
 }
 
 export function initYouTube(): void {
-  configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
+  configureYouTubeHandlerRuntimeHooks({
+    cancelYtAutoSync,
+    scheduleYtAutoSync,
+    tryBeginYouTubeZeroStart,
+  });
 
   interface ProPlaylistResolutionAttempt {
     readonly session: ProRoomMediaHookSession;

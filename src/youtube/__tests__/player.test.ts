@@ -8,6 +8,7 @@ import { MSG } from '../../core/constants.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
+import { makeFakeYtPlayer } from './__helpers__/fake-yt-player.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   createProPlaybackAuthorityToken,
@@ -113,6 +114,7 @@ vi.mock('../sync.ts', () => ({
   resetAdDetection: vi.fn(),
   initYouTubeSync: vi.fn(),
   resetYouTubeSyncState: vi.fn(),
+  suppressDriftUntil: vi.fn(),
 }));
 
 vi.mock('../standard-host-manual-offset-gate.ts', () => ({
@@ -3153,7 +3155,109 @@ describe('YouTube Player', () => {
   describe('Standard room YouTube title ownership', () => {
     afterEach(async () => {
       const { setYouTubePlayer } = await import('../_state.ts');
+      const { cancelYouTubeZeroStart } = await import('../zero-start.ts');
+      cancelYouTubeZeroStart('cancelled', false);
       setYouTubePlayer(null);
+    });
+
+    it('rebinds metadata when a pending cue completes after a resident occurrence handoff', async () => {
+      const { setYouTubePlayer, markYtPlayerReady } = await import('../_state.ts');
+      const { updateYouTubeUIForTests } = await import('../iframe.ts');
+      const { initYouTube } = await import('../player.ts');
+      const { handleYouTubePlay } = await import('../handlers.ts');
+      const zeroStart = await import('../zero-start.ts');
+      const videoA = 'M7lc1UVf-VE';
+      const videoB = 'dQw4w9WgXcQ';
+      const thirdQueueItemId = '66666666-6666-4666-8666-666666666666';
+      const conn = dataConnection('host-peer');
+      const player = makeFakeYtPlayer({
+        __videoId: videoA,
+        __playlistIdx: -1,
+        __autoPlayOnLoad: true,
+      });
+      player.getVideoData = () => ({
+        video_id: player.__videoId,
+        title: `Resolved ${player.__videoId}`,
+        author: player.__videoId === videoA ? 'Artist A' : 'Artist B',
+      });
+      const pendingCue = vi.fn();
+      player.cueVideoById = pendingCue;
+      document.body.innerHTML =
+        '<div class="video-wrapper"><div id="youtube-player-container"><div id="youtube-player"></div></div></div>';
+      Object.assign(window, {
+        YT: {
+          Player: vi.fn(),
+          PlayerState: { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 },
+        },
+      });
+      setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      markYtPlayerReady(player as unknown as YouTubePlayerInstance);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'A1',
+          videoId: videoA,
+          playlistId: null,
+        },
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'B',
+          videoId: videoB,
+          playlistId: null,
+        },
+        {
+          queueItemId: thirdQueueItemId,
+          type: 'youtube',
+          name: 'A2',
+          videoId: videoA,
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('network.appRole', 'guest');
+      setState('network.myId', 'guest-peer');
+      setState('network.hostConn', conn);
+      setPlaybackYouTubePlaying();
+      initYouTube();
+
+      handleYouTubePlay(
+        { queueItemId: SECOND_QUEUE_ITEM_ID, videoId: videoB, autoplay: false },
+        conn,
+      );
+      expect(pendingCue).toHaveBeenCalledWith(videoB, 0);
+      handleYouTubePlay({ queueItemId: thirdQueueItemId, videoId: videoA, autoplay: false }, conn);
+      expect(pendingCue).toHaveBeenCalledTimes(1);
+      expect(getState('playlist.currentQueueItemId')).toBe(thirdQueueItemId);
+
+      // B's old iframe command lands after selecting A; PREPARE restores A.
+      player.__videoId = videoB;
+      player.__onStateChange = ({ data }) => {
+        zeroStart.handleYouTubeZeroStartPlayerState(data);
+      };
+      const now = Date.now();
+      expect(
+        zeroStart.handleYouTubeZeroStartPrepare(conn.peer, {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'resident-metadata-successor',
+          sequence: 1,
+          queueItemId: thirdQueueItemId,
+          videoId: videoA,
+          subIndex: 0,
+          prepareAtHost: now,
+          decisionAtHost: now + 2_300,
+          startDeadlineAtHost: now + 3_000,
+          hostPlatform: 'other',
+        }),
+      ).toBe(true);
+      vi.advanceTimersByTime(620);
+      expect(player.__videoId).toBe(videoA);
+      expect(zeroStart.getYouTubeZeroStartSnapshot()?.phase).toBe('armed');
+      zeroStart.cancelYouTubeZeroStart('cancelled', false);
+      updateYouTubeUIForTests();
+      expect(getState('player.currentTrackMeta')?.artist).toBe('Artist A');
     });
 
     it('prevents guest local iframe from overwriting host track title during multilingual playback', async () => {

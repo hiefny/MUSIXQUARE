@@ -1,9 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { APP_DICTIONARIES as LOCALES } from '../src/i18n/catalogs.ts';
+import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
 
 const APP_STYLES = readFileSync(resolve('css/style.css'), 'utf8');
+const FONT_ORIGIN = 'https://layout-fonts.test';
+const FONT_STYLESHEETS = [
+  'css/pretendard.css',
+  ...readdirSync(resolve('css/fonts'))
+    .filter((file) => file.endsWith('.css'))
+    .map((file) => `css/fonts/${file}`),
+];
 
 const AUDITED_ACTION_KEYS = [
   'common.ok',
@@ -41,6 +49,7 @@ const AUDITED_ACTION_KEYS = [
 
 const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
   code,
+  htmlLang: LANGUAGE_OPTIONS.find((locale) => locale.code === code)!.htmlLang,
   labels: AUDITED_ACTION_KEYS.map((key) => (dictionary as Record<string, string>)[key]),
   account: {
     google: (dictionary as Record<string, string>)['account.google_continue'],
@@ -82,13 +91,34 @@ type ActionMetrics = {
 
 async function installLayoutProbe(page: Page, markup: string): Promise<void> {
   await page.setViewportSize({ width: 320, height: 800 });
+  // Serve the same font CSS and bytes as the app without a preview server.
+  // Unicode ranges keep the browser from downloading unused Noto shards.
+  await page.route(`${FONT_ORIGIN}/**`, async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const file =
+      pathname === '/designsystem/fonts/PretendardVariable.woff2'
+        ? 'public/designsystem/fonts/PretendardVariable.woff2'
+        : pathname.slice(1);
+    await route.fulfill({
+      path: resolve(file),
+      contentType: file.endsWith('.css') ? 'text/css' : 'font/woff2',
+      headers: { 'access-control-allow-origin': '*' },
+    });
+  });
   await page.setContent(`
+    ${FONT_STYLESHEETS.map((file) => `<link rel="stylesheet" href="${FONT_ORIGIN}/${file}">`).join('\n')}
     <style>
       ${APP_STYLES}
       html,
       body {
         width: 320px;
         margin: 0;
+      }
+
+      /* The app normally reveals the body after bootstrap; this isolated
+         fixture has no runtime and must remain visible in failure screenshots. */
+      body {
+        opacity: 1;
       }
 
       .layout-probe {
@@ -126,7 +156,38 @@ async function installLayoutProbe(page: Page, markup: string): Promise<void> {
     </style>
     ${markup}
   `);
-  await page.evaluate(() => document.fonts.ready);
+  await waitForLayoutFonts(page);
+}
+
+async function waitForLayoutFonts(page: Page): Promise<void> {
+  const fontState = await page.evaluate(async () => {
+    const primaryFaces = await document.fonts.load('750 15px "Pretendard"', 'MUSIXQUARE');
+    // Flush styles after inserting locale probes before awaiting new glyph requests.
+    document.body.getBoundingClientRect();
+    await document.fonts.ready;
+    return {
+      primaryLoaded:
+        primaryFaces.length > 0 && primaryFaces.every((font) => font.status === 'loaded'),
+      errors: [...document.fonts]
+        .filter((font) => font.status === 'error')
+        .map((font) => font.family),
+    };
+  });
+  expect(fontState).toEqual({ primaryLoaded: true, errors: [] });
+}
+
+async function localizedActionsWithFonts(page: Page) {
+  return page.evaluate((locales) => {
+    const originalLang = document.documentElement.lang;
+    // Resolve the real html:lang font tokens instead of maintaining a second
+    // locale/font map for the many sections sharing this fixture document.
+    const resolved = locales.map((locale) => {
+      document.documentElement.lang = locale.htmlLang;
+      return { ...locale, fontFamily: getComputedStyle(document.body).fontFamily };
+    });
+    document.documentElement.lang = originalLang;
+    return resolved;
+  }, LOCALIZED_ACTIONS);
 }
 
 async function actionMetrics(page: Page, selector: string): Promise<ActionMetrics[]> {
@@ -275,13 +336,16 @@ test.describe('content-based adaptive action groups', () => {
     page,
   }) => {
     await installLayoutProbe(page, '<main id="locale-probes"></main>');
+    const localesWithFonts = await localizedActionsWithFonts(page);
     await page.evaluate((locales) => {
       const root = document.getElementById('locale-probes')!;
 
       for (const locale of locales) {
         const section = document.createElement('section');
         section.className = 'locale-probe';
-        section.lang = locale.code;
+        section.lang = locale.htmlLang;
+        section.style.setProperty('--font-sans', locale.fontFamily);
+        section.style.fontFamily = locale.fontFamily;
 
         for (let index = 0; index < locale.labels.length; index += 2) {
           const group = document.createElement('div');
@@ -374,8 +438,8 @@ test.describe('content-based adaptive action groups', () => {
 
         root.appendChild(section);
       }
-    }, LOCALIZED_ACTIONS);
-    await page.evaluate(() => document.fonts.ready);
+    }, localesWithFonts);
+    await waitForLayoutFonts(page);
 
     const allActions = await page.locator('#locale-probes :is(button, a)').evaluateAll((actions) =>
       actions.map((action, index) => {
@@ -530,13 +594,16 @@ test.describe('content-based adaptive action groups', () => {
 
   test('keeps every compact player action contained at the real 320px width', async ({ page }) => {
     await installLayoutProbe(page, '<main id="player-action-probes"></main>');
+    const localesWithFonts = await localizedActionsWithFonts(page);
     await page.evaluate((locales) => {
       const root = document.getElementById('player-action-probes')!;
 
       for (const locale of locales) {
         const section = document.createElement('section');
         section.className = 'locale-player-probe';
-        section.lang = locale.code;
+        section.lang = locale.htmlLang;
+        section.style.setProperty('--font-sans', locale.fontFamily);
+        section.style.fontFamily = locale.fontFamily;
 
         for (const [scale, className] of [
           ['normal', ''],
@@ -567,8 +634,8 @@ test.describe('content-based adaptive action groups', () => {
         }
         root.appendChild(section);
       }
-    }, LOCALIZED_ACTIONS);
-    await page.evaluate(() => document.fonts.ready);
+    }, localesWithFonts);
+    await waitForLayoutFonts(page);
 
     const playerActions = await page
       .locator('.locale-player-actions > button')

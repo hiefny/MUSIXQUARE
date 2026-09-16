@@ -262,6 +262,29 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(mocks.showToast).toHaveBeenCalledWith(t('demo.try_later_toast'));
   });
 
+  it('blocks an operator without room.configure from proxying demo:enter and demo:request-exit', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('setup.sessionStarted', true);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['media.add', 'playback.control', 'members.manage']);
+
+    bus.emit('demo:enter');
+    await flush();
+
+    expect(getState('demo.active')).toBe(false);
+    expect(mocks.safeSend).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
+
+    mocks.showToast.mockClear();
+    bus.emit('demo:request-exit');
+    await flush();
+
+    expect(mocks.safeSend).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
+  });
+
   it('accepts REQUEST_DEMO_ENTER and REQUEST_DEMO_EXIT on the host from a verified owner peer', async () => {
     const peerConn = { open: true, peer: 'peer-owner' } as DataConnection;
     setState('network.appRole', 'host');
@@ -316,6 +339,35 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     await flush();
 
     expect(getState('demo.active')).toBe(false);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('drops REQUEST_DEMO_ENTER and REQUEST_DEMO_EXIT on the host from an operator peer lacking room.configure', async () => {
+    const peerConn = { open: true, peer: 'peer-operator' } as DataConnection;
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('network.sessionCode', '123456');
+    const activeConns = new Map<string, DataConnection>();
+    activeConns.set('peer-operator', peerConn);
+    setState('network.activeHostConnByPeerId', activeConns);
+    setState('network.connectedPeers', [
+      {
+        id: 'peer-operator',
+        conn: peerConn,
+        isOp: true,
+        roomCapabilities: ['media.add', 'playback.control', 'members.manage'],
+      } as any,
+    ]);
+
+    await handleData({ type: MSG.REQUEST_DEMO_ENTER }, peerConn);
+    await flush();
+
+    expect(getState('demo.active')).toBe(false);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+
+    await handleData({ type: MSG.REQUEST_DEMO_EXIT }, peerConn);
+    await flush();
+
     expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 

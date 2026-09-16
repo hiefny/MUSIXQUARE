@@ -562,7 +562,7 @@ const ko = {
   'toast.member_management_required': '멤버 추방 권한이 필요해요.',
   'toast.chat_notice_required': '채팅방 공지 권한이 필요해요.',
   'toast.room_owner_required': '방 소유자만 변경할 수 있어요.',
-  'toast.system_audio_owner_required': '시스템 오디오는 방 소유자만 공유하거나 중지할 수 있어요.',
+  'toast.system_audio_owner_required': '방을 직접 연 탭에서만 공유할 수 있어요',
   'toast.host_only_youtube': '방장만 유튜브 링크를 추가할 수 있어요.',
   'toast.host_only_control': '방장만 조작할 수 있어요',
   'toast.host_setting_required': '방장만 이 설정을 변경할 수 있어요',

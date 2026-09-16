@@ -580,7 +580,7 @@ const ro: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Este necesară permisiunea de publicare a anunțurilor în chat.',
   'toast.room_owner_required': 'Numai proprietarul camerei poate modifica această opțiune.',
   'toast.system_audio_owner_required':
-    'Numai proprietarul camerei poate partaja sau opri sunetul sistemului.',
+    'Poți partaja conținut audio doar din fila care a deschis camera.',
   'toast.host_only_youtube': 'Numai gazda poate adăuga linkuri YouTube.',
   'toast.host_only_control': 'Numai gazda poate controla această opțiune',
   'toast.host_setting_required': 'Numai gazda poate schimba această setare',

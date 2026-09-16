@@ -566,7 +566,7 @@ const tr: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Sohbet duyurusu izni gerekli.',
   'toast.room_owner_required': 'Bunu yalnızca oda sahibi değiştirebilir.',
   'toast.system_audio_owner_required':
-    'Sistem sesini yalnızca oda sahibi paylaşabilir veya durdurabilir.',
+    'Yalnızca odayı doğrudan açan sekmeden ses paylaşabilirsiniz.',
   'toast.host_only_youtube': 'Sadece oda sahibi YouTube bağlantısı ekleyebilir.',
   'toast.host_only_control': 'Sadece oda sahibi kontrol edebilir',
   'toast.host_setting_required': 'Bu ayarı yalnızca oda sahibi değiştirebilir',

@@ -546,7 +546,8 @@ const de: Record<I18nKey, string> = {
   'toast.member_management_required': 'Berechtigung zum Entfernen von Mitgliedern erforderlich.',
   'toast.chat_notice_required': 'Berechtigung zum Senden von Chat-Ankündigungen erforderlich.',
   'toast.room_owner_required': 'Nur der Raumbesitzer kann dies ändern.',
-  'toast.system_audio_owner_required': 'Nur der Raumbesitzer kann Systemaudio teilen oder beenden.',
+  'toast.system_audio_owner_required':
+    'Audio kann nur über den Tab freigegeben werden, der den Raum geöffnet hat.',
   'toast.host_only_youtube': 'Nur der Host kann YouTube-Links hinzufügen.',
   'toast.host_only_control': 'Nur der Host kann dies steuern',
   'toast.host_setting_required': 'Nur der Host kann diese Einstellung ändern',

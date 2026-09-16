@@ -569,7 +569,7 @@ const hi: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'चैट सूचना पोस्ट करने की अनुमति चाहिए।',
   'toast.room_owner_required': 'इसे केवल रूम का मालिक बदल सकता है।',
   'toast.system_audio_owner_required':
-    'सिस्टम ऑडियो साझा करना या रोकना केवल रूम का मालिक कर सकता है।',
+    'आप केवल उसी टैब से ऑडियो साझा कर सकते हैं जिसने कमरा खोला था।',
   'toast.host_only_youtube': 'YouTube लिंक केवल होस्ट जोड़ सकता है।',
   'toast.host_only_control': 'इसे केवल होस्ट नियंत्रित कर सकता है',
   'toast.host_setting_required': 'यह सेटिंग केवल होस्ट बदल सकता है',

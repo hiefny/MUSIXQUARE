@@ -564,7 +564,7 @@ const mr: Record<I18nKey, string> = {
   'toast.member_management_required': 'सदस्यांना काढण्याची परवानगी आवश्यक आहे.',
   'toast.chat_notice_required': 'चॅट सूचना पोस्ट करण्याची परवानगी आवश्यक आहे.',
   'toast.room_owner_required': 'हे फक्त रूमचा मालक बदलू शकतो.',
-  'toast.system_audio_owner_required': 'फक्त रूमचा मालक सिस्टम ऑडिओ शेअर किंवा थांबवू शकतो.',
+  'toast.system_audio_owner_required': 'तुम्ही फक्त रूम उघडलेल्या टॅबमधूनच ऑडिओ शेअर करू शकता.',
   'toast.host_only_youtube': 'फक्त होस्ट YouTube लिंक जोडू शकतो.',
   'toast.host_only_control': 'हे फक्त होस्ट नियंत्रित करू शकतो',
   'toast.host_setting_required': 'हे सेटिंग फक्त होस्ट बदलू शकतो',

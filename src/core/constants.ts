@@ -153,6 +153,8 @@ export const MSG = {
   REPEAT_MODE: 'repeat-mode',
   REQUEST_CURRENT_FILE: 'request-current-file',
   REQUEST_DATA_RECOVERY: 'request-data-recovery',
+  REQUEST_DEMO_ENTER: 'request-demo-enter',
+  REQUEST_DEMO_EXIT: 'request-demo-exit',
   REQUEST_EQ_RESET: 'request-eq-reset',
   REQUEST_KICK_DEVICE: 'request-kick-device',
   REQUEST_KICK_PHYSICAL_DEVICE: 'request-kick-physical-device',

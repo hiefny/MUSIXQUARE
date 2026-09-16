@@ -8,7 +8,8 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MAX_SYSTEM_AUDIO_DEVICES, PLAYBACK_STATE } from '../core/constants.ts';
+import { MAX_SYSTEM_AUDIO_DEVICES, MSG, PLAYBACK_STATE } from '../core/constants.ts';
+import { safeSend } from '../network/peer.ts';
 import { formatSystemAudioProfileLabel } from '../core/system-audio-profile.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -551,9 +552,8 @@ function openMediaSourcePopup(focusFirstAction = true): void {
   }
   const systemAudioButton = getUiElement('btn-system-audio');
   if (systemAudioButton) {
-    systemAudioButton.hidden =
-      !hasRoomCapability('system-audio.publish') ||
-      !(isCoordinator() || getRoomContext().kind === 'pro');
+    const isProRoom = getRoomContext().kind === 'pro';
+    systemAudioButton.hidden = isProRoom ? !hasRoomCapability('system-audio.publish') : false;
   }
   _mediaSourcePreviousFocus = rememberOverlayOpener('btn-media-source');
   syncSystemAudioSourceButton();
@@ -1329,11 +1329,16 @@ export function initPlayerControls(): void {
 
   // Demo button (Help tab — desktop + mobile)
   function handleDemoMediaClick(): void {
-    if (!isCoordinator()) {
-      showToast(t('demo.host_only_exit'));
+    if (isCoordinator()) {
+      bus.emit('demo:enter');
       return;
     }
-    bus.emit('demo:enter');
+    const hostConn = getState('network.hostConn');
+    if (hasRoomCapability('room.configure') && hostConn?.open) {
+      safeSend(hostConn, { type: MSG.REQUEST_DEMO_ENTER });
+      return;
+    }
+    showToast(t('demo.host_only_exit'));
   }
   $on('btn-demo-media', 'click', handleDemoMediaClick);
   $on('btn-demo-media-mobile', 'click', handleDemoMediaClick);

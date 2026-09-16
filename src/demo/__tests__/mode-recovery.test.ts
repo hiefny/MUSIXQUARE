@@ -231,6 +231,94 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(mocks.showToast).toHaveBeenCalledWith(t('demo.host_only_exit'));
   });
 
+  it('proxies demo:enter to the host when a guest has room.configure capability', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('setup.sessionStarted', true);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['room.configure']);
+
+    bus.emit('demo:enter');
+    await flush();
+
+    expect(getState('demo.active')).toBe(false);
+    expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_ENTER });
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  it('proxies demo:request-exit to the host when a guest has room.configure capability', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('setup.sessionStarted', true);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['room.configure']);
+
+    bus.emit('demo:request-exit');
+    await flush();
+
+    expect(mocks.safeSend).toHaveBeenCalledWith(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
+    expect(mocks.showToast).toHaveBeenCalledWith(t('demo.try_later_toast'));
+  });
+
+  it('accepts REQUEST_DEMO_ENTER and REQUEST_DEMO_EXIT on the host from a verified owner peer', async () => {
+    const peerConn = { open: true, peer: 'peer-owner' } as DataConnection;
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('network.sessionCode', '123456');
+    const activeConns = new Map<string, DataConnection>();
+    activeConns.set('peer-owner', peerConn);
+    setState('network.activeHostConnByPeerId', activeConns);
+    setState('network.connectedPeers', [
+      {
+        id: 'peer-owner',
+        conn: peerConn,
+        isOp: true,
+        roomCapabilities: ['room.configure'],
+      } as any,
+    ]);
+
+    await handleData({ type: MSG.REQUEST_DEMO_ENTER }, peerConn);
+    await flush();
+
+    expect(getState('demo.active')).toBe(true);
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.DEMO_ENTER, index: 0 }),
+    );
+
+    mocks.broadcast.mockClear();
+    await handleData({ type: MSG.REQUEST_DEMO_EXIT }, peerConn);
+    await flush(500);
+
+    expect(getState('demo.active')).toBe(false);
+    expect(mocks.broadcast).toHaveBeenCalledWith({ type: MSG.DEMO_EXIT });
+  });
+
+  it('drops REQUEST_DEMO_ENTER on the host from an unauthorized peer', async () => {
+    const peerConn = { open: true, peer: 'peer-guest' } as DataConnection;
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('network.sessionCode', '123456');
+    const activeConns = new Map<string, DataConnection>();
+    activeConns.set('peer-guest', peerConn);
+    setState('network.activeHostConnByPeerId', activeConns);
+    setState('network.connectedPeers', [
+      {
+        id: 'peer-guest',
+        conn: peerConn,
+        isOp: false,
+        roomCapabilities: [],
+      } as any,
+    ]);
+
+    await handleData({ type: MSG.REQUEST_DEMO_ENTER }, peerConn);
+    await flush();
+
+    expect(getState('demo.active')).toBe(false);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
   it('tears down an in-flight standard demo when the room becomes PRO', async () => {
     setState('network.appRole', 'host');
     setState('setup.sessionStarted', true);

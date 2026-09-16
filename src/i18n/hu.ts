@@ -579,7 +579,7 @@ const hu: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Csevegési közlemény közzétételi joga szükséges.',
   'toast.room_owner_required': 'Ezt csak a szobatulajdonos módosíthatja.',
   'toast.system_audio_owner_required':
-    'A rendszerhang megosztását csak a szobatulajdonos indíthatja vagy állíthatja le.',
+    'Csak abból a lapból oszthat meg hangot, amelyik megnyitotta a szobát.',
   'toast.host_only_youtube': 'YouTube-hivatkozást csak a házigazda adhat hozzá.',
   'toast.host_only_control': 'Ezt csak a házigazda vezérelheti',
   'toast.host_setting_required': 'Ezt a beállítást csak a házigazda módosíthatja',

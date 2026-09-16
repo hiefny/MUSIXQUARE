@@ -561,7 +561,7 @@ const th: Record<I18nKey, string> = {
   'toast.member_management_required': 'ต้องมีสิทธิ์นำผู้เข้าร่วมออก',
   'toast.chat_notice_required': 'ต้องมีสิทธิ์โพสต์ประกาศในแชต',
   'toast.room_owner_required': 'เฉพาะเจ้าของห้องเท่านั้นที่เปลี่ยนรายการนี้ได้',
-  'toast.system_audio_owner_required': 'เฉพาะเจ้าของห้องเท่านั้นที่แชร์หรือหยุดเสียงระบบได้',
+  'toast.system_audio_owner_required': 'คุณสามารถแชร์เสียงได้จากแท็บที่เปิดห้องโดยตรงเท่านั้น',
   'toast.host_only_youtube': 'เฉพาะเจ้าของห้องเท่านั้นที่เพิ่มลิงก์ YouTube ได้',
   'toast.host_only_control': 'เฉพาะเจ้าของห้องเท่านั้นที่ควบคุมได้',
   'toast.host_setting_required': 'เฉพาะเจ้าของห้องเท่านั้นที่เปลี่ยนการตั้งค่านี้ได้',

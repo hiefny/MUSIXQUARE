@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { bus } from '../../core/events.ts';
-import { PLAYBACK_STATE } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
@@ -161,7 +161,7 @@ afterEach(() => {
 });
 
 function makeConnection(peer: string): DataConnection {
-  return { peer, open: true } as DataConnection;
+  return { peer, open: true, send: vi.fn() } as unknown as DataConnection;
 }
 
 function setActiveStandardHost(): void {
@@ -3040,5 +3040,31 @@ describe('demo button host gate', () => {
     expect(enterListener).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledTimes(2);
     expect(showToast).toHaveBeenLastCalledWith(t('demo.host_only_exit'));
+  });
+
+  it('proxies demo:enter request to the host when a guest device has room.configure capability', () => {
+    const { desktopBtn, mobileBtn } = renderDemoButtons();
+    const conn = makeConnection('host-peer');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES]);
+
+    const enterListener = vi.fn();
+    bus.on('demo:enter', enterListener);
+
+    initPlayerControls();
+
+    desktopBtn.click();
+    expect(enterListener).not.toHaveBeenCalled();
+    expect(conn.send).toHaveBeenCalledWith({ type: MSG.REQUEST_DEMO_ENTER });
+    expect(showToast).not.toHaveBeenCalled();
+
+    mobileBtn.click();
+    expect(enterListener).not.toHaveBeenCalled();
+    expect(conn.send).toHaveBeenCalledTimes(2);
+    expect(showToast).not.toHaveBeenCalled();
   });
 });

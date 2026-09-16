@@ -546,8 +546,7 @@ const ptBr: Record<I18nKey, string> = {
   'toast.member_management_required': 'É necessária permissão para remover membros.',
   'toast.chat_notice_required': 'É necessária permissão para publicar avisos no chat.',
   'toast.room_owner_required': 'Só o proprietário da sala pode alterar isso.',
-  'toast.system_audio_owner_required':
-    'Só o proprietário da sala pode compartilhar ou interromper o áudio do sistema.',
+  'toast.system_audio_owner_required': 'Você só pode compartilhar áudio da aba que abriu a sala.',
   'toast.host_only_youtube': 'Só o anfitrião pode adicionar links do YouTube.',
   'toast.host_only_control': 'Só o anfitrião pode controlar isso',
   'toast.host_setting_required': 'Só o anfitrião pode alterar esta configuração',

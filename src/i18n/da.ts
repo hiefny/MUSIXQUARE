@@ -574,7 +574,7 @@ const da: Record<I18nKey, string> = {
   'toast.member_management_required': 'Der kræves tilladelse til at fjerne medlemmer.',
   'toast.chat_notice_required': 'Der kræves tilladelse til at slå chatmeddelelser op.',
   'toast.room_owner_required': 'Kun rummets ejer kan ændre dette.',
-  'toast.system_audio_owner_required': 'Kun rummets ejer kan dele eller stoppe systemlyd.',
+  'toast.system_audio_owner_required': 'Du kan kun dele lyd fra den fane, der åbnede rummet.',
   'toast.host_only_youtube': 'Kun værten kan tilføje YouTube-links.',
   'toast.host_only_control': 'Kun værten kan styre dette',
   'toast.host_setting_required': 'Kun værten kan ændre denne indstilling',

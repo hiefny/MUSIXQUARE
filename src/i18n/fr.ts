@@ -545,7 +545,7 @@ const fr: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'L’autorisation de publier des annonces dans le chat est requise.',
   'toast.room_owner_required': 'Seul le propriétaire du salon peut effectuer cette modification.',
   'toast.system_audio_owner_required':
-    'Seul le propriétaire du salon peut partager ou arrêter l’audio système.',
+    'Vous ne pouvez partager l’audio que depuis l’onglet qui a ouvert le salon.',
   'toast.host_only_youtube': 'Seul l’hôte peut ajouter des liens YouTube.',
   'toast.host_only_control': 'Seul l’hôte peut utiliser cette commande',
   'toast.host_setting_required': 'Seul l’hôte peut modifier ce réglage',

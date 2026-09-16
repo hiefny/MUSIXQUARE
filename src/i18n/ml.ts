@@ -580,7 +580,7 @@ const ml: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'ചാറ്റ് അറിയിപ്പുകൾ പോസ്റ്റ് ചെയ്യാനുള്ള അനുമതി ആവശ്യമാണ്.',
   'toast.room_owner_required': 'റൂം ഉടമയ്ക്ക് മാത്രമേ ഇത് മാറ്റാനാകൂ.',
   'toast.system_audio_owner_required':
-    'റൂം ഉടമയ്ക്ക് മാത്രമേ സിസ്റ്റം ഓഡിയോ പങ്കിടാനോ നിർത്താനോ കഴിയൂ.',
+    'റൂം തുറന്ന ടാബിൽ നിന്ന് മാത്രമേ നിങ്ങൾക്ക് ഓഡിയോ പങ്കിടാനാകൂ.',
   'toast.host_only_youtube': 'ഹോസ്റ്റിന് മാത്രമേ YouTube ലിങ്കുകൾ ചേർക്കാനാകൂ.',
   'toast.host_only_control': 'ഹോസ്റ്റിന് മാത്രമേ ഇത് നിയന്ത്രിക്കാനാകൂ',
   'toast.host_setting_required': 'ഹോസ്റ്റിന് മാത്രമേ ഈ ക്രമീകരണം മാറ്റാനാകൂ',

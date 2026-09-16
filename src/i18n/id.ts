@@ -541,7 +541,7 @@ const id: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Izin pengumuman chat diperlukan.',
   'toast.room_owner_required': 'Hanya pemilik ruang yang dapat mengubah ini.',
   'toast.system_audio_owner_required':
-    'Hanya pemilik ruang yang dapat membagikan atau menghentikan audio sistem.',
+    'Anda hanya dapat membagikan audio dari tab yang membuka ruangan.',
   'toast.host_only_youtube': 'Hanya host yang dapat menambahkan tautan YouTube.',
   'toast.host_only_control': 'Hanya host yang dapat mengontrol ini',
   'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',

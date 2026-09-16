@@ -587,7 +587,7 @@ const fil: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Kailangan ang pahintulot na mag-post ng mga abiso sa chat.',
   'toast.room_owner_required': 'May-ari lang ng kuwarto ang makakapagbago nito.',
   'toast.system_audio_owner_required':
-    'May-ari lang ng kuwarto ang maaaring magbahagi o huminto sa system audio.',
+    'Maaari mo lamang ibahagi ang audio mula sa tab na nagbukas ng kwarto.',
   'toast.host_only_youtube': 'Host lang ang makakapagdagdag ng mga link sa YouTube.',
   'toast.host_only_control': 'Host lang ang makakakontrol nito',
   'toast.host_setting_required': 'Host lang ang makakapagbago ng setting na ito',

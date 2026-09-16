@@ -125,6 +125,11 @@ before the release is declared healthy.
   content.
 - The update preserves order and identity.
 
+#### YouTube title localization policy
+
+- Standard rooms use the host-resolved YouTube title as the room-wide display title.
+- PRO room participants may display the title returned by their own localized YouTube iframe. Differences in localized display titles between PRO participants are intentional and are not treated as playback divergence. Queue identity and playback timing remain server-authoritative.
+
 ## Batch removal interaction
 
 Playlist removal is a two-step, host-local selection transaction rather than a confirmation

@@ -82,6 +82,11 @@ magnification to OS display zoom or the OS magnifier. Do not reopen this as a
 generic accessibility finding without the product/design and physical-device
 conditions in `docs/mobile-app-zoom-policy.md`.
 
+### 9. Localized YouTube Display Titles in PRO Rooms
+
+Standard rooms use the host-resolved YouTube title as the room-wide display title.
+PRO room participants may display the title returned by their own localized YouTube iframe. Differences in localized display titles between PRO participants are intentional and are not treated as playback divergence. Queue identity and playback timing remain server-authoritative. See [Queue Item Identity and Reorder](design/queue-item-identity-and-reorder.md).
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

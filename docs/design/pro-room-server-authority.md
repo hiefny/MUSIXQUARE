@@ -57,7 +57,10 @@ a room manager or playback capability.
 
 The server manages state; browsers still download, decode, render, apply audio
 effects, and schedule output locally. This decision does not stream decoded
-audio through the Durable Object.
+audio through the Durable Object. Queue identity, ordering, and playback timing
+remain server-authoritative, while localized YouTube display titles may vary
+per participant without divergence; see
+[Queue Item Identity and Reorder](queue-item-identity-and-reorder.md).
 
 ### 2. Ordinary rooms remain host-authoritative P2P rooms
 

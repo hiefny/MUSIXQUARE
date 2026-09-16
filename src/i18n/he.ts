@@ -560,7 +560,7 @@ const he: Record<I18nKey, string> = {
   'toast.member_management_required': 'נדרשת הרשאה להסרת חברים.',
   'toast.chat_notice_required': 'נדרשת הרשאה לפרסום הודעות בצ׳אט.',
   'toast.room_owner_required': 'רק בעל החדר יכול לשנות זאת.',
-  'toast.system_audio_owner_required': 'ניתן לשתף שמע רק מהכרטיસייה שפתחה את החדר.',
+  'toast.system_audio_owner_required': 'ניתן לשתף שמע רק מהכרטיסייה שפתחה את החדר.',
   'toast.host_only_youtube': 'רק המארח יכול להוסיף קישורי YouTube.',
   'toast.host_only_control': 'רק המארח יכול לשלוט בכך',
   'toast.host_setting_required': 'רק המארח יכול לשנות את ההגדרה',

@@ -58,3 +58,19 @@ describe('getResolvedLanguage', () => {
     expect(LANGUAGE_OPTIONS.map((option) => option.code)).toContain(lang);
   });
 });
+
+describe('hebrew script integrity', () => {
+  it('does not contain foreign Indic/Gujarati characters in he.ts', async () => {
+    const heModule = await import('../he.ts');
+    const catalog = heModule.default;
+    for (const [key, value] of Object.entries(catalog)) {
+      for (const char of value as string) {
+        const code = char.codePointAt(0)!;
+        expect(
+          code >= 0x0900 && code <= 0x0d7f,
+          `Found unexpected Indic character '${char}' (U+${code.toString(16).toUpperCase()}) in he.ts for key '${key}'`,
+        ).toBe(false);
+      }
+    }
+  });
+});

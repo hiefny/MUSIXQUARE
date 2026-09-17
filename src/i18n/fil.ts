@@ -106,7 +106,7 @@ const fil: Record<I18nKey, string> = {
   'nav.connect': 'Kumonekta',
   'nav.playlist_compact': 'Playlist',
   'nav.connect_compact': 'Kumonekta',
-  'nav.settings_compact': 'Mga Setting',
+  'nav.settings_compact': 'Setting',
   'nav.go_home': 'Pumunta sa Home',
 
   // ─── Player ──────────────────────────────────────────────────────

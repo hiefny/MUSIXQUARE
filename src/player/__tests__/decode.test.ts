@@ -383,6 +383,7 @@ describe('guest decode failure reports', () => {
     setState('network.hostConn', makeConnection('host'));
     setState('player.decodeFailureCount', 1);
     const item = getState('playlist.items')[0]!;
+    setState('player.decodeFailureQueueItemId', item.queueItemId);
     setState('playback.pendingPlayTime', 92);
     setState('playback.pendingPlayTimeSetAt', Date.now());
     setState('playback.pendingRecoveryTarget', {
@@ -865,6 +866,7 @@ describe('guest preload activation failure recovery', () => {
     });
     const { item, exactHostSend } = stageGuestPreload(file);
     setState('player.decodeFailureCount', 1);
+    setState('player.decodeFailureQueueItemId', item.queueItemId);
 
     const { loadPreloadedTrack } = await import('../decode.ts');
     const activated = await loadPreloadedTrack(item.queueItemId);

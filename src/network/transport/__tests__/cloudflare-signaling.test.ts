@@ -633,7 +633,7 @@ async function establishGuest(roomPassword = ''): Promise<{
   return { peer, conn, socket, pc: FakeRTCPeerConnection.instances[0] };
 }
 
-async function establishGuestWithSignalingState(): Promise<{
+async function establishGuestWithSignalingState(supportsIceRestart = false): Promise<{
   peer: CloudflareSignalingPeer;
   conn: TransportDataConnection;
   socket: FakeWebSocket;
@@ -660,13 +660,17 @@ async function establishGuestWithSignalingState(): Promise<{
       from: 'host',
       negotiationId: dataOffer?.negotiationId,
       sdp: { type: 'answer', sdp: 'data-answer' },
+      ...(supportsIceRestart ? { iceRestartVersion: 1 } : {}),
     }),
   );
   await vi.waitFor(() => expect(pc.signalingState).toBe('stable'));
   return { peer, conn, socket, pc };
 }
 
-async function establishHostWithSignalingState(peerId = 'guest-media'): Promise<{
+async function establishHostWithSignalingState(
+  peerId = 'guest-media',
+  supportsIceRestart = false,
+): Promise<{
   peer: CloudflareSignalingPeer;
   conn: TransportDataConnection;
   socket: FakeWebSocket;
@@ -690,6 +694,7 @@ async function establishHostWithSignalingState(peerId = 'guest-media'): Promise<
       from: peerId,
       negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'guest-data-offer' },
+      ...(supportsIceRestart ? { iceRestartVersion: 1 } : {}),
     }),
   );
   await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
@@ -701,6 +706,325 @@ async function establishHostWithSignalingState(peerId = 'guest-media'): Promise<
   if (!conn) throw new Error('HOST_DATA_CONNECTION_NOT_ESTABLISHED');
   return { peer, conn, socket, pc };
 }
+
+describe('bounded Standard-room ICE restart', () => {
+  it('reports selected ICE-pair changes even while the host PC stays connected', async () => {
+    const conn = new CloudflareDataConnection('guest-path');
+    const transport = new EventTarget();
+    const pc = Object.assign(new FakePeerConnection(), {
+      sctp: { transport: { iceTransport: transport } },
+    });
+    conn.attach(
+      pc as unknown as RTCPeerConnection,
+      new FakeDataChannel('musixquare-data') as unknown as RTCDataChannel,
+    );
+    conn.attach(
+      pc as unknown as RTCPeerConnection,
+      new FakeDataChannel('musixquare-control') as unknown as RTCDataChannel,
+    );
+    const recovered = vi.fn();
+    conn.on('ice-recovered', recovered);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    transport.dispatchEvent(new Event('selectedcandidatepairchange'));
+    expect(recovered).toHaveBeenCalledOnce();
+    expect(pc.connectionState).toBe('connected');
+    conn.close();
+    transport.dispatchEvent(new Event('selectedcandidatepairchange'));
+    expect(recovered).toHaveBeenCalledOnce();
+  });
+
+  it('restarts a capable guest on the same PC and channels, then accepts only its answer', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    const initial = sentOfType(socket, 'signal-offer')[0];
+    const createOffer = vi.spyOn(pc, 'createOffer');
+    const recovered = vi.fn();
+    conn.on('ice-recovered', recovered);
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-offer')).toHaveLength(2));
+    const restart = sentOfType(socket, 'signal-offer')[1];
+    expect(createOffer).toHaveBeenCalledWith({ iceRestart: true });
+    expect(restart).toMatchObject({ restartOf: initial?.negotiationId, iceRestartVersion: 1 });
+    expect(restart?.negotiationId).not.toBe(initial?.negotiationId);
+    const beforeAnswers = pc.remoteDescriptionHistory.length;
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-answer',
+        negotiationId: initial?.negotiationId,
+        sdp: { type: 'answer', sdp: 'stale' },
+      }),
+    );
+    await flushAsync();
+    expect(pc.remoteDescriptionHistory).toHaveLength(beforeAnswers);
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-answer',
+        negotiationId: restart?.negotiationId,
+        iceRestartVersion: 1,
+        sdp: { type: 'answer', sdp: 'recovered' },
+      }),
+    );
+    await vi.waitFor(() => expect(pc.signalingState).toBe('stable'));
+    pc.connectionState = 'connected';
+    pc.dispatch('connectionstatechange', {});
+    pc.dispatch('connectionstatechange', {});
+    expect(recovered).toHaveBeenCalledOnce();
+    expect(conn.peerConnection).toBe(pc);
+    expect(conn.open).toBe(true);
+    expect(pc.channels.every((channel) => channel.readyState === 'open')).toBe(true);
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('keeps legacy peers on their existing terminal-failure behavior', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState();
+    pc.connectionState = 'failed';
+    pc.dispatch('connectionstatechange', {});
+    await flushAsync();
+    expect(conn.open).toBe(false);
+    expect(sentOfType(socket, 'signal-offer')).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('does not extend the 15-second deadline when disconnected changes to failed', async () => {
+    const { peer, conn, pc } = await establishGuestWithSignalingState(true);
+    vi.useFakeTimers();
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(10_000);
+    pc.connectionState = 'failed';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(conn.open).toBe(false);
+    expect(pc.connectionState).toBe('closed');
+    peer.destroy();
+  });
+
+  it('waits for authenticated signaling recovery before sending a restart', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    socket.dispatch('close');
+    pc.connectionState = 'failed';
+    pc.dispatch('connectionstatechange', {});
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(reopened, 'signal-offer')).toHaveLength(0);
+    reopened.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: peer.id, roomId: '123456' }),
+    );
+    await vi.waitFor(() => expect(sentOfType(reopened, 'signal-offer')).toHaveLength(1));
+    expect(conn.open).toBe(true);
+    expect(conn.peerConnection).toBe(pc);
+    peer.destroy();
+  });
+
+  it('serializes a restart behind outstanding shared-PC SDP work', async () => {
+    const { peer, socket, pc } = await establishGuestWithSignalingState(true);
+    const incoming = vi.fn();
+    peer.on('call', incoming);
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'media-offer',
+        from: 'host',
+        callId: 'media-pending',
+        negotiationId: NEXT_NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'media-pending' },
+      }),
+    );
+    await vi.waitFor(() => expect(incoming).toHaveBeenCalledOnce());
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await flushAsync();
+    expect(sentOfType(socket, 'signal-offer')).toHaveLength(1);
+    (incoming.mock.calls[0]?.[0] as TransportMediaConnection).answer();
+    await vi.waitFor(() => expect(sentOfType(socket, 'media-answer')).toHaveLength(1));
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-offer')).toHaveLength(2));
+    peer.destroy();
+  });
+
+  it('rolls an unanswered restart back if the old path recovers before its answer', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    vi.useFakeTimers();
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentOfType(socket, 'signal-offer')).toHaveLength(2);
+    pc.connectionState = 'connected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(pc.rollbackCount).toBe(1);
+    expect(pc.signalingState).toBe('stable');
+    expect(conn.open).toBe(true);
+    peer.destroy();
+  });
+
+  it('answers an exact host binding in place and ignores mismatched restart ownership', async () => {
+    const { peer, conn, socket, pc } = await establishHostWithSignalingState('guest-restart', true);
+    const onConnection = vi.fn();
+    peer.on('connection', onConnection);
+    const restart = {
+      type: 'signal-offer',
+      from: 'guest-restart',
+      iceRestartVersion: 1,
+      negotiationId: NEXT_NEGOTIATION_ID,
+      restartOf: 'wrong_binding_000001',
+      sdp: { type: 'offer', sdp: 'restart-offer' },
+    };
+    socket.dispatch('message', JSON.stringify(restart));
+    await flushAsync();
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(1);
+    expect(pc.remoteDescriptionHistory).toHaveLength(1);
+    socket.dispatch('message', JSON.stringify({ ...restart, restartOf: NEGOTIATION_ID }));
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(2));
+    expect(sentOfType(socket, 'signal-answer')[1]).toMatchObject({
+      negotiationId: NEXT_NEGOTIATION_ID,
+      iceRestartVersion: 1,
+    });
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    expect(conn.peerConnection).toBe(pc);
+    expect(conn.open).toBe(true);
+    expect(onConnection).not.toHaveBeenCalled();
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        ...restart,
+        restartOf: NEGOTIATION_ID,
+        negotiationId: 'third_negotiation_000001',
+      }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(3));
+    expect(pc.connectionState).toBe('connected');
+    expect(conn.open).toBe(true);
+    peer.destroy();
+  });
+
+  it('leaves host media-answer delivery unblocked and accepts the subsequent restart', async () => {
+    const { peer, conn, socket, pc } = await establishHostWithSignalingState('guest-media', true);
+    peer.call('guest-media', fakeAudioStream('during-recovery'));
+    await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+    const media = sentOfType(socket, 'media-offer')[0]!;
+    const restart = {
+      type: 'signal-offer',
+      from: 'guest-media',
+      iceRestartVersion: 1,
+      restartOf: NEGOTIATION_ID,
+      negotiationId: NEXT_NEGOTIATION_ID,
+      sdp: { type: 'offer', sdp: 'crossed-ice-offer' },
+    };
+    socket.dispatch('message', JSON.stringify(restart));
+    await flushAsync();
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(1);
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'media-answer',
+        from: 'guest-media',
+        callId: media.callId,
+        negotiationId: media.negotiationId,
+        sdp: { type: 'answer', sdp: 'media-answer' },
+      }),
+    );
+    await vi.waitFor(() => expect(pc.signalingState).toBe('stable'));
+    socket.dispatch(
+      'message',
+      JSON.stringify({ ...restart, negotiationId: 'retry_negotiation_000001' }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(2));
+    expect(pc.remoteDescriptionHistory.map((description) => description.sdp)).toContain(
+      'media-answer',
+    );
+    expect(conn.open).toBe(true);
+    peer.destroy();
+  });
+
+  it('rolls back a crossing guest restart, rejects its late answer, then restarts after media', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    const incoming = vi.fn();
+    peer.on('call', incoming);
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-offer')).toHaveLength(2));
+    const retiredOffer = sentOfType(socket, 'signal-offer')[1]!;
+    const originalDeadline = conn.iceRecoveryDeadline;
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'media-offer',
+        from: 'host',
+        callId: 'crossing-media',
+        negotiationId: NEXT_NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'crossing-media' },
+      }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-answer',
+        negotiationId: retiredOffer.negotiationId,
+        sdp: { type: 'answer', sdp: 'retired-answer' },
+      }),
+    );
+    await vi.waitFor(() => expect(incoming).toHaveBeenCalledOnce());
+    expect(pc.rollbackCount).toBe(1);
+    expect(
+      pc.remoteDescriptionHistory.some((description) => description.sdp === 'retired-answer'),
+    ).toBe(false);
+    (incoming.mock.calls[0]?.[0] as TransportMediaConnection).answer();
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-offer')).toHaveLength(3));
+    expect(sentOfType(socket, 'media-answer')).toHaveLength(1);
+    expect(sentOfType(socket, 'signal-offer')[2]?.negotiationId).not.toBe(
+      retiredOffer.negotiationId,
+    );
+    expect(conn.iceRecoveryDeadline).toBe(originalDeadline);
+    expect(conn.open).toBe(true);
+    peer.destroy();
+  });
+
+  it('bounds admission waiting even when the old RTC path becomes connected again', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    vi.useFakeTimers();
+    socket.dispatch('close');
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(0);
+    pc.connectionState = 'connected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(15_000);
+    const waiters = (peer as unknown as { signalingAdmissionWaiters: Set<unknown> })
+      .signalingAdmissionWaiters;
+    expect(waiters.size).toBe(0);
+    expect(conn.open).toBe(true);
+    peer.destroy();
+  });
+
+  it('rechecks a new interruption after the preceding restart times out', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    vi.useFakeTimers();
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(1_000);
+    pc.connectionState = 'connected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(1_000);
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    const secondDeadline = conn.iceRecoveryDeadline;
+    await vi.advanceTimersByTimeAsync(13_000);
+    expect(sentOfType(socket, 'signal-offer')).toHaveLength(3);
+    expect(conn.iceRecoveryDeadline).toBe(secondDeadline);
+    expect(conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(conn.open).toBe(false);
+    peer.destroy();
+  });
+});
 
 function fakeAudioStream(id: string): MediaStream {
   const stream = new FakeMediaStream();

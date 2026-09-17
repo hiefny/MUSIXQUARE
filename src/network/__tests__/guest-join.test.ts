@@ -613,6 +613,30 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.connectionType')).toBe('local');
   });
 
+  it('reclassifies a recovered path and ignores an older classification on the same connection', async () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    let resolveOld!: (type: 'local') => void;
+    mocks.detectConnectionType
+      .mockImplementationOnce(
+        () =>
+          new Promise<'local'>((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockResolvedValueOnce('remote');
+    joinSession('HOST01');
+    const conn = conns[0];
+    openAndCompleteStandardJoin(conn);
+    conn.fire('ice-recovered');
+    expect(getState('network.connectionType')).toBe('unknown');
+    await Promise.resolve();
+    expect(getState('network.connectionType')).toBe('remote');
+    resolveOld('local');
+    await Promise.resolve();
+    expect(getState('network.connectionType')).toBe('remote');
+  });
+
   it('a replaced connection closing mid-connect neither resets isConnecting nor surfaces errors', () => {
     vi.useFakeTimers();
     const { peer, conns, connect } = makeFakePeer();

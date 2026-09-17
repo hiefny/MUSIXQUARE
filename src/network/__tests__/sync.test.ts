@@ -801,6 +801,44 @@ describe('local-file sync correction', () => {
     );
   }
 
+  it('does not hard-resync an aligned guest when one queued ping resembles a clock step', async () => {
+    vi.useFakeTimers();
+    initSync();
+    const hostConn = mockDataConnection('host-delayed-pong');
+    setState('network.hostConn', hostConn);
+    setPlaybackFilePlaying();
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+
+    for (let pingId = 1; pingId <= 3; pingId += 1) {
+      vi.setSystemTime(pingId * 1_000);
+      registerPing(pingId);
+      vi.setSystemTime(pingId * 1_000 + 10);
+      expect(processSyncPong(pingId, pingId * 1_000 + 5)).not.toBeNull();
+    }
+
+    vi.setSystemTime(4_000);
+    registerPing(4);
+    // This ping waited behind transfer traffic before reaching the host.
+    // The reply arrives only 5ms after the host sampled its position.
+    vi.setSystemTime(8_500);
+    await handleData(
+      {
+        type: MSG.SYNC_PONG,
+        pingId: 4,
+        hostTime: 8_495,
+        position: 0.01,
+        mode: 'file',
+        activity: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
+      },
+      hostConn,
+    );
+
+    expect(getClockOffset()).toBe(0);
+    expect(transportMocks.play).not.toHaveBeenCalled();
+  });
+
   it('does not seek a guest to the decoded track end while waiting for host repeat', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);

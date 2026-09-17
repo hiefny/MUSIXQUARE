@@ -77,12 +77,15 @@ type SignalingMessage =
       negotiationId: string;
       metadata?: unknown;
       memberIdentity?: StandardRoomMemberIdentity;
+      iceRestartVersion?: 1;
+      restartOf?: string;
     }
   | {
       type: 'signal-answer';
       from: string;
       sdp: RTCSessionDescriptionInit;
       negotiationId: string;
+      iceRestartVersion?: 1;
     }
   | {
       type: 'signal-candidate';
@@ -136,12 +139,15 @@ type OutgoingSignal =
       sdp: RTCSessionDescriptionInit;
       negotiationId: string;
       metadata?: unknown;
+      iceRestartVersion?: 1;
+      restartOf?: string;
     }
   | {
       type: 'signal-answer';
       to: string;
       sdp: RTCSessionDescriptionInit;
       negotiationId: string;
+      iceRestartVersion?: 1;
     }
   | {
       type: 'signal-candidate';
@@ -871,6 +877,19 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private backgroundResumeRecoveryArmed = false;
   private backgroundResumeProbePingId: number | null = null;
   private backgroundResumeSawDisconnected = false;
+  /** Initial SDP exchange binds recovery to this exact established connection. */
+  iceRestartBinding: string | null = null;
+  private iceRestartAttempted = false;
+  private connectionInterrupted = false;
+  private recoveryDeadline = 0;
+  private selectedPairTransport: RTCIceTransport | null = null;
+  private readonly onSelectedPairChange = (): void => {
+    if (this.open && !this.closed) this.emit('ice-recovered');
+  };
+
+  get iceRecoveryDeadline(): number {
+    return this.iceRestartBinding ? this.recoveryDeadline : 0;
+  }
 
   constructor(
     readonly peer: string,
@@ -939,15 +958,20 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       pc.addEventListener('connectionstatechange', () => {
         if (pc.connectionState === 'connected') {
           this.cancelDisconnectedGrace();
+          this.iceRestartAttempted = false;
+          const recovered = this.connectionInterrupted;
+          this.connectionInterrupted = false;
           // A genuine disconnected -> connected transition is ICE-level proof.
           // A redundant connected event on a stale WebKit object is not.
           if (!this.backgroundResumeRecoveryArmed || this.backgroundResumeSawDisconnected) {
             this.clearBackgroundResumeRecovery();
           }
           this.onConnectionStateChange?.();
+          if (recovered && this.open) this.emit('ice-recovered');
           return;
         }
         if (pc.connectionState === 'disconnected') {
+          this.connectionInterrupted = true;
           // Let the peer combine this RTC transition with its signaling state
           // before granting a fresh grace period. A long-hidden outage may
           // already have consumed the entire grace while WebKit was suspended.
@@ -958,6 +982,12 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
           return;
         }
         if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+          if (pc.connectionState === 'failed' && this.open && this.iceRestartBinding) {
+            this.connectionInterrupted = true;
+            this.scheduleDisconnectedGrace(pc);
+            this.onConnectionStateChange?.();
+            return;
+          }
           this.terminate();
         }
       });
@@ -985,6 +1015,19 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   close(): void {
     if (!this.intentionalClosing) this.intentionalClosing = true;
     this.terminate();
+  }
+
+  beginIceRestart(): boolean {
+    if (this.closed || !this.open || !this.iceRestartBinding || this.iceRestartAttempted) {
+      return false;
+    }
+    this.iceRestartAttempted = true;
+    if (this.peerConnection) this.scheduleDisconnectedGrace(this.peerConnection);
+    return true;
+  }
+
+  finishIceRestart(): void {
+    this.iceRestartAttempted = false;
   }
 
   recoverAfterBackground(
@@ -1110,6 +1153,11 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private disposeResources(): void {
     if (this.resourcesDisposed) return;
     this.resourcesDisposed = true;
+    this.selectedPairTransport?.removeEventListener(
+      'selectedcandidatepairchange',
+      this.onSelectedPairChange,
+    );
+    this.selectedPairTransport = null;
     try {
       this.dataChannel?.close();
     } catch {
@@ -1129,10 +1177,11 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 
   private scheduleDisconnectedGrace(pc: RTCPeerConnection): void {
     if (this.closed || getManagedTimer(this.disconnectedGraceTimerKey) !== null) return;
+    this.recoveryDeadline = Date.now() + DATA_CONNECTION_DISCONNECTED_GRACE_MS;
     setManagedTimer(
       this.disconnectedGraceTimerKey,
       () => {
-        if (pc !== this.peerConnection || pc.connectionState !== 'disconnected') return;
+        if (pc !== this.peerConnection || pc.connectionState === 'connected') return;
         this.terminate();
       },
       DATA_CONNECTION_DISCONNECTED_GRACE_MS,
@@ -1140,6 +1189,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   private cancelDisconnectedGrace(): void {
+    this.recoveryDeadline = 0;
     clearManagedTimer(this.disconnectedGraceTimerKey);
   }
 
@@ -1149,6 +1199,14 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       return;
     }
     this.open = true;
+    // An ICE restart may retain connected throughout while replacing its
+    // selected pair. Reclassify from that actual path change, not from the SDP
+    // answer (which can still describe the previously selected local path).
+    this.selectedPairTransport = this.peerConnection?.sctp?.transport?.iceTransport ?? null;
+    this.selectedPairTransport?.addEventListener(
+      'selectedcandidatepairchange',
+      this.onSelectedPairChange,
+    );
     this.emit('open');
   }
 
@@ -1384,6 +1442,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly pendingCandidates = new Map<string, Map<string, PendingIceBucket>>();
   private readonly iceNegotiations = new Map<string, IceNegotiationOwner>();
   private readonly mediaNegotiationLanes = new WeakMap<RTCPeerConnection, MediaNegotiationLane>();
+  private readonly guestIceRestarts = new WeakMap<
+    RTCPeerConnection,
+    {
+      controller: AbortController;
+      negotiation: IceNegotiationOwner | null;
+    }
+  >();
   private iceNegotiationGeneration = 0;
   private mediaNegotiationGeneration = 0;
   private lastIceQueuePruneAt = 0;
@@ -1463,6 +1528,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   >();
 
   private readonly signalingLiveness = new SignalingSocketLivenessMonitor((socket) => {
+    log.warn(
+      '[Transport] Host signaling liveness probe failed; retiring signaling socket only',
+      this.signalingSocketDiagnostic(socket),
+    );
     this.retireHostSignalingSocket(socket, true);
   });
 
@@ -1801,6 +1870,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       null,
       () => {
         this.reconcileGuestBackgroundRecovery(roomId);
+        this.maybeRestartGuestIce(roomId);
       },
       recommendedPreOpenTimeoutMs,
     );
@@ -2449,7 +2519,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private isDataConnectionAlive(conn: CloudflareDataConnection | undefined): boolean {
     if (!conn?.open) return false;
     const state = conn.peerConnection?.connectionState;
-    return state !== 'closed' && state !== 'failed';
+    return state !== 'closed' && (state !== 'failed' || conn.iceRestartBinding !== null);
   }
 
   private handleSignalingSocketError(
@@ -2976,6 +3046,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       ) {
         clearStandardHttpPreference();
       }
+      if (this.hostSocket === socket) {
+        log.warn(
+          '[Transport] Admitted host signaling socket closed; RTC channels retain their own lifecycle',
+          this.signalingSocketDiagnostic(socket),
+        );
+      }
       this.retireHostSignalingSocket(socket, false);
     });
     socket.addEventListener('error', (event) =>
@@ -3155,6 +3231,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         }
         this.roomSockets.delete(roomId);
         if (conn.peerConnection) {
+          log.warn(
+            '[Transport] Established guest signaling socket closed; RTC channels retain their own lifecycle',
+            this.signalingSocketDiagnostic(socket),
+          );
           const wasDisconnected = this.disconnected;
           this.disconnected = true;
           this.reconcileGuestBackgroundRecovery(roomId, true);
@@ -3416,6 +3496,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'signal-offer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
       if (negotiationId === null) return;
+      if (message.restartOf !== undefined) {
+        if (message.iceRestartVersion !== 1 || parseIceNegotiationId(message.restartOf) === null)
+          return;
+        await this.handleHostIceRestart(
+          message.from,
+          message.sdp,
+          negotiationId,
+          message.restartOf,
+          sequence,
+          sourceSocket,
+        );
+        return;
+      }
       if (sequence > (this.peerDepartureSequences.get(message.from) ?? -1)) {
         this.peerDepartureSequences.delete(message.from);
       }
@@ -3434,6 +3527,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         offerIdentity,
         sequence,
         sourceSocket,
+        message.iceRestartVersion === 1,
       );
       return;
     }
@@ -3479,7 +3573,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       const inFlightNegotiation = this.iceNegotiations.get(message.peerId);
       const conn = this.connections.get(message.peerId);
       if (
-        inFlightNegotiation?.purpose === 'media' &&
+        inFlightNegotiation &&
+        (inFlightNegotiation.purpose === 'media' || conn?.iceRestartBinding !== null) &&
         inFlightNegotiation.pc === conn?.peerConnection &&
         this.isDataConnectionAlive(conn)
       ) {
@@ -3609,7 +3704,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'signal-answer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
       if (negotiationId === null) return;
-      await this.handleGuestAnswer(roomId, message.sdp, negotiationId);
+      await this.handleGuestAnswer(
+        roomId,
+        message.sdp,
+        negotiationId,
+        message.iceRestartVersion === 1,
+      );
       return;
     }
     if (message.type === 'signal-candidate') {
@@ -3699,6 +3799,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     roomIdentity: StandardRoomMemberIdentity | null,
     offerSequence: number,
     sourceSocket: StandardSignalingSocket | null,
+    supportsIceRestart: boolean,
   ): Promise<void> {
     const waitedForRtcConfiguration = this.rtcConfigurationPending;
     if (waitedForRtcConfiguration) await this.rtcConfigurationReady;
@@ -3718,6 +3819,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // before the replacement is registered.
     const previousConnection = this.connections.get(peerId);
     const conn = new CloudflareDataConnection(peerId, metadata, roomIdentity);
+    if (!this.proSignalingAccess && supportsIceRestart) conn.iceRestartBinding = negotiationId;
     const pc = this.createPeerConnection(peerId);
     conn.peerConnection = pc;
     const negotiation = this.beginIceNegotiation(peerId, pc, sdp, negotiationId);
@@ -3792,6 +3894,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         to: peerId,
         sdp: pc.localDescription.toJSON(),
         negotiationId: negotiation.negotiationId,
+        ...(conn.iceRestartBinding ? { iceRestartVersion: 1 as const } : {}),
       });
     } catch (error) {
       const stillCurrent = this.isIceNegotiationCurrent(negotiation);
@@ -3849,6 +3952,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       sdp: pc.localDescription.toJSON(),
       negotiationId: negotiation.negotiationId!,
       metadata,
+      ...(!this.proSignalingAccess ? { iceRestartVersion: 1 as const } : {}),
     });
   }
 
@@ -3856,22 +3960,247 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     roomId: string,
     sdp: RTCSessionDescriptionInit,
     negotiationId: string,
+    supportsIceRestart: boolean,
   ): Promise<void> {
     const conn = this.connections.get(roomId);
     const pc = conn?.peerConnection;
     if (!pc) return;
-    const negotiation = this.iceNegotiations.get(roomId);
-    if (!negotiation || negotiation.pc !== pc) return;
-    if (negotiation.purpose !== 'signal') return;
-    if (!this.confirmRemoteNegotiationId(negotiation, negotiationId)) return;
-    negotiation.remoteUfrag = remoteIceUfrag(sdp);
-    negotiation.candidates = negotiation.candidates.filter((entry) =>
-      this.candidateMatchesNegotiation(entry, negotiation),
+    await this.runSerializedMediaNegotiation(pc, async () => {
+      const negotiation = this.iceNegotiations.get(roomId);
+      if (!negotiation || negotiation.pc !== pc) return;
+      if (negotiation.purpose !== 'signal') return;
+      if (negotiation.settled) return;
+      if (this.guestIceRestarts.get(pc)?.controller.signal.aborted) return;
+      if (!this.confirmRemoteNegotiationId(negotiation, negotiationId)) return;
+      negotiation.remoteUfrag = remoteIceUfrag(sdp);
+      negotiation.candidates = negotiation.candidates.filter((entry) =>
+        this.candidateMatchesNegotiation(entry, negotiation),
+      );
+      negotiation.bytes = negotiation.candidates.reduce((total, entry) => total + entry.bytes, 0);
+      await pc.setRemoteDescription(sdp);
+      if (!(await this.flushRemoteCandidates(negotiation))) return;
+      negotiation.settled = true;
+      if (!this.proSignalingAccess && supportsIceRestart && conn && !conn.iceRestartBinding) {
+        conn.iceRestartBinding = negotiationId;
+      }
+      queueMicrotask(() => this.maybeRestartGuestIce(roomId));
+    });
+  }
+
+  private maybeRestartGuestIce(roomId: string): void {
+    if (this.destroyed || this.proSignalingAccess) return;
+    const record = this.guestRooms.get(roomId);
+    const conn = record?.conn;
+    const pc = conn?.peerConnection;
+    if (
+      !record ||
+      record.authFailed ||
+      !conn ||
+      !pc ||
+      this.guestIceRestarts.has(pc) ||
+      pc.signalingState !== 'stable' ||
+      [...this.mediaCalls.values()].some(
+        (call) => call.peerConnection === pc && !call.getNegotiationOwner()?.settled,
+      ) ||
+      (pc.connectionState !== 'disconnected' && pc.connectionState !== 'failed') ||
+      !conn.beginIceRestart()
+    )
+      return;
+
+    const controller = new AbortController();
+    const restart = { controller, negotiation: null as IceNegotiationOwner | null };
+    const timeoutId = globalThis.setTimeout(
+      () => controller.abort(),
+      Math.max(0, conn.iceRecoveryDeadline - Date.now()),
     );
-    negotiation.bytes = negotiation.candidates.reduce((total, entry) => total + entry.bytes, 0);
-    await pc.setRemoteDescription(sdp);
-    if (!(await this.flushRemoteCandidates(negotiation))) return;
-    negotiation.settled = true;
+    this.guestIceRestarts.set(pc, restart);
+    const onClose = () => controller.abort();
+    conn.on('close', onClose);
+    const isCurrent = () =>
+      !this.destroyed &&
+      !controller.signal.aborted &&
+      this.guestRooms.get(roomId) === record &&
+      this.connections.get(roomId) === conn &&
+      conn.open &&
+      conn.peerConnection === pc;
+    // The guest is the sole restart offerer, including when the host changes
+    // networks. Keep SDP operations on the shared media lane; neither side
+    // recreates its SCTP channels, room identity, or active media tracks.
+    const perform = async () => {
+      if (!isCurrent() || pc.connectionState === 'connected') return;
+      const socket = await this.waitForCurrentGuestSocketAdmission(roomId, controller.signal);
+      if (!isCurrent()) return;
+      await this.runSerializedMediaNegotiation(pc, async () => {
+        if (!isCurrent() || pc.signalingState !== 'stable') return;
+        const negotiation = this.beginIceNegotiation(roomId, pc);
+        restart.negotiation = negotiation;
+        try {
+          const offer = await pc.createOffer({ iceRestart: true });
+          if (!isCurrent() || !this.isIceNegotiationCurrent(negotiation)) return;
+          await pc.setLocalDescription(offer);
+          if (!isCurrent() || !this.isIceNegotiationCurrent(negotiation)) return;
+          if (!pc.localDescription)
+            throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
+          const currentSocket =
+            socket === this.roomSockets.get(roomId) && socket.readyState === WebSocket.OPEN
+              ? socket
+              : await this.waitForCurrentGuestSocketAdmission(roomId, controller.signal);
+          if (!isCurrent() || !this.isIceNegotiationCurrent(negotiation)) return;
+          this.send(currentSocket, {
+            type: 'signal-offer',
+            to: 'host',
+            sdp: pc.localDescription.toJSON(),
+            negotiationId: negotiation.negotiationId,
+            iceRestartVersion: 1,
+            restartOf: conn.iceRestartBinding!,
+          });
+          log.info('[Transport] Restarting established Standard-room ICE within disconnect grace');
+        } catch (error) {
+          await this.rollbackIceRestart(conn, negotiation, 'local');
+          throw error;
+        }
+      });
+      if (isCurrent() && restart.negotiation) {
+        // Release the lane while awaiting the answer so a crossing host media
+        // offer can roll this exact offer back (the guest is the polite side).
+        await this.waitForStableSignaling(
+          pc,
+          controller.signal,
+          DATA_CONNECTION_DISCONNECTED_GRACE_MS,
+        );
+      }
+    };
+    void perform()
+      .catch(async (error) => {
+        if (restart.negotiation)
+          await this.runSerializedMediaNegotiation(pc, () =>
+            this.rollbackIceRestart(conn, restart.negotiation!, 'local'),
+          );
+        if (isCurrent()) log.warn('[Transport] Standard-room ICE restart did not complete', error);
+      })
+      .finally(() => {
+        globalThis.clearTimeout(timeoutId);
+        if (this.guestIceRestarts.get(pc) === restart) this.guestIceRestarts.delete(pc);
+        if (!restart.negotiation && isCurrent()) {
+          conn.finishIceRestart();
+        }
+        if (
+          !this.destroyed &&
+          this.guestRooms.get(roomId) === record &&
+          this.connections.get(roomId) === conn &&
+          conn.open &&
+          conn.peerConnection === pc
+        ) {
+          queueMicrotask(() => this.maybeRestartGuestIce(roomId));
+        }
+        conn.off('close', onClose);
+      });
+  }
+
+  private async handleHostIceRestart(
+    peerId: string,
+    sdp: RTCSessionDescriptionInit,
+    negotiationId: string,
+    restartOf: string,
+    sequence: number,
+    sourceSocket: StandardSignalingSocket | null,
+  ): Promise<void> {
+    const conn = this.connections.get(peerId);
+    const pc = conn?.peerConnection;
+    if (
+      this.proSignalingAccess ||
+      !conn ||
+      !pc ||
+      !conn.open ||
+      pc.signalingState !== 'stable' ||
+      conn.iceRestartBinding !== restartOf ||
+      negotiationId === restartOf ||
+      this.iceNegotiations.get(peerId)?.negotiationId === negotiationId ||
+      sourceSocket !== this.hostSocket ||
+      !sourceSocket ||
+      (this.peerDepartureSequences.get(peerId) ?? -1) >= sequence ||
+      !conn.beginIceRestart()
+    )
+      return;
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(
+      () => controller.abort(),
+      Math.max(0, conn.iceRecoveryDeadline - Date.now()),
+    );
+    const onClose = () => controller.abort();
+    conn.on('close', onClose);
+    const isCurrent = () =>
+      !this.destroyed &&
+      !controller.signal.aborted &&
+      this.connections.get(peerId) === conn &&
+      conn.open &&
+      conn.peerConnection === pc &&
+      (this.peerDepartureSequences.get(peerId) ?? -1) < sequence;
+    try {
+      await this.runSerializedMediaNegotiation(pc, async () => {
+        if (!isCurrent()) return;
+        if (pc.signalingState !== 'stable') {
+          conn.finishIceRestart();
+          return;
+        }
+        const negotiation = this.beginIceNegotiation(peerId, pc, sdp, negotiationId);
+        try {
+          await pc.setRemoteDescription(sdp);
+          if (!isCurrent() || !this.isIceNegotiationCurrent(negotiation)) return;
+          if (!(await this.flushRemoteCandidates(negotiation))) return;
+          const answer = await pc.createAnswer();
+          if (!isCurrent() || !this.isIceNegotiationCurrent(negotiation)) return;
+          await pc.setLocalDescription(answer);
+          if (!isCurrent() || !this.isIceNegotiationCurrent(negotiation)) return;
+          if (!pc.localDescription)
+            throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
+          const socket = await this.waitForCurrentHostSocketAdmission(controller.signal);
+          if (!isCurrent() || !this.isIceNegotiationCurrent(negotiation)) return;
+          this.send(socket, {
+            type: 'signal-answer',
+            to: peerId,
+            sdp: pc.localDescription.toJSON(),
+            negotiationId,
+            iceRestartVersion: 1,
+          });
+          negotiation.settled = true;
+          conn.finishIceRestart();
+        } catch (error) {
+          await this.rollbackIceRestart(conn, negotiation, 'remote');
+          throw error;
+        }
+      });
+    } catch (error) {
+      if (isCurrent())
+        log.warn('[Transport] Standard-room ICE restart answer did not complete', error);
+    } finally {
+      globalThis.clearTimeout(timeoutId);
+      conn.off('close', onClose);
+    }
+  }
+
+  private async rollbackIceRestart(
+    conn: CloudflareDataConnection,
+    negotiation: IceNegotiationOwner,
+    side: 'local' | 'remote',
+  ): Promise<void> {
+    if (
+      !conn.open ||
+      conn.peerConnection !== negotiation.pc ||
+      !this.isIceNegotiationCurrent(negotiation) ||
+      negotiation.settled
+    )
+      return;
+    try {
+      if (negotiation.pc.signalingState === `have-${side}-offer`) {
+        if (side === 'local') await negotiation.pc.setLocalDescription({ type: 'rollback' });
+        else await negotiation.pc.setRemoteDescription({ type: 'rollback' });
+      }
+      this.clearExactIceNegotiation(negotiation);
+    } catch {
+      // A PC with unprovable SDP ownership must not keep shared media alive.
+      if (this.connections.get(conn.peer) === conn) conn.close();
+    }
   }
 
   async refreshStandardRoomIdentity(allowMixedDeletionRetry = true): Promise<void> {
@@ -4093,6 +4422,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (!iceOwner || this.iceNegotiations.get(owner.peerId) !== iceOwner) return false;
     iceOwner.settled = true;
     owner.settled = true;
+    if (!this.hostRoomId) queueMicrotask(() => this.maybeRestartGuestIce(owner.peerId));
     return true;
   }
 
@@ -4324,6 +4654,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const pc = conn?.peerConnection;
     if (!pc) throw createTransportError('webrtc', 'MEDIA_PEER_CONNECTION_MISSING');
 
+    const restart = this.guestIceRestarts.get(pc);
+    if (restart && conn) {
+      restart.controller.abort();
+      await this.runSerializedMediaNegotiation(pc, async () => {
+        if (restart.negotiation) await this.rollbackIceRestart(conn, restart.negotiation, 'local');
+      });
+      if (this.guestIceRestarts.get(pc) === restart) this.guestIceRestarts.delete(pc);
+      // Retrying after the media answer uses the original disconnect timer.
+      conn.finishIceRestart();
+      if (this.connections.get(roomId) !== conn || !conn.open) return;
+    }
+
     // The shared data PC can own only one in-flight media SDP transaction.
     // Retire any predecessor for this peer before exposing the successor; its
     // exact-owner rollback is serialized ahead of answer().
@@ -4493,7 +4835,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
   }
 
-  private async waitForStableSignaling(pc: RTCPeerConnection, signal?: AbortSignal): Promise<void> {
+  private async waitForStableSignaling(
+    pc: RTCPeerConnection,
+    signal?: AbortSignal,
+    timeoutMs = 3000,
+  ): Promise<void> {
     if (pc.signalingState === 'stable') return;
     if (signal?.aborted) {
       throw createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED');
@@ -4527,7 +4873,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
             `SIGNALING_NOT_STABLE:${pc.signalingState as RTCSignalingState}`,
           ),
         );
-      }, 3000);
+      }, timeoutMs);
       pc.addEventListener('signalingstatechange', onChange);
       signal?.addEventListener('abort', onAbort, { once: true });
       onChange();

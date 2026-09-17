@@ -16,7 +16,6 @@ import { synchronizeCurrentLocalizedAppHead, t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { cancelCapabilityChallenge } from '../core/capability.ts';
-import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { requestProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
@@ -602,10 +601,11 @@ export function initSetup(): void {
       // Still trying to join — emit failure for UI reset
       bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
     } else if (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') {
-      // Clean up YouTube mode immediately — host is gone, no YOUTUBE_STOP will arrive
-      if (isPlaybackModeYouTube()) {
-        bus.emit('youtube:stop-mode');
-      }
+      // This is terminal connection loss, after recoverable PRO interruptions
+      // have returned above. Silence every source before showing the dialog,
+      // and invalidate pending file loads so a late decode cannot restart it.
+      bus.emit('system-audio:force-stop');
+      bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
       // Post-connection disconnect: show dialog + re-enable join
       showDialog({
         title: t('network.disconnected'),

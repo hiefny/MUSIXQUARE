@@ -8557,6 +8557,12 @@
     border-radius: 8px;
   }
 
+  body.demo-mobile.viz-circular #visualizerCanvas {
+    /* The demo stage is rectangular, while circular mode rasterizes a
+       square. Preserve that square when fitting it into the full stage. */
+    object-fit: contain;
+  }
+
   body.demo-mobile.viz-spectrum .demo-visualizer-slot .vinyl-wrapper {
     aspect-ratio: auto;
   }
@@ -10238,7 +10244,6 @@
         height: 19px !important;
         margin: 0 !important;
       }
-
     }
 
     /* Only a practically unusable sliver of viewport gives up the logo a

@@ -813,6 +813,10 @@ function schedulePeerDisconnectGrace(peer: PeerInstance): void {
 
       // No data channel or local media survived, so this is a full session
       // loss rather than the partial signaling state shown in Connect.
+      if (role === 'guest') {
+        bus.emit('system-audio:force-stop');
+        bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
+      }
       resetSignalingHealth();
       showDialog({
         title: t('network.disconnected'),
@@ -928,7 +932,15 @@ function setupPeerEvents(peer: PeerInstance): void {
 
   peer.on('disconnected', () => {
     if (getPeer() !== peer) return;
-    log.warn('[Transport] Disconnected from signaling server');
+    log.warn(
+      '[Transport] Signaling unavailable; recovering admission separately from existing RTC channels',
+      {
+        role: getRoomContext().role,
+        openDataChannels:
+          getState('network.connectedPeers').filter((entry) => entry.conn?.open).length +
+          Number(!!getState('network.hostConn')?.open),
+      },
+    );
 
     // Auto-reconnect: the active transport may not reconnect to its signaling server on
     // its own. Without this, a brief network blip permanently breaks
@@ -1289,6 +1301,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
     'player.isSeeking': false,
     'player.isFirstTrackLoad': true,
     'player.decodeFailureCount': 0,
+    'player.decodeFailureQueueItemId': null,
     // YouTube
     'youtube.currentSubIndex': -1,
     'youtube.subItemsMap': {},

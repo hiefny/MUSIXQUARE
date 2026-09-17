@@ -33,10 +33,6 @@ vi.mock('../../network/standard-room-prerequisites.ts', () => ({
   scheduleStandardRoomPrerequisiteWarmup: vi.fn(),
 }));
 
-vi.mock('../../player/ownership.ts', () => ({
-  isPlaybackModeYouTube: vi.fn(() => false),
-}));
-
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
   synchronizeCurrentLocalizedAppHead: vi.fn(),
@@ -113,7 +109,6 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { cancelPendingSessionSetup } from '../../network/peer.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 import { synchronizeCurrentLocalizedAppHead } from '../../i18n/index.ts';
-import { isPlaybackModeYouTube } from '../../player/ownership.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
 import { markProRoomTransportRecovered } from '../../pro-room/transport-recovery.ts';
 import { initSetup } from '../setup.ts';
@@ -148,8 +143,6 @@ beforeEach(() => {
   initSetup();
   vi.mocked(showToast).mockClear();
   vi.mocked(showDialog).mockClear();
-  vi.mocked(isPlaybackModeYouTube).mockClear();
-  vi.mocked(isPlaybackModeYouTube).mockReturnValue(false);
   vi.mocked(synchronizeCurrentLocalizedAppHead).mockClear();
   startJoining();
 });
@@ -162,9 +155,12 @@ describe('setup network error messages', () => {
   it('keeps active PRO media intact and suppresses the ordinary host-loss dialog', () => {
     const recover = vi.fn();
     const youtubeStop = vi.fn();
+    const mediaStop = vi.fn();
+    const systemAudioStop = vi.fn();
     registerProRoomSignalingEpochAdvanceHandler(recover);
     bus.on('youtube:stop-mode', youtubeStop);
-    vi.mocked(isPlaybackModeYouTube).mockReturnValue(true);
+    bus.on('player:stop-all-media', mediaStop);
+    bus.on('system-audio:force-stop', systemAudioStop);
     setState('network.isConnecting', false);
     setState('setup.sessionStarted', true);
     setState('room.context', {
@@ -188,19 +184,37 @@ describe('setup network error messages', () => {
     });
     expect(showDialog).not.toHaveBeenCalled();
     expect(youtubeStop).not.toHaveBeenCalled();
+    expect(mediaStop).not.toHaveBeenCalled();
+    expect(systemAudioStop).not.toHaveBeenCalled();
   });
 
-  it('retains the ordinary-room host-loss dialog and YouTube cleanup', () => {
-    const youtubeStop = vi.fn();
-    bus.on('youtube:stop-mode', youtubeStop);
-    vi.mocked(isPlaybackModeYouTube).mockReturnValue(true);
-    setState('network.isConnecting', false);
+  it.each(['HOST_DISCONNECTED', 'HOST_CONNECTION_ERROR'])(
+    'silences all media before the terminal %s dialog opens',
+    (message) => {
+      const order: string[] = [];
+      const mediaStop = vi.fn(() => {
+        order.push('media');
+      });
+      bus.on('system-audio:force-stop', () => {
+        order.push('system-audio');
+      });
+      bus.on('player:stop-all-media', mediaStop);
+      vi.mocked(showDialog).mockImplementationOnce(() => {
+        order.push('dialog');
+        return new Promise(() => {});
+      });
+      setState('network.isConnecting', false);
 
-    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+      bus.emit('network:error', new Error(message));
 
-    expect(showDialog).toHaveBeenCalledOnce();
-    expect(youtubeStop).toHaveBeenCalledOnce();
-  });
+      expect(showDialog).toHaveBeenCalledOnce();
+      expect(mediaStop).toHaveBeenCalledExactlyOnceWith({
+        cancelInFlight: true,
+        clearBuffer: true,
+      });
+      expect(order).toEqual(['system-audio', 'media', 'dialog']);
+    },
+  );
 
   it.each([
     [

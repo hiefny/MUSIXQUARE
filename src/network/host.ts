@@ -410,6 +410,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   const bootstrapTimerName = `conn-bootstrap-timeout-${peerId}-${++_hostJoinBootstrapToken}`;
   let detectedConnectionType: 'local' | 'remote' | null = null;
   let connectionTypePublished = false;
+  let connectionTypeDetectionGeneration = 0;
   const connectedPeers = getState('network.connectedPeers');
   const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
 
@@ -813,6 +814,39 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     15000,
   );
 
+  conn.on('ice-recovered', () => {
+    if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
+    const generation = ++connectionTypeDetectionGeneration;
+    clearManagedTimer('ice-fallback-' + peerId);
+    setState(
+      'network.connectedPeers',
+      getState('network.connectedPeers').map((peer) =>
+        peer.id === peerId && peer.conn === conn
+          ? { ...peer, connectionType: 'unknown' as const }
+          : peer,
+      ),
+    );
+    if (connectionEstablished) broadcastDeviceList();
+    void detectConnectionType(conn)
+      .then((type) => {
+        if (
+          generation !== connectionTypeDetectionGeneration ||
+          !conn.open ||
+          getState('network.activeHostConnByPeerId').get(peerId) !== conn
+        )
+          return;
+        setState(
+          'network.connectedPeers',
+          getState('network.connectedPeers').map((peer) =>
+            peer.id === peerId && peer.conn === conn ? { ...peer, connectionType: type } : peer,
+          ),
+        );
+        detectedConnectionType = type;
+        publishDetectedConnectionType(false);
+      })
+      .catch((error) => log.warn('[Host] Recovered ICE detection failed', error));
+  });
+
   conn.on('open', () => {
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
       log.debug(`[Host] Ignored late open from replaced connection: ${peerId}`);
@@ -864,8 +898,10 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     // Poll for up to 10 seconds while ICE stabilizes, then classify this guest
     // as local or remote.
+    const detectionGeneration = ++connectionTypeDetectionGeneration;
     detectConnectionType(conn)
       .then((type) => {
+        if (detectionGeneration !== connectionTypeDetectionGeneration) return;
         if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
         const peers = getState('network.connectedPeers');
         const livePeer = peers.find((p) => p.id === peerId && p.conn === conn);
@@ -891,6 +927,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
               if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn)
                 return;
               const recheck = await detectConnectionType(conn);
+              if (detectionGeneration !== connectionTypeDetectionGeneration) return;
               if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn)
                 return;
               if (recheck !== 'local') return;

@@ -301,6 +301,7 @@ test.describe('Advanced Playback', () => {
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
+    await waitForPlaylistCount(pair.guestPage, 1, 20_000);
     await waitForFilePlaybackReady(pair.guestPage, 20_000);
 
     await pair.hostPage.waitForFunction(

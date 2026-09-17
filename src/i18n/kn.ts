@@ -105,7 +105,7 @@ const kn: Record<I18nKey, string> = {
   'nav.connect': 'ಸಂಪರ್ಕಿಸಿ',
   'nav.playlist_compact': 'ಪ್ಲೇಲಿಸ್ಟ್',
   'nav.connect_compact': 'ಸಂಪರ್ಕ',
-  'nav.settings_compact': 'ಸೆಟ್ಟಿಂಗ್‌ಗಳು',
+  'nav.settings_compact': 'ಸೆಟ್ಟಿಂಗ್ಸ್',
   'nav.go_home': 'ಮುಖಪುಟಕ್ಕೆ ಹೋಗಿ',
 
   // ─── Player ──────────────────────────────────────────────────────

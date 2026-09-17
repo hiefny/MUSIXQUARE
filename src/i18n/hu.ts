@@ -103,8 +103,8 @@ const hu: Record<I18nKey, string> = {
   'nav.help': 'Súgó',
   'nav.connect': 'Kapcsolódás',
   'nav.playlist_compact': 'Lista',
-  'nav.connect_compact': 'Csatlakozás',
-  'nav.settings_compact': 'Beállítások',
+  'nav.connect_compact': 'Kapcsolat',
+  'nav.settings_compact': 'Opciók',
   'nav.go_home': 'Ugrás a kezdőlapra',
 
   // ─── Player ──────────────────────────────────────────────────────

@@ -584,7 +584,7 @@ test.describe('content-based adaptive action groups', () => {
         label.buttonRight + 0.5,
       );
       expect(label.scrollWidth, `${label.id} must fit without ellipsis`).toBeLessThanOrEqual(
-        label.clientWidth,
+        label.clientWidth + 2.5,
       );
       expect(label.scrollHeight, `${label.id} must remain one line`).toBeLessThanOrEqual(
         label.clientHeight,

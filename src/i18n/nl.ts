@@ -105,7 +105,7 @@ const nl: Record<I18nKey, string> = {
   'nav.connect': 'Verbinden',
   'nav.playlist_compact': 'Lijst',
   'nav.connect_compact': 'Verbinden',
-  'nav.settings_compact': 'Instellingen',
+  'nav.settings_compact': 'Opties',
   'nav.go_home': 'Naar de startpagina',
 
   // Player

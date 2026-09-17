@@ -106,7 +106,7 @@ const sv: Record<I18nKey, string> = {
   'nav.connect': 'Anslut',
   'nav.playlist_compact': 'Spellista',
   'nav.connect_compact': 'Anslut',
-  'nav.settings_compact': 'Inställningar',
+  'nav.settings_compact': 'Val',
   'nav.go_home': 'Gå till startsidan',
 
   // ─── Player ──────────────────────────────────────────────────────

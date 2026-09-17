@@ -851,7 +851,7 @@ const pl: Record<I18nKey, string> = {
   'system_audio.no_audio_track':
     'Opcja „Udostępnij dźwięk” nie została włączona.\nSpróbuj ponownie.',
   'system_audio.stop': 'Zatrzymaj udostępnianie',
-  'system_audio.stop_compact': 'Zatrzymaj',
+  'system_audio.stop_compact': 'Stop',
   'system_audio.started':
     'Dźwięk systemowy może mieć niewielkie opóźnienie.\nW miarę możliwości zmniejsz głośność urządzenia źródłowego.',
   'system_audio.stopped':

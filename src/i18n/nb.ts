@@ -106,7 +106,7 @@ const nb: Record<I18nKey, string> = {
   'nav.connect': 'Koble til',
   'nav.playlist_compact': 'Spilleliste',
   'nav.connect_compact': 'Koble til',
-  'nav.settings_compact': 'Innstillinger',
+  'nav.settings_compact': 'Valg',
   'nav.go_home': 'Gå til startsiden',
 
   // ─── Player ──────────────────────────────────────────────────────

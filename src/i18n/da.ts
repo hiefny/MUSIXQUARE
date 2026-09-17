@@ -105,7 +105,7 @@ const da: Record<I18nKey, string> = {
   'nav.connect': 'Forbind',
   'nav.playlist_compact': 'Playliste',
   'nav.connect_compact': 'Forbind',
-  'nav.settings_compact': 'Indstillinger',
+  'nav.settings_compact': 'Valg',
   'nav.go_home': 'Gå til startsiden',
 
   // ─── Player ──────────────────────────────────────────────────────

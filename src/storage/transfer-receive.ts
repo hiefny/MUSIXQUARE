@@ -98,8 +98,11 @@ function holdResidentForRetiredDelayedStart(data: Record<string, unknown>): void
 }
 
 function resetDecodeFailureCountForNewOccurrence(queueItemId: QueueItemId): void {
-  if (getState('transfer.meta')?.queueItemId !== queueItemId) {
-    setState('player.decodeFailureCount', 0);
+  if (getState('player.decodeFailureQueueItemId') !== queueItemId) {
+    batchSetState({
+      'player.decodeFailureQueueItemId': queueItemId,
+      'player.decodeFailureCount': 0,
+    });
   }
 }
 

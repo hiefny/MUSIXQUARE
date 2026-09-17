@@ -919,6 +919,7 @@ export interface StateTree {
     isSeeking: boolean;
     isFirstTrackLoad: boolean;
     currentTrackMeta: TrackMeta | null;
+    decodeFailureQueueItemId: QueueItemId | null;
     decodeFailureCount: number;
   };
   share: {

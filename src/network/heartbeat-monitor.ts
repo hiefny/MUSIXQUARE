@@ -94,6 +94,18 @@ function startHeartbeatMonitor(): void {
           (conn ? lastHeartbeatByConnection.get(conn) : undefined) ??
           ((peer.lastHeartbeat as number) || 0);
         const elapsed = now - lastHeartbeat;
+        const recoveryRemaining = (conn?.iceRecoveryDeadline ?? 0) - now;
+        if (
+          conn?.open &&
+          recoveryRemaining > 0 &&
+          recoveryRemaining <= 15_000 &&
+          conn.dataChannel?.readyState === 'open' &&
+          conn.controlChannel?.readyState === 'open'
+        ) {
+          // The transport owns one bounded ICE restart. A stale heartbeat
+          // must not consume its grace early merely because ICE says failed.
+          continue;
+        }
         const staleThreshold = heartbeatTransportGrace(conn);
         if (elapsed > staleThreshold) {
           log.warn(

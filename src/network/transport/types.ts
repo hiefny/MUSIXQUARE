@@ -339,6 +339,8 @@ export interface TransportDataConnection {
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
+  /** Provider-owned, non-renewing deadline for this exact ICE interruption. */
+  readonly iceRecoveryDeadline?: number;
 
   send(data: unknown): void;
   close(): void;
@@ -346,6 +348,8 @@ export interface TransportDataConnection {
   on(event: 'data', callback: (data: unknown) => void): void;
   on(event: 'close', callback: () => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;
+  /** Established RTC path recovered after a disconnected/failed transition. */
+  on(event: 'ice-recovered', callback: () => void): void;
   on(
     event: 'identity',
     callback: (
@@ -357,6 +361,7 @@ export interface TransportDataConnection {
   off?(event: 'data', callback: (data: unknown) => void): void;
   off?(event: 'close', callback: () => void): void;
   off?(event: 'error', callback: (error: unknown) => void): void;
+  off?(event: 'ice-recovered', callback: () => void): void;
   off?(
     event: 'identity',
     callback: (

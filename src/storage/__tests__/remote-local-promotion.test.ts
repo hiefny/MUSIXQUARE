@@ -184,6 +184,7 @@ describe('remote-share to local direct transfer promotion', () => {
   it('preserves a first decode failure across same-occurrence recovery prepare', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
     setState('player.decodeFailureCount', 1);
+    setState('player.decodeFailureQueueItemId', Q0);
     setState('transfer.meta', {
       queueItemId: Q0,
       indexHint: 0,

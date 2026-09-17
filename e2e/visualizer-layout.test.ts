@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { navigateToTab } from './helpers/wait.ts';
+import { navigateToTab, readState } from './helpers/wait.ts';
 
 const MOBILE_WIDTHS = [360, 390, 430] as const;
 const MAX_LAYOUT_DRIFT_PX = 0.5;
@@ -71,6 +72,43 @@ async function settleLayout(page: Page): Promise<void> {
   );
 }
 
+async function readCircularInkBounds(page: Page): Promise<{ width: number; height: number }> {
+  // Inspect the composited pixels: a square backing bitmap can still be
+  // stretched into an ellipse by the canvas's CSS content box.
+  const screenshot = await page.locator('#visualizerCanvas').screenshot({
+    style: '.demo-track-header, .demo-step-nav, .toast { visibility: hidden !important; }',
+  });
+  return page.evaluate(async (base64) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const probe = document.createElement('canvas');
+    probe.width = image.width;
+    probe.height = image.height;
+    const context = probe.getContext('2d')!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    let left = image.width;
+    let right = -1;
+    let top = image.height;
+    let bottom = -1;
+    for (let y = 0; y < image.height; y++) {
+      for (let x = 0; x < image.width; x++) {
+        const index = (y * image.width + x) * 4;
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        if (blue < 35 || blue < red * 1.5 || blue < green * 1.2) continue;
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+    return { width: right - left + 1, height: bottom - top + 1 };
+  }, screenshot.toString('base64'));
+}
+
 async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
   return page.evaluate(() => {
     const tabBody = document.querySelector<HTMLElement>('#tab-play > .tab-body');
@@ -131,6 +169,80 @@ async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
 test.describe('mobile visualizer layout', () => {
   test.beforeEach(async ({ page }) => {
     await injectPeerServer(page);
+  });
+
+  test('keeps demo circles round and fills the stage after large breakpoint resizes', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route('https://demo.musixquare.com/linelight/*.m4a', (route) =>
+      route.fulfill({
+        path: fileURLToPath(new URL('./fixtures/demo-track.mp3', import.meta.url)),
+        contentType: 'audio/mpeg',
+      }),
+    );
+    await setupHostAndStart(page);
+    await page.evaluate(() => {
+      const bus = (window as unknown as Record<string, { emit: (event: string) => void }>)
+        .__MUSIXQUARE_BUS__;
+      bus.emit('demo:enter');
+    });
+    await expect(page.locator('#demo-overlay')).toHaveClass(/active/);
+    await expect.poll(() => readState(page, 'playback.activity')).toBe('playing');
+    await page.locator('[data-demo-play]').click();
+    await expect.poll(() => readState(page, 'playback.activity')).toBe('paused');
+    await page.locator('#visualizerCanvas').click();
+    await expect(page.locator('body')).toHaveClass(/viz-circular/);
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 700, height: 390 },
+      { width: 1440, height: 900 },
+      { width: 390, height: 844 },
+      { width: 2560, height: 1440 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await settleLayout(page);
+      const label = `${viewport.width}x${viewport.height}`;
+      await expect
+        .poll(
+          async () => {
+            return page.evaluate(() => {
+              const slot = document.getElementById('demo-visualizer-slot')!.getBoundingClientRect();
+              const wrapper = document.querySelector('.vinyl-wrapper')!.getBoundingClientRect();
+              return Math.max(
+                Math.abs(slot.width - wrapper.width),
+                Math.abs(slot.height - wrapper.height),
+              );
+            });
+          },
+          { message: `${label}: circular drawing area follows the demo stage` },
+        )
+        .toBeLessThanOrEqual(1);
+
+      const ink = await readCircularInkBounds(page);
+      expect(ink.width, `${label}: visible circular frame`).toBeGreaterThan(10);
+      expect
+        .soft(Math.abs(ink.width - ink.height), `${label}: ${JSON.stringify(ink)}`)
+        .toBeLessThanOrEqual(2);
+
+      await page.locator('#visualizerCanvas').click();
+      await expect(page.locator('body')).toHaveClass(/viz-spectrum/);
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper')!;
+            const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement;
+            return Math.abs(
+              canvas.height - (canvas.width * wrapper.clientHeight) / wrapper.clientWidth,
+            );
+          }),
+        )
+        .toBeLessThanOrEqual(2);
+      await page.locator('#visualizerCanvas').click();
+      await expect(page.locator('body')).toHaveClass(/viz-circular/);
+    }
   });
 
   test('matches bottom clearance to the edge-to-edge nav without crowding feedback', async ({

@@ -34,6 +34,7 @@ import {
 
 import {
   isCurrentLoadEpoch,
+  getActiveLoadSessionId,
   getCurrentAudioBuffer,
   getTrackKeyFromItem,
   isTrackFailed,
@@ -948,6 +949,7 @@ export function initPlayback(): void {
     // Only guest processes incoming files (Host loads directly)
     const hostConn = getState('network.hostConn');
     if (!hostConn) return;
+    const loadSessionId = getActiveLoadSessionId();
 
     // Session + queue occurrence identify the completed transfer. A filename is
     // display metadata and may only veto an inconsistent event; it must never
@@ -956,6 +958,8 @@ export function initPlayback(): void {
       const localSid = getState('transfer.localSessionId');
       const meta = getState('transfer.meta');
       return (
+        getState('network.hostConn') === hostConn &&
+        getActiveLoadSessionId() === loadSessionId &&
         sessionId === localSid &&
         sessionId === meta?.sessionId &&
         queueItemId === meta?.queueItemId &&
@@ -1000,18 +1004,18 @@ export function initPlayback(): void {
     }
 
     const file = await readStoredFile(queueItemId, filename, false, sessionId);
-    if (!file) {
-      log.error('[Playback] Failed to read file:', filename);
-      showLoader(false);
-      return;
-    }
-
     // The RAM read is asynchronous; ownership may have changed while it was
-    // pending. Revalidate the full session/queue identity before decoding.
+    // pending. Revalidate the connection and cancellation owner as well as
+    // the transfer tuple before starting a new decode or changing its loader.
     if (!isCurrentCompletion()) {
       log.debug(
         `[Playback] storage:file-ready dropped after read: superseded (qid=${queueItemId}, sid=${sessionId})`,
       );
+      return;
+    }
+    if (!file) {
+      log.error('[Playback] Failed to read file:', filename);
+      showLoader(false);
       return;
     }
 

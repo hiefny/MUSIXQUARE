@@ -328,7 +328,9 @@
       margin: auto auto 0;
     }
 
-    .vinyl-wrapper {
+    /* Demo moves this wrapper outside the playback stage. Keep its sizing
+       independent of the stage's inherited visualizer height token. */
+    .playback-stage > .vinyl-wrapper {
       width: auto;
       max-width: 100%;
       height: min(100%, var(--visualizer-content-block-size));
@@ -338,7 +340,7 @@
       margin: 0;
     }
 
-    body.viz-spectrum .vinyl-wrapper {
+    body.viz-spectrum .playback-stage > .vinyl-wrapper {
       width: 100%;
       max-width: none;
       height: min(100%, var(--visualizer-content-block-size));

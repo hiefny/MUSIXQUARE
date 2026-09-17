@@ -411,6 +411,7 @@ export function joinSession(
   let bootstrapFrameIndex = 0;
   let welcomeReceived = false;
   let bootstrapFailed = false;
+  let connectionTypeDetectionGeneration = 0;
   _pendingGuestInbound = { epoch: joinEpoch, conn, frames: [], bytes: 0 };
 
   const completeConnection = (): void => {
@@ -591,6 +592,30 @@ export function joinSession(
     preOpenTimeoutMs,
   );
 
+  conn.on('ice-recovered', () => {
+    if (!conn.open || getState('network.hostConn') !== conn || !isCurrentGuestJoin(joinEpoch))
+      return;
+    const generation = ++connectionTypeDetectionGeneration;
+    clearManagedTimer('guest-ice-fallback');
+    // The previous host projection described the old selected ICE path. A
+    // fresh host device list will regain authority after this local recheck.
+    _hostReportedConnectionType = null;
+    setState('network.connectionType', 'unknown');
+    emitConnectionTypeChanged();
+    void detectConnectionType(conn)
+      .then((type) => {
+        if (
+          generation !== connectionTypeDetectionGeneration ||
+          !conn.open ||
+          getState('network.hostConn') !== conn ||
+          !isCurrentGuestJoin(joinEpoch)
+        )
+          return;
+        applyGuestDetectedConnectionType(type, 'Recovered ICE detection');
+      })
+      .catch((error) => log.warn('[Guest] Recovered ICE detection failed', error));
+  });
+
   conn.on('open', () => {
     if (!isCurrentGuestJoin(joinEpoch)) {
       clearPendingGuestInbound(joinEpoch, conn);
@@ -720,8 +745,10 @@ export function joinSession(
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).
+    const detectionGeneration = ++connectionTypeDetectionGeneration;
     detectConnectionType(conn)
       .then((type) => {
+        if (detectionGeneration !== connectionTypeDetectionGeneration) return;
         if (!conn.open || getState('network.hostConn') !== conn) return;
         const applied = applyGuestDetectedConnectionType(type, 'Initial ICE detection');
         if (applied) log.info(`[Peer] Connection type: ${type}`);
@@ -735,6 +762,7 @@ export function joinSession(
             async () => {
               if (!conn.open || getState('network.hostConn') !== conn) return;
               const recheck = await detectConnectionType(conn);
+              if (detectionGeneration !== connectionTypeDetectionGeneration) return;
               if (!conn.open || getState('network.hostConn') !== conn) return;
               if (recheck === 'local' && getState('network.connectionType') !== 'local') {
                 const appliedFallback = applyGuestDetectedConnectionType(

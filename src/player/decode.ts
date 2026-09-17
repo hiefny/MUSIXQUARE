@@ -683,6 +683,22 @@ function markFailedAndAdvance(failedQueueItemId: QueueItemId): void {
   );
 }
 
+function recordGuestDecodeFailure(queueItemId: QueueItemId): number {
+  // Descriptor-only remote delivery can bypass FILE_PREPARE/START. Keep
+  // retries tied to the occurrence even after failed preload cleanup has
+  // cleared transfer.meta, and never charge its failures to the next track.
+  const previousCount =
+    getState('player.decodeFailureQueueItemId') === queueItemId
+      ? getState('player.decodeFailureCount')
+      : 0;
+  const failureCount = previousCount + 1;
+  batchSetState({
+    'player.decodeFailureQueueItemId': queueItemId,
+    'player.decodeFailureCount': failureCount,
+  });
+  return failureCount;
+}
+
 function markDeviceTrackUnavailable(queueItemId: QueueItemId): void {
   // A terminal device-local rejection owns neither the failed occurrence's
   // pending position nor its recovery target. Keeping either would let a
@@ -1035,9 +1051,12 @@ export async function loadPreloadedTrack(
 
     // The selected encoded file owns current storage before any native await.
     // A faster host may already send the next preload while this device decodes.
-    if (!isSystemAudioActive()) {
+    // Decoding does not require audible output. A suspended iPhone context
+    // may need a gesture to resume; treating that as a decode failure throws
+    // away good downloaded bytes and can blacklist the file. Warm the graph
+    // only while running, then let play() own output recovery after decode.
+    if (!isSystemAudioActive() && getAudioContext().state === 'running') {
       await Promise.race([initAudio(), delay(2000)]);
-      if (getAudioContext().state !== 'running') await ensureRunning();
     }
 
     if (!ownsTarget()) {
@@ -1193,8 +1212,7 @@ export async function loadPreloadedTrack(
       return false;
     }
 
-    const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
-    setState('player.decodeFailureCount', failureCount);
+    const failureCount = recordGuestDecodeFailure(queueItemId);
     if (failureCount >= 2) {
       log.warn('[Preload] Activation failed twice for the same queue item');
       markDeviceTrackUnavailable(queueItemId);
@@ -1337,8 +1355,10 @@ export async function finalizeGuestFile(
   showLoader(true, t('error.audio_memory'));
 
   try {
-    await initAudio();
-    if (getAudioContext().state !== 'running') await ensureRunning();
+    // Keep a valid incoming file when output still needs a user gesture.
+    // play() handles resume failures against the decoded buffer, without
+    // retrying its download or consuming the codec-failure allowance.
+    if (getAudioContext().state === 'running') await initAudio();
 
     if (!ownsTarget()) {
       log.debug('[Guest] Stale finalize before decode');
@@ -1485,8 +1505,7 @@ export async function finalizeGuestFile(
     setPlaybackTransferState(TRANSFER_STATE.IDLE);
     setState('transfer.receivedCount', 0);
 
-    const failureCount = (getState('player.decodeFailureCount') || 0) + 1;
-    setState('player.decodeFailureCount', failureCount);
+    const failureCount = recordGuestDecodeFailure(queueItemId);
 
     if (memoryLimited || failureCount >= 2) {
       // The Blob and its encoded-byte admission are no longer useful on this

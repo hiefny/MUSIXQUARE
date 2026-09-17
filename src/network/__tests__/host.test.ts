@@ -190,6 +190,42 @@ function setAuthenticatedPhysicalHost(identity: StandardRoomMemberIdentity): voi
 }
 
 describe('duplicate guest connection handoff', () => {
+  it('publishes a recovered selected ICE path in both local and remote directions', async () => {
+    const conn = makeIncomingConn('guest-migrating');
+    let remoteType = 'host';
+    conn.peerConnection = {
+      sctp: {
+        transport: {
+          iceTransport: {
+            getSelectedCandidatePair: () => ({
+              local: { type: 'host' },
+              remote: { type: remoteType },
+            }),
+          },
+        },
+      },
+    } as unknown as RTCPeerConnection;
+    handleHostIncomingConnection(conn);
+    completeStandardJoin(conn);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getState('network.connectedPeers')[0]?.connectionType).toBe('local');
+    conn.send.mockClear();
+    remoteType = 'srflx';
+    conn.fire('ice-recovered');
+    expect(getState('network.connectedPeers')[0]?.connectionType).toBe('unknown');
+    await vi.advanceTimersByTimeAsync(1_600);
+    expect(getState('network.connectedPeers')[0]?.connectionType).toBe('remote');
+    expect(
+      conn.send.mock.calls.some(
+        ([frame]) => (frame as { type?: string }).type === MSG.DEVICE_LIST_UPDATE,
+      ),
+    ).toBe(true);
+    remoteType = 'host';
+    conn.fire('ice-recovered');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getState('network.connectedPeers')[0]?.connectionType).toBe('local');
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });

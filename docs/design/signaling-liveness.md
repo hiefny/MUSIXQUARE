@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Decision date:** 2026-08-20
-- **Scope:** Standard-room host signaling only
+- **Scope:** Standard-room signaling and established RTC recovery
+- **Recovery review:** 2026-09-18
 
 ## Problem
 
@@ -28,6 +29,49 @@ events are fast hints for the same Standard-host recovery path.
 The Standard-host reclaim grace is extended from 60 to 120 seconds. New guests remain rejected
 while no live host socket exists; the longer grace only preserves the authenticated host's
 right to reclaim the same room epoch.
+
+## Established RTC recovery
+
+Signaling and RTC have separate lifecycles. A signaling socket closing is not proof that
+an existing peer's audio or data channel failed, nor is it an intentional idle shutdown.
+The browser reports the signaling interruption with its role and surviving channel count;
+the provider separately records socket close and host liveness-probe failures. These records
+locate the failed layer without claiming a network or server root cause from a warning alone.
+
+Updated Standard clients advertise `iceRestartVersion: 1` in the initial SDP exchange.
+Both ends must support it. A guest can then restart ICE on the existing peer connection,
+including after a host network change, using `restartOf` to bind the offer to that exact
+initial negotiation. The host's authenticated signaling route, member identity, departure
+sequence, and live connection ownership remain mandatory. Recovery does not rejoin the room,
+replace its data channels, or bypass access checks. PRO retains its existing recovery path;
+older clients retain their previous failure handling.
+
+One interruption has a non-renewing 15-second transport grace. The host heartbeat monitor
+respects this exact provider-owned deadline only while both channels are still open, so its
+ordinary failed-ICE threshold cannot prematurely consume the recovery window. Expired grace
+or closed channels still terminate the connection. A recovered path or selected-candidate-pair
+change invalidates the old local/remote classification before an asynchronous recheck, with
+generation guards against stale results. Existing per-transfer delivery decisions stay frozen;
+a new transfer must wait for evidence about the new path.
+
+Local/remote describes the selected ICE path, not the Wi-Fi network name. A host/host pair
+is required to prove direct local routing. Router isolation, NAT, VPNs, or incomplete browser
+evidence may therefore produce a remote classification on the same Wi-Fi. Recovery must not
+grant local transfer privileges from an SSID or reuse the previous path's classification.
+
+These bounds improve recoverability; they do not guarantee uninterrupted playback across
+Wi-Fi/cellular handoff or an operating-system suspension. Terminal guest-disconnect UI stops
+every media source and cancels pending file loads before showing the dialog.
+
+## Clock sampling under file traffic
+
+The guest clock retains its established low-RTT samples when one delayed ping or pong has
+an offset jump explainable by network timing. Clock-step detection must exceed the two
+samples' half-RTT uncertainty plus the existing two-second threshold before discarding them.
+Replies older than five seconds expire on receipt even if background timers prevented the
+next ping's cleanup. This prevents asymmetric file-transfer queueing from manufacturing a
+clock jump and an unnecessary hard playback correction. It does not claim to explain every
+reported drift without an incident trace.
 
 ## Unchanged policies
 

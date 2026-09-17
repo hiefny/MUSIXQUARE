@@ -82,6 +82,23 @@ function installPeers(peers: ConnectedPeer[]): void {
 }
 
 describe('host heartbeat monitor', () => {
+  it('honors only an exact bounded ICE recovery lease before cleaning a failed PC', async () => {
+    const conn = makeConnection('recovering', {
+      connectionState: 'failed',
+      dataState: 'open',
+      controlState: 'open',
+    });
+    Object.assign(conn, { iceRecoveryDeadline: Date.now() + 15_000 });
+    installPeers([makePeer(conn.peer, conn, Date.now() - 90_000)]);
+    setState('setup.sessionStarted', true);
+    const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+    initHeartbeatMonitor();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mocks.detachHostPeerConnection).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.detachHostPeerConnection).toHaveBeenCalledWith(conn.peer, conn);
+  });
+
   beforeEach(() => {
     clearAllManagedTimers();
     resetState();

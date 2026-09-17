@@ -153,6 +153,28 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   replay-then-clear order documented below. _Pinned in
   `concurrency-invariants.test.ts`._
 
+- **C11 — storage completion belongs to the connection and cancellation owner**:
+  `storage:file-ready` snapshots the exact guest host connection and M2 before
+  awaiting `readStoredFile`. It rechecks both alongside the transfer tuple after
+  the read, before starting `finalizeGuestFile` or changing the loader. A terminal
+  stop increments M2; otherwise the late read could allocate a new M2 itself and
+  escape cancellation. This is not an M1 check: the ordinary main-file finalizer
+  still follows the owner decision in §5. _Pinned for disconnect, host replacement,
+  and cancellation with the same host in `concurrency-invariants.test.ts`._
+- **C12 — decoding and output admission are separate**:
+  a suspended AudioContext does not invalidate downloaded bytes. Guest finalization
+  and preload activation may decode and publish their owned buffer without resuming
+  output. `play()` still requires `ensureRunning()` and `initAudio()` before creating
+  a source. A gesture-required resume failure retains the buffer and uses the local
+  playback-recovery prompt; it must not consume a codec retry, mark the track failed,
+  or fetch the same file again. Actual guest decode failures carry an explicit queue
+  occurrence owner, so another occurrence gets its own retry and clearing transfer
+  metadata does not erase a same-occurrence retry. Terminal connection-loss UI
+  force-stops system audio and calls
+  `stopAllMedia({ cancelInFlight: true, clearBuffer: true })` before opening
+  the dialog. Recoverable transport interruptions do not take this terminal path.
+  _Pinned in `concurrency-invariants.test.ts` and `setup-network-error.test.ts`._
+
 ## 4. pendingPlayTime preserve/clear policy (asymmetric BY DESIGN)
 
 `pendingPlayTime` belongs to the **latest MSG.PLAY**. Abort paths that know a

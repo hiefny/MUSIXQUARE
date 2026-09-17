@@ -864,7 +864,13 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
     if (message.to !== 'host') return 'ignore';
     if (message.type === 'signal-offer') {
       if (isOversizedSdp(message.sdp)) return 'oversized';
-      return isValidSdp(message.sdp, 'offer') && hasValidNegotiationId(message)
+      return isValidSdp(message.sdp, 'offer') &&
+        hasValidNegotiationId(message) &&
+        (message.iceRestartVersion === undefined || message.iceRestartVersion === 1) &&
+        (message.restartOf === undefined ||
+          (message.iceRestartVersion === 1 &&
+            hasValidNegotiationId({ negotiationId: message.restartOf }) &&
+            message.restartOf !== message.negotiationId))
         ? 'valid'
         : 'ignore';
     }
@@ -950,7 +956,11 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
   if (!isPeerId(message.to)) return 'ignore';
   if (message.type === 'signal-answer') {
     if (isOversizedSdp(message.sdp)) return 'oversized';
-    return isValidSdp(message.sdp, 'answer') && hasValidNegotiationId(message) ? 'valid' : 'ignore';
+    return isValidSdp(message.sdp, 'answer') &&
+      hasValidNegotiationId(message) &&
+      (message.iceRestartVersion === undefined || message.iceRestartVersion === 1)
+      ? 'valid'
+      : 'ignore';
   }
   if (message.type === 'signal-candidate') {
     if (isOversizedIceCandidate(message.candidate)) return 'oversized';

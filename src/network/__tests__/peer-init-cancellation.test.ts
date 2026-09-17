@@ -648,6 +648,10 @@ describe('network initialization ownership', () => {
   });
 
   it('re-evaluates a signaling-loss check that skipped a stale-open guest connection', async () => {
+    const stopMedia = vi.fn();
+    const stopSystemAudio = vi.fn();
+    bus.on('player:stop-all-media', stopMedia);
+    bus.on('system-audio:force-stop', stopSystemAudio);
     vi.useFakeTimers();
     const peer = makePeer('STANDARD-GUEST', true);
     peer.recoverAfterBackground.mockReturnValue({ status: 'monitoring' });
@@ -660,6 +664,8 @@ describe('network initialization ownership', () => {
     peer.fire('disconnected');
     await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(stopMedia).not.toHaveBeenCalled();
+    expect(stopSystemAudio).not.toHaveBeenCalled();
 
     expect(recoverPeerAfterBackground(60_000)).toEqual({ status: 'monitoring' });
     expect(peer.recoverAfterBackground).toHaveBeenCalledWith(60_000);
@@ -667,6 +673,8 @@ describe('network initialization ownership', () => {
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(stopMedia).toHaveBeenCalledWith({ cancelInFlight: true, clearBuffer: true });
+    expect(stopSystemAudio).toHaveBeenCalledOnce();
   });
 
   it('cancels the generic signaling-loss dialog when foreground recovery closes the guest RTC', async () => {

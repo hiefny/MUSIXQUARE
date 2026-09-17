@@ -7859,6 +7859,49 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     ]);
   });
 
+  it('relays additive ICE restart capability and exact binding only across authenticated roles', async () => {
+    const { room, host } = await createHostRoom();
+    const guest = await joinGuest(room, 'guest-1');
+    const restart = {
+      type: 'signal-offer',
+      to: 'host',
+      negotiationId: NEGOTIATION_ID,
+      iceRestartVersion: 1,
+      restartOf: 'initial_exchange_000001',
+      sdp: { type: 'offer', sdp: 'restart-sdp' },
+    };
+    await room.webSocketMessage(guest, JSON.stringify(restart));
+    expect(sent(host).at(-1)).toMatchObject({
+      type: 'signal-offer',
+      from: 'guest-1',
+      iceRestartVersion: 1,
+      restartOf: restart.restartOf,
+      negotiationId: NEGOTIATION_ID,
+    });
+    const hostCount = sent(host).length;
+    for (const invalid of [
+      { ...restart, iceRestartVersion: 2 },
+      { ...restart, iceRestartVersion: undefined },
+      { ...restart, restartOf: 'short' },
+      { ...restart, restartOf: NEGOTIATION_ID },
+    ])
+      await room.webSocketMessage(guest, JSON.stringify(invalid));
+    expect(sent(host)).toHaveLength(hostCount);
+    const answer = {
+      type: 'signal-answer',
+      to: 'guest-1',
+      negotiationId: NEGOTIATION_ID,
+      iceRestartVersion: 1,
+      sdp: { type: 'answer', sdp: 'restart-answer' },
+    };
+    await room.webSocketMessage(host, JSON.stringify(answer));
+    expect(sent(guest).at(-1)).toMatchObject({ type: 'signal-answer', iceRestartVersion: 1 });
+    const guestCount = sent(guest).length;
+    await room.webSocketMessage(host, JSON.stringify({ ...answer, iceRestartVersion: 2 }));
+    await room.webSocketMessage(guest, JSON.stringify(answer));
+    expect(sent(guest)).toHaveLength(guestCount);
+  });
+
   it('relays a valid optional negotiation ID and rejects malformed IDs on every SDP/ICE path', async () => {
     const { room, host } = await createHostRoom();
     const guest = await joinGuest(room, 'guest-1');

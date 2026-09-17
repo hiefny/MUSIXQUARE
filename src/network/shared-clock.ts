@@ -16,6 +16,7 @@ import { log } from '../core/log.ts';
 // ─── Constants ────────────────────────────────────────────────────
 
 const MAX_SAMPLES = 60;
+const PING_EXPIRY_MS = 5_000;
 
 // ─── State ────────────────────────────────────────────────────────
 
@@ -113,22 +114,23 @@ export function setIsHostClock(value: boolean): void {
 
 /**
  * Register a ping that was sent, storing pingId → sentAt timestamp.
- * Called by sync.ts after sending CLOCK_PING.
+ * Called by sync.ts immediately before sending SYNC_PING.
  */
 export function registerPing(pingId: number): void {
-  _pendingPings.set(pingId, Date.now());
+  const now = Date.now();
+  _pendingPings.set(pingId, now);
 
   // Cleanup stale pings (>5s)
   for (const [id, ts] of _pendingPings) {
-    if (Date.now() - ts > 5000) _pendingPings.delete(id);
+    if (now - ts > PING_EXPIRY_MS) _pendingPings.delete(id);
   }
 }
 
 // ─── Pong Processing (RTT/Offset Calculation) ────────────────────
 
 /**
- * Process a CLOCK_PONG response: calculate RTT and clock offset.
- * Returns { rtt, offset } or null if the pingId is unknown.
+ * Process a SYNC_PONG response: calculate RTT and clock offset.
+ * Returns { rtt, offset } or null for an unknown, expired, or invalid reply.
  *
  * Contains the core calculation logic — no side effects beyond
  * updating internal sample buffer and best offset.
@@ -150,7 +152,9 @@ export function processSyncPong(
 
   const receivedAt = Date.now();
   const rtt = receivedAt - pingSentAt;
-  if (rtt < 0) return null; // System clock went backward
+  // Enforce expiry on receipt too: background timer throttling can prevent
+  // registerPing's cleanup from running before a very late reply arrives.
+  if (rtt < 0 || rtt > PING_EXPIRY_MS) return null;
   const halfRtt = rtt / 2;
 
   // Offset = how far ahead host clock is from our clock
@@ -161,13 +165,21 @@ export function processSyncPong(
   // sleep/wake, manual time adjustment). After a step, every existing
   // sample's offset references a different epoch — the min-RTT picker
   // can't self-heal because all old samples agree on the now-wrong value.
-  // Threshold mirrors handleSyncPong's drift threshold (sync.ts) for
-  // consistency. Length gate avoids false-flush during initial calibration
-  // where the first samples legitimately revise the offset.
+  // Each midpoint estimate has uncertainty of half its RTT. Queueing a ping
+  // or pong behind file traffic can move the estimate by seconds without a
+  // clock step. Require a jump beyond BOTH samples' uncertainty before
+  // throwing away the established low-RTT clock; otherwise that single slow
+  // reply can manufacture a hard playback correction on an aligned guest.
+  // Length gate avoids false-flush during initial calibration where the
+  // first samples legitimately revise the offset.
   const STEP_THRESHOLD_MS = 2_000;
-  if (_samples.length >= 3 && Math.abs(offset - _bestOffset) > STEP_THRESHOLD_MS) {
+  const offsetUncertaintyMs = halfRtt + getClockBestRtt() / 2;
+  if (
+    _samples.length >= 3 &&
+    Math.abs(offset - _bestOffset) > STEP_THRESHOLD_MS + offsetUncertaintyMs
+  ) {
     log.warn(
-      `[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms. Local clock likely stepped, flushing samples`,
+      `[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms exceeds RTT uncertainty. Clock likely stepped, flushing samples`,
     );
     _samples = [];
   }

@@ -871,6 +871,9 @@ export async function playTrack(
   if (!hostConn && options.navigateToPlay !== false) bus.emit('ui:switch-tab', 'play');
 
   const myLoadEpoch = newLoadEpoch();
+  // Any accepted replacement (including a ready preload) supersedes a parked
+  // predecessor announcement before it can run during preparation.
+  cancelPendingBroadcast();
 
   // Check if preloaded
   const nextQueueItemId = getState('preload.nextQueueItemId');
@@ -1336,11 +1339,10 @@ export async function playTrack(
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     const waitsForManualFirstStart = isFirstTrackLoad && !options.explicitPlaybackIntent;
 
-    // FILE_PREPARE is coalesced into the same debounce as broadcastFile.
-    // Sending it eagerly here would flood guests with metadata updates for
-    // every track the user clicked through, racing against PLAY messages
-    // and surfacing as "Name mismatch on PLAY" with the guest stuck waiting
-    // on a FILE_PREPARE that already arrived as a stale earlier one.
+    // Publish selection before any audio initialization/decode await so every
+    // guest stops the old track and shows the new title while it is prepared.
+    // Transfer sessions fence rapid selections; only successfully decoded,
+    // still-current bytes enter the existing coalesced send pipeline.
     const prepareMsg = {
       type: MSG.FILE_PREPARE,
       name: file.name,
@@ -1350,6 +1352,11 @@ export async function playTrack(
       size: file.size,
       mime: file.type,
     };
+    if (isProRoomPersistentPlaylistFile(queueItemId)) {
+      broadcast(prepareMsg);
+    } else {
+      sendFilePrepareByDelivery(prepareMsg, sessionId, { announcePending: true });
+    }
     const didLoad = await loadAndBroadcastFile(
       file,
       queueItemId,

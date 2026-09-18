@@ -10,7 +10,7 @@
  * - Auto-advance to next track
  * - Seek slider interaction
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
   createHostGuestContexts,
   cleanupContexts,
@@ -18,15 +18,19 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { uploadFixture } from './helpers/file-upload.ts';
+import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
   readCurrentQueueIndex,
+  readQueueSnapshot,
   setCurrentQueueItemByIndex,
   waitForCurrentQueueIndex,
+  waitForCurrentQueueItemId,
 } from './helpers/queue-state.ts';
 import {
   readPlaybackProjection,
   readState,
+  navigateToSubtab,
+  navigateToTab,
   waitForFilePlaybackReady,
   waitForPlaybackProjection,
   waitForPlaylistCount,
@@ -34,6 +38,100 @@ import {
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
+
+interface FileSourceProbe {
+  starts: string[];
+  stops: string[];
+}
+
+async function installFileSourceProbe(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as Record<string, unknown>;
+    const get = w.__MUSIXQUARE_GET_STATE__ as (path: string) => unknown;
+    const probe = { starts: [] as string[], stops: [] as string[] };
+    w.__pendingDecodeSourceProbe = probe;
+    const owners = new WeakMap<AudioBufferSourceNode, string>();
+    const originalStart = AudioBufferSourceNode.prototype.start;
+    const originalStop = AudioBufferSourceNode.prototype.stop;
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      const file = get('files.current') as { queueItemId?: string } | null;
+      // Ignore short UI sounds; these fixtures use the real decoded MP3.
+      if (this.buffer && this.buffer.duration > 1 && file?.queueItemId) {
+        owners.set(this, file.queueItemId);
+        probe.starts.push(file.queueItemId);
+      }
+      return originalStart.apply(this, args);
+    };
+    AudioBufferSourceNode.prototype.stop = function (...args) {
+      const owner = owners.get(this);
+      if (owner) probe.stops.push(owner);
+      return originalStop.apply(this, args);
+    };
+  });
+}
+
+async function readFileSourceProbe(page: Page): Promise<FileSourceProbe> {
+  return page.evaluate(
+    () =>
+      (window as unknown as Record<string, unknown>).__pendingDecodeSourceProbe as FileSourceProbe,
+  );
+}
+
+interface HeldDecode {
+  queueItemId: string;
+  released: boolean;
+  finished: boolean;
+  release(): void;
+}
+
+async function holdHostFileDecodes(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as Record<string, unknown>;
+    const get = w.__MUSIXQUARE_GET_STATE__ as (path: string) => unknown;
+    const held: HeldDecode[] = [];
+    w.__heldFileDecodes = held;
+    const originalDecode = AudioContext.prototype.decodeAudioData;
+    AudioContext.prototype.decodeAudioData = function (data) {
+      let release!: () => void;
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const entry: HeldDecode = {
+        queueItemId: String(get('playlist.currentQueueItemId')),
+        released: false,
+        finished: false,
+        release() {
+          entry.released = true;
+          release();
+        },
+      };
+      held.push(entry);
+      // Preserve native MP3 decoding; only its completion visible to the app
+      // is delayed, modelling an uncancellable slow browser decode.
+      return originalDecode.call(this, data).then(async (buffer) => {
+        await barrier;
+        entry.finished = true;
+        return buffer;
+      });
+    };
+  });
+}
+
+async function waitForHeldDecode(page: Page, queueItemId: string): Promise<void> {
+  await page.waitForFunction((id) => {
+    const held = (window as unknown as Record<string, unknown>).__heldFileDecodes as HeldDecode[];
+    return held.some((entry) => entry.queueItemId === id && !entry.released);
+  }, queueItemId);
+}
+
+async function releaseHeldDecode(page: Page, queueItemId: string): Promise<void> {
+  await page.evaluate((id) => {
+    const held = (window as unknown as Record<string, unknown>).__heldFileDecodes as HeldDecode[];
+    const entry = held.find((candidate) => candidate.queueItemId === id);
+    if (!entry) throw new Error(`No pending native decode for ${id}`);
+    entry.release();
+  }, queueItemId);
+}
 
 test.describe('Advanced Playback', () => {
   test.beforeEach(async ({ browser }) => {
@@ -325,6 +423,112 @@ test.describe('Advanced Playback', () => {
   });
 
   // ── Next Track Navigation Tests ────────────────────────────
+
+  for (const actor of ['host', 'operator'] as const) {
+    test(`${actor} file selection retires guest playback before pending host decode completes`, async () => {
+      await connectHostAndGuest(pair.hostPage, pair.guestPage);
+      // This case exercises local file delivery, not the external Remote Share
+      // service. Let real loopback ICE classification settle before upload.
+      await waitForState(pair.guestPage, 'network.connectionType', 'local', 20_000);
+      await pair.hostPage.waitForFunction(
+        () => {
+          const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as (
+            path: string,
+          ) => unknown;
+          const peers = get('network.connectedPeers') as Array<{ connectionType?: string }>;
+          return peers.length === 1 && peers[0]?.connectionType === 'local';
+        },
+        undefined,
+        { timeout: 20_000 },
+      );
+      if (actor === 'operator') {
+        await navigateToTab(pair.hostPage, 'settings');
+        await navigateToSubtab(pair.hostPage, 'connect');
+        await pair.hostPage.locator('.d-op-btn:visible').first().click();
+        await waitForState(pair.guestPage, 'network.isOperator', true);
+      }
+      await uploadFixtures(pair.hostPage, ['test01', 'test02', 'test03']);
+      await waitForPlaylistCount(pair.guestPage, 3, 20_000);
+      await Promise.all([
+        waitForFilePlaybackReady(pair.hostPage, 20_000),
+        waitForFilePlaybackReady(pair.guestPage, 20_000),
+      ]);
+      const { items } = await readQueueSnapshot(pair.hostPage);
+      const [newest, superseded, outgoing] = items;
+      expect(items).toHaveLength(3);
+      await Promise.all([
+        installFileSourceProbe(pair.hostPage),
+        installFileSourceProbe(pair.guestPage),
+      ]);
+
+      // Start at the final row so the earlier selections cannot use an
+      // already-preloaded next-track fast path instead of native decoding.
+      await navigateToTab(pair.hostPage, 'playlist');
+      await pair.hostPage
+        .locator(`.playlist-entry[data-queue-item-id="${outgoing!.queueItemId}"] .track-item`)
+        .click();
+      await Promise.all([
+        waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO'),
+        waitForPlaybackProjection(pair.guestPage, 'PLAYING_AUDIO'),
+      ]);
+      await expect
+        .poll(async () => (await readFileSourceProbe(pair.guestPage)).starts)
+        .toContain(outgoing!.queueItemId);
+      await holdHostFileDecodes(pair.hostPage);
+
+      const controlPage = actor === 'host' ? pair.hostPage : pair.guestPage;
+      await navigateToTab(controlPage, 'playlist');
+      // A playlist row always selects the prior file. The Previous transport
+      // button intentionally restarts instead once playback exceeds 3 seconds.
+      await controlPage
+        .locator(`.playlist-entry[data-queue-item-id="${superseded!.queueItemId}"] .track-item`)
+        .click();
+      await waitForHeldDecode(pair.hostPage, superseded!.queueItemId);
+      await waitForCurrentQueueItemId(pair.guestPage, superseded!.queueItemId, 5_000);
+      await expect(pair.guestPage.locator('#track-title')).toContainText('test-02');
+      await expect
+        .poll(async () => (await readFileSourceProbe(pair.guestPage)).stops)
+        .toContain(outgoing!.queueItemId);
+      expect(await readPlaybackProjection(pair.guestPage)).not.toBe('PLAYING_AUDIO');
+      expect((await readFileSourceProbe(pair.guestPage)).starts).not.toContain(
+        superseded!.queueItemId,
+      );
+
+      await controlPage
+        .locator(`.playlist-entry[data-queue-item-id="${newest!.queueItemId}"] .track-item`)
+        .click();
+      await waitForHeldDecode(pair.hostPage, newest!.queueItemId);
+      await waitForCurrentQueueItemId(pair.guestPage, newest!.queueItemId, 5_000);
+      await expect(pair.guestPage.locator('#track-title')).toContainText('test-01');
+      expect(await readState(pair.hostPage, 'playback.lifecycle')).toBe('DECODING');
+
+      // Finish the latest decode first, then deliver the stale completion.
+      await releaseHeldDecode(pair.hostPage, newest!.queueItemId);
+      await Promise.all([
+        waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO'),
+        waitForPlaybackProjection(pair.guestPage, 'PLAYING_AUDIO'),
+      ]);
+      await releaseHeldDecode(pair.hostPage, superseded!.queueItemId);
+      await pair.hostPage.waitForFunction(() => {
+        const held = (window as unknown as Record<string, unknown>)
+          .__heldFileDecodes as HeldDecode[];
+        return held.every((entry) => entry.finished);
+      });
+      // Observe beyond the 300ms byte-broadcast debounce: an obsolete decode
+      // must not send a late PREPARE/PLAY or replace either audible source.
+      await pair.hostPage.waitForTimeout(500);
+      for (const page of [pair.hostPage, pair.guestPage]) {
+        await waitForCurrentQueueItemId(page, newest!.queueItemId);
+        expect(
+          ((await readState(page, 'files.current')) as { queueItemId: string }).queueItemId,
+        ).toBe(newest!.queueItemId);
+        expect(await readPlaybackProjection(page)).toBe('PLAYING_AUDIO');
+        const { starts } = await readFileSourceProbe(page);
+        expect(starts).toContain(newest!.queueItemId);
+        expect(starts).not.toContain(superseded!.queueItemId);
+      }
+    });
+  }
 
   test('next button advances track with real audio', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);

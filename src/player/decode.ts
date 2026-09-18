@@ -400,8 +400,9 @@ export async function loadAndBroadcastFile(
     const hostConn = getState('network.hostConn');
     bus.emit('ui:play-btn-state', !hostConn || hasRoomCapability('playback.control'));
 
-    // Broadcast file to peers (FILE_PREPARE coalesced into the same debounce
-    // so guests don't see metadata flicker for tracks the user already left).
+    // Publish bytes only after decode succeeds. Repeat the exact-session
+    // PREPARE for peers that joined or resolved their route during preparation;
+    // guests retain any receive/decode work they already own for this session.
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0) {
       if (isProRoomPersistentPlaylistFile(queueItemId)) {

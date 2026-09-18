@@ -96,6 +96,8 @@ describe('remote-share to local direct transfer promotion', () => {
     vi.mocked(waitForGuestConnectionType).mockReset();
     const { resetIncomingTransferAuthority } = await import('../transfer-receive.ts');
     resetIncomingTransferAuthority();
+    const { resetFileDeliveryPolicies } = await import('../../share/file-delivery-policy.ts');
+    resetFileDeliveryPolicies();
     setState('network.hostConn', conn);
     setState('network.connectionType', 'local');
     setState('playlist.items', [fileItem(Q0, 'song.mp3'), fileItem(Q1, 'song.mp3')]);
@@ -415,6 +417,155 @@ describe('remote-share to local direct transfer promotion', () => {
       expect.objectContaining({ queueItemId: Q1, sessionId: 9, name: 'b.mp3' }),
     );
   });
+
+  it('stops and projects a new occurrence before unknown-route classification resolves', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { isRemoteGuest, waitForGuestConnectionType } = await import('../../network/peer.ts');
+    vi.mocked(isRemoteGuest).mockReturnValue(true);
+    setState('network.connectionType', 'unknown');
+    setState('player.currentTrackMeta', fileItem(Q0, 'old.mp3'));
+    setState('transfer.localSessionId', 7);
+    setState('transfer.meta', { queueItemId: Q0, name: 'old.mp3', sessionId: 7 });
+    let resolveRoute!: (value: 'local' | 'remote') => void;
+    vi.mocked(waitForGuestConnectionType).mockImplementation(
+      () => new Promise<'local' | 'remote'>((resolve) => (resolveRoute = resolve)),
+    );
+    const stop = vi.fn();
+    bus.on('player:stop-all-media', stop);
+    const prepare = handleFilePrepare(prepareFrame(Q1, 9), conn);
+    expect(stop).toHaveBeenCalledOnce();
+    expect(getState('playlist.currentQueueItemId')).toBe(Q1);
+    expect(getState('player.currentTrackMeta')?.queueItemId).toBe(Q1);
+    expect(getState('transfer.meta')).toEqual(
+      expect.objectContaining({ queueItemId: Q1, sessionId: 9 }),
+    );
+    resolveRoute('local');
+    await prepare;
+  });
+
+  it.each(['handleFilePrepare', 'handleFileStart', 'handleFileResume', 'handleFileChunk'] as const)(
+    '%s cannot revive an older direct session after a newer R2 prepare owns the selection',
+    async (handler) => {
+      const transfer = await import('../transfer-receive.ts');
+      const { prepareRemoteShareWait } = await import('../../share/remote-share.ts');
+      const { postCommand, admitIncomingStoredFile } = await import('../storage.ts');
+      setState('transfer.localSessionId', 5);
+      setState('transfer.meta', { queueItemId: Q1, name: 'new.mp3', sessionId: 9 });
+      setState('playlist.currentQueueItemId', Q1);
+      setState('player.currentTrackMeta', fileItem(Q1, 'new.mp3'));
+      await transfer[handler](
+        {
+          ...startFrame(Q0, 7),
+          type: handler === 'handleFilePrepare' ? 'file-prepare' : 'file-start',
+          delivery: handler === 'handleFilePrepare' ? 'r2' : undefined,
+          startChunk: 0,
+          chunkIndex: 0,
+          chunk: new Uint8Array(4),
+        },
+        conn,
+      );
+      expect(prepareRemoteShareWait).not.toHaveBeenCalled();
+      expect(postCommand).not.toHaveBeenCalled();
+      expect(admitIncomingStoredFile).not.toHaveBeenCalled();
+      expect(getState('playlist.currentQueueItemId')).toBe(Q1);
+      expect(getState('transfer.meta')?.sessionId).toBe(9);
+    },
+  );
+
+  it('retains a completed direct stream when its earlier route classification resumes', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { isRemoteGuest, waitForGuestConnectionType } = await import('../../network/peer.ts');
+    vi.mocked(isRemoteGuest).mockReturnValue(true);
+    setState('network.connectionType', 'unknown');
+    let resolveRoute!: (value: 'local' | 'remote') => void;
+    vi.mocked(waitForGuestConnectionType).mockImplementation(
+      () => new Promise<'local' | 'remote'>((resolve) => (resolveRoute = resolve)),
+    );
+    const prepare = handleFilePrepare(prepareFrame(Q1, 9), conn);
+    setState('transfer.localSessionId', 9);
+    setState('transfer.meta', { ...startFrame(Q1, 9), total: 1 });
+    setState('transfer.receivedCount', 1);
+    setState('transfer.state', TRANSFER_STATE.PROCESSING);
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setState('playlist.currentQueueItemId', Q1);
+    const stop = vi.fn();
+    bus.on('player:stop-all-media', stop);
+    resolveRoute('local');
+    await prepare;
+    expect(stop).not.toHaveBeenCalled();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+    expect(getState('transfer.receivedCount')).toBe(1);
+  });
+
+  it('projects an exact ready preload title before its asynchronous decode', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const ready = resident(Q1, 9, new Blob(['abcd']), 'new.mp3');
+    setState('player.currentTrackMeta', fileItem(Q0, 'old.mp3'));
+    setState('preload.ready', ready);
+    setState('preload.activeTarget', ready);
+    let projectedAtDecodeStart: string | undefined;
+    const usePreloaded = vi.fn(() => {
+      projectedAtDecodeStart = getState('player.currentTrackMeta')?.queueItemId;
+    });
+    bus.on('storage:use-preloaded', usePreloaded);
+    await handleFilePrepare(prepareFrame(Q1, 9, 'new.mp3'), conn);
+    expect(usePreloaded).toHaveBeenCalledOnce();
+    expect(projectedAtDecodeStart).toBe(Q1);
+  });
+
+  it('projects FILE_START metadata when the earlier PREPARE was lost', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    setState('player.currentTrackMeta', fileItem(Q0, 'old.mp3'));
+    handleFileStart(startFrame(Q1, 9), conn);
+    expect(getState('player.currentTrackMeta')?.queueItemId).toBe(Q1);
+  });
+
+  it.each([false, true])(
+    'only an explicit host R2 route fences a later local FILE_START (explicit=%s)',
+    async (explicitR2) => {
+      const { handleFilePrepare, handleFileStart } = await import('../transfer-receive.ts');
+      const { isRemoteGuest, waitForGuestConnectionType } = await import('../../network/peer.ts');
+      const { prepareRemoteShareWait, cancelRemoteShareWait } =
+        await import('../../share/remote-share.ts');
+      const { postCommand } = await import('../storage.ts');
+      const { isGuestR2FileDelivery } = await import('../../share/file-delivery-policy.ts');
+      vi.mocked(isRemoteGuest).mockReturnValue(true);
+      setState('network.connectionType', 'unknown');
+      // Unknown stays unknown: this is the waiter's conservative3s fallback,
+      // not a host-authorized R2 assignment or a confirmed remote ICE pair.
+      vi.mocked(waitForGuestConnectionType).mockResolvedValue('remote');
+      vi.mocked(prepareRemoteShareWait).mockImplementationOnce((queueItemId, name, sessionId) => {
+        setState('playlist.currentQueueItemId', queueItemId);
+        setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+        setState('playback.loadSource', LOAD_SOURCE.PRELOAD_PROMOTED);
+        setState('playback.pendingRecoveryTarget', { queueItemId, name, indexHint: 1 });
+        setState('transfer.meta', { queueItemId, name, sessionId });
+        setState('preload.activeTarget', { queueItemId, name, sessionId });
+      });
+      await handleFilePrepare(
+        { ...prepareFrame(Q1, 9), ...(explicitR2 ? { delivery: 'r2' } : {}) },
+        conn,
+      );
+      const bindingDuringWait = isGuestR2FileDelivery(Q1, 9);
+      expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+      vi.mocked(isRemoteGuest).mockReturnValue(false);
+      setState('network.connectionType', 'local');
+      handleFileStart(startFrame(Q1, 9), conn);
+      if (explicitR2) {
+        expect(postCommand).not.toHaveBeenCalled();
+        expect(cancelRemoteShareWait).not.toHaveBeenCalled();
+        expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+      } else {
+        expect(waitForGuestConnectionType).toHaveBeenCalledWith(3000);
+        expect(cancelRemoteShareWait).toHaveBeenCalledWith('local-direct-file-start');
+        expect(postCommand).toHaveBeenCalledWith(
+          expect.objectContaining({ command: 'STORAGE_START', queueItemId: Q1, sessionId: 9 }),
+        );
+        expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+      }
+      expect(bindingDuringWait).toBe(explicitR2);
+    },
+  );
 
   it('allows an unchanged null current target to bootstrap after connection classification', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');

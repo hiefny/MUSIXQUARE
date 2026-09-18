@@ -496,7 +496,7 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     await expectCompletedMime('resumed.flac', 5, Q[0]!, 'audio/flac');
   });
 
-  it('does not reuse a prefix when the queue item differs inside the same session', async () => {
+  it('rejects a different queue owner inside an already prepared session', async () => {
     const { handleFileResume } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
     const recoverySpy = vi.fn();
@@ -509,11 +509,10 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     handleFileResume(resumeMsg({ sessionId: 5, queueItemId: Q[1] }), conn);
 
     expect(getState('transfer.receivedCount')).toBe(0);
-    expect(getState('playlist.currentQueueItemId')).toBe(Q[1]);
-    expect(postCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'STORAGE_START', sessionId: 5, keepExisting: false }),
-    );
-    expect(recoverySpy).toHaveBeenCalledWith(0);
+    expect(getState('playlist.currentQueueItemId')).toBe(Q[0]);
+    expect(postCommand).not.toHaveBeenCalled();
+    expect(recoverySpy).not.toHaveBeenCalled();
+    expect(ramContiguousCount('song.mp3', false, 5, Q[0]!)).toBe(2);
   });
 
   it('discards a same-name/same-size prefix from a different session', async () => {
@@ -1407,6 +1406,120 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       await expectCompletedMime('song.mp3', 7, Q[0]!, 'audio/mpeg');
     },
   );
+
+  it('preserves the exact direct prefix across the post-decode duplicate PREPARE', async () => {
+    const { handleFilePrepare, handleFileStart, handleFileChunk } =
+      await import('../transfer-receive.ts');
+    const { clearPreviousTrackState } = await import('../../player/decode.ts');
+    bus.on('storage:clear-previous-track', clearPreviousTrackState);
+    const incoming = {
+      queueItemId: Q[1]!,
+      name: 'track-1.mp3',
+      mime: 'audio/mpeg',
+      sessionId: 9,
+      size: TWO_CHUNK_FILE_SIZE,
+    };
+    await handleFilePrepare({ ...incoming, type: 'file-prepare' }, conn);
+    handleFileStart({ ...incoming, type: 'file-start', total: 2 }, conn);
+    handleFileChunk(
+      {
+        ...incoming,
+        type: 'file-chunk',
+        total: 2,
+        chunkIndex: 0,
+        chunk: new Uint8Array(CHUNK_SIZE),
+      },
+      conn,
+    );
+    await Promise.resolve();
+    expect(ramContiguousCount(incoming.name, false, 9, Q[1]!)).toBe(1);
+    await handleFilePrepare({ ...incoming, type: 'file-prepare' }, conn);
+    await Promise.resolve();
+    expect(getState('transfer.receivedCount')).toBe(1);
+    expect(ramContiguousCount(incoming.name, false, 9, Q[1]!)).toBe(1);
+    expect(getState('player.currentTrackMeta')?.queueItemId).toBe(Q[1]);
+    handleFileChunk(
+      { ...incoming, type: 'file-chunk', total: 2, chunkIndex: 1, chunk: new Uint8Array(1) },
+      conn,
+    );
+    await Promise.resolve();
+    await expectCompletedMime(incoming.name, 9, Q[1]!, 'audio/mpeg');
+    await handleFilePrepare({ ...incoming, type: 'file-prepare' }, conn);
+    expect(getState('transfer.receivedCount')).toBe(2);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
+  });
+
+  it('waits for a slow host preparation without charging a chunk-stall budget before bytes arrive', async () => {
+    vi.useFakeTimers();
+    const timers = await import('../../core/timers.ts');
+    const actualTimers =
+      await vi.importActual<typeof import('../../core/timers.ts')>('../../core/timers.ts');
+    vi.mocked(timers.setManagedTimer).mockImplementation(actualTimers.setManagedTimer);
+    vi.mocked(timers.clearManagedTimer).mockImplementation(actualTimers.clearManagedTimer);
+    const { handleFilePrepare, handleFileStart, handleFileChunk, handleFileWait } =
+      await import('../transfer-receive.ts');
+    const { sendRecoveryRequest } = await import('../recovery.ts');
+    const { resetFileRequestAuthority } = await import('../../network/file-request-authority.ts');
+    const { clearPreviousTrackState } = await import('../../player/decode.ts');
+    resetFileRequestAuthority();
+    const send = vi.fn((frame: Record<string, unknown>) => {
+      handleFileWait(
+        { ...frame, type: 'file-wait', message: 'Host file is not ready yet' },
+        waitingConn,
+      );
+    });
+    const waitingConn = { open: true, peer: 'host-wait', send } as unknown as DataConnection;
+    setState('network.hostConn', waitingConn);
+    const recovery = vi.fn(() => sendRecoveryRequest());
+    bus.on('storage:request-recovery', recovery);
+    bus.on('storage:clear-previous-track', clearPreviousTrackState);
+    const incoming = {
+      queueItemId: Q[1]!,
+      name: 'track-1.mp3',
+      mime: 'audio/mpeg',
+      sessionId: 9,
+      size: TWO_CHUNK_FILE_SIZE,
+    };
+    try {
+      await handleFilePrepare({ ...incoming, type: 'file-prepare' }, waitingConn);
+      expect(actualTimers.getManagedTimer('chunkWatchdog')).toBeNull();
+      await vi.advanceTimersByTimeAsync(13_001);
+      expect(recovery).not.toHaveBeenCalled();
+      // PREPARE's one-shot recovery is answered with correlated FILE_WAIT;
+      // the host's slow decode is not a repeating failed bulk transfer.
+      await vi.advanceTimersByTimeAsync(46_999);
+      expect(recovery).toHaveBeenCalledOnce();
+      expect(send.mock.calls.length).toBeGreaterThan(1);
+      expect(
+        send.mock.calls.every(([frame]) => frame.queueItemId === Q[1] && frame.sessionId === 9),
+      ).toBe(true);
+      expect(getState('recovery.retryCount')).toBe(1);
+      expect(getState('playlist.currentQueueItemId')).toBe(Q[1]);
+      expect(getState('player.currentTrackMeta')?.queueItemId).toBe(Q[1]);
+      expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+      handleFileStart({ ...incoming, type: 'file-start', total: 2 }, waitingConn);
+      handleFileChunk(
+        {
+          ...incoming,
+          type: 'file-chunk',
+          total: 2,
+          chunkIndex: 0,
+          chunk: new Uint8Array(CHUNK_SIZE),
+        },
+        waitingConn,
+      );
+      await Promise.resolve();
+      expect(actualTimers.getManagedTimer('chunkWatchdog')).not.toBeNull();
+      expect(getState('transfer.receivedCount')).toBe(1);
+      await vi.advanceTimersByTimeAsync(13_001);
+      expect(recovery).toHaveBeenCalledTimes(2);
+    } finally {
+      actualTimers.clearAllManagedTimers();
+      vi.mocked(timers.setManagedTimer).mockReset();
+      vi.mocked(timers.clearManagedTimer).mockReset();
+      vi.useRealTimers();
+    }
+  });
 
   it.each([false, true])(
     'recovers a missing suffix after chunks bootstrap PREPARE (late FILE_START=%s)',

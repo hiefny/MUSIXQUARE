@@ -342,6 +342,33 @@ describe('host outgoing transfer routing', () => {
     expect(conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ delivery: 'r2' }));
   });
 
+  it('announces a new selection to an unresolved peer without committing its byte route', async () => {
+    const { sendFilePrepareByDelivery } = await import('../transfer.ts');
+    const conn = {
+      open: true,
+      peer: 'pending-selection',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    const peer = connectedPeer(conn.peer, conn, {
+      isDataTarget: false,
+      connectionType: 'unknown',
+    });
+    setState('network.connectedPeers', [peer]);
+    const prepare = {
+      type: MSG.FILE_PREPARE,
+      name: 'selected.mp3',
+      queueItemId: Q0,
+      sessionId: 34,
+      mime: 'audio/mpeg',
+    } as const;
+
+    sendFilePrepareByDelivery(prepare, 34, { announcePending: true });
+    expect(conn.send).toHaveBeenCalledExactlyOnceWith(prepare);
+    setState('network.connectedPeers', [{ ...peer, connectionType: 'remote' as const }]);
+    sendFilePrepareByDelivery(prepare, 34);
+    expect(conn.send).toHaveBeenLastCalledWith({ ...prepare, delivery: 'r2' });
+  });
+
   it('keeps sending on a frozen direct connection after an ICE label changes', async () => {
     const { broadcastFile } = await import('../transfer.ts');
     const file = new File(['frozen-direct'], 'direct.mp3', { type: 'audio/mpeg' });

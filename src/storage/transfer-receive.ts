@@ -157,7 +157,8 @@ function isFilePrepareOwnerCurrent(
     !snapshot.hostConn ||
     getState('network.hostConn') !== snapshot.hostConn ||
     conn !== snapshot.hostConn ||
-    !getQueueItemById(queueItemId)
+    !getQueueItemById(queueItemId) ||
+    isExternalOwner()
   ) {
     return false;
   }
@@ -214,6 +215,35 @@ function incomingQueueItemId(data: Record<string, unknown>): QueueItemId | null 
   return typeof data.queueItemId === 'string' && data.queueItemId.length > 0
     ? data.queueItemId
     : null;
+}
+
+/** R2/route-pending PREPARE may own a newer session before direct bytes do. */
+function hasNewerPreparedFileOwner(queueItemId: QueueItemId, sessionId: number): boolean {
+  const meta = getState('transfer.meta');
+  const preparedSessionId = Number(meta?.sessionId) || 0;
+  return (
+    preparedSessionId > sessionId ||
+    (preparedSessionId === sessionId && !!meta?.queueItemId && meta.queueItemId !== queueItemId)
+  );
+}
+
+function hasCompletedDirectReceive(
+  data: Record<string, unknown>,
+  queueItemId: QueueItemId,
+  sessionId: number,
+): boolean {
+  const meta = getState('transfer.meta');
+  const total = Number(meta?.total);
+  return (
+    data.delivery !== 'r2' &&
+    Number(meta?.sessionId) === sessionId &&
+    meta?.queueItemId === queueItemId &&
+    Number.isSafeInteger(total) &&
+    total > 0 &&
+    getState('transfer.receivedCount') >= total &&
+    (getState('transfer.state') === TRANSFER_STATE.PROCESSING ||
+      getState('playback.lifecycle') === PLAYBACK_STATE.DECODING)
+  );
 }
 
 function completeAcceptedFileRequest(
@@ -438,6 +468,7 @@ function adoptIncomingTrackTarget(data: Record<string, unknown>): void {
     typeof data.name === 'string' ? data.name : getQueueItemById(queueItemId)?.name || '';
   selectQueueItemById(queueItemId);
   setPendingRecoveryTarget({ queueItemId, indexHint, name });
+  setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
 }
 
 function enterAcceptedMainTransfer(
@@ -642,6 +673,44 @@ function retainLoadedSameFileForPrepare(data: Record<string, unknown>): boolean 
   return true;
 }
 
+function projectFilePrepareBeforeRouteCheck(
+  data: Record<string, unknown>,
+  queueItemId: QueueItemId,
+): void {
+  const meta = getState('transfer.meta');
+  const sessionId = Number(data.sessionId);
+  if (
+    meta?.queueItemId === queueItemId &&
+    Number(meta.sessionId) === sessionId &&
+    getState('playlist.currentQueueItemId') === queueItemId
+  )
+    return;
+  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  const name = (data.name as string) || '';
+  const indexHint = findQueueItemIndex(queueItemId);
+  // Selection is already authenticated. Route discovery determines where
+  // bytes come from; it must not keep the outgoing track audible or visible.
+  bus.emit('player:stop-all-media');
+  transition({ type: 'FILE_PREPARE', variant: 'fresh', queueItemId, name });
+  bus.emit('storage:clear-previous-track', 'file-prepare-route-pending');
+  selectQueueItemById(queueItemId);
+  setPendingRecoveryTarget({ queueItemId, indexHint, name });
+  setState('transfer.receivedCount', 0);
+  setPlaybackTransferState(TRANSFER_STATE.IDLE);
+  fileReorderBuffer.clear();
+  nextExpectedChunk = 0;
+  setState('transfer.meta', {
+    queueItemId,
+    indexHint,
+    name,
+    sessionId,
+    size: (data.size as number) || 0,
+    mime: (data.mime as string) || '',
+  });
+  setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
+  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'route-pending file prepare');
+}
+
 async function receiveProRoomFileDirectly(
   data: Record<string, unknown>,
   conn: DataConnection | undefined,
@@ -738,13 +807,7 @@ export async function handleFilePrepare(
   }
   const incomingSid = data.sessionId as number;
   const localSidAtEntry = getState('transfer.localSessionId');
-  const transferMetaAtEntry = getState('transfer.meta');
-  if (
-    incomingSid < localSidAtEntry ||
-    (Number(transferMetaAtEntry?.sessionId) === incomingSid &&
-      transferMetaAtEntry?.queueItemId !== undefined &&
-      transferMetaAtEntry.queueItemId !== queueItemId)
-  ) {
+  if (incomingSid < localSidAtEntry || hasNewerPreparedFileOwner(queueItemId, incomingSid)) {
     log.debug('[file-prepare] Ignoring stale or conflicting transfer owner');
     return;
   }
@@ -779,19 +842,7 @@ export async function handleFilePrepare(
   // not published yet, so the normal same-resident guard cannot recognize it.
   // Preserve the complete receive/decode pipeline instead of transitioning
   // DECODING back to DOWNLOADING for bytes which will not be sent again.
-  const transferStateAtEntry = getState('transfer.state');
-  const lifecycleAtEntry = getState('playback.lifecycle');
-  const completedTotal = Number(transferMetaAtEntry?.total);
-  const isExactCompletedDirectReceive =
-    data.delivery !== 'r2' &&
-    Number(transferMetaAtEntry?.sessionId) === incomingSid &&
-    transferMetaAtEntry?.queueItemId === queueItemId &&
-    Number.isSafeInteger(completedTotal) &&
-    completedTotal > 0 &&
-    getState('transfer.receivedCount') >= completedTotal &&
-    (transferStateAtEntry === TRANSFER_STATE.PROCESSING ||
-      lifecycleAtEntry === PLAYBACK_STATE.DECODING);
-  if (isExactCompletedDirectReceive) {
+  if (hasCompletedDirectReceive(data, queueItemId, incomingSid)) {
     completeAcceptedFileRequest(data, conn);
     log.debug('[file-prepare] Ignoring duplicate prepare for completed direct receive');
     return;
@@ -836,11 +887,21 @@ export async function handleFilePrepare(
     let confirmedRemote = true;
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
+      projectFilePrepareBeforeRouteCheck(data, queueItemId);
       log.info('[Transfer] connectionType unknown. Waiting for ICE detection...');
       showLoader(true, t('transfer.check_conn_type'));
       const resolved = await waitForGuestConnectionType(3000);
       if (!isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, incomingSid, conn)) {
         log.debug('[file-prepare] Connection classification completed for a superseded owner');
+        return;
+      }
+      // Bytes can arrive through the independent bulk lane while ICE stats
+      // are pending. Do not reset a stream that already completed/decoded.
+      if (
+        hasCompletedDirectReceive(data, queueItemId, incomingSid) ||
+        retainLoadedSameFileForPrepare(data)
+      ) {
+        completeAcceptedFileRequest(data, conn);
         return;
       }
       if (resolved === 'local') {
@@ -851,7 +912,10 @@ export async function handleFilePrepare(
     }
 
     if (confirmedRemote) {
-      recordGuestFileDelivery(queueItemId, incomingSid, 'r2');
+      // A local ICE timeout is only a safety fallback. It cannot bind the
+      // transfer to R2: a later authenticated FILE_START may arrive once the
+      // same connection is confirmed local. Only the explicit host delivery
+      // marker above (or an R2 descriptor) owns that persistent route choice.
       completeAcceptedFileRequest(data, conn);
       if (shouldWaitForRemoteShare()) {
         prepareRemoteShareWait(
@@ -897,9 +961,9 @@ export async function handleFilePrepare(
     setState('transfer.staleChunkBurstStart', 0);
     setState('transfer.staleChunkBurstCount', 0);
     setPlaybackTransferState(TRANSFER_STATE.IDLE);
-    // Arm chunk watchdog from NOW so the 12s timer counts from FILE_PREPARE,
-    // not from the last chunk of the previous (defunct) session.
-    startChunkWatchdog();
+    // PREPARE can precede host decode by many seconds. Its one-shot prepare
+    // watchdog owns that wait; FILE_START/first bytes arm the chunk watchdog.
+    clearManagedTimer('chunkWatchdog');
   }
 
   // Check for preloaded match
@@ -942,6 +1006,7 @@ export async function handleFilePrepare(
     bus.emit('player:stop-all-media');
 
     selectQueueItemById(queueItemId);
+    setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
 
     // FILE_PREPARE where blob already assembled → promote straight to DECODING
     // via the preload-promoted path. shouldSkipIncomingFile() returns true
@@ -1222,7 +1287,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   const localSid = getState('transfer.localSessionId');
   // A newer bulk stream can overtake old control-channel frames. Retired
   // owners must not clear that stream's watchdogs or loading UI below.
-  if (incomingSid < localSid) return;
+  if (incomingSid < localSid || hasNewerPreparedFileOwner(queueItemId, incomingSid)) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
     clearManagedTimer('prepareWatchdog');
@@ -1443,7 +1508,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
   const localSid = getState('transfer.localSessionId');
-  if (incomingSid < localSid) return;
+  if (incomingSid < localSid || hasNewerPreparedFileOwner(queueItemId, incomingSid)) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
     clearManagedTimer('prepareWatchdog');
@@ -1557,6 +1622,11 @@ function applyFileChunk(data: Record<string, unknown>): void {
   if (!queueItemId || !getQueueItemById(queueItemId)) return;
   const indexHint = findQueueItemIndex(queueItemId);
   if (incomingSid === rejectedMainSessionId) return;
+  if (
+    incomingSid >= getState('transfer.localSessionId') &&
+    hasNewerPreparedFileOwner(queueItemId, incomingSid)
+  )
+    return;
 
   // Reject a missing chunk rather than constructing an empty byte view.
   if (data.chunk == null) {

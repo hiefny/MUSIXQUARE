@@ -132,10 +132,9 @@ function armPendingBroadcastTimer(): void {
       if (!_pendingBroadcast) return;
       const p = _pendingBroadcast;
       _pendingBroadcast = null;
-      // Send FILE_PREPARE first so guests update their metadata before the
-      // chunk stream lands. Both happen in the same microtask after the
-      // debounce, so guests see exactly one announce + one transfer per
-      // settled track.
+      // Repeat the exact-session metadata before bytes for peers that joined
+      // or resolved their route after selection. Existing receivers retain
+      // their progress; only this settled track enters the chunk stream.
       if (p.prepareMsg) {
         sendFilePrepareByDelivery(p.prepareMsg, p.sessionId, { suppressOwnedDirect: true });
       }
@@ -148,8 +147,8 @@ function armPendingBroadcastTimer(): void {
 }
 
 /**
- * Coalesce rapid track selections so only the latest settled file and its
- * optional FILE_PREPARE announcement enter the ordered data channel. The
+ * Coalesce byte publication so only the latest settled file and its optional
+ * repeated FILE_PREPARE enter the ordered data channel. The
  * name-keyed timer and `_pendingBroadcast` must always describe the same call.
  */
 export function broadcastFileDebounced(
@@ -212,7 +211,7 @@ export function discardPendingBroadcastSuspension(suspension: PendingBroadcastSu
 export function sendFilePrepareByDelivery(
   prepareMsg: AnyProtocolMsg,
   sessionId: number | null,
-  options: { r2Only?: boolean; suppressOwnedDirect?: boolean } = {},
+  options: { r2Only?: boolean; suppressOwnedDirect?: boolean; announcePending?: boolean } = {},
 ): void {
   if (sessionId === null || !Number.isSafeInteger(sessionId) || sessionId <= 0) return;
   freezeFileDeliveryMode(sessionId);
@@ -225,7 +224,13 @@ export function sendFilePrepareByDelivery(
     const conn = peer.conn as DataConnection | null;
     if (peer.status !== 'connected' || !conn?.open) continue;
     const delivery = resolvePeerFileDelivery(peer, sessionId);
-    if (delivery === 'pending') continue;
+    if (delivery === 'pending') {
+      // Selection is already authoritative even while ICE is unresolved.
+      // Send only control metadata; byte delivery remains undecided and the
+      // guest independently waits for classification before choosing its lane.
+      if (options.announcePending && !options.r2Only) safeSend(conn, prepareMsg);
+      continue;
+    }
     if (delivery === 'unsupported') {
       sendFileDeliveryUnavailable(conn, prepareMsg, sessionId);
       continue;

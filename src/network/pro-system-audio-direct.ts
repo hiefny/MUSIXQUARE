@@ -1080,8 +1080,22 @@ function notifyPublisherSessionFallback(
     return;
   }
   session.fallbackSent = true;
-  publisherSession = null;
-  closePublisherSession(session, 'fallback', true);
+  // A newcomer can require SFU delivery without invalidating the LAN routes
+  // already carrying audio. Keep those routes until the service accepts the
+  // SFU publication; provisioning or retrying that replacement may fail.
+  // Uncommitted, stale, and unproven routes must never survive this boundary.
+  for (const [peerId, route] of [...session.routes]) {
+    if (
+      route.committed &&
+      route.provenLocal &&
+      publisherRouteIsCurrent(session, route) &&
+      !pcDisconnected(route.pc)
+    ) {
+      continue;
+    }
+    session.routes.delete(peerId);
+    closePublisherRoute(route, 'fallback', true);
+  }
   try {
     callbacks?.onLiveRouteFallback({
       role: 'publisher',
@@ -1104,6 +1118,8 @@ function notifyPublisherFallback(route: PublisherRoute, reason: string): void {
   ) {
     return;
   }
+  session.routes.delete(route.participantId);
+  closePublisherRoute(route, 'fallback', true);
   notifyPublisherSessionFallback(session, route.participantId, reason);
 }
 
@@ -1436,12 +1452,7 @@ async function provePublisherRouteCurrent(
 }
 
 function scheduleLivePublisherRouteReproof(session: PublisherSession, route: PublisherRoute): void {
-  if (
-    session.phase !== 'live' ||
-    !route.committed ||
-    !publisherRouteIsCurrent(session, route) ||
-    session.fallbackSent
-  ) {
+  if (session.phase !== 'live' || !route.committed || !publisherRouteIsCurrent(session, route)) {
     return;
   }
   setManagedTimer(
@@ -2200,6 +2211,7 @@ async function runPublisherTargetReconcile(
   localParticipantId: string,
 ): Promise<boolean> {
   while (publisherSession === session && !session.closed && session.phase === 'live') {
+    if (session.fallbackSent) return false;
     const revision = session.reconcileRevision;
     const desired = session.reconcileDesiredTargets;
     if (!desired) return false;
@@ -2271,6 +2283,10 @@ export async function reconcileProSystemAudioDirectTargets(
     session.routes.delete(participantId);
     closePublisherRoute(route, 'superseded', true);
   }
+  // Once promotion is requested, roster changes still retire departed or
+  // superseded incumbents, but must not start more direct negotiations. The
+  // authenticated SFU commit or ordinary stop/lease-loss lifecycle ends them.
+  if (session.fallbackSent) return false;
   if (session.reconcileFlight) return session.reconcileFlight;
 
   const flight = runPublisherTargetReconcile(session, localParticipantId);

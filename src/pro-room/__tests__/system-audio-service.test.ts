@@ -1067,6 +1067,101 @@ describe('PRO system-audio service orchestration', () => {
     expect(mocks.updatePublisherExpiry).toHaveBeenCalledTimes(1);
   });
 
+  it('retains direct routes through failed SFU provisioning and until a retry is committed', async () => {
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementation(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({ id: 'capture-stereo' } as MediaStreamTrack);
+    await vi.waitFor(() => expect(mocks.reconcileDirect).toHaveBeenCalled());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    vi.useFakeTimers();
+    const publication = deferred<{
+      sessionId: string;
+      track: { trackName: string; mid: string };
+    }>();
+    const commit = deferred<ProRoomSystemAudioState>();
+    mocks.publish
+      .mockRejectedValueOnce(new Error('SFU unavailable'))
+      .mockReturnValueOnce(publication.promise);
+    api.commitSystemAudioPublication.mockReturnValueOnce(commit.promise);
+    api.commitSystemAudioPublication.mockClear();
+    mocks.resetDirect.mockClear();
+    mocks.reconcileDirect.mockResolvedValue(false);
+    bindProSystemAudioSession(snapshotWithLateParticipant());
+
+    await vi.waitFor(() =>
+      expect(getManagedTimer('pro-system-audio-direct-promotion-retry')).not.toBeNull(),
+    );
+    expect(mocks.resetDirect).not.toHaveBeenCalled();
+    expect(api.commitSystemAudioPublication).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.publish).toHaveBeenCalledTimes(2);
+    expect(mocks.resetDirect).not.toHaveBeenCalled();
+
+    publication.resolve({
+      sessionId: 'realtime_session_retry',
+      track: { trackName: 'audio-stereo', mid: '0' },
+    });
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1));
+    expect(mocks.resetDirect).not.toHaveBeenCalled();
+    const committedPublication = api.commitSystemAudioPublication.mock.calls[0]![0].publication;
+    commit.resolve(localLiveWithPublication(committedPublication));
+    await vi.waitFor(() =>
+      expect(getProSystemAudioViewState().publication).toEqual(committedPublication),
+    );
+    expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: false });
+  });
+
+  it('does not revive retained direct routes or retry an SFU promotion after session reset', async () => {
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementation(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({ id: 'capture-stereo' } as MediaStreamTrack);
+    await vi.waitFor(() => expect(mocks.reconcileDirect).toHaveBeenCalled());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const publication = deferred<never>();
+    mocks.publish.mockReturnValueOnce(publication.promise);
+    mocks.reconcileDirect.mockResolvedValue(false);
+    mocks.resetDirect.mockClear();
+    api.commitSystemAudioPublication.mockClear();
+    bindProSystemAudioSession(snapshotWithLateParticipant());
+    await vi.waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1));
+    expect(mocks.resetDirect).not.toHaveBeenCalled();
+
+    resetProSystemAudioService();
+    expect(mocks.resetDirect).toHaveBeenCalled();
+    mocks.resetDirect.mockClear();
+    mocks.activateDirect.mockClear();
+    publication.reject(new Error('old promotion failed after reset'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.resetDirect).not.toHaveBeenCalled();
+    expect(mocks.activateDirect).not.toHaveBeenCalled();
+    expect(api.commitSystemAudioPublication).not.toHaveBeenCalled();
+    expect(getManagedTimer('pro-system-audio-direct-promotion-retry')).toBeNull();
+  });
+
   it('keeps the canonical SFU publisher when the direct promotion response is lost', async () => {
     let publicationId = '';
     mocks.attemptDirect.mockImplementation(async (options) => {

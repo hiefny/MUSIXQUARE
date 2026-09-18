@@ -1489,6 +1489,93 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
 });
 
 describe('PRO system-audio LAN-direct live lifecycle', () => {
+  it('keeps healthy incumbents through a failed newcomer until promotion or roster teardown', async () => {
+    const callbacks = configureCallbacks();
+    await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 12,
+      publicationId,
+      targets: [target(receiverA)],
+      timeoutMs: 250,
+    });
+    await expect(
+      direct.activateProSystemAudioDirectPublication({
+        ownerParticipantId: publisherId,
+        generation: 12,
+        publicationId,
+        targets: [target(receiverA)],
+      }),
+    ).resolves.toBe(true);
+    const incumbent = peerConnections[0]!;
+    callbacks.onLiveRouteFallback.mockImplementation(() => {
+      expect(incumbent.close).not.toHaveBeenCalled();
+    });
+
+    nextLocalities.push('non-local');
+    await expect(
+      direct.reconcileProSystemAudioDirectTargets([target(receiverA), target(receiverB)], 250),
+    ).resolves.toBe(false);
+
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+    expect(incumbent.close).not.toHaveBeenCalled();
+    expect(peerConnections[1]?.close).toHaveBeenCalledTimes(1);
+    // A failed SFU retry can leave the direct descriptor authoritative. A
+    // fresh roster must keep incumbents without creating another B route.
+    await expect(
+      direct.reconcileProSystemAudioDirectTargets([target(receiverA), target(receiverB)], 250),
+    ).resolves.toBe(false);
+    expect(peerConnections).toHaveLength(2);
+    expect(incumbent.close).not.toHaveBeenCalled();
+
+    // An incarnation change still revokes the old authenticated route while
+    // promotion is pending; retaining audio must not retain stale authority.
+    await expect(
+      direct.reconcileProSystemAudioDirectTargets([target(receiverA, 'joined-at:replacement')]),
+    ).resolves.toBe(false);
+    expect(incumbent.close).toHaveBeenCalledTimes(1);
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues locality checks and closes only invalid incumbents while SFU promotion waits', async () => {
+    const callbacks = configureCallbacks();
+    await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 12,
+      publicationId,
+      targets: [target(receiverA), target(receiverB)],
+      timeoutMs: 250,
+    });
+    vi.useFakeTimers();
+    await direct.activateProSystemAudioDirectPublication({
+      ownerParticipantId: publisherId,
+      generation: 12,
+      publicationId,
+    });
+    nextLocalities.push('non-local');
+    const reconcile = direct.reconcileProSystemAudioDirectTargets(
+      [target(receiverA), target(receiverB), target(receiverC)],
+      250,
+    );
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(reconcile).resolves.toBe(false);
+    expect(peerConnections[0]?.close).not.toHaveBeenCalled();
+    expect(peerConnections[1]?.close).not.toHaveBeenCalled();
+
+    peerConnections[0]!.locality = 'global-ipv6';
+    const healthyStatsCalls = peerConnections[1]!.statsCallCount;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+    expect(peerConnections[1]?.close).not.toHaveBeenCalled();
+    expect(peerConnections[1]!.statsCallCount).toBeGreaterThan(healthyStatsCalls + 1);
+    expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+
+    direct.resetProSystemAudioDirectTransport({ notifyPeers: false });
+    expect(peerConnections[1]?.close).toHaveBeenCalledTimes(1);
+    const statsAfterReset = peerConnections[1]!.statsCallCount;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(peerConnections[1]!.statsCallCount).toBe(statsAfterReset);
+  });
+
   it('negotiates a late join and emits one fenced fallback on a live disconnect', async () => {
     const callbacks = configureCallbacks();
     const descriptor = await direct.attemptProSystemAudioDirectPublication({

@@ -754,6 +754,47 @@ describe('YouTube Sync — Regression Integration', () => {
       });
     });
 
+    it('does not schedule room recovery when a newcomer outside the frozen cohort reconnects', async () => {
+      installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
+      });
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube } = await importPlayer();
+      const { broadcast, safeSend } = await import('../../network/peer.ts');
+      const { getYouTubeZeroStartSnapshot } = await import('../zero-start.ts');
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      const before = getYouTubeZeroStartSnapshot();
+      const newcomer = dataConnection('newcomer-outside-cohort');
+      setState(
+        'network.activeHostConnByPeerId',
+        new Map([
+          [conn.peer, conn],
+          [newcomer.peer, newcomer],
+        ]),
+      );
+      zeroStartFacade.active = true;
+      vi.mocked(broadcast).mockClear();
+      vi.mocked(safeSend).mockClear();
+
+      bus.emit('network:peer-connection-replaced', newcomer.peer);
+
+      expect(getYouTubeZeroStartSnapshot()).toEqual(before);
+      expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
+      bus.emit('network:peer-connected', newcomer);
+      vi.advanceTimersByTime(1_500);
+      expect(getManagedTimer('yt-zero-start-replacement-fallback')).toBeNull();
+      expect(broadcast).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(safeSend)
+          .mock.calls.some(([, message]) => message.type === MSG.YOUTUBE_ZERO_START_ABORT),
+      ).toBe(false);
+    });
+
     it('does not revive replacement recovery after a newer pause cancels it', async () => {
       const player = installPlayer({
         __state: 2,

@@ -81,6 +81,7 @@ function makeHarness(options?: {
   guestPrepareDelayMs?: number;
   hostCommitDelayMs?: number;
   isGuestClockCalibrated?: () => boolean;
+  getLiveGuestPeerIds?: () => string[];
   hostCanonicalTransform?: (position: number) => number;
   guestCanonicalTransform?: (position: number) => number;
   failHostCommitSend?: boolean;
@@ -128,7 +129,7 @@ function makeHarness(options?: {
     getRole: () => 'host',
     getLocalPeerId: () => HOST_ID,
     getHostPeerId: () => null,
-    getLiveGuestPeerIds: () => [GUEST_ID],
+    getLiveGuestPeerIds: options?.getLiveGuestPeerIds ?? (() => [GUEST_ID]),
     getPlayer: () => hostPlayer as YouTubeZeroStartPlayer,
     getLocalPlatform: () => options?.hostPlatform ?? 'other',
     sendToPeer: (_peerId, message) => {
@@ -1354,6 +1355,52 @@ describe('YouTubeZeroStartController', () => {
     expect(harness.hostPlayer.__log.some((call) => call.op === 'pauseVideo')).toBe(false);
     expect(harness.hostPlayer.getPlayerState()).toBe(1);
   });
+
+  it.each([
+    [0, 'muting'],
+    [1, 'warming'],
+    [620, 'scheduled'],
+    [1_400, 'playing'],
+  ] as const)(
+    'preserves the frozen cohort when an outsider connection is replaced during %s ms / %s',
+    (elapsedMs, phase) => {
+      const liveGuests = [GUEST_ID];
+      const harness = makeHarness({ getLiveGuestPeerIds: () => liveGuests });
+      expect(harness.guest.advertiseCapability()).toBe(true);
+      expect(
+        harness.host.beginHostTransition({
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: VIDEO_ID,
+          subIndex: null,
+        }),
+      ).toBe(true);
+      if (elapsedMs > 0) vi.advanceTimersByTime(elapsedMs);
+      liveGuests.push(SECOND_GUEST_ID);
+      harness.host.handleCapability(SECOND_GUEST_ID, {
+        type: 'youtube-zero-start-capability',
+        version: 2,
+        platform: 'other',
+        ready: true,
+      });
+      const before = harness.host.getSnapshot();
+      expect(before).toMatchObject({ phase, expectedGuestIds: [GUEST_ID] });
+      expect(harness.host.canBeginHostTransition()).toBe(true);
+      harness.hostOutbound.length = 0;
+      harness.hostPlayer.__log.length = 0;
+
+      harness.host.handlePeerConnectionReplaced(SECOND_GUEST_ID);
+
+      expect(harness.host.getSnapshot()).toEqual(before);
+      expect(harness.hostOutbound).toEqual([]);
+      expect(harness.hostPlayer.__log).toEqual([]);
+      // The new connection still has to advertise its own capability for the
+      // next run, even though it cannot invalidate this run's frozen cohort.
+      expect(harness.host.canBeginHostTransition()).toBe(false);
+      vi.advanceTimersByTime(5_000);
+      expect(harness.hostPlayer.getPlayerState()).toBe(1);
+      expect(harness.guestPlayer.getPlayerState()).toBe(1);
+    },
+  );
 
   it('does not ABORT healthy guests when a connection is replaced during calibration', () => {
     const harness = makeHarness();

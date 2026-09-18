@@ -55,7 +55,7 @@ afterEach(async () => {
 });
 
 describe('overlapping preload broadcast and late bootstrap', () => {
-  it('keeps received progress when the real senders announce the same transfer twice', async () => {
+  it('joins late bootstrap to the existing broadcast and keeps received progress', async () => {
     const current = fileItem(CURRENT, 'current.mp3');
     const next = fileItem(NEXT, 'next.mp3');
     setState('playlist.items', [current, next]);
@@ -96,11 +96,7 @@ describe('overlapping preload broadcast and late bootstrap', () => {
     const lateBootstrap = unicastPreload(conn, ready.blob, NEXT, ready.sessionId);
     await vi.advanceTimersByTimeAsync(0);
     const overlap = [...wire];
-    expect(overlap.map((frame) => frame.type)).toEqual([
-      MSG.PRELOAD_START,
-      MSG.PRELOAD_CHUNK,
-      MSG.PRELOAD_START,
-    ]);
+    expect(overlap.map((frame) => frame.type)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_CHUNK]);
     cancelPreloadTransfer();
     await vi.advanceTimersByTimeAsync(100);
     await lateBootstrap;

@@ -107,6 +107,28 @@ describe('standard-room prerequisite cache', () => {
     expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
   });
 
+  it('preserves the issuance expiry through response latency and cache reuse', async () => {
+    vi.useFakeTimers();
+    const requestedAt = Date.parse('2026-09-19T00:00:00.000Z');
+    vi.setSystemTime(requestedAt);
+    const pending = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pending.promise);
+
+    const credentials = getStandardRoomTurnCredentials();
+    await vi.advanceTimersByTimeAsync(2_000);
+    pending.resolve(turnResponse(120));
+    await expect(credentials).resolves.toMatchObject({ expiresAt: requestedAt + 120_000 });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(getStandardRoomTurnCredentials()).resolves.toMatchObject({
+      expiresAt: requestedAt + 120_000,
+    });
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(28_001);
+    await getStandardRoomTurnCredentials();
+    expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
+  });
+
   it('lets one setup abort its wait without cancelling the shared fetch', async () => {
     const pending = deferred<Response>();
     mocks.fetchWithCapability.mockReturnValueOnce(pending.promise);

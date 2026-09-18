@@ -81,6 +81,8 @@ const REMOTE_UPLOAD_LOADER = 'remote-share-upload';
 // Treat a descriptor as expired if it would expire within this window —
 // avoids handing out a 30-second-window URL to a guest who'd race the TTL.
 const EXPIRY_SAFETY_MARGIN_MS = 30_000;
+const REMOTE_DESCRIPTOR_EXPIRY_TIMER = 'remote-share-descriptor-expiry';
+const MAX_RETAINED_REMOTE_DESCRIPTORS = 256;
 
 /** One switch for disabling speculative R2 traffic without changing playback. */
 const REMOTE_FILE_PRELOAD_ENABLED = true;
@@ -118,8 +120,8 @@ interface DownloadEntry {
 // Upload tracking stays keyed by playback request. Navigating to another
 // track does not cancel an upload: completion-time gates suppress stale
 // broadcasts, while the finished descriptor warms the cache and the shared
-// promise remains available to recovery callers. Uploads are aborted only
-// when no remote targets remain or the session is torn down.
+// promise remains available to recovery callers. Removing the queue occurrence,
+// losing every remote target, or leaving the room ends that upload's lifetime.
 const _activeUploads = new Map<string, UploadEntry>();
 // Foreground uploads deliberately survive track switches so their completed
 // descriptors can warm the cache. The singleton upload UI cannot share that
@@ -131,6 +133,14 @@ let _foregroundUploadUiOwner: ForegroundUploadUiOwner | null = null;
 const _descriptorCache = new Map<string, RemoteFileSharePayload>();
 let _fileIds = new WeakMap<File, number>();
 let _nextFileId = 1;
+
+/** @internal Payload-free retention snapshot for lifecycle regression tests. */
+export function getRemoteUploadRetentionForTests(): {
+  activeUploads: number;
+  cachedDescriptors: number;
+} {
+  return { activeUploads: _activeUploads.size, cachedDescriptors: _descriptorCache.size };
+}
 
 // Only one active (foreground) download at a time. A newer one supersedes
 // the in-flight one via abort.
@@ -344,6 +354,57 @@ function currentRemoteShareRoomId(): string {
 
 function descriptorCacheKey(file: File, roomId: string): string {
   return JSON.stringify([roomId, fileIdentity(file)]);
+}
+
+function pruneRemoteDescriptorCache(liveKeys?: ReadonlySet<string>): void {
+  clearManagedTimer(REMOTE_DESCRIPTOR_EXPIRY_TIMER);
+  for (const [key, descriptor] of _descriptorCache) {
+    if (!isDescriptorFresh(descriptor) || (liveKeys && !liveKeys.has(key))) {
+      _descriptorCache.delete(key);
+    }
+  }
+  while (_descriptorCache.size > MAX_RETAINED_REMOTE_DESCRIPTORS) {
+    const oldestKey = _descriptorCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    _descriptorCache.delete(oldestKey);
+  }
+  if (_descriptorCache.size === 0) return;
+
+  const expiresAt = Math.min(...[..._descriptorCache.values()].map((item) => item.expiresAt));
+  // A paused room may never request another descriptor. Release expired bearer
+  // metadata on its own deadline instead of waiting for that exact File again.
+  setManagedTimer(
+    REMOTE_DESCRIPTOR_EXPIRY_TIMER,
+    () => pruneRemoteDescriptorCache(),
+    Math.max(1, Math.min(2_147_483_647, expiresAt - Date.now() - EXPIRY_SAFETY_MARGIN_MS)),
+  );
+}
+
+function pruneRemovedRemoteDescriptors(): void {
+  if (_descriptorCache.size === 0) return;
+  const liveKeys = new Set<string>();
+  const roomId = currentRemoteShareRoomId();
+  const rememberFile = (file: File): void => {
+    const id = _fileIds.get(file);
+    if (id !== undefined) liveKeys.add(JSON.stringify([roomId, id]));
+  };
+  for (const item of getState('playlist.items')) {
+    if (item.file instanceof File) rememberFile(item.file);
+  }
+  // Operator-provided files may be resident without a File on the queue row.
+  // Only a still-live occurrence may keep that resident's descriptor reusable.
+  for (const resident of [getState('files.current'), getState('preload.ready')]) {
+    if (!resident || !(resident.blob instanceof File)) continue;
+    const item = getQueueItemById(resident.queueItemId);
+    if (item && (!item.file || item.file === resident.blob)) rememberFile(resident.blob);
+  }
+  pruneRemoteDescriptorCache(liveKeys);
+}
+
+function rememberRemoteDescriptor(key: string, descriptor: RemoteFileSharePayload): void {
+  _descriptorCache.delete(key);
+  _descriptorCache.set(key, descriptor);
+  pruneRemoteDescriptorCache();
 }
 
 function withPlaybackContext(
@@ -682,6 +743,17 @@ function abortActiveUploadsWithoutTargets(reason: string): void {
   log.info(`[RemoteShare] Active upload cancelled (${reason})`);
 }
 
+function abortRemovedQueueUploads(): void {
+  for (const [key, entry] of _activeUploads) {
+    if (getQueueItemById(entry.queueItemId)) continue;
+    _activeUploads.delete(key);
+    // The transport's abort path performs authenticated R2 cleanup and releases
+    // its memory reservation. Navigation among surviving rows keeps warming.
+    entry.abort.abort();
+    clearOwnedForegroundUploadUi(entry.foregroundUiOwner);
+  }
+}
+
 export function cancelRemoteShareWait(reason: string): void {
   // Supersede descriptors suspended in connection-type classification.
   _remoteDescriptorGeneration++;
@@ -881,15 +953,14 @@ export async function shareRemoteFileIfNeeded(
     let descriptor: RemoteFileSharePayload;
 
     // Fast path: reuse a cached, still-fresh descriptor for this file.
+    pruneRemoteDescriptorCache();
     const cached = _descriptorCache.get(cacheKey);
     if (cached && isDescriptorFresh(cached)) {
       descriptor = cached;
+      // Recent use wins when a very large live queue reaches the metadata cap.
+      _descriptorCache.delete(cacheKey);
+      _descriptorCache.set(cacheKey, cached);
     } else {
-      // Drop expired cache entry — its R2 URL would 404 for guests.
-      if (cached && !isDescriptorFresh(cached)) {
-        _descriptorCache.delete(cacheKey);
-      }
-
       const inFlight = _activeUploads.get(uploadKey);
       if (inFlight) {
         failureNotifiedTargets = inFlight.failureNotifiedTargets;
@@ -948,7 +1019,7 @@ export async function shareRemoteFileIfNeeded(
         try {
           descriptor = await promise;
           if (abort.signal.aborted) return;
-          _descriptorCache.set(cacheKey, descriptor);
+          rememberRemoteDescriptor(cacheKey, descriptor);
         } finally {
           if (_activeUploads.get(uploadKey) === entry) _activeUploads.delete(uploadKey);
         }
@@ -2277,6 +2348,7 @@ function resetRemoteShareAuthorityBoundary(): void {
   // still own the shared loader across the room/host transition.
   showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
   _descriptorCache.clear();
+  clearManagedTimer(REMOTE_DESCRIPTOR_EXPIRY_TIMER);
   _fileIds = new WeakMap<File, number>();
   _lastUploadFailureMessageAt = 0;
   _lastStorageQuotaMessageAt = 0;
@@ -2325,6 +2397,8 @@ export function initRemoteShare(): void {
   bus.on('state:playback.mode', revokeStaleForegroundUploadUi);
   bus.on('state:playback.lifecycle', scheduleDeferredRemotePreloadDrain);
   bus.on('state:playlist.items', () => {
+    abortRemovedQueueUploads();
+    pruneRemovedRemoteDescriptors();
     const activeQueueItemId = _activePreloadDownload?.descriptor.queueItemId;
     if (activeQueueItemId && !getQueueItemById(activeQueueItemId)) {
       cancelRemoteFilePreload('playlist-item-removed', activeQueueItemId);

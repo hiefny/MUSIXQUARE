@@ -652,6 +652,7 @@ describe('PRO room cookie session API', () => {
     expect(activeHeaders.get('x-mxqr-pro-presence-incarnation')).toBe(
       activeSnapshot().viewer!.presenceIncarnationId,
     );
+    expect(activeHeaders.get('x-mxqr-pro-presence-recovery')).toBe('1');
     const fencedInit = fetchMock.mock.calls[3]?.[1];
     expect(fencedInit?.method).toBe('POST');
     expect(new Headers(fencedInit?.headers).get('content-type')).toBe('text/plain;charset=UTF-8');

@@ -2842,4 +2842,190 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
 
     expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(2);
   });
+
+  it('releases removed foreground uploads during repeated queue replacement', async () => {
+    const { getRemoteUploadRetentionForTests, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const pending: Promise<void>[] = [];
+    const signals: AbortSignal[] = [];
+    mocks.uploadRemoteFile.mockImplementation(
+      (_file, _sid, _qid, options: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          signals.push(options.signal);
+          options.signal.addEventListener('abort', () => reject(new Error('REMOTE_SHARE_ABORTED')));
+        }),
+    );
+
+    for (let index = 0; index < 30; index++) {
+      const file = new File(['data'], `removed-${index}.mp3`, { type: 'audio/mpeg' });
+      setState('playlist.items', [fileItem(file, Q0)]);
+      setHostFile(file, Q0, index + 1);
+      pending.push(shareRemoteFileIfNeeded(file, index + 1, undefined, { queueItemId: Q0 }));
+      setState('playlist.items', []);
+      setState('playlist.currentQueueItemId', null);
+      setState('files.current', null);
+    }
+    await Promise.all(pending);
+
+    expect(signals).toHaveLength(30);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(getRemoteUploadRetentionForTests()).toEqual({ activeUploads: 0, cachedDescriptors: 0 });
+    expect(getState('share.remote').upload.status).toBe('idle');
+  });
+
+  it('cancels removed shared waiters without clearing a surviving successor upload', async () => {
+    const { getRemoteUploadRetentionForTests, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const fileA = new File(['aaaa'], 'removed.mp3', { type: 'audio/mpeg' });
+    const fileB = new File(['bbbb'], 'surviving.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA, Q0), fileItem(fileB, Q1)]);
+    const uploads: Array<{
+      signal: AbortSignal;
+      resolve: (value: RemoteFileSharePayload) => void;
+    }> = [];
+    mocks.uploadRemoteFile.mockImplementation(
+      (_file, _sid, _qid, options: { signal: AbortSignal }) =>
+        new Promise<RemoteFileSharePayload>((resolve) => {
+          uploads.push({ signal: options.signal, resolve });
+        }),
+    );
+
+    setHostFile(fileA, Q0, 7);
+    const first = shareRemoteFileIfNeeded(fileA, 7, undefined, { queueItemId: Q0 });
+    const waiter = shareRemoteFileIfNeeded(fileA, 7, undefined, { queueItemId: Q0 });
+    setHostFile(fileB, Q1, 8);
+    const successor = shareRemoteFileIfNeeded(fileB, 8, undefined, { queueItemId: Q1 });
+    setState('playlist.items', [fileItem(fileB, Q1)]);
+
+    expect(uploads).toHaveLength(2);
+    expect(uploads[0]!.signal.aborted).toBe(true);
+    expect(uploads[1]!.signal.aborted).toBe(false);
+    expect(getRemoteUploadRetentionForTests().activeUploads).toBe(1);
+    expect(getState('share.remote').upload.status).toBe('uploading');
+    // Even a transport that settles after cancellation cannot repopulate cache
+    // or publish through either waiter belonging to the removed occurrence.
+    uploads[0]!.resolve(descriptor({ name: fileA.name, queueItemId: Q0, sessionId: 7 }));
+    await Promise.all([first, waiter]);
+    expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(0);
+    expect(getState('share.remote').upload.status).toBe('uploading');
+    expect(safeSend).not.toHaveBeenCalled();
+    uploads[1]!.resolve(descriptor({ name: fileB.name, queueItemId: Q1, sessionId: 8 }));
+    await successor;
+    expect(safeSend).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a removed preload upload after its foreground promotion', async () => {
+    const { cancelRemoteFilePreload, preloadRemoteFileIfNeeded, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const file = new File(['data'], 'promoted.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q1)]);
+    const preload = preloadRemoteFileIfNeeded(file, 7, Q1);
+    const signal = mocks.uploadRemoteFile.mock.calls[0]![3].signal as AbortSignal;
+    setHostFile(file, Q1, 7);
+    const foreground = shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q1 });
+    cancelRemoteFilePreload('promotion');
+    expect(signal.aborted).toBe(false);
+
+    setState('playlist.items', []);
+    expect(signal.aborted).toBe(true);
+    resolveUpload(descriptor({ name: file.name, queueItemId: Q1, sessionId: 7 }));
+    await Promise.all([preload, foreground]);
+  });
+
+  it('keeps a shared File descriptor when another queue occurrence still owns that File', async () => {
+    const { getRemoteUploadRetentionForTests, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const file = new File(['data'], 'shared.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q0), fileItem(file, Q1)]);
+    setHostFile(file, Q0, 7);
+    const first = shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+    resolveUpload(descriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }));
+    await first;
+
+    setState('playlist.items', [fileItem(file, Q1)]);
+    expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(1);
+    setHostFile(file, Q1, 8);
+    await shareRemoteFileIfNeeded(file, 8, undefined, { queueItemId: Q1 });
+    expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce();
+    setState('playlist.items', []);
+    expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(0);
+  });
+
+  it('expires idle descriptors on their own deadlines and releases the timer on room exit', async () => {
+    vi.useFakeTimers();
+    const { getRemoteUploadRetentionForTests, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const { getManagedTimer } = await import('../../core/timers.ts');
+    const { bus } = await import('../../core/events.ts');
+    try {
+      const fileA = new File(['aaaa'], 'first.mp3', { type: 'audio/mpeg' });
+      const fileB = new File(['bbbb'], 'second.mp3', { type: 'audio/mpeg' });
+      setState('playlist.items', [fileItem(fileA, Q0), fileItem(fileB, Q1)]);
+      setHostFile(fileA, Q0, 7);
+      const first = shareRemoteFileIfNeeded(fileA, 7, undefined, { queueItemId: Q0 });
+      resolveUpload(descriptor({ expiresAt: Date.now() + 90_000 }));
+      await first;
+      setHostFile(fileB, Q1, 8);
+      const second = shareRemoteFileIfNeeded(fileB, 8, undefined, { queueItemId: Q1 });
+      resolveUpload(descriptor({ queueItemId: Q1, sessionId: 8, expiresAt: Date.now() + 150_000 }));
+      await second;
+      expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(1);
+      expect(getManagedTimer('remote-share-descriptor-expiry')).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(0);
+      expect(getManagedTimer('remote-share-descriptor-expiry')).toBeNull();
+
+      const renewed = shareRemoteFileIfNeeded(fileB, 9, undefined, { queueItemId: Q1 });
+      resolveUpload(descriptor({ queueItemId: Q1, sessionId: 9 }));
+      await renewed;
+      expect(getManagedTimer('remote-share-descriptor-expiry')).not.toBeNull();
+      bus.emit('state:network.sessionCode', null, 'network.sessionCode');
+      expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(0);
+      expect(getManagedTimer('remote-share-descriptor-expiry')).toBeNull();
+    } finally {
+      bus.emit('state:network.sessionCode', null, 'network.sessionCode');
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds descriptor metadata for a large live queue while preserving recent reuse', async () => {
+    const { getRemoteUploadRetentionForTests, shareRemoteFileIfNeeded } =
+      await import('../remote-share.ts');
+    const items = Array.from({ length: 257 }, (_, index) =>
+      fileItem(
+        new File(['data'], `track-${index}.mp3`, { type: 'audio/mpeg' }),
+        `20000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      ),
+    );
+    setState('playlist.items', items);
+    for (const [index, item] of items.entries()) {
+      setHostFile(item.file!, item.queueItemId, index + 1);
+      const upload = shareRemoteFileIfNeeded(item.file!, index + 1, undefined, {
+        queueItemId: item.queueItemId,
+      });
+      resolveUpload(
+        descriptor({ name: item.name, queueItemId: item.queueItemId, sessionId: index + 1 }),
+      );
+      await upload;
+    }
+    expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(256);
+    const last = items.at(-1)!;
+    await shareRemoteFileIfNeeded(last.file!, 300, undefined, { queueItemId: last.queueItemId });
+    expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(257);
+    const first = items[0]!;
+    setHostFile(first.file!, first.queueItemId, 301);
+    const reload = shareRemoteFileIfNeeded(first.file!, 301, undefined, {
+      queueItemId: first.queueItemId,
+    });
+    expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(258);
+    resolveUpload(descriptor({ queueItemId: first.queueItemId, sessionId: 301 }));
+    await reload;
+    expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(256);
+    setState('playlist.items', []);
+    expect(getRemoteUploadRetentionForTests().cachedDescriptors).toBe(0);
+  });
 });

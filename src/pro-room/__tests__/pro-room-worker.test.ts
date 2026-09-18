@@ -2990,6 +2990,7 @@ function requestForRoom(
   if (presence) {
     headers.set('x-mxqr-pro-participant-id', presence.participantId);
     headers.set('x-mxqr-pro-presence-incarnation', presence.presenceIncarnationId);
+    headers.set('x-mxqr-pro-presence-recovery', '1');
   }
   return new Request(`https://pro.musixquare.com/v1/rooms/${roomCode}${path}`, {
     ...init,
@@ -9351,7 +9352,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
@@ -15401,7 +15402,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
     );
     expect(rejectedHeartbeat.status).toBe(409);
-    expect(await responseJson(rejectedHeartbeat)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+    expect(await responseJson(rejectedHeartbeat)).toEqual({ error: 'PRESENCE_EXPIRED' });
     // Cloudflare can expose an application-level empty POST as a non-null body
     // stream. Treat the zero-byte transport body exactly like an absent body.
     const awake = await worker.fetch(
@@ -16973,7 +16974,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     // explicit enter endpoint that rotates the server-issued incarnation.
     const refreshWhileClosed = await worker.fetch(request('/snapshot', {}, ownerCookie));
     expect(refreshWhileClosed.status).toBe(409);
-    expect(await responseJson(refreshWhileClosed)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+    expect(await responseJson(refreshWhileClosed)).toEqual({ error: 'PRESENCE_EXPIRED' });
 
     const entered = await worker.fetch(request('/presence/enter', { method: 'POST' }, ownerCookie));
     expect(entered.status).toBe(200);
@@ -17233,7 +17234,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(completeWhileAway.status).toBe(409);
-    expect(await responseJson(completeWhileAway)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+    expect(await responseJson(completeWhileAway)).toEqual({ error: 'PRESENCE_EXPIRED' });
     const mutateWhileAway = await context.worker.fetch(
       jsonRequest(
         '/snapshot/compact',
@@ -17250,7 +17251,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(mutateWhileAway.status).toBe(409);
-    expect(await responseJson(mutateWhileAway)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+    expect(await responseJson(mutateWhileAway)).toEqual({ error: 'PRESENCE_EXPIRED' });
 
     expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
       409,
@@ -21088,5 +21089,316 @@ describe('PRO room immutable generation isolation', () => {
 
     expect(missingSchemaSql).toHaveLength(1);
     expect(missingSchemaSql[0]?.sql).toContain('mxqr_developer_api_room_generation_tombstones');
+  });
+});
+
+describe('PRO long-session retention and presence recovery', () => {
+  it('distinguishes exact expired presence, legacy recovery, and a real replacement tab', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-19T00:00:00Z'));
+    const { worker, ownerCookie, activationEnvelope } = await activatedRoom();
+    const oldIdentity = {
+      participantId: activationEnvelope.snapshot.viewer.participantId as string,
+      presenceIncarnationId: activationEnvelope.snapshot.viewer.presenceIncarnationId as string,
+    };
+    vi.setSystemTime(Date.now() + 46_000);
+    await worker.alarm();
+    const expired = await worker.fetch(
+      request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
+    );
+    expect(expired.status).toBe(409);
+    expect(await responseJson(expired)).toEqual({ error: 'PRESENCE_EXPIRED' });
+    const legacy = request('/presence/heartbeat', { method: 'POST' }, ownerCookie);
+    legacy.headers.delete('x-mxqr-pro-presence-recovery');
+    const legacyResponse = await worker.fetch(legacy);
+    expect(legacyResponse.status).toBe(401);
+    expect(await responseJson(legacyResponse)).toEqual({ error: 'SESSION_REQUIRED' });
+    const missingIdentity = request('/presence/heartbeat', { method: 'POST' }, ownerCookie);
+    missingIdentity.headers.delete('x-mxqr-pro-presence-incarnation');
+    expect(await responseJson(await worker.fetch(missingIdentity))).toEqual({
+      error: 'PRESENCE_SUPERSEDED',
+    });
+    const reentered = await worker.fetch(
+      request('/presence/enter', { method: 'POST' }, ownerCookie),
+    );
+    expect(reentered.status).toBe(200);
+    bindCookiePresence(ownerCookie, await responseJson(reentered));
+    const replaced = await worker.fetch(
+      requestWithPresence('/presence/heartbeat', { method: 'POST' }, ownerCookie, oldIdentity),
+    );
+    expect(replaced.status).toBe(409);
+    expect(await responseJson(replaced)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
+  });
+
+  it('retains an ordinary identity through detachment and restart, then cleans its final session', async () => {
+    const context = await activatedRoom();
+    const accountId = 'acct_AAAAAAAAAAAAAAAAAAAAAA';
+    const response = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+        accountId,
+        'Listener',
+      ),
+    );
+    const envelope = await responseJson(response);
+    const cookie = cookieFrom(response);
+    bindCookiePresence(cookie, envelope);
+    const memberId = envelope.snapshot.viewer.memberId as string;
+    expect((await context.worker.fetch(detachRequest(cookie))).status).toBe(200);
+    const session = Object.values(context.worker.room!.sessions).find(
+      (item) => item.participantId === envelope.snapshot.viewer.participantId,
+    )!;
+    expect(session).toMatchObject({ detachedAccountMemberId: memberId, role: 'member' });
+    expect(session.accountId).toBeUndefined();
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const anonymous = await responseJson(await restarted.fetch(request('/snapshot', {}, cookie)));
+    expect(anonymous.snapshot.viewer).toMatchObject({ isAuthenticated: false, capabilities: [] });
+    expect(restarted.room!.accountMembers[accountId]?.memberId).toBe(memberId);
+    const reattached = await responseJson(
+      await restarted.fetch(
+        await withAccountAssertion(
+          request('/sessions/current/account', { method: 'POST' }, cookie),
+          accountId,
+          'Listener',
+        ),
+      ),
+    );
+    expect(reattached.snapshot.viewer.memberId).toBe(memberId);
+    expect((await restarted.fetch(detachRequest(cookie))).status).toBe(200);
+    expect(
+      (await restarted.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
+    ).toBe(200);
+    expect(restarted.room!.accountMembers[accountId]).toBeUndefined();
+    expect(restarted.room!.accountMembers[ACTIVATION_OWNER_ACCOUNT_ID]?.role).toBe('owner');
+  });
+
+  it('reclaims a full historical account budget when retained sessions expire', async () => {
+    vi.useFakeTimers();
+    const start = Date.parse('2026-09-19T00:00:00Z');
+    vi.setSystemTime(start);
+    const { worker } = await activatedRoom();
+    for (let index = 0; index < 99; index += 1) {
+      const response = await worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+          `acct_${String(index).padStart(22, '0')}`,
+          `Listener${index}`,
+        ),
+      );
+      expect(response.status).toBe(200);
+      vi.setSystemTime(Date.now() + 121_000);
+      await worker.alarm();
+    }
+    expect(Object.keys(worker.room!.accountMembers)).toHaveLength(100);
+    vi.setSystemTime(start + 31 * 24 * 60 * 60 * 1000);
+    await worker.alarm();
+    expect(Object.keys(worker.room!.sessions)).toHaveLength(0);
+    expect(Object.keys(worker.room!.accountMembers)).toEqual([ACTIVATION_OWNER_ACCOUNT_ID]);
+    const admitted = await worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+        'acct_9999999999999999999999',
+        'NewListener',
+      ),
+    );
+    expect(admitted.status).toBe(200);
+  });
+
+  it('clears detached retention on account deletion without authenticating the anonymous session', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const accountId = 'acct_AAAAAAAAAAAAAAAAAAAAAA';
+    const response = await worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+        accountId,
+        'Listener',
+      ),
+    );
+    const cookie = cookieFrom(response);
+    const envelope = await responseJson(response);
+    bindCookiePresence(cookie, envelope);
+    expect((await worker.fetch(detachRequest(cookie))).status).toBe(200);
+    const session = Object.values(worker.room!.sessions).find(
+      (item) => item.participantId === envelope.snapshot.viewer.participantId,
+    )!;
+    expect(session.detachedAccountMemberId).toBe(envelope.snapshot.viewer.memberId);
+    expect(worker.removeAccountAuthority(accountId, Date.now())).toMatchObject({
+      changed: true,
+      removedSessions: 0,
+    });
+    expect(session.detachedAccountMemberId).toBeUndefined();
+    expect(worker.room!.accountMembers[accountId]).toBeUndefined();
+    const anonymous = await responseJson(await worker.fetch(request('/snapshot', {}, cookie)));
+    expect(anonymous.snapshot.viewer).toMatchObject({ isAuthenticated: false, capabilities: [] });
+    expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(200);
+  });
+
+  it('repairs legacy orphan members while retaining attached identities and offline administrator grants', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const accountId = 'acct_AAAAAAAAAAAAAAAAAAAAAA';
+    const joined = await worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+        accountId,
+        'Listener',
+      ),
+    );
+    expect(joined.status).toBe(200);
+    const member = worker.room!.accountMembers[accountId]!;
+    worker.room!.accountMembers['acct_BBBBBBBBBBBBBBBBBBBBBB'] = {
+      ...member,
+      memberId: 'legacy_orphan_member_001',
+    };
+    worker.room!.accountMembers['acct_CCCCCCCCCCCCCCCCCCCCCC'] = {
+      ...member,
+      memberId: 'offline_admin_member_001',
+      role: 'controller',
+    };
+    expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(200);
+    expect(worker.room!.accountMembers['acct_BBBBBBBBBBBBBBBBBBBBBB']).toBeUndefined();
+    expect(worker.room!.accountMembers[accountId]).toBeDefined();
+    expect(worker.room!.accountMembers['acct_CCCCCCCCCCCCCCCCCCCCCC']?.role).toBe('controller');
+    expect(worker.room!.accountMembers[ACTIVATION_OWNER_ACCOUNT_ID]?.role).toBe('owner');
+  });
+
+  it.each(['anonymous', 'same-account', 'new-account'] as const)(
+    'preserves the admitted %s identity when session capacity evicts a detached cookie',
+    async (admission) => {
+      const { worker, ownerCookie } = await activatedRoom();
+      const accountId = 'acct_AAAAAAAAAAAAAAAAAAAAAA';
+      const response = await worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+          accountId,
+          'Listener',
+        ),
+      );
+      const cookie = cookieFrom(response);
+      const envelope = await responseJson(response);
+      bindCookiePresence(cookie, envelope);
+      expect((await worker.fetch(detachRequest(cookie))).status).toBe(200);
+      expect(
+        (await worker.fetch(request('/presence/current', { method: 'DELETE' }, cookie))).status,
+      ).toBe(200);
+      const retained = Object.values(worker.room!.sessions).find(
+        (session) => session.detachedAccountMemberId === envelope.snapshot.viewer.memberId,
+      )!;
+      for (let index = 0; index < 126; index += 1) {
+        const { detachedAccountMemberId: _retention, ...anonymous } = retained;
+        worker.room!.sessions[`capacity_${String(index).padStart(35, '0')}`] = {
+          ...anonymous,
+          participantId: `participant_${String(index).padStart(24, '0')}`,
+          memberId: `member_${String(index).padStart(24, '0')}`,
+          createdAtMs: retained.createdAtMs + 1,
+        };
+      }
+      expect(Object.keys(worker.room!.sessions)).toHaveLength(128);
+      const nextAccountId =
+        admission === 'same-account' ? accountId : 'acct_BBBBBBBBBBBBBBBBBBBBBB';
+      const nextRequest = jsonRequest('/sessions', 'POST', { pin: '12345678' });
+      const admitted = await worker.fetch(
+        admission === 'anonymous'
+          ? nextRequest
+          : await withAccountAssertion(nextRequest, nextAccountId, 'NewListener'),
+      );
+      expect(admitted.status).toBe(200);
+      const accepted = await responseJson(admitted);
+      if (admission === 'same-account') {
+        expect(accepted.snapshot.viewer.memberId).toBe(envelope.snapshot.viewer.memberId);
+      } else {
+        expect(worker.room!.accountMembers[accountId]).toBeUndefined();
+      }
+      if (admission !== 'anonymous') {
+        expect(worker.room!.accountMembers[nextAccountId]?.memberId).toBe(
+          accepted.snapshot.viewer.memberId,
+        );
+        expect(accepted.snapshot.viewer.isAuthenticated).toBe(true);
+      }
+      expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(200);
+    },
+  );
+
+  it('protects a present detached device at account capacity and reclaims only a wholly offline identity', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const accountId = 'acct_AAAAAAAAAAAAAAAAAAAAAA';
+    const cookies: string[] = [];
+    for (let index = 0; index < 2; index += 1) {
+      const response = await worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+          accountId,
+          'Listener',
+        ),
+      );
+      expect(response.status).toBe(200);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, await responseJson(response));
+      cookies.push(cookie);
+    }
+    expect((await worker.fetch(detachRequest(cookies[0]!))).status).toBe(200);
+    expect(
+      (await worker.fetch(request('/presence/current', { method: 'DELETE' }, cookies[1]))).status,
+    ).toBe(200);
+    const template = worker.room!.accountMembers[accountId]!;
+    for (let index = 0; index < 98; index += 1) {
+      worker.room!.accountMembers[`acct_${String(index).padStart(22, '0')}`] = {
+        ...template,
+        memberId: `admin_${String(index).padStart(24, '0')}`,
+        role: 'controller',
+      };
+    }
+    const newcomer = () =>
+      withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+        'acct_BBBBBBBBBBBBBBBBBBBBBB',
+        'NewListener',
+      );
+    const refused = await worker.fetch(await newcomer());
+    expect(refused.status).toBe(409);
+    expect(await responseJson(refused)).toEqual({ error: 'ACCOUNT_MEMBER_CAPACITY_EXCEEDED' });
+    expect(worker.room!.accountMembers[accountId]?.memberId).toBe(template.memberId);
+    expect(
+      (await worker.fetch(request('/presence/current', { method: 'DELETE' }, cookies[0]))).status,
+    ).toBe(200);
+    expect((await worker.fetch(await newcomer())).status).toBe(200);
+    expect(worker.room!.accountMembers[accountId]).toBeUndefined();
+    for (const cookie of cookies) {
+      expect(
+        (await worker.fetch(request('/presence/enter', { method: 'POST' }, cookie))).status,
+      ).toBe(401);
+    }
+    expect(
+      Object.values(worker.room!.accountMembers).filter((member) => member.role === 'controller'),
+    ).toHaveLength(98);
+    expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(200);
+  });
+
+  it('forwards presence recovery negotiation through the same-origin App facade', async () => {
+    const forwarded: Request[] = [];
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000000/snapshot', {
+        headers: {
+          'X-MXQR-Pro-Presence-Recovery': '1',
+          'X-MXQR-Pro-Participant-Id': 'participant_00000001',
+          'X-MXQR-Pro-Presence-Incarnation': 'presence_0000000001',
+        },
+      }),
+      {
+        PRO_ROOM_PUBLIC_API: {
+          fetch: async (request: Request) => {
+            forwarded.push(request);
+            return Response.json({ error: 'PRESENCE_EXPIRED' }, { status: 409 });
+          },
+        },
+      } as never,
+    );
+    expect(response.status).toBe(409);
+    expect(forwarded[0]?.headers.get('x-mxqr-pro-presence-recovery')).toBe('1');
+    expect(forwarded[0]?.headers.get('x-mxqr-pro-presence-incarnation')).toBe(
+      'presence_0000000001',
+    );
   });
 });

@@ -311,6 +311,8 @@ interface RoomSession {
   presenceIncarnationId: string | null;
   accountId?: string;
   accountLeaseExpiresAtMs?: number;
+  /** Retention only; never evidence of current account identity or authority. */
+  detachedAccountMemberId?: string;
 }
 
 interface PresenceParticipant {
@@ -1358,7 +1360,7 @@ function corsHeaders(origin: string): HeaderRecord {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -4357,6 +4359,18 @@ export class MusixquareProRoom {
         : Math.min(SESSION_MAX_ITEMS + 1, highestDisplayNumber + 1);
 
     for (const session of Object.values(this.activeRoom.sessions || {})) {
+      if (
+        session.accountId ||
+        !OPAQUE_ID_RE.test(session.detachedAccountMemberId || '') ||
+        !Object.values(normalizedMembers).some(
+          (member) => member.memberId === session.detachedAccountMemberId,
+        )
+      ) {
+        if (session.detachedAccountMemberId !== undefined) {
+          this.accountIdentityMigrationPending = true;
+        }
+        delete session.detachedAccountMemberId;
+      }
       if (typeof session.accountId !== 'string') {
         delete session.accountId;
         delete session.accountLeaseExpiresAtMs;
@@ -8268,6 +8282,7 @@ export class MusixquareProRoom {
             : 1;
     }
 
+    session.detachedAccountMemberId = session.memberId;
     delete session.accountId;
     delete session.accountLeaseExpiresAtMs;
     session.memberId = `member_${randomToken(18)}`;
@@ -8313,7 +8328,10 @@ export class MusixquareProRoom {
     if ((linkingOwner || linkedOwner) && ownerMemberId === null) return null;
 
     if (!member) {
-      if (Object.keys(this.activeRoom.accountMembers).length >= ACCOUNT_MEMBER_MAX_ITEMS)
+      if (
+        Object.keys(this.activeRoom.accountMembers).length >= ACCOUNT_MEMBER_MAX_ITEMS &&
+        !this.reclaimOfflineAccountMember()
+      )
         return null;
       const displayNumber = linkingOwner || linkedOwner ? 0 : this.nextAccountMemberDisplayNumber();
       if (displayNumber === null) return null;
@@ -8432,25 +8450,87 @@ export class MusixquareProRoom {
     return true;
   }
 
-  cleanupMemberAfterSessionRemoval(session: RoomSession) {
+  cleanupMemberAfterSessionRemoval(session: RoomSession, preservedMemberId?: string) {
     if (!session) return false;
-    const hasAnotherSession = Object.values(this.activeRoom.sessions || {}).some(
-      (candidate) => candidate.memberId === session.memberId,
-    );
-    if (hasAnotherSession) return false;
-    if (!session.accountId) return this.removeAnonymousAdministrator(session.memberId);
-    const member = this.activeRoom.accountMembers?.[session.accountId];
-    if (!member || member.role !== 'member') return false;
-    delete this.activeRoom.accountMembers[session.accountId];
-    return true;
+    const sessions = Object.values(this.activeRoom.sessions);
+    let changed = false;
+    if (
+      !session.accountId &&
+      !sessions.some((candidate) => candidate.memberId === session.memberId)
+    ) {
+      changed = this.removeAnonymousAdministrator(session.memberId);
+    }
+    for (const [accountId, member] of Object.entries(this.activeRoom.accountMembers)) {
+      if (
+        member.role !== 'member' ||
+        member.memberId === preservedMemberId ||
+        (member.memberId !== session.memberId &&
+          member.memberId !== session.detachedAccountMemberId) ||
+        sessions.some(
+          (candidate) =>
+            (candidate.accountId && candidate.memberId === member.memberId) ||
+            candidate.detachedAccountMemberId === member.memberId,
+        )
+      )
+        continue;
+      delete this.activeRoom.accountMembers[accountId];
+      changed = true;
+    }
+    return changed;
   }
 
-  removeSessionRecord(tokenHash: string) {
+  removeSessionRecord(tokenHash: string, preservedMemberId?: string) {
     const session = this.activeRoom.sessions[tokenHash];
     if (!session) return false;
     delete this.activeRoom.sessions[tokenHash];
-    this.cleanupMemberAfterSessionRemoval(session);
+    this.cleanupMemberAfterSessionRemoval(session, preservedMemberId);
     return true;
+  }
+
+  pruneOrphanedAccountMembers() {
+    const retainedMemberIds = new Set<string>();
+    for (const session of Object.values(this.activeRoom.sessions)) {
+      if (session.accountId) retainedMemberIds.add(session.memberId);
+      if (session.detachedAccountMemberId) retainedMemberIds.add(session.detachedAccountMemberId);
+    }
+    let changed = false;
+    for (const [accountId, member] of Object.entries(this.activeRoom.accountMembers)) {
+      if (member.role !== 'member' || retainedMemberIds.has(member.memberId)) continue;
+      delete this.activeRoom.accountMembers[accountId];
+      changed = true;
+    }
+    return changed;
+  }
+
+  reclaimOfflineAccountMember() {
+    // Ordinary identities share the bounded resumable-cookie lifetime. Under
+    // capacity pressure, reclaim the oldest wholly absent identity just as the
+    // session cache reclaims absent cookies; a present detached device still
+    // protects its retained identity. Persistent grants are never evictable.
+    const sessions = Object.entries(this.activeRoom.sessions);
+    const candidates = Object.entries(this.activeRoom.accountMembers)
+      .filter(
+        ([accountId, member]) =>
+          member.role === 'member' && accountId !== this.activeRoom.ownerAccountId,
+      )
+      .sort(([, left], [, right]) => left.updatedAtMs - right.updatedAtMs);
+    for (const [accountId, member] of candidates) {
+      const associated = sessions.filter(
+        ([, session]) =>
+          session.accountId === accountId || session.detachedAccountMemberId === member.memberId,
+      );
+      if (
+        associated.some(
+          ([, session]) => this.activeRoom.presence.participants[session.participantId],
+        )
+      ) {
+        continue;
+      }
+      for (const [tokenHash] of associated) this.removeSessionRecord(tokenHash);
+      delete this.activeRoom.accountMembers[accountId];
+      return true;
+    }
+    return false;
   }
 
   discardTransientMemberAuthority() {
@@ -8931,6 +9011,9 @@ export class MusixquareProRoom {
 
     let removedSessions = 0;
     for (const [tokenHash, session] of Object.entries(this.activeRoom.sessions || {})) {
+      if (member && session.detachedAccountMemberId === member.memberId) {
+        delete session.detachedAccountMemberId;
+      }
       if (session.accountId !== accountId) continue;
       this.removePresence(session.participantId, nowMs);
       delete this.activeRoom.sessions[tokenHash];
@@ -9254,7 +9337,7 @@ export class MusixquareProRoom {
             left.createdAtMs - right.createdAtMs,
         )[0];
       if (!evictable) return null;
-      this.removeSessionRecord(evictable[0]);
+      this.removeSessionRecord(evictable[0], accountMember?.memberId);
     }
     // Anonymous non-owner identities are always allocated by the server.
     // Account nicknames and the persisted owner identity remain authoritative
@@ -9518,12 +9601,22 @@ export class MusixquareProRoom {
         !OPAQUE_ID_RE.test(expectedPresenceIncarnationId) ||
         auth.session.participantId !== expectedParticipantId ||
         auth.session.presenceIncarnationId !== expectedPresenceIncarnationId ||
-        !participant ||
-        participant.sessionHash !== auth.tokenHash ||
-        participant.participantId !== expectedParticipantId ||
-        participant.presenceIncarnationId !== expectedPresenceIncarnationId
+        (participant &&
+          (participant.sessionHash !== auth.tokenHash ||
+            participant.participantId !== expectedParticipantId ||
+            participant.presenceIncarnationId !== expectedPresenceIncarnationId))
       ) {
         return { response: errorResponse('PRESENCE_SUPERSEDED', 409) };
+      }
+      if (!participant) {
+        // The exact tab lease still matches: absence is not proof of takeover.
+        // Older clients already recover SESSION_REQUIRED through a safe reload.
+        return {
+          response:
+            request.headers.get('x-mxqr-pro-presence-recovery') === '1'
+              ? errorResponse('PRESENCE_EXPIRED', 409)
+              : errorResponse('SESSION_REQUIRED', 401),
+        };
       }
       auth.participant = participant;
     }
@@ -13123,6 +13216,7 @@ export class MusixquareProRoom {
       this.removeAnonymousAdministrator(previousAnonymousMemberId);
     }
     auth.session.accountId = accountMember.accountId;
+    delete auth.session.detachedAccountMemberId;
     auth.session.memberId = accountMember.memberId;
     auth.session.memberDisplayNumber = accountMember.displayNumber;
     auth.session.displayName = accountMember.displayName;
@@ -14740,6 +14834,10 @@ export class MusixquareProRoom {
         changed = this.removePresence(participant.participantId, nowMs) || changed;
       }
     }
+    // Repair legacy detachments that lost their session reference, and reclaim
+    // ordinary identities once their final live or retained session is gone.
+    // Owner and delegated-admin records deliberately outlive all sessions.
+    changed = this.pruneOrphanedAccountMembers() || changed;
     if (accountLeasePresenceChanged) this.scheduleServerEvent(this.presenceEvent());
     changed = (await this.processDeveloperCommands(nowMs)) || changed;
     for (const [commandId, command] of Object.entries(this.activeRoom.developerCommands)) {

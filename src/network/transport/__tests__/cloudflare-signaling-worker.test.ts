@@ -7535,6 +7535,193 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(secondNumber).toBe(2);
   });
 
+  it('reclaims only departed labels after account churn without losing returning member identity', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(
+      room,
+      'host-1',
+      'room-secret-one',
+      await standardAccountAssertion({ peerId: 'host-1', role: 'host' }),
+    );
+    const pinnedAccountId = 'acct_zzzzzzzzzzzzzzzzzzzzzz';
+    const pinnedDevices: FakeSocket[] = [];
+    for (let index = 0; index < 2; index++) {
+      const peerId = `pinned-${index}`;
+      pinnedDevices.push(
+        await joinGuest(room, peerId, {
+          accountAssertion: await standardAccountAssertion({
+            peerId,
+            role: 'guest',
+            accountId: pinnedAccountId,
+          }),
+        }),
+      );
+    }
+    const pinnedIdentity = sent(pinnedDevices[0]!)[0]?.memberIdentity;
+    expect(pinnedIdentity).toMatchObject({ memberDisplayNumber: 1 });
+    let originalMemberId: unknown;
+    for (let index = 0; index < 130; index++) {
+      const peerId = `historical-${index}`;
+      const guest = await joinGuest(room, peerId, {
+        accountAssertion: await standardAccountAssertion({
+          peerId,
+          role: 'guest',
+          accountId: `acct_${String(index).padStart(22, '0')}`,
+        }),
+      });
+      const identity = sent(guest).find((frame) => frame.type === 'peer-open')?.memberIdentity as
+        Record<string, unknown> | undefined;
+      expect(identity).toMatchObject({ isAuthenticated: true });
+      expect(identity?.memberDisplayNumber).not.toBe(1);
+      if (index === 0) originalMemberId = identity?.memberId;
+      guest.close();
+      await room.webSocketClose(guest);
+    }
+    const stored = (await state.storage.get('standardRoomAccountMembers')) as {
+      entries: Array<{ memberId: string; memberDisplayNumber: number }>;
+    };
+    expect(stored.entries).toHaveLength(100);
+    expect(stored.entries.some((entry) => entry.memberId === originalMemberId)).toBe(false);
+    const returning = await joinGuest(room, 'returning-account', {
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'returning-account',
+        role: 'guest',
+        accountId: `acct_${'0'.repeat(22)}`,
+      }),
+    });
+    expect(sent(returning)[0]?.memberIdentity).toMatchObject({
+      isAuthenticated: true,
+      memberId: originalMemberId,
+    });
+    for (const pinned of pinnedDevices) {
+      expect(pinned.deserializeAttachment()).toMatchObject({ memberDisplayNumber: 1 });
+      expect(sent(pinned)[0]?.memberIdentity).toEqual(pinnedIdentity);
+    }
+    expect(sent(host)).not.toContainEqual(
+      expect.objectContaining({ type: 'account-member-deleted' }),
+    );
+  });
+
+  it('allows a live guest to change accounts when all historical label slots are occupied', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await authenticateHost(
+      room,
+      'host-1',
+      'room-secret-one',
+      await standardAccountAssertion({ peerId: 'host-1', role: 'host' }),
+    );
+    let firstGuest: FakeSocket | undefined;
+    for (let index = 0; index < 99; index++) {
+      const peerId = `live-${index}`;
+      const guest = await joinGuest(room, peerId, {
+        accountAssertion: await standardAccountAssertion({
+          peerId,
+          role: 'guest',
+          accountId: `acct_${String(index).padStart(22, '0')}`,
+        }),
+      });
+      if (index === 0) firstGuest = guest;
+      expect(sent(guest)[0]).toHaveProperty('memberIdentity.isAuthenticated', true);
+    }
+    const previous = (firstGuest!.deserializeAttachment() as Record<string, unknown>).memberId;
+    await room.webSocketMessage(
+      firstGuest!,
+      JSON.stringify({
+        type: 'account-identity-refresh',
+        accountAssertion: await standardAccountAssertion({
+          peerId: 'live-0',
+          role: 'guest',
+          accountId: 'acct_zzzzzzzzzzzzzzzzzzzzzz',
+        }),
+      }),
+    );
+    expect(sent(firstGuest!).at(-1)).toMatchObject({
+      type: 'account-identity',
+      memberIdentity: { isAuthenticated: true, memberDisplayNumber: 1 },
+    });
+    expect((firstGuest!.deserializeAttachment() as Record<string, unknown>).memberId).not.toBe(
+      previous,
+    );
+    const stored = (await state.storage.get('standardRoomAccountMembers')) as {
+      entries: unknown[];
+    };
+    expect(stored.entries).toHaveLength(100);
+  });
+
+  it('protects a live predecessor label when a reconnect closes during directory commit', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await authenticateHost(
+      room,
+      'host-1',
+      'room-secret-one',
+      await standardAccountAssertion({ peerId: 'host-1', role: 'host' }),
+    );
+    const guests: FakeSocket[] = [];
+    for (let index = 0; index < 99; index++) {
+      const peerId = `live-${index}`;
+      guests.push(
+        await joinGuest(room, peerId, {
+          accountAssertion: await standardAccountAssertion({
+            peerId,
+            role: 'guest',
+            accountId: `acct_${String(index).padStart(22, '0')}`,
+          }),
+        }),
+      );
+    }
+    expect(guests[0]!.deserializeAttachment()).toMatchObject({ memberDisplayNumber: 1 });
+    // All labels remain occupied in history, but only the final guest has left.
+    guests[98]!.close();
+    await room.webSocketClose(guests[98]!);
+    const failedAccountId = 'acct_zzzzzzzzzzzzzzzzzzzzzz';
+    await room.fetch(wsRequest('123456', 'guest', 'live-0'));
+    const candidate = lastServer();
+    const originalPut = state.storage.put.bind(state.storage);
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      await originalPut(key, value);
+      if (key === 'standardRoomAccountMembers') candidate.close();
+    });
+    await room.webSocketMessage(
+      candidate,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+        accountAssertion: await standardAccountAssertion({
+          peerId: 'live-0',
+          role: 'guest',
+          accountId: failedAccountId,
+        }),
+      }),
+    );
+    state.storage.put = originalPut;
+    expect(guests[0]!.closed).toBe(false);
+    expect(sent(candidate).some((frame) => frame.type === 'peer-open')).toBe(false);
+
+    const other = await joinGuest(room, 'other-device', {
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'other-device',
+        role: 'guest',
+        accountId: failedAccountId,
+      }),
+    });
+    const predecessor = guests[0]!.deserializeAttachment() as Record<string, unknown>;
+    const newcomer = other.deserializeAttachment() as Record<string, unknown>;
+    expect(newcomer.auth).toBe('ok');
+    expect(newcomer.memberId).not.toBe(predecessor.memberId);
+    expect(newcomer.memberDisplayNumber).not.toBe(predecessor.memberDisplayNumber);
+    expect(newcomer.memberDisplayNumber).toBe(99);
+  });
+
   it('anchors account display numbers to the first physical join slot while every device consumes a slot', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {

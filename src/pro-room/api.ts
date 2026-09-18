@@ -1284,6 +1284,7 @@ export class ProRoomApiClient {
       if (!identity) throw new ProRoomApiError('PRESENCE_IDENTITY_REQUIRED', 409);
       headers.set('X-MXQR-Pro-Participant-Id', identity.participantId);
       headers.set('X-MXQR-Pro-Presence-Incarnation', identity.presenceIncarnationId);
+      headers.set('X-MXQR-Pro-Presence-Recovery', '1');
     }
 
     try {

@@ -230,6 +230,7 @@ let queueModeCheckpointDirty = false;
 let queueModeIntentRevision = 0;
 let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
+let presenceRecoveryAbort: AbortController | null = null;
 let controlChannelRecoveryAttempt = 0;
 let accountAuthorityFailClosed = false;
 let accountLeaseRenewalOwner: symbol | null = null;
@@ -2345,6 +2346,8 @@ function applyAuthority(context: RoomContext): void {
 }
 
 function stopLifecycle(): void {
+  presenceRecoveryAbort?.abort();
+  presenceRecoveryAbort = null;
   active = false;
   visibilityPlaybackRecoveryPending = false;
   visibilityPlaybackRecoveryAttempt = 0;
@@ -2664,6 +2667,7 @@ function isTerminalSessionError(error: unknown): error is ProRoomApiError {
   return (
     error instanceof ProRoomApiError &&
     (error.code === 'SESSION_REQUIRED' ||
+      error.code === 'PRESENCE_EXPIRED' ||
       error.code === 'PRESENCE_SUPERSEDED' ||
       error.status === 423 ||
       error.code === 'ROOM_SUSPENDED')
@@ -2674,6 +2678,41 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   if (terminalRecoveryInFlight) return;
   terminalRecoveryInFlight = true;
   stopLifecycle();
+  if (error.code === 'PRESENCE_EXPIRED') {
+    const recoveryAbort = new AbortController();
+    presenceRecoveryAbort = recoveryAbort;
+    const context = controller.context;
+    if (context) applyAuthority({ ...context, capabilities: [] });
+    resetProSystemAudioService();
+    resetPlaylistRuntime();
+    try {
+      // Exact-identity expiry is recoverable. The normal entry endpoint still
+      // rejects a live sibling tab; recovery never requests takeover.
+      const snapshot = await controller.reenterAfterDetachedPresence(recoveryAbort.signal);
+      if (recoveryAbort.signal.aborted) return;
+      await finalizeOpenedRoom(snapshot);
+      if (bridge.connected) markProRoomTransportRecovered();
+      return;
+    } catch (recoveryError) {
+      if (
+        recoveryError instanceof Error &&
+        (recoveryError.name === 'AbortError' ||
+          recoveryError.message === 'PRO_ROOM_SESSION_SUPERSEDED' ||
+          (recoveryError instanceof ProRoomApiError && recoveryError.code === 'ABORTED'))
+      ) {
+        return;
+      }
+      log.warn('[PRO] Expired presence re-entry failed', recoveryError);
+      error =
+        recoveryError instanceof ProRoomApiError &&
+        (recoveryError.code === 'PRESENCE_ACTIVE_ELSEWHERE' ||
+          recoveryError.code === 'PRESENCE_SUPERSEDED')
+          ? new ProRoomApiError('PRESENCE_SUPERSEDED', 409)
+          : new ProRoomApiError('SESSION_REQUIRED', 401);
+    } finally {
+      if (presenceRecoveryAbort === recoveryAbort) presenceRecoveryAbort = null;
+    }
+  }
   log.warn(`[PRO] Session is no longer valid (${error.code}); re-authentication required`);
   try {
     await controller.terminate();
@@ -3299,12 +3338,29 @@ export async function kickActiveProRoomPresence(
 }
 
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
+  const viewer = snapshot.viewer;
+  const currentViewer = controller.snapshot?.viewer;
+  if (
+    !viewer ||
+    !currentViewer ||
+    currentViewer.participantId !== viewer.participantId ||
+    currentViewer.presenceIncarnationId !== viewer.presenceIncarnationId
+  ) {
+    throw new Error('PRO_ROOM_SESSION_SUPERSEDED');
+  }
+  const sessionLease = controller.captureSessionLease();
+  const isCurrent = () => controller.isSessionLeaseCurrent(sessionLease, snapshot.roomCode);
+  if (!isCurrent()) throw new Error('PRO_ROOM_SESSION_SUPERSEDED');
   try {
     await acceptPlaylistSnapshot(snapshot);
   } catch (error) {
+    if (!isCurrent()) throw new Error('PRO_ROOM_SESSION_SUPERSEDED', { cause: error });
     await controller.leave().catch(() => undefined);
     throw error;
   }
+  // Playlist projection can yield while the user leaves or opens a successor.
+  // An obsolete completion must neither restart timers nor tear down that room.
+  if (!isCurrent()) throw new Error('PRO_ROOM_SESSION_SUPERSEDED');
   startLifecycle();
   // These dedicated resources are optional adjunct state. In particular, a
   // mobile document can suspend their fetches while an OAuth popup owns the

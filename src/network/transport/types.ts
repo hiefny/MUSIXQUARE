@@ -446,7 +446,7 @@ export interface TransportPeer {
    */
   recoverAfterBackground?(hiddenMs: number): TransportBackgroundRecoveryResult;
   /** Release a deliberately deferred RTC negotiation with its final ICE config. */
-  setRtcConfiguration?(configuration: RTCConfiguration): void;
+  setRtcConfiguration?(configuration: RTCConfiguration, expiresAt?: number): void;
   setRoomPassword?(password: string | null): void;
   setProSignalingAccess?(access: ProSignalingOptions): boolean;
   refreshStandardRoomIdentity?(): Promise<void>;
@@ -516,6 +516,12 @@ export interface ProSignalingOptions {
 export interface TransportPeerOptions {
   debug?: number;
   config: RTCConfiguration;
+  /** Absolute credential expiry, retained across page-scoped cache hits. */
+  rtcConfigurationExpiresAt?: number;
+  /** Bounded credential renewal for both existing and subsequently created PCs. */
+  rtcConfigurationProvider?: (
+    signal: AbortSignal,
+  ) => Promise<{ configuration: RTCConfiguration; expiresAt: number } | null>;
   /** Open signaling immediately, but do not construct RTCPeerConnection until configured. */
   deferRtcUntilConfigured?: boolean;
   provider: TransportProvider;

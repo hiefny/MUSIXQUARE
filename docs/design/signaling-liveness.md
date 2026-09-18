@@ -59,6 +59,16 @@ is required to prove direct local routing. Router isolation, NAT, VPNs, or incom
 evidence may therefore produce a remote classification on the same Wi-Fi. Recovery must not
 grant local transfer privileges from an SSID or reuse the previous path's classification.
 
+Standard classification also handles Chromium retaining a native host/prflx snapshot after
+the signaled remote host candidate refines the selected connection. It accepts that refinement
+only when one transport explicitly selects a succeeded host/host statistics pair, both endpoint
+ports and protocols match, and any visible addresses, local foundation, and ICE username
+fragments agree. Browser-redacted addresses are unavailable for comparison; missing ports or
+protocols are not accepted. The exact connection, ICE transport, and native pair's
+endpoint/generation fields must remain unchanged while statistics are read. An unselected or
+merely nominated host pair cannot establish this proof. Other native remote candidate types
+retain conservative classification; the PRO direct-audio policy is separate.
+
 These bounds improve recoverability; they do not guarantee uninterrupted playback across
 Wi-Fi/cellular handoff or an operating-system suspension. Terminal guest-disconnect UI stops
 every media source and cancels pending file loads before showing the dialog.

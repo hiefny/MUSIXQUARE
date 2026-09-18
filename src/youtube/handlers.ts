@@ -97,6 +97,15 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     return;
   }
 
+  // Protocol validation proves the ID shape and current host connection, not
+  // membership in the accepted playlist. Reject an obsolete/wrong-kind
+  // occurrence before retiring the current transfer or local playback intent.
+  const playlistItem = getQueueItemById(queueItemId);
+  if (!playlistItem || playlistItem.type !== 'youtube') {
+    log.warn('[YouTube] Ignored play for an unknown queue item:', queueItemId);
+    return;
+  }
+
   setLocalYouTubePaused(false);
 
   // A new host command arrived — cancel any pending guest-ENDED fallback
@@ -123,11 +132,6 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
 
   // The ordered playlist snapshot must land first. queueItemId selects the
   // exact occurrence even if its position changed before this command.
-  const playlistItem = getQueueItemById(queueItemId);
-  if (!playlistItem || playlistItem.type !== 'youtube') {
-    log.warn('[YouTube] Ignored play for an unknown queue item:', queueItemId);
-    return;
-  }
   if (!selectQueueItemById(queueItemId)) return;
   setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(playlistItem));
 

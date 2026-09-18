@@ -647,6 +647,45 @@ describe('network initialization ownership', () => {
     expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['member', 'loading'],
+    ['member', 'playing'],
+    ['member', 'receiving-system-audio'],
+    ['operator', 'loading'],
+    ['operator', 'playing'],
+    ['operator', 'receiving-system-audio'],
+  ] as const)(
+    'preserves a %s data channel during signaling loss while %s',
+    async (role, activity) => {
+      vi.useFakeTimers();
+      const peer = makePeer('STANDARD-GUEST', true);
+      mocks.createTransportPeer.mockResolvedValueOnce(peer);
+      await createHostSessionWithShortCode(1);
+      const hostConn = { open: true } as DataConnection;
+      setState('setup.sessionStarted', true);
+      setState('network.appRole', 'guest');
+      setState('network.isOperator', role === 'operator');
+      setState('network.hostConn', hostConn);
+      setState('playback.activity', activity === 'loading' ? 'pending' : 'playing');
+      setState('systemAudio.isReceiving', activity === 'receiving-system-audio');
+      const stopMedia = vi.fn();
+      const stopSystemAudio = vi.fn();
+      bus.on('player:stop-all-media', stopMedia);
+      bus.on('system-audio:force-stop', stopSystemAudio);
+
+      peer.fire('disconnected');
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(getState('network.signalingHealth').status).toBe('exhausted');
+      expect(getState('network.hostConn')).toBe(hostConn);
+      expect(getState('playback.activity')).toBe(activity === 'loading' ? 'pending' : 'playing');
+      expect(getState('systemAudio.isReceiving')).toBe(activity === 'receiving-system-audio');
+      expect(stopMedia).not.toHaveBeenCalled();
+      expect(stopSystemAudio).not.toHaveBeenCalled();
+      expect(mocks.showDialog).not.toHaveBeenCalled();
+    },
+  );
+
   it('re-evaluates a signaling-loss check that skipped a stale-open guest connection', async () => {
     const stopMedia = vi.fn();
     const stopSystemAudio = vi.fn();

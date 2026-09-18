@@ -1201,6 +1201,31 @@ describe('PRO room session controller', () => {
     expect(observer.snapshot).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['refresh', 'heartbeat'] as const)(
+    'rejects a late %s snapshot after a newer revision was accepted in the same room',
+    async (operation) => {
+      const { api, observer, transport, controller } = fixtures();
+      await controller.join({ code: ROOM_CODE, pin: '12345678' });
+      let resolveOld!: (value: ProRoomSnapshot) => void;
+      const method = operation === 'refresh' ? api.getSnapshot : api.heartbeat;
+      method.mockImplementationOnce(
+        () => new Promise<ProRoomSnapshot>((resolve) => (resolveOld = resolve)),
+      );
+      const oldRequest = controller[operation]();
+      const current = snapshot({ revision: 3 });
+      api.heartbeat.mockResolvedValueOnce(current);
+      await controller.heartbeat();
+
+      resolveOld(snapshot({ revision: 2 }));
+      await expect(oldRequest).rejects.toThrow('PRO_ROOM_SNAPSHOT_STALE');
+      expect(controller.snapshot?.revision).toBe(3);
+      expect(observer.snapshot).toHaveBeenCalledTimes(2);
+      expect(observer.snapshot).toHaveBeenLastCalledWith(current);
+      expect(transport.reconfigure).not.toHaveBeenCalled();
+      expect(observer.cleared).not.toHaveBeenCalled();
+    },
+  );
+
   it('turns an old rejected heartbeat into superseded after another room opens', async () => {
     const { api, observer, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678' });

@@ -1753,6 +1753,125 @@ describe('playTrack YouTube auto-rendezvous', () => {
 });
 
 describe('playTrack explicit file playback intent', () => {
+  it('retires the predecessor announcement when activating a ready preload', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      { ...makeConnectedPeer('guest-1', false), conn, connectionType: 'local' },
+    ]);
+    const oldFile = new File(['old'], 'old.mp3', { type: 'audio/mpeg' });
+    const nextFile = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    const previous = fileItem(oldFile.name, oldFile);
+    const selected = fileItem(nextFile.name, nextFile);
+    setState('playlist.items', [previous, selected]);
+    selectIndex(0);
+    setState('preload.nextQueueItemId', selected.queueItemId);
+    setState('preload.ready', residentFor(selected, nextFile, 2));
+    broadcastFileDebounced(oldFile, previous.queueItemId, 1, {
+      type: MSG.FILE_PREPARE,
+      queueItemId: previous.queueItemId,
+      name: oldFile.name,
+      mime: oldFile.type,
+      sessionId: 1,
+    });
+
+    await playTrack(selected.queueItemId);
+    await vi.advanceTimersByTimeAsync(301);
+    expect(decodeMocks.loadPreloadedTrack).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.PLAY_PRELOADED,
+        queueItemId: selected.queueItemId,
+      }),
+    );
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.FILE_PREPARE,
+        queueItemId: previous.queueItemId,
+      }),
+    );
+  });
+
+  it('announces an accepted file selection before its host decode can finish', async () => {
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      { ...makeConnectedPeer('guest-1', false), conn, connectionType: 'local' },
+    ]);
+    const file = new File(['audio'], 'selected.mp3', { type: 'audio/mpeg' });
+    const selected = fileItem(file.name, file);
+    setState('playlist.items', [selected]);
+    let finishDecode!: (loaded: boolean) => void;
+    decodeMocks.loadAndBroadcastFile.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishDecode = resolve;
+        }),
+    );
+
+    const selection = playTrack(selected.queueItemId);
+    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.FILE_PREPARE,
+        queueItemId: selected.queueItemId,
+        name: file.name,
+        sessionId: getState('transfer.currentSessionId'),
+      }),
+    );
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+    finishDecode(false);
+    await selection;
+  });
+
+  it('retires a parked predecessor announcement while the next file is decoding', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      { ...makeConnectedPeer('guest-1', false), conn, connectionType: 'local' },
+    ]);
+    const oldFile = new File(['old'], 'old.mp3', { type: 'audio/mpeg' });
+    const newFile = new File(['new'], 'new.mp3', { type: 'audio/mpeg' });
+    const previous = fileItem(oldFile.name, oldFile);
+    const selected = fileItem(newFile.name, newFile);
+    setState('playlist.items', [previous, selected]);
+    selectIndex(0);
+    broadcastFileDebounced(oldFile, previous.queueItemId, 1, {
+      type: MSG.FILE_PREPARE,
+      queueItemId: previous.queueItemId,
+      name: oldFile.name,
+      mime: oldFile.type,
+      sessionId: 1,
+    });
+    let finishDecode!: (loaded: boolean) => void;
+    decodeMocks.loadAndBroadcastFile.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishDecode = resolve;
+        }),
+    );
+
+    const selection = playTrack(selected.queueItemId);
+    await vi.advanceTimersByTimeAsync(301);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.FILE_PREPARE,
+        queueItemId: selected.queueItemId,
+      }),
+    );
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.FILE_PREPARE,
+        queueItemId: previous.queueItemId,
+      }),
+    );
+    finishDecode(false);
+    await selection;
+  });
+
   it('keeps an ordinary first file ready for the manual play tap', async () => {
     const file = new File(['audio'], 'first.flac', { type: 'audio/flac' });
     const item = fileItem(file.name, file);

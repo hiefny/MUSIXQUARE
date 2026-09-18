@@ -17,7 +17,7 @@ import {
 import { fmtTime } from '../player/transport.ts';
 import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
-import { getYouTubePlayer, setYtAutoplayIntent } from './_state.ts';
+import { getYouTubePlayer, isLocalYouTubePaused, setYtAutoplayIntent } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
 import { createHostLocalRendezvous, type HostLocalRendezvous } from './standard-host-rendezvous.ts';
 import {
@@ -72,6 +72,7 @@ interface StandardHostManualOffsetTransaction extends StandardHostManualOffsetId
   seekObserved: boolean;
   rendezvous: HostLocalRendezvous | null;
   proTimeline: ProRoomLocalPlaybackTimeline | null;
+  locallyPaused: boolean;
 }
 
 let transaction: StandardHostManualOffsetTransaction | null = null;
@@ -135,7 +136,8 @@ function hasHardIdentity(active: StandardHostManualOffsetTransaction): boolean {
   return (
     active.lease.isCurrent() &&
     hasHardIdentityData(active) &&
-    (!active.proTimeline || active.proTimeline.isCurrent())
+    (!active.proTimeline ||
+      (active.proTimeline.isCurrent() && (active.locallyPaused || !isLocalYouTubePaused())))
   );
 }
 
@@ -528,13 +530,17 @@ function begin(lease: StandardHostManualOffsetLease): void {
     : null;
   if (isProCoordinatorYouTubeEndpoint() && !proTimeline)
     throw new Error('Current PRO server timeline is unavailable');
+  const locallyPaused = proTimeline !== null && isLocalYouTubePaused();
   // A second +/- click can arrive while the first seek reports BUFFERING.
   // Preserve the transaction's intent instead of changing it to PAUSED.
+  // A personal offset edit is not a local rejoin: a paused PRO endpoint may
+  // seek against the captured checkpoint while the rest of the room plays.
   const playing =
-    proTimeline?.playing ??
-    (samePendingMedia
-      ? previous.playing
-      : playerState === 1 || (playerState === 3 && getState('playback.activity') === 'playing'));
+    !locallyPaused &&
+    (proTimeline?.playing ??
+      (samePendingMedia
+        ? previous.playing
+        : playerState === 1 || (playerState === 3 && getState('playback.activity') === 'playing')));
   const localTime = player.getCurrentTime();
   if (!Number.isFinite(localTime)) throw new Error('YouTube local position is unavailable');
   const canonicalTime = beginProCoordinatorYouTubeNudge(
@@ -630,6 +636,7 @@ function begin(lease: StandardHostManualOffsetLease): void {
     seekObserved: false,
     rendezvous: null,
     proTimeline,
+    locallyPaused,
   };
   previous?.rendezvous?.cancel();
   transaction = next;

@@ -190,6 +190,8 @@ beforeEach(async () => {
   clearAllManagedTimers();
   vi.clearAllMocks();
   resetState();
+  const { setLocalYouTubePaused } = await import('../_state.ts');
+  setLocalYouTubePaused(false);
   bus.clear();
   vi.useFakeTimers();
   vi.setSystemTime(EPOCH);
@@ -568,6 +570,54 @@ describe('PRO participant local scheduled offset', () => {
     expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
     expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
   });
+
+  it.each([0, 0.25])(
+    'keeps a locally paused PRO participant paused when committing offset %s to a playing room',
+    async (offset) => {
+      enterPro();
+      const fixture = makePlayer({ state: 2, position: 7.1 });
+      await installPlayer(fixture);
+      const { setLocalYouTubePaused, isLocalYouTubePaused } = await import('../_state.ts');
+      setLocalYouTubePaused(true);
+      setPlaybackYouTubePaused();
+      setState('sync.youtubeLocalOffset', 0.1);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0.1);
+
+      bus.emit('youtube:set-coordinator-manual-offset', offset, 'committed');
+      vi.advanceTimersByTime(2_500);
+
+      expect(fixture.player.playVideo).not.toHaveBeenCalled();
+      expect(fixture.player.getPlayerState()).toBe(2);
+      expect(isLocalYouTubePaused()).toBe(true);
+      expect(getState('sync.youtubeLocalOffset')).toBe(offset);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset, 5);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+    },
+  );
+
+  it.each([50, 500, 1_350])(
+    'retires a PRO offset plan when a newer local pause arrives at %i ms',
+    async (pauseAt) => {
+      enterPro();
+      const fixture = makePlayer();
+      await installPlayer(fixture);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0.1);
+      bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
+      vi.advanceTimersByTime(pauseAt);
+      const { setLocalYouTubePaused } = await import('../_state.ts');
+      setLocalYouTubePaused(true);
+      fixture.player.pauseVideo();
+      vi.advanceTimersByTime(3_000);
+
+      expect(fixture.player.playVideo).not.toHaveBeenCalled();
+      expect(fixture.player.getPlayerState()).toBe(2);
+      expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0.1);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+      expect(getManagedTimer(PLAY_TIMER)).toBeNull();
+      expect(getManagedTimer(VERIFY_TIMER)).toBeNull();
+    },
+  );
 
   it.each([false, true])(
     'only a current canonical COMMIT retires the local plan (stale=%s)',

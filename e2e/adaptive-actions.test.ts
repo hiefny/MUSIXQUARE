@@ -563,15 +563,17 @@ test.describe('content-based adaptive action groups', () => {
           const button = label.closest<HTMLElement>('.nav-item')!;
           const buttonRect = button.getBoundingClientRect();
           const labelRect = label.getBoundingClientRect();
+          const textRange = document.createRange();
+          textRange.selectNodeContents(label);
           return {
             id: `${label.closest<HTMLElement>('.locale-probe')?.lang ?? 'unknown'}-nav-${index}`,
             buttonLeft: buttonRect.left,
             buttonRight: buttonRect.right,
             labelLeft: labelRect.left,
             labelRight: labelRect.right,
-            clientWidth: label.clientWidth,
+            labelWidth: labelRect.width,
+            textWidth: textRange.getBoundingClientRect().width,
             clientHeight: label.clientHeight,
-            scrollWidth: label.scrollWidth,
             scrollHeight: label.scrollHeight,
           };
         }),
@@ -583,8 +585,10 @@ test.describe('content-based adaptive action groups', () => {
       expect(label.labelRight, `${label.id} must stay inside its tab`).toBeLessThanOrEqual(
         label.buttonRight + 0.5,
       );
-      expect(label.scrollWidth, `${label.id} must fit without ellipsis`).toBeLessThanOrEqual(
-        label.clientWidth + 4.5,
+      // Compare fractional layout widths: integer scroll/client widths cannot
+      // justify allowing several pixels of real text clipping across platforms.
+      expect(label.textWidth, `${label.id} must fit without ellipsis`).toBeLessThanOrEqual(
+        label.labelWidth + 0.5,
       );
       expect(label.scrollHeight, `${label.id} must remain one line`).toBeLessThanOrEqual(
         label.clientHeight,

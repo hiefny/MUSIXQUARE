@@ -71,7 +71,7 @@ globalThis.MediaMetadata = class MediaMetadata {
 } as unknown as typeof MediaMetadata;
 
 import { updateMediaSessionMetadata, initMediaSession } from '../media-session.ts';
-import { setLocalFilePaused } from '../_state.ts';
+import { isLocalFilePaused, setLocalFilePaused } from '../_state.ts';
 import { setLocalYouTubePaused } from '../../youtube/_state.ts';
 import { togglePlay, stopPlayback, skipTime, pause } from '../transport.ts';
 import { bindAudioContextInterruptionRecovery } from '../../audio/context-recovery.ts';
@@ -235,6 +235,108 @@ describe('updateMediaSessionMetadata', () => {
     const artwork = navigator.mediaSession.metadata!.artwork[0].src;
     expect(artwork).toBe('/favicon.svg');
     expect(new URL(artwork, 'https://musixquare.com/123456/').pathname).toBe('/favicon.svg');
+  });
+});
+
+describe('demo native media controls', () => {
+  beforeEach(() => {
+    initMediaSession();
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('network.sessionCode', '123456');
+  });
+
+  it('resumes a demo host without a playlist row through the demo protocol', () => {
+    const demoToggle = vi.fn();
+    bus.on('demo:toggle-play', demoToggle);
+    setPlaybackFilePaused();
+    _handlers['play']();
+    expect(demoToggle).toHaveBeenCalledOnce();
+    expect(togglePlay).not.toHaveBeenCalled();
+    setPlaybackFilePlaying();
+    _handlers['play']();
+    expect(demoToggle).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])('keeps guest demo controls local (operator=%s)', (isOperator) => {
+    const rejoin = vi.fn();
+    const demoToggle = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    bus.on('demo:toggle-play', demoToggle);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', isOperator);
+    setPlaybackFilePlaying();
+    _handlers['pause']();
+    expect(isLocalFilePaused()).toBe(true);
+    expect(pause).toHaveBeenCalledWith(undefined, { showToast: false });
+    setPlaybackFilePaused();
+    _handlers['play']();
+    expect(rejoin).toHaveBeenCalledWith({
+      reason: 'media-session-play',
+      mode: 'file',
+      isCurrent: expect.any(Function),
+    });
+    expect(demoToggle).not.toHaveBeenCalled();
+    expect(togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('pauses or stops a demo host through the demo protocol only while playing', () => {
+    const demoToggle = vi.fn();
+    bus.on('demo:toggle-play', demoToggle);
+    setPlaybackFilePlaying();
+    _handlers['pause']();
+    expect(demoToggle).toHaveBeenCalledOnce();
+    setPlaybackFilePaused();
+    _handlers['pause']();
+    _handlers['stop']();
+    expect(demoToggle).toHaveBeenCalledOnce();
+    expect(togglePlay).not.toHaveBeenCalled();
+    expect(stopPlayback).not.toHaveBeenCalled();
+  });
+
+  it.each(['pause', 'stop'])(
+    'keeps a newer guest %s while native PLAY awaits host sync',
+    (action) => {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', { open: true } as never);
+      setPlaybackFilePaused();
+      setLocalFilePaused(true);
+      // A local rejoin releases the pause gate before its sync reply arrives.
+      bus.on('playback:local-output-rejoin', () => setLocalFilePaused(false));
+      _handlers['play']();
+      expect(isLocalFilePaused()).toBe(false);
+      _handlers[action]();
+      expect(isLocalFilePaused()).toBe(true);
+      expect(pause).toHaveBeenCalledWith(undefined, { showToast: false });
+    },
+  );
+
+  it('does not send demo hardware navigation to the saved normal playlist', () => {
+    const previous = vi.fn();
+    const next = vi.fn();
+    bus.on('playlist:prev-track', previous);
+    bus.on('playlist:next-track', next);
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+    _handlers['previoustrack']();
+    _handlers['nexttrack']();
+    _handlers['seekbackward']({ seekOffset: 30 });
+    _handlers['seekforward']({ seekOffset: 30 });
+    expect(previous).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+    expect(skipTime).not.toHaveBeenCalled();
+  });
+
+  it('leaves an in-flight demo load in charge of playback', () => {
+    const demoToggle = vi.fn();
+    bus.on('demo:toggle-play', demoToggle);
+    setState('demo.loading', true);
+    setPlaybackFilePaused();
+    _handlers['play']();
+    expect(demoToggle).not.toHaveBeenCalled();
+    expect(togglePlay).not.toHaveBeenCalled();
   });
 });
 

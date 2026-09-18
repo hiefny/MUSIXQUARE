@@ -14,6 +14,12 @@ import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/author
 import { guestRendezvousSync } from '../youtube/sync.ts';
 import { isLocalYouTubePaused, setLocalYouTubePaused } from '../youtube/_state.ts';
 import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
+import {
+  captureLocalFileOutputIdentity,
+  isLocalFileOutputIdentityCurrent,
+  localFileOutputIdentitiesEqual,
+  type LocalFileOutputIdentity,
+} from './local-file-output-identity.ts';
 
 const SUCCESS_COOLDOWN_MS = 400;
 const RETRY_TIMER = 'local-output-rejoin-retry';
@@ -35,6 +41,7 @@ interface RejoinIdentity {
   roomId: string | null;
   roomEpoch: number;
   queueItemId: string | null;
+  demoOutput: LocalFileOutputIdentity | null;
 }
 
 interface RejoinRequest extends RejoinRequestPayload {
@@ -65,7 +72,11 @@ function matchesLastSuccessfulRejoin(request: RejoinRequest): boolean {
     previous.roomKind === request.identity.roomKind &&
     previous.roomId === request.identity.roomId &&
     previous.roomEpoch === request.identity.roomEpoch &&
-    previous.queueItemId === request.identity.queueItemId,
+    previous.queueItemId === request.identity.queueItemId &&
+    (previous.demoOutput
+      ? !!request.identity.demoOutput &&
+        localFileOutputIdentitiesEqual(previous.demoOutput, request.identity.demoOutput)
+      : request.identity.demoOutput === null),
   );
 }
 
@@ -80,6 +91,10 @@ function captureRequest(payload: RejoinRequestPayload): RejoinRequest {
       roomId: room.roomId,
       roomEpoch: room.epoch,
       queueItemId: getState('playlist.currentQueueItemId'),
+      demoOutput:
+        payload.mode === 'file' && getState('demo.active')
+          ? captureLocalFileOutputIdentity()
+          : null,
     },
   };
 }
@@ -90,6 +105,13 @@ function requestStillCurrent(request: RejoinRequest): boolean {
     return false;
   }
   if (getState('playback.mode') !== request.mode) return false;
+  if (request.mode === 'file' && (getState('demo.active') || request.identity.demoOutput)) {
+    if (
+      !request.identity.demoOutput ||
+      !isLocalFileOutputIdentityCurrent(request.identity.demoOutput)
+    )
+      return false;
+  }
   const room = getRoomContext();
   return (
     room.kind === request.identity.roomKind &&
@@ -333,6 +355,16 @@ export function initLocalOutputRejoin(): void {
   scope?.dispose();
   scope = createBusScope();
   resetLocalOutputRejoinState();
+
+  const releaseDemoIdentity = (): void => {
+    if (getState('demo.active') || lastSuccessfulRejoinIdentity?.demoOutput) {
+      // The short cooldown must not keep a previous demo's PCM resident.
+      resetLocalOutputRejoinState();
+    }
+  };
+  scope.on('player:buffer-changed', releaseDemoIdentity);
+  scope.on('state:demo.active', releaseDemoIdentity);
+  scope.on('state:demo.currentTrackIndex', releaseDemoIdentity);
 
   scope.on('playback:local-output-rejoin', (request) => {
     return requestLocalOutputRejoin(captureRequest(request));

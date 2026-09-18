@@ -16,6 +16,10 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../core/constants.ts';
 import { transition } from './lifecycle.ts';
+import {
+  captureLocalFileOutputIdentity,
+  isLocalFileOutputIdentityCurrent,
+} from './local-file-output-identity.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
@@ -895,11 +899,9 @@ export function initPlayback(): void {
   // the logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
     if (!isPlaybackPlayingFile()) return;
-    const queueItemId = getCurrentQueueItemId();
-    const buffer = getCurrentAudioBuffer();
-    if (!queueItemId || !buffer || getState('files.current')?.queueItemId !== queueItemId) {
-      return;
-    }
+    const identity = captureLocalFileOutputIdentity();
+    if (!identity) return;
+    const { buffer } = identity;
     // A background resume may occur during a track change, while the resident
     // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;
@@ -921,8 +923,8 @@ export function initPlayback(): void {
       handleEnded();
       return;
     }
-    void play(position, 0, capturedAt).catch((error) =>
-      log.warn('[Playback] Failed to refresh the current file position:', error),
+    void play(position, 0, capturedAt, () => isLocalFileOutputIdentityCurrent(identity)).catch(
+      (error) => log.warn('[Playback] Failed to refresh the current file position:', error),
     );
   });
 

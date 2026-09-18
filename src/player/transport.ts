@@ -33,6 +33,10 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
+import {
+  captureLocalFileOutputIdentity,
+  isLocalFileOutputIdentityCurrent,
+} from './local-file-output-identity.ts';
 import { cancelProRoomPlaylistFileResolution } from '../pro-room/media-hooks.ts';
 import {
   isProPlaybackAuthorityToken,
@@ -1136,6 +1140,14 @@ async function _internalPlay(
 
   const recoveryQueueItemId = getCurrentQueueItemId();
   const recoveryBuffer = getCurrentAudioBuffer();
+  // Failed PLAY historically permits a queue buffer before resident metadata
+  // is published. Keep that boundary while adding an exact demo incarnation.
+  const recoveryIdentity = captureLocalFileOutputIdentity({ requireResident: false });
+  const recoveryOutputIsCurrent = (): boolean =>
+    recoveryIdentity
+      ? isLocalFileOutputIdentityCurrent(recoveryIdentity)
+      : getCurrentQueueItemId() === recoveryQueueItemId &&
+        getCurrentAudioBuffer() === recoveryBuffer;
   const requestedStartAtMs = Number.isFinite(scheduleDeadlineMs)
     ? Number(scheduleDeadlineMs)
     : performance.now() + Math.max(0, scheduleDelay) * 1_000;
@@ -1158,8 +1170,7 @@ async function _internalPlay(
       foregroundRestartConfirmed || restartIsCurrent?.() !== false;
     if (
       recoveryOptions?.suppressPrompt ||
-      !recoveryQueueItemId ||
-      !recoveryBuffer ||
+      !recoveryIdentity ||
       !recoveryIntentIsCurrent() ||
       !restartRecoveryIsCurrent()
     ) {
@@ -1168,13 +1179,10 @@ async function _internalPlay(
     bus.emit('audio:output-recovery-needed', {
       reason,
       source: 'play',
-      queueItemId: recoveryQueueItemId,
+      queueItemId: recoveryIdentity.queueItemId,
       foregroundRestartAttemptToken,
       isCurrent: () =>
-        recoveryIntentIsCurrent() &&
-        restartRecoveryIsCurrent() &&
-        getCurrentQueueItemId() === recoveryQueueItemId &&
-        getCurrentAudioBuffer() === recoveryBuffer,
+        recoveryIntentIsCurrent() && restartRecoveryIsCurrent() && recoveryOutputIsCurrent(),
       confirmForegroundRestart: foregroundRestartAttemptToken
         ? (attemptToken: object): boolean => {
             if (
@@ -1195,8 +1203,7 @@ async function _internalPlay(
           recoveryClaimed ||
           !recoveryIntentIsCurrent() ||
           !restartRecoveryIsCurrent() ||
-          getCurrentQueueItemId() !== recoveryQueueItemId ||
-          getCurrentAudioBuffer() !== recoveryBuffer
+          !recoveryOutputIsCurrent()
         ) {
           return false;
         }
@@ -1295,15 +1302,13 @@ async function _internalPlay(
         foregroundHealthCheck.isCurrent() &&
         recoveryIntentIsCurrent() &&
         isCurrentPlayInvocation(expectedPlayInvocation) &&
-        getCurrentQueueItemId() === recoveryQueueItemId &&
-        getCurrentAudioBuffer() === recoveryBuffer,
+        recoveryOutputIsCurrent(),
     });
     if (
       !foregroundHealthCheck.isCurrent() ||
       !recoveryIntentIsCurrent() ||
       !isCurrentPlayInvocation(expectedPlayInvocation) ||
-      getCurrentQueueItemId() !== recoveryQueueItemId ||
-      getCurrentAudioBuffer() !== recoveryBuffer
+      !recoveryOutputIsCurrent()
     ) {
       return false;
     }

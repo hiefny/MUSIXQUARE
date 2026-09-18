@@ -8,11 +8,18 @@ import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
-import { setCurrentAudioBuffer } from '../../player/_state.ts';
+import {
+  isLocalFilePaused,
+  setLocalFilePaused,
+  setCurrentAudioBuffer,
+} from '../../player/_state.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
-  play: vi.fn(async (_offset: number, _scheduleDelay = 0) => true),
+  play: vi.fn(
+    async (_offset: number, _scheduleDelay = 0, _deadline?: number, _shouldApply?: () => boolean) =>
+      true,
+  ),
   pause: vi.fn(),
   stopAllMedia: vi.fn(),
   getTrackPosition: vi.fn(() => 12),
@@ -24,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../player/transport.ts', () => ({
+  fmtTime: (seconds: number) => String(seconds),
   getTrackPosition: mocks.getTrackPosition,
   pause: mocks.pause,
   play: mocks.play,
@@ -82,6 +90,12 @@ describe('demo playback sync bootstrap', () => {
     bus.clear();
     clearAllManagedTimers();
     vi.clearAllMocks();
+    setLocalFilePaused(false);
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
     mocks.getHostNow.mockReturnValue(10_000);
     mocks.isClockCalibrated.mockReturnValue(true);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
@@ -93,6 +107,7 @@ describe('demo playback sync bootstrap', () => {
   afterEach(() => {
     setCurrentAudioBuffer(null);
     clearAllManagedTimers();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -172,7 +187,78 @@ describe('demo playback sync bootstrap', () => {
       hostConn,
     );
 
-    expect(mocks.play).toHaveBeenCalledWith(42);
+    expect(mocks.play).toHaveBeenCalledWith(42, 0, expect.any(Number), expect.any(Function));
     expect(mocks.getHostNow).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { position: 42, expected: 47.35, ended: false },
+    { position: 118, expected: 120, ended: true },
+  ])(
+    'projects a demo command received after a long load (position $position)',
+    async ({ position, expected, ended }) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.hostConn', hostConn);
+      setState('network.appRole', 'guest');
+      markQueueAuthorityReady(hostConn);
+      setState('demo.active', true);
+      await handleData(
+        { type: MSG.DEMO_PLAY, index: 0, time: position, hostPlayAt: 5_000 },
+        hostConn,
+      );
+      if (ended) {
+        expect(mocks.play).not.toHaveBeenCalled();
+        expect(mocks.pause).toHaveBeenCalledWith(expected, expect.anything());
+      } else expect(mocks.play.mock.calls[0][0]).toBeCloseTo(expected);
+    },
+  );
+
+  it.each([MSG.DEMO_PLAY, MSG.DEMO_PAUSE])(
+    'releases native local-pause suppression for authoritative %s',
+    async (type) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.hostConn', hostConn);
+      setState('network.appRole', 'guest');
+      markQueueAuthorityReady(hostConn);
+      setState('demo.active', true);
+      setLocalFilePaused(true);
+      await handleData({ type, index: 0, time: 20, hostPlayAt: 0 }, hostConn);
+      expect(isLocalFilePaused()).toBe(false);
+    },
+  );
+
+  it.each(['pause', 'play', 'connection', 'buffer', 'exit', 'local-pause'] as const)(
+    'retires a waiting demo play after a newer %s owner',
+    async (replacement) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.hostConn', hostConn);
+      setState('network.appRole', 'guest');
+      markQueueAuthorityReady(hostConn);
+      setState('demo.active', true);
+      await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 10, hostPlayAt: 10_100 }, hostConn);
+      const isCurrent = mocks.play.mock.calls[0][3]!;
+      expect(isCurrent()).toBe(true);
+      if (replacement === 'pause') await handleData({ type: MSG.DEMO_PAUSE, time: 11 }, hostConn);
+      if (replacement === 'play')
+        await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 30, hostPlayAt: 10_100 }, hostConn);
+      if (replacement === 'connection')
+        setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      if (replacement === 'buffer') setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      if (replacement === 'exit') await handleData({ type: MSG.DEMO_EXIT }, hostConn);
+      if (replacement === 'local-pause') setLocalFilePaused(true);
+      expect(isCurrent()).toBe(false);
+    },
+  );
+
+  it('uses a monotonic transport deadline even when wall time has a large epoch', async () => {
+    vi.setSystemTime(new Date('2026-09-19T00:00:00Z'));
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    setState('demo.active', true);
+    const monotonicNow = performance.now();
+    await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 10, hostPlayAt: 10_100 }, hostConn);
+    expect(mocks.play.mock.calls[0][2]).toBeCloseTo(monotonicNow + 100, 3);
   });
 });

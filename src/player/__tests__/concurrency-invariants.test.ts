@@ -199,7 +199,7 @@ import {
   stopAllMedia,
   togglePlay,
 } from '../transport.ts';
-import { finalizeGuestFile, loadPreloadedTrack } from '../decode.ts';
+import { finalizeGuestFile, loadDemoFile, loadPreloadedTrack } from '../decode.ts';
 import { initPlayback } from '../playback.ts';
 import { transition } from '../lifecycle.ts';
 import {
@@ -1860,6 +1860,91 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
     expect(onRecoveredStarted).toHaveBeenCalledOnce();
     await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
     expect(onRecoveredStarted).toHaveBeenCalledOnce();
+  });
+
+  it('offers demo output recovery without inventing a queue occurrence', async () => {
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', null);
+    setState('files.current', null);
+    const buffer = { duration: 120 } as AudioBuffer;
+    setCurrentAudioBuffer(buffer);
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('Gesture required'));
+    let recoveryEvent:
+      | {
+          queueItemId: QueueItemId | null;
+          isCurrent?: () => boolean;
+          retry?: () => Promise<boolean>;
+        }
+      | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    await expect(play(3)).resolves.toBe(false);
+    expect(recoveryEvent?.queueItemId).toBeNull();
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
+    expect(getPlayerNode()?.buffer).toBe(buffer);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
+  });
+
+  it.each(['exit', 'track', 'buffer', 'epoch'] as const)(
+    'retires failed demo PLAY on %s before the recovery gesture',
+    async (change) => {
+      setState('demo.active', true);
+      setState('demo.currentTrackIndex', 0);
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      mocks.ensureRunning.mockRejectedValueOnce(new Error('Gesture required'));
+      let recovery: { isCurrent?: () => boolean; retry?: () => Promise<boolean> } | undefined;
+      bus.on('audio:output-recovery-needed', (event) => {
+        recovery = event;
+      });
+      await expect(play(3)).resolves.toBe(false);
+      expect(recovery?.isCurrent?.()).toBe(true);
+      if (change === 'exit') setState('demo.active', false);
+      if (change === 'track') setState('demo.currentTrackIndex', 1);
+      if (change === 'buffer') setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      if (change === 'epoch') newLoadEpoch();
+      expect(recovery?.isCurrent?.()).toBe(false);
+      await expect(recovery?.retry?.()).resolves.toBe(false);
+      expect(getPlayerNode()).toBeNull();
+    },
+  );
+
+  it('decodes demo output while suspended and leaves gesture recovery to PLAY', async () => {
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    mocks.contextState = 'suspended';
+    mocks.ensureRunning.mockRejectedValue(new Error('Gesture required'));
+    const buffer = { duration: 120 } as AudioBuffer;
+    mocks.decodeAudioData.mockResolvedValue(buffer);
+    await expect(
+      loadDemoFile(
+        makeFile('demo.m4a'),
+        { type: 'file', name: 'demo.m4a', videoId: null, playlistId: null },
+        newLoadEpoch(),
+      ),
+    ).resolves.toBeUndefined();
+    expect(mocks.ensureRunning).not.toHaveBeenCalled();
+    expect(mocks.initAudio).not.toHaveBeenCalled();
+    expect(getCurrentAudioBuffer()).toBe(buffer);
+    expect(getState('files.current')).toBeNull();
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.READY);
+  });
+
+  it('refreshes playing demo output without a resident queue file', async () => {
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', null);
+    setState('files.current', null);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    await expect(play(3)).resolves.toBe(true);
+    const oldNode = getPlayerNode();
+    initPlayback();
+    bus.emit('playback:refresh-current-position');
+    await vi.waitFor(() => expect(getPlayerNode()).not.toBe(oldNode));
+    expect(getPlayerNode()).not.toBeNull();
   });
 
   it('checks and consumes the one foreground clock incident before starting a file source', async () => {

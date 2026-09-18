@@ -21,7 +21,12 @@ import {
 import { getCurrentQueueItemId } from './queue-model.ts';
 import type { TrackMeta } from '../types/index.ts';
 import { getTrackDisplayTitle } from './track-display.ts';
-import { getRoomContext, hasRoomCapability, isStandardRoomMember } from '../rooms/authority.ts';
+import {
+  getRoomContext,
+  hasRoomCapability,
+  isCoordinator,
+  isStandardRoomMember,
+} from '../rooms/authority.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
 import {
   confirmPendingAudioContextRecoveryHealth,
@@ -244,7 +249,35 @@ export function initMediaSession(): void {
     pendingLocalPlayRecovery = flight;
   };
 
+  const handleDemoMediaAction = (action: 'play' | 'pause'): boolean => {
+    if (!getState('demo.active')) return false;
+    if (getState('demo.loading') || getRoomContext().kind !== 'standard') return true;
+    if (action === 'pause') {
+      pendingLocalPlayRecovery = null;
+      localPlayOwner = null;
+      if (isStandardRoomMember()) {
+        // A newer PAUSE also owns the interval while PLAY awaits a sync reply.
+        setLocalFilePaused(true);
+        pause(undefined, { showToast: false });
+      } else if (isCoordinator()) {
+        if (isPlaybackPlayingFile()) bus.emit('demo:toggle-play');
+        else pause(undefined, { showToast: false });
+      }
+      return true;
+    }
+    if (isPlaybackPlayingFile() && !isLocalFilePaused()) {
+      if (hasPendingAudioContextInterruption('file')) requestLocalPlay('file');
+      return true;
+    }
+    // Demo buffers have no playlist occurrence. Guest media keys rejoin only
+    // this output, including operators; the host uses the demo wire protocol.
+    if (isStandardRoomMember()) requestLocalPlay('file');
+    else if (isCoordinator()) bus.emit('demo:toggle-play');
+    return true;
+  };
+
   registerMediaSessionAction('play', () => {
+    if (handleDemoMediaAction('play')) return;
     if (isPlaybackModeYouTube()) {
       if (shouldIgnoreRecentNativeYouTubeMediaAction('play')) return;
       if (hasPendingAudioContextInterruption() && isPlaybackPlayingYouTube()) {
@@ -295,6 +328,7 @@ export function initMediaSession(): void {
   });
 
   registerMediaSessionAction('pause', () => {
+    if (handleDemoMediaAction('pause')) return;
     if (isPlaybackModeYouTube()) {
       if (shouldIgnoreRecentNativeYouTubeMediaAction('pause')) return;
       // PAUSE also cancels a PLAY still waiting on native output recovery,
@@ -326,26 +360,27 @@ export function initMediaSession(): void {
   });
 
   registerMediaSessionAction('previoustrack', () => {
-    if (isPlaybackBlocked()) return;
+    if (getState('demo.active') || isPlaybackBlocked()) return;
     bus.emit('playlist:prev-track');
   });
 
   registerMediaSessionAction('nexttrack', () => {
-    if (isPlaybackBlocked()) return;
+    if (getState('demo.active') || isPlaybackBlocked()) return;
     bus.emit('playlist:next-track');
   });
 
   registerMediaSessionAction('seekbackward', (details) => {
-    if (isPlaybackBlocked()) return;
+    if (getState('demo.active') || isPlaybackBlocked()) return;
     skipTime(-(details.seekOffset || 10));
   });
 
   registerMediaSessionAction('seekforward', (details) => {
-    if (isPlaybackBlocked()) return;
+    if (getState('demo.active') || isPlaybackBlocked()) return;
     skipTime(details.seekOffset || 10);
   });
 
   registerMediaSessionAction('stop', () => {
+    if (handleDemoMediaAction('pause')) return;
     if (isPlaybackBlocked()) return;
     stopPlayback();
   });

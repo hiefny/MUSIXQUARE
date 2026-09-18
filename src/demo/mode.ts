@@ -5,7 +5,13 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { loadDemoFile } from '../player/decode.ts';
-import { getCurrentAudioBuffer, newLoadEpoch, setCurrentAudioBuffer } from '../player/_state.ts';
+import {
+  getCurrentAudioBuffer,
+  isLocalFilePaused,
+  newLoadEpoch,
+  setCurrentAudioBuffer,
+  setLocalFilePaused,
+} from '../player/_state.ts';
 import { prepareMediaSession } from '../player/media-session-loader.ts';
 import {
   getPlaybackModeActivitySnapshot,
@@ -13,7 +19,7 @@ import {
   setPlaybackIdle,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
-import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
+import { fmtTime, getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
 import { setChannelMode } from '../audio/channel.ts';
@@ -39,6 +45,7 @@ import { isProRoomCode } from '../pro-room/room-code.ts';
 import type { DataConnection } from '../types/index.ts';
 import type { PlaybackModeActivity } from '../player/ownership.ts';
 import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
+import { DEMO_PLAY_SCHEDULE_AHEAD_MS, projectDemoPlay } from './playback-timing.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import {
   getRoomContext,
@@ -102,12 +109,15 @@ type DemoEffectState = {
   surroundOn: boolean;
 };
 
-type PendingDemoPlay = {
+type DemoPlaybackIntent = Readonly<{
   index: number;
   time: number;
-  hostPlayAt: number;
-  receivedAt: number;
-};
+  connection: DataConnection;
+  room: DemoRoomIdentity;
+}> &
+  (
+    Readonly<{ kind: 'play'; hostPlayAt: number; receivedAt: number }> | Readonly<{ kind: 'pause' }>
+  );
 
 const FLAT_EQ = [0, 0, 0, 0, 0];
 const WARM_EQ = [5, 3, 0, -2, -3];
@@ -117,7 +127,6 @@ const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
 const DEMO_STEP_COLLAPSE_MS = 320;
-const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
 const DEMO_LAYOUT_REFRESH_DELAYS_MS = [40, 180, 420, 720] as const;
 const _busScope = createBusScope();
 
@@ -133,7 +142,7 @@ let _promptInFlight = false;
 let _suppressFirstRunPrompt = false;
 let _demoStep = 1;
 let _demoTrackIndex = 0;
-type DemoLoadOwner = Readonly<{ generation: number }>;
+type DemoLoadOwner = Readonly<{ generation: number; room: DemoRoomIdentity }>;
 type DemoAsyncResult = Readonly<{
   status: 'applied' | 'superseded';
   generation: number;
@@ -142,7 +151,9 @@ type DemoAsyncResult = Readonly<{
 let _demoLoadGeneration = 0;
 let _activeDemoLoadOwner: DemoLoadOwner | null = null;
 let _activeDemoTrackMeta: TrackMeta | null = null;
-let _pendingDemoPlay: PendingDemoPlay | null = null;
+let _demoPlaybackIntent: DemoPlaybackIntent | null = null;
+let _appliedDemoPlaybackIntent: DemoPlaybackIntent | null = null;
+let _hostDemoPlayOwner: object | null = null;
 // Hold DEMO_ENTER/PLAY received during a demo track load. Dropping them would
 // leave guests on the prior track while SYNC_PONG follows the host's timeline.
 let _queuedDemoEnterIndex: number | null = null;
@@ -432,6 +443,7 @@ function cancelDemoBlobRequests(): void {
 // re-schedules demo-overlay-exit via setDemoDomActive(false).
 function clearDemoRuntimeWork(): void {
   clearManagedTimer('demo-effect-state-sync');
+  clearManagedTimer('demo-play-host-sync');
   clearDemoLayoutRefreshTimers();
   cancelDemoBlobRequests();
 }
@@ -577,13 +589,13 @@ function preloadDemoTrack(index: number): void {
 }
 
 function beginDemoLoad(): DemoLoadOwner {
-  const owner = { generation: ++_demoLoadGeneration } as const;
+  const owner = { generation: ++_demoLoadGeneration, room: captureDemoRoomIdentity() } as const;
   _activeDemoLoadOwner = owner;
   return owner;
 }
 
 function isCurrentDemoLoadOwner(owner: DemoLoadOwner): boolean {
-  return _activeDemoLoadOwner === owner && getState('demo.active');
+  return _activeDemoLoadOwner === owner && getState('demo.active') && isCurrentDemoRoom(owner.room);
 }
 
 function getDemoLoadResult(
@@ -625,6 +637,22 @@ function publishDemoTrackMeta(track: DemoTrack): TrackMeta {
   return meta;
 }
 
+async function fetchDemoBlobForLoad(track: DemoTrack, owner: DemoLoadOwner): Promise<Blob> {
+  try {
+    return await fetchDemoBlob(track, true);
+  } catch (error) {
+    // One retry covers a transient participant-side CDN failure. A newer host
+    // request or retired room takes priority over retrying obsolete content.
+    if (
+      !getState('network.hostConn') ||
+      !isCurrentDemoLoadOwner(owner) ||
+      _queuedDemoEnterIndex !== null
+    )
+      throw error;
+    return fetchDemoBlob(track, true);
+  }
+}
+
 async function loadDemoTrack(
   index: number,
   options: { autoplay: boolean },
@@ -641,11 +669,27 @@ async function loadDemoTrack(
   showLoader(true, t('transfer.demo_loading_short'));
   updateLoader(0);
   try {
-    const blob = await fetchDemoBlob(track, true);
+    const blob = await fetchDemoBlobForLoad(track, owner);
     if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
 
     const file = new File([blob], track.fileName, { type: track.mime });
-    await loadDemoFile(file, trackMeta, newLoadEpoch());
+    try {
+      await loadDemoFile(file, trackMeta, newLoadEpoch());
+    } catch (error) {
+      // Native content failures poison a previously successful HTTP cache hit.
+      // Output permission/initialization and supersession must retain good bytes.
+      if (
+        isCurrentDemoLoadOwner(owner) &&
+        typeof error === 'object' &&
+        error !== null &&
+        'name' in error &&
+        error.name === 'EncodingError' &&
+        _demoBlobCache.get(track.id) === blob
+      ) {
+        _demoBlobCache.delete(track.id);
+      }
+      throw error;
+    }
     if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
 
     preloadDemoTrack(getNextDemoTrackIndex(index));
@@ -1151,43 +1195,77 @@ function syncPlayButton(): void {
   });
 }
 
-function applyPendingDemoPlay(): void {
-  const pending = _pendingDemoPlay;
-  if (!pending || !getState('demo.active')) return;
-  if (_demoTrackIndex !== pending.index || !getCurrentAudioBuffer()) return;
-  _pendingDemoPlay = null;
+function isCurrentDemoPlaybackIntent(intent: DemoPlaybackIntent): boolean {
+  return (
+    _demoPlaybackIntent === intent &&
+    getState('demo.active') &&
+    _demoTrackIndex === intent.index &&
+    getState('network.hostConn') === intent.connection &&
+    isCurrentDemoRoom(intent.room)
+  );
+}
 
-  const hostPlayAt = Number(pending.hostPlayAt) || 0;
-  if (hostPlayAt > 0 && isClockCalibrated()) {
-    const now = getHostNow();
-    const waitMsRaw = hostPlayAt - now;
-    const waitMs = Math.max(0, waitMsRaw);
-    if (Math.abs(waitMsRaw) < 2000) {
-      // The demo host starts immediately, then publishes a rendezvous target
-      // DEMO_PLAY_SCHEDULE_AHEAD_MS in the future. Match the regular local-file
-      // path by advancing from the host's command time, so message delivery
-      // latency does not leave the guest permanently behind.
-      const hostCommandAt = hostPlayAt - DEMO_PLAY_SCHEDULE_AHEAD_MS;
-      const guestStartAtHostTime = now + waitMs;
-      const elapsedSinceHostCommand = Math.max(0, guestStartAtHostTime - hostCommandAt);
-      observeDemoOperation(
-        play(pending.time + elapsedSinceHostCommand / 1000, waitMs / 1000),
-        'scheduled guest playback',
-      );
-    } else {
-      log.warn(`[Demo] hostPlayAt out of range (${waitMsRaw}ms), playing immediately`);
-      observeDemoOperation(play(pending.time), 'fallback guest playback');
-    }
+function pauseDemoAt(time: number): void {
+  pause(time, { holdVisualizer: false, showToast: false });
+  // Transport pause deliberately no-ops for READY/paused buffers. The host's
+  // desired position still owns the post-decode projection on a late join.
+  setState('player.pausedAt', time);
+  setPlaybackFilePaused();
+  const duration = getCurrentAudioBuffer()?.duration ?? 0;
+  bus.emit('ui:time-update', fmtTime(time), fmtTime(duration), time, duration);
+}
+
+function applyPendingDemoPlayback(): void {
+  const intent = _demoPlaybackIntent;
+  const buffer = getCurrentAudioBuffer();
+  if (
+    !intent ||
+    !buffer ||
+    intent === _appliedDemoPlaybackIntent ||
+    !isCurrentDemoPlaybackIntent(intent)
+  )
+    return;
+  _appliedDemoPlaybackIntent = intent;
+  clearManagedTimer('demo-play-host-sync');
+  if (intent.kind === 'pause') {
+    pauseDemoAt(Math.min(intent.time, buffer.duration));
   } else {
-    if (hostPlayAt > 0) {
-      log.warn('[Demo] SharedClock uncalibrated - ignoring hostPlayAt for demo play');
+    const now = Date.now();
+    const generation = _demoLoadGeneration;
+    const projected = projectDemoPlay(
+      intent,
+      now,
+      intent.hostPlayAt > 0 && isClockCalibrated() ? getHostNow() : null,
+      buffer.duration,
+    );
+    const isCurrent = () =>
+      generation === _demoLoadGeneration &&
+      isCurrentDemoPlaybackIntent(intent) &&
+      getCurrentAudioBuffer() === buffer &&
+      !isLocalFilePaused();
+    if (projected.ended) {
+      // Transport clamps an out-of-range start back to zero. Wait for the
+      // host's next track instead of briefly replaying this expired one.
+      pauseDemoAt(projected.position);
+    } else {
+      observeDemoOperation(
+        play(
+          projected.position,
+          projected.delay,
+          performance.now() + projected.delay * 1_000,
+          isCurrent,
+        ),
+        'guest playback',
+      );
+      bus.emit('sync:arm-initial');
     }
-    const elapsed = Math.max(0, Date.now() - pending.receivedAt) / 1000;
-    observeDemoOperation(play(pending.time + elapsed), 'uncalibrated guest playback');
-  }
-  if (getState('network.hostConn')?.open) {
-    bus.emit('sync:arm-initial');
-    setManagedTimer('demo-play-host-sync', () => bus.emit('sync:request-immediate-ping'), 250);
+    setManagedTimer(
+      'demo-play-host-sync',
+      () => {
+        if (isCurrent() && intent.connection.open) bus.emit('sync:request-immediate-ping');
+      },
+      250,
+    );
   }
   syncPlayButton();
 }
@@ -1200,8 +1278,36 @@ function stopDemoPlaybackForIncomingTrack(index: number): void {
 }
 
 function startDemoPlayback(time = 0): void {
-  broadcastDemoPlay(_demoTrackIndex, time);
-  observeDemoOperation(play(time), 'host playback');
+  const owner = {};
+  _hostDemoPlayOwner = owner;
+  const generation = _demoLoadGeneration;
+  const index = _demoTrackIndex;
+  const buffer = getCurrentAudioBuffer();
+  const room = captureDemoRoomIdentity();
+  const isCurrent = () =>
+    _hostDemoPlayOwner === owner &&
+    generation === _demoLoadGeneration &&
+    getState('demo.active') &&
+    _demoTrackIndex === index &&
+    getCurrentAudioBuffer() === buffer &&
+    buffer !== null &&
+    isCurrentDemoRoom(room) &&
+    isDemoHost();
+  let published = false;
+  const publishOnce = (): void => {
+    if (published || !isCurrent() || !isDemoPlaying()) return;
+    published = true;
+    broadcastDemoPlay(index, getTrackPosition());
+  };
+  observeDemoOperation(
+    play(time, 0, undefined, isCurrent, {
+      timing: 'canonical-rebase',
+      onRecoveredStarted: publishOnce,
+    }).then((started) => {
+      if (started) publishOnce();
+    }),
+    'host playback',
+  );
   syncPlayButton();
 }
 
@@ -1240,7 +1346,16 @@ function drainQueuedDemoEnter(): void {
     );
     return;
   }
-  applyPendingDemoPlay();
+  applyPendingDemoPlayback();
+}
+
+function drainAfterFailedDemoLoad(owner: DemoLoadOwner): boolean {
+  if (!isCurrentDemoLoadOwner(owner) || _queuedDemoEnterIndex === null) return false;
+  // Consume only an independently received newer host request. A failed
+  // attempt does not enqueue itself, so this cannot become an automatic loop.
+  finishDemoLoad(owner);
+  drainQueuedDemoEnter();
+  return true;
 }
 
 async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncResult> {
@@ -1259,7 +1374,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
     const nextIndex = normalizeDemoTrackIndex(options.index ?? _demoTrackIndex);
     // Reload also when the buffer is missing: a guest whose own fetch failed
     // would otherwise be stranded — the same-index skip plus
-    // applyPendingDemoPlay's null-buffer abort leave nothing to re-trigger
+    // applyPendingDemoPlayback's null-buffer guard leave nothing to re-trigger
     // the load.
     if (nextIndex !== _demoTrackIndex || !getCurrentAudioBuffer()) {
       const owner = beginDemoLoad();
@@ -1267,6 +1382,9 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
       let result: DemoAsyncResult;
       try {
         result = await loadDemoTrack(nextIndex, { autoplay: !!options.autoplay }, owner);
+      } catch (error) {
+        if (drainAfterFailedDemoLoad(owner)) return getDemoLoadResult(owner, 'superseded');
+        throw error;
       } finally {
         finishDemoLoad(owner);
       }
@@ -1277,7 +1395,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
     // DOM back into demo state while state.demo.active is already false.
     if (!getState('demo.active')) return getSupersededDemoResult();
     setDemoDomActive(true);
-    applyPendingDemoPlay();
+    applyPendingDemoPlayback();
     drainQueuedDemoEnter();
     return { status: 'applied', generation: _demoLoadGeneration };
   }
@@ -1310,10 +1428,11 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
   try {
     result = await loadDemoTrack(_demoTrackIndex, { autoplay: !!options.autoplay }, owner);
     if (!isCurrentDemoResult(result)) return result;
-    applyPendingDemoPlay();
+    applyPendingDemoPlayback();
     showToast(t('transfer.demo_loaded'));
   } catch (error: unknown) {
     if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
+    if (drainAfterFailedDemoLoad(owner)) return getDemoLoadResult(owner, 'superseded');
     log.error('[Demo] Enter failed:', error);
     showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
     exitDemoMode({ restoreAudioSettings: true });
@@ -1336,7 +1455,9 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   const snapshot = _snapshot;
   const activeDemoTrackMeta = _activeDemoTrackMeta;
   _activeDemoTrackMeta = null;
-  _pendingDemoPlay = null;
+  _demoPlaybackIntent = null;
+  _appliedDemoPlaybackIntent = null;
+  _hostDemoPlayOwner = null;
   _queuedDemoEnterIndex = null;
   _lastDemoStateBroadcastKey = '';
   stopAllMedia({
@@ -1482,6 +1603,7 @@ function toggleDemoPlay(): void {
     return;
   }
   if (isDemoPlaying()) {
+    _hostDemoPlayOwner = null;
     pause(undefined, { showToast: false });
     broadcastDemoPause(getState('player.pausedAt') || 0);
     syncPlayButton();
@@ -1540,9 +1662,10 @@ function playNextDemoTrack(): void {
 function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isTrustedDemoHostMessage(conn)) return;
   const index = normalizeDemoTrackIndex(data.index);
+  if (_demoPlaybackIntent?.index !== index) _demoPlaybackIntent = null;
   // A load in flight drops the enterDemoMode call below on its
   // demo.loading guard — queue the index so the post-load drain converges.
-  if (getState('demo.loading')) _queuedDemoEnterIndex = index;
+  if (getState('demo.loading')) _queuedDemoEnterIndex = index === _demoTrackIndex ? null : index;
   stopDemoPlaybackForIncomingTrack(index);
 
   const applyEffectFlags = (): void => {
@@ -1576,12 +1699,16 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
 }
 
 function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!isTrustedDemoHostMessage(conn)) return;
+  if (!conn || !isTrustedDemoHostMessage(conn)) return;
+  setLocalFilePaused(false);
   const index = normalizeDemoTrackIndex(data.index);
   // See handleDemoEnterMessage: this uses the same dropped-while-loading queue.
-  if (getState('demo.loading')) _queuedDemoEnterIndex = index;
+  if (getState('demo.loading')) _queuedDemoEnterIndex = index === _demoTrackIndex ? null : index;
   stopDemoPlaybackForIncomingTrack(index);
-  _pendingDemoPlay = {
+  _demoPlaybackIntent = {
+    kind: 'play',
+    connection: conn,
+    room: captureDemoRoomIdentity(),
     index,
     time: Math.max(0, Number(data.time) || 0),
     hostPlayAt: Number(data.hostPlayAt) || 0,
@@ -1594,16 +1721,25 @@ function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnect
     );
     return;
   }
-  applyPendingDemoPlay();
+  applyPendingDemoPlayback();
 }
 
 function handleDemoPauseMessage(data: Record<string, unknown>, conn?: DataConnection): void {
-  if (!isTrustedDemoHostMessage(conn)) return;
-  _pendingDemoPlay = null;
+  if (!conn || !isTrustedDemoHostMessage(conn)) return;
+  setLocalFilePaused(false);
   const time = Math.max(0, Number(data.time) || 0);
   if (!getState('demo.active')) return;
+  _demoPlaybackIntent = {
+    kind: 'pause',
+    index: _queuedDemoEnterIndex ?? _demoTrackIndex,
+    time,
+    connection: conn,
+    room: captureDemoRoomIdentity(),
+  };
+  // Stop an already scheduled source immediately; decode completion reapplies
+  // the same latest position after loadDemoFile's position reset.
   pause(time, { showToast: false });
-  syncPlayButton();
+  applyPendingDemoPlayback();
 }
 
 function handleDemoExitMessage(_data: Record<string, unknown>, conn?: DataConnection): void {

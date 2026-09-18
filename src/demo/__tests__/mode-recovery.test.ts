@@ -28,7 +28,15 @@ import { DEMO_TRACKS } from '../tracks.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
-  play: vi.fn(async (_offset: number, _scheduleDelay = 0) => true),
+  play: vi.fn(
+    async (
+      _offset: number,
+      _scheduleDelay = 0,
+      _deadline?: number,
+      _shouldApply?: () => boolean,
+      _recovery?: { timing?: string; onRecoveredStarted?: () => void | Promise<void> },
+    ) => true,
+  ),
   pause: vi.fn(),
   stopAllMedia: vi.fn(),
   getTrackPosition: vi.fn(() => 12),
@@ -108,7 +116,10 @@ class FakeXHR {
   onerror: (() => void) | null = null;
   ontimeout: (() => void) | null = null;
   onabort: (() => void) | null = null;
-  open(): void {}
+  url = '';
+  open(_method: string, url: string): void {
+    this.url = url;
+  }
   setRequestHeader(): void {}
   send(): void {
     FakeXHR.pending.push(this);
@@ -135,6 +146,12 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     bus.clear();
     clearAllManagedTimers();
     vi.clearAllMocks();
+    mocks.pause.mockReset();
+    mocks.getTrackPosition.mockReturnValue(12);
+    mocks.play.mockImplementation(async () => {
+      setPlaybackFilePlaying();
+      return true;
+    });
     FakeXHR.pending = [];
     vi.stubGlobal('XMLHttpRequest', FakeXHR);
     // jsdom has no matchMedia; without this initDemoMode falls back to a
@@ -172,6 +189,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
   });
 
   afterEach(() => {
+    bus.emit('demo:authority-reset');
     setCurrentAudioBuffer(null);
     clearAllManagedTimers();
     vi.unstubAllGlobals();
@@ -1073,4 +1091,225 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
   it('keeps DEMO_TRACKS non-trivial so the advance scenario stays meaningful', () => {
     expect(DEMO_TRACKS.length).toBeGreaterThan(1);
   });
+
+  it.each([false, true])(
+    'preserves newest guest track when an older load fails (already active: %s)',
+    async (alreadyActive) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.hostConn', hostConn);
+      setState('network.appRole', 'guest');
+      markQueueAuthorityReady(hostConn);
+      const enter = (index: number) =>
+        handleData(
+          {
+            type: MSG.DEMO_ENTER,
+            index,
+            reverbOn: false,
+            bassBoostOn: false,
+            trebleBoostOn: false,
+            surroundOn: false,
+          },
+          hostConn,
+        );
+      await enter(0);
+      await flush();
+      if (alreadyActive) {
+        FakeXHR.pending[0].resolveOk();
+        await flush(50);
+        await enter(1);
+        await flush();
+      }
+      const failingIndex = alreadyActive ? 1 : 0;
+      const nextIndex = failingIndex + 1;
+      await enter(nextIndex);
+      await handleData({ type: MSG.DEMO_PLAY, index: nextIndex, time: 0, hostPlayAt: 0 }, hostConn);
+      FakeXHR.pending.find((xhr) => xhr.url === DEMO_TRACKS[failingIndex].url)!.failNetwork();
+      await flush(50);
+      expect(getState('demo.active')).toBe(true);
+      const latest = FakeXHR.pending.find((xhr) => xhr.url === DEMO_TRACKS[nextIndex].url);
+      expect(latest).toBeDefined();
+      latest!.resolveOk();
+      await flush(50);
+      expect(getState('demo.currentTrackIndex')).toBe(nextIndex);
+      expect(mocks.play).toHaveBeenCalled();
+      bus.emit('demo:authority-reset');
+      await flush();
+    },
+  );
+
+  it.each(['EncodingError', 'AudioContextNotRunningError'] as const)(
+    'retries a failed cached preload appropriately for %s',
+    async (name) => {
+      setState('network.appRole', 'host');
+      setState('setup.sessionStarted', true);
+      bus.emit('demo:enter');
+      await flush();
+      FakeXHR.pending[0].resolveOk();
+      await flush(50);
+      FakeXHR.pending.find((xhr) => xhr.url === DEMO_TRACKS[1].url)!.resolveOk();
+      await flush();
+      mocks.loadDemoFile.mockRejectedValueOnce(
+        new DOMException('native decoder/output failure', name),
+      );
+      setPlaybackIdle();
+      bus.emit('player:ended');
+      await flush(50);
+      expect(getCurrentAudioBuffer()).toBeNull();
+      const attempts = mocks.loadDemoFile.mock.calls.length;
+      bus.emit('demo:toggle-play');
+      await flush(50);
+      if (name === 'EncodingError') {
+        expect(mocks.loadDemoFile).toHaveBeenCalledTimes(attempts);
+        expect(FakeXHR.pending.filter((xhr) => xhr.url === DEMO_TRACKS[1].url)).toHaveLength(2);
+      } else {
+        expect(mocks.loadDemoFile).toHaveBeenCalledTimes(attempts + 1);
+        expect(FakeXHR.pending.filter((xhr) => xhr.url === DEMO_TRACKS[1].url)).toHaveLength(1);
+      }
+      bus.emit('demo:authority-reset');
+      await flush();
+    },
+  );
+
+  it('applies the latest paused position after guest decode resets its position', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    const transport = await vi.importActual<typeof import('../../player/transport.ts')>(
+      '../../player/transport.ts',
+    );
+    mocks.pause.mockImplementation(transport.pause);
+    mocks.loadDemoFile.mockImplementationOnce(async () => {
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      setState('player.pausedAt', 0);
+      setPlaybackFilePaused();
+    });
+    await handleData(
+      {
+        type: MSG.DEMO_ENTER,
+        index: 0,
+        reverbOn: false,
+        bassBoostOn: false,
+        trebleBoostOn: false,
+        surroundOn: false,
+      },
+      hostConn,
+    );
+    await flush();
+    await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 }, hostConn);
+    await handleData({ type: MSG.DEMO_PAUSE, time: 70 }, hostConn);
+    FakeXHR.pending[0].resolveOk();
+    await flush(50);
+    expect(getState('player.pausedAt')).toBe(70);
+    expect(mocks.play).not.toHaveBeenCalled();
+    bus.emit('demo:authority-reset');
+    await flush();
+  });
+
+  it.each([false, true])(
+    'bounds a guest fetch retry and preserves pending play (second failure: %s)',
+    async (failsAgain) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.hostConn', hostConn);
+      setState('network.appRole', 'guest');
+      markQueueAuthorityReady(hostConn);
+      await handleData(
+        {
+          type: MSG.DEMO_ENTER,
+          index: 0,
+          reverbOn: false,
+          bassBoostOn: false,
+          trebleBoostOn: false,
+          surroundOn: false,
+        },
+        hostConn,
+      );
+      await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 }, hostConn);
+      await flush();
+      FakeXHR.pending[0].failNetwork();
+      await flush(50);
+      expect(FakeXHR.pending.filter((xhr) => xhr.url === DEMO_TRACKS[0].url)).toHaveLength(2);
+      if (failsAgain) FakeXHR.pending[1].failNetwork();
+      else FakeXHR.pending[1].resolveOk();
+      await flush(50);
+      expect(getState('demo.active')).toBe(!failsAgain);
+      expect(FakeXHR.pending.filter((xhr) => xhr.url === DEMO_TRACKS[0].url)).toHaveLength(2);
+      expect(mocks.play).toHaveBeenCalledTimes(failsAgain ? 0 : 1);
+    },
+  );
+
+  it('does not retry an aborted guest fetch after exit', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    await handleData(
+      {
+        type: MSG.DEMO_ENTER,
+        index: 0,
+        reverbOn: false,
+        bassBoostOn: false,
+        trebleBoostOn: false,
+        surroundOn: false,
+      },
+      hostConn,
+    );
+    await flush();
+    await handleData({ type: MSG.DEMO_EXIT }, hostConn);
+    await flush(50);
+    expect(getState('demo.active')).toBe(false);
+    expect(FakeXHR.pending).toHaveLength(1);
+    expect(mocks.play).not.toHaveBeenCalled();
+  });
+
+  it('publishes host playback once only after an owned output recovery succeeds', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    mocks.play.mockResolvedValueOnce(false);
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0].resolveOk();
+    await flush(50);
+    expect(
+      mocks.broadcast.mock.calls.filter(([frame]) => frame.type === MSG.DEMO_PLAY),
+    ).toHaveLength(0);
+    const recovery = mocks.play.mock.calls[0][4]!;
+    expect(recovery.timing).toBe('canonical-rebase');
+    expect(mocks.play.mock.calls[0][3]!()).toBe(true);
+    setPlaybackFilePlaying();
+    await recovery.onRecoveredStarted!();
+    await recovery.onRecoveredStarted!();
+    expect(mocks.broadcast.mock.calls.filter(([frame]) => frame.type === MSG.DEMO_PLAY)).toEqual([
+      [{ type: MSG.DEMO_PLAY, index: 0, time: 12, hostPlayAt: 10_350 }],
+    ]);
+  });
+
+  it.each(['pause', 'exit', 'replacement-buffer', 'connection'] as const)(
+    'does not publish delayed host recovery after %s',
+    async (replacement) => {
+      setState('network.appRole', 'host');
+      setState('setup.sessionStarted', true);
+      mocks.play.mockResolvedValueOnce(false);
+      bus.emit('demo:enter');
+      await flush();
+      FakeXHR.pending[0].resolveOk();
+      await flush(50);
+      const call = mocks.play.mock.calls[0];
+      if (replacement === 'pause') {
+        setPlaybackFilePlaying();
+        bus.emit('demo:toggle-play');
+      }
+      if (replacement === 'exit') bus.emit('demo:request-exit');
+      if (replacement === 'replacement-buffer')
+        setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      if (replacement === 'connection')
+        setState('network.hostConn', { open: true, peer: 'new-host' } as DataConnection);
+      expect(call[3]!()).toBe(false);
+      setPlaybackFilePlaying();
+      await call[4]!.onRecoveredStarted!();
+      expect(
+        mocks.broadcast.mock.calls.filter(([frame]) => frame.type === MSG.DEMO_PLAY),
+      ).toHaveLength(0);
+    },
+  );
 });

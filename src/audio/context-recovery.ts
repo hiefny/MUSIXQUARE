@@ -14,6 +14,11 @@ import { getState } from '../core/state.ts';
 import { delay } from '../core/timers.ts';
 import type { ResidentFile } from '../types/index.ts';
 import {
+  captureLocalFileOutputIdentity,
+  localFileOutputIdentitiesEqual,
+  type LocalFileOutputIdentity,
+} from '../player/local-file-output-identity.ts';
+import {
   armForegroundAudioContextClockHealthCheck,
   bindRetiredAudioContextSuspendRecovery,
   consumeForegroundAudioContextClockHealthCheck,
@@ -49,6 +54,7 @@ interface PlaybackIdentity {
   roomEpoch: number;
   queueItemId: string | null;
   residentFile: ResidentFile | null;
+  demoOutput: LocalFileOutputIdentity | null;
 }
 
 interface ContextResumeResult {
@@ -115,14 +121,18 @@ function activePlaybackIdentity(): PlaybackIdentity | null {
   }
   const mode = getState('playback.mode');
   if (mode !== 'file' && mode !== 'youtube') return null;
+  const demoOutput =
+    mode === 'file' && getState('demo.active') ? captureLocalFileOutputIdentity() : null;
+  if (mode === 'file' && getState('demo.active') && !demoOutput) return null;
   const room = getState('room.context');
   return {
     mode,
     roomKind: room.kind,
     roomId: room.roomId,
     roomEpoch: room.epoch,
-    queueItemId: getState('playlist.currentQueueItemId'),
+    queueItemId: demoOutput ? null : getState('playlist.currentQueueItemId'),
     residentFile: mode === 'file' ? getState('files.current') : null,
+    demoOutput,
   };
 }
 
@@ -133,7 +143,10 @@ function identitiesEqual(left: PlaybackIdentity, right: PlaybackIdentity): boole
     left.roomId === right.roomId &&
     left.roomEpoch === right.roomEpoch &&
     left.queueItemId === right.queueItemId &&
-    left.residentFile === right.residentFile
+    left.residentFile === right.residentFile &&
+    (left.demoOutput
+      ? !!right.demoOutput && localFileOutputIdentitiesEqual(left.demoOutput, right.demoOutput)
+      : right.demoOutput === null)
   );
 }
 
@@ -616,6 +629,19 @@ function resumeContext(
   }
   const resumeToken = {};
   recovery.activeResumeToken = resumeToken;
+  const reportBlockedDemoResume = (): void => {
+    // Demo has no resident queue file, so its semantic interruption owner must
+    // surface a failed automatic resume instead of leaving the app inspector
+    // waiting on this pending attempt forever. Hidden attempts stay quiet.
+    if (
+      source === 'automatic' &&
+      recovery.identity.demoOutput &&
+      document.visibilityState === 'visible' &&
+      isPreparedState(recovery.context)
+    ) {
+      emitUnhealthyRecovery(recovery, 'context-not-running');
+    }
+  };
 
   let nativeResume: Promise<void>;
   try {
@@ -643,6 +669,7 @@ function resumeContext(
               : 'awaiting-resume';
         }
       }
+      reportBlockedDemoResume();
       return contextResumeResult(recovery, source);
     })
     .catch((error) => {
@@ -654,6 +681,7 @@ function resumeContext(
             : 'awaiting-resume';
       }
       if (recovery.activeResumeToken === resumeToken) recovery.activeResumeToken = null;
+      reportBlockedDemoResume();
       return { running: false, rejoinEmitted: false, fallbackEligible: false };
     })
     .finally(() => {
@@ -898,6 +926,24 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   );
   if (pendingRecovery) retireRecovery(pendingRecovery);
   activeRecoveryAttempt = null;
+  const retireSupersededDemoOutput = (): void => {
+    if (disposed || activeBindingToken !== bindingToken) return;
+    const recovery = activeRecoveryAttempt;
+    if (recovery?.identity.demoOutput && !identityStillCurrent(recovery.identity)) {
+      // Retire even a completed gesture token so it cannot retain the previous
+      // demo's decoded PCM after exit or carry a late resume into its successor.
+      retireRecovery(recovery);
+    }
+  };
+  const disposeDemoIdentityObservers = [
+    bus.on('player:buffer-changed', retireSupersededDemoOutput),
+    bus.on('state:demo.active', retireSupersededDemoOutput),
+    bus.on('state:demo.currentTrackIndex', retireSupersededDemoOutput),
+    bus.on('state:playback.activity', retireSupersededDemoOutput),
+    bus.on('state:playback.mode', retireSupersededDemoOutput),
+    bus.on('state:room.context', retireSupersededDemoOutput),
+    bus.on('state:setup.sessionStarted', retireSupersededDemoOutput),
+  ];
 
   const continueRecoveryInForeground = (recovery: PendingContextRecovery): void => {
     if (
@@ -1113,6 +1159,7 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   document.addEventListener('visibilitychange', handleVisibilityChange);
   return () => {
     disposed = true;
+    for (const dispose of disposeDemoIdentityObservers) dispose();
     disposeRetiredSuspendRecovery();
     if (foregroundHealthToken) {
       consumeForegroundAudioContextClockHealthCheck(foregroundHealthToken);

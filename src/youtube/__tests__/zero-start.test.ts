@@ -76,6 +76,13 @@ function makeHarness(options?: {
   hostMediaAction?: YouTubeZeroStartMediaAction;
   guestMediaAction?: YouTubeZeroStartMediaAction;
   advanceClock?: boolean;
+  dropTimelineMessages?: boolean;
+  guestArmedDelayMs?: number;
+  guestPrepareDelayMs?: number;
+  hostCommitDelayMs?: number;
+  isGuestClockCalibrated?: () => boolean;
+  hostCanonicalTransform?: (position: number) => number;
+  guestCanonicalTransform?: (position: number) => number;
   failHostCommitSend?: boolean;
   onHostFallbackRequired?: YouTubeZeroStartDependencies['onHostFallbackRequired'];
   onGuestLearnedTimelineLeadMs?: YouTubeZeroStartDependencies['onLearnedTimelineLeadMs'];
@@ -127,6 +134,17 @@ function makeHarness(options?: {
       if (options?.failHostCommitSend && message.type === 'youtube-zero-start-commit') {
         return false;
       }
+      if (options?.dropTimelineMessages && message.type === 'youtube-zero-start-timeline') {
+        return true;
+      }
+      if (options?.guestPrepareDelayMs && message.type === 'youtube-zero-start-prepare') {
+        setTimeout(() => dispatchToGuest(guest, message), options.guestPrepareDelayMs);
+        return true;
+      }
+      if (options?.hostCommitDelayMs && message.type === 'youtube-zero-start-commit') {
+        setTimeout(() => dispatchToGuest(guest, message), options.hostCommitDelayMs);
+        return true;
+      }
       dispatchToGuest(guest, message);
       return true;
     },
@@ -134,12 +152,14 @@ function makeHarness(options?: {
     onPrepareSelection: () => options?.hostMediaAction,
     onHostFallbackRequired: options?.onHostFallbackRequired,
     onPhaseChange: options?.onHostPhaseChange,
+    toCanonicalPositionSec: options?.hostCanonicalTransform,
   } as YouTubeZeroStartDependencies);
 
   const guestOffset = options?.guestOffsetSec ?? 0;
   guest = new YouTubeZeroStartController({
     ...common,
     getRole: () => 'guest',
+    isClockCalibrated: options?.isGuestClockCalibrated ?? common.isClockCalibrated,
     getLocalPeerId: () => GUEST_ID,
     getHostPeerId: () => HOST_ID,
     getLiveGuestPeerIds: () => [],
@@ -148,6 +168,10 @@ function makeHarness(options?: {
     sendToPeer: () => false,
     sendToHost: (message) => {
       guestOutbound.push(message);
+      if (options?.guestArmedDelayMs && message.type === 'youtube-zero-start-armed') {
+        setTimeout(() => dispatchToHost(host, message), options.guestArmedDelayMs);
+        return true;
+      }
       dispatchToHost(host, message);
       return true;
     },
@@ -158,10 +182,18 @@ function makeHarness(options?: {
       ? () => options.guestDesiredAudioState
       : undefined,
     resolveLocalTargetSec: (canonical) => canonical + guestOffset,
-    toCanonicalPositionSec: (local) => local - guestOffset,
+    toCanonicalPositionSec: options?.guestCanonicalTransform ?? ((local) => local - guestOffset),
   } as YouTubeZeroStartDependencies);
 
   return { host, guest, hostPlayer, guestPlayer, hostOutbound, guestOutbound };
+}
+
+function latestTimeline(harness: Harness) {
+  const message = [...harness.hostOutbound]
+    .reverse()
+    .find((frame) => frame.type === 'youtube-zero-start-timeline');
+  if (!message) throw new Error('Expected a host timeline sample');
+  return message;
 }
 
 describe('YouTubeZeroStartController', () => {
@@ -1952,6 +1984,202 @@ describe('YouTubeZeroStartController', () => {
       timelineLeadMs: 600,
       totalLeadMs: 350,
     });
+  });
+
+  it.each([
+    { commitDelay: 0, offset: 0, target: 0.1 },
+    { commitDelay: 0, offset: 0.05, target: 0.1 },
+    { commitDelay: 0, offset: -0.05, target: 0.1 },
+    { commitDelay: 900, offset: 0, target: 1 },
+  ])(
+    'projects an excluded guest onto the canonical fallback deadline ($commitDelay ms, offset $offset)',
+    ({ commitDelay, offset, target }) => {
+      const onLearnedTimelineLeadMs = vi.fn();
+      const harness = makeHarness({
+        advanceClock: true,
+        guestArmedDelayMs: commitDelay ? 2_300 : 1_800,
+        guestPrepareDelayMs: commitDelay ? 500 : 0,
+        hostCommitDelayMs: commitDelay,
+        guestOffsetSec: offset,
+        onGuestLearnedTimelineLeadMs: onLearnedTimelineLeadMs,
+      });
+      harness.guest.advertiseCapability();
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      });
+
+      vi.advanceTimersByTime(4_000);
+
+      expect(
+        harness.hostOutbound.find((message) => message.type === 'youtube-zero-start-commit'),
+      ).toMatchObject({ cohort: [HOST_ID] });
+      const fallbackSeek = harness.guestPlayer.__log.filter((call) => call.op === 'seekTo').at(-1);
+      expect(fallbackSeek?.args?.[0]).toBeCloseTo(target + offset);
+      expect(harness.guestPlayer.getCurrentTime() - offset).toBeCloseTo(
+        harness.hostPlayer.getCurrentTime(),
+      );
+      expect(onLearnedTimelineLeadMs).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not learn an early next start from one transient, delayed timeline observation', () => {
+    const onLearnedTimelineLeadMs = vi.fn();
+    const harness = makeHarness({
+      advanceClock: true,
+      dropTimelineMessages: true,
+      onGuestLearnedTimelineLeadMs: onLearnedTimelineLeadMs,
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620 + 700 + 2_250);
+
+    const readGuestTime = harness.guestPlayer.getCurrentTime;
+    harness.guestPlayer.getCurrentTime = () => readGuestTime() - 0.4;
+    dispatchToGuest(harness.guest, latestTimeline(harness));
+    harness.guestPlayer.getCurrentTime = readGuestTime;
+
+    // A single late observation must not manufacture both stability samples.
+    expect(onLearnedTimelineLeadMs).not.toHaveBeenCalled();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620 + 700);
+    expect(harness.guestPlayer.getCurrentTime()).toBeCloseTo(harness.hostPlayer.getCurrentTime());
+  });
+
+  it.each(['raw-NaN', 'raw-infinity', 'converted-NaN'] as const)(
+    'skips a nonfinite host position (%s) without stopping timeline polling',
+    (invalid) => {
+      let invalidTransform = invalid === 'converted-NaN';
+      const harness = makeHarness({
+        advanceClock: true,
+        // A canonical projection may otherwise normalize an invalid raw read to zero.
+        hostCanonicalTransform: (position) =>
+          invalidTransform ? NaN : Number.isFinite(position) ? position : 0,
+      });
+      harness.guest.advertiseCapability();
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      });
+      vi.advanceTimersByTime(620 + 700);
+      const readHostTime = harness.hostPlayer.getCurrentTime;
+      if (invalid === 'raw-NaN') harness.hostPlayer.getCurrentTime = () => NaN;
+      if (invalid === 'raw-infinity') harness.hostPlayer.getCurrentTime = () => Infinity;
+      vi.advanceTimersByTime(1_000);
+      expect(
+        harness.hostOutbound.filter((frame) => frame.type === 'youtube-zero-start-timeline'),
+      ).toHaveLength(0);
+
+      harness.hostPlayer.getCurrentTime = readHostTime;
+      invalidTransform = false;
+      vi.advanceTimersByTime(250);
+      expect(latestTimeline(harness).positionSec).toBeCloseTo(1.25);
+    },
+  );
+
+  it.each(['duplicate', 'out-of-order', 'queued burst', 'too-close source frames'] as const)(
+    'does not treat %s as independent calibration observations',
+    (delivery) => {
+      const onLearnedTimelineLeadMs = vi.fn();
+      const harness = makeHarness({
+        advanceClock: true,
+        dropTimelineMessages: true,
+        onGuestLearnedTimelineLeadMs: onLearnedTimelineLeadMs,
+      });
+      harness.guest.advertiseCapability();
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      });
+      vi.advanceTimersByTime(620 + 700 + 1_000);
+      const first = latestTimeline(harness);
+      vi.advanceTimersByTime(250);
+      const adjacent = latestTimeline(harness);
+      const readGuestTime = harness.guestPlayer.getCurrentTime;
+      harness.guestPlayer.getCurrentTime = () => readGuestTime() - 0.4;
+
+      if (delivery === 'queued burst') {
+        vi.advanceTimersByTime(1_000);
+        dispatchToGuest(harness.guest, first);
+        dispatchToGuest(harness.guest, latestTimeline(harness));
+      } else if (delivery === 'too-close source frames') {
+        dispatchToGuest(harness.guest, adjacent);
+        vi.advanceTimersByTime(750);
+        const second = latestTimeline(harness);
+        vi.advanceTimersByTime(250);
+        dispatchToGuest(harness.guest, second);
+      } else {
+        dispatchToGuest(harness.guest, delivery === 'out-of-order' ? adjacent : first);
+        vi.advanceTimersByTime(1_000);
+        dispatchToGuest(harness.guest, first);
+      }
+      expect(onLearnedTimelineLeadMs).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    'local-paused',
+    'local-buffering',
+    'host-paused',
+    'host-buffering',
+    'raw-NaN',
+    'raw-infinity',
+    'host-NaN',
+    'host-time-infinity',
+    'uncalibrated',
+    'converted-NaN',
+    'future-host-time',
+    'stale-run',
+  ] as const)('does not learn from %s observations', (invalid) => {
+    const onLearnedTimelineLeadMs = vi.fn();
+    let calibrated = true;
+    const harness = makeHarness({
+      advanceClock: true,
+      dropTimelineMessages: true,
+      isGuestClockCalibrated: () => calibrated,
+      guestCanonicalTransform: (position) =>
+        invalid === 'converted-NaN' ? NaN : Number.isFinite(position) ? position : 0,
+      onGuestLearnedTimelineLeadMs: onLearnedTimelineLeadMs,
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620 + 700);
+    const readGuestTime = harness.guestPlayer.getCurrentTime;
+    const readGuestState = harness.guestPlayer.getPlayerState;
+    for (let sample = 0; sample < 2; sample++) {
+      vi.advanceTimersByTime(1_000);
+      const frame = { ...latestTimeline(harness) };
+      if (invalid === 'local-paused') harness.guestPlayer.getPlayerState = () => 2;
+      if (invalid === 'local-buffering') harness.guestPlayer.getPlayerState = () => 3;
+      if (invalid === 'host-paused') frame.playerState = 2;
+      if (invalid === 'host-buffering') frame.playerState = 3;
+      if (invalid === 'raw-NaN') harness.guestPlayer.getCurrentTime = () => NaN;
+      if (invalid === 'raw-infinity') harness.guestPlayer.getCurrentTime = () => Infinity;
+      if (invalid === 'host-NaN') frame.positionSec = NaN;
+      if (invalid === 'host-time-infinity') frame.hostTime = Infinity;
+      if (invalid === 'future-host-time') frame.hostTime += 1_000;
+      if (invalid === 'stale-run') frame.runId = 'retired-run';
+      if (invalid === 'uncalibrated') calibrated = false;
+      dispatchToGuest(harness.guest, frame);
+    }
+    harness.guestPlayer.getCurrentTime = readGuestTime;
+    harness.guestPlayer.getPlayerState = readGuestState;
+    expect(onLearnedTimelineLeadMs).not.toHaveBeenCalled();
   });
 
   it('learns a stable iOS timeline residual and applies it to the next run', () => {

@@ -1521,6 +1521,66 @@ describe('playTrack YouTube auto-rendezvous', () => {
     });
   });
 
+  it.each(
+    [false, true].flatMap((otherItem) =>
+      ['playing', 'paused'].map((activity) => ({ otherItem, activity })),
+    ),
+  )(
+    'prepares canonical OP sub-selection with otherItem=$otherItem from $activity',
+    async ({ otherItem, activity }) => {
+      const { handleRequestYouTubeSubSeek } = await import('../../youtube/handlers.ts');
+      setPlaybackYouTubePlaying();
+      setState('playback.activity', activity as 'playing' | 'paused');
+      setState('player.isFirstTrackLoad', false);
+      setState('network.appRole', 'host');
+      const conn = { peer: 'guest-op', open: true, send: vi.fn() } as unknown as DataConnection;
+      setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+      setState('network.connectedPeers', [{ ...makeConnectedPeer(conn.peer, true), conn }]);
+      const current = youtubeItem('Current', 'CURRENT_VIDEO', 'PL_CURRENT');
+      const target = otherItem ? youtubeItem('Target', 'TARGET_FIRST', 'PL_TARGET') : current;
+      setState('playlist.items', otherItem ? [current, target] : [current]);
+      selectIndex(0);
+      setState('youtube.subItemsMap', {
+        [target.playlistId!]: { ids: [target.videoId!, 'TARGET_NEXT'], titles: ['First', 'Next'] },
+      });
+      setState('youtube.currentSubIndex', 0);
+      setYouTubePlayer({
+        getVideoData: () => ({ video_id: 'CURRENT_VIDEO' }),
+        loadVideoById: vi.fn(),
+      } as never);
+      initPlaylist();
+      const load = vi.fn();
+      const switchTab = vi.fn();
+
+      bus.on('youtube:load', load);
+      bus.on('ui:switch-tab', switchTab);
+
+      handleRequestYouTubeSubSeek({ queueItemId: target.queueItemId, subIdx: 1 }, conn);
+
+      expect(load).toHaveBeenCalledWith('TARGET_NEXT', null, target.queueItemId, false, 1);
+      expect(getPendingAutoSyncOnReady()).toBe(true);
+      expect(consumePendingAutoSyncOnReady()).toBeNull();
+      setYouTubePlayer({ getVideoData: () => ({ video_id: 'TARGET_NEXT' }) } as never);
+      expect(consumePendingAutoSyncOnReady()).toMatchObject({
+        isTrackTransition: true,
+        zeroStart: true,
+        targetTime: 0,
+        subIndex: 1,
+        videoId: 'TARGET_NEXT',
+      });
+      expect(conn.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_PLAY,
+          videoId: 'TARGET_NEXT',
+          queueItemId: target.queueItemId,
+          autoplay: false,
+          subIndex: 1,
+        }),
+      );
+      expect(switchTab).toHaveBeenCalledTimes(otherItem ? 1 : 0);
+      expect(getState('playlist.currentQueueItemId')).toBe(target.queueItemId);
+    },
+  );
   it('marks YouTube-to-YouTube loads as track transitions', async () => {
     setPlaybackYouTubePlaying();
     setState('player.isFirstTrackLoad', false);

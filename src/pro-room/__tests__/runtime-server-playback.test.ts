@@ -1732,6 +1732,215 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     expect(updateSettingsSync.mock.calls[1]?.[0]).toMatchObject({ masterVolume: 0.73 });
   });
 
+  async function rejoinForSettingsCheckpoint(): Promise<void> {
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(getState('audio.masterVolume')).toBe(1));
+  }
+
+  it.each([
+    ['before-rejoin', 'resolved'],
+    ['before-rejoin', 'rejected'],
+    ['after-new-edit', 'resolved'],
+    ['after-new-edit', 'rejected'],
+  ] as const)(
+    'retains successor settings when an old epoch heartbeat settles %s and is %s',
+    async (settlesAt, outcome) => {
+      await vi.waitFor(() => expect(ProRoomApiClient.prototype.getSettingsSync).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setState('setup.sessionStarted', true);
+      let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
+      let rejectHeartbeat!: (error: unknown) => void;
+      const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+      heartbeat.mockClear();
+      heartbeat.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            resolveHeartbeat = resolve;
+            rejectHeartbeat = reject;
+          }),
+      );
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+        .mockRejectedValueOnce(new ProRoomApiError('ROOM_EPOCH_MISMATCH', 409))
+        .mockImplementation(async (input) => ({
+          ...canonicalSettings(1, input.masterVolume),
+          effects: input.effects,
+        }));
+      restoreSpies.push(update);
+      const settle = () =>
+        outcome === 'resolved'
+          ? resolveHeartbeat(snapshot())
+          : rejectHeartbeat(new ProRoomApiError('NETWORK_ERROR', 0));
+      setState('audio.masterVolume', 0.41);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+      if (settlesAt === 'before-rejoin') {
+        settle();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      await rejoinForSettingsCheckpoint();
+      setState('audio.masterVolume', 0.73);
+      const successorTimer = getManagedTimer('pro-room-effects-checkpoint-debounce');
+      expect(successorTimer).not.toBeNull();
+      if (settlesAt === 'after-new-edit') {
+        settle();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(getManagedTimer('pro-room-effects-checkpoint-debounce')).toBe(successorTimer);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+      expect(update.mock.calls[1]?.[0]).toMatchObject({ masterVolume: 0.73 });
+    },
+  );
+
+  it.each(['accepted', 'transient-failure', 'terminal-failure', 'epoch-mismatch'] as const)(
+    'ignores an old settings PUT and queued refresh after rejoin when the PUT ends with %s',
+    async (outcome) => {
+      await vi.waitFor(() => expect(ProRoomApiClient.prototype.getSettingsSync).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setState('setup.sessionStarted', true);
+      let resolvePut!: (value: ReturnType<typeof canonicalSettings>) => void;
+      let rejectPut!: (error: unknown) => void;
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              resolvePut = resolve;
+              rejectPut = reject;
+            }),
+        )
+        .mockImplementation(async (input) => ({
+          ...canonicalSettings(1, input.masterVolume),
+          effects: input.effects,
+        }));
+      restoreSpies.push(update);
+      setState('audio.masterVolume', 0.41);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+      const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+      const heartbeatCalls = heartbeat.mock.calls.length;
+      heartbeat.mockResolvedValueOnce(settingsHead(1));
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
+      );
+      await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(heartbeatCalls));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await rejoinForSettingsCheckpoint();
+      setState('audio.masterVolume', 0.73);
+      const successorTimer = getManagedTimer('pro-room-effects-checkpoint-debounce');
+      const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+      const readsBeforeCompletion = getSettingsSync.mock.calls.length;
+      const heartbeatsBeforeCompletion = heartbeat.mock.calls.length;
+      if (outcome === 'accepted') resolvePut(canonicalSettings(1, 0.41));
+      else
+        rejectPut(
+          new ProRoomApiError(
+            outcome === 'transient-failure'
+              ? 'NETWORK_ERROR'
+              : outcome === 'epoch-mismatch'
+                ? 'ROOM_EPOCH_MISMATCH'
+                : 'INVALID_EFFECTS',
+            outcome === 'transient-failure' ? 0 : outcome === 'epoch-mismatch' ? 409 : 400,
+          ),
+        );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getManagedTimer('pro-room-effects-checkpoint-debounce')).toBe(successorTimer);
+      expect(getSettingsSync).toHaveBeenCalledTimes(readsBeforeCompletion);
+      expect(heartbeat).toHaveBeenCalledTimes(heartbeatsBeforeCompletion);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+      expect(update.mock.calls[1]?.[0]).toMatchObject({ masterVolume: 0.73 });
+    },
+  );
+
+  it.each(['resolved', 'rejected'] as const)(
+    'ignores an old settings GET and queued checkpoint after rejoin when the GET is %s',
+    async (outcome) => {
+      const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+      await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setState('setup.sessionStarted', true);
+      let resolveGet!: (value: ReturnType<typeof canonicalSettings>) => void;
+      let rejectGet!: (error: unknown) => void;
+      const readsBefore = getSettingsSync.mock.calls.length;
+      getSettingsSync.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            resolveGet = resolve;
+            rejectGet = reject;
+          }),
+      );
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce(settingsHead(1));
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
+      );
+      await vi.waitFor(() =>
+        expect(getSettingsSync.mock.calls.length).toBeGreaterThan(readsBefore),
+      );
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+        .mockImplementation(async (input) => ({
+          ...canonicalSettings(1, input.masterVolume),
+          effects: input.effects,
+        }));
+      restoreSpies.push(update);
+      setState('audio.masterVolume', 0.41);
+      await vi.waitFor(() =>
+        expect(getManagedTimer('pro-room-effects-checkpoint-debounce')).toBeNull(),
+      );
+      expect(update).not.toHaveBeenCalled();
+      await rejoinForSettingsCheckpoint();
+      setState('audio.masterVolume', 0.73);
+      const successorTimer = getManagedTimer('pro-room-effects-checkpoint-debounce');
+      if (outcome === 'resolved') resolveGet(canonicalSettings(1, 0.8));
+      else rejectGet(new ProRoomApiError('NETWORK_ERROR', 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getManagedTimer('pro-room-effects-checkpoint-debounce')).toBe(successorTimer);
+      expect(getState('audio.masterVolume')).toBe(0.73);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+      expect(update.mock.calls[0]?.[0]).toMatchObject({ masterVolume: 0.73 });
+    },
+  );
+
+  it('ignores an old queue-mode conflict instead of discarding the same edit in a successor room', async () => {
+    await vi.waitFor(() => expect(ProRoomApiClient.prototype.getQueueMode).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    let rejectPut!: (error: unknown) => void;
+    const update = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateQueueMode')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectPut = reject;
+          }),
+      )
+      .mockImplementation(async (input) => ({
+        schemaVersion: 1,
+        view: 'queue-mode',
+        roomCode: ROOM_CODE,
+        revision: 1,
+        playlistRevision: 1,
+        updatedAtMs: 2,
+        repeatMode: input.repeatMode,
+        shuffleEnabled: input.shuffleEnabled,
+        shuffleOrder: input.shuffleOrder,
+      }));
+    restoreSpies.push(update);
+    setState('playlist.repeatMode', 1);
+    await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+    await rejoinForSettingsCheckpoint();
+    await vi.waitFor(() => expect(getState('playlist.repeatMode')).toBe(0));
+    setState('playlist.repeatMode', 1);
+    const getQueueMode = vi.mocked(ProRoomApiClient.prototype.getQueueMode);
+    const readsBeforeCompletion = getQueueMode.mock.calls.length;
+    rejectPut(new ProRoomApiError('QUEUE_MODE_REVISION_CONFLICT', 409));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getState('playlist.repeatMode')).toBe(1);
+    expect(getQueueMode).toHaveBeenCalledTimes(readsBeforeCompletion);
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update.mock.calls[1]?.[0]).toMatchObject({ repeatMode: 1 });
+  });
+
   it('retries one pending effects and queue-mode refresh after the first GET rejects', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);

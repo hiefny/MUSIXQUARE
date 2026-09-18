@@ -1595,7 +1595,10 @@ function completeCanonicalEffectsBaseline(canonical: ProRoomSettingsSyncSnapshot
   }
 }
 
-function cancelEffectsCheckpoint(): void {
+function cancelEffectsCheckpoint(lease = playlistRuntimeLease): void {
+  // Async cleanup belongs to the runtime that scheduled it. An older room's
+  // completion must not clear a successor's dirty intent or debounce timer.
+  if (lease !== playlistRuntimeLease) return;
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   effectsCheckpointState.cancel();
 }
@@ -1609,9 +1612,12 @@ function isCurrentEffectsCheckpointToken(token: SettingsSyncCheckpointToken): bo
  * request may settle after a newer audio edit has already installed its own
  * dirty revision and debounce timer; that stale result must be a no-op.
  */
-function cancelCurrentEffectsCheckpoint(token: SettingsSyncCheckpointToken): boolean {
-  if (!isCurrentEffectsCheckpointToken(token)) return false;
-  cancelEffectsCheckpoint();
+function cancelCurrentEffectsCheckpoint(
+  token: SettingsSyncCheckpointToken,
+  lease: PlaylistRuntimeLease,
+): boolean {
+  if (!isPlaylistLeaseCurrent(lease) || !isCurrentEffectsCheckpointToken(token)) return false;
+  cancelEffectsCheckpoint(lease);
   return true;
 }
 
@@ -1627,7 +1633,7 @@ function hasEffectsCheckpointAuthority(lease: PlaylistRuntimeLease | null): bool
 
 function armEffectsCheckpoint(delayMs: number, lease = playlistRuntimeLease): void {
   if (!hasEffectsCheckpointAuthority(lease) || !lease || !effectsCheckpointState.dirty) {
-    cancelEffectsCheckpoint();
+    cancelEffectsCheckpoint(lease);
     return;
   }
   const generation = lease.generation;
@@ -1642,7 +1648,7 @@ function armEffectsCheckpoint(delayMs: number, lease = playlistRuntimeLease): vo
         currentLease.roomCode !== roomCode ||
         !hasEffectsCheckpointAuthority(currentLease)
       ) {
-        cancelEffectsCheckpoint();
+        cancelEffectsCheckpoint(lease);
         return;
       }
       return persistRoomEffects();
@@ -1657,7 +1663,7 @@ function scheduleEffectsCheckpointRetry(
   lease: PlaylistRuntimeLease,
 ): void {
   if (!hasEffectsCheckpointAuthority(lease)) {
-    cancelEffectsCheckpoint();
+    cancelEffectsCheckpoint(lease);
     return;
   }
   // A newer edit already installed its own debounce timer and reset backoff.
@@ -1676,10 +1682,12 @@ function reconcileEffectsCheckpointEpoch(
   error: ProRoomApiError,
   lease: PlaylistRuntimeLease,
 ): void {
+  if (!isPlaylistLeaseCurrent(lease)) return;
   void runHeartbeat(true, true)
     .then(() => {
+      if (!isPlaylistLeaseCurrent(lease)) return;
       if (!hasEffectsCheckpointAuthority(lease)) {
-        cancelEffectsCheckpoint();
+        cancelEffectsCheckpoint(lease);
         return;
       }
       // The heartbeat repaired room authority for the runtime, but this
@@ -1688,10 +1696,11 @@ function reconcileEffectsCheckpointEpoch(
       armEffectsCheckpoint(EFFECTS_CHECKPOINT_DEBOUNCE_MS, lease);
     })
     .catch((heartbeatError) => {
+      if (!isPlaylistLeaseCurrent(lease)) return;
       if (hasEffectsCheckpointAuthority(lease)) {
         scheduleEffectsCheckpointRetry(token, heartbeatError, lease);
       } else {
-        cancelEffectsCheckpoint();
+        cancelEffectsCheckpoint(lease);
       }
       log.warn('[PRO] Settings checkpoint epoch reconciliation failed', error);
     });
@@ -1723,7 +1732,7 @@ function rebaseEffectsCheckpointIntent(
 async function persistRoomEffects(): Promise<void> {
   const lease = playlistRuntimeLease;
   if (!hasEffectsCheckpointAuthority(lease) || !lease || suppressEffectsCheckpoint) {
-    cancelEffectsCheckpoint();
+    cancelEffectsCheckpoint(lease);
     return;
   }
   const token = effectsCheckpointState.begin();
@@ -1736,7 +1745,7 @@ async function persistRoomEffects(): Promise<void> {
       suppressEffectsCheckpoint ||
       snapshot?.roomCode !== lease.roomCode
     ) {
-      cancelEffectsCheckpoint();
+      cancelEffectsCheckpoint(lease);
       return;
     }
     let desired = captureRoomEffectsState();
@@ -1753,7 +1762,7 @@ async function persistRoomEffects(): Promise<void> {
           playlistRuntimeAbort?.signal,
         );
         if (!hasEffectsCheckpointAuthority(lease)) {
-          cancelEffectsCheckpoint();
+          cancelEffectsCheckpoint(lease);
           return;
         }
         const latestLocal = captureRoomEffectsState();
@@ -1783,7 +1792,7 @@ async function persistRoomEffects(): Promise<void> {
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         if (!hasEffectsCheckpointAuthority(lease)) {
-          cancelEffectsCheckpoint();
+          cancelEffectsCheckpoint(lease);
           return;
         }
         if (roomEffectsEqual(base.effects, desired) && base.masterVolume === desiredVolume) {
@@ -1805,10 +1814,11 @@ async function persistRoomEffects(): Promise<void> {
             acceptedEffects = accepted;
             effectsCheckpointState.succeed(token);
           } else {
-            cancelEffectsCheckpoint();
+            cancelEffectsCheckpoint(lease);
           }
           return;
         } catch (error) {
+          if (!isPlaylistLeaseCurrent(lease)) return;
           const revisionConflict =
             error instanceof ProRoomApiError && error.code === 'SETTINGS_SYNC_REVISION_CONFLICT';
           const transient = isTransientSettingsSyncFailure(error);
@@ -1817,7 +1827,7 @@ async function persistRoomEffects(): Promise<void> {
               reconcileEffectsCheckpointEpoch(token, error, lease);
               return;
             }
-            if (!cancelCurrentEffectsCheckpoint(token)) return;
+            if (!cancelCurrentEffectsCheckpoint(token, lease)) return;
             throw error;
           }
           if (revisionConflict && attempt !== 0) {
@@ -1838,11 +1848,11 @@ async function persistRoomEffects(): Promise<void> {
               scheduleEffectsCheckpointRetry(token, error, lease);
               return;
             }
-            if (!cancelCurrentEffectsCheckpoint(token)) return;
+            if (!cancelCurrentEffectsCheckpoint(token, lease)) return;
             throw reconcileError;
           }
           if (!hasEffectsCheckpointAuthority(lease)) {
-            cancelEffectsCheckpoint();
+            cancelEffectsCheckpoint(lease);
             return;
           }
           const latestLocal = captureRoomEffectsState();
@@ -1881,15 +1891,16 @@ async function persistRoomEffects(): Promise<void> {
         }
       }
     } catch (error) {
+      if (!isPlaylistLeaseCurrent(lease)) return;
       if (!hasEffectsCheckpointAuthority(lease)) {
         // Actual authority/room-lease loss invalidates every pending intent.
-        cancelEffectsCheckpoint();
+        cancelEffectsCheckpoint(lease);
       } else if (!isCurrentEffectsCheckpointToken(token)) {
         // A newer edit owns dirty state and retry scheduling.
       } else if (isTransientSettingsSyncFailure(error)) {
         scheduleEffectsCheckpointRetry(token, error, lease);
       } else {
-        cancelCurrentEffectsCheckpoint(token);
+        cancelCurrentEffectsCheckpoint(token, lease);
       }
       if (active && isPlaylistLeaseCurrent(lease)) {
         log.warn('[PRO] Room effects checkpoint failed', error);
@@ -2006,7 +2017,9 @@ async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boole
         try {
           applied =
             (await enqueueEffectsMutation(() =>
-              refreshPersistedEffectsUnlocked(target, notificationGeneration),
+              flight.generation === playlistRuntimeGeneration
+                ? refreshPersistedEffectsUnlocked(target, notificationGeneration)
+                : Promise.resolve(false),
             )) || applied;
         } catch (error) {
           failure = error;
@@ -2071,6 +2084,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
     ) {
       await refreshPersistedQueueModeUnlocked(snapshot);
     }
+    if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
     const baseRevision = acceptedQueueMode?.revision;
     if (baseRevision === undefined) return;
     const local = capturePlaylistQueueModeState();
@@ -2090,6 +2104,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
         signal,
       );
     } catch (error) {
+      if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
       if (
         error instanceof ProRoomApiError &&
         (error.code === 'QUEUE_MODE_REVISION_CONFLICT' ||
@@ -2099,6 +2114,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
           preservePendingIntent: false,
           discardedIntent: { revision: intentRevision, state: local },
         });
+        if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
         if (queueModeIntentRevision === intentRevision) {
           queueModeCheckpointDirty = false;
           queueModeCheckpointRetryAttempt = 0;
@@ -2264,7 +2280,9 @@ async function refreshPersistedQueueMode(
         try {
           applied =
             (await enqueueQueueModeMutation(() =>
-              refreshPersistedQueueModeUnlocked(target, options),
+              flight.generation === playlistRuntimeGeneration
+                ? refreshPersistedQueueModeUnlocked(target, options)
+                : Promise.resolve(false),
             )) || applied;
         } catch (error) {
           failure = error;

@@ -526,24 +526,24 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
     /* ignore */
   }
 
-  const needsFontLoad = hasLocaleFont(resolved);
-  const fontLoad = needsFontLoad
-    ? import('./locale-fonts.ts')
-        .then(({ default: localeFonts }) => localeFonts.loadLocaleFont(resolved))
-        .catch((error) => {
-          // The optional runtime chunk can fail before its CSS loader runs.
-          // Keep the selected dictionary and DOM in sync using system fonts.
-          log.warn(`[i18n] Failed to load font runtime for "${resolved}"`, error);
-        })
-    : Promise.resolve();
+  if (hasLocaleFont(resolved)) {
+    // Font warming is optional. A half-open CSS/runtime request must not hold
+    // the dictionary, translated DOM, or the rest of app bootstrap hostage.
+    // The loader retains its own shared work and retry-on-failure ownership;
+    // late completion only registers fonts and cannot select an older locale.
+    void import('./locale-fonts.ts')
+      .then(({ default: localeFonts }) => localeFonts.loadLocaleFont(resolved))
+      .catch((error) => {
+        log.warn(`[i18n] Failed to load font runtime for "${resolved}"`, error);
+      });
+  }
 
   if (_dicts[resolved]) {
-    if (needsFontLoad) await fontLoad;
     _translateLoadedLanguage(resolved);
     return;
   }
 
-  await Promise.all([_loadLanguage(resolved), fontLoad]);
+  await _loadLanguage(resolved);
   _translateLoadedLanguage(resolved);
 }
 

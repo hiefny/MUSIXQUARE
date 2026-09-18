@@ -73,8 +73,8 @@ function makeHarness(options?: {
   guestMuted?: boolean;
   hostVideoId?: string;
   guestVideoId?: string;
-  hostMediaAction?: YouTubeZeroStartMediaAction;
-  guestMediaAction?: YouTubeZeroStartMediaAction;
+  hostMediaAction?: YouTubeZeroStartMediaAction | false;
+  guestMediaAction?: YouTubeZeroStartMediaAction | false;
   advanceClock?: boolean;
   dropTimelineMessages?: boolean;
   guestArmedDelayMs?: number;
@@ -209,6 +209,56 @@ describe('YouTubeZeroStartController', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('aborts the already-sent host PREPARE when local selection admission fails', () => {
+    const harness = makeHarness({ hostMediaAction: false });
+    harness.guest.advertiseCapability();
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(false);
+    expect(harness.hostOutbound.map((message) => message.type)).toEqual([
+      'youtube-zero-start-prepare',
+      'youtube-zero-start-abort',
+    ]);
+    expect(harness.host.getSnapshot().phase).toBe('idle');
+    expect(harness.guest.getSnapshot().phase).toBe('idle');
+    vi.advanceTimersByTime(1000);
+    expect(harness.hostPlayer.__log.some((call) => call.op === 'loadVideoById')).toBe(false);
+  });
+
+  it('cleans the cancelled guest warm-up when its successor admission fails', () => {
+    const options = {
+      guestMediaAction: 'replace-media' as YouTubeZeroStartMediaAction | false,
+      guestMuted: false,
+      guestVolume: 62,
+    };
+    const harness = makeHarness(options);
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(1);
+    expect(harness.guest.getSnapshot().phase).toBe('warming');
+    expect(harness.guestPlayer.isMuted()).toBe(true);
+    const prepare = harness.hostOutbound.find(
+      (message) => message.type === 'youtube-zero-start-prepare',
+    )!;
+    options.guestMediaAction = false;
+    expect(
+      harness.guest.handlePrepare(HOST_ID, { ...prepare, sequence: 2, runId: 'rejected-2' }),
+    ).toBe(false);
+    expect(harness.guest.getSnapshot().phase).toBe('idle');
+    expect(harness.guestPlayer.getPlayerState()).toBe(2);
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+    expect(harness.guestPlayer.getVolume()).toBe(62);
+    expect(harness.guest.handlePrepare(HOST_ID, prepare)).toBe(false);
   });
 
   it('requires runtime-aware v2 capability from every live guest', () => {

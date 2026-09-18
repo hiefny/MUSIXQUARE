@@ -104,6 +104,7 @@ import { applyYouTubeCaptionPolicy } from './caption-policy.ts';
 import {
   RetainedYouTubePlayerController,
   type RetainedPlayerHandoffRequest,
+  type RetainedPlayerSyncHandoffRequest,
 } from './retained-player-controller.ts';
 import {
   handleYouTubeZeroStartPlayerState,
@@ -1096,6 +1097,55 @@ function invalidateYtDurationCache(): void {
 function expectYouTubeMetadataVideoId(videoId: string | null): void {
   _ifr.expectedMetadataVideoId = videoId;
   _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
+}
+
+/** An accepted PREPARE can supersede a legacy host's missing load descriptor. */
+export function prepareYouTubeZeroStartSelection(
+  player: YouTubePlayerInstance,
+  request: RetainedPlayerSyncHandoffRequest,
+): boolean {
+  const selectionIsCurrent = (): boolean =>
+    isPlaybackModeYouTube() &&
+    getCurrentQueueItemId() === request.queueItemId &&
+    getCurrentSessionId() === request.sessionId;
+  if (getYouTubePlayer() !== player || !selectionIsCurrent()) return false;
+  const pendingTarget = retainedPlayerController.getPendingTargetMatch(player, request);
+  if (pendingTarget === 'matching') return true;
+  if (pendingTarget === 'none') {
+    if (isYtLoadInProgress()) {
+      // A fresh, unretained iframe also has a canonical target before onReady.
+      if (_ifr.expectedMetadataVideoId === request.videoId) return true;
+    } else {
+      try {
+        if (
+          !retainedPlayerController.isParked(player) &&
+          player.getVideoData?.()?.video_id === request.videoId
+        ) {
+          return true;
+        }
+      } catch {
+        // A transient resident snapshot still needs a confirmed handoff.
+      }
+      if (retainedPlayerController.prepareSyncHandoff(player, request)) {
+        expectYouTubeMetadataVideoId(request.videoId);
+        return true;
+      }
+    }
+  }
+  // Only the canonical loader may replace another pending target. A failed
+  // hard mute may have destroyed our player; it needs the same fresh load.
+  if (!selectionIsCurrent() || (getYouTubePlayer() && getYouTubePlayer() !== player)) return false;
+  loadYouTubeVideo(request.videoId, null, false, request.subIndex);
+  if (
+    !isPlaybackModeYouTube() ||
+    getCurrentQueueItemId() !== request.queueItemId ||
+    getCurrentSessionId() !== request.sessionId + 1 ||
+    _ifr.expectedMetadataVideoId !== request.videoId
+  ) {
+    return false;
+  }
+  setYtAutoplayIntent(true);
+  return true;
 }
 
 function getExpectedPlaybackVideoId(playlistIndex: number): string | null {
@@ -3494,6 +3544,23 @@ export function hideYouTubeTapToPlayGate(): void {
 configureYouTubeIframeRuntimeHooks({
   cancelGuestEndedFallback,
   expectMetadataVideoId: expectYouTubeMetadataVideoId,
+  prepareMediaReplacement(player, request) {
+    const ownedPlayer = getYouTubePlayer() === player;
+    const ready = retainedPlayerController.prepareSyncHandoff(player, request);
+    // A failed physical hard-mute destroys the retained player. Recover through
+    // the ordinary loader, whose fresh session also retires this sync action.
+    if (
+      !ready &&
+      ownedPlayer &&
+      !getYouTubePlayer() &&
+      getCurrentSessionId() === request.sessionId &&
+      getCurrentQueueItemId() === request.queueItemId &&
+      isPlaybackModeYouTube()
+    ) {
+      loadYouTubeVideo(request.videoId, null, request.autoplay, request.subIndex);
+    }
+    return ready;
+  },
   hideTapToPlayGate: hideYouTubeTapToPlayGate,
   invalidateDurationCache: invalidateYtDurationCache,
 });

@@ -5973,6 +5973,202 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.revision).toBe(2);
   });
 
+  function publicBatchAtByteLength(byteLength: number) {
+    const items = [
+      {
+        videoId: 'dQw4w9WgXcQ',
+        playlistId: 'PL_BOUNDARY_A',
+        videoIds: Array.from({ length: 5_000 }, () => 'dQw4w9WgXcQ'),
+        name: 'First manifest',
+      },
+      {
+        videoId: 'M7lc1UVf-VE',
+        playlistId: 'PL_BOUNDARY_B',
+        videoIds: Array.from({ length: 4_340 }, () => 'M7lc1UVf-VE'),
+        name: 'Second manifest',
+      },
+    ];
+    const padding = byteLength - new TextEncoder().encode(JSON.stringify({ items })).byteLength;
+    expect(padding).toBeGreaterThanOrEqual(0);
+    items[1]!.name += 'N'.repeat(padding);
+    expect(items[1]!.name.length).toBeLessThanOrEqual(512);
+    const body = JSON.stringify({ items });
+    expect(new TextEncoder().encode(body).byteLength).toBe(byteLength);
+    return { body, items };
+  }
+
+  async function publicDeveloperQueueChain(worker: MusixquareProRoom) {
+    const keyId = 'C'.repeat(16);
+    const keySecret = 'D'.repeat(43);
+    const pepper = 'developer-api-pepper'.padEnd(48, 'p');
+    const nowMs = Date.now();
+    const secretDigest = await deriveDeveloperApiKeyDigest(pepper, keyId, keySecret);
+    const database = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => ({
+            key_id: keyId,
+            room_code: ROOM_CODE,
+            room_generation: 0,
+            authority_epoch: 0,
+            label: 'A'.repeat(64),
+            secret_digest: secretDigest,
+            digest_version: 1,
+            scope_mask: developerApiScopes['queue:write'],
+            status: 'active',
+            created_at: nowMs - 1_000,
+            updated_at: nowMs - 1_000,
+            expires_at: nowMs + 86_400_000,
+            revoked_at: null,
+            last_used_hour: null,
+          }),
+          run: async () => ({ meta: { changes: 1 } }),
+        }),
+      }),
+    };
+    const limiter = {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: async () =>
+          Response.json({
+            allowed: true,
+            limit: 30,
+            remaining: 29,
+            resetAtMs: Date.now() + 60_000,
+            retryAfterSeconds: 0,
+          }),
+      }),
+    };
+    const roomRequestBytes: number[] = [];
+    const roomFetch = vi.fn(async (request: Request) => {
+      roomRequestBytes.push(new TextEncoder().encode(await request.clone().text()).byteLength);
+      return worker.fetch(request);
+    });
+    const facadeFetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      developerApiFacadeWorker.fetch(new Request(input, init), {
+        PRO_ROOM_DEVELOPER_ROOMS: {
+          idFromName: (name: string) => name,
+          get: () => ({ fetch: roomFetch }),
+        },
+      }),
+    );
+    return {
+      roomFetch,
+      facadeFetch,
+      roomRequestBytes,
+      post: (body: string) =>
+        developerApiWorker.fetch(
+          new Request(`https://api.musixquare.com/v1/rooms/${ROOM_CODE}/queue/items/batch`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer mxqr_live_${keyId}.${keySecret}`,
+              'content-type': 'application/json',
+              'idempotency-key': 'K'.repeat(128),
+              'cf-connecting-ip': '203.0.113.50',
+            },
+            body,
+          }),
+          {
+            DEVELOPER_API_MODE: 'enabled',
+            MXQR_DEVELOPER_API_KEY_PEPPER: pepper,
+            MXQR_DEVELOPER_API_RATE_SECRET: 'developer-api-rate'.padEnd(48, 'r'),
+            DEVELOPER_API_DB: database,
+            DEVELOPER_API_LIMITERS: limiter,
+            DEVELOPER_API_FACADE: { fetch: facadeFetch },
+          },
+        ),
+    };
+  }
+
+  it('accepts and replays an exact-128-KiB public batch through both Workers and the room', async () => {
+    const { worker, state } = await activatedRoom();
+    const chain = await publicDeveloperQueueChain(worker);
+    const { body, items } = publicBatchAtByteLength(128 * 1024);
+    const before = storedCanonicalRoom(state);
+
+    const first = await chain.post(body);
+    expect(first.status).toBe(201);
+    const accepted = await responseJson(first);
+    expect(chain.roomRequestBytes[0]).toBeGreaterThan(128 * 1024);
+    expect(chain.roomRequestBytes[0]).toBeLessThan(192 * 1024);
+    expect(accepted.items).toHaveLength(2);
+
+    const persisted = storedCanonicalRoom(state);
+    expect(persisted.playlistRevision).toBe(before.playlistRevision + 1);
+    expect(persisted.revision).toBe(before.revision + 1);
+    expect(persisted.playlist).toHaveLength(2);
+    for (const [index, item] of persisted.playlist.entries()) {
+      expect(item).toMatchObject({
+        source: {
+          kind: 'youtube',
+          videoId: items[index]!.videoId,
+          playlistId: items[index]!.playlistId,
+          videoIds: items[index]!.videoIds,
+        },
+      });
+    }
+
+    const replay = await chain.post(body);
+    expect(replay.status).toBe(201);
+    expect(await responseJson(replay)).toEqual(accepted);
+    expect(chain.roomFetch).toHaveBeenCalledTimes(2);
+    const afterReplay = storedCanonicalRoom(state);
+    expect(afterReplay.playlist).toEqual(persisted.playlist);
+    expect(afterReplay.playlistRevision).toBe(persisted.playlistRevision);
+    expect(afterReplay.revision).toBe(persisted.revision);
+  });
+
+  it('rejects a public batch one byte above 128 KiB before forwarding or mutating the room', async () => {
+    const { worker, state } = await activatedRoom();
+    const chain = await publicDeveloperQueueChain(worker);
+    const { body } = publicBatchAtByteLength(128 * 1024 + 1);
+    const before = storedCanonicalRoom(state);
+
+    const response = await chain.post(body);
+
+    expect(response.status).toBe(400);
+    expect(await responseJson(response)).toMatchObject({ error: { code: 'INVALID_REQUEST' } });
+    expect(chain.facadeFetch).not.toHaveBeenCalled();
+    expect(chain.roomFetch).not.toHaveBeenCalled();
+    expect(storedCanonicalRoom(state)).toEqual(before);
+  });
+
+  it.each(['declared', 'streamed'] as const)(
+    'rejects a %s private queue envelope above 192 KiB without mutating the room',
+    async (bodyLengthKind) => {
+      const { worker, state } = await activatedRoom();
+      const body = JSON.stringify({
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        keyId: 'B'.repeat(16),
+        developerAuthorityEpoch: 0,
+        idempotencyKey: 'developer-queue-envelope-over-limit',
+        mutation: {
+          type: 'add_youtube_batch',
+          items: [{ videoId: 'dQw4w9WgXcQ', name: 'Must remain absent' }],
+        },
+      }).padEnd(192 * 1024 + 1, ' ');
+      const before = storedCanonicalRoom(state);
+
+      const response = await worker.fetch(
+        new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+            ...(bodyLengthKind === 'declared' ? { 'content-length': String(body.length) } : {}),
+          },
+          body,
+        }),
+      );
+
+      expect(response.status).toBe(413);
+      expect(await responseJson(response)).toEqual({ error: 'REQUEST_TOO_LARGE' });
+      expect(storedCanonicalRoom(state)).toEqual(before);
+    },
+  );
+
   it('returns and replays a committed batch when the full queue projection exceeds 64 KiB', async () => {
     const { worker } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };

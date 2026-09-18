@@ -3554,6 +3554,344 @@ describe('retained iOS player teardown', () => {
     expect(applyVolume).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])(
+    'rebuilds a failed legacy retained handoff with autoplay=%s',
+    async (autoplay) => {
+      let residentVideoId = 'lastVideo01';
+      const retainedPlayer = {
+        ...createMockYtPlayer(),
+        cueVideoById: vi.fn((videoId: string) => {
+          residentVideoId = videoId;
+        }),
+        getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      } satisfies YouTubePlayerInstance;
+      await startActivePlayer(retainedPlayer);
+      const stateMod = await import('../_state.ts');
+      const { stopYouTubeMode } = await import('../player.ts');
+      const { loadYouTubeVideo, isRetainedYouTubePlayerParked } = await import('../iframe.ts');
+      const { prepareYouTubeMediaReplacementFromSync } =
+        await import('../iframe-runtime-bridge.ts');
+      stateMod.setYtPrimed(true);
+      stopYouTubeMode();
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      setState('playlist.items', [
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'Playlist',
+          videoId: 'nextVideo02',
+          playlistId: 'PL_RECOVERY',
+        },
+      ]);
+      setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+      loadYouTubeVideo('nextVideo02', null, false, 0);
+      lastTimerCallback('yt-retained-player-target-confirm')?.();
+      lastTimerCallback('yt-retained-player-target-confirm')?.();
+      expect(isRetainedYouTubePlayerParked(retainedPlayer)).toBe(false);
+      const sessionId = stateMod.getCurrentSessionId();
+      const freshTarget = createMockYtPlayer();
+      const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+      ytConstructor.mockImplementationOnce(function () {
+        return freshTarget;
+      });
+      vi.mocked(retainedPlayer.mute!).mockImplementation(() => {
+        throw new Error('mute unavailable');
+      });
+
+      expect(
+        prepareYouTubeMediaReplacementFromSync(retainedPlayer, {
+          videoId: 'finalVideo3',
+          subIndex: 1,
+          autoplay,
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          sessionId,
+        }),
+      ).toBe(false);
+
+      expect(retainedPlayer.destroy).toHaveBeenCalledOnce();
+      expect(stateMod.getYouTubePlayer()).toBe(freshTarget);
+      expect(stateMod.getCurrentSessionId()).toBeGreaterThan(sessionId);
+      expect(stateMod.getYtAutoplayIntent()).toBe(autoplay);
+      expect(ytConstructor).toHaveBeenLastCalledWith(
+        'youtube-player',
+        expect.objectContaining({ videoId: 'finalVideo3' }),
+      );
+      expect(retainedPlayer.loadVideoById).not.toHaveBeenCalled();
+    },
+  );
+
+  async function startGuestPrepareHarness(retained = true) {
+    let residentVideoId = 'lastVideo01';
+    let playerState = 5;
+    let holdCommands = false;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        if (!holdCommands) residentVideoId = videoId;
+      }),
+      loadVideoById: vi.fn(),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => playerState),
+      getPlaylistIndex: vi.fn(() => -1),
+      getVolume: vi.fn(() => 70),
+      getVideoLoadedFraction: vi.fn(() => 1),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(player);
+    const state = await import('../_state.ts');
+    const iframe = await import('../iframe.ts');
+    const playerModule = await import('../player.ts');
+    const zeroModule = await import('../zero-start.ts');
+    state.setYtPrimed(true);
+    playerModule.stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Playlist',
+        videoId: 'targetVid01',
+        playlistId: 'PL_PREPARE',
+      },
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    iframe.loadYouTubeVideo('targetVid01', null, false, 0);
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    expect(iframe.isRetainedYouTubePlayerParked(player)).toBe(false);
+    if (!retained) iframe.forgetRetainedYouTubePlayer(player);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true } as DataConnection);
+    setState('network.myId', 'guest');
+    const init = vi
+      .spyOn(zeroModule, 'initYouTubeZeroStart')
+      .mockImplementation(
+        (dependencies) => new zeroModule.YouTubeZeroStartControllerForTests(dependencies),
+      );
+    playerModule.initYouTube();
+    const zero = new zeroModule.YouTubeZeroStartControllerForTests({
+      ...init.mock.calls.at(-1)![0],
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+    });
+    init.mockRestore();
+    zeroStartFacade.inFlight = true;
+    zeroStartFacade.active = true;
+    zeroStartFacade.handlePlayerState.mockImplementation((nextState) =>
+      zero.handlePlayerStateChange(nextState),
+    );
+    holdCommands = true;
+    vi.mocked(player.cueVideoById).mockClear();
+    vi.mocked(player.loadVideoById).mockClear();
+    const prepare = (videoId: string, sequence = 1) =>
+      ({
+        type: MSG.YOUTUBE_ZERO_START_PREPARE,
+        version: 1,
+        runId: `legacy-${sequence}`,
+        sequence,
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        videoId,
+        subIndex: 1,
+        prepareAtHost: Date.now(),
+        decisionAtHost: Date.now() + 2300,
+        startDeadlineAtHost: Date.now() + 10000,
+        hostPlatform: 'other',
+      }) as const;
+    return {
+      player,
+      handle,
+      state,
+      iframe,
+      zero,
+      prepare,
+      setIdentity(videoId: string, nextState: number) {
+        residentVideoId = videoId;
+        playerState = nextState;
+      },
+    };
+  }
+
+  it.each(['legacy', 'canonical', 'resident-return'] as const)(
+    'admits a newer PREPARE over a pending %s target through the canonical loader',
+    async (pending) => {
+      vi.useFakeTimers();
+      try {
+        const h = await startGuestPrepareHarness();
+        if (pending === 'legacy') {
+          expect(h.zero.handlePrepare('host', h.prepare('targetVid02'))).toBe(true);
+          vi.advanceTimersByTime(100);
+        } else h.iframe.loadYouTubeVideo('targetVid02', null, false, 1);
+        expect(h.iframe.isRetainedYouTubePlayerParked(h.player)).toBe(true);
+        const oldPoll = lastTimerCallback('yt-retained-player-target-confirm');
+        const oldSession = h.state.getCurrentSessionId();
+        const finalVideo = pending === 'resident-return' ? 'targetVid01' : 'targetVid03';
+        expect(h.zero.handlePrepare('host', h.prepare(finalVideo, 2))).toBe(true);
+        expect(h.state.getCurrentSessionId()).toBe(oldSession + 1);
+        expect(h.state.getYtAutoplayIntent()).toBe(true);
+        if (pending === 'resident-return')
+          lastTimerCallback('yt-same-video-occurrence-handoff')?.();
+        expect(h.player.cueVideoById).toHaveBeenLastCalledWith(finalVideo, 0);
+        oldPoll?.();
+        vi.advanceTimersByTime(100);
+        expect(h.player.loadVideoById).toHaveBeenLastCalledWith(finalVideo, 0);
+        zeroStartFacade.handlePlayerState.mockClear();
+        h.setIdentity('targetVid02', 1);
+        h.handle.fireStateChange(1);
+        expect(zeroStartFacade.handlePlayerState).not.toHaveBeenCalled();
+        h.setIdentity(finalVideo, 1);
+        h.handle.fireStateChange(1);
+        expect(zeroStartFacade.handlePlayerState).not.toHaveBeenCalled();
+        lastTimerCallback('yt-retained-player-target-confirm')?.();
+        lastTimerCallback('yt-retained-player-target-confirm')?.();
+        expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledWith(1);
+        vi.advanceTimersByTime(500);
+        expect(h.zero.getSnapshot().phase).toBe('settling');
+        h.zero.cancel('cancelled', false);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([true, false])(
+    'preserves a matching canonical PREPARE with retained=%s',
+    async (retained) => {
+      vi.useFakeTimers();
+      try {
+        const h = await startGuestPrepareHarness(retained);
+        h.iframe.loadYouTubeVideo('targetVid02', null, false, 1);
+        const session = h.state.getCurrentSessionId();
+        const poll = lastTimerCallback('yt-retained-player-target-confirm');
+        const cues = vi.mocked(h.player.cueVideoById).mock.calls.length;
+        expect(h.zero.handlePrepare('host', h.prepare('targetVid02'))).toBe(true);
+        expect(h.state.getCurrentSessionId()).toBe(session);
+        expect(lastTimerCallback('yt-retained-player-target-confirm')).toBe(poll);
+        expect(h.player.cueVideoById).toHaveBeenCalledTimes(cues);
+        h.zero.cancel('cancelled', false);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([true, false])(
+    'prepares a missing legacy descriptor with retained=%s',
+    async (retained) => {
+      vi.useFakeTimers();
+      try {
+        const h = await startGuestPrepareHarness(retained);
+        expect(h.zero.handlePrepare('host', h.prepare('targetVid02'))).toBe(true);
+        vi.advanceTimersByTime(100);
+        expect(h.player.loadVideoById).toHaveBeenCalledWith('targetVid02', 0);
+        h.setIdentity('targetVid02', 1);
+        h.handle.fireStateChange(1);
+        if (retained) {
+          lastTimerCallback('yt-retained-player-target-confirm')?.();
+          lastTimerCallback('yt-retained-player-target-confirm')?.();
+        }
+        vi.advanceTimersByTime(500);
+        expect(h.zero.getSnapshot().phase).toBe('settling');
+        h.zero.cancel('cancelled', false);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('keeps same-video reuse and rejects unauthorized or superseded PREPARE frames', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = await startGuestPrepareHarness();
+      const session = h.state.getCurrentSessionId();
+      expect(h.zero.handlePrepare('other', h.prepare('targetVid02'))).toBe(false);
+      expect(h.zero.handlePrepare('host', h.prepare('targetVid01'))).toBe(true);
+      expect(h.zero.getSnapshot().mediaAction).toBe('resident-reposition');
+      expect(h.zero.handlePrepare('host', h.prepare('targetVid03'))).toBe(false);
+      expect(h.state.getCurrentSessionId()).toBe(session);
+      expect(h.player.cueVideoById).not.toHaveBeenCalled();
+      expect(h.player.loadVideoById).not.toHaveBeenCalled();
+      h.zero.cancel('cancelled', false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([true, false])(
+    'keeps a cold guest waiting for readiness with player=%s',
+    async (hasPlayer) => {
+      vi.useFakeTimers();
+      try {
+        const h = await startGuestPrepareHarness(false);
+        h.state.setYouTubePlayer(null);
+        const fresh = { ...h.player, cueVideoById: vi.fn(), loadVideoById: vi.fn() };
+        const handle = installYtNamespace(fresh);
+        if (hasPlayer) h.iframe.loadYouTubeVideo('targetVid02', null, false, 1);
+        expect(h.state.isYtPlayerReady()).toBe(false);
+        const session = h.state.getCurrentSessionId();
+        expect(h.zero.handlePrepare('host', h.prepare('targetVid03'))).toBe(true);
+        expect(h.zero.getSnapshot().phase).toBe('waiting-ready');
+        expect(h.state.getCurrentSessionId()).toBe(session + (hasPlayer ? 1 : 0));
+        expect(fresh.loadVideoById).not.toHaveBeenCalled();
+        if (hasPlayer) {
+          handle.fireReady();
+          vi.advanceTimersByTime(100);
+          expect(fresh.loadVideoById).toHaveBeenCalledWith('targetVid03', 0);
+        }
+        h.zero.cancel('cancelled', false);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('hands a failed PREPARE hard-mute to a fresh player and waits for its readiness', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = await startGuestPrepareHarness();
+      const session = h.state.getCurrentSessionId();
+      const fresh = { ...h.player, cueVideoById: vi.fn(), loadVideoById: vi.fn(), mute: vi.fn() };
+      const handle = installYtNamespace(fresh);
+      vi.mocked(h.player.mute!).mockImplementation(() => {
+        throw new Error('mute failed');
+      });
+      expect(h.zero.handlePrepare('host', h.prepare('targetVid02'))).toBe(true);
+      expect(h.player.destroy).toHaveBeenCalledOnce();
+      expect(h.state.getYouTubePlayer()).toBe(fresh);
+      expect(h.state.getCurrentSessionId()).toBe(session + 1);
+      expect(h.state.getYtAutoplayIntent()).toBe(true);
+      expect(h.zero.getSnapshot().phase).toBe('waiting-ready');
+      handle.fireReady();
+      vi.advanceTimersByTime(100);
+      // Rebuilding loses iOS gesture readiness. PREPARE must not bypass it.
+      expect(fresh.loadVideoById).not.toHaveBeenCalled();
+      h.state.setYtPrimed(true);
+      vi.advanceTimersByTime(100);
+      expect(fresh.loadVideoById).toHaveBeenCalledWith('targetVid02', 0);
+      expect(h.player.loadVideoById).not.toHaveBeenCalled();
+      h.zero.cancel('cancelled', false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a matching single-video handoff while PREPARE selects its duplicate sub-index', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = await startGuestPrepareHarness();
+      h.iframe.loadYouTubeVideo('targetVid02', null, false, 1);
+      const session = h.state.getCurrentSessionId();
+      const poll = lastTimerCallback('yt-retained-player-target-confirm');
+      expect(h.zero.handlePrepare('host', { ...h.prepare('targetVid02'), subIndex: 3 })).toBe(true);
+      expect(getState('youtube.currentSubIndex')).toBe(3);
+      expect(h.state.getCurrentSessionId()).toBe(session);
+      expect(lastTimerCallback('yt-retained-player-target-confirm')).toBe(poll);
+      h.zero.cancel('cancelled', false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('rebuilds instead of loading the silent-prime sentinel as room media', async () => {
     let residentVideoId = 'lastVideo01';
     const retainedPlayer = {

@@ -186,35 +186,64 @@ describe('YouTube operator handler zero-start dispatch', () => {
     expect(loadYouTubeVideo).toHaveBeenCalledWith(VIDEO_ID, null, false, 0);
   });
 
-  it('clears the prior channel before an operator loads another playlist video', () => {
+  it.each([false, true].flatMap((capable) => [1, 2].map((state) => ({ capable, state }))))(
+    'hands current OP sub-selection to canonical loading with capable=$capable and state=$state',
+    ({ capable, state }) => {
+      queueItemFacade.playlistId = 'PL_OPERATOR';
+      zeroStartFacade.accepted = capable;
+      playerFacade.state = state;
+      setState('youtube.subItemsMap', {
+        PL_OPERATOR: { ids: [VIDEO_ID, 'next-video-id'], titles: ['First', 'Next'] },
+      });
+      const selectTrack = vi.fn();
+      bus.on('playlist:play-track', selectTrack);
+
+      handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 1 }, operatorConnection);
+
+      expect(selectTrack).toHaveBeenCalledWith(QUEUE_ITEM_ID, 1, { navigateToPlay: false });
+      expect(tryBeginYouTubeZeroStart).not.toHaveBeenCalled();
+      expect(scheduleYtAutoSync).not.toHaveBeenCalled();
+      expect(playerFacade.loadVideoById).not.toHaveBeenCalled();
+      expect(setYouTubeSubIndex).not.toHaveBeenCalled();
+      expect(updatePlaybackTrackDetails).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retains canonical lazy resolution for an OP sub-row in another queue item', () => {
+    queueFacade.currentQueueItemId = PREVIOUS_QUEUE_ITEM_ID;
     queueItemFacade.playlistId = 'PL_OPERATOR';
-    setState('youtube.subItemsMap', {
-      PL_OPERATOR: {
-        ids: [VIDEO_ID, 'next-video-id'],
-        titles: ['First', 'Next'],
-      },
-    });
+    const selectTrack = vi.fn();
+    bus.on('playlist:play-track', selectTrack);
 
-    handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 1 }, operatorConnection);
+    handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 2 }, operatorConnection);
 
-    expect(updatePlaybackTrackDetails).toHaveBeenCalledWith({ artist: null });
-    expect(playerFacade.loadVideoById).toHaveBeenCalledWith('next-video-id');
+    expect(selectTrack).toHaveBeenCalledWith(QUEUE_ITEM_ID, 2, { navigateToPlay: true });
+    expect(playerFacade.loadVideoById).not.toHaveBeenCalled();
   });
 
-  it('preserves the channel when an operator restarts the resident playlist video', () => {
+  it.each([-1, 0.5, 99, Number.NaN])('rejects an invalid current OP sub-index %s', (subIdx) => {
     queueItemFacade.playlistId = 'PL_OPERATOR';
-    setState('youtube.subItemsMap', {
-      PL_OPERATOR: {
-        ids: [VIDEO_ID],
-        titles: ['First'],
-      },
-    });
+    setState('youtube.subItemsMap', { PL_OPERATOR: { ids: [VIDEO_ID], titles: ['First'] } });
+    const selectTrack = vi.fn();
+    bus.on('playlist:play-track', selectTrack);
+
+    handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx }, operatorConnection);
+
+    expect(selectTrack).not.toHaveBeenCalled();
+    expect(playerFacade.loadVideoById).not.toHaveBeenCalled();
+  });
+
+  it('retains same-subvideo replay in the canonical selection path', () => {
+    queueItemFacade.playlistId = 'PL_OPERATOR';
+    setState('youtube.subItemsMap', { PL_OPERATOR: { ids: [VIDEO_ID], titles: ['First'] } });
+    const selectTrack = vi.fn();
+    bus.on('playlist:play-track', selectTrack);
 
     handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 0 }, operatorConnection);
 
+    expect(selectTrack).toHaveBeenCalledWith(QUEUE_ITEM_ID, 0, { navigateToPlay: false });
     expect(updatePlaybackTrackDetails).not.toHaveBeenCalled();
   });
-
   it('lets a zero-second operator resume use zero-start when the cohort accepts it', () => {
     zeroStartFacade.accepted = true;
 

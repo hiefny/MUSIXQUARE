@@ -36,6 +36,7 @@ import {
 } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
 import {
+  prepareYouTubeMediaReplacementFromSync,
   expectYouTubeMetadataVideoIdFromSync,
   cancelGuestEndedFallbackFromSync,
   hideYouTubeTapToPlayGateFromSync,
@@ -43,7 +44,7 @@ import {
 } from './iframe-runtime-bridge.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { DataConnection, QueueItemId } from '../types/index.ts';
 import {
   clearProCoordinatorYouTubeNudgeAnchor,
   isCanonicalYouTubeManualOffsetEndpoint,
@@ -728,6 +729,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   if (data.queueItemId !== getCurrentQueueItemId()) return;
 
   const player = getYouTubePlayer();
+  const sessionId = getCurrentSessionId();
 
   // Record the host snapshot BEFORE the YouTube-mode guard. Late-join
   // bootstrap frames arrive while the guest is still inside
@@ -859,6 +861,16 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           // outgoing load. Loading autoplays; cue the authoritative position
           // without borrowing the outgoing video's duration or play intent.
           if (player.cueVideoById) {
+            if (
+              !prepareYouTubeMediaReplacementFromSync(player, {
+                videoId: hostVideoId,
+                subIndex: hostSubIndex ?? 0,
+                autoplay: false,
+                queueItemId: data.queueItemId as QueueItemId,
+                sessionId,
+              })
+            )
+              return;
             updatePlaybackTrackDetails({ artist: null });
             expectYouTubeMetadataVideoIdFromSync(hostVideoId);
             player.cueVideoById(hostVideoId, applyYouTubeManualOffset(hostTime, 0));
@@ -872,6 +884,16 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           return;
         }
         if (player.loadVideoById) {
+          if (
+            !prepareYouTubeMediaReplacementFromSync(player, {
+              videoId: hostVideoId,
+              subIndex: hostSubIndex ?? 0,
+              autoplay: true,
+              queueItemId: data.queueItemId as QueueItemId,
+              sessionId,
+            })
+          )
+            return;
           updatePlaybackTrackDetails({ artist: null });
           expectYouTubeMetadataVideoIdFromSync(hostVideoId);
           player.loadVideoById(hostVideoId);
@@ -1592,6 +1614,16 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         );
         if (state === 2) {
           if (player.cueVideoById) {
+            if (
+              !prepareYouTubeMediaReplacementFromSync(player, {
+                videoId: hostVideoId,
+                subIndex: subIndex ?? 0,
+                autoplay: false,
+                queueItemId: action.queueItemId,
+                sessionId: action.sessionId,
+              })
+            )
+              return;
             updatePlaybackTrackDetails({ artist: null });
             expectYouTubeMetadataVideoIdFromSync(hostVideoId);
             player.cueVideoById(hostVideoId, applyYouTubeManualOffset(time, 0));
@@ -1604,6 +1636,16 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           return;
         }
         if (player.loadVideoById) {
+          if (
+            !prepareYouTubeMediaReplacementFromSync(player, {
+              videoId: hostVideoId,
+              subIndex: subIndex ?? 0,
+              autoplay: true,
+              queueItemId: action.queueItemId,
+              sessionId: action.sessionId,
+            })
+          )
+            return;
           updatePlaybackTrackDetails({ artist: null });
           expectYouTubeMetadataVideoIdFromSync(hostVideoId);
           player.loadVideoById(hostVideoId);
@@ -1872,9 +1914,8 @@ function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnecti
 function handleYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop YOUTUBE_PLAYLIST_INFO frames not arriving via hostConn. Without
   // this, a malicious peer can poison subItemsMap[playlistId] with
-  // attacker-supplied videoIds — when the guest later navigates to a
-  // sub-track, handlers.ts calls player.loadVideoById(ids[subIdx])
-  // with the attacker's videoId. Indirect arbitrary-video injection.
+  // attacker-supplied videoIds that a later sub-track selection resolves
+  // through the canonical playlist loader. Indirect arbitrary-video injection.
   if (!isHostBroadcast(conn)) return;
 
   const playlistId = data.playlistId as string;

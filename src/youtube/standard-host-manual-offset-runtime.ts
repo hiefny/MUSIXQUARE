@@ -1,5 +1,5 @@
 /**
- * Deferred Standard-host YouTube manual-offset transaction.
+ * Deferred participant-local YouTube manual-offset transaction.
  *
  * The eager gate reserves authority before loading this module. This runtime
  * owns every fire-and-forget iframe command, observation, and rollback until
@@ -10,7 +10,10 @@ import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import {
+  captureProRoomLocalPlaybackTimeline,
+  type ProRoomLocalPlaybackTimeline,
+} from '../pro-room/local-playback-timeline.ts';
 import { fmtTime } from '../player/transport.ts';
 import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
@@ -20,7 +23,8 @@ import { createHostLocalRendezvous, type HostLocalRendezvous } from './standard-
 import {
   beginProCoordinatorYouTubeNudge,
   clearProCoordinatorYouTubeNudgeAnchor,
-  isStandardHostYouTubeManualOffsetEndpoint,
+  getYouTubeManualOffsetEndpointIdentity,
+  isProCoordinatorYouTubeEndpoint,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   resolveProCoordinatorYouTubeTarget,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
@@ -42,7 +46,7 @@ const ROLLBACK_STABLE_MS = 500;
 
 interface StandardHostManualOffsetIdentity {
   player: YouTubePlayerInstance;
-  endpointIdentity: `standard-host:${string}`;
+  endpointIdentity: string;
   queueItemId: string;
   subIndex: number;
   videoId: string;
@@ -67,15 +71,10 @@ interface StandardHostManualOffsetTransaction extends StandardHostManualOffsetId
   commandBaselineOffset: number;
   seekObserved: boolean;
   rendezvous: HostLocalRendezvous | null;
+  proTimeline: ProRoomLocalPlaybackTimeline | null;
 }
 
 let transaction: StandardHostManualOffsetTransaction | null = null;
-
-function getStandardHostEndpointIdentity(): `standard-host:${string}` | null {
-  if (!isStandardHostYouTubeManualOffsetEndpoint()) return null;
-  const room = getRoomContext();
-  return `standard-host:${getState('network.sessionCode')}:${room.roomId ?? ''}:${room.epoch}`;
-}
 
 function clearTransactionRuntime(): void {
   transaction?.rendezvous?.cancel();
@@ -114,7 +113,7 @@ function getExpectedVideoId(queueItemId: string, subIndex: number): string {
 }
 
 function readIdentity(player: YouTubePlayerInstance): StandardHostManualOffsetIdentity | null {
-  const endpointIdentity = getStandardHostEndpointIdentity();
+  const endpointIdentity = getYouTubeManualOffsetEndpointIdentity();
   if (!endpointIdentity) return null;
   const queueItemId = getCurrentQueueItemId() || '';
   const subIndex = getState('youtube.currentSubIndex') ?? -1;
@@ -126,14 +125,18 @@ function readIdentity(player: YouTubePlayerInstance): StandardHostManualOffsetId
 
 function hasHardIdentityData(active: StandardHostManualOffsetTransaction): boolean {
   if (getYouTubePlayer() !== active.player) return false;
-  if (getStandardHostEndpointIdentity() !== active.endpointIdentity) return false;
+  if (getYouTubeManualOffsetEndpointIdentity() !== active.endpointIdentity) return false;
   if (getCurrentQueueItemId() !== active.queueItemId) return false;
   if ((getState('youtube.currentSubIndex') ?? -1) !== active.subIndex) return false;
   return getExpectedVideoId(active.queueItemId, active.subIndex) === active.videoId;
 }
 
 function hasHardIdentity(active: StandardHostManualOffsetTransaction): boolean {
-  return active.lease.isCurrent() && hasHardIdentityData(active);
+  return (
+    active.lease.isCurrent() &&
+    hasHardIdentityData(active) &&
+    (!active.proTimeline || active.proTimeline.isCurrent())
+  );
 }
 
 function hasLiveVideoIdentity(active: StandardHostManualOffsetTransaction): boolean {
@@ -172,10 +175,15 @@ function finish(
 
 function abortForIdentityChange(active: StandardHostManualOffsetTransaction): void {
   if (transaction !== active || !active.lease.isCurrent()) return;
+  // A newer server seek/pause can retire this revision before its endpoint
+  // runs. It inherits the participant's requested offset on the same media.
+  const sameProMedia = active.proTimeline !== null && hasHardIdentityData(active);
   clearTransactionRuntime();
   active.lease.commit(() => {
-    setState('sync.youtubeLocalOffset', 0);
-    setState('sync.youtubeCoordinatorAppliedOffset', 0);
+    if (!sameProMedia) {
+      setState('sync.youtubeLocalOffset', 0);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0);
+    }
     // Replacement media owns its own time UI; avoid a fabricated 0:00 flash.
     bus.emit('sync:display-update');
   });
@@ -515,14 +523,26 @@ function begin(lease: StandardHostManualOffsetLease): void {
   const duration = player.getDuration?.() || 0;
   const samePendingMedia = previous && hasHardIdentityData(previous);
   const playerState = player.getPlayerState?.() ?? -1;
+  const proTimeline = isProCoordinatorYouTubeEndpoint()
+    ? captureProRoomLocalPlaybackTimeline()
+    : null;
+  if (isProCoordinatorYouTubeEndpoint() && !proTimeline)
+    throw new Error('Current PRO server timeline is unavailable');
   // A second +/- click can arrive while the first seek reports BUFFERING.
   // Preserve the transaction's intent instead of changing it to PAUSED.
-  const playing = samePendingMedia
-    ? previous.playing
-    : playerState === 1 || (playerState === 3 && getState('playback.activity') === 'playing');
+  const playing =
+    proTimeline?.playing ??
+    (samePendingMedia
+      ? previous.playing
+      : playerState === 1 || (playerState === 3 && getState('playback.activity') === 'playing'));
   const localTime = player.getCurrentTime();
   if (!Number.isFinite(localTime)) throw new Error('YouTube local position is unavailable');
-  const canonicalTime = beginProCoordinatorYouTubeNudge(localTime, duration, playing);
+  const canonicalTime = beginProCoordinatorYouTubeNudge(
+    localTime,
+    duration,
+    playing,
+    proTimeline?.positionSeconds,
+  );
   const requestedTarget = resolveProCoordinatorYouTubeTarget(
     canonicalTime,
     lease.requestedOffsetSeconds,
@@ -550,7 +570,13 @@ function begin(lease: StandardHostManualOffsetLease): void {
       : null);
   const inheritedPendingIdentity = !liveIdentity && identity !== null;
 
-  if (!identity) {
+  if (
+    !identity ||
+    (proTimeline &&
+      (proTimeline.queueItemId !== identity.queueItemId ||
+        proTimeline.videoId !== identity.videoId ||
+        proTimeline.subIndex !== identity.subIndex))
+  ) {
     clearTransactionRuntime();
     lease.commit(() => {
       setState('sync.youtubeLocalOffset', lease.priorRequestedOffset);
@@ -603,6 +629,7 @@ function begin(lease: StandardHostManualOffsetLease): void {
     commandBaselineOffset: localTime - canonicalTime,
     seekObserved: false,
     rendezvous: null,
+    proTimeline,
   };
   previous?.rendezvous?.cancel();
   transaction = next;

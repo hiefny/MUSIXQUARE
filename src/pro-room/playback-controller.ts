@@ -38,6 +38,7 @@ import {
   type ProPlaybackUserIntent,
 } from './playback-authority-hooks.ts';
 import type { ProRoomFirstAppendSelectionRequest } from './playlist-state-manager.ts';
+import { registerProRoomLocalPlaybackTimeline } from './local-playback-timeline.ts';
 
 const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
 const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
@@ -221,6 +222,7 @@ function createImplementation(
   state: ProRoomPlaybackControllerState,
 ): ProRoomPlaybackImplementation {
   const MAX_CANCELLED_PLAYBACK_TRANSITION_IDS = 64;
+  let unregisterLocalTimeline: (() => void) | null = null;
   const canonicalPlaybackCommitOwner: PlaybackCommitOwner = () => true;
   const defaultPlaybackReconciliationIdentity = {};
   const defaultPlaybackReconciliationOwner: ProRoomPlaybackReconciliationLiveness = {
@@ -1845,6 +1847,8 @@ function createImplementation(
   }
 
   function stopLifecycle(): void {
+    unregisterLocalTimeline?.();
+    unregisterLocalTimeline = null;
     state.commandGeneration += 1;
     state.reconciliationSchedulerGeneration += 1;
     state.reconciliationInFlight = null;
@@ -1866,6 +1870,28 @@ function createImplementation(
   }
 
   function startLifecycle(): void {
+    unregisterLocalTimeline?.();
+    unregisterLocalTimeline = registerProRoomLocalPlaybackTimeline({
+      getSnapshot: ports.getCanonicalSnapshot,
+      getServerNow: getProRoomServerNow,
+      isClockCalibrated: isProRoomServerClockCalibrated,
+      captureLiveness(revision) {
+        const lease = ports.capturePlaylistLease();
+        const generation = state.commitGeneration;
+        const roomSignal = ports.getRoomAbortSignal();
+        if (!lease) return null;
+        return () =>
+          ports.isActive() &&
+          !roomSignal?.aborted &&
+          ports.isPlaylistLeaseCurrent(lease) &&
+          generation === state.commitGeneration &&
+          revision === state.lastAppliedRevision &&
+          revision === state.highestKnownRevision &&
+          !state.activeTransition &&
+          state.commitInFlight.size === 0 &&
+          !state.reconciliationInFlight;
+      },
+    });
     state.unregisterCommandHandler?.();
     state.unregisterCommandHandler = registerProPlaybackCommandHandler((intent) =>
       enqueuePlaybackIntent(intent),

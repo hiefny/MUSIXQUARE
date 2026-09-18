@@ -2,6 +2,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { resetStandardHostManualOffsetTransaction } from '../youtube/standard-host-manual-offset-gate.ts';
 import type {
   ProPlaybackUiControlKind,
   ProPlaybackUiControlPendingEvent,
@@ -519,6 +520,11 @@ export async function prepareProPlaybackAuthority(
 
   if (activePreparation) endpoint.cancel?.(activePreparation.authority);
 
+  // Accepted server work supersedes a local correction even for the same
+  // video. Retire its timers before any canonical iframe command; retain the
+  // participant's requested offset for the authoritative endpoint to apply.
+  resetStandardHostManualOffsetTransaction();
+
   const generation = ++prepareGeneration;
   const upstreamIsCurrent = request.isCurrent;
   const endpointRequest: Readonly<ProPlaybackPrepareRequest> = {
@@ -559,6 +565,9 @@ export async function prepareCurrentProPlaybackRendezvousAuthority(
   if (!isProPlaybackAuthorityToken(request.authority)) {
     throw new TypeError('A server authority token is required');
   }
+  if (request.isCurrent?.() === false) {
+    return failedPrepare(request, 'superseded', 'superseded');
+  }
   if (
     request.authority.transitionId === null ||
     request.authority.basePlaybackRevision + 1 !== highestCommittedPlaybackRevision
@@ -590,6 +599,7 @@ export async function prepareCurrentProPlaybackRendezvousAuthority(
       request.authority.basePlaybackRevision + 1 === highestCommittedPlaybackRevision &&
       request.isCurrent?.() !== false,
   };
+  resetStandardHostManualOffsetTransaction();
   const promise = endpoint.prepare(endpointRequest);
   activePreparation = { generation, authority: request.authority, promise };
   const result = await promise;
@@ -699,6 +709,7 @@ export async function commitProPlaybackAuthority(
 
   highestSeen = request.authority;
   let result: ProPlaybackCommitResult;
+  resetStandardHostManualOffsetTransaction();
   try {
     result = await endpoint.commit(request);
   } catch (error) {
@@ -773,6 +784,7 @@ export async function reconcileCurrentProPlaybackAuthority(
     return { status: 'failed', authority: request.authority, reason: 'missing-endpoint' };
   }
 
+  resetStandardHostManualOffsetTransaction();
   const result = await endpoint.commit(request);
   if (request.isCurrent?.() === false) {
     return { status: 'superseded', authority: request.authority, reason: 'superseded' };
@@ -868,6 +880,7 @@ export async function rendezvousCurrentProPlaybackAuthority(
 
 /** Reset revision and preparation ownership on PRO leave/rejoin. */
 export function resetProPlaybackAuthorityHooks(): void {
+  if (getState('room.context').kind === 'pro') resetStandardHostManualOffsetTransaction();
   const pending = activePreparation;
   prepareGeneration += 1;
   activePreparation = null;

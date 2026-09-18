@@ -13,11 +13,21 @@ import {
   resetStandardHostManualOffsetTransaction,
 } from '../standard-host-manual-offset-gate.ts';
 import { toCanonicalYouTubeTime } from '../local-offset.ts';
+import { registerProRoomLocalPlaybackTimeline } from '../../pro-room/local-playback-timeline.ts';
+import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
+import {
+  commitProPlaybackAuthority,
+  createProPlaybackAuthorityToken,
+  prepareCurrentProPlaybackRendezvousAuthority,
+  registerProPlaybackMediaEndpoint,
+  resetProPlaybackAuthorityHooks,
+} from '../../pro-room/playback-authority-hooks.ts';
 
 const QUEUE_ID = '11111111-1111-4111-8111-111111111111';
 const EPOCH = 1_700_000_000_000;
 const PLAY_TIMER = 'yt-standard-host-rendezvous-play';
 const VERIFY_TIMER = 'yt-standard-host-offset-verify';
+let unregisterProTimeline: (() => void) | null = null;
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -202,6 +212,10 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  unregisterProTimeline?.();
+  unregisterProTimeline = null;
+  registerProPlaybackMediaEndpoint(null);
+  resetProPlaybackAuthorityHooks();
   resetStandardHostManualOffsetTransaction();
   clearAllManagedTimers();
   vi.useRealTimers();
@@ -457,5 +471,215 @@ describe('Standard-host local scheduled rendezvous', () => {
     expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
     expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
     expect(getManagedTimer(PLAY_TIMER)).toBeNull();
+  });
+});
+
+describe('PRO participant local scheduled offset', () => {
+  function enterPro(
+    role: 'coordinator' | 'member' = 'member',
+    playing = true,
+  ): { supersede(): void } {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role,
+      coordinatorId: null,
+      epoch: 7,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    const snapshot = {
+      roomCode: '000001',
+      presence: { coordinatorEpoch: 7 },
+      playback: {
+        coordinatorEpoch: 7,
+        revision: 1,
+        state: playing ? 'playing' : 'paused',
+        queueItemId: QUEUE_ID,
+        youtubeVideoId: 'same-video',
+        youtubeSubIndex: -1,
+        positionSeconds: 10,
+        updatedAtMs: EPOCH,
+      },
+    } as ProRoomSnapshot;
+    let current = true;
+    unregisterProTimeline = registerProRoomLocalPlaybackTimeline({
+      getSnapshot: () => snapshot,
+      getServerNow: Date.now,
+      isClockCalibrated: () => true,
+      captureLiveness: () => () => current,
+    });
+    return {
+      supersede: () => {
+        current = false;
+      },
+    };
+  }
+
+  it.each(['coordinator', 'member'] as const)(
+    'verifies a playing %s offset instead of immediately claiming the seek target',
+    async (role) => {
+      enterPro(role);
+      const fixture = makePlayer({ position: 7 });
+      await installPlayer(fixture);
+      bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
+      expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
+      expect(fixture.player.seekTo).not.toHaveBeenCalled();
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+      vi.advanceTimersByTime(100);
+      expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(11.85, true);
+      vi.advanceTimersByTime(2_300);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+      const { broadcast } = await import('../../network/peer.ts');
+      expect(broadcast).not.toHaveBeenCalled();
+    },
+  );
+
+  it('resets existing drift against the server clock and verifies zero before releasing', async () => {
+    enterPro();
+    const fixture = makePlayer({ position: 7.25 });
+    await installPlayer(fixture);
+    setState('sync.youtubeLocalOffset', 0.25);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+    bus.emit('youtube:set-coordinator-manual-offset', 0, 'committed');
+    expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0.25);
+    vi.advanceTimersByTime(100);
+    expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(11.6, true);
+    vi.advanceTimersByTime(2_300);
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0, 5);
+    expect(fixture.player.getCurrentTime()).toBeCloseTo(12.4, 5);
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+  });
+
+  it('resets a paused participant to the paused server position without resuming', async () => {
+    enterPro('member', false);
+    const fixture = makePlayer({ state: 2, position: 7.25 });
+    await installPlayer(fixture);
+    setPlaybackYouTubePaused();
+    setState('sync.youtubeLocalOffset', 0.25);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+    bus.emit('youtube:set-coordinator-manual-offset', 0, 'committed');
+    expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(10, true);
+    vi.advanceTimersByTime(1_000);
+    expect(fixture.player.playVideo).not.toHaveBeenCalled();
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+  });
+
+  it.each([false, true])(
+    'only a current canonical COMMIT retires the local plan (stale=%s)',
+    async (stale) => {
+      enterPro();
+      const fixture = makePlayer();
+      await installPlayer(fixture);
+      bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
+      vi.advanceTimersByTime(500);
+      const endpointCommit = vi.fn(async (request) => {
+        expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+        expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+        return { status: 'applied' as const, authority: request.authority };
+      });
+      registerProPlaybackMediaEndpoint({ prepare: vi.fn(), commit: endpointCommit });
+      await commitProPlaybackAuthority({
+        authority: createProPlaybackAuthorityToken({
+          roomId: stale ? '000002' : '000001',
+          roomEpoch: 7,
+          basePlaybackRevision: 0,
+          transitionId: null,
+        }),
+        committedPlaybackRevision: 1,
+        queueItemId: QUEUE_ID,
+        state: 'paused',
+        positionSeconds: 40,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+        youtubeVideoId: 'same-video',
+        youtubeSubIndex: -1,
+      });
+      expect(endpointCommit).toHaveBeenCalledTimes(stale ? 0 : 1);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(stale);
+      vi.advanceTimersByTime(3_000);
+      expect(fixture.player.playVideo).toHaveBeenCalledTimes(stale ? 1 : 0);
+    },
+  );
+
+  it('retires delayed local play when the same room is reopened in another runtime generation', async () => {
+    enterPro();
+    const fixture = makePlayer();
+    await installPlayer(fixture);
+    bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
+    vi.advanceTimersByTime(500);
+    unregisterProTimeline?.();
+    enterPro();
+    vi.advanceTimersByTime(3_000);
+    expect(fixture.player.playVideo).not.toHaveBeenCalled();
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+  });
+
+  it('preserves the personal offset when a newer same-media revision is waiting for its endpoint', async () => {
+    const timeline = enterPro();
+    const fixture = makePlayer();
+    await installPlayer(fixture);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0.1);
+    bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
+    vi.advanceTimersByTime(500);
+    timeline.supersede();
+    vi.advanceTimersByTime(3_000);
+    expect(fixture.player.playVideo).not.toHaveBeenCalled();
+    expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0.1);
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+  });
+
+  it('does not let a stale same-revision local reconciliation cancel a newer offset', async () => {
+    enterPro();
+    const fixture = makePlayer();
+    await installPlayer(fixture);
+    const prepare = vi.fn();
+    registerProPlaybackMediaEndpoint({
+      prepare,
+      commit: async (request) => ({ status: 'applied', authority: request.authority }),
+    });
+    await commitProPlaybackAuthority({
+      authority: createProPlaybackAuthorityToken({
+        roomId: '000001',
+        roomEpoch: 7,
+        basePlaybackRevision: 0,
+        transitionId: null,
+      }),
+      committedPlaybackRevision: 1,
+      queueItemId: QUEUE_ID,
+      state: 'playing',
+      positionSeconds: 10,
+      scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
+      youtubeVideoId: 'same-video',
+      youtubeSubIndex: -1,
+    });
+    bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
+    vi.advanceTimersByTime(500);
+    const result = await prepareCurrentProPlaybackRendezvousAuthority({
+      authority: createProPlaybackAuthorityToken({
+        roomId: '000001',
+        roomEpoch: 7,
+        basePlaybackRevision: 0,
+        transitionId: 'old-local-sync',
+      }),
+      queueItemId: QUEUE_ID,
+      state: 'playing',
+      positionSeconds: 10,
+      youtubeVideoId: 'same-video',
+      youtubeSubIndex: -1,
+      isCurrent: () => false,
+    });
+    expect(result.status).toBe('superseded');
+    expect(prepare).not.toHaveBeenCalled();
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
+    vi.advanceTimersByTime(2_000);
+    expect(fixture.player.playVideo).toHaveBeenCalledOnce();
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
   });
 });

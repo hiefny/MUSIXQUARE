@@ -37,6 +37,7 @@ import {
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import { requestProRoomTransportRecovery } from '../transport-recovery.ts';
+import { captureProRoomLocalPlaybackTimeline } from '../local-playback-timeline.ts';
 import {
   acceptProRoomRealtimeFrameForTests,
   joinProRoom,
@@ -366,6 +367,40 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     cancelMedia.mockClear();
     return current;
   }
+
+  it('exposes only a settled applied server checkpoint to local offset correction', async () => {
+    restoreSpies.push(
+      vi
+        .spyOn(ServerProRoomNetworkBridge.prototype, 'clockCalibrated', 'get')
+        .mockReturnValue(true),
+      vi.spyOn(ServerProRoomNetworkBridge.prototype, 'serverNowMs', 'get').mockReturnValue(12_500),
+    );
+    expect(captureProRoomLocalPlaybackTimeline()).toBeNull();
+    const current = {
+      ...snapshot(playback(1, { positionSeconds: 40, updatedAtMs: 10_000 })),
+      revision: 2,
+    };
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({
+        ...commitEvent(null, 1),
+        playback: current.playback,
+      } as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() =>
+      expect(captureProRoomLocalPlaybackTimeline()?.positionSeconds).toBe(42.5),
+    );
+    const timeline = captureProRoomLocalPlaybackTimeline();
+    expect(timeline?.isCurrent()).toBe(true);
+    const newer = {
+      ...prepareEvent(TRANSITION_READY),
+      basePlaybackRevision: 1,
+      target: playback(2),
+    };
+    acceptProRoomRealtimeFrameForTests(serverFrame(newer as unknown as Record<string, unknown>));
+    expect(timeline?.isCurrent()).toBe(false);
+    expect(captureProRoomLocalPlaybackTimeline()).toBeNull();
+  });
 
   async function beginStaleNewerCheckpointPreparation(): Promise<{
     requestA: Promise<boolean>;

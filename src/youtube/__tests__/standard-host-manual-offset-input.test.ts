@@ -78,7 +78,19 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('Standard-host manual-offset user input', () => {
+describe.each(['standard', 'pro'] as const)('%s local manual-offset user input', (roomKind) => {
+  beforeEach(() => {
+    if (roomKind === 'pro')
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 7,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+  });
   it('coalesces a click burst without reserving playback during the trailing delay', () => {
     setState('sync.youtubeLocalOffset', 0.3);
     setState('sync.youtubeCoordinatorAppliedOffset', 0.28);
@@ -219,7 +231,10 @@ describe('Standard-host manual-offset user input', () => {
       requestUserStandardHostManualOffsetTransaction(player, 0.5, 'debounced');
       if (part === 'player') setYouTubePlayer({} as YouTubePlayerInstance);
       if (part === 'session') incrementSessionId();
-      if (part === 'room') setState('network.sessionCode', '654321');
+      if (part === 'room') {
+        if (roomKind === 'pro') setState('room.context', { ...getState('room.context'), epoch: 8 });
+        else setState('network.sessionCode', '654321');
+      }
       if (part === 'queue') setState('playlist.currentQueueItemId', null);
       if (part === 'subindex') setState('youtube.currentSubIndex', 1);
       if (part === 'mode') setState('playback.mode', 'file');

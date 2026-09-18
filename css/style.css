@@ -8208,6 +8208,20 @@
     background: #d90000;
   }
 
+  /* Whisper cards share their bubble's purple surface, including when pressed. */
+  .chat-bubble.whisper .chat-youtube-btn {
+    background: transparent;
+    color: var(--text-main);
+  }
+
+  .chat-bubble.whisper .chat-yt-play-row {
+    color: #9370db;
+  }
+
+  .chat-bubble.whisper .chat-yt-title {
+    color: inherit;
+  }
+
   /* Chat Timestamp Link */
   .chat-timestamp {
     color: var(--primary);

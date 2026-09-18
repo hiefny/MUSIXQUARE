@@ -135,6 +135,7 @@ vi.mock('../sync.ts', () => ({
 vi.mock('../standard-host-manual-offset-gate.ts', () => ({
   cancelStandardHostManualOffsetTransaction: vi.fn(() => false),
   isStandardHostManualOffsetTransactionPending: vi.fn(() => false),
+  resetStandardHostManualOffsetTransaction: vi.fn(),
 }));
 
 vi.mock('../zero-start.ts', async (importOriginal) => ({

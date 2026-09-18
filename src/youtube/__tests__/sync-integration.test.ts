@@ -2331,12 +2331,213 @@ describe('YouTube Sync — Regression Integration', () => {
   });
 
   describe('handleYouTubeSync - manual rendezvous readiness retry', () => {
+    function queuePrecisionRetryAfterSeek(): FakeYtPlayer {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      setState('network.hostConn', mockHostConn);
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        { time: 10, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), isManual: true },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(100);
+      capturedHandlers[MSG.YOUTUBE_STATE](
+        { time: 40, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), hostPlayAt: 0 },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(2_000);
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        {
+          time: 42,
+          state: 1,
+          videoId: 'FAKE_VIDEO',
+          subIndex: 0,
+          hostClock: Date.now(),
+          isManual: true,
+        },
+        mockHostConn,
+      );
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+      return player;
+    }
+
+    it('retains final precision sync when a seek supersedes an active rendezvous inside its cooldown', () => {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      setState('network.hostConn', mockHostConn);
+      const sync = capturedHandlers[MSG.YOUTUBE_SYNC];
+      const state = capturedHandlers[MSG.YOUTUBE_STATE];
+
+      sync(
+        { time: 10, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), isManual: true },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(100);
+      expect(getManagedTimer('yt-rendezvous-play')).not.toBeNull();
+
+      // Stage 1 of a newer host/admin seek retires the earlier countdown.
+      state(
+        { time: 40, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), hostPlayAt: 0 },
+        mockHostConn,
+      );
+      expect(getManagedTimer('yt-rendezvous-play')).toBeNull();
+      vi.advanceTimersByTime(2_000);
+      player.__log.length = 0;
+
+      // Its Stage 2 arrives before the prior rendezvous's 3-second cooldown ends.
+      sync(
+        { time: 42, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), isManual: true },
+        mockHostConn,
+      );
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+      expect(mutationOps(player)).toEqual([]);
+
+      vi.advanceTimersByTime(1_000);
+      expect(player.__log.filter((call) => call.op === 'seekTo')).toHaveLength(1);
+      const finalTarget = Number(player.__log.find((call) => call.op === 'seekTo')?.args?.[0]);
+      expect(finalTarget).toBeGreaterThanOrEqual(44.4);
+      expect(finalTarget).toBeLessThan(44.7);
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+
+      vi.advanceTimersByTime(1_500);
+      expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+    });
+
+    it.each([1, 2])('retires a cooldown retry when a newer host state %i arrives', (state) => {
+      const player = queuePrecisionRetryAfterSeek();
+      capturedHandlers[MSG.YOUTUBE_STATE](
+        { time: 80, state, videoId: 'FAKE_VIDEO', hostClock: Date.now(), hostPlayAt: 0 },
+        mockHostConn,
+      );
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+      // Allow only the new state's rough seek/play action to finish.
+      vi.advanceTimersByTime(250);
+      player.__log.length = 0;
+      vi.advanceTimersByTime(3_000);
+      expect(mutationOps(player)).toEqual([]);
+    });
+
+    it.each(['connection', 'occurrence'] as const)(
+      'drops a cooldown retry after its owning %s is replaced',
+      (owner) => {
+        const player = queuePrecisionRetryAfterSeek();
+        if (owner === 'connection') {
+          setState('network.hostConn', dataConnection(mockHostConn.peer));
+        } else {
+          setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+        }
+        player.__log.length = 0;
+        vi.advanceTimersByTime(3_000);
+        expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+        expect(mutationOps(player)).toEqual([]);
+      },
+    );
+
+    it.each(['video', 'sub-index'] as const)(
+      'drops a pending precision intent when a heartbeat replaces its same-queue %s',
+      (identity) => {
+        const player = queuePrecisionRetryAfterSeek();
+        capturedHandlers[MSG.YOUTUBE_SYNC](
+          {
+            time: 0,
+            state: 1,
+            videoId: identity === 'video' ? 'NEXT_VIDEO' : 'FAKE_VIDEO',
+            subIndex: 1,
+            hostClock: Date.now(),
+          },
+          mockHostConn,
+        );
+        player.__log.length = 0;
+        vi.advanceTimersByTime(3_000);
+        expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+        expect(mutationOps(player)).toEqual([]);
+      },
+    );
+
+    it('retains an iframe-readiness retry when readiness arrives during rendezvous cooldown', () => {
+      const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
+      setState('network.hostConn', mockHostConn);
+      const sync = capturedHandlers[MSG.YOUTUBE_SYNC];
+      sync(
+        { time: 10, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), isManual: true },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(2_500);
+      getYouTubePlayerMock.mockReturnValue(null);
+      sync(
+        { time: 52, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), isManual: true },
+        mockHostConn,
+      );
+      getYouTubePlayerMock.mockReturnValue(player);
+      player.__log.length = 0;
+      bus.emit('youtube:player-ready');
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+      expect(mutationOps(player)).toEqual([]);
+
+      vi.advanceTimersByTime(510);
+      expect(player.__log.filter((call) => call.op === 'seekTo')).toHaveLength(1);
+      expect(player.__log.find((call) => call.op === 'seekTo')?.args?.[0]).toBeCloseTo(54.01);
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+    });
+
+    it('expires a retained precision request if iframe readiness never returns', () => {
+      const player = queuePrecisionRetryAfterSeek();
+      getYouTubePlayerMock.mockReturnValue(null);
+      vi.advanceTimersByTime(6_500);
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+
+      getYouTubePlayerMock.mockReturnValue(player);
+      player.__log.length = 0;
+      bus.emit('youtube:player-ready');
+      vi.advanceTimersByTime(3_000);
+      expect(mutationOps(player)).toEqual([]);
+    });
+
+    it('honors a newer native local pause while the final precision request is waiting', () => {
+      const player = queuePrecisionRetryAfterSeek();
+      // Native endpoint-local pause writes this flag without emitting the app pause event.
+      localYouTubePaused.value = true;
+      player.__log.length = 0;
+      vi.advanceTimersByTime(3_000);
+      expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+      expect(mutationOps(player)).toEqual([]);
+    });
+
+    it.each([3, 5])(
+      'retains final precision intent through auxiliary state %i then PLAYING',
+      (state) => {
+        const player = queuePrecisionRetryAfterSeek();
+        capturedHandlers[MSG.YOUTUBE_STATE](
+          { time: 42, state, videoId: 'FAKE_VIDEO', subIndex: 0, hostClock: Date.now() },
+          mockHostConn,
+        );
+        player.__log.length = 0;
+        vi.advanceTimersByTime(1_000);
+        expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+        expect(mutationOps(player)).toEqual([]);
+
+        // Native iframe feedback has no hostPlayAt; it refreshes this intent's
+        // host snapshot, unlike a newer explicit seek/play Stage 1.
+        capturedHandlers[MSG.YOUTUBE_STATE](
+          { time: 43, state: 1, videoId: 'FAKE_VIDEO', subIndex: 0, hostClock: Date.now() },
+          mockHostConn,
+        );
+        expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+        expect(mutationOps(player)).toEqual([]);
+        vi.advanceTimersByTime(250);
+        expect(player.__log.filter((call) => call.op === 'seekTo')).toHaveLength(1);
+        expect(
+          Number(player.__log.find((call) => call.op === 'seekTo')?.args?.[0]),
+        ).toBeGreaterThan(44.5);
+        vi.advanceTimersByTime(1_500);
+        expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+      },
+    );
+
     it('defers a manual sync that arrives before the YouTube iframe is ready', async () => {
       const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
       expect(handler).toBeDefined();
       setState('network.hostConn', mockHostConn as never);
       setPlaybackIdle();
       getYouTubePlayerMock.mockReturnValue(null);
+      localYouTubePaused.value = true;
 
       handler(
         {
@@ -2351,6 +2552,7 @@ describe('YouTube Sync — Regression Integration', () => {
       );
 
       expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+      expect(localYouTubePaused.value).toBe(false);
 
       const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
       setPlaybackYouTubePlaying();

@@ -10,6 +10,7 @@ import { MANUAL_SYNC_OFFSET_LIMIT_SEC } from '../core/constants.ts';
 import { getState } from '../core/state.ts';
 import { getManagedTimer } from '../core/timers.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import { getProRoomLocalPlaybackTimelineGeneration } from '../pro-room/local-playback-timeline.ts';
 import { STANDARD_HOST_MANUAL_OFFSET_END_GUARD_SEC } from './constants.ts';
 
 export const PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER = 'yt-pro-coordinator-local-nudge';
@@ -59,6 +60,16 @@ export function isStandardHostYouTubeManualOffsetEndpoint(): boolean {
  */
 export function isCanonicalYouTubeManualOffsetEndpoint(): boolean {
   return isProCoordinatorYouTubeEndpoint() || isStandardHostYouTubeManualOffsetEndpoint();
+}
+
+/** Room and lifecycle fence shared by debounce admission and physical verification. */
+export function getYouTubeManualOffsetEndpointIdentity(): string | null {
+  const room = getRoomContext();
+  if (room.kind === 'pro') {
+    return `pro:${room.roomId ?? ''}:${room.epoch}:${getProRoomLocalPlaybackTimelineGeneration()}`;
+  }
+  if (!isStandardHostYouTubeManualOffsetEndpoint()) return null;
+  return `standard-host:${getState('network.sessionCode')}:${room.roomId ?? ''}:${room.epoch}`;
 }
 
 /**
@@ -113,16 +124,23 @@ export function beginProCoordinatorYouTubeNudge(
   localTime: number,
   duration: number,
   playing: boolean,
+  canonicalPosition?: number,
 ): number {
   const nowMs = Date.now();
   const existingAnchor = readActiveNudgeAnchor(duration, nowMs);
   const existingPlaying = _nudgeAnchor?.playing;
   const canonicalTime =
-    existingAnchor ?? clampTime(localTime - getEffectiveProCoordinatorYouTubeOffset(), duration);
+    canonicalPosition !== undefined
+      ? clampTime(canonicalPosition, duration)
+      : (existingAnchor ??
+        clampTime(localTime - getEffectiveProCoordinatorYouTubeOffset(), duration));
   _nudgeAnchor = {
     canonicalTime,
     capturedAtMs: nowMs,
-    playing: existingAnchor === null ? playing : (existingPlaying ?? playing),
+    playing:
+      canonicalPosition !== undefined || existingAnchor === null
+        ? playing
+        : (existingPlaying ?? playing),
   };
   return canonicalTime;
 }

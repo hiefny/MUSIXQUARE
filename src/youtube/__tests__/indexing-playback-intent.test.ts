@@ -95,6 +95,7 @@ vi.mock('../standard-host-manual-offset-gate.ts', () => ({
   cancelStandardHostManualOffsetTransaction: vi.fn(() => false),
   afterStandardHostManualOffsetTransaction: vi.fn(() => false),
   isStandardHostManualOffsetTransactionPending: vi.fn(() => false),
+  resetStandardHostManualOffsetTransaction: vi.fn(),
 }));
 
 vi.mock('../../ui/toast.ts', () => ({

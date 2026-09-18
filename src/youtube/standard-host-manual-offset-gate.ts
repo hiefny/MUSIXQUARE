@@ -1,8 +1,10 @@
 /**
- * Synchronous safety boundary for the lazily loaded Standard-host YouTube
+ * Synchronous safety boundary for the lazily loaded local YouTube
  * manual-offset transaction. Every caller that can publish or replace media
  * reads this tiny eager facade; iframe commands and their verifier stay in the
  * deferred runtime.
+ * The legacy export names are shared by Standard hosts and PRO participants;
+ * PRO supplies its server checkpoint through the read-only timeline provider.
  */
 
 import { bus } from '../core/events.ts';
@@ -11,11 +13,10 @@ import { MANUAL_SYNC_OFFSET_LIMIT_SEC } from '../core/constants.ts';
 import { getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
-import { getRoomContext } from '../rooms/authority.ts';
 import { IMMEDIATE_ACTION_COOLDOWN_MS } from './constants.ts';
 import {
   clearProCoordinatorYouTubeNudgeAnchor,
-  isStandardHostYouTubeManualOffsetEndpoint,
+  getYouTubeManualOffsetEndpointIdentity,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
 } from './local-offset.ts';
 import { getCurrentSessionId, getYouTubePlayer, type YouTubePlayerInstance } from './_state.ts';
@@ -82,16 +83,12 @@ let settlementEpoch = 0;
 let pendingUserInput: PendingUserInput | null = null;
 
 function readUserInputIdentity(player: YouTubePlayerInstance): UserInputIdentity | null {
-  if (
-    getYouTubePlayer() !== player ||
-    getState('playback.mode') !== 'youtube' ||
-    !isStandardHostYouTubeManualOffsetEndpoint()
-  )
+  const endpoint = getYouTubeManualOffsetEndpointIdentity();
+  if (getYouTubePlayer() !== player || getState('playback.mode') !== 'youtube' || !endpoint)
     return null;
   const queueItemId = getCurrentQueueItemId();
   const item = queueItemId ? getQueueItemById(queueItemId) : null;
   if (!queueItemId || item?.type !== 'youtube') return null;
-  const room = getRoomContext();
   const subIndex = getState('youtube.currentSubIndex') ?? -1;
   const videoId = item.playlistId
     ? getState('youtube.subItemsMap')[item.playlistId]?.ids?.[subIndex] || ''
@@ -100,7 +97,7 @@ function readUserInputIdentity(player: YouTubePlayerInstance): UserInputIdentity
   return {
     player,
     sessionId: getCurrentSessionId(),
-    endpoint: `${getState('network.sessionCode')}:${room.roomId ?? ''}:${room.epoch}`,
+    endpoint,
     queueItemId,
     subIndex,
     videoId,

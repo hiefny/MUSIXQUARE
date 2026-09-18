@@ -1,8 +1,8 @@
 # Standard-host YouTube manual synchronization
 
 The host's manual offset belongs to that device. Changing it must not pause,
-seek, or reschedule the guests. PRO continues to use its existing server-owned
-timeline; this contract changes only the Standard-host user-input path.
+seek, or reschedule the guests. PRO participants share the local input,
+rendezvous, and verification mechanism while retaining the server-owned timeline.
 
 ## Input and ownership
 
@@ -41,10 +41,35 @@ target. Missing readiness, late execution, and media-end conflicts enter the
 existing verified rollback path. Media replacement or authority loss cancels
 the plan and its timer without issuing a command to replacement media.
 
+## PRO participant offsets and Reset
+
+PRO plus/minus edits, numeric confirmation, and Reset use the same input modes
+and physical verification as the Standard host. They affect only the requesting
+participant. They create no server playback command, room-wide rendezvous, or
+playback revision; the legacy `standard-host-manual-offset-*` exports remain the
+shared local-media gate.
+
+PRO anchors from the exact applied server checkpoint and calibrated server
+clock, never from a potentially drifted iframe position. Reset commits a zero
+offset through the same preparation and verification, so it also corrects
+preexisting local drift. Paused server playback remains paused. If the current
+checkpoint, calibrated clock, or settled playback owner is unavailable, the
+operation issues no iframe command and retains the previous verified offset.
+
+The read-only timeline provider is registered by the PRO playback controller.
+Its liveness binds the room incarnation, runtime generation, playlist lease,
+and applied playback revision. A newer accepted PREPARE/COMMIT cancels local
+timers before its endpoint commands. Same-media server work retains the
+participant's requested offset; stale or wrong-room work cannot cancel it.
+Neither polling an unchanged checkpoint nor ordinary presence updates create
+a new local playback transaction.
+
 ## Verification boundary
 
 Unit coverage exercises batching, serialization, finite values, stale identity,
-playlist preparation, late execution, paused intent, and rollback. Real iframe
+playlist preparation, late execution, paused intent, and rollback. PRO coverage
+also verifies drifted zero-offset Reset, server-clock projection, runtime and
+revision fencing, and canonical work superseding local preparation. Real iframe
 checks must additionally measure host commands, guest playback, and continuity
 of the canonical clock. Iframe time observations do not establish audible
 speaker synchronization or guarantee millisecond accuracy on every device.

@@ -6,6 +6,8 @@ import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
+import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
+import { registerProRoomLocalPlaybackTimeline } from '../../pro-room/local-playback-timeline.ts';
 import {
   prepareStandardHostManualOffsetRuntimeForTests,
   resetStandardHostManualOffsetTransaction,
@@ -13,6 +15,30 @@ import {
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 const zeroStartFacade = vi.hoisted(() => ({ active: false }));
+let unregisterProTimeline: (() => void) | null = null;
+
+function registerPausedProTimeline(position: () => number): void {
+  unregisterProTimeline = registerProRoomLocalPlaybackTimeline({
+    getSnapshot: () =>
+      ({
+        roomCode: '000001',
+        presence: { coordinatorEpoch: 1 },
+        playback: {
+          coordinatorEpoch: 1,
+          revision: 1,
+          state: 'paused',
+          queueItemId: QUEUE_ITEM_ID,
+          youtubeVideoId: 'same-video',
+          youtubeSubIndex: -1,
+          positionSeconds: position(),
+          updatedAtMs: Date.now(),
+        },
+      }) as ProRoomSnapshot,
+    getServerNow: Date.now,
+    isClockCalibrated: () => true,
+    captureLiveness: () => () => true,
+  });
+}
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -71,6 +97,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  unregisterProTimeline?.();
+  unregisterProTimeline = null;
   clearAllManagedTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -350,17 +378,20 @@ describe('YouTube Sync', () => {
     });
 
     it('seeks only the local PRO player for a manual nudge without legacy broadcasting', async () => {
+      vi.useFakeTimers();
       const playerMod = await import('../_state.ts');
-      let currentTime = 42.5;
+      let currentTime = 39;
       const player = {
         getCurrentTime: vi.fn(() => currentTime),
         getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 2),
+        getVideoData: vi.fn(() => ({ video_id: 'same-video' })),
         seekTo: vi.fn((time: number) => {
           currentTime = time;
         }),
       } as unknown as YouTubePlayerInstance;
       vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
-      setPlaybackYouTubePlaying();
+      setPlaybackYouTubePaused();
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -374,11 +405,14 @@ describe('YouTube Sync', () => {
       const { broadcastYouTubeSync } = await import('../sync.ts');
       const { broadcast } = await import('../../network/peer.ts');
       initYouTubeSync();
+      registerPausedProTimeline(() => 42.5);
 
-      bus.emit('youtube:set-coordinator-manual-offset', 0.125);
+      bus.emit('youtube:set-coordinator-manual-offset', 0.125, 'committed');
 
       expect(player.seekTo).toHaveBeenCalledWith(42.625, true);
       expect(getState('sync.youtubeLocalOffset')).toBe(0.125);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+      vi.advanceTimersByTime(600);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.125, 2);
 
       vi.mocked(broadcast).mockClear();
@@ -1535,18 +1569,24 @@ describe('YouTube Sync', () => {
       expect(getState('sync.youtubeLocalOffset')).toBe(0);
     });
 
-    it('keeps one canonical anchor across rapid local PRO nudges while seekTo is stale', async () => {
+    it('coalesces rapid local PRO edits against the server anchor while seekTo is stale', async () => {
+      vi.useFakeTimers();
       const playerMod = await import('../_state.ts');
+      let currentTime = 10;
       const player = {
         // Real iframes can keep returning the pre-seek value for a short time.
-        getCurrentTime: vi.fn(() => 10),
+        getCurrentTime: vi.fn(() => currentTime),
         getDuration: vi.fn(() => 120),
         getPlayerState: vi.fn(() => 2),
         getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
-        seekTo: vi.fn(),
+        seekTo: vi.fn((time: number) => {
+          setTimeout(() => {
+            currentTime = time;
+          }, 120);
+        }),
       } as unknown as YouTubePlayerInstance;
       vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
-      setPlaybackYouTubePlaying();
+      setPlaybackYouTubePaused();
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1559,35 +1599,47 @@ describe('YouTube Sync', () => {
       const { initYouTubeSync, broadcastYouTubeSync } = await import('../sync.ts');
       const { broadcast } = await import('../../network/peer.ts');
       initYouTubeSync();
+      registerPausedProTimeline(() => 10);
 
-      bus.emit('youtube:set-coordinator-manual-offset', 0.01);
-      bus.emit('youtube:set-coordinator-manual-offset', 0.02);
+      bus.emit('youtube:set-coordinator-manual-offset', 0.01, 'debounced');
+      vi.advanceTimersByTime(100);
+      bus.emit('youtube:set-coordinator-manual-offset', 0.02, 'debounced');
+      vi.advanceTimersByTime(999);
+      expect(player.seekTo).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
 
-      expect(player.seekTo).toHaveBeenNthCalledWith(1, 10.01, true);
-      expect(player.seekTo).toHaveBeenNthCalledWith(2, 10.02, true);
+      expect(player.seekTo).toHaveBeenCalledExactlyOnceWith(10.02, true);
       expect(getState('sync.youtubeLocalOffset')).toBe(0.02);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+      vi.advanceTimersByTime(700);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.02, 8);
 
       vi.mocked(broadcast).mockClear();
       broadcastYouTubeSync(true);
       expect(broadcast).not.toHaveBeenCalled();
 
-      bus.emit('youtube:set-coordinator-manual-offset', 0);
+      bus.emit('youtube:set-coordinator-manual-offset', 0, 'committed');
       expect(player.seekTo).toHaveBeenLastCalledWith(10, true);
+      vi.advanceTimersByTime(700);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
     });
 
     it('stores the applied boundary offset and resets to the exact canonical position', async () => {
+      vi.useFakeTimers();
       const playerMod = await import('../_state.ts');
       let currentTime = 1;
+      let canonicalPosition = 1;
       const player = {
         getCurrentTime: vi.fn(() => currentTime),
         getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 2),
+        getVideoData: vi.fn(() => ({ video_id: 'same-video' })),
         seekTo: vi.fn((time: number) => {
           currentTime = time;
         }),
       } as unknown as YouTubePlayerInstance;
       vi.mocked(playerMod.getYouTubePlayer).mockReturnValue(player);
-      setPlaybackYouTubePlaying();
+      setPlaybackYouTubePaused();
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1599,32 +1651,38 @@ describe('YouTube Sync', () => {
       });
       const { initYouTubeSync } = await import('../sync.ts');
       initYouTubeSync();
+      registerPausedProTimeline(() => canonicalPosition);
 
-      bus.emit('youtube:set-coordinator-manual-offset', -3);
+      bus.emit('youtube:set-coordinator-manual-offset', -3, 'committed');
 
       expect(player.seekTo).toHaveBeenLastCalledWith(0, true);
       expect(getState('sync.youtubeLocalOffset')).toBe(-3);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+      vi.advanceTimersByTime(600);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(-1);
 
-      bus.emit('youtube:set-coordinator-manual-offset', 0);
+      bus.emit('youtube:set-coordinator-manual-offset', 0, 'committed');
 
       expect(player.seekTo).toHaveBeenLastCalledWith(1, true);
       expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(-1);
+      vi.advanceTimersByTime(600);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
 
-      const { clearManagedTimer } = await import('../../core/timers.ts');
-      clearManagedTimer('yt-pro-coordinator-local-nudge');
       currentTime = 119;
-      bus.emit('youtube:set-coordinator-manual-offset', 3);
+      canonicalPosition = 119;
+      bus.emit('youtube:set-coordinator-manual-offset', 3, 'committed');
 
       expect(player.seekTo).toHaveBeenLastCalledWith(120, true);
       expect(getState('sync.youtubeLocalOffset')).toBe(3);
+      vi.advanceTimersByTime(600);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(1);
 
-      bus.emit('youtube:set-coordinator-manual-offset', 0);
+      bus.emit('youtube:set-coordinator-manual-offset', 0, 'committed');
 
       expect(player.seekTo).toHaveBeenLastCalledWith(119, true);
       expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      vi.advanceTimersByTime(600);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
     });
   });

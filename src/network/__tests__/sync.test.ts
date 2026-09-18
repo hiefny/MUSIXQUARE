@@ -324,37 +324,49 @@ describe('manual sync nudge routing', () => {
     expect(localApply).toHaveBeenCalledExactlyOnceWith(0, 'committed');
   });
 
-  it('applies and resets a PRO coordinator YouTube nudge locally', () => {
-    initSync();
-    const coordinatorApply = vi.fn();
-    const guestApply = vi.fn();
-    bus.on('youtube:set-coordinator-manual-offset', coordinatorApply);
-    bus.on('youtube:apply-manual-sync', guestApply);
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: 'participant-0',
-      epoch: 1,
-      snapshotRevision: 1,
-      capabilities: ['playback.control'],
-    });
-    setPlaybackYouTubePlaying();
+  it.each(['coordinator', 'member'] as const)(
+    'routes PRO %s nudges, confirmed input and Reset through the local transaction',
+    (role) => {
+      initSync();
+      const coordinatorApply = vi.fn();
+      const guestApply = vi.fn();
+      bus.on('youtube:set-coordinator-manual-offset', coordinatorApply);
+      bus.on('youtube:apply-manual-sync', guestApply);
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role,
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control'],
+      });
+      setPlaybackYouTubePlaying();
 
-    bus.emit('sync:nudge', 10);
+      bus.emit('sync:nudge', 10);
 
-    // The iframe-side handler commits only the offset that can actually be
-    // applied at media boundaries; this routing unit test observes the request.
-    expect(getState('sync.youtubeLocalOffset')).toBe(0);
-    expect(coordinatorApply).toHaveBeenLastCalledWith(0.01);
-    expect(guestApply).not.toHaveBeenCalled();
+      // The iframe-side handler commits only the offset that can actually be
+      // applied at media boundaries; this routing unit test observes the request.
+      expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      expect(coordinatorApply).toHaveBeenLastCalledWith(0.01, 'debounced');
+      expect(guestApply).not.toHaveBeenCalled();
 
-    bus.emit('sync:auto-sync');
+      bus.emit('sync:set-manual-offset', -125);
 
-    expect(getState('sync.youtubeLocalOffset')).toBe(0);
-    expect(coordinatorApply).toHaveBeenLastCalledWith(0);
-    expect(guestApply).not.toHaveBeenCalled();
-  });
+      expect(coordinatorApply).toHaveBeenLastCalledWith(-0.125, 'committed');
+      expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      expect(guestApply).not.toHaveBeenCalled();
+
+      setState('sync.youtubeLocalOffset', 0.25);
+      bus.emit('sync:auto-sync');
+
+      // Reset must let the verified transaction apply zero before claiming it
+      // physically took effect, just like an explicitly entered offset.
+      expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+      expect(coordinatorApply).toHaveBeenLastCalledWith(0, 'committed');
+      expect(guestApply).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('SYNC_PING playback snapshot', () => {

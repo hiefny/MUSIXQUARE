@@ -836,6 +836,13 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       }
     }
 
+    // Heartbeats can observe ENDED/UNSTARTED before the host's iframe callback
+    // advances the queue. They carry no permission to load or resume a video.
+    if (hostState === 0 || hostState === -1) {
+      player.stopVideo?.();
+      return;
+    }
+
     // Keep the guest video ID aligned across Mix ordering and sub-video advances.
     // Single-video mode: always drive guest via loadVideoById. We never call
     // playVideoAt / loadPlaylist so the iframe's native playlist engine
@@ -847,6 +854,23 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         log.info(
           `[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}. Loading by video ID`,
         );
+        if (hostState === 2) {
+          // A paused host can change videos before this guest finishes its
+          // outgoing load. Loading autoplays; cue the authoritative position
+          // without borrowing the outgoing video's duration or play intent.
+          if (player.cueVideoById) {
+            updatePlaybackTrackDetails({ artist: null });
+            expectYouTubeMetadataVideoIdFromSync(hostVideoId);
+            player.cueVideoById(hostVideoId, applyYouTubeManualOffset(hostTime, 0));
+            invalidateYtDurationCacheFromSync();
+            if (hostSubIndex !== undefined && hostSubIndex !== -1) {
+              setYouTubeSubIndex(hostSubIndex);
+            }
+          } else {
+            player.pauseVideo?.();
+          }
+          return;
+        }
         if (player.loadVideoById) {
           updatePlaybackTrackDetails({ artist: null });
           expectYouTubeMetadataVideoIdFromSync(hostVideoId);
@@ -1547,8 +1571,14 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
       updatePlaybackTrackTitle(hostTitle);
     }
 
+    // Terminal commands must win before media reconciliation. A different
+    // video ID is not permission to autoplay after Stop.
+    if (state === 0 || state === -1) {
+      player.stopVideo?.();
+      return;
+    }
+
     // In Mix playlists, a new sub-index can identify a different video.
-    let subIndexChanged = false;
     const hostVideoId = (data.videoId as string) || '';
     const subIndex = data.subIndex as number | undefined;
 
@@ -1560,6 +1590,19 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         log.info(
           `[YouTube State] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}. Loading by video ID`,
         );
+        if (state === 2) {
+          if (player.cueVideoById) {
+            updatePlaybackTrackDetails({ artist: null });
+            expectYouTubeMetadataVideoIdFromSync(hostVideoId);
+            player.cueVideoById(hostVideoId, applyYouTubeManualOffset(time, 0));
+            if (!isCurrentStateAction(action)) return;
+            invalidateYtDurationCacheFromSync();
+            if (subIndex !== undefined && subIndex !== -1) setYouTubeSubIndex(subIndex);
+          } else {
+            player.pauseVideo?.();
+          }
+          return;
+        }
         if (player.loadVideoById) {
           updatePlaybackTrackDetails({ artist: null });
           expectYouTubeMetadataVideoIdFromSync(hostVideoId);
@@ -1568,7 +1611,6 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           if (subIndex !== undefined && subIndex !== -1) {
             setYouTubeSubIndex(subIndex);
           }
-          subIndexChanged = true;
         }
         // Schedule a delayed play using hostPlayAt so the guest starts at
         // the same time as the host, even though the video is reloading.
@@ -1599,24 +1641,15 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
       }
     }
 
-    // Sub-index state alignment — videoId already matched above, so just
-    // update state if the tracked subIndex differs. No player call needed.
-    if (!subIndexChanged && subIndex !== undefined && subIndex >= 0) {
+    // The same video can occupy adjacent playlist entries. Align the logical
+    // index, then still apply the new occurrence's time to the resident video.
+    if (subIndex !== undefined && subIndex >= 0) {
       const currentTrack = getQueueItemById(getCurrentQueueItemId());
       const isPlaylistTrack = !!currentTrack?.playlistId;
       const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
       if (isPlaylistTrack && currentSubIndex !== subIndex) {
         setYouTubeSubIndex(subIndex);
-        subIndexChanged = true;
       }
-    }
-
-    // ENDED/UNSTARTED: stop immediately, skip all play/pause sync logic.
-    // Without this, state=0 with non-zero hostPlayAt could fall into the
-    // short-wait or executeImmediate paths, wastefully setting _rt.autoSyncUntil.
-    if (state === 0 || state === -1) {
-      if (player.stopVideo) player.stopVideo();
-      return;
     }
 
     // SharedClock: schedule YouTube action at host-specified time
@@ -1634,7 +1667,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         if (!isCurrentStateAction(action)) return;
 
         // 2. Seek to target position (while paused = in-buffer, no rebuffer)
-        if (!subIndexChanged && player.seekTo) player.seekTo(manualTargetTime, true);
+        if (player.seekTo) player.seekTo(manualTargetTime, true);
         if (!isCurrentStateAction(action)) return;
 
         // 3. Update seekbar immediately
@@ -1696,7 +1729,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             if (state === 1 && p.playVideo) {
               // Pause-seek-play: same pattern as executeImmediate to avoid
               // seekTo+playVideo race on the YouTube iframe.
-              if (!subIndexChanged && p.seekTo) {
+              if (p.seekTo) {
                 p.pauseVideo?.();
                 if (!isCurrentStateAction(action)) return;
                 p.seekTo(compensatedTime, true);
@@ -1725,7 +1758,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         );
       } else {
         // No wait or out of range — execute immediately
-        executeImmediate(player, state, time, duration, subIndexChanged, action);
+        executeImmediate(player, state, time, duration, action);
       }
     } else {
       // No hostPlayAt, or clock uncalibrated (late-join, no pongs yet) — execute immediately.
@@ -1737,7 +1770,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           '[YouTube State] SharedClock uncalibrated. Ignoring hostPlayAt, executing immediately',
         );
       }
-      executeImmediate(player, state, time, duration, subIndexChanged, action);
+      executeImmediate(player, state, time, duration, action);
     }
   } catch (e) {
     log.error('[YouTube State] Error:', e);
@@ -1752,7 +1785,6 @@ function executeImmediate(
   state: number,
   time: number,
   duration: number,
-  subIndexChanged: boolean,
   action: GuestStateAction,
 ): void {
   if (!isCurrentStateAction(action)) return;
@@ -1772,7 +1804,7 @@ function executeImmediate(
   _rt.autoSyncUntil = Date.now() + IMMEDIATE_ACTION_COOLDOWN_MS;
 
   if (state === 1 && player.playVideo) {
-    if (!subIndexChanged && player.seekTo) {
+    if (player.seekTo) {
       // Pause-seek-play: seek while paused, then play after SEEK_PLAY_GAP_MS.
       // Uses a dedicated timer name (yt-seek-play) so paths that must cancel a
       // pending delayed play independently of the clock action can target it —

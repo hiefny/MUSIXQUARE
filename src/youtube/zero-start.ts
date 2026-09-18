@@ -278,6 +278,7 @@ type LocalRun = {
   hostFallbackEligible: boolean;
   /** True only after this run has captured and begun controlling player audio/playback. */
   ownsPlayerState: boolean;
+  audioStatePlayer: YouTubeZeroStartPlayer | null;
   audioStateCaptured: boolean;
   targetLoadIssued: boolean;
   targetLoadPlayer: YouTubeZeroStartPlayer | null;
@@ -728,6 +729,7 @@ class YouTubeZeroStartController {
     }
 
     if (run.phase === 'starting' && state === YOUTUBE_ZERO_START_PLAYER_STATE.playing) {
+      if (this.#getPreparedPlayer(run) !== player) return true;
       const currentVideoId = this.#currentVideoId(player);
       if (currentVideoId !== run.videoId) {
         this.#failLocalPrepare(run, 'release-video-mismatch', {
@@ -861,7 +863,7 @@ class YouTubeZeroStartController {
       // WARMING uses a hard mute, not a paused iframe. Restoring the user's
       // audio state before stopping would leak the warm-up audio whenever
       // authority/reconnect/supersede cancels the run.
-      this.#stopPlaybackBestEffort();
+      this.#stopPlaybackBestEffort(run);
     }
     if (transferPlayerState) this.#cancelDetachedAudioRestore();
     this.#clearTimers();
@@ -985,6 +987,7 @@ class YouTubeZeroStartController {
       externalFallbackRequested: false,
       hostFallbackEligible: false,
       ownsPlayerState: true,
+      audioStatePlayer: player,
       audioStateCaptured: true,
       targetLoadIssued: false,
       targetLoadPlayer: null,
@@ -1064,6 +1067,7 @@ class YouTubeZeroStartController {
       externalFallbackRequested: false,
       hostFallbackEligible: false,
       ownsPlayerState: false,
+      audioStatePlayer: player,
       audioStateCaptured,
       targetLoadIssued: false,
       targetLoadPlayer: null,
@@ -1344,11 +1348,8 @@ class YouTubeZeroStartController {
 
   #attemptRunAudioRestore(run: LocalRun, attempt: number): void {
     if (!this.#isCurrentRun(run) || run.phase !== 'restoring-audio') return;
-    const player = this.#deps.getPlayer();
-    if (!player) {
-      this.#failLocalPrepare(run, 'player-unavailable');
-      return;
-    }
+    const player = this.#getPreparedPlayer(run);
+    if (!player) return;
 
     let commandError: unknown;
     try {
@@ -1361,11 +1362,8 @@ class YouTubeZeroStartController {
 
     this.#later(() => {
       if (!this.#isCurrentRun(run) || run.phase !== 'restoring-audio') return;
-      const currentPlayer = this.#deps.getPlayer();
-      if (!currentPlayer) {
-        this.#failLocalPrepare(run, 'player-unavailable');
-        return;
-      }
+      const currentPlayer = this.#getPreparedPlayer(run);
+      if (!currentPlayer) return;
       let actualMuted: boolean | null = null;
       let actualVolume: number | null = null;
       let verificationError: unknown;
@@ -1562,15 +1560,19 @@ class YouTubeZeroStartController {
     this.#emitState();
     this.#later(() => {
       if (!this.#isCurrentRun(run) || run.phase !== 'scheduled') return;
-      const player = this.#deps.getPlayer();
-      if (!player) {
-        this.#failLocalPrepare(run, 'player-unavailable');
+      const player = this.#getPreparedPlayer(run);
+      if (!player) return;
+      // Calibration may be reset during the countdown by a reconnect. The
+      // previously translated deadline no longer proves a synchronized start.
+      if (this.#deps.getRole() === 'guest' && !this.#deps.isClockCalibrated()) {
+        this.#requestExternalFallback(run, commit, 'clock-uncalibrated');
         return;
       }
       try {
         run.playCallAt = this.#now();
         run.phase = 'starting';
         this.#emitState();
+        if (!this.#isCurrentRun(run) || this.#getPreparedPlayer(run) !== player) return;
         player.playVideo();
         this.#later(() => {
           if (!this.#isCurrentRun(run) || run.phase !== 'starting') return;
@@ -1588,11 +1590,8 @@ class YouTubeZeroStartController {
       this.#requestExternalFallback(run, commit, 'clock-uncalibrated');
       return;
     }
-    const player = this.#deps.getPlayer();
-    if (!player) {
-      this.#requestExternalFallback(run, commit, 'prepare-failed');
-      return;
-    }
+    const player = this.#getPreparedPlayer(run);
+    if (!player) return;
     const nowAtHost = this.#deps.getHostNow();
     const fallbackCommit: YouTubeZeroStartCommitMessage = {
       ...commit,
@@ -1610,10 +1609,12 @@ class YouTubeZeroStartController {
     try {
       player.pauseVideo();
       this.#later(() => {
-        if (!this.#isCurrentRun(run)) return;
+        if (!this.#isCurrentRun(run) || this.#getPreparedPlayer(run) !== player) return;
         player.seekTo(this.#resolveLocalTarget(canonicalTarget, run), true);
         this.#later(() => {
-          if (this.#isCurrentRun(run)) player.pauseVideo();
+          if (this.#isCurrentRun(run) && this.#getPreparedPlayer(run) === player) {
+            player.pauseVideo();
+          }
         }, 100);
       }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
       run.armed = true;
@@ -1640,7 +1641,7 @@ class YouTubeZeroStartController {
     // the pre-warm desired state and can adopt an already-issued target load
     // without exposing warm-up audio or recapturing the transient hard mute.
     this.#clearTimers();
-    if (run.ownsPlayerState) this.#stopPlaybackBestEffort();
+    if (run.ownsPlayerState) this.#stopPlaybackBestEffort(run);
     this.#cancelDetachedAudioRestore();
     run.phase = 'error';
     this.#emitState();
@@ -1802,7 +1803,7 @@ class YouTubeZeroStartController {
     this.#deps.onError?.(reason, error);
     this.#debug('prepare-failed', { reason, error });
     if (this.#deps.getRole() === 'host') {
-      if (run.ownsPlayerState) this.#stopPlaybackBestEffort();
+      if (run.ownsPlayerState) this.#stopPlaybackBestEffort(run);
       const shouldHandoff =
         run.hostFallbackEligible && typeof this.#deps.onHostFallbackRequired === 'function';
       const fallbackEvent: YouTubeZeroStartHostFallbackEvent = {
@@ -1831,7 +1832,7 @@ class YouTubeZeroStartController {
       );
       return;
     }
-    if (run.ownsPlayerState) this.#stopPlaybackBestEffort();
+    if (run.ownsPlayerState) this.#stopPlaybackBestEffort(run);
     run.phase = 'error';
     this.#emitState();
     // A run that exhausted the bounded restore loop has already made every
@@ -1842,7 +1843,7 @@ class YouTubeZeroStartController {
 
   #cancelLocalOnly(stopPlayback = false, transferPlayerState = false): void {
     const run = this.#localRun;
-    if (stopPlayback && run?.ownsPlayerState) this.#stopPlaybackBestEffort();
+    if (stopPlayback && run?.ownsPlayerState) this.#stopPlaybackBestEffort(run);
     if (transferPlayerState) this.#cancelDetachedAudioRestore();
     this.#clearTimers();
     this.#localRun = null;
@@ -1851,9 +1852,25 @@ class YouTubeZeroStartController {
     if (run && !transferPlayerState) this.#restoreOriginalAudioBounded(run);
   }
 
-  #stopPlaybackBestEffort(): void {
+  #getCleanupPlayer(run: LocalRun): YouTubeZeroStartPlayer | null {
+    // Cancellation can precede the next preparation/release ownership check.
+    // Before a target load exists, the hard mute still belongs to the iframe
+    // whose audio state was captured, never to a newly installed global player.
+    const owner = run.targetLoadPlayer ?? run.audioStatePlayer;
+    if (!owner || this.#deps.getPlayer() !== owner) return null;
+    // Before settlement, metadata can still describe the outgoing load. Once
+    // the target was verified twice, a different live video proves this exact
+    // iframe has moved on and even detached cleanup must leave it untouched.
+    if (run.stableChecks >= 2) {
+      const videoId = this.#currentVideoId(owner);
+      if (videoId && videoId !== run.videoId) return null;
+    }
+    return owner;
+  }
+
+  #stopPlaybackBestEffort(run: LocalRun): void {
     try {
-      this.#deps.getPlayer()?.pauseVideo();
+      this.#getCleanupPlayer(run)?.pauseVideo();
     } catch {
       // ABORT cleanup is best-effort; the following legacy snapshot remains
       // authoritative even if the iframe is currently rebuilding.
@@ -1866,7 +1883,7 @@ class YouTubeZeroStartController {
 
   #restoreOriginalAudioBounded(run: LocalRun): void {
     if (!run.ownsPlayerState || !run.audioStateCaptured || run.phase === 'playing') return;
-    const player = this.#deps.getPlayer();
+    const player = this.#getCleanupPlayer(run);
     if (!player) return;
     this.#cancelDetachedAudioRestore();
     const generation = this.#detachedAudioRestoreGeneration;
@@ -1874,7 +1891,7 @@ class YouTubeZeroStartController {
     const attemptRestore = (attempt: number): void => {
       if (
         generation !== this.#detachedAudioRestoreGeneration ||
-        this.#deps.getPlayer() !== player
+        this.#getCleanupPlayer(run) !== player
       ) {
         return;
       }
@@ -1891,7 +1908,7 @@ class YouTubeZeroStartController {
         this.#detachedAudioRestoreTimer = null;
         if (
           generation !== this.#detachedAudioRestoreGeneration ||
-          this.#deps.getPlayer() !== player
+          this.#getCleanupPlayer(run) !== player
         ) {
           return;
         }
@@ -1945,6 +1962,29 @@ class YouTubeZeroStartController {
     } catch {
       return '';
     }
+  }
+
+  /** Only the iframe that completed preparation may restore audio or release. */
+  #getPreparedPlayer(run: LocalRun): YouTubeZeroStartPlayer | null {
+    const player = this.#deps.getPlayer();
+    if (!player) {
+      this.#failLocalPrepare(run, 'player-unavailable');
+      return null;
+    }
+    if (player !== run.targetLoadPlayer) {
+      // Failure cleanup must not pause or restore the replacement's audio.
+      run.ownsPlayerState = false;
+      this.#failLocalPrepare(run, 'player-replaced');
+      return null;
+    }
+    if (this.#currentVideoId(player) !== run.videoId) {
+      // A retained iframe can keep its object identity while a queued media
+      // command replaces the prepared video. Do not release or unmute it.
+      run.ownsPlayerState = false;
+      this.#failLocalPrepare(run, 'prepared-video-changed');
+      return null;
+    }
+    return player;
   }
 
   #isPrepareRuntimeReady(): boolean {

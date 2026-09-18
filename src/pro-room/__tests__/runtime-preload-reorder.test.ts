@@ -403,4 +403,44 @@ describe('PRO preload target changes', { concurrent: false }, () => {
     await expect(foreground).resolves.toBe(PROMOTED_FILE);
     expect(downloads).toHaveLength(2);
   });
+
+  it.each(['preload', 'foreground'] as const)(
+    'retires an old %s completion after rejoining the same room with the same queue item',
+    async (mode) => {
+      let resolveOld!: (file: File) => void;
+      let oldSignal: AbortSignal | undefined;
+      vi.mocked(ProRoomMediaTransfer.prototype.download).mockImplementationOnce((input) => {
+        oldSignal = input.signal;
+        // Model a body completion already queued when abort reaches the adapter.
+        return new Promise<File>((resolve) => (resolveOld = resolve));
+      });
+      const oldDownload =
+        mode === 'preload'
+          ? preloadProRoomPlaylistFile(PROMOTE_QUEUE_ITEM_ID)
+          : resolveProRoomPlaylistFile(PROMOTE_QUEUE_ITEM_ID);
+      await vi.waitFor(() => expect(oldSignal).toBeDefined());
+
+      requestProRoomLeave();
+      await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+      expect(oldSignal?.aborted).toBe(true);
+      await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      clearManagedTimer('preloadScheduleTimer');
+      const successor = resolveProRoomPlaylistFile(PROMOTE_QUEUE_ITEM_ID);
+      const current = await requestFor(PROMOTE_SOURCE);
+
+      resolveOld(new File(['old'], 'retired-room.flac', { type: 'audio/flac' }));
+      await expect(oldDownload).resolves.toBeNull();
+      expect(
+        getState('playlist.items').find((item) => item.queueItemId === PROMOTE_QUEUE_ITEM_ID)?.file,
+      ).toBeUndefined();
+      expect(current.input.signal?.aborted).toBe(false);
+      expect(resolveProRoomPlaylistFile(PROMOTE_QUEUE_ITEM_ID)).toBe(successor);
+
+      current.complete();
+      await expect(successor).resolves.toBe(PROMOTED_FILE);
+      expect(
+        getState('playlist.items').find((item) => item.queueItemId === PROMOTE_QUEUE_ITEM_ID)?.file,
+      ).toBe(PROMOTED_FILE);
+    },
+  );
 });

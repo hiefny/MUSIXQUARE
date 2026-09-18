@@ -85,6 +85,8 @@ function makeHarness(options?: {
   guestCanonicalTransform?: (position: number) => number;
   failHostCommitSend?: boolean;
   onHostFallbackRequired?: YouTubeZeroStartDependencies['onHostFallbackRequired'];
+  onGuestFallbackRequired?: YouTubeZeroStartDependencies['onFallbackRequired'];
+  getGuestPlayer?: (preparedPlayer: FakeYtPlayer) => FakeYtPlayer;
   onGuestLearnedTimelineLeadMs?: YouTubeZeroStartDependencies['onLearnedTimelineLeadMs'];
   onHostPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
   onGuestPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
@@ -163,7 +165,8 @@ function makeHarness(options?: {
     getLocalPeerId: () => GUEST_ID,
     getHostPeerId: () => HOST_ID,
     getLiveGuestPeerIds: () => [],
-    getPlayer: () => guestPlayer as YouTubeZeroStartPlayer,
+    getPlayer: () =>
+      (options?.getGuestPlayer?.(guestPlayer) ?? guestPlayer) as YouTubeZeroStartPlayer,
     getLocalPlatform: () => options?.guestPlatform ?? 'other',
     sendToPeer: () => false,
     sendToHost: (message) => {
@@ -176,6 +179,7 @@ function makeHarness(options?: {
       return true;
     },
     onPrepareSelection: () => options?.guestMediaAction,
+    onFallbackRequired: options?.onGuestFallbackRequired,
     onLearnedTimelineLeadMs: options?.onGuestLearnedTimelineLeadMs,
     onPhaseChange: options?.onGuestPhaseChange,
     getDesiredAudioState: options?.guestDesiredAudioState
@@ -1100,6 +1104,116 @@ describe('YouTubeZeroStartController', () => {
     expect(controller.getSnapshot().phase).toBe('idle');
   });
 
+  it.each(
+    (['reset', 'cancel', 'abort'] as const).flatMap((operation) =>
+      [
+        { elapsed: 0, owner: 'player' },
+        { elapsed: 620, owner: 'player' },
+        { elapsed: 620, owner: 'video' },
+      ].map(({ elapsed, owner }) => ({ operation, elapsed, owner })),
+    ),
+  )(
+    'does not clean up a replaced $owner on $operation after $elapsed ms',
+    ({ operation, elapsed, owner }) => {
+      let replacement: FakeYtPlayer | null = null;
+      const harness = makeHarness({
+        guestMuted: false,
+        guestVolume: 37,
+        getGuestPlayer: (preparedPlayer) => replacement ?? preparedPlayer,
+      });
+      harness.guest.advertiseCapability();
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      });
+      // At zero elapsed the target load has not run; cleanup must still belong
+      // to the exact iframe whose audio state was captured before hard mute.
+      if (elapsed) vi.advanceTimersByTime(elapsed);
+      expect(harness.guest.getSnapshot().phase).toBe(elapsed ? 'scheduled' : 'muting');
+      replacement = makeFakeYtPlayer({
+        __state: 1,
+        __videoId: VIDEO_ID,
+        __currentTime: 80,
+        __muted: true,
+        __volume: 61,
+      });
+      if (owner === 'video') {
+        replacement = harness.guestPlayer;
+        replacement.__videoId = 'OTHER_VIDEO';
+        replacement.__muted = true;
+        replacement.__volume = 61;
+        replacement.__log.length = 0;
+      }
+      if (operation === 'reset') harness.guest.reset();
+      if (operation === 'cancel') harness.guest.cancel('authority-changed', false);
+      if (operation === 'abort') {
+        const prepare = harness.hostOutbound.find(
+          (message) => message.type === 'youtube-zero-start-prepare',
+        );
+        if (!prepare || prepare.type !== 'youtube-zero-start-prepare')
+          throw new Error('Missing PREPARE');
+        harness.guest.handleAbort(HOST_ID, {
+          type: 'youtube-zero-start-abort',
+          version: 1,
+          runId: prepare.runId,
+          sequence: prepare.sequence,
+          queueItemId: QUEUE_ITEM_ID,
+          reason: 'cancelled',
+        });
+      }
+      vi.advanceTimersByTime(300);
+      expect(replacement.__log).toEqual([]);
+      expect(replacement.isMuted()).toBe(true);
+      expect(replacement.getVolume()).toBe(61);
+      expect(harness.guest.getSnapshot().phase).toBe('idle');
+    },
+  );
+
+  it('retires detached cleanup retries when a prepared iframe changes video after cancellation', () => {
+    const harness = makeHarness({ guestMuted: false, guestVolume: 37 });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620);
+    expect(harness.guest.getSnapshot().phase).toBe('scheduled');
+    harness.guestPlayer.__muted = true;
+    harness.guestPlayer.unMute = () => undefined;
+    harness.guest.cancel('cancelled', false);
+    harness.guestPlayer.__videoId = 'OTHER_VIDEO';
+    harness.guestPlayer.__volume = 61;
+    harness.guestPlayer.__log.length = 0;
+    vi.advanceTimersByTime(300);
+    expect(harness.guestPlayer.__log).toEqual([]);
+    expect(harness.guestPlayer.getVolume()).toBe(61);
+  });
+
+  it('restores the original hard-muted iframe when cancellation precedes the target load', () => {
+    const harness = makeHarness({ guestMuted: false, guestVolume: 37 });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    expect(harness.guest.getSnapshot().phase).toBe('muting');
+    expect(harness.guestPlayer.isMuted()).toBe(true);
+    expect(harness.guestPlayer.__log.some((call) => call.op === 'loadVideoById')).toBe(false);
+    harness.guestPlayer.__log.length = 0;
+    harness.guest.cancel('cancelled', false);
+    expect(harness.guestPlayer.__log.map((call) => call.op)).toEqual([
+      'pauseVideo',
+      'setVolume',
+      'unMute',
+    ]);
+    expect(harness.guestPlayer.isMuted()).toBe(false);
+    expect(harness.guestPlayer.getVolume()).toBe(37);
+    expect(harness.guest.getSnapshot().phase).toBe('idle');
+  });
+
   it('transfers hard-mute ownership during teardown without a detached unmute', () => {
     const harness = makeHarness({ hostVolume: 64 });
     expect(harness.guest.advertiseCapability()).toBe(true);
@@ -1984,6 +2098,167 @@ describe('YouTubeZeroStartController', () => {
       timelineLeadMs: 600,
       totalLeadMs: 350,
     });
+  });
+
+  it.each([
+    'same-video-player',
+    'different-video-player',
+    'same-player-video',
+    'release-hook-player',
+    'clock-lost',
+  ] as const)('revalidates a scheduled zero-start release after %s', (change) => {
+    const fallback = vi.fn();
+    let clockCalibrated = true;
+    let replacement: FakeYtPlayer | null = null;
+    const harness = makeHarness({
+      isGuestClockCalibrated: () => clockCalibrated,
+      getGuestPlayer: (preparedPlayer) => replacement ?? preparedPlayer,
+      onGuestFallbackRequired: fallback,
+      onGuestPhaseChange: (snapshot) => {
+        if (change === 'release-hook-player' && snapshot.phase === 'starting') {
+          replacement = makeFakeYtPlayer({ __state: 2, __videoId: VIDEO_ID, __currentTime: 80 });
+        }
+      },
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620);
+    expect(harness.guest.getSnapshot().phase).toBe('scheduled');
+    const commit = harness.hostOutbound.find(
+      (message) => message.type === 'youtube-zero-start-commit',
+    );
+    if (!commit || commit.type !== 'youtube-zero-start-commit') throw new Error('Missing COMMIT');
+    if (change === 'clock-lost') clockCalibrated = false;
+    else if (change === 'same-player-video') harness.guestPlayer.__videoId = 'OTHER_VIDEO';
+    else if (change !== 'release-hook-player')
+      replacement = makeFakeYtPlayer({
+        __state: 2,
+        __videoId: change === 'same-video-player' ? VIDEO_ID : 'OTHER_VIDEO',
+        __currentTime: 80,
+        __volume: 61,
+      });
+    harness.guestPlayer.__log.length = 0;
+    vi.advanceTimersByTime(commit.startAtHost - Date.now() + 1);
+
+    expect(harness.guestPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+    expect(replacement?.__log ?? []).toEqual([]);
+    expect(fallback).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        handedOffPlayer: harness.guestPlayer,
+        reason: change === 'clock-lost' ? 'clock-uncalibrated' : 'prepare-failed',
+      }),
+    );
+    expect(harness.guest.isInFlight()).toBe(false);
+  });
+
+  it('does not restore audio or report ARMED for an iframe replaced during audio settlement', () => {
+    let replacement: FakeYtPlayer | null = null;
+    const harness = makeHarness({
+      getGuestPlayer: (preparedPlayer) => replacement ?? preparedPlayer,
+      onGuestPhaseChange: (snapshot) => {
+        if (snapshot.phase === 'restoring-audio') {
+          replacement = makeFakeYtPlayer({ __state: 2, __videoId: VIDEO_ID, __volume: 61 });
+        }
+      },
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620);
+    expect(replacement).not.toBeNull();
+    expect((replacement as FakeYtPlayer | null)?.__log).toEqual([]);
+    expect(
+      harness.guestOutbound.filter((message) => message.type === 'youtube-zero-start-armed'),
+    ).toEqual([]);
+    expect(harness.guest.getSnapshot().phase).toBe('error');
+  });
+
+  it('does not restore audio after the prepared iframe changes video during audio settlement', () => {
+    const harness = makeHarness({
+      onGuestPhaseChange: (snapshot) => {
+        if (snapshot.phase === 'restoring-audio') {
+          harness.guestPlayer.__videoId = 'OTHER_VIDEO';
+          harness.guestPlayer.__log.length = 0;
+        }
+      },
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620);
+    expect(harness.guestPlayer.__log).toEqual([]);
+    expect(
+      harness.guestOutbound.filter((message) => message.type === 'youtube-zero-start-armed'),
+    ).toEqual([]);
+    expect(harness.guest.getSnapshot().phase).toBe('error');
+  });
+
+  it('does not accept a replacement iframe PLAYING callback as the prepared release acknowledgement', () => {
+    const fallback = vi.fn();
+    let replacement: FakeYtPlayer | null = null;
+    const harness = makeHarness({
+      guestMuted: false,
+      getGuestPlayer: (preparedPlayer) => replacement ?? preparedPlayer,
+      onGuestFallbackRequired: fallback,
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(620);
+    harness.guestPlayer.__onStateChange = undefined;
+    vi.advanceTimersByTime(700);
+    expect(harness.guest.getSnapshot().phase).toBe('starting');
+    replacement = makeFakeYtPlayer({
+      __state: 1,
+      __videoId: VIDEO_ID,
+      __currentTime: 80,
+      __muted: true,
+    });
+    harness.guest.handlePlayerStateChange(1);
+    expect(replacement.__log).toEqual([]);
+    expect(harness.guest.getSnapshot().phase).toBe('error');
+    expect(fallback).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ reason: 'prepare-failed' }),
+    );
+  });
+
+  it('does not reposition the retired iframe during an excluded-cohort fallback', () => {
+    const fallback = vi.fn();
+    let replacement: FakeYtPlayer | null = null;
+    const harness = makeHarness({
+      guestArmedDelayMs: 1_800,
+      getGuestPlayer: (preparedPlayer) => replacement ?? preparedPlayer,
+      onGuestFallbackRequired: fallback,
+    });
+    harness.guest.advertiseCapability();
+    harness.host.beginHostTransition({
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+    });
+    vi.advanceTimersByTime(2_300);
+    expect(harness.guest.getSnapshot()).toMatchObject({ phase: 'scheduled', fallback: true });
+    replacement = makeFakeYtPlayer({ __state: 2, __videoId: VIDEO_ID, __currentTime: 80 });
+    harness.guestPlayer.__log.length = 0;
+    vi.advanceTimersByTime(180);
+    expect(harness.guestPlayer.__log).toEqual([]);
+    expect(replacement.__log).toEqual([]);
+    expect(fallback).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ reason: 'prepare-failed' }),
+    );
   });
 
   it.each([

@@ -1273,7 +1273,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     return;
   }
   const { sessionId: sid, queueItemId: incomingQueueItemId } = incomingIdentity;
-  recordGuestFileDelivery(incomingQueueItemId, sid, 'direct-local');
   const incomingName = data.name as string;
   const incomingIndexHint = getState('playlist.items').findIndex(
     (item) => item.queueItemId === incomingQueueItemId,
@@ -1282,6 +1281,25 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     log.warn('[Preload] Start targets an unknown queue item. Ignoring.');
     return;
   }
+  const existingSession = getState('preload.sessionState').get(sid);
+  if (existingSession) {
+    if (
+      existingSession.queueItemId !== incomingQueueItemId ||
+      existingSession.name !== incomingName ||
+      existingSession.size !== data.size ||
+      existingSession.total !== data.total ||
+      existingSession.mime !== ((data.mime as string) || '')
+    ) {
+      log.warn('[Preload] Start conflicts with an admitted transfer session. Ignoring.');
+      return;
+    }
+    // A late peer bootstrap can overlap the room's background sender. Both
+    // announce the same exact transfer; restarting RAM storage would discard
+    // its received prefix (or an already finalized resident) and rewind UI.
+    // A previously skipped attempt may still accept a real explicit retry.
+    if (!existingSession.skipped) return;
+  }
+  recordGuestFileDelivery(incomingQueueItemId, sid, 'direct-local');
   const earlyQueueItemId = preloadQueueItemBySid.get(sid);
   if (earlyQueueItemId && earlyQueueItemId !== incomingQueueItemId) {
     preloadReorderBuffer.delete(sid);
@@ -1604,6 +1622,11 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
 
   // If session state is marked skipped/finalized, ignore
   if (session?.skipped || session?.finalized) return;
+
+  // Overlapping bootstrap/broadcast lanes may repeat an already-stored
+  // prefix. It cannot advance the drain pointer and must not accumulate a
+  // second encoded copy in the reorder buffer until transfer completion.
+  if (session && (data.chunkIndex as number) < session.nextExpectedChunk) return;
 
   // Bounds check: drop chunks beyond the advertised total.
   if (session && session.total > 0 && (data.chunkIndex as number) >= session.total) {

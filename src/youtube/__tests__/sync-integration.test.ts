@@ -3507,6 +3507,116 @@ describe('YouTube Sync — Regression Integration', () => {
   // takes priority" (handleYouTubeState). A scheduled play from an earlier
   // command must never fire after a newer command replaced it.
   describe('handleYouTubeState — out-of-order host commands', () => {
+    it.each([0, -1])(
+      'stops a mismatched guest for a real terminal host heartbeat %i',
+      async (state) => {
+        // The broadcaster's manual dedupe timestamp intentionally survives the
+        // guest-sync reset; move beyond prior tests' independent fake timelines.
+        vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
+        installPlayer({ __state: state, __videoId: 'NEXT_VIDEO', __currentTime: 0 });
+        const { broadcastYouTubeSync } = await importSync();
+        const { broadcast } = await import('../../network/peer.ts');
+        broadcastYouTubeSync();
+        const payload = vi
+          .mocked(broadcast)
+          .mock.calls.find(([data]) => data.type === MSG.YOUTUBE_SYNC)?.[0];
+        expect(payload).toMatchObject({ state, videoId: 'NEXT_VIDEO' });
+
+        const guest = installPlayer({ __state: 1, __currentTime: 298, __autoPlayOnLoad: true });
+        setState('network.hostConn', mockHostConn);
+        capturedHandlers[MSG.YOUTUBE_SYNC](payload as Record<string, unknown>, mockHostConn);
+        expect(mutationOps(guest)).toEqual(['stopVideo']);
+      },
+    );
+
+    it.each(
+      [MSG.YOUTUBE_STATE, MSG.YOUTUBE_SYNC].flatMap((type) =>
+        [false, true].map((calibrated) => ({ type, calibrated })),
+      ),
+    )(
+      'keeps a mismatched paused video silent and positioned for $type with calibrated=$calibrated',
+      ({ type, calibrated }) => {
+        const player = installPlayer({ __state: 1, __currentTime: 298, __autoPlayOnLoad: true });
+        setState('network.hostConn', mockHostConn);
+        setState('sync.youtubeLocalOffset', 0.25);
+        vi.mocked(isClockCalibrated).mockReturnValue(calibrated);
+        try {
+          capturedHandlers[type](
+            {
+              state: 2,
+              time: 12,
+              hostPlayAt: Date.now() + 1000,
+              subIndex: 2,
+              videoId: 'NEW_VIDEO',
+            },
+            mockHostConn,
+          );
+          vi.advanceTimersByTime(2_000);
+
+          expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+          expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+          expect(player.getVideoData().video_id).toBe('NEW_VIDEO');
+          expect(player.getCurrentTime()).toBe(12.25);
+          expect([2, 5]).toContain(player.getPlayerState());
+          expect(getState('youtube.currentSubIndex')).toBe(2);
+          expect(getManagedTimer('yt-clock-action')).toBeNull();
+        } finally {
+          vi.mocked(isClockCalibrated).mockReturnValue(true);
+        }
+      },
+    );
+
+    it.each([0, -1])(
+      'stops without loading a mismatched video for terminal host state %i',
+      (state) => {
+        const player = installPlayer({ __state: 1, __currentTime: 298, __autoPlayOnLoad: true });
+        setState('network.hostConn', mockHostConn);
+        capturedHandlers[MSG.YOUTUBE_STATE](
+          { state, time: 0, hostPlayAt: Date.now() + 1_000, videoId: 'NEW_VIDEO' },
+          mockHostConn,
+        );
+        vi.advanceTimersByTime(2_000);
+        expect(mutationOps(player)).toEqual(['stopVideo']);
+        expect(getManagedTimer('yt-clock-action')).toBeNull();
+      },
+    );
+
+    it.each([0, 200, 1_000])(
+      'repositions duplicate inner playlist videos when the next occurrence has a %i-ms countdown',
+      (wait) => {
+        const player = installPlayer({ __state: 0, __currentTime: 300 });
+        setState('network.hostConn', mockHostConn);
+        setState('playlist.items', [
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            type: 'youtube',
+            name: 'Repeated inner videos',
+            videoId: null,
+            playlistId: 'duplicate-playlist',
+          },
+        ]);
+        setState('youtube.currentSubIndex', 0);
+        setState('youtube.subItemsMap', {
+          'duplicate-playlist': { ids: ['FAKE_VIDEO', 'FAKE_VIDEO'], titles: ['A', 'A'] },
+        });
+        capturedHandlers[MSG.YOUTUBE_STATE](
+          {
+            state: 1,
+            time: 0,
+            hostPlayAt: wait ? Date.now() + wait : 0,
+            subIndex: 1,
+            videoId: 'FAKE_VIDEO',
+          },
+          mockHostConn,
+        );
+        vi.advanceTimersByTime(wait + 150);
+        expect(getState('youtube.currentSubIndex')).toBe(1);
+        expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+        expect(player.getCurrentTime()).toBeCloseTo(wait === 200 ? 0.2 : 0, 5);
+        expect(player.getPlayerState()).toBe(1);
+      },
+    );
+
     it('a PAUSE arriving during a scheduled-play countdown cancels the pending play entirely', async () => {
       const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];

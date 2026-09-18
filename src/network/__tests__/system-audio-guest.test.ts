@@ -641,6 +641,65 @@ describe('system audio guest receive watchdog', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
+  it.each(['force-stop', 'channel-close'] as const)(
+    'ignores an audio-init completion and a late stream after %s',
+    async (retirement) => {
+      let resolveInit!: () => void;
+      vi.mocked(initAudio).mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveInit = resolve)),
+      );
+      const source = stubAudioSource();
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const incoming = createMediaConnection();
+      bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+      incoming.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      expect(initAudio).toHaveBeenCalledOnce();
+
+      if (retirement === 'force-stop') bus.emit('system-audio:force-stop');
+      else incoming.emit('close');
+      resolveInit();
+      incoming.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+
+      expect(source.connect).not.toHaveBeenCalled();
+      expect(initAudio).toHaveBeenCalledOnce();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+      expect(timerMocks.timers.has(watchdogName)).toBe(false);
+    },
+  );
+
+  it('keeps successor file playback when a force-stopped audio init completes late', async () => {
+    let resolveInit!: () => void;
+    vi.mocked(initAudio).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (resolveInit = resolve)),
+    );
+    const source = stubAudioSource();
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const incoming = createMediaConnection();
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+    expect(initAudio).toHaveBeenCalledOnce();
+
+    bus.emit('system-audio:force-stop');
+    const successorMeta: TrackMeta = { type: 'file', name: 'successor-file' };
+    claimPlaybackOwner('file', { currentTrackMeta: successorMeta });
+    setPlaybackFilePlaying();
+    resolveInit();
+    incoming.emit('close');
+    incoming.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(source.connect).not.toHaveBeenCalled();
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+    expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+    expect(getState('playback.activity')).toBe('playing');
+  });
+
   it('publishes a replacement identity before a synchronous stale close callback', async () => {
     const source = { connect: vi.fn(), disconnect: vi.fn() };
     vi.mocked(getAudioContext).mockReturnValue({

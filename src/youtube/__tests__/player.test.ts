@@ -110,7 +110,9 @@ vi.mock('../oembed.ts', () => ({
 vi.mock('../sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
   cancelGuestRendezvous: vi.fn(),
+  invalidateGuestYouTubeTimeline: vi.fn(),
   guestRendezvousSync: vi.fn(() => ({ status: 'not-ready' })),
+  isGuestYouTubeTransitionPending: vi.fn(() => false),
   resetAdDetection: vi.fn(),
   initYouTubeSync: vi.fn(),
   resetYouTubeSyncState: vi.fn(),
@@ -546,6 +548,47 @@ describe('YouTube Player', () => {
   });
 
   describe('synchronized pause ownership', () => {
+    it('does not publish the outgoing seek after an iframe callback starts a newer timeline', async () => {
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const { setManagedTimer } = await import('../../core/timers.ts');
+      const player = makeFakeYtPlayer({ __videoId: 'M7lc1UVf-VE', __state: 1 });
+      setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      setPlaybackYouTubePlaying();
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      vi.spyOn(player, 'seekTo').mockImplementationOnce(() => scheduleYtAutoSync(0));
+
+      scheduleYtAutoSync(299);
+
+      const states = vi
+        .mocked(broadcast)
+        .mock.calls.map(([message]) => message)
+        .filter((message) => message.type === MSG.YOUTUBE_STATE);
+      expect(states).toEqual([expect.objectContaining({ time: 0 })]);
+      expect(
+        vi.mocked(setManagedTimer).mock.calls.filter(([name]) => name === 'yt-auto-sync'),
+      ).toHaveLength(1);
+    });
+
+    it('makes an already queued precision callback inert after a newer seek cancels it', async () => {
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const { broadcastYouTubeSync } = await import('../sync.ts');
+      const { setManagedTimer } = await import('../../core/timers.ts');
+      const player = makeFakeYtPlayer({ __videoId: 'M7lc1UVf-VE', __state: 1 });
+      setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      setPlaybackYouTubePlaying();
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      scheduleYtAutoSync(299);
+      const oldCallback = vi
+        .mocked(setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-auto-sync')![1] as () => void;
+      scheduleYtAutoSync(0);
+      oldCallback();
+      expect(broadcastYouTubeSync).not.toHaveBeenCalled();
+    });
+
     it('keeps Standard-host room controls fail-closed while a local edit is unverified', async () => {
       const syncMod = await import('../standard-host-manual-offset-gate.ts');
       const stateMod = await import('../_state.ts');
@@ -1506,6 +1549,64 @@ describe('YouTube Player', () => {
   });
 
   describe('Repeat-one ended handling', () => {
+    it('retires legacy guest sync before repositioning the same resident video for a new run', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer, markYtPlayerReady, setYtLoadInProgress, setYtPrimed } =
+        await import('../_state.ts');
+      const { invalidateGuestYouTubeTimeline } = await import('../sync.ts');
+      const zeroStart = await import('../zero-start.ts');
+      const hostConnection = dataConnection('repeat-host');
+      const videoId = 'M7lc1UVf-VE';
+      const player = makeFakeYtPlayer({
+        __videoId: videoId,
+        __state: 2,
+        __autoPlayOnLoad: true,
+      });
+      setState('network.appRole', 'guest');
+      setState('network.myId', 'repeat-guest');
+      setState('network.hostConn', hostConnection);
+      setState('playlist.items', [
+        { queueItemId: QUEUE_ITEM_ID, type: 'youtube', videoId, playlistId: null, name: 'Repeat' },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setPlaybackYouTubePlaying();
+      setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      markYtPlayerReady(player as unknown as YouTubePlayerInstance);
+      setYtLoadInProgress(false);
+      setYtPrimed(true);
+      initYouTube();
+      player.__onStateChange = ({ data }) => zeroStart.handleYouTubeZeroStartPlayerState(data);
+      vi.mocked(invalidateGuestYouTubeTimeline).mockClear();
+      const seek = vi.spyOn(player, 'seekTo');
+      const now = Date.now();
+      try {
+        expect(
+          zeroStart.handleYouTubeZeroStartPrepare(hostConnection.peer, {
+            type: MSG.YOUTUBE_ZERO_START_PREPARE,
+            version: 1,
+            runId: 'same-video-repeat-boundary',
+            sequence: 1,
+            queueItemId: QUEUE_ITEM_ID,
+            videoId,
+            subIndex: null,
+            prepareAtHost: now,
+            decisionAtHost: now + 2_300,
+            startDeadlineAtHost: now + 3_000,
+            hostPlatform: 'other',
+          }),
+        ).toBe(true);
+        expect(invalidateGuestYouTubeTimeline).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(620);
+        expect(seek).toHaveBeenCalled();
+        expect(vi.mocked(invalidateGuestYouTubeTimeline).mock.invocationCallOrder[0]).toBeLessThan(
+          seek.mock.invocationCallOrder[0]!,
+        );
+      } finally {
+        zeroStart.cancelYouTubeZeroStart('cancelled', false);
+        setYouTubePlayer(null);
+      }
+    });
+
     it('routes host YouTube repeat-one through the synchronized auto-play path', async () => {
       const { loadYouTubeVideo } = await import('../player.ts');
       const { setYouTubePlayer } = await import('../_state.ts');

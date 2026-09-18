@@ -126,6 +126,8 @@ vi.mock('../oembed.ts', () => ({
 vi.mock('../sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
   guestRendezvousSync: vi.fn(() => ({ status: 'not-ready' })),
+  isGuestYouTubeTransitionPending: vi.fn(() => false),
+  invalidateGuestYouTubeTimeline: vi.fn(),
   resetAdDetection: vi.fn(),
   initYouTubeSync: vi.fn(),
   resetYouTubeSyncState: vi.fn(),
@@ -133,6 +135,7 @@ vi.mock('../sync.ts', () => ({
 }));
 
 vi.mock('../standard-host-manual-offset-gate.ts', () => ({
+  afterStandardHostManualOffsetTransaction: vi.fn(() => true),
   cancelStandardHostManualOffsetTransaction: vi.fn(() => false),
   isStandardHostManualOffsetTransactionPending: vi.fn(() => false),
   resetStandardHostManualOffsetTransaction: vi.fn(),
@@ -1013,6 +1016,307 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
       expect.any(Function),
       expect.any(Number),
     );
+  });
+
+  it.each([
+    'playing',
+    'paused',
+    'buffering',
+    'queue',
+    'subindex',
+    'session',
+    'player',
+    'host',
+    'file',
+  ] as const)(
+    'a guest-ended timeout cannot retire playback after %s supersedes the ended occurrence',
+    async (change) => {
+      const player = createMockYtPlayer();
+      vi.mocked(player.getPlayerState).mockReturnValue(0);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'A',
+          videoId: 'vidA000000A',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      const handle = await createPlayerInYouTubeMode(player);
+      setState('network.hostConn', { peer: 'host-a', open: true } as DataConnection);
+      handle.fireStateChange(0);
+      const ended = lastTimerCallback('yt-guest-ended-fallback');
+      expect(ended).toBeDefined();
+      const stop = vi.fn();
+      bus.on('youtube:stop-mode', stop);
+      const stateMod = await import('../_state.ts');
+      if (change === 'playing') vi.mocked(player.getPlayerState).mockReturnValue(1);
+      if (change === 'paused') vi.mocked(player.getPlayerState).mockReturnValue(2);
+      if (change === 'buffering') vi.mocked(player.getPlayerState).mockReturnValue(3);
+      if (change === 'queue') setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+      if (change === 'subindex') setState('youtube.currentSubIndex', 1);
+      if (change === 'session') stateMod.incrementSessionId();
+      if (change === 'player') stateMod.setYouTubePlayer(createMockYtPlayer());
+      if (change === 'host')
+        setState('network.hostConn', { peer: 'host-b', open: true } as DataConnection);
+      if (change === 'file') setPlaybackFilePlaying();
+      const { clearManagedTimer } = await import('../../core/timers.ts');
+      vi.mocked(clearManagedTimer).mockClear();
+      ended?.();
+      expect(stop).not.toHaveBeenCalled();
+      expect(getState('playback.mode')).toBe(change === 'file' ? 'file' : 'youtube');
+      expect(clearManagedTimer).not.toHaveBeenCalledWith('youtubeUILoop');
+    },
+  );
+
+  it('an ENDED callback for a superseded video cannot arm the guest fallback', async () => {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState).mockReturnValue(0);
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    const handle = await createPlayerInYouTubeMode(player);
+    setState('network.hostConn', { peer: 'host-a', open: true } as DataConnection);
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'B',
+        videoId: 'vidB000000B',
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    handle.fireStateChange(0);
+    expect(lastTimerCallback('yt-guest-ended-fallback')).toBeUndefined();
+  });
+
+  it('only the current guest-ended timeout can retire an occurrence that is still ended', async () => {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState).mockReturnValue(0);
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'A',
+        videoId: 'vidA000000A',
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    const handle = await createPlayerInYouTubeMode(player);
+    setState('network.hostConn', { peer: 'host-a', open: true } as DataConnection);
+    handle.fireStateChange(0);
+    const oldEnd = lastTimerCallback('yt-guest-ended-fallback');
+    const { cancelGuestEndedFallbackFromSync } = await import('../iframe-runtime-bridge.ts');
+    cancelGuestEndedFallbackFromSync();
+    const stop = vi.fn();
+    bus.on('youtube:stop-mode', stop);
+    // A repeated occurrence can end on the same player/video before an old
+    // cancelled browser task has been drained.
+    handle.fireStateChange(0);
+    const currentEnd = lastTimerCallback('yt-guest-ended-fallback');
+    expect(currentEnd).not.toBe(oldEnd);
+    oldEnd?.();
+    expect(stop).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBe('youtube');
+    currentEnd?.();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(getState('playback.mode')).toBeNull();
+    currentEnd?.();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it.each(['before-ended', 'before-timeout'] as const)(
+    'a guest rendezvous owns a transient ENDED %s',
+    async (when) => {
+      const player = createMockYtPlayer();
+      vi.mocked(player.getPlayerState).mockReturnValue(0);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'A',
+          videoId: 'vidA000000A',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      const handle = await createPlayerInYouTubeMode(player);
+      setState('network.hostConn', { peer: 'host-a', open: true } as DataConnection);
+      const sync = await import('../sync.ts');
+      const pending = vi.mocked(sync.isGuestYouTubeTransitionPending);
+      const stop = vi.fn();
+      bus.on('youtube:stop-mode', stop);
+      try {
+        pending.mockReturnValue(when === 'before-ended');
+        handle.fireStateChange(0);
+        const ended = lastTimerCallback('yt-guest-ended-fallback');
+        if (when === 'before-ended') expect(ended).toBeUndefined();
+        else {
+          expect(ended).toBeTypeOf('function');
+          pending.mockReturnValue(true);
+          ended?.();
+        }
+        expect(stop).not.toHaveBeenCalled();
+        expect(getState('playback.mode')).toBe('youtube');
+      } finally {
+        pending.mockReturnValue(false);
+      }
+    },
+  );
+
+  it.each(['standard', 'pro'] as const)(
+    'does not advance %s playback for an old ENDED notification after live playback resumed',
+    async (kind) => {
+      const player = createMockYtPlayer();
+      vi.mocked(player.getPlayerState).mockReturnValue(1);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'A',
+          videoId: 'vidA000000A',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      const handle = await createPlayerInYouTubeMode(player);
+      if (kind === 'pro')
+        setState('room.context', { ...getState('room.context'), kind: 'pro', roomId: '000001' });
+      const authority = await import('../../pro-room/playback-authority-hooks.ts');
+      const proCommand = vi.fn(async () => {});
+      const unregister = authority.registerProPlaybackCommandHandler(proCommand);
+      const next = vi.fn();
+      const repeat = vi.fn();
+      bus.on('playlist:next-track', next);
+      bus.on('youtube:auto-play', repeat);
+      setState('playlist.repeatMode', 2);
+      try {
+        handle.fireStateChange(0);
+        expect(next).not.toHaveBeenCalled();
+        expect(repeat).not.toHaveBeenCalled();
+        expect(proCommand).not.toHaveBeenCalled();
+        expect(lastTimerCallback('yt-guest-ended-fallback')).toBeUndefined();
+      } finally {
+        unregister();
+      }
+    },
+  );
+
+  it.each(['stop', 'repeat-disabled', 'session', 'guest', 'pro'] as const)(
+    'does not release a deferred host repeat after %s supersedes its end',
+    async (change) => {
+      const player = createMockYtPlayer();
+      vi.mocked(player.getPlayerState).mockReturnValue(0);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'A',
+          videoId: 'vidA000000A',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('playlist.repeatMode', 2);
+      const handle = await createPlayerInYouTubeMode(player);
+      const gate = await import('../standard-host-manual-offset-gate.ts');
+      vi.mocked(gate.isStandardHostManualOffsetTransactionPending).mockReturnValue(true);
+      const autoPlay = vi.fn();
+      bus.on('youtube:auto-play', autoPlay);
+      handle.fireStateChange(0);
+      const settled = vi
+        .mocked(gate.afterStandardHostManualOffsetTransaction)
+        .mock.calls.at(-1)?.[0];
+      expect(settled).toBeTypeOf('function');
+      if (change === 'stop') (await import('../../player/ownership.ts')).setPlaybackIdle();
+      if (change === 'repeat-disabled') setState('playlist.repeatMode', 0);
+      if (change === 'session') (await import('../_state.ts')).incrementSessionId();
+      if (change === 'guest')
+        setState('network.hostConn', { peer: 'host-a', open: true } as DataConnection);
+      if (change === 'pro')
+        setState('room.context', { ...getState('room.context'), kind: 'pro', roomId: '000001' });
+      vi.mocked(gate.isStandardHostManualOffsetTransactionPending).mockReturnValue(false);
+      settled?.();
+      expect(autoPlay).not.toHaveBeenCalled();
+    },
+  );
+
+  it('consumes one physical repeat-one end once until a live non-ended state proves a new episode', async () => {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState).mockReturnValue(0);
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'A',
+        videoId: 'vidA000000A',
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('playlist.repeatMode', 2);
+    const handle = await createPlayerInYouTubeMode(player);
+    const repeat = vi.fn();
+    bus.on('youtube:auto-play', repeat);
+    handle.fireStateChange(0);
+    handle.fireStateChange(0);
+    // A delayed PAUSED notification is not proof that the live iframe left
+    // ENDED while the first restart is still awaiting its pause boundary.
+    handle.fireStateChange(2);
+    handle.fireStateChange(0);
+    expect(repeat).toHaveBeenCalledOnce();
+    vi.mocked(player.getPlayerState).mockReturnValue(2);
+    handle.fireStateChange(2);
+    vi.mocked(player.getPlayerState).mockReturnValue(0);
+    handle.fireStateChange(0);
+    expect(repeat).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds unreadable repeat metadata and never resurrects its expired end', async () => {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState).mockReturnValue(0);
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'A',
+        videoId: 'vidA000000A',
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('playlist.repeatMode', 2);
+    const handle = await createPlayerInYouTubeMode(player);
+    const gate = await import('../standard-host-manual-offset-gate.ts');
+    vi.mocked(gate.isStandardHostManualOffsetTransactionPending).mockReturnValue(true);
+    handle.fireStateChange(0);
+    const settled = vi.mocked(gate.afterStandardHostManualOffsetTransaction).mock.calls.at(-1)?.[0];
+    expect(settled).toBeTypeOf('function');
+    vi.mocked(gate.isStandardHostManualOffsetTransactionPending).mockReturnValue(false);
+    vi.mocked(player.getVideoData).mockReturnValue({});
+    let now = 10_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const repeat = vi.fn();
+    bus.on('youtube:auto-play', repeat);
+    settled?.();
+    const poll = lastTimerCallback('yt-standard-host-manual-repeat-one');
+    expect(poll).toBeTypeOf('function');
+    const armed = timerArmCount('yt-standard-host-manual-repeat-one');
+    now += 2_000;
+    poll?.();
+    expect(timerArmCount('yt-standard-host-manual-repeat-one')).toBe(armed);
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    poll?.();
+    settled?.();
+    expect(repeat).not.toHaveBeenCalled();
   });
 
   it('a late unavailable error outside YouTube mode (retained player) must not toast or advance', async () => {

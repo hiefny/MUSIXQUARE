@@ -2,6 +2,7 @@ type YouTubeIframeRuntimeHooks = {
   expectMetadataVideoId(videoId: string | null): void;
   hideTapToPlayGate(): void;
   invalidateDurationCache(): void;
+  cancelGuestEndedFallback(): void;
 };
 
 let runtimeHooks: YouTubeIframeRuntimeHooks | null = null;
@@ -24,4 +25,9 @@ export function expectYouTubeMetadataVideoIdFromSync(videoId: string | null): vo
 
 export function invalidateYtDurationCacheFromSync(): void {
   runtimeHooks?.invalidateDurationCache();
+}
+
+/** Host frames retire the exact ENDED timeout, including an already queued callback. */
+export function cancelGuestEndedFallbackFromSync(): void {
+  runtimeHooks?.cancelGuestEndedFallback();
 }

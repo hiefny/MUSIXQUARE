@@ -314,6 +314,7 @@ import {
 
 import {
   loadYouTubeVideo,
+  prepareYouTubeZeroStartSelection,
   refreshYouTubeDisplay,
   markYtStateBroadcast,
   clearSnapshotRetries,
@@ -1857,6 +1858,20 @@ export function initYouTube(): void {
             : undefined;
           if (title) updatePlaybackTrackTitle(title, item);
         }
+      }
+
+      // A legacy PREPARE may be the only descriptor for a newer sub-video.
+      // Preserve an exact pending target, or supersede it through the loader.
+      const replacementPlayer = getYouTubePlayer();
+      if (getYouTubeZeroStartRole() === 'guest' && replacementPlayer) {
+        const replacementRequest = {
+          videoId,
+          subIndex: subIndex ?? 0,
+          autoplay: true,
+          queueItemId: queueItemId as QueueItemId,
+          sessionId: getCurrentSessionId(),
+        };
+        if (!prepareYouTubeZeroStartSelection(replacementPlayer, replacementRequest)) return false;
       }
 
       // A zero-start run is a timeline boundary, not necessarily a media

@@ -69,8 +69,11 @@ async function openReadyApp(page: Page): Promise<void> {
   });
 }
 
-async function mountChatCopyHarness(page: Page): Promise<StabilitySnapshot> {
-  return page.evaluate(() => {
+async function mountChatCopyHarness(
+  page: Page,
+  withNestedActions = false,
+): Promise<StabilitySnapshot> {
+  return page.evaluate((withNestedActions) => {
     const root = window as typeof window & {
       __chatCopyClipboardCalls?: ClipboardCall[];
       __chatCopyObservation?: InteractionObservation;
@@ -111,14 +114,29 @@ async function mountChatCopyHarness(page: Page): Promise<StabilitySnapshot> {
     bubble.dataset.chatCopyText = 'first line\nsecond line';
     bubble.tabIndex = 0;
     bubble.setAttribute('role', 'group');
-    bubble.style.cssText = 'display:block;margin-top:12px;padding:20px;touch-action:manipulation';
-    bubble.innerHTML = `
-      <span id="chat-copy-body" class="chat-text">tap this message</span>
-      <button id="chat-copy-youtube" type="button" class="chat-youtube-btn"
-              data-youtube-url="">YouTube</button>
-      <span id="chat-copy-timestamp" class="chat-timestamp" role="button"
-            tabindex="0" data-seek="15">0:15</span>
-    `;
+    if (withNestedActions) {
+      // Retain the existing isolated nested-action fixture and assertions.
+      bubble.style.cssText = 'display:block;margin-top:12px;padding:20px;touch-action:manipulation';
+      bubble.innerHTML = `
+        <span id="chat-copy-body" class="chat-text">tap this message</span>
+        <button id="chat-copy-youtube" type="button" class="chat-youtube-btn"
+                data-youtube-url="">YouTube</button>
+        <span id="chat-copy-timestamp" class="chat-timestamp" role="button"
+              tabindex="0" data-seek="15">0:15</span>
+      `;
+    } else {
+      // Match the renderer's plain-message block and natural bubble padding.
+      // A sibling native button in the old positive fixture allowed Chromium
+      // to adjust an intended text tap onto the unrelated action.
+      bubble.classList.add('others');
+      bubble.style.cssText = 'margin-top:12px;touch-action:manipulation';
+      const content = document.createElement('div');
+      content.id = 'chat-copy-body';
+      content.className = 'chat-text';
+      content.dir = 'auto';
+      content.textContent = bubble.dataset.chatCopyText;
+      bubble.appendChild(content);
+    }
     fixture.appendChild(bubble);
     document.body.appendChild(fixture);
 
@@ -187,7 +205,7 @@ async function mountChatCopyHarness(page: Page): Promise<StabilitySnapshot> {
           }
         : null,
     };
-  });
+  }, withNestedActions);
 }
 
 async function readObservation(page: Page): Promise<InteractionObservation> {
@@ -273,7 +291,7 @@ test('nested YouTube and timestamp taps remain actions and never copy the bubble
 }) => {
   await installClipboardMock(page);
   await openReadyApp(page);
-  await mountChatCopyHarness(page);
+  await mountChatCopyHarness(page, true);
 
   await page.locator('#chat-copy-youtube').tap();
   let observation = await readObservation(page);

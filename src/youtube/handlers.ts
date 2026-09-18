@@ -15,7 +15,6 @@ import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
 import { adoptResidentYouTubeOccurrence, loadYouTubeVideo } from './iframe.ts';
 import { toCanonicalYouTubeTime } from './local-offset.ts';
-import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { isStandardHostManualOffsetTransactionPending } from './standard-host-manual-offset-gate.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
@@ -23,7 +22,6 @@ import {
   getPlaybackSelectionTrackMeta,
   isPlaybackModeYouTube,
   setPlaybackTrackMeta,
-  updatePlaybackTrackDetails,
 } from '../player/ownership.ts';
 import {
   getCurrentQueueItemId,
@@ -299,47 +297,17 @@ export function handleRequestYouTubeSubSeek(
 
   const subIdx = data.subIdx as number;
   const queueItemId = data.queueItemId as QueueItemId;
-  const currentQueueItemId = getCurrentQueueItemId();
+  const item = getQueueItemById(queueItemId);
+  if (item?.type !== 'youtube' || !Number.isInteger(subIdx) || subIdx < 0) return;
+  const isCurrent = queueItemId === getCurrentQueueItemId();
+  const ids = item.playlistId ? getState('youtube.subItemsMap')?.[item.playlistId]?.ids : null;
+  if (isCurrent && !ids?.[subIdx]) return;
 
-  // If the request targets a different playlist item, switch to it first
-  // (mirrors the local path in youtube/player.ts 'youtube:sub-seek' handler)
-  if (queueItemId !== currentQueueItemId) {
-    if (!getQueueItemById(queueItemId)) return;
-    bus.emit('playlist:play-track', queueItemId, subIdx);
-    return;
-  }
-
-  const player = getYouTubePlayer();
-  if (player?.loadVideoById && typeof subIdx === 'number') {
-    // Single-video mode: resolve videoId from subItemsMap and loadVideoById.
-    // No playVideoAt — keeps the native playlist engine dormant so the
-    // iframe stays on one video at a time.
-    const currentItem = getQueueItemById(currentQueueItemId);
-    const subMap = getState('youtube.subItemsMap') || {};
-    const ids = subMap[currentItem?.playlistId as string]?.ids || [];
-    const targetVideoId = ids[subIdx];
-    if (!targetVideoId) {
-      log.warn(`[YouTube] request-sub-seek: no videoId at subIdx=${subIdx} in subItemsMap`);
-      return;
-    }
-    setYouTubeSubIndex(subIdx);
-    if ((player.getVideoData?.()?.video_id || '') !== targetVideoId) {
-      updatePlaybackTrackDetails({ artist: null });
-    }
-
-    if (tryBeginYouTubeZeroStart(targetVideoId, subIdx)) return;
-    player.loadVideoById(targetVideoId);
-
-    scheduleYtAutoSync(0, {
-      subIndex: subIdx,
-      videoId: targetVideoId,
-      skipSeek: true,
-      // OP sub-seek loads a different video, so use the longer
-      // track-transition rendezvous so guests loadVideoById before synced play,
-      // matching navigateSubVideo and the loadVideoById siblings in player.ts.
-      rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
-    });
-  }
+  // Match local sub-row selection: the canonical load owns retained iframe
+  // handoff, guest descriptors, and the subsequent zero-start/rendezvous.
+  bus.emit('playlist:play-track', queueItemId, subIdx, {
+    navigateToPlay: !isCurrent,
+  });
 }
 
 /**

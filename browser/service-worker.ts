@@ -1110,6 +1110,24 @@ function fetchNavigationWithTimeout(request: Request): Promise<Response> {
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timeoutId: number | undefined;
   let removeRequestAbortListener: () => void = () => undefined;
+  let abandoned = false;
+  let response: Response | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
+  const cancelBody = (): void => {
+    // Cancelling one tee branch can wait for its sibling. Cancel both without
+    // awaiting either promise so cleanup cannot delay the cached fallback.
+    try {
+      if (reader) reader.cancel().catch(() => undefined);
+    } catch (_) {
+      /* cancellation is best effort */
+    }
+    try {
+      if (response?.body) response.body.cancel().catch(() => undefined);
+    } catch (_) {
+      /* cancellation is best effort */
+    }
+  };
 
   if (controller && request.signal) {
     // Avoid AbortSignal.reason here: older WebKit releases support aborting a
@@ -1125,20 +1143,53 @@ function fetchNavigationWithTimeout(request: Request): Promise<Response> {
 
   const timeout = new Promise<never>((_resolve, reject) => {
     timeoutId = setTimeout(() => {
+      abandoned = true;
       try {
         controller?.abort();
       } catch (_) {
         /* an already-settled fetch needs no further cancellation */
       }
+      cancelBody();
       reject(new Error('NAVIGATION_NETWORK_TIMEOUT'));
     }, NAVIGATION_NETWORK_TIMEOUT_MS);
   });
-  const network = controller ? fetch(request, { signal: controller.signal }) : fetch(request);
-
-  return Promise.race([network, timeout]).finally(() => {
-    clearTimeout(timeoutId);
-    removeRequestAbortListener();
+  const network = (
+    controller ? fetch(request, { signal: controller.signal }) : fetch(request)
+  ).then(async (received) => {
+    response = received;
+    if (abandoned) {
+      cancelBody();
+      throw new Error('NAVIGATION_NETWORK_TIMEOUT');
+    }
+    // fetch resolves at headers. Drain a clone before committing navigation
+    // so an incomplete HTML body still reaches the existing 3s fallback.
+    // Return the original Response to retain its URL, redirect, status and
+    // header semantics. The original tee buffers this small document; the
+    // probe discards chunks instead of allocating a second complete copy.
+    reader = received.clone().body?.getReader();
+    if (reader) {
+      try {
+        while (!(await reader.read()).done) {
+          if (abandoned) throw new Error('NAVIGATION_NETWORK_TIMEOUT');
+        }
+      } finally {
+        reader.releaseLock();
+        reader = undefined;
+      }
+    }
+    return received;
   });
+
+  return Promise.race([network, timeout])
+    .catch((error: unknown) => {
+      abandoned = true;
+      cancelBody();
+      throw error;
+    })
+    .finally(() => {
+      clearTimeout(timeoutId);
+      removeRequestAbortListener();
+    });
 }
 
 async function matchActiveNavigationShell(request: Request): Promise<Response | null> {

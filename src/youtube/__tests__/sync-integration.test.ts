@@ -148,6 +148,7 @@ vi.mock('../iframe.ts', async (importOriginal) => ({
   adoptResidentYouTubeOccurrence: (await importOriginal<typeof import('../iframe.ts')>())
     .adoptResidentYouTubeOccurrence,
   loadYouTubeVideo: vi.fn(),
+  prepareYouTubeZeroStartSelection: vi.fn(() => true),
   refreshYouTubeDisplay: vi.fn(),
   markYtStateBroadcast: vi.fn(),
   invalidateYtDurationCache: vi.fn(),
@@ -3475,6 +3476,7 @@ describe('YouTube Sync — Regression Integration', () => {
       bridge.configureYouTubeIframeRuntimeHooks({
         cancelGuestEndedFallback: vi.fn(),
         expectMetadataVideoId: vi.fn(),
+        prepareMediaReplacement: () => true,
         hideTapToPlayGate,
         invalidateDurationCache: vi.fn(),
       });
@@ -3493,6 +3495,7 @@ describe('YouTube Sync — Regression Integration', () => {
       bridge.configureYouTubeIframeRuntimeHooks({
         cancelGuestEndedFallback: () => undefined,
         expectMetadataVideoId: () => undefined,
+        prepareMediaReplacement: () => true,
         hideTapToPlayGate: () => undefined,
         invalidateDurationCache: () => undefined,
       });

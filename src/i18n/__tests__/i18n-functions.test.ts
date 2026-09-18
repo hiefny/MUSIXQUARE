@@ -1156,6 +1156,56 @@ describe('i18n functions', () => {
       vi.doUnmock('../locale-fonts.ts');
     });
 
+    it.each(['runtime', 'stylesheet'] as const)(
+      'does not wait for a stalled optional font %s during startup or later language selection',
+      async (boundary) => {
+        localStorage.setItem('musixquare-lang', 'ja');
+        document.body.innerHTML = '<button data-i18n="setup.host_button">Previous copy</button>';
+        let release!: () => void;
+        const pendingFont = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const loadLocaleFont = vi.fn(() =>
+          boundary === 'stylesheet' ? pendingFont : Promise.resolve(),
+        );
+        vi.doMock('../locale-fonts.ts', async () => {
+          if (boundary === 'runtime') await pendingFont;
+          return { default: { loadLocaleFont } };
+        });
+        const { initI18n, setLanguageMode } = await import('../index.ts');
+        const { default: ja } = await vi.importActual<typeof import('../ja.ts')>('../ja.ts');
+        const { default: ko } = await vi.importActual<typeof import('../ko.ts')>('../ko.ts');
+        let initialized = false;
+        const initialization = initI18n().then(() => {
+          initialized = true;
+        });
+        try {
+          await vi.waitFor(() => {
+            expect(initialized).toBe(true);
+            expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
+          });
+          setLanguageMode('ko');
+          await vi.waitFor(() =>
+            expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']),
+          );
+          setLanguageMode('ja');
+          await vi.waitFor(() =>
+            expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']),
+          );
+          setLanguageMode('ko');
+          release();
+          await vi.waitFor(() => {
+            expect(loadLocaleFont).toHaveBeenCalled();
+            expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']);
+            expect(document.documentElement.lang).toBe('ko');
+          });
+        } finally {
+          release();
+          await initialization;
+        }
+      },
+    );
+
     it.each(['startup', 'selection'] as const)(
       'still translates the DOM and publishes the locale after a font runtime chunk failure at %s',
       async (boundary) => {

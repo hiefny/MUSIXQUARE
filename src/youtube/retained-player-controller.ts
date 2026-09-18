@@ -58,6 +58,14 @@ export interface RetainedPlayerHandoffRequest extends RetainedPlayerTargetReques
   sameVideoReuse: boolean;
 }
 
+export interface RetainedPlayerSyncHandoffRequest {
+  videoId: string;
+  subIndex: number;
+  autoplay: boolean;
+  queueItemId: QueueItemId | null;
+  sessionId: number;
+}
+
 interface RetainedPlayerParking {
   player: YouTubePlayerInstance;
   generation: number;
@@ -627,6 +635,35 @@ export class RetainedYouTubePlayerController {
     return true;
   }
 
+  /** Legacy host reconciliation may replace only a settled current target. */
+  prepareSyncHandoff(
+    player: YouTubePlayerInstance,
+    request: RetainedPlayerSyncHandoffRequest,
+  ): boolean {
+    const isCurrent = (): boolean =>
+      getYouTubePlayer() === player &&
+      isPlaybackModeYouTube() &&
+      getCurrentQueueItemId() === request.queueItemId &&
+      getCurrentSessionId() === request.sessionId;
+    if (!isCurrent()) return false;
+    const parking = this.parking;
+    if (!parking || parking.player !== player) return true;
+    // A heartbeat cannot steal a canonical load or a silent PRIME boundary.
+    if (parking.phase !== 'active-target') return false;
+    const result = this.armHandoff(player, {
+      videoId: request.videoId,
+      playlistId: null,
+      commandPlaylistId: null,
+      autoplay: request.autoplay,
+      subIndex: request.subIndex,
+      sessionId: request.sessionId,
+      sameVideoReuse: false,
+    });
+    if (result !== 'ready' || !isCurrent()) return false;
+    setYtAutoplayIntent(request.autoplay);
+    return this.markLoadCommand(player, request.videoId, null, request.subIndex, false);
+  }
+
   ensureHardMuted(player: YouTubePlayerInstance): boolean {
     const parking = this.parking;
     if (!parking || parking.player !== player) return true;
@@ -764,6 +801,22 @@ export class RetainedYouTubePlayerController {
       this.parking?.player === player &&
       (this.parking.phase === 'loading-target' || this.parking.phase === 'releasing-target')
     );
+  }
+
+  getPendingTargetMatch(
+    player: YouTubePlayerInstance,
+    request: RetainedPlayerSyncHandoffRequest,
+  ): 'none' | 'matching' | 'different' {
+    const parking = this.parking;
+    if (parking?.player !== player || parking.phase === 'active-target' || !parking.retry) {
+      return 'none';
+    }
+    return parking.sessionId === request.sessionId &&
+      parking.queueItemId === request.queueItemId &&
+      parking.targetVideoId === request.videoId &&
+      parking.targetPlaylistId === null
+      ? 'matching'
+      : 'different';
   }
 
   rebindActiveTargetToVideo(player: YouTubePlayerInstance, videoId: string): void {

@@ -233,7 +233,9 @@ interface YouTubeZeroStartDependencies {
    * Each participant decides locally: a cold or mismatched iframe may replace
    * media while another participant repositions an already-resident target.
    */
-  onPrepareSelection?(input: YouTubeZeroStartBeginInput): YouTubeZeroStartMediaAction | void;
+  onPrepareSelection?(
+    input: YouTubeZeroStartBeginInput,
+  ): YouTubeZeroStartMediaAction | false | void;
   onPhaseChange?(snapshot: YouTubeZeroStartSnapshot): void;
   onBusyChange?(busy: boolean): void;
   onPlaybackStarted?(event: YouTubeZeroStartPlaybackStartedEvent): void;
@@ -526,6 +528,10 @@ class YouTubeZeroStartController {
     }
 
     const mediaAction = this.#deps.onPrepareSelection?.(input) ?? 'replace-media';
+    if (mediaAction === false) {
+      this.cancel('player-unavailable', true);
+      return false;
+    }
     if (!this.#beginLocalPrepare(prepare, undefined, mediaAction)) {
       this.cancel('player-unavailable', true);
       return false;
@@ -552,6 +558,7 @@ class YouTubeZeroStartController {
     // player. Do not issue the old run's asynchronous audio restore between
     // its hard mute and the new PREPARE; player.ts transfers canonical intent
     // into the successor instead.
+    const previousRun = this.#localRun;
     this.#cancelLocalOnly(true, true);
     this.#cancelDetachedAudioRestore();
     this.#lastGuestSequence = message.sequence;
@@ -561,6 +568,10 @@ class YouTubeZeroStartController {
       subIndex: message.subIndex,
     };
     const mediaAction = this.#deps.onPrepareSelection?.(selection) ?? 'replace-media';
+    if (mediaAction === false) {
+      if (previousRun) this.#restoreOriginalAudioBounded(previousRun);
+      return false;
+    }
     if (!this.#isPrepareRuntimeReady()) {
       const run = this.#createFailedRun(message, mediaAction);
       run.phase = 'waiting-ready';

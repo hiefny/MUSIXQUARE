@@ -1,5 +1,12 @@
+import type { YouTubePlayerInstance } from './_state.ts';
+import type { RetainedPlayerSyncHandoffRequest } from './retained-player-controller.ts';
+
 type YouTubeIframeRuntimeHooks = {
   expectMetadataVideoId(videoId: string | null): void;
+  prepareMediaReplacement(
+    player: YouTubePlayerInstance,
+    request: RetainedPlayerSyncHandoffRequest,
+  ): boolean;
   hideTapToPlayGate(): void;
   invalidateDurationCache(): void;
   cancelGuestEndedFallback(): void;
@@ -17,6 +24,14 @@ export function configureYouTubeIframeRuntimeHooks(next: YouTubeIframeRuntimeHoo
 
 export function hideYouTubeTapToPlayGateFromSync(): void {
   runtimeHooks?.hideTapToPlayGate();
+}
+
+export function prepareYouTubeMediaReplacementFromSync(
+  player: YouTubePlayerInstance,
+  request: RetainedPlayerSyncHandoffRequest,
+): boolean {
+  if (runtimeHooks && !runtimeHooks.prepareMediaReplacement(player, request)) return false;
+  return true;
 }
 
 export function expectYouTubeMetadataVideoIdFromSync(videoId: string | null): void {

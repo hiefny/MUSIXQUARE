@@ -1013,6 +1013,9 @@ const PLAYLIST_ITEM_MAX_BYTES = 128 * 1024;
 // 3 MiB persisted-state budget. Keep the endpoint bounded while matching the
 // browser client's JSON ceiling.
 const REQUEST_MAX_BYTES = 4 * 1024 * 1024;
+// Match the facade allowance for a valid 128 KiB public queue body plus its
+// authenticated envelope. Public and persisted playlist limits are separate.
+const DEVELOPER_QUEUE_MUTATION_REQUEST_MAX_BYTES = 192 * 1024;
 const PUBLIC_MUTATION_BODY_TIMEOUT_MS = 10_000;
 const INTERNAL_REQUEST_BODY_TIMEOUT_MS = 2_000;
 const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
@@ -6690,8 +6693,7 @@ export class MusixquareProRoom {
     if (!this.activeRoom.provisioned || this.activeRoom.status !== 'active') {
       return errorResponse('ROOM_NOT_FOUND', 404);
     }
-    // The public 64 KiB batch body is wrapped in an authenticated envelope.
-    const parsed = await this.parseBody(request, 128 * 1024);
+    const parsed = await this.parseBody(request, DEVELOPER_QUEUE_MUTATION_REQUEST_MAX_BYTES);
     if (parsed.response) return parsed.response;
     if (
       !hasExactKeys(

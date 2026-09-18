@@ -2020,6 +2020,224 @@ describe('service worker cache policy', () => {
     }
   });
 
+  it('keeps the navigation deadline armed through a stalled HTML body and cancels both branches', async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('<!doctype html>'));
+      },
+      cancel,
+    });
+    let fetchSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(async (_request, init) => {
+      fetchSignal = init?.signal ?? undefined;
+      return new Response(body, { headers: { 'content-type': 'text/html' } });
+    });
+    cacheMatch.mockResolvedValue(new Response('complete cached shell'));
+
+    try {
+      const pending = dispatch(
+        new Request('https://musixquare.com/en/', { headers: { accept: 'text/html' } }),
+        { resultingClientId: 'body-timeout-client' },
+      );
+      let settled = false;
+      void pending
+        .then(() => {
+          settled = true;
+        })
+        .catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const response = await pending;
+      expect(fetchSignal?.aborted).toBe(true);
+      expect(await response.text()).toBe('complete cached shell');
+      expect(response.headers.get('X-Musixquare-Navigation-Source')).toBe('cache-fallback');
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(
+        cachePut.mock.calls.some(([request]) => request.url === 'https://musixquare.com/en/'),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns the original navigation response only after its complete body is available', async () => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          body = controller;
+        },
+      }),
+      {
+        status: 203,
+        statusText: 'Non-Authoritative Information',
+        headers: { 'x-original': 'preserved' },
+      },
+    );
+    Object.defineProperties(response, {
+      url: { value: 'https://musixquare.com/en/' },
+      redirected: { value: true },
+    });
+    fetchMock.mockResolvedValue(response);
+    try {
+      const pending = dispatch(
+        new Request('https://musixquare.com/123456', { headers: { accept: 'text/html' } }),
+      );
+      let settled = false;
+      void pending
+        .then(() => {
+          settled = true;
+        })
+        .catch(() => undefined);
+      body.enqueue(new TextEncoder().encode('first '));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(settled).toBe(false);
+      body.enqueue(new TextEncoder().encode('second'));
+      body.close();
+      const received = await pending;
+      expect(received).toBe(response);
+      expect(received.url).toBe('https://musixquare.com/en/');
+      expect(received.redirected).toBe(true);
+      expect(received.status).toBe(203);
+      expect(received.headers.get('x-original')).toBe('preserved');
+      expect(await received.text()).toBe('first second');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a late navigation body when fetch ignores the elapsed deadline', async () => {
+    vi.useFakeTimers();
+    let complete!: (response: Response) => void;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    cacheMatch.mockResolvedValue(new Response('cached shell'));
+    const cancel = vi.fn();
+    try {
+      const pending = dispatch(
+        new Request('https://musixquare.com/123456', { headers: { accept: 'text/html' } }),
+      );
+      await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS);
+      expect(await (await pending).text()).toBe('cached shell');
+      complete(new Response(new ReadableStream({ cancel })));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes through a complete non-OK HTML response without using the cached shell', async () => {
+    vi.useFakeTimers();
+    const response = new Response('<html>Temporarily unavailable</html>', {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { 'content-type': 'text/html', 'retry-after': '120' },
+    });
+    fetchMock.mockResolvedValue(response);
+    cacheMatch.mockResolvedValue(new Response('cached shell'));
+    try {
+      const received = await dispatch(
+        new Request('https://musixquare.com/123456', { headers: { accept: 'text/html' } }),
+      );
+      expect(received).toBe(response);
+      expect(received.status).toBe(503);
+      expect(received.headers.get('retry-after')).toBe('120');
+      expect(received.headers.has('X-Musixquare-Navigation-Source')).toBe(false);
+      expect(await received.text()).toContain('Temporarily unavailable');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back when an HTML body rejects after its headers arrive', async () => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    fetchMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            body = controller;
+            controller.enqueue(new TextEncoder().encode('<html>partial'));
+          },
+        }),
+      ),
+    );
+    cacheMatch.mockResolvedValue(new Response('cached shell'));
+    try {
+      const pending = dispatch(
+        new Request('https://musixquare.com/123456', { headers: { accept: 'text/html' } }),
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      body.error(new TypeError('network body interrupted'));
+      const received = await pending;
+      expect(await received.text()).toBe('cached shell');
+      expect(received.headers.get('X-Musixquare-Navigation-Source')).toBe('cache-fallback');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['before fetch', 'during body'])(
+    'forwards a navigation request abort %s and releases its listener',
+    async (stage) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const request = new Request('https://musixquare.com/123456', {
+        headers: { accept: 'text/html' },
+        signal: controller.signal,
+      });
+      const removeListener = vi.spyOn(request.signal, 'removeEventListener');
+      let fetchSignal: AbortSignal | undefined;
+      fetchMock.mockImplementation(async (_request, init) => {
+        fetchSignal = init?.signal ?? undefined;
+        if (fetchSignal?.aborted) throw new DOMException('aborted', 'AbortError');
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(body) {
+              fetchSignal?.addEventListener(
+                'abort',
+                () => {
+                  body.error(new DOMException('aborted', 'AbortError'));
+                },
+                { once: true },
+              );
+            },
+          }),
+        );
+      });
+      cacheMatch.mockResolvedValue(new Response('cached shell'));
+      try {
+        if (stage === 'before fetch') controller.abort();
+        const pending = dispatch(request);
+        if (stage === 'during body') {
+          await vi.advanceTimersByTimeAsync(1);
+          controller.abort();
+        }
+        expect(await (await pending).text()).toBe('cached shell');
+        expect(fetchSignal?.aborted).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+        if (stage === 'during body') {
+          expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+        }
+      } finally {
+        removeListener.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it.each(['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg', 'aif', 'aiff', 'caf'])(
     'does not intercept local .%s media files for CacheStorage',
     (extension) => {

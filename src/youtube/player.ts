@@ -773,17 +773,25 @@ function scheduleProYouTubeLeadCalibration(input: {
 
         let playerState = -1;
         let timelineDriftMs = Number.NaN;
+        let elapsedSinceStartMs = Number.NaN;
         try {
           playerState = currentPlayer?.getPlayerState?.() ?? -1;
           if (currentPlayer) {
             const sampledAtMs = performance.now();
+            elapsedSinceStartMs = sampledAtMs - input.canonicalExecuteAtMs;
             const predictedCanonical =
-              input.canonicalStartSeconds +
-              Math.max(0, sampledAtMs - input.canonicalExecuteAtMs) / 1_000;
+              input.canonicalStartSeconds + Math.max(0, elapsedSinceStartMs) / 1_000;
+            // Read the raw media clock once. Display-oriented normalization
+            // turns invalid values into zero and cannot validate a sample.
+            const localPositionSeconds = currentPlayer.getCurrentTime?.();
             const duration = getYouTubeDuration(currentPlayer);
-            if (!(duration > 0 && duration - predictedCanonical < 3)) {
+            if (
+              Number.isFinite(localPositionSeconds) &&
+              !(duration > 0 && duration - predictedCanonical < 3)
+            ) {
               timelineDriftMs =
-                (readCanonicalYouTubeTime(currentPlayer) - predictedCanonical) * 1_000;
+                (toCanonicalYouTubeTime(localPositionSeconds, duration) - predictedCanonical) *
+                1_000;
             }
           }
         } catch {
@@ -792,6 +800,7 @@ function scheduleProYouTubeLeadCalibration(input: {
 
         const sample: ProYouTubeLeadSample = {
           checkpointMs,
+          elapsedSinceStartMs,
           timelineDriftMs,
           visible,
           // Only a normally advancing iframe is a valid timing reference.
@@ -903,6 +912,11 @@ export async function applyProPlaybackYouTubeCommit(
       setPlaybackYouTubePlaying();
       bus.emit('ui:update-play-state', true);
       if (request.timingMode === 'zero-start') {
+        log.debug('[PRO YouTube] Zero-start playback released', {
+          platform,
+          canonicalExecuteAtMs,
+          ...committed,
+        });
         const positiveLeadWasFullyScheduled =
           request.scheduleDelayMs >= Math.max(0, committed.releaseLeadMs);
         if (positiveLeadWasFullyScheduled) {
@@ -1879,7 +1893,13 @@ export function initYouTube(): void {
     onPhaseChange: () => {
       bus.emit('youtube:zero-start-readiness-changed');
     },
-    onPlaybackStarted: () => {
+    onPlaybackStarted: (event) => {
+      log.debug('[YouTube ZeroStart] Playback released', {
+        role: getYouTubeZeroStartRole(),
+        platform: getYouTubeZeroStartPlatform(),
+        releaseLeadMs: getYouTubeZeroStartSnapshot()?.releaseLeadMs,
+        ...event,
+      });
       setLocalYouTubePaused(false);
     },
     onFallbackRequired: (event) => {

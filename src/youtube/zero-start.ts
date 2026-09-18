@@ -31,6 +31,7 @@ const YOUTUBE_ZERO_START_TIMING = Object.freeze({
   lateFallbackLeadMs: 800,
   timelinePollMs: 250,
   timelineStopAfterMs: 2_500,
+  timelineCalibrationMinGapMs: 1_000,
   // Start iOS from the neutral server/host timeline. The former 270ms seed
   // now over-advances the first cross-platform run; stable 0.8s/2.0s samples
   // still learn any real residual for subsequent runs.
@@ -268,9 +269,8 @@ type LocalRun = {
   commit: YouTubeZeroStartCommitMessage | null;
   playCallAt: number;
   fallback: boolean;
-  sampled08: boolean;
+  sample08: { hostTime: number; observedAt: number; driftMs: number } | null;
   sampled20: boolean;
-  drift08Ms: number | null;
   releaseLeadMs: number;
   audibleBaseLeadMs: number;
   timelineLeadMs: number;
@@ -656,23 +656,45 @@ class YouTubeZeroStartController {
     if (!run || !player || run.phase !== 'playing' || !this.#sameRun(run, message)) return false;
 
     try {
+      if (
+        !run.commit ||
+        !this.#deps.isClockCalibrated() ||
+        message.playerState !== YOUTUBE_ZERO_START_PLAYER_STATE.playing ||
+        player.getPlayerState() !== YOUTUBE_ZERO_START_PLAYER_STATE.playing
+      )
+        return false;
       const nowAtHost = this.#deps.getHostNow();
-      const predictedCanonical =
-        message.positionSec +
-        (message.playerState === YOUTUBE_ZERO_START_PLAYER_STATE.playing
-          ? (nowAtHost - message.hostTime) / 1_000
-          : 0);
-      const localCanonical = this.#toCanonicalPosition(player.getCurrentTime(), run);
+      const observedAt = this.#now();
+      const localCanonical = this.#readCanonicalPosition(player, run);
+      if (
+        localCanonical === null ||
+        !Number.isFinite(nowAtHost) ||
+        !Number.isFinite(observedAt) ||
+        !Number.isFinite(message.hostTime) ||
+        !Number.isFinite(message.positionSec) ||
+        message.hostTime > nowAtHost
+      )
+        return false;
+      const predictedCanonical = message.positionSec + (nowAtHost - message.hostTime) / 1_000;
       const timelineDriftMs = (localCanonical - predictedCanonical) * 1_000;
+      if (!Number.isFinite(timelineDriftMs)) return false;
       const estimatedAudibleErrorMs = timelineDriftMs - run.audibleBaseLeadMs;
-      const elapsedSec = run.commit ? (nowAtHost - run.commit.startAtHost) / 1_000 : 0;
+      const elapsedSec = (message.hostTime - run.commit.startAtHost) / 1_000;
 
-      if (elapsedSec >= 0.8 && !run.sampled08) {
-        run.sampled08 = true;
-        run.drift08Ms = timelineDriftMs;
+      if (elapsedSec >= 0.8 && !run.sample08) {
+        run.sample08 = { hostTime: message.hostTime, observedAt, driftMs: timelineDriftMs };
         this.#debug('timeline-0.8s', { timelineDriftMs, estimatedAudibleErrorMs });
-      }
-      if (elapsedSec >= 2 && !run.sampled20) {
+      } else if (
+        elapsedSec >= 2 &&
+        !run.sampled20 &&
+        run.sample08 &&
+        message.hostTime - run.sample08.hostTime >=
+          YOUTUBE_ZERO_START_TIMING.timelineCalibrationMinGapMs &&
+        observedAt - run.sample08.observedAt >=
+          YOUTUBE_ZERO_START_TIMING.timelineCalibrationMinGapMs
+      ) {
+        // Both the host samples and physical guest reads must be separated:
+        // a duplicate frame or a queued burst cannot establish stable drift.
         run.sampled20 = true;
         this.#debug('timeline-2.0s', { timelineDriftMs, estimatedAudibleErrorMs });
         this.#calibrateLead(run, timelineDriftMs);
@@ -955,9 +977,8 @@ class YouTubeZeroStartController {
       commit: null,
       playCallAt: 0,
       fallback: false,
-      sampled08: false,
+      sample08: null,
       sampled20: false,
-      drift08Ms: null,
       releaseLeadMs: lead.totalLeadMs,
       audibleBaseLeadMs: lead.audibleBaseLeadMs,
       timelineLeadMs: lead.timelineLeadMs,
@@ -1035,9 +1056,8 @@ class YouTubeZeroStartController {
       commit: null,
       playCallAt: 0,
       fallback: false,
-      sampled08: false,
+      sample08: null,
       sampled20: false,
-      drift08Ms: null,
       releaseLeadMs: lead.totalLeadMs,
       audibleBaseLeadMs: lead.audibleBaseLeadMs,
       timelineLeadMs: lead.timelineLeadMs,
@@ -1574,15 +1594,15 @@ class YouTubeZeroStartController {
       return;
     }
     const nowAtHost = this.#deps.getHostNow();
-    const canonicalTarget =
-      Math.max(0, (nowAtHost - commit.startAtHost) / 1_000) +
-      YOUTUBE_ZERO_START_TIMING.lateFallbackLeadMs / 1_000;
     const fallbackCommit: YouTubeZeroStartCommitMessage = {
       ...commit,
       startAtHost: nowAtHost + YOUTUBE_ZERO_START_TIMING.lateFallbackLeadMs,
       cohort: [this.#deps.getLocalPeerId()],
       reason: 'guest-timeout',
     };
+    // Project the canonical timeline to this release before clamping. The
+    // original COMMIT can still be in the future when an armed guest is excluded.
+    const canonicalTarget = Math.max(0, (fallbackCommit.startAtHost - commit.startAtHost) / 1_000);
     run.fallback = true;
     run.phase = 'fallback';
     run.commit = fallbackCommit;
@@ -1654,24 +1674,23 @@ class YouTubeZeroStartController {
       if (hostTime - run.commit.startAtHost > YOUTUBE_ZERO_START_TIMING.timelineStopAfterMs) return;
       try {
         const reportedState = player.getPlayerState();
-        const message: YouTubeZeroStartTimelineMessage = {
-          type: MSG.YOUTUBE_ZERO_START_TIMELINE,
-          version: 1,
-          runId: run.runId,
-          sequence: run.sequence,
-          queueItemId: run.queueItemId,
-          videoId: run.videoId,
-          hostTime,
-          positionSec: clamp(
-            finiteOr(this.#toCanonicalPosition(player.getCurrentTime(), run), 0),
-            0,
-            31_536_000,
-          ),
-          playerState: this.#isKnownPlayerState(reportedState)
-            ? reportedState
-            : YOUTUBE_ZERO_START_PLAYER_STATE.unstarted,
-        };
-        for (const peerId of barrier.expectedGuestIds) this.#deps.sendToPeer(peerId, message);
+        const canonicalPosition = this.#readCanonicalPosition(player, run);
+        if (canonicalPosition !== null && Number.isFinite(hostTime)) {
+          const message: YouTubeZeroStartTimelineMessage = {
+            type: MSG.YOUTUBE_ZERO_START_TIMELINE,
+            version: 1,
+            runId: run.runId,
+            sequence: run.sequence,
+            queueItemId: run.queueItemId,
+            videoId: run.videoId,
+            hostTime,
+            positionSec: clamp(canonicalPosition, 0, 31_536_000),
+            playerState: this.#isKnownPlayerState(reportedState)
+              ? reportedState
+              : YOUTUBE_ZERO_START_PLAYER_STATE.unstarted,
+          };
+          for (const peerId of barrier.expectedGuestIds) this.#deps.sendToPeer(peerId, message);
+        }
       } catch (error) {
         this.#debug('timeline-send-failed', error);
       }
@@ -1685,7 +1704,7 @@ class YouTubeZeroStartController {
       this.#deps.getRole() !== 'guest' ||
       run.fallback ||
       !run.calibrationEligible ||
-      run.drift08Ms === null
+      run.sample08 === null
     ) {
       return;
     }
@@ -1694,9 +1713,9 @@ class YouTubeZeroStartController {
     const stabilityLimit = androidPair
       ? YOUTUBE_ZERO_START_TIMING.androidCalibrationStabilityMs
       : YOUTUBE_ZERO_START_TIMING.generalCalibrationStabilityMs;
-    if (Math.abs(run.drift08Ms - timelineDriftMs) > stabilityLimit) return;
+    if (Math.abs(run.sample08.driftMs - timelineDriftMs) > stabilityLimit) return;
 
-    const stableTimelineDriftMs = (run.drift08Ms + timelineDriftMs) / 2;
+    const stableTimelineDriftMs = (run.sample08.driftMs + timelineDriftMs) / 2;
     const estimatedAudibleErrorMs = stableTimelineDriftMs - run.audibleBaseLeadMs;
     const previousTimelineLeadMs = run.timelineLeadMs;
     const insideDeadband =
@@ -1759,12 +1778,13 @@ class YouTubeZeroStartController {
     return Math.max(0, finiteOr(resolved ?? canonicalPositionSec, canonicalPositionSec));
   }
 
-  #toCanonicalPosition(localPositionSec: number, run: LocalRun): number {
-    const canonical = this.#deps.toCanonicalPositionSec?.(
-      localPositionSec,
-      this.#targetContext(run),
-    );
-    return finiteOr(canonical ?? localPositionSec, localPositionSec);
+  #readCanonicalPosition(player: YouTubeZeroStartPlayer, run: LocalRun): number | null {
+    const localPositionSec = player.getCurrentTime();
+    if (!Number.isFinite(localPositionSec)) return null;
+    const canonical =
+      this.#deps.toCanonicalPositionSec?.(localPositionSec, this.#targetContext(run)) ??
+      localPositionSec;
+    return Number.isFinite(canonical) ? canonical : null;
   }
 
   #targetContext(run: LocalRun): YouTubeZeroStartTargetContext {

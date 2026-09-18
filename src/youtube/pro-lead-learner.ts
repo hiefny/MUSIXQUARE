@@ -12,10 +12,13 @@ export type ProYouTubeLeadPlatform = 'ios' | 'android' | 'other';
 
 export const PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS = 800 as const;
 export const PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS = 2_000 as const;
+const MIN_SAMPLE_GAP_MS = 1_000;
 
 export interface ProYouTubeLeadSample {
   /** Only the two bounded post-start checkpoints are accepted. */
   checkpointMs: typeof PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS | typeof PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS;
+  /** Actual monotonic observation time relative to the canonical start. */
+  elapsedSinceStartMs: number;
   /** Local canonical timeline minus the server-predicted canonical timeline. */
   timelineDriftMs: number;
   /** Visibility is supplied by the caller; this module never reads the DOM. */
@@ -107,6 +110,11 @@ function samplesHaveExpectedShape(round: Readonly<ProYouTubeLeadRound>): boolean
   return (
     round.early.checkpointMs === PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS &&
     round.late.checkpointMs === PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS &&
+    Number.isFinite(round.early.elapsedSinceStartMs) &&
+    Number.isFinite(round.late.elapsedSinceStartMs) &&
+    round.early.elapsedSinceStartMs >= 0 &&
+    round.late.elapsedSinceStartMs >= 0 &&
+    round.late.elapsedSinceStartMs - round.early.elapsedSinceStartMs >= MIN_SAMPLE_GAP_MS &&
     Number.isFinite(round.early.timelineDriftMs) &&
     Number.isFinite(round.late.timelineDriftMs)
   );

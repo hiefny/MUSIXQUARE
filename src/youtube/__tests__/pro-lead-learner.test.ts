@@ -16,6 +16,7 @@ function sample(
 ): ProYouTubeLeadSample {
   return {
     checkpointMs,
+    elapsedSinceStartMs: checkpointMs,
     timelineDriftMs,
     visible: true,
     buffering: false,
@@ -155,6 +156,38 @@ describe('PRO YouTube per-device lead learner', () => {
     };
     const misplaced = learnFresh('other', wrongCheckpoint);
     expect(misplaced.reason).toBe('invalid-sample');
+  });
+
+  it.each([
+    ['one delayed instant', 2_000, 2_000],
+    ['insufficient independent time', 1_100, 2_000],
+    ['reordered observations', 2_100, 2_000],
+    ['observation before the canonical start', -1, 2_000],
+    ['non-finite observation time', Number.NaN, 2_000],
+  ])('rejects an otherwise stable pair with %s', (_description, earlyAtMs, lateAtMs) => {
+    const result = learnFresh(
+      'other',
+      round(-100, -100, { elapsedSinceStartMs: earlyAtMs }, { elapsedSinceStartMs: lateAtMs }),
+    );
+    expect(result).toMatchObject({
+      accepted: false,
+      reason: 'invalid-sample',
+      state: { timelineLeadMs: 0, acceptedRounds: 0 },
+    });
+  });
+
+  it.each([
+    ['delayed', 1_000, 2_000],
+    ['fractional timer rounding', 799.7, 1_999.7],
+  ])('accepts independent observations despite %s', (_description, earlyAtMs, lateAtMs) => {
+    const result = learnFresh(
+      'other',
+      round(-100, -100, { elapsedSinceStartMs: earlyAtMs }, { elapsedSinceStartMs: lateAtMs }),
+    );
+    expect(result).toMatchObject({
+      accepted: true,
+      state: { timelineLeadMs: 25, acceptedRounds: 1 },
+    });
   });
 
   it('bounds each round to 50ms and the session timeline lead to 300ms', () => {

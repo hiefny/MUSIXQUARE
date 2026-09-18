@@ -2625,6 +2625,7 @@ export function initYouTube(): void {
     const target =
       getYouTubeZeroStartRole() === 'host' &&
       snapshot?.inFlight &&
+      snapshot.expectedGuestIds.includes(peerId) &&
       snapshot.queueItemId &&
       snapshot.videoId
         ? {

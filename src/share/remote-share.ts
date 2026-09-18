@@ -95,6 +95,7 @@ interface UploadEntry {
   preload: boolean;
   progress: number;
   foregroundUiOwner: ForegroundUploadUiOwner | null;
+  failureNotifiedTargets: Set<DataConnection>;
 }
 
 interface ForegroundUploadUiOwner {
@@ -479,15 +480,19 @@ function maybeNotifyRemoteUploadFailure(
   sessionId: number,
   queueItemId: QueueItemId,
   targetConn?: DataConnection,
+  notifiedTargets = new Set<DataConnection>(),
 ): void {
   const now = Date.now();
-  const targets = getR2MessageTargets(sessionId, targetConn);
+  const targets = getR2MessageTargets(sessionId, targetConn).filter(
+    (conn) => !notifiedTargets.has(conn),
+  );
   if (targets.length === 0) return;
 
   const quotaReached = isStorageQuotaError(error);
   const limited = quotaReached || isUploadLimitError(error);
   const unavailable = toRemoteFileUnavailableMessage(file, sessionId, queueItemId, limited);
   for (const conn of targets) {
+    notifiedTargets.add(conn);
     safeSend(conn, unavailable);
   }
 
@@ -865,6 +870,8 @@ export async function shareRemoteFileIfNeeded(
   const roomId = currentRemoteShareRoomId();
   const uploadKey = uploadRequestKey(file, sessionId, queueItemId);
   const cacheKey = descriptorCacheKey(file, roomId);
+  let failureNotifiedTargets = new Set<DataConnection>();
+  let uploadAbort: AbortController | null = null;
   const foregroundUiOwner =
     !isPreload && isHostActiveFile(file, queueItemId) && !isExternalOwner()
       ? claimForegroundUploadUi(uploadKey, file, sessionId, queueItemId)
@@ -885,6 +892,8 @@ export async function shareRemoteFileIfNeeded(
 
       const inFlight = _activeUploads.get(uploadKey);
       if (inFlight) {
+        failureNotifiedTargets = inFlight.failureNotifiedTargets;
+        uploadAbort = inFlight.abort;
         // Another caller already uploading the same file — share the result.
         // Once active playback joins this promise, speculative cancellation may
         // no longer abort it; completion still serves the current-track owner.
@@ -899,6 +908,7 @@ export async function shareRemoteFileIfNeeded(
         if (inFlight.abort.signal.aborted) return;
       } else {
         const abort = new AbortController();
+        uploadAbort = abort;
         let currentProgress = 0;
         let entry: UploadEntry | null = null;
         const promise = uploadRemoteFile(file, sessionId, queueItemId, {
@@ -925,6 +935,7 @@ export async function shareRemoteFileIfNeeded(
           preload: isPreload,
           progress: currentProgress,
           foregroundUiOwner,
+          failureNotifiedTargets,
         };
         _activeUploads.set(uploadKey, entry);
 
@@ -1004,7 +1015,7 @@ export async function shareRemoteFileIfNeeded(
       showToast(t('share.remote.upload_ready'));
     }
   } catch (error) {
-    if (isAbortError(error)) {
+    if (isAbortError(error) || uploadAbort?.signal.aborted) {
       log.debug('[RemoteShare] Upload superseded. Abort path is expected');
       return;
     }
@@ -1012,15 +1023,27 @@ export async function shareRemoteFileIfNeeded(
       log.debug('[RemoteShare] Speculative preload upload failed silently:', error);
       return;
     }
-    if (!ownsForegroundUploadUi(foregroundUiOwner)) {
-      log.debug('[RemoteShare] Stale foreground upload failed after UI ownership moved on');
-      return;
-    }
-    if (!isHostActiveFile(file, queueItemId) || isExternalOwner()) {
+    if (
+      currentRemoteShareRoomId() !== roomId ||
+      !isHostActiveFile(file, queueItemId) ||
+      isExternalOwner()
+    ) {
       clearOwnedForegroundUploadUi(foregroundUiOwner);
       log.debug('[RemoteShare] Stale foreground upload failed after playback moved on');
       return;
     }
+    // Every caller owns its recipients even when a newcomer has claimed the
+    // singleton progress UI. Shared upload waiters deduplicate by connection,
+    // so a room-wide failure still releases existing guests exactly once.
+    maybeNotifyRemoteUploadFailure(
+      error,
+      file,
+      sessionId,
+      queueItemId,
+      targetConn,
+      failureNotifiedTargets,
+    );
+    if (!ownsForegroundUploadUi(foregroundUiOwner)) return;
     showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
     const message = friendlyErrorMessage(error);
     setState('share.remote', {
@@ -1034,7 +1057,6 @@ export async function shareRemoteFileIfNeeded(
       },
     });
     log.warn('[RemoteShare] Upload/share failed:', error);
-    maybeNotifyRemoteUploadFailure(error, file, sessionId, queueItemId, targetConn);
     showToast(t('share.remote.upload_failed', { msg: message }));
   }
 }

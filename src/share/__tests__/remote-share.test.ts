@@ -2043,6 +2043,73 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     expect(getState('share.remote').upload.error).toBe('share.remote.network_error');
   });
 
+  it.each([false, true])(
+    'notifies every shared-upload recipient once when a newcomer overlaps (targeted first=%s)',
+    async (targetedFirst) => {
+      const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+      const { safeSend } = await import('../../network/peer.ts');
+      const { showToast } = await import('../../ui/toast.ts');
+      const existing = remotePeer();
+      const newcomer = {
+        ...remotePeer(),
+        id: 'newcomer',
+        conn: dataConnection('newcomer'),
+      };
+      const file = new File(['shared'], 'shared.mp3', { type: 'audio/mpeg' });
+      setState('network.connectedPeers', [existing, newcomer]);
+      setState('playlist.items', [fileItem(file, Q0)]);
+      setHostFile(file, Q0, 7);
+      let rejectUpload!: (error: Error) => void;
+      mocks.uploadRemoteFile.mockImplementationOnce(
+        () => new Promise<RemoteFileSharePayload>((_resolve, reject) => (rejectUpload = reject)),
+      );
+
+      const first = shareRemoteFileIfNeeded(file, 7, targetedFirst ? newcomer.conn : undefined, {
+        queueItemId: Q0,
+      });
+      const second = shareRemoteFileIfNeeded(file, 7, targetedFirst ? undefined : newcomer.conn, {
+        queueItemId: Q0,
+      });
+      expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce();
+      vi.mocked(showToast).mockClear();
+      rejectUpload(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+      await Promise.all([first, second]);
+
+      const failures = vi
+        .mocked(safeSend)
+        .mock.calls.filter(([, message]) => message.type === MSG.REMOTE_FILE_UNAVAILABLE);
+      expect(failures).toHaveLength(2);
+      expect(failures.map(([recipient]) => recipient)).toEqual(
+        expect.arrayContaining([existing.conn, newcomer.conn]),
+      );
+      expect(showToast).toHaveBeenCalledExactlyOnceWith('share.remote.upload_failed');
+      expect(getState('share.remote').upload.status).toBe('error');
+    },
+  );
+
+  it('keeps overlapping targeted upload failures isolated from uninvolved peers', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const first = remotePeer();
+    const second = { ...remotePeer(), id: 'second', conn: dataConnection('second') };
+    const uninvolved = { ...remotePeer(), id: 'third', conn: dataConnection('third') };
+    const file = new File(['shared'], 'shared.mp3', { type: 'audio/mpeg' });
+    setState('network.connectedPeers', [first, second, uninvolved]);
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+    let rejectUpload!: (error: Error) => void;
+    mocks.uploadRemoteFile.mockImplementationOnce(
+      () => new Promise<RemoteFileSharePayload>((_resolve, reject) => (rejectUpload = reject)),
+    );
+    const requests = [first, second].map((peer) =>
+      shareRemoteFileIfNeeded(file, 7, peer.conn!, { queueItemId: Q0 }),
+    );
+    rejectUpload(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+    await Promise.all(requests);
+    expect(safeSend).toHaveBeenCalledTimes(2);
+    expect(safeSend).not.toHaveBeenCalledWith(uninvolved.conn, expect.anything());
+  });
+
   it.each([
     ['REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE', 'share.remote.network_error'],
     ['REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT', 'share.remote.network_error'],
@@ -2270,6 +2337,32 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
 
     resolveUpload(descriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }));
     await share;
+  });
+
+  it('ignores a late network rejection after shared upload authority was reset', async () => {
+    const { bus } = await import('../../core/events.ts');
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const { showToast } = await import('../../ui/toast.ts');
+    const file = new File(['same-file'], 'same-file.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+    let rejectUpload!: (error: Error) => void;
+    mocks.uploadRemoteFile.mockImplementationOnce(
+      () => new Promise<RemoteFileSharePayload>((_resolve, reject) => (rejectUpload = reject)),
+    );
+    const pending = shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+    bus.emit('state:network.sessionCode', null, 'network.sessionCode');
+    const successor = shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+    vi.mocked(showToast).mockClear();
+    vi.mocked(safeSend).mockClear();
+    rejectUpload(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+    await pending;
+    expect(safeSend).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(getState('share.remote').upload.status).toBe('uploading');
+    resolveUpload(descriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }));
+    await successor;
   });
 
   it('uploads the next R2 file silently and reuses that object when it becomes current', async () => {

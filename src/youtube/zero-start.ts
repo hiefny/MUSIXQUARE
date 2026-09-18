@@ -805,6 +805,9 @@ class YouTubeZeroStartController {
   handlePeerConnectionReplaced(peerId: string): void {
     this.#capabilities.delete(peerId);
     if (this.#deps.getRole() !== 'host') return;
+    // Late entrants were never sent this run's PREPARE. Their replacement
+    // connection invalidates only their capability, not the frozen cohort.
+    if (!this.#hostBarrier?.expectedGuestIds.has(peerId)) return;
     if (this.#localRun?.phase === 'playing') {
       // Playback is already established; only the short calibration window
       // still owns protocol state. End it locally without ABORT, otherwise

@@ -203,7 +203,10 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
             .slice(start, Math.min(start + chunkSize, file.size))
             .arrayBuffer();
           if (!canSend()) return;
-          safeSend(conn, buildChunkMsg(new Uint8Array(chunkBuf), i));
+          if (!safeSend(conn, buildChunkMsg(new Uint8Array(chunkBuf), i))) {
+            exclude(p, peerIndex);
+            return;
+          }
           nextChunks[peerIndex] = i + 1;
           sentThrough = Math.max(sentThrough, i + 1);
           reportProgress();

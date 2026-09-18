@@ -949,6 +949,190 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     return handle;
   }
 
+  async function createCommittedProErrorObserver(canControl: boolean) {
+    const player = createMockYtPlayer();
+    const handle = await createPlayerInYouTubeMode(player);
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'A',
+        videoId: 'vidA000000A',
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.currentSubIndex', 0);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 10,
+      capabilities: canControl ? ['playback.control'] : [],
+    });
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    vi.mocked(player.getPlayerState).mockReturnValue(3);
+    vi.mocked(player.getCurrentTime).mockReturnValue(25);
+    vi.mocked(player.getDuration).mockReturnValue(120);
+    const authority = await import('../../pro-room/playback-authority-hooks.ts');
+    authority.resetProPlaybackAuthorityHooks();
+    const unregisterEndpoint = authority.registerProPlaybackMediaEndpoint({
+      prepare: vi.fn(),
+      commit: async (request) => ({ status: 'applied', authority: request.authority }),
+    });
+    const stamp = authority.createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: 6,
+      transitionId: null,
+    });
+    await expect(
+      authority.commitProPlaybackAuthority({
+        authority: stamp,
+        committedPlaybackRevision: 7,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 'playing',
+        positionSeconds: 25,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+        youtubeVideoId: 'vidA000000A',
+        youtubeSubIndex: 0,
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+    const command = vi.fn(async () => {});
+    const unregisterHandler = authority.registerProPlaybackCommandHandler(command);
+    return {
+      player,
+      handle,
+      command,
+      dispose() {
+        unregisterHandler();
+        unregisterEndpoint();
+        authority.resetProPlaybackAuthorityHooks();
+      },
+    };
+  }
+
+  it.each([2, 5, 153])(
+    'keeps generic player error %i local even for a committed PRO controller',
+    async (code) => {
+      const observer = await createCommittedProErrorObserver(true);
+      try {
+        observer.handle.fireError(code);
+        expect(showToastMock).toHaveBeenCalledWith('youtube.load_fail');
+        expect(observer.command).not.toHaveBeenCalled();
+        expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
+      } finally {
+        observer.dispose();
+      }
+    },
+  );
+
+  it('keeps a PRO listener engine error local', async () => {
+    const observer = await createCommittedProErrorObserver(false);
+    try {
+      observer.handle.fireError(5);
+      expect(showToastMock).toHaveBeenCalledWith('youtube.load_fail');
+      expect(observer.command).not.toHaveBeenCalled();
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it.each([100, 101, 150])(
+    'preserves content-unavailable error %i with exact PRO revision authority',
+    async (code) => {
+      const observer = await createCommittedProErrorObserver(true);
+      try {
+        observer.handle.fireError(code);
+        expect(observer.command).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: 'unavailable',
+            queueItemId: QUEUE_ITEM_ID,
+            observedPlaybackRevision: 7,
+            youtubeVideoId: 'vidA000000A',
+            youtubeSubIndex: 0,
+          }),
+        );
+      } finally {
+        observer.dispose();
+      }
+    },
+  );
+
+  it('does not grant a PRO listener room-wide skip authority for unavailable content', async () => {
+    const observer = await createCommittedProErrorObserver(false);
+    try {
+      observer.handle.fireError(150);
+      expect(showToastMock).toHaveBeenCalledWith('youtube.video_unavailable');
+      expect(observer.command).not.toHaveBeenCalled();
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it('preserves a committed PRO controller end observation', async () => {
+    const observer = await createCommittedProErrorObserver(true);
+    try {
+      vi.mocked(observer.player.getPlayerState).mockReturnValue(0);
+      vi.mocked(observer.player.getCurrentTime).mockReturnValue(120);
+      observer.handle.fireStateChange(0);
+      expect(observer.command).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'ended',
+          observedPlaybackRevision: 7,
+          queueItemId: QUEUE_ITEM_ID,
+          youtubeVideoId: 'vidA000000A',
+          youtubeSubIndex: 0,
+        }),
+      );
+    } finally {
+      observer.dispose();
+    }
+  });
+
+  it.each([false, true])(
+    'does not escalate a PRO buffering stall to a room skip after engine error=%s',
+    async (hasError) => {
+      const observer = await createCommittedProErrorObserver(true);
+      const { updateYouTubeUIForTests } = await import('../iframe.ts');
+      const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+      try {
+        if (hasError) observer.handle.fireError(5);
+        observer.command.mockClear();
+        updateYouTubeUIForTests();
+        now.mockReturnValue(10_000 + UNAVAILABLE_STUCK_THRESHOLD_MS + 1);
+        updateYouTubeUIForTests();
+        expect(observer.command).not.toHaveBeenCalled();
+        expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
+      } finally {
+        now.mockRestore();
+        observer.dispose();
+      }
+    },
+  );
+
+  it('retains Standard host recovery for a persistently buffering video', async () => {
+    const player = createMockYtPlayer();
+    await createPlayerInYouTubeMode(player);
+    vi.mocked(player.getPlayerState).mockReturnValue(3);
+    const { updateYouTubeUIForTests } = await import('../iframe.ts');
+    const nextTrack = vi.fn();
+    bus.on('playlist:next-track', nextTrack);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    try {
+      updateYouTubeUIForTests();
+      now.mockReturnValue(10_000 + UNAVAILABLE_STUCK_THRESHOLD_MS + 1);
+      updateYouTubeUIForTests();
+      expect(broadcastSystemMessageMock).toHaveBeenCalledWith('youtube.video_unavailable');
+      expect(nextTrack).toHaveBeenCalledOnce();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('ignores an unavailable callback emitted by a retired player after replacement', async () => {
     const retiredPlayer = createMockYtPlayer();
     const handle = await createPlayerInYouTubeMode(retiredPlayer);

@@ -29,6 +29,7 @@ import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import {
   registerProPlaybackMediaEndpoint,
+  registerProPlaybackCommandHandler,
   routeProPlaybackCommand,
   type ProPlaybackAuthorityToken,
   type ProPlaybackCommitResult,
@@ -567,6 +568,48 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     expect(recoverTerminalSession).toHaveBeenCalledOnce();
     expect(recoverTerminalSession).toHaveBeenCalledWith(terminalError);
   });
+
+  it.each(['ended', 'unavailable'] as const)(
+    'does not rebase a late %s observation from the previous applied revision',
+    async (kind) => {
+      await establishCurrentPlayingCheckpoint();
+      const canonical = { ...snapshot(playback(2)), revision: 3 };
+      const execute = vi.fn();
+      const heartbeat = vi.fn().mockResolvedValue(undefined);
+      const controller = new ProRoomPlaybackController({
+        isActive: () => true,
+        getCanonicalSnapshot: () => canonical,
+        getPlaylistSnapshot: () => canonical,
+        capturePlaylistLease: () => ({ generation: 1, roomCode: ROOM_CODE }),
+        isPlaylistLeaseCurrent: () => true,
+        getRoomAbortSignal: () => undefined,
+        subscribePlaylistProjection: () => () => undefined,
+        runHeartbeat: heartbeat,
+        reportPlaybackTransitionReady: vi.fn().mockResolvedValue('waiting'),
+        executePlaybackCommand: execute,
+        recoverTerminalSession: vi.fn(),
+      });
+      const unregister = registerProPlaybackCommandHandler((intent) =>
+        controller.enqueueIntent(intent),
+      );
+      try {
+        routeProPlaybackCommand({
+          kind,
+          queueItemId: QUEUE_ITEM_ID,
+          positionSeconds: 180,
+          observedPositionSeconds: 180,
+          durationSeconds: 180,
+          mediaKind: 'youtube',
+          youtubeVideoId: VIDEO_ID,
+          youtubeSubIndex: 0,
+        });
+        await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+        expect(execute).not.toHaveBeenCalled();
+      } finally {
+        unregister();
+      }
+    },
+  );
 
   it('drops a superseded UI command before it reaches the serialized API tail', async () => {
     let resolveFirst!: (

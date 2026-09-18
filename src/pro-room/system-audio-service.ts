@@ -681,6 +681,8 @@ function acceptPromotedSfuPublication(
 ): void {
   ambiguousDirectPromotionPublicationId = null;
   settleCanonicalSfuPublisher(state);
+  // Direct fallback retains healthy listeners while publication/commit is
+  // pending. Only authenticated SFU authority may retire those incumbents.
   resetProSystemAudioDirectTransport({ notifyPeers: false });
   clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   leaseHeartbeatFailureNotified = false;

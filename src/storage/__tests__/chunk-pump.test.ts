@@ -468,7 +468,7 @@ describe('pumpChunksToPeers — failure and completion', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('absorbs conn.send errors without excluding the peer or affecting siblings', async () => {
+  it('excludes a send failure without completing it or affecting sibling progress', async () => {
     const { file } = makeFile();
     const healthy = makeConn('healthy');
     const throwing = makeConn('throwing');
@@ -476,20 +476,27 @@ describe('pumpChunksToPeers — failure and completion', () => {
       throw new Error('send failed');
     });
     const onPeerComplete = vi.fn();
+    const onPeerExcluded = vi.fn();
+    const onChunkComplete = vi.fn();
     const pending = pumpChunksToPeers({
       ...baseOpts,
       file,
       peers: [makePeer('throwing', throwing), makePeer('healthy', healthy)],
       onPeerComplete,
+      onPeerExcluded,
+      onChunkComplete,
     });
 
     await vi.runAllTimersAsync();
-    expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set(['throwing']) });
     expectCompleteBytes(healthy);
-    expect(throwing.send).toHaveBeenCalledTimes(3);
-    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id).sort()).toEqual([
-      'healthy',
-      'throwing',
+    expect(throwing.send).toHaveBeenCalledOnce();
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy']);
+    expect(onPeerExcluded.mock.calls.map(([peer]) => peer.id)).toEqual(['throwing']);
+    expect(onChunkComplete.mock.calls).toEqual([
+      [0, 2],
+      [1, 2],
+      [2, 1],
     ]);
   });
 

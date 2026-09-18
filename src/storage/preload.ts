@@ -88,16 +88,119 @@ const MAX_EARLY_PRELOAD_CHUNKS = 64;
 const MAX_EARLY_PRELOAD_BYTES = 4 * 1024 * 1024;
 let _activePlayPreloadedQueueItemId: string | undefined;
 let _preloadScope: SessionScope | null = null;
-/** Per-peer unicast preload abort controls (key: peerId).
+/** Per-transfer unicast preload abort controls (key: owning scope).
  *  Tracks scope + sid + conn so cancelPreloadTransfer can send a targeted
  *  PRELOAD_ABORT to the receiving peer before disposing the scope. */
 interface UnicastEntry {
   scope: SessionScope;
-  sid: number;
+  sourceId: number;
+  sessionId: number;
   queueItemId: string;
   conn: DataConnection;
 }
-const _activePreloadUnicasts = new Map<string, UnicastEntry>();
+const _activePreloadUnicasts = new Map<SessionScope, UnicastEntry>();
+
+interface PreloadPeerOwner {
+  readonly conn: DataConnection;
+  readonly sourceId: number;
+  readonly queueItemId: string;
+  readonly sessionId: number;
+  readonly scope: SessionScope;
+  readonly kind: 'broadcast' | 'unicast';
+  status: 'active' | 'complete';
+}
+
+// Broadcast and late bootstrap share each exact lane per connection. Keep a
+// completed owner until replacement/teardown so a delayed bootstrap cannot
+// replay an entire preload whose complete stream was already sent to this peer.
+// Missing-file requests still retry through the independent main recovery lane.
+// A promoted current file may still be streaming when its successor starts:
+// keep that lane beside the speculative next lane, pruning superseded tuples.
+const _preloadPeerOwners = new Map<string, Set<PreloadPeerOwner>>();
+// Completed fences must not retain encoded files after playback releases them.
+const _preloadSourceIds = new WeakMap<Blob, number>();
+let _nextPreloadSourceId = 0;
+
+function preloadSourceId(blob: Blob): number {
+  let id = _preloadSourceIds.get(blob);
+  if (id === undefined) {
+    id = ++_nextPreloadSourceId;
+    _preloadSourceIds.set(blob, id);
+  }
+  return id;
+}
+
+function hasExactPreloadPeerOwner(
+  conn: DataConnection,
+  sourceBlob: File | Blob,
+  queueItemId: string,
+  sessionId: number,
+): boolean {
+  return [...(_preloadPeerOwners.get(conn.peer) ?? [])].some(
+    (owner) =>
+      owner.conn === conn &&
+      owner.sourceId === preloadSourceId(sourceBlob) &&
+      owner.queueItemId === queueItemId &&
+      owner.sessionId === sessionId &&
+      (owner.status === 'complete' || !owner.scope.aborted),
+  );
+}
+
+function ownsPreloadPeer(owner: PreloadPeerOwner): boolean {
+  return _preloadPeerOwners.get(owner.conn.peer)?.has(owner) ?? false;
+}
+
+function releasePreloadPeer(owner: PreloadPeerOwner): void {
+  const owners = _preloadPeerOwners.get(owner.conn.peer);
+  owners?.delete(owner);
+  if (owners?.size === 0) _preloadPeerOwners.delete(owner.conn.peer);
+}
+
+function isResidentPreloadTransfer(
+  owner: Pick<PreloadPeerOwner, 'sourceId' | 'queueItemId' | 'sessionId'>,
+): boolean {
+  return [getState('files.current'), getState('preload.ready')].some(
+    (resident) =>
+      !!resident &&
+      resident.queueItemId === owner.queueItemId &&
+      resident.sessionId === owner.sessionId &&
+      preloadSourceId(resident.blob) === owner.sourceId,
+  );
+}
+
+function claimPreloadPeer(owner: PreloadPeerOwner): boolean {
+  const owners = _preloadPeerOwners.get(owner.conn.peer) ?? new Set<PreloadPeerOwner>();
+  for (const previous of owners) {
+    const sameConnection = previous.conn === owner.conn;
+    const sameTuple =
+      previous.queueItemId === owner.queueItemId && previous.sessionId === owner.sessionId;
+    if (
+      sameConnection &&
+      sameTuple &&
+      previous.sourceId === owner.sourceId &&
+      (previous.status === 'complete' || !previous.scope.aborted)
+    )
+      return false;
+    if (sameConnection && !sameTuple && isResidentPreloadTransfer(previous)) continue;
+    if (previous.kind === 'unicast' && previous.status === 'active') {
+      previous.scope.dispose();
+      _activePreloadUnicasts.delete(previous.scope);
+    }
+    owners.delete(previous);
+  }
+  owners.add(owner);
+  _preloadPeerOwners.set(owner.conn.peer, owners);
+  return true;
+}
+
+function releasePreloadPeerConnection(peerId: string): void {
+  for (const [scope, entry] of _activePreloadUnicasts) {
+    if (entry.conn.peer !== peerId) continue;
+    scope.dispose();
+    _activePreloadUnicasts.delete(scope);
+  }
+  _preloadPeerOwners.delete(peerId);
+}
 
 interface PreloadIdentity {
   readonly sessionId: number;
@@ -211,6 +314,7 @@ interface BackgroundTransferOwner {
   readonly sourceBlob: File;
   readonly scope: SessionScope;
   readonly targets: readonly ConnectedPeer[];
+  readonly peerOwners: ReadonlyMap<string, PreloadPeerOwner>;
   readonly abortedPeerIds: Set<string>;
   readonly completedPeerIds: Set<string>;
   terminal: BackgroundTransferTerminal;
@@ -239,6 +343,9 @@ function invalidatePeerPreloadResidency(conn: DataConnection): void {
 function abortBackgroundPeer(owner: BackgroundTransferOwner, peer: ConnectedPeer): void {
   if (owner.abortedPeerIds.has(peer.id) || owner.completedPeerIds.has(peer.id)) return;
   owner.abortedPeerIds.add(peer.id);
+  const peerOwner = owner.peerOwners.get(peer.id);
+  if (!peerOwner || !ownsPreloadPeer(peerOwner)) return;
+  releasePreloadPeer(peerOwner);
   safeSend(peer.conn, {
     type: MSG.PRELOAD_ABORT,
     queueItemId: owner.queueItemId,
@@ -388,11 +495,12 @@ export function cancelPreloadTransfer(queueItemId?: QueueItemId): void {
     safeSend(entry.conn, {
       type: MSG.PRELOAD_ABORT,
       queueItemId: entry.queueItemId,
-      sessionId: entry.sid,
+      sessionId: entry.sessionId,
     });
     entry.scope.dispose();
   }
   _activePreloadUnicasts.clear();
+  _preloadPeerOwners.clear();
 
   if (_preloadScope) {
     _preloadScope.dispose();
@@ -436,6 +544,7 @@ export function resetPreloadReceiveAuthority(): void {
   _preloadScope = null;
   _activePreloadUnicasts.forEach((entry) => entry.scope.dispose());
   _activePreloadUnicasts.clear();
+  _preloadPeerOwners.clear();
 
   batchSetState({
     'preload.sessionId': 0,
@@ -958,20 +1067,41 @@ async function backgroundTransfer(
   // get no PRELOAD_START header at all instead of a header for a stream
   // that can never reach them. Receiver-safe: a guest that never sees the
   // header simply has no sessionState entry for this sid.
-  const targets = filterEligiblePeers(sessionId).filter(isBulkTransferWritablePeer);
+  const eligibleTargets = filterEligiblePeers(sessionId).filter(isBulkTransferWritablePeer);
 
-  if (targets.length === 0) return;
+  if (eligibleTargets.length === 0) return;
 
   // The caller serialized prior work, so only explicit cancellation disposes
   // this fresh scope. This owner deliberately survives local cache promotion:
   // the host can decode its own File before slower guests receive every byte.
   const scope = new SessionScope();
+  const peerOwners = new Map<string, PreloadPeerOwner>();
+  const targets = eligibleTargets.filter((peer) => {
+    if (!peer.conn) return false;
+    const peerOwner: PreloadPeerOwner = {
+      conn: peer.conn,
+      sourceId: preloadSourceId(file),
+      queueItemId,
+      sessionId,
+      scope,
+      kind: 'broadcast',
+      status: 'active',
+    };
+    if (!claimPreloadPeer(peerOwner)) return false;
+    peerOwners.set(peer.id, peerOwner);
+    return true;
+  });
+  if (targets.length === 0) {
+    scope.dispose();
+    return;
+  }
   const owner: BackgroundTransferOwner = {
     queueItemId,
     sessionId,
     sourceBlob: file,
     scope,
     targets,
+    peerOwners,
     abortedPeerIds: new Set(),
     completedPeerIds: new Set(),
     terminal: 'streaming',
@@ -982,8 +1112,11 @@ async function backgroundTransfer(
   const canContinue = (): boolean =>
     _inFlightBackgroundOwner === owner && owner.terminal === 'streaming' && !scope.aborted;
   const completePeer = (peer: ConnectedPeer): void => {
+    const peerOwner = peerOwners.get(peer.id);
     if (
       !canContinue() ||
+      !peerOwner ||
+      !ownsPreloadPeer(peerOwner) ||
       owner.abortedPeerIds.has(peer.id) ||
       owner.completedPeerIds.has(peer.id)
     ) {
@@ -992,12 +1125,17 @@ async function backgroundTransfer(
     // Record the peer's terminal state before publishing END. A later peer's
     // read failure or explicit cancellation must not retract this completion.
     owner.completedPeerIds.add(peer.id);
-    safeSend(peer.conn, {
+    const sent = safeSend(peer.conn, {
       type: MSG.PRELOAD_END,
       name: owner.sourceBlob.name,
       queueItemId: owner.queueItemId,
       sessionId: owner.sessionId,
     });
+    if (sent) peerOwner.status = 'complete';
+    else {
+      owner.completedPeerIds.delete(peer.id);
+      abortBackgroundPeer(owner, peer);
+    }
   };
 
   try {
@@ -1011,7 +1149,9 @@ async function backgroundTransfer(
       const conn = p.conn as DataConnection;
       const needsChunks = targetsWhoNeedChunks.includes(p);
       if (needsChunks) invalidatePeerPreloadResidency(conn);
-      safeSend(conn, { ...header, skipped: !needsChunks });
+      if (!safeSend(conn, { ...header, skipped: !needsChunks })) {
+        abortBackgroundPeer(owner, p);
+      }
     });
 
     // Already-preloaded peers need no bytes and can settle immediately. Keep
@@ -1036,7 +1176,10 @@ async function backgroundTransfer(
       }),
       bufferedLimit: PRELOAD_BROADCAST_BACKPRESSURE_LIMIT,
       stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
-      isWritable: isBulkTransferWritablePeer,
+      isWritable: (peer) => {
+        const peerOwner = peerOwners.get(peer.id);
+        return !!peerOwner && ownsPreloadPeer(peerOwner) && isBulkTransferWritablePeer(peer);
+      },
       shouldContinue: canContinue,
       // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
       // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
@@ -1068,6 +1211,9 @@ async function backgroundTransfer(
     }
     throw error;
   } finally {
+    for (const peerOwner of peerOwners.values()) {
+      if (peerOwner.status === 'active') releasePreloadPeer(peerOwner);
+    }
     if (_inFlightBackgroundOwner === owner) _inFlightBackgroundOwner = null;
     if (_preloadScope === scope) _preloadScope = null;
     scope.dispose();
@@ -1087,14 +1233,26 @@ export async function unicastPreload(
   if (!conn?.open || !file || !queueItemId || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
     return;
   }
+  if (hasExactPreloadPeerOwner(conn, file, queueItemId, sessionId)) return;
 
   // Freeze the exact source tuple before the asynchronous transport guard.
   // The host can replace a preload for the same queue occurrence while ICE
   // classification, backpressure, or Blob reads are pending.
   const unicastKey = conn.peer;
-  const prevEntry = _activePreloadUnicasts.get(unicastKey);
-  const scope = SessionScope.replace(prevEntry?.scope ?? null);
-  _activePreloadUnicasts.set(unicastKey, { scope, sid: sessionId, queueItemId, conn });
+  const sourceId = preloadSourceId(file);
+  for (const [previousScope, previous] of _activePreloadUnicasts) {
+    if (previous.conn.peer !== unicastKey) continue;
+    const sameConnection = previous.conn === conn;
+    const sameTuple = previous.queueItemId === queueItemId && previous.sessionId === sessionId;
+    if (sameConnection && sameTuple && previous.sourceId === sourceId && !previousScope.aborted)
+      return;
+    if (sameConnection && !sameTuple && isResidentPreloadTransfer(previous)) continue;
+    previousScope.dispose();
+    _activePreloadUnicasts.delete(previousScope);
+  }
+  const scope = new SessionScope();
+  _activePreloadUnicasts.set(scope, { scope, sourceId, sessionId, queueItemId, conn });
+  let peerOwner: PreloadPeerOwner | null = null;
 
   const isSourceCurrent = (): boolean => {
     const meta = getState('preload.activeTarget');
@@ -1118,12 +1276,14 @@ export async function unicastPreload(
     );
   };
   const canContinue = (): boolean =>
-    !scope.aborted && conn.open && isPeerConnectionCurrent(unicastKey, conn) && isSourceCurrent();
+    !scope.aborted &&
+    (!peerOwner || ownsPreloadPeer(peerOwner)) &&
+    conn.open &&
+    isPeerConnectionCurrent(unicastKey, conn) &&
+    isSourceCurrent();
   const releaseScope = (): void => {
     scope.dispose();
-    if (_activePreloadUnicasts.get(unicastKey)?.scope === scope) {
-      _activePreloadUnicasts.delete(unicastKey);
-    }
+    _activePreloadUnicasts.delete(scope);
   };
 
   try {
@@ -1134,22 +1294,36 @@ export async function unicastPreload(
       return;
     }
     if (!canContinue()) return;
+    const claimedOwner: PreloadPeerOwner = {
+      conn,
+      sourceId: preloadSourceId(file),
+      queueItemId,
+      sessionId,
+      scope,
+      kind: 'unicast',
+      status: 'active',
+    };
+    if (!claimPreloadPeer(claimedOwner)) return;
+    peerOwner = claimedOwner;
 
     const CHUNK = CHUNK_SIZE;
     const total = Math.ceil(file.size / CHUNK);
     const fileName = 'name' in file ? file.name : 'Track';
 
     invalidatePeerPreloadResidency(conn);
-    safeSend(conn, {
-      type: MSG.PRELOAD_START,
-      name: fileName,
-      mime: file.type,
-      total,
-      size: file.size,
-      queueItemId,
-      sessionId,
-      skipped: false,
-    });
+    if (
+      !safeSend(conn, {
+        type: MSG.PRELOAD_START,
+        name: fileName,
+        mime: file.type,
+        total,
+        size: file.size,
+        queueItemId,
+        sessionId,
+        skipped: false,
+      })
+    )
+      return;
 
     for (let i = 0; i < total; i++) {
       if (!canContinue()) return;
@@ -1166,22 +1340,28 @@ export async function unicastPreload(
       const start = i * CHUNK;
       const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
       if (!canContinue()) return;
-      safeSend(conn, {
-        type: MSG.PRELOAD_CHUNK,
-        chunk: new Uint8Array(chunkBuf),
-        chunkIndex: i,
-        queueItemId,
-        sessionId,
-      });
+      if (
+        !safeSend(conn, {
+          type: MSG.PRELOAD_CHUNK,
+          chunk: new Uint8Array(chunkBuf),
+          chunkIndex: i,
+          queueItemId,
+          sessionId,
+        })
+      )
+        return;
     }
 
     if (canContinue()) {
-      safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, queueItemId, sessionId });
+      if (safeSend(conn, { type: MSG.PRELOAD_END, name: fileName, queueItemId, sessionId })) {
+        peerOwner.status = 'complete';
+      }
     }
   } finally {
     // Always dispose our own scope; remove the registry entry only if this
     // invocation still owns it. A stale failure must not detach its successor.
     releaseScope();
+    if (peerOwner?.status === 'active') releasePreloadPeer(peerOwner);
   }
 }
 
@@ -1198,7 +1378,12 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
   return !!hostConn && conn === hostConn;
 }
 
-/** Exempt only chunks for a bounded, non-finalized preload owned by hostConn. */
+/**
+ * Exempt only exact bounded chunks for an admitted preload owned by hostConn.
+ * A completed session still authenticates harmless duplicate chunks from an
+ * older sender; they are discarded before copying, without starving controls
+ * by spending the ordinary inbound bucket.
+ */
 function isActiveHostPreloadChunkForRateLimit(
   data: Readonly<Record<string, unknown>>,
   conn: DataConnection,
@@ -1237,7 +1422,6 @@ function isActiveHostPreloadChunkForRateLimit(
   return (
     !!session &&
     !session.skipped &&
-    !session.finalized &&
     session.queueItemId === queueItemId &&
     Number.isSafeInteger(session.total) &&
     session.total > 0 &&
@@ -2103,6 +2287,9 @@ export function initPreload(): void {
     [MSG.PRELOAD_ACK]: handlePreloadAck,
     [MSG.PLAY_PRELOADED]: handlePlayPreloaded,
   });
+
+  bus.on('network:peer-disconnected', releasePreloadPeerConnection);
+  bus.on('network:peer-connection-replaced', releasePreloadPeerConnection);
 
   // Handle preload file ready from storage (bridged from storage:file-ready via playback.ts)
   bus.on(

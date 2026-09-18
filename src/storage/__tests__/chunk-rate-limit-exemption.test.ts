@@ -148,7 +148,7 @@ describe('preload chunk rate-limit exemption', () => {
     );
   });
 
-  it('does not exempt skipped, finalized, or missing preload sessions', () => {
+  it('does not exempt skipped or missing preload sessions', () => {
     const sessions = new Map(getState('preload.sessionState'));
     const active = sessions.get(SESSION_ID)!;
 
@@ -156,11 +156,30 @@ describe('preload chunk rate-limit exemption', () => {
     setState('preload.sessionState', sessions);
     expect(isActiveHostPreloadChunkForRateLimit(preloadChunk(), hostConn)).toBe(false);
 
-    sessions.set(SESSION_ID, { ...active, finalized: true });
-    setState('preload.sessionState', new Map(sessions));
-    expect(isActiveHostPreloadChunkForRateLimit(preloadChunk(), hostConn)).toBe(false);
-
     setState('preload.sessionState', new Map());
+    expect(isActiveHostPreloadChunkForRateLimit(preloadChunk(), hostConn)).toBe(false);
+  });
+
+  it('exempts only validated duplicates of completed sessions, preserving the control bucket', () => {
+    const completed = { ...getState('preload.sessionState').get(SESSION_ID)!, finalized: true };
+    setState('preload.sessionState', new Map([[SESSION_ID, completed]]));
+    expect(isActiveHostPreloadChunkForRateLimit(preloadChunk(), hostConn)).toBe(true);
+    expect(
+      isActiveHostPreloadChunkForRateLimit(
+        preloadChunk({ chunkIndex: 1, chunk: new Uint8Array(1) }),
+        hostConn,
+      ),
+    ).toBe(true);
+    for (const invalid of [
+      { sessionId: SESSION_ID + 1 },
+      { queueItemId: OTHER_QUEUE_ITEM_ID },
+      { chunkIndex: 2 },
+      { chunk: new Uint8Array(1) },
+      { unexpected: true },
+    ])
+      expect(isActiveHostPreloadChunkForRateLimit(preloadChunk(invalid), hostConn)).toBe(false);
+    expect(isActiveHostPreloadChunkForRateLimit(preloadChunk(), guestConn)).toBe(false);
+    setState('preload.sessionState', new Map([[SESSION_ID, { ...completed, skipped: true }]]));
     expect(isActiveHostPreloadChunkForRateLimit(preloadChunk(), hostConn)).toBe(false);
   });
 });

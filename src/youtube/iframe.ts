@@ -2541,9 +2541,11 @@ function onYouTubePlayerError(event: { data: number; target: YouTubePlayerInstan
     return;
   }
 
-  // Generic fallback (e.g. code 2 invalid param, code 5 HTML5 engine)
+  // Generic API/engine failures describe this iframe, not room-wide content
+  // availability. A PRO controller's local failure must not skip a track that
+  // other participants can still play; only the content-error branch above
+  // can submit an unavailable observation.
   showToast(t('youtube.load_fail'));
-  routeCurrentProYouTubeObservation('unavailable');
 }
 
 /**
@@ -3135,6 +3137,9 @@ function updateYouTubeUI(): void {
       document.getElementById('youtube-ios-sync-overlay')?.style.display === 'flex';
     const stuckEligible =
       isHost &&
+      // Every PRO endpoint has no hostConn. Its buffering alone cannot prove
+      // the room's content is unavailable, even when it has playback control.
+      getState('room.context').kind !== 'pro' &&
       stuckStateEligible &&
       !iosOverlayVisible &&
       !document.hidden &&

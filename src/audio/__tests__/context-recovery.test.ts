@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { resetState, setState } from '../../core/state.ts';
+import { newLoadEpoch, setCurrentAudioBuffer } from '../../player/_state.ts';
 import {
   armForegroundAudioContextClockHealthCheck,
   consumeForegroundAudioContextClockHealthCheck,
@@ -30,7 +31,7 @@ class FakeAudioContext {
   state = 'running';
   clock: 'running' | 'stalled' = 'running';
   private readonly clockStartedAt = performance.now();
-  readonly resume = vi.fn(async () => undefined);
+  readonly resume = vi.fn(async (): Promise<void> => undefined);
   readonly suspend = vi.fn(async () => {
     this.state = 'suspended';
   });
@@ -73,6 +74,80 @@ function markActiveFileRoom(): void {
 }
 
 describe('AudioContext interruption recovery', () => {
+  it.each(['reject', 'timeout'] as const)(
+    'offers one demo gesture recovery after automatic resume %s',
+    async (failure) => {
+      vi.useFakeTimers();
+      let dispose: (() => void) | undefined;
+      try {
+        markActiveFileRoom();
+        setState('demo.active', true);
+        setState('demo.currentTrackIndex', 0);
+        setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+        const context = new FakeAudioContext();
+        if (failure === 'reject') context.resume.mockRejectedValue(new Error('Gesture required'));
+        else context.resume.mockImplementation(() => new Promise<void>(() => undefined));
+        const recoveryNeeded = vi.fn();
+        bus.on('audio:output-recovery-needed', recoveryNeeded);
+        dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+        context.dispatchState('suspended');
+        await vi.advanceTimersByTimeAsync(751);
+        expect(recoveryNeeded).toHaveBeenCalledOnce();
+        expect(recoveryNeeded).toHaveBeenCalledWith(
+          expect.objectContaining({
+            source: 'background-resume',
+            reason: 'context-not-running',
+            queueItemId: null,
+          }),
+        );
+        const request = recoveryNeeded.mock.calls[0]![0] as { isCurrent: () => boolean };
+        expect(request.isCurrent()).toBe(true);
+        newLoadEpoch();
+        expect(request.isCurrent()).toBe(false);
+      } finally {
+        dispose?.();
+        setCurrentAudioBuffer(null);
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('does not rejoin a replacement demo buffer when an old native resume settles', async () => {
+    vi.useFakeTimers();
+    let dispose: (() => void) | undefined;
+    try {
+      markActiveFileRoom();
+      setState('demo.active', true);
+      setState('demo.currentTrackIndex', 0);
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      const context = new FakeAudioContext();
+      let resolveResume!: () => void;
+      context.resume.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveResume = resolve;
+          }),
+      );
+      const rejoin = vi.fn();
+      const recoveryNeeded = vi.fn();
+      bus.on('playback:local-output-rejoin', rejoin);
+      bus.on('audio:output-recovery-needed', recoveryNeeded);
+      dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+      context.dispatchState('suspended');
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      expect(getPendingAudioContextRecoveryAttemptForHealth()).toBeNull();
+      context.state = 'running';
+      resolveResume();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(rejoin).not.toHaveBeenCalled();
+      expect(recoveryNeeded).not.toHaveBeenCalled();
+    } finally {
+      dispose?.();
+      setCurrentAudioBuffer(null);
+      vi.useRealTimers();
+    }
+  });
+
   it('turns a running-but-frozen background clock into one identity-fenced gesture rejoin', async () => {
     markActiveFileRoom();
     setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');

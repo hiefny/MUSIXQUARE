@@ -34,7 +34,12 @@ vi.mock('../../youtube/sync.ts', () => ({
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { setLocalYouTubePaused, isLocalYouTubePaused } from '../../youtube/_state.ts';
-import { setLocalFilePaused, isLocalFilePaused } from '../_state.ts';
+import {
+  setLocalFilePaused,
+  isLocalFilePaused,
+  setCurrentAudioBuffer,
+  newLoadEpoch,
+} from '../_state.ts';
 import { initLocalOutputRejoin } from '../local-output-rejoin.ts';
 import { initMediaSession } from '../media-session.ts';
 import {
@@ -82,6 +87,27 @@ beforeEach(() => {
 });
 
 describe('participant-local output rejoin', () => {
+  it('keeps a newer demo buffer rejoin out of the old null-queue cooldown and pending flight', async () => {
+    startSession();
+    setStandardHost();
+    setPlaybackFilePlaying();
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const refreshPosition = vi.fn();
+    bus.on('playback:refresh-current-position', refreshPosition);
+    const request = { reason: 'background-resume' as const, mode: 'file' as const };
+    bus.emit('playback:local-output-rejoin', request);
+    expect(refreshPosition).toHaveBeenCalledOnce();
+    newLoadEpoch();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    bus.emit('playback:local-output-rejoin', request);
+    await vi.waitFor(() => expect(refreshPosition).toHaveBeenCalledTimes(2));
+    bus.emit('playback:local-output-rejoin', request);
+    await Promise.resolve();
+    expect(refreshPosition).toHaveBeenCalledTimes(2);
+    setCurrentAudioBuffer(null);
+  });
   it('cancels a reserved PRO retry when a later hardware PAUSE arrives after the miss', async () => {
     vi.useFakeTimers();
     try {

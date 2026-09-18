@@ -1,9 +1,12 @@
 /** Evidence-based local Web Audio health checks for foreground recovery. */
 
 import { getState } from '../core/state.ts';
-import type { ResidentFile } from '../types/index.ts';
-import { getRoomContext } from '../rooms/authority.ts';
-import { getCurrentAudioBuffer, getPlayerNode } from '../player/_state.ts';
+import { getPlayerNode } from '../player/_state.ts';
+import {
+  captureLocalFileOutputIdentity,
+  isLocalFileOutputIdentityCurrent,
+  type LocalFileOutputIdentity,
+} from '../player/local-file-output-identity.ts';
 import { isFilePipelineBusyForPlay, isFileSourceNodeUsable } from '../player/transport.ts';
 import { isPlaybackPlayingFile } from '../player/ownership.ts';
 import {
@@ -20,13 +23,8 @@ import {
   type AudioContextHealthReason,
 } from './context.ts';
 
-interface LocalFileOutputIdentity {
-  readonly roomKind: 'standard' | 'pro';
-  readonly roomId: string | null;
-  readonly roomEpoch: number;
-  readonly queueItemId: string;
-  readonly buffer: AudioBuffer;
-  readonly resident: ResidentFile;
+interface LocalFileOutputSample {
+  readonly playback: LocalFileOutputIdentity;
   readonly source: AudioBufferSourceNode | null;
 }
 
@@ -52,7 +50,7 @@ const NO_REJOIN = {
   isPlaybackCurrent: null,
 } as const;
 
-function captureIdentity(): LocalFileOutputIdentity | null {
+function captureIdentity(): LocalFileOutputSample | null {
   if (
     !getState('setup.sessionStarted') ||
     !isPlaybackPlayingFile() ||
@@ -60,41 +58,21 @@ function captureIdentity(): LocalFileOutputIdentity | null {
   ) {
     return null;
   }
-  const queueItemId = getState('playlist.currentQueueItemId');
-  const buffer = getCurrentAudioBuffer();
-  const resident = getState('files.current');
-  if (!queueItemId || !buffer || !resident || resident.queueItemId !== queueItemId) {
-    return null;
-  }
-  const room = getRoomContext();
-  return {
-    roomKind: room.kind,
-    roomId: room.roomId,
-    roomEpoch: room.epoch,
-    queueItemId,
-    buffer,
-    resident,
-    source: getPlayerNode(),
-  };
+  const playback = captureLocalFileOutputIdentity();
+  return playback ? { playback, source: getPlayerNode() } : null;
 }
 
-function playbackIdentityStillCurrent(identity: LocalFileOutputIdentity): boolean {
-  const room = getRoomContext();
+function playbackIdentityStillCurrent(identity: LocalFileOutputSample): boolean {
   return Boolean(
     document.visibilityState === 'visible' &&
     getState('setup.sessionStarted') &&
     isPlaybackPlayingFile() &&
     !isFilePipelineBusyForPlay() &&
-    room.kind === identity.roomKind &&
-    room.roomId === identity.roomId &&
-    room.epoch === identity.roomEpoch &&
-    getState('playlist.currentQueueItemId') === identity.queueItemId &&
-    getState('files.current') === identity.resident &&
-    getCurrentAudioBuffer() === identity.buffer,
+    isLocalFileOutputIdentityCurrent(identity.playback),
   );
 }
 
-function identityStillCurrent(identity: LocalFileOutputIdentity): boolean {
+function identityStillCurrent(identity: LocalFileOutputSample): boolean {
   return playbackIdentityStillCurrent(identity) && getPlayerNode() === identity.source;
 }
 
@@ -156,7 +134,10 @@ export async function inspectBackgroundFileOutput(): Promise<BackgroundFileOutpu
       hiddenContinuityGapSeconds !== null &&
       hiddenContinuityGapSeconds > BACKGROUND_FILE_OUTPUT_CONTINUITY_TOLERANCE_SECONDS,
     );
-    const physicalSourceInvalid = !isFileSourceNodeUsable(identity.source, identity.buffer);
+    const physicalSourceInvalid = !isFileSourceNodeUsable(
+      identity.source,
+      identity.playback.buffer,
+    );
     if (foregroundRequirement) {
       consumeForegroundAudioContextClockHealthCheck(foregroundRequirement.token);
     }

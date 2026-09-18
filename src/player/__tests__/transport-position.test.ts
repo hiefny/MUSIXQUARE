@@ -78,6 +78,7 @@ describe('transport position', () => {
     setState('demo.active', true);
     setState('sync.localOffset', IS_WINDOWS ? -0.02 : 0);
     vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    vi.spyOn(performance, 'now').mockReturnValue(100);
     try {
       await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 100, hostPlayAt: 0 }, host);
       await vi.waitFor(() => expect(mocks.start).toHaveBeenCalledExactlyOnceWith(0, 100));

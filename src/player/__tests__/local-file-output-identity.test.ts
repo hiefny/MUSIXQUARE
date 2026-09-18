@@ -1,0 +1,70 @@
+/** @vitest-environment jsdom */
+import { beforeEach, describe, expect, it } from 'vitest';
+import { getState, resetState, setState } from '../../core/state.ts';
+import { newLoadEpoch, setCurrentAudioBuffer } from '../_state.ts';
+import {
+  captureLocalFileOutputIdentity,
+  isLocalFileOutputIdentityCurrent,
+} from '../local-file-output-identity.ts';
+
+const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
+beforeEach(() => {
+  resetState();
+  setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+});
+
+describe('native output recovery identity', () => {
+  it('keeps ordinary file recovery behind its resident queue occurrence', () => {
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    expect(captureLocalFileOutputIdentity()).toBeNull();
+    setState('files.current', {
+      name: 'song.mp3',
+      indexHint: 0,
+      size: 1,
+      mime: 'audio/mpeg',
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 1,
+      blob: new Blob(['x']),
+    });
+    const identity = captureLocalFileOutputIdentity()!;
+    expect(identity.kind).toBe('queue-file');
+    expect(isLocalFileOutputIdentityCurrent(identity)).toBe(true);
+    setState('files.current', { ...getState('files.current')!, sessionId: 2 });
+    expect(isLocalFileOutputIdentityCurrent(identity)).toBe(false);
+  });
+
+  it('preserves the failed-PLAY boundary before normal resident metadata is published', () => {
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    const identity = captureLocalFileOutputIdentity({ requireResident: false });
+    expect(identity?.kind).toBe('queue-file');
+    expect(isLocalFileOutputIdentityCurrent(identity!)).toBe(true);
+  });
+
+  it.each(['exit', 'track', 'buffer', 'epoch', 'room', 'room-epoch'] as const)(
+    'retires demo recovery on a changed %s even without a queue occurrence',
+    (change) => {
+      setState('demo.active', true);
+      setState('demo.currentTrackIndex', 0);
+      const identity = captureLocalFileOutputIdentity()!;
+      expect(identity).toMatchObject({ kind: 'demo', queueItemId: null, trackIndex: 0 });
+      expect(isLocalFileOutputIdentityCurrent(identity)).toBe(true);
+      if (change === 'exit') setState('demo.active', false);
+      if (change === 'track') setState('demo.currentTrackIndex', 1);
+      if (change === 'buffer') setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      if (change === 'epoch') newLoadEpoch();
+      if (change === 'room')
+        setState('room.context', { ...getState('room.context'), roomId: 'new-room' });
+      if (change === 'room-epoch')
+        setState('room.context', { ...getState('room.context'), epoch: 99 });
+      expect(isLocalFileOutputIdentityCurrent(identity)).toBe(false);
+    },
+  );
+
+  it('does not classify a stale demo flag in a PRO room as demo output', () => {
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    setState('room.context', { ...getState('room.context'), kind: 'pro' });
+    expect(captureLocalFileOutputIdentity()).toBeNull();
+  });
+});

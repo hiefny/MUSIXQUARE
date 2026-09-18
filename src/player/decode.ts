@@ -513,11 +513,11 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
   });
 
   try {
-    if (!isSystemAudioActive()) {
+    // Decoding needs a context, not running output. A locked context must leave
+    // the valid demo bytes available for PLAY's trusted-gesture recovery.
+    if (!isSystemAudioActive() && getAudioContext().state === 'running') {
       await Promise.race([initAudio(), delay(2000)]);
     }
-    if (!isCurrentOwner()) return;
-    if (getAudioContext().state !== 'running') await ensureRunning();
     if (!isCurrentOwner()) return;
 
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);

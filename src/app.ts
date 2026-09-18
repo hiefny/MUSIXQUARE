@@ -101,7 +101,13 @@ import { initPlayback } from './player/playback.ts';
 import { initPlaylist } from './player/playlist.ts';
 import { initDecodeHandlers } from './player/decode.ts';
 import { isFilePipelineBusyForPlay, recoverStalePlayLock } from './player/transport.ts';
-import { getCurrentAudioBuffer, isLocalFilePaused } from './player/_state.ts';
+import { isLocalFilePaused } from './player/_state.ts';
+import {
+  captureLocalFileOutputIdentity,
+  isLocalFileOutputIdentityCurrent,
+  localFileOutputIdentitiesEqual,
+  type LocalFileOutputIdentity,
+} from './player/local-file-output-identity.ts';
 
 // ── YouTube ──
 import { initYouTube } from './youtube/player.ts';
@@ -222,11 +228,7 @@ function initWakeLock(): void {
 
 interface AudioRecoveryIdentity {
   readonly intent: 'restore-playing-output' | 'retry-failed-play';
-  readonly roomKind: 'standard' | 'pro';
-  readonly roomId: string | null;
-  readonly roomEpoch: number;
-  readonly queueItemId: string | null;
-  readonly buffer: AudioBuffer;
+  readonly playback: LocalFileOutputIdentity;
   readonly sourceIntentIsCurrent?: () => boolean;
   readonly foregroundRestartAttemptToken?: object;
   readonly confirmForegroundRestart?: (attemptToken: object) => boolean;
@@ -262,16 +264,12 @@ function captureAudioRecoveryIdentity(
   confirmForegroundRestart?: (attemptToken: object) => boolean,
   retry?: () => Promise<boolean>,
 ): AudioRecoveryIdentity | null {
-  const room = getRoomContext();
-  const queueItemId = getState('playlist.currentQueueItemId');
-  const buffer = getCurrentAudioBuffer();
+  const playback = captureLocalFileOutputIdentity();
   if (
     !getState('setup.sessionStarted') ||
     getState('playback.mode') !== 'file' ||
-    !queueItemId ||
-    queueItemId !== expectedQueueItemId ||
-    !buffer ||
-    getState('files.current')?.queueItemId !== queueItemId ||
+    !playback ||
+    playback.queueItemId !== expectedQueueItemId ||
     isFilePipelineBusyForPlay() ||
     isLocalFilePaused() ||
     sourceIntentIsCurrent?.() === false ||
@@ -282,11 +280,7 @@ function captureAudioRecoveryIdentity(
   }
   return {
     intent,
-    roomKind: room.kind,
-    roomId: room.roomId,
-    roomEpoch: room.epoch,
-    queueItemId,
-    buffer,
+    playback,
     sourceIntentIsCurrent,
     foregroundRestartAttemptToken,
     confirmForegroundRestart,
@@ -295,7 +289,6 @@ function captureAudioRecoveryIdentity(
 }
 
 function audioRecoveryPlaybackIdentityStillCurrent(identity: AudioRecoveryIdentity): boolean {
-  const room = getRoomContext();
   return Boolean(
     document.visibilityState === 'visible' &&
     getState('setup.sessionStarted') &&
@@ -303,12 +296,7 @@ function audioRecoveryPlaybackIdentityStillCurrent(identity: AudioRecoveryIdenti
     (identity.intent === 'retry-failed-play' || isPlaybackPlayingFile()) &&
     !isLocalFilePaused() &&
     !isFilePipelineBusyForPlay() &&
-    room.kind === identity.roomKind &&
-    room.roomId === identity.roomId &&
-    room.epoch === identity.roomEpoch &&
-    getState('playlist.currentQueueItemId') === identity.queueItemId &&
-    getState('files.current')?.queueItemId === identity.queueItemId &&
-    getCurrentAudioBuffer() === identity.buffer,
+    isLocalFileOutputIdentityCurrent(identity.playback),
   );
 }
 
@@ -361,11 +349,7 @@ function isSameAudioRecoveryIdentity(
 ): boolean {
   return (
     left.intent === right.intent &&
-    left.roomKind === right.roomKind &&
-    left.roomId === right.roomId &&
-    left.roomEpoch === right.roomEpoch &&
-    left.queueItemId === right.queueItemId &&
-    left.buffer === right.buffer &&
+    localFileOutputIdentitiesEqual(left.playback, right.playback) &&
     left.sourceIntentIsCurrent === right.sourceIntentIsCurrent &&
     left.foregroundRestartAttemptToken === right.foregroundRestartAttemptToken &&
     left.confirmForegroundRestart === right.confirmForegroundRestart &&
@@ -746,7 +730,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
   if (output.status === 'needs-gesture') {
     const reason = output.reason === 'clock-stalled' ? 'clock-stalled' : 'context-not-running';
     suppressLongBackgroundWarningForIncident = true;
-    const queueItemId = getState('playlist.currentQueueItemId');
+    const queueItemId = captureLocalFileOutputIdentity()?.queueItemId ?? null;
     bus.emit('audio:output-recovery-needed', {
       reason,
       source: 'background-resume',
@@ -838,6 +822,8 @@ function initAudioOutputRecovery(): void {
   bus.on('state:playback.mode', abortSupersededRecovery);
   bus.on('state:playlist.currentQueueItemId', abortSupersededRecovery);
   bus.on('state:files.current', abortSupersededRecovery);
+  bus.on('state:demo.active', abortSupersededRecovery);
+  bus.on('state:demo.currentTrackIndex', abortSupersededRecovery);
   bus.on('player:buffer-changed', abortSupersededRecovery);
   bus.on('state:room.context', abortSupersededRecovery);
   bus.on('state:setup.sessionStarted', abortSupersededRecovery);

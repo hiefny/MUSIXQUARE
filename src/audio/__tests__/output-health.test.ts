@@ -39,6 +39,7 @@ vi.mock('../../player/transport.ts', () => ({
 }));
 vi.mock('../../player/_state.ts', () => ({
   getCurrentAudioBuffer: mocks.getBuffer,
+  getCurrentLoadEpoch: vi.fn(() => 1),
   getPlayerNode: mocks.getPlayerNode,
 }));
 vi.mock('../context.ts', () => ({
@@ -116,6 +117,20 @@ describe('background local-file output health', () => {
       isPlaybackCurrent: expect.any(Function),
     });
     expect(mocks.arm).not.toHaveBeenCalled();
+  });
+
+  it('probes demo output without a resident queue file and requests gesture recovery for a stalled clock', async () => {
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    setState('playlist.currentQueueItemId', null);
+    setState('files.current', null);
+    mocks.probe.mockResolvedValue({ healthy: false, reason: 'clock-stalled' });
+    await expect(inspectBackgroundFileOutput()).resolves.toMatchObject({
+      status: 'needs-gesture',
+      reason: 'clock-stalled',
+    });
+    expect(mocks.probe).toHaveBeenCalledOnce();
+    expect(mocks.arm).toHaveBeenCalledOnce();
   });
 
   it('defers without auto-resume while a generic foreground restart owns the context', async () => {

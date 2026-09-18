@@ -18,7 +18,7 @@ import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
-import { hasRoomCapability } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability, isStandardRoomMember } from '../rooms/authority.ts';
 import { handleProRoomTrackMetadata } from '../pro-room/media-hooks.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import {
@@ -71,7 +71,12 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { configureYouTubeIframeRuntimeHooks } from './iframe-runtime-bridge.ts';
-import { guestRendezvousSync, resetYouTubeSyncState, suppressDriftUntil } from './sync.ts';
+import {
+  guestRendezvousSync,
+  isGuestYouTubeTransitionPending,
+  resetYouTubeSyncState,
+  suppressDriftUntil,
+} from './sync.ts';
 import {
   afterStandardHostManualOffsetTransaction,
   isStandardHostManualOffsetTransactionPending,
@@ -150,6 +155,100 @@ const SAME_VIDEO_OCCURRENCE_PAUSE_POLL_MS = 20;
 const SAME_VIDEO_OCCURRENCE_PAUSE_TIMEOUT_MS = 500;
 const STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER = 'yt-standard-host-manual-repeat-one';
 const STANDARD_HOST_MANUAL_REPEAT_ONE_POLL_MS = 100;
+const STANDARD_HOST_MANUAL_REPEAT_ONE_METADATA_TIMEOUT_MS = 2_000;
+let guestEndedFallbackGeneration = 0;
+let consumedStandardHostRepeatOneEnd: {
+  player: YouTubePlayerInstance;
+  sessionId: number;
+  queueItemId: QueueItemId | null;
+  subIndex: number;
+  videoId: string;
+} | null = null;
+
+function consumeStandardHostRepeatOneEnd(player: YouTubePlayerInstance, videoId: string): boolean {
+  const occurrence = {
+    player,
+    sessionId: getCurrentSessionId(),
+    queueItemId: getCurrentQueueItemId(),
+    subIndex: getState('youtube.currentSubIndex') ?? -1,
+    videoId,
+  };
+  const consumed = consumedStandardHostRepeatOneEnd;
+  if (
+    consumed &&
+    consumed.player === occurrence.player &&
+    consumed.sessionId === occurrence.sessionId &&
+    consumed.queueItemId === occurrence.queueItemId &&
+    consumed.subIndex === occurrence.subIndex &&
+    consumed.videoId === occurrence.videoId
+  )
+    return false;
+  consumedStandardHostRepeatOneEnd = occurrence;
+  return true;
+}
+
+function cancelGuestEndedFallback(): void {
+  guestEndedFallbackGeneration += 1;
+  clearManagedTimer('yt-guest-ended-fallback');
+}
+
+function armGuestEndedFallback(player: YouTubePlayerInstance): void {
+  cancelGuestEndedFallback();
+  const room = getRoomContext();
+  const hostConn = getState('network.hostConn');
+  const queueItemId = getCurrentQueueItemId();
+  const subIndex = getState('youtube.currentSubIndex') ?? -1;
+  const videoId = queueItemId ? getExpectedYouTubeVideoId(queueItemId, subIndex) : '';
+  if (
+    room.kind !== 'standard' ||
+    !hostConn ||
+    !queueItemId ||
+    !videoId ||
+    isGuestYouTubeTransitionPending()
+  )
+    return;
+  const generation = guestEndedFallbackGeneration;
+  const sessionId = getCurrentSessionId();
+  setManagedTimer(
+    'yt-guest-ended-fallback',
+    () => {
+      if (generation !== guestEndedFallbackGeneration) return;
+      cancelGuestEndedFallback();
+      const currentRoom = getRoomContext();
+      if (
+        !isPlaybackModeYouTube() ||
+        getYouTubePlayer() !== player ||
+        getCurrentSessionId() !== sessionId ||
+        getState('network.hostConn') !== hostConn ||
+        currentRoom.kind !== 'standard' ||
+        currentRoom.roomId !== room.roomId ||
+        currentRoom.epoch !== room.epoch ||
+        getCurrentQueueItemId() !== queueItemId ||
+        (getState('youtube.currentSubIndex') ?? -1) !== subIndex ||
+        getExpectedYouTubeVideoId(queueItemId, subIndex) !== videoId ||
+        isGuestYouTubeTransitionPending()
+      )
+        return;
+      try {
+        if (
+          player.getPlayerState() !== YT.PlayerState.ENDED ||
+          player.getVideoData?.()?.video_id !== videoId
+        )
+          return;
+      } catch {
+        return;
+      }
+      // Only this still-ended occurrence can exhaust its host-wait deadline.
+      clearManagedTimer('youtubeUILoop');
+      log.debug(
+        '[YouTube] Guest: current ended occurrence received no host continuation. Going IDLE',
+      );
+      setPlaybackIdle();
+      bus.emit('youtube:stop-mode');
+    },
+    GUEST_ENDED_FALLBACK_MS,
+  );
+}
 
 interface DeferredStandardHostRepeatOne {
   token: number;
@@ -157,6 +256,11 @@ interface DeferredStandardHostRepeatOne {
   queueItemId: QueueItemId;
   subIndex: number;
   videoId: string;
+  sessionId: number;
+  sessionCode: string;
+  roomId: string | null;
+  roomEpoch: number;
+  metadataDeadlineAt: number | null;
 }
 
 let deferredStandardHostRepeatOne: DeferredStandardHostRepeatOne | null = null;
@@ -185,12 +289,17 @@ function pollDeferredStandardHostRepeatOne(token: number): void {
   const deferred = deferredStandardHostRepeatOne;
   if (!deferred || deferred.token !== token) return;
 
-  if (isStandardHostManualOffsetTransactionPending()) {
-    afterStandardHostManualOffsetTransaction(() => pollDeferredStandardHostRepeatOne(token));
-    return;
-  }
-
+  const room = getRoomContext();
   const hardIdentityMatches =
+    isPlaybackModeYouTube() &&
+    room.kind === 'standard' &&
+    room.roomId === deferred.roomId &&
+    room.epoch === deferred.roomEpoch &&
+    !getState('network.hostConn') &&
+    !isStandardRoomMember() &&
+    getState('playlist.repeatMode') === 2 &&
+    getCurrentSessionId() === deferred.sessionId &&
+    getState('network.sessionCode') === deferred.sessionCode &&
     getYouTubePlayer() === deferred.player &&
     getCurrentQueueItemId() === deferred.queueItemId &&
     (getState('youtube.currentSubIndex') ?? -1) === deferred.subIndex &&
@@ -201,8 +310,17 @@ function pollDeferredStandardHostRepeatOne(token: number): void {
     return;
   }
 
+  if (isStandardHostManualOffsetTransactionPending()) {
+    afterStandardHostManualOffsetTransaction(() => pollDeferredStandardHostRepeatOne(token));
+    return;
+  }
+
   let liveVideoId = '';
   try {
+    if (deferred.player.getPlayerState() !== YT.PlayerState.ENDED) {
+      deferredStandardHostRepeatOne = null;
+      return;
+    }
     liveVideoId = deferred.player.getVideoData?.()?.video_id || '';
   } catch {
     // A transient iframe metadata gap stays behind the transaction fence.
@@ -215,6 +333,12 @@ function pollDeferredStandardHostRepeatOne(token: number): void {
   }
 
   if (!liveVideoId) {
+    deferred.metadataDeadlineAt ??=
+      Date.now() + STANDARD_HOST_MANUAL_REPEAT_ONE_METADATA_TIMEOUT_MS;
+    if (Date.now() >= deferred.metadataDeadlineAt) {
+      deferredStandardHostRepeatOne = null;
+      return;
+    }
     setManagedTimer(
       STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER,
       () => pollDeferredStandardHostRepeatOne(token),
@@ -241,7 +365,19 @@ function restartRepeatOneAfterStandardHostManualOffsetSettles(player: YouTubePla
   if (!queueItemId || !videoId) return;
 
   const token = ++deferredStandardHostRepeatOneToken;
-  deferredStandardHostRepeatOne = { token, player, queueItemId, subIndex, videoId };
+  const room = getRoomContext();
+  deferredStandardHostRepeatOne = {
+    token,
+    player,
+    queueItemId,
+    subIndex,
+    videoId,
+    sessionId: getCurrentSessionId(),
+    sessionCode: getState('network.sessionCode'),
+    roomId: room.roomId,
+    roomEpoch: room.epoch,
+    metadataDeadlineAt: null,
+  };
   afterStandardHostManualOffsetTransaction(() => pollDeferredStandardHostRepeatOne(token));
 }
 /**
@@ -1326,6 +1462,8 @@ export function loadYouTubeVideo(
   }
   setEngineMode('youtube');
   const sessionId = incrementSessionId();
+  consumedStandardHostRepeatOneEnd = null;
+  cancelGuestEndedFallback();
   const commandPlaylistId = resolveRetainedCommandPlaylistId(
     videoId,
     playlistId,
@@ -2515,6 +2653,19 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
 
   if (!isPlaybackModeYouTube() && !indexing) return;
 
+  if (state !== YT.PlayerState.ENDED) {
+    cancelGuestEndedFallback();
+    // Repeated ENDED callbacks must not keep replacing the pending host
+    // restart. Only live progress beyond that physical end releases its latch.
+    try {
+      if (player.getPlayerState() !== YT.PlayerState.ENDED) {
+        consumedStandardHostRepeatOneEnd = null;
+      }
+    } catch {
+      /* Unreadable live state cannot prove a new end episode. */
+    }
+  }
+
   if (
     isPlaybackModeYouTube() &&
     (state === YT.PlayerState.PLAYING || state === YT.PlayerState.CUED)
@@ -2631,6 +2782,18 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
     }
     return;
   } else if (state === YT.PlayerState.ENDED) {
+    // Event delivery can lag behind a seek/repeat or a reused iframe load.
+    // ENDED is authority to retire/advance only while the live player agrees.
+    try {
+      if (player.getPlayerState() !== YT.PlayerState.ENDED) return;
+    } catch {
+      return;
+    }
+    const queueItemId = getCurrentQueueItemId();
+    const expectedVideoId = queueItemId
+      ? getExpectedYouTubeVideoId(queueItemId, getState('youtube.currentSubIndex') ?? -1)
+      : '';
+    if (expectedVideoId && stateVideoId && stateVideoId !== expectedVideoId) return;
     if (routeCurrentProYouTubeObservation('ended')) return;
     if (isStandardHostYouTubeManualOffsetEndpoint()) {
       const duration = player.getDuration?.() || 0;
@@ -2683,6 +2846,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
       // repeat-one, matching Spotify / Apple Music behaviour.
       const repeatMode = getState('playlist.repeatMode') || 0;
       if (repeatMode === 2) {
+        if (!consumeStandardHostRepeatOneEnd(player, expectedVideoId || stateVideoId)) return;
         log.debug('[YouTube] Ended with repeat-one, restarting current video...');
         restartRepeatOneAfterStandardHostManualOffsetSettles(player);
         return;
@@ -2712,19 +2876,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
       // drop the message (not in YouTube mode guard). Wait up to 5s
       // for the host's next-track command; fall back to IDLE if nothing arrives.
       log.debug('[YouTube] Guest: video ended. Waiting for host next-track');
-      setManagedTimer(
-        'yt-guest-ended-fallback',
-        () => {
-          // Host never sent next track (e.g. playlist truly ended) — clean up
-          clearManagedTimer('youtubeUILoop');
-          if (isPlaybackModeYouTube()) {
-            log.debug('[YouTube] Guest: no next-track from host. Going IDLE');
-            setPlaybackIdle();
-            bus.emit('youtube:stop-mode');
-          }
-        },
-        GUEST_ENDED_FALLBACK_MS,
-      );
+      armGuestEndedFallback(player);
     }
     return; // Don't broadcast ENDED — guest handles locally, prevents race with next-track
   }
@@ -3335,6 +3487,7 @@ export function hideYouTubeTapToPlayGate(): void {
 }
 
 configureYouTubeIframeRuntimeHooks({
+  cancelGuestEndedFallback,
   expectMetadataVideoId: expectYouTubeMetadataVideoId,
   hideTapToPlayGate: hideYouTubeTapToPlayGate,
   invalidateDurationCache: invalidateYtDurationCache,

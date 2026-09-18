@@ -96,7 +96,9 @@ vi.mock('../oembed.ts', () => ({
 
 vi.mock('../sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
+  invalidateGuestYouTubeTimeline: vi.fn(),
   guestRendezvousSync: vi.fn(() => ({ status: 'not-ready' })),
+  isGuestYouTubeTransitionPending: vi.fn(() => false),
   resetAdDetection: vi.fn(),
   initYouTubeSync: vi.fn(),
   resetYouTubeSyncState: vi.fn(),

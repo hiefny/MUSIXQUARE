@@ -342,7 +342,12 @@ import {
   handleRequestYouTubePlaylistInfo,
   type YouTubeAutoSyncOverrides,
 } from './handlers.ts';
-import { broadcastYouTubeSync, cancelGuestRendezvous, resetYouTubeSyncState } from './sync.ts';
+import {
+  broadcastYouTubeSync,
+  cancelGuestRendezvous,
+  invalidateGuestYouTubeTimeline,
+  resetYouTubeSyncState,
+} from './sync.ts';
 import {
   cancelStandardHostManualOffsetTransaction,
   isStandardHostManualOffsetTransactionPending,
@@ -525,6 +530,13 @@ function clampZeroStartTarget(seconds: number, duration: number): number {
   return Math.max(0, seconds);
 }
 
+let youtubeAutoSyncGeneration = 0;
+
+function retireYouTubeAutoSync(): void {
+  youtubeAutoSyncGeneration += 1;
+  clearManagedTimer('yt-auto-sync');
+}
+
 /**
  * Start the bounded 0-second barrier only when every live participant has
  * advertised support. A mixed-version room fails closed to the existing
@@ -538,7 +550,7 @@ function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boo
   if (isStandardHostManualOffsetTransactionPending()) return false;
   if (!canUseYouTubeZeroStart()) return false;
 
-  clearManagedTimer('yt-auto-sync');
+  retireYouTubeAutoSync();
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
   setYtAutoplayIntent(true);
@@ -571,7 +583,7 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
     // Coordinator-free PRO playback is owned exclusively by the server
     // PREPARE/COMMIT timeline. A delayed legacy autoplay event from the
     // retained iframe must not seek locally or emit either rendezvous stage.
-    clearManagedTimer('yt-auto-sync');
+    retireYouTubeAutoSync();
     return;
   }
   // An unverified Standard-host local command may still arrive late from the
@@ -586,6 +598,17 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   if (!player) return;
   const queueItemId = getCurrentQueueItemId();
   if (!queueItemId) return;
+  retireYouTubeAutoSync();
+  const generation = youtubeAutoSyncGeneration;
+  const sessionId = getCurrentSessionId();
+  const hostConnection = getState('network.hostConn');
+  const isCurrent = (): boolean =>
+    generation === youtubeAutoSyncGeneration &&
+    player === getYouTubePlayer() &&
+    sessionId === getCurrentSessionId() &&
+    queueItemId === getCurrentQueueItemId() &&
+    hostConnection === getState('network.hostConn') &&
+    getRoomContext().kind === 'standard';
 
   const targetState = overrides?.state ?? 1; // Default to PLAYING
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
@@ -600,6 +623,7 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
     Math.abs(localTargetTime - canonicalTargetTime) > Number.EPSILON;
   if ((!overrides?.skipSeek || localOffsetRequiresSeek) && canonicalTargetTime >= 0) {
     player.seekTo(localTargetTime, true);
+    if (!isCurrent()) return;
   }
   if (targetState === 1) {
     setYtAutoplayIntent(true);
@@ -607,6 +631,7 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   } else if (targetState === 2) {
     player.pauseVideo?.();
   }
+  if (!isCurrent()) return;
 
   // 2. Stage 1: rough state broadcast — guests do executeImmediate to
   // catch up to roughly the right place while Stage 2's wait elapses.
@@ -622,6 +647,7 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
     hostClock: getHostNow(),
     title: player.getVideoData?.()?.title || '',
   });
+  if (!isCurrent()) return;
 
   // 3. Stage 2: precision rendezvous after a fixed delay — by then the
   // iframe has had time to settle past its seek-buffer window so
@@ -639,18 +665,14 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   // A PAUSE must also cancel a previously armed PLAY rendezvous. Leaving the
   // old stage-2 timer alive would make guests receive a delayed PLAY snapshot
   // after the host had already paused.
-  clearManagedTimer('yt-auto-sync');
   if (targetState !== 1) return;
   const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
   setManagedTimer(
     'yt-auto-sync',
     () => {
-      const p = getYouTubePlayer();
-      if (!p) return;
-      // A delayed rendezvous belongs to the queue occurrence that scheduled
-      // it. Reorder preserves the ID; selecting/removing another occurrence
-      // invalidates it without relying on a mutable array position.
-      if (queueItemId !== getCurrentQueueItemId()) return;
+      // A repeat/seek can reuse every media identity. Only the newest action
+      // may send the precision stage, even if an older callback was queued.
+      if (!isCurrent()) return;
 
       markYtStateBroadcast();
       // Pass targetState as the intent state. Even after the 2s wait, the
@@ -667,9 +689,9 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
 
 /** Cancel any pending auto-sync (e.g. user paused during rendezvous). */
 export function cancelYtAutoSync(transferPlayerState = false): void {
+  retireYouTubeAutoSync();
   clearPendingAutoSync();
   invalidateYouTubeZeroStartPendingIntegration(transferPlayerState);
-  clearManagedTimer('yt-auto-sync');
   clearManagedTimer('yt-zero-start-external-fallback');
   clearManagedTimer('yt-zero-start-host-fallback');
   clearManagedTimer('yt-zero-start-replacement-fallback');
@@ -1749,6 +1771,11 @@ export function initYouTube(): void {
       return clampZeroStartTarget(localPositionSec, duration);
     },
     onPrepareSelection: (selection) => {
+      // Repeat-one reuses the queue item, video and iframe. An accepted PREPARE
+      // still starts a new timeline, so retire the outgoing rendezvous and its
+      // snapshot before the controller can reposition that same player.
+      invalidateGuestYouTubeTimeline();
+      retireYouTubeAutoSync();
       const queueItemId = selection.queueItemId;
       const videoId = selection.videoId;
       const subIndex = selection.subIndex;
@@ -1766,7 +1793,6 @@ export function initYouTube(): void {
       zeroStartHostFallbackGeneration += 1;
       clearManagedTimer('yt-zero-start-host-fallback');
       zeroStartAppliedGuestOffset = 0;
-      clearManagedTimer('yt-auto-sync');
       clearManagedTimer('yt-clock-action');
       clearManagedTimer('yt-seek-play');
       setLocalYouTubePaused(false);

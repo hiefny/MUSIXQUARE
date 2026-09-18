@@ -26,10 +26,12 @@ import {
   readFakeYtLog,
   clearFakeYtLog,
   waitForFakeYtOp,
+  readFakeYtSnapshot,
 } from './helpers/fake-yt.ts';
 
-// Deterministic fake URL — fake-yt stub accepts any videoId
-const YT_VIDEO_URL = 'https://www.youtube.com/watch?v=FAKE_VIDEO_ID';
+// Keep the fake ID valid for the same 11-character parser used in production.
+const YT_VIDEO_ID = 'FAKEVID0001';
+const YT_VIDEO_URL = `https://www.youtube.com/watch?v=${YT_VIDEO_ID}`;
 
 let pair: HostGuestPair;
 
@@ -177,7 +179,8 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
 
     await clearFakeYtLog(pair.guestPage);
 
-    await pair.guestPage.evaluate(() => {
+    expect((await readFakeYtSnapshot(pair.guestPage))?.videoId).toBe(YT_VIDEO_ID);
+    await pair.guestPage.evaluate((videoId) => {
       const w = window as unknown as Record<string, unknown>;
       const get = w.__MUSIXQUARE_GET_STATE__ as ((p: string) => unknown) | undefined;
       const bus = w.__MUSIXQUARE_BUS__ as
@@ -199,15 +202,15 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
           queueItemId,
           time: 12,
           state: 1,
-          subIndex: -1,
-          videoId: 'FAKE_VIDEO_ID',
+          subIndex: get?.('youtube.currentSubIndex') ?? -1,
+          videoId,
           hostClock: Date.now(),
           isManual: true,
           title: 'Fake Title',
         },
         hostConn,
       );
-    });
+    }, YT_VIDEO_ID);
 
     await waitForFakeYtOp(pair.guestPage, 'seekTo');
     await waitForFakeYtOp(pair.guestPage, 'playVideo');

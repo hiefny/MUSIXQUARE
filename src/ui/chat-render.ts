@@ -82,11 +82,29 @@ function isValidTimestamp(ts: string): boolean {
 
 // Non-global for .test() — avoids fragile lastIndex resets
 const _ytTestRegex =
-  /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+[^\s]*/i;
+  /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+(?:[?&#][a-zA-Z0-9_~%+&=.#?:/@!$*,;-]*)?/i;
 const _ytSource = _ytTestRegex.source;
 const _tsSource = /\b(\d{1,2}:\d{2}(?::\d{2})?)\b/.source;
 // Global combined regex for exec() loop
 const _combinedRegex = new RegExp(`(${_ytSource})|(${_tsSource})`, 'gi');
+
+function splitUserChatMessage(text: string): string[] {
+  const parts: string[] = [];
+  let lastIndex = 0;
+  // Share the parser's URL boundary: closing wrappers and adjacent prose are
+  // text, while a video's query/hash belongs to its card. Each render owns its
+  // regex cursor; title updates and other messages cannot disturb this scan.
+  for (const match of text.matchAll(new RegExp(_ytSource, 'gi'))) {
+    const before = text.slice(lastIndex, match.index).trim();
+    if (before) parts.push(before);
+    parts.push(match[0]);
+    lastIndex = match.index + match[0].length;
+  }
+  if (!parts.length) return [text];
+  const after = text.slice(lastIndex).trim();
+  if (after) parts.push(after);
+  return parts;
+}
 
 export function parseMessageContent(text: string): string {
   _combinedRegex.lastIndex = 0;
@@ -146,7 +164,7 @@ function renderParsedChatContent(target: HTMLElement, text: string): void {
 }
 
 /**
- * Keep the original wire text beside a user-authored bubble. Reading the
+ * Keep each bubble's original text beside its rendered content. Reading the
  * rendered text back is lossy because an oEmbed title can replace a YouTube
  * URL after render. The delegated copy gesture therefore consumes this inert
  * dataset value and never includes the sender, timestamp, or accessibility
@@ -207,10 +225,11 @@ function appendUserChatRowContents(
   row: HTMLElement,
   text: string,
   isMine: boolean,
-  timeStr: string,
+  timeStr: string | undefined,
+  whisper = false,
 ): void {
   const bubble = document.createElement('div');
-  bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
+  bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}${whisper ? ' whisper' : ''}`;
   const chatTextDiv = document.createElement('div');
   chatTextDiv.className = 'chat-text';
   renderParsedChatContent(chatTextDiv, text);
@@ -222,17 +241,40 @@ function appendUserChatRowContents(
     /* ignore */
   }
 
-  const timeNode = document.createElement('div');
-  timeNode.className = 'chat-time';
-  timeNode.innerText = timeStr;
+  row.appendChild(bubble);
+  if (timeStr !== undefined) {
+    const timeNode = document.createElement('div');
+    timeNode.className = 'chat-time';
+    timeNode.innerText = timeStr;
 
-  if (isMine) {
-    row.appendChild(timeNode);
-    row.appendChild(bubble);
-  } else {
-    row.appendChild(bubble);
-    row.appendChild(timeNode);
+    if (isMine) row.insertBefore(timeNode, bubble);
+    else row.appendChild(timeNode);
   }
+}
+
+function appendUserChatRows(
+  group: HTMLElement,
+  text: string,
+  isMine: boolean,
+  timeStr: string,
+  animateRows: boolean,
+  whisper = false,
+): void {
+  const parts = splitUserChatMessage(text);
+  parts.forEach((part, index) => {
+    const row = document.createElement('div');
+    // New groups already animate as one unit. Rows added to an existing
+    // sender group own their entrance, just like consecutive sent messages.
+    row.className = animateRows ? 'chat-row chat-enter' : 'chat-row';
+    appendUserChatRowContents(
+      row,
+      part,
+      isMine,
+      index === parts.length - 1 ? timeStr : undefined,
+      whisper,
+    );
+    group.appendChild(row);
+  });
 }
 
 // ─── Render: Regular Chat Message ────────────────────────────────
@@ -279,15 +321,7 @@ export function addChatMessage(
         if (prevTime) prevTime.remove();
       }
 
-      const row = document.createElement('div');
-      // The first message animates with its newly-created group. Continuation
-      // messages reuse that group, so mark the new row as the animation owner.
-      // Without this class only the first bubble from a sender ever animates.
-      row.className = 'chat-row chat-enter';
-
-      appendUserChatRowContents(row, text, isMine, timeStr);
-
-      lastGroup.appendChild(row);
+      appendUserChatRows(lastGroup, text, isMine, timeStr, true);
       lastGroup.dataset.timeStr = timeStr;
     } else {
       const group = document.createElement('div');
@@ -314,12 +348,7 @@ export function addChatMessage(
       applyUserTextFontFallback(senderNode, sender);
       group.appendChild(senderNode);
 
-      const row = document.createElement('div');
-      row.className = 'chat-row';
-
-      appendUserChatRowContents(row, text, isMine, timeStr);
-
-      group.appendChild(row);
+      appendUserChatRows(group, text, isMine, timeStr, false);
       container.appendChild(group);
     }
 
@@ -538,30 +567,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   applyUserTextFontFallback(senderNode, senderNode.textContent || peerLabel);
   group.appendChild(senderNode);
 
-  const row = document.createElement('div');
-  row.className = 'chat-row';
-
-  const bubble = document.createElement('div');
-  bubble.className = `chat-bubble ${isSent ? 'mine' : 'others'} whisper`;
-  const chatTextDiv = document.createElement('div');
-  chatTextDiv.className = 'chat-text';
-  renderParsedChatContent(chatTextDiv, text);
-  bubble.appendChild(chatTextDiv);
-  makeUserChatBubbleCopyable(bubble, text);
-
-  const timeNode = document.createElement('div');
-  timeNode.className = 'chat-time';
-  timeNode.innerText = timeStr;
-
-  if (isSent) {
-    row.appendChild(timeNode);
-    row.appendChild(bubble);
-  } else {
-    row.appendChild(bubble);
-    row.appendChild(timeNode);
-  }
-
-  group.appendChild(row);
+  appendUserChatRows(group, text, isSent, timeStr, false, true);
   container.appendChild(group);
   pruneOldMessages(container);
   if (isAtBottom || isSent) container.scrollTop = container.scrollHeight;

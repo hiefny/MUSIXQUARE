@@ -245,12 +245,13 @@ export class ProRoomSessionController {
   }
 
   /**
-   * Re-enter after a committed detach reports that the old presence expired.
+   * Re-enter after the server proves that this tab's old presence expired.
    *
-   * The missing snapshot is not an error and must never be replaced with the
-   * cached authenticated projection. Retire that absent incarnation locally,
+   * A detach with no snapshot and an exact-identity PRESENCE_EXPIRED response
+   * both require fresh server proof, never the cached authority. Retire locally,
    * then use the ordinary, non-takeover presence entry endpoint to obtain a
-   * new signed anonymous snapshot and signaling ticket.
+   * new signed snapshot and signaling ticket. Account-detach callers must
+   * separately require that the resulting viewer remains anonymous.
    */
   async reenterAfterDetachedPresence(signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const roomCode = this.#requireRoomCode();

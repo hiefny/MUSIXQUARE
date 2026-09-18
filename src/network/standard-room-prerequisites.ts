@@ -23,6 +23,7 @@ interface StandardRoomTurnCredentials {
   readonly provider: string;
   readonly source: string;
   readonly iceServers: readonly RTCIceServer[];
+  readonly expiresAt: number;
 }
 
 interface CachedTurnCredentials {
@@ -118,6 +119,7 @@ function cloneCredentials(value: StandardRoomTurnCredentials): StandardRoomTurnC
   return {
     provider: value.provider,
     source: value.source,
+    expiresAt: value.expiresAt,
     iceServers: value.iceServers.map((server) => ({
       ...server,
       urls: Array.isArray(server.urls) ? [...server.urls] : server.urls,
@@ -125,13 +127,13 @@ function cloneCredentials(value: StandardRoomTurnCredentials): StandardRoomTurnC
   };
 }
 
-function cacheLifetimeMs(payload: TurnConfigResponse): number {
+function credentialLifetimeMs(payload: TurnConfigResponse): number {
   const ttlSeconds =
     typeof payload.ttl === 'number' && Number.isFinite(payload.ttl) && payload.ttl > 0
       ? payload.ttl
       : null;
   if (ttlSeconds === null) return FALLBACK_TURN_CACHE_MS;
-  return Math.max(0, ttlSeconds * 1_000 - TURN_REFRESH_SKEW_MS);
+  return ttlSeconds * 1_000;
 }
 
 function createAbortError(signal: AbortSignal): Error {
@@ -183,6 +185,7 @@ async function requestTurnCredentials(
     for (const source of turnRequestEndpoints()) {
       try {
         if (controller.signal.aborted) throw createAbortError(controller.signal);
+        const requestedAt = Date.now();
         const operation = fetchWithCapability(source, 'turn', {
           signal: controller.signal,
         });
@@ -212,6 +215,9 @@ async function requestTurnCredentials(
           provider: providerLabel(payload),
           source,
           iceServers,
+          // Anchor before the request: response/body latency must never extend
+          // the server-issued lifetime, including when setup reuses this cache.
+          expiresAt: requestedAt + credentialLifetimeMs(payload),
         };
         // TURN credentials are route-independent. A cellular -> Wi-Fi hand-off
         // can retire the caller after the paid endpoint already committed its
@@ -220,10 +226,10 @@ async function requestTurnCredentials(
         if (controller.signal.aborted) {
           throw createAbortError(controller.signal);
         }
-        const lifetimeMs = cacheLifetimeMs(payload);
-        if (lifetimeMs > 0) {
+        const cacheExpiresAt = value.expiresAt - TURN_REFRESH_SKEW_MS;
+        if (cacheExpiresAt > Date.now()) {
           cachedTurnCredentials = {
-            expiresAt: Date.now() + lifetimeMs,
+            expiresAt: cacheExpiresAt,
             value: cloneCredentials(value),
           };
         }

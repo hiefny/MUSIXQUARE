@@ -6,6 +6,7 @@ import { bus } from '../../core/events.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import * as sessionReset from '../../core/session-reset.ts';
 import { ProRoomApiClient, ProRoomApiError, type ProRoomSignalingAccess } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -22,6 +23,7 @@ import {
 } from '../media-hooks.ts';
 import { ProRoomMediaTransfer, type ProRoomMediaUploadResult } from '../media-transfer.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
+import { ProRoomPlaylistStateManager } from '../playlist-state-manager.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 
 const ROOM_CODE = '000001';
@@ -275,6 +277,139 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
+
+  it('re-enters expired presence without takeover and restores only the new signed context', async () => {
+    const reset = vi.spyOn(sessionReset, 'scheduleSessionReset').mockReturnValue(null);
+    const recovered = snapshot('presence_recovered_1');
+    const entered = deferred<ProRoomSnapshot>();
+    const enter = vi
+      .spyOn(ProRoomApiClient.prototype, 'enterPresence')
+      .mockReturnValue(entered.promise);
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.advanceTimersByTimeAsync(0);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat)
+      .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_EXPIRED', 409))
+      .mockResolvedValue(recovered);
+    vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(recovered);
+    vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
+      signalingAccess('presence_recovered_1'),
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(enter).toHaveBeenCalledOnce();
+    expect(enter.mock.calls[0]?.[1]).not.toHaveProperty('takeover');
+    expect(getState('room.context').capabilities).toEqual([]);
+    entered.resolve(recovered);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getState('room.context').kind).toBe('pro');
+    expect(reset).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps a real replacement tab protected when expired-presence re-entry loses the race', async () => {
+    const reset = vi.spyOn(sessionReset, 'scheduleSessionReset').mockReturnValue(null);
+    const enter = vi
+      .spyOn(ProRoomApiClient.prototype, 'enterPresence')
+      .mockRejectedValue(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.advanceTimersByTimeAsync(0);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockRejectedValue(
+      new ProRoomApiError('PRESENCE_EXPIRED', 409),
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(enter).toHaveBeenCalledOnce();
+    expect(enter.mock.calls[0]?.[1]).not.toHaveProperty('takeover');
+    expect(getState('room.context').kind).not.toBe('pro');
+    expect(reset).toHaveBeenCalledOnce();
+    expect(reset.mock.calls[0]?.[1].toString()).toContain('location.replace');
+  });
+
+  it('does not recover or navigate an expired presence after explicit leave cancels re-entry', async () => {
+    const reset = vi.spyOn(sessionReset, 'scheduleSessionReset').mockReturnValue(null);
+    const entered = deferred<ProRoomSnapshot>();
+    const enter = vi
+      .spyOn(ProRoomApiClient.prototype, 'enterPresence')
+      .mockReturnValue(entered.promise);
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.advanceTimersByTimeAsync(0);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockRejectedValue(
+      new ProRoomApiError('PRESENCE_EXPIRED', 409),
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(enter).toHaveBeenCalledOnce();
+    requestProRoomLeave();
+    entered.resolve(snapshot('late_recovered_presence'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getState('room.context').kind).not.toBe('pro');
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it.each(['leave', 'replacement', 'replacement-after-error'] as const)(
+    'discards an expired-presence playlist completion after %s',
+    async (action) => {
+      const reset = vi.spyOn(sessionReset, 'scheduleSessionReset').mockReturnValue(null);
+      const recovered = snapshot('presence_recovered_pending_playlist');
+      const next = snapshot('presence_successor_after_recovery');
+      let complete!: () => void;
+      let fail!: (error: Error) => void;
+      const pending = new Promise<ProRoomSnapshot>((resolve, reject) => {
+        complete = () => resolve(recovered);
+        fail = reject;
+      });
+      const acceptSnapshot = ProRoomPlaylistStateManager.prototype.acceptSnapshot;
+      const accept = vi
+        .spyOn(ProRoomPlaylistStateManager.prototype, 'acceptSnapshot')
+        .mockImplementation(function (this: ProRoomPlaylistStateManager, incoming) {
+          return incoming.viewer?.presenceIncarnationId === recovered.viewer?.presenceIncarnationId
+            ? pending
+            : acceptSnapshot.call(this, incoming);
+        });
+      vi.spyOn(ProRoomApiClient.prototype, 'enterPresence').mockResolvedValue(recovered);
+      await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      await vi.advanceTimersByTimeAsync(0);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockRejectedValue(
+        new ProRoomApiError('PRESENCE_EXPIRED', 409),
+      );
+      vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
+        signalingAccess(recovered.viewer!.presenceIncarnationId),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(
+        accept.mock.calls.some(
+          ([incoming]) =>
+            incoming.viewer?.presenceIncarnationId === recovered.viewer?.presenceIncarnationId,
+        ),
+      ).toBe(true);
+      requestProRoomLeave();
+      if (action !== 'leave') {
+        vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(next);
+        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(next);
+        vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(next);
+        vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
+          signalingAccess(next.viewer!.presenceIncarnationId),
+        );
+        await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      const closeCalls = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced).mock.calls.length;
+      const heartbeatCalls = vi.mocked(ProRoomApiClient.prototype.heartbeat).mock.calls.length;
+      if (action === 'replacement-after-error') fail(new Error('old playlist projection failed'));
+      else complete();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reset).not.toHaveBeenCalled();
+      expect(ProRoomApiClient.prototype.closeSessionFenced).toHaveBeenCalledTimes(closeCalls);
+      expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledTimes(heartbeatCalls);
+      if (action === 'leave') {
+        expect(getState('room.context').kind).not.toBe('pro');
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledTimes(heartbeatCalls);
+      } else {
+        expect(getState('room.context').kind).toBe('pro');
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledTimes(heartbeatCalls + 1);
+      }
+    },
+  );
 
   it('renews at 60 seconds, refreshes on visibility, and fails account authority closed', async () => {
     const renew = vi

@@ -268,6 +268,7 @@ describe('network initialization ownership', () => {
             expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
           ]),
         }),
+        expect.any(Number),
       ),
     );
   });
@@ -344,13 +345,16 @@ describe('network initialization ownership', () => {
     expect(getManagedTimer('peer-open-timeout')).toBeNull();
     expect(peer.destroy).not.toHaveBeenCalled();
     expect(ready).toHaveBeenCalledOnce();
-    expect(peer.setRtcConfiguration).toHaveBeenCalledWith({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun.cloudflare.com:3478' },
-      ],
-      bundlePolicy: 'max-bundle',
-    });
+    expect(peer.setRtcConfiguration).toHaveBeenCalledWith(
+      {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun.cloudflare.com:3478' },
+        ],
+        bundlePolicy: 'max-bundle',
+      },
+      undefined,
+    );
   });
 
   it('does not install late TURN or publish a code after setup cancellation', async () => {
@@ -579,6 +583,7 @@ describe('network initialization ownership', () => {
             expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
           ]),
         }),
+        expect.any(Number),
       ),
     );
 

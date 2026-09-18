@@ -174,6 +174,24 @@ describe('standard-room security/performance policy', () => {
     );
   });
 
+  it('rejects a hoisted TURN wrapper declared after the invite return', async () => {
+    const current = await sources();
+    const serialized = replaceOrThrow(
+      replaceOrThrow(
+        current.peer,
+        '      const id = await peerOpenRequest;',
+        '      const id = await peerOpenRequest;\n' + '      await waitForInvitePrerequisites();',
+      ),
+      '      return id;',
+      '      return id;\n' +
+        '      function waitForInvitePrerequisites() { return turnCredentialsRequest; }',
+    );
+
+    expect(() => assertStandardRoomHotPath({ ...current, peer: serialized })).toThrow(
+      /invite code must return.*without awaiting TURN/u,
+    );
+  });
+
   it('rejects restoring the PRO service-control dependency to standard WebSocket admission', async () => {
     const current = await sources();
     const crossTier = replaceOrThrow(

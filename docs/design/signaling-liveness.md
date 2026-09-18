@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Decision date:** 2026-08-20
 - **Scope:** Standard-room signaling and established RTC recovery
-- **Recovery review:** 2026-09-18
+- **Recovery review:** 2026-09-19
 
 ## Problem
 
@@ -30,6 +30,12 @@ The Standard-host reclaim grace is extended from 60 to 120 seconds. New guests r
 while no live host socket exists; the longer grace only preserves the authenticated host's
 right to reclaim the same room epoch.
 
+After an established host or guest starts a replacement signaling attempt, that
+exact socket has eight seconds to reach authenticated admission. A socket stuck
+in `CONNECTING`, or `OPEN` without `peer-open`, is retired so the bounded recovery
+loop can try again. This deadline does not close surviving RTC channels. Initial
+room admission retains its existing deadline and access checks.
+
 ## Established RTC recovery
 
 Signaling and RTC have separate lifecycles. A signaling socket closing is not proof that
@@ -45,6 +51,17 @@ initial negotiation. The host's authenticated signaling route, member identity, 
 sequence, and live connection ownership remain mandatory. Recovery does not rejoin the room,
 replace its data channels, or bypass access checks. PRO retains its existing recovery path;
 older clients retain their previous failure handling.
+
+TURN credentials retain their absolute expiry even when reused from the
+page-scoped cache. Before expiry, the transport requests fresh credentials with
+an eight-second deadline, applies them with `setConfiguration()` to its owned
+peer connections, and retains them for subsequent offers and ICE restarts.
+Foreground recovery also checks freshness after suspended browser timers. A
+failed renewal retries without closing a healthy channel; teardown aborts and
+fences late results. This follows the provider's
+[credential-refresh guidance](https://developers.cloudflare.com/realtime/turn/generate-credentials/);
+continuous relay allocation survival over a physical 48-hour session is a
+separate manual verification item, not a claim established by fake-clock tests.
 
 One interruption has a non-renewing 15-second transport grace. The host heartbeat monitor
 respects this exact provider-owned deadline only while both channels are still open, so its

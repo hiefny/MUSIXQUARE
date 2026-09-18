@@ -55,6 +55,14 @@ physical ordering at `#1` again; persistent account authority does not reserve a
 visible number. The physical room limit remains a device limit rather than an
 account limit.
 
+Standard rooms retain a bounded history of up to 100 account display labels.
+When that history or the 99 guest labels are exhausted, only a departed
+member's label may be reclaimed. Live same-account devices keep their shared
+number. Reclaiming a label never deletes the host's account authority: a
+returning account derives the same opaque member ID from the unchanged room
+secret, even if its visible number changes. Historical visitors must not
+silently consume future authenticated admission capacity.
+
 ### 2. Optional Google login
 
 The App Worker is the only public account identity provider. It uses the Google

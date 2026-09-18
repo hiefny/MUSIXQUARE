@@ -1,6 +1,7 @@
 import { log } from '../../core/log.ts';
 import { CHUNK_SIZE, MSG } from '../../core/constants.ts';
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
+import { withRequestDeadline } from '../../core/request-lifetime.ts';
 import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
@@ -440,6 +441,10 @@ const STANDARD_ROOM_ASSERTION_RENEWAL_WAIT_MS = 15_000;
 const STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT = 2;
 const STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS = 3_000;
 const STANDARD_ROOM_HTTP_SETUP_ADMISSION_TIMEOUT_MS = 8_000;
+const SIGNALING_RECONNECT_ADMISSION_TIMEOUT_MS = 8_000;
+const RTC_CREDENTIAL_REFRESH_SKEW_MS = 60_000;
+const RTC_CREDENTIAL_RETRY_MS = 30_000;
+const RTC_CREDENTIAL_REQUEST_TIMEOUT_MS = 8_000;
 const STANDARD_ROOM_HTTP_PREFERENCE_TTL_MS = 5 * 60_000;
 const STANDARD_ROOM_FALLBACK_PEER_OPEN_TIMEOUT_MS = 25_000;
 // Primary and alternate WSS each receive three seconds, then the same-origin
@@ -1473,6 +1478,15 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   /** RAM-only per-room proof; survives conn replacement but never a page reload. */
   private readonly guestReconnectSecrets = new Map<string, string>();
   private rtcConfiguration: RTCConfiguration;
+  private rtcConfigurationExpiresAt = 0;
+  private rtcConfigurationRefreshAt = 0;
+  private rtcConfigurationRetryAt = 0;
+  private rtcConfigurationGeneration = 0;
+  private rtcConfigurationNeedsApply = false;
+  private rtcConfigurationRefresh: Promise<void> | null = null;
+  private readonly rtcConfigurationController = new AbortController();
+  private readonly rtcConfigurationTimerKey = `rtc-credential-renewal-${randomBase64Url(12)}`;
+  private readonly pendingHostPeerOperations = new Map<string, number>();
   private readonly rtcConfigurationReady: Promise<void>;
   private rtcConfigurationPending: boolean;
   private resolveRtcConfigurationReady: (() => void) | null = null;
@@ -1557,6 +1571,20 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const current = this.peerIdentityProjections.get(peerId);
     if (current && current.sequence > sequence) return;
     this.peerIdentityProjections.set(peerId, { sequence, identity, clearReason });
+  }
+
+  private pruneHostPeerSequences(peerId: string): void {
+    // Departure fences must outlive every asynchronous offer/restart that
+    // observed them, including an offer still waiting for TURN configuration.
+    if (
+      this.pendingHostPeerOperations.has(peerId) ||
+      this.connections.has(peerId) ||
+      this.iceNegotiations.has(peerId)
+    )
+      return;
+    this.peerOfferSequences.delete(peerId);
+    this.peerDepartureSequences.delete(peerId);
+    this.peerIdentityProjections.delete(peerId);
   }
 
   private standardRoomIdentityProofKey(roomCode: string, role: 'host' | 'guest'): string {
@@ -1838,6 +1866,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       (proSignaling?.role === 'member' ? proParticipantId : null) ??
       `mx-${randomBase64Url(12)}`;
 
+    if (!this.rtcConfigurationPending) {
+      this.setRtcConfiguration(options.config, options.rtcConfigurationExpiresAt);
+    }
+
     if (requestedId) {
       queueMicrotask(() => this.openHostSocket());
     } else {
@@ -2117,6 +2149,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   }
 
   recoverAfterBackground(hiddenMs: number): TransportBackgroundRecoveryResult {
+    if (!this.destroyed) {
+      this.refreshRtcConfigurationIfDue().catch((error) => {
+        log.warn('[Transport] Background RTC credential refresh escaped its boundary', error);
+      });
+    }
     if (
       this.destroyed ||
       this.hostRoomId !== null ||
@@ -2136,13 +2173,111 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return { status };
   }
 
-  setRtcConfiguration(configuration: RTCConfiguration): void {
+  setRtcConfiguration(configuration: RTCConfiguration, expiresAt?: number): void {
     if (this.destroyed) return;
+    this.rtcConfigurationGeneration += 1;
+    this.rtcConfigurationRetryAt = 0;
     this.rtcConfiguration = configuration;
+    this.rtcConfigurationExpiresAt =
+      typeof expiresAt === 'number' && Number.isFinite(expiresAt) ? expiresAt : 0;
+    this.rtcConfigurationRefreshAt =
+      this.rtcConfigurationExpiresAt > 0
+        ? this.rtcConfigurationExpiresAt -
+          Math.min(
+            RTC_CREDENTIAL_REFRESH_SKEW_MS,
+            Math.max(1_000, (this.rtcConfigurationExpiresAt - Date.now()) / 2),
+          )
+        : 0;
+    this.rtcConfigurationNeedsApply = false;
+    const ownedConnections = new Set<RTCPeerConnection>();
+    for (const conn of this.connections.values()) {
+      if (conn.peerConnection) ownedConnections.add(conn.peerConnection);
+    }
+    for (const owner of this.iceNegotiations.values()) ownedConnections.add(owner.pc);
+    for (const pc of ownedConnections) {
+      if (pc.connectionState === 'closed') continue;
+      try {
+        pc.setConfiguration(configuration);
+      } catch (error) {
+        // A racing close or browser failure must not replace live channels or
+        // prevent another connection from receiving its fresh credential.
+        log.warn('[Transport] Could not update RTC credentials on an owned connection', error);
+        this.rtcConfigurationNeedsApply = true;
+      }
+    }
     this.rtcConfigurationPending = false;
     const resolve = this.resolveRtcConfigurationReady;
     this.resolveRtcConfigurationReady = null;
     resolve?.();
+    this.scheduleRtcConfigurationRefresh(
+      this.rtcConfigurationNeedsApply ? RTC_CREDENTIAL_RETRY_MS : undefined,
+    );
+  }
+
+  private scheduleRtcConfigurationRefresh(delayMs?: number): void {
+    clearManagedTimer(this.rtcConfigurationTimerKey);
+    if (this.destroyed || !this.options.rtcConfigurationProvider) return;
+    const delay =
+      delayMs ??
+      (this.rtcConfigurationExpiresAt > 0
+        ? Math.max(1_000, this.rtcConfigurationRefreshAt - Date.now())
+        : RTC_CREDENTIAL_RETRY_MS);
+    setManagedTimer(
+      this.rtcConfigurationTimerKey,
+      () => {
+        this.refreshRtcConfigurationIfDue().catch((error) => {
+          log.warn('[Transport] Scheduled RTC credential refresh escaped its boundary', error);
+        });
+      },
+      Math.min(delay, 2_147_483_647),
+    );
+  }
+
+  private async refreshRtcConfigurationIfDue(): Promise<void> {
+    const provider = this.options.rtcConfigurationProvider;
+    if (!provider || this.destroyed || this.rtcConfigurationPending) return;
+    if (this.rtcConfigurationRetryAt > Date.now()) {
+      // Late offers and resume events share the timer's failure backoff, so
+      // an unavailable endpoint cannot be retried once per arriving guest.
+      this.scheduleRtcConfigurationRefresh(this.rtcConfigurationRetryAt - Date.now());
+      return;
+    }
+    if (this.rtcConfigurationRefreshAt > Date.now()) {
+      if (this.rtcConfigurationNeedsApply) {
+        this.setRtcConfiguration(this.rtcConfiguration, this.rtcConfigurationExpiresAt);
+      } else {
+        // A wall-clock correction may make a previously armed timer early.
+        this.scheduleRtcConfigurationRefresh();
+      }
+      return;
+    }
+    if (this.rtcConfigurationRefresh) return this.rtcConfigurationRefresh;
+    const generation = this.rtcConfigurationGeneration;
+    const refresh = (async () => {
+      try {
+        const lease = await withRequestDeadline(provider, {
+          signal: this.rtcConfigurationController.signal,
+          timeoutMs: RTC_CREDENTIAL_REQUEST_TIMEOUT_MS,
+          timeoutReason: 'RTC_CREDENTIAL_RENEWAL_TIMEOUT',
+        });
+        if (this.destroyed || generation !== this.rtcConfigurationGeneration) return;
+        if (!lease || !Number.isFinite(lease.expiresAt) || lease.expiresAt <= Date.now()) {
+          this.rtcConfigurationRetryAt = Date.now() + RTC_CREDENTIAL_RETRY_MS;
+          this.scheduleRtcConfigurationRefresh(RTC_CREDENTIAL_RETRY_MS);
+          return;
+        }
+        this.setRtcConfiguration(lease.configuration, lease.expiresAt);
+      } catch (error) {
+        if (this.destroyed || generation !== this.rtcConfigurationGeneration) return;
+        log.warn('[Transport] RTC credential renewal failed; retaining live channels', error);
+        this.rtcConfigurationRetryAt = Date.now() + RTC_CREDENTIAL_RETRY_MS;
+        this.scheduleRtcConfigurationRefresh(RTC_CREDENTIAL_RETRY_MS);
+      }
+    })().finally(() => {
+      if (this.rtcConfigurationRefresh === refresh) this.rtcConfigurationRefresh = null;
+    });
+    this.rtcConfigurationRefresh = refresh;
+    return refresh;
   }
 
   setRoomPassword(password: string | null): void {
@@ -2289,6 +2424,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   destroy(): void {
     this.destroyed = true;
+    this.rtcConfigurationController.abort(new Error('PEER_DESTROYED'));
+    clearManagedTimer(this.rtcConfigurationTimerKey);
+    this.pendingHostPeerOperations.clear();
     if (this.hostAdmissionTimeoutId !== null) {
       globalThis.clearTimeout(this.hostAdmissionTimeoutId);
       this.hostAdmissionTimeoutId = null;
@@ -2601,10 +2739,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   ): void {
     this.clearHostSetupAdmissionTimeout();
     if (
-      !this.options.prepareNetworkRouteRetry ||
+      (!this.options.prepareNetworkRouteRetry && !this.hostSignalingOpenedOnce) ||
       this.proSignalingAccess ||
-      this.destroyed ||
-      this.hostSignalingOpenedOnce
+      this.destroyed
     ) {
       return;
     }
@@ -2613,10 +2750,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.hostAdmissionTimeoutId = null;
         if (
           this.destroyed ||
-          this.hostSignalingOpenedOnce ||
           this.hostSocket !== socket ||
           this.hostSocketGeneration !== socketGeneration
         ) {
+          return;
+        }
+        if (this.hostSignalingOpenedOnce) {
+          // An unadmitted successor has no liveness probe yet. Release only
+          // its logical authority so the next scheduled/user retry can open
+          // a fresh path; WebKit CONNECTING handles retain safe retirement.
+          this.retireHostSignalingSocket(socket, true);
           return;
         }
         if (this.scheduleHostSetupRouteRetry(socket, socketGeneration, { kind: 'watchdog' }))
@@ -2630,9 +2773,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         );
         this.emit('error', createTransportError('network', 'SIGNALING_HOST_ADMISSION_TIMEOUT'));
       },
-      isStandardHttpSignalingSocket(socket)
-        ? STANDARD_ROOM_HTTP_SETUP_ADMISSION_TIMEOUT_MS
-        : STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS,
+      this.hostSignalingOpenedOnce
+        ? SIGNALING_RECONNECT_ADMISSION_TIMEOUT_MS
+        : isStandardHttpSignalingSocket(socket)
+          ? STANDARD_ROOM_HTTP_SETUP_ADMISSION_TIMEOUT_MS
+          : STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS,
     );
   }
 
@@ -2649,7 +2794,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     socketGeneration: number,
   ): void {
     this.clearGuestSetupAdmissionTimeout(record);
-    if (!this.options.prepareNetworkRouteRetry || this.proSignalingAccess || this.destroyed) return;
+    const recovering = this.isDataConnectionAlive(record.conn);
+    if (
+      (!this.options.prepareNetworkRouteRetry && !recovering) ||
+      this.proSignalingAccess ||
+      this.destroyed
+    )
+      return;
     record.admissionTimeoutId = globalThis.setTimeout(
       () => {
         record.admissionTimeoutId = null;
@@ -2657,12 +2808,15 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           this.destroyed ||
           this.guestRooms.get(roomId) !== record ||
           this.roomSockets.get(roomId) !== socket ||
-          record.socketGeneration !== socketGeneration ||
-          record.conn.open ||
-          record.conn.peerConnection
+          record.socketGeneration !== socketGeneration
         ) {
           return;
         }
+        if (recovering) {
+          this.retireGuestSignalingSocket(roomId, record, socket, true);
+          return;
+        }
+        if (record.conn.open || record.conn.peerConnection) return;
         if (
           this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration, {
             kind: 'watchdog',
@@ -2681,9 +2835,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           createTransportError('network', 'SIGNALING_GUEST_ADMISSION_TIMEOUT'),
         );
       },
-      isStandardHttpSignalingSocket(socket)
-        ? STANDARD_ROOM_HTTP_SETUP_ADMISSION_TIMEOUT_MS
-        : STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS,
+      recovering
+        ? SIGNALING_RECONNECT_ADMISSION_TIMEOUT_MS
+        : isStandardHttpSignalingSocket(socket)
+          ? STANDARD_ROOM_HTTP_SETUP_ADMISSION_TIMEOUT_MS
+          : STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS,
     );
   }
 
@@ -3169,7 +3325,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
             this.guestRooms.get(roomId) === record &&
             this.roomSockets.get(roomId) === socket &&
             record.socketGeneration === socketGeneration &&
-            !record.conn.peerConnection
+            !this.standardRoomIdentityAdmittedGuestSockets.has(socket) &&
+            (!record.conn.peerConnection || this.isDataConnectionAlive(record.conn))
           ) {
             this.armGuestSetupAdmissionTimeout(roomId, record, socket, socketGeneration);
           }
@@ -3496,39 +3653,50 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'signal-offer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
       if (negotiationId === null) return;
-      if (message.restartOf !== undefined) {
-        if (message.iceRestartVersion !== 1 || parseIceNegotiationId(message.restartOf) === null)
+      this.pendingHostPeerOperations.set(
+        message.from,
+        (this.pendingHostPeerOperations.get(message.from) ?? 0) + 1,
+      );
+      try {
+        if (message.restartOf !== undefined) {
+          if (message.iceRestartVersion !== 1 || parseIceNegotiationId(message.restartOf) === null)
+            return;
+          await this.handleHostIceRestart(
+            message.from,
+            message.sdp,
+            negotiationId,
+            message.restartOf,
+            sequence,
+            sourceSocket,
+          );
           return;
-        await this.handleHostIceRestart(
+        }
+        if (sequence > (this.peerDepartureSequences.get(message.from) ?? -1)) {
+          this.peerDepartureSequences.delete(message.from);
+        }
+        this.peerOfferSequences.set(message.from, sequence);
+        const offerIdentity = normalizeStandardRoomMemberIdentity(message.memberIdentity);
+        // An omitted identity is an authoritative anonymous projection for this
+        // offer. Recording only explicit fields would let a replacement that
+        // reuses the peer ID inherit the previous authenticated connection's
+        // identity from peerIdentityProjections.
+        this.rememberPeerIdentityProjection(message.from, sequence, offerIdentity);
+        await this.handleHostOffer(
           message.from,
           message.sdp,
           negotiationId,
-          message.restartOf,
+          message.metadata,
+          offerIdentity,
           sequence,
           sourceSocket,
+          message.iceRestartVersion === 1,
         );
-        return;
+      } finally {
+        const remaining = (this.pendingHostPeerOperations.get(message.from) ?? 1) - 1;
+        if (remaining > 0) this.pendingHostPeerOperations.set(message.from, remaining);
+        else this.pendingHostPeerOperations.delete(message.from);
+        this.pruneHostPeerSequences(message.from);
       }
-      if (sequence > (this.peerDepartureSequences.get(message.from) ?? -1)) {
-        this.peerDepartureSequences.delete(message.from);
-      }
-      this.peerOfferSequences.set(message.from, sequence);
-      const offerIdentity = normalizeStandardRoomMemberIdentity(message.memberIdentity);
-      // An omitted identity is an authoritative anonymous projection for this
-      // offer. Recording only explicit fields would let a replacement that
-      // reuses the peer ID inherit the previous authenticated connection's
-      // identity from peerIdentityProjections.
-      this.rememberPeerIdentityProjection(message.from, sequence, offerIdentity);
-      await this.handleHostOffer(
-        message.from,
-        message.sdp,
-        negotiationId,
-        message.metadata,
-        offerIdentity,
-        sequence,
-        sourceSocket,
-        message.iceRestartVersion === 1,
-      );
       return;
     }
     if (message.type === 'account-identity') {
@@ -3608,6 +3776,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           this.mediaCalls.delete(callId);
         }
       }
+      this.pruneHostPeerSequences(message.peerId);
     }
   }
 
@@ -3801,14 +3970,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     sourceSocket: StandardSignalingSocket | null,
     supportsIceRestart: boolean,
   ): Promise<void> {
-    const waitedForRtcConfiguration = this.rtcConfigurationPending;
-    if (waitedForRtcConfiguration) await this.rtcConfigurationReady;
+    if (this.rtcConfigurationPending) await this.rtcConfigurationReady;
+    if (this.options.rtcConfigurationProvider) await this.refreshRtcConfigurationIfDue();
     if (
       this.destroyed ||
       sourceSocket !== this.hostSocket ||
       !sourceSocket ||
       sourceSocket.readyState !== WebSocket.OPEN ||
-      (waitedForRtcConfiguration && this.peerOfferSequences.get(peerId) !== offerSequence) ||
+      this.peerOfferSequences.get(peerId) !== offerSequence ||
       (this.peerDepartureSequences.get(peerId) ?? -1) >= offerSequence
     ) {
       return;
@@ -3830,6 +3999,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.connections.delete(peerId);
       }
       this.clearIcePeerState(peerId, pc);
+      this.pruneHostPeerSequences(peerId);
     });
 
     pc.addEventListener('datachannel', (event) => {
@@ -3916,6 +4086,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     metadata: unknown,
   ): Promise<void> {
     if (this.rtcConfigurationPending) await this.rtcConfigurationReady;
+    if (this.options.rtcConfigurationProvider) await this.refreshRtcConfigurationIfDue();
     if (
       this.destroyed ||
       conn.peerConnection ||
@@ -4028,6 +4199,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // recreates its SCTP channels, room identity, or active media tracks.
     const perform = async () => {
       if (!isCurrent() || pc.connectionState === 'connected') return;
+      if (this.options.rtcConfigurationProvider) await this.refreshRtcConfigurationIfDue();
+      if (!isCurrent()) return;
       const socket = await this.waitForCurrentGuestSocketAdmission(roomId, controller.signal);
       if (!isCurrent()) return;
       await this.runSerializedMediaNegotiation(pc, async () => {
@@ -4137,6 +4310,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       conn.peerConnection === pc &&
       (this.peerDepartureSequences.get(peerId) ?? -1) < sequence;
     try {
+      if (this.options.rtcConfigurationProvider) await this.refreshRtcConfigurationIfDue();
       await this.runSerializedMediaNegotiation(pc, async () => {
         if (!isCurrent()) return;
         if (pc.signalingState !== 'stable') {

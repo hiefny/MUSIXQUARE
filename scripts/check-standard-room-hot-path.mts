@@ -215,7 +215,11 @@ function containsIdentifier(text: string, name: string): boolean {
   return new RegExp(`\\b${escaped}\\b`, 'u').test(text);
 }
 
-function taintedTurnIdentifiers(scope: ts.Node, parsed: ts.SourceFile): Set<string> {
+function taintedTurnIdentifiers(
+  scope: ts.Node,
+  parsed: ts.SourceFile,
+  before: number,
+): Set<string> {
   const tainted = new Set<string>([
     'getStandardRoomTurnCredentials',
     'settleDeferredHostRtcConfiguration',
@@ -225,7 +229,14 @@ function taintedTurnIdentifiers(scope: ts.Node, parsed: ts.SourceFile): Set<stri
     scope,
     (node): node is ts.FunctionDeclaration | ts.VariableDeclaration =>
       ts.isFunctionDeclaration(node) ||
-      (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && !!node.initializer),
+      // Later fallback-path const declarations cannot feed an earlier invite
+      // wait. Their names may shadow host-branch names (newPeer/peerOpts), and
+      // credential-expiry metadata is a value, not a wait on that host path.
+      // Function declarations remain included because they are hoisted.
+      (ts.isVariableDeclaration(node) &&
+        node.getStart(parsed) < before &&
+        ts.isIdentifier(node.name) &&
+        !!node.initializer),
   );
   let changed = true;
   while (changed) {
@@ -634,7 +645,7 @@ function assertInviteReturnsBeforeTurn(peerSource: string, failures: string[]): 
     return;
   }
 
-  const tainted = taintedTurnIdentifiers(initNetwork.body, parsed);
+  const tainted = taintedTurnIdentifiers(initNetwork.body, parsed, inviteReturn.getStart(parsed));
   const waitsBeforeInvite = collect(
     branch,
     (node): node is ts.AwaitExpression =>

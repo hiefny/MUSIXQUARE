@@ -560,6 +560,8 @@ const REMOTE_SHARE_UPLOAD_ASSERTION_REFILL_PER_MS =
   REMOTE_SHARE_UPLOAD_ASSERTION_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
 const STANDARD_ROOM_MEMBERS_KEY = 'standardRoomAccountMembers';
+// Bounded display-label history, not the lifetime of authenticated authority.
+// Stable member IDs are derived from the account and room secret independently.
 const MAX_STANDARD_ROOM_ACCOUNT_MEMBERS = 100;
 const PRO_ROOM_META_KEY = 'proRoomMeta';
 const PRO_TICKET_USES_KEY = 'proSignalingTicketUses';
@@ -4734,12 +4736,28 @@ export class MusixquareRoom {
     return this.saveStandardRoomMembers(defaultStandardRoomMembers());
   }
 
+  private activeStandardRoomMemberIds(replacingSocket?: SocketPort): Set<string> {
+    const members = new Set<string>();
+    for (const socket of [this.host, ...this.guests.values()]) {
+      const attachment = readAttachment(socket);
+      if (
+        attachment?.auth === 'ok' &&
+        socket !== replacingSocket &&
+        typeof attachment.memberId === 'string'
+      ) {
+        members.add(attachment.memberId);
+      }
+    }
+    return members;
+  }
+
   private async resolveStandardRoomIdentity(
     assertion: unknown,
     roomId: string,
     peerId: string,
     role: 'host' | 'guest',
     roomSecret: string,
+    replacingSocket?: SocketPort,
   ): Promise<StandardRoomIdentity | null> {
     if (typeof assertion !== 'string' || !assertion) return null;
     const secret = String(this.env?.MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET || '');
@@ -4752,12 +4770,14 @@ export class MusixquareRoom {
     const memberId = await deriveStandardRoomMemberId(roomSecret, verified.accountSubject);
     if (!memberId) return null;
     const directory = await this.loadStandardRoomMembers();
-    const existing = directory.entries.find(
-      (entry) => entry.accountSubject === verified.accountSubject,
-    );
+    let entries = directory.entries;
+    const existing = entries.find((entry) => entry.accountSubject === verified.accountSubject);
+    // Only an in-place identity refresh can release its own previous label.
+    // A pending reconnect may fail before peer-open, leaving its predecessor live.
+    const activeMemberIds = this.activeStandardRoomMemberIds(replacingSocket);
     let memberDisplayNumber = role === 'host' ? 0 : existing?.memberDisplayNumber;
     if (memberDisplayNumber === undefined) {
-      const occupied = new Set(directory.entries.map((entry) => entry.memberDisplayNumber));
+      const occupied = new Set(entries.map((entry) => entry.memberDisplayNumber));
       const preferred = Math.max(1, Math.min(99, this.guests.size + 1));
       for (let offset = 0; offset < 99; offset += 1) {
         const candidate = ((preferred - 1 + offset) % 99) + 1;
@@ -4765,7 +4785,18 @@ export class MusixquareRoom {
         memberDisplayNumber = candidate;
         break;
       }
-      if (memberDisplayNumber === undefined) return null;
+      if (memberDisplayNumber === undefined) {
+        // Keep remembered labels while there is space, then reclaim only a
+        // departed member's label. Live same-account devices retain their
+        // number; returning accounts retain their derived member ID/grants
+        // even when their old visual label has been reused.
+        const departed = entries.find(
+          (entry) => entry.memberDisplayNumber > 0 && !activeMemberIds.has(entry.memberId),
+        );
+        if (!departed) return null;
+        memberDisplayNumber = departed.memberDisplayNumber;
+        entries = entries.filter((entry) => entry !== departed);
+      }
     }
     const entry = {
       accountSubject: verified.accountSubject,
@@ -4777,10 +4808,16 @@ export class MusixquareRoom {
       existing.memberId !== entry.memberId ||
       existing.memberDisplayNumber !== entry.memberDisplayNumber
     ) {
-      const remaining = directory.entries.filter(
+      const remaining = entries.filter(
         (candidate) => candidate.accountSubject !== verified.accountSubject,
       );
-      if (!existing && remaining.length >= MAX_STANDARD_ROOM_ACCOUNT_MEMBERS) return null;
+      if (remaining.length >= MAX_STANDARD_ROOM_ACCOUNT_MEMBERS) {
+        const departedIndex = remaining.findIndex(
+          (candidate) => !activeMemberIds.has(candidate.memberId),
+        );
+        if (departedIndex < 0) return null;
+        remaining.splice(departedIndex, 1);
+      }
       await this.saveStandardRoomMembers({ v: 1, entries: [...remaining, entry] });
     }
     return {
@@ -6474,6 +6511,7 @@ export class MusixquareRoom {
       attachment.peerId,
       role,
       meta.roomSecret,
+      ws,
     );
     if (!identity) return;
     if (!this.currentStandardRoomAttachment(ws)) return;

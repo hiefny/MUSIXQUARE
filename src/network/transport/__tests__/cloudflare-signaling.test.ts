@@ -180,12 +180,18 @@ class FakeRTCPeerConnection {
   readonly localDescriptionHistory: RTCSessionDescriptionInit[] = [];
   readonly remoteDescriptionHistory: RTCSessionDescriptionInit[] = [];
   readonly removedSenders: RTCRtpSender[] = [];
+  readonly configurationHistory: RTCConfiguration[] = [];
   rollbackCount = 0;
   private readonly senders: RTCRtpSender[] = [];
   private listeners = new Map<string, Set<FakeRTCListener>>();
 
-  constructor(readonly configuration?: RTCConfiguration) {
+  constructor(public configuration?: RTCConfiguration) {
     FakeRTCPeerConnection.instances.push(this);
+  }
+
+  setConfiguration(configuration: RTCConfiguration): void {
+    this.configuration = configuration;
+    this.configurationHistory.push(configuration);
   }
 
   addEventListener(event: string, listener: FakeRTCListener): void {
@@ -6899,5 +6905,255 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(privateMaps(peer).guestReconnectSecrets.size).toBe(0);
     expect(privateMaps(peer).roomSockets.size).toBe(0);
     expect(privateMaps(peer).connections.size).toBe(0);
+  });
+});
+
+describe('long-running Standard-room transport ownership', () => {
+  type HostInternals = {
+    handleHostMessage(raw: string): Promise<void>;
+    peerOfferSequences: Map<string, number>;
+    peerDepartureSequences: Map<string, number>;
+    pendingHostPeerOperations: Map<string, number>;
+    iceNegotiations: Map<string, unknown>;
+  };
+  type Renewal = NonNullable<
+    import('../types.ts').TransportPeerOptions['rtcConfigurationProvider']
+  >;
+  const configuration = (username: string): RTCConfiguration => ({
+    iceServers: [{ urls: 'turn:turn.example.test:3478', username, credential: 'test-only' }],
+  });
+  const offer = (peerId: string) =>
+    JSON.stringify({
+      type: 'signal-offer',
+      from: peerId,
+      negotiationId: NEGOTIATION_ID,
+      sdp: { type: 'offer', sdp: 'guest-data-offer' },
+    });
+  async function host(provider?: Renewal, expiresAt?: number) {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      config: configuration('initial'),
+      rtcConfigurationExpiresAt: expiresAt,
+      rtcConfigurationProvider: provider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    const internals = peer as unknown as HostInternals;
+    await internals.handleHostMessage(
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    return { peer, socket, internals };
+  }
+
+  it('renews before expiry on existing RTC and uses the renewed credential for later guests', async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const renewal = vi.fn(async () => ({
+      configuration: configuration('renewed'),
+      expiresAt: start + 172_800_000,
+    }));
+    const { peer, internals } = await host(renewal, start + 120_000);
+    await internals.handleHostMessage(offer('current-guest'));
+    const pc = FakeRTCPeerConnection.instances[0];
+    pc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-data') });
+    pc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-control') });
+    await Promise.resolve();
+    const conn = privateMaps(peer).connections.get('current-guest');
+    expect(conn?.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(renewal).toHaveBeenCalledOnce();
+    expect(pc.configuration?.iceServers?.[0].username).toBe('renewed');
+    expect(conn?.open).toBe(true);
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    await internals.handleHostMessage(offer('late-guest'));
+    expect(FakeRTCPeerConnection.instances[1].configuration?.iceServers?.[0].username).toBe(
+      'renewed',
+    );
+    peer.destroy();
+    await vi.advanceTimersByTimeAsync(172_800_000);
+    expect(renewal).toHaveBeenCalledOnce();
+  });
+
+  it('refreshes on an expired late offer even if background timers never ran', async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const renewal = vi.fn(async () => ({
+      configuration: configuration('after-suspension'),
+      expiresAt: Date.now() + 172_800_000,
+    }));
+    const { peer, internals } = await host(renewal, start + 172_800_000);
+    vi.setSystemTime(start + 172_800_001);
+    await internals.handleHostMessage(offer('late-guest'));
+    expect(renewal).toHaveBeenCalledOnce();
+    expect(FakeRTCPeerConnection.instances[0].configuration?.iceServers?.[0].username).toBe(
+      'after-suspension',
+    );
+    peer.destroy();
+  });
+
+  it('bounds a stalled renewal and retries without closing active RTC', async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    const pending = deferred<{ configuration: RTCConfiguration; expiresAt: number } | null>();
+    const renewal = vi
+      .fn<Renewal>()
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ configuration: configuration('retry'), expiresAt: start + 172_800_000 });
+    const { peer, internals } = await host(renewal, start + 120_000);
+    await internals.handleHostMessage(offer('current-guest'));
+    const pc = FakeRTCPeerConnection.instances[0];
+    await vi.advanceTimersByTimeAsync(68_000);
+    expect(renewal).toHaveBeenCalledOnce();
+    expect(renewal.mock.calls[0][0].aborted).toBe(true);
+    expect(pc.connectionState).toBe('connected');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(renewal).toHaveBeenCalledTimes(2);
+    expect(pc.configuration?.iceServers?.[0].username).toBe('retry');
+    pending.resolve({ configuration: configuration('late-stale'), expiresAt: start + 172_800_000 });
+    await Promise.resolve();
+    expect(pc.configuration?.iceServers?.[0].username).toBe('retry');
+    peer.destroy();
+  });
+
+  it('fences a renewal result after destroy', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<{ configuration: RTCConfiguration; expiresAt: number } | null>();
+    const renewal = vi.fn<Renewal>().mockReturnValue(pending.promise);
+    const { peer, internals } = await host(renewal, Date.now() + 120_000);
+    await internals.handleHostMessage(offer('current-guest'));
+    const pc = FakeRTCPeerConnection.instances[0];
+    await vi.advanceTimersByTimeAsync(60_000);
+    peer.destroy();
+    expect(renewal.mock.calls[0][0].aborted).toBe(true);
+    pending.resolve({ configuration: configuration('late'), expiresAt: Date.now() + 172_800_000 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.configurationHistory).toHaveLength(0);
+  });
+
+  it('shares failed renewal backoff across late offers and background resumes', async () => {
+    vi.useFakeTimers();
+    const renewal = vi.fn<Renewal>().mockResolvedValue(null);
+    const { peer, internals } = await host(renewal, Date.now() + 120_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(renewal).toHaveBeenCalledOnce();
+    for (let index = 0; index < 3; index++) {
+      await internals.handleHostMessage(offer(`late-${index}`));
+      peer.recoverAfterBackground(172_800_000);
+    }
+    expect(renewal).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(renewal).toHaveBeenCalledTimes(2);
+    peer.destroy();
+  });
+
+  it('fences an in-flight renewal when another path replaces the configuration', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<{ configuration: RTCConfiguration; expiresAt: number } | null>();
+    const { peer, internals } = await host(() => pending.promise, Date.now() + 120_000);
+    await internals.handleHostMessage(offer('current-guest'));
+    const pc = FakeRTCPeerConnection.instances[0];
+    await vi.advanceTimersByTimeAsync(60_000);
+    peer.setRtcConfiguration(configuration('replacement'), Date.now() + 172_800_000);
+    pending.resolve({ configuration: configuration('stale'), expiresAt: Date.now() + 172_800_000 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.configuration?.iceServers?.[0].username).toBe('replacement');
+    expect(pc.configurationHistory).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it.each(['connecting', 'open-without-admission'])(
+    'retires a stalled %s reconnect and preserves established RTC',
+    async (phase) => {
+      const { peer, conn, socket } = await establishHostWithSignalingState('live-guest', true);
+      vi.useFakeTimers();
+      socket.dispatch('close');
+      peer.reconnect();
+      const stalled = FakeWebSocket.instances[1];
+      if (phase === 'open-without-admission') stalled.dispatch('open');
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(conn.open).toBe(true);
+      expect(stalled.closeCount).toBe(phase === 'connecting' ? 0 : 1);
+      peer.reconnect();
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      if (phase === 'connecting') {
+        stalled.dispatch('open');
+        expect(stalled.closeCount).toBe(1);
+        expect(stalled.sent).toHaveLength(0);
+      }
+      peer.destroy();
+    },
+  );
+
+  it.each(['connecting', 'open-without-admission'])(
+    'retires a stalled guest %s reconnect without replacing its data channels',
+    async (phase) => {
+      const { peer, conn, socket } = await establishGuestWithSignalingState(true);
+      vi.useFakeTimers();
+      socket.dispatch('close');
+      peer.reconnect();
+      const stalled = FakeWebSocket.instances[1];
+      if (phase === 'open-without-admission') stalled.dispatch('open');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(conn.open).toBe(true);
+      expect(stalled.closeCount).toBe(phase === 'connecting' ? 0 : 1);
+      peer.reconnect();
+      expect(FakeWebSocket.instances).toHaveLength(3);
+      peer.destroy();
+    },
+  );
+
+  it('releases departed visitor sequence metadata after pending negotiations settle', async () => {
+    const { peer, internals } = await host();
+    for (let index = 0; index < 100; index++) {
+      const id = `visitor-${index}`;
+      await internals.handleHostMessage(offer(id));
+      await internals.handleHostMessage(JSON.stringify({ type: 'peer-left', peerId: id }));
+    }
+    expect(internals.iceNegotiations.size).toBe(0);
+    expect(internals.peerOfferSequences.size).toBe(0);
+    expect(internals.peerDepartureSequences.size).toBe(0);
+    expect(internals.pendingHostPeerOperations.size).toBe(0);
+    peer.destroy();
+  });
+
+  it('does not re-arm the guest watchdog after peer-open races auth completion', async () => {
+    const { peer, conn, socket } = await establishGuestWithSignalingState(true);
+    vi.useFakeTimers();
+    socket.dispatch('close');
+    peer.reconnect();
+    const replacement = FakeWebSocket.instances[1];
+    replacement.dispatch('open');
+    replacement.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(replacement.closeCount).toBe(0);
+    expect(privateMaps(peer).roomSockets.get('123456')).toBe(replacement);
+    expect(conn.open).toBe(true);
+    peer.destroy();
+  });
+
+  it('keeps a departure fence while its offer awaits expired credential renewal', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<{ configuration: RTCConfiguration; expiresAt: number } | null>();
+    const { peer, internals, socket } = await host(() => pending.promise, Date.now() + 120_000);
+    vi.setSystemTime(Date.now() + 120_001);
+    const stale = internals.handleHostMessage(offer('departed'));
+    await Promise.resolve();
+    await internals.handleHostMessage(JSON.stringify({ type: 'peer-left', peerId: 'departed' }));
+    expect(internals.peerDepartureSequences.has('departed')).toBe(true);
+    pending.resolve({ configuration: configuration('fresh'), expiresAt: Date.now() + 172_800_000 });
+    await stale;
+    expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(0);
+    expect(internals.peerDepartureSequences.size).toBe(0);
+    expect(internals.peerOfferSequences.size).toBe(0);
+    peer.destroy();
   });
 });

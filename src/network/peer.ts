@@ -262,7 +262,7 @@ function releaseSettledNetworkInitOwner(owner: NetworkInitOwner): void {
 async function settleDeferredHostRtcConfiguration(
   owner: NetworkInitOwner,
   peer: PeerInstance,
-  setRtcConfiguration: (configuration: RTCConfiguration) => void,
+  setRtcConfiguration: (configuration: RTCConfiguration, expiresAt?: number) => void,
   baseIceServers: RTCIceServer[],
   turnCredentialsRequest: ReturnType<typeof getStandardRoomTurnCredentials>,
 ): Promise<void> {
@@ -293,10 +293,8 @@ async function settleDeferredHostRtcConfiguration(
       );
     }
 
-    setRtcConfiguration({
-      iceServers,
-      bundlePolicy: 'max-bundle',
-    });
+    const configuration: RTCConfiguration = { iceServers, bundlePolicy: 'max-bundle' };
+    setRtcConfiguration(configuration, turnCredentials?.expiresAt);
   } catch (error) {
     if (!isNetworkInitStillActive(owner) || getPeer() !== peer || peer.destroyed) return;
     owner.deferredRtcConfigurationError = error;
@@ -380,6 +378,22 @@ function waitForPeerOpen(peer: PeerInstance, owner: NetworkInitOwner): Promise<s
 
 // ─── Network Initialization ─────────────────────────────────────────
 
+async function renewRoomRtcConfiguration(signal: AbortSignal) {
+  const credentials = await getStandardRoomTurnCredentials(signal);
+  if (!credentials) return null;
+  return {
+    configuration: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        ...credentials.iceServers,
+      ],
+      bundlePolicy: 'max-bundle' as const,
+    },
+    expiresAt: credentials.expiresAt,
+  };
+}
+
 /**
  * Initialize the configured WebRTC transport with optional requested ID.
  * Returns the assigned peer ID.
@@ -433,6 +447,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     const turnCredentialsRequest = isE2eBuild
       ? Promise.resolve(null)
       : getStandardRoomTurnCredentials(owner.controller.signal);
+    const rtcConfigurationProvider = isE2eBuild ? undefined : renewRoomRtcConfiguration;
 
     if (canClaimWhileTurnLoads) {
       // Claim the random room at the signaling edge while capability/TURN is
@@ -450,6 +465,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
           bundlePolicy: 'max-bundle',
         },
         deferRtcUntilConfigured: true,
+        rtcConfigurationProvider,
         prepareNetworkRouteRetry: prepareStandardRoomNetworkRouteRetry,
         standardRoomAssertionProvider: requestStandardRoomAccountAssertion,
       };
@@ -522,6 +538,8 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
         iceServers,
         bundlePolicy: 'max-bundle',
       },
+      rtcConfigurationExpiresAt: turnCredentials?.expiresAt,
+      rtcConfigurationProvider,
       ...(transportConfig.provider === 'cloudflare'
         ? {
             signalingFallbackUrl: transportConfig.signalingFallbackUrl,

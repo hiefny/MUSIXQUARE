@@ -39,7 +39,10 @@ test.describe('RTL settings and directional controls', () => {
     await page.setContent(`
       <!doctype html>
       <html lang="ar" dir="rtl">
-        <head><style>${APP_STYLES}\n${RTL_STYLES}</style></head>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <style>${APP_STYLES}\n${RTL_STYLES}</style>
+        </head>
         <body>
           <header id="main-header" style="height:40px">
             <div class="header-progress-bg" id="header-progress-bg"></div>
@@ -49,9 +52,37 @@ test.describe('RTL settings and directional controls', () => {
               <input type="range" id="seek-slider" min="0" max="100" value="50" />
               <div class="time-info"><span>0:30</span><span>1:00</span></div>
             </div>
-            <div class="vol-group-playback">
-              <span>volume</span>
-              <input type="range" id="volume-slider" min="0" max="100" value="50" />
+            <div class="vol-group-playback" id="volume-control-group" role="group">
+              <button
+                id="vol-icon-btn"
+                class="volume-icon-button"
+                type="button"
+                aria-label="Toggle mute"
+                data-i18n-aria-label="player.toggle_mute"
+              >
+                <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
+                  <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7" />
+                  <path class="volume-wave volume-wave-outer" d="M18 5.7a8.9 8.9 0 0 1 0 12.6" />
+                  <g class="volume-muted-backdrop">
+                    <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                    <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                  </g>
+                  <g class="volume-muted-mark">
+                    <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                    <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                  </g>
+                </svg>
+              </button>
+              <input
+                type="range"
+                id="volume-slider"
+                min="0"
+                max="100"
+                value="50"
+                aria-label="Adjust volume"
+                data-i18n-aria-label="player.volume"
+              />
             </div>
             <div id="settings-subtab-panel-audio">
               <div id="reverb-sliders-area" class="reverb-sliders-area">
@@ -110,6 +141,8 @@ test.describe('RTL settings and directional controls', () => {
         </body>
       </html>
     `);
+    // Mobile WebKit must not fall back to a scaled 980px layout viewport.
+    expect(await page.evaluate(() => window.innerWidth)).toBe(page.viewportSize()!.width);
   });
 
   test('keeps media time LTR and mirrors volume and ordinary RTL setting sliders coherently', async ({

@@ -189,6 +189,8 @@ test.describe('mobile visualizer layout', () => {
     });
     await expect(page.locator('#demo-overlay')).toHaveClass(/active/);
     await expect.poll(() => readState(page, 'playback.activity')).toBe('playing');
+    await page.locator('#btn-demo-settings').click();
+    await expect(page.locator('#btn-demo-settings')).toHaveAttribute('aria-expanded', 'true');
     await page.locator('[data-demo-play]').click();
     await expect.poll(() => readState(page, 'playback.activity')).toBe('paused');
     await page.locator('#visualizerCanvas').click();

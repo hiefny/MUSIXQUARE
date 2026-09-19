@@ -112,7 +112,7 @@ test.describe('RTL settings and directional controls', () => {
     `);
   });
 
-  test('keeps media axes LTR and mirrors ordinary RTL setting sliders coherently', async ({
+  test('keeps media time LTR and mirrors volume and ordinary RTL setting sliders coherently', async ({
     page,
   }) => {
     const directions = await page.evaluate(() => {
@@ -134,7 +134,7 @@ test.describe('RTL settings and directional controls', () => {
 
     expect(directions).toEqual({
       seek: { direction: 'ltr', trackDirection: 'to right' },
-      volume: { direction: 'ltr', trackDirection: 'to right' },
+      volume: { direction: 'rtl', trackDirection: 'to left' },
       reverb: { direction: 'rtl', trackDirection: 'to left' },
       eq: { direction: 'ltr', trackDirection: 'to right' },
     });
@@ -143,6 +143,20 @@ test.describe('RTL settings and directional controls', () => {
     await seek.focus();
     await seek.press('ArrowRight');
     await expect(seek).toHaveValue('51');
+
+    const volume = page.locator('#volume-slider');
+    await volume.focus();
+    await volume.press('ArrowLeft');
+    await expect(volume).toHaveValue('51');
+    await volume.press('ArrowRight');
+    await expect(volume).toHaveValue('50');
+    const rail = (await volume.boundingBox())!;
+    await page.mouse.click(rail.x + rail.width * 0.2, rail.y + rail.height / 2);
+    expect(Number(await volume.inputValue())).toBeGreaterThanOrEqual(79);
+    expect(Number(await volume.inputValue())).toBeLessThanOrEqual(81);
+    await page.mouse.click(rail.x + rail.width * 0.8, rail.y + rail.height / 2);
+    expect(Number(await volume.inputValue())).toBeGreaterThanOrEqual(19);
+    expect(Number(await volume.inputValue())).toBeLessThanOrEqual(21);
 
     const reverb = page.locator('#reverb-slider');
     await reverb.focus();

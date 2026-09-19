@@ -91,7 +91,7 @@ test.describe('RTL player layout', () => {
     expect(positions['play-btn']).toBeLessThan(positions['btn-next']!);
   });
 
-  test('keeps the LTR volume axis separated from the transport controls', async ({ page }) => {
+  test('keeps the mirrored volume axis separated from the transport controls', async ({ page }) => {
     const layout = await page.locator('.play-controls-left').evaluate((parent) => {
       const transport = parent.querySelector<HTMLElement>('.play-btn-group')!;
       const volume = parent.querySelector<HTMLElement>('.vol-group-playback')!;
@@ -110,7 +110,7 @@ test.describe('RTL player layout', () => {
 
     expect(layout.parentDirection).toBe('rtl');
     expect(layout.transportDirection).toBe('ltr');
-    expect(layout.volumeDirection).toBe('ltr');
+    expect(layout.volumeDirection).toBe('rtl');
     expect(layout.volumeRight).toBeLessThan(layout.transportLeft);
     expect(layout.separation).toBeGreaterThan(32);
   });
@@ -182,6 +182,28 @@ test.describe('Playback controls in the authored application layout', () => {
         expect(layout.prev).toBeLessThan(layout.play);
         expect(layout.play).toBeLessThan(layout.next);
         expect(layout.separation).toBeGreaterThan(0);
+        const volumeIcon = page.locator('#vol-icon-btn .volume-icon');
+        await expect(volumeIcon).toHaveCSS(
+          'transform',
+          direction === 'rtl' ? 'matrix(-1, 0, 0, 1, 0, 0)' : 'none',
+        );
+        await expect(page.locator('#volume-slider')).toHaveCSS('direction', direction);
+        await page.locator('#vol-icon-btn').evaluate((button) => button.classList.add('is-muted'));
+        await expect(volumeIcon.locator('.volume-muted-mark')).toHaveCSS('opacity', '1');
+        const muteDiagonal = await volumeIcon
+          .locator('.volume-muted-mark .volume-muted-slash')
+          .evaluate((element) => {
+            const matrix = (element as SVGGraphicsElement).getScreenCTM()!;
+            const start = new DOMPoint(13.6, 8.6).matrixTransform(matrix);
+            const end = new DOMPoint(20.4, 15.4).matrixTransform(matrix);
+            return (end.x - start.x) * (end.y - start.y);
+          });
+        expect(muteDiagonal).toBeGreaterThan(0);
+        if (viewport.width === 390) {
+          await page
+            .locator('.play-controls-left')
+            .screenshot({ path: test.info().outputPath(`main-volume-muted-${direction}.png`) });
+        }
         if (direction === 'ltr') {
           expect(
             Math.abs(layout.glyphLeft - layout.seekLeft - 3 * layout.scale),
@@ -193,7 +215,7 @@ test.describe('Playback controls in the authored application layout', () => {
             Math.abs(layout.volumeSliderRight - layout.seekRight + layout.scale),
           ).toBeLessThanOrEqual(0.75);
         } else {
-          // The localized row mirrors, but the transport and volume axes do not.
+          // The localized row and volume mirror, while transport keeps its temporal order.
           expect(Math.abs(layout.volumeLeft - layout.seekLeft + layout.scale)).toBeLessThanOrEqual(
             0.75,
           );

@@ -8527,6 +8527,11 @@
     pointer-events: none;
   }
 
+  /* Header children animate their own visibility; keep them out of the main app. */
+  .demo-overlay:not(.active) .demo-track-header {
+    display: none;
+  }
+
   .demo-mobile-shell {
     --demo-shell-gap: 24px;
     --demo-panel-start-offset: 0px;

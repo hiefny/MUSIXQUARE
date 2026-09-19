@@ -3299,6 +3299,15 @@ describe('YouTube Player', () => {
   });
 
   describe('Standard room YouTube title ownership', () => {
+    beforeEach(() => {
+      Object.assign(window, {
+        YT: {
+          Player: vi.fn(),
+          PlayerState: { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 },
+        },
+      });
+    });
+
     afterEach(async () => {
       const { setYouTubePlayer } = await import('../_state.ts');
       const { cancelYouTubeZeroStart } = await import('../zero-start.ts');
@@ -3330,12 +3339,6 @@ describe('YouTube Player', () => {
       player.cueVideoById = pendingCue;
       document.body.innerHTML =
         '<div class="video-wrapper"><div id="youtube-player-container"><div id="youtube-player"></div></div></div>';
-      Object.assign(window, {
-        YT: {
-          Player: vi.fn(),
-          PlayerState: { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 },
-        },
-      });
       setYouTubePlayer(player as unknown as YouTubePlayerInstance);
       markYtPlayerReady(player as unknown as YouTubePlayerInstance);
       setState('playlist.items', [

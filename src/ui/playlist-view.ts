@@ -1214,7 +1214,7 @@ export function initPlaylistView(): void {
 
   _busScope.on('ui:playlist-tab-opened', () => {
     const selection = currentFollowSelection();
-    _followController?.forceSelection(selection.queueItemId, selection.subIndex);
+    _followController?.revealSelection(selection.queueItemId, selection.subIndex);
     updatePlaylistUI();
     _reorderController?.notifyPlaylistEntered();
   });

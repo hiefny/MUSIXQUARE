@@ -19,7 +19,15 @@ import {
   setPlaybackIdle,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
-import { fmtTime, getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
+import {
+  fmtTime,
+  getLocalFilePendingStartDeadlineMs,
+  getTrackPosition,
+  isLocalFileStartPending,
+  pause,
+  play,
+  stopAllMedia,
+} from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
 import { setChannelMode } from '../audio/channel.ts';
@@ -45,7 +53,13 @@ import { isProRoomCode } from '../pro-room/room-code.ts';
 import type { DataConnection } from '../types/index.ts';
 import type { PlaybackModeActivity } from '../player/ownership.ts';
 import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
-import { DEMO_PLAY_SCHEDULE_AHEAD_MS, projectDemoPlay } from './playback-timing.ts';
+import {
+  DEMO_PLAY_SCHEDULE_AHEAD_MS,
+  DEMO_PLAY_START_LEAD_MS,
+  getPendingDemoHostStartAt,
+  projectDemoPlay,
+  setDemoHostStartAt,
+} from './playback-timing.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import {
   getRoomContext,
@@ -116,7 +130,8 @@ type DemoPlaybackIntent = Readonly<{
   room: DemoRoomIdentity;
 }> &
   (
-    Readonly<{ kind: 'play'; hostPlayAt: number; receivedAt: number }> | Readonly<{ kind: 'pause' }>
+    | Readonly<{ kind: 'play'; hostPlayAt: number; hostStartAt?: number; receivedAt: number }>
+    | Readonly<{ kind: 'pause' }>
   );
 
 const FLAT_EQ = [0, 0, 0, 0, 0];
@@ -442,6 +457,7 @@ function cancelDemoBlobRequests(): void {
 // their own call sites. Don't fold them in here — exitDemoMode immediately
 // re-schedules demo-overlay-exit via setDemoDomActive(false).
 function clearDemoRuntimeWork(): void {
+  setDemoHostStartAt(null);
   clearManagedTimer('demo-effect-state-sync');
   clearManagedTimer('demo-play-host-sync');
   clearDemoLayoutRefreshTimers();
@@ -489,12 +505,13 @@ function getDemoStateBroadcastKey(index = _demoTrackIndex): string {
   ].join(':');
 }
 
-function createDemoPlayMessage(index = _demoTrackIndex, time = 0) {
+function createDemoPlayMessage(index = _demoTrackIndex, time = 0, hostStartAt = getHostNow()) {
   return {
     type: MSG.DEMO_PLAY,
     index,
     time,
-    hostPlayAt: getHostNow() + DEMO_PLAY_SCHEDULE_AHEAD_MS,
+    hostStartAt,
+    hostPlayAt: hostStartAt + DEMO_PLAY_SCHEDULE_AHEAD_MS,
   } as const;
 }
 
@@ -522,16 +539,19 @@ function broadcastDemoPause(time: number): void {
   broadcast({ type: MSG.DEMO_PAUSE, time });
 }
 
-function broadcastDemoPlay(index = _demoTrackIndex, time = 0): void {
+function broadcastDemoPlay(index = _demoTrackIndex, time = 0, hostStartAt = getHostNow()): void {
   if (!isDemoHost()) return;
-  broadcast(createDemoPlayMessage(index, time));
+  broadcast(createDemoPlayMessage(index, time, hostStartAt));
 }
 
 function sendDemoBootstrap(conn: DataConnection): void {
   if (!isDemoHost() || !getState('demo.active')) return;
   safeSend(conn, createDemoEnterMessage(_demoTrackIndex));
-  if (isDemoPlaying()) {
-    safeSend(conn, createDemoPlayMessage(_demoTrackIndex, getTrackPosition()));
+  if (isDemoPlaying() && !getState('demo.loading') && getCurrentAudioBuffer()) {
+    safeSend(
+      conn,
+      createDemoPlayMessage(_demoTrackIndex, getTrackPosition(), getPendingDemoHostStartAt()),
+    );
   } else {
     safeSend(conn, { type: MSG.DEMO_PAUSE, time: getState('player.pausedAt') || 0 });
   }
@@ -659,6 +679,12 @@ async function loadDemoTrack(
   owner: DemoLoadOwner,
 ): Promise<DemoAsyncResult> {
   if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
+  // Retire output before exposing the next demo identity. Otherwise a fast
+  // guest can bootstrap from a PONG advertising the old source as the new row.
+  _hostDemoPlayOwner = null;
+  setDemoHostStartAt(null);
+  pause(0, { holdVisualizer: false, showToast: false });
+  setPlaybackFilePaused();
   const track = getDemoTrackByIndex(index);
   _demoTrackIndex = index;
   setState('demo.currentTrackIndex', index);
@@ -1184,12 +1210,22 @@ function isDemoPlaying(): boolean {
 
 function syncPlayButton(): void {
   const playing = isDemoPlaying();
-  const loading = !!getState('demo.loading');
-  document.querySelectorAll<HTMLButtonElement>('[data-demo-play]').forEach((button) => {
-    button.classList.toggle('is-loading', loading);
-    button.setAttribute('aria-busy', loading ? 'true' : 'false');
-    button.setAttribute('aria-disabled', loading ? 'true' : 'false');
-  });
+  const loading =
+    !!getState('demo.loading') || (getState('demo.active') && isLocalFileStartPending());
+  document
+    .querySelectorAll<HTMLButtonElement>('[data-demo-play], .demo-settings-button')
+    .forEach((button) => {
+      button.classList.toggle('is-loading', loading);
+      button.setAttribute('aria-busy', loading ? 'true' : 'false');
+      if (button.matches('[data-demo-play]')) {
+        const disabled = loading || !!getState('network.hostConn');
+        button.disabled = disabled;
+        button.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+      } else {
+        button.disabled = false;
+        button.removeAttribute('aria-disabled');
+      }
+    });
   document.querySelectorAll<HTMLElement>('[data-demo-play-icon]').forEach((path) => {
     path.setAttribute('d', playing ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z');
   });
@@ -1297,10 +1333,17 @@ function startDemoPlayback(time = 0): void {
   const publishOnce = (): void => {
     if (published || !isCurrent() || !isDemoPlaying()) return;
     published = true;
-    broadcastDemoPlay(index, getTrackPosition());
+    const pendingDeadline = getLocalFilePendingStartDeadlineMs();
+    const hostStartAt =
+      getHostNow() + Math.max(0, (pendingDeadline ?? performance.now()) - performance.now());
+    setDemoHostStartAt(hostStartAt);
+    broadcastDemoPlay(index, getTrackPosition(), hostStartAt);
   };
+  const startLeadSeconds = getState('network.connectedPeers').some((peer) => peer.conn?.open)
+    ? DEMO_PLAY_START_LEAD_MS / 1_000
+    : 0;
   observeDemoOperation(
-    play(time, 0, undefined, isCurrent, {
+    play(time, startLeadSeconds, undefined, isCurrent, {
       timing: 'canonical-rebase',
       onRecoveredStarted: publishOnce,
     }).then((started) => {
@@ -1604,6 +1647,7 @@ function toggleDemoPlay(): void {
   }
   if (isDemoPlaying()) {
     _hostDemoPlayOwner = null;
+    setDemoHostStartAt(null);
     pause(undefined, { showToast: false });
     broadcastDemoPause(getState('player.pausedAt') || 0);
     syncPlayButton();
@@ -1636,13 +1680,17 @@ function toggleDemoPlay(): void {
   startDemoPlayback(offset);
 }
 
-function playNextDemoTrack(): void {
+function changeDemoTrack(direction: 1 | -1): void {
   if (!isDemoHost() || !getState('demo.active') || getState('demo.loading')) return;
-  const nextIndex = getNextDemoTrackIndex(_demoTrackIndex);
+  const nextIndex =
+    direction === 1
+      ? getNextDemoTrackIndex(_demoTrackIndex)
+      : (_demoTrackIndex + DEMO_TRACKS.length - 1) % DEMO_TRACKS.length;
   const owner = beginDemoLoad();
   setState('demo.loading', true);
+  const loading = loadDemoTrack(nextIndex, { autoplay: false }, owner);
   broadcastDemoEnter(nextIndex);
-  void loadDemoTrack(nextIndex, { autoplay: false }, owner)
+  void loading
     .then((result) => {
       // Exit-during-load: a late DEMO_PLAY broadcast would re-enter guests
       // into demo after the host already left.
@@ -1657,6 +1705,10 @@ function playNextDemoTrack(): void {
     .finally(() => {
       finishDemoLoad(owner);
     });
+}
+
+function playNextDemoTrack(): void {
+  changeDemoTrack(1);
 }
 
 function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -1712,6 +1764,7 @@ function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnect
     index,
     time: Math.max(0, Number(data.time) || 0),
     hostPlayAt: Number(data.hostPlayAt) || 0,
+    ...(typeof data.hostStartAt === 'number' ? { hostStartAt: data.hostStartAt } : {}),
     receivedAt: Date.now(),
   };
 
@@ -1901,6 +1954,8 @@ export function initDemoMode(
   _busScope.on('demo:request-exit', () => requestDemoExit());
   _busScope.on('demo:open-info', () => openDemoInfo());
   _busScope.on('demo:toggle-play', () => toggleDemoPlay());
+  _busScope.on('demo:previous-track', () => changeDemoTrack(-1));
+  _busScope.on('demo:next-track', () => changeDemoTrack(1));
   _busScope.on('demo:set-role', (mode) => setDemoRole(mode));
   _busScope.on('demo:toggle-reverb', () => toggleDemoReverb());
   _busScope.on('demo:toggle-bass', () => toggleDemoBass());
@@ -1918,6 +1973,7 @@ export function initDemoMode(
   _busScope.on('state:audio.eqValues', () => scheduleDemoEffectStateSync());
   _busScope.on('state:audio.stereoWidth', () => scheduleDemoEffectStateSync());
   _busScope.on('state:playback.activity', () => syncPlayButton());
+  _busScope.on('ui:play-loading-state', () => syncPlayButton());
   _busScope.on('player:ended', () => {
     if (!getState('demo.active')) return;
     setState('player.pausedAt', 0);

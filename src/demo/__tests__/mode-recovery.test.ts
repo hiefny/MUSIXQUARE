@@ -40,6 +40,8 @@ const mocks = vi.hoisted(() => ({
   pause: vi.fn(),
   stopAllMedia: vi.fn(),
   getTrackPosition: vi.fn(() => 12),
+  getLocalFilePendingStartDeadlineMs: vi.fn<() => number | undefined>(() => undefined),
+  isLocalFileStartPending: vi.fn(() => false),
   getHostNow: vi.fn(() => 10_000),
   broadcast: vi.fn(),
   safeSend: vi.fn(),
@@ -53,6 +55,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn((seconds: number) => `fmt:${Math.floor(seconds)}`),
   getTrackPosition: mocks.getTrackPosition,
+  getLocalFilePendingStartDeadlineMs: mocks.getLocalFilePendingStartDeadlineMs,
+  isLocalFileStartPending: mocks.isLocalFileStartPending,
   isFilePipelineBusyForPlay: vi.fn(() => false),
   pause: mocks.pause,
   play: mocks.play,
@@ -62,6 +66,7 @@ vi.mock('../../player/transport.ts', () => ({
 
 vi.mock('../../network/shared-clock.ts', () => ({
   getHostNow: mocks.getHostNow,
+  isClockCalibrated: vi.fn(() => true),
 }));
 
 vi.mock('../../network/peer.ts', () => ({
@@ -148,6 +153,8 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     vi.clearAllMocks();
     mocks.pause.mockReset();
     mocks.getTrackPosition.mockReturnValue(12);
+    mocks.getLocalFilePendingStartDeadlineMs.mockReturnValue(undefined);
+    mocks.isLocalFileStartPending.mockReturnValue(false);
     mocks.play.mockImplementation(async () => {
       setPlaybackFilePlaying();
       return true;
@@ -1280,7 +1287,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     await recovery.onRecoveredStarted!();
     await recovery.onRecoveredStarted!();
     expect(mocks.broadcast.mock.calls.filter(([frame]) => frame.type === MSG.DEMO_PLAY)).toEqual([
-      [{ type: MSG.DEMO_PLAY, index: 0, time: 12, hostPlayAt: 10_350 }],
+      [{ type: MSG.DEMO_PLAY, index: 0, time: 12, hostStartAt: 10_000, hostPlayAt: 10_350 }],
     ]);
   });
 
@@ -1310,6 +1317,144 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
       expect(
         mocks.broadcast.mock.calls.filter(([frame]) => frame.type === MSG.DEMO_PLAY),
       ).toHaveLength(0);
+    },
+  );
+
+  it.each([false, true])(
+    'shares a 200ms start only when demo guests are connected (%s)',
+    async (hasGuest) => {
+      vi.setSystemTime(10_000);
+      setState('network.appRole', 'host');
+      setState('setup.sessionStarted', true);
+      if (hasGuest) {
+        setState('network.connectedPeers', [{ conn: { open: true } } as any]);
+        mocks.getLocalFilePendingStartDeadlineMs.mockImplementation(() => performance.now() + 200);
+      }
+      bus.emit('demo:enter');
+      await flush();
+      expect(mocks.play).not.toHaveBeenCalled();
+      FakeXHR.pending[0].resolveOk();
+      await flush(50);
+
+      expect(mocks.play.mock.calls[0]?.[1]).toBe(hasGuest ? 0.2 : 0);
+      const frame = mocks.broadcast.mock.calls.find(
+        ([message]) => message.type === MSG.DEMO_PLAY,
+      )?.[0];
+      expect(frame).toMatchObject({
+        hostStartAt: hasGuest ? 10_200 : 10_000,
+        hostPlayAt: hasGuest ? 10_550 : 10_350,
+      });
+    },
+  );
+
+  it.each(['demo:next-track', 'demo:previous-track'] as const)(
+    'retires the previous source before publishing %s while its download is pending',
+    async (event) => {
+      setState('network.appRole', 'host');
+      setState('setup.sessionStarted', true);
+      bus.emit('demo:enter');
+      await flush();
+      FakeXHR.pending[0].resolveOk();
+      await flush(50);
+      expect(getState('playback.activity')).toBe('playing');
+      mocks.play.mockClear();
+      mocks.broadcast.mockClear();
+      mocks.pause.mockClear();
+      bus.emit(event);
+      const index = event === 'demo:next-track' ? 1 : DEMO_TRACKS.length - 1;
+
+      expect(getState('demo.currentTrackIndex')).toBe(index);
+      expect(getState('demo.loading')).toBe(true);
+      expect(getState('playback.activity')).toBe('paused');
+      expect(mocks.pause).toHaveBeenCalledWith(0, expect.anything());
+      expect(mocks.play).not.toHaveBeenCalled();
+      expect(mocks.broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.DEMO_ENTER, index }),
+      );
+      const conn = { open: true, peer: 'late-guest' } as DataConnection;
+      bus.emit('network:peer-connected', conn);
+      expect(mocks.safeSend).not.toHaveBeenCalledWith(
+        conn,
+        expect.objectContaining({ type: MSG.DEMO_PLAY }),
+      );
+      expect(mocks.safeSend).toHaveBeenCalledWith(
+        conn,
+        expect.objectContaining({ type: MSG.DEMO_PAUSE }),
+      );
+      FakeXHR.pending.find((request) => request.url === DEMO_TRACKS[index].url)!.resolveOk();
+      await flush(50);
+      expect(mocks.play).toHaveBeenCalledOnce();
+      expect(mocks.broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.DEMO_PLAY, index }),
+      );
+    },
+  );
+
+  it('keeps a faster decoded guest silent until the host publishes its shared start', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    await handleData(
+      {
+        type: MSG.DEMO_ENTER,
+        index: 0,
+        reverbOn: false,
+        bassBoostOn: false,
+        trebleBoostOn: false,
+        surroundOn: false,
+      },
+      hostConn,
+    );
+    await flush();
+    FakeXHR.pending[0].resolveOk();
+    await flush(50);
+    expect(getCurrentAudioBuffer()).not.toBeNull();
+    expect(getState('demo.loading')).toBe(false);
+    expect(getState('playback.activity')).not.toBe('playing');
+    expect(mocks.play).not.toHaveBeenCalled();
+    await handleData(
+      {
+        type: MSG.DEMO_PLAY,
+        index: 0,
+        time: 0,
+        hostStartAt: 10_200,
+        hostPlayAt: 10_550,
+      },
+      hostConn,
+    );
+    expect(mocks.play).toHaveBeenCalledWith(0, 0.2, expect.any(Number), expect.any(Function));
+    expect(mocks.play).toHaveBeenCalledOnce();
+  });
+
+  it('keeps manual synchronization offsets across demo entry, track changes and exit', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    setState('sync.localOffset', 9.999);
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0].resolveOk();
+    await flush(50);
+    expect(getState('sync.localOffset')).toBe(9.999);
+    setState('sync.localOffset', -7.5);
+    bus.emit('demo:next-track');
+    expect(getState('sync.localOffset')).toBe(-7.5);
+    bus.emit('demo:request-exit');
+    await flush(500);
+    expect(getState('sync.localOffset')).toBe(-7.5);
+  });
+
+  it.each(['demo:next-track', 'demo:previous-track'] as const)(
+    'rejects guest %s commands',
+    async (event) => {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('demo.active', true);
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      bus.emit(event);
+      expect(FakeXHR.pending).toHaveLength(0);
+      expect(mocks.play).not.toHaveBeenCalled();
+      expect(mocks.broadcast).not.toHaveBeenCalled();
     },
   );
 });

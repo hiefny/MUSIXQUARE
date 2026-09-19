@@ -149,6 +149,20 @@ describe('device-list-update validation', () => {
 });
 
 describe('bounded control-frame validation', () => {
+  it('accepts legacy and scheduled demo play frames while rejecting invalid start clocks', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.DEMO_PLAY, handler);
+    const conn = connection('demo-start-validation');
+    const base = { type: MSG.DEMO_PLAY, index: 1, time: 0, hostPlayAt: 1550 };
+    const scheduled = { ...base, hostStartAt: 1200 };
+    await handleData(base, conn);
+    await handleData(scheduled, conn);
+    for (const hostStartAt of [NaN, Infinity, -Infinity, -1, 0, '1200', null]) {
+      await handleData({ ...base, hostStartAt }, conn);
+    }
+    expect(handler.mock.calls.map(([frame]) => frame)).toEqual([base, scheduled]);
+  });
+
   it('accepts legacy PLAY frames and independent common-start anchors', async () => {
     const handler = vi.fn();
     registerHandler(MSG.PLAY, handler);

@@ -33,6 +33,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: (seconds: number) => String(seconds),
   getTrackPosition: mocks.getTrackPosition,
+  getLocalFilePendingStartDeadlineMs: vi.fn(() => undefined),
+  isLocalFileStartPending: vi.fn(() => false),
   pause: mocks.pause,
   play: mocks.play,
   stopAllMedia: mocks.stopAllMedia,
@@ -140,6 +142,30 @@ describe('demo playback sync bootstrap', () => {
 
     expect(immediateSync).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    { hostNow: 10_000, calibrated: true, position: 42, delay: 0.2 },
+    { hostNow: 10_300, calibrated: true, position: 42.1, delay: 0 },
+    { hostNow: 99_999, calibrated: false, position: 42, delay: 0.2 },
+  ])(
+    'projects a shared demo start at host time $hostNow (calibrated: $calibrated)',
+    async ({ hostNow, calibrated, position, delay }) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      mocks.getHostNow.mockReturnValue(hostNow);
+      mocks.isClockCalibrated.mockReturnValue(calibrated);
+      setState('network.hostConn', hostConn);
+      setState('network.appRole', 'guest');
+      markQueueAuthorityReady(hostConn);
+      setState('demo.active', true);
+      await handleData(
+        { type: MSG.DEMO_PLAY, index: 0, time: 42, hostStartAt: 10_200, hostPlayAt: 10_550 },
+        hostConn,
+      );
+      expect(mocks.play).toHaveBeenCalledTimes(1);
+      expect(mocks.play.mock.calls[0][0]).toBeCloseTo(position, 6);
+      expect(mocks.play.mock.calls[0][1]).toBeCloseTo(delay, 6);
+    },
+  );
 
   it('compensates early demo play delivery without dropping one-way latency', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;

@@ -367,6 +367,8 @@ export interface ProtocolMap {
     index: number;
     time: number;
     hostPlayAt: number;
+    /** Host-clock instant at which `time` becomes the shared demo position. */
+    hostStartAt?: number;
   };
   'request-demo-enter': NoPayload;
   'request-demo-exit': NoPayload;
@@ -1258,6 +1260,8 @@ interface BaseEventMap {
   'demo:request-exit': [];
   'demo:open-info': [];
   'demo:toggle-play': [];
+  'demo:previous-track': [];
+  'demo:next-track': [];
   'demo:seek': [seconds: number];
   'demo:set-role': [mode: number];
   'demo:toggle-reverb': [];

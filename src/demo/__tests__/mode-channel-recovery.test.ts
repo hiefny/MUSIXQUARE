@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn((seconds: number) => `fmt:${Math.floor(seconds)}`),
   getTrackPosition: mocks.getTrackPosition,
+  getLocalFilePendingStartDeadlineMs: vi.fn(() => undefined),
+  isLocalFileStartPending: vi.fn(() => false),
   isFilePipelineBusyForPlay: vi.fn(() => false),
   pause: mocks.pause,
   play: mocks.play,

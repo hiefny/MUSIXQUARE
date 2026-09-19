@@ -45,6 +45,7 @@ vi.mock('../../audio/engine.ts', () => ({
 
 import {
   adjustSync,
+  getLocalFilePendingStartDeadlineMs,
   getTrackPosition,
   isLocalFileStartPending,
   pause,
@@ -70,6 +71,39 @@ afterEach(() => {
 });
 
 describe('transport position', () => {
+  it('retains an active Standard demo host start through a large manual nudge', async () => {
+    vi.useFakeTimers();
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '123456',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 7,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    await expect(play(0, 0.2)).resolves.toBe(true);
+    expect(getLocalFilePendingStartDeadlineMs()).toBeCloseTo(performance.now() + 200);
+
+    adjustSync(9.999);
+    mocks.currentTime = 100.06;
+    await vi.advanceTimersByTimeAsync(60);
+
+    expect(mocks.start).toHaveBeenCalledTimes(2);
+    expect(mocks.start.mock.calls[1]?.[0]).toBeCloseTo(100.2, 6);
+    expect(mocks.start.mock.calls[1]?.[1]).toBeCloseTo(9.999 + (IS_WINDOWS ? 0.02 : 0), 6);
+    expect(getTrackPosition()).toBe(0);
+    expect(isLocalFileStartPending()).toBe(true);
+    pause(undefined, { showToast: false });
+    expect(getLocalFilePendingStartDeadlineMs()).toBeUndefined();
+  });
+
   it.each(['standard', 'pro'] as const)(
     'retains the %s source deadline when a manual nudge rebuilds pending output',
     async (kind) => {

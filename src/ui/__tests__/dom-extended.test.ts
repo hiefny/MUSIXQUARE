@@ -606,6 +606,51 @@ describe('initOverlayObservers — modal stack', () => {
     expect(manualSyncOverlay.style.zIndex).toBe('6000');
   });
 
+  it('keeps demo settings above demo through re-sync and restores demo after closing', () => {
+    const demoOverlay = document.getElementById('demo-overlay')!;
+    const settingsOverlay = document.getElementById('manual-sync-overlay')!;
+    demoOverlay.style.zIndex = '3200';
+    demoOverlay.innerHTML = '<button id="demo-settings-opener">Settings</button>';
+    settingsOverlay.innerHTML = '<input type="range" id="demo-settings-volume">';
+    const opener = document.getElementById('demo-settings-opener')!;
+    const volume = document.getElementById('demo-settings-volume')!;
+    const backgroundClick = vi.fn();
+    opener.addEventListener('click', backgroundClick);
+
+    demoOverlay.classList.add('active');
+    syncOverlayState('demo-overlay');
+    opener.focus();
+    settingsOverlay.classList.add('demo-settings-open', 'show');
+    syncOverlayState('manual-sync-overlay');
+
+    expect(Number(settingsOverlay.style.zIndex)).toBeGreaterThan(Number(demoOverlay.style.zIndex));
+    expect(isInert('manual-sync-overlay')).toBe(false);
+    expect(isInert('demo-overlay')).toBe(true);
+    expect(demoOverlay.getAttribute('aria-hidden')).toBe('true');
+    expect(document.activeElement).toBe(volume);
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+
+    // A demo update cannot steal the top layer while its settings are open.
+    syncOverlayState('demo-overlay');
+    expect(isInert('manual-sync-overlay')).toBe(false);
+    expect(isInert('demo-overlay')).toBe(true);
+    opener.focus();
+    expect(document.activeElement).toBe(volume);
+    expect(opener.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(
+      false,
+    );
+    expect(backgroundClick).not.toHaveBeenCalled();
+
+    settingsOverlay.classList.remove('show');
+    syncOverlayState();
+    expect(settingsOverlay.style.zIndex).toBe('');
+    expect(isInert('manual-sync-overlay')).toBe(true);
+    expect(isInert('demo-overlay')).toBe(false);
+    expect(demoOverlay.getAttribute('aria-hidden')).toBe('false');
+    expect(document.activeElement).toBe(opener);
+    expect(document.body.classList.contains('overlay-open')).toBe(true);
+  });
+
   it('reveals overflowing descendants when a hidden overlay is opened explicitly', () => {
     const languageOverlay = document.getElementById('language-dialog-overlay')!;
     const reveal = vi.fn();

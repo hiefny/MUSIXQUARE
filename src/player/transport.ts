@@ -676,7 +676,9 @@ export function isLocalFileStartPending(): boolean {
 
 /** An output-only rebuild must retain the already published start deadline. */
 export function getLocalFilePendingStartDeadlineMs(): number | undefined {
-  if (isActiveStandardRoomCoordinator()) {
+  // Demo output has no queue occurrence and therefore no Standard queue
+  // anchor. Its scheduled source still owns a real audio-clock deadline.
+  if (isActiveStandardRoomCoordinator() && !getState('demo.active')) {
     const hostStartAt = getStandardHostPendingFileStartAt();
     return hostStartAt === undefined
       ? undefined

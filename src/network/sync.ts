@@ -27,7 +27,9 @@ import {
   setLocalManualSyncOffset,
   isLocalFileStartPending,
   getStandardHostPendingFileStartAt,
+  getLocalFilePendingStartDeadlineMs,
 } from '../player/transport.ts';
+import { getPendingDemoHostStartAt } from '../demo/playback-timing.ts';
 import {
   getCurrentAudioBuffer,
   isLocalFilePaused,
@@ -132,6 +134,8 @@ function isCanonicalTimelineManualSyncEndpoint(): boolean {
 }
 
 function canApplyManualSyncAction(): boolean {
+  if (getState('playback.mode') === 'system-audio') return false;
+  if (getState('demo.active')) return true;
   if (!hasManualSyncEndpoint()) return false;
   if (isPlaybackModeYouTube()) {
     // The zero-start prepare/commit sequence temporarily owns the iframe.
@@ -215,7 +219,7 @@ function setManualSyncOffsetMs(ms: number): void {
   // A committed absolute value is one completed edit, not a click burst: a
   // playing local file should rebuild its AudioBufferSourceNode immediately.
   if (previousOffset === nextOffset || !isPlaybackPlayingFile()) return;
-  void play(getTrackPosition()).catch((error) =>
+  void play(getTrackPosition(), 0, getLocalFilePendingStartDeadlineMs()).catch((error) =>
     log.warn('[Sync] Failed to apply the entered local file offset:', error),
   );
 }
@@ -264,7 +268,7 @@ export function handleAutoSync(): void {
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
   if (!isPlaybackPlayingFile()) return;
-  void play(getTrackPosition()).catch((error) =>
+  void play(getTrackPosition(), 0, getLocalFilePendingStartDeadlineMs()).catch((error) =>
     log.warn('[Sync] Failed to restart file playback after sync reset:', error),
   );
 }
@@ -274,6 +278,9 @@ export function handleAutoSync(): void {
 export function getSyncPongPlaybackState(): SyncPongPlaybackState {
   const lifecycle = getState('playback.lifecycle');
   const playback = getPlaybackModeActivity();
+  if (getState('demo.active') && getState('demo.loading')) {
+    return { mode: 'file', activity: 'paused' };
+  }
 
   // During host track switches, stopAllMedia({ silent: true }) intentionally
   // leaves playback.mode/activity at file/playing to avoid UI flicker while
@@ -330,8 +337,10 @@ function createSyncPongPayload({
 }): Record<string, unknown> {
   const isDemo = getState('demo.active');
   const hostStartAt =
-    !isDemo && playbackState.mode === 'file' && playbackState.activity === 'playing'
-      ? getStandardHostPendingFileStartAt()
+    playbackState.mode === 'file' && playbackState.activity === 'playing'
+      ? isDemo
+        ? getPendingDemoHostStartAt()
+        : getStandardHostPendingFileStartAt()
       : undefined;
   const payload: Record<string, unknown> = {
     type: MSG.SYNC_PONG,
@@ -658,7 +667,11 @@ async function handleSyncPong(data: Record<string, unknown>, conn?: DataConnecti
   // A source armed for the shared start is already semantically playing.
   // Keep clock samples above, but never replace that source with an immediate
   // bootstrap/drift correction before its scheduled audio deadline.
-  if (isPlayLocked() || isLocalFileStartPending()) {
+  if (
+    isPlayLocked() ||
+    isLocalFileStartPending() ||
+    (getState('demo.active') && getState('demo.loading'))
+  ) {
     resetSoftFileResyncState();
     bus.emit('sync:diagnostic-standard-decision', {
       decision: 'skipped',

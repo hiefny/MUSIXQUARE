@@ -2087,8 +2087,8 @@
       var(--range-track-direction),
       var(--range-fill) 0%,
       var(--range-fill) var(--range-progress),
-      var(--surface-2) var(--range-progress),
-      var(--surface-2) 100%
+      var(--range-track-empty, var(--surface-2)) var(--range-progress),
+      var(--range-track-empty, var(--surface-2)) 100%
     );
     border-radius: 100px;
     border: none;
@@ -2102,8 +2102,8 @@
       var(--range-track-direction),
       var(--range-fill) 0%,
       var(--range-fill) var(--range-progress),
-      var(--surface-2) var(--range-progress),
-      var(--surface-2) 100%
+      var(--range-track-empty, var(--surface-2)) var(--range-progress),
+      var(--range-track-empty, var(--surface-2)) 100%
     );
     border-radius: 100px;
     border: none;
@@ -8368,10 +8368,10 @@
   .demo-settings-controls:not([hidden]) {
     display: flex;
     align-items: center;
-    gap: 32px;
-    padding-bottom: 20px;
-    margin-bottom: 16px;
-    border-bottom: 1px solid var(--divider);
+    margin-bottom: 24px;
+    border-radius: var(--radius-l);
+    background: var(--text-main);
+    color: var(--bg);
   }
 
   .manual-sync-overlay.demo-settings-open .sync-manual-display {
@@ -8382,18 +8382,19 @@
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    border-radius: var(--radius-l);
-    background: var(--text-main);
+  }
+
+  .demo-settings-transport > button {
+    position: relative;
   }
 
   .demo-settings-transport .demo-play-button {
-    width: 56px;
+    width: 48px;
     height: 56px;
     background: transparent;
   }
 
   .demo-settings-transport .ctrl-btn {
-    position: relative;
     display: grid;
     place-items: center;
     width: 48px;
@@ -8403,7 +8404,8 @@
     color: var(--bg);
   }
 
-  .demo-settings-transport .ctrl-btn::before {
+  .demo-settings-transport > button + button::before,
+  .demo-settings-volume::before {
     content: '';
     position: absolute;
     left: 0;
@@ -8414,26 +8416,24 @@
     opacity: 0.2;
   }
 
-  /* Optical optimization: move the glyphs toward the pill's center divider. */
-  .demo-settings-transport .demo-play-button > svg {
+  .demo-settings-transport .ctrl-btn > svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* Optical optimization: balance the first icon inside the rounded pill. */
+  #btn-demo-previous > svg {
     transform: translateX(2px);
   }
 
-  .demo-settings-transport .ctrl-btn > svg {
-    transform: translateX(-2px);
-  }
-
-  [dir='rtl'] .demo-settings-transport .ctrl-btn::before {
+  [dir='rtl'] .demo-settings-transport > button + button::before,
+  [dir='rtl'] .demo-settings-volume::before {
     left: auto;
     right: 0;
   }
 
-  [dir='rtl'] .demo-settings-transport .demo-play-button > svg {
+  [dir='rtl'] #btn-demo-previous > svg {
     transform: translateX(-2px);
-  }
-
-  [dir='rtl'] .demo-settings-transport .ctrl-btn > svg {
-    transform: translateX(2px);
   }
 
   .demo-settings-transport button:disabled {
@@ -8442,13 +8442,21 @@
   }
 
   .demo-settings-volume {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     flex: 1;
     min-width: 0;
-    max-width: 128px;
-    margin-inline-start: auto;
+    height: 56px;
+    padding-inline: 8px 12px;
+  }
+
+  @media (max-width: 360px) {
+    .demo-settings-transport .demo-play-button,
+    .demo-settings-transport .ctrl-btn {
+      width: 44px;
+    }
   }
 
   .demo-settings-volume > :disabled {
@@ -8457,13 +8465,19 @@
 
   #demo-vol-icon-btn {
     flex-shrink: 0;
+    color: var(--bg);
   }
 
   .demo-settings-volume .volume-muted-backdrop {
-    stroke: var(--surface-1);
+    stroke: var(--text-main);
   }
 
   #demo-volume-slider {
+    --range-fill-idle: var(--bg);
+    --range-fill-active: var(--bg);
+    --range-track-empty: var(--text-muted);
+    /* Keep the physical volume axis consistent with the main player in RTL. */
+    direction: ltr;
     flex: 1;
     width: 0;
     min-width: 0;

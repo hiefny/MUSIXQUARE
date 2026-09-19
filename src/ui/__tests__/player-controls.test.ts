@@ -2291,6 +2291,7 @@ describe('initPlayerControls sync button', () => {
         <div role="dialog" aria-modal="true" aria-label="Sync">
           <div class="demo-settings-controls" data-demo-settings-row hidden>
             <div class="demo-settings-transport">
+              <button id="btn-demo-previous">Previous</button>
               <button data-demo-play>Play</button>
               <button id="btn-demo-next-track">Next</button>
             </div>
@@ -2342,9 +2343,9 @@ describe('initPlayerControls sync button', () => {
     ).toBe(true);
     expect(document.getElementById('manual-sync-value')!.textContent).toBe('+237');
     expect((document.getElementById('demo-volume-slider') as HTMLInputElement).value).toBe('42');
-    expect((document.getElementById('btn-demo-next-track') as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    for (const id of ['btn-demo-previous', 'btn-demo-next-track']) {
+      expect((document.getElementById(id) as HTMLButtonElement).disabled).toBe(true);
+    }
     expect(document.querySelector<HTMLElement>('[data-demo-settings-row]')!.hidden).toBe(false);
     expect(document.querySelector<HTMLElement>('.sync-nudge-row')!.hidden).toBe(true);
     const edit = vi.fn();
@@ -2395,25 +2396,70 @@ describe('initPlayerControls sync button', () => {
     expect(document.activeElement).toBe(document.getElementById('btn-nudge-minus10'));
   });
 
-  it('keeps demo next host-owned and shares the volume action', async () => {
+  it('keeps demo previous and next host-owned through loading and shares the volume action', async () => {
     renderSyncControls();
     setState('demo.active', true);
     initPlayerControls();
+    const previous = vi.fn();
     const next = vi.fn();
     const volume = vi.fn();
+    bus.on('demo:previous-track', previous);
     bus.on('demo:next-track', next);
     bus.on('audio:set-volume', volume);
     document.getElementById('btn-demo-settings')!.click();
     await settleManualSyncOverlayOpen();
-    document.getElementById('btn-demo-next-track')!.click();
+    const previousButton = document.getElementById('btn-demo-previous') as HTMLButtonElement;
+    const nextButton = document.getElementById('btn-demo-next-track') as HTMLButtonElement;
+    const transportButtons = [previousButton, nextButton];
+    for (const button of transportButtons) {
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBe('false');
+    }
+    previousButton.click();
+    expect(previous).toHaveBeenCalledTimes(1);
+    expect(next).not.toHaveBeenCalled();
+    nextButton.click();
     expect(next).toHaveBeenCalledTimes(1);
+    expect(previous).toHaveBeenCalledTimes(1);
     const slider = document.getElementById('demo-volume-slider') as HTMLInputElement;
     slider.value = '63';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
     expect(volume).toHaveBeenCalledExactlyOnceWith(0.63);
     setState('network.hostConn', makeConnection('host-1'));
-    document.getElementById('btn-demo-next-track')!.click();
+    for (const button of transportButtons) {
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      button.click();
+    }
+    expect(previous).toHaveBeenCalledTimes(1);
     expect(next).toHaveBeenCalledTimes(1);
+
+    setState('network.hostConn', null);
+    for (const button of transportButtons) expect(button.disabled).toBe(false);
+    setState('demo.loading', true);
+    for (const button of transportButtons) {
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      button.click();
+    }
+    expect(previous).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
+    setState('demo.loading', false);
+    for (const button of transportButtons) {
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBe('false');
+      button.click();
+    }
+    expect(previous).toHaveBeenCalledTimes(2);
+    expect(next).toHaveBeenCalledTimes(2);
+
+    setState('demo.active', false);
+    for (const button of transportButtons) {
+      expect(button.disabled).toBe(true);
+      button.click();
+    }
+    expect(previous).toHaveBeenCalledTimes(2);
+    expect(next).toHaveBeenCalledTimes(2);
   });
 
   it('mutes and restores the same prior volume from either synchronized volume icon', async () => {
@@ -2507,9 +2553,10 @@ describe('initPlayerControls sync button', () => {
       'demo-vol-icon-btn',
       'demo-volume-slider',
     ]);
-    expect(parsed.getElementById('btn-demo-previous')).toBeNull();
+    expect(parsed.getElementById('btn-demo-previous')).not.toBeNull();
     const transport = parsed.querySelector('.demo-settings-transport')!;
     expect(Array.from(transport.querySelectorAll('button'))).toEqual([
+      parsed.getElementById('btn-demo-previous'),
       parsed.querySelector('#manual-sync-overlay [data-demo-play]'),
       parsed.getElementById('btn-demo-next-track'),
     ]);

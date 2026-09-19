@@ -9,6 +9,8 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
+import * as fileTransport from '../../player/transport.ts';
+import * as audioContext from '../../audio/context.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -1632,6 +1634,45 @@ describe('initPlayerControls playback mode rendering', () => {
     },
   );
 
+  it('keeps the existing play and playlist loading projection through the scheduled source lead', () => {
+    vi.useFakeTimers();
+    const pending = vi.spyOn(fileTransport, 'isLocalFileStartPending').mockReturnValue(true);
+    const deadline = vi
+      .spyOn(fileTransport, 'getLocalFilePendingStartDeadlineMs')
+      .mockReturnValue(performance.now() + 200);
+    const context = vi
+      .spyOn(audioContext, 'getExistingAudioContext')
+      .mockReturnValue(
+        Object.assign(new EventTarget(), { state: 'running', currentTime: 0 }) as AudioContext,
+      );
+    try {
+      renderPlaybackControls();
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+      const loadingStates: boolean[] = [];
+      bus.on('ui:play-loading-state', (loading) => loadingStates.push(loading));
+      initPlayerControls();
+      const button = document.getElementById('play-btn')!;
+      expect(button.classList).toContain('is-loading');
+      expect(button.getAttribute('aria-busy')).toBe('true');
+      expect(loadingStates.at(-1)).toBe(true);
+      vi.advanceTimersByTime(199);
+      expect(button.classList).toContain('is-loading');
+
+      pending.mockReturnValue(false);
+      vi.advanceTimersByTime(1);
+      expect(button.classList).not.toContain('is-loading');
+      expect(button.getAttribute('aria-busy')).toBe('false');
+      expect(loadingStates.at(-1)).toBe(false);
+    } finally {
+      pending.mockRestore();
+      deadline.mockRestore();
+      context.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('shows system-audio receiver loading through initial connect and reconnect gaps', () => {
     renderPlaybackControls();
     claimPlaybackOwner('system-audio', {
@@ -2240,11 +2281,20 @@ describe('initPlayerControls volume icon', () => {
 describe('initPlayerControls sync button', () => {
   function renderSyncControls(): void {
     document.body.innerHTML = `
+      <button id="btn-demo-settings">Settings</button>
       <button id="btn-sync"><span data-i18n="player.sync_compact">Sync</span></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
       <div id="manual-sync-overlay" aria-hidden="true">
         <div role="dialog" aria-modal="true" aria-label="Sync">
+          <div data-demo-settings-row hidden>
+            <button id="btn-demo-previous">Previous</button>
+            <button data-demo-play>Play</button>
+            <button id="btn-demo-next-track">Next</button>
+          </div>
+          <div id="demo-volume-control-group" data-demo-settings-row hidden>
+            <input id="demo-volume-slider" type="range" min="0" max="100" />
+          </div>
           <div class="chat-input-wrapper">
             <div
               id="manual-sync-value"
@@ -2271,6 +2321,111 @@ describe('initPlayerControls sync button', () => {
     await vi.dynamicImportSettled();
     await Promise.resolve();
   }
+
+  it('opens demo settings while loading offline using the existing device offset', async () => {
+    renderSyncControls();
+    setState('demo.active', true);
+    setState('demo.loading', true);
+    setState('sync.localOffset', 0.237);
+    setState('audio.masterVolume', 0.42);
+    initPlayerControls();
+    document.getElementById('btn-demo-settings')!.click();
+    await settleManualSyncOverlayOpen();
+    expect(
+      document.getElementById('manual-sync-overlay')!.classList.contains('demo-settings-open'),
+    ).toBe(true);
+    expect(document.getElementById('manual-sync-value')!.textContent).toBe('+237');
+    expect((document.getElementById('demo-volume-slider') as HTMLInputElement).value).toBe('42');
+    expect((document.getElementById('btn-demo-next-track') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(document.querySelector<HTMLElement>('[data-demo-settings-row]')!.hidden).toBe(false);
+    const edit = vi.fn();
+    bus.on('sync:set-manual-offset', edit);
+    const editor = document.getElementById('manual-sync-value')!;
+    editor.textContent = '-321';
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(edit).toHaveBeenCalledExactlyOnceWith(-321);
+    setState('sync.localOffset', -0.321);
+    setState('demo.active', false);
+    expect(document.getElementById('manual-sync-overlay')!.classList.contains('show')).toBe(false);
+    expect(getState('sync.localOffset')).toBe(-0.321);
+  });
+
+  it('keeps demo previous/next host-owned and shares the volume action', async () => {
+    renderSyncControls();
+    setState('demo.active', true);
+    initPlayerControls();
+    const previous = vi.fn();
+    const next = vi.fn();
+    const volume = vi.fn();
+    bus.on('demo:previous-track', previous);
+    bus.on('demo:next-track', next);
+    bus.on('audio:set-volume', volume);
+    document.getElementById('btn-demo-settings')!.click();
+    await settleManualSyncOverlayOpen();
+    document.getElementById('btn-demo-previous')!.click();
+    document.getElementById('btn-demo-next-track')!.click();
+    expect(previous).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
+    const slider = document.getElementById('demo-volume-slider') as HTMLInputElement;
+    slider.value = '63';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(volume).toHaveBeenCalledExactlyOnceWith(0.63);
+    setState('network.hostConn', makeConnection('host-1'));
+    document.getElementById('btn-demo-previous')!.click();
+    document.getElementById('btn-demo-next-track')!.click();
+    expect(previous).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not open a deferred demo dialog after leaving the demo', async () => {
+    renderSyncControls();
+    setState('demo.active', true);
+    initPlayerControls();
+    document.getElementById('btn-demo-settings')!.click();
+    setState('demo.active', false);
+    await settleManualSyncOverlayOpen();
+    expect(document.getElementById('manual-sync-overlay')!.classList.contains('show')).toBe(false);
+  });
+
+  it.each(['standard', 'pro'] as const)(
+    'closes an existing sync panel on %s system audio and prevents reopening',
+    async (kind) => {
+      renderSyncControls();
+      setActiveStandardHost();
+      if (kind === 'pro') {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: ['playback.control'],
+        });
+        proPlaybackRuntime.reconcile.mockResolvedValue(true);
+      }
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      initPlayerControls();
+      document.getElementById('btn-sync')!.click();
+      await settleManualSyncOverlayOpen();
+      expect(document.getElementById('manual-sync-overlay')!.classList.contains('show')).toBe(true);
+      setPlaybackSystemAudioPlaying();
+      expect(document.getElementById('manual-sync-overlay')!.classList.contains('show')).toBe(
+        false,
+      );
+      document.getElementById('btn-sync')!.click();
+      document.getElementById('btn-demo-settings')!.click();
+      await settleManualSyncOverlayOpen();
+      expect(document.getElementById('manual-sync-overlay')!.classList.contains('show')).toBe(
+        false,
+      );
+    },
+  );
 
   async function openEditableFileSyncControls(): Promise<HTMLElement> {
     renderSyncControls();
@@ -2929,6 +3084,64 @@ describe('initPlayerControls sync button', () => {
         false,
       );
       expect(document.activeElement).toBe(document.getElementById('btn-sync'));
+    },
+  );
+
+  it('includes the native volume input in the guest demo settings Tab cycle', async () => {
+    renderSyncControls();
+    setState('demo.active', true);
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    // Demo mode owns this button's disabled state; guests cannot control the host.
+    document.querySelector<HTMLButtonElement>('[data-demo-play]')!.disabled = true;
+    initPlayerControls();
+    document.getElementById('btn-demo-settings')!.click();
+    await settleManualSyncOverlayOpen();
+    const done = document.getElementById('btn-sync-done')!;
+    const slider = document.getElementById('demo-volume-slider') as HTMLInputElement;
+    const editor = document.getElementById('manual-sync-value')!;
+    expect(slider.disabled).toBe(false);
+    done.focus();
+
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(slider);
+    slider.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey: true,
+        bubbles: true,
+      }),
+    );
+    expect(document.activeElement).toBe(done);
+
+    slider.disabled = true;
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it.each(['hidden', 'disabled'] as const)(
+    'restores a visible fallback when the demo settings opener becomes %s',
+    async (unavailable) => {
+      renderSyncControls();
+      setState('demo.active', true);
+      setState('network.hostConn', makeConnection('host-1'));
+      setState('playback.mode', 'file');
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      initPlayerControls();
+      const trigger = document.getElementById('btn-demo-settings') as HTMLButtonElement;
+      trigger.focus();
+      trigger.click();
+      await settleManualSyncOverlayOpen();
+      document.getElementById('btn-sync-done')!.focus();
+      trigger[unavailable] = true;
+
+      bus.emit('sync:close-manual');
+
+      expect(document.activeElement).toBe(document.getElementById('btn-sync'));
+      expect(document.getElementById('manual-sync-overlay')!.getAttribute('aria-hidden')).toBe(
+        'true',
+      );
     },
   );
 

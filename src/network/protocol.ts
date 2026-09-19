@@ -1124,7 +1124,10 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.trebleBoostOn === 'boolean' &&
     typeof d.surroundOn === 'boolean',
   [MSG.DEMO_PLAY]: (d) =>
-    isNonNegInt(d.index) && isFiniteNumber(d.time) && isFiniteNumber(d.hostPlayAt),
+    isNonNegInt(d.index) &&
+    isFiniteNumber(d.time) &&
+    isFiniteNumber(d.hostPlayAt) &&
+    (d.hostStartAt === undefined || (isFiniteNumber(d.hostStartAt) && d.hostStartAt > 0)),
   [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),
   [MSG.DEMO_EXIT]: () => true,
   [MSG.REQUEST_DEMO_ENTER]: () => true,

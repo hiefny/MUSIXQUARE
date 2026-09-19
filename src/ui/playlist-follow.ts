@@ -4,7 +4,16 @@ import { cancelNativeSmoothScroll, scrollToWithPreferredMotion } from './scroll-
 
 const FOLLOW_TOLERANCE_PX = 2;
 const FOLLOW_SCROLL_IDLE_MS = 160;
-const KEYBOARD_SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']);
+const USER_BROWSING_GRACE_MS = 10_000;
+const KEYBOARD_SCROLL_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'PageUp',
+  'PageDown',
+  'Home',
+  'End',
+  ' ',
+]);
 
 interface FollowRequest {
   queueItemId: QueueItemId;
@@ -29,6 +38,7 @@ export interface PlaylistFollowController {
   readonly isFollowing: boolean;
   readonly isScrolling: boolean;
   updateSelection: (queueItemId: QueueItemId | null, subIndex: number) => void;
+  revealSelection: (queueItemId: QueueItemId | null, subIndex: number) => void;
   forceSelection: (queueItemId: QueueItemId | null, subIndex: number) => void;
   afterRender: () => void;
   reset: () => void;
@@ -96,6 +106,9 @@ export function createPlaylistFollowController(
   let frame = 0;
   let activeFollow: ActiveFollow | null = null;
   let scrollIdleTimer = 0;
+  let lastUserInteractionAt = -Infinity;
+  let userScrollSession = false;
+  let pointerBrowsing = false;
   let destroyed = false;
 
   function cancelScheduledFrame(): void {
@@ -230,10 +243,14 @@ export function createPlaylistFollowController(
     observedQueueItemId = undefined;
     observedSubIndex = undefined;
     request = null;
+    lastUserInteractionAt = -Infinity;
+    userScrollSession = false;
+    pointerBrowsing = false;
   }
 
   const cancelForUserInteraction = (): void => {
-    if (!request) return;
+    lastUserInteractionAt = performance.now();
+    userScrollSession = true;
     cancelScheduledFrame();
     interruptActiveFollow();
     request = null;
@@ -246,7 +263,9 @@ export function createPlaylistFollowController(
     return track?.parentElement === interactionRoot;
   };
   const cancelForScopedUserInteraction = (event: Event): void => {
-    if (isScrollSurfaceTarget(event.target)) cancelForUserInteraction();
+    if (!isScrollSurfaceTarget(event.target)) return;
+    if (event.type === 'pointerdown' || event.type === 'mousedown') pointerBrowsing = true;
+    cancelForUserInteraction();
   };
   const cancelForKeyboardScroll = (event: KeyboardEvent): void => {
     if (
@@ -276,6 +295,11 @@ export function createPlaylistFollowController(
     pointerInteractionOptions,
   );
   interactionRoot.addEventListener(
+    'touchmove',
+    cancelForScopedUserInteraction,
+    pointerInteractionOptions,
+  );
+  interactionRoot.addEventListener(
     'pointerdown',
     cancelForScopedUserInteraction,
     pointerInteractionOptions,
@@ -288,9 +312,27 @@ export function createPlaylistFollowController(
   interactionRoot.addEventListener('keydown', cancelForKeyboardScroll, {
     signal: interactionController.signal,
   });
+  const continuePointerBrowse = (): void => {
+    if (pointerBrowsing) cancelForUserInteraction();
+  };
+  const finishPointerBrowse = (): void => {
+    if (!pointerBrowsing) return;
+    cancelForUserInteraction();
+    pointerBrowsing = false;
+  };
+  for (const event of ['pointermove', 'mousemove']) {
+    document.addEventListener(event, continuePointerBrowse, pointerInteractionOptions);
+  }
+  for (const event of ['pointerup', 'mouseup', 'pointercancel']) {
+    document.addEventListener(event, finishPointerBrowse, pointerInteractionOptions);
+  }
   options.scrollContainer.addEventListener(
     'scroll',
     () => {
+      // Only scrolling that follows an intentional input extends the grace.
+      // Native follow animations and render-time scrollTop restoration must
+      // not make automatic following suppress itself.
+      if (!activeFollow && userScrollSession) lastUserInteractionAt = performance.now();
       if (!activeFollow) return;
       clearScrollIdleTimer();
       scrollIdleTimer = window.setTimeout(completeActiveFollow, FOLLOW_SCROLL_IDLE_MS);
@@ -303,6 +345,15 @@ export function createPlaylistFollowController(
   options.scrollContainer.addEventListener('scrollend', completeActiveFollow, {
     signal: interactionController.signal,
   });
+
+  function requestAutomaticSelection(queueItemId: QueueItemId | null, subIndex: number): void {
+    // Do not queue a timeout jump that pulls the reader back after ten seconds.
+    // A later selection or tab opening can follow once browsing has been idle.
+    const recentlyBrowsing =
+      pointerBrowsing || performance.now() - lastUserInteractionAt < USER_BROWSING_GRACE_MS;
+    replaceRequest(recentlyBrowsing ? null : queueItemId, subIndex);
+    if (!recentlyBrowsing) userScrollSession = false;
+  }
 
   return {
     get isFollowing() {
@@ -318,12 +369,21 @@ export function createPlaylistFollowController(
       }
       observedQueueItemId = queueItemId;
       observedSubIndex = normalizedSubIndex;
-      replaceRequest(queueItemId, normalizedSubIndex);
+      requestAutomaticSelection(queueItemId, normalizedSubIndex);
+    },
+    revealSelection(queueItemId, subIndex) {
+      const normalizedSubIndex = normalizeSubIndex(subIndex);
+      observedQueueItemId = queueItemId;
+      observedSubIndex = normalizedSubIndex;
+      requestAutomaticSelection(queueItemId, normalizedSubIndex);
     },
     forceSelection(queueItemId, subIndex) {
       const normalizedSubIndex = normalizeSubIndex(subIndex);
       observedQueueItemId = queueItemId;
       observedSubIndex = normalizedSubIndex;
+      lastUserInteractionAt = -Infinity;
+      userScrollSession = false;
+      pointerBrowsing = false;
       replaceRequest(queueItemId, normalizedSubIndex);
     },
     afterRender: scheduleFollow,

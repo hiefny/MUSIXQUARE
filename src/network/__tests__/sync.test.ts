@@ -36,6 +36,7 @@ import {
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
 import { grantStandardRoomAdministrator } from '../standard-room-authority.ts';
+import { setDemoHostStartAt } from '../../demo/playback-timing.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -64,6 +65,7 @@ const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
   startPending: false,
   hostStartAt: undefined as number | undefined,
+  pendingDeadline: undefined as number | undefined,
 }));
 const zeroStartFacade = vi.hoisted(() => ({ active: false }));
 
@@ -74,6 +76,7 @@ vi.mock('../../player/transport.ts', async (importOriginal) => {
     play: transportMocks.play,
     isLocalFileStartPending: () => transportMocks.startPending,
     getStandardHostPendingFileStartAt: () => transportMocks.hostStartAt,
+    getLocalFilePendingStartDeadlineMs: () => transportMocks.pendingDeadline,
   };
 });
 
@@ -93,6 +96,8 @@ beforeEach(() => {
   transportMocks.play.mockResolvedValue(true);
   transportMocks.startPending = false;
   transportMocks.hostStartAt = undefined;
+  transportMocks.pendingDeadline = undefined;
+  setDemoHostStartAt(null);
   setPlayLocked(false);
   zeroStartFacade.active = false;
   setLocalFilePaused(false);
@@ -120,6 +125,85 @@ describe('getTotalSyncOffsetMs', () => {
   it('handles negative offsets', () => {
     setState('sync.localOffset', -0.05);
     expect(getTotalSyncOffsetMs()).toBe(-50);
+  });
+});
+
+describe('demo and pending-start manual controls', () => {
+  it('keeps one device offset through offline demo edits, reset, and exit', () => {
+    initSync();
+    setState('sync.localOffset', 0.25);
+    setState('demo.active', true);
+    setState('demo.loading', true);
+    bus.emit('sync:set-manual-offset', -321);
+    expect(getState('sync.localOffset')).toBe(-0.321);
+    bus.emit('sync:nudge', 10);
+    expect(getState('sync.localOffset')).toBeCloseTo(-0.311);
+    expect(transportMocks.play).not.toHaveBeenCalled();
+    bus.emit('sync:auto-sync');
+    expect(getState('sync.localOffset')).toBe(0);
+    bus.emit('sync:set-manual-offset', 9999);
+    setState('demo.active', false);
+    expect(getState('sync.localOffset')).toBe(9.999);
+  });
+
+  it.each(['sync:set-manual-offset', 'sync:auto-sync'] as const)(
+    'preserves the pending source deadline on %s',
+    (event) => {
+      setActiveStandardHost();
+      setPlaybackFilePlaying();
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      setState('sync.localOffset', 0.05);
+      transportMocks.pendingDeadline = 12345;
+      initSync();
+      if (event === 'sync:set-manual-offset') bus.emit(event, 9999);
+      else bus.emit(event);
+      expect(transportMocks.play).toHaveBeenCalledWith(expect.any(Number), 0, 12345);
+    },
+  );
+
+  it('advertises demo download as paused even if a stale lifecycle still says playing', () => {
+    setPlaybackFilePlaying();
+    setState('demo.active', true);
+    setState('demo.loading', true);
+    expect(getSyncPongPlaybackState()).toEqual({ mode: 'file', activity: 'paused' });
+  });
+
+  it('publishes the pending demo start to a joining guest PONG', async () => {
+    setActiveStandardHost();
+    setPlaybackFilePlaying();
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('demo.active', true);
+    setState('demo.currentTrackIndex', 2);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const hostStartAt = Date.now() + 200;
+    setDemoHostStartAt(hostStartAt);
+    initSync();
+    const guest = mockDataConnection('guest-1');
+    setState('network.activeHostConnByPeerId', new Map([[guest.peer, guest]]));
+    setState('network.connectedPeers', [
+      {
+        id: guest.peer,
+        slot: 1,
+        label: 'Guest',
+        conn: guest,
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+      },
+    ]);
+    await handleData({ type: MSG.SYNC_PING, pingId: 1, guestTime: Date.now() }, guest);
+    expect(guest.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.SYNC_PONG, hostStartAt, demoTrackIndex: 2 }),
+    );
+    setState('demo.loading', true);
+    await handleData({ type: MSG.SYNC_PING, pingId: 2, guestTime: Date.now() }, guest);
+    const loadingReply = guest.send.mock.calls.at(-1)![0];
+    expect(loadingReply).toEqual(expect.objectContaining({ activity: 'paused' }));
+    expect(loadingReply).not.toHaveProperty('hostStartAt');
   });
 });
 

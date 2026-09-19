@@ -122,6 +122,19 @@ function commitEditor(editor: HTMLElement): boolean {
   return true;
 }
 
+function isAvailableFocusTarget(element: HTMLElement | null): element is HTMLElement {
+  if (
+    !element?.isConnected ||
+    element.matches(':disabled, [aria-disabled="true"]') ||
+    element.closest('[hidden], [aria-hidden="true"], [inert]')
+  )
+    return false;
+  const style = getComputedStyle(element);
+  return (
+    style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse'
+  );
+}
+
 function close(): void {
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay) return;
@@ -135,7 +148,14 @@ function close(): void {
   previousFocus = null;
   if (!wasShown) return;
   const fallback = document.getElementById('btn-sync');
-  (returnFocus?.isConnected ? returnFocus : fallback)?.focus();
+  const target = isAvailableFocusTarget(returnFocus) ? returnFocus : fallback;
+  if (isAvailableFocusTarget(target)) target.focus();
+  else if (
+    document.activeElement instanceof HTMLElement &&
+    overlay.contains(document.activeElement)
+  ) {
+    document.activeElement.blur();
+  }
 }
 
 function handleOverlayKeydown(event: KeyboardEvent): void {
@@ -151,9 +171,9 @@ function handleOverlayKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Tab') return;
   const focusables = Array.from(
     overlay.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      'button, input, textarea, select, a[href], [contenteditable="true"], [tabindex]',
     ),
-  ).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+  ).filter((element) => element.tabIndex >= 0 && isAvailableFocusTarget(element));
   if (focusables.length === 0) return;
   const first = focusables[0]!;
   const last = focusables[focusables.length - 1]!;
@@ -264,19 +284,31 @@ function bindOverlay(): void {
 }
 
 export function canUseManualSyncPanelRuntime(): boolean {
+  if (isPlaybackModeSystemAudio()) return false;
+  // Demo settings stay available while its next file is being prepared. The
+  // editor writes the same device offset used outside the demo.
+  if (getState('demo.active')) return true;
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();
   const isProRoom = room.kind === 'pro';
   if (!hostConn?.open && !isProRoom && !isActiveStandardRoomCoordinator()) return false;
-  if (isPlaybackModeSystemAudio()) return false;
   if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
-function open(): boolean {
+function open(demoSettings = false): boolean {
+  if (demoSettings && !getState('demo.active')) return false;
   if (!canUseManualSyncPanelRuntime()) return false;
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay) return false;
+  overlay.classList.toggle('demo-settings-open', demoSettings);
+  overlay.querySelectorAll<HTMLElement>('[data-demo-settings-row]').forEach((row) => {
+    row.hidden = !demoSettings;
+  });
+  const panel = overlay.querySelector<HTMLElement>('[role="dialog"]');
+  const labelKey = demoSettings ? 'nav.settings' : 'common.sync';
+  panel?.setAttribute('aria-label', t(labelKey));
+  panel?.setAttribute('data-i18n-aria-label', labelKey);
   bindOverlay();
   refreshManualSyncOverlayRuntime();
   if (!overlay.classList.contains('show')) {
@@ -296,6 +328,10 @@ function open(): boolean {
     0,
   );
   return true;
+}
+
+export function openDemoSettingsRuntime(): void {
+  open(true);
 }
 
 /** Execute the full Sync-button branch only after its interaction chunk loads. */

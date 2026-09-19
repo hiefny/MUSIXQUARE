@@ -219,6 +219,8 @@ test('retry replaces a demo preload rejected by the native audio decoder', async
   await expect.poll(() => readState(page, 'demo.currentTrackIndex')).toBe(1);
   await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
   expect(await readState(page, 'playback.activity')).not.toBe('playing');
+  await page.locator('#btn-demo-settings').click();
+  await expect(page.locator('#manual-sync-overlay')).toHaveClass(/show/);
   await page.locator('[data-demo-play]').click();
   await expect.poll(() => secondTrackRequests).toBe(2);
   await activity(page, 'playing');

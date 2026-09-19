@@ -47,6 +47,7 @@ import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
+import { createFileStartLoadingController } from './file-start-loading.ts';
 import type {
   ProPlaybackUiControlKind,
   TrackMeta,
@@ -101,6 +102,8 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
 let _ytPlayButtonLoading = false;
 const _ytSyncLoadingOwners = new Set<YouTubeSyncLoadingOwner | 'legacy'>();
 let _filePlayButtonLoading = false;
+let _scheduledFileStartLoading = false;
+let _fileStartLoadingController: ReturnType<typeof createFileStartLoadingController> | null = null;
 let _proPlaybackControlLoading = false;
 let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
@@ -154,6 +157,7 @@ function revealMediaSourceButton(): void {
 function isFilePlayButtonLoading(): boolean {
   const lifecycle = getState('playback.lifecycle');
   return (
+    _scheduledFileStartLoading ||
     isProRoomTrackChangeIntentPending() ||
     lifecycle === PLAYBACK_STATE.DOWNLOADING ||
     lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD ||
@@ -937,6 +941,36 @@ function handleMainSyncBtn(): void {
   );
 }
 
+function handleDemoSettingsBtn(): void {
+  if (!getState('demo.active') || isPlaybackModeSystemAudio()) return;
+  const request = ++_manualSyncOverlayRequest;
+  void loadManualSyncOverlayRuntime().then(
+    (runtime) => {
+      if (request !== _manualSyncOverlayRequest || !getState('demo.active')) return;
+      syncDemoTransportControls();
+      syncVolumeSlider();
+      syncVolumeAuthorityUI();
+      runtime.openDemoSettingsRuntime();
+    },
+    (error: unknown) => {
+      if (request !== _manualSyncOverlayRequest) return;
+      log.warn('[UI] Demo settings failed to load', error);
+      showToast(t('toast.sync_not_ready'));
+    },
+  );
+}
+
+function syncDemoTransportControls(): void {
+  const disabled =
+    !getState('demo.active') || !!getState('network.hostConn') || getState('demo.loading');
+  for (const id of ['btn-demo-previous', 'btn-demo-next-track']) {
+    const button = getUiElement<HTMLButtonElement>(id);
+    if (!button) continue;
+    button.disabled = disabled;
+    button.setAttribute('aria-disabled', String(disabled));
+  }
+}
+
 // ─── Logo Return to Main ─────────────────────────────────────────
 
 let _logoNavBusy = false;
@@ -1035,8 +1069,9 @@ function installAndroidRangeScrollFix(signal: AbortSignal): void {
 
 function syncVolumeSlider(): void {
   const vol = getState('audio.masterVolume') ?? 1;
-  const vSlider = getUiElement<HTMLInputElement>('volume-slider');
-  if (vSlider) {
+  for (const id of ['volume-slider', 'demo-volume-slider']) {
+    const vSlider = getUiElement<HTMLInputElement>(id);
+    if (!vSlider) continue;
     vSlider.value = String(vol * 100);
     syncRangeProgress(vSlider);
   }
@@ -1045,8 +1080,9 @@ function syncVolumeSlider(): void {
 
 function syncVolumeAuthorityUI(): void {
   const locked = isSynchronizedVolumeLocked();
-  const group = getUiElement('volume-control-group');
-  if (group) {
+  for (const id of ['volume-control-group', 'demo-volume-control-group']) {
+    const group = getUiElement(id);
+    if (!group) continue;
     if (locked) group.tabIndex = 0;
     else group.removeAttribute('tabindex');
     group.setAttribute(
@@ -1054,7 +1090,7 @@ function syncVolumeAuthorityUI(): void {
       locked ? roomCapabilityRequiredMessage('effects.control') : t('player.volume'),
     );
   }
-  for (const id of ['volume-slider', 'vol-icon-btn']) {
+  for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider']) {
     const control = getUiElement(id) as HTMLInputElement | HTMLButtonElement | null;
     if (!control) continue;
     control.disabled = locked;
@@ -1083,12 +1119,15 @@ export function initPlayerControls(): void {
   // in connect.ts and playlist-view.ts.
   _busScope.dispose();
   _domAbort?.abort();
+  _fileStartLoadingController?.destroy();
+  _fileStartLoadingController = null;
   clearMediaSourceAttentionHint();
   _domAbort = new AbortController();
   const { signal: domSignal } = _domAbort;
   _ytSyncLoadingOwners.clear();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
+  _scheduledFileStartLoading = false;
   _proPlaybackControlLoading = false;
   _proPlaybackTransitionLoading = false;
   _proPlaybackControlToken = null;
@@ -1249,6 +1288,23 @@ export function initPlayerControls(): void {
     onVolChange(Number(this.value));
   });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
+  $on('btn-demo-settings', 'click', handleDemoSettingsBtn);
+  $on('btn-demo-previous', 'click', () => bus.emit('demo:previous-track'));
+  $on('btn-demo-next-track', 'click', () => bus.emit('demo:next-track'));
+  getUiElement('demo-volume-control-group')?.addEventListener('click', explainLockedVolume, {
+    capture: true,
+    signal: domSignal,
+  });
+  $on('demo-volume-control-group', 'keydown', (event) => {
+    const { key } = event as KeyboardEvent;
+    if (key === 'Enter' || key === ' ') explainLockedVolume(event);
+  });
+  $on('demo-volume-slider', 'input', function (this: HTMLInputElement) {
+    onVolInput(Number(this.value));
+  });
+  $on('demo-volume-slider', 'change', function (this: HTMLInputElement) {
+    onVolChange(Number(this.value));
+  });
   $on('btn-media-source', 'click', (event) => {
     if (isPlaybackModeSystemAudio()) {
       if (getRoomContext().kind === 'pro') {
@@ -1681,7 +1737,10 @@ export function initPlayerControls(): void {
     }
   });
 
-  refreshFilePlayButtonLoading();
+  _fileStartLoadingController = createFileStartLoadingController((pending) => {
+    _scheduledFileStartLoading = pending;
+    refreshFilePlayButtonLoading();
+  });
   _busScope.on('state:playback.lifecycle', () => {
     refreshFilePlayButtonLoading();
     syncMainSyncButtonState();
@@ -1758,6 +1817,12 @@ export function initPlayerControls(): void {
     _manualSyncOverlayRuntime?.refreshManualSyncOverlayRuntime();
   });
   _busScope.on('sync:close-manual', closeManualSyncOverlay);
+  _busScope.on('state:demo.active', () => {
+    syncDemoTransportControls();
+    if (!getState('demo.active')) closeManualSyncOverlay();
+  });
+  _busScope.on('state:demo.loading', syncDemoTransportControls);
+  _busScope.on('state:network.hostConn', syncDemoTransportControls);
 
   const closeManualSyncIfInvalid = () => {
     if (

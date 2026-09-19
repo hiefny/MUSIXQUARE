@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: (seconds: number) => String(seconds),
   getTrackPosition: () => 0,
+  getLocalFilePendingStartDeadlineMs: () => undefined,
+  isLocalFileStartPending: () => false,
   isFilePipelineBusyForPlay: () => false,
   pause: vi.fn(),
   play: vi.fn(async () => true),

@@ -21,6 +21,7 @@ import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.t
 import { getRoomContext, hasRoomCapability, isStandardRoomMember } from '../rooms/authority.ts';
 import { handleProRoomTrackMetadata } from '../pro-room/media-hooks.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
+import { captureProRoomLocalPlaybackTimeline } from '../pro-room/local-playback-timeline.ts';
 import {
   isPlaybackModeYouTube,
   isPlaybackPlayingYouTube,
@@ -158,6 +159,11 @@ const STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER = 'yt-standard-host-manual-repeat-on
 const STANDARD_HOST_MANUAL_REPEAT_ONE_POLL_MS = 100;
 const STANDARD_HOST_MANUAL_REPEAT_ONE_METADATA_TIMEOUT_MS = 2_000;
 let guestEndedFallbackGeneration = 0;
+let retriedProEndedTimeline: {
+  player: YouTubePlayerInstance;
+  sessionId: number;
+  isCurrent: () => boolean;
+} | null = null;
 let consumedStandardHostRepeatOneEnd: {
   player: YouTubePlayerInstance;
   sessionId: number;
@@ -544,6 +550,45 @@ function routeCurrentProYouTubeObservation(kind: 'ended' | 'unavailable'): boole
     youtubeSubIndex,
     youtubeVideoId,
   });
+}
+
+function retryProEndedAtCanonicalBoundary(
+  player: YouTubePlayerInstance,
+  localTime: number,
+  duration: number,
+): void {
+  if (
+    getRoomContext().kind !== 'pro' ||
+    isLocalYouTubePaused() ||
+    !hasRoomCapability('playback.control') ||
+    !Number.isFinite(duration) ||
+    duration <= 0 ||
+    localTime < duration - 0.05
+  )
+    return;
+  const timeline = captureProRoomLocalPlaybackTimeline();
+  if (
+    !timeline?.playing ||
+    !timeline.isCurrent() ||
+    timeline.positionSeconds < duration ||
+    timeline.queueItemId !== getCurrentQueueItemId() ||
+    timeline.subIndex !== (getState('youtube.currentSubIndex') ?? 0) ||
+    timeline.videoId !== player.getVideoData?.()?.video_id
+  )
+    return;
+  const sessionId = getCurrentSessionId();
+  if (
+    retriedProEndedTimeline?.player === player &&
+    retriedProEndedTimeline.sessionId === sessionId &&
+    retriedProEndedTimeline.isCurrent()
+  )
+    return;
+  // A positive personal offset can end the iframe before the server accepts
+  // ENDED. That event will not fire again when canonical time catches up.
+  // Retry once for this exact applied revision; a late response cannot create
+  // another request on every UI tick, or advance a successor occurrence.
+  retriedProEndedTimeline = { player, sessionId, isCurrent: timeline.isCurrent };
+  routeCurrentProYouTubeObservation('ended');
 }
 
 function clearSameVideoOccurrenceRestart(): void {
@@ -3096,6 +3141,10 @@ function updateYouTubeUI(): void {
     const rawDuration = player.getDuration?.() || 0;
     const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;
+
+    if (state === YT.PlayerState.ENDED) {
+      retryProEndedAtCanonicalBoundary(player, currentTime, rawDuration);
+    }
 
     const canonicalTime = toCanonicalYouTubeTime(currentTime, rawDuration);
     const appliedHostOffset = getState('sync.youtubeCoordinatorAppliedOffset') || 0;

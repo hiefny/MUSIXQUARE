@@ -107,6 +107,151 @@ function flushFollowFrame(): void {
 }
 
 describe('playlist active-track follow', () => {
+  it.each(['wheel', 'touchstart', 'keydown', 'scrollbar'])(
+    'protects browsing for ten seconds after %s without a delayed surprise jump',
+    (input) => {
+      const { panel, scroller, list, scrollTo } = setupScroller();
+      renderEntries(list, [QUEUE_A, QUEUE_B]);
+      const controller = createPlaylistFollowController({
+        list,
+        scrollContainer: scroller,
+        isVisible: () => true,
+      });
+      try {
+        controller.updateSelection(QUEUE_A, -1);
+        controller.afterRender();
+        flushFollowFrame();
+        scroller.scrollTop = 80;
+        if (input === 'scrollbar') {
+          const track = document.createElement('div');
+          track.className = 'cscroll-track';
+          panel.appendChild(track);
+          track.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        } else if (input === 'keydown') {
+          list.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }));
+        } else {
+          scroller.dispatchEvent(new Event(input, { bubbles: true }));
+        }
+        scrollTo.mockClear();
+        controller.updateSelection(QUEUE_B, -1);
+        controller.afterRender();
+        vi.advanceTimersByTime(9_999);
+        expect(scrollTo).not.toHaveBeenCalled();
+        expect(controller.isFollowing).toBe(false);
+
+        vi.advanceTimersByTime(1);
+        controller.afterRender();
+        flushFollowFrame();
+        expect(scrollTo).not.toHaveBeenCalled();
+        expect(scroller.scrollTop).toBe(80);
+
+        controller.updateSelection(QUEUE_A, -1);
+        controller.afterRender();
+        flushFollowFrame();
+        expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+      } finally {
+        controller.destroy();
+      }
+    },
+  );
+
+  it('extends browsing protection through touch movement and the resulting inertial scroll', () => {
+    const { scroller, list, scrollTo } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => true,
+    });
+    try {
+      scroller.dispatchEvent(new Event('touchstart', { bubbles: true }));
+      vi.advanceTimersByTime(9_000);
+      scroller.dispatchEvent(new Event('touchmove', { bubbles: true }));
+      vi.advanceTimersByTime(1_000);
+      scroller.scrollTop = 80;
+      scroller.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(9_000);
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1_000);
+      controller.updateSelection(QUEUE_A, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('keeps a scrollbar drag protected until ten seconds after release outside the playlist', () => {
+    const { panel, scroller, list, scrollTo } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    const track = document.createElement('div');
+    track.className = 'cscroll-track';
+    panel.appendChild(track);
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => true,
+    });
+    try {
+      track.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      vi.advanceTimersByTime(15_000);
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      scroller.scrollTop = 80;
+      vi.advanceTimersByTime(9_000);
+      controller.updateSelection(QUEUE_A, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1_000);
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 540, behavior: 'smooth' });
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('respects recent browsing on tab reopening while the explicit current-track jump bypasses it', () => {
+    const { scroller, list, scrollTo } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => true,
+    });
+    try {
+      controller.revealSelection(QUEUE_B, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 540, behavior: 'smooth' });
+      scroller.dispatchEvent(new Event('scrollend'));
+      scroller.dispatchEvent(new Event('wheel', { bubbles: true }));
+      scroller.scrollTop = 80;
+      scrollTo.mockClear();
+      controller.revealSelection(QUEUE_B, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      controller.forceSelection(QUEUE_B, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 540, behavior: 'smooth' });
+    } finally {
+      controller.destroy();
+    }
+  });
+
   it('centers inside the mobile viewport above its bottom navigation clearance', () => {
     const { panel, scroller, list, scrollTo } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);

@@ -8265,6 +8265,7 @@
 
   /* ── Nudge Sync Overlay ─────────────────────────────────────── */
   .manual-sync-overlay {
+    --sync-panel-width: min(320px, calc(100vw - 48px));
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
@@ -8292,7 +8293,12 @@
   }
 
   .sync-glass-panel {
-    width: min(320px, calc(100vw - 48px));
+    position: relative;
+    width: var(--sync-panel-width);
+    max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--surface-1);
     border: none;
     border-radius: var(--radius-l);
@@ -8305,6 +8311,56 @@
     transition:
       opacity 0.22s ease-in,
       transform 0.22s ease-in;
+  }
+
+  .sync-glass-panel > * {
+    flex-shrink: 0;
+  }
+
+  .manual-sync-overlay.demo-settings-open {
+    --sync-panel-width: min(360px, calc(100vw - 48px));
+  }
+
+  .manual-sync-overlay > .cscroll-track-contained {
+    right: calc(50% - var(--sync-panel-width) / 2 + 4px);
+  }
+
+  .manual-sync-overlay.demo-settings-open .sync-glass-panel {
+    padding-top: 24px;
+  }
+
+  .demo-settings-transport:not([hidden]) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+  }
+
+  .demo-settings-transport .demo-play-button {
+    width: 56px;
+    height: 56px;
+  }
+
+  .demo-settings-transport button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .demo-settings-volume:not([hidden]) {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding-block: 18px 2px;
+  }
+
+  .demo-settings-volume > :disabled {
+    pointer-events: none;
+  }
+
+  #demo-volume-slider {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
   }
 
   .manual-sync-overlay.show .sync-glass-panel {
@@ -8603,7 +8659,8 @@
     color: var(--text-sub);
   }
 
-  .demo-play-button {
+  .demo-play-button,
+  .demo-settings-button {
     width: 44px;
     height: 44px;
     border: none;
@@ -8617,11 +8674,13 @@
     transition: transform 0.2s;
   }
 
-  .demo-play-button:active {
+  .demo-play-button:active,
+  .demo-settings-button:active {
     transform: scale(0.92);
   }
 
-  .demo-play-button > svg {
+  .demo-play-button > svg,
+  .demo-settings-button > svg {
     width: 24px;
     height: 24px;
     fill: currentColor;
@@ -8631,7 +8690,8 @@
     pointer-events: none;
   }
 
-  .demo-play-button.is-loading > svg {
+  .demo-play-button.is-loading > svg,
+  .demo-settings-button.is-loading > svg {
     display: none;
   }
 
@@ -8641,7 +8701,8 @@
     display: none;
   }
 
-  .demo-play-button.is-loading .demo-loading-spinner {
+  .demo-play-button.is-loading .demo-loading-spinner,
+  .demo-settings-button.is-loading .demo-loading-spinner {
     display: block;
   }
 

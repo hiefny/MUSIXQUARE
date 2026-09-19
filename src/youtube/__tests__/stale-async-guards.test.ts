@@ -1352,6 +1352,126 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     },
   );
 
+  it.each([9.999, -9.999])(
+    'retries an ended PRO endpoint once at canonical end with a %ss personal offset',
+    async (offset) => {
+      const player = createMockYtPlayer();
+      vi.mocked(player.getPlayerState).mockReturnValue(0);
+      vi.mocked(player.getCurrentTime).mockReturnValue(120);
+      vi.mocked(player.getDuration).mockReturnValue(120);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'A',
+          videoId: 'vidA000000A',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      const handle = await createPlayerInYouTubeMode(player);
+      setState('room.context', {
+        ...getState('room.context'),
+        kind: 'pro',
+        roomId: '000001',
+        capabilities: ['playback.control'],
+      });
+      setState('sync.youtubeLocalOffset', offset);
+      setState('sync.youtubeCoordinatorAppliedOffset', offset);
+      const timelineModule = await import('../../pro-room/local-playback-timeline.ts');
+      const timeline = {
+        roomId: '000001',
+        roomEpoch: getState('room.context').epoch,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: 'vidA000000A',
+        subIndex: 0,
+        playing: true,
+        positionSeconds: 110,
+        isCurrent: () => true,
+      };
+      vi.spyOn(timelineModule, 'captureProRoomLocalPlaybackTimeline').mockReturnValue(timeline);
+      const authority = await import('../../pro-room/playback-authority-hooks.ts');
+      const command = vi.fn(async () => {});
+      const unregister = authority.registerProPlaybackCommandHandler(command);
+      const { updateYouTubeUIForTests } = await import('../iframe.ts');
+      try {
+        handle.fireStateChange(0);
+        expect(command).toHaveBeenCalledOnce();
+        command.mockClear();
+        updateYouTubeUIForTests();
+        expect(command).not.toHaveBeenCalled();
+        timeline.positionSeconds = 120;
+        updateYouTubeUIForTests();
+        updateYouTubeUIForTests();
+        expect(command).toHaveBeenCalledOnce();
+        expect(command).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: 'ended',
+            queueItemId: QUEUE_ITEM_ID,
+            observedPositionSeconds: 120,
+            youtubeVideoId: 'vidA000000A',
+          }),
+        );
+      } finally {
+        unregister();
+      }
+    },
+  );
+
+  it.each(['pause', 'local-pause', 'revision', 'queue', 'video', 'subindex', 'listener'] as const)(
+    'does not retry a prior PRO local end after %s changes',
+    async (change) => {
+      const player = createMockYtPlayer();
+      vi.mocked(player.getPlayerState).mockReturnValue(0);
+      vi.mocked(player.getCurrentTime).mockReturnValue(120);
+      vi.mocked(player.getDuration).mockReturnValue(120);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'A',
+          videoId: 'vidA000000A',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      await createPlayerInYouTubeMode(player);
+      setState('room.context', {
+        ...getState('room.context'),
+        kind: 'pro',
+        roomId: '000001',
+        capabilities: change === 'listener' ? [] : ['playback.control'],
+      });
+      if (change === 'local-pause') {
+        const { setLocalYouTubePaused } = await import('../_state.ts');
+        setLocalYouTubePaused(true);
+      }
+      const timelineModule = await import('../../pro-room/local-playback-timeline.ts');
+      vi.spyOn(timelineModule, 'captureProRoomLocalPlaybackTimeline').mockReturnValue({
+        roomId: '000001',
+        roomEpoch: getState('room.context').epoch,
+        queueItemId: change === 'queue' ? SECOND_QUEUE_ITEM_ID : QUEUE_ITEM_ID,
+        videoId: change === 'video' ? 'vidB000000B' : 'vidA000000A',
+        subIndex: change === 'subindex' ? 1 : 0,
+        playing: change !== 'pause',
+        positionSeconds: 120,
+        isCurrent: () => change !== 'revision',
+      });
+      const authority = await import('../../pro-room/playback-authority-hooks.ts');
+      const command = vi.fn(async () => {});
+      const unregister = authority.registerProPlaybackCommandHandler(command);
+      const { updateYouTubeUIForTests } = await import('../iframe.ts');
+      try {
+        updateYouTubeUIForTests();
+        expect(command).not.toHaveBeenCalled();
+      } finally {
+        unregister();
+      }
+    },
+  );
+
   it.each(['standard', 'pro'] as const)(
     'does not advance %s playback for an old ENDED notification after live playback resumed',
     async (kind) => {

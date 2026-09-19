@@ -147,7 +147,9 @@ function close(): void {
   const returnFocus = previousFocus;
   previousFocus = null;
   if (!wasShown) return;
-  const fallback = document.getElementById('btn-sync');
+  const fallback = document.getElementById(
+    getState('demo.active') ? 'btn-demo-settings' : 'btn-sync',
+  );
   const target = isAvailableFocusTarget(returnFocus) ? returnFocus : fallback;
   if (isAvailableFocusTarget(target)) target.focus();
   else if (
@@ -285,7 +287,7 @@ function bindOverlay(): void {
 
 export function canUseManualSyncPanelRuntime(): boolean {
   if (isPlaybackModeSystemAudio()) return false;
-  // Demo settings stay available while its next file is being prepared. The
+  // Demo sync stays available while its next file is being prepared. The
   // editor writes the same device offset used outside the demo.
   if (getState('demo.active')) return true;
   const hostConn = getState('network.hostConn');
@@ -296,19 +298,16 @@ export function canUseManualSyncPanelRuntime(): boolean {
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
-function open(demoSettings = false): boolean {
-  if (demoSettings && !getState('demo.active')) return false;
+function open(fromDemo = false): boolean {
+  if (fromDemo && !getState('demo.active')) return false;
   if (!canUseManualSyncPanelRuntime()) return false;
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay) return false;
-  overlay.classList.toggle('demo-settings-open', demoSettings);
-  overlay.querySelectorAll<HTMLElement>('[data-demo-settings-row]').forEach((row) => {
-    row.hidden = !demoSettings;
-  });
+  overlay.classList.toggle('demo-settings-open', fromDemo);
   const nudgeRow = overlay.querySelector<HTMLElement>('.sync-nudge-row');
-  if (nudgeRow) nudgeRow.hidden = demoSettings;
+  if (nudgeRow) nudgeRow.hidden = false;
   const panel = overlay.querySelector<HTMLElement>('[role="dialog"]');
-  const labelKey = demoSettings ? 'nav.settings' : 'common.sync';
+  const labelKey = 'common.sync';
   panel?.setAttribute('aria-label', t(labelKey));
   panel?.setAttribute('data-i18n-aria-label', labelKey);
   bindOverlay();
@@ -332,7 +331,7 @@ function open(demoSettings = false): boolean {
   return true;
 }
 
-export function openDemoSettingsRuntime(): void {
+export function openDemoSyncRuntime(): void {
   open(true);
 }
 

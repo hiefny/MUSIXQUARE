@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v626"></script>
+    <script src="/bootstrap.js?cache=v627"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -3311,84 +3311,6 @@
             data-custom-scroll-contained
             data-custom-scroll-gutter
           >
-            <div class="demo-settings-controls" data-demo-settings-row hidden>
-              <div class="demo-settings-transport">
-                <button
-                  type="button"
-                  class="ctrl-btn"
-                  id="btn-demo-previous"
-                  aria-label="Previous track"
-                  data-i18n-aria-label="player.prev_track"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="demo-play-button"
-                  data-demo-play
-                  aria-label="Play/Pause"
-                  data-i18n-aria-label="player.play_pause"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path data-demo-play-icon d="M8 5v14l11-7z" />
-                  </svg>
-                  <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true"
-                    ><svg viewBox="0 0 44 44">
-                      <circle cx="22" cy="22" r="18" pathLength="100"></circle></svg
-                  ></span>
-                </button>
-                <button
-                  type="button"
-                  class="ctrl-btn"
-                  id="btn-demo-next-track"
-                  aria-label="Next track"
-                  data-i18n-aria-label="player.next_track"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                  </svg>
-                </button>
-              </div>
-              <div
-                class="demo-settings-volume"
-                id="demo-volume-control-group"
-                role="group"
-              >
-                <button
-                  id="demo-vol-icon-btn"
-                  class="volume-icon-button"
-                  type="button"
-                  aria-label="Toggle mute"
-                  data-i18n-aria-label="player.toggle_mute"
-                >
-                  <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
-                    <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7" />
-                    <path class="volume-wave volume-wave-outer" d="M18 5.7a8.9 8.9 0 0 1 0 12.6" />
-                    <g class="volume-muted-backdrop">
-                      <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
-                      <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
-                    </g>
-                    <g class="volume-muted-mark">
-                      <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
-                      <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
-                    </g>
-                  </svg>
-                </button>
-                <input
-                  type="range"
-                  id="demo-volume-slider"
-                  min="0"
-                  max="100"
-                  value="100"
-                  step="1"
-                  aria-label="Adjust volume"
-                  data-i18n-aria-label="player.volume"
-                />
-              </div>
-            </div>
             <div class="sync-manual-display">
               <span class="sync-col-label" data-i18n="player.manual_sync_label">Manual sync (ms)</span>
               <div class="chat-input-wrapper sync-manual-input-wrapper">
@@ -3436,25 +3358,113 @@
         >
           <div id="demo-visualizer-slot" class="demo-visualizer-slot"></div>
           <div class="demo-track-header">
-            <button
-              type="button"
-              class="demo-settings-button"
-              id="btn-demo-settings"
-              data-demo-settings
-              aria-label="Settings"
-              data-i18n-aria-label="nav.settings"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
-                />
-              </svg>
-              <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
-                <svg viewBox="0 0 44 44">
-                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+            <div class="demo-controls-pill">
+              <button
+                type="button"
+                class="demo-settings-button"
+                id="btn-demo-settings"
+                data-demo-settings
+                aria-expanded="false"
+                aria-controls="demo-inline-controls"
+                aria-label="Settings"
+                data-i18n-aria-label="nav.settings"
+              >
+                <svg class="demo-settings-open-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
+                  />
                 </svg>
-              </span>
-            </button>
+                <svg class="demo-settings-close-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+                </svg>
+                <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
+                  <svg viewBox="0 0 44 44">
+                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                  </svg>
+                </span>
+              </button>
+              <div class="demo-inline-controls" id="demo-inline-controls" inert aria-hidden="true">
+                <div class="demo-inline-transport">
+                  <button
+                    type="button"
+                    class="demo-play-button"
+                    data-demo-play
+                    aria-label="Play/Pause"
+                    data-i18n-aria-label="player.play_pause"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path data-demo-play-icon d="M8 5v14l11-7z" />
+                    </svg>
+                    <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true"
+                      ><svg viewBox="0 0 44 44">
+                        <circle cx="22" cy="22" r="18" pathLength="100"></circle></svg
+                    ></span>
+                  </button>
+                  <button
+                    type="button"
+                    class="ctrl-btn"
+                    id="btn-demo-next-track"
+                    data-demo-next-track
+                    aria-label="Next track"
+                    data-i18n-aria-label="player.next_track"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                    </svg>
+                  </button>
+                </div>
+                <span class="demo-controls-divider" aria-hidden="true"></span>
+                <div
+                  class="demo-inline-volume"
+                  id="demo-volume-control-group"
+                  role="group"
+                >
+                  <button
+                    id="demo-vol-icon-btn"
+                    class="volume-icon-button"
+                    type="button"
+                    aria-label="Toggle mute"
+                    data-i18n-aria-label="player.toggle_mute"
+                  >
+                    <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
+                      <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7" />
+                      <path class="volume-wave volume-wave-outer" d="M18 5.7a8.9 8.9 0 0 1 0 12.6" />
+                      <g class="volume-muted-backdrop">
+                        <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                        <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                      </g>
+                      <g class="volume-muted-mark">
+                        <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                        <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                      </g>
+                    </svg>
+                  </button>
+                  <input
+                    type="range"
+                    id="demo-volume-slider"
+                    min="0"
+                    max="100"
+                    value="100"
+                    step="1"
+                    aria-label="Adjust volume"
+                    data-i18n-aria-label="player.volume"
+                  />
+                </div>
+                <span class="demo-controls-divider" aria-hidden="true"></span>
+                <button
+                  type="button"
+                  class="ctrl-btn"
+                  id="btn-demo-sync"
+                  aria-label="Sync"
+                  data-i18n-aria-label="common.sync"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
             <div class="demo-track-copy">
               <div class="demo-track-title">Linelight OST - Adventure</div>
               <div class="demo-track-artist">© Brett Taylor</div>

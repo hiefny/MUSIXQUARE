@@ -16,6 +16,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
+import { bindDemoInlineControls } from './demo-inline-controls.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { switchTab } from './tabs.ts';
 import {
@@ -942,20 +943,18 @@ function handleMainSyncBtn(): void {
   );
 }
 
-function handleDemoSettingsBtn(): void {
+function handleDemoSyncBtn(): void {
   if (!getState('demo.active') || isPlaybackModeSystemAudio()) return;
+  getUiElement('btn-demo-sync')?.focus();
   const request = ++_manualSyncOverlayRequest;
   void loadManualSyncOverlayRuntime().then(
     (runtime) => {
       if (request !== _manualSyncOverlayRequest || !getState('demo.active')) return;
-      syncDemoTransportControls();
-      syncVolumeSlider();
-      syncVolumeAuthorityUI();
-      runtime.openDemoSettingsRuntime();
+      runtime.openDemoSyncRuntime();
     },
     (error: unknown) => {
       if (request !== _manualSyncOverlayRequest) return;
-      log.warn('[UI] Demo settings failed to load', error);
+      log.warn('[UI] Demo sync controls failed to load', error);
       showToast(t('toast.sync_not_ready'));
     },
   );
@@ -964,12 +963,14 @@ function handleDemoSettingsBtn(): void {
 function syncDemoTransportControls(): void {
   const disabled =
     !getState('demo.active') || !!getState('network.hostConn') || getState('demo.loading');
-  for (const id of ['btn-demo-previous', 'btn-demo-next-track']) {
+  for (const id of ['btn-demo-next-track']) {
     const button = getUiElement<HTMLButtonElement>(id);
     if (!button) continue;
     button.disabled = disabled;
     button.setAttribute('aria-disabled', String(disabled));
   }
+  const syncButton = getUiElement<HTMLButtonElement>('btn-demo-sync');
+  if (syncButton) syncButton.disabled = isPlaybackModeSystemAudio();
 }
 
 // ─── Logo Return to Main ─────────────────────────────────────────
@@ -1113,6 +1114,7 @@ function explainLockedVolume(event: Event): void {
 
 const _busScope = createBusScope();
 let _domAbort: AbortController | null = null;
+let _closeDemoInlineControls = () => {};
 
 export function initPlayerControls(): void {
   // Release prior-init subscriptions and replaceable DOM listeners so HMR /
@@ -1120,6 +1122,7 @@ export function initPlayerControls(): void {
   // in connect.ts and playlist-view.ts.
   _busScope.dispose();
   _domAbort?.abort();
+  _closeDemoInlineControls();
   _fileStartLoadingController?.destroy();
   _fileStartLoadingController = null;
   clearMediaSourceAttentionHint();
@@ -1290,8 +1293,18 @@ export function initPlayerControls(): void {
     onVolChange(Number(this.value));
   });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
-  $on('btn-demo-settings', 'click', handleDemoSettingsBtn);
-  $on('btn-demo-previous', 'click', () => bus.emit('demo:previous-track'));
+  _closeDemoInlineControls = bindDemoInlineControls({
+    signal: domSignal,
+    onOpen: () => {
+      syncDemoTransportControls();
+      syncVolumeSlider();
+      syncVolumeAuthorityUI();
+    },
+    onClose: () => {
+      _manualSyncOverlayRequest += 1;
+    },
+    onSync: handleDemoSyncBtn,
+  });
   $on('btn-demo-next-track', 'click', () => bus.emit('demo:next-track'));
   getUiElement('demo-volume-control-group')?.addEventListener('click', explainLockedVolume, {
     capture: true,
@@ -1821,16 +1834,22 @@ export function initPlayerControls(): void {
   _busScope.on('sync:close-manual', closeManualSyncOverlay);
   _busScope.on('state:demo.active', () => {
     syncDemoTransportControls();
-    if (!getState('demo.active')) closeManualSyncOverlay();
+    if (!getState('demo.active')) {
+      closeManualSyncOverlay();
+      _closeDemoInlineControls();
+    }
   });
   _busScope.on('state:demo.loading', syncDemoTransportControls);
   _busScope.on('state:network.hostConn', syncDemoTransportControls);
 
   const closeManualSyncIfInvalid = () => {
+    syncDemoTransportControls();
     if (
-      _manualSyncOverlayRuntime
-        ? !_manualSyncOverlayRuntime.canUseManualSyncPanelRuntime()
-        : getMainSyncUnavailableReason() !== null
+      getState('demo.active')
+        ? isPlaybackModeSystemAudio()
+        : _manualSyncOverlayRuntime
+          ? !_manualSyncOverlayRuntime.canUseManualSyncPanelRuntime()
+          : getMainSyncUnavailableReason() !== null
     ) {
       closeManualSyncOverlay();
     }

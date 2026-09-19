@@ -87,7 +87,7 @@ test.describe('Linelight demo mode', () => {
     expect(portraitPanelTheme.panelTop).toBeGreaterThan(0);
     expect(portraitPanelTheme.panelTop).toBeLessThanOrEqual(portraitPanelTheme.controlsTop);
     const playButtonThemeStyles = await page.evaluate(() => {
-      const button = getComputedStyle(document.querySelector('.demo-settings-button')!);
+      const button = getComputedStyle(document.querySelector('.demo-controls-pill')!);
       const probe = document.createElement('span');
       document.body.append(probe);
       probe.style.color = 'var(--text-main)';
@@ -470,9 +470,20 @@ test.describe('Linelight demo mode', () => {
         .toBe('playing');
 
       await pair.guestPage.locator('#btn-demo-settings').click();
-      await expect(pair.guestPage.locator('#manual-sync-overlay')).toHaveClass(/show/);
+      await expect(pair.guestPage.locator('#btn-demo-settings')).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
       await expect(pair.guestPage.locator('[data-demo-play]')).toBeDisabled();
+      await expect(pair.guestPage.locator('#btn-demo-next-track')).toBeDisabled();
+      await pair.guestPage.locator('#btn-demo-sync').click();
+      await expect(pair.guestPage.locator('#manual-sync-overlay')).toHaveClass(/show/);
+      await expect(pair.guestPage.locator('.sync-nudge-row')).toBeVisible();
       await pair.guestPage.locator('#btn-sync-done').click();
+      await expect(pair.guestPage.locator('#btn-demo-settings')).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
       await expect
         .poll(() => readState(pair.guestPage, 'playback.activity'), { timeout: 10_000 })
         .toBe('playing');

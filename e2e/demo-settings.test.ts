@@ -12,73 +12,89 @@ async function emit(page: Page, event: string): Promise<void> {
   }, event);
 }
 
+async function enterDemo(page: Page, theme: 'dark' | 'light' = 'dark'): Promise<void> {
+  await injectPeerServer(page);
+  await page.addInitScript((value) => {
+    localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
+    localStorage.setItem('musixquare-theme', value);
+  }, theme);
+  await page.route('https://demo.musixquare.com/linelight/*.m4a', (route) =>
+    route.fulfill({
+      path: fileURLToPath(new URL('./fixtures/demo-track.mp3', import.meta.url)),
+      contentType: 'audio/mpeg',
+    }),
+  );
+  await setupHostAndStart(page);
+  await emit(page, 'demo:enter');
+  await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
+}
+
+async function expectExpanded(page: Page, expanded: boolean): Promise<void> {
+  await expect(page.locator('#btn-demo-settings')).toHaveAttribute(
+    'aria-expanded',
+    String(expanded),
+  );
+  await expect(page.locator('#demo-inline-controls')).toHaveJSProperty('inert', !expanded);
+  await expect(page.locator('#demo-inline-controls')).toHaveAttribute(
+    'aria-hidden',
+    String(!expanded),
+  );
+}
+
 for (const theme of ['dark', 'light'] as const) {
-  test(`demo settings share device controls and remain usable on short screens (${theme})`, async ({
+  test(`demo inline controls share device state and open the complete sync panel (${theme})`, async ({
     page,
   }, testInfo) => {
-    await injectPeerServer(page);
-    await page.addInitScript((theme) => {
-      localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
-      localStorage.setItem('musixquare-theme', theme);
-    }, theme);
-    await page.route('https://demo.musixquare.com/linelight/*.m4a', (route) =>
-      route.fulfill({
-        path: fileURLToPath(new URL('./fixtures/demo-track.mp3', import.meta.url)),
-        contentType: 'audio/mpeg',
-      }),
-    );
     await page.setViewportSize({ width: 390, height: 844 });
-    await setupHostAndStart(page);
-    await emit(page, 'demo:enter');
-    await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
-    await page.locator('#btn-demo-settings').click();
-    const panel = page.locator('#manual-sync-overlay .sync-glass-panel');
-    await expect(panel).toBeVisible();
-    await expect(panel).toHaveAttribute('aria-label', 'Settings');
-    await expect(panel).toHaveCSS('opacity', '1');
-    await expect(panel.locator('.sync-nudge-row')).toBeHidden();
-    await expect(page.locator('#btn-demo-previous')).toBeEnabled();
+    await enterDemo(page, theme);
+    const toggle = page.locator('#btn-demo-settings');
+    const controls = page.locator('#demo-inline-controls');
+    const overlay = page.locator('#manual-sync-overlay');
+    const panel = overlay.locator('.sync-glass-panel');
+    const slider = page.locator('#demo-volume-slider');
+    const mute = page.locator('#demo-vol-icon-btn');
+    const mainMute = page.locator('#vol-icon-btn');
+    const mainSlider = page.locator('#volume-slider');
+    const sync = page.locator('#btn-demo-sync');
+
+    await expectExpanded(page, false);
+    await toggle.click();
+    await expectExpanded(page, true);
+    await expect(page.locator('.demo-track-header')).toHaveClass(/demo-controls-expanded/);
+    await expect(overlay).not.toHaveClass(/show/);
+    await expect(controls.locator('[data-demo-play]')).toBeEnabled();
     await expect(page.locator('#btn-demo-next-track')).toBeEnabled();
-    const controls = page.locator('.demo-settings-controls');
+    await expect(page.locator('#btn-demo-previous')).toHaveCount(0);
     const rowItems = [
-      page.locator('#btn-demo-previous'),
+      toggle,
       controls.locator('[data-demo-play]'),
       page.locator('#btn-demo-next-track'),
-      page.locator('#demo-vol-icon-btn'),
-      page.locator('#demo-volume-slider'),
+      mute,
+      slider,
+      sync,
     ];
+    await expect(slider).toHaveCSS('width', '74px');
     const rowBounds = await Promise.all(rowItems.map((item) => item.boundingBox()));
     const centers = rowBounds.map((bounds) => bounds!.y + bounds!.height / 2);
     expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(2);
     for (let i = 1; i < rowBounds.length; i += 1) {
-      expect(rowBounds[i]!.x).toBeGreaterThanOrEqual(rowBounds[i - 1]!.x + rowBounds[i - 1]!.width);
+      expect(rowBounds[i]!.x).toBeGreaterThanOrEqual(
+        rowBounds[i - 1]!.x + rowBounds[i - 1]!.width - 1,
+      );
     }
-    await expect(controls).toHaveCSS('border-bottom-style', 'none');
-    const pillBounds = (await controls.boundingBox())!;
-    expect(rowBounds.at(-1)!.x + rowBounds.at(-1)!.width).toBeLessThan(
-      pillBounds.x + pillBounds.width,
+    expect(rowBounds.at(-1)!.x + rowBounds.at(-1)!.width - rowBounds[0]!.x).toBeLessThanOrEqual(
+      305,
     );
-    for (const button of await controls.locator('.demo-settings-transport > button').all()) {
-      await expect(button).toHaveCSS('width', '48px');
-      await expect(button).toHaveCSS('height', '56px');
-    }
-    for (const icon of [
-      '#btn-demo-previous > svg',
-      '[data-demo-play] > svg',
-      '#btn-demo-next-track > svg',
-    ]) {
-      await expect(controls.locator(icon)).toHaveCSS('width', '24px');
-      await expect(controls.locator(icon)).toHaveCSS('height', '24px');
-    }
-    const slider = page.locator('#demo-volume-slider');
-    const wideRailWidth = (await slider.boundingBox())!.width;
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-portrait.png') });
+
+    await controls.locator('[data-demo-play]').click();
+    await expect.poll(() => readState(page, 'playback.activity')).toBe('paused');
+    await controls.locator('[data-demo-play]').click();
+    await expect.poll(() => readState(page, 'playback.activity')).toBe('playing');
     await slider.focus();
     await slider.press('Home');
     await slider.press('ArrowRight');
     await expect.poll(() => readState(page, 'audio.masterVolume')).toBe(0.01);
-    const mute = page.locator('#demo-vol-icon-btn');
-    const mainMute = page.locator('#vol-icon-btn');
-    const mainSlider = page.locator('#volume-slider');
     await expect(mainSlider).toHaveValue('1');
     await mute.click();
     await expect.poll(() => readState(page, 'audio.masterVolume')).toBe(0);
@@ -92,34 +108,17 @@ for (const theme of ['dark', 'light'] as const) {
     await expect.poll(() => readState(page, 'audio.masterVolume')).toBe(0.01);
     await expect(slider).toHaveValue('1');
     await expect(mainSlider).toHaveValue('1');
-    for (const button of [mute, mainMute]) {
-      await expect(button).not.toHaveClass(/is-muted/);
-      await expect(button).toHaveAttribute('aria-pressed', 'false');
-    }
-    const editor = page.locator('#manual-sync-value');
-    await expect(editor).toHaveAttribute('aria-label', 'Manual sync (ms)');
-    await editor.fill('-321');
-    await editor.press('Enter');
-    await expect.poll(() => readState(page, 'sync.localOffset')).toBe(-0.321);
-    await expect(page.locator('#manual-sync-overlay')).toHaveCSS('opacity', '1');
-    await expect(panel).toHaveCSS('opacity', '1');
-    await expect
-      .poll(() =>
-        panel.evaluate((element) => {
-          const bounds = element.getBoundingClientRect();
-          return element.contains(document.elementFromPoint(bounds.x + 20, bounds.y + 20));
-        }),
-      )
-      .toBe(true);
-    await page.screenshot({ path: testInfo.outputPath('demo-settings-portrait.png') });
+    await expectExpanded(page, true);
+
     await page.locator('html').evaluate((element) => element.setAttribute('dir', 'rtl'));
     await expect(slider).toHaveCSS('direction', 'rtl');
     await expect(slider).toHaveCSS('--range-track-direction', 'to left');
-    await expect(mute.locator('.volume-icon')).toHaveCSS('transform', 'matrix(-1, 0, 0, 1, 0, 0)');
-    await expect(mainMute.locator('.volume-icon')).toHaveCSS(
-      'transform',
-      'matrix(-1, 0, 0, 1, 0, 0)',
-    );
+    for (const button of [mute, mainMute]) {
+      await expect(button.locator('.volume-icon')).toHaveCSS(
+        'transform',
+        'matrix(-1, 0, 0, 1, 0, 0)',
+      );
+    }
     await slider.focus();
     await slider.press('ArrowLeft');
     await expect.poll(() => readState(page, 'audio.masterVolume')).toBe(0.02);
@@ -128,68 +127,135 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(mainMute).toHaveAttribute('aria-pressed', 'true');
     await expect(mute.locator('.volume-muted-mark')).toHaveCSS('opacity', '1');
     await expect(mute.locator('.volume-wave-inner')).toHaveCSS('opacity', '0');
-    await page.screenshot({ path: testInfo.outputPath('demo-settings-rtl-muted.png') });
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-rtl-muted.png') });
     await mute.click();
     await expect.poll(() => readState(page, 'audio.masterVolume')).toBe(0.02);
-    await expect(mute.locator('.volume-wave-inner')).toHaveCSS('opacity', '1');
-    await page.screenshot({ path: testInfo.outputPath('demo-settings-rtl.png') });
     await page.locator('html').evaluate((element) => element.setAttribute('dir', 'ltr'));
-    await expect(slider).toHaveCSS('direction', 'ltr');
     await expect(mute.locator('.volume-icon')).toHaveCSS('transform', 'none');
 
-    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await sync.click();
+    await expect(overlay).toHaveClass(/demo-settings-open/);
+    await expect(panel).toHaveAttribute('aria-label', 'Sync');
+    await expect(panel).toHaveCSS('opacity', '1');
+    await expect(panel.locator('[data-demo-play]')).toHaveCount(0);
+    await expect(panel.locator('.sync-nudge-row')).toBeVisible();
+    for (const id of ['minus10', 'minus1', 'plus1', 'plus10']) {
+      await expect(page.locator(`#btn-nudge-${id}`)).toBeVisible();
+    }
+    const editor = page.locator('#manual-sync-value');
+    await expect(editor).toHaveAttribute('aria-label', 'Manual sync (ms)');
+    await editor.fill('-321');
+    await editor.press('Enter');
+    await expect.poll(() => readState(page, 'sync.localOffset')).toBe(-0.321);
+    await page.locator('#btn-nudge-plus10').click();
+    await expect.poll(() => readState(page, 'sync.localOffset')).toBeCloseTo(-0.311, 4);
+    await page.locator('#btn-nudge-minus10').click();
+    await expect.poll(() => readState(page, 'sync.localOffset')).toBeCloseTo(-0.321, 4);
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-sync.png') });
+    await page.locator('#btn-sync-done').click();
+    await expect(overlay).not.toHaveClass(/show/);
+    await expect(overlay).toBeHidden();
+    await expectExpanded(page, true);
+    await expect(sync).toBeFocused();
+
     await page.setViewportSize({ width: 320, height: 568 });
-    const narrowSlider = await slider.boundingBox();
-    const narrowPanel = await panel.boundingBox();
-    expect(narrowSlider!.width).toBeGreaterThan(40);
-    expect(narrowSlider!.width).toBeLessThan(wideRailWidth);
-    expect(narrowSlider!.x + narrowSlider!.width).toBeLessThan(narrowPanel!.x + narrowPanel!.width);
-    await page.screenshot({ path: testInfo.outputPath('demo-settings-narrow.png') });
+    await expect
+      .poll(async () => {
+        const bounds = (await controls.boundingBox())!;
+        return bounds.x + bounds.width;
+      })
+      .toBeLessThanOrEqual(320);
+    const narrowBounds = await controls.boundingBox();
+    const narrowRail = await slider.boundingBox();
+    expect(narrowRail!.width).toBeGreaterThanOrEqual(24);
+    expect(narrowRail!.width).toBeLessThanOrEqual(74);
+    expect(narrowBounds!.x + narrowBounds!.width).toBeLessThanOrEqual(320);
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-narrow.png') });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(slider).toHaveCSS('width', '74px');
+    const desktopFirst = (await toggle.boundingBox())!;
+    const desktopLast = (await sync.boundingBox())!;
+    expect(desktopLast.x + desktopLast.width - desktopFirst.x).toBeLessThanOrEqual(305);
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-desktop.png') });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 
     await page.locator('#btn-demo-next-track').click();
     await expect.poll(() => readState(page, 'demo.currentTrackIndex')).toBe(1);
     await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
-    await page.locator('#btn-demo-previous').click();
-    await expect.poll(() => readState(page, 'demo.currentTrackIndex')).toBe(0);
-    await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
-    await page.locator('#btn-demo-next-track').click();
-    await expect.poll(() => readState(page, 'demo.currentTrackIndex')).toBe(1);
-    await page.locator('#btn-sync-done').click();
-    await emit(page, 'demo:request-exit');
-    await expect.poll(() => readState(page, 'demo.active')).toBe(false);
-    expect(await readState(page, 'sync.localOffset')).toBe(-0.321);
-    await emit(page, 'demo:enter');
-    await page.locator('#btn-demo-settings').click();
-    await expect(editor).toHaveText('-321');
-    await page.setViewportSize({ width: 844, height: 300 });
+    await expectExpanded(page, true);
+    await toggle.click();
+    await expectExpanded(page, false);
+    await toggle.click();
+    await expectExpanded(page, true);
+    await page.keyboard.press('Escape');
+    await expectExpanded(page, false);
+    await expect(toggle).toBeFocused();
+    await toggle.click();
+    await page.locator('[data-demo-step="2"]').click();
+    await expectExpanded(page, false);
+
+    await toggle.click();
+    await sync.click();
+    await page.setViewportSize({ width: 844, height: 240 });
     const scrollBody = panel.locator('.sync-scroll-body');
+    await expect(panel).toHaveCSS('opacity', '1');
+    await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
     await expect
       .poll(() => scrollBody.evaluate((element) => element.scrollHeight > element.clientHeight))
       .toBe(true);
-    await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
-    const bounds = await panel.boundingBox();
-    expect(bounds).not.toBeNull();
-    expect(bounds!.y).toBeGreaterThanOrEqual(0);
-    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(300);
+    const bounds = (await panel.boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(240);
     await expect(scrollBody).toHaveClass(/has-scroll-overflow/);
     const footer = panel.locator('.sync-bottom-row');
-    const footerBeforeScroll = await footer.boundingBox();
+    const footerBeforeScroll = (await footer.boundingBox())!;
     await scrollBody.hover();
     await page.mouse.wheel(0, 220);
     await expect.poll(() => scrollBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-    expect((await footer.boundingBox())!.y).toBe(footerBeforeScroll!.y);
-    const scrollbar = panel.locator('.sync-scroll-frame > .cscroll-track-contained');
-    await expect(scrollbar).toHaveCSS('opacity', '1');
-    const scrollBounds = await scrollbar.boundingBox();
-    expect(scrollBounds!.x + scrollBounds!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
-    expect(scrollBounds!.x).toBeGreaterThan(bounds!.x + bounds!.width - 32);
-    expect(scrollBounds!.y).toBeGreaterThanOrEqual(bounds!.y + 16);
-    expect(scrollBounds!.y + scrollBounds!.height).toBeLessThanOrEqual(footerBeforeScroll!.y);
-    await page.screenshot({ path: testInfo.outputPath('demo-settings-landscape.png') });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(scrollBody).not.toHaveClass(/has-scroll-overflow/);
-    await expect(scrollbar).toHaveCSS('opacity', '0');
+    expect((await footer.boundingBox())!.y).toBe(footerBeforeScroll.y);
+    await page.screenshot({ path: testInfo.outputPath('demo-inline-sync-landscape.png') });
     await page.locator('#btn-sync-done').click();
-    await expect(page.locator('#manual-sync-overlay')).toHaveAttribute('aria-hidden', 'true');
+    await expectExpanded(page, true);
+    await emit(page, 'demo:request-exit');
+    await expect.poll(() => readState(page, 'demo.active')).toBe(false);
+    await expectExpanded(page, false);
+    expect(await readState(page, 'sync.localOffset')).toBeCloseTo(-0.321, 4);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await emit(page, 'demo:enter');
+    await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
+    await expectExpanded(page, false);
+    await toggle.click();
+    await sync.click();
+    await expect(editor).toHaveText('-321');
+    await page.locator('#btn-auto-sync').click();
+    await expect.poll(() => readState(page, 'sync.localOffset')).toBe(0);
+    await page.locator('#btn-sync-done').click();
   });
 }
+
+test('demo inline controls remain keyboard accessible with reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await enterDemo(page);
+  const toggle = page.locator('#btn-demo-settings');
+  const controls = page.locator('#demo-inline-controls');
+  await toggle.focus();
+  await toggle.press('Enter');
+  await expectExpanded(page, true);
+  await expect(controls.locator('[data-demo-play]')).toBeEnabled();
+  await page.keyboard.press('Tab');
+  await expect(controls.locator('[data-demo-play]')).toBeFocused();
+  const animatedDurations = await controls.evaluate((element) =>
+    [element, element.parentElement!].flatMap((item) =>
+      getComputedStyle(item)
+        .transitionDuration.split(',')
+        .map((value) => Number.parseFloat(value)),
+    ),
+  );
+  expect(Math.max(...animatedDurations)).toBeLessThanOrEqual(0.01);
+  await page.keyboard.press('Escape');
+  await expectExpanded(page, false);
+  await expect(toggle).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(controls.locator('[data-demo-play]')).not.toBeFocused();
+});

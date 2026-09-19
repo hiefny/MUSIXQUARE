@@ -226,7 +226,7 @@ const de: Record<I18nKey, string> = {
   'player.play_together': 'Synchrone Wiedergabe',
   'player.play_speakers': 'Als Lautsprecher nutzen',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manuell (ms)',
+  'player.manual_sync_label': 'Manueller Sync (ms)',
 
   // Playlist
   'playlist.toggle': 'Playlist ein-/ausklappen',

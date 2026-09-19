@@ -941,6 +941,89 @@ describe('custom-scrollbar compositor hot path', () => {
   });
 });
 
+describe('custom-scrollbar optional overflow gutter', () => {
+  it('adds a gutter only for visible overflow and clears it when content fits or is hidden', () => {
+    const box = createScrollbox('overflow-gutter');
+    box.container.setAttribute('data-custom-scroll-gutter', '');
+    box.setScrollHeight(200);
+    initCustomScrollbar(box.container);
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(false);
+
+    box.setScrollHeight(202);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(false);
+
+    box.setScrollHeight(203);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(true);
+
+    box.setScrollHeight(200);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(false);
+
+    box.setScrollHeight(1000);
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(true);
+    box.container.style.visibility = 'hidden';
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(false);
+
+    box.container.style.visibility = 'visible';
+    bus.emit('ui:scrollbar-relayout');
+    flushAnimationFrame();
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(true);
+    destroyCustomScrollbar(box.container);
+    expect(box.container.classList.contains('has-scroll-overflow')).toBe(false);
+  });
+
+  it('measures gutter-induced wrapping immediately and settles its own class mutation', async () => {
+    const box = createScrollbox('gutter-wrapping');
+    box.container.setAttribute('data-custom-scroll-gutter', '');
+    box.scrollHeightSpy.mockImplementation(() =>
+      box.container.classList.contains('has-scroll-overflow') ? 500 : 300,
+    );
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    expect(thumb.style.height).toBe('80px');
+
+    // The class and its ResizeObserver notification coalesce into one extra
+    // measurement, then stop. Rewriting it every frame would never settle.
+    _resizeObservers.get(box.container)?.notify();
+    await flushMutationObservers();
+    expect(_rafCallbacks.size).toBe(1);
+    flushAnimationFrame();
+    await flushMutationObservers();
+    expect(box.rectSpy).toHaveBeenCalledTimes(2);
+    expect(_rafCallbacks.size).toBe(0);
+
+    box.container.scrollTop = 150;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    expect(thumb.style.transform).toBe('translateY(60px)');
+  });
+
+  it.each([false, true])(
+    'leaves a non-opted-in container class unchanged when initially %s',
+    (initialClass) => {
+      const box = createScrollbox('no-gutter');
+      box.container.classList.toggle('has-scroll-overflow', initialClass);
+      initCustomScrollbar(box.container);
+      expect(box.container.classList.contains('has-scroll-overflow')).toBe(initialClass);
+      box.setScrollHeight(200);
+      bus.emit('ui:scrollbar-relayout');
+      flushAnimationFrame();
+      expect(box.container.classList.contains('has-scroll-overflow')).toBe(initialClass);
+      destroyCustomScrollbar(box.container);
+      expect(box.container.classList.contains('has-scroll-overflow')).toBe(initialClass);
+    },
+  );
+});
+
 describe('custom-scrollbar relayout isolation', () => {
   it('does not let a nested thumb transform wake the outer scrollbar layout', async () => {
     const outer = createScrollbox('outer');

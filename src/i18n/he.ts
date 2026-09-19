@@ -132,7 +132,7 @@ const he: Record<I18nKey, string> = {
   'player.play_together': 'הפעלה מסונכרנת',
   'player.play_speakers': 'שימוש כרמקול',
   'player.auto_sync_label': 'אוטומטי (ms)',
-  'player.manual_sync_label': 'ידני (ms)',
+  'player.manual_sync_label': 'סנכרון ידני (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'פתיחה או סגירה של רשימת ההשמעה',

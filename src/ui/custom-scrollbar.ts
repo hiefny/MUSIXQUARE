@@ -46,6 +46,7 @@ interface ScrollbarState {
   fadeDeadline: number;
   trackVisible: boolean | null;
   hasOverflow: boolean;
+  managesOverflowGutter: boolean;
   maxScroll: number;
   maxThumbTop: number;
   renderedThumbHeight: number;
@@ -399,10 +400,19 @@ function findFixedContainingBlock(el: HTMLElement): HTMLElement | null {
 
 function updateLayout(state: ScrollbarState): void {
   const { container, track, thumb } = state;
+  const hasOverflow = hasVisibleOverflow(container);
+  if (
+    state.managesOverflowGutter &&
+    container.classList.contains('has-scroll-overflow') !== hasOverflow
+  ) {
+    container.classList.toggle('has-scroll-overflow', hasOverflow);
+  }
+  // An opted-in gutter can change wrapping and therefore scrollHeight. Read
+  // thumb geometry after applying it; unchanged classes never wake layout.
   const { scrollHeight, clientHeight } = container;
   const isContained = container.hasAttribute('data-custom-scroll-contained');
 
-  if (!hasVisibleOverflow(container)) {
+  if (!hasOverflow) {
     cancelScrollTimeline(state);
     cancelFade(state);
     state.hasOverflow = false;
@@ -626,6 +636,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     fadeDeadline: 0,
     trackVisible: null,
     hasOverflow: false,
+    managesOverflowGutter: container.hasAttribute('data-custom-scroll-gutter'),
     maxScroll: 0,
     maxThumbTop: 0,
     renderedThumbHeight: Number.NaN,
@@ -855,5 +866,6 @@ export function destroyCustomScrollbar(container: HTMLElement): void {
   state.resizeObserver.disconnect();
   state.cleanup.forEach((fn) => fn());
   state.track.remove();
+  if (state.managesOverflowGutter) container.classList.remove('has-scroll-overflow');
   _instances.delete(container);
 }

@@ -134,7 +134,7 @@ const gu: Record<I18nKey, string> = {
   'player.play_together': 'સિંકમાં ચલાવો',
   'player.play_speakers': 'સ્પીકર તરીકે વાપરો',
   'player.auto_sync_label': 'આપમેળે (ms)',
-  'player.manual_sync_label': 'હાથે (ms)',
+  'player.manual_sync_label': 'મેન્યુઅલ સિંક (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'પ્લેલિસ્ટ વિસ્તારો/સંકોચો',

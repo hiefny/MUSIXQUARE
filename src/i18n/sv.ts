@@ -134,7 +134,7 @@ const sv: Record<I18nKey, string> = {
   'player.play_together': 'Spela synkroniserat',
   'player.play_speakers': 'Använd som högtalare',
   'player.auto_sync_label': 'Automatisk (ms)',
-  'player.manual_sync_label': 'Manuell (ms)',
+  'player.manual_sync_label': 'Manuell synkning (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Visa eller dölj spellistan',

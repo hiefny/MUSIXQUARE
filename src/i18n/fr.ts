@@ -225,7 +225,7 @@ const fr: Record<I18nKey, string> = {
   'player.play_together': 'Lecture synchrone',
   'player.play_speakers': 'Utiliser comme enceinte',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manuel (ms)',
+  'player.manual_sync_label': 'Synchronisation manuelle (ms)',
 
   // Playlist
   'playlist.toggle': 'Afficher/masquer la liste de lecture',

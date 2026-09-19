@@ -135,7 +135,7 @@ const ta: Record<I18nKey, string> = {
   'player.play_together': 'ஒத்திசைத்து இயக்கு',
   'player.play_speakers': 'ஸ்பீக்கராகப் பயன்படுத்து',
   'player.auto_sync_label': 'தானாக (ms)',
-  'player.manual_sync_label': 'கைமுறையாக (ms)',
+  'player.manual_sync_label': 'கைமுறை ஒத்திசைவு (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'பிளேலிஸ்ட்டை விரிவாக்கு/சுருக்கு',

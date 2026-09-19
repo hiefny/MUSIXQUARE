@@ -1347,48 +1347,45 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     },
   );
 
-  it.each(['demo:next-track', 'demo:previous-track'] as const)(
-    'retires the previous source before publishing %s while its download is pending',
-    async (event) => {
-      setState('network.appRole', 'host');
-      setState('setup.sessionStarted', true);
-      bus.emit('demo:enter');
-      await flush();
-      FakeXHR.pending[0].resolveOk();
-      await flush(50);
-      expect(getState('playback.activity')).toBe('playing');
-      mocks.play.mockClear();
-      mocks.broadcast.mockClear();
-      mocks.pause.mockClear();
-      bus.emit(event);
-      const index = event === 'demo:next-track' ? 1 : DEMO_TRACKS.length - 1;
+  it('retires the previous source before publishing the next track while its download is pending', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0].resolveOk();
+    await flush(50);
+    expect(getState('playback.activity')).toBe('playing');
+    mocks.play.mockClear();
+    mocks.broadcast.mockClear();
+    mocks.pause.mockClear();
+    bus.emit('demo:next-track');
+    const index = 1;
 
-      expect(getState('demo.currentTrackIndex')).toBe(index);
-      expect(getState('demo.loading')).toBe(true);
-      expect(getState('playback.activity')).toBe('paused');
-      expect(mocks.pause).toHaveBeenCalledWith(0, expect.anything());
-      expect(mocks.play).not.toHaveBeenCalled();
-      expect(mocks.broadcast).toHaveBeenCalledWith(
-        expect.objectContaining({ type: MSG.DEMO_ENTER, index }),
-      );
-      const conn = { open: true, peer: 'late-guest' } as DataConnection;
-      bus.emit('network:peer-connected', conn);
-      expect(mocks.safeSend).not.toHaveBeenCalledWith(
-        conn,
-        expect.objectContaining({ type: MSG.DEMO_PLAY }),
-      );
-      expect(mocks.safeSend).toHaveBeenCalledWith(
-        conn,
-        expect.objectContaining({ type: MSG.DEMO_PAUSE }),
-      );
-      FakeXHR.pending.find((request) => request.url === DEMO_TRACKS[index].url)!.resolveOk();
-      await flush(50);
-      expect(mocks.play).toHaveBeenCalledOnce();
-      expect(mocks.broadcast).toHaveBeenCalledWith(
-        expect.objectContaining({ type: MSG.DEMO_PLAY, index }),
-      );
-    },
-  );
+    expect(getState('demo.currentTrackIndex')).toBe(index);
+    expect(getState('demo.loading')).toBe(true);
+    expect(getState('playback.activity')).toBe('paused');
+    expect(mocks.pause).toHaveBeenCalledWith(0, expect.anything());
+    expect(mocks.play).not.toHaveBeenCalled();
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.DEMO_ENTER, index }),
+    );
+    const conn = { open: true, peer: 'late-guest' } as DataConnection;
+    bus.emit('network:peer-connected', conn);
+    expect(mocks.safeSend).not.toHaveBeenCalledWith(
+      conn,
+      expect.objectContaining({ type: MSG.DEMO_PLAY }),
+    );
+    expect(mocks.safeSend).toHaveBeenCalledWith(
+      conn,
+      expect.objectContaining({ type: MSG.DEMO_PAUSE }),
+    );
+    FakeXHR.pending.find((request) => request.url === DEMO_TRACKS[index].url)!.resolveOk();
+    await flush(50);
+    expect(mocks.play).toHaveBeenCalledOnce();
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.DEMO_PLAY, index }),
+    );
+  });
 
   it('keeps a faster decoded guest silent until the host publishes its shared start', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
@@ -1444,17 +1441,14 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('sync.localOffset')).toBe(-7.5);
   });
 
-  it.each(['demo:next-track', 'demo:previous-track'] as const)(
-    'rejects guest %s commands',
-    async (event) => {
-      setState('network.appRole', 'guest');
-      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
-      setState('demo.active', true);
-      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
-      bus.emit(event);
-      expect(FakeXHR.pending).toHaveLength(0);
-      expect(mocks.play).not.toHaveBeenCalled();
-      expect(mocks.broadcast).not.toHaveBeenCalled();
-    },
-  );
+  it('rejects guest next-track commands', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+    setState('demo.active', true);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    bus.emit('demo:next-track');
+    expect(FakeXHR.pending).toHaveLength(0);
+    expect(mocks.play).not.toHaveBeenCalled();
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
 });

@@ -133,7 +133,7 @@ const cs: Record<I18nKey, string> = {
   'player.play_together': 'Přehrávat synchronizovaně',
   'player.play_speakers': 'Použít jako reproduktor',
   'player.auto_sync_label': 'Automaticky (ms)',
-  'player.manual_sync_label': 'Ručně (ms)',
+  'player.manual_sync_label': 'Ruční synchronizace (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Rozbalit nebo sbalit seznam skladeb',

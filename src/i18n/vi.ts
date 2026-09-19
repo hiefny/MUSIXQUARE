@@ -222,7 +222,7 @@ const vi: Record<I18nKey, string> = {
   'player.play_together': 'Phát đồng bộ',
   'player.play_speakers': 'Dùng làm loa',
   'player.auto_sync_label': 'Tự động (ms)',
-  'player.manual_sync_label': 'Thủ công (ms)',
+  'player.manual_sync_label': 'Đồng bộ thủ công (ms)',
 
   // Playlist
   'playlist.toggle': 'Mở/thu gọn danh sách phát',

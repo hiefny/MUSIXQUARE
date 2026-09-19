@@ -135,7 +135,7 @@ const fil: Record<I18nKey, string> = {
   'player.play_together': 'Sabay-sabay na I-play',
   'player.play_speakers': 'Gamitin bilang Speaker',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manual (ms)',
+  'player.manual_sync_label': 'Manu-manong pag-sync (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Palawakin/isara ang playlist',

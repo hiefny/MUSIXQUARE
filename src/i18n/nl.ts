@@ -133,7 +133,7 @@ const nl: Record<I18nKey, string> = {
   'player.play_together': 'Synchroon afspelen',
   'player.play_speakers': 'Als luidspreker gebruiken',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Handmatig (ms)',
+  'player.manual_sync_label': 'Handmatige synchronisatie (ms)',
 
   // Playlist
   'playlist.toggle': 'Afspeellijst openen/sluiten',

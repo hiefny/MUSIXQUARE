@@ -134,7 +134,7 @@ const ml: Record<I18nKey, string> = {
   'player.play_together': 'സിങ്കിൽ പ്ലേ ചെയ്യുക',
   'player.play_speakers': 'സ്പീക്കറായി ഉപയോഗിക്കുക',
   'player.auto_sync_label': 'സ്വയം (ms)',
-  'player.manual_sync_label': 'സ്വമേധയാ (ms)',
+  'player.manual_sync_label': 'മാനുവൽ സിങ്ക് (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'പ്ലേലിസ്റ്റ് വികസിപ്പിക്കുക/ചുരുക്കുക',

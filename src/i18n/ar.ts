@@ -131,7 +131,7 @@ const ar: Record<I18nKey, string> = {
   'player.play_together': 'تشغيل متزامن',
   'player.play_speakers': 'استخدامه كمكبر صوت',
   'player.auto_sync_label': 'تلقائي (ms)',
-  'player.manual_sync_label': 'يدوي (ms)',
+  'player.manual_sync_label': 'مزامنة يدوية (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'توسيع قائمة التشغيل أو طيّها',

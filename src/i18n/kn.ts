@@ -134,7 +134,7 @@ const kn: Record<I18nKey, string> = {
   'player.play_together': 'ಸಿಂಕ್‌ನಲ್ಲಿ ಪ್ಲೇ ಮಾಡಿ',
   'player.play_speakers': 'ಸ್ಪೀಕರ್ ಆಗಿ ಬಳಸಿ',
   'player.auto_sync_label': 'ಸ್ವಯಂ (ms)',
-  'player.manual_sync_label': 'ಕೈಯಾರೆ (ms)',
+  'player.manual_sync_label': 'ಹಸ್ತಚಾಲಿತ ಸಿಂಕ್ (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'ಪ್ಲೇಲಿಸ್ಟ್ ವಿಸ್ತರಿಸಿ/ಕುಗ್ಗಿಸಿ',

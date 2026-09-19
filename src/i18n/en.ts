@@ -133,7 +133,7 @@ const en: Record<I18nKey, string> = {
   'player.play_together': 'Play in Sync',
   'player.play_speakers': 'Use as Speaker',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manual (ms)',
+  'player.manual_sync_label': 'Manual sync (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Expand/collapse playlist',

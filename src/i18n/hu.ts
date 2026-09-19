@@ -133,7 +133,7 @@ const hu: Record<I18nKey, string> = {
   'player.play_together': 'Szinkronizált lejátszás',
   'player.play_speakers': 'Használat hangszóróként',
   'player.auto_sync_label': 'Automatikus (ms)',
-  'player.manual_sync_label': 'Kézi (ms)',
+  'player.manual_sync_label': 'Kézi szinkronizálás (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Lejátszási lista kibontása vagy összecsukása',

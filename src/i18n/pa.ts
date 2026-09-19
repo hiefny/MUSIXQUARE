@@ -135,7 +135,7 @@ const pa: Record<I18nKey, string> = {
   'player.play_together': 'ਸਿੰਕ ਵਿੱਚ ਚਲਾਓ',
   'player.play_speakers': 'ਸਪੀਕਰ ਵਜੋਂ ਵਰਤੋ',
   'player.auto_sync_label': 'ਆਪਣੇ ਆਪ (ms)',
-  'player.manual_sync_label': 'ਹੱਥੀਂ (ms)',
+  'player.manual_sync_label': 'ਹੱਥੀਂ ਸਿੰਕ (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'ਪਲੇਲਿਸਟ ਫੈਲਾਓ/ਸਮੇਟੋ',

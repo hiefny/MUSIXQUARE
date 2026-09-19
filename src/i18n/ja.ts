@@ -225,7 +225,7 @@ const ja: Record<I18nKey, string> = {
   'player.play_together': '同期再生',
   'player.play_speakers': 'スピーカーとして使う',
   'player.auto_sync_label': '自動（ms）',
-  'player.manual_sync_label': '手動（ms）',
+  'player.manual_sync_label': '手動同期（ms）',
 
   // Playlist
   'playlist.toggle': 'プレイリストを開閉',

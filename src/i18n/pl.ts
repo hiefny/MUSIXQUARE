@@ -131,7 +131,7 @@ const pl: Record<I18nKey, string> = {
   'player.play_together': 'Synchronizuj odtwarzanie',
   'player.play_speakers': 'Użyj jako głośnika',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Ręcznie (ms)',
+  'player.manual_sync_label': 'Ręczna synchronizacja (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Pokaż/ukryj playlistę',

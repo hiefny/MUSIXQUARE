@@ -216,7 +216,7 @@ const zhHant: Record<I18nKey, string> = {
   'player.play_together': '同步播放',
   'player.play_speakers': '作為喇叭使用',
   'player.auto_sync_label': '自動（ms）',
-  'player.manual_sync_label': '手動（ms）',
+  'player.manual_sync_label': '手動同步（ms）',
 
   // Playlist
   'playlist.toggle': '展開/收合播放清單',

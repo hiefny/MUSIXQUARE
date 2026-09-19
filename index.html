@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v621"></script>
+    <script src="/bootstrap.js?cache=v622"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -443,6 +443,7 @@
             <div class="vol-group-playback" id="volume-control-group" role="group">
               <button
                 id="vol-icon-btn"
+                class="volume-icon-button"
                 type="button"
                 aria-label="Toggle mute"
                 data-i18n-aria-label="player.toggle_mute"
@@ -3298,98 +3299,115 @@
     <div class="manual-sync-overlay" id="manual-sync-overlay" aria-hidden="true">
       <div
         class="sync-glass-panel"
-        data-custom-scroll
-        data-custom-scroll-contained
         role="dialog"
         aria-modal="true"
         aria-label="Sync"
         data-i18n-aria-label="common.sync"
       >
-        <div class="demo-settings-transport" data-demo-settings-row hidden>
-          <button
-            type="button"
-            class="ctrl-btn"
-            id="btn-demo-previous"
-            aria-label="Previous track"
-            data-i18n-aria-label="player.prev_track"
+        <div class="sync-scroll-frame">
+          <div
+            class="sync-scroll-body"
+            data-custom-scroll
+            data-custom-scroll-contained
+            data-custom-scroll-gutter
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="demo-play-button"
-            data-demo-play
-            aria-label="Play/Pause"
-            data-i18n-aria-label="player.play_pause"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path data-demo-play-icon d="M8 5v14l11-7z" />
-            </svg>
-            <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true"
-              ><svg viewBox="0 0 44 44">
-                <circle cx="22" cy="22" r="18" pathLength="100"></circle></svg
-            ></span>
-          </button>
-          <button
-            type="button"
-            class="ctrl-btn"
-            id="btn-demo-next-track"
-            aria-label="Next track"
-            data-i18n-aria-label="player.next_track"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-            </svg>
-          </button>
-        </div>
-        <div
-          class="demo-settings-volume"
-          id="demo-volume-control-group"
-          data-demo-settings-row
-          role="group"
-          hidden
-        >
-          <input
-            type="range"
-            id="demo-volume-slider"
-            min="0"
-            max="100"
-            value="100"
-            step="1"
-            aria-label="Adjust volume"
-            data-i18n-aria-label="player.volume"
-          />
-        </div>
-        <div class="sync-manual-display">
-          <span class="sync-col-label" data-i18n="player.manual_sync_label">Manual (ms)</span>
-          <div class="chat-input-wrapper sync-manual-input-wrapper">
-            <div
-              class="chat-input sync-col-value sync-manual-input"
-              id="manual-sync-value"
-              contenteditable="true"
-              tabindex="0"
-              role="textbox"
-              aria-label="Manual (ms)"
-              data-i18n-aria-label="player.manual_sync_label"
-              aria-describedby="manual-sync-range-hint"
-              data-placeholder="0"
-              inputmode="text"
-              enterkeyhint="done"
-              autocomplete="off"
-              autocorrect="off"
-              autocapitalize="off"
-              spellcheck="false"
-            ></div>
-            <span id="manual-sync-range-hint" class="sr-only">-9999 … +9999 ms</span>
+            <div class="demo-settings-controls" data-demo-settings-row hidden>
+              <div class="demo-settings-transport">
+                <button
+                  type="button"
+                  class="demo-play-button"
+                  data-demo-play
+                  aria-label="Play/Pause"
+                  data-i18n-aria-label="player.play_pause"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path data-demo-play-icon d="M8 5v14l11-7z" />
+                  </svg>
+                  <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true"
+                    ><svg viewBox="0 0 44 44">
+                      <circle cx="22" cy="22" r="18" pathLength="100"></circle></svg
+                  ></span>
+                </button>
+                <button
+                  type="button"
+                  class="ctrl-btn"
+                  id="btn-demo-next-track"
+                  aria-label="Next track"
+                  data-i18n-aria-label="player.next_track"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                  </svg>
+                </button>
+              </div>
+              <div
+                class="demo-settings-volume"
+                id="demo-volume-control-group"
+                role="group"
+              >
+                <button
+                  id="demo-vol-icon-btn"
+                  class="volume-icon-button"
+                  type="button"
+                  aria-label="Toggle mute"
+                  data-i18n-aria-label="player.toggle_mute"
+                >
+                  <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
+                    <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7" />
+                    <path class="volume-wave volume-wave-outer" d="M18 5.7a8.9 8.9 0 0 1 0 12.6" />
+                    <g class="volume-muted-backdrop">
+                      <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                      <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                    </g>
+                    <g class="volume-muted-mark">
+                      <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                      <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                    </g>
+                  </svg>
+                </button>
+                <input
+                  type="range"
+                  id="demo-volume-slider"
+                  min="0"
+                  max="100"
+                  value="100"
+                  step="1"
+                  aria-label="Adjust volume"
+                  data-i18n-aria-label="player.volume"
+                />
+              </div>
+            </div>
+            <div class="sync-manual-display">
+              <span class="sync-col-label" data-i18n="player.manual_sync_label">Manual sync (ms)</span>
+              <div class="chat-input-wrapper sync-manual-input-wrapper">
+                <div
+                  class="chat-input sync-col-value sync-manual-input"
+                  id="manual-sync-value"
+                  contenteditable="true"
+                  tabindex="0"
+                  role="textbox"
+                  aria-label="Manual sync (ms)"
+                  data-i18n-aria-label="player.manual_sync_label"
+                  aria-describedby="manual-sync-range-hint"
+                  data-placeholder="0"
+                  inputmode="text"
+                  enterkeyhint="done"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                ></div>
+                <span id="manual-sync-range-hint" class="sr-only">-9999 … +9999 ms</span>
+              </div>
+            </div>
+            <div class="sync-nudge-row">
+              <button class="sync-nudge-btn" id="btn-nudge-minus10">-10</button>
+              <button class="sync-nudge-btn small" id="btn-nudge-minus1">-1</button>
+              <button class="sync-nudge-btn small" id="btn-nudge-plus1">+1</button>
+              <button class="sync-nudge-btn" id="btn-nudge-plus10">+10</button>
+            </div>
           </div>
-        </div>
-        <div class="sync-nudge-row">
-          <button class="sync-nudge-btn" id="btn-nudge-minus10">-10</button>
-          <button class="sync-nudge-btn small" id="btn-nudge-minus1">-1</button>
-          <button class="sync-nudge-btn small" id="btn-nudge-plus1">+1</button>
-          <button class="sync-nudge-btn" id="btn-nudge-plus10">+10</button>
         </div>
         <div class="sync-bottom-row">
           <button class="sync-reset-btn" id="btn-auto-sync" data-i18n="common.reset">Reset</button>
@@ -3415,9 +3433,9 @@
               aria-label="Settings"
               data-i18n-aria-label="nav.settings"
             >
-              <svg viewBox="0 -960 960 960" aria-hidden="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
-                  d="M433-80q-27 0-46.5-18T363-142l-9-66q-13-5-24.5-12T307-235l-62 26q-25 11-50 2t-39-32l-47-82q-14-23-8-49t27-43l53-40q-1-7-1-13.5v-27q0-6.5 1-13.5l-53-40q-21-17-27-43t8-49l47-82q14-23 39-32t50 2l62 26q11-8 23-15t24-12l9-66q4-26 23.5-44t46.5-18h94q27 0 46.5 18t23.5 44l9 66q13 5 24.5 12t22.5 15l62-26q25-11 50-2t39 32l47 82q14 23 8 49t-27 43l-53 40q1 7 1 13.5v27q0 6.5-2 13.5l53 40q21 17 27 43t-8 49l-48 82q-14 23-39 32t-50-2l-60-26q-11 8-23 15t-24 12l-9 66q-4 26-23.5 44T527-80h-94Zm7-80h79l14-106q31-8 57.5-23.5T639-327l99 41 39-68-86-65q5-14 7-29.5t2-31.5q0-16-2-31.5t-7-29.5l86-65-39-68-99 42q-22-23-48.5-38.5T533-694l-13-106h-79l-14 106q-31 8-57.5 23.5T321-633l-99-41-39 68 86 64q-5 15-7 30t-2 32q0 16 2 31t7 30l-86 65 39 68 99-42q22 23 48.5 38.5T427-266l13 106Zm42-180q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Zm-2-140Z"
+                  d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
                 />
               </svg>
               <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">

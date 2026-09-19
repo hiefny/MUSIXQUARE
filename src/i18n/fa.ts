@@ -132,7 +132,7 @@ const fa: Record<I18nKey, string> = {
   'player.play_together': 'پخش همگام',
   'player.play_speakers': 'استفاده به‌عنوان بلندگو',
   'player.auto_sync_label': 'خودکار (ms)',
-  'player.manual_sync_label': 'دستی (ms)',
+  'player.manual_sync_label': 'همگام‌سازی دستی (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'باز یا بسته کردن فهرست پخش',

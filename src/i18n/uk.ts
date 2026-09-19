@@ -133,7 +133,7 @@ const uk: Record<I18nKey, string> = {
   'player.play_together': 'Синхронне відтворення',
   'player.play_speakers': 'Використовувати як динамік',
   'player.auto_sync_label': 'Авто (ms)',
-  'player.manual_sync_label': 'Вручну (ms)',
+  'player.manual_sync_label': 'Ручна синхронізація (ms)',
 
   // ─── Плейліст ────────────────────────────────────────────────────
   'playlist.toggle': 'Розгорнути або згорнути плейліст',

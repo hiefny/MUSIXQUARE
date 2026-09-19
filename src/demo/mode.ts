@@ -1680,9 +1680,12 @@ function toggleDemoPlay(): void {
   startDemoPlayback(offset);
 }
 
-function playNextDemoTrack(): void {
+function changeDemoTrack(direction: 1 | -1): void {
   if (!isDemoHost() || !getState('demo.active') || getState('demo.loading')) return;
-  const nextIndex = getNextDemoTrackIndex(_demoTrackIndex);
+  const nextIndex =
+    direction === 1
+      ? getNextDemoTrackIndex(_demoTrackIndex)
+      : (_demoTrackIndex + DEMO_TRACKS.length - 1) % DEMO_TRACKS.length;
   const owner = beginDemoLoad();
   setState('demo.loading', true);
   const loading = loadDemoTrack(nextIndex, { autoplay: false }, owner);
@@ -1947,7 +1950,8 @@ export function initDemoMode(
   _busScope.on('demo:request-exit', () => requestDemoExit());
   _busScope.on('demo:open-info', () => openDemoInfo());
   _busScope.on('demo:toggle-play', () => toggleDemoPlay());
-  _busScope.on('demo:next-track', () => playNextDemoTrack());
+  _busScope.on('demo:previous-track', () => changeDemoTrack(-1));
+  _busScope.on('demo:next-track', () => changeDemoTrack(1));
   _busScope.on('demo:set-role', (mode) => setDemoRole(mode));
   _busScope.on('demo:toggle-reverb', () => toggleDemoReverb());
   _busScope.on('demo:toggle-bass', () => toggleDemoBass());
@@ -1970,7 +1974,7 @@ export function initDemoMode(
     if (!getState('demo.active')) return;
     setState('player.pausedAt', 0);
     syncPlayButton();
-    playNextDemoTrack();
+    changeDemoTrack(1);
   });
   _busScope.on('i18n:changed', () => {
     syncDemoTrackText();

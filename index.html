@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v622"></script>
+    <script src="/bootstrap.js?cache=v623"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -3313,6 +3313,17 @@
           >
             <div class="demo-settings-controls" data-demo-settings-row hidden>
               <div class="demo-settings-transport">
+                <button
+                  type="button"
+                  class="ctrl-btn"
+                  id="btn-demo-previous"
+                  aria-label="Previous track"
+                  data-i18n-aria-label="player.prev_track"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                  </svg>
+                </button>
                 <button
                   type="button"
                   class="demo-play-button"

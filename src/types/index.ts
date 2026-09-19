@@ -1260,6 +1260,7 @@ interface BaseEventMap {
   'demo:request-exit': [];
   'demo:open-info': [];
   'demo:toggle-play': [];
+  'demo:previous-track': [];
   'demo:next-track': [];
   'demo:seek': [seconds: number];
   'demo:set-role': [mode: number];

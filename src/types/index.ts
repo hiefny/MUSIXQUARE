@@ -404,6 +404,8 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     name?: string | null;
     hostPlayAt?: number;
+    /** Host-clock instant at which this local-file position becomes audible. */
+    hostStartAt?: number;
   };
   pause: {
     time: number;
@@ -768,6 +770,8 @@ export interface ProtocolMap {
     pingId: number;
     hostTime: number;
     position: number;
+    /** Present only while the Standard host's local-file start is pending. */
+    hostStartAt?: number;
     mode: PlaybackModeValue;
     activity: PlaybackActivityValue;
     queueItemId: QueueItemId | null;

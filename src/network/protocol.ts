@@ -572,7 +572,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&
     (d.name === undefined || d.name === null || typeof d.name === 'string') &&
-    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
+    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)) &&
+    (d.hostStartAt === undefined || (isFiniteNumber(d.hostStartAt) && d.hostStartAt > 0)),
   [MSG.PAUSE]: (d) =>
     (d.queueItemId === null || isQueueItemId(d.queueItemId)) &&
     isFiniteNumber(d.time) &&
@@ -1038,6 +1039,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isNonNegSafeInt(d.pingId) &&
     isFiniteNumber(d.hostTime) &&
     isFiniteNumber(d.position) &&
+    (d.hostStartAt === undefined || (isFiniteNumber(d.hostStartAt) && d.hostStartAt > 0)) &&
     (d.mode === null || d.mode === 'file' || d.mode === 'youtube' || d.mode === 'system-audio') &&
     (d.activity === 'idle' ||
       d.activity === 'paused' ||

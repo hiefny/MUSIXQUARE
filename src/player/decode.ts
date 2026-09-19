@@ -63,7 +63,7 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
   setPendingRecoveryTarget,
-  getPendingPlayTimeAge,
+  getPendingPlayTimeSetAt,
   setPlayPreloadedInProgress,
   getLastClearedQueueItemId,
   setLastClearedQueueItemId,
@@ -76,6 +76,7 @@ import {
 } from './_state.ts';
 
 import { isFilePipelineBusyForPlay, play, stopAllMedia, stopPlayerNode } from './transport.ts';
+import { resolveFilePlayTiming } from './file-play-timing.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -1123,9 +1124,8 @@ export async function loadPreloadedTrack(
 
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined && ownsPublishedTarget()) {
-      const age = getPendingPlayTimeAge();
-      const target = pendingTime + age;
-      log.info(`[Preload] Activating playback at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
+      const timing = resolveFilePlayTiming(pendingTime, getPendingPlayTimeSetAt());
+      log.info(`[Preload] Activating playback at ${timing.offset.toFixed(1)}s`);
       let recoveredStartFinalized = false;
       const finalizeRecoveredStart = (): void => {
         if (
@@ -1148,9 +1148,13 @@ export async function loadPreloadedTrack(
           250,
         );
       };
-      const started = await play(target, 0, undefined, undefined, {
-        onRecoveredStarted: finalizeRecoveredStart,
-      });
+      const started = await play(
+        timing.offset,
+        timing.scheduleDelay,
+        timing.scheduleDeadlineMs,
+        ownsPublishedTarget,
+        { timing: 'catch-up', onRecoveredStarted: finalizeRecoveredStart },
+      );
       if (started) finalizeRecoveredStart();
     } else if (ownsPublishedTarget()) {
       bus.emit('sync:request-immediate-ping');
@@ -1456,9 +1460,8 @@ export async function finalizeGuestFile(
     const hostConn = getState('network.hostConn');
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined && ownsTarget()) {
-      const age = getPendingPlayTimeAge();
-      const target = pendingTime + age;
-      log.debug(`[Guest] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
+      const timing = resolveFilePlayTiming(pendingTime, getPendingPlayTimeSetAt());
+      log.debug(`[Guest] Pending play at ${timing.offset.toFixed(1)}s`);
       let recoveredStartFinalized = false;
       const finalizeRecoveredStart = (): void => {
         if (
@@ -1481,9 +1484,13 @@ export async function finalizeGuestFile(
           250,
         );
       };
-      const started = await play(target, 0, undefined, undefined, {
-        onRecoveredStarted: finalizeRecoveredStart,
-      });
+      const started = await play(
+        timing.offset,
+        timing.scheduleDelay,
+        timing.scheduleDeadlineMs,
+        ownsTarget,
+        { timing: 'catch-up', onRecoveredStarted: finalizeRecoveredStart },
+      );
       if (started) finalizeRecoveredStart();
     }
 

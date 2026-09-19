@@ -149,6 +149,91 @@ describe('device-list-update validation', () => {
 });
 
 describe('bounded control-frame validation', () => {
+  it('accepts legacy PLAY frames and independent common-start anchors', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.PLAY, handler);
+    const conn = connection('play-start-validation');
+    const base = {
+      type: MSG.PLAY,
+      time: 10,
+      queueItemId: '00000000-0000-4000-8000-000000000001',
+    };
+
+    const frames = [
+      base,
+      { ...base, hostPlayAt: 0 },
+      { ...base, hostPlayAt: 1_200 },
+      { ...base, hostStartAt: 1_000.5 },
+      { ...base, hostStartAt: 1_000, hostPlayAt: 1_200 },
+    ];
+    for (const frame of frames) await handleData(frame, conn);
+
+    expect(handler).toHaveBeenCalledTimes(frames.length);
+    for (const [index, frame] of frames.entries()) {
+      expect(handler.mock.calls[index]?.[0]).toEqual(frame);
+    }
+  });
+
+  it('rejects invalid PLAY common-start anchors before dispatch', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.PLAY, handler);
+    const conn = connection('play-start-invalid');
+    const base = {
+      type: MSG.PLAY,
+      time: 10,
+      queueItemId: '00000000-0000-4000-8000-000000000001',
+      hostPlayAt: 1_200,
+    };
+
+    for (const hostStartAt of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -1,
+      0,
+      '1000',
+      null,
+    ]) {
+      await handleData({ ...base, hostStartAt }, conn);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('accepts legacy and scheduled file sync pongs but rejects invalid start anchors', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.SYNC_PONG, handler);
+    const conn = connection('sync-pong-start-validation');
+    const base = {
+      type: MSG.SYNC_PONG,
+      pingId: 1,
+      hostTime: 1_000,
+      position: 10,
+      mode: 'file',
+      activity: 'playing',
+      queueItemId: '00000000-0000-4000-8000-000000000001',
+    };
+    const scheduled = { ...base, hostStartAt: 1_200.5 };
+
+    await handleData(base, conn);
+    await handleData(scheduled, conn);
+    for (const hostStartAt of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -1,
+      0,
+      '1200',
+      null,
+    ]) {
+      await handleData({ ...base, hostStartAt }, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(handler.mock.calls[0]?.[0]).toEqual(base);
+    expect(handler.mock.calls[1]?.[0]).toEqual(scheduled);
+  });
+
   it('accepts legacy and current sync pings but rejects unsafe clocks and ids', async () => {
     const handler = vi.fn();
     registerHandler(MSG.SYNC_PING, handler);

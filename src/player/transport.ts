@@ -31,8 +31,8 @@ import {
 } from './ownership.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
-import { getHostNow } from '../network/shared-clock.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
+import { LEGACY_FILE_SCHEDULE_AHEAD_MS, LOCAL_FILE_START_LEAD_MS } from './file-play-timing.ts';
 import {
   captureLocalFileOutputIdentity,
   isLocalFileOutputIdentityCurrent,
@@ -52,9 +52,6 @@ import {
 } from '../rooms/authority.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
 import type { QueueItemId, ResidentFile } from '../types/index.ts';
-
-/** Lead time for a host command to reach guests before the shared start. */
-const SCHEDULE_AHEAD_MS = 200;
 
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
@@ -125,6 +122,27 @@ if (typeof document !== 'undefined') {
 
 function clearStandardHostCanonicalTimeline(): void {
   standardHostCanonicalTimeline = null;
+}
+
+/** Let a guest joining during the lead observe the same canonical deadline. */
+export function getStandardHostPendingFileStartAt(): number | undefined {
+  const anchor = standardHostCanonicalTimeline;
+  const room = getRoomContext();
+  if (
+    !anchor?.startPending ||
+    !isActiveStandardRoomCoordinator() ||
+    !isFilePlaybackPlaying() ||
+    anchor.sessionCode !== getState('network.sessionCode') ||
+    anchor.roomId !== room.roomId ||
+    anchor.roomEpoch !== room.epoch ||
+    anchor.queueItemId !== getCurrentQueueItemId() ||
+    anchor.residentFile !== getState('files.current') ||
+    anchor.buffer !== getCurrentAudioBuffer() ||
+    anchor.startsAtWallMs <= Date.now()
+  ) {
+    return undefined;
+  }
+  return anchor.startsAtWallMs;
 }
 
 function armStandardHostCanonicalTimeline(
@@ -518,8 +536,13 @@ export async function startHostFileAndBroadcastPlay({
   const residentFile = getState('files.current');
   const buffer = getCurrentAudioBuffer();
   const ownsCanonicalTimeline = isActiveStandardRoomCoordinator();
+  const startLeadMs =
+    ownsCanonicalTimeline && getState('network.connectedPeers').some((peer) => peer.conn?.open)
+      ? LOCAL_FILE_START_LEAD_MS
+      : 0;
   let startedCommitted = false;
   let published = false;
+  let committedTimeline: { time: number; hostStartAt: number } | null = null;
 
   // A guest must never enter this host-local primitive, including during the
   // short handoff window where its UI intent and connection state can differ.
@@ -548,17 +571,21 @@ export async function startHostFileAndBroadcastPlay({
       !ownsCanonicalTimeline ||
       !isActiveStandardRoomCoordinator() ||
       !occurrenceStillCurrent() ||
-      !isFilePlaybackPlaying()
+      !isFilePlaybackPlaying() ||
+      !committedTimeline
     ) {
       return;
     }
     published = true;
     broadcast({
       type: MSG.PLAY,
-      time,
+      time: committedTimeline.time,
       queueItemId,
       ...(name === undefined ? {} : { name }),
-      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      hostStartAt: committedTimeline.hostStartAt,
+      // Older guests interpret hostPlayAt - 200ms as the host's start.
+      // They still join at the correct position, one legacy lead later.
+      hostPlayAt: committedTimeline.hostStartAt + LEGACY_FILE_SCHEDULE_AHEAD_MS,
     });
     try {
       onPublished?.();
@@ -569,6 +596,12 @@ export async function startHostFileAndBroadcastPlay({
   const commitStarted = (): void => {
     if (startedCommitted || !occurrenceStillCurrent() || !isFilePlaybackPlaying()) return;
     startedCommitted = true;
+    const anchor = standardHostCanonicalTimeline;
+    if (ownsCanonicalTimeline && anchor?.buffer === buffer && anchor.queueItemId === queueItemId) {
+      // Capture the source's committed deadline before continuations can read
+      // and rebase the canonical clock or perform additional preparation.
+      committedTimeline = { time: anchor.positionSeconds, hostStartAt: anchor.startsAtWallMs };
+    }
     try {
       onStarted?.();
     } catch (error) {
@@ -578,7 +611,7 @@ export async function startHostFileAndBroadcastPlay({
   };
 
   try {
-    const started = await play(time, 0, undefined, occurrenceStillCurrent, {
+    const started = await play(time, startLeadMs / 1_000, undefined, occurrenceStillCurrent, {
       // This primitive owns a local host intent. While output recovery is
       // pending no source is audible and no canonical PLAY has been published,
       // so elapsed wall time must never be mistaken for elapsed track time.
@@ -618,6 +651,39 @@ function hasFileTimelineAnchor(startedAt: unknown): startedAt is number {
     getPlayerNode()?.buffer === buffer &&
     (getState('demo.active') || getState('files.current')?.queueItemId === getCurrentQueueItemId())
   );
+}
+
+function getLocalFilePendingStartDelaySeconds(): number {
+  const buffer = getCurrentAudioBuffer();
+  const startedAt = getState('player.startedAt');
+  if (
+    !isFilePlaybackPlaying() ||
+    !buffer ||
+    !isFileSourceNodeUsable(getPlayerNode(), buffer) ||
+    !hasFileTimelineAnchor(startedAt)
+  ) {
+    return 0;
+  }
+  const startsAt =
+    startedAt + (getState('player.pausedAt') || 0) - getEffectiveLocalFileOutputOffset();
+  return Math.max(0, startsAt - getCurrentTime());
+}
+
+/** Keep sync corrections from replacing a source before its scheduled start. */
+export function isLocalFileStartPending(): boolean {
+  return getLocalFilePendingStartDelaySeconds() > 0;
+}
+
+/** An output-only rebuild must retain the already published start deadline. */
+export function getLocalFilePendingStartDeadlineMs(): number | undefined {
+  if (isActiveStandardRoomCoordinator()) {
+    const hostStartAt = getStandardHostPendingFileStartAt();
+    return hostStartAt === undefined
+      ? undefined
+      : performance.now() + Math.max(0, hostStartAt - Date.now());
+  }
+  const remainingSeconds = getLocalFilePendingStartDelaySeconds();
+  return remainingSeconds > 0 ? performance.now() + remainingSeconds * 1_000 : undefined;
 }
 
 function readTrackPosition(repairOutOfRangeOffset: boolean): number {
@@ -675,8 +741,9 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   }
 
   if (isNaN(pos)) pos = 0;
-  // If audio is scheduled but hasn't started yet, return the target offset
-  if (pos < 0) pos = getState('player.pausedAt') || 0;
+  // A scheduled seek/resume must hold its requested position until audio
+  // starts, even when the requested offset is greater than the lead time.
+  if (pos < (startedAtValid ? pausedAt : 0)) pos = pausedAt;
   if (duration > 0 && pos > duration) pos = duration;
 
   const standardHostCanonicalPosition = _currentAudioBuffer
@@ -2076,7 +2143,8 @@ export function adjustSync(val: number): void {
     () => {
       // Re-check playback state at fire time — user may have paused during the burst.
       if (isFileTransportInactive()) return;
-      void play(getTrackPosition()).catch((error) =>
+      const pendingStartDeadlineMs = getLocalFilePendingStartDeadlineMs();
+      void play(getTrackPosition(), 0, pendingStartDeadlineMs).catch((error) =>
         log.warn('[Sync] Failed to apply the local file nudge:', error),
       );
     },

@@ -76,7 +76,7 @@ export function isClockCalibrated(): boolean {
 /**
  * Get the best RTT in milliseconds.
  */
-export function getClockBestRtt(): number {
+function getClockBestRtt(): number {
   if (_samples.length === 0) return 0;
   return Math.min(..._samples.map((s) => s.rtt));
 }

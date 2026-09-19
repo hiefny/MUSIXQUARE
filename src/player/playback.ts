@@ -21,7 +21,6 @@ import {
   isLocalFileOutputIdentityCurrent,
 } from './local-file-output-identity.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
 import { sendFileDeliveryUnavailable, unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
@@ -55,6 +54,8 @@ import {
   pause,
   stopAllMedia,
   getTrackPosition,
+  getLocalFilePendingStartDeadlineMs,
+  getStandardHostPendingFileStartAt,
   handleEnded,
   invalidatePendingFilePlayIntent,
   isFilePipelineBusyForPlay,
@@ -97,9 +98,8 @@ import { createSystemAudioStartFrame } from '../network/system-audio-start.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
 import { isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import { captureGuestFilePlayTiming, resolveFilePlayTiming } from './file-play-timing.ts';
 
-/** Must match SCHEDULE_AHEAD_MS in transport.ts */
-const SCHEDULE_AHEAD_MS = 200;
 const SAME_TRACK_REPLAY_RESYNC_DELAY_MS = 1000;
 // The shared ICE classifier polls for up to 10 seconds. Keep PLAY neutral for
 // one extra second so its safety timeout does not race the final poll.
@@ -251,6 +251,7 @@ function handleRemoteGuestPlay(
   incomingQueueItemId: QueueItemId,
   incomingItem: { name?: string },
   time: number,
+  setAt: number,
 ): void {
   if (shouldWaitForRemoteShare()) {
     const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
@@ -261,7 +262,7 @@ function handleRemoteGuestPlay(
       recoveryTarget?.queueItemId === incomingQueueItemId &&
       recoveryTarget.name === waitName;
     prepareRemoteShareWait(incomingQueueItemId, waitName, getRemoteWaitSessionId());
-    setPendingPlayTime(time);
+    setPendingPlayTime(time, setAt);
     if (!alreadyWaiting) {
       requestCurrentFile(incomingQueueItemId, waitName, 'remote_share_wait');
     }
@@ -305,6 +306,9 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
   // PLAY suspended on ICE classification cannot resume behind the new one.
   const playIntentEpoch = ++_guestPlayIntentEpoch;
   releaseActiveGuestFileRouteLoader();
+  const playTimeline = captureGuestFilePlayTiming(data, time);
+  const queuePlayTimeline = (): void => setPendingPlayTime(playTimeline.time, playTimeline.setAt);
+  if (playTimeline.needsClockSync) bus.emit('sync:request-immediate-ping');
 
   // A decoder failure on this device does not advance or interrupt the room.
   // Ignore repeat/seek/recovery commands for the same unsupported occurrence
@@ -335,7 +339,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
   // normal local/remote branches with the resolved authoritative state.
   let awaitedGuestConnectionType: 'local' | 'remote' | null = null;
   if (!routeAlreadyOwned && getState('network.connectionType') === 'unknown') {
-    setPendingPlayTime(time);
+    queuePlayTimeline();
     const routeLoaderId = `guest-file-route-check-${playIntentEpoch}`;
     _activeGuestFileRouteLoaderId = routeLoaderId;
     showLoader(true, t('transfer.check_conn_type'), routeLoaderId);
@@ -381,7 +385,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     isPlayPreloadedInProgress() &&
     _activePreloadTarget?.resident.queueItemId === incomingQueueItemId
   ) {
-    setPendingPlayTime(time);
+    queuePlayTimeline();
     log.debug(`[Guest] Preload in progress, queuing play time: ${time}`);
     return;
   }
@@ -393,7 +397,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     log.info(
       `[Guest] Queue item changed: current=${currentQueueItemId ?? '-'}, play=${incomingQueueItemId}`,
     );
-    setPendingPlayTime(time);
+    queuePlayTimeline();
     if (!selectQueueItemById(incomingQueueItemId)) return;
 
     // Check if preloaded track matches
@@ -407,7 +411,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     if (isProRoomPersistentPlaylistFile(incomingQueueItemId)) {
       const name = incomingItem.name || (typeof data.name === 'string' ? data.name : '');
       setRecoveryTarget(incomingQueueItemId, name);
-      setPendingPlayTime(time);
+      queuePlayTimeline();
       // Persistent PRO bytes come from the authenticated room bucket on this
       // device. This compatibility request asks only for transfer identity/control;
       // the response contains no file bytes or reusable R2 credential.
@@ -423,7 +427,13 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
       (awaitedGuestConnectionType === null && isRemoteGuest()) ||
       isGuestR2FileDelivery(incomingQueueItemId)
     ) {
-      handleRemoteGuestPlay(data, incomingQueueItemId, incomingItem, time);
+      handleRemoteGuestPlay(
+        data,
+        incomingQueueItemId,
+        incomingItem,
+        playTimeline.time,
+        playTimeline.setAt,
+      );
       return;
     }
 
@@ -463,7 +473,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     lifecycle === PLAYBACK_STATE.DOWNLOADING ||
     lifecycle === PLAYBACK_STATE.DECODING
   ) {
-    setPendingPlayTime(time);
+    queuePlayTimeline();
     // Drive the state machine for observability (it's a stay transition).
     transition({ type: 'PLAY', time, queueItemId: incomingQueueItemId, sameTrack: true });
     log.debug(
@@ -488,6 +498,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     const buffer = getCurrentAudioBuffer();
     let startPublished = false;
     const occurrenceStillCurrent = (): boolean =>
+      playIntentEpoch === _guestPlayIntentEpoch &&
       getState('network.hostConn') === hostConn &&
       hostConn.open &&
       getCurrentQueueItemId() === incomingQueueItemId &&
@@ -523,50 +534,20 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
       }
     };
 
-    // Shared Clock: schedule play at the host-specified time.
-    //
-    // hostPlayAt is produced as "host command time + SCHEDULE_AHEAD_MS" after
-    // the host has already started or retimed its own local-file playback.
-    // At the guest's actual start moment, the host position is therefore
-    // `time + elapsed since that host command`, not just `time + remaining
-    // wait`. Using only the remaining wait left guests behind by the message's
-    // one-way delivery time on Next/auto-advance/replay.
-    const hostPlayAt = Number(data.hostPlayAt) || 0;
-    if (hostPlayAt > 0) {
-      const now = getHostNow();
-      const waitMsRaw = hostPlayAt - now;
-      const waitMs = Math.max(0, waitMsRaw);
-      const offset = getClockOffset();
-      const bestRtt = getClockBestRtt();
-
-      if (Math.abs(waitMsRaw) < 2000) {
-        const hostCommandAt = hostPlayAt - SCHEDULE_AHEAD_MS;
-        const guestStartAtHostTime = now + waitMs;
-        const elapsedSinceHostCommand = Math.max(0, guestStartAtHostTime - hostCommandAt);
-        const compensatedTime = time + elapsedSinceHostCommand / 1000;
-        // Keep the local rendezvous as an absolute monotonic deadline. If Web
-        // Audio setup or the play lock defers this intent, transport can then
-        // consume only the remaining delay (and advance the offset when late)
-        // instead of replaying the original network wait a second time.
-        const scheduleDeadlineMs = performance.now() + waitMs;
-        // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
-        const started = await startOwnedFile(compensatedTime, waitMs / 1000, scheduleDeadlineMs);
-        if (started) {
-          log.debug(
-            `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, commandAge=${elapsedSinceHostCommand.toFixed(0)}ms, WebAudio)`,
-          );
-        }
-      } else {
-        log.warn(`[SharedClock] waitMs out of range (${waitMsRaw}ms), playing immediately`);
-        await startOwnedFile(time);
-      }
-    } else {
-      // Without hostPlayAt, start immediately and let initial sync correct it.
-      await startOwnedFile(time);
+    const timing = resolveFilePlayTiming(playTimeline.time, playTimeline.setAt);
+    const started = await startOwnedFile(
+      timing.offset,
+      timing.scheduleDelay,
+      timing.scheduleDeadlineMs,
+    );
+    if (started) {
+      log.debug(
+        `[SharedClock] Scheduled play in ${timing.scheduleDelay * 1000}ms at ${timing.offset.toFixed(2)}s (WebAudio)`,
+      );
     }
   } else {
     if (isProRoomPersistentPlaylistFile(incomingQueueItemId)) {
-      setPendingPlayTime(time);
+      queuePlayTimeline();
       const lifecycleNow = getState('playback.lifecycle');
       if (lifecycleNow === PLAYBACK_STATE.IDLE || lifecycleNow === PLAYBACK_STATE.FAILED) {
         const trackName = incomingItem.name || (data.name as string) || '';
@@ -577,10 +558,16 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
 
     // Remote guest: no queue file arrives via P2P; wait for remote share.
     if (isRemoteGuest() || isGuestR2FileDelivery(incomingQueueItemId)) {
-      handleRemoteGuestPlay(data, incomingQueueItemId, incomingItem, time);
+      handleRemoteGuestPlay(
+        data,
+        incomingQueueItemId,
+        incomingItem,
+        playTimeline.time,
+        playTimeline.setAt,
+      );
       return;
     }
-    setPendingPlayTime(time);
+    queuePlayTimeline();
     log.debug(`[Guest] Storing pending play time: ${time}`);
 
     // If PLAY targets the current queue item but neither its resident buffer nor an inbound
@@ -908,7 +895,8 @@ export function initPlayback(): void {
     // Preserve the instant represented by `position` across any asynchronous
     // AudioContext health/setup work inside play(). The absolute deadline
     // makes a necessary rebuild catch up instead of restarting at stale time.
-    const capturedAt = performance.now();
+    // A source still waiting for the shared start retains that future anchor.
+    const capturedAt = getLocalFilePendingStartDeadlineMs() ?? performance.now();
     const position = getTrackPosition();
     // A standard host can return after its canonical wall timeline already
     // crossed the track boundary while Web Audio was frozen. Replaying exactly
@@ -1201,13 +1189,15 @@ export function initPlayback(): void {
         currentResident?.queueItemId === currentQueueItemId
       ) {
         const itemName = currentResident.name || currentItem.name || currentItem.file?.name || null;
-        // Late-join bootstrap: omit hostPlayAt — guest has no clock samples yet.
-        // Guest starts immediately; initial sync corrects the unsampled clock.
+        // Running late joins need no future anchor. During a shared start,
+        // retain it so a joining guest cannot begin before the coordinator.
+        const hostStartAt = getStandardHostPendingFileStartAt();
         conn.send({
           type: MSG.PLAY,
           time: nowPos,
           queueItemId: currentQueueItemId,
           name: itemName,
+          ...(hostStartAt === undefined ? {} : { hostStartAt }),
         });
       } else if (isFilePlaying) {
         log.warn('[Playback] Bootstrap PLAY skipped: selected queue identity is unavailable');

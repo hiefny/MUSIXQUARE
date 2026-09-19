@@ -133,7 +133,7 @@ const mr: Record<I18nKey, string> = {
   'player.play_together': 'सिंक करून प्ले करा',
   'player.play_speakers': 'स्पीकर म्हणून वापरा',
   'player.auto_sync_label': 'स्वयंचलित (ms)',
-  'player.manual_sync_label': 'मॅन्युअल (ms)',
+  'player.manual_sync_label': 'मॅन्युअल सिंक (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'प्लेलिस्ट विस्तृत/संक्षिप्त करा',

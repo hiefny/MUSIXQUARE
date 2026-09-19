@@ -132,7 +132,7 @@ const bg: Record<I18nKey, string> = {
   'player.play_together': 'Синхронно възпроизвеждане',
   'player.play_speakers': 'Използване като говорител',
   'player.auto_sync_label': 'Автоматично (ms)',
-  'player.manual_sync_label': 'Ръчно (ms)',
+  'player.manual_sync_label': 'Ръчна синхронизация (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Разгъване/свиване на плейлиста',

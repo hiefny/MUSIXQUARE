@@ -133,7 +133,7 @@ const bn: Record<I18nKey, string> = {
   'player.play_together': 'সিঙ্ক করে চালান',
   'player.play_speakers': 'স্পিকার হিসেবে ব্যবহার করুন',
   'player.auto_sync_label': 'অটো (ms)',
-  'player.manual_sync_label': 'ম্যানুয়াল (ms)',
+  'player.manual_sync_label': 'ম্যানুয়াল সিঙ্ক (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'প্লেলিস্ট প্রসারিত/সংকুচিত করুন',

@@ -130,7 +130,7 @@ const tr: Record<I18nKey, string> = {
   'player.play_together': 'Senkronize oynat',
   'player.play_speakers': 'Hoparlör Olarak Kullan',
   'player.auto_sync_label': 'Otomatik (ms)',
-  'player.manual_sync_label': 'Manuel (ms)',
+  'player.manual_sync_label': 'Manuel senkronizasyon (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Çalma Listesini Göster/Gizle',

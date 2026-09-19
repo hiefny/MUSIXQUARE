@@ -227,7 +227,7 @@ const id: Record<I18nKey, string> = {
   'player.play_together': 'Sinkronkan pemutaran',
   'player.play_speakers': 'Gunakan sebagai speaker',
   'player.auto_sync_label': 'Otomatis (ms)',
-  'player.manual_sync_label': 'Manual (ms)',
+  'player.manual_sync_label': 'Sinkronisasi manual (ms)',
 
   // Playlist
   'playlist.toggle': 'Perluas/ciutkan daftar putar',

@@ -135,7 +135,7 @@ const ms: Record<I18nKey, string> = {
   'player.play_together': 'Main Secara Segerak',
   'player.play_speakers': 'Gunakan sebagai Pembesar Suara',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manual (ms)',
+  'player.manual_sync_label': 'Penyegerakan manual (ms)',
 
   // ─── Senarai Main ────────────────────────────────────────────────
   'playlist.toggle': 'Kembangkan/runtuhkan senarai main',

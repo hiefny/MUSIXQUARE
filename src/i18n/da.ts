@@ -133,7 +133,7 @@ const da: Record<I18nKey, string> = {
   'player.play_together': 'Afspil synkroniseret',
   'player.play_speakers': 'Brug som højttaler',
   'player.auto_sync_label': 'Automatisk (ms)',
-  'player.manual_sync_label': 'Manuel (ms)',
+  'player.manual_sync_label': 'Manuel synkronisering (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Vis eller skjul afspilningslisten',

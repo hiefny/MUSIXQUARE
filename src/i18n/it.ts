@@ -132,7 +132,7 @@ const it: Record<I18nKey, string> = {
   'player.play_together': 'Riproduci in sincronia',
   'player.play_speakers': 'Usa come altoparlante',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manuale (ms)',
+  'player.manual_sync_label': 'Sincronizzazione manuale (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Mostra/nascondi playlist',

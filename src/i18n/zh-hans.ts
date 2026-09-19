@@ -216,7 +216,7 @@ const zhHans: Record<I18nKey, string> = {
   'player.play_together': '同步播放',
   'player.play_speakers': '用作音箱',
   'player.auto_sync_label': '自动（ms）',
-  'player.manual_sync_label': '手动（ms）',
+  'player.manual_sync_label': '手动同步（ms）',
 
   // Playlist
   'playlist.toggle': '展开/收起播放列表',

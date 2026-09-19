@@ -240,13 +240,14 @@ export function showPlacementToastForChannel(mode: number): void {
 let _preMuteVolume = 0.5;
 
 function updateVolumeIcon(): void {
-  const icon = getUiElement('vol-icon-btn');
-  if (!icon) return;
-
   const vol = getState('audio.masterVolume') ?? 1;
   const muted = vol === 0;
-  icon.classList.toggle('is-muted', muted);
-  icon.setAttribute('aria-pressed', String(muted));
+  for (const id of ['vol-icon-btn', 'demo-vol-icon-btn']) {
+    const icon = getUiElement(id);
+    if (!icon) continue;
+    icon.classList.toggle('is-muted', muted);
+    icon.setAttribute('aria-pressed', String(muted));
+  }
 }
 
 function getFileExtensionLabel(name: string): string {
@@ -963,12 +964,10 @@ function handleDemoSettingsBtn(): void {
 function syncDemoTransportControls(): void {
   const disabled =
     !getState('demo.active') || !!getState('network.hostConn') || getState('demo.loading');
-  for (const id of ['btn-demo-previous', 'btn-demo-next-track']) {
-    const button = getUiElement<HTMLButtonElement>(id);
-    if (!button) continue;
-    button.disabled = disabled;
-    button.setAttribute('aria-disabled', String(disabled));
-  }
+  const button = getUiElement<HTMLButtonElement>('btn-demo-next-track');
+  if (!button) return;
+  button.disabled = disabled;
+  button.setAttribute('aria-disabled', String(disabled));
 }
 
 // ─── Logo Return to Main ─────────────────────────────────────────
@@ -1090,7 +1089,7 @@ function syncVolumeAuthorityUI(): void {
       locked ? roomCapabilityRequiredMessage('effects.control') : t('player.volume'),
     );
   }
-  for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider']) {
+  for (const id of ['volume-slider', 'vol-icon-btn', 'demo-volume-slider', 'demo-vol-icon-btn']) {
     const control = getUiElement(id) as HTMLInputElement | HTMLButtonElement | null;
     if (!control) continue;
     control.disabled = locked;
@@ -1281,6 +1280,7 @@ export function initPlayerControls(): void {
   });
   // Mute button — native <button>, so Enter/Space auto-fires click
   $on('vol-icon-btn', 'click', () => toggleMute());
+  $on('demo-vol-icon-btn', 'click', () => toggleMute());
   $on('volume-slider', 'input', function (this: HTMLInputElement) {
     onVolInput(Number(this.value));
   });
@@ -1289,7 +1289,6 @@ export function initPlayerControls(): void {
   });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
   $on('btn-demo-settings', 'click', handleDemoSettingsBtn);
-  $on('btn-demo-previous', 'click', () => bus.emit('demo:previous-track'));
   $on('btn-demo-next-track', 'click', () => bus.emit('demo:next-track'));
   getUiElement('demo-volume-control-group')?.addEventListener('click', explainLockedVolume, {
     capture: true,

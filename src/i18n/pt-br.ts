@@ -226,7 +226,7 @@ const ptBr: Record<I18nKey, string> = {
   'player.play_together': 'Reproduzir em sincronia',
   'player.play_speakers': 'Usar como alto-falante',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manual (ms)',
+  'player.manual_sync_label': 'Sincronização manual (ms)',
 
   // Playlist
   'playlist.toggle': 'Expandir/recolher playlist',

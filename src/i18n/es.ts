@@ -226,7 +226,7 @@ const es: Record<I18nKey, string> = {
   'player.play_together': 'Sincronizar reproducción',
   'player.play_speakers': 'Usar como altavoz',
   'player.auto_sync_label': 'Auto (ms)',
-  'player.manual_sync_label': 'Manual (ms)',
+  'player.manual_sync_label': 'Sincronización manual (ms)',
 
   // Playlist
   'playlist.toggle': 'Expandir o contraer la lista de reproducción',

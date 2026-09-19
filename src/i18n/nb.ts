@@ -134,7 +134,7 @@ const nb: Record<I18nKey, string> = {
   'player.play_together': 'Spill av synkronisert',
   'player.play_speakers': 'Bruk som høyttaler',
   'player.auto_sync_label': 'Automatisk (ms)',
-  'player.manual_sync_label': 'Manuell (ms)',
+  'player.manual_sync_label': 'Manuell synkronisering (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Vis eller skjul spillelisten',

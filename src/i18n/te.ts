@@ -134,7 +134,7 @@ const te: Record<I18nKey, string> = {
   'player.play_together': 'సింక్‌లో ప్లే చేయి',
   'player.play_speakers': 'స్పీకర్‌గా ఉపయోగించు',
   'player.auto_sync_label': 'ఆటో (ms)',
-  'player.manual_sync_label': 'మాన్యువల్ (ms)',
+  'player.manual_sync_label': 'మాన్యువల్ సింక్ (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'ప్లేలిస్ట్‌ను విస్తరించు/కుదించు',

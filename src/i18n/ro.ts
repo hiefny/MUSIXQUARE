@@ -134,7 +134,7 @@ const ro: Record<I18nKey, string> = {
   'player.play_together': 'Redă sincronizat',
   'player.play_speakers': 'Folosește drept difuzor',
   'player.auto_sync_label': 'Automat (ms)',
-  'player.manual_sync_label': 'Manual (ms)',
+  'player.manual_sync_label': 'Sincronizare manuală (ms)',
 
   // ─── Listă de redare ─────────────────────────────────────────────
   'playlist.toggle': 'Extinde sau restrânge lista de redare',

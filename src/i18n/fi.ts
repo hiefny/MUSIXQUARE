@@ -134,7 +134,7 @@ const fi: Record<I18nKey, string> = {
   'player.play_together': 'Toista synkronoidusti',
   'player.play_speakers': 'Käytä kaiuttimena',
   'player.auto_sync_label': 'Automaattinen (ms)',
-  'player.manual_sync_label': 'Manuaalinen (ms)',
+  'player.manual_sync_label': 'Manuaalinen synkronointi (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Laajenna tai supista soittolista',

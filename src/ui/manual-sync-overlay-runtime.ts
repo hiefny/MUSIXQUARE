@@ -305,6 +305,8 @@ function open(demoSettings = false): boolean {
   overlay.querySelectorAll<HTMLElement>('[data-demo-settings-row]').forEach((row) => {
     row.hidden = !demoSettings;
   });
+  const nudgeRow = overlay.querySelector<HTMLElement>('.sync-nudge-row');
+  if (nudgeRow) nudgeRow.hidden = demoSettings;
   const panel = overlay.querySelector<HTMLElement>('[role="dialog"]');
   const labelKey = demoSettings ? 'nav.settings' : 'common.sync';
   panel?.setAttribute('aria-label', t(labelKey));

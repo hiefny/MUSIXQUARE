@@ -2285,15 +2285,19 @@ describe('initPlayerControls sync button', () => {
       <button id="btn-sync"><span data-i18n="player.sync_compact">Sync</span></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
+      <button id="vol-icon-btn" aria-label="Toggle mute"></button>
+      <input id="volume-slider" type="range" min="0" max="100" />
       <div id="manual-sync-overlay" aria-hidden="true">
         <div role="dialog" aria-modal="true" aria-label="Sync">
-          <div data-demo-settings-row hidden>
-            <button id="btn-demo-previous">Previous</button>
-            <button data-demo-play>Play</button>
-            <button id="btn-demo-next-track">Next</button>
-          </div>
-          <div id="demo-volume-control-group" data-demo-settings-row hidden>
-            <input id="demo-volume-slider" type="range" min="0" max="100" />
+          <div class="demo-settings-controls" data-demo-settings-row hidden>
+            <div class="demo-settings-transport">
+              <button data-demo-play>Play</button>
+              <button id="btn-demo-next-track">Next</button>
+            </div>
+            <div class="demo-settings-volume" id="demo-volume-control-group">
+              <button id="demo-vol-icon-btn" aria-label="Toggle mute"></button>
+              <input id="demo-volume-slider" type="range" min="0" max="100" />
+            </div>
           </div>
           <div class="chat-input-wrapper">
             <div
@@ -2306,10 +2310,12 @@ describe('initPlayerControls sync button', () => {
             >0</div>
             <span id="manual-sync-range-hint" class="sr-only">-9999 … +9999 ms</span>
           </div>
-          <button id="btn-nudge-minus10">-10</button>
-          <button id="btn-nudge-minus1">-1</button>
-          <button id="btn-nudge-plus1">+1</button>
-          <button id="btn-nudge-plus10">+10</button>
+          <div class="sync-nudge-row">
+            <button id="btn-nudge-minus10">-10</button>
+            <button id="btn-nudge-minus1">-1</button>
+            <button id="btn-nudge-plus1">+1</button>
+            <button id="btn-nudge-plus10">+10</button>
+          </div>
           <button id="btn-auto-sync">Reset</button>
           <button id="btn-sync-done">Done</button>
         </div>
@@ -2340,6 +2346,7 @@ describe('initPlayerControls sync button', () => {
       true,
     );
     expect(document.querySelector<HTMLElement>('[data-demo-settings-row]')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.sync-nudge-row')!.hidden).toBe(true);
     const edit = vi.fn();
     bus.on('sync:set-manual-offset', edit);
     const editor = document.getElementById('manual-sync-value')!;
@@ -2352,31 +2359,179 @@ describe('initPlayerControls sync button', () => {
     expect(getState('sync.localOffset')).toBe(-0.321);
   });
 
-  it('keeps demo previous/next host-owned and shares the volume action', async () => {
+  it('excludes demo nudge controls from keyboard focus and restores them for ordinary sync', async () => {
+    renderSyncControls();
+    setState('demo.active', true);
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    initPlayerControls();
+    document.getElementById('btn-demo-settings')!.click();
+    await settleManualSyncOverlayOpen();
+    const overlay = document.getElementById('manual-sync-overlay')!;
+    const row = overlay.querySelector<HTMLElement>('.sync-nudge-row')!;
+    const done = document.getElementById('btn-sync-done')!;
+    const reset = document.getElementById('btn-auto-sync')!;
+    expect(row.hidden).toBe(true);
+    expect(overlay.querySelectorAll('.sync-nudge-row button')).toHaveLength(4);
+
+    // Isolate the nudge/Reset/Done focus boundary: a hidden ancestor must
+    // exclude its still-enabled buttons from the overlay's keyboard trap.
+    for (const element of overlay.querySelectorAll<HTMLElement>('button, input, [tabindex]')) {
+      if (!row.contains(element) && element !== done && element !== reset) element.tabIndex = -1;
+    }
+    done.focus();
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(reset);
+
+    setState('demo.active', false);
+    document.getElementById('btn-sync')!.click();
+    await settleManualSyncOverlayOpen();
+    expect(row.hidden).toBe(false);
+    expect(overlay.classList.contains('show')).toBe(true);
+    done.focus();
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(document.getElementById('btn-nudge-minus10'));
+  });
+
+  it('keeps demo next host-owned and shares the volume action', async () => {
     renderSyncControls();
     setState('demo.active', true);
     initPlayerControls();
-    const previous = vi.fn();
     const next = vi.fn();
     const volume = vi.fn();
-    bus.on('demo:previous-track', previous);
     bus.on('demo:next-track', next);
     bus.on('audio:set-volume', volume);
     document.getElementById('btn-demo-settings')!.click();
     await settleManualSyncOverlayOpen();
-    document.getElementById('btn-demo-previous')!.click();
     document.getElementById('btn-demo-next-track')!.click();
-    expect(previous).toHaveBeenCalledTimes(1);
     expect(next).toHaveBeenCalledTimes(1);
     const slider = document.getElementById('demo-volume-slider') as HTMLInputElement;
     slider.value = '63';
     slider.dispatchEvent(new Event('input', { bubbles: true }));
     expect(volume).toHaveBeenCalledExactlyOnceWith(0.63);
     setState('network.hostConn', makeConnection('host-1'));
-    document.getElementById('btn-demo-previous')!.click();
     document.getElementById('btn-demo-next-track')!.click();
-    expect(previous).toHaveBeenCalledTimes(1);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('mutes and restores the same prior volume from either synchronized volume icon', async () => {
+    renderSyncControls();
+    setState('demo.active', true);
+    setState('audio.masterVolume', 0.42);
+    const setVolume = vi.fn((volume: number) => {
+      setState('audio.masterVolume', volume);
+      bus.emit('audio:volume-changed', volume);
+    });
+    bus.on('audio:set-volume', setVolume);
+    initPlayerControls();
+    document.getElementById('btn-demo-settings')!.click();
+    await settleManualSyncOverlayOpen();
+    const mainMute = document.getElementById('vol-icon-btn')!;
+    const demoMute = document.getElementById('demo-vol-icon-btn')!;
+    const sliders = ['volume-slider', 'demo-volume-slider'].map(
+      (id) => document.getElementById(id) as HTMLInputElement,
+    );
+
+    demoMute.click();
+    expect(setVolume).toHaveBeenLastCalledWith(0);
+    expect(getState('audio.masterVolume')).toBe(0);
+    for (const button of [mainMute, demoMute]) {
+      expect(button.classList).toContain('is-muted');
+      expect(button.getAttribute('aria-pressed')).toBe('true');
+    }
+    for (const slider of sliders) expect(slider.value).toBe('0');
+
+    demoMute.click();
+    expect(setVolume).toHaveBeenLastCalledWith(0.42);
+    expect(getState('audio.masterVolume')).toBe(0.42);
+    for (const button of [mainMute, demoMute]) {
+      expect(button.classList).not.toContain('is-muted');
+      expect(button.getAttribute('aria-pressed')).toBe('false');
+    }
+    for (const slider of sliders) expect(slider.value).toBe('42');
+
+    mainMute.click();
+    expect(demoMute.getAttribute('aria-pressed')).toBe('true');
+    demoMute.click();
+    expect(getState('audio.masterVolume')).toBe(0.42);
+    sliders[1]!.value = '63';
+    sliders[1]!.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(getState('audio.masterVolume')).toBe(0.63);
+    expect(sliders[0]!.value).toBe('63');
+    demoMute.click();
+    demoMute.click();
+    expect(getState('audio.masterVolume')).toBe(0.63);
+  });
+
+  it('keeps the demo mute icon locked for guests following synchronized volume', () => {
+    renderSyncControls();
+    setState('demo.active', true);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host'));
+    setState('audio.settingsSyncEnabled', true);
+    setState('audio.masterVolume', 0.65);
+    const setVolume = vi.fn();
+    const publish = vi.fn();
+    bus.on('audio:set-volume', setVolume);
+    bus.on('settings-sync:publish-local', publish);
+    initPlayerControls();
+    const button = document.getElementById('demo-vol-icon-btn') as HTMLButtonElement;
+    const slider = document.getElementById('demo-volume-slider') as HTMLInputElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(slider.disabled).toBe(true);
+    button.click();
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(setVolume).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(getState('audio.masterVolume')).toBe(0.65);
+    expect(button.classList).not.toContain('is-muted');
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('reuses existing icons and groups demo playback and volume before manual sync', () => {
+    const markup = readFileSync('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const mainIcon = parsed.querySelector('#vol-icon-btn .volume-icon');
+    const demoIcon = parsed.querySelector('#demo-vol-icon-btn .volume-icon');
+    expect(mainIcon).not.toBeNull();
+    expect(demoIcon).not.toBeNull();
+    expect(demoIcon!.outerHTML.replace(/>\s+</g, '><')).toBe(
+      mainIcon!.outerHTML.replace(/>\s+</g, '><'),
+    );
+    const group = parsed.getElementById('demo-volume-control-group')!;
+    expect(Array.from(group.children).map((child) => child.id)).toEqual([
+      'demo-vol-icon-btn',
+      'demo-volume-slider',
+    ]);
+    expect(parsed.getElementById('btn-demo-previous')).toBeNull();
+    const transport = parsed.querySelector('.demo-settings-transport')!;
+    expect(Array.from(transport.querySelectorAll('button'))).toEqual([
+      parsed.querySelector('#manual-sync-overlay [data-demo-play]'),
+      parsed.getElementById('btn-demo-next-track'),
+    ]);
+    const controls = parsed.querySelector('.demo-settings-controls')!;
+    expect(Array.from(controls.children)).toEqual([transport, group]);
+    expect(controls.nextElementSibling?.classList).toContain('sync-manual-display');
+    const panel = parsed.querySelector('#manual-sync-overlay .sync-glass-panel')!;
+    const scrollBody = panel.querySelector(
+      '.sync-scroll-frame > .sync-scroll-body[data-custom-scroll][data-custom-scroll-contained][data-custom-scroll-gutter]',
+    )!;
+    expect(scrollBody).not.toBeNull();
+    expect(panel.hasAttribute('data-custom-scroll')).toBe(false);
+    expect(scrollBody.contains(controls)).toBe(true);
+    const footer = panel.querySelector('.sync-bottom-row')!;
+    expect(footer.parentElement).toBe(panel);
+    expect(scrollBody.contains(footer)).toBe(false);
+    expect(parsed.getElementById('manual-sync-value')!.getAttribute('aria-label')).toBe(
+      'Manual sync (ms)',
+    );
+    expect(parsed.querySelector('#btn-demo-settings > svg > path')!.getAttribute('d')).toBe(
+      parsed.querySelector('[data-rvb-type="advanced"] svg > path')!.getAttribute('d'),
+    );
   });
 
   it('does not open a deferred demo dialog after leaving the demo', async () => {
@@ -3087,7 +3242,7 @@ describe('initPlayerControls sync button', () => {
     },
   );
 
-  it('includes the native volume input in the guest demo settings Tab cycle', async () => {
+  it('includes mute and the native volume input in the guest demo settings Tab cycle', async () => {
     renderSyncControls();
     setState('demo.active', true);
     setState('network.hostConn', makeConnection('host-1'));
@@ -3099,14 +3254,15 @@ describe('initPlayerControls sync button', () => {
     document.getElementById('btn-demo-settings')!.click();
     await settleManualSyncOverlayOpen();
     const done = document.getElementById('btn-sync-done')!;
+    const mute = document.getElementById('demo-vol-icon-btn') as HTMLButtonElement;
     const slider = document.getElementById('demo-volume-slider') as HTMLInputElement;
     const editor = document.getElementById('manual-sync-value')!;
     expect(slider.disabled).toBe(false);
     done.focus();
 
     done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
-    expect(document.activeElement).toBe(slider);
-    slider.dispatchEvent(
+    expect(document.activeElement).toBe(mute);
+    mute.dispatchEvent(
       new KeyboardEvent('keydown', {
         key: 'Tab',
         shiftKey: true,
@@ -3115,6 +3271,13 @@ describe('initPlayerControls sync button', () => {
     );
     expect(document.activeElement).toBe(done);
 
+    mute.disabled = true;
+    done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    expect(document.activeElement).toBe(slider);
+    slider.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
+    );
+    expect(document.activeElement).toBe(done);
     slider.disabled = true;
     done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(editor);

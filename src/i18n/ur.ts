@@ -132,7 +132,7 @@ const ur: Record<I18nKey, string> = {
   'player.play_together': 'ہم وقت چلائیں',
   'player.play_speakers': 'اسپیکر کے طور پر استعمال کریں',
   'player.auto_sync_label': 'خودکار (ملی سیکنڈ)',
-  'player.manual_sync_label': 'دستی (ملی سیکنڈ)',
+  'player.manual_sync_label': 'دستی سنک (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'پلے لسٹ کھولیں یا سمیٹیں',

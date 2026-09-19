@@ -948,7 +948,7 @@
        indistinguishable from the SVG it wraps. No :hover or :active rules
        — clicking stays silent (tap-highlight-color: transparent is already
        set globally), :focus-visible handles keyboard focus ring naturally. */
-  #vol-icon-btn,
+  .volume-icon-button,
   #app-logo {
     background: transparent;
     border: none;
@@ -960,7 +960,7 @@
   /* Inline-flex wrap: collapse the default text line-box so the button's
        height equals the child SVG's height, not line-height × font-size.
        #app-logo already has display: flex via its .app-logo class. */
-  #vol-icon-btn {
+  .volume-icon-button {
     display: inline-flex;
     align-items: center;
     color: var(--text-sub);
@@ -969,11 +969,11 @@
       transform 0.18s ease;
   }
 
-  #vol-icon-btn:active {
+  .volume-icon-button:active {
     transform: scale(0.94);
   }
 
-  #vol-icon-btn .volume-icon {
+  .volume-icon-button .volume-icon {
     display: block;
     width: 18px;
     height: 18px;
@@ -1040,29 +1040,29 @@
     transition: stroke-dashoffset 0.16s ease 0.08s;
   }
 
-  #vol-icon-btn.is-muted .volume-speaker {
+  .volume-icon-button.is-muted .volume-speaker {
     transform: translateX(-0.5px);
   }
 
-  #vol-icon-btn.is-muted .volume-wave {
+  .volume-icon-button.is-muted .volume-wave {
     opacity: 0;
     transform: translateX(-1.5px) scale(0.72);
     transition-delay: 0s;
   }
 
-  #vol-icon-btn.is-muted .volume-muted-backdrop,
-  #vol-icon-btn.is-muted .volume-muted-mark {
+  .volume-icon-button.is-muted .volume-muted-backdrop,
+  .volume-icon-button.is-muted .volume-muted-mark {
     opacity: 1;
     transform: scale(1) rotate(0deg);
   }
 
-  #vol-icon-btn.is-muted .volume-muted-ring,
-  #vol-icon-btn.is-muted .volume-muted-slash {
+  .volume-icon-button.is-muted .volume-muted-ring,
+  .volume-icon-button.is-muted .volume-muted-slash {
     stroke-dashoffset: 0;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    #vol-icon-btn,
+    .volume-icon-button,
     .volume-speaker,
     .volume-wave,
     .volume-muted-backdrop,
@@ -2224,33 +2224,41 @@
     margin: 0;
   }
 
-  #volume-slider::-webkit-slider-runnable-track {
+  #volume-slider::-webkit-slider-runnable-track,
+  #demo-volume-slider::-webkit-slider-runnable-track {
     height: 4px;
     /* Volume stays visually lighter than the effect sliders. */
   }
 
-  #volume-slider::-moz-range-track {
+  #volume-slider::-moz-range-track,
+  #demo-volume-slider::-moz-range-track {
     height: 4px;
   }
 
   #volume-slider:active::-webkit-slider-runnable-track,
-  #volume-slider.is-dragging::-webkit-slider-runnable-track {
+  #demo-volume-slider:active::-webkit-slider-runnable-track,
+  #volume-slider.is-dragging::-webkit-slider-runnable-track,
+  #demo-volume-slider.is-dragging::-webkit-slider-runnable-track {
     height: 6px;
   }
 
   #volume-slider:active::-moz-range-track,
-  #volume-slider.is-dragging::-moz-range-track {
+  #demo-volume-slider:active::-moz-range-track,
+  #volume-slider.is-dragging::-moz-range-track,
+  #demo-volume-slider.is-dragging::-moz-range-track {
     height: 6px;
   }
 
-  #volume-slider::-webkit-slider-thumb {
+  #volume-slider::-webkit-slider-thumb,
+  #demo-volume-slider::-webkit-slider-thumb {
     height: 0;
     width: 0;
     border: none;
     margin-top: 0;
   }
 
-  #volume-slider::-moz-range-thumb {
+  #volume-slider::-moz-range-thumb,
+  #demo-volume-slider::-moz-range-thumb {
     height: 0;
     width: 0;
     border: none;
@@ -8297,8 +8305,7 @@
     width: var(--sync-panel-width);
     max-height: calc(100vh - 48px);
     max-height: calc(100dvh - 48px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    overflow: hidden;
     background: var(--surface-1);
     border: none;
     border-radius: var(--radius-l);
@@ -8321,24 +8328,112 @@
     --sync-panel-width: min(360px, calc(100vw - 48px));
   }
 
-  .manual-sync-overlay > .cscroll-track-contained {
-    right: calc(50% - var(--sync-panel-width) / 2 + 4px);
+  .sync-scroll-frame {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .sync-scroll-body {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    /* Preserve focus rings without moving the visible controls. */
+    padding: 4px;
+    margin: -4px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+
+  .sync-scroll-body > * {
+    flex-shrink: 0;
+  }
+
+  .sync-scroll-body.has-scroll-overflow {
+    padding-inline: 12px;
+  }
+
+  .sync-scroll-frame > .cscroll-track-contained {
+    right: -4px;
   }
 
   .manual-sync-overlay.demo-settings-open .sync-glass-panel {
     padding-top: 24px;
   }
 
-  .demo-settings-transport:not([hidden]) {
+  .demo-settings-controls:not([hidden]) {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 24px;
+    gap: 32px;
+    padding-bottom: 20px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .manual-sync-overlay.demo-settings-open .sync-manual-display {
+    margin-top: 0;
+  }
+
+  .demo-settings-transport {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    border-radius: var(--radius-l);
+    background: var(--text-main);
   }
 
   .demo-settings-transport .demo-play-button {
     width: 56px;
     height: 56px;
+    background: transparent;
+  }
+
+  .demo-settings-transport .ctrl-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 56px;
+    padding: 0;
+    border-radius: var(--radius-l);
+    color: var(--bg);
+  }
+
+  .demo-settings-transport .ctrl-btn::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 16px;
+    width: 1px;
+    height: 24px;
+    background: currentColor;
+    opacity: 0.2;
+  }
+
+  /* Optical optimization: move the glyphs toward the pill's center divider. */
+  .demo-settings-transport .demo-play-button > svg {
+    transform: translateX(2px);
+  }
+
+  .demo-settings-transport .ctrl-btn > svg {
+    transform: translateX(-2px);
+  }
+
+  [dir='rtl'] .demo-settings-transport .ctrl-btn::before {
+    left: auto;
+    right: 0;
+  }
+
+  [dir='rtl'] .demo-settings-transport .demo-play-button > svg {
+    transform: translateX(-2px);
+  }
+
+  [dir='rtl'] .demo-settings-transport .ctrl-btn > svg {
+    transform: translateX(2px);
   }
 
   .demo-settings-transport button:disabled {
@@ -8346,19 +8441,31 @@
     cursor: default;
   }
 
-  .demo-settings-volume:not([hidden]) {
+  .demo-settings-volume {
     display: flex;
     align-items: center;
-    width: 100%;
-    padding-block: 18px 2px;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+    max-width: 128px;
+    margin-inline-start: auto;
   }
 
   .demo-settings-volume > :disabled {
     pointer-events: none;
   }
 
+  #demo-vol-icon-btn {
+    flex-shrink: 0;
+  }
+
+  .demo-settings-volume .volume-muted-backdrop {
+    stroke: var(--surface-1);
+  }
+
   #demo-volume-slider {
-    width: 100%;
+    flex: 1;
+    width: 0;
     min-width: 0;
     margin: 0;
   }
@@ -8415,6 +8522,10 @@
     text-align: center;
     white-space: nowrap;
     word-break: normal;
+  }
+
+  .sync-nudge-row[hidden] {
+    display: none;
   }
 
   .sync-nudge-row {

@@ -134,7 +134,7 @@ const el: Record<I18nKey, string> = {
   'player.play_together': 'Συγχρονισμένη αναπαραγωγή',
   'player.play_speakers': 'Χρήση ως ηχείο',
   'player.auto_sync_label': 'Αυτόματα (ms)',
-  'player.manual_sync_label': 'Χειροκίνητα (ms)',
+  'player.manual_sync_label': 'Χειροκίνητος συγχρονισμός (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Ανάπτυξη ή σύμπτυξη λίστας αναπαραγωγής',

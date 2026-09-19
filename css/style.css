@@ -8370,8 +8370,8 @@
     align-items: center;
     margin-bottom: 24px;
     border-radius: var(--radius-l);
-    background: var(--text-main);
-    color: var(--bg);
+    background: var(--surface-2);
+    color: var(--text-main);
   }
 
   .manual-sync-overlay.demo-settings-open .sync-manual-display {
@@ -8392,6 +8392,7 @@
     width: 48px;
     height: 56px;
     background: transparent;
+    color: inherit;
   }
 
   .demo-settings-transport .ctrl-btn {
@@ -8401,7 +8402,7 @@
     height: 56px;
     padding: 0;
     border-radius: var(--radius-l);
-    color: var(--bg);
+    color: inherit;
   }
 
   .demo-settings-transport > button + button::before,
@@ -8465,17 +8466,15 @@
 
   #demo-vol-icon-btn {
     flex-shrink: 0;
-    color: var(--bg);
+    color: var(--text-sub);
   }
 
   .demo-settings-volume .volume-muted-backdrop {
-    stroke: var(--text-main);
+    stroke: var(--surface-2);
   }
 
   #demo-volume-slider {
-    --range-fill-idle: var(--bg);
-    --range-fill-active: var(--bg);
-    --range-track-empty: var(--text-muted);
+    --range-track-empty: var(--surface-3);
     /* Keep the physical volume axis consistent with the main player in RTL. */
     direction: ltr;
     flex: 1;

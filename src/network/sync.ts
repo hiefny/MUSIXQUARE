@@ -25,8 +25,15 @@ import {
   getTrackPosition,
   adjustSync,
   setLocalManualSyncOffset,
+  isLocalFileStartPending,
+  getStandardHostPendingFileStartAt,
 } from '../player/transport.ts';
-import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
+import {
+  getCurrentAudioBuffer,
+  isLocalFilePaused,
+  setLocalFilePaused,
+  isPlayLocked,
+} from '../player/_state.ts';
 import {
   getHostNow,
   registerPing,
@@ -322,11 +329,16 @@ function createSyncPongPayload({
   playbackState: SyncPongPlaybackState;
 }): Record<string, unknown> {
   const isDemo = getState('demo.active');
+  const hostStartAt =
+    !isDemo && playbackState.mode === 'file' && playbackState.activity === 'playing'
+      ? getStandardHostPendingFileStartAt()
+      : undefined;
   const payload: Record<string, unknown> = {
     type: MSG.SYNC_PONG,
     pingId,
     hostTime,
     position,
+    ...(hostStartAt === undefined ? {} : { hostStartAt }),
     mode: playbackState.mode,
     activity: playbackState.activity,
     queueItemId: isDemo ? null : getState('playlist.currentQueueItemId'),
@@ -370,6 +382,21 @@ function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
 
 type FileSyncStartResult = 'started' | 'pending' | 'rejected';
 
+function getSyncPongFileStartAt(data: Record<string, unknown>): number | undefined {
+  const startAt = data.hostStartAt;
+  const sampledAt = data.hostTime;
+  if (
+    typeof startAt !== 'number' ||
+    !Number.isFinite(startAt) ||
+    typeof sampledAt !== 'number' ||
+    !Number.isFinite(sampledAt) ||
+    startAt < sampledAt ||
+    startAt - sampledAt > 500
+  )
+    return undefined;
+  return startAt;
+}
+
 async function startFileSyncAttempt(
   syncPosition: number,
   data: Record<string, unknown>,
@@ -395,10 +422,18 @@ async function startFileSyncAttempt(
   };
 
   try {
-    const started = await play(syncPosition, 0, undefined, occurrenceStillCurrent, {
-      timing: 'catch-up',
-      onRecoveredStarted: commitStarted,
-    });
+    const hostStartAt = getSyncPongFileStartAt(data);
+    const remainingMs = hostStartAt === undefined ? 0 : Math.max(0, hostStartAt - getHostNow());
+    const started = await play(
+      syncPosition,
+      remainingMs / 1000,
+      hostStartAt === undefined ? undefined : performance.now() + remainingMs,
+      occurrenceStillCurrent,
+      {
+        timing: 'catch-up',
+        onRecoveredStarted: commitStarted,
+      },
+    );
     if (started) commitStarted();
     return committed ? 'started' : 'pending';
   } catch (error) {
@@ -533,11 +568,6 @@ async function handleSyncPong(data: Record<string, unknown>, conn?: DataConnecti
   // 1. Clock offset calculation (from shared-clock processSyncPong)
   const result = processSyncPong(pingId, hostTime);
   if (!result) return;
-  // Data-channel events call handleData independently, so handler promises are
-  // not serialized. Every accepted newer PONG revokes the success continuation
-  // of an older in-flight/queued correction for this guest.
-  const attemptGeneration = ++_fileSyncAttemptGeneration;
-
   const pongTrackKey = getState('demo.active')
     ? typeof data.demoTrackIndex === 'number' && Number.isSafeInteger(data.demoTrackIndex)
       ? `demo:${data.demoTrackIndex}`
@@ -547,6 +577,12 @@ async function handleSyncPong(data: Record<string, unknown>, conn?: DataConnecti
       : null;
   const pongTrackMatches = isSyncPongTrackIdentityCurrent(data);
   const pongPlayingFile = isSyncPongPlayingFile(data);
+  // A sample received during audio setup still calibrates the clock, but must
+  // not cancel the matching start it is deliberately leaving in charge.
+  const attemptGeneration =
+    isPlayLocked() && pongPlayingFile && pongTrackMatches
+      ? _fileSyncAttemptGeneration
+      : ++_fileSyncAttemptGeneration;
   bus.emit('sync:diagnostic-standard-pong', {
     trackKey: pongTrackKey,
     trackMatches: pongTrackMatches,
@@ -619,7 +655,23 @@ async function handleSyncPong(data: Record<string, unknown>, conn?: DataConnecti
     return;
   }
 
-  const hostElapsed = (getHostNow() - hostTime) / 1000;
+  // A source armed for the shared start is already semantically playing.
+  // Keep clock samples above, but never replace that source with an immediate
+  // bootstrap/drift correction before its scheduled audio deadline.
+  if (isPlayLocked() || isLocalFileStartPending()) {
+    resetSoftFileResyncState();
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'scheduled-file-start',
+    });
+    return;
+  }
+
+  const hostStartAt = getSyncPongFileStartAt(data);
+  const hostElapsed =
+    hostStartAt === undefined
+      ? (getHostNow() - hostTime) / 1000
+      : Math.max(0, getHostNow() - hostStartAt) / 1000;
   const estimatedHostPos = position + hostElapsed;
 
   if (!isPlaybackPlayingFile()) {
@@ -794,6 +846,7 @@ export function initSync(): void {
 
   // Guest: arm initial sync 1s after any play command (audio engine stable by then)
   const armInitialSync = () => {
+    _needsInitialSync = false;
     setManagedTimer(
       'initial-sync-arm',
       () => {

@@ -13,6 +13,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { markTrackFailed, setCurrentAudioBuffer } from '../_state.ts';
 import { initPlayback } from '../playback.ts';
 import { handleData } from '../../network/protocol.ts';
+import { processSyncPong, registerPing, resetClockState } from '../../network/shared-clock.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import type { DataConnection } from '../../types/index.ts';
 
@@ -293,6 +294,44 @@ describe('remote guest PLAY → remote-share wait escalation (DV-2)', () => {
 
     expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
     expect(mocks.exactHostSend).not.toHaveBeenCalled();
+  });
+
+  it('preserves the original shared start while connection routing is still unresolved', async () => {
+    vi.useFakeTimers();
+    resetClockState();
+    try {
+      vi.setSystemTime(1050);
+      registerPing(1);
+      processSyncPong(1, 51_050);
+      let resolveRoute!: (value: 'local' | 'remote') => void;
+      mocks.waitForGuestConnectionType.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveRoute = resolve)),
+      );
+      setState('network.connectionType', 'unknown');
+      setState('playlist.currentQueueItemId', QID_A);
+
+      const playing = handleData(
+        {
+          type: MSG.PLAY,
+          time: 0,
+          queueItemId: QID_C,
+          hostStartAt: 51_200,
+          hostPlayAt: 51_400,
+        },
+        hostConn,
+      );
+      await Promise.resolve();
+      vi.setSystemTime(2300);
+      setState('network.connectionType', 'remote');
+      resolveRoute('remote');
+      await playing;
+
+      expect(getState('playback.pendingPlayTime')).toBe(0);
+      expect(getState('playback.pendingPlayTimeSetAt')).toBe(1200);
+    } finally {
+      resetClockState();
+      vi.useRealTimers();
+    }
   });
 
   it('lets a newer failed-track PLAY supersede an older PLAY waiting on ICE', async () => {

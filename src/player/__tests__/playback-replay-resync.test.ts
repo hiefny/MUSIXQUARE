@@ -2,13 +2,13 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { log } from '../../core/log.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
-import { resetClockState } from '../../network/shared-clock.ts';
+import { processSyncPong, registerPing, resetClockState } from '../../network/shared-clock.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { setCurrentAudioBuffer } from '../_state.ts';
 import { setPlaybackFilePlaying, setPlaybackLifecycleState } from '../ownership.ts';
@@ -147,6 +147,8 @@ describe('same-track zero replay resync', () => {
 
 describe('hostPlayAt local-file scheduling', () => {
   function arrangePlayableGuest(): DataConnection {
+    registerPing(1);
+    processSyncPong(1, Date.now());
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('playlist.items', [
@@ -165,6 +167,83 @@ describe('hostPlayAt local-file scheduling', () => {
     initPlayback();
     return hostConn;
   }
+
+  it('starts a ready guest from zero at the shared host start, without skipping its lead', async () => {
+    const hostConn = arrangePlayableGuest();
+    vi.setSystemTime(1050);
+    const monotonicNow = vi.spyOn(performance, 'now').mockReturnValue(5_000);
+
+    await handleData(
+      {
+        type: MSG.PLAY,
+        time: 0,
+        queueItemId: QUEUE_ITEM_ID,
+        hostStartAt: 1200,
+        hostPlayAt: 1400,
+      },
+      hostConn,
+    );
+
+    expect(transportMocks.play).toHaveBeenCalledWith(
+      0,
+      0.15,
+      5_150,
+      expect.any(Function),
+      expect.objectContaining({ timing: 'catch-up' }),
+    );
+    monotonicNow.mockRestore();
+  });
+
+  it('preserves the host start anchor while a guest is decoding', async () => {
+    const hostConn = arrangePlayableGuest();
+    vi.setSystemTime(1050);
+    setPlaybackLifecycleState(PLAYBACK_STATE.DECODING);
+
+    await handleData(
+      {
+        type: MSG.PLAY,
+        time: 0,
+        queueItemId: QUEUE_ITEM_ID,
+        hostStartAt: 1200,
+        hostPlayAt: 1400,
+      },
+      hostConn,
+    );
+
+    expect(transportMocks.play).not.toHaveBeenCalled();
+    expect(getState('playback.pendingPlayTime')).toBe(0);
+    expect(getState('playback.pendingPlayTimeSetAt')).toBe(1200);
+  });
+
+  it('uses only the short local lead until a cold clock is calibrated', async () => {
+    const hostConn = arrangePlayableGuest();
+    resetClockState();
+    vi.setSystemTime(100_000);
+    const monotonicNow = vi.spyOn(performance, 'now').mockReturnValue(5_000);
+    const immediatePing = vi.fn();
+    bus.on('sync:request-immediate-ping', immediatePing);
+
+    await handleData(
+      {
+        type: MSG.PLAY,
+        time: 0,
+        queueItemId: QUEUE_ITEM_ID,
+        hostStartAt: 1200,
+        hostPlayAt: 1400,
+      },
+      hostConn,
+    );
+
+    expect(transportMocks.play).toHaveBeenCalledWith(
+      0,
+      0.2,
+      5_200,
+      expect.any(Function),
+      expect.any(Object),
+    );
+    expect(immediatePing).toHaveBeenCalledOnce();
+    monotonicNow.mockRestore();
+  });
 
   it('compensates by the full host scheduling window, not just remaining wait', async () => {
     const hostConn = arrangePlayableGuest();

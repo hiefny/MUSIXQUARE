@@ -429,6 +429,49 @@ describe('guest file finalization sync', () => {
     mocks.decodeAudioData.mockResolvedValue({ duration: 120 });
   });
 
+  it.each([
+    { route: 'preload', finishedAt: 1100, offset: 0, delay: 0.1 },
+    { route: 'transfer', finishedAt: 1100, offset: 0, delay: 0.1 },
+    { route: 'preload', finishedAt: 4700, offset: 3.5, delay: 0 },
+    { route: 'transfer', finishedAt: 4700, offset: 3.5, delay: 0 },
+  ])(
+    'keeps the shared start after $route decode completes at $finishedAt',
+    async ({ route, finishedAt, offset, delay }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1050);
+      const monotonicNow = vi.spyOn(performance, 'now').mockReturnValue(10_000);
+      setCurrentAudioBuffer(null);
+      setState('network.hostConn', makeConnection('host-1'));
+      const file = new File([new Uint8Array([1, 2, 3])], 'shared-start.mp3', {
+        type: 'audio/mpeg',
+      });
+      const item = makeFileTrack(file);
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
+      if (route === 'preload') stagePreload(item, file);
+      else stageMainTransfer(item, file, 7);
+      setPendingPlayTime(0, 1200);
+      mocks.decodeAudioData.mockImplementationOnce(async () => {
+        vi.setSystemTime(finishedAt);
+        return { duration: 120 };
+      });
+
+      const { finalizeGuestFile, loadPreloadedTrack } = await import('../decode.ts');
+      const { play } = await import('../transport.ts');
+      if (route === 'preload') await loadPreloadedTrack(item.queueItemId);
+      else await finalizeGuestFile(file, item.queueItemId, 7);
+
+      expect(play).toHaveBeenCalledWith(
+        offset,
+        delay,
+        10_000 + delay * 1000,
+        expect.any(Function),
+        expect.objectContaining({ timing: 'catch-up' }),
+      );
+      monotonicNow.mockRestore();
+    },
+  );
+
   it('treats a user file matching a demo filename as ordinary audio without time wrapping', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-31T00:00:05.000Z'));
@@ -459,9 +502,9 @@ describe('guest file finalization sync', () => {
     expect(play).toHaveBeenCalledWith(
       123,
       0,
-      undefined,
-      undefined,
-      expect.objectContaining({ onRecoveredStarted: expect.any(Function) }),
+      expect.any(Number),
+      expect.any(Function),
+      expect.objectContaining({ timing: 'catch-up', onRecoveredStarted: expect.any(Function) }),
     );
     expect(getPendingPlayTime()).toBeUndefined();
     expect(syncRequest).not.toHaveBeenCalled();

@@ -24,7 +24,7 @@ import {
   registerPing,
   resetClockState,
 } from '../shared-clock.ts';
-import { setCurrentAudioBuffer, setLocalFilePaused } from '../../player/_state.ts';
+import { setCurrentAudioBuffer, setLocalFilePaused, setPlayLocked } from '../../player/_state.ts';
 import {
   createSystemAudioTrackMeta,
   setPlaybackFilePaused,
@@ -62,6 +62,8 @@ function setActiveStandardHost(): void {
 
 const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
+  startPending: false,
+  hostStartAt: undefined as number | undefined,
 }));
 const zeroStartFacade = vi.hoisted(() => ({ active: false }));
 
@@ -70,6 +72,8 @@ vi.mock('../../player/transport.ts', async (importOriginal) => {
   return {
     ...actual,
     play: transportMocks.play,
+    isLocalFileStartPending: () => transportMocks.startPending,
+    getStandardHostPendingFileStartAt: () => transportMocks.hostStartAt,
   };
 });
 
@@ -87,11 +91,15 @@ beforeEach(() => {
   resetInboundRateLimit('guest-1');
   transportMocks.play.mockReset();
   transportMocks.play.mockResolvedValue(true);
+  transportMocks.startPending = false;
+  transportMocks.hostStartAt = undefined;
+  setPlayLocked(false);
   zeroStartFacade.active = false;
   setLocalFilePaused(false);
 });
 
 afterEach(() => {
+  setPlayLocked(false);
   clearAllManagedTimers();
   resetClockState();
   setCurrentAudioBuffer(null);
@@ -812,6 +820,108 @@ describe('local-file sync correction', () => {
       conn,
     );
   }
+
+  it('keeps the armed source while calibrating pongs before its shared start', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+    const conn = mockDataConnection('host-scheduled');
+    setState('network.hostConn', conn);
+    setPlaybackFilePlaying();
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    bus.emit('sync:arm-initial');
+    await vi.advanceTimersByTimeAsync(1000);
+    transportMocks.startPending = true;
+    await deliverPlayingFilePong(conn, 901, 2100, 5);
+    expect(isClockCalibrated()).toBe(true);
+    expect(transportMocks.play).not.toHaveBeenCalled();
+    transportMocks.startPending = false;
+    await deliverPlayingFilePong(conn, 902, 2300, 5.2);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an in-flight matching start alive when a pong arrives during audio setup', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+    const conn = mockDataConnection('host-pending-setup');
+    setState('network.hostConn', conn);
+    setPlaybackFilePlaying();
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    bus.emit('sync:arm-initial');
+    await vi.advanceTimersByTimeAsync(1000);
+    let release!: (started: boolean) => void;
+    transportMocks.play.mockImplementationOnce(() => {
+      setPlayLocked(true);
+      return new Promise<boolean>((resolve) => {
+        release = resolve;
+      });
+    });
+    const decisions: Array<{ decision: string }> = [];
+    bus.on('sync:diagnostic-standard-decision', (decision) => decisions.push(decision));
+    const starting = deliverPlayingFilePong(conn, 906, 2100, 0.01);
+    await vi.waitFor(() => expect(transportMocks.play).toHaveBeenCalledTimes(1));
+    await deliverPlayingFilePong(conn, 907, 2200, 0.11);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+    setPlayLocked(false);
+    release(true);
+    await starting;
+    expect(decisions.filter((decision) => decision.decision === 'initial')).toHaveLength(1);
+  });
+
+  it('does not carry the previous initial correction into a newly armed start', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+    const conn = mockDataConnection('host-rearm');
+    setState('network.hostConn', conn);
+    setPlaybackFilePlaying();
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    bus.emit('sync:arm-initial');
+    await vi.advanceTimersByTimeAsync(1000);
+    bus.emit('sync:arm-initial');
+    await deliverPlayingFilePong(conn, 903, 2050, 0.01);
+    expect(transportMocks.play).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    await deliverPlayingFilePong(conn, 904, 3200, 0.01);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([1100, 1400])(
+    'bootstraps at the pending host timeline when a pong arrives at %ims',
+    async (receivedAt) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1000);
+      initSync();
+      const conn = mockDataConnection('host-pending-bootstrap');
+      setState('network.hostConn', conn);
+      setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+      setPlaybackFilePaused();
+      registerPing(905);
+      vi.setSystemTime(receivedAt);
+      await handleData(
+        {
+          type: MSG.SYNC_PONG,
+          pingId: 905,
+          hostTime: 1050,
+          hostStartAt: 1250,
+          position: 10,
+          mode: 'file',
+          activity: 'playing',
+          queueItemId: QUEUE_ITEM_ID,
+        },
+        conn,
+      );
+      expect(transportMocks.play).toHaveBeenCalledTimes(1);
+      // Offset is determined by this measured host clock, never by a raw local clock.
+      const hostNow = receivedAt + getClockOffset();
+      expect(transportMocks.play.mock.calls[0][0]).toBeCloseTo(
+        10 + Math.max(0, hostNow - 1250) / 1000,
+      );
+      expect(transportMocks.play.mock.calls[0][1]).toBeCloseTo(Math.max(0, 1250 - hostNow) / 1000);
+      expect(transportMocks.play.mock.calls[0][2]).toEqual(expect.any(Number));
+    },
+  );
 
   it('does not hard-resync an aligned guest when one queued ping resembles a clock step', async () => {
     vi.useFakeTimers();

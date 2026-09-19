@@ -253,6 +253,10 @@ export function getPendingPlayTime(): number | undefined {
   return getState('playback.pendingPlayTime');
 }
 
+/**
+ * `setAt` anchors the requested position on this device's wall clock. It can
+ * be in the future for a shared start; transfer/decode preserves it verbatim.
+ */
 export function setPendingPlayTime(time: number | undefined, setAt?: number): void {
   setState('playback.pendingPlayTime', time);
   setState('playback.pendingPlayTimeSetAt', time === undefined ? 0 : (setAt ?? Date.now()));
@@ -260,19 +264,6 @@ export function setPendingPlayTime(time: number | undefined, setAt?: number): vo
 
 export function getPendingPlayTimeSetAt(): number {
   return getState('playback.pendingPlayTimeSetAt');
-}
-
-/**
- * Seconds elapsed since pendingPlayTime was set. Consumers add this to
- * the stored time to estimate the host's current playback position —
- * important when decode/fetch takes several seconds (e.g. remote guest's
- * HTTP fetch for the demo), during which the host keeps playing forward.
- */
-export function getPendingPlayTimeAge(): number {
-  const time = getState('playback.pendingPlayTime');
-  const setAt = getState('playback.pendingPlayTimeSetAt');
-  if (time === undefined || setAt === 0) return 0;
-  return (Date.now() - setAt) / 1000;
 }
 
 // ─── Pending Recovery Target ──────────────────────────────────────

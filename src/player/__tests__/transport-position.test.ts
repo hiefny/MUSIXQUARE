@@ -44,9 +44,12 @@ vi.mock('../../audio/engine.ts', () => ({
 }));
 
 import {
+  adjustSync,
   getTrackPosition,
+  isLocalFileStartPending,
   pause,
   peekTrackPosition,
+  play,
   setLocalManualSyncOffset,
   stopAllMedia,
 } from '../transport.ts';
@@ -62,9 +65,57 @@ beforeEach(() => {
 afterEach(() => {
   stopAllMedia({ cancelInFlight: true, clearBuffer: true });
   clearAllManagedTimers();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('transport position', () => {
+  it.each(['standard', 'pro'] as const)(
+    'retains the %s source deadline when a manual nudge rebuilds pending output',
+    async (kind) => {
+      vi.useFakeTimers();
+      setState('room.context', { ...getState('room.context'), kind });
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      await play(30, 0.2);
+      adjustSync(0.1);
+      mocks.currentTime = 100.06;
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(mocks.start).toHaveBeenCalledTimes(2);
+      expect(mocks.start.mock.calls[1]?.[0]).toBeCloseTo(100.2, 6);
+      expect(mocks.start.mock.calls[1]?.[1]).toBeCloseTo(30.1 + (IS_WINDOWS ? 0.02 : 0), 6);
+      expect(isLocalFileStartPending()).toBe(true);
+      expect(getTrackPosition()).toBeCloseTo(30);
+      mocks.currentTime = 100.21;
+      expect(isLocalFileStartPending()).toBe(false);
+      expect(getTrackPosition()).toBeCloseTo(30.01);
+    },
+  );
+
+  it.each(['standard', 'pro'] as const)(
+    'holds a scheduled %s seek at its target until the source starts',
+    async (kind) => {
+      setState('room.context', { ...getState('room.context'), kind });
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      setState('sync.localOffset', 0.1);
+
+      await expect(play(30, 0.2)).resolves.toBe(true);
+
+      expect(isLocalFileStartPending()).toBe(true);
+      expect(getTrackPosition()).toBeCloseTo(30);
+      mocks.currentTime = 100.1;
+      setLocalManualSyncOffset(0.2);
+      expect(isLocalFileStartPending()).toBe(true);
+      expect(getTrackPosition()).toBeCloseTo(30);
+      mocks.currentTime = 100.21;
+      expect(isLocalFileStartPending()).toBe(false);
+      expect(getTrackPosition()).toBeCloseTo(30.01);
+      pause(undefined, { showToast: false });
+      expect(isLocalFileStartPending()).toBe(false);
+      expect(getTrackPosition()).toBeCloseTo(30.01);
+    },
+  );
+
   it('keeps a real DEMO_PLAY zero anchor without inventing a queue resident', async () => {
     const { initDemoMode } = await import('../../demo/mode.ts');
     initDemoMode({ suppressFirstRunPrompt: true });
@@ -99,6 +150,8 @@ describe('transport position', () => {
   });
 
   it('keeps a real host PLAY timeline whose computed audio anchor is exactly zero', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    vi.spyOn(performance, 'now').mockReturnValue(100);
     const queueItemId = '11111111-1111-4111-8111-111111111111';
     const file = new File(['audio'], 'a.mp3', { type: 'audio/mpeg' });
     const host = { open: true, peer: 'host', send: vi.fn() } as unknown as DataConnection;

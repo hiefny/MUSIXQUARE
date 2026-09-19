@@ -187,10 +187,13 @@ import {
   setPlayPreloadedInProgress,
 } from '../_state.ts';
 import {
+  adjustSync,
   applyProPlaybackFileCommit,
   getTrackPosition,
+  getStandardHostPendingFileStartAt,
   getPlayLockSnapshot,
   isFileSourceNodeUsable,
+  isLocalFileStartPending,
   pause,
   play,
   seekTo,
@@ -466,6 +469,24 @@ describe('standard host canonical file end boundary', () => {
     return resident;
   }
 
+  function connectFileGuest(): void {
+    setState('network.connectedPeers', [
+      {
+        id: hostConn.peer,
+        slot: 1,
+        label: 'Guest',
+        conn: hostConn,
+        isOp: false,
+        preloadedQueueItemIds: new Set<QueueItemId>(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+      },
+    ]);
+  }
+
   it('ignores a positive-offset local source end and advances at canonical end', async () => {
     vi.useFakeTimers();
     activateStandardHost(2);
@@ -663,8 +684,7 @@ describe('standard host canonical file end boundary', () => {
     resume.resolve();
     await vi.waitFor(() => expect(getPlayerNode()).not.toBeNull());
 
-    // The host starts immediately. The +200ms wire rendezvous is guest-only
-    // compensation, not an extra delay on the canonical host source.
+    // A room without connected guests adds no start delay.
     expect(source.start).toHaveBeenCalledWith(0, 0);
     expect(mocks.broadcast).toHaveBeenCalledTimes(1);
     expect(mocks.broadcast).toHaveBeenCalledWith(
@@ -676,6 +696,224 @@ describe('standard host canonical file end boundary', () => {
       }),
     );
   });
+
+  it('reserves only 200ms after audio preparation and publishes the committed deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    activateStandardHost(0);
+    connectFileGuest();
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    const resume = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(resume.promise);
+    const start = startHostFileAndBroadcastPlay({
+      time: 12,
+      queueItemId: queueItemIdAt(0),
+      // Continuations must not shift the already scheduled room start.
+      onStarted: () => vi.setSystemTime(Date.now() + 75),
+      context: 'scheduled start test',
+    });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+    resume.resolve();
+    await expect(start).resolves.toBe(true);
+
+    const source = getPlayerNode() as unknown as FakeSourceNode;
+    expect(source.start).toHaveBeenCalledExactlyOnceWith(0.2, 12);
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAY, time: 12, hostStartAt: 1_800, hostPlayAt: 2_000 }),
+    );
+    expect(getTrackPosition()).toBe(12);
+    expect(isLocalFileStartPending()).toBe(true);
+    expect(getStandardHostPendingFileStartAt()).toBe(1_800);
+  });
+
+  it('cancels a pending shared host start without advancing the paused position', async () => {
+    vi.useFakeTimers();
+    activateStandardHost(0);
+    connectFileGuest();
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    await startHostFileAndBroadcastPlay({
+      time: 12,
+      queueItemId: queueItemIdAt(0),
+      context: 'cancel scheduled start test',
+    });
+    const source = getPlayerNode() as unknown as FakeSourceNode;
+
+    pause(undefined, { showToast: false });
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(source.stop).toHaveBeenCalledOnce();
+    expect(getPlayerNode()).toBeNull();
+    expect(isLocalFileStartPending()).toBe(false);
+    expect(getStandardHostPendingFileStartAt()).toBeUndefined();
+    expect(getTrackPosition()).toBe(12);
+    expect(getManagedTimer('standard-file-canonical-end')).toBeNull();
+  });
+
+  it('includes the shared start in a late-join bootstrap only while it is pending', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    activateStandardHost(0);
+    connectFileGuest();
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    initPlayback();
+    await startHostFileAndBroadcastPlay({
+      time: 12,
+      queueItemId: queueItemIdAt(0),
+      context: 'pending bootstrap test',
+    });
+    const send = vi.fn();
+    const newcomer = { ...hostConn, peer: 'newcomer', send };
+    bus.emit('network:peer-connected', newcomer);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAY, time: 12, hostStartAt: 1_200 }),
+    );
+    send.mockClear();
+    mocks.getCurrentTime.mockReturnValue(100.3);
+    await vi.advanceTimersByTimeAsync(300);
+    bus.emit('network:peer-connected', newcomer);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+    expect(send.mock.calls[0]?.[0]).not.toHaveProperty('hostStartAt');
+  });
+
+  it('gives a recovered host start a fresh 200ms rendezvous without skipping silent time', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    activateStandardHost(0);
+    connectFileGuest();
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('iOS resume blocked'));
+    let recoveryEvent: { retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+    await expect(
+      startHostFileAndBroadcastPlay({
+        time: 12,
+        queueItemId: queueItemIdAt(0),
+        context: 'recover scheduled start test',
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
+
+    const source = getPlayerNode() as unknown as FakeSourceNode;
+    expect(source.start).toHaveBeenCalledExactlyOnceWith(0.2, 12);
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAY, time: 12, hostStartAt: 3_200, hostPlayAt: 3_400 }),
+    );
+  });
+
+  it('includes the shared start lead in the canonical natural-end boundary', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    activateStandardHost(0);
+    connectFileGuest();
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 10 } as AudioBuffer);
+    setPlaybackFilePaused();
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    await startHostFileAndBroadcastPlay({
+      time: 9,
+      queueItemId: queueItemIdAt(0),
+      context: 'scheduled natural end test',
+    });
+    mocks.getCurrentTime.mockReturnValue(101);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(ended).not.toHaveBeenCalled();
+    expect(getStandardHostPendingFileStartAt()).toBeUndefined();
+    mocks.getCurrentTime.mockReturnValue(101.2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(ended).toHaveBeenCalledOnce();
+  });
+
+  it.each(['nudge', 'refresh'] as const)(
+    'preserves the published host start and end when output is rebuilt by %s during its lead',
+    async (rebuild) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      activateStandardHost(0);
+      connectFileGuest();
+      setSelectedResidentFile();
+      setCurrentAudioBuffer({ duration: 10 } as AudioBuffer);
+      setPlaybackFilePaused();
+      initPlayback();
+      const ended = vi.fn();
+      bus.on('player:ended', ended);
+      await startHostFileAndBroadcastPlay({
+        time: 9,
+        queueItemId: queueItemIdAt(0),
+        context: 'pending output rebuild test',
+      });
+      const initialSource = getPlayerNode() as unknown as FakeSourceNode;
+      if (rebuild === 'nudge') adjustSync(0.1);
+      mocks.getCurrentTime.mockReturnValue(100.06);
+      await vi.advanceTimersByTimeAsync(60);
+      if (rebuild === 'refresh') bus.emit('playback:refresh-current-position');
+      await vi.advanceTimersByTimeAsync(0);
+
+      const rebuiltSource = getPlayerNode() as unknown as FakeSourceNode;
+      expect(rebuiltSource).not.toBe(initialSource);
+      expect(initialSource.stop).toHaveBeenCalledOnce();
+      expect(rebuiltSource.start).toHaveBeenCalledWith(
+        expect.closeTo(0.14, 6),
+        expect.closeTo(rebuild === 'nudge' ? 9.1 : 9, 6),
+      );
+      expect(getStandardHostPendingFileStartAt()).toBeCloseTo(1_200, 6);
+      expect(getTrackPosition()).toBe(9);
+      expect(mocks.broadcast).toHaveBeenCalledTimes(1);
+      mocks.getCurrentTime.mockReturnValue(101);
+      await vi.advanceTimersByTimeAsync(940);
+      expect(ended).not.toHaveBeenCalled();
+      mocks.getCurrentTime.mockReturnValue(101.2);
+      await vi.advanceTimersByTimeAsync(201);
+      expect(ended).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['nudge', 'refresh'] as const)(
+    'keeps pause authoritative while a pending %s output rebuild awaits setup',
+    async (rebuild) => {
+      vi.useFakeTimers();
+      activateStandardHost(0);
+      connectFileGuest();
+      setSelectedResidentFile();
+      setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+      setPlaybackFilePaused();
+      initPlayback();
+      await startHostFileAndBroadcastPlay({
+        time: 12,
+        queueItemId: queueItemIdAt(0),
+        context: 'cancel output rebuild test',
+      });
+      const resume = deferred<void>();
+      mocks.ensureRunning.mockReturnValueOnce(resume.promise);
+      if (rebuild === 'nudge') adjustSync(0.1);
+      mocks.getCurrentTime.mockReturnValue(100.06);
+      await vi.advanceTimersByTimeAsync(60);
+      if (rebuild === 'refresh') bus.emit('playback:refresh-current-position');
+      pause(undefined, { showToast: false });
+      resume.resolve();
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(getPlayerNode()).toBeNull();
+      expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+      expect(getState('playback.activity')).toBe('paused');
+      expect(getTrackPosition()).toBe(12);
+      expect(getStandardHostPendingFileStartAt()).toBeUndefined();
+    },
+  );
 
   it('publishes a recovered host toggle exactly once and fences a superseded room', async () => {
     activateStandardHost(0);

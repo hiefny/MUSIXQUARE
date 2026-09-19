@@ -8325,7 +8325,7 @@
   }
 
   .manual-sync-overlay.demo-settings-open {
-    --sync-panel-width: min(360px, calc(100vw - 48px));
+    z-index: 3300;
   }
 
   .sync-scroll-frame {
@@ -8359,128 +8359,6 @@
 
   .sync-scroll-frame > .cscroll-track-contained {
     right: -4px;
-  }
-
-  .manual-sync-overlay.demo-settings-open .sync-glass-panel {
-    padding-top: 24px;
-  }
-
-  .demo-settings-controls:not([hidden]) {
-    display: flex;
-    align-items: center;
-    margin-bottom: 24px;
-    border-radius: var(--radius-l);
-    background: var(--surface-2);
-    color: var(--text-main);
-  }
-
-  .manual-sync-overlay.demo-settings-open .sync-manual-display {
-    margin-top: 0;
-  }
-
-  .demo-settings-transport {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  .demo-settings-transport > button {
-    position: relative;
-  }
-
-  .demo-settings-transport .demo-play-button {
-    width: 48px;
-    height: 56px;
-    background: transparent;
-    color: inherit;
-  }
-
-  .demo-settings-transport .ctrl-btn {
-    display: grid;
-    place-items: center;
-    width: 48px;
-    height: 56px;
-    padding: 0;
-    border-radius: var(--radius-l);
-    color: inherit;
-  }
-
-  .demo-settings-transport > button + button::before,
-  .demo-settings-volume::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 16px;
-    width: 1px;
-    height: 24px;
-    background: currentColor;
-    opacity: 0.2;
-  }
-
-  .demo-settings-transport .ctrl-btn > svg {
-    width: 24px;
-    height: 24px;
-  }
-
-  /* Optical optimization: balance the first icon inside the rounded pill. */
-  #btn-demo-previous > svg {
-    transform: translateX(2px);
-  }
-
-  [dir='rtl'] .demo-settings-transport > button + button::before,
-  [dir='rtl'] .demo-settings-volume::before {
-    left: auto;
-    right: 0;
-  }
-
-  [dir='rtl'] #btn-demo-previous > svg {
-    transform: translateX(-2px);
-  }
-
-  .demo-settings-transport button:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  .demo-settings-volume {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-    min-width: 0;
-    height: 56px;
-    padding-inline: 8px 12px;
-  }
-
-  @media (max-width: 360px) {
-    .demo-settings-transport .demo-play-button,
-    .demo-settings-transport .ctrl-btn {
-      width: 44px;
-    }
-  }
-
-  .demo-settings-volume > :disabled {
-    pointer-events: none;
-  }
-
-  #demo-vol-icon-btn {
-    flex-shrink: 0;
-    color: var(--text-sub);
-  }
-
-  .demo-settings-volume .volume-muted-backdrop {
-    stroke: var(--surface-2);
-  }
-
-  #demo-volume-slider {
-    --range-track-empty: var(--surface-3);
-    /* Keep the physical volume axis consistent with the main player in RTL. */
-    direction: ltr;
-    flex: 1;
-    width: 0;
-    min-width: 0;
-    margin: 0;
   }
 
   .manual-sync-overlay.show .sync-glass-panel {
@@ -8762,7 +8640,16 @@
   }
 
   .demo-track-copy {
+    grid-column: 2;
+    grid-row: 1;
     min-width: 0;
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+    transition:
+      opacity 0.3s ease,
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s;
   }
 
   .demo-track-title {
@@ -8828,6 +8715,233 @@
   .demo-play-button.is-loading .demo-loading-spinner,
   .demo-settings-button.is-loading .demo-loading-spinner {
     display: block;
+  }
+
+  .demo-controls-pill {
+    position: relative;
+    z-index: 1;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    width: 44px;
+    max-width: 100%;
+    min-width: 0;
+    height: 44px;
+    margin-block: 0;
+    border-radius: 999px;
+    background: var(--text-main);
+    color: var(--bg);
+    pointer-events: auto;
+    transition:
+      width 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      height 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      margin 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .demo-controls-pill .demo-settings-button {
+    position: relative;
+    flex: 0 0 44px;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+  }
+
+  .demo-settings-button > .demo-settings-open-icon,
+  .demo-settings-button > .demo-settings-close-icon {
+    grid-area: 1 / 1;
+    transition:
+      opacity 0.3s ease,
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .demo-settings-button > .demo-settings-close-icon {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.7);
+  }
+
+  .demo-inline-controls {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    /* Clip moving controls to the growing pill, with room for focus outlines. */
+    clip-path: inset(-4px 0 -4px -4px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-8px);
+    transition:
+      opacity 0.3s ease,
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 0.35s;
+  }
+
+  .demo-inline-transport {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    transition: none;
+  }
+
+  .demo-inline-controls .ctrl-btn,
+  .demo-inline-controls .demo-play-button {
+    display: grid;
+    place-items: center;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 44px;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    opacity: 1;
+  }
+
+  .demo-inline-controls .ctrl-btn > svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  #btn-demo-next-track > svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  #btn-demo-sync {
+    margin-inline-end: 8px;
+  }
+
+  .demo-inline-controls button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .demo-inline-controls .ctrl-btn:active {
+    opacity: 0.5;
+  }
+
+  .demo-controls-divider {
+    flex: 0 0 1px;
+    width: 1px;
+    height: 18px;
+    margin-inline: 4px;
+    background: currentColor;
+    opacity: 0.15;
+  }
+
+  .demo-inline-volume {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    gap: 1px;
+    padding-inline-end: 8px;
+    transition: none;
+  }
+
+  .demo-inline-volume > :disabled {
+    pointer-events: none;
+  }
+
+  #demo-vol-icon-btn {
+    display: grid;
+    place-items: center;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 44px;
+    border-radius: 50%;
+    color: inherit;
+  }
+
+  #demo-vol-icon-btn .volume-icon {
+    width: 19px;
+    height: 19px;
+  }
+
+  .demo-inline-volume .volume-muted-backdrop {
+    stroke: var(--text-main);
+  }
+
+  #demo-volume-slider {
+    --range-fill-idle: var(--bg);
+    --range-fill-active: var(--bg);
+    --range-track-empty: color-mix(in srgb, var(--bg) 19%, var(--text-main));
+    flex: 1;
+    width: 0;
+    min-width: 0;
+    max-width: 74px;
+    margin: 0;
+  }
+
+  .demo-controls-expanded .demo-controls-pill {
+    width: 305px;
+    height: 48px;
+    /* Grow around the opener's center without moving the title's grid row. */
+    margin-block: -2px;
+  }
+
+  .demo-controls-expanded .demo-track-copy {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(8px);
+    transition:
+      opacity 0.3s ease,
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 0.35s;
+  }
+
+  .demo-controls-expanded .demo-inline-controls {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+    transition-delay: 0.05s, 0s, 0s;
+  }
+
+  .demo-controls-expanded .demo-settings-open-icon {
+    opacity: 0;
+    transform: rotate(90deg) scale(0.7);
+  }
+
+  .demo-controls-expanded .demo-settings-button > .demo-settings-close-icon {
+    display: block;
+    opacity: 1;
+    transform: rotate(0) scale(1);
+  }
+
+  .demo-controls-expanded .demo-settings-button .demo-loading-spinner {
+    display: none;
+  }
+
+  [dir='rtl'] .demo-inline-controls {
+    clip-path: inset(-4px -4px -4px 0);
+    transform: translateX(8px);
+  }
+
+  [dir='rtl'] .demo-controls-expanded .demo-inline-controls {
+    transform: translateX(0);
+  }
+
+  [dir='rtl'] .demo-controls-expanded .demo-track-copy {
+    transform: translateX(-8px);
+  }
+
+  [dir='rtl'] .demo-controls-expanded .demo-settings-close-icon {
+    transform: scaleX(-1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .demo-track-header .demo-controls-pill,
+    .demo-track-header .demo-inline-controls,
+    .demo-track-header .demo-track-copy,
+    .demo-settings-button > .demo-settings-open-icon,
+    .demo-settings-button > .demo-settings-close-icon {
+      transition: none;
+    }
   }
 
   .demo-control-stage {

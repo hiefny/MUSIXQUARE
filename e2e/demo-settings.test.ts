@@ -12,6 +12,27 @@ async function emit(page: Page, event: string): Promise<void> {
   }, event);
 }
 
+async function expectDemoHidden(page: Page): Promise<void> {
+  await expect(page.locator('#demo-overlay')).not.toHaveClass(/active/);
+  // visibility:hidden on the overlay alone is insufficient: a descendant
+  // declaring visibility:visible can still paint over the ordinary app.
+  for (const selector of [
+    '.demo-track-copy',
+    '.demo-track-title',
+    '.demo-track-artist',
+    '.demo-controls-pill',
+    '#btn-demo-settings',
+    '#demo-inline-controls',
+    '[data-demo-play]',
+    '#btn-demo-next-track',
+    '#demo-vol-icon-btn',
+    '#demo-volume-slider',
+    '#btn-demo-sync',
+  ]) {
+    await expect(page.locator(selector)).toBeHidden();
+  }
+}
+
 async function enterDemo(page: Page, theme: 'dark' | 'light' = 'dark'): Promise<void> {
   await injectPeerServer(page);
   await page.addInitScript((value) => {
@@ -25,8 +46,12 @@ async function enterDemo(page: Page, theme: 'dark' | 'light' = 'dark'): Promise<
     }),
   );
   await setupHostAndStart(page);
+  await expectDemoHidden(page);
   await emit(page, 'demo:enter');
   await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
+  await expect(page.locator('.demo-track-title')).toBeVisible();
+  await expect(page.locator('.demo-track-artist')).toBeVisible();
+  await expect(page.locator('#demo-inline-controls')).toBeHidden();
 }
 
 async function expectExpanded(page: Page, expanded: boolean): Promise<void> {
@@ -60,6 +85,8 @@ for (const theme of ['dark', 'light'] as const) {
     await expectExpanded(page, false);
     await toggle.click();
     await expectExpanded(page, true);
+    await expect(page.locator('.demo-track-title')).toBeHidden();
+    await expect(page.locator('.demo-track-artist')).toBeHidden();
     await expect(page.locator('.demo-track-header')).toHaveClass(/demo-controls-expanded/);
     await expect(overlay).not.toHaveClass(/show/);
     await expect(controls.locator('[data-demo-play]')).toBeEnabled();
@@ -185,6 +212,9 @@ for (const theme of ['dark', 'light'] as const) {
     await expectExpanded(page, true);
     await toggle.click();
     await expectExpanded(page, false);
+    await expect(page.locator('.demo-track-title')).toBeVisible();
+    await expect(page.locator('.demo-track-artist')).toBeVisible();
+    await expect(controls).toBeHidden();
     await toggle.click();
     await expectExpanded(page, true);
     await page.keyboard.press('Escape');
@@ -219,11 +249,15 @@ for (const theme of ['dark', 'light'] as const) {
     await emit(page, 'demo:request-exit');
     await expect.poll(() => readState(page, 'demo.active')).toBe(false);
     await expectExpanded(page, false);
+    await expectDemoHidden(page);
     expect(await readState(page, 'sync.localOffset')).toBeCloseTo(-0.321, 4);
     await page.setViewportSize({ width: 390, height: 844 });
+    await expectDemoHidden(page);
     await emit(page, 'demo:enter');
     await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
     await expectExpanded(page, false);
+    await expect(page.locator('.demo-track-title')).toBeVisible();
+    await expect(page.locator('.demo-track-artist')).toBeVisible();
     await toggle.click();
     await sync.click();
     await expect(editor).toHaveText('-321');

@@ -115,18 +115,20 @@ html[dir='rtl'] #btn-setup-back svg {
   transform: scaleX(-1);
 }
 
-html[dir='rtl'] :where(.play-btn-group, .vol-group-playback) {
+html[dir='rtl'] :where(.play-btn-group) {
   direction: ltr;
   unicode-bidi: isolate;
 }
 
-/* The volume group is isolated LTR so its icon and low-to-high slider stay
- * physical. That also makes margin-inline-start resolve to the physical left,
- * moving its flexible spacer outside the transport row. Put the auto margin
- * back on the physical right so volume and playback controls remain apart. */
-html[dir='rtl'] .vol-group-playback {
-  margin-inline-start: 0;
-  margin-inline-end: auto;
+/* Point the speaker toward its mirrored volume rail in both player surfaces. */
+html[dir='rtl'] .volume-icon-button .volume-icon {
+  transform: scaleX(-1);
+}
+
+/* Move the mute badge with the speaker, but retain its familiar slash direction. */
+html[dir='rtl'] .volume-icon-button .volume-muted-slash {
+  transform: scaleX(-1);
+  transform-origin: 17px 12px;
 }
 
 /* Keep LTR language names and subtitles on the same physical right edge as
@@ -135,15 +137,15 @@ html[dir='rtl'] .language-option-label {
   text-align: right;
 }
 
-/* Media time, playback volume, and EQ are physical audio axes. Keep those
- * low-to-high from left to right (Spotify-style), including pointer, paint,
- * and native keyboard behavior. */
+/* Media time and EQ retain their physical left-to-right axes. */
 html[dir='rtl'] #seek-slider {
   direction: ltr;
 }
 
-/* Ordinary setting sliders follow the RTL reading edge. range-drag.ts reads
+/* Volume and ordinary setting sliders follow the RTL reading edge. range-drag.ts reads
  * their computed direction so pointer math agrees with native keyboard input. */
+html[dir='rtl'] #volume-slider,
+html[dir='rtl'] #demo-volume-slider,
 html[dir='rtl'] #settings-subtab-panel-audio input[type='range']:not(.eq-slider) {
   --range-track-direction: to left;
 }

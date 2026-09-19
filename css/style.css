@@ -8484,8 +8484,6 @@
 
   #demo-volume-slider {
     --range-track-empty: var(--surface-3);
-    /* Keep the physical volume axis consistent with the main player in RTL. */
-    direction: ltr;
     flex: 1;
     width: 0;
     min-width: 0;

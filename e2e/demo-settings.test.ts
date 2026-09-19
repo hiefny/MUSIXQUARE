@@ -113,12 +113,29 @@ for (const theme of ['dark', 'light'] as const) {
       .toBe(true);
     await page.screenshot({ path: testInfo.outputPath('demo-settings-portrait.png') });
     await page.locator('html').evaluate((element) => element.setAttribute('dir', 'rtl'));
-    await expect(slider).toHaveCSS('direction', 'ltr');
+    await expect(slider).toHaveCSS('direction', 'rtl');
+    await expect(slider).toHaveCSS('--range-track-direction', 'to left');
+    await expect(mute.locator('.volume-icon')).toHaveCSS('transform', 'matrix(-1, 0, 0, 1, 0, 0)');
+    await expect(mainMute.locator('.volume-icon')).toHaveCSS(
+      'transform',
+      'matrix(-1, 0, 0, 1, 0, 0)',
+    );
     await slider.focus();
-    await slider.press('ArrowRight');
+    await slider.press('ArrowLeft');
     await expect.poll(() => readState(page, 'audio.masterVolume')).toBe(0.02);
+    await expect(mainSlider).toHaveValue('2');
+    await mute.click();
+    await expect(mainMute).toHaveAttribute('aria-pressed', 'true');
+    await expect(mute.locator('.volume-muted-mark')).toHaveCSS('opacity', '1');
+    await expect(mute.locator('.volume-wave-inner')).toHaveCSS('opacity', '0');
+    await page.screenshot({ path: testInfo.outputPath('demo-settings-rtl-muted.png') });
+    await mute.click();
+    await expect.poll(() => readState(page, 'audio.masterVolume')).toBe(0.02);
+    await expect(mute.locator('.volume-wave-inner')).toHaveCSS('opacity', '1');
     await page.screenshot({ path: testInfo.outputPath('demo-settings-rtl.png') });
     await page.locator('html').evaluate((element) => element.setAttribute('dir', 'ltr'));
+    await expect(slider).toHaveCSS('direction', 'ltr');
+    await expect(mute.locator('.volume-icon')).toHaveCSS('transform', 'none');
 
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
     await page.setViewportSize({ width: 320, height: 568 });

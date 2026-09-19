@@ -8369,6 +8369,7 @@
     display: flex;
     align-items: center;
     margin-bottom: 24px;
+    padding-inline-start: 4px;
     border-radius: var(--radius-l);
     background: var(--surface-2);
     color: var(--text-main);
@@ -8450,13 +8451,21 @@
     flex: 1;
     min-width: 0;
     height: 56px;
-    padding-inline: 8px 12px;
+    padding-inline: 8px 20px;
   }
 
   @media (max-width: 360px) {
+    .demo-settings-controls:not([hidden]) {
+      padding-inline-start: 2px;
+    }
+
     .demo-settings-transport .demo-play-button,
     .demo-settings-transport .ctrl-btn {
       width: 44px;
+    }
+
+    .demo-settings-volume {
+      padding-inline-end: 14px;
     }
   }
 

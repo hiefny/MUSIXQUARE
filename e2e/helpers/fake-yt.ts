@@ -24,6 +24,11 @@
 import type { Page } from '@playwright/test';
 
 export interface FakeYtOptions {
+  /** Hold the API/player readiness boundaries for setup gesture regressions. */
+  manualApiReady?: boolean;
+  manualPlayerReady?: boolean;
+  /** Record the trusted click listener executing when a player method runs. */
+  trackClickHandler?: boolean;
   /** Keep false by default so legacy rendezvous E2E retains its old timing. */
   autoPlayOnLoad?: boolean;
   /** Advance getCurrentTime from Date.now while PLAYING. */
@@ -49,6 +54,7 @@ export interface FakeYtLogEntry {
   muted?: boolean;
   volume?: number;
   videoId?: string;
+  clickHandlerId?: string;
 }
 
 export interface FakeYtSnapshot {
@@ -84,6 +90,9 @@ const FAKE_YT_INIT = `
   window.__fakeYtInstanceId = 0;
 
   var config = window.__fakeYtConfig = Object.assign({
+    manualApiReady: false,
+    manualPlayerReady: false,
+    trackClickHandler: false,
     autoPlayOnLoad: false,
     advanceClock: false,
     emitBuffering: false,
@@ -96,6 +105,11 @@ const FAKE_YT_INIT = `
     unmuteDelayMs: 0,
     loadedFraction: 1
   }, window.__fakeYtConfig || {});
+
+  var currentClick = null;
+  if (config.trackClickHandler) {
+    window.addEventListener('click', function(event) { currentClick = event; }, true);
+  }
 
   function finiteDelay(value) {
     return Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -113,7 +127,7 @@ const FAKE_YT_INIT = `
 
   function pushLog(op, args, player) {
     if (player) syncClock(player);
-    window.__fakeYtLog.push({
+    var entry = {
       op: op,
       args: args,
       at: Date.now(),
@@ -122,7 +136,13 @@ const FAKE_YT_INIT = `
       muted: player ? player.__muted : undefined,
       volume: player ? player.__volume : undefined,
       videoId: player ? player.__videoId : undefined
-    });
+    };
+    // currentTarget is null after dispatch, even while transient user
+    // activation remains true. This proves a real click listener's stack.
+    if (config.trackClickHandler && currentClick && currentClick.isTrusted) {
+      entry.clickHandlerId = currentClick.currentTarget && currentClick.currentTarget.id || '';
+    }
+    window.__fakeYtLog.push(entry);
   }
 
   function emitStateChange(player, state) {
@@ -329,7 +349,10 @@ const FAKE_YT_INIT = `
     window.__fakeYtLastPlayer = self;
 
     // Fire onReady after a short delay to match real IFrame lazy init
-    setTimeout(function() {
+    var readyFired = false;
+    self.__fireReady = function() {
+      if (readyFired) return;
+      readyFired = true;
       if (self.__destroyed) return;
       var readyGeneration = self.__transitionGeneration;
       applyState(self, 5, false);
@@ -338,30 +361,36 @@ const FAKE_YT_INIT = `
       }
       // Do not emit a stale CUED event if onReady synchronously loaded a track.
       if (self.__transitionGeneration === readyGeneration) emitStateChange(self, 5);
-    }, finiteDelay(config.readyDelayMs));
+    };
+    if (!config.manualPlayerReady) {
+      setTimeout(self.__fireReady, finiteDelay(config.readyDelayMs));
+    }
   }
 
-  window.YT = {
-    Player: FakePlayer,
-    PlayerState: {
-      UNSTARTED: -1,
-      ENDED: 0,
-      PLAYING: 1,
-      PAUSED: 2,
-      BUFFERING: 3,
-      CUED: 5,
-    },
-    ready: function(fn) { if (typeof fn === 'function') fn(); },
+  window.__fakeYtReleaseApi = function() {
+    window.YT = {
+      Player: FakePlayer,
+      PlayerState: {
+        UNSTARTED: -1,
+        ENDED: 0,
+        PLAYING: 1,
+        PAUSED: 2,
+        BUFFERING: 3,
+        CUED: 5,
+      },
+      ready: function(fn) { if (typeof fn === 'function') fn(); },
+    };
+
+    // Also mark the API as ready so the iframe loader's "already loaded" branch
+    // succeeds without waiting for onYouTubeIframeAPIReady.
+    window.isYouTubeAPIReady = true;
+
+    // If the app already set onYouTubeIframeAPIReady callback, call it now.
+    if (typeof window.onYouTubeIframeAPIReady === 'function') {
+      try { window.onYouTubeIframeAPIReady(); } catch (e) { /* noop */ }
+    }
   };
-
-  // Also mark the API as ready so the iframe loader's "already loaded" branch
-  // succeeds without waiting for onYouTubeIframeAPIReady.
-  window.isYouTubeAPIReady = true;
-
-  // If the app already set onYouTubeIframeAPIReady callback, call it now.
-  if (typeof window.onYouTubeIframeAPIReady === 'function') {
-    try { window.onYouTubeIframeAPIReady(); } catch (e) { /* noop */ }
-  }
+  if (!config.manualApiReady) window.__fakeYtReleaseApi();
 })();
 `;
 
@@ -375,7 +404,28 @@ export async function installFakeYt(page: Page, options: FakeYtOptions = {}): Pr
   await page.addInitScript({ content: initConfig + FAKE_YT_INIT });
   // Route interception is a safety net for any loader path that bypasses the
   // preinstalled stub.
-  await page.route(/youtube\.com\/iframe_api/, (route) => route.abort());
+  await page.route(/youtube\.com\/iframe_api/, (route) =>
+    options.manualApiReady
+      ? route.fulfill({ contentType: 'application/javascript', body: '' })
+      : route.abort(),
+  );
+}
+
+/** Release an explicitly held API/player boundary without a synthetic click. */
+export async function releaseFakeYtReadiness(
+  page: Page,
+  boundary: 'api' | 'player',
+): Promise<void> {
+  await page.evaluate((nextBoundary) => {
+    const fixture = window as unknown as {
+      __fakeYtReleaseApi?: () => void;
+      __fakeYtLastPlayer?: { __fireReady?: () => void };
+    };
+    const release =
+      nextBoundary === 'api' ? fixture.__fakeYtReleaseApi : fixture.__fakeYtLastPlayer?.__fireReady;
+    if (!release) throw new Error(`Fake YouTube ${nextBoundary} readiness is unavailable`);
+    release();
+  }, boundary);
 }
 
 /**

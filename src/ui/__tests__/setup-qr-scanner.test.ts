@@ -181,6 +181,82 @@ afterEach(() => {
 });
 
 describe('guest setup QR scanner', () => {
+  it('runs the start hook synchronously before requesting the camera on each scan tap', async () => {
+    const camera = fakeCamera();
+    const order: string[] = [];
+    let inClick = false;
+    const onStartFromGesture = vi.fn(() => {
+      expect(inClick).toBe(true);
+      order.push('gesture');
+    });
+    getUserMedia.mockImplementation(() => {
+      order.push('camera');
+      return Promise.resolve(camera.stream);
+    });
+    initGuestQrScanner({
+      isCurrent: () => true,
+      onStartFromGesture,
+      onCode: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    inClick = true;
+    document.getElementById('btn-setup-qr-scan')?.click();
+    inClick = false;
+    expect(order).toEqual(['gesture', 'camera']);
+    await runLayoutFrame();
+    document.getElementById('setup-qr-video')?.dispatchEvent(new Event('loadeddata'));
+    await flushScannerStart();
+    document.getElementById('btn-setup-qr-close')?.click();
+
+    inClick = true;
+    document.getElementById('btn-setup-qr-scan')?.click();
+    inClick = false;
+    expect(order).toEqual(['gesture', 'camera', 'gesture', 'camera']);
+    expect(onStartFromGesture).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['disabled', 'stale'] as const)(
+    'does not run the start hook for a %s scan attempt',
+    (reason) => {
+      const onStartFromGesture = vi.fn();
+      initGuestQrScanner({
+        isCurrent: () => reason !== 'stale',
+        onStartFromGesture,
+        onCode: vi.fn(),
+        onError: vi.fn(),
+      });
+      const button = document.getElementById('btn-setup-qr-scan') as HTMLButtonElement;
+      button.disabled = reason === 'disabled';
+
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(onStartFromGesture).not.toHaveBeenCalled();
+      expect(getUserMedia).not.toHaveBeenCalled();
+    },
+  );
+
+  it('continues camera acquisition when optional media priming throws', async () => {
+    const camera = fakeCamera();
+    const error = new Error('media priming failed');
+    initGuestQrScanner({
+      isCurrent: () => true,
+      onStartFromGesture: () => {
+        throw error;
+      },
+      onCode: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    await openScannerWithReadyCamera(camera);
+
+    expect(mocks.warn).toHaveBeenCalledWith('[Setup QR] Gesture start hook failed', error);
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect((document.getElementById('setup-qr-video') as HTMLVideoElement).srcObject).toBe(
+      camera.stream,
+    );
+  });
+
   it('stops every camera track and clears the video when the scanner is cancelled', async () => {
     const camera = fakeCamera();
     const onCode = vi.fn();
@@ -241,12 +317,14 @@ describe('guest setup QR scanner', () => {
       .mockRejectedValueOnce(cameraError('AbortError'))
       .mockResolvedValueOnce(camera.stream);
     const onError = vi.fn();
-    initGuestQrScanner({ isCurrent: () => true, onCode: vi.fn(), onError });
+    const onStartFromGesture = vi.fn();
+    initGuestQrScanner({ isCurrent: () => true, onStartFromGesture, onCode: vi.fn(), onError });
 
     document.getElementById('btn-setup-qr-scan')?.click();
     await runLayoutFrame();
 
     expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(onStartFromGesture).toHaveBeenCalledOnce();
     expect(getUserMedia.mock.calls[0]?.[0]).toMatchObject({
       video: { width: { ideal: 1280 }, height: { ideal: 1280 } },
     });
@@ -326,7 +404,8 @@ describe('guest setup QR scanner', () => {
       .mockReturnValueOnce({ data: 'https://musixquare.com/123456/extra' })
       .mockReturnValueOnce({ data: 'MUSIXQUARE.COM/654321' });
     const onCode = vi.fn();
-    initGuestQrScanner({ isCurrent: () => true, onCode, onError: vi.fn() });
+    const onStartFromGesture = vi.fn();
+    initGuestQrScanner({ isCurrent: () => true, onStartFromGesture, onCode, onError: vi.fn() });
 
     await openScannerWithReadyCamera(camera);
     await waitForScannerFrame();
@@ -337,6 +416,7 @@ describe('guest setup QR scanner', () => {
 
     expect(onCode).toHaveBeenCalledOnce();
     expect(onCode).toHaveBeenCalledWith('654321');
+    expect(onStartFromGesture).toHaveBeenCalledOnce();
     expect(frameCallbacks).toHaveLength(0);
   });
 

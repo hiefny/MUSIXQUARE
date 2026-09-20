@@ -214,7 +214,9 @@ function startSessionFromHost(mode: number = DEFAULT_SETUP_ROLE): void {
   const appRole = getState('network.appRole');
   if (appRole !== 'host' || getState('setup.sessionStarted')) return;
 
-  prepareSetupStartFromGesture();
+  prepareSetupStartFromGesture()?.catch((error: unknown) => {
+    log.warn('[Setup] Host media activation failed', error);
+  });
 
   try {
     selectStandardChannelButton(mode);

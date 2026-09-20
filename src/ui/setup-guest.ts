@@ -35,12 +35,14 @@ import {
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
   setupRenderActions,
+  getSetupOverlayAbort,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
 import { showDialog } from './dialog.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
+import { gateSetupYouTubeGesture } from './setup-youtube-gate.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
 import { enterProRoomFromSetup } from '../pro-room/setup-flow.ts';
 import { initGuestQrScanner, stopGuestQrScanner } from './setup-qr-scanner.ts';
@@ -53,6 +55,44 @@ let _goBack: () => void = () => {};
 let _pendingPasswordJoin: { code: string; mode: number; inviteLink: boolean } | null = null;
 let _roomPasswordPromptOpen = false;
 const DEFAULT_SETUP_ROLE = 0;
+let _youtubeGate: ReturnType<typeof gateSetupYouTubeGesture> | null = null;
+let _scannerActivation: Promise<boolean> | null = null;
+let _joinPreparationGeneration = 0;
+let _waitingForActivation = false;
+
+function cancelGuestPreparation(): void {
+  _youtubeGate?.cancel();
+  _youtubeGate = null;
+  _scannerActivation = null;
+  _joinPreparationGeneration++;
+  _waitingForActivation = false;
+}
+
+function prepareGuestStartControls(): void {
+  _youtubeGate?.cancel();
+  precreateYouTubePlayer();
+  _youtubeGate = gateSetupYouTubeGesture({
+    startButton: setupEl('btn-setup-confirm') as HTMLButtonElement | null,
+    scanButton: setupEl('btn-setup-qr-scan') as HTMLButtonElement | null,
+    waitingLabel: t('common.wait'),
+    signal: getSetupOverlayAbort()?.signal,
+  });
+}
+
+function goBackFromGuest(): void {
+  cancelGuestPreparation();
+  _goBack();
+}
+
+async function finishGuestActivation(activation: Promise<boolean>): Promise<boolean> {
+  const generation = ++_joinPreparationGeneration;
+  const signal = getSetupOverlayAbort()?.signal;
+  _waitingForActivation = true;
+  await activation;
+  if (generation !== _joinPreparationGeneration) return false;
+  _waitingForActivation = false;
+  return !signal?.aborted && !getState('setup.sessionStarted') && isStandardRoomRole('guest');
+}
 
 function observeGuestJoin(operation: Promise<void>): void {
   operation.catch((error) => {
@@ -72,6 +112,7 @@ export function setGuestGoBack(fn: () => void): void {
 setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
 export function startGuestFlow(): void {
+  cancelGuestPreparation();
   stopGuestQrScanner();
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
@@ -148,6 +189,7 @@ export function startGuestFlow(): void {
  *  The back icon does a hard navigation to '/' so a user who landed here via /CODE
  *  can start fresh if the host is gone or they want to leave the invite flow. */
 function _renderInviteLinkActions(retry = false, reloadRequired = false): void {
+  _youtubeGate?.cancel();
   setupRenderActions(
     [
       {
@@ -156,6 +198,7 @@ function _renderInviteLinkActions(retry = false, reloadRequired = false): void {
         ariaLabel: t('dialog.go_back'),
         kind: 'icon-only',
         onClick: () => {
+          cancelGuestPreparation();
           scheduleSessionReset(t('dialog.leaving_session'), () => {
             window.location.href = '/';
           });
@@ -172,10 +215,12 @@ function _renderInviteLinkActions(retry = false, reloadRequired = false): void {
     ],
     'horizontal-with-back',
   );
+  if (!reloadRequired) prepareGuestStartControls();
 }
 
 /** Join directly using the invite code from URL (skip code input step) */
 async function _handleInviteLinkJoin(mode: number): Promise<void> {
+  if (_youtubeGate?.pending || _waitingForActivation || getState('network.isConnecting')) return;
   setupSetGuestJoinError(null);
   const autoCode = getPendingAutoJoinCode();
   if (!autoCode || !/^\d{6}$/.test(autoCode)) {
@@ -184,7 +229,7 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
     return;
   }
 
-  prepareSetupStartFromGesture();
+  const activation = prepareSetupStartFromGesture();
 
   setPendingGuestRoleMode(mode);
   setState('network.lastJoinCode', autoCode);
@@ -221,6 +266,7 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
   );
 
   _pendingPasswordJoin = { code: autoCode, mode, inviteLink: true };
+  if (activation && !(await finishGuestActivation(activation))) return;
   if (isProRoomCode(autoCode)) {
     await _handleProRoomJoin(autoCode);
     return;
@@ -291,7 +337,7 @@ function proceedToGuestCode(mode: number): void {
         html: BACK_SVG,
         ariaLabel: t('dialog.go_back'),
         kind: 'icon-only',
-        onClick: () => _goBack(),
+        onClick: goBackFromGuest,
       },
       {
         id: 'btn-setup-confirm',
@@ -311,6 +357,9 @@ function proceedToGuestCode(mode: number): void {
       !getState('network.isConnecting') &&
       !input?.disabled &&
       setupEl('setup-join-area')?.style.display !== 'none',
+    onStartFromGesture: () => {
+      _scannerActivation = prepareSetupStartFromGesture();
+    },
     onCode: (code) => {
       if (!input) return;
       setupSetGuestJoinError(null);
@@ -342,12 +391,14 @@ function proceedToGuestCode(mode: number): void {
     }
     input.focus();
   }
+  prepareGuestStartControls();
 }
 
 export async function handleSetupJoinWithRole(
   mode: number | null,
   preserveQrScannerSuccess = false,
 ): Promise<void> {
+  if (_youtubeGate?.pending || _waitingForActivation || getState('network.isConnecting')) return;
   setupSetGuestJoinError(null);
   if (mode === null || mode === undefined) {
     showToast(t('setup.select_role_alt'));
@@ -368,7 +419,9 @@ export async function handleSetupJoinWithRole(
   }
 
   if (!preserveQrScannerSuccess) stopGuestQrScanner();
-  prepareSetupStartFromGesture();
+  // QR recognition is asynchronous. Its real scan-button tap already activated
+  // media; pretending the recognition callback is another gesture loses iOS audio.
+  const activation = preserveQrScannerSuccess ? _scannerActivation : prepareSetupStartFromGesture();
 
   setState('network.lastJoinCode', code);
   updateInviteCodeUI();
@@ -404,6 +457,7 @@ export async function handleSetupJoinWithRole(
   );
 
   _pendingPasswordJoin = { code, mode, inviteLink: false };
+  if (activation && !(await finishGuestActivation(activation))) return;
   if (isProRoomCode(code)) {
     await _handleProRoomJoin(code);
     return;
@@ -417,6 +471,7 @@ function startSetupJoinWithRole(mode: number | null, preserveQrScannerSuccess = 
 }
 
 function restoreJoinControlsAfterPasswordCancel(): void {
+  cancelGuestPreparation();
   setupSetGuestJoinBusy(false);
   setupSetGuestJoinError(null);
 
@@ -432,7 +487,7 @@ function restoreJoinControlsAfterPasswordCancel(): void {
         html: BACK_SVG,
         ariaLabel: t('dialog.go_back'),
         kind: 'icon-only',
-        onClick: () => _goBack(),
+        onClick: goBackFromGuest,
       },
       {
         id: 'btn-setup-confirm',
@@ -450,12 +505,14 @@ function restoreJoinControlsAfterPasswordCancel(): void {
     if (_pendingPasswordJoin?.code) input.value = _pendingPasswordJoin.code;
     input.focus();
   }
+  prepareGuestStartControls();
 }
 
 export function restoreGuestJoinControlsAfterFailure(
   message: string | null,
   reloadRequired = false,
 ): void {
+  cancelGuestPreparation();
   setupSetGuestJoinBusy(false);
   const inviteLink = _pendingPasswordJoin?.inviteLink ?? !!getPendingAutoJoinCode();
   setupSetGuestJoinError(message, inviteLink);
@@ -473,7 +530,7 @@ export function restoreGuestJoinControlsAfterFailure(
         html: BACK_SVG,
         ariaLabel: t('dialog.go_back'),
         kind: 'icon-only',
-        onClick: () => _goBack(),
+        onClick: goBackFromGuest,
       },
       {
         id: 'btn-setup-confirm',
@@ -493,6 +550,7 @@ export function restoreGuestJoinControlsAfterFailure(
     if (_pendingPasswordJoin?.code) input.value = _pendingPasswordJoin.code;
     input.focus();
   }
+  if (!reloadRequired) prepareGuestStartControls();
 }
 
 function renderPasswordRetryBusy(inviteLink: boolean): void {
@@ -536,6 +594,7 @@ export async function promptForRoomPassword(
         ? 'dialog.room_password_timeout_msg'
         : 'dialog.room_password_msg';
 
+  let activation: Promise<boolean> | null = null;
   const result = await showDialog({
     title: t('dialog.room_password_title'),
     message: t(messageKey),
@@ -553,6 +612,9 @@ export async function promptForRoomPassword(
     buttonText: t('common.ok'),
     secondaryText: t('common.cancel'),
     defaultFocus: 'primary',
+    onPrimaryActivation: () => {
+      activation = prepareSetupStartFromGesture();
+    },
   });
 
   _roomPasswordPromptOpen = false;
@@ -572,10 +634,12 @@ export async function promptForRoomPassword(
   setState('network.lastJoinCode', pending.code);
   updateInviteCodeUI();
   renderPasswordRetryBusy(pending.inviteLink);
+  if (activation && !(await finishGuestActivation(activation))) return;
   joinSession(pending.code, password);
 }
 
 export function clearPendingRoomPasswordJoin(): void {
+  cancelGuestPreparation();
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
   setupSetGuestJoinError(null);

@@ -50,7 +50,11 @@ vi.mock('../settings.ts', () => ({
   selectStandardChannelButton: vi.fn(),
 }));
 vi.mock('../setup-host.ts', () => ({ startHostFlow: vi.fn(), setHostGoBack: vi.fn() }));
-vi.mock('../../youtube/player.ts', () => ({ precreateYouTubePlayer: vi.fn() }));
+vi.mock('../../youtube/player.ts', () => ({
+  precreateYouTubePlayer: vi.fn(),
+  isYouTubePrimeReadyForGesture: () => true,
+  waitForYouTubePrimeReady: vi.fn(),
+}));
 vi.mock('../../pro-room/setup-flow.ts', () => ({ enterProRoomFromSetup: vi.fn() }));
 vi.mock('../setup-start.ts', () => ({ prepareSetupStartFromGesture: vi.fn() }));
 vi.mock('../setup-qr-scanner.ts', () => ({

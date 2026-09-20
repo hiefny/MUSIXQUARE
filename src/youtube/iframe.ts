@@ -1284,6 +1284,50 @@ export function precreateYouTubePlayer(): void {
   );
 }
 
+/** Whether setup can offer a gesture to an already prepared iOS prime player. */
+export function isYouTubePrimeReadyForGesture(): boolean {
+  return (
+    !IS_IOS ||
+    YOUTUBE_PRIME_MODE !== 'B' ||
+    !YOUTUBE_PRIME_VIDEO_ID ||
+    isYtPrimed() ||
+    isYtPrimeReady() ||
+    isYtPrimeBouncePending()
+  );
+}
+
+/**
+ * Observe eager preparation before offering the final setup gesture. This wait
+ * never starts playback or creates a player. Timeout resolves without claiming
+ * readiness so failed API loads retain the ordinary tap-to-play fallback; an
+ * aborted setup rejects and promptly releases its timer and abort listener.
+ */
+export function waitForYouTubePrimeReady(signal?: AbortSignal, timeoutMs = 5000): Promise<void> {
+  const abortReason = (): unknown => signal?.reason ?? new DOMException('Aborted', 'AbortError');
+  if (signal?.aborted) return Promise.reject(abortReason());
+  if (isYouTubePrimeReadyForGesture()) return Promise.resolve();
+  const duration = Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : 5000;
+  const deadline = performance.now() + duration;
+  return new Promise((resolve, reject) => {
+    let timer: number | undefined;
+    const finish = (aborted = false): void => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      if (aborted) reject(abortReason());
+      else resolve();
+    };
+    const onAbort = (): void => finish(true);
+    const poll = (): void => {
+      if (signal?.aborted) return finish(true);
+      const remaining = deadline - performance.now();
+      if (isYouTubePrimeReadyForGesture() || remaining <= 0) return finish();
+      timer = window.setTimeout(poll, Math.min(25, remaining));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    poll();
+  });
+}
+
 /**
  * Phase 2 — gesture-bound bounce (synchronous).
  *

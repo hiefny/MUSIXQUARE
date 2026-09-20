@@ -275,6 +275,24 @@ export function setEQ(idx: number, val: number): void {
   bus.emit('ui:sync-eq-band', bandIdx, clamped);
 }
 
+/** Apply a complete user-selected preset as one state change and one publish. */
+export function setEQPreset(bands: readonly number[]): boolean {
+  if (bands.length !== 5 || bands.some((value) => !Number.isFinite(value))) return false;
+  if (!canAdjustLocalRoomEffects()) {
+    rejectSynchronizedRoomEffectsControl();
+    return false;
+  }
+  const values = bands.map((value) => Math.max(-12, Math.min(12, value)));
+  setState('audio.eqValues', values);
+  const eqNodes = getEqNodes();
+  values.forEach((value, band) => {
+    if (eqNodes?.[band]) rampParam(eqNodes[band].gain, value, RAMP_TIME);
+    bus.emit('ui:sync-eq-band', band, value);
+  });
+  _broadcastOrRequestSetting('eq', 0);
+  return true;
+}
+
 export function resetEQ(): void {
   const eqNodes = getEqNodes();
   const count = eqNodes?.length ? eqNodes.length : 5;

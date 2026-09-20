@@ -5,7 +5,7 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { t } from '../../i18n/index.ts';
-import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
+import { handleData, registerHandler, resetInboundRateLimit } from '../../network/protocol.ts';
 import type { ConnectedPeer, DataConnection, RoomSettingsSyncState } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
 import {
@@ -13,6 +13,7 @@ import {
   initEffectsHandlers,
   publishLocalSettingsAuthorityForTests as publishLocalSettingsAuthority,
   resetSettingsSyncAuthorityForTests,
+  setEQPreset,
   setSettingsSyncEnabled,
 } from '../effects.ts';
 
@@ -101,6 +102,164 @@ beforeEach(() => {
 afterEach(() => {
   clearAllManagedTimers();
   vi.useRealTimers();
+});
+
+describe('EQ preset synchronization through the inbound protocol budget', () => {
+  const warm = [5, 3, 0, -2, -3];
+  const bright = [0, -2, 0, 4, 6];
+
+  it.each([true, false])(
+    'delivers complete presets with bootstrap and concurrent controls (atomic receiver=%s)',
+    async (atomicReceiver) => {
+      const recipient = connection('recipient');
+      configureRoom();
+      setState('network.connectedPeers', [connectedPeer(recipient.conn)]);
+      bus.emit('effects:resync-peer', recipient.conn);
+      const bootstrap = recipient.send.mock.calls.map(([frame]) => frame);
+      expect(bootstrap.filter((frame) => frame.type === MSG.EQ_UPDATE)).toHaveLength(5);
+      recipient.send.mockClear();
+
+      const batches = [warm, bright].map((bands) => {
+        expect(setEQPreset(bands)).toBe(true);
+        const frames = recipient.send.mock.calls.map(([frame]) => frame);
+        recipient.send.mockClear();
+        expect(frames.filter((frame) => frame.type === MSG.SETTINGS_SYNC_SNAPSHOT)).toHaveLength(1);
+        return frames;
+      });
+
+      // Switch to a fresh follower, preserving actual coordinator emission
+      // order. Fake time stays fixed: neither bootstrap nor competing control
+      // traffic gets a token refill or a rate-limit exemption.
+      resetState();
+      resetSettingsSyncAuthorityForTests();
+      const host = connection('budget-host');
+      configureRoom(host.conn);
+      const shuffle = vi.fn();
+      registerHandler(MSG.SHUFFLE_MODE, shuffle);
+      const deliver = async (frames: Record<string, unknown>[]) => {
+        for (const frame of frames) {
+          if (!atomicReceiver && frame.type === MSG.SETTINGS_SYNC_SNAPSHOT) continue;
+          await handleData(frame, host.conn);
+        }
+      };
+      await deliver(bootstrap);
+      for (const [index, frames] of batches.entries()) {
+        for (let control = 0; control < 5; control++) {
+          await handleData({ type: MSG.SHUFFLE_MODE, value: control % 2 === 0 }, host.conn);
+        }
+        await deliver(frames);
+        expect(getState('audio.eqValues')).toEqual(index % 2 === 0 ? warm : bright);
+      }
+      await handleData({ type: MSG.SHUFFLE_MODE, value: false }, host.conn);
+      expect(shuffle).toHaveBeenCalledTimes(11);
+    },
+  );
+
+  it('publishes one complete administrator preset, with no intermediate band states', () => {
+    const host = connection('administrator-host');
+    configureRoom(host.conn, true);
+    const changes = vi.fn();
+    bus.on('state:audio.eqValues', changes);
+
+    expect(setEQPreset(warm)).toBe(true);
+    expect(changes).toHaveBeenCalledExactlyOnceWith(warm, 'audio.eqValues');
+    expect(host.send).toHaveBeenCalledExactlyOnceWith({
+      type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      settings: settings(),
+    });
+    expect(getState('audio.eqValues')).toEqual(warm);
+  });
+
+  it('sends every legacy field to late joins, replacement channels and explicit resyncs', () => {
+    const established = connection('established');
+    configureRoom();
+    setState('network.connectedPeers', [connectedPeer(established.conn)]);
+    bus.emit('effects:resync-peer', established.conn);
+    setEQPreset(warm);
+    established.send.mockClear();
+
+    const late = connection('late');
+    setState('network.connectedPeers', [connectedPeer(established.conn), connectedPeer(late.conn)]);
+    setEQPreset(bright);
+    const lateFrames = late.send.mock.calls.map(([frame]) => frame);
+    expect(lateFrames.filter((frame) => frame.type !== MSG.SETTINGS_SYNC_SNAPSHOT)).toHaveLength(
+      14,
+    );
+    expect(lateFrames).toContainEqual({ type: MSG.EQ_UPDATE, band: 4, value: 6, _bootstrap: true });
+    expect(established.send).toHaveBeenCalledTimes(15);
+
+    // Same peer ID, different channel: no old delivery baseline may carry over.
+    const replacement = connection('late');
+    setState('network.connectedPeers', [connectedPeer(replacement.conn)]);
+    setEQPreset(warm);
+    expect(replacement.send).toHaveBeenCalledTimes(15);
+    replacement.send.mockClear();
+    bus.emit('effects:resync-peer', replacement.conn);
+    expect(replacement.send).toHaveBeenCalledTimes(15);
+    replacement.send.mockClear();
+    setState('room.context', { ...getState('room.context'), epoch: 4 });
+    setEQPreset(bright);
+    expect(replacement.send).toHaveBeenCalledTimes(15);
+  });
+
+  it('repairs a failed legacy band on the next unrelated edit', () => {
+    const follower = connection('legacy-send-failure');
+    configureRoom();
+    setState('network.connectedPeers', [connectedPeer(follower.conn)]);
+    bus.emit('effects:resync-peer', follower.conn);
+    follower.send.mockClear();
+    let rejectFinalBand = true;
+    follower.send.mockImplementation((frame: Record<string, unknown>) => {
+      if (rejectFinalBand && frame.type === MSG.EQ_UPDATE && frame.band === 4) {
+        rejectFinalBand = false;
+        throw new DOMException('RTCDataChannel send buffer full', 'OperationError');
+      }
+    });
+    setEQPreset(warm);
+    follower.send.mockClear();
+    setState('audio.masterVolume', 0.4);
+    expect(publishLocalSettingsAuthority()).toBe(true);
+    const repaired = follower.send.mock.calls.map(([frame]) => frame);
+    expect(repaired).toHaveLength(15);
+    expect(repaired).toContainEqual({ type: MSG.EQ_UPDATE, band: 4, value: -3, _bootstrap: true });
+    expect(repaired).toContainEqual({ type: MSG.VOLUME, value: 0.4, _bootstrap: true });
+  });
+
+  it('rejects unauthorized or malformed presets before any partial mutation', () => {
+    const host = connection('member-host');
+    configureRoom(host.conn);
+    const changes = vi.fn();
+    bus.on('state:audio.eqValues', changes);
+
+    expect(setEQPreset(warm)).toBe(false);
+    setSettingsSyncEnabled(false);
+    expect(setEQPreset([1, 2, 3, 4, Number.NaN])).toBe(false);
+    expect(setEQPreset([1, 2, 3, 4])).toBe(false);
+    expect(changes).not.toHaveBeenCalled();
+    expect(getState('audio.eqValues')).toEqual([0, 0, 0, 0, 0]);
+    expect(host.send).not.toHaveBeenCalled();
+
+    expect(setEQPreset(warm)).toBe(true);
+    expect(getState('audio.eqValues')).toEqual(warm);
+    expect(host.send).not.toHaveBeenCalled();
+  });
+
+  it('exposes one complete PRO mutation for its checkpoint without standard-room messages', () => {
+    const host = connection('pro-transport');
+    configureRoom(host.conn);
+    setState('room.context', {
+      ...getState('room.context'),
+      kind: 'pro',
+      capabilities: ['effects.control'],
+    });
+    const changes = vi.fn();
+    bus.on('state:audio.eqValues', changes);
+
+    expect(setEQPreset(bright)).toBe(true);
+    expect(changes).toHaveBeenCalledExactlyOnceWith(bright, 'audio.eqValues');
+    expect(host.send).not.toHaveBeenCalled();
+  });
 });
 
 describe('Standard room settings change notifications', () => {

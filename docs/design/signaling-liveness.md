@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Decision date:** 2026-08-20
 - **Scope:** Standard-room signaling and established RTC recovery
-- **Recovery review:** 2026-09-19
+- **Recovery review:** 2026-09-20
 
 ## Problem
 
@@ -25,6 +25,24 @@ The Worker advertises protocol version 1 only from deployed Workers carrying ver
 Durable Objects use `setWebSocketAutoResponse()` when available, with an explicit local/test
 fallback. Guests and PRO rooms do not run the periodic probe. Browser `offline` and `online`
 events are fast hints for the same Standard-host recovery path.
+
+Returning to the foreground also restarts an exhausted Standard-host signaling
+budget, without replacing the room identity, RTC channels, or local playback.
+This is necessary when Android blocks a background browser's network without
+an `offline`/`online` event. An already running retry flight keeps its original
+budget, and a terminated guest session is not silently revived.
+
+On an Android 16 Pixel emulator with stock Chrome 151, local Web Audio playback
+did not prevent the OS from marking Chrome's UID `APP_BACKGROUND` and denying
+network traffic. YouTube playback in the same browser kept network access.
+Media Session metadata and `playbackState` alone are therefore not evidence
+that Web Audio has foreground media-service privileges. The foreground retry
+fix restores the app-owned signaling recovery opportunity; it cannot promise
+survival of an RTC connection that the OS has already terminated. Keep the
+browser visible when uninterrupted Standard-room hosting is required. A native
+file picker can also background the browser, so prepare local files before
+inviting participants where possible. This observation does not establish identical behavior
+on every physical Android device or installed PWA.
 
 The Standard-host reclaim grace is extended from 60 to 120 seconds. New guests remain rejected
 while no live host socket exists; the longer grace only preserves the authenticated host's

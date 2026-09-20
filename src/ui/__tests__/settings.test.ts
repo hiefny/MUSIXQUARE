@@ -9,6 +9,7 @@ import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
+import { resetSettingsSyncAuthorityForTests } from '../../audio/effects.ts';
 
 const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -198,6 +199,7 @@ beforeEach(() => {
   localStorage.clear();
   resetState();
   bus.clear();
+  resetSettingsSyncAuthorityForTests();
   vi.mocked(showToast).mockClear();
   preloadLocaleFontGlyphsMock.mockReset().mockResolvedValue(true);
   // Polyfill matchMedia for jsdom
@@ -962,6 +964,33 @@ describe('initSettings effect slider fill sync', () => {
     expect(slider.value).toBe('6');
     expect(slider.style.getPropertyValue('--range-progress')).toBe('75%');
     expect(document.getElementById('eq-sliders-area')?.classList.contains('collapsed')).toBe(false);
+  });
+
+  it('commits an EQ preset click as one complete controller update', () => {
+    installEffectSettingsDom();
+    const send = vi.fn();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true, send } as unknown as DataConnection);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    setState('setup.sessionStarted', true);
+    initSettings();
+
+    document.querySelector<HTMLElement>('#grid-eq [data-eq-type="warm"]')!.click();
+
+    expect(getState('audio.eqValues')).toEqual([5, 3, 0, -2, -3]);
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'publish-settings-sync-snapshot',
+        settings: expect.objectContaining({
+          effects: expect.objectContaining({ equalizer: { bandsDb: [5, 3, 0, -2, -3] } }),
+        }),
+      }),
+    );
+    expect(
+      document.querySelector('#grid-eq [data-eq-type="warm"]')?.getAttribute('aria-pressed'),
+    ).toBe('true');
   });
 
   it('updates range fill for host-synced effect values', () => {

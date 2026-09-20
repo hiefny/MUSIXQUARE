@@ -41,7 +41,7 @@ import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audi
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { hasLocaleFont } from '../i18n/locale-font-contract.ts';
 import { languageDirection } from '../i18n/locales.ts';
-import { isSettingsSyncEnabled, setSettingsSyncEnabled } from '../audio/effects.ts';
+import { isSettingsSyncEnabled, setEQPreset, setSettingsSyncEnabled } from '../audio/effects.ts';
 import { setPressedState, syncExclusivePressedState } from '../core/aria-state.ts';
 import { isSystemAudioCaptureActive } from '../audio/system-audio-policy.ts';
 
@@ -1061,9 +1061,7 @@ export function initSettings(): void {
       syncEqSlidersToPreset(type);
       if (type !== 'advanced') {
         const preset = EQ_PRESETS[type];
-        if (preset) {
-          for (let i = 0; i < 5; i++) setEQ(i, preset[i]);
-        }
+        if (preset && setEQPreset(preset)) _notifyGuestOnlyEffects();
       }
     });
   });

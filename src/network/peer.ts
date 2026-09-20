@@ -757,7 +757,7 @@ function attemptPeerReconnect(): void {
 }
 
 /**
- * Explicit user retry after the automatic signaling budget is exhausted.
+ * Restart bounded signaling recovery after a user retry or browser recovery hint.
  * Existing data channels and local media remain untouched.
  */
 export function retryPeerSignalingConnection(): boolean {
@@ -864,6 +864,19 @@ export function recoverPeerAfterBackground(hiddenMs: number): TransportBackgroun
   }
 
   const result = peer.recoverAfterBackground?.(hiddenMs) ?? { status: 'not-applicable' };
+  if (
+    hiddenMs > 0 &&
+    getPeer() === peer &&
+    isRecoverableStandardHost() &&
+    peer.disconnected &&
+    getState('network.signalingHealth').status === 'exhausted'
+  ) {
+    // Android can deny a background browser's network without reporting an
+    // offline/online transition. Foreground return is a new recovery hint,
+    // not a reason to leave an active host's exhausted signaling owner parked.
+    // Keep the same room identity, channels, and bounded retry budget.
+    retryPeerSignalingConnection();
+  }
   if (result.status === 'stale-connection-closed') {
     // guest.ts owns the specific HOST_DISCONNECTED surface. Do not leave a
     // queued generic signaling-loss dialog behind it.

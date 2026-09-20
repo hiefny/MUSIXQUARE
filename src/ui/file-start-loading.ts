@@ -5,6 +5,10 @@ import {
   isLocalFileStartPending,
 } from '../player/transport.ts';
 
+const MIN_CHECK_DELAY_MS = 16;
+const INITIAL_STALLED_CHECK_DELAY_MS = 100;
+const MAX_STALLED_CHECK_DELAY_MS = 1_000;
+
 /** Projects an installed future source into the existing loading indicators. */
 export function createFileStartLoadingController(onChange: (pending: boolean) => void): {
   destroy: () => void;
@@ -14,7 +18,7 @@ export function createFileStartLoadingController(onChange: (pending: boolean) =>
   let timer = 0;
   let context: AudioContext | null = null;
   let pending: boolean | undefined;
-  let stalledAt: number | null = null;
+  let stalledCheckDelayMs = 0;
   let destroyed = false;
 
   function cancelTimer(): void {
@@ -22,7 +26,7 @@ export function createFileStartLoadingController(onChange: (pending: boolean) =>
     timer = 0;
   }
 
-  function refresh(allowTimer = true): void {
+  function refresh(): void {
     if (destroyed) return;
     cancelTimer();
     const currentContext = getExistingAudioContext();
@@ -30,6 +34,7 @@ export function createFileStartLoadingController(onChange: (pending: boolean) =>
       context?.removeEventListener('statechange', onContextStateChange);
       context = currentContext;
       context?.addEventListener('statechange', onContextStateChange);
+      stalledCheckDelayMs = 0;
     }
 
     const nextPending = isLocalFileStartPending();
@@ -38,36 +43,45 @@ export function createFileStartLoadingController(onChange: (pending: boolean) =>
       onChange(nextPending);
     }
     if (!nextPending) {
-      stalledAt = null;
+      stalledCheckDelayMs = 0;
       return;
     }
-    if (!allowTimer || !context || context.state !== 'running') return;
+    if (destroyed || !context || context.state !== 'running') return;
 
     const scheduledContext = context;
     const audioTime = context.currentTime;
     const deadline = getLocalFilePendingStartDeadlineMs();
-    const remainingMs = deadline === undefined ? 16 : deadline - performance.now();
+    const remainingMs = deadline === undefined ? MIN_CHECK_DELAY_MS : deadline - performance.now();
     timer = window.setTimeout(
       () => {
         timer = 0;
         if (destroyed || context !== scheduledContext) return;
         const progressed = context.currentTime > audioTime;
-        stalledAt = progressed ? null : audioTime;
-        // A suspended or frozen Web Audio clock must not start a permanent
-        // polling loop. State changes, or the ordinary progress event after the
-        // clock recovers, re-arm this single deadline timer.
-        refresh(progressed);
+        // A running context can expose the same clock value across short
+        // samples on Android, then advance without a statechange. Keep checking
+        // until the source starts; back off a frozen clock instead of either
+        // spinning every frame or leaving the loading controls stuck forever.
+        stalledCheckDelayMs = progressed
+          ? 0
+          : Math.min(
+              MAX_STALLED_CHECK_DELAY_MS,
+              Math.max(INITIAL_STALLED_CHECK_DELAY_MS, stalledCheckDelayMs * 2),
+            );
+        refresh();
       },
-      Math.max(16, Math.ceil(remainingMs)),
+      Math.max(MIN_CHECK_DELAY_MS, stalledCheckDelayMs, Math.ceil(remainingMs)),
     );
   }
 
   function onContextStateChange(): void {
-    stalledAt = null;
+    stalledCheckDelayMs = 0;
     refresh();
   }
 
-  const refreshFromState = (): void => refresh();
+  const refreshFromState = (): void => {
+    stalledCheckDelayMs = 0;
+    refresh();
+  };
   scope.on('state:player.startedAt', refreshFromState);
   scope.on('state:player.pausedAt', refreshFromState);
   scope.on('state:playback.mode', refreshFromState);
@@ -75,9 +89,6 @@ export function createFileStartLoadingController(onChange: (pending: boolean) =>
   scope.on('state:files.current', refreshFromState);
   scope.on('player:buffer-changed', refreshFromState);
   scope.on('audio:ready', refreshFromState);
-  scope.on('ui:time-update', () => {
-    if (stalledAt !== null && context && context.currentTime > stalledAt) refresh();
-  });
   document.addEventListener('visibilitychange', refreshFromState, {
     signal: abortController.signal,
   });

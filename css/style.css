@@ -8963,7 +8963,7 @@
   }
 
   .demo-step-panels {
-    flex: 1;
+    flex: 1 0 auto;
     min-height: 0;
     display: block;
   }
@@ -8976,7 +8976,8 @@
 
   .demo-step-panel.active {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    /* Keep tall content below its heading; the control stage owns overflow. */
+    grid-template-rows: auto minmax(min-content, 1fr);
     gap: 18px;
   }
 
@@ -9413,7 +9414,7 @@
     .demo-control-stage {
       grid-column: 2;
       grid-row: 1;
-      justify-content: center;
+      justify-content: flex-start;
       max-height: none;
       margin: calc(0px - var(--demo-shell-pad-block) - var(--safe-top))
         calc(0px - var(--demo-shell-pad-inline) - var(--safe-right))
@@ -9427,7 +9428,6 @@
     }
 
     .demo-step-panels {
-      flex: 1 1 auto;
       display: grid;
       align-items: stretch;
       width: 100%;

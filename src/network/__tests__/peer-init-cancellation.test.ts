@@ -691,6 +691,47 @@ describe('network initialization ownership', () => {
     },
   );
 
+  it('restarts exhausted host signaling on foreground return without an online event', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const sessionCode = await createHostSessionWithShortCode(1);
+    setState('network.sessionCode', sessionCode);
+    setState('setup.sessionStarted', true);
+    setState('playback.activity', 'playing');
+    const stopMedia = vi.fn();
+    bus.on('player:stop-all-media', stopMedia);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(peer.reconnect).toHaveBeenCalledTimes(5);
+    expect(getState('network.signalingHealth').status).toBe('exhausted');
+
+    recoverPeerAfterBackground(60_000);
+    expect(peer.reconnect).toHaveBeenCalledTimes(6);
+    expect(getState('network.signalingHealth').status).toBe('reconnecting');
+    expect(getState('network.sessionCode')).toBe(sessionCode);
+    expect(getState('playback.activity')).toBe('playing');
+    expect(stopMedia).not.toHaveBeenCalled();
+    expect(peer.destroy).not.toHaveBeenCalled();
+
+    // A second hint must not reset the already active bounded retry flight.
+    recoverPeerAfterBackground(60_000);
+    expect(peer.reconnect).toHaveBeenCalledTimes(6);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(peer.reconnect).toHaveBeenCalledTimes(10);
+    expect(getState('network.signalingHealth').status).toBe('exhausted');
+
+    for (const hiddenMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      recoverPeerAfterBackground(hiddenMs);
+    }
+    expect(peer.reconnect).toHaveBeenCalledTimes(10);
+    setState('setup.sessionStarted', false);
+    recoverPeerAfterBackground(60_000);
+    expect(peer.reconnect).toHaveBeenCalledTimes(10);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
   it('re-evaluates a signaling-loss check that skipped a stale-open guest connection', async () => {
     const stopMedia = vi.fn();
     const stopSystemAudio = vi.fn();

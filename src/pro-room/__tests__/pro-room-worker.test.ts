@@ -14836,18 +14836,21 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(pendingStatus.developerAuthorityEpoch).toBe(oldDeveloperAuthorityEpoch + 1);
-    expect(pendingStatus.ownerTransferReconciliation).toMatchObject({
+    // Opaque random IDs may contain "Pin"; validate the exact public schema, not value substrings.
+    expect(pendingStatus.ownerTransferReconciliation).toEqual({
       phase: 'pending',
       transferId: prepared.transferId,
       claimGeneration: issuedPayload.claimGeneration,
       requestId,
       targetAccountId,
       previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      preparedAtMs: prepared.preparedAtMs,
+      expiresAtMs: prepared.expiresAtMs,
       committedAtMs: null,
       replayUntilMs: prepared.expiresAtMs,
     });
-    expect(JSON.stringify(pendingStatus.ownerTransferReconciliation)).not.toMatch(
-      /commitProof|claimNonce|credential|pin|hash/i,
+    expect(JSON.stringify(pendingStatus.ownerTransferReconciliation)).not.toContain(
+      prepared.commitProof,
     );
 
     const replayedPrepare = await context.worker.fetch(await prepareRequest());
@@ -15080,17 +15083,20 @@ describe('persistent PRO room authentication, presence, and state', () => {
         }),
       ),
     );
-    expect(completedStatus.ownerTransferReconciliation).toMatchObject({
+    expect(completedStatus.ownerTransferReconciliation).toEqual({
       phase: 'completed',
       transferId: prepared.transferId,
+      claimGeneration: null,
       requestId,
       targetAccountId,
       previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      preparedAtMs: prepared.preparedAtMs,
+      expiresAtMs: prepared.expiresAtMs,
       committedAtMs: expect.any(Number),
       replayUntilMs: expect.any(Number),
     });
-    expect(JSON.stringify(completedStatus.ownerTransferReconciliation)).not.toMatch(
-      /commitProof|claimNonce|credential|pin|hash/i,
+    expect(JSON.stringify(completedStatus.ownerTransferReconciliation)).not.toContain(
+      prepared.commitProof,
     );
 
     const completedPrepareReplay = await context.worker.fetch(await prepareRequest());

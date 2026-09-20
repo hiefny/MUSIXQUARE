@@ -4054,6 +4054,145 @@ describe('retained iOS player teardown', () => {
   });
 });
 
+describe('setup prime readiness observation', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('waits through a cold API load and iframe onReady without playing outside a gesture', async () => {
+    const {
+      precreateYouTubePlayer,
+      primeYouTubePlayer,
+      isYouTubePrimeReadyForGesture,
+      waitForYouTubePrimeReady,
+    } = await import('../iframe.ts');
+    const { getYouTubePlayer } = await import('../_state.ts');
+    const player = createMockYtPlayer();
+    precreateYouTubePlayer();
+    const settled = vi.fn();
+    const wait = waitForYouTubePrimeReady().then(settled);
+    const script = document.querySelector<HTMLScriptElement>(
+      'script[src*="youtube.com/iframe_api"]',
+    );
+    expect(script).not.toBeNull();
+    expect(isYouTubePrimeReadyForGesture()).toBe(false);
+    expect(primeYouTubePlayer()).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).not.toHaveBeenCalled();
+
+    const handle = installYtNamespace(player);
+    // An API global callback alone does not prove this request loaded, and an
+    // API load does not prove the iframe is ready to consume the setup gesture.
+    window.onYouTubeIframeAPIReady?.();
+    expect(getYouTubePlayer()).toBeNull();
+    script!.dispatchEvent(new Event('load'));
+    expect(getYouTubePlayer()).toBe(player);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(isYouTubePrimeReadyForGesture()).toBe(false);
+    expect(settled).not.toHaveBeenCalled();
+    expect(player.playVideo).not.toHaveBeenCalled();
+
+    handle.fireReady();
+    expect(isYouTubePrimeReadyForGesture()).toBe(true);
+    await vi.advanceTimersByTimeAsync(25);
+    await wait;
+    expect(settled).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(player.playVideo).not.toHaveBeenCalled();
+    expect(player.unMute).not.toHaveBeenCalled();
+
+    // Setup must spend a later actual gesture on the synchronous prime seam.
+    expect(primeYouTubePlayer()).toBe(true);
+    expect(player.unMute).toHaveBeenCalledOnce();
+    expect(player.playVideo).toHaveBeenCalledOnce();
+    expect(vi.mocked(player.unMute!).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(player.playVideo).mock.invocationCallOrder[0],
+    );
+  });
+
+  it('releases a failed API preparation at the deadline without claiming readiness or retrying it', async () => {
+    const { precreateYouTubePlayer, isYouTubePrimeReadyForGesture, waitForYouTubePrimeReady } =
+      await import('../iframe.ts');
+    const { isYtPriming, getYouTubePlayer } = await import('../_state.ts');
+    precreateYouTubePlayer();
+    const script = document.querySelector<HTMLScriptElement>(
+      'script[src*="youtube.com/iframe_api"]',
+    );
+    expect(script).not.toBeNull();
+    const settled = vi.fn();
+    const wait = waitForYouTubePrimeReady(undefined, 100).then(settled);
+    script!.dispatchEvent(new Event('error'));
+    expect(isYtPriming()).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await wait;
+    expect(isYouTubePrimeReadyForGesture()).toBe(false);
+    expect(getYouTubePlayer()).toBeNull();
+    expect(document.querySelector('script[src*="youtube.com/iframe_api"]')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels one setup waiter without cancelling another or modifying prime preparation', async () => {
+    const { waitForYouTubePrimeReady } = await import('../iframe.ts');
+    const { setYtPriming, isYtPriming, setYtPrimeReady } = await import('../_state.ts');
+    setYtPriming(true);
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const firstWait = waitForYouTubePrimeReady(controller.signal);
+    const cancelled = expect(firstWait).rejects.toMatchObject({ name: 'AbortError' });
+    const secondSettled = vi.fn();
+    const secondWait = waitForYouTubePrimeReady().then(secondSettled);
+    expect(vi.getTimerCount()).toBe(2);
+
+    controller.abort();
+    await cancelled;
+    expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(isYtPriming()).toBe(true);
+    expect(vi.getTimerCount()).toBe(1);
+    expect(secondSettled).not.toHaveBeenCalled();
+
+    setYtPrimeReady(true);
+    await vi.advanceTimersByTimeAsync(25);
+    await secondWait;
+    expect(secondSettled).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('rejects a pre-aborted caller even when the player is already ready', async () => {
+    const { waitForYouTubePrimeReady } = await import('../iframe.ts');
+    const { setYtPrimeReady } = await import('../_state.ts');
+    setYtPrimeReady(true);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(waitForYouTubePrimeReady(controller.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['ready', 'pending-bounce', 'primed'] as const)(
+    'immediately accepts the existing %s state without changing the resident player',
+    async (state) => {
+      const { isYouTubePrimeReadyForGesture, waitForYouTubePrimeReady } =
+        await import('../iframe.ts');
+      const stateMod = await import('../_state.ts');
+      const player = createMockYtPlayer();
+      stateMod.setYouTubePlayer(player);
+      if (state === 'ready') stateMod.setYtPrimeReady(true);
+      else if (state === 'pending-bounce') stateMod.setYtPrimeBouncePending(true);
+      else stateMod.setYtPrimed(true);
+
+      expect(isYouTubePrimeReadyForGesture()).toBe(true);
+      await waitForYouTubePrimeReady();
+      expect(stateMod.getYouTubePlayer()).toBe(player);
+      expect(player.playVideo).not.toHaveBeenCalled();
+      expect(player.destroy).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+});
+
 describe('persistent prime transition supersession', () => {
   it('keeps a precreated player retryable when the setup tap beats onReady', async () => {
     const player = createMockYtPlayer();

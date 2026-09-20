@@ -16,6 +16,7 @@ export default defineConfig({
     'chat-copy-tap.test.ts',
     'maintenance-inline-logo.test.ts',
     'setup-carousel-autoplay.test.ts',
+    'setup-youtube-activation.test.ts',
     'app-entrance.test.ts',
     'rtl-player-layout.test.ts',
     'rtl-settings-layout.test.ts',

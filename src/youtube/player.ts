@@ -413,7 +413,13 @@ function isYouTubeZeroStartExternalFallbackActiveOwned(): boolean {
 // External modules (e.g. sync.ts) import { getYouTubePlayer } from './player.ts'
 
 export { getYouTubePlayer } from './_state.ts';
-export { loadYouTubeVideo, primeYouTubePlayer, precreateYouTubePlayer } from './iframe.ts';
+export {
+  loadYouTubeVideo,
+  primeYouTubePlayer,
+  precreateYouTubePlayer,
+  isYouTubePrimeReadyForGesture,
+  waitForYouTubePrimeReady,
+} from './iframe.ts';
 // Preserve the player facade while the implementation binding remains owned
 // by this module and iframe.ts consumes only the neutral bridge leaf.
 export {

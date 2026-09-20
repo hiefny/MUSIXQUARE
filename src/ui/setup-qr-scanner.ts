@@ -19,6 +19,8 @@ type GuestQrScannerError =
 
 interface GuestQrScannerCallbacks {
   isCurrent: () => boolean;
+  /** Runs in the scan-button gesture, before camera acquisition or decoding yields. */
+  onStartFromGesture?: () => void;
   onCode: (code: string) => void;
   onError: (reason: GuestQrScannerError) => void;
 }
@@ -616,6 +618,13 @@ async function startGuestQrScanner(): Promise<void> {
   const currentCallbacks = callbacks;
   if (!elements || elements.button.disabled || !currentCallbacks || !currentCallbacks.isCurrent()) {
     return;
+  }
+
+  try {
+    currentCallbacks.onStartFromGesture?.();
+  } catch (error) {
+    // Optional media priming must not prevent the camera from opening.
+    log.warn('[Setup QR] Gesture start hook failed', error);
   }
 
   stopGuestQrScanner();

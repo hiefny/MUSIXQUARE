@@ -8,12 +8,31 @@ const mocks = vi.hoisted(() => ({
   enterProRoomFromSetup: vi.fn(),
   isProRoomCode: vi.fn(() => false),
   joinSession: vi.fn(),
+  prepareFromGesture: vi.fn<() => Promise<boolean> | null>(() => null),
+  primeReady: true,
+  waitForPrimeReady: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  scannerCallbacks: null as null | {
+    onStartFromGesture?: () => void;
+    onCode: (code: string) => void;
+  },
   pendingAutoCode: null as string | null,
   pendingRole: 0 as number | null,
   scheduleDocumentReload: vi.fn(),
   scheduleSessionReset: vi.fn(),
   setupRenderActions: vi.fn((buttons: Array<Record<string, unknown>>) => {
     mocks.actions = buttons;
+    const area = document.getElementById('setup-actions');
+    if (area) {
+      area.replaceChildren();
+      for (const spec of buttons) {
+        const button = document.createElement('button');
+        button.id = String(spec.id);
+        button.textContent = String(spec.text ?? '');
+        button.disabled = !!spec.disabled;
+        if (spec.onClick) button.addEventListener('click', spec.onClick as () => void);
+        area.appendChild(button);
+      }
+    }
   }),
   setupSetGuestJoinError: vi.fn((message: string | null, inviteLink = false) => {
     const renderError = (id: string, value: string | null): void => {
@@ -64,10 +83,19 @@ vi.mock('../dialog.ts', () => ({
 
 vi.mock('../../youtube/player.ts', () => ({
   precreateYouTubePlayer: vi.fn(),
+  isYouTubePrimeReadyForGesture: () => mocks.primeReady,
+  waitForYouTubePrimeReady: mocks.waitForPrimeReady,
 }));
 
 vi.mock('../setup-start.ts', () => ({
-  prepareSetupStartFromGesture: vi.fn(),
+  prepareSetupStartFromGesture: mocks.prepareFromGesture,
+}));
+
+vi.mock('../setup-qr-scanner.ts', () => ({
+  stopGuestQrScanner: vi.fn(),
+  initGuestQrScanner: (callbacks: typeof mocks.scannerCallbacks) => {
+    mocks.scannerCallbacks = callbacks;
+  },
 }));
 
 vi.mock('../../pro-room/room-code.ts', () => ({
@@ -111,10 +139,18 @@ import {
   restoreGuestJoinControlsAfterFailure,
   setGuestGoBack,
   startGuestFlow,
+  clearPendingRoomPasswordJoin,
+  promptForRoomPassword,
 } from '../setup-guest.ts';
+import { showDialog } from '../dialog.ts';
 
 beforeEach(() => {
+  clearPendingRoomPasswordJoin();
   vi.clearAllMocks();
+  mocks.primeReady = true;
+  mocks.waitForPrimeReady.mockReset().mockResolvedValue(undefined);
+  mocks.prepareFromGesture.mockReset().mockReturnValue(null);
+  mocks.scannerCallbacks = null;
   mocks.busEmit.mockReset();
   mocks.enterProRoomFromSetup.mockReset();
   mocks.isProRoomCode.mockReset();
@@ -124,15 +160,133 @@ beforeEach(() => {
   mocks.pendingRole = 0;
   mocks.state.clear();
   mocks.state.set('network.appRole', 'guest');
+  mocks.state.set('room.context', { kind: 'standard' });
   document.body.innerHTML = `
     <input id="setup-join-code" value="123456" aria-describedby="setup-guest-error">
     <p id="setup-guest-error" role="alert" hidden></p>
     <p id="setup-auto-join-error" role="alert" hidden></p>
     <div id="ob-slider-area"></div>
+    <div id="setup-actions"></div>
+    <button id="btn-setup-qr-scan"></button>
   `;
 });
 
 describe('guest setup recovery', () => {
+  it.each([false, true])(
+    'waits for a ready iframe before the real Start tap (invite=%s)',
+    async (invite) => {
+      let ready!: () => void;
+      mocks.primeReady = false;
+      mocks.waitForPrimeReady.mockReturnValue(
+        new Promise<void>((resolve) => {
+          ready = resolve;
+        }),
+      );
+      mocks.pendingAutoCode = invite ? '123456' : null;
+      startGuestFlow();
+      const input = document.getElementById('setup-join-code') as HTMLInputElement;
+      input.value = '123456';
+      const start = document.getElementById('btn-setup-confirm') as HTMLButtonElement;
+      expect(start.disabled).toBe(true);
+      expect(start.textContent).toBe('common.wait');
+      start.click();
+      await handleSetupJoinWithRole(0); // Enter must not bypass the disabled control.
+      expect(mocks.prepareFromGesture).not.toHaveBeenCalled();
+      expect(mocks.joinSession).not.toHaveBeenCalled();
+      mocks.primeReady = true;
+      ready();
+      await Promise.resolve();
+      expect(start.disabled).toBe(false);
+      expect(mocks.prepareFromGesture).not.toHaveBeenCalled();
+      start.click();
+      expect(mocks.prepareFromGesture).toHaveBeenCalledOnce();
+      expect(mocks.joinSession).toHaveBeenCalledWith('123456');
+    },
+  );
+
+  it.each([false, true])(
+    'preserves the gesture proof before Standard/PRO admission (pro=%s)',
+    async (pro) => {
+      let complete!: (accepted: boolean) => void;
+      mocks.prepareFromGesture.mockReturnValue(
+        new Promise<boolean>((resolve) => {
+          complete = resolve;
+        }),
+      );
+      mocks.isProRoomCode.mockReturnValue(pro);
+      mocks.enterProRoomFromSetup.mockResolvedValue(true);
+      const joining = handleSetupJoinWithRole(0);
+      expect(mocks.prepareFromGesture).toHaveBeenCalledOnce();
+      await handleSetupJoinWithRole(0);
+      expect(mocks.prepareFromGesture).toHaveBeenCalledOnce();
+      expect(mocks.joinSession).not.toHaveBeenCalled();
+      expect(mocks.enterProRoomFromSetup).not.toHaveBeenCalled();
+      complete(true);
+      await joining;
+      expect(pro ? mocks.enterProRoomFromSetup : mocks.joinSession).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('uses the scan tap activation and never primes from asynchronous QR recognition', async () => {
+    let complete!: (accepted: boolean) => void;
+    mocks.prepareFromGesture.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        complete = resolve;
+      }),
+    );
+    startGuestFlow();
+    mocks.scannerCallbacks?.onStartFromGesture?.();
+    expect(mocks.prepareFromGesture).toHaveBeenCalledOnce();
+    mocks.scannerCallbacks?.onCode('654321');
+    expect(mocks.prepareFromGesture).toHaveBeenCalledOnce();
+    expect(mocks.joinSession).not.toHaveBeenCalled();
+    complete(true);
+    await vi.waitFor(() => expect(mocks.joinSession).toHaveBeenCalledWith('654321'));
+  });
+
+  it('does not admit a canceled attempt after its late activation proof', async () => {
+    let complete!: (accepted: boolean) => void;
+    mocks.prepareFromGesture.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        complete = resolve;
+      }),
+    );
+    const joining = handleSetupJoinWithRole(0);
+    clearPendingRoomPasswordJoin();
+    complete(true);
+    await joining;
+    expect(mocks.joinSession).not.toHaveBeenCalled();
+  });
+
+  it('continues room admission after a bounded, unsuccessful autoplay attempt', async () => {
+    mocks.prepareFromGesture.mockResolvedValue(false);
+    await handleSetupJoinWithRole(0);
+    expect(mocks.joinSession).toHaveBeenCalledWith('123456');
+  });
+
+  it('uses the password confirmation gesture before retrying room admission', async () => {
+    await handleSetupJoinWithRole(0);
+    mocks.joinSession.mockClear();
+    mocks.prepareFromGesture.mockClear();
+    let complete!: (accepted: boolean) => void;
+    mocks.prepareFromGesture.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        complete = resolve;
+      }),
+    );
+    vi.mocked(showDialog).mockImplementationOnce(async (options) => {
+      if (typeof options === 'object') options.onPrimaryActivation?.();
+      return { action: 'ok', inputValue: '12345678' };
+    });
+    const retrying = promptForRoomPassword();
+    expect(mocks.prepareFromGesture).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    expect(mocks.joinSession).not.toHaveBeenCalled();
+    complete(true);
+    await retrying;
+    expect(mocks.joinSession).toHaveBeenCalledWith('123456', '12345678');
+  });
+
   it('joins exactly once through the signaling-owned path without a control-plane preflight', async () => {
     await handleSetupJoinWithRole(0);
 

@@ -1797,11 +1797,13 @@ async function fetchWorkerDomains(
         throw new Error(`${label} returned inconsistent pagination metadata.`);
       }
     }
+    // Cloudflare reports per_page: 0 for a complete empty domain inventory.
+    // Nonempty results must still fit within the reported page size.
     if (
       info.per_page !== undefined &&
       (typeof info.per_page !== 'number' ||
         !Number.isSafeInteger(info.per_page) ||
-        info.per_page < 1 ||
+        info.per_page < 0 ||
         info.per_page < payload.result.length)
     ) {
       throw new Error(`${label} returned inconsistent pagination metadata.`);

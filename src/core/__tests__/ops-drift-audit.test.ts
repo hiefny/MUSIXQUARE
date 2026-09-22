@@ -230,7 +230,12 @@ async function matchingLiveResponse(
         hostname,
         service: workerSurface.worker,
       })),
-      result_info: { page: 1, per_page: 100, total_pages: 1 },
+      result_info: {
+        page: 1,
+        per_page: workerSurface.customDomains.length,
+        count: workerSurface.customDomains.length,
+        total_count: workerSurface.customDomains.length,
+      },
     });
   }
   if (url.includes('/workers/routes')) {
@@ -682,6 +687,72 @@ describe('operations drift audit', () => {
     expect(JSON.stringify(names)).not.toContain(secretValue);
   });
 
+  it.each(['musixquare-developer-api-facade', 'musixquare-pro-room'])(
+    'accepts the complete empty domain response for private Worker %s',
+    async (worker) => {
+      const contract = loadOpsDriftContract();
+      const fetcher = vi.fn((url: string) => matchingLiveResponse(contract, url));
+      const report = await runOpsDriftAudit({ contract, fetcher, env: AUDIT_ENV });
+
+      expect(report.checks.find((check) => check.id === `worker-domains:${worker}`)).toMatchObject({
+        status: 'pass',
+        detail: 'No public custom domain is attached.',
+      });
+      expect(report.status).toBe('automated-checks-passed');
+    },
+  );
+
+  it.each([-1, 0.5, '0', null])(
+    'rejects malformed page sizes even for empty domain responses: %j',
+    async (perPage) => {
+      const contract = loadOpsDriftContract();
+      const fetcher = vi.fn(async (url: string) => {
+        const request = new URL(url);
+        if (
+          request.pathname.endsWith('/workers/domains') &&
+          request.searchParams.get('service') === 'musixquare-pro-room'
+        ) {
+          return jsonResponse({
+            success: true,
+            result: [],
+            result_info: { page: 1, per_page: perPage, count: 0, total_count: 0 },
+          });
+        }
+        return matchingLiveResponse(contract, url);
+      });
+      const report = await runOpsDriftAudit({ contract, fetcher, env: AUDIT_ENV });
+      expect(
+        report.checks.find((check) => check.id === 'worker-domains:musixquare-pro-room'),
+      ).toMatchObject({ status: 'error' });
+      expect(report.status).toBe('attention-required');
+    },
+  );
+
+  it('reports missing public domains when a complete empty response differs from the contract', async () => {
+    const contract = loadOpsDriftContract();
+    const fetcher = vi.fn(async (url: string) => {
+      const request = new URL(url);
+      if (
+        request.pathname.endsWith('/workers/domains') &&
+        request.searchParams.get('service') === 'musixquare-app'
+      ) {
+        return jsonResponse({
+          success: true,
+          result: [],
+          result_info: { page: 1, per_page: 0, count: 0, total_count: 0 },
+        });
+      }
+      return matchingLiveResponse(contract, url);
+    });
+    const report = await runOpsDriftAudit({ contract, fetcher, env: AUDIT_ENV });
+    expect(
+      report.checks.find((check) => check.id === 'worker-domains:musixquare-app'),
+    ).toMatchObject({
+      status: 'drift',
+    });
+    expect(report.status).toBe('attention-required');
+  });
+
   it.each([
     { metadata: undefined, status: 'pass' },
     { metadata: null, status: 'pass' },
@@ -694,7 +765,11 @@ describe('operations drift audit', () => {
     { metadata: { total_pages: 3 }, status: 'error' },
     { metadata: { count: 99 }, status: 'error' },
     { metadata: { total_count: 101 }, status: 'error' },
+    { metadata: { per_page: 0 }, status: 'error' },
+    { metadata: { per_page: -1 }, status: 'error' },
     { metadata: { per_page: 99 }, status: 'error' },
+    { metadata: { per_page: 100.5 }, status: 'error' },
+    { metadata: { per_page: '100' }, status: 'error' },
     { metadata: { total_pages: '1' }, status: 'error' },
     { metadata: [], status: 'error' },
   ])('reads the complete SinglePage domain inventory: %j', async (scenario) => {

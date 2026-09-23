@@ -415,8 +415,6 @@ const fa: Record<I18nKey, string> = {
     'این قطعه رد می‌شود: قالب آن در برخی دستگاه‌ها پشتیبانی نمی‌شود.',
   'chat.large_local_track_system_message':
     'حجم فایل این قطعه بسیار زیاد است و ممکن است در بعضی دستگاه‌ها پخش نشود.',
-  'chat.decode_memory_risk_system_message':
-    'این قطعه هنگام رمزگشایی ممکن است حدود {{estimatedMiB}} MiB حافظه مصرف کند و در این دستگاه پخش نشود.',
   'chat.device_track_unavailable_system_message': 'این دستگاه نمی‌تواند قطعهٔ فعلی را پخش کند.',
   'chat.system_audio_started_system_message':
     'اشتراک‌گذاری صدای سیستم آغاز شد. کمی تأخیر میان دستگاه میزبان و مهمان‌ها طبیعی است. برای جلوگیری از پژواک، صدای دستگاه میزبان را کم کنید.',

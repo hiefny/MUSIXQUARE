@@ -433,8 +433,6 @@ const fil: Record<I18nKey, string> = {
     'Nilalaktawan ang track: hindi sinusuportahan ang format sa ilang device.',
   'chat.large_local_track_system_message':
     'Napakalaki ng file ng track na ito at maaaring hindi ito ma-play sa ilang device.',
-  'chat.decode_memory_risk_system_message':
-    'Maaaring gumamit ang track na ito ng humigit-kumulang {{estimatedMiB}} MiB ng memory habang dine-decode at maaaring hindi ito ma-play sa device na ito.',
   'chat.device_track_unavailable_system_message':
     'Hindi ma-play ng device na ito ang kasalukuyang track.',
   'chat.system_audio_started_system_message':

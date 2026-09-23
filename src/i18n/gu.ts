@@ -417,8 +417,6 @@ const gu: Record<I18nKey, string> = {
   'chat.decode_skip_system_message': 'ટ્રૅક છોડી રહ્યા છીએ: કેટલાક ડિવાઇસ પર આ ફૉર્મેટ ચાલતું નથી.',
   'chat.large_local_track_system_message':
     'આ ટ્રૅકની ફાઇલ બહુ મોટી છે અને કેટલાક ડિવાઇસ પર કદાચ નહીં ચાલે.',
-  'chat.decode_memory_risk_system_message':
-    'ડિકોડ કરતી વખતે આ ટ્રૅક લગભગ {{estimatedMiB}} MiB મેમરી વાપરી શકે છે અને આ ડિવાઇસ પર કદાચ નહીં ચાલે.',
   'chat.device_track_unavailable_system_message': 'આ ડિવાઇસ હાલનો ટ્રૅક ચલાવી શકતું નથી.',
   'chat.system_audio_started_system_message':
     'સિસ્ટમ ઑડિયો શેરિંગ શરૂ થયું છે. હોસ્ટ અને મહેમાન ડિવાઇસ વચ્ચે થોડો વિલંબ સામાન્ય છે. પડઘો ટાળવા હોસ્ટ ડિવાઇસનો અવાજ ઘટાડવાની ભલામણ છે.',

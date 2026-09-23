@@ -432,8 +432,6 @@ const ta: Record<I18nKey, string> = {
     'டிராக் தவிர்க்கப்படுகிறது: சில சாதனங்களில் ஆதரிக்கப்படாத வடிவம்.',
   'chat.large_local_track_system_message':
     'இந்த டிராக்கின் கோப்பு மிகப் பெரியது; சில சாதனங்களில் இயங்காமல் போகலாம்.',
-  'chat.decode_memory_risk_system_message':
-    'இந்த டிராக்கை டிகோட் செய்யும்போது சுமார் {{estimatedMiB}} MiB நினைவகம் தேவைப்படலாம்; இந்தச் சாதனத்தில் இயங்காமல் போகலாம்.',
   'chat.device_track_unavailable_system_message':
     'இந்தச் சாதனத்தால் தற்போதைய டிராக்கை இயக்க முடியாது.',
   'chat.system_audio_started_system_message':

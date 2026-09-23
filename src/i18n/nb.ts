@@ -422,8 +422,6 @@ const nb: Record<I18nKey, string> = {
     'Hopper over sporet: Formatet støttes ikke på enkelte enheter.',
   'chat.large_local_track_system_message':
     'Filen til dette sporet er svært stor og kan kanskje ikke spilles av på enkelte enheter.',
-  'chat.decode_memory_risk_system_message':
-    'Dette sporet kan bruke rundt {{estimatedMiB}} MiB minne under dekoding og kan kanskje ikke spilles av på denne enheten.',
   'chat.device_track_unavailable_system_message':
     'Denne enheten kan ikke spille av gjeldende spor.',
   'chat.system_audio_started_system_message':

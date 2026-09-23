@@ -423,8 +423,6 @@ const te: Record<I18nKey, string> = {
     'ట్రాక్ దాటవేయబడుతోంది: కొన్ని పరికరాల్లో ఈ ఫార్మాట్‌కు మద్దతు లేదు.',
   'chat.large_local_track_system_message':
     'ఈ ట్రాక్ ఫైల్ చాలా పెద్దది; కొన్ని పరికరాల్లో ప్లే కాకపోవచ్చు.',
-  'chat.decode_memory_risk_system_message':
-    'డీకోడ్ చేస్తున్నప్పుడు ఈ ట్రాక్ దాదాపు {{estimatedMiB}} MiB మెమరీని ఉపయోగించవచ్చు; ఈ పరికరంలో ప్లే కాకపోవచ్చు.',
   'chat.device_track_unavailable_system_message':
     'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
   'chat.system_audio_started_system_message':

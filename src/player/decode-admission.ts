@@ -48,12 +48,6 @@ interface DecodeRuntimeProfile {
   readonly maxTouchPoints?: number;
 }
 
-interface DecodeMemoryWarningThreshold {
-  readonly tier: DecodeMemoryTier;
-  readonly maxDecodedPcmBytes: number;
-  readonly maxDecodeWorkingSetBytes: number;
-}
-
 type DecodeAdmissionReason =
   'estimated-pcm' | 'working-set' | 'decoded-pcm' | 'receive-working-set' | 'transport-working-set';
 
@@ -135,35 +129,6 @@ function hasPredictiveMemoryLimit(budget: DecodeMemoryBudget): boolean {
     budget.maxDecodedPcmBytes < UNBOUNDED_MEMORY_BYTES ||
     budget.maxDecodeWorkingSetBytes < UNBOUNDED_MEMORY_BYTES
   );
-}
-
-function decodeMemoryWarningThresholdForTier(tier: DecodeMemoryTier): DecodeMemoryWarningThreshold {
-  switch (tier) {
-    case 'ios':
-      return {
-        tier,
-        maxDecodedPcmBytes: 192 * MIB,
-        maxDecodeWorkingSetBytes: 320 * MIB,
-      };
-    case 'constrained':
-      return {
-        tier,
-        maxDecodedPcmBytes: 256 * MIB,
-        maxDecodeWorkingSetBytes: 448 * MIB,
-      };
-    case 'high-memory':
-      return {
-        tier,
-        maxDecodedPcmBytes: 512 * MIB,
-        maxDecodeWorkingSetBytes: 1024 * MIB,
-      };
-    case 'standard':
-      return {
-        tier,
-        maxDecodedPcmBytes: 384 * MIB,
-        maxDecodeWorkingSetBytes: 768 * MIB,
-      };
-  }
 }
 
 export function estimateDecodedPcmBytes(
@@ -311,7 +276,7 @@ interface DecodeWorkingSetOptions extends Pick<
 export interface DecodeMemoryEstimate {
   readonly durationSeconds: number | null;
   readonly probedChannelCount: number | null;
-  /** True when bounded metadata plus safe advisory defaults support the estimate. */
+  /** True when bounded metadata plus safe accounting defaults support the estimate. */
   readonly hasReliableMetadata: boolean;
   readonly channelCount: number;
   readonly outputSampleRate: number;
@@ -320,40 +285,6 @@ export interface DecodeMemoryEstimate {
   readonly estimatedWorkingSetBytes: number;
   readonly budget: DecodeMemoryBudget;
   readonly sourceEncodedReceiveReservationId?: number;
-}
-
-interface DecodeMemoryWarningEvaluation {
-  readonly reason: 'estimated-pcm' | 'working-set' | 'both';
-  /** Rounded-up projected total working set shown to the user. */
-  readonly estimatedMiB: number;
-  readonly threshold: DecodeMemoryWarningThreshold;
-}
-
-export function evaluateDecodeMemoryWarning(
-  estimate: DecodeMemoryEstimate,
-  threshold: DecodeMemoryWarningThreshold = decodeMemoryWarningThresholdForTier(
-    estimate.budget.tier,
-  ),
-): DecodeMemoryWarningEvaluation | null {
-  if (
-    !estimate.hasReliableMetadata ||
-    !Number.isSafeInteger(estimate.estimatedPcmBytes) ||
-    !Number.isSafeInteger(estimate.estimatedWorkingSetBytes) ||
-    estimate.estimatedPcmBytes <= 0 ||
-    estimate.estimatedWorkingSetBytes <= 0
-  ) {
-    return null;
-  }
-  const pcmExceeded = estimate.estimatedPcmBytes > threshold.maxDecodedPcmBytes;
-  const workingSetExceeded = estimate.estimatedWorkingSetBytes > threshold.maxDecodeWorkingSetBytes;
-  if (!pcmExceeded && !workingSetExceeded) return null;
-
-  return {
-    reason:
-      pcmExceeded && workingSetExceeded ? 'both' : pcmExceeded ? 'estimated-pcm' : 'working-set',
-    estimatedMiB: Math.ceil(estimate.estimatedWorkingSetBytes / MIB),
-    threshold,
-  };
 }
 
 interface DecodeMemoryReservation {
@@ -667,9 +598,9 @@ export function reserveDecodeMemoryWithinBudget(
 
 /**
  * Inspect one Blob before it is copied into an ArrayBuffer or handed to the
- * native decoder. This is deliberately non-throwing for memory policy: callers
- * can use the result for advisory UI while production admission stays
- * unbounded. Metadata/parser failures resolve to the conservative fallback.
+ * native decoder. The result accounts for in-flight memory ownership while
+ * production admission stays unbounded. Metadata/parser failures resolve to
+ * the conservative fallback.
  */
 async function estimateBlobDecodeMemory(
   blob: Blob,
@@ -691,7 +622,7 @@ async function estimateBlobDecodeMemory(
         resolve(value);
       };
       const timeoutId = globalThis.setTimeout(() => {
-        log.debug(`[DecodeAdmission] ${label} warning probe timed out`);
+        log.debug(`[DecodeAdmission] ${label} metadata probe timed out`);
         finish(null);
       }, METADATA_TIMEOUT_MS);
 
@@ -699,14 +630,14 @@ async function estimateBlobDecodeMemory(
       try {
         pending = start();
       } catch (error) {
-        log.warn(`[DecodeAdmission] ${label} warning probe failed`, error);
+        log.warn(`[DecodeAdmission] ${label} metadata probe failed`, error);
         finish(null);
         return;
       }
       pending.then(finish, (error: unknown) => {
-        // Metadata is advisory. A platform parser failure must not prevent
+        // Metadata is best-effort. A platform parser failure must not prevent
         // the native decoder from trying the original Blob.
-        log.warn(`[DecodeAdmission] ${label} warning probe failed`, error);
+        log.warn(`[DecodeAdmission] ${label} metadata probe failed`, error);
         finish(null);
       });
     });
@@ -723,14 +654,14 @@ async function estimateBlobDecodeMemory(
     typeof duration === 'number' && Number.isFinite(duration) && duration > 0;
   const hasProbedChannelCount =
     typeof probedChannels === 'number' && Number.isInteger(probedChannels) && probedChannels > 0;
-  // Production warnings may use the overwhelmingly common stereo layout when
+  // Production accounting uses the common stereo layout when
   // a supported container (for example WebM) has duration metadata but no
   // bounded channel parser. Explicit finite admission budgets retain the
   // conservative 32-channel fallback used by validation callers.
-  const usesAdvisoryChannelFallback = !hasProbedChannelCount && !hasPredictiveMemoryLimit(budget);
+  const usesAccountingChannelFallback = !hasProbedChannelCount && !hasPredictiveMemoryLimit(budget);
   const channelCount = hasProbedChannelCount
     ? (probedChannels as number)
-    : usesAdvisoryChannelFallback
+    : usesAccountingChannelFallback
       ? EXPECTED_CHANNELS
       : UNKNOWN_CHANNELS;
   const outputSampleRate =
@@ -764,7 +695,7 @@ async function estimateBlobDecodeMemory(
     probedChannelCount: hasProbedChannelCount ? (probedChannels as number) : null,
     hasReliableMetadata:
       hasSafeMetadataEstimate &&
-      (hasProbedChannelCount || usesAdvisoryChannelFallback) &&
+      (hasProbedChannelCount || usesAccountingChannelFallback) &&
       Number.isSafeInteger(ownDecodeFootprintBytes) &&
       Number.isSafeInteger(estimatedWorkingSetBytes),
     channelCount,

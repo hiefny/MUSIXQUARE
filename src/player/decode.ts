@@ -83,10 +83,7 @@ import { showToast, showLoader } from '../ui/toast.ts';
 import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
-import {
-  maybeAnnounceDecodeMemoryRiskWarning,
-  maybeAnnounceLargeLocalTrackWarning,
-} from './large-local-track-warning.ts';
+import { maybeAnnounceLargeLocalTrackWarning } from './large-local-track-warning.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
   assertDecodedAudioBufferWithinBudget,
@@ -168,23 +165,17 @@ async function decodeBlobToAudioBuffer(
 
       if (!isCurrent()) throw new DecodeSupersededError(label);
       try {
-        if (queueItemId) {
-          let announcedMemoryRisk = false;
-          if (admission.hasReliableMetadata) {
-            announcedMemoryRisk = maybeAnnounceDecodeMemoryRiskWarning(queueItemId, admission);
-          }
-          if (
-            !announcedMemoryRisk &&
-            (!admission.hasReliableMetadata || admission.probedChannelCount === null)
-          ) {
-            // Metadata/header support is best-effort. Preserve the established
-            // encoded-size warning if the partial estimate was inconclusive.
-            maybeAnnounceLargeLocalTrackWarning(queueItemId, blob.size);
-          }
+        if (
+          queueItemId &&
+          (!admission.hasReliableMetadata || admission.probedChannelCount === null)
+        ) {
+          // Metadata/header support is best-effort. Preserve the established
+          // encoded-size warning if the partial estimate was inconclusive.
+          maybeAnnounceLargeLocalTrackWarning(queueItemId, blob.size);
         }
       } catch (warningError) {
         // Advisory UI must never turn a playable file into a decode failure.
-        log.warn('[DecodeMemoryWarning] Could not announce memory risk', warningError);
+        log.warn('[LargeLocalTrackWarning] Could not announce file size warning', warningError);
       }
       // Reserve synchronously after the async accounting boundary so ownership
       // and diagnostics cannot omit overlapping native decodes. Production

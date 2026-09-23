@@ -423,8 +423,6 @@ const pa: Record<I18nKey, string> = {
     'ਟਰੈਕ ਛੱਡਿਆ ਜਾ ਰਿਹਾ ਹੈ: ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਫਾਰਮੈਟ ਨਹੀਂ ਚੱਲਦਾ।',
   'chat.large_local_track_system_message':
     'ਇਸ ਟਰੈਕ ਦੀ ਫ਼ਾਈਲ ਬਹੁਤ ਵੱਡੀ ਹੈ ਅਤੇ ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਸ਼ਾਇਦ ਨਾ ਚੱਲੇ।',
-  'chat.decode_memory_risk_system_message':
-    'ਡੀਕੋਡ ਕਰਨ ਵੇਲੇ ਇਹ ਟਰੈਕ ਲਗਭਗ {{estimatedMiB}} MiB ਮੈਮਰੀ ਵਰਤ ਸਕਦਾ ਹੈ ਅਤੇ ਇਸ ਡਿਵਾਈਸ ਉੱਤੇ ਸ਼ਾਇਦ ਨਾ ਚੱਲੇ।',
   'chat.device_track_unavailable_system_message': 'ਇਹ ਡਿਵਾਈਸ ਮੌਜੂਦਾ ਟਰੈਕ ਨਹੀਂ ਚਲਾ ਸਕਦੀ।',
   'chat.system_audio_started_system_message':
     'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਸ਼ੁਰੂ ਹੋ ਗਿਆ ਹੈ। ਹੋਸਟ ਅਤੇ ਮਹਿਮਾਨ ਡਿਵਾਈਸਾਂ ਵਿਚਕਾਰ ਥੋੜ੍ਹੀ ਦੇਰੀ ਆਮ ਗੱਲ ਹੈ। ਗੂੰਜ ਤੋਂ ਬਚਣ ਲਈ ਹੋਸਟ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘਟਾਉਣ ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕੀਤੀ ਜਾਂਦੀ ਹੈ।',

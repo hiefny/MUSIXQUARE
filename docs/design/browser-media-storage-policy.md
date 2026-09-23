@@ -65,17 +65,15 @@ a browser can materialize. At the time of this note, metadata duration/channel
 probes were skipped because their only production use was conservative
 pre-rejection.
 
-**Advisory amendment (2026-08-31):** admission remains unbounded. Before every
-`AudioBuffer` decode, bounded duration and channel probes now estimate decoded
-PCM plus the projected live decode working set. The client shows a local system
-message at most once per queue occurrence and room session when either estimate
-crosses the current device tier's advisory boundary: 192/320 MiB for iOS,
-256/448 MiB for constrained devices, 384/768 MiB for standard devices, and
-512/1024 MiB for high-memory desktops (decoded PCM / working set). The message
-is neither broadcast nor an admission gate. If reliable metadata is unavailable,
-a Standard-room encoded file above 200 MiB uses the previous generic size
-warning as a fallback. A successful `AudioBuffer` is still measured after decode
-for accounting only and is not discarded for crossing a tier.
+**Beta update (2026-09-23, supersedes the 2026-08-31 advisory):** admission
+remains unbounded. The predicted-memory message and device-tier warning
+thresholds have been removed. Bounded duration and channel probes still estimate
+decoded PCM and the projected live decode working set for the memory ledger;
+these estimates do not produce a user-facing warning. The separate Standard-room
+generic size warning remains for encoded files above 200 MiB when duration or
+channel metadata is unavailable. A successful `AudioBuffer` is still measured
+after decode for accounting only and is not discarded for crossing a tier.
+This beta change does not introduce a streaming decoder or change transfer limits.
 
 Remote sharing retains its fixed 200 MiB protocol/storage ceiling. P2P also
 retains integrity limits for positive safe sizes, exact chunk totals, 64 KiB

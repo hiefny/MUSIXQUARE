@@ -427,8 +427,6 @@ const kn: Record<I18nKey, string> = {
     'ಟ್ರ್ಯಾಕ್ ಬಿಟ್ಟುಹೋಗುತ್ತಿದೆ: ಕೆಲವು ಸಾಧನಗಳಲ್ಲಿ ಈ ಫಾರ್ಮ್ಯಾಟ್ ಬೆಂಬಲಿತವಾಗಿಲ್ಲ.',
   'chat.large_local_track_system_message':
     'ಈ ಟ್ರ್ಯಾಕ್‌ನ ಫೈಲ್ ಗಾತ್ರ ಬಹಳ ದೊಡ್ಡದಿದೆ ಮತ್ತು ಕೆಲವು ಸಾಧನಗಳಲ್ಲಿ ಪ್ಲೇ ಆಗದಿರಬಹುದು.',
-  'chat.decode_memory_risk_system_message':
-    'ಡಿಕೋಡ್ ಮಾಡುವಾಗ ಈ ಟ್ರ್ಯಾಕ್ ಸುಮಾರು {{estimatedMiB}} MiB ಮೆಮೊರಿ ಬಳಸಬಹುದು ಮತ್ತು ಈ ಸಾಧನದಲ್ಲಿ ಪ್ಲೇ ಆಗದಿರಬಹುದು.',
   'chat.device_track_unavailable_system_message':
     'ಈ ಸಾಧನವು ಪ್ರಸ್ತುತ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಪ್ಲೇ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.',
   'chat.system_audio_started_system_message':

@@ -1099,58 +1099,58 @@ describe('unbounded legacy decode policy', () => {
     expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
   });
 
-  it('announces a metadata-based memory estimate before allocating or decoding', async () => {
-    Object.defineProperty(navigator, 'userAgent', {
-      configurable: true,
-      value: 'Mozilla/5.0 (iPhone)',
-    });
-    const file = makeWaveFile('long-stereo.wav', 2);
-    const item = makeFileTrack(file);
-    setState('playlist.items', [item]);
-    setCurrentIndex(0);
-
-    const order: string[] = [];
-    const nativeArrayBuffer = file.arrayBuffer.bind(file);
-    const arrayBufferSpy = vi.spyOn(file, 'arrayBuffer').mockImplementation(async () => {
-      order.push('array-buffer');
-      return nativeArrayBuffer();
-    });
-    const loadSpy = vi
-      .spyOn(HTMLMediaElement.prototype, 'load')
-      .mockImplementation(function metadataLoad(this: HTMLMediaElement) {
-        if (!this.hasAttribute('src')) return;
-        Object.defineProperty(this, 'duration', { configurable: true, value: 600 });
-        queueMicrotask(() => this.dispatchEvent(new Event('loadedmetadata')));
+  it.each([undefined, LOCAL_LARGE_TRACK_WARNING_BYTES + 1])(
+    'decodes a high-PCM track with known metadata without a warning (encoded size: %s)',
+    async (encodedBytes) => {
+      Object.defineProperty(navigator, 'userAgent', {
+        configurable: true,
+        value: 'Mozilla/5.0 (iPhone)',
       });
-    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
-    mocks.announceSystemMessageLocally.mockImplementation((key: string) => {
-      if (key === 'chat.decode_memory_risk_system_message') order.push('warning');
-    });
-    mocks.decodeAudioData.mockImplementation(async () => {
-      order.push('decode');
-      return {
-        duration: 600,
-        length: 600 * 48_000,
-        numberOfChannels: 2,
-        sampleRate: 48_000,
-      } as AudioBuffer;
-    });
+      const file = makeWaveFile('long-stereo.wav', 2);
+      if (encodedBytes !== undefined) {
+        Object.defineProperty(file, 'size', { configurable: true, value: encodedBytes });
+      }
+      const item = makeFileTrack(file);
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
 
-    try {
-      const { loadAndBroadcastFile } = await import('../decode.ts');
-      await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(true);
-    } finally {
-      arrayBufferSpy.mockRestore();
-      loadSpy.mockRestore();
-      pauseSpy.mockRestore();
-    }
+      const order: string[] = [];
+      const nativeArrayBuffer = file.arrayBuffer.bind(file);
+      const arrayBufferSpy = vi.spyOn(file, 'arrayBuffer').mockImplementation(async () => {
+        order.push('array-buffer');
+        return nativeArrayBuffer();
+      });
+      const loadSpy = vi
+        .spyOn(HTMLMediaElement.prototype, 'load')
+        .mockImplementation(function metadataLoad(this: HTMLMediaElement) {
+          if (!this.hasAttribute('src')) return;
+          Object.defineProperty(this, 'duration', { configurable: true, value: 600 });
+          queueMicrotask(() => this.dispatchEvent(new Event('loadedmetadata')));
+        });
+      const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+      mocks.decodeAudioData.mockImplementation(async () => {
+        order.push('decode');
+        return {
+          duration: 600,
+          length: 600 * 48_000,
+          numberOfChannels: 2,
+          sampleRate: 48_000,
+        } as AudioBuffer;
+      });
 
-    expect(mocks.announceSystemMessageLocally).toHaveBeenCalledWith(
-      'chat.decode_memory_risk_system_message',
-      { estimatedMiB: expect.any(Number) },
-    );
-    expect(order).toEqual(['warning', 'array-buffer', 'decode']);
-  });
+      try {
+        const { loadAndBroadcastFile } = await import('../decode.ts');
+        await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(true);
+      } finally {
+        arrayBufferSpy.mockRestore();
+        loadSpy.mockRestore();
+        pauseSpy.mockRestore();
+      }
+
+      expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      expect(order).toEqual(['array-buffer', 'decode']);
+    },
+  );
 
   it('uses the size fallback without blocking when metadata is uncertain above 200 MiB', async () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'large-lossless.flac', {

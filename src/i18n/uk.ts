@@ -424,8 +424,6 @@ const uk: Record<I18nKey, string> = {
   'chat.decode_skip_system_message': 'Трек пропущено: деякі пристрої не підтримують цей формат.',
   'chat.large_local_track_system_message':
     'Цей файл дуже великий і може не відтворюватися на деяких пристроях.',
-  'chat.decode_memory_risk_system_message':
-    'Під час декодування цей трек може займати близько {{estimatedMiB}} MiB пам’яті й не відтворитися на цьому пристрої.',
   'chat.device_track_unavailable_system_message': 'Цей пристрій не може відтворити поточний трек.',
   'chat.system_audio_started_system_message':
     'Розпочато трансляцію системного аудіо. Невелика затримка між пристроями хоста й гостей є нормальною. Щоб уникнути відлуння, радимо зменшити гучність пристрою хоста.',

@@ -2104,10 +2104,8 @@
     {
       "code": "mr",
       "surface": "app",
-      "key": "chat.decode_memory_risk_system_message",
-      "before": "डीकोड करताना हा ट्रॅक सुमारे {{estimatedMiB}} MiB मेमरी वापरू शकतो आणि या डिव्हाइसवर प्ले होणार नाही.",
-      "after": "डीकोड करताना हा ट्रॅक सुमारे {{estimatedMiB}} MiB मेमरी वापरू शकतो आणि या डिव्हाइसवर कदाचित प्ले होणार नाही.",
-      "reason": "preserve possible decode failure rather than a guaranteed failure"
+      "retiredOn": "2026-09-23",
+      "reason": "The decode-memory advisory and its copy were removed. This historical entry remains counted in the original audit totals; its original text is preserved in Git history."
     },
     {
       "code": "mr",

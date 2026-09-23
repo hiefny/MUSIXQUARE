@@ -424,8 +424,6 @@ const fi: Record<I18nKey, string> = {
     'Kappale ohitetaan: jotkin laitteet eivät tue sen tiedostomuotoa.',
   'chat.large_local_track_system_message':
     'Tiedosto on erittäin suuri, eikä kappale välttämättä toistu kaikilla laitteilla.',
-  'chat.decode_memory_risk_system_message':
-    'Kappaleen purkaminen voi käyttää noin {{estimatedMiB}} MiB muistia, eikä kappale välttämättä toistu tällä laitteella.',
   'chat.device_track_unavailable_system_message': 'Tämä laite ei voi toistaa nykyistä kappaletta.',
   'chat.system_audio_started_system_message':
     'Järjestelmän äänen jakaminen aloitettiin. Pieni viive isäntä- ja vieraslaitteiden välillä on normaalia. Kaikumisen välttämiseksi isäntälaitteen äänenvoimakkuutta kannattaa pienentää.',

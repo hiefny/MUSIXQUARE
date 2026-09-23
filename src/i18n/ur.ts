@@ -416,8 +416,6 @@ const ur: Record<I18nKey, string> = {
   'chat.decode_skip_system_message': 'ٹریک چھوڑا جا رہا ہے: کچھ آلات پر فارمیٹ معاون نہیں۔',
   'chat.large_local_track_system_message':
     'اس ٹریک کی فائل بہت بڑی ہے اور شاید کچھ آلات پر نہ چلے۔',
-  'chat.decode_memory_risk_system_message':
-    'ڈی کوڈ کرتے وقت یہ ٹریک تقریباً {{estimatedMiB}} MiB میموری استعمال کر سکتا ہے اور شاید اس آلے پر نہ چلے۔',
   'chat.device_track_unavailable_system_message': 'یہ آلہ موجودہ ٹریک نہیں چلا سکتا۔',
   'chat.system_audio_started_system_message':
     'سسٹم آڈیو شیئر ہونا شروع ہو گیا ہے۔ میزبان اور مہمان آلات کے درمیان معمولی تاخیر عام ہے۔ بازگشت سے بچنے کے لیے میزبان آلے کی آواز کم رکھنے کا مشورہ ہے۔',

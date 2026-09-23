@@ -429,8 +429,6 @@ const el: Record<I18nKey, string> = {
     'Το κομμάτι παραλείπεται: η μορφή δεν υποστηρίζεται σε ορισμένες συσκευές.',
   'chat.large_local_track_system_message':
     'Το αρχείο αυτού του κομματιού είναι πολύ μεγάλο και ενδέχεται να μην αναπαράγεται σε ορισμένες συσκευές.',
-  'chat.decode_memory_risk_system_message':
-    'Αυτό το κομμάτι μπορεί να χρησιμοποιήσει περίπου {{estimatedMiB}} MiB μνήμης κατά την αποκωδικοποίηση και ενδέχεται να μην αναπαράγεται σε αυτή τη συσκευή.',
   'chat.device_track_unavailable_system_message':
     'Αυτή η συσκευή δεν μπορεί να αναπαραγάγει το τρέχον κομμάτι.',
   'chat.system_audio_started_system_message':

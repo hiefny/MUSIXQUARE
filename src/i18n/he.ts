@@ -412,8 +412,6 @@ const he: Record<I18nKey, string> = {
   'chat.decode_skip_system_message': 'הרצועה תידלג: הפורמט אינו נתמך בחלק מהמכשירים.',
   'chat.large_local_track_system_message':
     'הקובץ של הרצועה גדול מאוד וייתכן שלא יתנגן בחלק מהמכשירים.',
-  'chat.decode_memory_risk_system_message':
-    'הרצועה עשויה להשתמש בכ-{{estimatedMiB}} MiB של זיכרון במהלך הפענוח, וייתכן שלא תתנגן במכשיר הזה.',
   'chat.device_track_unavailable_system_message': 'המכשיר הזה לא יכול לנגן את הרצועה הנוכחית.',
   'chat.system_audio_started_system_message':
     'שיתוף שמע המערכת התחיל. השהיה קלה בין המארח למכשירי האורחים היא תקינה. מומלץ להנמיך את עוצמת הקול במכשיר המארח כדי למנוע הד.',

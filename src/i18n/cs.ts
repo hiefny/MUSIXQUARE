@@ -424,8 +424,6 @@ const cs: Record<I18nKey, string> = {
     'Skladba se přeskakuje: některá zařízení tento formát nepodporují.',
   'chat.large_local_track_system_message':
     'Soubor této skladby je velmi velký a na některých zařízeních se nemusí přehrát.',
-  'chat.decode_memory_risk_system_message':
-    'Tato skladba může při dekódování využít přibližně {{estimatedMiB}} MiB paměti a na tomto zařízení se nemusí přehrát.',
   'chat.device_track_unavailable_system_message': 'Toto zařízení nemůže přehrát aktuální skladbu.',
   'chat.system_audio_started_system_message':
     'Sdílení systémového zvuku bylo spuštěno. Mírné zpoždění mezi zařízením hostitele a zařízeními účastníků je běžné. Doporučujeme ztlumit zařízení hostitele, aby nevznikala ozvěna.',

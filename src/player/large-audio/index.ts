@@ -1,13 +1,24 @@
-import { ALL_FORMATS, PCM_AUDIO_CODECS, AudioBufferSink, BlobSource, Input } from 'mediabunny';
+import {
+  ALL_FORMATS,
+  PCM_AUDIO_CODECS,
+  AdtsInputFormat,
+  AudioBufferSink,
+  BlobSource,
+  Input,
+  Mp4InputFormat,
+} from 'mediabunny';
 import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import type { PcmIterator } from './bounded-playback.ts';
 import { BoundedAudioTrack } from './bounded-track.ts';
 import { readMp3GaplessTrim } from './mp3-gapless.ts';
 import { registerIncrementalAudioDecoders } from './wasm-decoders.ts';
+import { IncrementalAacDecoder } from './aac-decoder.ts';
+import { readAacContainerTiming } from './aac-container-timing.ts';
 
 const ENCODED_READ_CACHE_BYTES = 2 * 1024 * 1024;
 const COMPRESSED_SEEK_PREROLL_SECONDS = 0.5;
+const AAC_SEEK_PREROLL_SECONDS = 1;
 
 let openSequence = 0;
 
@@ -54,9 +65,20 @@ export async function openLargeAudioTrack(
     if (
       codec !== 'mp3' &&
       codec !== 'flac' &&
+      codec !== 'aac' &&
       !(PCM_AUDIO_CODECS as readonly (string | null)[]).includes(codec)
     ) {
       throw new Error(`Unsupported large audio codec: ${codec ?? 'unknown'}`);
+    }
+    const aacConfig = codec === 'aac' ? await track.getDecoderConfig() : null;
+    if (codec === 'aac' && !IncrementalAacDecoder.supports(codec, aacConfig)) {
+      throw new Error('Unsupported large AAC profile');
+    }
+    if (codec === 'aac') {
+      const format = await input.getFormat();
+      if (!(format instanceof Mp4InputFormat) && !(format instanceof AdtsInputFormat)) {
+        throw new Error('Unsupported large AAC container');
+      }
     }
     if (!(await track.canDecode())) {
       throw new Error('This large audio track has no supported incremental decoder');
@@ -64,17 +86,41 @@ export async function openLargeAudioTrack(
     // Some elementary-stream demuxers initialize their first-frame parser on
     // demand. Finish that mutation before asking them to scan to the end.
     const firstTimestamp = await track.getFirstTimestamp();
-    const [rawDuration, sampleRate, numberOfChannels] = await Promise.all([
+    const [rawDuration, encodedSampleRate, encodedNumberOfChannels] = await Promise.all([
       track.computeDuration(),
       track.getSampleRate(),
       track.getNumberOfChannels(),
     ]);
     assertCurrent();
+    const sink = new AudioBufferSink(track);
+    let sampleRate = encodedSampleRate;
+    let numberOfChannels = encodedNumberOfChannels;
+    if (codec === 'aac') {
+      // ADTS and implicit HE-AAC metadata describe the AAC core, which may
+      // decode to twice the sample rate and (with PS) two output channels.
+      // Inspect one actual output buffer rather than guessing those properties.
+      const probe = sink.buffers(firstTimestamp);
+      try {
+        const first = await probe.next();
+        assertCurrent();
+        if (first.done) throw new Error('Large AAC track contains no decoded audio');
+        sampleRate = first.value.buffer.sampleRate;
+        numberOfChannels = first.value.buffer.numberOfChannels;
+      } finally {
+        await probe.return();
+      }
+    }
     const trim =
       codec === 'mp3' ? await readMp3GaplessTrim(blob) : { startSamples: 0, endSamples: 0 };
     assertCurrent();
-    const origin = Math.max(0, firstTimestamp) + trim.startSamples / sampleRate;
-    const duration = rawDuration - origin - trim.endSamples / sampleRate;
+    const aacTiming = aacConfig
+      ? await readAacContainerTiming(blob, track.id, aacConfig, options.isCurrent)
+      : null;
+    assertCurrent();
+    const origin =
+      aacTiming?.origin ?? Math.max(0, firstTimestamp) + trim.startSamples / sampleRate;
+    const duration =
+      Math.min(rawDuration, aacTiming?.end ?? rawDuration) - origin - trim.endSamples / sampleRate;
     if (
       !Number.isFinite(duration) ||
       duration <= 0 ||
@@ -86,12 +132,16 @@ export async function openLargeAudioTrack(
     ) {
       throw new Error('Invalid large audio track metadata');
     }
-    const sink = new AudioBufferSink(track);
     const openReader = async function* (position: number): PcmIterator {
-      // MPEG's bit reservoir and synthesis filters need preceding frames after
-      // random access. Decode a small preroll and keep its timestamps; prepare
-      // discards it without delaying the requested audible start.
-      const preroll = codec === 'mp3' ? COMPRESSED_SEEK_PREROLL_SECONDS : 0;
+      // MPEG's bit reservoir and AAC's filterbank/parametric-stereo state need
+      // preceding frames after random access. Decode a bounded preroll and keep
+      // its timestamps; prepare discards it before the requested audible start.
+      const preroll =
+        codec === 'aac'
+          ? AAC_SEEK_PREROLL_SECONDS
+          : codec === 'mp3'
+            ? COMPRESSED_SEEK_PREROLL_SECONDS
+            : 0;
       const startsAt = Math.max(firstTimestamp, position + origin - preroll);
       for await (const chunk of sink.buffers(startsAt)) {
         yield { buffer: chunk.buffer, timestamp: chunk.timestamp - origin };

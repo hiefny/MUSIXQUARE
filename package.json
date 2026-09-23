@@ -181,6 +181,7 @@
     "ws": "^8.21.3"
   },
   "dependencies": {
+    "@wasm-audio-decoders/aac": "0.0.1",
     "@wasm-audio-decoders/flac": "0.2.11",
     "jsqr": "^1.4.0",
     "mediabunny": "1.59.0",

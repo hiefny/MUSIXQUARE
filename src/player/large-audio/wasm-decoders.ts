@@ -8,6 +8,7 @@ import {
 import type { MPEGDecoderWebWorker } from 'mpg123-decoder';
 import type { FLACDecoderWebWorker } from '@wasm-audio-decoders/flac';
 import { decoderWorkerCall } from './worker-call.ts';
+import { IncrementalAacDecoder } from './aac-decoder.ts';
 
 interface DecodedPcm {
   channelData: Float32Array[];
@@ -120,5 +121,6 @@ export function registerIncrementalAudioDecoders(): void {
   if (registered) return;
   registerDecoder(IncrementalMp3Decoder);
   registerDecoder(IncrementalFlacDecoder);
+  registerDecoder(IncrementalAacDecoder);
   registered = true;
 }

@@ -73,10 +73,18 @@ pre-rejection.
 **Beta update (2026-09-23, supersedes the 2026-08-31 advisory):** the owner chose
 to keep the whole-track AudioBuffer engine permanently as the default and add
 a second engine only for memory-heavy tracks. The new engine reads the resident
-File/Blob incrementally, decodes MP3/FLAC in WASM workers or uses a supported
-WebCodecs/PCM decoder, and schedules short AudioBuffers against the same
+File/Blob incrementally, decodes MP3/FLAC/AAC in WASM workers or uses a supported
+PCM decoder, and schedules short AudioBuffers against the same
 AudioContext clock and playback route. It does not use a media-element output
 clock, OPFS, IndexedDB media storage, or a new network streaming protocol.
+
+The AAC beta path covers AAC-LC, HE-AAC v1, and HE-AAC v2 in M4A/MP4 or ADTS
+framing. It reads container timing/trim information and primes preceding frames
+for seeks; it does not treat every `.aac` or `.m4a` file as an accepted profile.
+Actual decoded channels and sample rate determine the output, including SBR/PS
+expansion. Long ADTS files need an initial frame-index scan, and the resulting
+parser metadata is additional memory beyond the bounded PCM window. Browser
+`AudioDecoder` availability is not required by this AAC worker path.
 
 Selection uses estimated PCM or that track's own decode footprint, not the
 aggregate ledger including previous tracks and concurrent transfers. Each new

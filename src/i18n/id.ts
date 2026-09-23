@@ -752,6 +752,8 @@ const id: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Batas permintaan BOT tercapai. Coba lagi dalam {{duration}}',
   'chat.decode_skip_system_message':
     'Beberapa perangkat tidak dapat memutar media ini. Beralih ke media berikutnya.',
+  'chat.large_track_playback_system_message':
+    'Trek ini sangat besar, sehingga mungkin terjadi penundaan saat digunakan.',
   'chat.large_local_track_system_message':
     'Ukuran media ini sangat besar dan mungkin tidak dapat diputar di sebagian perangkat.',
   'chat.device_track_unavailable_system_message':

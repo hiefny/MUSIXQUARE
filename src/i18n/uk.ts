@@ -422,6 +422,8 @@ const uk: Record<I18nKey, string> = {
   'chat.bot_rate_limited':
     'Досягнуто ліміту запитів до BOT. Зачекайте {{duration}} і повторіть спробу',
   'chat.decode_skip_system_message': 'Трек пропущено: деякі пристрої не підтримують цей формат.',
+  'chat.large_track_playback_system_message':
+    'Цей трек дуже великий, тому під час його використання можливі затримки.',
   'chat.large_local_track_system_message':
     'Цей файл дуже великий і може не відтворюватися на деяких пристроях.',
   'chat.device_track_unavailable_system_message': 'Цей пристрій не може відтворити поточний трек.',

@@ -418,6 +418,8 @@ const bn: Record<I18nKey, string> = {
     'BOT অনুরোধের সীমা শেষ হয়েছে। {{duration}} অপেক্ষা করে আবার চেষ্টা করুন',
   'chat.decode_skip_system_message':
     'ট্র্যাকটি বাদ দেওয়া হচ্ছে: কিছু ডিভাইসে এই ফরম্যাট সমর্থিত নয়।',
+  'chat.large_track_playback_system_message':
+    'এই ট্র্যাকটি খুব বড়, তাই এটি ব্যবহারের সময় বিলম্ব হতে পারে।',
   'chat.large_local_track_system_message':
     'এই ট্র্যাকের ফাইল অনেক বড় এবং কিছু ডিভাইসে নাও চলতে পারে।',
   'chat.device_track_unavailable_system_message': 'এই ডিভাইসটি বর্তমান ট্র্যাক চালাতে পারছে না।',

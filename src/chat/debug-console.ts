@@ -18,6 +18,7 @@ import { getPreloadMemoryStats } from '../storage/preload.ts';
 import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { ramStats } from '../storage/ramstore.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
+import { isLargeAudioTrack } from '../player/file-playback-resource.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { getCapturedLogs } from '../core/log-capture.ts';
 import { log } from '../core/log.ts';
@@ -781,11 +782,14 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
   try {
     const audioBuf = getCurrentAudioBuffer();
     if (audioBuf) {
-      // PCM bytes = numberOfChannels × length × 4 (Float32)
-      const pcmBytes = audioBuf.numberOfChannels * audioBuf.length * 4;
+      // Bounded decoding retains a window, not the full-duration PCM equivalent.
+      const bounded = isLargeAudioTrack(audioBuf);
+      const pcmBytes = bounded
+        ? audioBuf.bufferedPcmBytes
+        : audioBuf.numberOfChannels * audioBuf.length * 4;
       trackedBytes += pcmBytes;
       lines.push(
-        `[Audio] buffer:${(pcmBytes / 1048576).toFixed(1)}MB (${audioBuf.duration.toFixed(1)}s × ${audioBuf.numberOfChannels}ch @ ${audioBuf.sampleRate}Hz)`,
+        `[Audio] ${bounded ? 'bounded PCM' : 'buffer'}:${(pcmBytes / 1048576).toFixed(1)}MB (${audioBuf.duration.toFixed(1)}s × ${audioBuf.numberOfChannels}ch @ ${audioBuf.sampleRate}Hz)`,
       );
     } else {
       lines.push('[Audio] buffer:none');

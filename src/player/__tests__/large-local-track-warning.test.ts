@@ -73,4 +73,62 @@ describe('large local track compatibility warning', () => {
 
     expect(announceSystemMessageLocally).toHaveBeenCalledTimes(2);
   });
+
+  it('announces bounded playback once per queue occurrence', async () => {
+    const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+    announceLargeTrackPlayback(Q0);
+    announceLargeTrackPlayback(Q0);
+    expect(announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+      'chat.large_track_playback_system_message',
+    );
+    announceLargeTrackPlayback(Q1);
+    expect(announceSystemMessageLocally).toHaveBeenCalledTimes(2);
+  });
+
+  it('also announces bounded playback in PRO rooms', async () => {
+    const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    announceLargeTrackPlayback(Q0);
+    expect(announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+      'chat.large_track_playback_system_message',
+    );
+  });
+
+  it('deduplicates demo files by Blob identity without suppressing other demo tracks', async () => {
+    const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+    const first = new Blob(['first']);
+    const second = new Blob(['second']);
+    announceLargeTrackPlayback(first);
+    announceLargeTrackPlayback(first);
+    expect(announceSystemMessageLocally).toHaveBeenCalledOnce();
+    announceLargeTrackPlayback(second);
+    expect(announceSystemMessageLocally).toHaveBeenCalledTimes(2);
+    expect(announceSystemMessageLocally).toHaveBeenLastCalledWith(
+      'chat.large_track_playback_system_message',
+    );
+  });
+
+  it.each(['starting', 'leaving'] as const)(
+    'resets bounded-playback guidance for queue and demo identities on %s a session',
+    async (boundary) => {
+      const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+      const demo = new Blob(['demo']);
+      if (boundary === 'leaving') setState('network.sessionCode', '123456');
+      announceLargeTrackPlayback(Q0);
+      announceLargeTrackPlayback(demo);
+      if (boundary === 'starting') setState('setup.sessionStarted', true);
+      else setState('network.sessionCode', '');
+      announceLargeTrackPlayback(Q0);
+      announceLargeTrackPlayback(demo);
+      expect(announceSystemMessageLocally).toHaveBeenCalledTimes(4);
+    },
+  );
 });

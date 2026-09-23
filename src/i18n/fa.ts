@@ -413,6 +413,8 @@ const fa: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'به سقف درخواست BOT رسیده‌اید. {{duration}} صبر کنید و دوباره تلاش کنید',
   'chat.decode_skip_system_message':
     'این قطعه رد می‌شود: قالب آن در برخی دستگاه‌ها پشتیبانی نمی‌شود.',
+  'chat.large_track_playback_system_message':
+    'این قطعه بسیار حجیم است، بنابراین ممکن است هنگام استفاده از آن با تأخیر مواجه شوید.',
   'chat.large_local_track_system_message':
     'حجم فایل این قطعه بسیار زیاد است و ممکن است در بعضی دستگاه‌ها پخش نشود.',
   'chat.device_track_unavailable_system_message': 'این دستگاه نمی‌تواند قطعهٔ فعلی را پخش کند.',

@@ -157,7 +157,9 @@ describe('demo and pending-start manual controls', () => {
       initSync();
       if (event === 'sync:set-manual-offset') bus.emit(event, 9999);
       else bus.emit(event);
-      expect(transportMocks.play).toHaveBeenCalledWith(expect.any(Number), 0, 12345);
+      expect(transportMocks.play).toHaveBeenCalledWith(expect.any(Number), 0, 12345, undefined, {
+        outputOnly: true,
+      });
     },
   );
 

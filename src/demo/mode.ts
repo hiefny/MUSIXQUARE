@@ -12,6 +12,11 @@ import {
   setCurrentAudioBuffer,
   setLocalFilePaused,
 } from '../player/_state.ts';
+import {
+  releaseFilePlaybackResource,
+  retainFilePlaybackResource,
+  type FilePlaybackResource,
+} from '../player/file-playback-resource.ts';
 import { prepareMediaSession } from '../player/media-session-loader.ts';
 import {
   getPlaybackModeActivitySnapshot,
@@ -97,7 +102,7 @@ type DemoSnapshot = {
   // transfer.meta describes the active generation while currentFile keeps
   // the resident Blob and its queue/session owner atomic.
   transferMeta: Partial<FileMeta>;
-  currentAudioBuffer: AudioBuffer | null;
+  currentAudioBuffer: FilePlaybackResource | null;
   pausedAt: number;
   duration: number;
   playback: PlaybackModeActivity;
@@ -260,7 +265,7 @@ function captureSnapshot(): DemoSnapshot {
     currentAudioBuffer
       ? getTrackPosition()
       : fallbackPausedAt;
-  return {
+  const snapshot: DemoSnapshot = {
     room: captureDemoRoomIdentity(),
     channelMode: getState('audio.channelMode'),
     reverbMix: getState('audio.reverbMix'),
@@ -286,6 +291,17 @@ function captureSnapshot(): DemoSnapshot {
     playback,
     visualizerMode: getCurrentVisualizerMode(),
   };
+  // Demo playback replaces the current resource. Its prior large-track
+  // decoder remains owned by this snapshot until restoration or dismissal.
+  if (currentAudioBuffer) retainFilePlaybackResource(currentAudioBuffer);
+  return snapshot;
+}
+
+function releaseSnapshotResource(snapshot: DemoSnapshot | null): void {
+  if (!snapshot?.currentAudioBuffer) return;
+  const resource = snapshot.currentAudioBuffer;
+  snapshot.currentAudioBuffer = null;
+  releaseFilePlaybackResource(resource);
 }
 
 function failClosedDemoMediaRestore(snapshot: DemoSnapshot): void {
@@ -1527,30 +1543,39 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   _snapshot = null;
   setDemoDomActive(false, {
     afterCovered: () => {
-      if (options.restoreSnapshot === false) return;
-      const restoreMedia = shouldRestoreDemoSnapshotMedia(
-        getPlaybackModeActivitySnapshot(),
-        getState('playback.lifecycle'),
-      );
-      if (!restoreMedia) {
-        log.info('[Demo] Skipping stale media snapshot restore; new playback started during exit');
+      try {
+        if (options.restoreSnapshot === false) return;
+        const restoreMedia = shouldRestoreDemoSnapshotMedia(
+          getPlaybackModeActivitySnapshot(),
+          getState('playback.lifecycle'),
+        );
+        if (!restoreMedia) {
+          log.info(
+            '[Demo] Skipping stale media snapshot restore; new playback started during exit',
+          );
+        }
+        // Completing the demo commits the role and effects the user just chose.
+        // Failed/interrupted entry paths opt back into restoring the audio
+        // snapshot, while media and visualizer restoration remain independent.
+        // Clear the demo timeline before restoring the captured owner. The
+        // restored file-mode projection must be the final writer.
+        if (restoreMedia) bus.emit('ui:seek-reset');
+        restoreSnapshot(snapshot, {
+          audio: options.restoreAudioSettings ?? false,
+          media: restoreMedia,
+          isCurrent: () =>
+            _demoLoadGeneration === exitGeneration &&
+            !getState('demo.active') &&
+            !getState('demo.loading') &&
+            !!snapshot &&
+            hasCurrentDemoRestoreAuthority(snapshot.room),
+        });
+      } finally {
+        // The state setter retains a restored resource before this releases
+        // the snapshot. Authority resets and superseded restores release it
+        // too, so an abandoned decoder cannot survive a room/demo transition.
+        releaseSnapshotResource(snapshot);
       }
-      // Completing the demo commits the role and effects the user just chose.
-      // Failed/interrupted entry paths opt back into restoring the audio
-      // snapshot, while media and visualizer restoration remain independent.
-      // Clear the demo timeline before restoring the captured owner. The
-      // restored file-mode projection must be the final writer.
-      if (restoreMedia) bus.emit('ui:seek-reset');
-      restoreSnapshot(snapshot, {
-        audio: options.restoreAudioSettings ?? false,
-        media: restoreMedia,
-        isCurrent: () =>
-          _demoLoadGeneration === exitGeneration &&
-          !getState('demo.active') &&
-          !getState('demo.loading') &&
-          !!snapshot &&
-          hasCurrentDemoRestoreAuthority(snapshot.room),
-      });
     },
   });
 }

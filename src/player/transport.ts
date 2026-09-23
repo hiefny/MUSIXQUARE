@@ -52,6 +52,13 @@ import {
 } from '../rooms/authority.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
 import type { QueueItemId, ResidentFile } from '../types/index.ts';
+import {
+  isLargeAudioTrack,
+  isLargeFileSource,
+  type FilePlaybackResource,
+  type FilePlaybackSource,
+} from './file-playback-resource.ts';
+import { createLargeFileSource } from './large-file-source.ts';
 
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
@@ -68,14 +75,19 @@ const STANDARD_HOST_PHYSICAL_REBASE_TOLERANCE_SEC = 0.25;
 const WALL_CLOCK_STEP_TOLERANCE_MS = 2_000;
 const PLAY_LOCK_WATCHDOG_MS = 15_000;
 const PLAY_LOCK_STALE_MS = 5_000;
-const naturallyEndedFileSources = new WeakSet<AudioBufferSourceNode>();
+const naturallyEndedFileSources = new WeakSet<FilePlaybackSource>();
 
 /** Distinguish a retained but naturally-ended one-shot source from live output. */
 export function isFileSourceNodeUsable(
-  node: AudioBufferSourceNode | null,
-  buffer: AudioBuffer,
+  node: FilePlaybackSource | null,
+  buffer: FilePlaybackResource,
 ): boolean {
-  return Boolean(node && node.buffer === buffer && !naturallyEndedFileSources.has(node));
+  return Boolean(
+    node &&
+    node.buffer === buffer &&
+    !naturallyEndedFileSources.has(node) &&
+    (!isLargeFileSource(node) || !node.ended),
+  );
 }
 
 /**
@@ -93,7 +105,7 @@ interface StandardHostCanonicalTimelineAnchor {
   readonly roomEpoch: number;
   readonly queueItemId: string;
   readonly residentFile: ResidentFile | null;
-  readonly buffer: AudioBuffer;
+  readonly buffer: FilePlaybackResource;
   positionSeconds: number;
   startsAtWallMs: number;
   readonly startsAtMonotonicMs: number;
@@ -146,7 +158,7 @@ export function getStandardHostPendingFileStartAt(): number | undefined {
 }
 
 function armStandardHostCanonicalTimeline(
-  buffer: AudioBuffer,
+  buffer: FilePlaybackResource,
   queueItemId: string | null,
   positionSeconds: number,
   scheduleDelaySeconds: number,
@@ -178,7 +190,7 @@ function armStandardHostCanonicalTimeline(
 }
 
 function readStandardHostCanonicalPosition(
-  buffer: AudioBuffer,
+  buffer: FilePlaybackResource,
   physicalPosition: number,
 ): number | null {
   const anchor = standardHostCanonicalTimeline;
@@ -257,7 +269,8 @@ function readStandardHostCanonicalPosition(
 // advance that epoch, while it still tears down the play-lock tuple.
 let playInvocationGeneration = 0;
 
-type PlayLockPhase = 'ensure-running' | 'init-audio' | 'start-source';
+type PlayLockPhase = 'ensure-running' | 'init-audio' | 'prepare-segment' | 'start-source';
+let largeFilePreparation: AbortController | null = null;
 
 interface PlayLockOwner {
   readonly generation: number;
@@ -311,6 +324,8 @@ type PlayRecoveryTiming = 'catch-up' | 'canonical-rebase';
 interface PlayRecoveryOptions {
   readonly suppressPrompt?: boolean;
   readonly onRecoveredStarted?: () => void | Promise<void>;
+  /** A local output adjustment may retain healthy audio if replacement preparation fails. */
+  readonly outputOnly?: boolean;
   /**
    * `catch-up` preserves the requested timeline across a delayed recovery.
    * `canonical-rebase` restarts the captured position and lets a host publish
@@ -349,6 +364,8 @@ function claimPlayInvocation(): number {
 
 function invalidatePlayInvocation(): void {
   playInvocationGeneration += 1;
+  largeFilePreparation?.abort();
+  largeFilePreparation = null;
 }
 
 function isCurrentPlayInvocation(invocation: number): boolean {
@@ -423,6 +440,7 @@ export function recoverStalePlayLock(
 
 function revokeInFlightPlayStart(): void {
   playStartFence += 1;
+  largeFilePreparation?.abort();
 }
 
 export function invalidatePendingFilePlayIntent(): void {
@@ -473,7 +491,7 @@ import {
   prepareForegroundAudioContextRestart,
   probeAudioContextHealth,
 } from '../audio/context.ts';
-import { showToast } from '../ui/toast.ts';
+import { showLoader, showToast } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
 
 // ─── Format Helpers ────────────────────────────────────────────────
@@ -547,6 +565,19 @@ export async function startHostFileAndBroadcastPlay({
   // A guest must never enter this host-local primitive, including during the
   // short handoff window where its UI intent and connection state can differ.
   if (hostConn || startedAsStandardGuest) return false;
+
+  if (isLargeAudioTrack(buffer) && isFilePlaybackPlaying()) {
+    // A seek can now await indexed decoding. Retire the previous end deadline
+    // immediately so the old near-end output cannot advance the playlist while
+    // this newer seek is preparing. Keep the playing intent for subsequent seeks.
+    stopPlayerNode();
+    clearStandardHostCanonicalTimeline();
+    setState('player.startedAt', 0);
+    setState('player.pausedAt', Math.max(0, time));
+    if (ownsCanonicalTimeline) {
+      broadcast({ type: MSG.PAUSE, time: Math.max(0, time), queueItemId, reason: 'seek' });
+    }
+  }
 
   const occurrenceStillCurrent = (): boolean => {
     const currentRoom = getRoomContext();
@@ -671,7 +702,14 @@ function getLocalFilePendingStartDelaySeconds(): number {
 
 /** Keep sync corrections from replacing a source before its scheduled start. */
 export function isLocalFileStartPending(): boolean {
-  return getLocalFilePendingStartDelaySeconds() > 0;
+  const resource = getCurrentAudioBuffer();
+  return (
+    (isLargeAudioTrack(resource) &&
+      isFilePlaybackPlaying() &&
+      !isFileSourceNodeUsable(getPlayerNode(), resource)) ||
+    (largeFilePreparation !== null && !largeFilePreparation.signal.aborted) ||
+    getLocalFilePendingStartDelaySeconds() > 0
+  );
 }
 
 /** An output-only rebuild must retain the already published start deadline. */
@@ -718,6 +756,9 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   const localOffset = getEffectiveLocalFileOutputOffset();
 
   const startedAtValid = hasFileTimelineAnchor(startedAt);
+  if (isLargeAudioTrack(_currentAudioBuffer) && !startedAtValid) {
+    return Math.min(duration, Math.max(0, pausedAt));
+  }
   const audioNow = getCurrentTime();
   if (startedAtValid && audioNow > 0) {
     // Recover an out-of-range manual offset asynchronously so this getter does
@@ -815,7 +856,7 @@ export function stopPlayerNode(): void {
   setPlayerNode(null);
 }
 
-function releaseUncommittedSourceNode(node: AudioBufferSourceNode | null): void {
+function releaseUncommittedSourceNode(node: FilePlaybackSource | null): void {
   if (!node) return;
   try {
     node.onended = null;
@@ -840,8 +881,8 @@ function releaseUncommittedSourceNode(node: AudioBufferSourceNode | null): void 
 }
 
 function armStandardFileCanonicalEnd(
-  node: AudioBufferSourceNode,
-  buffer: AudioBuffer,
+  node: FilePlaybackSource,
+  buffer: FilePlaybackResource,
   loadEpoch: number,
   queueItemId: string | null,
   delaySeconds: number,
@@ -1082,6 +1123,9 @@ export async function play(
         recoveryOptions,
         recoveryGeneration: failedPlayRecoveryGeneration,
       });
+      // Indexed decoding can be cancelled, unlike native whole-file decode.
+      // A rapid seek should prepare only the newest position in the mailbox.
+      largeFilePreparation?.abort();
       return false;
     }
     log.warn('[Play] Stale owner discarded; retrying current request', recovery.snapshot);
@@ -1186,6 +1230,41 @@ export async function play(
         });
       }
     }
+  }
+}
+
+async function prepareLargeFileStart(
+  resource: FilePlaybackResource,
+  position: number,
+  invocation: number,
+  isCurrent: () => boolean,
+  preserveCurrentOutput: () => boolean,
+): Promise<boolean> {
+  if (!isLargeAudioTrack(resource)) return true;
+  const abort = new AbortController();
+  largeFilePreparation?.abort();
+  largeFilePreparation = abort;
+  const loader = `large-file-output-${invocation}`;
+  const ownerPoll = globalThis.setInterval(() => {
+    if (!isCurrent()) abort.abort();
+  }, 100);
+  showLoader(true, t('pro.downloading'), loader);
+  bus.emit('player:output-preparing');
+  try {
+    await resource.prepare(position, abort.signal);
+    return !abort.signal.aborted && isCurrent();
+  } catch (error) {
+    if (!abort.signal.aborted && isCurrent()) {
+      log.warn('[LargeFile] Could not prepare requested position', error);
+      if (!preserveCurrentOutput()) pause(getTrackPosition(), { showToast: false });
+      showToast(t('error.audio_decode_fail'));
+    }
+    return false;
+  } finally {
+    globalThis.clearInterval(ownerPoll);
+    if (largeFilePreparation === abort) largeFilePreparation = null;
+    showLoader(false, undefined, loader);
+    bus.emit('player:output-preparing');
   }
 }
 
@@ -1295,6 +1374,7 @@ async function _internalPlay(
           shouldApply,
           {
             suppressPrompt: true,
+            outputOnly: recoveryOptions?.outputOnly,
             recoveryGeneration: expectedRecoveryGeneration,
           },
         );
@@ -1458,15 +1538,50 @@ async function _internalPlay(
     if (safeOffset === duration) safeOffset = Math.max(0, duration - 0.1);
   }
 
+  // A local host seek establishes a new timeline only after preparation.
+  // Guest/PRO starts keep advancing along the authority's existing timeline.
+  const outputDeadlineMs = Number.isFinite(scheduleDeadlineMs)
+    ? Number(scheduleDeadlineMs)
+    : isLargeAudioTrack(_currentAudioBuffer) && recoveryOptions?.timing !== 'canonical-rebase'
+      ? requestedStartAtMs
+      : undefined;
+  if (isLargeAudioTrack(_currentAudioBuffer)) {
+    const previousOutput = getPlayerNode();
+    const preparationOffset =
+      safeOffset +
+      localOffset +
+      (outputDeadlineMs === undefined
+        ? 0
+        : Math.max(0, performance.now() - outputDeadlineMs) / 1000);
+    markPlayLockPhase(expectedPlayInvocation, 'prepare-segment');
+    const prepared = await prepareLargeFileStart(
+      _currentAudioBuffer,
+      Math.max(0, Math.min(duration - 0.001, preparationOffset)),
+      expectedPlayInvocation,
+      () =>
+        recoveryIntentIsCurrent() &&
+        isCurrentPlayInvocation(expectedPlayInvocation) &&
+        recoveryOutputIsCurrent() &&
+        getCurrentAudioBuffer() === _currentAudioBuffer,
+      () =>
+        recoveryOptions?.outputOnly === true &&
+        getPlayerNode() === previousOutput &&
+        isFilePlaybackPlaying() &&
+        recoveryOutputIsCurrent() &&
+        isFileSourceNodeUsable(previousOutput, _currentAudioBuffer),
+    );
+    if (!prepared) return false;
+  }
+
   // Authority commits carry an absolute participant-local deadline. Audio
   // setup above can itself await; recomputing the remaining lead here keeps
   // that setup latency from being added a second time. Existing callers keep
   // their established relative-delay behavior.
-  const effectiveScheduleDelay = Number.isFinite(scheduleDeadlineMs)
-    ? Math.max(0, (Number(scheduleDeadlineMs) - performance.now()) / 1000)
+  const effectiveScheduleDelay = Number.isFinite(outputDeadlineMs)
+    ? Math.max(0, (Number(outputDeadlineMs) - performance.now()) / 1000)
     : scheduleDelay;
-  if (Number.isFinite(scheduleDeadlineMs)) {
-    safeOffset += Math.max(0, performance.now() - Number(scheduleDeadlineMs)) / 1_000;
+  if (Number.isFinite(outputDeadlineMs)) {
+    safeOffset += Math.max(0, performance.now() - Number(outputDeadlineMs)) / 1_000;
     if (duration > 0) safeOffset = Math.max(0, Math.min(duration - 0.001, safeOffset));
   }
 
@@ -1481,7 +1596,7 @@ async function _internalPlay(
   markPlayLockPhase(expectedPlayInvocation, 'start-source');
 
   // Buffer Mode playback
-  let startedSourceNode: AudioBufferSourceNode | null = null;
+  let startedSourceNode: FilePlaybackSource | null = null;
   const standardHostOwnsCanonicalEnd = isActiveStandardRoomCoordinator();
   if (_currentAudioBuffer) {
     const previousNode = getPlayerNode();
@@ -1489,13 +1604,9 @@ async function _internalPlay(
       isFilePlaybackPlaying() &&
       previousNode !== null &&
       isFileSourceNodeUsable(previousNode, _currentAudioBuffer);
-    let newNode: AudioBufferSourceNode | null = null;
+    let newNode: FilePlaybackSource | null = null;
 
     try {
-      const candidateNode = ctx.createBufferSource();
-      newNode = candidateNode;
-      candidateNode.buffer = _currentAudioBuffer;
-
       const isSurroundMode = getState('audio.isSurroundMode');
       const surroundChannelIndex = getState('audio.surroundChannelIndex');
 
@@ -1512,7 +1623,36 @@ async function _internalPlay(
       // changes only rewire nodes downstream of that input, so toggling a role
       // never recreates or restarts this source.
       const destination = getFilePlaybackDestination();
-      if (destination) candidateNode.connect(destination);
+      if (isLargeAudioTrack(_currentAudioBuffer) && !destination) {
+        throw new Error('Large-file output route is not ready');
+      }
+      const candidateNode = isLargeAudioTrack(_currentAudioBuffer)
+        ? createLargeFileSource(
+            _currentAudioBuffer,
+            ctx,
+            destination ?? ctx.destination,
+            (error) => {
+              if (getPlayerNode() !== candidateNode || !isCurrentLoadEpoch(myLoadEpoch)) return;
+              log.error('[LargeFile] Decoding failed during playback', error);
+              const position = getTrackPosition();
+              pause(position, { showToast: false });
+              showToast(t('error.audio_decode_fail'));
+              if (isActiveStandardRoomCoordinator()) {
+                broadcast({
+                  type: MSG.PAUSE,
+                  time: position,
+                  queueItemId: getCurrentQueueItemId(),
+                  reason: 'stop',
+                });
+              }
+            },
+          )
+        : ctx.createBufferSource();
+      newNode = candidateNode;
+      if (!isLargeFileSource(candidateNode) && !isLargeAudioTrack(_currentAudioBuffer)) {
+        candidateNode.buffer = _currentAudioBuffer;
+        if (destination) candidateNode.connect(destination);
+      }
 
       // Use the onended slot because stopPlayerNode clears that exact callback.
       // addEventListener + `onended = null` would leave the closure (and its
@@ -2146,9 +2286,9 @@ export function adjustSync(val: number): void {
       // Re-check playback state at fire time — user may have paused during the burst.
       if (isFileTransportInactive()) return;
       const pendingStartDeadlineMs = getLocalFilePendingStartDeadlineMs();
-      void play(getTrackPosition(), 0, pendingStartDeadlineMs).catch((error) =>
-        log.warn('[Sync] Failed to apply the local file nudge:', error),
-      );
+      void play(getTrackPosition(), 0, pendingStartDeadlineMs, undefined, {
+        outputOnly: true,
+      }).catch((error) => log.warn('[Sync] Failed to apply the local file nudge:', error));
     },
     NUDGE_REPLAY_DEBOUNCE_MS,
   );

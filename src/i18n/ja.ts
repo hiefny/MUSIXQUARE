@@ -750,6 +750,8 @@ const ja: Record<I18nKey, string> = {
     'BOTのリクエスト上限に達しました。{{duration}}後にもう一度お試しください',
   'chat.decode_skip_system_message':
     '一部のデバイスで再生できないため、次のトラックへスキップします。',
+  'chat.large_track_playback_system_message':
+    'このトラックは非常に大きいため、操作に時間がかかることがあります。',
   'chat.large_local_track_system_message':
     'このトラックはファイルサイズが非常に大きいため、一部のデバイスでは再生できない場合があります。',
   'chat.device_track_unavailable_system_message':

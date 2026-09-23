@@ -44,6 +44,7 @@ import {
   setCurrentAudioBuffer,
 } from '../_state.ts';
 import { initDecodeHandlers } from '../decode.ts';
+import type { FilePlaybackResource } from '../file-playback-resource.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -1061,7 +1062,7 @@ describe('PRO playlist mutation bridge', () => {
       finish = resolve;
     });
     let residentAtResolution: ResidentFile | null | undefined;
-    let bufferAtResolution: AudioBuffer | null | undefined;
+    let bufferAtResolution: FilePlaybackResource | null | undefined;
     const resolveFile = vi.fn(() => {
       residentAtResolution = getState('files.current');
       bufferAtResolution = getCurrentAudioBuffer();

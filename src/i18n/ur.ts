@@ -414,6 +414,8 @@ const ur: Record<I18nKey, string> = {
   'chat.bot_rate_limited':
     'BOT کی درخواستوں کی حد پوری ہو گئی۔ {{duration}} انتظار کر کے دوبارہ کوشش کریں',
   'chat.decode_skip_system_message': 'ٹریک چھوڑا جا رہا ہے: کچھ آلات پر فارمیٹ معاون نہیں۔',
+  'chat.large_track_playback_system_message':
+    'یہ ٹریک بہت بڑا ہے، اس لیے اسے استعمال کرتے وقت تاخیر ہو سکتی ہے۔',
   'chat.large_local_track_system_message':
     'اس ٹریک کی فائل بہت بڑی ہے اور شاید کچھ آلات پر نہ چلے۔',
   'chat.device_track_unavailable_system_message': 'یہ آلہ موجودہ ٹریک نہیں چلا سکتا۔',

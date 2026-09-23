@@ -3,12 +3,13 @@ import { getState } from '../core/state.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import type { QueueItemId, ResidentFile } from '../types/index.ts';
 import { getCurrentAudioBuffer, getCurrentLoadEpoch } from './_state.ts';
+import type { FilePlaybackResource } from './file-playback-resource.ts';
 
 interface OutputIdentityBase {
   readonly roomKind: 'standard' | 'pro';
   readonly roomId: string | null;
   readonly roomEpoch: number;
-  readonly buffer: AudioBuffer;
+  readonly buffer: FilePlaybackResource;
 }
 
 export type LocalFileOutputIdentity = OutputIdentityBase &

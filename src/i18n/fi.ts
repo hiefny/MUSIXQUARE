@@ -422,6 +422,8 @@ const fi: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT-pyyntöjen raja täyttyi. Odota {{duration}} ja yritä uudelleen',
   'chat.decode_skip_system_message':
     'Kappale ohitetaan: jotkin laitteet eivät tue sen tiedostomuotoa.',
+  'chat.large_track_playback_system_message':
+    'Tämä kappale on erittäin suuri, joten sen käytössä voi esiintyä viiveitä.',
   'chat.large_local_track_system_message':
     'Tiedosto on erittäin suuri, eikä kappale välttämättä toistu kaikilla laitteilla.',
   'chat.device_track_unavailable_system_message': 'Tämä laite ei voi toistaa nykyistä kappaletta.',

@@ -1292,6 +1292,7 @@ interface BaseEventMap {
   ];
   'player:check-ended': [];
   'player:buffer-changed': [];
+  'player:output-preparing': [];
   /** Local-only feedback while a PRO playback command awaits canonical media application. */
   'pro-playback:ui-control-pending': [event: Readonly<ProPlaybackUiControlPendingEvent>];
   /** Exact terminal result for the matching local PRO UI control token. */

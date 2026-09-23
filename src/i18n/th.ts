@@ -410,6 +410,7 @@ const th: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT เพิ่ม {{count}} รายการและเริ่มเล่นแล้ว',
   'chat.bot_rate_limited': 'ถึงขีดจำกัดคำขอ BOT แล้ว ลองอีกครั้งใน {{duration}}',
   'chat.decode_skip_system_message': 'บางอุปกรณ์เล่นรายการนี้ไม่ได้ กำลังข้ามไปรายการถัดไป',
+  'chat.large_track_playback_system_message': 'แทร็กนี้มีขนาดใหญ่มาก จึงอาจเกิดความล่าช้าขณะใช้งาน',
   'chat.large_local_track_system_message':
     'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
   'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นรายการปัจจุบันไม่ได้',

@@ -431,6 +431,8 @@ const fil: Record<I18nKey, string> = {
     'Naabot ang limitasyon sa BOT. Maghintay ng {{duration}} at subukan muli',
   'chat.decode_skip_system_message':
     'Nilalaktawan ang track: hindi sinusuportahan ang format sa ilang device.',
+  'chat.large_track_playback_system_message':
+    'Napakalaki ng track na ito, kaya maaari kang makaranas ng pagkaantala habang ginagamit ito.',
   'chat.large_local_track_system_message':
     'Napakalaki ng file ng track na ito at maaaring hindi ito ma-play sa ilang device.',
   'chat.device_track_unavailable_system_message':

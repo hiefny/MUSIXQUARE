@@ -760,6 +760,8 @@ const fr: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Limite de demandes au BOT atteinte. Réessayez dans {{duration}}',
   'chat.decode_skip_system_message':
     'Piste ignorée : format non pris en charge sur certains appareils.',
+  'chat.large_track_playback_system_message':
+    'Ce morceau est très volumineux. Des délais peuvent donc survenir lors de son utilisation.',
   'chat.large_local_track_system_message':
     'Cette piste est très volumineuse et risque de ne pas être lue sur certains appareils.',
   'chat.device_track_unavailable_system_message':

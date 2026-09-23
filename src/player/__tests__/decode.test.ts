@@ -18,6 +18,7 @@ import {
 } from '../_state.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
+import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   announceSystemMessageLocally: vi.fn(),
   broadcastSystemMessage: vi.fn(),
   decodeAudioData: vi.fn(),
+  openLargeAudioTrack: vi.fn(),
   isFilePipelineBusyForPlay: vi.fn(() => false),
   sendRecoveryRequest: vi.fn(),
   safeSend: vi.fn(() => true),
@@ -48,6 +50,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: vi.fn(),
+}));
+
+vi.mock('../large-audio/index.ts', () => ({
+  openLargeAudioTrack: mocks.openLargeAudioTrack,
 }));
 
 vi.mock('../../audio/context.ts', () => ({
@@ -219,6 +225,29 @@ function makeFileTrack(file: File): PlaylistItem {
     videoId: null,
     playlistId: null,
   };
+}
+
+function makeLargeAudioTrack(duration = 600) {
+  return {
+    kind: 'large-audio',
+    duration,
+    sampleRate: 48_000,
+    numberOfChannels: 2,
+    length: duration * 48_000,
+    bufferedPcmBytes: 10 * 48_000 * 2 * Float32Array.BYTES_PER_ELEMENT,
+    prepare: vi.fn(async () => {}),
+    createPlayback: vi.fn(() => ({ ended: false, stop: vi.fn(), disconnect: vi.fn() })),
+    dispose: vi.fn(),
+  } satisfies LargeAudioTrack;
+}
+
+function makeLargeEncodedFile(name = 'large-lossless.flac'): File {
+  const file = new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/flac' });
+  Object.defineProperty(file, 'size', {
+    configurable: true,
+    value: LOCAL_LARGE_TRACK_WARNING_BYTES + 1,
+  });
+  return file;
 }
 
 function persistentProMediaHooks(queueItemId: QueueItemId): ProRoomMediaHooks {
@@ -1044,16 +1073,23 @@ describe('host decode failure cleanup', () => {
   });
 });
 
-describe('unbounded legacy decode policy', () => {
+describe('per-track native and bounded decode selection', () => {
   let originalUserAgent: PropertyDescriptor | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetState();
     bus.clear();
     clearAllManagedTimers();
     vi.clearAllMocks();
     mocks.decodeAudioData.mockReset();
+    mocks.openLargeAudioTrack.mockReset();
+    mocks.openLargeAudioTrack.mockRejectedValue(new Error('Unexpected large-file engine request'));
+    mocks.announceSystemMessageLocally.mockReset();
     setCurrentAudioBuffer(null);
+    setPendingPlayTime(undefined);
+    const { resetLargeLocalTrackWarningsForTests } =
+      await import('../large-local-track-warning.ts');
+    resetLargeLocalTrackWarningsForTests();
     originalUserAgent = Object.getOwnPropertyDescriptor(navigator, 'userAgent');
     Object.defineProperty(navigator, 'userAgent', {
       configurable: true,
@@ -1070,6 +1106,7 @@ describe('unbounded legacy decode policy', () => {
   });
 
   afterEach(() => {
+    setCurrentAudioBuffer(null);
     if (originalUserAgent) {
       Object.defineProperty(navigator, 'userAgent', originalUserAgent);
     } else {
@@ -1097,10 +1134,11 @@ describe('unbounded legacy decode policy', () => {
 
     expect(arrayBuffer).toHaveBeenCalledOnce();
     expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
+    expect(mocks.openLargeAudioTrack).not.toHaveBeenCalled();
   });
 
   it.each([undefined, LOCAL_LARGE_TRACK_WARNING_BYTES + 1])(
-    'decodes a high-PCM track with known metadata without a warning (encoded size: %s)',
+    'prepares a high-PCM track without whole-file decode and then announces its mode (encoded size: %s)',
     async (encodedBytes) => {
       Object.defineProperty(navigator, 'userAgent', {
         configurable: true,
@@ -1115,11 +1153,7 @@ describe('unbounded legacy decode policy', () => {
       setCurrentIndex(0);
 
       const order: string[] = [];
-      const nativeArrayBuffer = file.arrayBuffer.bind(file);
-      const arrayBufferSpy = vi.spyOn(file, 'arrayBuffer').mockImplementation(async () => {
-        order.push('array-buffer');
-        return nativeArrayBuffer();
-      });
+      const arrayBufferSpy = vi.spyOn(file, 'arrayBuffer');
       const loadSpy = vi
         .spyOn(HTMLMediaElement.prototype, 'load')
         .mockImplementation(function metadataLoad(this: HTMLMediaElement) {
@@ -1128,56 +1162,214 @@ describe('unbounded legacy decode policy', () => {
           queueMicrotask(() => this.dispatchEvent(new Event('loadedmetadata')));
         });
       const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
-      mocks.decodeAudioData.mockImplementation(async () => {
-        order.push('decode');
-        return {
-          duration: 600,
-          length: 600 * 48_000,
-          numberOfChannels: 2,
-          sampleRate: 48_000,
-        } as AudioBuffer;
+      const largeTrack = makeLargeAudioTrack();
+      mocks.openLargeAudioTrack.mockImplementation(async () => {
+        order.push('open');
+        return largeTrack;
+      });
+      largeTrack.prepare.mockImplementation(async () => {
+        order.push('prepare');
+      });
+      mocks.announceSystemMessageLocally.mockImplementation(() => {
+        order.push('announce');
       });
 
       try {
         const { loadAndBroadcastFile } = await import('../decode.ts');
         await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(true);
+        expect(arrayBufferSpy).not.toHaveBeenCalled();
       } finally {
         arrayBufferSpy.mockRestore();
         loadSpy.mockRestore();
         pauseSpy.mockRestore();
       }
 
-      expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
-      expect(order).toEqual(['array-buffer', 'decode']);
+      expect(mocks.openLargeAudioTrack).toHaveBeenCalledWith(file, {
+        isCurrent: expect.any(Function),
+      });
+      expect(largeTrack.prepare).toHaveBeenCalledWith(0, expect.any(AbortSignal));
+      expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+      expect(getCurrentAudioBuffer()).toBe(largeTrack);
+      expect(largeTrack.dispose).not.toHaveBeenCalled();
+      expect(mocks.announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+        'chat.large_track_playback_system_message',
+      );
+      expect(order).toEqual(['open', 'prepare', 'announce']);
     },
   );
 
-  it('uses the size fallback without blocking when metadata is uncertain above 200 MiB', async () => {
-    const file = new File([new Uint8Array([1, 2, 3])], 'large-lossless.flac', {
-      type: 'audio/flac',
-    });
-    Object.defineProperty(file, 'size', {
-      configurable: true,
-      value: LOCAL_LARGE_TRACK_WARNING_BYTES + 1,
-    });
+  it('uses the bounded engine for unknown metadata above 200 MiB without a duplicate size warning', async () => {
+    const file = makeLargeEncodedFile();
+    const arrayBuffer = vi.spyOn(file, 'arrayBuffer');
     const item = makeFileTrack(file);
     setState('playlist.items', [item]);
     setCurrentIndex(0);
-    mocks.decodeAudioData.mockResolvedValue({
-      duration: 120,
-      length: 120 * 48_000,
-      numberOfChannels: 2,
-      sampleRate: 48_000,
-    } as AudioBuffer);
+    const largeTrack = makeLargeAudioTrack();
+    mocks.openLargeAudioTrack.mockResolvedValue(largeTrack);
 
     const { loadAndBroadcastFile } = await import('../decode.ts');
     await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(true);
 
-    expect(mocks.announceSystemMessageLocally).toHaveBeenCalledWith(
-      'chat.large_local_track_system_message',
+    expect(mocks.announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+      'chat.large_track_playback_system_message',
     );
-    expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
+    expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(getCurrentAudioBuffer()).toBe(largeTrack);
   });
+
+  it.each(['host', 'guest', 'preload', 'demo'] as const)(
+    'returns from large-track playback to native playback on the %s path',
+    async (path) => {
+      const files = [
+        new File([new Uint8Array([1, 2, 3])], 'first.mp3', { type: 'audio/mpeg' }),
+        makeLargeEncodedFile(),
+        new File([new Uint8Array([4, 5, 6])], 'last.mp3', { type: 'audio/mpeg' }),
+      ];
+      const items = files.map(makeFileTrack);
+      const firstBuffer = {
+        duration: 120,
+        length: 120 * 48_000,
+        numberOfChannels: 2,
+      } as AudioBuffer;
+      const lastBuffer = {
+        duration: 180,
+        length: 180 * 48_000,
+        numberOfChannels: 2,
+      } as AudioBuffer;
+      const largeTrack = makeLargeAudioTrack();
+      mocks.decodeAudioData.mockResolvedValueOnce(firstBuffer).mockResolvedValueOnce(lastBuffer);
+      mocks.openLargeAudioTrack.mockResolvedValue(largeTrack);
+      setState('playlist.items', items);
+      if (path === 'guest' || path === 'preload') {
+        setState('network.hostConn', makeConnection('host'));
+      }
+      const { loadAndBroadcastFile, finalizeGuestFile, loadPreloadedTrack, loadDemoFile } =
+        await import('../decode.ts');
+      const load = async (index: number): Promise<void> => {
+        const file = files[index]!;
+        const item = items[index]!;
+        const sessionId = index + 1;
+        setCurrentIndex(index);
+        if (path === 'host') {
+          expect(await loadAndBroadcastFile(file, item.queueItemId, sessionId)).toBe(true);
+        } else if (path === 'guest') {
+          stageMainTransfer(item, file, sessionId);
+          await finalizeGuestFile(file, item.queueItemId, sessionId);
+        } else if (path === 'preload') {
+          stagePreload(item, file, sessionId);
+          setState('transfer.meta', fileMeta(item, file, sessionId));
+          expect(await loadPreloadedTrack(item.queueItemId)).toBe(true);
+        } else {
+          await loadDemoFile(file, item);
+        }
+      };
+
+      await load(0);
+      expect(getCurrentAudioBuffer()).toBe(firstBuffer);
+      expect(mocks.openLargeAudioTrack).not.toHaveBeenCalled();
+      await load(1);
+      expect(getCurrentAudioBuffer()).toBe(largeTrack);
+      expect(largeTrack.prepare).toHaveBeenCalledExactlyOnceWith(0, expect.any(AbortSignal));
+      expect(largeTrack.dispose).not.toHaveBeenCalled();
+      expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
+      await load(2);
+      expect(getCurrentAudioBuffer()).toBe(lastBuffer);
+      expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2);
+      expect(mocks.openLargeAudioTrack).toHaveBeenCalledOnce();
+      expect(largeTrack.dispose).toHaveBeenCalledOnce();
+      expect(mocks.announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+        'chat.large_track_playback_system_message',
+      );
+      expect(mocks.sendToHost).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.GUEST_DECODE_FAILED }),
+      );
+    },
+  );
+
+  it.each(['opening', 'priming'] as const)(
+    'disposes a superseded large decoder during %s without overwriting its successor',
+    async (phase) => {
+      const largeFile = makeLargeEncodedFile();
+      const nextFile = new File([new Uint8Array([1, 2, 3])], 'next.mp3', { type: 'audio/mpeg' });
+      const largeItem = makeFileTrack(largeFile);
+      const nextItem = makeFileTrack(nextFile);
+      setState('playlist.items', [largeItem, nextItem]);
+      setCurrentIndex(0);
+      const largeTrack = makeLargeAudioTrack();
+      const nextBuffer = {
+        duration: 120,
+        length: 120 * 48_000,
+        numberOfChannels: 2,
+      } as AudioBuffer;
+      mocks.decodeAudioData.mockResolvedValue(nextBuffer);
+      let markStarted!: () => void;
+      let complete!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const pending = new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      mocks.openLargeAudioTrack.mockImplementation(async () => {
+        if (phase === 'opening') {
+          markStarted();
+          await pending;
+        }
+        return largeTrack;
+      });
+      largeTrack.prepare.mockImplementation(async () => {
+        if (phase === 'priming') {
+          markStarted();
+          await pending;
+        }
+      });
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      const staleLoad = loadAndBroadcastFile(largeFile, largeItem.queueItemId, 1);
+      await started;
+      expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      setCurrentIndex(1);
+      expect(await loadAndBroadcastFile(nextFile, nextItem.queueItemId, 2)).toBe(true);
+      complete();
+      expect(await staleLoad).toBe(false);
+
+      expect(getCurrentAudioBuffer()).toBe(nextBuffer);
+      expect(getState('files.current')?.queueItemId).toBe(nextItem.queueItemId);
+      expect(largeTrack.dispose).toHaveBeenCalledOnce();
+      expect(largeTrack.prepare).toHaveBeenCalledTimes(phase === 'priming' ? 1 : 0);
+      expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
+      expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'DECODE_ERROR' });
+    },
+  );
+
+  it.each(['opening', 'priming'] as const)(
+    'does not announce or fall back to full decode when large-engine %s fails',
+    async (phase) => {
+      const file = makeLargeEncodedFile();
+      const item = makeFileTrack(file);
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
+      const arrayBuffer = vi.spyOn(file, 'arrayBuffer');
+      const largeTrack = makeLargeAudioTrack();
+      const failure = new Error('bounded decoder failed');
+      if (phase === 'opening') {
+        mocks.openLargeAudioTrack.mockRejectedValue(failure);
+      } else {
+        mocks.openLargeAudioTrack.mockResolvedValue(largeTrack);
+        largeTrack.prepare.mockRejectedValue(failure);
+      }
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      expect(await loadAndBroadcastFile(file, item.queueItemId, 1)).toBe(false);
+
+      expect(getCurrentAudioBuffer()).toBeNull();
+      expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+      expect(arrayBuffer).not.toHaveBeenCalled();
+      expect(largeTrack.dispose).toHaveBeenCalledTimes(phase === 'priming' ? 1 : 0);
+      expect(getState('files.current')).toBeNull();
+    },
+  );
 
   it('lets a received remote Blob reach the native decoder', async () => {
     const blob = new Blob([new Uint8Array(4 * 1024 * 1024)], { type: 'audio/mpeg' });

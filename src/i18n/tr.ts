@@ -414,6 +414,8 @@ const tr: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT istek sınırına ulaşıldı. {{duration}} sonra tekrar dene',
   'chat.decode_skip_system_message':
     'Bazı cihazlar medyayı çözemediğinden sonraki medyaya geçiliyor',
+  'chat.large_track_playback_system_message':
+    'Bu parça çok büyük olduğundan kullanım sırasında gecikmeler yaşanabilir.',
   'chat.large_local_track_system_message':
     'Bu medyanın boyutu çok büyük, bu yüzden bazı cihazlarda oynatılamayabilir.',
   'chat.device_track_unavailable_system_message': 'Bu cihaz mevcut medyayı oynatamıyor.',

@@ -423,6 +423,8 @@ const bg: Record<I18nKey, string> = {
     'Лимитът за заявки към BOT е достигнат. Изчакай {{duration}} и опитай отново',
   'chat.decode_skip_system_message':
     'Песента се пропуска: форматът не се поддържа от някои устройства.',
+  'chat.large_track_playback_system_message':
+    'Този запис е много голям, затова може да има забавяния при използването му.',
   'chat.large_local_track_system_message':
     'Файлът на тази песен е много голям и може да не се възпроизведе на някои устройства.',
   'chat.device_track_unavailable_system_message':

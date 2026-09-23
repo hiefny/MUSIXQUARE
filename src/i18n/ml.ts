@@ -427,6 +427,8 @@ const ml: Record<I18nKey, string> = {
     'BOT അഭ്യർത്ഥന പരിധിയിലെത്തി. {{duration}} കാത്തിരുന്ന് വീണ്ടും ശ്രമിക്കുക',
   'chat.decode_skip_system_message':
     'ട്രാക്ക് ഒഴിവാക്കുന്നു: ചില ഡിവൈസുകളിൽ ഈ ഫോർമാറ്റ് പിന്തുണയ്ക്കുന്നില്ല.',
+  'chat.large_track_playback_system_message':
+    'ഈ ട്രാക്ക് വളരെ വലുതായതിനാൽ ഇത് ഉപയോഗിക്കുമ്പോൾ കാലതാമസം ഉണ്ടായേക്കാം.',
   'chat.large_local_track_system_message':
     'ഈ ട്രാക്കിന്റെ ഫയൽ വലുപ്പം വളരെ കൂടുതലാണ്; ചില ഡിവൈസുകളിൽ ഇത് പ്ലേ ചെയ്തേക്കില്ല.',
   'chat.device_track_unavailable_system_message': 'ഈ ഡിവൈസിന് നിലവിലെ ട്രാക്ക് പ്ലേ ചെയ്യാനാകില്ല.',

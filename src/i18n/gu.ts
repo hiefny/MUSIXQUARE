@@ -415,6 +415,8 @@ const gu: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT એ ઉમેરેલા ટ્રૅક: {{count}}. પ્લેબૅક શરૂ થયું',
   'chat.bot_rate_limited': 'BOT વિનંતીની મર્યાદા આવી ગઈ. {{duration}} રાહ જોઈ ફરી પ્રયાસ કરો',
   'chat.decode_skip_system_message': 'ટ્રૅક છોડી રહ્યા છીએ: કેટલાક ડિવાઇસ પર આ ફૉર્મેટ ચાલતું નથી.',
+  'chat.large_track_playback_system_message':
+    'આ ટ્રૅક ખૂબ મોટો છે, તેથી તેનો ઉપયોગ કરતી વખતે વિલંબ થઈ શકે છે.',
   'chat.large_local_track_system_message':
     'આ ટ્રૅકની ફાઇલ બહુ મોટી છે અને કેટલાક ડિવાઇસ પર કદાચ નહીં ચાલે.',
   'chat.device_track_unavailable_system_message': 'આ ડિવાઇસ હાલનો ટ્રૅક ચલાવી શકતું નથી.',

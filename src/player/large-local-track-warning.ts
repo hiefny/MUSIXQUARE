@@ -7,6 +7,20 @@ import { getRoomContext } from '../rooms/authority.ts';
 import type { QueueItemId } from '../types/index.ts';
 
 const warnedQueueItems = new Set<QueueItemId>();
+const largePlaybackQueueItems = new Set<QueueItemId>();
+let largePlaybackBlobs = new WeakSet<Blob>();
+
+/** Announce only after the bounded engine has successfully prepared this track. */
+export function announceLargeTrackPlayback(identity: QueueItemId | Blob): void {
+  if (typeof identity === 'string') {
+    if (largePlaybackQueueItems.has(identity)) return;
+    largePlaybackQueueItems.add(identity);
+  } else {
+    if (largePlaybackBlobs.has(identity)) return;
+    largePlaybackBlobs.add(identity);
+  }
+  announceSystemMessageLocally('chat.large_track_playback_system_message');
+}
 
 export function maybeAnnounceLargeLocalTrackWarning(
   queueItemId: QueueItemId,
@@ -28,6 +42,8 @@ export function maybeAnnounceLargeLocalTrackWarning(
 
 function resetLargeLocalTrackWarnings(): void {
   warnedQueueItems.clear();
+  largePlaybackQueueItems.clear();
+  largePlaybackBlobs = new WeakSet<Blob>();
 }
 
 // A queue occurrence is warned at most once per room session. Starting and

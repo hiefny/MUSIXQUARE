@@ -430,6 +430,8 @@ const ta: Record<I18nKey, string> = {
     'BOT கோரிக்கை வரம்பை எட்டிவிட்டது. {{duration}} காத்திருந்து மீண்டும் முயலவும்',
   'chat.decode_skip_system_message':
     'டிராக் தவிர்க்கப்படுகிறது: சில சாதனங்களில் ஆதரிக்கப்படாத வடிவம்.',
+  'chat.large_track_playback_system_message':
+    'இந்த டிராக் மிகவும் பெரியது என்பதால், இதைப் பயன்படுத்தும்போது தாமதம் ஏற்படலாம்.',
   'chat.large_local_track_system_message':
     'இந்த டிராக்கின் கோப்பு மிகப் பெரியது; சில சாதனங்களில் இயங்காமல் போகலாம்.',
   'chat.device_track_unavailable_system_message':

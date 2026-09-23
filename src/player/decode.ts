@@ -83,7 +83,16 @@ import { showToast, showLoader } from '../ui/toast.ts';
 import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
-import { maybeAnnounceLargeLocalTrackWarning } from './large-local-track-warning.ts';
+import {
+  announceLargeTrackPlayback,
+  maybeAnnounceLargeLocalTrackWarning,
+} from './large-local-track-warning.ts';
+import { shouldUseLargeFileEngine } from './large-file-policy.ts';
+import {
+  releaseFilePlaybackResource,
+  retainFilePlaybackResource,
+  type FilePlaybackResource,
+} from './file-playback-resource.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
   assertDecodedAudioBufferWithinBudget,
@@ -114,7 +123,7 @@ function isDecodeSupersededError(error: unknown): error is DecodeSupersededError
 }
 
 interface DecodeAdmissionLease {
-  readonly audioBuffer: AudioBuffer;
+  readonly audioBuffer: FilePlaybackResource;
   release(): void;
 }
 
@@ -164,6 +173,39 @@ async function decodeBlobToAudioBuffer(
       });
 
       if (!isCurrent()) throw new DecodeSupersededError(label);
+      if (shouldUseLargeFileEngine(admission, blob.size)) {
+        const { openLargeAudioTrack } = await import('./large-audio/index.ts');
+        if (!isCurrent()) throw new DecodeSupersededError(label);
+        const audioBuffer = await openLargeAudioTrack(blob, { isCurrent });
+        retainFilePlaybackResource(audioBuffer);
+        let released = false;
+        const release = (): void => {
+          if (released) return;
+          released = true;
+          releaseFilePlaybackResource(audioBuffer);
+        };
+        const prepareAbort = new AbortController();
+        const ownerPoll = globalThis.setInterval(() => {
+          if (!isCurrent()) prepareAbort.abort();
+        }, 100);
+        try {
+          if (!isCurrent()) throw new DecodeSupersededError(label);
+          await audioBuffer.prepare(0, prepareAbort.signal);
+          if (!isCurrent()) throw new DecodeSupersededError(label);
+          try {
+            announceLargeTrackPlayback(queueItemId ?? blob);
+          } catch (warningError) {
+            log.warn('[LargeFile] Could not announce playback mode', warningError);
+          }
+          return { audioBuffer, release };
+        } catch (error) {
+          release();
+          if (!isCurrent()) throw new DecodeSupersededError(label);
+          throw error;
+        } finally {
+          globalThis.clearInterval(ownerPoll);
+        }
+      }
       try {
         if (
           queueItemId &&
@@ -1334,6 +1376,7 @@ export async function finalizeGuestFile(
   const myTransferSid = sessionId;
   const isAdmissionBoundFile = encodedReceiveReservationIdForBlob(file) !== undefined;
   const detachedPreviousBuffer = getCurrentAudioBuffer();
+  retainFilePlaybackResource(detachedPreviousBuffer);
   const detachedPreviousResident = getState('files.current');
   const ownsTarget = (): boolean => {
     const liveMeta = getState('transfer.meta');
@@ -1532,6 +1575,7 @@ export async function finalizeGuestFile(
     ) {
       setCurrentAudioBuffer(detachedPreviousBuffer);
     }
+    releaseFilePlaybackResource(detachedPreviousBuffer);
     // Native decode cannot be cancelled. A replacement PREPARE/START may
     // already own the default loader before it starts another finalizer (M2),
     // so fence cleanup by the exact queue/transfer owner as well. ownsTarget

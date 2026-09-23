@@ -703,6 +703,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT 已添加 {{count}} 个媒体项并开始播放',
   'chat.bot_rate_limited': '已达到 BOT 请求上限，请在 {{duration}} 后重试',
   'chat.decode_skip_system_message': '已跳过当前媒体：部分设备不支持该格式。',
+  'chat.large_track_playback_system_message': '此曲目非常大，使用时可能会出现延迟。',
   'chat.large_local_track_system_message': '当前媒体文件很大，部分设备可能无法播放。',
   'chat.device_track_unavailable_system_message': '此设备无法播放当前媒体。',
   'chat.system_audio_started_system_message':

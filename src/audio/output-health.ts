@@ -2,6 +2,7 @@
 
 import { getState } from '../core/state.ts';
 import { getPlayerNode } from '../player/_state.ts';
+import type { FilePlaybackSource } from '../player/file-playback-resource.ts';
 import {
   captureLocalFileOutputIdentity,
   isLocalFileOutputIdentityCurrent,
@@ -25,7 +26,7 @@ import {
 
 interface LocalFileOutputSample {
   readonly playback: LocalFileOutputIdentity;
-  readonly source: AudioBufferSourceNode | null;
+  readonly source: FilePlaybackSource | null;
 }
 
 const BACKGROUND_FILE_OUTPUT_CONTINUITY_TOLERANCE_SECONDS = 0.25;

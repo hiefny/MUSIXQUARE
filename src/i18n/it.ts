@@ -426,6 +426,8 @@ const it: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Limite di richieste BOT raggiunto. Riprova tra {{duration}}',
   'chat.decode_skip_system_message':
     'Alcuni dispositivi non possono riprodurre questa traccia. Passaggio alla traccia successiva.',
+  'chat.large_track_playback_system_message':
+    'Questa traccia è molto grande, quindi potresti riscontrare ritardi durante il suo utilizzo.',
   'chat.large_local_track_system_message':
     'Il file di questa traccia è molto grande e potrebbe non essere riprodotto su alcuni dispositivi.',
   'chat.device_track_unavailable_system_message':

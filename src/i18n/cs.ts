@@ -422,6 +422,8 @@ const cs: Record<I18nKey, string> = {
     'Byl dosažen limit požadavků BOT. Počkejte {{duration}} a zkuste to znovu',
   'chat.decode_skip_system_message':
     'Skladba se přeskakuje: některá zařízení tento formát nepodporují.',
+  'chat.large_track_playback_system_message':
+    'Tato skladba je velmi velká, takže při jejím používání může docházet ke zpoždění.',
   'chat.large_local_track_system_message':
     'Soubor této skladby je velmi velký a na některých zařízeních se nemusí přehrát.',
   'chat.device_track_unavailable_system_message': 'Toto zařízení nemůže přehrát aktuální skladbu.',

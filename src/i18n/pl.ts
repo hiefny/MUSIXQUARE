@@ -425,6 +425,8 @@ const pl: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Osiągnięto limit poleceń dla BOT-a. Spróbuj ponownie za {{duration}}',
   'chat.decode_skip_system_message':
     'Pomijanie materiału: ten format nie jest obsługiwany na niektórych urządzeniach.',
+  'chat.large_track_playback_system_message':
+    'Ten utwór jest bardzo duży, więc podczas korzystania z niego mogą występować opóźnienia.',
   'chat.large_local_track_system_message':
     'Plik tego materiału jest bardzo duży i może nie zostać odtworzony na niektórych urządzeniach.',
   'chat.device_track_unavailable_system_message':

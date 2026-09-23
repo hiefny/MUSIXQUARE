@@ -425,6 +425,8 @@ const kn: Record<I18nKey, string> = {
     'BOT ವಿನಂತಿಯ ಮಿತಿ ತಲುಪಿದೆ. {{duration}} ನಿರೀಕ್ಷಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'chat.decode_skip_system_message':
     'ಟ್ರ್ಯಾಕ್ ಬಿಟ್ಟುಹೋಗುತ್ತಿದೆ: ಕೆಲವು ಸಾಧನಗಳಲ್ಲಿ ಈ ಫಾರ್ಮ್ಯಾಟ್ ಬೆಂಬಲಿತವಾಗಿಲ್ಲ.',
+  'chat.large_track_playback_system_message':
+    'ಈ ಟ್ರ್ಯಾಕ್ ತುಂಬಾ ದೊಡ್ಡದಾಗಿದೆ, ಆದ್ದರಿಂದ ಇದನ್ನು ಬಳಸುವಾಗ ವಿಳಂಬವಾಗಬಹುದು.',
   'chat.large_local_track_system_message':
     'ಈ ಟ್ರ್ಯಾಕ್‌ನ ಫೈಲ್ ಗಾತ್ರ ಬಹಳ ದೊಡ್ಡದಿದೆ ಮತ್ತು ಕೆಲವು ಸಾಧನಗಳಲ್ಲಿ ಪ್ಲೇ ಆಗದಿರಬಹುದು.',
   'chat.device_track_unavailable_system_message':

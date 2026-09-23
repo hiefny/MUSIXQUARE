@@ -424,6 +424,8 @@ const ro: Record<I18nKey, string> = {
   'chat.bot_rate_limited':
     'Ai atins limita de cereri BOT. Așteaptă {{duration}} și încearcă din nou',
   'chat.decode_skip_system_message': 'Pista este omisă: format neacceptat pe unele dispozitive.',
+  'chat.large_track_playback_system_message':
+    'Această piesă este foarte mare, așa că pot apărea întârzieri în timpul utilizării.',
   'chat.large_local_track_system_message':
     'Fișierul acestei piste este foarte mare și este posibil să nu fie redat pe unele dispozitive.',
   'chat.device_track_unavailable_system_message': 'Acest dispozitiv nu poate reda pista curentă.',

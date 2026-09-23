@@ -764,6 +764,8 @@ const de: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT-Anfragelimit erreicht. Bitte in {{duration}} erneut versuchen',
   'chat.decode_skip_system_message':
     'Titel wird übersprungen: Das Format wird auf einigen Geräten nicht unterstützt.',
+  'chat.large_track_playback_system_message':
+    'Dieser Titel ist sehr groß. Daher kann es bei der Nutzung zu Verzögerungen kommen.',
   'chat.large_local_track_system_message':
     'Die Datei dieses Titels ist sehr groß und lässt sich möglicherweise nicht auf allen Geräten abspielen.',
   'chat.device_track_unavailable_system_message':

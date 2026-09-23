@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Decision date:** 2026-07-10
 - **Last implementation check:** 2026-07-15
+- **Latest beta implementation check:** 2026-09-23 (`mxqr_beta`; not deployed)
 - **Applies to:** production file-transfer, preload, remote-share receive, and
   file-playback paths
 
@@ -51,12 +52,16 @@ also block diagnostics and legitimate future metadata work.
 
 ## Consequences
 
-RAM-only media still has a device-dependent physical capacity ceiling, and
-persistent storage would not remove the PCM required by the current AudioBuffer
-playback engine. Playback nevertheless does **not** impose a predicted
-per-device RAM ceiling. Local decode, P2P receive/preload, and whole-file remote
-upload/download proceed on a best-effort basis and rely on the browser's actual
-allocation and `decodeAudioData` outcome.
+RAM-only media still has a device-dependent physical capacity ceiling.
+Persistent storage alone would not remove the PCM required by a whole-track
+AudioBuffer. Ordinary files continue to use that engine. P2P receive/preload
+and remote upload/download still handle complete encoded files, so a bounded
+PCM decoder does not bound the entire browser media working set.
+
+Playback does **not** reject a file solely because its predicted memory exceeds
+a device tier. The beta uses that track's estimate to select a decoder before
+preparation; allocation, parsing, codec support, and actual decoding can still
+fail on a particular device.
 
 **Implementation note (2026-07-15, partially superseded on 2026-08-31):** the
 shared memory ledger remains for ownership, cleanup, diagnostics, and future
@@ -65,17 +70,39 @@ a browser can materialize. At the time of this note, metadata duration/channel
 probes were skipped because their only production use was conservative
 pre-rejection.
 
-**Beta update (2026-09-23, supersedes the 2026-08-31 advisory):** admission
-remains unbounded. The predicted-memory message and device-tier warning
-thresholds have been removed. Bounded duration and channel probes still estimate
-decoded PCM and the projected live decode working set for the memory ledger;
-these estimates do not produce a user-facing warning. The separate Standard-room
-generic size warning remains for encoded files above 200 MiB when duration or
-channel metadata is unavailable. A successful `AudioBuffer` is still measured
-after decode for accounting only and is not discarded for crossing a tier.
-This beta change does not introduce a streaming decoder or change transfer limits.
+**Beta update (2026-09-23, supersedes the 2026-08-31 advisory):** the owner chose
+to keep the whole-track AudioBuffer engine permanently as the default and add
+a second engine only for memory-heavy tracks. The new engine reads the resident
+File/Blob incrementally, decodes MP3/FLAC in WASM workers or uses a supported
+WebCodecs/PCM decoder, and schedules short AudioBuffers against the same
+AudioContext clock and playback route. It does not use a media-element output
+clock, OPFS, IndexedDB media storage, or a new network streaming protocol.
 
-Remote sharing retains its fixed 200 MiB protocol/storage ceiling. P2P also
+Selection uses estimated PCM or that track's own decode footprint, not the
+aggregate ledger including previous tracks and concurrent transfers. Each new
+track is evaluated independently, so a small track after a large one returns
+to the original engine. Uncertain metadata uses a known encoded size above
+200 MiB as a fallback signal; the ledger's unknown-duration expansion estimate
+does not by itself switch engines. See the exact thresholds and lifecycle in
+[the hybrid-engine design](large-local-audio-streaming-proposal.md).
+
+The numeric predicted-memory message remains removed. Only after a large
+track's initial preparation succeeds does its device show the local guidance
+that this track is very large and some operations may be delayed. This message
+is deduplicated per queue occurrence/session (or per demo Blob), is not broadcast,
+and does not accompany the old Standard-room size warning on that path.
+The legacy size-warning condition remains for the original engine. A successful
+ordinary AudioBuffer is still measured after decode for accounting only and is
+not discarded for crossing a tier.
+
+If the selected large-track engine has no supported incremental decoder or
+fails to prepare, it follows the existing playback failure path. It does not
+automatically retry with full-track decode, which would recreate the allocation
+that engine selection was meant to avoid. This is a local beta implementation;
+real iPhone Safari/PWA verification is not yet complete.
+
+Standard remote sharing and PRO retain their fixed 200 MiB per-file
+protocol/storage ceiling. P2P also
 retains integrity limits for positive safe sizes, exact chunk totals, 64 KiB
 frames, and at most 200,000 chunks. These are protocol bounds, not predictive
 RAM admission.
@@ -89,13 +116,13 @@ that arrive before their transfer header use the ordinary message bucket. This
 keeps legitimate high-throughput media flowing without turning a message type
 alone into an unlimited ingress exemption.
 
-The accepted tradeoff is explicit: files that conservative estimates previously
-rejected are now attempted, but a memory-constrained browser may reject an
-allocation, terminate the tab/PWA, or be killed by the OS. The discarded
-large-file/OPFS implementation is not retained in production code or Cloudflare
-resources. Any future reconsideration starts as a separate proposal and
-implementation; it must not revive the discarded branch or wire old artifacts
-into the browser media path.
+The accepted tradeoff is explicit: the beta bounds the app's decoded playback
+window for large tracks and permits extra preparation/seek latency, while
+encoded-file storage and browser/decoder allocations can still exhaust memory.
+A memory-constrained browser may reject an allocation, terminate the tab/PWA,
+or be killed by the OS. This independent RAM-only decoder does not revive the
+discarded large-file/OPFS branch or its Cloudflare resources. Reconsidering
+persistent media storage still requires the separate gates below.
 
 ## OPFS Re-evaluation Gate
 

@@ -18,6 +18,7 @@ import { t } from '../../i18n/index.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { getCurrentAudioBuffer, setCurrentAudioBuffer } from '../../player/_state.ts';
+import type { LargeAudioTrack } from '../../player/file-playback-resource.ts';
 import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
@@ -142,6 +143,48 @@ class FakeXHR {
 
 async function flush(ms = 1): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms);
+}
+
+function installLargeResident() {
+  const queueItemId = '91111111-1111-4111-8111-111111111111';
+  const blob = new Blob(['large-song']);
+  const item = {
+    queueItemId,
+    type: 'file' as const,
+    name: 'long-song.mp3',
+    videoId: null,
+    playlistId: null,
+  };
+  const dispose = vi.fn();
+  const resource: LargeAudioTrack = {
+    kind: 'large-audio',
+    duration: 3_600,
+    sampleRate: 48_000,
+    numberOfChannels: 2,
+    length: 172_800_000,
+    bufferedPcmBytes: 0,
+    prepare: vi.fn(async () => {}),
+    createPlayback: vi.fn(() => {
+      throw new Error('Playback is mocked by the demo harness');
+    }),
+    dispose,
+  };
+  setState('network.appRole', 'host');
+  setState('setup.sessionStarted', true);
+  setState('playlist.items', [item]);
+  setState('playlist.currentQueueItemId', queueItemId);
+  setState('files.current', {
+    queueItemId,
+    indexHint: 0,
+    name: item.name,
+    sessionId: 77,
+    blob,
+    mime: 'audio/mpeg',
+    size: blob.size,
+  });
+  setCurrentAudioBuffer(resource);
+  setPlaybackFilePlaying();
+  return { resource, dispose };
 }
 
 describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
@@ -607,6 +650,64 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
       queueItemId,
       reason: 'seek',
     });
+  });
+
+  it('preserves a bounded decoder across demo playback and releases it after the restored track is replaced', async () => {
+    const { resource, dispose } = installLargeResident();
+    bus.emit('demo:enter');
+    await flush();
+    expect(dispose).not.toHaveBeenCalled();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(50);
+    expect(getCurrentAudioBuffer()).not.toBe(resource);
+    expect(dispose).not.toHaveBeenCalled();
+
+    bus.emit('demo:request-exit');
+    await flush(50);
+    expect(getCurrentAudioBuffer()).toBe(resource);
+    expect(getState('playback.activity')).toBe('paused');
+    expect(dispose).not.toHaveBeenCalled();
+
+    setCurrentAudioBuffer({ duration: 30 } as AudioBuffer);
+    expect(dispose).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it.each(['authority-reset', 'selected-successor'] as const)(
+    'releases a captured bounded decoder when demo exit discards it after %s',
+    async (reason) => {
+      const { resource, dispose } = installLargeResident();
+      bus.emit('demo:enter');
+      await flush();
+      FakeXHR.pending[0]?.resolveOk();
+      await flush(50);
+      expect(dispose).not.toHaveBeenCalled();
+
+      if (reason === 'selected-successor') {
+        setState('playlist.currentQueueItemId', null);
+        bus.emit('demo:request-exit');
+      } else {
+        bus.emit('demo:authority-reset');
+      }
+      await flush(50);
+      expect(getCurrentAudioBuffer()).not.toBe(resource);
+      expect(dispose).toHaveBeenCalledExactlyOnceWith();
+      bus.emit('demo:authority-reset');
+      setCurrentAudioBuffer(null);
+      expect(dispose).toHaveBeenCalledExactlyOnceWith();
+    },
+  );
+
+  it('restores the captured bounded decoder after demo loading fails', async () => {
+    const { resource, dispose } = installLargeResident();
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.failNetwork();
+    await flush(50);
+    expect(getState('demo.active')).toBe(false);
+    expect(getCurrentAudioBuffer()).toBe(resource);
+    expect(dispose).not.toHaveBeenCalled();
+    setCurrentAudioBuffer(null);
+    expect(dispose).toHaveBeenCalledExactlyOnceWith();
   });
 
   it('clears synthetic demo track metadata when no prior media can be restored', async () => {

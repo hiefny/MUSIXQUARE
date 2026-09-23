@@ -742,6 +742,8 @@ const vi: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Đã đạt giới hạn yêu cầu BOT. Hãy thử lại sau {{duration}}',
   'chat.decode_skip_system_message':
     'Đang bỏ qua mục này vì một số thiết bị không hỗ trợ định dạng.',
+  'chat.large_track_playback_system_message':
+    'Bản nhạc này rất lớn nên có thể xảy ra độ trễ khi sử dụng.',
   'chat.large_local_track_system_message':
     'Mục này có dung lượng rất lớn và có thể không phát được trên một số thiết bị.',
   'chat.device_track_unavailable_system_message': 'Thiết bị này không thể phát mục hiện tại.',

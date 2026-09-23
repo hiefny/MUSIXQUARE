@@ -418,6 +418,8 @@ const mr: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT ने जोडलेले ट्रॅक: {{count}}. प्लेबॅक सुरू झाला',
   'chat.bot_rate_limited': 'BOT विनंतीची मर्यादा गाठली. {{duration}} थांबा आणि पुन्हा प्रयत्न करा',
   'chat.decode_skip_system_message': 'ट्रॅक वगळत आहे: काही डिव्हाइसवर हे स्वरूप समर्थित नाही.',
+  'chat.large_track_playback_system_message':
+    'हा ट्रॅक खूप मोठा आहे, त्यामुळे तो वापरताना विलंब होऊ शकतो.',
   'chat.large_local_track_system_message':
     'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो कदाचित प्ले होणार नाही.',
   'chat.device_track_unavailable_system_message': 'हे डिव्हाइस सध्याचा ट्रॅक प्ले करू शकत नाही.',

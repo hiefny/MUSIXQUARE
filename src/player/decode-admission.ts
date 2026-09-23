@@ -1,10 +1,11 @@
 /**
  * RAM accounting for Web Audio file decoding.
  *
- * Playback remains AudioBuffer-only for sample-accurate synchronization. The
- * metadata-only HTMLAudioElement below is never played or connected to the
- * graph; it provides duration before decodeAudioData expands the whole file to
- * planar Float32 PCM. No media bytes are persisted to OPFS or IndexedDB.
+ * The metadata-only HTMLAudioElement below is never played or connected to
+ * the graph. Its duration estimates also let the hybrid file player choose
+ * bounded PCM decoding before a high-memory track is expanded in full.
+ * Both playback engines use the same AudioContext sample clock. No media
+ * bytes are persisted to OPFS or IndexedDB.
  *
  * The AudioBuffer engine deliberately does not reject media from a
  * predicted device-memory budget. Browser allocation and decode failures are

@@ -418,6 +418,8 @@ const hi: Record<I18nKey, string> = {
     'BOT अनुरोध की सीमा पूरी हो गई। {{duration}} इंतज़ार करके फिर कोशिश करें',
   'chat.decode_skip_system_message':
     'ट्रैक छोड़ा जा रहा है: कुछ डिवाइसों पर यह फ़ॉर्मैट समर्थित नहीं है।',
+  'chat.large_track_playback_system_message':
+    'यह ट्रैक बहुत बड़ा है, इसलिए इसका इस्तेमाल करते समय देरी हो सकती है।',
   'chat.large_local_track_system_message':
     'इस ट्रैक की फ़ाइल बहुत बड़ी है और हो सकता है कि यह कुछ डिवाइसों पर न चले।',
   'chat.device_track_unavailable_system_message': 'यह डिवाइस मौजूदा ट्रैक नहीं चला सकता।',

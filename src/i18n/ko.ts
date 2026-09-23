@@ -412,6 +412,8 @@ const ko = {
   'chat.bot_added_and_playing': 'BOT이 트랙 {{count}}개를 추가하고 재생을 시작했어요',
   'chat.bot_rate_limited': 'BOT 요청 한도에 도달했어요. {{duration}} 후 다시 시도해 주세요',
   'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 트랙으로 넘어가요.',
+  'chat.large_track_playback_system_message':
+    '이 트랙은 매우 커서 사용 중 지연이 발생할 수 있어요.',
   'chat.large_local_track_system_message':
     '현재 트랙의 용량이 매우 커 일부 기기에서는 재생되지 않을 수 있어요.',
   'chat.device_track_unavailable_system_message': '이 기기에서는 현재 트랙을 재생할 수 없어요.',

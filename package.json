@@ -181,7 +181,10 @@
     "ws": "^8.21.3"
   },
   "dependencies": {
+    "@wasm-audio-decoders/flac": "0.2.11",
     "jsqr": "^1.4.0",
+    "mediabunny": "1.59.0",
+    "mpg123-decoder": "1.0.3",
     "peerjs": "^1.5.5",
     "qrcode": "^1.5.4"
   },

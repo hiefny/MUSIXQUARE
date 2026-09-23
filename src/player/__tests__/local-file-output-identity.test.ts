@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { newLoadEpoch, setCurrentAudioBuffer } from '../_state.ts';
+import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import {
   captureLocalFileOutputIdentity,
   isLocalFileOutputIdentityCurrent,
@@ -39,6 +40,33 @@ describe('native output recovery identity', () => {
     const identity = captureLocalFileOutputIdentity({ requireResident: false });
     expect(identity?.kind).toBe('queue-file');
     expect(isLocalFileOutputIdentityCurrent(identity!)).toBe(true);
+  });
+
+  it('keeps bounded output recovery bound to the exact resource across a return to native playback', () => {
+    const dispose = vi.fn();
+    const bounded: LargeAudioTrack = {
+      kind: 'large-audio',
+      duration: 3_600,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+      length: 172_800_000,
+      bufferedPcmBytes: 0,
+      prepare: vi.fn(async () => {}),
+      createPlayback: vi.fn(() => {
+        throw new Error('No playback required for identity checks');
+      }),
+      dispose,
+    };
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setCurrentAudioBuffer(bounded);
+    const identity = captureLocalFileOutputIdentity({ requireResident: false })!;
+    expect(identity.buffer).toBe(bounded);
+    expect(isLocalFileOutputIdentityCurrent(identity)).toBe(true);
+
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    expect(isLocalFileOutputIdentityCurrent(identity)).toBe(false);
+    expect(dispose).toHaveBeenCalledExactlyOnceWith();
+    expect(captureLocalFileOutputIdentity({ requireResident: false })?.buffer).not.toBe(bounded);
   });
 
   it.each(['exit', 'track', 'buffer', 'epoch', 'room', 'room-epoch'] as const)(

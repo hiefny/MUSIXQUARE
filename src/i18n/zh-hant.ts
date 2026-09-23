@@ -704,6 +704,7 @@ const zhHant: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT 已新增 {{count}} 項並開始播放',
   'chat.bot_rate_limited': '已達 BOT 請求上限，請在 {{duration}} 後再試',
   'chat.decode_skip_system_message': '跳過此項目：部分裝置不支援該格式。',
+  'chat.large_track_playback_system_message': '此曲目非常大，使用時可能會出現延遲。',
   'chat.large_local_track_system_message': '目前項目的檔案很大，部分裝置可能無法播放。',
   'chat.device_track_unavailable_system_message': '此裝置無法播放目前的項目。',
   'chat.system_audio_started_system_message':

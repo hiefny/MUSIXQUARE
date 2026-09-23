@@ -421,6 +421,8 @@ const pa: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT ਬੇਨਤੀ ਦੀ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ। {{duration}} ਉਡੀਕ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'chat.decode_skip_system_message':
     'ਟਰੈਕ ਛੱਡਿਆ ਜਾ ਰਿਹਾ ਹੈ: ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਫਾਰਮੈਟ ਨਹੀਂ ਚੱਲਦਾ।',
+  'chat.large_track_playback_system_message':
+    'ਇਹ ਟ੍ਰੈਕ ਬਹੁਤ ਵੱਡਾ ਹੈ, ਇਸ ਲਈ ਇਸਨੂੰ ਵਰਤਦੇ ਸਮੇਂ ਦੇਰੀ ਹੋ ਸਕਦੀ ਹੈ।',
   'chat.large_local_track_system_message':
     'ਇਸ ਟਰੈਕ ਦੀ ਫ਼ਾਈਲ ਬਹੁਤ ਵੱਡੀ ਹੈ ਅਤੇ ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਸ਼ਾਇਦ ਨਾ ਚੱਲੇ।',
   'chat.device_track_unavailable_system_message': 'ਇਹ ਡਿਵਾਈਸ ਮੌਜੂਦਾ ਟਰੈਕ ਨਹੀਂ ਚਲਾ ਸਕਦੀ।',

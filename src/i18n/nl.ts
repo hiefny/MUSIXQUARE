@@ -421,6 +421,8 @@ const nl: Record<I18nKey, string> = {
   'chat.bot_rate_limited':
     'Limiet voor BOT-verzoeken bereikt. Probeer het over {{duration}} opnieuw',
   'chat.decode_skip_system_message': 'Track overgeslagen: niet ondersteund op sommige apparaten.',
+  'chat.large_track_playback_system_message':
+    'Dit nummer is erg groot, waardoor er tijdens het gebruik vertragingen kunnen optreden.',
   'chat.large_local_track_system_message':
     'Deze track neemt erg veel ruimte in en kan mogelijk niet op alle apparaten worden afgespeeld.',
   'chat.device_track_unavailable_system_message':

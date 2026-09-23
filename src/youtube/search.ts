@@ -500,6 +500,7 @@ function clearSearchResults(): void {
   const resultsEl = getSearchResultsContainer();
   if (resultsEl) {
     resultsEl.hidden = true;
+    resultsEl.removeAttribute('aria-busy');
     resultsEl.replaceChildren();
     resultsEl.classList.remove('can-scroll-up', 'can-scroll-down');
     scheduleSearchScrollbarRelayout();
@@ -511,6 +512,33 @@ function abortSearch(): void {
     _searchAbort.abort();
     _searchAbort = null;
   }
+}
+
+function renderSearchSkeleton(): void {
+  const resultsEl = getSearchResultsContainer();
+  if (!resultsEl) return;
+
+  resultsEl.hidden = false;
+  resultsEl.setAttribute('aria-busy', 'true');
+  for (let index = 0; index < 5; index++) {
+    const row = document.createElement('div');
+    row.className = 'yt-search-result yt-search-skeleton';
+    row.setAttribute('aria-hidden', 'true');
+    const thumb = document.createElement('span');
+    thumb.className = 'yt-search-thumb yt-skeleton-block';
+    const meta = document.createElement('span');
+    meta.className = 'yt-search-meta';
+    const title = document.createElement('span');
+    title.className = 'yt-search-title yt-skeleton-block';
+    const channel = document.createElement('span');
+    channel.className = 'yt-search-channel yt-skeleton-block';
+    meta.append(title, channel);
+    row.append(thumb, meta);
+    resultsEl.appendChild(row);
+  }
+  resultsEl.scrollTop = 0;
+  bindSearchScrollMask();
+  scheduleSearchScrollbarRelayout();
 }
 
 function selectSearchResult(result: YouTubeSearchResult, query: string): void {
@@ -536,6 +564,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
 
   resultsEl.replaceChildren();
   resultsEl.hidden = false;
+  resultsEl.removeAttribute('aria-busy');
   bindSearchScrollMask();
   scheduleSearchScrollbarRelayout();
 
@@ -603,6 +632,7 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
   setStatus('youtube.searching');
   setYouTubePrimaryButton(false);
   setYouTubeSearchButton(false, true);
+  renderSearchSkeleton();
 
   const abort = new AbortController();
   _searchAbort = abort;
@@ -751,8 +781,15 @@ export function fetchYouTubePreview(url: string): void {
       clearSearchResults();
       _latestSearchQuery = '';
     }
-    setStatus('youtube.search_prompt');
-    setYouTubePrimaryButton(false);
+    const selected = getSelectedYouTubeSearchResult(intent.query || '');
+    setStatus(
+      _searchAbort
+        ? 'youtube.searching'
+        : selected
+          ? 'youtube.search_selected'
+          : 'youtube.search_prompt',
+    );
+    setYouTubePrimaryButton(selected !== null);
     setYouTubeSearchButton(_searchAbort === null, _searchAbort !== null);
     return;
   }

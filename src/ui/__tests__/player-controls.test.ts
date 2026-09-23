@@ -21,6 +21,12 @@ import {
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
+import {
+  clearYouTubeInputState,
+  fetchYouTubePreview,
+  getSelectedYouTubeSearchResult,
+  searchYouTubeFromInput,
+} from '../../youtube/search.ts';
 import { showToast } from '../toast.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { initSettings } from '../settings.ts';
@@ -171,6 +177,226 @@ function setActiveStandardHost(): void {
   setState('network.sessionCode', '123456');
   setState('setup.sessionStarted', true);
 }
+
+describe('YouTube search keyboard and result activation', () => {
+  let queryNumber = 0;
+  const results = [
+    { videoId: 'AAAAAAAAAAA', title: 'First song', channelTitle: 'First channel' },
+    { videoId: 'BBBBBBBBBBB', title: 'Second song', channelTitle: 'Second channel' },
+  ];
+
+  afterEach(() => {
+    clearYouTubeInputState();
+    vi.unstubAllGlobals();
+  });
+
+  function setup(searchResponse: Promise<Response> = Promise.resolve(Response.json({ results }))) {
+    document.body.innerHTML = `
+      <div id="youtube-url-overlay" class="active">
+        <div id="youtube-url-input" contenteditable="true"></div>
+        <div id="youtube-preview" hidden></div>
+        <div id="youtube-preview-status"></div>
+        <div id="youtube-search-results" hidden></div>
+        <button id="youtube-search-btn" disabled></button>
+        <button id="youtube-play-btn" disabled></button>
+        <button id="btn-yt-cancel"></button>
+      </div>
+    `;
+    clearYouTubeInputState();
+    youtubePrimer.prime.mockReturnValue(false);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (url.includes('/api/youtube-search')) return searchResponse;
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const input = document.getElementById('youtube-url-input')!;
+    const pending: Promise<void>[] = [];
+    const search = vi.fn(() => {
+      pending.push(searchYouTubeFromInput(input.textContent || ''));
+    });
+    const submit = vi.fn(() => {
+      const videoId = getSelectedYouTubeSearchResult(input.textContent || '')?.videoId;
+      // The real player closes and clears the popup synchronously on acceptance.
+      clearYouTubeInputState();
+      input.textContent = '';
+      document.getElementById('youtube-url-overlay')!.classList.remove('active');
+      return videoId;
+    });
+    bus.on('youtube:preview', fetchYouTubePreview);
+    bus.on('youtube:search-from-input', search);
+    bus.on('youtube:load-from-input', submit);
+    initPlayerControls();
+    input.textContent = `keyboard search ${++queryNumber}`;
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    return { input, pending, search, submit };
+  }
+
+  function enter(target: HTMLElement, extra: KeyboardEventInit = {}): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+      ...extra,
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('searches on the first Enter and adds the default first result on the next Enter', async () => {
+    let resolve!: (response: Response) => void;
+    const { input, pending, search, submit } = setup(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    enter(input);
+    expect(search).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll('.yt-search-skeleton')).toHaveLength(5);
+    enter(input);
+    enter(input, { repeat: true });
+    expect(search).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+    resolve(Response.json({ results }));
+    await pending[0];
+    expect(document.querySelector('.yt-search-result')?.getAttribute('aria-pressed')).toBe('true');
+    enter(input, { repeat: true });
+    expect(submit).not.toHaveBeenCalled();
+    enter(input);
+    expect(search).toHaveBeenCalledOnce();
+    expect(submit).toHaveReturnedWith('AAAAAAAAAAA');
+    expect(youtubePrimer.prime).toHaveBeenCalledOnce();
+    expect(youtubePrimer.wait).not.toHaveBeenCalled();
+  });
+
+  it.each(['input-enter', 'row-enter', 'double-click'] as const)(
+    'adds the chosen result once through Add using %s',
+    async (activation) => {
+      const { input, pending, submit } = setup();
+      enter(input);
+      await pending[0];
+      const row = document.querySelectorAll<HTMLButtonElement>('.yt-search-result')[1];
+      const add = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+      const addClick = vi.spyOn(add, 'click');
+      row.click();
+      expect(submit).not.toHaveBeenCalled();
+      if (activation === 'input-enter') enter(input);
+      else if (activation === 'row-enter') expect(enter(row).defaultPrevented).toBe(true);
+      else {
+        row.click();
+        row
+          .querySelector('.yt-search-title')!
+          .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      }
+      expect(addClick).toHaveBeenCalledOnce();
+      expect(submit).toHaveBeenCalledOnce();
+      expect(submit).toHaveReturnedWith('BBBBBBBBBBB');
+      row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      enter(input, { repeat: true });
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['composing', 'legacy', 'composition-session'] as const)(
+    'does not search or add on %s IME Enter',
+    async (mode) => {
+      const { input, pending, search, submit } = setup();
+      const extra = { isComposing: mode === 'composing', keyCode: mode === 'legacy' ? 229 : 0 };
+      if (mode === 'composition-session')
+        input.dispatchEvent(new CompositionEvent('compositionstart'));
+      enter(input, extra);
+      expect(search).not.toHaveBeenCalled();
+      input.dispatchEvent(new CompositionEvent('compositionend'));
+      enter(input);
+      await pending[0];
+      if (mode === 'composition-session')
+        input.dispatchEvent(new CompositionEvent('compositionstart'));
+      enter(input, extra);
+      enter(document.querySelector<HTMLButtonElement>('.yt-search-result')!, extra);
+      expect(submit).not.toHaveBeenCalled();
+      input.dispatchEvent(new CompositionEvent('compositionend'));
+      enter(input);
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('keeps a disabled Add gate for both result Enter and double-click', async () => {
+    const { input, pending, submit } = setup();
+    enter(input);
+    await pending[0];
+    const row = document.querySelector<HTMLButtonElement>('.yt-search-result')!;
+    (document.getElementById('youtube-play-btn') as HTMLButtonElement).disabled = true;
+    enter(row);
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(submit).not.toHaveBeenCalled();
+    expect(youtubePrimer.prime).not.toHaveBeenCalled();
+  });
+
+  it('coalesces result activation and Enter while the gesture prime is pending', async () => {
+    const { input, pending, submit } = setup();
+    enter(input);
+    await pending[0];
+    let resolve!: (ready: boolean) => void;
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const row = document.querySelector<HTMLButtonElement>('.yt-search-result')!;
+    row.click();
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    row.click();
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    enter(input);
+    expect(youtubePrimer.prime).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+    resolve(true);
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(submit).toHaveReturnedWith('AAAAAAAAAAA');
+  });
+
+  it('does not silently replace a pending submission when another result is selected', async () => {
+    const { input, pending, submit } = setup();
+    enter(input);
+    await pending[0];
+    let resolve!: (ready: boolean) => void;
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    enter(input);
+    document.querySelectorAll<HTMLButtonElement>('.yt-search-result')[1].click();
+    resolve(true);
+    await vi.waitFor(() =>
+      expect(document.getElementById('youtube-play-btn')!.hasAttribute('aria-busy')).toBe(false),
+    );
+    expect(submit).not.toHaveBeenCalled();
+    enter(input);
+    expect(submit).toHaveReturnedWith('BBBBBBBBBBB');
+  });
+
+  it('rejects old result activation after input changes and can search the new query', async () => {
+    const { input, pending, search, submit } = setup();
+    enter(input);
+    await pending[0];
+    const oldRow = document.querySelector<HTMLButtonElement>('.yt-search-result')!;
+    input.textContent = 'a different query';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    oldRow.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(submit).not.toHaveBeenCalled();
+    enter(input);
+    await pending[1];
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(submit).not.toHaveBeenCalled();
+  });
+});
 
 describe('Android range scroll ownership', () => {
   beforeEach(() => {
@@ -3453,8 +3679,9 @@ describe('initPlayerControls sync button', () => {
     expect(overlay.classList.contains('show')).toBe(true);
     expect(overlay.getAttribute('aria-hidden')).toBe('false');
     expect(trigger.hasAttribute('inert')).toBe(true);
-    expect(document.activeElement).toBe(done);
+    expect(document.activeElement).toBe(first);
 
+    done.focus();
     done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(first);
 

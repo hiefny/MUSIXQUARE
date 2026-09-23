@@ -9,6 +9,7 @@
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
+import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
@@ -208,14 +209,6 @@ function bindEditor(editor: HTMLElement): void {
   editor.addEventListener('focus', () => {
     editor.dataset.editing = 'true';
     editor.setAttribute('aria-invalid', 'false');
-    clearManagedTimer('manual-sync-select-all');
-    setManagedTimer(
-      'manual-sync-select-all',
-      () => {
-        if (document.activeElement === editor) selectEditorText(editor);
-      },
-      0,
-    );
   });
   editor.addEventListener('compositionstart', () => {
     isComposing = true;
@@ -265,7 +258,6 @@ function bindEditor(editor: HTMLElement): void {
     close();
   });
   editor.addEventListener('blur', () => {
-    clearManagedTimer('manual-sync-select-all');
     editor.removeAttribute('data-editing');
     if (skipNextBlurCommit) {
       skipNextBlurCommit = false;
@@ -321,6 +313,15 @@ function open(fromDemo = false): boolean {
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('manual-sync-overlay');
+  const editor = document.getElementById('manual-sync-value');
+  if (!IS_IOS && !IS_ANDROID && isAvailableFocusTarget(editor)) {
+    // The modal stack may already have focused this editor. Select explicitly
+    // on open, without a deferred focus handler overwriting later pointer carets.
+    editor.focus({ preventScroll: true });
+    selectEditorText(editor);
+    return true;
+  }
+  // Keep the existing mobile entry point from requesting the software keyboard.
   setManagedTimer(
     'manual-sync-focus',
     () => {

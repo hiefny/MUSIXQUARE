@@ -38,6 +38,7 @@ import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
   clearPreviewDebounce,
   clearYouTubeInputState,
+  getSelectedYouTubeSearchResult,
   getYouTubeInputIntent,
 } from '../youtube/search.ts';
 import { primeYouTubePlayer, waitForPendingYouTubePrimeBounce } from '../youtube/iframe.ts';
@@ -750,6 +751,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
   const submitGeneration = ++youtubeGestureSubmitGeneration;
   youtubeGestureSubmitOwner = submitGeneration;
   const submittedText = input.textContent || '';
+  const submittedResult = getSelectedYouTubeSearchResult(submittedText);
   const playButton = getUiElement<HTMLButtonElement>('youtube-play-btn');
   if (playButton) {
     playButton.disabled = true;
@@ -768,6 +770,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
       const overlay = getUiElement('youtube-url-overlay');
       if (overlay && !overlay.classList.contains('active')) return;
       if ((input.textContent || '') !== submittedText) return;
+      if (getSelectedYouTubeSearchResult(submittedText) !== submittedResult) return;
       bus.emit('youtube:load-from-input');
       if (IS_IOS || IS_ANDROID) input.blur();
     })
@@ -783,7 +786,11 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
         playButton.removeAttribute('aria-busy');
         // A changed input owns its newer preview gate; only restore the exact
         // submission whose text is still present.
-        if ((input.textContent || '') === submittedText) playButton.disabled = false;
+        if (
+          (input.textContent || '') === submittedText &&
+          getSelectedYouTubeSearchResult(submittedText) === submittedResult
+        )
+          playButton.disabled = false;
       }
     })
     .catch((error) => {
@@ -1417,6 +1424,21 @@ export function initPlayerControls(): void {
   // YouTube popup (contenteditable)
   const ytInput = getUiElement('youtube-url-input');
   if (ytInput) {
+    let composing = false;
+    ytInput.addEventListener(
+      'compositionstart',
+      () => {
+        composing = true;
+      },
+      { signal: domSignal },
+    );
+    ytInput.addEventListener(
+      'compositionend',
+      () => {
+        composing = false;
+      },
+      { signal: domSignal },
+    );
     ytInput.addEventListener(
       'input',
       (e) => {
@@ -1438,10 +1460,14 @@ export function initPlayerControls(): void {
       'keydown',
       (e) => {
         if (e.key === 'Enter') {
-          if (e.isComposing || e.keyCode === 229) return;
+          if (composing || e.isComposing || e.keyCode === 229) return;
           e.preventDefault();
+          if (e.repeat) return;
+          const results = getUiElement('youtube-search-results');
+          if (results?.getAttribute('aria-busy') === 'true') return;
           const searchButton = getUiElement('youtube-search-btn') as HTMLButtonElement | null;
-          if (searchButton && !searchButton.disabled) {
+          const selected = getSelectedYouTubeSearchResult(ytInput.textContent || '');
+          if (!selected && searchButton && !searchButton.disabled) {
             submitYouTubeSearch(ytInput);
             return;
           }
@@ -1450,8 +1476,7 @@ export function initPlayerControls(): void {
           // honor the same gate as a physical button click, otherwise iOS falls
           // back to the asynchronous iframe indexer and loses this gesture.
           const playButton = getUiElement('youtube-play-btn') as HTMLButtonElement | null;
-          if (playButton?.disabled) return;
-          submitYouTubeFromGesture(ytInput);
+          playButton?.click();
         }
       },
       { signal: domSignal },
@@ -1467,6 +1492,42 @@ export function initPlayerControls(): void {
           clipboard?.getData('URL') ||
           '';
         document.execCommand('insertText', false, text);
+      },
+      { signal: domSignal },
+    );
+
+    const results = getUiElement('youtube-search-results');
+    const submitResult = (target: EventTarget | null): void => {
+      if (composing || youtubeGestureSubmitOwner !== null || !results || results.hidden) return;
+      if (results.getAttribute('aria-busy') === 'true') return;
+      const row =
+        target instanceof Element
+          ? target.closest<HTMLButtonElement>('button.yt-search-result[data-video-id]')
+          : null;
+      if (!row || !results.contains(row)) return;
+      if (!getSelectedYouTubeSearchResult(ytInput.textContent || '')) return;
+      const playButton = getUiElement<HTMLButtonElement>('youtube-play-btn');
+      if (!playButton || playButton.disabled) return;
+      // Selecting is synchronous. Delegate submission to Add in the same
+      // gesture stack so its preview gate and iOS unlock path stay shared.
+      row.click();
+      playButton.click();
+    };
+    results?.addEventListener(
+      'keydown',
+      (event) => {
+        if (event.key !== 'Enter' || composing || event.isComposing || event.keyCode === 229)
+          return;
+        event.preventDefault();
+        if (!event.repeat) submitResult(event.target);
+      },
+      { signal: domSignal },
+    );
+    results?.addEventListener(
+      'dblclick',
+      (event) => {
+        event.preventDefault();
+        submitResult(event.target);
       },
       { signal: domSignal },
     );

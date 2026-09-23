@@ -397,6 +397,134 @@ describe('YouTube search action state', () => {
   });
 });
 
+describe('YouTube search loading lifecycle', () => {
+  let queryNumber = 0;
+  const result = { videoId: 'KKKKKKKKKKK', title: 'Found song', channelTitle: 'Channel' };
+
+  function setup() {
+    document.body.innerHTML = `
+      <div id="youtube-preview" hidden></div>
+      <div id="youtube-preview-status"></div>
+      <div id="youtube-search-results" role="group" hidden></div>
+      <button id="youtube-search-btn" disabled></button>
+      <button id="youtube-play-btn" disabled></button>
+    `;
+    clearYouTubeInputState();
+    const requests = new Map<
+      string,
+      { resolve: (response: Response) => void; reject: (reason: Error) => void }
+    >();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), 'http://localhost');
+        if (url.pathname.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (url.pathname.includes('/api/youtube-search')) {
+          return new Promise<Response>((resolve, reject) => {
+            requests.set(url.searchParams.get('q')!, { resolve, reject });
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    return {
+      query: `skeleton lifecycle ${++queryNumber}`,
+      requests,
+      container: document.getElementById('youtube-search-results')!,
+      add: document.getElementById('youtube-play-btn') as HTMLButtonElement,
+    };
+  }
+
+  afterEach(() => {
+    clearYouTubeInputState();
+    document.body.innerHTML = '';
+  });
+
+  it('fills the result viewport with inert rows until real results replace them', async () => {
+    const { query, requests, container, add } = setup();
+    const search = searchYouTubeFromInput(query);
+    expect(container.hidden).toBe(false);
+    expect(container.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelectorAll('.yt-search-result.yt-search-skeleton')).toHaveLength(5);
+    expect(container.querySelectorAll('.yt-skeleton-block')).toHaveLength(15);
+    expect(container.querySelectorAll('button, img, [tabindex]')).toHaveLength(0);
+    expect(
+      Array.from(container.children).every((row) => row.getAttribute('aria-hidden') === 'true'),
+    ).toBe(true);
+    expect(add.disabled).toBe(true);
+    expect(getSelectedYouTubeSearchResult(query)).toBeNull();
+    await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+    requests.get(query)!.resolve(Response.json({ results: [result] }));
+    await search;
+    expect(container.hasAttribute('aria-busy')).toBe(false);
+    expect(container.querySelectorAll('.yt-search-skeleton')).toHaveLength(0);
+    expect(container.querySelectorAll('button')).toHaveLength(1);
+    expect(getSelectedYouTubeSearchResult(query)?.videoId).toBe(result.videoId);
+    expect(add.disabled).toBe(false);
+    fetchYouTubePreview(`  ${query}  `);
+    expect(add.disabled).toBe(false);
+    expect(getSelectedYouTubeSearchResult(query)?.videoId).toBe(result.videoId);
+  });
+
+  it.each(['empty', 'failure'] as const)(
+    'clears loading on %s and leaves search retryable',
+    async (outcome) => {
+      const { query, requests, container, add } = setup();
+      const search = searchYouTubeFromInput(query);
+      await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+      if (outcome === 'empty') requests.get(query)!.resolve(Response.json({ results: [] }));
+      else requests.get(query)!.reject(new Error('offline'));
+      await search;
+      expect(container.hidden).toBe(true);
+      expect(container.childElementCount).toBe(0);
+      expect(container.hasAttribute('aria-busy')).toBe(false);
+      expect(add.disabled).toBe(true);
+      expect((document.getElementById('youtube-search-btn') as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each(['changed-query', 'cleared-popup'] as const)(
+    'ignores late results after %s',
+    async (action) => {
+      const { query, requests, container, add } = setup();
+      const search = searchYouTubeFromInput(query);
+      await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+      if (action === 'changed-query') fetchYouTubePreview('a new search');
+      else clearYouTubeInputState();
+      expect(container.hidden).toBe(true);
+      expect(container.hasAttribute('aria-busy')).toBe(false);
+      requests.get(query)!.resolve(Response.json({ results: [result] }));
+      await search;
+      expect(container.childElementCount).toBe(0);
+      expect(getSelectedYouTubeSearchResult()).toBeNull();
+      expect(add.disabled).toBe(true);
+    },
+  );
+
+  it('keeps the newer search busy when an older aborted request finishes', async () => {
+    const { query, requests, container, add } = setup();
+    const oldSearch = searchYouTubeFromInput(query);
+    await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+    const nextQuery = `${query} next`;
+    const nextSearch = searchYouTubeFromInput(nextQuery);
+    await vi.waitFor(() => expect(requests.has(nextQuery)).toBe(true));
+    requests.get(query)!.resolve(Response.json({ results: [result] }));
+    await oldSearch;
+    expect(container.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelectorAll('.yt-search-skeleton')).toHaveLength(5);
+    expect(add.disabled).toBe(true);
+    requests
+      .get(nextQuery)!
+      .resolve(Response.json({ results: [{ ...result, title: 'New result' }] }));
+    await nextSearch;
+    expect(container.hasAttribute('aria-busy')).toBe(false);
+    expect(getSelectedYouTubeSearchResult(nextQuery)?.title).toBe('New result');
+  });
+});
+
 describe('YouTube search result normalization', () => {
   // Exercise the response-hardening layer of normalizeSearchResults: the
   // proxy is trusted-ish, but defense-in-depth drops malformed rows, rejects

@@ -11662,6 +11662,7 @@ html:not(.ios-standalone) body {
 .yt-search-result {
   position: relative;
   width: 100%;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
   gap: 10px;
@@ -11728,6 +11729,9 @@ html:not(.ios-standalone) body {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
+  /* Reserve the existing two-line title slot so loading and short titles
+     occupy the same row geometry as wrapped search results. */
+  min-height: 2.7em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -11741,6 +11745,64 @@ html:not(.ios-standalone) body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.yt-search-skeleton {
+  pointer-events: none;
+  cursor: default;
+}
+
+.yt-search-skeleton .yt-skeleton-block {
+  animation: yt-search-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.yt-search-skeleton .yt-search-thumb {
+  background: var(--surface-3);
+}
+
+.yt-search-skeleton .yt-search-title {
+  background-image:
+    linear-gradient(var(--surface-3), var(--surface-3)),
+    linear-gradient(var(--surface-3), var(--surface-3));
+  background-size:
+    90% 0.75em,
+    65% 0.75em;
+  background-position:
+    left 0.3em,
+    left 1.65em;
+  background-repeat: no-repeat;
+}
+
+.yt-search-skeleton .yt-search-channel {
+  height: 1.3em;
+  background: linear-gradient(var(--surface-3), var(--surface-3)) left center / 42% 0.75em no-repeat;
+}
+
+[dir='rtl'] .yt-search-skeleton .yt-search-title {
+  background-position:
+    right 0.3em,
+    right 1.65em;
+}
+
+[dir='rtl'] .yt-search-skeleton .yt-search-channel {
+  background-position: right center;
+}
+
+@keyframes yt-search-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yt-search-skeleton .yt-skeleton-block {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 /* Smaller preview meta line (channel / duration), distinct from yt-preview-meta */

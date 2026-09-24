@@ -1,6 +1,7 @@
 import { AudioSample, CustomAudioDecoder, type AudioCodec, type EncodedPacket } from 'mediabunny';
 import type { AACDecoderWebWorker } from '@wasm-audio-decoders/aac';
 import { decoderWorkerCall } from './worker-call.ts';
+import { withAudioDecoderStartup } from './startup-error.ts';
 
 const CHANNEL_ORDER: Readonly<Record<number, readonly number[]>> = {
   3: [0, 2, 1],
@@ -24,16 +25,18 @@ export class IncrementalAacDecoder extends CustomAudioDecoder {
   }
 
   async init(): Promise<void> {
-    const { AACDecoderWebWorker } = await import('@wasm-audio-decoders/aac');
-    if (this.closed) return;
     const description = this.config.description;
     const audioSpecificConfig = description
       ? ArrayBuffer.isView(description)
         ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
         : new Uint8Array(description)
       : undefined;
-    this.decoder = new AACDecoderWebWorker({ audioSpecificConfig });
-    await decoderWorkerCall(this.decoder, this.decoder.ready);
+    await withAudioDecoderStartup(async () => {
+      const { AACDecoderWebWorker } = await import('@wasm-audio-decoders/aac');
+      if (this.closed) return;
+      this.decoder = new AACDecoderWebWorker({ audioSpecificConfig });
+      await decoderWorkerCall(this.decoder, this.decoder.ready);
+    });
   }
 
   async decode(packet: EncodedPacket): Promise<void> {

@@ -27,6 +27,9 @@ import {
   newLoadEpoch,
   isCurrentLoadEpoch,
   getCurrentAudioBuffer,
+  getCurrentLoadEpoch,
+  getTrackKeyFromItem,
+  isTrackFailed,
   setCurrentAudioBuffer,
 } from './_state.ts';
 import {
@@ -81,6 +84,7 @@ import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import {
   getPlaybackSelectionTrackMeta,
   isPlaybackIdleCompat,
+  isExternalOwner,
   isYouTubeOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
@@ -2538,6 +2542,12 @@ async function prepareAuthoritativePlayback(
   if (getState('room.context').kind !== 'pro' || !isProPlaybackAuthorityToken(request.authority)) {
     return failedAuthorityPrepare(request, 'inactive-room');
   }
+  // Failure belongs to this device and immutable queue occurrence, not a
+  // playback revision. Heartbeats, seeks and resumes must not fetch/decode it
+  // again, while a different occurrence remains eligible for preparation.
+  if (item.type === 'file' && isTrackFailed(getTrackKeyFromItem(item))) {
+    return failedAuthorityPrepare(request, 'device-unavailable');
+  }
 
   const positionSeconds = Number.isFinite(request.positionSeconds)
     ? Math.max(0, request.positionSeconds)
@@ -2626,6 +2636,9 @@ async function prepareAuthoritativePlayback(
     }
 
     clearManagedTimer('decode-fail-advance');
+    if (isTrackFailed(getTrackKeyFromItem(item))) {
+      return failedAuthorityPrepare(request, 'device-unavailable');
+    }
     const resident = getState('files.current');
     const buffer = getCurrentAudioBuffer();
     if (
@@ -2685,6 +2698,9 @@ async function commitAuthoritativePlayback(
   }
   const item = getQueueItemById(queueItemId);
   if (!item) return { status: 'failed', authority: request.authority, reason: 'missing-track' };
+  if (item.type === 'file' && isTrackFailed(getTrackKeyFromItem(item))) {
+    return { status: 'failed', authority: request.authority, reason: 'device-unavailable' };
+  }
 
   const applied =
     item.type === 'youtube'
@@ -2693,6 +2709,56 @@ async function commitAuthoritativePlayback(
   return applied
     ? { status: 'applied', authority: request.authority }
     : { status: 'failed', authority: request.authority, reason: 'media-unavailable' };
+}
+
+async function invalidateUnavailableAuthoritativePlayback(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<void> {
+  const initialItem = getQueueItemById(request.queueItemId);
+  if (initialItem?.type !== 'file' || !isTrackFailed(getTrackKeyFromItem(initialItem))) return;
+  const epoch = getCurrentLoadEpoch();
+  const delayMs = Number.isFinite(request.scheduleDelayMs)
+    ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
+    : 0;
+  if (delayMs > 0) await delay(delayMs);
+  const context = getState('room.context');
+  if (
+    request.isCurrent?.() === false ||
+    !isCurrentLoadEpoch(epoch) ||
+    context.kind !== 'pro' ||
+    context.roomId !== request.authority.roomId ||
+    context.epoch !== request.authority.roomEpoch
+  ) {
+    return;
+  }
+  // Queue projection can update or remove this row while the scheduled COMMIT
+  // waits, without starting a newer load. Apply only its current failed entry.
+  const item = getQueueItemById(request.queueItemId);
+  if (item?.type !== 'file' || !isTrackFailed(getTrackKeyFromItem(item))) return;
+  // A rejected PREPARE leaves the outgoing renderer alone. Once the server
+  // commits this unavailable occurrence, retire it locally so a healthy B
+  // cannot keep playing when the room returns to previously failed A.
+  if (
+    getCurrentQueueItemId() === item.queueItemId &&
+    !getCurrentAudioBuffer() &&
+    !getState('files.current') &&
+    !isFilePipelineBusyForPlay() &&
+    !isExternalOwner() &&
+    getState('playback.activity') === 'idle'
+  ) {
+    // Queue projection can select this occurrence from idle before COMMIT
+    // publishes its title. Keep presentation current without another teardown.
+    const selectionMeta = getPlaybackSelectionTrackMeta(item);
+    if (getState('player.currentTrackMeta') !== selectionMeta) {
+      setPlaybackTrackMeta(selectionMeta);
+    }
+    return;
+  }
+  stopAllMedia({ cancelInFlight: true });
+  setCurrentAudioBuffer(null);
+  setState('files.current', null);
+  selectQueueItemById(item.queueItemId);
+  setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(item));
 }
 
 export function initPlaylist(): void {
@@ -2706,6 +2772,29 @@ export function initPlaylist(): void {
   registerProPlaybackMediaEndpoint({
     prepare: prepareAuthoritativePlayback,
     commit: commitAuthoritativePlayback,
+    isCheckpointReady: (request) => {
+      if (
+        getState('playback.activity') !== request.state ||
+        getCurrentQueueItemId() !== request.queueItemId
+      )
+        return false;
+      const item = request.queueItemId ? getQueueItemById(request.queueItemId) : null;
+      if (item?.type === 'file') {
+        return (
+          !!getCurrentAudioBuffer() && getState('files.current')?.queueItemId === item.queueItemId
+        );
+      }
+      if (item?.type !== 'youtube' || !isYouTubeOwner() || !isYtPlayerReady()) return false;
+      try {
+        return (
+          (getYouTubePlayer()?.getVideoData?.()?.video_id || '') === request.youtubeVideoId &&
+          (getState('youtube.currentSubIndex') ?? 0) === (request.youtubeSubIndex ?? 0)
+        );
+      } catch {
+        return false;
+      }
+    },
+    invalidateCommitted: invalidateUnavailableAuthoritativePlayback,
     cancel: () => {
       // Make slow R2/decode work lose ownership immediately. The explicit
       // authority generation in playback-authority-hooks fences any late

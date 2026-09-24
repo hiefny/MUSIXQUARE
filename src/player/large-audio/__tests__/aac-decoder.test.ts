@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IncrementalAacDecoder } from '../aac-decoder.ts';
+import { isAudioDecoderStartupError } from '../startup-error.ts';
 import type { AudioCodec, EncodedPacket } from 'mediabunny';
 
 const mocks = vi.hoisted(() => ({
   options: vi.fn(),
+  ready: vi.fn(async () => undefined),
   decode: vi.fn(),
   reset: vi.fn(async () => undefined),
   free: vi.fn(async () => undefined),
@@ -14,7 +16,7 @@ vi.mock('@wasm-audio-decoders/aac', () => ({
     constructor(options: unknown) {
       mocks.options(options);
     }
-    ready = Promise.resolve();
+    ready = mocks.ready();
     decodeFrames = mocks.decode;
     reset = mocks.reset;
     free = mocks.free;
@@ -63,6 +65,23 @@ function pcm(channels: number, sampleRate = 48000) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('incremental AAC decoder', () => {
+  it('marks worker bootstrap failures retryable without marking corrupt frames', async () => {
+    mocks.ready.mockRejectedValueOnce(new Error('worker bootstrap interrupted'));
+    const first = create();
+    const failure = await first.decoder.init().catch((error: unknown) => error);
+    expect(isAudioDecoderStartupError(failure)).toBe(true);
+    await first.decoder.close();
+    expect(mocks.free).toHaveBeenCalledOnce();
+
+    const retry = create();
+    await retry.decoder.init();
+    mocks.decode.mockResolvedValueOnce({ ...pcm(2), errors: [{ message: 'corrupt AAC frame' }] });
+    const corrupt = await retry.decoder.decode(packet(0)).catch((error: unknown) => error);
+    expect(corrupt).toBeInstanceOf(Error);
+    expect(isAudioDecoderStartupError(corrupt)).toBe(false);
+    await retry.decoder.close();
+  });
+
   it.each(['mp4a.40.2', 'mp4a.40.02', 'mp4a.40.5', 'mp4a.40.05', 'mp4a.40.29'])(
     'accepts verified LC/HE profile %s',
     (codec) => {

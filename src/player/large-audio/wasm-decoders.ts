@@ -8,6 +8,7 @@ import {
 import type { MPEGDecoderWebWorker } from 'mpg123-decoder';
 import type { FLACDecoderWebWorker } from '@wasm-audio-decoders/flac';
 import { decoderWorkerCall } from './worker-call.ts';
+import { withAudioDecoderStartup } from './startup-error.ts';
 import { IncrementalAacDecoder } from './aac-decoder.ts';
 
 interface DecodedPcm {
@@ -58,9 +59,12 @@ class IncrementalMp3Decoder extends WorkerAudioDecoder {
   }
 
   async init(): Promise<void> {
-    const { MPEGDecoderWebWorker } = await import('mpg123-decoder');
-    this.decoder = new MPEGDecoderWebWorker({ enableGapless: false });
-    await decoderWorkerCall(this.decoder, this.decoder.ready);
+    await withAudioDecoderStartup(async () => {
+      const { MPEGDecoderWebWorker } = await import('mpg123-decoder');
+      if (this.closed) return;
+      this.decoder = new MPEGDecoderWebWorker({ enableGapless: false });
+      await decoderWorkerCall(this.decoder, this.decoder.ready);
+    });
   }
 
   async decode(packet: EncodedPacket): Promise<void> {
@@ -90,9 +94,12 @@ class IncrementalFlacDecoder extends WorkerAudioDecoder {
   }
 
   async init(): Promise<void> {
-    const { FLACDecoderWebWorker } = await import('@wasm-audio-decoders/flac');
-    this.decoder = new FLACDecoderWebWorker();
-    await decoderWorkerCall(this.decoder, this.decoder.ready);
+    await withAudioDecoderStartup(async () => {
+      const { FLACDecoderWebWorker } = await import('@wasm-audio-decoders/flac');
+      if (this.closed) return;
+      this.decoder = new FLACDecoderWebWorker();
+      await decoderWorkerCall(this.decoder, this.decoder.ready);
+    });
   }
 
   async decode(packet: EncodedPacket): Promise<void> {

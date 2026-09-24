@@ -349,6 +349,7 @@ export type ProPlaybackPrepareFailureReason =
   | 'identity-mismatch'
   | 'media-unavailable'
   | 'decode-failed'
+  | 'device-unavailable'
   | 'player-unavailable'
   | 'audio-locked'
   | 'timeout'
@@ -397,6 +398,8 @@ export interface ProPlaybackCommitResult {
 export interface ProPlaybackMediaEndpoint {
   prepare(request: Readonly<ProPlaybackPrepareRequest>): Promise<ProPlaybackPrepareResult>;
   commit(request: Readonly<ProPlaybackCommitRequest>): Promise<ProPlaybackCommitResult>;
+  /** Read-only check for an already-applied renderer surviving a cancelled PREPARE. */
+  isCheckpointReady?(request: Readonly<ProPlaybackCommitRequest>): boolean;
   /** Abort participant-local work for one server-cancelled transition. */
   cancel?(authority: ProPlaybackAuthorityToken): void;
   /**
@@ -417,6 +420,7 @@ let activePreparation: {
   promise: Promise<ProPlaybackPrepareResult>;
 } | null = null;
 let highestSeen: ProPlaybackAuthorityToken | null = null;
+let cancelledPreparation: ProPlaybackAuthorityToken | null = null;
 let latestApplied: ProPlaybackAuthorityToken | null = null;
 let highestCommittedPlaybackRevision = 0;
 
@@ -526,6 +530,7 @@ export async function prepareProPlaybackAuthority(
   resetStandardHostManualOffsetTransaction();
 
   const generation = ++prepareGeneration;
+  cancelledPreparation = null;
   const upstreamIsCurrent = request.isCurrent;
   const endpointRequest: Readonly<ProPlaybackPrepareRequest> = {
     ...request,
@@ -639,8 +644,132 @@ export function cancelProPlaybackPreparation(authority?: ProPlaybackAuthorityTok
 
   prepareGeneration += 1;
   activePreparation = null;
+  if (highestSeen && sameAuthority(pending.authority, highestSeen)) {
+    cancelledPreparation = pending.authority;
+  }
   mediaEndpoint?.cancel?.(pending.authority);
   return true;
+}
+
+/** Whether one cancelled PREPARE still permits recovery of its exact canonical base. */
+export function hasCancelledProPlaybackCheckpointRecovery(
+  roomId: string,
+  roomEpoch: number,
+  playbackRevision: number,
+): boolean {
+  return !!(
+    cancelledPreparation &&
+    highestSeen &&
+    sameAuthority(cancelledPreparation, highestSeen) &&
+    cancelledPreparation.roomId === roomId &&
+    cancelledPreparation.roomEpoch === roomEpoch &&
+    cancelledPreparation.basePlaybackRevision === playbackRevision &&
+    playbackRevision >= highestCommittedPlaybackRevision
+  );
+}
+
+/**
+ * Recover the exact committed base of a cancelled newer PREPARE. The controller
+ * must continuously verify the current canonical checkpoint through isCurrent.
+ * Historical highestSeen remains intact, so ordinary old frames stay rejected.
+ */
+export async function recoverCancelledProPlaybackCheckpoint(
+  request: Readonly<ProPlaybackCommitRequest>,
+  refreshTiming: () => Pick<ProPlaybackCommitRequest, 'positionSeconds' | 'scheduleDelayMs'>,
+): Promise<ProPlaybackCommitResult> {
+  if (!isProPlaybackAuthorityToken(request.authority)) {
+    throw new TypeError('A server authority token is required');
+  }
+  requireSafeCounter(request.committedPlaybackRevision, 'committedPlaybackRevision');
+  const rejected = (): ProPlaybackCommitResult => ({
+    status: 'superseded',
+    authority: request.authority,
+    reason: 'stale-authority',
+  });
+  if (
+    request.authority.transitionId === null ||
+    request.committedPlaybackRevision !== request.authority.basePlaybackRevision + 1 ||
+    request.state === 'idle' ||
+    !request.queueItemId ||
+    !activeAuthorityRoomMatches(request.authority) ||
+    request.isCurrent?.() !== true
+  )
+    return rejected();
+  const recoverable = hasCancelledProPlaybackCheckpointRecovery(
+    request.authority.roomId,
+    request.authority.roomEpoch,
+    request.committedPlaybackRevision,
+  );
+  if (
+    !recoverable &&
+    !activePreparation &&
+    latestApplied &&
+    sameAuthority(request.authority, latestApplied)
+  ) {
+    return { status: 'applied', authority: request.authority };
+  }
+  const cancelled = cancelledPreparation;
+  const endpoint = mediaEndpoint;
+  if (!endpoint || activePreparation || !cancelled || !recoverable) return rejected();
+
+  if (
+    request.committedPlaybackRevision === highestCommittedPlaybackRevision &&
+    endpoint.isCheckpointReady?.(request) === true
+  ) {
+    // A failed successor can leave the original renderer entirely untouched.
+    // Consume this cancellation without seeking, pausing or re-decoding it.
+    cancelledPreparation = null;
+    latestApplied = request.authority;
+    return { status: 'applied', authority: request.authority };
+  }
+
+  const generation = ++prepareGeneration;
+  const isCurrent = () =>
+    generation === prepareGeneration &&
+    cancelledPreparation === cancelled &&
+    activeAuthorityRoomMatches(request.authority) &&
+    request.isCurrent?.() === true;
+  resetStandardHostManualOffsetTransaction();
+  const promise = endpoint.prepare({
+    authority: request.authority,
+    queueItemId: request.queueItemId,
+    positionSeconds: request.positionSeconds,
+    state: request.state,
+    youtubeSubIndex: request.youtubeSubIndex,
+    youtubeVideoId: request.youtubeVideoId,
+    isCurrent,
+  });
+  const pending = { generation, authority: request.authority, promise };
+  activePreparation = pending;
+  try {
+    const prepared = await promise;
+    if (!isCurrent() || activePreparation !== pending) return rejected();
+    if (prepared.status !== 'ready') {
+      if (prepared.reason === 'device-unavailable') cancelledPreparation = null;
+      return {
+        status: prepared.status === 'superseded' ? 'superseded' : 'failed',
+        authority: request.authority,
+        reason: prepared.reason,
+      };
+    }
+    const { positionSeconds, scheduleDelayMs } = refreshTiming();
+    const result = await endpoint.commit({
+      ...request,
+      positionSeconds,
+      scheduleDelayMs,
+      isCurrent,
+    });
+    if (!isCurrent() || activePreparation !== pending) return rejected();
+    if (result.status === 'applied') {
+      latestApplied = request.authority;
+      highestCommittedPlaybackRevision = request.committedPlaybackRevision;
+      activePreparation = null;
+      cancelledPreparation = null;
+    }
+    return result;
+  } finally {
+    cancelPreparationIfStillOwned(pending, endpoint);
+  }
 }
 
 export async function commitProPlaybackAuthority(
@@ -708,6 +837,7 @@ export async function commitProPlaybackAuthority(
   }
 
   highestSeen = request.authority;
+  cancelledPreparation = null;
   let result: ProPlaybackCommitResult;
   resetStandardHostManualOffsetTransaction();
   try {
@@ -891,6 +1021,7 @@ export function resetProPlaybackAuthorityHooks(): void {
   if (pending) mediaEndpoint?.cancel?.(pending.authority);
   mediaEndpoint?.reset?.();
   highestSeen = null;
+  cancelledPreparation = null;
   latestApplied = null;
   highestCommittedPlaybackRevision = 0;
   pendingSelectionCommands.clear();

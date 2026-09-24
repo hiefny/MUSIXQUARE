@@ -89,6 +89,10 @@ import {
 } from './large-local-track-warning.ts';
 import { shouldUseLargeFileEngine } from './large-file-policy.ts';
 import {
+  isAudioDecoderStartupError,
+  withAudioDecoderStartup,
+} from './large-audio/startup-error.ts';
+import {
   releaseFilePlaybackResource,
   retainFilePlaybackResource,
   type FilePlaybackResource,
@@ -174,7 +178,9 @@ async function decodeBlobToAudioBuffer(
 
       if (!isCurrent()) throw new DecodeSupersededError(label);
       if (shouldUseLargeFileEngine(admission, blob.size)) {
-        const { openLargeAudioTrack } = await import('./large-audio/index.ts');
+        const { openLargeAudioTrack } = await withAudioDecoderStartup(
+          () => import('./large-audio/index.ts'),
+        );
         if (!isCurrent()) throw new DecodeSupersededError(label);
         const audioBuffer = await openLargeAudioTrack(blob, { isCurrent });
         retainFilePlaybackResource(audioBuffer);
@@ -357,6 +363,7 @@ export async function loadAndBroadcastFile(
     name: file.name,
   });
 
+  let decoding = false;
   try {
     if (!isSystemAudioActive()) {
       // Don't let audio initialization block the whole activation if it hangs (e.g. autoplay blocked)
@@ -372,6 +379,7 @@ export async function loadAndBroadcastFile(
     // The previous track is already stopped. Drop the app-owned PCM reference
     // before admission so the next decode does not guarantee a two-buffer peak.
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+    decoding = true;
     const decoded = await decodeBlobToAudioBuffer(
       file,
       'host-load',
@@ -379,6 +387,7 @@ export async function loadAndBroadcastFile(
       queueItemId,
       isCurrentOwner,
     );
+    decoding = false;
     const audioBuffer = decoded.audioBuffer;
     try {
       // Re-verify after async decode. The native decode reservation remains
@@ -496,11 +505,13 @@ export async function loadAndBroadcastFile(
     const message = err instanceof Error ? err.message : String(err);
     showToast(t('error.load_failed', { msg: message }));
 
-    // Auto-advance only on a local-authority path. Standard-room guests receive
-    // the next FILE_START after their host advances and do not skip independently;
-    // a PRO endpoint routes the resulting selection through server authority.
+    // PRO's legacy media projection has no hostConn even on an ordinary member.
+    // Only decoder/admission failures are terminal on that device; graph init,
+    // audio unlock and decoder module/worker startup must remain retryable.
     const hostConn = getState('network.hostConn');
-    if (!hostConn) {
+    if (getState('room.context').kind === 'pro') {
+      if (decoding && !isAudioDecoderStartupError(err)) markDeviceTrackUnavailable(queueItemId);
+    } else if (!hostConn) {
       markFailedAndAdvance(queueItemId);
     }
     return false;
@@ -520,11 +531,10 @@ export async function loadAndBroadcastFile(
 
 // ─── Local-Authority Auto-Advance on Decode Failure ────────────────
 //
-// Standard-room guests keep decoder failures device-local. A standard host or
-// PRO endpoint with playback authority may walk to the next playable track via
-// preloaded → shuffle → sequential priority. If no playable track remains,
-// the local player returns to IDLE rather than leaving the UI stuck; PRO row
-// selection still re-enters the server command seam.
+// Standard-room guests and all PRO participants keep decoder failures
+// device-local. Only standard/local playback authority walks to the next
+// playable track via preloaded → shuffle → sequential priority. If no playable
+// track remains, that local player returns to IDLE rather than leaving the UI stuck.
 //
 // Caller must already own local playback authority.
 export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: number): Promise<void> {
@@ -744,7 +754,9 @@ function markDeviceTrackUnavailable(queueItemId: QueueItemId): void {
   if (isTrackFailed(key)) return;
   markTrackFailed(key);
   announceSystemMessageLocally('chat.device_track_unavailable_system_message');
-  sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+  if (getState('room.context').kind !== 'pro') {
+    sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+  }
 }
 
 // Guest decoders can reject a track the host can play. That is a device-local
@@ -992,6 +1004,7 @@ export async function loadPreloadedTrack(
   };
   const activationOwner = beginPreloadActivation(myEpoch, queueItemId, ready.sessionId, localBlob);
   let published = false;
+  let decoding = false;
   const ownsTarget = (): boolean =>
     isCurrentPreloadActivation(activationOwner) &&
     activationOwner.queueItemId === queueItemId &&
@@ -1106,6 +1119,7 @@ export async function loadPreloadedTrack(
     log.debug('[Preload] Decoding audio for Buffer Mode...');
     showToast(t('toast.decoding_audio'));
 
+    decoding = true;
     const decoded = await decodeBlobToAudioBuffer(
       localBlob,
       'preload',
@@ -1113,6 +1127,7 @@ export async function loadPreloadedTrack(
       queueItemId,
       ownsTarget,
     );
+    decoding = false;
     const audioBuffer = decoded.audioBuffer;
     try {
       if (!ownsTarget()) {
@@ -1238,6 +1253,10 @@ export async function loadPreloadedTrack(
     if (!getState('preload.activeTarget')) clearManagedTimer('preloadUiWatchdog');
 
     const hostConn = getState('network.hostConn');
+    if (getState('room.context').kind === 'pro') {
+      if (decoding && !isAudioDecoderStartupError(error)) markDeviceTrackUnavailable(queueItemId);
+      return false;
+    }
     if (!hostConn) {
       showToast(t('transfer.preload_fail'));
       markFailedAndAdvance(queueItemId);

@@ -57,6 +57,9 @@ vi.mock('../../player/media-session-loader.ts', () => ({
 vi.mock('../../audio/effects.ts', () => ({
   applySettingsAsync: vi.fn(),
   syncRoomEffectsUI: vi.fn(),
+  isSettingsSyncEnabled: vi.fn(() => true),
+  setSettingsSyncEnabled: vi.fn(),
+  setEQPreset: vi.fn(),
 }));
 
 vi.mock('../../audio/engine.ts', async (importOriginal) => ({
@@ -81,7 +84,8 @@ vi.mock('../../ui/toast.ts', () => ({
   updateLoader: mocks.updateLoader,
 }));
 
-vi.mock('../../ui/dom.ts', () => ({
+vi.mock('../../ui/dom.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../ui/dom.ts')>()),
   updateOverlayOpenClass: vi.fn(),
 }));
 
@@ -178,6 +182,16 @@ describe('demo physical channel recovery', () => {
   it('restores the physical role after failed entry and commits it after a normal exit', async () => {
     // Load the actual channel bus consumer after this fixture's bus.clear().
     const { setChannelMode } = await import('../../audio/channel.ts');
+    const { initSettings, selectStandardChannelButton } = await import('../../ui/settings.ts');
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      `<div id="grid-standard">
+        <button class="ch-opt" data-ch="-1"></button>
+        <button class="ch-opt" data-ch="1"></button>
+      </div><div id="settings-role-description"></div>`,
+    );
+    initSettings();
+    selectStandardChannelButton(-1);
     const contextModule = await import('../../audio/context.ts');
     const context = vi.spyOn(contextModule, 'getAudioContext').mockReturnValue({
       currentTime: 0,
@@ -237,6 +251,8 @@ describe('demo physical channel recovery', () => {
       expect(getState('audio.channelMode')).toBe(1);
       expect([...left.inputs]).toEqual([]);
       expect([...right.inputs]).toEqual([0, 1]);
+      expect(document.querySelector('[data-ch="1"]')!.getAttribute('aria-pressed')).toBe('true');
+      expect(document.querySelector('[data-ch="-1"]')!.getAttribute('aria-pressed')).toBe('false');
     } finally {
       context.mockRestore();
       mocks.getMasterGain.mockReturnValue(null);

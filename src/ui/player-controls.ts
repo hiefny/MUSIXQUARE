@@ -1609,11 +1609,14 @@ export function initPlayerControls(): void {
   syncPlayButtonAuthority();
   syncMainSyncButtonState();
 
-  // Language switch → refresh translated track title + tab title
+  // Refresh copy composed outside data-i18n, including authority feedback and
+  // the account badge, even when their underlying state has not changed.
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
   const refreshPlayerText = () => {
     refreshTrackTitle();
     setTabTitleTrack(getTabTitleTrack());
+    updateRoleBadge();
+    syncPlayButtonAuthority();
     syncMediaSourceButtonAuthority();
     syncMainSyncButtonState();
     syncVolumeAuthorityUI();

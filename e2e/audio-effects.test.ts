@@ -53,6 +53,66 @@ test.describe('Audio Effects', () => {
 
   // ── EQ Tests ────────────────────────────────────────────────
 
+  test('keeps accepted reverb values, labels, and reset coherent on host and guest', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await openAudioSettings(pair.hostPage);
+    await openAudioSettings(pair.guestPage);
+
+    const edit = async (id: string, value: number) => {
+      // This checks UI projection, not transport saturation: each committed
+      // setting currently sends a canonical snapshot plus 14 legacy frames.
+      // Keep commits below the receiver's existing 20-frames/second budget.
+      await pair.hostPage.waitForTimeout(1_000);
+      await pair.hostPage.locator(`#${id}`).evaluate((element: HTMLInputElement, next) => {
+        element.value = String(next);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }, value);
+    };
+    const expectReverb = async (decay: number, predelay: number) => {
+      for (const page of [pair.hostPage, pair.guestPage]) {
+        await expect.poll(() => readState(page, 'audio.reverbDecay')).toBe(decay);
+        await expect.poll(() => readState(page, 'audio.reverbPreDelay')).toBe(predelay);
+        await expect(page.locator('#reverb-decay-slider')).toHaveValue(String(decay));
+        await expect(page.locator('#reverb-predelay-slider')).toHaveValue(String(predelay));
+        await expect(page.locator('#val-rvb-decay')).toHaveText(`${decay}s`);
+        await expect(page.locator('#val-rvb-predelay')).toHaveText(`${predelay}s`);
+      }
+    };
+
+    await pair.hostPage.locator('[data-rvb-type="advanced"]').click();
+    // All three layers already accept these values: engine, room wire, and API.
+    // Exercise the actual native range inputs so a smaller HTML max cannot hide
+    // behind state-only tests or a jsdom fixture with copied attributes.
+    await edit('reverb-slider', 25);
+    for (const [decay, predelay] of [
+      [20, 0.8],
+      [30, 1],
+      [8, 0.3],
+    ] as const) {
+      await edit('reverb-decay-slider', decay);
+      await edit('reverb-predelay-slider', predelay);
+      await expectReverb(decay, predelay);
+    }
+
+    // A zero mix preserves the detailed parameters; the guest's Off chip must
+    // not project preset defaults over the accepted canonical values.
+    await edit('reverb-slider', 0);
+    await expect.poll(() => readState(pair.guestPage, 'audio.reverbMix')).toBe(0);
+    await expect(pair.guestPage.locator('[data-rvb-type="off"]')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expectReverb(8, 0.3);
+    await navigateToTab(pair.guestPage, 'playlist');
+    await openAudioSettings(pair.guestPage);
+    await expectReverb(8, 0.3);
+
+    // Explicit user intent still resets both the audio and its controls.
+    await pair.hostPage.locator('[data-rvb-type="off"]').click();
+    await expectReverb(5, 0.1);
+  });
+
   test('EQ sliders exist and are adjustable', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
@@ -231,7 +291,7 @@ test.describe('Audio Effects', () => {
 
     const decaySlider = pair.hostPage.locator('#reverb-decay-slider');
     await expect(decaySlider).toBeVisible();
-    await expect(decaySlider).toHaveAttribute('max', '10.0');
+    await expect(decaySlider).toHaveAttribute('max', '30.0');
     const maxDecay = Number(await decaySlider.getAttribute('max'));
     await decaySlider.fill(String(maxDecay));
     await decaySlider.dispatchEvent('change');

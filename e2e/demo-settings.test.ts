@@ -314,6 +314,32 @@ test('demo virtual effects stay reflected in settings after enabling and disabli
   }
 });
 
+test('demo speaker role stays reflected in main settings after returning from demo', async ({
+  page,
+}) => {
+  await enterDemo(page);
+  await page.locator('[data-demo-step="2"]').click();
+  await page.locator('[data-demo-role="1"]').click();
+  await expect.poll(() => readState(page, 'audio.channelMode')).toBe(1);
+  await expect(page.locator('[data-demo-role="1"]')).toHaveAttribute('aria-pressed', 'true');
+
+  await emit(page, 'demo:request-exit');
+  await expect.poll(() => readState(page, 'demo.active')).toBe(false);
+  await expectDemoHidden(page);
+  await navigateToTab(page, 'settings');
+  await navigateToSubtab(page, 'audio');
+  await expect.poll(() => readState(page, 'audio.channelMode')).toBe(1);
+  await expect(page.locator('#grid-standard [data-ch="1"]')).toBeVisible();
+  await expect(page.locator('#grid-standard [data-ch="1"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.locator('#grid-standard [data-ch="0"]')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+});
+
 test('demo inline controls remain keyboard accessible with reduced motion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 390, height: 844 });

@@ -251,6 +251,12 @@ export function selectStandardChannelButton(mode: number): void {
   }
 }
 
+function syncStandardChannelFromAudio(): void {
+  // Capture temporarily presents Center while retaining the device's saved
+  // channel mode for restoration when sharing ends.
+  selectStandardChannelButton(isSystemAudioCaptureActive() ? 0 : getState('audio.channelMode'));
+}
+
 function setChannel(mode: number): void {
   selectStandardChannelButton(mode);
   bus.emit('audio:set-channel-mode', mode);
@@ -474,6 +480,12 @@ function syncReverbSlidersToPreset(type: string): void {
   const preset = type === 'off' ? REVERB_DEFAULTS : REVERB_PRESETS[type];
   if (!preset) return;
 
+  syncReverbSliderValues(preset);
+  selectReverbChip(type);
+  setReverbSlidersVisible(false);
+}
+
+function syncReverbSliderValues(preset: ReverbUiPreset): void {
   setRangeValueById('reverb-slider', preset.mix);
   setRangeValueById('reverb-decay-slider', preset.decay);
   setRangeValueById('reverb-predelay-slider', preset.predelay);
@@ -485,9 +497,21 @@ function syncReverbSlidersToPreset(type: string): void {
   formatReverbValDisp('predelay', preset.predelay);
   formatReverbValDisp('lowcut', preset.lowcut);
   formatReverbValDisp('highcut', preset.highcut);
+}
 
-  selectReverbChip(type);
-  setReverbSlidersVisible(false);
+function syncReverbControlsFromAudio(type?: string): void {
+  // A canonical Off state can retain custom decay and predelay. Projection
+  // must preserve those values; only an explicit Off action resets them.
+  syncReverbSliderValues({
+    mix: getState('audio.reverbMix') * 100,
+    decay: getState('audio.reverbDecay'),
+    predelay: getState('audio.reverbPreDelay'),
+    lowcut: getState('audio.reverbLowCut'),
+    highcut: getState('audio.reverbHighCut'),
+  });
+  const selected = type ?? detectReverbPreset();
+  selectReverbChip(selected);
+  setReverbSlidersVisible(selected === 'advanced');
 }
 
 function resetEQ(): void {
@@ -973,6 +997,8 @@ export function initSettings(): void {
   refreshLanguageControls();
 
   // Channel grid (standard)
+  syncStandardChannelFromAudio();
+  _busScope.on('state:audio.channelMode', () => syncStandardChannelFromAudio());
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach((el) => {
     el.addEventListener('click', () => {
       if (blockLocalSystemAudioRoleChange()) return;
@@ -1046,8 +1072,9 @@ export function initSettings(): void {
 
   // Guest UI sync: when host changes reverb preset
   _busScope.on('ui:sync-reverb-preset', (type: string) => {
-    syncReverbSlidersToPreset(type);
+    syncReverbControlsFromAudio(type);
   });
+  syncReverbControlsFromAudio();
 
   // EQ preset grid
   document.querySelectorAll<HTMLElement>('#grid-eq .ch-opt[data-eq-type]').forEach((opt) => {

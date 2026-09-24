@@ -14,6 +14,10 @@ async function mountMarqueeHarness(page: Page): Promise<void> {
   await page.setContent(`
     <link rel="stylesheet" href="${stylesheetHref}">
     <main style="width: 260px">
+      <div style="width: 150px; overflow: hidden">
+        <span id="main-title" class="track-title marquee"
+              style="--marquee-offset: -240px; --marquee-duration: 10s">${LONG_TITLE}</span>
+      </div>
       <ul class="playlist-ul" style="padding: 0; margin: 0">
         <li class="playlist-entry" id="short-entry">
           <div class="track-item active">
@@ -91,6 +95,32 @@ async function animationName(page: Page, selector: string): Promise<string> {
   return page.locator(selector).evaluate((node) => getComputedStyle(node).animationName);
 }
 
+async function expectMarqueeStart(page: Page, selector: string, startMs: number): Promise<void> {
+  for (const durationSeconds of [4, 10, 40]) {
+    const timing = await page.locator(selector).evaluate(
+      (node, { durationSeconds, startMs }) => {
+        const element = node as HTMLElement;
+        element.style.setProperty('--marquee-duration', `${durationSeconds}s`);
+        element.style.setProperty('--playlist-marquee-duration', `${durationSeconds}s`);
+        const animation = element.getAnimations()[0];
+        if (!animation?.effect) throw new Error('Expected an active marquee animation');
+        animation.pause();
+        const positionAt = (time: number) => {
+          animation.currentTime = time;
+          const transform = getComputedStyle(element).transform;
+          return transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41;
+        };
+        const before = positionAt(Math.max(0, startMs - 100));
+        const after = positionAt(startMs + 100);
+        return { before, after };
+      },
+      { durationSeconds, startMs },
+    );
+    expect(timing.before).toBeCloseTo(0, 5);
+    expect(timing.after).toBeLessThan(0);
+  }
+}
+
 test('desktop interaction, narrow touch autoplay, and reduced-motion marquee policy', async ({
   browser,
 }) => {
@@ -105,6 +135,7 @@ test('desktop interaction, narrow touch autoplay, and reduced-motion marquee pol
   const desktopPage = await desktop.newPage();
   try {
     await mountMarqueeHarness(desktopPage);
+    await expectMarqueeStart(desktopPage, '#main-title', 1000);
     expect(await desktopPage.evaluate(() => matchMedia('(any-hover: hover)').matches)).toBe(true);
     expect(await animationName(desktopPage, `#current-entry ${content}`)).toBe('none');
     expect(
@@ -116,10 +147,30 @@ test('desktop interaction, narrow touch autoplay, and reduced-motion marquee pol
     ).toEqual({ display: 'inline', overflow: 'hidden', textOverflow: 'ellipsis' });
     await desktopPage.locator('#idle-entry .track-name').focus();
     expect(await animationName(desktopPage, `#idle-entry ${content}`)).toBe('marquee-pingpong');
+    await expectMarqueeStart(desktopPage, `#idle-entry ${content}`, 1000);
+    const focusedPosition = await desktopPage
+      .locator(`#idle-entry ${content}`)
+      .evaluate((node) => getComputedStyle(node).transform);
+    await desktopPage.locator('#idle-entry .track-item').hover();
+    expect(
+      await desktopPage
+        .locator(`#idle-entry ${content}`)
+        .evaluate((node) => getComputedStyle(node).transform),
+    ).toBe(focusedPosition);
+    await desktopPage.locator('#short-entry .track-item').hover();
+    expect(
+      await desktopPage
+        .locator(`#idle-entry ${content}`)
+        .evaluate((node) => getComputedStyle(node).transform),
+    ).toBe(focusedPosition);
     await desktopPage.locator('#idle-entry .track-name').blur();
     expect(await animationName(desktopPage, `#idle-entry ${content}`)).toBe('none');
     await desktopPage.locator('#idle-entry .track-item').hover();
     expect(await animationName(desktopPage, `#idle-entry ${content}`)).toBe('marquee-pingpong');
+    await expectMarqueeStart(desktopPage, `#idle-entry ${content}`, 0);
+    await desktopPage.locator('#expanded-entry .sub-track-item').hover();
+    await expectMarqueeStart(desktopPage, `#expanded-entry .sub-track-item ${content}`, 0);
+    await desktopPage.locator('#idle-entry .track-item').hover();
     expect(
       await desktopPage
         .locator(`#idle-entry ${content}`)
@@ -145,6 +196,7 @@ test('desktop interaction, narrow touch autoplay, and reduced-motion marquee pol
       ),
     ).toBe(true);
     expect(await animationName(touchPage, `#current-entry ${content}`)).toBe('marquee-pingpong');
+    await expectMarqueeStart(touchPage, `#current-entry ${content}`, 1000);
     expect(await animationName(touchPage, `#idle-entry ${content}`)).toBe('none');
     expect(await animationName(touchPage, `#paused-entry ${content}`)).toBe('none');
     // When the exact expanded sub-track is visible, it moves instead of also
@@ -153,6 +205,7 @@ test('desktop interaction, narrow touch autoplay, and reduced-motion marquee pol
     expect(await animationName(touchPage, `#expanded-entry .sub-track-item ${content}`)).toBe(
       'marquee-pingpong',
     );
+    await expectMarqueeStart(touchPage, `#expanded-entry .sub-track-item ${content}`, 1000);
 
     await touchPage.setViewportSize({ width: 844, height: 390 });
     expect(await animationName(touchPage, `#current-entry ${content}`)).toBe('marquee-pingpong');

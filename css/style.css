@@ -1979,6 +1979,9 @@
   .track-title.marquee {
     width: auto;
     animation: marquee-pingpong var(--marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    /* The first 20% of the shared cycle is stationary. Start within that hold
+       so every title begins moving after exactly one second, at any length. */
+    animation-delay: calc(1s - var(--marquee-duration, 10s) * 0.2);
     will-change: transform;
   }
 
@@ -2671,24 +2674,12 @@
     display: inline;
     white-space: nowrap;
     transform: translateX(0);
+    --playlist-marquee-wait: 1s;
   }
 
   /* An overflowing title moves only while it is useful. Keyboard focus works
      everywhere; a real hover pointer opts into hover motion at any viewport
      width. */
-  .track-name:focus-visible
-    .track-name-text.is-playlist-title-overflowing
-    > .playlist-title-marquee-content,
-  .sub-track-item:focus-visible
-    .sub-name.is-playlist-title-overflowing
-    > .playlist-title-marquee-content {
-    animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
-      infinite;
-    display: inline-block;
-    will-change: transform;
-    --marquee-offset: var(--playlist-marquee-offset);
-  }
-
   @media (any-hover: hover) {
     .track-item:hover
       .track-name-text.is-playlist-title-overflowing
@@ -2698,10 +2689,33 @@
       > .playlist-title-marquee-content {
       animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
         infinite;
+      /* Hover is an explicit request to read the hidden title: skip the hold. */
+      --playlist-marquee-wait: 0s;
+      animation-delay: calc(
+        var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+      );
       display: inline-block;
       will-change: transform;
       --marquee-offset: var(--playlist-marquee-offset);
     }
+  }
+
+  .track-name:focus-visible
+    .track-name-text.is-playlist-title-overflowing
+    > .playlist-title-marquee-content,
+  .sub-track-item:focus-visible
+    .sub-name.is-playlist-title-overflowing
+    > .playlist-title-marquee-content {
+    animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
+      infinite;
+    /* Keep an already focused title on its timeline when a pointer passes over it. */
+    --playlist-marquee-wait: 1s;
+    animation-delay: calc(
+      var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+    );
+    display: inline-block;
+    will-change: transform;
+    --marquee-offset: var(--playlist-marquee-offset);
   }
 
   /* Narrow touch layouts have no hover state to reveal the rest of the current
@@ -2720,6 +2734,11 @@
       > .playlist-title-marquee-content {
       animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
         infinite;
+      /* Automatic motion also retains its timeline on hybrid touch/hover devices. */
+      --playlist-marquee-wait: 1s;
+      animation-delay: calc(
+        var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+      );
       display: inline-block;
       will-change: transform;
       --marquee-offset: var(--playlist-marquee-offset);

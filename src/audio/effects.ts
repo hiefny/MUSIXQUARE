@@ -227,7 +227,7 @@ export function setReverbParam(
       setState('audio.reverbMix', Math.max(0, Math.min(1, v / 100)));
       break;
     case 'decay':
-      setState('audio.reverbDecay', Math.max(0.1, Math.min(30, v)));
+      setState('audio.reverbDecay', Math.max(0.1, Math.min(10, v)));
       break;
     case 'predelay':
       setState('audio.reverbPreDelay', Math.max(0, Math.min(1, v)));

@@ -540,7 +540,7 @@ describe('private Developer API facade', () => {
     const command = {
       type: 'set_effects',
       effects: {
-        reverb: { mixPercent: 0, decaySeconds: 30, preDelaySeconds: 1 },
+        reverb: { mixPercent: 0, decaySeconds: 10, preDelaySeconds: 1 },
         equalizer: { bandsDb: [-12, -6, 0, 6, 12] },
         virtualBass: { strengthPercent: 100 },
         virtualSurround: { widthPercent: 200 },
@@ -569,6 +569,8 @@ describe('private Developer API facade', () => {
     const invalidCommands = [
       { type: 'set_effects', effects: {} },
       { type: 'set_effects', effects: { reverb: {} } },
+      { type: 'set_effects', effects: { reverb: { decaySeconds: 10.01 } } },
+      { type: 'set_effects', effects: { reverb: { decaySeconds: 30 } } },
       { type: 'set_effects', effects: { reverb: { lowCutPercent: 101 } } },
       { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0] } } },
       { type: 'set_effects', effects: { virtualBass: { strengthPercent: Number.NaN } } },

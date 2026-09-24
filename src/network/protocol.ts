@@ -612,7 +612,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.EXCITER]: (d) => (d.value === 0 || d.value === 1) && hasValidBootstrapFlag(d),
   [MSG.STEREO_WIDTH]: (d) => isBoundedNumber(d.value, 0, 200) && hasValidBootstrapFlag(d),
   [MSG.REVERB_TYPE]: (d) => isReverbPreset(d.value) && hasValidBootstrapFlag(d),
-  [MSG.REVERB_DECAY]: (d) => isBoundedNumber(d.value, 0.1, 30) && hasValidBootstrapFlag(d),
+  [MSG.REVERB_DECAY]: (d) => isBoundedNumber(d.value, 0.1, 10) && hasValidBootstrapFlag(d),
   [MSG.REVERB_PREDELAY]: (d) => isBoundedNumber(d.value, 0, 1) && hasValidBootstrapFlag(d),
   [MSG.REVERB_LOWCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
   [MSG.REVERB_HIGHCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),

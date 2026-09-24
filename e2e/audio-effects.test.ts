@@ -81,13 +81,13 @@ test.describe('Audio Effects', () => {
     };
 
     await pair.hostPage.locator('[data-rvb-type="advanced"]').click();
-    // All three layers already accept these values: engine, room wire, and API.
+    // The engine, room wire, API, and UI share the same 10-second decay ceiling.
     // Exercise the actual native range inputs so a smaller HTML max cannot hide
     // behind state-only tests or a jsdom fixture with copied attributes.
     await edit('reverb-slider', 25);
     for (const [decay, predelay] of [
-      [20, 0.8],
-      [30, 1],
+      [0.1, 0.8],
+      [10, 1],
       [8, 0.3],
     ] as const) {
       await edit('reverb-decay-slider', decay);
@@ -291,7 +291,7 @@ test.describe('Audio Effects', () => {
 
     const decaySlider = pair.hostPage.locator('#reverb-decay-slider');
     await expect(decaySlider).toBeVisible();
-    await expect(decaySlider).toHaveAttribute('max', '30.0');
+    await expect(decaySlider).toHaveAttribute('max', '10.0');
     const maxDecay = Number(await decaySlider.getAttribute('max'));
     await decaySlider.fill(String(maxDecay));
     await decaySlider.dispatchEvent('change');

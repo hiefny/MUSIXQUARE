@@ -2253,7 +2253,7 @@ describe('Developer API read-only public Worker', () => {
     const command = {
       type: 'set_effects',
       effects: {
-        reverb: { mixPercent: 35, preDelaySeconds: 0.2 },
+        reverb: { mixPercent: 35, decaySeconds: 10, preDelaySeconds: 1 },
         equalizer: { bandsDb: [-12, -6, 0, 6, 12] },
         virtualBass: { strengthPercent: 75 },
         virtualSurround: { widthPercent: 200 },
@@ -2325,6 +2325,8 @@ describe('Developer API read-only public Worker', () => {
       { type: 'set_effects', effects: {} },
       { type: 'set_effects', effects: { reverb: {} } },
       { type: 'set_effects', effects: { reverb: { decaySeconds: 0.09 } } },
+      { type: 'set_effects', effects: { reverb: { decaySeconds: 10.01 } } },
+      { type: 'set_effects', effects: { reverb: { decaySeconds: 30 } } },
       { type: 'set_effects', effects: { reverb: { preDelaySeconds: 1.01 } } },
       { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0] } } },
       { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0, 12.1] } } },

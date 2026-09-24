@@ -704,7 +704,7 @@ function parseDeveloperCommand(value: unknown) {
 
 const EFFECT_REVERB_FIELDS: Readonly<Record<string, readonly [number, number]>> = Object.freeze({
   mixPercent: [0, 100],
-  decaySeconds: [0.1, 30],
+  decaySeconds: [0.1, 10],
   preDelaySeconds: [0, 1],
   lowCutPercent: [0, 100],
   highCutPercent: [0, 100],

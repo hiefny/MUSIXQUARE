@@ -92,7 +92,7 @@ export function initialEffectsState(): RoomEffectsState {
 const EFFECT_REVERB_FIELDS: Readonly<Record<RoomEffectsReverbField, readonly [number, number]>> =
   Object.freeze({
     mixPercent: [0, 100],
-    decaySeconds: [0.1, 30],
+    decaySeconds: [0.1, 10],
     preDelaySeconds: [0, 1],
     lowCutPercent: [0, 100],
     highCutPercent: [0, 100],
@@ -243,7 +243,29 @@ export function normalizeStoredEffects(
   ) {
     return null;
   }
-  const effects = parseRoomEffects(value.effects);
+  let effects = parseRoomEffects(value.effects);
+  let migrated = value.masterVolume === undefined;
+  if (
+    !effects &&
+    hasExactKeys(value.effects, [
+      'reverb',
+      'equalizer',
+      'virtualBass',
+      'virtualSurround',
+      'virtualTreble',
+    ]) &&
+    hasExactKeys(value.effects.reverb, Object.keys(EFFECT_REVERB_FIELDS)) &&
+    boundedEffectNumber(value.effects.reverb.decaySeconds, 10, 30) &&
+    value.effects.reverb.decaySeconds > 10
+  ) {
+    // Older stored rooms allowed 30 seconds. Migrate only that legacy range;
+    // new commands stay strict and unrelated invalid fields still fail parsing.
+    effects = parseRoomEffects({
+      ...value.effects,
+      reverb: { ...value.effects.reverb, decaySeconds: 10 },
+    });
+    migrated = true;
+  }
   return effects
     ? {
         state: {
@@ -252,7 +274,7 @@ export function normalizeStoredEffects(
           masterVolume: value.masterVolume ?? 1,
           effects,
         },
-        migrated: value.masterVolume === undefined,
+        migrated,
       }
     : null;
 }

@@ -22,6 +22,7 @@ import {
   isDeviceLocalEffectTypeForTests as isDeviceLocalEffectType,
   publishLocalSettingsAuthorityForTests as publishLocalSettingsAuthority,
   resetSettingsSyncAuthorityForTests,
+  setReverbParam,
   setSettingsSyncEnabled,
   syncRoomEffectsUI,
 } from '../effects.ts';
@@ -148,6 +149,21 @@ describe('resetVirtualBass', () => {
 });
 
 describe('room-wide effect snapshots', () => {
+  it('caps local decay before publishing and rejects an oversized room snapshot atomically', () => {
+    expect(applyRoomEffectsState(synchronizedEffects)).toBe(true);
+    setReverbParam('decay', 30, true);
+    const expected = structuredClone(synchronizedEffects);
+    expected.reverb.decaySeconds = 10;
+    expect(getState('audio.reverbDecay')).toBe(10);
+    expect(captureRoomSettingsSyncState()).toEqual({ masterVolume: 1, effects: expected });
+
+    const invalid = structuredClone(synchronizedEffects);
+    invalid.reverb.decaySeconds = 10.1;
+    invalid.equalizer.bandsDb = [0, 0, 0, 0, 0];
+    expect(applyRoomEffectsState(invalid)).toBe(false);
+    expect(captureRoomEffectsState()).toEqual(expected);
+  });
+
   it('projects controls without changing audio state or emitting commands', () => {
     const before = captureRoomSettingsSyncState();
     const emit = vi.spyOn(bus, 'emit');

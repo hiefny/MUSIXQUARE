@@ -1451,8 +1451,8 @@ describe('canonical effect state projection', () => {
   );
 
   it.each([
-    [20, 0.8],
-    [30, 1],
+    [0.1, 0.8],
+    [10, 1],
   ])('represents canonical reverb decay %s / predelay %s in the controls', (decay, predelay) => {
     installEffectSettingsDom();
     initSettings();

@@ -316,7 +316,7 @@ describe('bounded control-frame validation', () => {
       { type: MSG.EXCITER, valid: 1, invalid: 2 },
       { type: MSG.STEREO_WIDTH, valid: 200, invalid: 201 },
       { type: MSG.REVERB_TYPE, valid: 'studio', invalid: 'hall' },
-      { type: MSG.REVERB_DECAY, valid: 30, invalid: 30.1 },
+      { type: MSG.REVERB_DECAY, valid: 10, invalid: 10.1 },
       { type: MSG.REVERB_PREDELAY, valid: 1, invalid: 1.01 },
       { type: MSG.REVERB_LOWCUT, valid: 100, invalid: Number.NaN },
       { type: MSG.REVERB_HIGHCUT, valid: 0, invalid: -1 },

@@ -197,7 +197,7 @@ function assertEffectsProjection(payload: unknown, roomCode: string, label: stri
     typeof payload.updatedAtMs !== 'number' ||
     !Number.isSafeInteger(payload.updatedAtMs) ||
     !inRange(reverb?.mixPercent, 0, 100) ||
-    !inRange(reverb?.decaySeconds, 0.1, 30) ||
+    !inRange(reverb?.decaySeconds, 0.1, 10) ||
     !inRange(reverb?.preDelaySeconds, 0, 1) ||
     !inRange(reverb?.lowCutPercent, 0, 100) ||
     !inRange(reverb?.highCutPercent, 0, 100) ||

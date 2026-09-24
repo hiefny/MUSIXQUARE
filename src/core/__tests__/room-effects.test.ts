@@ -56,6 +56,34 @@ describe('room-wide effects contract', () => {
     expect(roomEffectsEqual(merged, structuredClone(merged))).toBe(true);
   });
 
+  it.each([0.1, 10])('accepts the %s-second decay boundary in states and commands', (decay) => {
+    const effects = createDefaultRoomEffectsState();
+    effects.reverb.decaySeconds = decay;
+    expect(parseRoomEffectsState(effects)).toEqual(effects);
+    const patch = { reverb: { decaySeconds: decay } };
+    expect(parseRoomEffectsPatch(patch)).toEqual(patch);
+  });
+
+  it.each([0.09, 10.1, 20, 30, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects out-of-range decay %s in full states and commands',
+    (decay) => {
+      const effects = createDefaultRoomEffectsState();
+      effects.reverb.decaySeconds = decay;
+      expect(parseRoomEffectsState(effects)).toBeNull();
+      expect(parseRoomEffectsPatch({ reverb: { decaySeconds: decay } })).toBeNull();
+      expect(
+        parseProRoomEffectsSnapshot({
+          schemaVersion: 2,
+          view: 'effects',
+          roomCode: '000001',
+          revision: 7,
+          updatedAtMs: 1_800_000_000_000,
+          effects,
+        }),
+      ).toBeNull();
+    },
+  );
+
   it.each([
     {},
     { reverb: {} },

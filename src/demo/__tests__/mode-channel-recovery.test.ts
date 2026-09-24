@@ -56,6 +56,7 @@ vi.mock('../../player/media-session-loader.ts', () => ({
 
 vi.mock('../../audio/effects.ts', () => ({
   applySettingsAsync: vi.fn(),
+  syncRoomEffectsUI: vi.fn(),
 }));
 
 vi.mock('../../audio/engine.ts', async (importOriginal) => ({

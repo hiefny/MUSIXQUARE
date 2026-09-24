@@ -15,6 +15,7 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { t } from '../../i18n/index.ts';
+import { syncRoomEffectsUI } from '../../audio/effects.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { getCurrentAudioBuffer, setCurrentAudioBuffer } from '../../player/_state.ts';
@@ -83,9 +84,13 @@ vi.mock('../../player/media-session-loader.ts', () => ({
   prepareMediaSession: mocks.prepareMediaSession,
 }));
 
-vi.mock('../../audio/effects.ts', () => ({
-  applySettingsAsync: vi.fn(),
-}));
+vi.mock('../../audio/effects.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../audio/effects.ts')>();
+  return {
+    applySettingsAsync: vi.fn(),
+    syncRoomEffectsUI: vi.fn(actual.syncRoomEffectsUI),
+  };
+});
 
 vi.mock('../../ui/dialog.ts', () => ({
   showDialog: vi.fn(),
@@ -471,6 +476,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('demo.loading')).toBe(false);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(mocks.broadcast).not.toHaveBeenCalled();
+    expect(syncRoomEffectsUI).not.toHaveBeenCalled();
   });
 
   it('keeps a superseded decode success from mutating a re-entered demo generation', async () => {
@@ -1054,6 +1060,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('audio.stereoWidth')).toBe(1.2);
     expect(getState('audio.virtualBass')).toBe(60);
     expect(getState('audio.exciter')).toBe(true);
+    expect(syncRoomEffectsUI).not.toHaveBeenCalled();
   });
 
   it('restores role and effect settings when demo entry fails', async () => {
@@ -1085,6 +1092,84 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('audio.virtualBass')).toBe(20);
     expect(getState('audio.exciter')).toBe(false);
   });
+
+  it.each(['entry-failure', 'host-disconnect'] as const)(
+    'projects restored reverb and EQ into settings after %s',
+    async (reason) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.appRole', reason === 'host-disconnect' ? 'guest' : 'host');
+      setState('setup.sessionStarted', true);
+      if (reason === 'host-disconnect') {
+        setState('network.hostConn', hostConn);
+        markQueueAuthorityReady(hostConn);
+      }
+      setState('audio.reverbMix', 0.1);
+      setState('audio.reverbDecay', 2.5);
+      setState('audio.reverbPreDelay', 0.03);
+      setState('audio.reverbLowCut', 11);
+      setState('audio.reverbHighCut', 22);
+      setState('audio.eqValues', [1, 2, 3, 2, 1]);
+
+      if (reason === 'host-disconnect') {
+        await handleData(
+          {
+            type: MSG.DEMO_ENTER,
+            index: 0,
+            reverbOn: false,
+            bassBoostOn: false,
+            trebleBoostOn: false,
+            surroundOn: false,
+          },
+          hostConn,
+        );
+        await flush();
+        FakeXHR.pending[0]?.resolveOk();
+        await flush(50);
+      } else {
+        bus.emit('demo:enter');
+        await flush();
+      }
+      expect(getState('demo.active')).toBe(true);
+      setState('audio.reverbMix', 0.35);
+      setState('audio.reverbDecay', 5);
+      setState('audio.reverbPreDelay', 0.08);
+      setState('audio.reverbLowCut', 33);
+      setState('audio.reverbHighCut', 44);
+      setState('audio.eqValues', [5, 3, 0, 4, 6]);
+      const reverbParam = vi.fn();
+      const reverbPreset = vi.fn();
+      const eqBand = vi.fn();
+      const eqPreset = vi.fn();
+      bus.on('ui:sync-reverb-param', reverbParam);
+      bus.on('ui:sync-reverb-preset', reverbPreset);
+      bus.on('ui:sync-eq-band', eqBand);
+      bus.on('ui:sync-eq-preset', eqPreset);
+
+      if (reason === 'host-disconnect') setState('network.hostConn', null);
+      else FakeXHR.pending[0]?.failNetwork();
+      await flush(50);
+
+      expect(getState('demo.active')).toBe(false);
+      expect(getState('audio.reverbMix')).toBe(0.1);
+      expect(getState('audio.eqValues')).toEqual([1, 2, 3, 2, 1]);
+      expect(reverbParam.mock.calls).toEqual([
+        ['mix', 10],
+        ['decay', 2.5],
+        ['predelay', 0.03],
+        ['lowcut', 11],
+        ['highcut', 22],
+      ]);
+      expect(reverbPreset).toHaveBeenCalledExactlyOnceWith('advanced');
+      expect(eqBand.mock.calls).toEqual([
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 2],
+        [4, 1],
+      ]);
+      expect(eqPreset).toHaveBeenCalledExactlyOnceWith('advanced');
+    },
+  );
 
   it('keeps the newest host effect flags when they arrive during an in-flight guest load', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;

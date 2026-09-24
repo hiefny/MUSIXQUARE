@@ -9,7 +9,12 @@ import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
-import { resetSettingsSyncAuthorityForTests } from '../../audio/effects.ts';
+import {
+  resetSettingsSyncAuthorityForTests,
+  setExciter,
+  setStereoWidth,
+  setVirtualBass,
+} from '../../audio/effects.ts';
 
 const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -1240,6 +1245,59 @@ describe('initSettings effect slider fill sync', () => {
     ]);
     expect(showToast).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['standard', true],
+    ['standard', false],
+    ['pro', true],
+    ['pro', false],
+  ] as const)(
+    'keeps virtual-effect controls aligned with audio in %s rooms (settings sync: %s)',
+    (kind, settingsSyncEnabled) => {
+      installEffectSettingsDom();
+      setState('room.context', {
+        kind,
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+      setState('audio.settingsSyncEnabled', settingsSyncEnabled);
+      initSettings();
+      const command = vi.fn();
+      bus.on('audio:update-effect', command);
+      bus.on('audio:set-virtual-effects', command);
+      vi.mocked(showToast).mockClear();
+
+      const expectControls = (enabled: string[]) => {
+        for (const button of document.querySelectorAll<HTMLElement>('[data-virtual-effect]')) {
+          const active = enabled.includes(button.dataset.virtualEffect!);
+          expect(button.classList.contains('active')).toBe(active);
+          expect(button.getAttribute('aria-pressed')).toBe(String(active));
+        }
+      };
+
+      // Demo and other non-settings surfaces use these audio setters without
+      // sending a separate UI event. Display the actual combination each time.
+      setVirtualBass(60);
+      expectControls(['bass']);
+      setExciter(true);
+      expectControls(['bass', 'treble']);
+      setStereoWidth(120);
+      expectControls(['bass', 'treble', 'surround']);
+      setVirtualBass(0);
+      expectControls(['treble', 'surround']);
+
+      // An interrupted demo restores its snapshot directly into the state store.
+      setState('audio.exciter', false);
+      setState('audio.stereoWidth', 1);
+      expectControls(['off']);
+      expect(command).not.toHaveBeenCalled();
+      expect(showToast).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('UI sound preference', () => {

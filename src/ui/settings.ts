@@ -1103,6 +1103,11 @@ export function initSettings(): void {
       });
     });
   syncVirtualEffectsControls();
+  // Demo controls and snapshot restoration can change the audio state without
+  // a separate UI sync event. Reflect that same state without issuing commands.
+  _busScope.on('state:audio.virtualBass', () => syncVirtualEffectsControls());
+  _busScope.on('state:audio.exciter', () => syncVirtualEffectsControls());
+  _busScope.on('state:audio.stereoWidth', () => syncVirtualEffectsControls());
 
   // Manual sync popup
   $on('btn-nudge-minus10', 'click', () => bus.emit('sync:nudge', -10));

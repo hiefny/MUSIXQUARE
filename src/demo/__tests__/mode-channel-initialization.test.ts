@@ -18,7 +18,10 @@ vi.mock('../../player/decode.ts', () => ({ loadDemoFile: vi.fn() }));
 vi.mock('../../player/media-session-loader.ts', () => ({
   prepareMediaSession: vi.fn(async () => {}),
 }));
-vi.mock('../../audio/effects.ts', () => ({ applySettingsAsync: vi.fn() }));
+vi.mock('../../audio/effects.ts', () => ({
+  applySettingsAsync: vi.fn(),
+  syncRoomEffectsUI: vi.fn(),
+}));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: vi.fn() }));
 vi.mock('../../ui/setup-shared.ts', () => ({ hideSetupOverlay: vi.fn() }));
 vi.mock('../../ui/toast.ts', () => ({

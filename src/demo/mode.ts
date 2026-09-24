@@ -34,7 +34,7 @@ import {
   stopAllMedia,
 } from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
-import { applySettingsAsync } from '../audio/effects.ts';
+import { applySettingsAsync, syncRoomEffectsUI } from '../audio/effects.ts';
 import { setChannelMode } from '../audio/channel.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
@@ -361,6 +361,7 @@ function restoreSnapshot(
     setState('audio.exciter', snapshot.exciter);
     setState('audio.userPreampGain', snapshot.userPreampGain);
     setState('audio.subFreq', snapshot.subFreq);
+    syncRoomEffectsUI();
   }
   if (restoreMedia && hasCurrentDemoRestoreAuthority(snapshot.room)) {
     if (

@@ -981,6 +981,21 @@ function broadcastRoomEffectsState(state: RoomEffectsState): void {
   broadcast({ type: MSG.EXCITER, value: state.virtualTreble.enabled ? 1 : 0 } as AnyProtocolMsg);
 }
 
+/** Project accepted audio state into controls without audio or authority mutations. */
+export function syncRoomEffectsUI(state: RoomEffectsState = captureRoomEffectsState()): void {
+  bus.emit('ui:sync-reverb-param', 'mix', state.reverb.mixPercent);
+  bus.emit('ui:sync-reverb-param', 'decay', state.reverb.decaySeconds);
+  bus.emit('ui:sync-reverb-param', 'predelay', state.reverb.preDelaySeconds);
+  bus.emit('ui:sync-reverb-param', 'lowcut', state.reverb.lowCutPercent);
+  bus.emit('ui:sync-reverb-param', 'highcut', state.reverb.highCutPercent);
+  bus.emit('ui:sync-reverb-preset', detectRoomReverbPreset(state.reverb));
+  state.equalizer.bandsDb.forEach((band, index) => bus.emit('ui:sync-eq-band', index, band));
+  bus.emit('ui:sync-eq-preset', detectRoomEqPreset(state.equalizer.bandsDb));
+  bus.emit('ui:sync-surround', state.virtualSurround.widthPercent > 100);
+  bus.emit('ui:sync-vbass', state.virtualBass.strengthPercent > 0);
+  bus.emit('ui:sync-exciter', state.virtualTreble.enabled);
+}
+
 /**
  * Re-baseline the room-wide DSP graph and settings UI without a change toast.
  * Persisted PRO state and Developer API commands both use this exact path.
@@ -1002,18 +1017,7 @@ function applyRoomEffectsState(
   setState('audio.virtualBass', state.virtualBass.strengthPercent / 100);
   setState('audio.exciter', state.virtualTreble.enabled);
   applySettingsAsync();
-
-  bus.emit('ui:sync-reverb-param', 'mix', state.reverb.mixPercent);
-  bus.emit('ui:sync-reverb-param', 'decay', state.reverb.decaySeconds);
-  bus.emit('ui:sync-reverb-param', 'predelay', state.reverb.preDelaySeconds);
-  bus.emit('ui:sync-reverb-param', 'lowcut', state.reverb.lowCutPercent);
-  bus.emit('ui:sync-reverb-param', 'highcut', state.reverb.highCutPercent);
-  bus.emit('ui:sync-reverb-preset', detectRoomReverbPreset(state.reverb));
-  state.equalizer.bandsDb.forEach((band, index) => bus.emit('ui:sync-eq-band', index, band));
-  bus.emit('ui:sync-eq-preset', detectRoomEqPreset(state.equalizer.bandsDb));
-  bus.emit('ui:sync-surround', state.virtualSurround.widthPercent > 100);
-  bus.emit('ui:sync-vbass', state.virtualBass.strengthPercent > 0);
-  bus.emit('ui:sync-exciter', state.virtualTreble.enabled);
+  syncRoomEffectsUI(state);
 
   if (options.broadcast) broadcastRoomEffectsState(state);
   return true;

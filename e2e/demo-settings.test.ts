@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { readState } from './helpers/wait.ts';
+import { navigateToSubtab, navigateToTab, readState } from './helpers/wait.ts';
 
 async function emit(page: Page, event: string): Promise<void> {
   await page.evaluate((name) => {
@@ -266,6 +266,53 @@ for (const theme of ['dark', 'light'] as const) {
     await page.locator('#btn-sync-done').click();
   });
 }
+
+test('demo virtual effects stay reflected in settings after enabling and disabling them', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await enterDemo(page);
+
+  for (const enabled of [true, false]) {
+    await test.step(`${enabled ? 'enable' : 'disable'} effects in demo and retain their settings`, async () => {
+      if (!enabled) {
+        await emit(page, 'demo:enter');
+        await expect.poll(() => readState(page, 'demo.active')).toBe(true);
+        await expect.poll(() => readState(page, 'demo.loading')).toBe(false);
+        await expect(page.locator('.demo-track-title')).toBeVisible();
+      }
+      await page.locator('[data-demo-step="3"]').click();
+      for (const effect of ['bass', 'treble', 'surround']) {
+        const button = page.locator(`[data-demo-effect="${effect}"]`);
+        await expect(button).toHaveAttribute('aria-pressed', String(!enabled));
+        await button.click();
+        await expect(button).toHaveAttribute('aria-pressed', String(enabled));
+      }
+
+      await page.locator('[data-demo-next]').click();
+      await page.locator('[data-demo-exit]').click();
+      await expect.poll(() => readState(page, 'demo.active')).toBe(false);
+      await expectDemoHidden(page);
+      await navigateToTab(page, 'settings');
+      await navigateToSubtab(page, 'audio');
+
+      // Normal demo completion deliberately retains the chosen audio effects.
+      // Assert both the retained state and the visible controls: state alone
+      // misses a stale Off chip even while the effects remain audible.
+      await expect.poll(() => readState(page, 'audio.virtualBass')).toBe(enabled ? 0.6 : 0);
+      await expect.poll(() => readState(page, 'audio.exciter')).toBe(enabled);
+      await expect.poll(() => readState(page, 'audio.stereoWidth')).toBe(enabled ? 1.2 : 1);
+      for (const effect of ['bass', 'treble', 'surround', 'off']) {
+        const selected = effect === 'off' ? !enabled : enabled;
+        const chip = page.locator(`#grid-virtual-effects [data-virtual-effect="${effect}"]`);
+        await expect(chip).toBeVisible();
+        await expect(chip).toHaveAttribute('aria-pressed', String(selected));
+        if (selected) await expect(chip).toHaveClass(/active/);
+        else await expect(chip).not.toHaveClass(/active/);
+      }
+    });
+  }
+});
 
 test('demo inline controls remain keyboard accessible with reduced motion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });

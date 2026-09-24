@@ -20131,46 +20131,6 @@ describe('persistent PRO room audio effects', () => {
     });
   });
 
-  it.each([10.01, 20, 30])(
-    'migrates legacy stored decay %ss without resetting other room settings',
-    async (decaySeconds) => {
-      const context = await activatedRoom();
-      const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
-        core: Record<string, any>;
-      };
-      const previous = {
-        revision: 7,
-        updatedAtMs: Date.now() - 1000,
-        masterVolume: 0.35,
-        effects: {
-          ...configuredEffectsV2,
-          reverb: { ...configuredEffectsV2.reverb, decaySeconds, preDelaySeconds: 1 },
-        },
-      };
-      stored.core.effects = previous;
-      context.state.storage.data.set('pro-room:v2:core', stored);
-      const expected = {
-        ...previous,
-        effects: {
-          ...previous.effects,
-          reverb: { ...previous.effects.reverb, decaySeconds: 10 },
-        },
-      };
-
-      const restarted = new MusixquareProRoom(
-        context.state as never,
-        environment(context.bucket) as never,
-      );
-      const response = await restarted.fetch(request('/settings-sync', {}, context.ownerCookie));
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject(expected);
-      const persisted = context.state.storage.data.get('pro-room:v2:core') as {
-        core: Record<string, any>;
-      };
-      expect(persisted.core.effects).toEqual(expected);
-    },
-  );
-
   it.each(['/effects', '/settings-sync', 'developer'])(
     'enforces the 10-second decay boundary for new %s writes',
     async (route) => {
@@ -20215,17 +20175,18 @@ describe('persistent PRO room audio effects', () => {
     },
   );
 
-  it('does not repair corrupt stored effects as part of the legacy decay migration', () => {
+  it('validates stored effects against the same bounds as new writes', () => {
     const stored = {
       revision: 7,
       updatedAtMs: 1000,
       masterVolume: 0.35,
       effects: {
         ...configuredEffectsV2,
-        reverb: { ...configuredEffectsV2.reverb, decaySeconds: 20 },
+        reverb: { ...configuredEffectsV2.reverb, decaySeconds: 10 },
       },
     };
-    for (const decaySeconds of [30.01, Number.NaN, Number.POSITIVE_INFINITY, '20']) {
+    expect(normalizeStoredEffects(stored)).toEqual({ state: stored, migrated: false });
+    for (const decaySeconds of [0.09, 10.01, 20, 30, Number.NaN, Number.POSITIVE_INFINITY, '10']) {
       expect(
         normalizeStoredEffects({
           ...stored,

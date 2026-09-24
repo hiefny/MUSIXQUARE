@@ -6,6 +6,7 @@
 
 import { log } from '../core/log.ts';
 import { createBusScope } from '../core/events.ts';
+import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
@@ -22,6 +23,7 @@ let _resizeListenerAdded = false;
 let _visualizerResizeObserver: ResizeObserver | null = null;
 type VisualizerMode = 'circular' | 'spectrum';
 let _vizMode: VisualizerMode = 'circular';
+let _appVizMode: VisualizerMode | null = null;
 let _visualizerControlCanvas: HTMLCanvasElement | null = null;
 let _isVisualizerStartCoalescing = false;
 let _visualizerLoopState: 'idle' | 'active' | 'settling' = 'idle';
@@ -48,7 +50,16 @@ function readPersistedVisualizerMode(): VisualizerMode {
 
 function syncVisualizerControlAccessibility(mode: VisualizerMode): void {
   const canvas = document.getElementById('visualizerCanvas');
-  canvas?.setAttribute('aria-pressed', String(mode === 'spectrum'));
+  const demo = isDemoVisualizerPresentation();
+  canvas?.setAttribute('role', demo ? 'img' : 'button');
+  canvas?.setAttribute('tabindex', demo ? '-1' : '0');
+  if (demo) {
+    canvas?.removeAttribute('aria-pressed');
+    canvas?.removeAttribute('aria-describedby');
+  } else {
+    canvas?.setAttribute('aria-pressed', String(mode === 'spectrum'));
+    canvas?.setAttribute('aria-describedby', 'visualizer-mode-hint');
+  }
   canvas?.setAttribute('data-visualizer-mode', mode);
 
   const modeLabel = document.getElementById('visualizer-current-mode');
@@ -89,9 +100,22 @@ function setVisualizerMode(mode: VisualizerMode, persist: boolean): void {
   startVisualizer();
 }
 
+function isDemoVisualizerPresentation(): boolean {
+  // The demo still owns the canvas while its exit curtain is covering it.
+  return getState('demo.active') || document.body.classList.contains('demo-mobile');
+}
+
+function refreshVisualizerPresentation(): void {
+  setVisualizerMode(
+    isDemoVisualizerPresentation() ? 'spectrum' : (_appVizMode ?? 'circular'),
+    false,
+  );
+}
+
 function toggleVisualizerMode(): void {
-  const shouldPersist = !document.body.classList.contains('demo-mobile');
-  setVisualizerMode(_vizMode === 'circular' ? 'spectrum' : 'circular', shouldPersist);
+  if (isDemoVisualizerPresentation()) return;
+  _appVizMode = _vizMode === 'circular' ? 'spectrum' : 'circular';
+  setVisualizerMode(_appVizMode, true);
 }
 
 function handleVisualizerControlKeydown(event: KeyboardEvent): void {
@@ -639,7 +663,7 @@ export function startVisualizer(): void {
   if (_visualizerLoopState === 'active' && _animationId !== null) return;
 
   // Activity gate — the single chokepoint for every entry point (resize,
-  // ui:visualizer-check, set-type, visualizer:start, init/retry chain).
+  // ui:visualizer-check, presentation refresh, visualizer:start, init/retry chain).
   // Without playing audio there is nothing to visualize: render a static
   // frame instead of spinning the rAF loop at full refresh rate (battery),
   // and never destroy a deliberately held pause-frame. Must NOT touch the
@@ -996,7 +1020,8 @@ export function initVisualizer(): void {
 
   refreshThemeCache();
   _initThemeListeners();
-  applyVisualizerMode(readPersistedVisualizerMode());
+  _appVizMode ??= readPersistedVisualizerMode();
+  applyVisualizerMode(isDemoVisualizerPresentation() ? 'spectrum' : _appVizMode);
   bindVisualizerModeControl();
 
   // Always use startVisualizer — it retries if analyser isn't ready yet,
@@ -1108,12 +1133,10 @@ export function initVisualizer(): void {
     fadeVisualizerOut();
   });
 
-  // Visualizer mode switch
-  _busScope.on('visualizer:set-type', (mode: VisualizerMode) => {
-    // Demo mode temporarily selects a presentation without replacing the
-    // user's saved preference. Only a direct canvas interaction persists.
-    setVisualizerMode(mode, false);
-  });
+  // Demo presentation never changes the remembered app preference. Its DOM
+  // exit signal also covers exits that deliberately skip media restoration.
+  _busScope.on('state:demo.active', refreshVisualizerPresentation);
+  _busScope.on('visualizer:refresh-presentation', refreshVisualizerPresentation);
 
   log.info('[Visualizer] Initialized');
 }

@@ -977,23 +977,29 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     await flush(50);
   });
 
-  it('requests a temporary spectrum mode and restores the captured visualizer mode', async () => {
-    document.body.className = 'viz-circular';
-    const visualizerModes: Array<'circular' | 'spectrum'> = [];
-    bus.on('visualizer:set-type', (mode) => visualizerModes.push(mode));
-    setState('network.appRole', 'host');
-    setState('setup.sessionStarted', true);
+  it.each(['load-failure', 'authority-reset'] as const)(
+    'releases demo visualizer presentation after %s',
+    async (exit) => {
+      const released = vi.fn(() => {
+        expect(getState('demo.active')).toBe(false);
+        expect(document.body.classList.contains('demo-mobile')).toBe(false);
+      });
+      bus.on('visualizer:refresh-presentation', released);
+      setState('network.appRole', 'host');
+      setState('setup.sessionStarted', true);
 
-    bus.emit('demo:enter');
+      bus.emit('demo:enter');
 
-    expect(visualizerModes.at(-1)).toBe('spectrum');
+      expect(getState('demo.active')).toBe(true);
 
-    await flush();
-    FakeXHR.pending[0]?.failNetwork();
-    await flush(50);
+      await flush();
+      if (exit === 'load-failure') FakeXHR.pending[0]?.failNetwork();
+      else bus.emit('demo:authority-reset');
+      await flush(50);
 
-    expect(visualizerModes.at(-1)).toBe('circular');
-  });
+      expect(released).toHaveBeenCalledOnce();
+    },
+  );
 
   it('maps combined bass and treble boosts to the advanced V-shaped EQ', async () => {
     setState('network.appRole', 'host');

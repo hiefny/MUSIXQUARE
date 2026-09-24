@@ -7,9 +7,10 @@
 - Do not modify or advance `main`, merge changes into it, or deploy production
   during this freeze. Local edits, commits, builds, and tests on `mxqr_beta`
   are allowed.
-- The existing push hold remains in force: do not push or create remote pull
-  requests until the owner explicitly authorizes remote publication. Keep the
-  Operations Drift Audit workflow disabled until the owner ends the freeze.
+- The owner authorized ongoing remote pushes of `mxqr_beta` on 2026-09-25.
+  Commit and push beta work when complete. Do not create remote pull requests,
+  merge into `main`, or deploy production without separate authorization.
+  Keep the Operations Drift Audit workflow disabled until the owner ends the freeze.
 - This temporary exception takes precedence over the branch cleanup rules
   below. Once the owner ends the freeze, follow their publication instructions
   and the normal release workflow; audit-tooling-only changes need no App release.

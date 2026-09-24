@@ -408,37 +408,69 @@ describe('Visualizer', () => {
       expect(localStorage.getItem('musixquare-viz-mode')).toBe('spectrum');
     });
 
-    it('keeps a demo-mobile canvas toggle temporary', async () => {
-      vi.resetModules();
-      localStorage.setItem('musixquare-viz-mode', 'circular');
-      document.body.classList.add('demo-mobile');
+    it.each(['circular', 'spectrum', null] as const)(
+      'locks demo presentation and restores the %s app preference after the exit curtain',
+      async (preference) => {
+        vi.resetModules();
+        if (preference) localStorage.setItem('musixquare-viz-mode', preference);
+        const { setState } = await import('../../core/state.ts');
+        const { bus } = await import('../../core/events.ts');
+        setState('demo.active', true);
 
-      const restingCanvas = document.createElement('canvas');
-      restingCanvas.id = 'visualizerCanvas';
-      document.body.appendChild(restingCanvas);
-      const ctx = {
-        setTransform: vi.fn(),
-        scale: vi.fn(),
-        clearRect: vi.fn(),
-        beginPath: vi.fn(),
-        arc: vi.fn(),
-        fill: vi.fn(),
-        moveTo: vi.fn(),
-        lineTo: vi.fn(),
-        stroke: vi.fn(),
-        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
-      } as unknown as CanvasRenderingContext2D;
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+        const restingCanvas = document.createElement('canvas');
+        restingCanvas.id = 'visualizerCanvas';
+        document.body.appendChild(restingCanvas);
+        const ctx = {
+          setTransform: vi.fn(),
+          scale: vi.fn(),
+          clearRect: vi.fn(),
+          beginPath: vi.fn(),
+          arc: vi.fn(),
+          fill: vi.fn(),
+          moveTo: vi.fn(),
+          lineTo: vi.fn(),
+          stroke: vi.fn(),
+          createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        } as unknown as CanvasRenderingContext2D;
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
 
-      const mod = await import('../visualizer.ts');
-      mod.initVisualizer();
-      restingCanvas.click();
+        const mod = await import('../visualizer.ts');
+        mod.initVisualizer();
+        mod.initVisualizer();
+        expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+        expect(restingCanvas.getAttribute('role')).toBe('img');
+        expect(restingCanvas.getAttribute('tabindex')).toBe('-1');
+        expect(restingCanvas.hasAttribute('aria-pressed')).toBe(false);
+        expect(restingCanvas.hasAttribute('aria-describedby')).toBe(false);
+        restingCanvas.click();
+        for (const key of ['Enter', ' ']) {
+          restingCanvas.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }));
+        }
 
-      expect(document.body.classList.contains('viz-spectrum')).toBe(true);
-      expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
-    });
+        expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+        expect(localStorage.getItem('musixquare-viz-mode')).toBe(preference);
 
-    it('redraws a temporary event-selected mode without overwriting the saved preference', async () => {
+        // Runtime has exited, but the demo is still visible while its curtain closes.
+        document.body.classList.add('demo-mobile');
+        setState('demo.active', false);
+        bus.emit('state:demo.active', false, 'demo.active');
+        restingCanvas.click();
+        expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+        expect(restingCanvas.getAttribute('role')).toBe('img');
+        expect(localStorage.getItem('musixquare-viz-mode')).toBe(preference);
+
+        document.body.classList.remove('demo-mobile');
+        bus.emit('visualizer:refresh-presentation');
+        expect(restingCanvas.dataset.visualizerMode).toBe(preference ?? 'circular');
+        expect(restingCanvas.getAttribute('role')).toBe('button');
+        expect(restingCanvas.getAttribute('tabindex')).toBe('0');
+        expect(restingCanvas.getAttribute('aria-pressed')).toBe(String(preference === 'spectrum'));
+        expect(restingCanvas.getAttribute('aria-describedby')).toBe('visualizer-mode-hint');
+        expect(localStorage.getItem('musixquare-viz-mode')).toBe(preference);
+      },
+    );
+
+    it('remembers the app choice through demo and reinitialization when storage is unavailable', async () => {
       vi.resetModules();
       localStorage.setItem('musixquare-viz-mode', 'circular');
 
@@ -464,20 +496,44 @@ describe('Visualizer', () => {
         import('../../core/events.ts'),
         import('../visualizer.ts'),
       ]);
+      const { setState } = await import('../../core/state.ts');
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('Storage unavailable');
+      });
       mod.initVisualizer();
+      restingCanvas.click();
+      expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
+      restingCanvas.click();
+      expect(restingCanvas.dataset.visualizerMode).toBe('circular');
       vi.mocked(ctx.arc).mockClear();
       vi.mocked(ctx.lineTo).mockClear();
 
-      bus.emit('visualizer:set-type', 'spectrum');
+      setState('demo.active', true);
+      bus.emit('state:demo.active', true, 'demo.active');
 
       expect(document.body.classList.contains('viz-spectrum')).toBe(true);
       expect(document.body.classList.contains('viz-circular')).toBe(false);
       expect(ctx.lineTo).toHaveBeenCalled();
       expect(ctx.arc).not.toHaveBeenCalled();
       expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
+
+      mod.initVisualizer();
+      setState('demo.active', false);
+      bus.emit('state:demo.active', false, 'demo.active');
+      expect(restingCanvas.dataset.visualizerMode).toBe('circular');
+      restingCanvas.click();
+      expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
+      setState('demo.active', true);
+      bus.emit('state:demo.active', true, 'demo.active');
+      mod.initVisualizer();
+      setState('demo.active', false);
+      bus.emit('state:demo.active', false, 'demo.active');
+      expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
+      expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
     });
 
     it('applies the initial paused playback activity through the visualizer subscription', async () => {
+      vi.resetModules();
       const { setState } = await import('../../core/state.ts');
       setState('playback.mode', 'file');
       setState('playback.activity', 'paused');

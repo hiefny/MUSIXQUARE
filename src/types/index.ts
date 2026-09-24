@@ -1655,7 +1655,7 @@ interface BaseEventMap {
   'visualizer:start': [];
   'visualizer:hold-frame': [];
   'visualizer:fade-out': [];
-  'visualizer:set-type': [mode: 'circular' | 'spectrum'];
+  'visualizer:refresh-presentation': [];
 
   // ── Worker ──────────────────────────────────────────────────────────
   'worker:timer-tick': [id: string];

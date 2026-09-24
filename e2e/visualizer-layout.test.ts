@@ -6,6 +6,14 @@ import { navigateToTab, readState } from './helpers/wait.ts';
 
 const MOBILE_WIDTHS = [360, 390, 430] as const;
 const MAX_LAYOUT_DRIFT_PX = 0.5;
+const BREAKPOINT_RESIZES = [
+  { width: 390, height: 844 },
+  { width: 700, height: 390 },
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+  { width: 2560, height: 1440 },
+  { width: 390, height: 844 },
+] as const;
 
 interface VisualizerGeometry {
   stageHeight: number;
@@ -72,41 +80,71 @@ async function settleLayout(page: Page): Promise<void> {
   );
 }
 
+async function emitDemoEvent(page: Page, event: 'demo:enter' | 'demo:request-exit'): Promise<void> {
+  await page.evaluate((name) => {
+    (
+      window as unknown as { __MUSIXQUARE_BUS__: { emit(event: string): void } }
+    ).__MUSIXQUARE_BUS__.emit(name);
+  }, event);
+}
+
+async function readSavedVisualizerMode(page: Page): Promise<string | null> {
+  return page.evaluate(() => localStorage.getItem('musixquare-viz-mode'));
+}
+
 async function readCircularInkBounds(page: Page): Promise<{ width: number; height: number }> {
-  // Inspect the composited pixels: a square backing bitmap can still be
-  // stretched into an ellipse by the canvas's CSS content box.
-  const screenshot = await page.locator('#visualizerCanvas').screenshot({
-    style: '.demo-track-header, .demo-step-nav, .toast { visibility: hidden !important; }',
-  });
-  return page.evaluate(async (base64) => {
-    const image = new Image();
-    image.src = `data:image/png;base64,${base64}`;
-    await image.decode();
-    const probe = document.createElement('canvas');
-    probe.width = image.width;
-    probe.height = image.height;
-    const context = probe.getContext('2d')!;
-    context.drawImage(image, 0, 0);
-    const pixels = context.getImageData(0, 0, image.width, image.height).data;
-    let left = image.width;
+  // Read this canvas's ink, then apply its actual CSS content-box scale.
+  // An element screenshot also contains overlaid navigation and clipped
+  // ancestors in short viewports, which are not part of the circular drawing.
+  return page.locator('#visualizerCanvas').evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    const context = canvas.getContext('2d')!;
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let left = canvas.width;
     let right = -1;
-    let top = image.height;
+    let top = canvas.height;
     let bottom = -1;
-    for (let y = 0; y < image.height; y++) {
-      for (let x = 0; x < image.width; x++) {
-        const index = (y * image.width + x) * 4;
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const index = (y * canvas.width + x) * 4;
         const red = pixels[index];
         const green = pixels[index + 1];
         const blue = pixels[index + 2];
-        if (blue < 35 || blue < red * 1.5 || blue < green * 1.2) continue;
+        if (pixels[index + 3] === 0 || blue < 35 || blue < red * 1.5 || blue < green * 1.2) {
+          continue;
+        }
         left = Math.min(left, x);
         right = Math.max(right, x);
         top = Math.min(top, y);
         bottom = Math.max(bottom, y);
       }
     }
-    return { width: right - left + 1, height: bottom - top + 1 };
-  }, screenshot.toString('base64'));
+    const style = getComputedStyle(canvas);
+    const contentWidth =
+      canvas.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const contentHeight =
+      canvas.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    let scaleX = contentWidth / canvas.width;
+    let scaleY = contentHeight / canvas.height;
+    if (style.objectFit !== 'fill') {
+      const containedScale = Math.min(scaleX, scaleY);
+      const fittedScale =
+        style.objectFit === 'cover'
+          ? Math.max(scaleX, scaleY)
+          : style.objectFit === 'none'
+            ? 1
+            : style.objectFit === 'scale-down'
+              ? Math.min(1, containedScale)
+              : containedScale;
+      scaleX = fittedScale;
+      scaleY = fittedScale;
+    }
+    const bounds = canvas.getBoundingClientRect();
+    return {
+      width: (right - left + 1) * scaleX * (bounds.width / canvas.offsetWidth),
+      height: (bottom - top + 1) * scaleY * (bounds.height / canvas.offsetHeight),
+    };
+  });
 }
 
 async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
@@ -171,79 +209,153 @@ test.describe('mobile visualizer layout', () => {
     await injectPeerServer(page);
   });
 
-  test('keeps demo circles round and fills the stage after large breakpoint resizes', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.route('https://demo.musixquare.com/linelight/*.m4a', (route) =>
-      route.fulfill({
-        path: fileURLToPath(new URL('./fixtures/demo-track.mp3', import.meta.url)),
-        contentType: 'audio/mpeg',
-      }),
-    );
-    await setupHostAndStart(page);
-    await page.evaluate(() => {
-      const bus = (window as unknown as Record<string, { emit: (event: string) => void }>)
-        .__MUSIXQUARE_BUS__;
-      bus.emit('demo:enter');
-    });
-    await expect(page.locator('#demo-overlay')).toHaveClass(/active/);
-    await expect.poll(() => readState(page, 'playback.activity')).toBe('playing');
-    await page.locator('#btn-demo-settings').click();
-    await expect(page.locator('#btn-demo-settings')).toHaveAttribute('aria-expanded', 'true');
-    await page.locator('[data-demo-play]').click();
-    await expect.poll(() => readState(page, 'playback.activity')).toBe('paused');
-    await page.locator('#visualizerCanvas').click();
-    await expect(page.locator('body')).toHaveClass(/viz-circular/);
+  test.describe('demo spectrum presentation', () => {
+    test.use({ hasTouch: true });
 
-    for (const viewport of [
-      { width: 390, height: 844 },
-      { width: 700, height: 390 },
-      { width: 1440, height: 900 },
-      { width: 390, height: 844 },
-      { width: 2560, height: 1440 },
-      { width: 390, height: 844 },
-    ]) {
+    for (const initialPreference of ['circular', 'spectrum'] as const) {
+      test(`locks demo spectrum while preserving the ${initialPreference} app preference`, async ({
+        page,
+      }) => {
+        await page.setViewportSize(BREAKPOINT_RESIZES[0]);
+        await page.route('https://demo.musixquare.com/linelight/*.m4a', (route) =>
+          route.fulfill({
+            path: fileURLToPath(new URL('./fixtures/demo-track.mp3', import.meta.url)),
+            contentType: 'audio/mpeg',
+          }),
+        );
+        await setupHostAndStart(page);
+        const canvas = page.locator('#visualizerCanvas');
+        // Persist the user's choice through the real app control, rather than
+        // rewriting storage from an init script that would also run on reload.
+        await canvas.click();
+        await expect(canvas).toHaveAttribute('data-visualizer-mode', 'spectrum');
+        if (initialPreference === 'circular') await canvas.click();
+        await expect(canvas).toHaveAttribute('data-visualizer-mode', initialPreference);
+        await expect.poll(() => readSavedVisualizerMode(page)).toBe(initialPreference);
+
+        const otherPreference = initialPreference === 'circular' ? 'spectrum' : 'circular';
+        for (const preference of [initialPreference, otherPreference]) {
+          await emitDemoEvent(page, 'demo:enter');
+          await expect(page.locator('#demo-overlay')).toHaveClass(/active/);
+          await expect.poll(() => readState(page, 'playback.activity')).toBe('playing');
+          await page.locator('#btn-demo-settings').click();
+          await expect(page.locator('#btn-demo-settings')).toHaveAttribute('aria-expanded', 'true');
+          await page.locator('[data-demo-play]').click();
+          await expect.poll(() => readState(page, 'playback.activity')).toBe('paused');
+          await page.locator('#btn-demo-settings').click();
+
+          for (const viewport of BREAKPOINT_RESIZES) {
+            await page.setViewportSize(viewport);
+            await settleLayout(page);
+            const label = `${preference}, ${viewport.width}x${viewport.height}`;
+            await expect(canvas).toHaveAttribute('data-visualizer-mode', 'spectrum');
+            await expect(canvas).toHaveAttribute('role', 'img');
+            await expect(canvas).not.toHaveAttribute('aria-pressed');
+            await expect(canvas).toHaveAttribute('tabindex', '-1');
+            await expect(page.locator('body')).toHaveClass(/viz-spectrum/);
+            await expect
+              .poll(
+                () =>
+                  page.evaluate(() => {
+                    const slot = document
+                      .getElementById('demo-visualizer-slot')!
+                      .getBoundingClientRect();
+                    const element = document.querySelector<HTMLElement>('.vinyl-wrapper')!;
+                    const wrapper = element.getBoundingClientRect();
+                    // Desktop intentionally centers a shorter spectrum within
+                    // the stage; mobile fills the stage in both dimensions.
+                    const desktop = window.matchMedia('(min-width: 720px)').matches;
+                    if (desktop) {
+                      return Math.max(
+                        Math.abs(slot.width - wrapper.width),
+                        Math.abs(slot.left - wrapper.left),
+                        Math.abs(slot.top + slot.height / 2 - wrapper.top - wrapper.height / 2),
+                        Math.max(0, slot.top - wrapper.top, wrapper.bottom - slot.bottom),
+                        // CSS sizing precedes the app's desktop density scale.
+                        Math.max(0, 170 - element.clientHeight, element.clientHeight - 440),
+                      );
+                    }
+                    return Math.max(
+                      Math.abs(slot.width - wrapper.width),
+                      Math.abs(slot.height - wrapper.height),
+                    );
+                  }),
+                { message: `${label}: spectrum drawing area follows the demo stage` },
+              )
+              .toBeLessThanOrEqual(1);
+            await expect
+              .poll(() =>
+                canvas.evaluate((element) => {
+                  const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper')!;
+                  const drawing = element as HTMLCanvasElement;
+                  return Math.abs(
+                    drawing.height - (drawing.width * wrapper.clientHeight) / wrapper.clientWidth,
+                  );
+                }),
+              )
+              .toBeLessThanOrEqual(2);
+
+            // The image still receives pointer input. Its noninteractive role
+            // must agree with the behavior of the shared app canvas.
+            const bounds = (await canvas.boundingBox())!;
+            const x = bounds.x + bounds.width / 2;
+            const y = bounds.y + bounds.height / 2;
+            await page.mouse.click(x, y);
+            await expect(canvas).toHaveAttribute('data-visualizer-mode', 'spectrum');
+            await page.touchscreen.tap(x, y);
+            await expect(canvas).toHaveAttribute('data-visualizer-mode', 'spectrum');
+            // Also guard stale/programmatic focus: removing a tab stop alone
+            // must not leave Enter or Space able to switch the drawing mode.
+            await canvas.focus();
+            await canvas.press('Enter');
+            await expect(canvas).toHaveAttribute('data-visualizer-mode', 'spectrum');
+            await canvas.press('Space');
+            await expect(canvas).toHaveAttribute('data-visualizer-mode', 'spectrum');
+            await expect.poll(() => readSavedVisualizerMode(page)).toBe(preference);
+          }
+
+          await emitDemoEvent(page, 'demo:request-exit');
+          await expect.poll(() => readState(page, 'demo.active')).toBe(false);
+          await expect(page.locator('#demo-overlay')).toBeHidden();
+          await expect(canvas).toHaveAttribute('data-visualizer-mode', preference);
+          await expect(canvas).toHaveAttribute('role', 'button');
+          await expect(canvas).toHaveAttribute('aria-pressed', String(preference === 'spectrum'));
+          await expect(canvas).toHaveAttribute('tabindex', '0');
+          await expect.poll(() => readSavedVisualizerMode(page)).toBe(preference);
+          if (preference === initialPreference) {
+            await canvas.press('Enter');
+            await expect(canvas).toHaveAttribute('data-visualizer-mode', otherPreference);
+            await expect.poll(() => readSavedVisualizerMode(page)).toBe(otherPreference);
+          }
+        }
+
+        await page.reload();
+        await expect(canvas).toHaveAttribute('data-visualizer-mode', otherPreference);
+        await expect.poll(() => readSavedVisualizerMode(page)).toBe(otherPreference);
+      });
+    }
+  });
+
+  test('keeps app circles round after large breakpoint resizes', async ({ page }) => {
+    await page.setViewportSize(BREAKPOINT_RESIZES[0]);
+    await setupHostAndStart(page);
+    await expect(page.locator('#visualizerCanvas')).toHaveAttribute(
+      'data-visualizer-mode',
+      'circular',
+    );
+    await expect(page.locator('#visualizerCanvas')).not.toHaveClass(/app-entrance/, {
+      timeout: 5_000,
+    });
+
+    for (const viewport of BREAKPOINT_RESIZES) {
       await page.setViewportSize(viewport);
       await settleLayout(page);
       const label = `${viewport.width}x${viewport.height}`;
-      await expect
-        .poll(
-          async () => {
-            return page.evaluate(() => {
-              const slot = document.getElementById('demo-visualizer-slot')!.getBoundingClientRect();
-              const wrapper = document.querySelector('.vinyl-wrapper')!.getBoundingClientRect();
-              return Math.max(
-                Math.abs(slot.width - wrapper.width),
-                Math.abs(slot.height - wrapper.height),
-              );
-            });
-          },
-          { message: `${label}: circular drawing area follows the demo stage` },
-        )
-        .toBeLessThanOrEqual(1);
-
       const ink = await readCircularInkBounds(page);
       expect(ink.width, `${label}: visible circular frame`).toBeGreaterThan(10);
       expect
         .soft(Math.abs(ink.width - ink.height), `${label}: ${JSON.stringify(ink)}`)
         .toBeLessThanOrEqual(2);
-
-      await page.locator('#visualizerCanvas').click();
-      await expect(page.locator('body')).toHaveClass(/viz-spectrum/);
-      await expect
-        .poll(() =>
-          page.evaluate(() => {
-            const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper')!;
-            const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement;
-            return Math.abs(
-              canvas.height - (canvas.width * wrapper.clientHeight) / wrapper.clientWidth,
-            );
-          }),
-        )
-        .toBeLessThanOrEqual(2);
-      await page.locator('#visualizerCanvas').click();
-      await expect(page.locator('body')).toHaveClass(/viz-circular/);
     }
   });
 

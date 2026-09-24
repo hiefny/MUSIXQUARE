@@ -106,7 +106,6 @@ type DemoSnapshot = {
   pausedAt: number;
   duration: number;
   playback: PlaybackModeActivity;
-  visualizerMode: 'circular' | 'spectrum';
 };
 
 type RestoreSnapshotOptions = {
@@ -204,14 +203,6 @@ function shouldShowFirstRunDemoPrompt(): boolean {
   return true;
 }
 
-function getCurrentVisualizerMode(): 'circular' | 'spectrum' {
-  return document.body.classList.contains('viz-spectrum') ? 'spectrum' : 'circular';
-}
-
-function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
-  bus.emit('visualizer:set-type', mode);
-}
-
 function captureDemoRoomIdentity(): DemoRoomIdentity {
   const room = getRoomContext();
   return Object.freeze({
@@ -289,7 +280,6 @@ function captureSnapshot(): DemoSnapshot {
       : fallbackPausedAt,
     duration: currentAudioBuffer?.duration ?? 0,
     playback,
-    visualizerMode: getCurrentVisualizerMode(),
   };
   // Demo playback replaces the current resource. Its prior large-track
   // decoder remains owned by this snapshot until restoration or dismissal.
@@ -418,7 +408,6 @@ function restoreSnapshot(
     }
   }
 
-  setVisualizerMode(snapshot.visualizerMode);
   void applySettingsAsync();
 }
 
@@ -870,6 +859,7 @@ function applyDemoDomInactive(overlay: HTMLElement | null): void {
   syncAppThemeChrome();
   overlay?.classList.remove('active', 'entering', 'exiting');
   restoreVisualizer();
+  bus.emit('visualizer:refresh-presentation');
   updateOverlayOpenClass();
 }
 
@@ -1469,8 +1459,6 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
   setCurrentAudioBuffer(null);
   _demoStep = 1;
   _demoTrackIndex = normalizeDemoTrackIndex(options.index ?? 0);
-  setVisualizerMode('spectrum');
-
   setState('demo.active', true);
   const owner = beginDemoLoad();
   setState('demo.loading', true);
@@ -1557,7 +1545,7 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
         }
         // Completing the demo commits the role and effects the user just chose.
         // Failed/interrupted entry paths opt back into restoring the audio
-        // snapshot, while media and visualizer restoration remain independent.
+        // snapshot, while media restoration remains independent.
         // Clear the demo timeline before restoring the captured owner. The
         // restored file-mode projection must be the final writer.
         if (restoreMedia) bus.emit('ui:seek-reset');

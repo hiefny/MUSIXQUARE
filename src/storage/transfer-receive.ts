@@ -72,6 +72,7 @@ import {
 import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
 import { pause } from '../player/transport.ts';
+import { recordMainReceiveProgress } from './preload-watchdog.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -1858,6 +1859,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   }
 
   // Process all contiguous chunks in order
+  const previousReceivedCount = receivedCount;
   while (sessionBuffer.has(nextExpectedChunk)) {
     const chunk = sessionBuffer.get(nextExpectedChunk)!;
 
@@ -1877,6 +1879,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   }
 
   setState('transfer.receivedCount', receivedCount);
+  if (receivedCount > previousReceivedCount) recordMainReceiveProgress(queueItemId, incomingSid);
   lastChunkTime = Date.now();
 
   // Reset recovery retry counter on meaningful progress — prevents cumulative

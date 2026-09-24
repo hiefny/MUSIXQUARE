@@ -17,6 +17,7 @@ import {
 } from './chunk-pump.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { freezeFileDeliveryMode, resolvePeerFileDelivery } from '../share/file-delivery-policy.ts';
+import { waitForTransferCapacity } from './transfer-backpressure.ts';
 
 // ─── Send-side Module State ──────────────────────────────────────────
 
@@ -50,6 +51,10 @@ interface PeerTransferOwner {
  * take the lane over.
  */
 const _peerTransferOwners = new Map<string, PeerTransferOwner>();
+const _preparingUnicasts = new Set<{
+  conn: DataConnection;
+  isCurrent: () => boolean;
+}>();
 
 function isExactPeerTransfer(
   owner: PeerTransferOwner,
@@ -111,12 +116,51 @@ const UNICAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 const BROADCAST_DEBOUNCE_KEY = 'broadcast-debounce';
 const BROADCAST_DEBOUNCE_MS = 300;
-let _pendingBroadcast: {
+interface PendingBroadcast {
   file: File;
   queueItemId: string;
   sessionId: number | null;
   prepareMsg?: AnyProtocolMsg;
-} | null = null;
+}
+let _pendingBroadcast: PendingBroadcast | null = null;
+let _startingBroadcast: PendingBroadcast | null = null;
+
+/** Per-receiver foreground priority, including work not yet past its debounce/ICE await. */
+export function hasPendingCurrentFileTransfer(conn: DataConnection): boolean {
+  if (!isPeerConnectionCurrent(conn.peer, conn)) return false;
+  for (const pending of _preparingUnicasts) {
+    if (pending.conn === conn && pending.isCurrent()) return true;
+  }
+  const queueItemId = getState('playlist.currentQueueItemId');
+  const owner = _peerTransferOwners.get(conn.peer);
+  if (
+    owner?.conn === conn &&
+    owner.queueItemId === queueItemId &&
+    owner.status === 'active' &&
+    !owner.scope.aborted
+  )
+    return true;
+  const pending = _pendingBroadcast ?? _startingBroadcast;
+  if (
+    !pending ||
+    pending.queueItemId !== queueItemId ||
+    getState('files.current')?.blob !== pending.file
+  )
+    return false;
+  if (
+    owner?.status === 'complete' &&
+    pending.sessionId !== null &&
+    isExactPeerTransfer(owner, conn, queueItemId, pending.sessionId)
+  )
+    return false;
+  const peer = getState('network.connectedPeers').find((peer) => peer.conn === conn);
+  if (!peer) return false;
+  // An unnumbered debounce has not frozen delivery yet. Do not allocate an
+  // imagined future session just to query priority; its real sender decides.
+  if (pending.sessionId === null) return peer.connectionType !== 'remote';
+  const delivery = resolvePeerFileDelivery(peer, pending.sessionId);
+  return delivery === 'direct-local' || delivery === 'pending';
+}
 
 interface PendingBroadcastSuspension {
   readonly id: number;
@@ -315,6 +359,8 @@ export async function broadcastFile(
   }
 
   const generation = ++_broadcastGeneration;
+  const starting = { file, queueItemId, sessionId };
+  _startingBroadcast = starting;
   // Cancel previous broadcast and yield so its loop can exit cleanly
   // before we send the new FILE_START header (prevents chunk interleaving)
   if (activeBroadcast) {
@@ -327,8 +373,10 @@ export async function broadcastFile(
     generation !== _broadcastGeneration ||
     getState('playlist.currentQueueItemId') !== queueItemId ||
     getState('files.current')?.blob !== file
-  )
+  ) {
+    if (_startingBroadcast === starting) _startingBroadcast = null;
     return;
+  }
   setState('transfer.activeBroadcastSession', sessionId);
 
   _broadcastScope = SessionScope.replace(_broadcastScope);
@@ -360,6 +408,7 @@ export async function broadcastFile(
       if (owner) ownedPeers.set(peer.id, owner);
     }
     const broadcastPeers = eligiblePeers.filter((peer) => ownedPeers.has(peer.id));
+    if (_startingBroadcast === starting) _startingBroadcast = null;
 
     // Every eligible peer is already being served (or was served) by the
     // exact same lane. Do not emit a second FILE_START after the debounce.
@@ -430,6 +479,7 @@ export async function broadcastFile(
       },
     });
   } finally {
+    if (_startingBroadcast === starting) _startingBroadcast = null;
     // Owners which did not reach FILE_END must not block an explicit retry.
     // Completed owners stay as a fence against a delayed duplicate bootstrap.
     for (const [peerId, owner] of ownedPeers) {
@@ -486,9 +536,15 @@ export async function unicastFile(
 
   // Transport guard: require this connection's frozen direct assignment.
   // Internal recovery callers can opt out after validating the same policy.
-  if (!options.skipTransportGuard && !(await canSendFileTo(conn, effectiveSessionId))) {
-    log.info('[Unicast] Skipped: connection has no frozen direct assignment');
-    return;
+  const preparing = { conn, isCurrent: isTransferStillCurrent };
+  _preparingUnicasts.add(preparing);
+  try {
+    if (!options.skipTransportGuard && !(await canSendFileTo(conn, effectiveSessionId))) {
+      log.info('[Unicast] Skipped: connection has no frozen direct assignment');
+      return;
+    }
+  } finally {
+    _preparingUnicasts.delete(preparing);
   }
 
   const CHUNK = CHUNK_SIZE;
@@ -575,14 +631,15 @@ export async function unicastFile(
       if (!canContinue()) return;
 
       // Backpressure (return on timeout — connection is likely dead)
-      const startWait = Date.now();
-      while (conn.dataChannel && conn.dataChannel.bufferedAmount > UNICAST_BACKPRESSURE_LIMIT) {
-        if (!canContinue()) return;
-        if (Date.now() - startWait > UNICAST_BACKPRESSURE_TIMEOUT) {
-          log.warn('[Unicast] Backpressure timeout');
-          return;
-        }
-        await delay(DELAY.BACKPRESSURE);
+      const capacity = await waitForTransferCapacity(
+        conn,
+        UNICAST_BACKPRESSURE_LIMIT,
+        UNICAST_BACKPRESSURE_TIMEOUT,
+        canContinue,
+      );
+      if (capacity !== 'ready') {
+        if (capacity === 'timeout') log.warn('[Unicast] Backpressure timeout');
+        return;
       }
       if (!canContinue()) return;
 
@@ -650,6 +707,8 @@ export function cancelOutgoingFileTransferForPeer(peerId: string): void {
 
 export function cancelOutgoingFileTransfers(): void {
   _broadcastGeneration++;
+  _startingBroadcast = null;
+  _preparingUnicasts.clear();
   // A broadcast still parked in the debounce window is an outgoing transfer
   // too — drop it first so it can't fire after this teardown and resurrect
   // a chunk stream for a file the caller just discarded.

@@ -66,6 +66,9 @@ import {
   preloadProRoomPlaylistFile,
 } from '../pro-room/media-hooks.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
+import { hasPendingCurrentFileTransfer } from './transfer-send.ts';
+import { waitForTransferCapacity } from './transfer-backpressure.ts';
+import { armPreloadAdmissionWatchdog } from './preload-watchdog.ts';
 
 /**
  * One-switch rollback for the persistent-room R2 prefetch policy. Keep this
@@ -148,6 +151,59 @@ function hasExactPreloadPeerOwner(
 
 function ownsPreloadPeer(owner: PreloadPeerOwner): boolean {
   return _preloadPeerOwners.get(owner.conn.peer)?.has(owner) ?? false;
+}
+
+function isCurrentPreloadTransfer(
+  owner: Pick<PreloadPeerOwner, 'sourceId' | 'queueItemId' | 'sessionId'>,
+): boolean {
+  const current = getState('files.current');
+  return (
+    !!current &&
+    getState('playlist.currentQueueItemId') === owner.queueItemId &&
+    current.queueItemId === owner.queueItemId &&
+    current.sessionId === owner.sessionId &&
+    preloadSourceId(current.blob) === owner.sourceId
+  );
+}
+
+/** Synchronous final check before enqueueing speculative bytes. */
+function canPreloadSend(owner: PreloadPeerOwner): boolean {
+  if (isCurrentPreloadTransfer(owner)) return true;
+  const currentPreload = [...(_preloadPeerOwners.get(owner.conn.peer) ?? [])].some(
+    (other) =>
+      other !== owner &&
+      other.conn === owner.conn &&
+      other.status === 'active' &&
+      !other.scope.aborted &&
+      isCurrentPreloadTransfer(other),
+  );
+  const preparingCurrent = [..._activePreloadUnicasts.values()].some(
+    (entry) =>
+      entry.scope !== owner.scope &&
+      entry.conn === owner.conn &&
+      !entry.scope.aborted &&
+      isCurrentPreloadTransfer(entry),
+  );
+  return !currentPreload && !preparingCurrent && !hasPendingCurrentFileTransfer(owner.conn);
+}
+
+/** Speculation yields to this receiver's current file, including a promoted preload. */
+async function waitForPreloadTurn(
+  owner: PreloadPeerOwner,
+  canContinue: () => boolean,
+): Promise<'ready' | 'stopped'> {
+  while (
+    canContinue() &&
+    ownsPreloadPeer(owner) &&
+    owner.conn.open &&
+    isPeerConnectionCurrent(owner.conn.peer, owner.conn)
+  ) {
+    if (canPreloadSend(owner)) return 'ready';
+    // Only a parked speculative lane polls. Writable chunk streaming wakes on
+    // RTC capacity events, and a fast receiver never waits for another peer.
+    await delay(DELAY.BACKPRESSURE);
+  }
+  return 'stopped';
 }
 
 function releasePreloadPeer(owner: PreloadPeerOwner): void {
@@ -1144,23 +1200,47 @@ async function backgroundTransfer(
       return !preloadedQueueItemIds || !preloadedQueueItemIds.has(queueItemId);
     });
 
-    // Send header per-peer
-    targets.forEach((p) => {
-      const conn = p.conn as DataConnection;
-      const needsChunks = targetsWhoNeedChunks.includes(p);
-      if (needsChunks) invalidatePeerPreloadResidency(conn);
-      if (!safeSend(conn, { ...header, skipped: !needsChunks })) {
-        abortBackgroundPeer(owner, p);
+    const startedPeerIds = new Set<string>();
+    const preparePeer = async (
+      peer: ConnectedPeer,
+      isPumpCurrent: () => boolean = canContinue,
+    ): Promise<'ready' | 'stopped'> => {
+      const peerOwner = peerOwners.get(peer.id);
+      if (!peerOwner || owner.abortedPeerIds.has(peer.id)) return 'stopped';
+      do {
+        if (
+          (await waitForPreloadTurn(peerOwner, () => canContinue() && isPumpCurrent())) ===
+            'stopped' ||
+          !canContinue() ||
+          !isPumpCurrent() ||
+          !ownsPreloadPeer(peerOwner)
+        ) {
+          abortBackgroundPeer(owner, peer);
+          return 'stopped';
+        }
+      } while (!canPreloadSend(peerOwner));
+      // Delay START as well as bytes: START arms the receiver's admission watchdog.
+      if (!startedPeerIds.has(peer.id)) {
+        invalidatePeerPreloadResidency(peerOwner.conn);
+        if (!safeSend(peerOwner.conn, { ...header, skipped: false })) {
+          abortBackgroundPeer(owner, peer);
+          return 'stopped';
+        }
+        startedPeerIds.add(peer.id);
       }
-    });
+      return 'ready';
+    };
 
     // Already-preloaded peers need no bytes and can settle immediately. Keep
     // their END independent of congestion affecting the remaining audience.
     targets.forEach((peer) => {
       if (targetsWhoNeedChunks.includes(peer) || !canContinue()) return;
-      if (isBulkTransferWritablePeer(peer)) completePeer(peer);
+      if (isBulkTransferWritablePeer(peer) && safeSend(peer.conn, { ...header, skipped: true }))
+        completePeer(peer);
       else abortBackgroundPeer(owner, peer);
     });
+
+    if (total === 0) await Promise.all(targetsWhoNeedChunks.map((peer) => preparePeer(peer)));
 
     // Per-peer backpressure prevents one stalled guest from blocking the room.
     const { status } = await pumpChunksToPeers({
@@ -1181,6 +1261,11 @@ async function backgroundTransfer(
         return !!peerOwner && ownsPreloadPeer(peerOwner) && isBulkTransferWritablePeer(peer);
       },
       shouldContinue: canContinue,
+      beforeChunk: preparePeer,
+      isPeerReady: (peer) => {
+        const peerOwner = peerOwners.get(peer.id);
+        return !!peerOwner && canPreloadSend(peerOwner);
+      },
       // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
       // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
       onPeerExcluded: (p) => abortBackgroundPeer(owner, p),
@@ -1310,6 +1395,10 @@ export async function unicastPreload(
     const total = Math.ceil(file.size / CHUNK);
     const fileName = 'name' in file ? file.name : 'Track';
 
+    do {
+      if ((await waitForPreloadTurn(peerOwner, canContinue)) === 'stopped' || !canContinue())
+        return;
+    } while (!canPreloadSend(peerOwner));
     invalidatePeerPreloadResidency(conn);
     if (
       !safeSend(conn, {
@@ -1325,20 +1414,38 @@ export async function unicastPreload(
     )
       return;
 
-    for (let i = 0; i < total; i++) {
-      if (!canContinue()) return;
-      const bpStart = Date.now();
-      while (conn.open && conn.dataChannel && conn.dataChannel.bufferedAmount > 256 * 1024) {
-        if (!canContinue()) return;
-        if (Date.now() - bpStart > 30_000) {
-          log.warn('[Preload Unicast] Backpressure timeout');
-          return;
-        }
-        await delay(DELAY.BACKPRESSURE);
+    const waitForCapacity = async (): Promise<boolean> => {
+      while (canContinue()) {
+        if ((await waitForPreloadTurn(claimedOwner, canContinue)) === 'stopped') return false;
+        const channel = conn.dataChannel;
+        let priorityInterrupted = false;
+        const capacity = await waitForTransferCapacity(conn, 256 * 1024, 30_000, () => {
+          if (!canContinue()) return false;
+          if (canPreloadSend(claimedOwner)) return true;
+          priorityInterrupted = true;
+          return false;
+        });
+        if (!canContinue()) return false;
+        if (
+          capacity === 'stopped' &&
+          (!priorityInterrupted ||
+            conn.dataChannel !== channel ||
+            (channel?.readyState && channel.readyState !== 'open'))
+        )
+          return false;
+        if (priorityInterrupted || !canPreloadSend(claimedOwner)) continue;
+        if (capacity === 'timeout') log.warn('[Preload Unicast] Backpressure timeout');
+        return capacity === 'ready';
       }
-      if (!canContinue()) return;
+      return false;
+    };
+    for (let i = 0; i < total; i++) {
+      if (!(await waitForCapacity())) return;
       const start = i * CHUNK;
       const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
+      do {
+        if (!(await waitForCapacity())) return;
+      } while (!canPreloadSend(peerOwner));
       if (!canContinue()) return;
       if (
         !safeSend(conn, {
@@ -1644,10 +1751,8 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     0,
   );
 
-  setManagedTimer(
-    `preload-admission-watchdog-${sid}`,
-    () => abandonStalledPreloadSession(sid, 'admission watchdog'),
-    30_000,
+  armPreloadAdmissionWatchdog(sid, 30_000, () =>
+    abandonStalledPreloadSession(sid, 'admission watchdog'),
   );
 
   // Watchdog: unconditionally clear preload loader after 30s
@@ -1715,10 +1820,8 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   } else if (nextChunkPtr > (session.progress || 0)) {
     clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
-    setManagedTimer(
-      `preload-admission-watchdog-${sessionId}`,
-      () => abandonStalledPreloadSession(sessionId, 'progress watchdog'),
-      15_000,
+    armPreloadAdmissionWatchdog(sessionId, 15_000, () =>
+      abandonStalledPreloadSession(sessionId, 'progress watchdog'),
     );
   }
 

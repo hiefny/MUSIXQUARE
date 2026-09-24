@@ -102,7 +102,7 @@ afterEach(async () => {
 
 describe('preload peer ownership', () => {
   it.each(['started', 'guard-pending'] as const)(
-    'keeps promoted current and future unicasts independent when the current lane is %s',
+    'keeps promoted current and future unicasts owned separately, sending current first when %s',
     async (currentLane) => {
       const target = connection('current-and-future', 1024 * 1024);
       const file = new File(['current'], 'current.mp3', { type: 'audio/mpeg' });
@@ -142,10 +142,19 @@ describe('preload peer ownership', () => {
         target.wire
           .filter((frame) => frame.type === MSG.PRELOAD_START)
           .map((frame) => frame.queueItemId),
-      ).toEqual(currentLane === 'started' ? [NEXT, FUTURE] : [FUTURE, NEXT]);
+      ).toEqual([NEXT]);
       target.channel.bufferedAmount = 0;
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(100);
       await Promise.all([currentSend, futureSend]);
+      expect(
+        target.wire.findIndex(
+          (frame) => frame.type === MSG.PRELOAD_END && frame.queueItemId === NEXT,
+        ),
+      ).toBeLessThan(
+        target.wire.findIndex(
+          (frame) => frame.type === MSG.PRELOAD_START && frame.queueItemId === FUTURE,
+        ),
+      );
       for (const queueItemId of [NEXT, FUTURE]) {
         expect(
           target.wire.filter(

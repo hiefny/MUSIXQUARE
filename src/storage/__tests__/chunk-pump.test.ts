@@ -526,6 +526,215 @@ describe('pumpChunksToPeers — failure and completion', () => {
   });
 });
 
+describe('pumpChunksToPeers — per-peer priority gates', () => {
+  it.each(['before-read', 'after-read'] as const)(
+    'parks priority claimed during the %s capacity wait without spending the stall budget',
+    async (phase) => {
+      const { file, slice } = makeFile([1, 2]);
+      const gate = deferred<'ready' | 'stopped'>();
+      const conn = makeConn('peer', phase === 'before-read' ? 2048 : 0);
+      const onPeerComplete = vi.fn();
+      const onPeerExcluded = vi.fn();
+      let foreground = false;
+      if (phase === 'after-read') {
+        slice.mockImplementationOnce(() => ({
+          arrayBuffer: async () => {
+            conn.dataChannel.bufferedAmount = 2048;
+            return Uint8Array.from([1, 2]).buffer;
+          },
+        }));
+      }
+      const beforeChunk = vi.fn(async () => (foreground ? gate.promise : 'ready'));
+      const pending = pumpChunksToPeers({
+        ...baseOpts,
+        file,
+        peers: [makePeer('peer', conn)],
+        beforeChunk,
+        isPeerReady: () => !foreground,
+        onPeerComplete,
+        onPeerExcluded,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(slice).toHaveBeenCalledTimes(phase === 'before-read' ? 0 : 1);
+      foreground = true;
+      await vi.advanceTimersByTimeAsync(DELAY.BACKPRESSURE);
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(baseOpts.stallTimeoutMs * 3);
+      expect(onPeerExcluded).not.toHaveBeenCalled();
+      expect(onPeerComplete).not.toHaveBeenCalled();
+      expect(conn.send).not.toHaveBeenCalled();
+      conn.dataChannel.bufferedAmount = 0;
+      foreground = false;
+      gate.resolve('ready');
+      await vi.runAllTimersAsync();
+      expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
+      expect(slice).toHaveBeenCalledOnce();
+      expect(conn.send).toHaveBeenCalledOnce();
+      expect(onPeerComplete).toHaveBeenCalledOnce();
+      expect(onPeerExcluded).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('rechecks priority when foreground starts after the capacity event resolved the wait', async () => {
+    const { file, slice } = makeFile([1, 2]);
+    const gate = deferred<'ready' | 'stopped'>();
+    const conn = makeConn('peer');
+    const channel = Object.assign(new EventTarget(), {
+      bufferedAmount: 0,
+      readyState: 'open',
+      bufferedAmountLowThreshold: 0,
+    });
+    conn.dataChannel = channel;
+    slice.mockImplementationOnce(() => ({
+      arrayBuffer: async () => {
+        channel.bufferedAmount = 2048;
+        return Uint8Array.from([1, 2]).buffer;
+      },
+    }));
+    let foreground = false;
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('peer', conn)],
+      beforeChunk: async () => (foreground ? gate.promise : 'ready'),
+      isPeerReady: () => !foreground,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    channel.addEventListener('bufferedamountlow', () => {
+      foreground = true;
+    });
+    channel.bufferedAmount = 0;
+    channel.dispatchEvent(new Event('bufferedamountlow'));
+    await vi.advanceTimersByTimeAsync(baseOpts.stallTimeoutMs * 2);
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(slice).toHaveBeenCalledOnce();
+    foreground = false;
+    gate.resolve('ready');
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
+    expect(conn.send).toHaveBeenCalledOnce();
+  });
+
+  it('lets a parked gate observe a sibling read failure so all peer loops settle', async () => {
+    const { file, slice } = makeFile([1, 2]);
+    const read = deferred<ArrayBuffer>();
+    slice.mockImplementationOnce(() => ({ arrayBuffer: () => read.promise }));
+    const reading = makeConn('reading');
+    const parked = makeConn('parked');
+    const onPeerComplete = vi.fn();
+    const onPeerExcluded = vi.fn();
+    const beforeChunk = vi.fn(async (peer: ConnectedPeer, canContinue: () => boolean) => {
+      if (peer.id !== 'parked') return 'ready' as const;
+      while (canContinue()) {
+        await new Promise((resolve) => setTimeout(resolve, DELAY.BACKPRESSURE));
+      }
+      return 'stopped' as const;
+    });
+    const failure = new Error('source read failed');
+    const outcome = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('reading', reading), makePeer('parked', parked)],
+      beforeChunk,
+      onPeerComplete,
+      onPeerExcluded,
+    }).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slice).toHaveBeenCalledOnce();
+    read.reject(failure);
+    await vi.advanceTimersByTimeAsync(DELAY.BACKPRESSURE);
+    expect(await outcome).toBe(failure);
+    expect(reading.send).not.toHaveBeenCalled();
+    expect(parked.send).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+    expect(onPeerExcluded).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('lets another peer finish while one peer waits before its first read', async () => {
+    const { file, slice } = makeFile([1, 2]);
+    const gate = deferred<'ready' | 'stopped'>();
+    const waiting = makeConn('waiting');
+    const healthy = makeConn('healthy');
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('waiting', waiting), makePeer('healthy', healthy)],
+      beforeChunk: (peer) => (peer.id === 'waiting' ? gate.promise : Promise.resolve('ready')),
+      onPeerComplete,
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(slice).toHaveBeenCalledTimes(1);
+    expect(waiting.send).not.toHaveBeenCalled();
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy']);
+    gate.resolve('ready');
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(waiting.send).toHaveBeenCalledOnce();
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy', 'waiting']);
+  });
+
+  it('ends only the peer whose gate stops without reporting it completed or excluded', async () => {
+    const { file } = makeFile([1, 2]);
+    const onPeerComplete = vi.fn();
+    const onPeerExcluded = vi.fn();
+    const stopped = makeConn('stopped');
+    const healthy = makeConn('healthy');
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('stopped', stopped), makePeer('healthy', healthy)],
+      beforeChunk: async (peer) => (peer.id === 'stopped' ? 'stopped' : 'ready'),
+      onPeerComplete,
+      onPeerExcluded,
+    });
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
+    expect(stopped.send).not.toHaveBeenCalled();
+    expect(onPeerExcluded).not.toHaveBeenCalled();
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy']);
+  });
+
+  it('checks priority after an async read, then rechecks capacity filled while that gate waited', async () => {
+    const { file, slice } = makeFile([1, 2]);
+    const read = deferred<ArrayBuffer>();
+    const gate = deferred<'ready' | 'stopped'>();
+    slice.mockImplementationOnce(() => ({ arrayBuffer: () => read.promise }));
+    const conn = makeConn('peer');
+    const channel = Object.assign(new EventTarget(), {
+      bufferedAmount: 0,
+      readyState: 'open',
+      bufferedAmountLowThreshold: 0,
+    });
+    conn.dataChannel = channel;
+    const beforeChunk = vi.fn().mockResolvedValueOnce('ready').mockReturnValueOnce(gate.promise);
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('peer', conn)],
+      beforeChunk,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slice).toHaveBeenCalledOnce();
+    read.resolve(Uint8Array.from([1, 2]).buffer);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(beforeChunk).toHaveBeenCalledTimes(2);
+    expect(conn.send).not.toHaveBeenCalled();
+    channel.bufferedAmount = 2048;
+    gate.resolve('ready');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(conn.send).not.toHaveBeenCalled();
+    channel.bufferedAmount = 0;
+    channel.dispatchEvent(new Event('bufferedamountlow'));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
+    expect(conn.send).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe('chunk-pump — state-free contract', () => {
   it('never imports setState; all state writes stay in wrappers', async () => {
     const source = (await import('../chunk-pump.ts?raw')).default as string;

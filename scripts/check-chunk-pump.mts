@@ -12,10 +12,8 @@
  *
  *   CHECK 1 (ratchet): `bufferedAmount` — the telltale of an inline
  *     backpressure pump — may appear only in allowlisted files, each with an
- *     EXACT max occurrence count. Exact counts matter: the two allowlisted
- *     wrapper files (which keep their single-peer unicast pumps) are
- *     precisely the files most at risk of regrowing an inline BROADCAST
- *     pump, so a file-level pass would defeat the guard.
+ *     EXACT max occurrence count. Broadcast and unicast share the same
+ *     event-driven capacity helper; no wrapper owns an inline polling loop.
  *
  *   CHECK 2 (pairing): both broadcast wrappers must still import
  *     pumpChunksToPeers from './chunk-pump.ts', so deleting the shared-engine
@@ -46,23 +44,10 @@ interface BufferedAmountAllowance {
 
 const BUFFERED_AMOUNT_ALLOWLIST = new Map<string, BufferedAmountAllowance>([
   [
-    'src/storage/chunk-pump.ts',
-    { max: 1, reason: 'THE shared multi-peer pump engine — the only sanctioned broadcast loop' },
-  ],
-  [
-    'src/storage/transfer-send.ts',
+    'src/storage/transfer-backpressure.ts',
     {
-      max: 1,
-      reason:
-        'unicastFile single-peer degenerate pump — intentional divergence (FILE_RESUME / return-on-timeout semantics)',
-    },
-  ],
-  [
-    'src/storage/preload.ts',
-    {
-      max: 1,
-      reason:
-        'unicastPreload single-peer degenerate pump — intentional divergence (_activePreloadUnicasts registry semantics)',
+      max: 2,
+      reason: 'Shared RTC capacity waiter: initial fast path and event/fallback recheck',
     },
   ],
 ]);
@@ -163,7 +148,7 @@ console.log(
 console.log('');
 
 if (!findings.length) {
-  console.log('OK — single shared pump engine; unicast degenerates within ratchet limits.');
+  console.log('OK — single shared pump engine and capacity helper.');
   process.exit(0);
 }
 

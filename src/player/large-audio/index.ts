@@ -15,6 +15,7 @@ import { readMp3GaplessTrim } from './mp3-gapless.ts';
 import { registerIncrementalAudioDecoders } from './wasm-decoders.ts';
 import { IncrementalAacDecoder } from './aac-decoder.ts';
 import { readAacContainerTiming } from './aac-container-timing.ts';
+import { guardPcmChunkBoundaries } from './pcm-chunk-guards.ts';
 
 const ENCODED_READ_CACHE_BYTES = 2 * 1024 * 1024;
 const COMPRESSED_SEEK_PREROLL_SECONDS = 0.5;
@@ -147,8 +148,12 @@ export async function openLargeAudioTrack(
         yield { buffer: chunk.buffer, timestamp: chunk.timestamp - origin };
       }
     };
-    return new BoundedAudioTrack(duration, sampleRate, numberOfChannels, openReader, () =>
-      input.dispose(),
+    return new BoundedAudioTrack(
+      duration,
+      sampleRate,
+      numberOfChannels,
+      (position) => guardPcmChunkBoundaries(openReader(position)),
+      () => input.dispose(),
     );
   } catch (error) {
     input.dispose();

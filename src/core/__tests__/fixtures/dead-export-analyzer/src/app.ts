@@ -16,3 +16,13 @@ import('./lazy.ts').catch((error) => {
   console.error('[DeadExportFixture] Lazy module failed to load', error);
 });
 new Worker(new URL('./worker.ts', import.meta.url));
+
+async function acquire<T>(start: () => Promise<T>): Promise<T> {
+  return start();
+}
+const { wrappedLoaded, aliasWrappedLoaded: loadedAlias } = await acquire(() => import('./lazy.ts'));
+void wrappedLoaded();
+void loadedAlias();
+void import('./lazy.ts').then(({ callbackLoaded }) => callbackLoaded());
+const { shadowedLazy } = { shadowedLazy: () => 7 };
+void shadowedLazy();

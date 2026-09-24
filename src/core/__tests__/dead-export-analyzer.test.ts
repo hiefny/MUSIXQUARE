@@ -89,6 +89,22 @@ describe('Binding-aware dead-export analyzer', () => {
     expect(result.live.some((binding) => binding.name === 'usedByMts')).toBe(true);
   });
 
+  it('resolves a generic-wrapped namespace destructure without crediting unrelated same-name objects', () => {
+    const result = analyzeFixture();
+    expect(result.live.some((binding) => hasSite(binding, 'src/lazy.ts', 'wrappedLoaded'))).toBe(
+      true,
+    );
+    expect(
+      result.live.some((binding) => hasSite(binding, 'src/lazy.ts', 'aliasWrappedLoaded')),
+    ).toBe(true);
+    expect(result.live.some((binding) => hasSite(binding, 'src/lazy.ts', 'callbackLoaded'))).toBe(
+      true,
+    );
+    expect(
+      result.fullyDead.some((binding) => hasSite(binding, 'src/lazy.ts', 'shadowedLazy')),
+    ).toBe(true);
+  });
+
   it('resolves namespace imports and coalesces re-export sites by declaration binding', () => {
     const result = analyzeFixture();
     const namespaced = result.live.find((binding) => binding.name === 'namespaced');
@@ -115,6 +131,7 @@ describe('Binding-aware dead-export analyzer', () => {
     expect(fixtureAnalysisJson.trim()).toBe(JSON.stringify(result));
     expect(result.fullyDead.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
       'value:collision',
+      'value:shadowedLazy',
     ]);
     expect(result.testOnly.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
       'value:collision',
@@ -124,6 +141,9 @@ describe('Binding-aware dead-export analyzer', () => {
     expect(result.live.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
       'value:used',
       'value:usedByMts',
+      'value:aliasWrappedLoaded',
+      'value:callbackLoaded',
+      'value:wrappedLoaded',
       'value:namespaced',
       'value:reexported',
       'value:overloaded',

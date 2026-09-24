@@ -19,6 +19,7 @@ import { getTransferMemoryStats } from '../storage/transfer-receive.ts';
 import { ramStats } from '../storage/ramstore.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { isLargeAudioTrack } from '../player/file-playback-resource.ts';
+import { getLargeAudioDiagnostics } from '../player/large-audio/diagnostics.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { getCapturedLogs } from '../core/log-capture.ts';
 import { log } from '../core/log.ts';
@@ -803,6 +804,20 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
     // number of distinct tracks loaded.
     const bufStats = liveAudioBufferCount();
     lines.push(`        live AudioBuffers:${bufStats.live} (everSeen:${bufStats.everSeen})`);
+    const largeAudio = getLargeAudioDiagnostics();
+    if (largeAudio.resources.tracks.opened > 0) {
+      lines.push('[LargeAudio] page-lifetime resources: live / peak / opened / closed');
+      for (const [kind, counters] of Object.entries(largeAudio.resources)) {
+        lines.push(
+          `        ${kind}: ${counters.live} / ${counters.peak} / ${counters.opened} / ${counters.closed}`,
+        );
+      }
+      const output = largeAudio.output;
+      lines.push(
+        `        supply gaps:${output.supplyGaps} max:${output.longestSupplyGapMs.toFixed(0)}ms | reader restarts:${output.readerRestarts} | max read:${output.longestReadMs.toFixed(0)}ms`,
+        `        peak single-playback PCM:${(output.peakPlaybackPcmBytes / 1048576).toFixed(1)}MiB (excludes encoded bytes, parser, decoder lookahead and WASM memory)`,
+      );
+    }
   } catch {
     /* ignore */
   }

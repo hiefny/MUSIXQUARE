@@ -1,5 +1,5 @@
 /** A decoder could not be acquired or started; this says nothing about the file. */
-export class AudioDecoderStartupError extends Error {
+class AudioDecoderStartupError extends Error {
   constructor(cause: unknown) {
     super('Audio decoder startup failed', { cause });
     this.name = 'AudioDecoderStartupError';

@@ -114,9 +114,14 @@ for (const fixture of fixtures.filter((name) => name !== 'lc-leading-edit.m4a'))
             context.createBufferSource = () => {
               const source = createSource();
               const start = source.start.bind(source);
+              const stop = source.stop.bind(source);
               source.start = (when = 0, at = 0, seconds?: number) => {
                 scheduledEnd = Math.max(scheduledEnd, when + (seconds ?? 0));
                 start(when, at, seconds);
+              };
+              source.stop = (when?: number) => {
+                if (when !== undefined) scheduledEnd = Math.max(scheduledEnd, when);
+                stop(when);
               };
               return source;
             };

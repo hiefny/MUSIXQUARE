@@ -13,6 +13,7 @@ import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getPlayLockSnapshot, peekTrackPosition } from '../player/transport.ts';
 import { getCurrentAudioBuffer, getPlayerNode } from '../player/_state.ts';
+import { getLargeAudioDiagnostics } from '../player/large-audio/diagnostics.ts';
 import {
   getProRoomServerClockDiagnostics,
   getProRoomServerNow,
@@ -82,6 +83,7 @@ interface SyncFlightRecorderSample {
   standardClock: ReturnType<typeof getSharedClockDiagnostics>;
   proClock: ReturnType<typeof getProRoomServerClockDiagnostics>;
   audio: AudioClockSample | null;
+  largeAudio: ReturnType<typeof getLargeAudioDiagnostics>;
 }
 
 interface StandardPongObservation {
@@ -308,6 +310,7 @@ export function captureSyncFlightRecorderSampleForTests(): void {
     standardClock: getSharedClockDiagnostics(nowMs),
     proClock: getProRoomServerClockDiagnostics(),
     audio,
+    largeAudio: getLargeAudioDiagnostics(),
   });
   previousSampleAt = nowMs;
   previousMonotonicAt = monoNow;

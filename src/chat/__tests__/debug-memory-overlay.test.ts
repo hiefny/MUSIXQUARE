@@ -19,7 +19,7 @@ const timerMocks = vi.hoisted(() => {
 const uiMocks = vi.hoisted(() => ({
   addSystemChatMessage: vi.fn(),
   showToast: vi.fn(),
-  clipboardWriteText: vi.fn(async () => undefined),
+  clipboardWriteText: vi.fn<(text: string) => Promise<void>>(async () => undefined),
 }));
 
 vi.mock('../../core/timers.ts', () => ({
@@ -37,6 +37,13 @@ vi.mock('../../ui/toast.ts', () => ({
 
 import { resetState } from '../../core/state.ts';
 import { cmdDebug } from '../debug-console.ts';
+import {
+  beginLargeAudioResource,
+  getLargeAudioDiagnostics,
+  recordLargeAudioPcm,
+  recordLargeAudioRead,
+  recordLargeAudioSupplyGap,
+} from '../../player/large-audio/diagnostics.ts';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -201,5 +208,59 @@ describe('/debug memory live overlay', () => {
       expect.any(Number),
       expect.any(Number),
     );
+  });
+
+  it('shows local large-audio counters and refreshes live counts without recopying historical values', async () => {
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: { estimate: vi.fn(async () => storageEstimate(1)) },
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext());
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const save = vi.spyOn(Storage.prototype, 'setItem');
+    const before = getLargeAudioDiagnostics();
+    const release = beginLargeAudioResource('tracks');
+    recordLargeAudioSupplyGap(0.125, true);
+    recordLargeAudioRead(45);
+    recordLargeAudioPcm(2 * 1_048_576);
+    const initial = getLargeAudioDiagnostics();
+    const trackLine = (counts: typeof initial.resources.tracks) =>
+      `tracks: ${counts.live} / ${counts.peak} / ${counts.opened} / ${counts.closed}`;
+    try {
+      cmdDebug(['memory']);
+      await vi.waitFor(() => {
+        expect(document.querySelector('.debug-memory-content')?.textContent).toContain(
+          trackLine(initial.resources.tracks),
+        );
+        expect(uiMocks.clipboardWriteText).toHaveBeenCalledOnce();
+      });
+      const initialText = String(uiMocks.clipboardWriteText.mock.calls[0][0]);
+      expect(initialText).toContain(
+        '[LargeAudio] page-lifetime resources: live / peak / opened / closed',
+      );
+      expect(initialText).toContain(`supply gaps:${initial.output.supplyGaps}`);
+      expect(initialText).toContain('peak single-playback PCM:2.0MiB');
+      expect(initialText).toContain(
+        'excludes encoded bytes, parser, decoder lookahead and WASM memory',
+      );
+      release();
+      const final = getLargeAudioDiagnostics();
+      expect(final.resources.tracks.live).toBe(before.resources.tracks.live);
+      const poll = timerMocks.callbacks.get('debug-memory-poll');
+      expect(poll).toBeTypeOf('function');
+      poll?.();
+      await vi.waitFor(() =>
+        expect(document.querySelector('.debug-memory-content')?.textContent).toContain(
+          trackLine(final.resources.tracks),
+        ),
+      );
+      expect(uiMocks.clipboardWriteText).toHaveBeenCalledOnce();
+      expect(uiMocks.clipboardWriteText.mock.calls[0][0]).toBe(initialText);
+      expect(initialText).toContain(trackLine(initial.resources.tracks));
+      expect(fetch).not.toHaveBeenCalled();
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
   });
 });

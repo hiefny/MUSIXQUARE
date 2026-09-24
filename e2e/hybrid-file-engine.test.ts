@@ -105,8 +105,8 @@ async function selectTrack(page: Page, index: number): Promise<void> {
 }
 
 for (const container of ['mp3', 'm4a', 'aac'] as const) {
-  for (const mixed of [false, true]) {
-    test(`hybrid ${container}: small → large → small with ${mixed ? 'mixed' : 'bounded'} host/guest engines`, async ({
+  for (const nativeParticipant of [null, 'host', 'guest'] as const) {
+    test(`hybrid ${container}: small → large → small with ${nativeParticipant ? `native ${nativeParticipant}` : 'bounded host and guest'}`, async ({
       browser,
     }) => {
       test.setTimeout(120_000);
@@ -121,15 +121,16 @@ for (const container of ['mp3', 'm4a', 'aac'] as const) {
       try {
         // The admission probe conservatively reserves eight channels for ADTS
         // (whose later frames can change layout), and two for the other fixtures.
-        // Both produce ~275 MiB estimates: a constrained guest selects bounded
-        // PCM, while an 8 GiB host stays native.
+        // Both produce ~275 MiB estimates: each constrained participant selects
+        // bounded PCM, while an 8 GiB participant stays native. Exercise both
+        // directions because a bounded host must publish the same timeline too.
         const duration = container === 'aac' ? 150 : 600;
         const mimeType =
           container === 'mp3' ? 'audio/mpeg' : container === 'm4a' ? 'audio/mp4' : 'audio/aac';
         const small = await audioFile(container, 30);
         const large = await audioFile(container, duration);
-        await observeEngine(pair.hostPage, mixed ? 8 : 2);
-        await observeEngine(pair.guestPage, 2);
+        await observeEngine(pair.hostPage, nativeParticipant === 'host' ? 8 : 2);
+        await observeEngine(pair.guestPage, nativeParticipant === 'guest' ? 8 : 2);
         await connectHostAndGuest(pair.hostPage, pair.guestPage);
         await pair.hostPage.locator('#file-input').setInputFiles([
           { name: `small-before.${container}`, mimeType, buffer: small },
@@ -156,20 +157,27 @@ for (const container of ['mp3', 'm4a', 'aac'] as const) {
             await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 40_000);
           }),
         );
-        await expect
-          .poll(async () => (await readProbe(pair.guestPage)).chunkStarts)
-          .toBeGreaterThan(10);
+        for (const [name, page, before] of [
+          ['host', pair.hostPage, hostBefore],
+          ['guest', pair.guestPage, guestBefore],
+        ] as const) {
+          if (nativeParticipant === name) {
+            await expect
+              .poll(async () => (await readProbe(page)).nativeDecodes)
+              .toBe(before.nativeDecodes + 1);
+          } else {
+            await expect
+              .poll(async () => (await readProbe(page)).chunkStarts)
+              .toBeGreaterThan(before.chunkStarts + 10);
+            expect((await readProbe(page)).nativeDecodes).toBe(before.nativeDecodes);
+          }
+        }
         const guestLarge = await readProbe(pair.guestPage);
         const hostLarge = await readProbe(pair.hostPage);
-        expect(guestLarge.nativeDecodes).toBe(guestBefore.nativeDecodes);
-        if (mixed) expect(hostLarge.nativeDecodes).toBe(hostBefore.nativeDecodes + 1);
-        else {
-          expect(hostLarge.nativeDecodes).toBe(hostBefore.nativeDecodes);
-          expect(hostLarge.chunkStarts).toBeGreaterThan(0);
-        }
 
         // Drive the real seekbar event path while a decoder may still be warming.
-        // The last edit must win on both engine combinations.
+        // The last edit must win on every engine combination.
+        const seekStartedAt = Date.now();
         await pair.hostPage.locator('#seek-slider').evaluate((element, seconds) => {
           const slider = element as HTMLInputElement;
           for (const position of [seconds - 2, seconds * 0.2, seconds * 0.75]) {
@@ -178,20 +186,33 @@ for (const container of ['mp3', 'm4a', 'aac'] as const) {
             slider.dispatchEvent(new Event('change', { bubbles: true }));
           }
         }, duration);
-        for (const page of [pair.hostPage, pair.guestPage]) {
-          await expect
-            .poll(
-              async () => {
-                const position = Number(await page.locator('#seek-slider').inputValue());
-                return position >= duration * 0.75 - 0.1 && position < duration * 0.75 + 30;
-              },
-              {
-                timeout: 30_000,
-              },
-            )
-            .toBe(true);
-          await waitForPlaybackProjection(page, 'PLAYING_AUDIO');
-        }
+        await Promise.all(
+          [pair.hostPage, pair.guestPage].map((page) =>
+            waitForPlaybackProjection(page, 'PLAYING_AUDIO'),
+          ),
+        );
+        await expect
+          .poll(
+            async () => {
+              // Read concurrently so protocol/UI convergence is measured at
+              // approximately the same instant. This checks the room timeline,
+              // not acoustic latency or sample-accurate device synchronization.
+              const positions = await Promise.all(
+                [pair.hostPage, pair.guestPage].map(async (page) =>
+                  Number(await page.locator('#seek-slider').inputValue()),
+                ),
+              );
+              const elapsed = (Date.now() - seekStartedAt) / 1000;
+              const target = duration * 0.75;
+              return (
+                positions.every(
+                  (position) => position >= target - 0.1 && position <= target + elapsed + 1,
+                ) && Math.abs(positions[0]! - positions[1]!) < 1
+              );
+            },
+            { timeout: 30_000 },
+          )
+          .toBe(true);
 
         await selectTrack(pair.hostPage, 2);
         await Promise.all(

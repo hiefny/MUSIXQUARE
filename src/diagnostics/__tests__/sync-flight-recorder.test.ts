@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import {
+  beginLargeAudioResource,
+  getLargeAudioDiagnostics,
+  recordLargeAudioRead,
+  recordLargeAudioSupplyGap,
+} from '../../player/large-audio/diagnostics.ts';
 
 const mocks = vi.hoisted(() => ({
   audioReady: false,
@@ -115,6 +121,7 @@ afterEach(() => {
   resetSyncFlightRecorderForTests();
   clearAllManagedTimers();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('sync flight recorder', () => {
@@ -231,5 +238,42 @@ describe('sync flight recorder', () => {
 
     expect(sampleCount(collectSyncFlightRecorderText())).toBe(1_200);
     expect(mocks.getAudioContext).not.toHaveBeenCalled();
+  });
+
+  it('retains detached numeric large-audio snapshots locally across resource release', () => {
+    startStandardGuest();
+    const before = getLargeAudioDiagnostics();
+    const release = beginLargeAudioResource('tracks');
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const save = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      recordLargeAudioSupplyGap(0.125, true);
+      recordLargeAudioRead(45);
+      captureSyncFlightRecorderSampleForTests();
+      const observed = getLargeAudioDiagnostics();
+      release();
+      recordLargeAudioSupplyGap(0.5, true);
+      captureSyncFlightRecorderSampleForTests();
+      const text = collectSyncFlightRecorderText();
+      const lines = text
+        .trim()
+        .split('\n')
+        .slice(-2)
+        .map((line) => JSON.parse(line));
+      expect(lines[0].largeAudio).toEqual(observed);
+      expect(lines[1].largeAudio).toEqual(getLargeAudioDiagnostics());
+      expect(lines[0].largeAudio.resources.tracks.live).toBe(before.resources.tracks.live + 1);
+      expect(lines[1].largeAudio.resources.tracks.live).toBe(before.resources.tracks.live);
+      expect(lines[0].largeAudio.output.supplyGaps).toBe(before.output.supplyGaps + 1);
+      expect(lines[1].largeAudio.output.supplyGaps).toBe(before.output.supplyGaps + 2);
+      expect(text).not.toContain(RAW_QUEUE_ID);
+      const groups = [...Object.values(observed.resources), observed.output];
+      expect(groups.every((group) => Object.values(group).every(Number.isFinite))).toBe(true);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(save).not.toHaveBeenCalled();
+      expect(mocks.getAudioContext).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
   });
 });

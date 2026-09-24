@@ -36,14 +36,12 @@ describe('Dead-export ratchet', () => {
       const summary = output.split(/\r?\n/u).find((line) => line.includes('fully-dead:'));
       expect(summary).toBeDefined();
       expect(summary).toContain('fully-dead: 0 ');
-      expect(summary).toContain('test-only: 22 ');
-      // The former count of 79 was accidental: the retired UI-kit inline
-      // script declared a local React setter named `setTheme`, and the HTML
-      // fallback conservatively credited that text to the unrelated exported
-      // settings binding. With executable inline JavaScript removed, the
-      // binding is classified honestly as self-only again.
-      expect(summary).toContain('baseline 22), self-only: 80 ');
-      expect(summary).toMatch(/self-only: 80 .*baseline 80\)$/u);
+      expect(summary).toContain('test-only: 21 ');
+      // Typed namespace destructuring now resolves actual imports through
+      // async wrappers and Promise callbacks; private decoder error branding
+      // no longer exposes a class used externally only by test fixtures.
+      expect(summary).toContain('baseline 21), self-only: 79 ');
+      expect(summary).toMatch(/self-only: 79 .*baseline 79\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

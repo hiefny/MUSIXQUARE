@@ -19,7 +19,7 @@ import {
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
-import { AudioDecoderStartupError } from '../large-audio/startup-error.ts';
+import { withAudioDecoderStartup } from '../large-audio/startup-error.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -1228,9 +1228,10 @@ describe('per-track native and bounded decode selection', () => {
       setCurrentIndex(0);
       const firstTrack = makeLargeAudioTrack();
       const recoveredTrack = makeLargeAudioTrack();
-      const startupFailure = new Error('media preparation failed', {
-        cause: new AudioDecoderStartupError(new TypeError('module download interrupted')),
-      });
+      const startupCause = await withAudioDecoderStartup(async () => {
+        throw new TypeError('module download interrupted');
+      }).catch((error: unknown) => error);
+      const startupFailure = new Error('media preparation failed', { cause: startupCause });
       if (phase === 'opening') {
         mocks.openLargeAudioTrack.mockRejectedValueOnce(startupFailure);
       } else {

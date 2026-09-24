@@ -21,6 +21,7 @@ import { createPlaylistSnapshot } from '../queue-model.ts';
 import { initPlaylist, playTrack, toggleRepeat, toggleShuffle } from '../playlist.ts';
 import { stopAllMedia, stopPlayback } from '../transport.ts';
 import {
+  cancelPreloadTransfer,
   initPreload,
   resetPreloadReceiveAuthority,
   schedulePreload,
@@ -70,8 +71,12 @@ beforeEach(() => {
   setState('player.isFirstTrackLoad', false);
 });
 
-afterEach(() => {
+afterEach(async () => {
   stopAllMedia({ cancelInFlight: true, clearBuffer: true });
+  cancelPreloadTransfer();
+  // Let parked sender lanes observe cancellation before discarding fake timers.
+  await vi.advanceTimersByTimeAsync(100);
+  resetPreloadReceiveAuthority();
   resetAllStoredFiles();
   resetClockState();
   clearAllManagedTimers();
@@ -326,7 +331,7 @@ describe('queue mode changes during current preload activation', () => {
             finishRead = resolve;
           }),
       );
-      let finishFutureRead!: (bytes: ArrayBuffer) => void;
+      let finishFutureRead: ((bytes: ArrayBuffer) => void) | undefined;
       if (futureState === 'receiving') {
         const futureChunk = nextFile.slice();
         vi.spyOn(nextFile, 'slice').mockReturnValueOnce(futureChunk);
@@ -338,35 +343,51 @@ describe('queue mode changes during current preload activation', () => {
         );
       }
       const sending = unicastPreload(peer, file, item.queueItemId, resident.sessionId);
-      await vi.waitFor(() => expect(finishRead).toBeTypeOf('function'));
-      native.decode.mockResolvedValueOnce(decodedBuffer());
-      await playTrack(item.queueItemId);
-      await vi.advanceTimersByTimeAsync(600);
-      expect(frames).toContainEqual(
-        expect.objectContaining({ type: MSG.PRELOAD_START, queueItemId: next.queueItemId }),
-      );
-      finishRead(await file.arrayBuffer());
-      await sending;
-      const selectedEnd = frames.findIndex(
-        (frame) => frame.type === MSG.PRELOAD_END && frame.queueItemId === item.queueItemId,
-      );
-      expect(selectedEnd).toBeGreaterThan(
-        frames.findIndex(
-          (frame) => frame.type === MSG.PRELOAD_START && frame.queueItemId === next.queueItemId,
-        ),
-      );
-      if (futureState === 'receiving') {
-        expect(
-          frames.some(
-            (frame) => frame.type === MSG.PRELOAD_END && frame.queueItemId === next.queueItemId,
+      try {
+        await vi.waitFor(() => expect(finishRead).toBeTypeOf('function'));
+        native.decode.mockResolvedValueOnce(decodedBuffer());
+        await playTrack(item.queueItemId);
+        await vi.advanceTimersByTimeAsync(600);
+        // The promoted current file owns this receiver's bulk lane. Its future
+        // preload must not announce START or consume bandwidth before B ends.
+        expect(frames).not.toContainEqual(
+          expect.objectContaining({ type: MSG.PRELOAD_START, queueItemId: next.queueItemId }),
+        );
+        finishRead(await file.arrayBuffer());
+        await sending;
+        await vi.waitFor(() =>
+          expect(frames).toContainEqual(
+            expect.objectContaining({ type: MSG.PRELOAD_START, queueItemId: next.queueItemId }),
           ),
-        ).toBe(false);
-        finishFutureRead(await nextFile.arrayBuffer());
+        );
+        const selectedEnd = frames.findIndex(
+          (frame) => frame.type === MSG.PRELOAD_END && frame.queueItemId === item.queueItemId,
+        );
+        expect(selectedEnd).toBeGreaterThanOrEqual(0);
+        expect(selectedEnd).toBeLessThan(
+          frames.findIndex(
+            (frame) => frame.type === MSG.PRELOAD_START && frame.queueItemId === next.queueItemId,
+          ),
+        );
+        if (futureState === 'receiving') {
+          expect(
+            frames.some(
+              (frame) => frame.type === MSG.PRELOAD_END && frame.queueItemId === next.queueItemId,
+            ),
+          ).toBe(false);
+          finishFutureRead!(await nextFile.arrayBuffer());
+        }
         await vi.waitFor(() =>
           expect(frames).toContainEqual(
             expect.objectContaining({ type: MSG.PRELOAD_END, queueItemId: next.queueItemId }),
           ),
         );
+      } finally {
+        // A failed ordering assertion must not leave a native Blob read parked
+        // across the remaining cases or their module-owned preload serializer.
+        finishRead?.(await file.arrayBuffer());
+        finishFutureRead?.(await nextFile.arrayBuffer());
+        await sending;
       }
       const emitted = frames.slice();
       stopPlayback();

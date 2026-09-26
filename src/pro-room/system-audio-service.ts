@@ -847,6 +847,32 @@ function notifySubscriberFailure(
   bus.emit('ui:show-toast', t('system_audio.connection_unstable', { name }));
 }
 
+function retryCoordinatorSubscription(identity: CoordinatorPublicationIdentity): void {
+  const state = controller?.getCurrentState();
+  if (
+    state?.status !== 'live' ||
+    !coordinatorPublicationMatches(identity, state) ||
+    state.ownerParticipantId === localParticipantId()
+  )
+    return;
+  cleanupCoordinatorSubscriptionForRetry();
+  setSystemAudioReceiving(false);
+  notifySubscriberFailure(state);
+  setManagedTimer(
+    SUBSCRIBER_RETRY_TIMER,
+    () => {
+      if (!coordinatorPublicationMatches(identity)) return;
+      const current = controller?.getCurrentState();
+      if (current?.status === 'live') {
+        void ensureCoordinatorSubscription(current, identity).catch((error) =>
+          log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error),
+        );
+      }
+    },
+    RECOVERY_DELAY_MS,
+  );
+}
+
 function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): void {
   const state = controller?.getCurrentState();
   if (
@@ -1767,7 +1793,13 @@ export function registerProSystemAudioServiceListeners(): void {
       const descriptorTrack = event.descriptor.track;
       if (!identity || !descriptorTrack) return;
       void attachCoordinatorTrack(identity, descriptorTrack, event.track, event.isCurrent).catch(
-        (error) => log.warn('[PRO SystemAudio] Track attach failed', error),
+        (error) => {
+          if (!event.isCurrent() || !coordinatorPublicationMatches(identity)) return;
+          log.warn('[PRO SystemAudio] Track attach failed', error);
+          // A received RTC track is emitted once per subscription. Retire the
+          // failed graph/transport so the existing retry can attach it again.
+          retryCoordinatorSubscription(identity);
+        },
       );
       return;
     }
@@ -1817,22 +1849,7 @@ export function registerProSystemAudioServiceListeners(): void {
       }
       const identity = captureCoordinatorPublicationIdentity(state);
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
-      cleanupCoordinatorSubscriptionForRetry();
-      setSystemAudioReceiving(false);
-      notifySubscriberFailure(state);
-      setManagedTimer(
-        SUBSCRIBER_RETRY_TIMER,
-        () => {
-          if (!coordinatorPublicationMatches(identity)) return;
-          const current = controller?.getCurrentState();
-          if (current?.status === 'live') {
-            void ensureCoordinatorSubscription(current, identity).catch((error) =>
-              log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error),
-            );
-          }
-        },
-        RECOVERY_DELAY_MS,
-      );
+      retryCoordinatorSubscription(identity);
       return;
     }
     if (event.type === 'publisher-state' && event.state === 'published') {

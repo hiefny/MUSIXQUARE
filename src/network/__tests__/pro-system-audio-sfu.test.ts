@@ -470,10 +470,18 @@ describe('PRO system-audio SFU subscriber', () => {
   });
 
   it('is idempotent for one generation and rejects stale or conflicting room state', async () => {
+    const trackEvents: proSfu.ProSystemAudioSfuEventForTests[] = [];
+    const unsubscribe = proSfu.onProSystemAudioSfuEvent((event) => {
+      if (event.type === 'subscriber-track') trackEvents.push(event);
+    });
     const current = publication(10);
     await proSfu.subscribeProSystemAudioSfu(current);
     await proSfu.subscribeProSystemAudioSfu(current);
     expect(realtimeRequests.filter((request) => request.action === 'new-session')).toHaveLength(1);
+    // An authoritative refresh of the same live route must not hand out its
+    // track again. A failed consumer therefore needs to retire the route
+    // before retrying, rather than expecting this idempotent call to recover it.
+    expect(trackEvents).toHaveLength(1);
 
     expect(() => proSfu.subscribeProSystemAudioSfu(publication(9))).toThrow(/Stale/);
     expect(() =>
@@ -483,6 +491,11 @@ describe('PRO system-audio SFU subscriber', () => {
       }),
     ).toThrow(/Conflicting/);
     expect(realtimeRequests.filter((request) => request.action === 'new-session')).toHaveLength(1);
+    proSfu.stopProSystemAudioSfuSubscriber();
+    await proSfu.subscribeProSystemAudioSfu(current);
+    expect(trackEvents).toHaveLength(2);
+    expect(realtimeRequests.filter((request) => request.action === 'new-session')).toHaveLength(2);
+    unsubscribe();
   });
 
   it('replaces an older subscription when the controller advances generation', async () => {

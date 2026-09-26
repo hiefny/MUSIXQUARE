@@ -1320,6 +1320,174 @@ describe('PRO room media-source capabilities', () => {
     expect(playButton.hasAttribute('aria-busy')).toBe(false);
   });
 
+  it.each(['standard-role', 'standard-capability', 'pro-capability'] as const)(
+    'retires a pending iOS YouTube Add after %s authority is revoked and restored',
+    async (authority) => {
+      document.body.innerHTML = `
+        <div id="youtube-url-overlay" class="active"></div>
+        <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>
+        <button id="youtube-play-btn"></button>
+      `;
+      setState('setup.sessionStarted', true);
+      setState('network.appRole', 'guest');
+      if (authority === 'pro-capability') {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: ['media.add'],
+        });
+      } else {
+        setState('network.hostConn', makeConnection('host-1'));
+        setState('network.isOperator', true);
+        if (authority === 'standard-capability')
+          setState('network.standardRoomCapabilities', ['media.add']);
+      }
+      let resolvePrime!: (value: boolean) => void;
+      youtubePrimer.prime.mockReturnValueOnce(true);
+      youtubePrimer.wait.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          resolvePrime = resolve;
+        }),
+      );
+      const submit = vi.fn();
+      bus.on('youtube:load-from-input', submit);
+      initPlayerControls();
+      const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+      playButton.click();
+      expect(submit).not.toHaveBeenCalled();
+      expect(playButton.getAttribute('aria-busy')).toBe('true');
+
+      // The iframe's PLAYING proof is a real asynchronous boundary. Revoking
+      // media.add must retire the earlier gesture even if it is restored
+      // before that proof arrives; a subsequent click owns a fresh intent.
+      if (authority === 'pro-capability') {
+        const context = getState('room.context');
+        setState('room.context', { ...context, snapshotRevision: 2, capabilities: [] });
+        setState('room.context', { ...context, snapshotRevision: 3 });
+      } else if (authority === 'standard-capability') {
+        setState('network.standardRoomCapabilities', []);
+        setState('network.standardRoomCapabilities', ['media.add']);
+      } else {
+        setState('network.isOperator', false);
+        setState('network.isOperator', true);
+      }
+      resolvePrime(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(submit).not.toHaveBeenCalled();
+      expect(playButton.hasAttribute('aria-busy')).toBe(false);
+      expect(playButton.disabled).toBe(false);
+      playButton.click();
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['standard-connection', 'pro-room-epoch'] as const)(
+    'retires a pending YouTube Add when its %s lifetime changes',
+    async (lifetime) => {
+      document.body.innerHTML = `
+        <div id="youtube-url-overlay" class="active"></div>
+        <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>
+        <button id="youtube-play-btn"></button>
+      `;
+      setState('setup.sessionStarted', true);
+      setState('network.appRole', 'guest');
+      if (lifetime === 'pro-room-epoch') {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: ['media.add'],
+        });
+      } else {
+        setState('network.hostConn', makeConnection('host-1'));
+        setState('network.isOperator', true);
+      }
+      let resolvePrime!: (value: boolean) => void;
+      youtubePrimer.prime.mockReturnValueOnce(true);
+      youtubePrimer.wait.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          resolvePrime = resolve;
+        }),
+      );
+      const submit = vi.fn();
+      bus.on('youtube:load-from-input', submit);
+      initPlayerControls();
+      const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+      playButton.click();
+      expect(submit).not.toHaveBeenCalled();
+      if (lifetime === 'pro-room-epoch') {
+        setState('room.context', { ...getState('room.context'), epoch: 2, snapshotRevision: 2 });
+      } else {
+        // A replacement connection to the same coordinator still represents
+        // a distinct transport lifetime, with its own admitted commands.
+        setState('network.hostConn', makeConnection('host-1'));
+      }
+      resolvePrime(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(submit).not.toHaveBeenCalled();
+      expect(playButton.hasAttribute('aria-busy')).toBe(false);
+      expect(playButton.disabled).toBe(false);
+      playButton.click();
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('keeps a pending YouTube Add through a same-room authority refresh that retains media.add', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-overlay" class="active"></div>
+      <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>
+      <button id="youtube-play-btn"></button>
+    `;
+    setState('setup.sessionStarted', true);
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['media.add' as const],
+    };
+    setState('room.context', context);
+    let resolvePrime!: (value: boolean) => void;
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolvePrime = resolve;
+      }),
+    );
+    const submit = vi.fn();
+    bus.on('youtube:load-from-input', submit);
+    initPlayerControls();
+    const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    playButton.click();
+    setState('room.context', {
+      ...context,
+      snapshotRevision: 2,
+      capabilities: ['media.add', 'playback.control'],
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(playButton.disabled).toBe(true);
+    resolvePrime(true);
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(playButton.disabled).toBe(false);
+    expect(playButton.hasAttribute('aria-busy')).toBe(false);
+  });
+
   it('keeps an already-primed YouTube submit in the original click stack', () => {
     document.body.innerHTML = `
       <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>

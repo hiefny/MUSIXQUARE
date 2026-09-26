@@ -45,11 +45,15 @@ vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
 }));
 
-vi.mock('../../core/timers.ts', () => ({
-  setManagedTimer: vi.fn(),
-  clearManagedTimer: vi.fn(),
-  getManagedTimer: vi.fn(() => null),
-}));
+vi.mock('../../core/timers.ts', async (importOriginal) => {
+  const { delay } = await importOriginal<typeof import('../../core/timers.ts')>();
+  return {
+    setManagedTimer: vi.fn(),
+    clearManagedTimer: vi.fn(),
+    getManagedTimer: vi.fn(() => null),
+    delay,
+  };
+});
 
 vi.mock('../../core/capability.ts', () => ({
   fetchWithCapability: vi.fn(),
@@ -275,6 +279,20 @@ async function resolveRealtime(action: string, json: unknown): Promise<void> {
   await Promise.resolve();
 }
 
+async function installGuestAudioGraph(): Promise<void> {
+  const engine = await import('../../audio/engine.ts');
+  const context = await import('../../audio/context.ts');
+  vi.mocked(engine.initAudio).mockResolvedValue(undefined);
+  vi.mocked(engine.getWidener).mockReturnValue({ input: {} } as never);
+  vi.mocked(context.getAudioContext).mockReturnValue({
+    state: 'running',
+    createMediaStreamSource: vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() })),
+  } as never);
+  (globalThis as Record<string, unknown>).MediaStream = class {
+    constructor(readonly tracks?: unknown) {}
+  };
+}
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -294,6 +312,7 @@ afterEach(() => {
   resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   delete (globalThis as Record<string, unknown>).RTCPeerConnection;
+  delete (globalThis as Record<string, unknown>).MediaStream;
   vi.restoreAllMocks();
 });
 
@@ -1443,9 +1462,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'remote');
-    const engine = await import('../../audio/engine.ts');
-    vi.mocked(engine.initAudio).mockResolvedValue(undefined);
-    vi.mocked(engine.getWidener).mockReturnValue(null);
+    await installGuestAudioGraph();
 
     const { registerHandler } = await import('../protocol.ts');
     const handler = vi
@@ -1503,112 +1520,231 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     await rejectAllRealtimeCalls();
   });
 
-  it('a host stop during connectGuestTrack must not resurrect a torn-down receive', async () => {
+  it.each(['resolves', 'rejects'] as const)(
+    'a host stop during connectGuestTrack stays retired when native audio setup %s',
+    async (settlement) => {
+      const mod = await import('../system-audio-sfu.ts');
+      mod.registerSystemAudioSfuListeners();
+      bus.emit('system-audio:stop'); // clean baseline
+
+      // Guest with a remote host connection (not local → subscribe is allowed).
+      const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', hostConn);
+      setState('network.connectionType', 'remote');
+
+      // Make the audio graph "ready" so that WITHOUT the recheck connectGuestTrack
+      // would recreate the source + flip receiving=true (the resurrection this
+      // guards), so it must return before touching any of this.
+      const engine = await import('../../audio/engine.ts');
+      const ctxMod = await import('../../audio/context.ts');
+      vi.mocked(engine.getWidener).mockReturnValue({ input: {} } as never);
+      vi.mocked(ctxMod.getAudioContext).mockReturnValue({
+        state: 'running',
+        createChannelMerger: vi.fn(() => ({ connect: vi.fn() })),
+        createMediaStreamSource: vi.fn(() => ({ connect: vi.fn() })),
+      } as never);
+      (globalThis as Record<string, unknown>).MediaStream = class {
+        constructor(_tracks?: unknown) {}
+      };
+
+      // Hold connectGuestTrack at its initAudio await so we can tear down mid-flight.
+      let releaseInit: () => void = () => {};
+      vi.mocked(engine.initAudio).mockImplementation(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            releaseInit = () =>
+              settlement === 'resolves'
+                ? resolve()
+                : reject(new Error('late native resume failure'));
+          }),
+      );
+
+      // registerHandler is mocked → capture the SFU-ready handler it registered.
+      const { registerHandler } = await import('../protocol.ts');
+      const sfuReadyHandler = vi
+        .mocked(registerHandler)
+        .mock.calls.find((c) => c[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+        ((data: unknown, conn?: unknown) => void) | undefined;
+      expect(sfuReadyHandler).toBeDefined();
+
+      sfuReadyHandler!(
+        {
+          version: 2,
+          sessionId: 'host-sess',
+          track: { trackName: 'audio-stereo', mid: '0' },
+        },
+        hostConn,
+      );
+
+      await resolveRealtime('new-session', {
+        sessionId: 'guest-sess',
+        sessionOwnerToken: 'guest-owner-token',
+      });
+      await resolveRealtime('tracks-new', {
+        sessionDescription: { type: 'offer', sdp: 'o' },
+        tracks: [{ mid: '0', trackName: 'audio-stereo' }],
+      });
+      await resolveRealtime('renegotiate', {});
+
+      const guestSessionCalls = fetchMock.mock.calls
+        .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
+        .filter((body) => body?.action === 'tracks-new' || body?.action === 'renegotiate');
+      expect(guestSessionCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            action: 'tracks-new',
+            sessionId: 'guest-sess',
+            sessionOwnerToken: 'guest-owner-token',
+          }),
+          expect.objectContaining({
+            action: 'renegotiate',
+            sessionId: 'guest-sess',
+            sessionOwnerToken: 'guest-owner-token',
+          }),
+        ]),
+      );
+
+      // connectGuestTrack is now parked at await initAudio with guestPc set.
+      await vi.waitFor(() => {
+        expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).not.toBeNull();
+      });
+
+      // Host stop nulls guestPc while connectGuestTrack is parked at initAudio.
+      bus.emit('system-audio:host-stopped');
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
+      await vi.waitFor(() => {
+        const closeBody = fetchMock.mock.calls
+          .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
+          .find((body) => body?.action === 'tracks-close');
+        expect(closeBody).toMatchObject({
+          sessionId: 'guest-sess',
+          sessionOwnerToken: 'guest-owner-token',
+          payload: { tracks: [{ mid: '0' }], force: true },
+        });
+      });
+      await resolveRealtime('tracks-close', {});
+
+      // Release initAudio: the recheck must bail before recreating anything.
+      const cleanupsBeforeSettlement =
+        systemAudioGuestMocks.cleanupGuestSystemAudio.mock.calls.length;
+      releaseInit();
+      await new Promise((r) => setTimeout(r, 0));
+
+      const guest = mod.getSystemAudioSfuDebugSnapshot().guest;
+      expect(guest.receiving).toBe(false);
+      expect(guest.sourceStereo).toBe(false);
+      expect(systemAudioGuestMocks.cleanupGuestSystemAudio.mock.calls.length).toBe(
+        cleanupsBeforeSettlement,
+      );
+
+      delete (globalThis as Record<string, unknown>).MediaStream;
+    },
+  );
+
+  it('retires an SFU guest whose native audio resume rejects and accepts a fresh announced share', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
-    bus.emit('system-audio:stop'); // clean baseline
-
-    // Guest with a remote host connection (not local → subscribe is allowed).
+    bus.emit('system-audio:stop');
     const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'remote');
-
-    // Make the audio graph "ready" so that WITHOUT the recheck connectGuestTrack
-    // would recreate the source + flip receiving=true (the resurrection this
-    // guards), so it must return before touching any of this.
-    const engine = await import('../../audio/engine.ts');
-    const ctxMod = await import('../../audio/context.ts');
-    vi.mocked(engine.getWidener).mockReturnValue({ input: {} } as never);
-    vi.mocked(ctxMod.getAudioContext).mockReturnValue({
-      state: 'running',
-      createChannelMerger: vi.fn(() => ({ connect: vi.fn() })),
-      createMediaStreamSource: vi.fn(() => ({ connect: vi.fn() })),
-    } as never);
-    (globalThis as Record<string, unknown>).MediaStream = class {
-      constructor(_tracks?: unknown) {}
+    let rejectResume!: (error: unknown) => void;
+    const nativeContext = {
+      state: 'suspended',
+      resume: vi.fn(() => new Promise<void>((_resolve, reject) => (rejectResume = reject))),
     };
-
-    // Hold connectGuestTrack at its initAudio await so we can tear down mid-flight.
-    let releaseInit: () => void = () => {};
-    vi.mocked(engine.initAudio).mockImplementation(
-      () => new Promise<void>((resolve) => (releaseInit = () => resolve())),
-    );
-
-    // registerHandler is mocked → capture the SFU-ready handler it registered.
-    const { registerHandler } = await import('../protocol.ts');
-    const sfuReadyHandler = vi
-      .mocked(registerHandler)
-      .mock.calls.find((c) => c[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
-      ((data: unknown, conn?: unknown) => void) | undefined;
-    expect(sfuReadyHandler).toBeDefined();
-
-    sfuReadyHandler!(
-      {
-        version: 2,
-        sessionId: 'host-sess',
-        track: { trackName: 'audio-stereo', mid: '0' },
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        constructor() {
+          return nativeContext;
+        }
       },
-      hostConn,
     );
-
-    await resolveRealtime('new-session', {
-      sessionId: 'guest-sess',
-      sessionOwnerToken: 'guest-owner-token',
-    });
-    await resolveRealtime('tracks-new', {
-      sessionDescription: { type: 'offer', sdp: 'o' },
-      tracks: [{ mid: '0', trackName: 'audio-stereo' }],
-    });
-    await resolveRealtime('renegotiate', {});
-
-    const guestSessionCalls = fetchMock.mock.calls
-      .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
-      .filter((body) => body?.action === 'tracks-new' || body?.action === 'renegotiate');
-    expect(guestSessionCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          action: 'tracks-new',
-          sessionId: 'guest-sess',
-          sessionOwnerToken: 'guest-owner-token',
-        }),
-        expect.objectContaining({
-          action: 'renegotiate',
-          sessionId: 'guest-sess',
-          sessionOwnerToken: 'guest-owner-token',
-        }),
-      ]),
-    );
-
-    // connectGuestTrack is now parked at await initAudio with guestPc set.
-    await vi.waitFor(() => {
-      expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).not.toBeNull();
-    });
-
-    // Host stop nulls guestPc while connectGuestTrack is parked at initAudio.
-    bus.emit('system-audio:host-stopped');
-    expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
-    await vi.waitFor(() => {
-      const closeBody = fetchMock.mock.calls
-        .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
-        .find((body) => body?.action === 'tracks-close');
-      expect(closeBody).toMatchObject({
+    const { ensureRunning } =
+      await vi.importActual<typeof import('../../audio/context.ts')>('../../audio/context.ts');
+    const engine = await import('../../audio/engine.ts');
+    vi.mocked(engine.initAudio).mockImplementationOnce(ensureRunning);
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      ((data: unknown, conn?: unknown) => void) | undefined;
+    const ready = {
+      version: 2,
+      sessionId: 'host-sess',
+      track: { trackName: 'audio-stereo', mid: '0' },
+    };
+    try {
+      handler!(ready, hostConn);
+      await resolveRealtime('new-session', {
         sessionId: 'guest-sess',
-        sessionOwnerToken: 'guest-owner-token',
-        payload: { tracks: [{ mid: '0' }], force: true },
+        sessionOwnerToken: 'guest-owner',
       });
-    });
-    await resolveRealtime('tracks-close', {});
+      await resolveRealtime('tracks-new', {
+        sessionDescription: { type: 'offer', sdp: 'o' },
+        tracks: [{ mid: '0', trackName: 'audio-stereo' }],
+      });
+      await resolveRealtime('renegotiate', {});
+      await vi.waitFor(() => expect(nativeContext.resume).toHaveBeenCalledOnce());
+      systemAudioGuestMocks.cleanupGuestSystemAudio.mockClear();
+      rejectResume(new DOMException('Native audio output unavailable', 'InvalidStateError'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Release initAudio: the recheck must bail before recreating anything.
-    releaseInit();
-    await new Promise((r) => setTimeout(r, 0));
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
+      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+      // No policy change or unsolicited resubscription: a fresh authenticated
+      // host announcement may reuse the same SFU publication after recovery.
+      bus.emit('system-audio:host-started');
+      handler!(ready, hostConn);
+      await waitForNewSessionCalls(2);
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+      vi.unstubAllGlobals();
+    }
+  });
 
-    const guest = mod.getSystemAudioSfuDebugSnapshot().guest;
-    expect(guest.receiving).toBe(false);
-    expect(guest.sourceStereo).toBe(false);
-
-    delete (globalThis as Record<string, unknown>).MediaStream;
+  it('fails closed when SFU transport connects without an available audio graph', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    await installGuestAudioGraph();
+    const engine = await import('../../audio/engine.ts');
+    vi.mocked(engine.getWidener).mockReturnValue(null);
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      ((data: unknown, conn?: unknown) => void) | undefined;
+    systemAudioGuestMocks.cleanupGuestSystemAudio.mockClear();
+    try {
+      handler!(
+        { version: 2, sessionId: 'host-sess', track: { trackName: 'audio-stereo', mid: '0' } },
+        hostConn,
+      );
+      await resolveRealtime('new-session', {
+        sessionId: 'guest-sess',
+        sessionOwnerToken: 'guest-owner',
+      });
+      await resolveRealtime('tracks-new', {
+        sessionDescription: { type: 'offer', sdp: 'o' },
+        tracks: [{ mid: '0', trackName: 'audio-stereo' }],
+      });
+      await vi.waitFor(() => {
+        expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+        expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
+      });
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
   });
 
   it('does not attach an SFU track before the trusted owner-switch boundary settles', async () => {
@@ -1765,9 +1901,7 @@ describe('LAN SFU audience negotiation', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'remote');
-    const engine = await import('../../audio/engine.ts');
-    vi.mocked(engine.initAudio).mockResolvedValue(undefined);
-    vi.mocked(engine.getWidener).mockReturnValue(null);
+    await installGuestAudioGraph();
 
     const { registerHandler } = await import('../protocol.ts');
     const handler = vi

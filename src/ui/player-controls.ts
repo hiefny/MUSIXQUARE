@@ -68,6 +68,7 @@ import {
   hasRoomCapability,
   isActiveStandardRoomCoordinator,
   isCoordinator,
+  isStandardRoomRole,
 } from '../rooms/authority.ts';
 import {
   roomCapabilityRequiredMessage,
@@ -634,6 +635,7 @@ function syncMainMediaSourceButtonLabel(): void {
 }
 
 function syncMediaSourceButtonAuthority(): void {
+  reconcileYouTubeGestureAuthority();
   syncMainMediaSourceButtonLabel();
   const canSelectMedia = hasRoomCapability('media.add') || hasRoomCapability('asset.upload');
   for (const id of ['btn-media-source', 'btn-add-media']) {
@@ -715,11 +717,21 @@ function openYouTubePopup(returnFocus?: HTMLElement | null): void {
 
 let youtubeGestureSubmitGeneration = 0;
 let youtubeGestureSubmitOwner: number | null = null;
+let releaseYouTubeGestureSubmit: (() => void) | null = null;
+let isYouTubeGestureAuthorityCurrent: (() => boolean) | null = null;
 
 function invalidateYouTubeGestureSubmit(): void {
   youtubeGestureSubmitGeneration++;
   youtubeGestureSubmitOwner = null;
-  getUiElement('youtube-play-btn')?.removeAttribute('aria-busy');
+  releaseYouTubeGestureSubmit?.();
+  releaseYouTubeGestureSubmit = null;
+  isYouTubeGestureAuthorityCurrent = null;
+}
+
+function reconcileYouTubeGestureAuthority(): void {
+  if (isYouTubeGestureAuthorityCurrent && !isYouTubeGestureAuthorityCurrent()) {
+    invalidateYouTubeGestureSubmit();
+  }
 }
 
 function submitYouTubeSearch(input: HTMLElement): void {
@@ -753,6 +765,36 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
   const submittedText = input.textContent || '';
   const submittedResult = getSelectedYouTubeSearchResult(submittedText);
   const playButton = getUiElement<HTMLButtonElement>('youtube-play-btn');
+  const context = getRoomContext();
+  const hostConnection = getState('network.hostConn');
+  const wasStandardHost = isStandardRoomRole('host');
+  const wasStandardGuest = isStandardRoomRole('guest');
+  const sessionCode = getState('network.sessionCode');
+  const sessionStarted = getState('setup.sessionStarted');
+  isYouTubeGestureAuthorityCurrent = () => {
+    const current = getRoomContext();
+    return (
+      current.kind === context.kind &&
+      current.roomId === context.roomId &&
+      current.epoch === context.epoch &&
+      getState('network.hostConn') === hostConnection &&
+      isStandardRoomRole('host') === wasStandardHost &&
+      isStandardRoomRole('guest') === wasStandardGuest &&
+      getState('network.sessionCode') === sessionCode &&
+      getState('setup.sessionStarted') === sessionStarted &&
+      hasRoomCapability('media.add')
+    );
+  };
+  releaseYouTubeGestureSubmit = () => {
+    if (!playButton?.isConnected) return;
+    playButton.removeAttribute('aria-busy');
+    // A newer input/preview owns its own disabled state.
+    if (
+      (input.textContent || '') === submittedText &&
+      getSelectedYouTubeSearchResult(submittedText) === submittedResult
+    )
+      playButton.disabled = false;
+  };
   if (playButton) {
     playButton.disabled = true;
     playButton.setAttribute('aria-busy', 'true');
@@ -781,17 +823,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
       ) {
         return;
       }
-      youtubeGestureSubmitOwner = null;
-      if (playButton?.isConnected) {
-        playButton.removeAttribute('aria-busy');
-        // A changed input owns its newer preview gate; only restore the exact
-        // submission whose text is still present.
-        if (
-          (input.textContent || '') === submittedText &&
-          getSelectedYouTubeSearchResult(submittedText) === submittedResult
-        )
-          playButton.disabled = false;
-      }
+      invalidateYouTubeGestureSubmit();
     })
     .catch((error) => {
       log.warn('[YouTube Prime] Submit flow failed', error);
@@ -1128,6 +1160,12 @@ export function initPlayerControls(): void {
   // future re-init paths don't stack duplicate handlers. Matches the pattern
   // in connect.ts and playlist-view.ts.
   _busScope.dispose();
+  invalidateYouTubeGestureSubmit();
+  _busScope.on('state:room.context', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:network.hostConn', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:network.sessionCode', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:setup.sessionStarted', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:network.standardRoomCapabilities', reconcileYouTubeGestureAuthority);
   _domAbort?.abort();
   _closeDemoInlineControls();
   _fileStartLoadingController?.destroy();

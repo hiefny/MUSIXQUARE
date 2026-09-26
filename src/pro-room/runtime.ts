@@ -1110,98 +1110,152 @@ function installMediaHooks(
   manager: ProRoomPlaylistStateManager,
   lease: PlaylistRuntimeLease,
 ): void {
-  const reportCurrentPlaylistError = (error: unknown) => {
-    if (isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
+  // A room can outlive a controller's grant. Queued writes belong to the
+  // uninterrupted grant that admitted them, not whichever grant exists later.
+  const roomSignal = playlistRuntimeAbort!.signal;
+  let mutationLifetime: ReturnType<typeof createRoomLinkedAbortController> | null = null;
+  let uploadQueue: ProRoomUploadQueue | null = null;
+  const reportCurrentPlaylistError = (signal: AbortSignal) => (error: unknown) => {
+    if (!signal.aborted && isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
   };
   const uploadBatchLoaderIds = new Map<string, string>();
-  const queue = new ProRoomUploadQueue({
-    signal: playlistRuntimeAbort?.signal,
-    run: async ({ id, file }, context) => {
-      if (!isPlaylistLeaseCurrent(lease)) return;
-      const progressText = t('pro.upload.batch_progress', {
-        current: context.current,
-        total: context.total,
-      });
-      let loaderId = uploadBatchLoaderIds.get(context.batchId);
-      if (!loaderId) {
-        loaderId = openTransferLoader('upload', progressText);
-        uploadBatchLoaderIds.set(context.batchId, loaderId);
-      } else {
-        showLoader(true, progressText, loaderId);
-      }
-      reportTransferProgress(loaderId, (context.current - 1) / context.total);
-      await manager.addLocalFile(
-        {
-          queueItemId: id,
-          file,
-          onProgress: (fraction) => {
-            context.onProgress(fraction);
-            reportTransferProgress(
-              loaderId,
-              (context.current - 1 + Math.max(0, Math.min(1, fraction))) / context.total,
-            );
+  const createUploadQueue = (signal: AbortSignal): ProRoomUploadQueue => {
+    const queue = new ProRoomUploadQueue({
+      signal,
+      run: async ({ id, file }, context) => {
+        if (signal.aborted || !isPlaylistLeaseCurrent(lease)) return;
+        const progressText = t('pro.upload.batch_progress', {
+          current: context.current,
+          total: context.total,
+        });
+        let loaderId = uploadBatchLoaderIds.get(context.batchId);
+        if (!loaderId) {
+          loaderId = openTransferLoader('upload', progressText);
+          uploadBatchLoaderIds.set(context.batchId, loaderId);
+        } else {
+          showLoader(true, progressText, loaderId);
+        }
+        reportTransferProgress(loaderId, (context.current - 1) / context.total);
+        await manager.addLocalFile(
+          {
+            queueItemId: id,
+            file,
+            onProgress: (fraction) => {
+              context.onProgress(fraction);
+              reportTransferProgress(
+                loaderId,
+                (context.current - 1 + Math.max(0, Math.min(1, fraction))) / context.total,
+              );
+            },
           },
-        },
-        {
-          signal: context.signal,
-          refreshBeforeUpload: context.isRetry,
-        },
-      );
-    },
-    reportFailure(error) {
-      if (isPlaylistLeaseCurrent(lease)) {
-        log.warn('[PRO] Persistent local upload failed', error);
-      }
-    },
-    onBatchSettled(result) {
-      const loaderId = uploadBatchLoaderIds.get(result.batchId);
-      if (loaderId) {
-        uploadBatchLoaderIds.delete(result.batchId);
-        closeTransferLoader(loaderId, result.failedCount === 0 && result.cancelledCount === 0);
-      }
-      if (result.failedCount === 0) return;
-      if (!isPlaylistLeaseCurrent(lease)) {
-        queue.dismissFailedBatch(result.batchId);
-        return;
-      }
-      observeProRoomRuntimeTask(
-        resolveProRoomUploadFailureDialog({
-          queue,
-          batchId: result.batchId,
-          show: () =>
-            showDialog({
-              title: t('pro.upload.batch_failed_title'),
-              message: t('pro.upload.batch_failed_message', {
-                total: result.requestedCount,
-                failed: result.failedCount,
+          {
+            signal: context.signal,
+            refreshBeforeUpload: context.isRetry,
+          },
+        );
+      },
+      reportFailure(error) {
+        if (!signal.aborted && isPlaylistLeaseCurrent(lease)) {
+          log.warn('[PRO] Persistent local upload failed', error);
+        }
+      },
+      onBatchSettled(result) {
+        const loaderId = uploadBatchLoaderIds.get(result.batchId);
+        if (loaderId) {
+          uploadBatchLoaderIds.delete(result.batchId);
+          closeTransferLoader(loaderId, result.failedCount === 0 && result.cancelledCount === 0);
+        }
+        if (result.failedCount === 0) return;
+        if (signal.aborted || uploadQueue !== queue || !isPlaylistLeaseCurrent(lease)) {
+          queue.dismissFailedBatch(result.batchId);
+          return;
+        }
+        observeProRoomRuntimeTask(
+          resolveProRoomUploadFailureDialog({
+            queue,
+            batchId: result.batchId,
+            show: () =>
+              showDialog({
+                title: t('pro.upload.batch_failed_title'),
+                message: t('pro.upload.batch_failed_message', {
+                  total: result.requestedCount,
+                  failed: result.failedCount,
+                }),
+                buttonText: t('common.retry'),
+                secondaryText: t('common.close'),
+                defaultFocus: 'secondary',
+                dismissible: true,
               }),
-              buttonText: t('common.retry'),
-              secondaryText: t('common.close'),
-              defaultFocus: 'secondary',
-              dismissible: true,
-            }),
-          isCurrent: () => isPlaylistLeaseCurrent(lease),
-          reportPresentationFailure: (error) =>
-            log.warn('[PRO] Upload failure dialog could not be presented', error),
-        }),
-        'upload failure dialog',
-      );
+            isCurrent: () =>
+              !signal.aborted && uploadQueue === queue && isPlaylistLeaseCurrent(lease),
+            reportPresentationFailure: (error) =>
+              log.warn('[PRO] Upload failure dialog could not be presented', error),
+          }),
+          'upload failure dialog',
+        );
+      },
+    });
+    return queue;
+  };
+  const retireUploadQueue = () => {
+    uploadQueue?.reset();
+    uploadQueue = null;
+    proRoomUploadQueue = null;
+    setActiveProRoomUploadQueue(null);
+    for (const loaderId of uploadBatchLoaderIds.values()) closeTransferLoader(loaderId, false);
+    uploadBatchLoaderIds.clear();
+  };
+  const reconcileMutationAuthority = () => {
+    const context = getState('room.context');
+    const canMutate =
+      !roomSignal.aborted &&
+      isPlaylistLeaseCurrent(lease) &&
+      context.kind === 'pro' &&
+      context.roomId === lease.roomCode &&
+      hasRoomCapability('queue.mutate');
+    if (!canMutate) {
+      mutationLifetime?.controller.abort();
+      mutationLifetime?.detach();
+      mutationLifetime = null;
+      retireUploadQueue();
+      return;
+    }
+    mutationLifetime ??= createRoomLinkedAbortController(roomSignal);
+    if (!hasRoomCapability('asset.upload')) {
+      retireUploadQueue();
+    } else if (!uploadQueue) {
+      uploadQueue = createUploadQueue(mutationLifetime.controller.signal);
+      proRoomUploadQueue = uploadQueue;
+      setActiveProRoomUploadQueue(uploadQueue);
+    }
+  };
+  const unsubscribeAuthority = bus.on('state:room.context', reconcileMutationAuthority);
+  roomSignal.addEventListener(
+    'abort',
+    () => {
+      unsubscribeAuthority();
+      reconcileMutationAuthority();
     },
-  });
-  proRoomUploadQueue = queue;
-  setActiveProRoomUploadQueue(queue);
+    { once: true },
+  );
+  reconcileMutationAuthority();
+  const captureMutationSignal = (): AbortSignal | null => {
+    reconcileMutationAuthority();
+    return mutationLifetime?.controller.signal ?? null;
+  };
   const hooks: ProRoomMediaHooks = {
     addFiles(files, rejectedCount) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      if (!captureMutationSignal() || !uploadQueue) return true;
       if (files.length === 0) return true;
       if (rejectedCount > 0) {
         bus.emit('ui:show-toast', t('toast.unsupported_files_excluded', { count: rejectedCount }));
       }
-      queue.enqueueFiles(files);
+      uploadQueue.enqueueFiles(files);
       return true;
     },
     addYouTube(item, _sourceUrl, completeVideoIds) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      const signal = captureMutationSignal();
+      if (!signal) return true;
       if (item.type !== 'youtube' || !item.videoId) return false;
       const currentIds = item.playlistId
         ? getState('youtube.subItemsMap')[item.playlistId]?.ids
@@ -1223,13 +1277,14 @@ function installMediaHooks(
           ...(item.title === undefined ? {} : { title: item.title }),
           ...(item.artist === undefined ? {} : { artist: item.artist }),
           ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
-          signal: playlistRuntimeAbort?.signal,
+          signal,
         })
-        .catch(reportCurrentPlaylistError);
+        .catch(reportCurrentPlaylistError(signal));
       return true;
     },
     updateTrackMetadata(queueItemId, metadata) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      const signal = captureMutationSignal();
+      if (!signal) return true;
       void manager
         .updateMetadata(
           queueItemId,
@@ -1239,29 +1294,29 @@ function installMediaHooks(
             ...(metadata.artist === undefined ? {} : { artist: metadata.artist }),
             ...(metadata.thumbnail === undefined ? {} : { thumbnail: metadata.thumbnail }),
           },
-          { signal: playlistRuntimeAbort?.signal },
+          { signal },
         )
-        .catch(reportCurrentPlaylistError);
+        .catch(reportCurrentPlaylistError(signal));
       return true;
     },
     removeTracks(queueItemIds) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
-      void manager
-        .removeMany(queueItemIds, { signal: playlistRuntimeAbort?.signal })
-        .catch(reportCurrentPlaylistError);
+      const signal = captureMutationSignal();
+      if (!signal) return true;
+      void manager.removeMany(queueItemIds, { signal }).catch(reportCurrentPlaylistError(signal));
       return true;
     },
     reorderTrack(queueItemId, beforeQueueItemId, baseRevision) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      const signal = captureMutationSignal();
+      if (!signal) return true;
       if (baseRevision !== getState('playlist.revision')) return false;
       const reordered = moveQueueItemBefore(queueItemId, beforeQueueItemId);
       if (!reordered) return true;
       void manager
         .reorder(
           reordered.map((item) => item.queueItemId),
-          { baseRevision, signal: playlistRuntimeAbort?.signal },
+          { baseRevision, signal },
         )
-        .catch(reportCurrentPlaylistError);
+        .catch(reportCurrentPlaylistError(signal));
       return true;
     },
     handlesPersistentFile(queueItemId) {

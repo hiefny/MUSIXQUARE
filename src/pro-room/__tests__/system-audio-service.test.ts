@@ -1589,6 +1589,7 @@ describe('PRO system-audio service orchestration', () => {
     await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor,
       track: { id: 'first-stereo' } as MediaStreamTrack,
     });
@@ -1614,12 +1615,109 @@ describe('PRO system-audio service orchestration', () => {
     await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(2));
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor,
       track: { id: 'retry-stereo' } as MediaStreamTrack,
     });
     await vi.waitFor(() => expect(graph.sources).toHaveLength(2));
     expect(mocks.setSystemAudioReceiving.mock.calls).toEqual([[false], [true]]);
   });
+
+  it('retires an SFU receive attempt when native audio resume times out and retries its track', async () => {
+    const graph = installAudioGraphHarness();
+    // A PRO member may enter before its first audio graph has been created.
+    // Mobile WebKit can keep the native resume promise pending without a
+    // gesture. Exercise the real bounded native-resume helper, not a delayed
+    // application helper or a fabricated transport failure.
+    const nativeContext = {
+      state: 'suspended',
+      resume: vi.fn(() => new Promise<void>(() => undefined)),
+    };
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        constructor() {
+          return nativeContext;
+        }
+      },
+    );
+    const { ensureRunning } =
+      await vi.importActual<typeof import('../../audio/context.ts')>('../../audio/context.ts');
+    mocks.initAudio.mockImplementationOnce(ensureRunning);
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+    const descriptor = mocks.subscribe.mock.calls[0][0];
+    mocks.stopSubscriber.mockClear();
+    vi.useFakeTimers();
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      track: { id: 'blocked-stereo' } as MediaStreamTrack,
+      isCurrent: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(501);
+
+    expect(nativeContext.resume).toHaveBeenCalledOnce();
+    expect(graph.sources).toHaveLength(0);
+    expect(mocks.stopSubscriber).toHaveBeenCalledTimes(1);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(false);
+    expect(getManagedTimer('pro-system-audio-subscriber-retry')).not.toBeNull();
+
+    // The next attempt must allocate a fresh subscription: simply subscribing
+    // again to the same live PC cannot repeat its once-only track event.
+    nativeContext.state = 'running';
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(2);
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      track: { id: 'recovered-stereo' } as MediaStreamTrack,
+      isCurrent: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(graph.sources).toHaveLength(1);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenLastCalledWith(true);
+  });
+
+  it.each(['transport-replaced', 'publication-replaced', 'room-left'] as const)(
+    'does not retire a successor SFU subscription when audio setup rejects after %s',
+    async (replacement) => {
+      installAudioGraphHarness();
+      const pendingAudio = deferred<void>();
+      mocks.initAudio.mockReturnValueOnce(pendingAudio.promise);
+      api.getSystemAudioState.mockResolvedValueOnce(live());
+      await refreshProSystemAudioState();
+      await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+      const descriptor = mocks.subscribe.mock.calls[0][0];
+      let current = true;
+      mocks.sfuListener?.({
+        type: 'subscriber-track',
+        descriptor,
+        track: { id: 'stale-stereo' } as MediaStreamTrack,
+        isCurrent: () => current,
+      });
+      await vi.waitFor(() => expect(mocks.initAudio).toHaveBeenCalledOnce());
+
+      if (replacement === 'transport-replaced') {
+        current = false;
+      } else if (replacement === 'publication-replaced') {
+        api.getSystemAudioState.mockResolvedValueOnce(live(2));
+        await refreshProSystemAudioState();
+      } else {
+        mocks.roomContextKind = 'standard';
+        bus.emit('state:room.context', { kind: 'standard' } as never, { kind: 'pro' } as never);
+      }
+      mocks.stopSubscriber.mockClear();
+      mocks.setSystemAudioReceiving.mockClear();
+      pendingAudio.reject(new Error('native audio initialization failed late'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mocks.stopSubscriber).not.toHaveBeenCalled();
+      expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+      expect(getManagedTimer('pro-system-audio-subscriber-retry')).toBeNull();
+    },
+  );
 
   it('debounces SFU disconnects and restores playing without removing the pending placeholder', async () => {
     const graph = installAudioGraphHarness();
@@ -1634,6 +1732,7 @@ describe('PRO system-audio service orchestration', () => {
     await refreshProSystemAudioState();
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor,
       track: { id: 'stereo' } as MediaStreamTrack,
     });
@@ -1947,6 +2046,7 @@ describe('PRO system-audio service orchestration', () => {
     const oldTrack = {} as MediaStreamTrack;
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor: {
         version: 2,
         sessionId: 'realtime_session_01',
@@ -1973,6 +2073,7 @@ describe('PRO system-audio service orchestration', () => {
   });
 
   it('does not attach a PRO SFU track before the trusted owner-switch boundary settles', async () => {
+    installAudioGraphHarness();
     const trustedBoundary = deferred<boolean>();
     mocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(trustedBoundary.promise);
     api.getSystemAudioState.mockResolvedValueOnce(live());
@@ -1981,6 +2082,7 @@ describe('PRO system-audio service orchestration', () => {
     mocks.initAudio.mockClear();
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor: {
         version: 2,
         sessionId: 'realtime_session_01',
@@ -2009,6 +2111,7 @@ describe('PRO system-audio service orchestration', () => {
     await refreshProSystemAudioState();
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor: {
         version: 2,
         sessionId: 'realtime_session_01',

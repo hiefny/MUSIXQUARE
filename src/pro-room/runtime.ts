@@ -53,7 +53,7 @@ import {
 import { schedulePreload } from '../storage/preload.ts';
 import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import { resolveYouTubePlaylistManifest } from '../youtube/search.ts';
-import { resetRoomContext, setRoomContext } from '../rooms/authority.ts';
+import { hasRoomCapability, resetRoomContext, setRoomContext } from '../rooms/authority.ts';
 import type { PlaylistItem, PlaylistWireItem, QueueItemId, RoomContext } from '../types/index.ts';
 import {
   parseProQueueAdditionFrame,
@@ -227,7 +227,13 @@ let queueModeRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
 let suppressQueueModeCheckpoint = false;
 let queueModeCheckpointDirty = false;
+let queueModeCheckpointGeneration = 0;
 let queueModeIntentRevision = 0;
+type QueueModeIntentField = 'repeatMode' | 'shuffleEnabled';
+let queueModeFieldIntentRevision: Record<QueueModeIntentField, number> = {
+  repeatMode: 0,
+  shuffleEnabled: 0,
+};
 let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
 let presenceRecoveryAbort: AbortController | null = null;
@@ -1429,6 +1435,8 @@ function resetPlaylistRuntime(): void {
   acceptedQueueMode = null;
   suppressQueueModeCheckpoint = false;
   queueModeCheckpointDirty = false;
+  queueModeCheckpointGeneration += 1;
+  queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
   queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   playbackController.resetPlaylistRuntime();
@@ -2067,20 +2075,88 @@ function enqueueQueueModeMutation<T>(operation: () => Promise<T>): Promise<T> {
   return result;
 }
 
+function hasQueueModeCheckpointAuthority(lease: PlaylistRuntimeLease | null): boolean {
+  return !!(active && lease && isPlaylistLeaseCurrent(lease) && hasRoomCapability('queue.mutate'));
+}
+
+function restoreAcceptedQueueModeWithPendingIntent(): void {
+  const snapshot = playlistManager?.snapshot;
+  // If the playlist changed, its pending canonical GET will reconcile the
+  // canceled fields before any subsequent PUT can use the new revision.
+  if (!snapshot || !acceptedQueueMode || !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)) {
+    return;
+  }
+  suppressQueueModeCheckpoint = true;
+  try {
+    const local = capturePlaylistQueueModeState();
+    const keepShuffle = queueModeFieldIntentRevision.shuffleEnabled > 0;
+    applyPlaylistQueueModeState(
+      {
+        repeatMode:
+          queueModeFieldIntentRevision.repeatMode > 0
+            ? local.repeatMode
+            : acceptedQueueMode.repeatMode,
+        shuffleEnabled: keepShuffle ? local.shuffleEnabled : acceptedQueueMode.shuffleEnabled,
+        shuffleOrder: keepShuffle ? local.shuffleOrder : acceptedQueueMode.shuffleOrder,
+      },
+      false,
+    );
+  } finally {
+    suppressQueueModeCheckpoint = false;
+  }
+}
+
+function cancelQueueModeCheckpoint(): void {
+  clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
+  queueModeCheckpointGeneration += 1;
+  queueModeCheckpointDirty = false;
+  queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
+  queueModeCheckpointRetryAttempt = 0;
+  restoreAcceptedQueueModeWithPendingIntent();
+}
+
 async function persistQueueModeCheckpoint(): Promise<void> {
   const manager = playlistManager;
   const lease = playlistRuntimeLease;
   const signal = playlistRuntimeAbort?.signal;
-  if (!active || suppressQueueModeCheckpoint || !manager || !lease || !signal) {
+  if (
+    !hasQueueModeCheckpointAuthority(lease) ||
+    suppressQueueModeCheckpoint ||
+    !manager ||
+    !lease ||
+    !signal
+  ) {
     return;
   }
-  await enqueueQueueModeMutation(async () => {
+  const generation = queueModeCheckpointGeneration;
+  const isCurrent = () =>
+    generation === queueModeCheckpointGeneration &&
+    hasQueueModeCheckpointAuthority(lease) &&
+    !signal.aborted;
+  const retryCurrentIntent = (intentRevision: number): void => {
     if (
-      !active ||
-      suppressQueueModeCheckpoint ||
-      !isPlaylistLeaseCurrent(lease) ||
-      signal.aborted
+      !isCurrent() ||
+      !queueModeCheckpointDirty ||
+      queueModeIntentRevision !== intentRevision ||
+      queueModeCheckpointRetryAttempt >= QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS.length
     ) {
+      return;
+    }
+    const delay = QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS[queueModeCheckpointRetryAttempt];
+    queueModeCheckpointRetryAttempt += 1;
+    setManagedTimer(
+      QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER,
+      () => {
+        if (!isCurrent() || queueModeIntentRevision !== intentRevision) return;
+        void persistQueueModeCheckpoint().catch((retryError) => {
+          log.warn('[PRO] Queue mode checkpoint retry failed', retryError);
+        });
+      },
+      delay,
+    );
+  };
+  await enqueueQueueModeMutation(async () => {
+    if (!isCurrent() || suppressQueueModeCheckpoint || !queueModeCheckpointDirty) {
       return;
     }
     let snapshot = manager.snapshot;
@@ -2090,9 +2166,17 @@ async function persistQueueModeCheckpoint(): Promise<void> {
       acceptedQueueMode.roomCode !== snapshot.roomCode ||
       !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
     ) {
-      await refreshPersistedQueueModeUnlocked(snapshot);
+      const intentBeforeRead = queueModeIntentRevision;
+      if (
+        !(await refreshPersistedQueueModeUnlocked(snapshot, { checkpointGeneration: generation }))
+      ) {
+        // Another append can invalidate the GET while its body is pending.
+        // Do not pair stale local fields with the newer playlist revision.
+        retryCurrentIntent(intentBeforeRead);
+        return;
+      }
     }
-    if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+    if (!isCurrent()) return;
     // A playlist mutation can commit while its queue-mode GET is pending.
     // Build the PUT against that accepted playlist, not the pre-read revision.
     snapshot = manager.snapshot ?? snapshot;
@@ -2115,53 +2199,58 @@ async function persistQueueModeCheckpoint(): Promise<void> {
         signal,
       );
     } catch (error) {
-      if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+      if (!isCurrent()) return;
       if (
         error instanceof ProRoomApiError &&
         (error.code === 'QUEUE_MODE_REVISION_CONFLICT' ||
           error.code === 'PLAYLIST_REVISION_CONFLICT')
       ) {
         await refreshPersistedQueueModeUnlocked(snapshot, {
+          checkpointGeneration: generation,
           preservePendingIntent: false,
-          discardedIntent: { revision: intentRevision, state: local },
+          discardedIntentRevision: intentRevision,
         });
-        if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+        if (!isCurrent()) return;
         if (queueModeIntentRevision === intentRevision) {
           queueModeCheckpointDirty = false;
+          queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
           queueModeCheckpointRetryAttempt = 0;
         }
         return;
       }
-      if (
-        queueModeCheckpointDirty &&
-        queueModeCheckpointRetryAttempt < QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS.length
-      ) {
-        const delay = QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS[queueModeCheckpointRetryAttempt];
-        queueModeCheckpointRetryAttempt += 1;
-        setManagedTimer(
-          QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER,
-          () =>
-            void persistQueueModeCheckpoint().catch((retryError) => {
-              log.warn('[PRO] Queue mode checkpoint retry failed', retryError);
-            }),
-          delay,
-        );
+      if (error instanceof ProRoomApiError && (error.status === 401 || error.status === 403)) {
+        if (queueModeIntentRevision === intentRevision) {
+          cancelQueueModeCheckpoint();
+        } else {
+          // A fresh shuffle gesture must not re-send a denied repeat edit (or
+          // vice versa) just because both fields share a snapshot PUT.
+          for (const field of ['repeatMode', 'shuffleEnabled'] as const) {
+            if (queueModeFieldIntentRevision[field] <= intentRevision) {
+              queueModeFieldIntentRevision[field] = 0;
+            }
+          }
+          restoreAcceptedQueueModeWithPendingIntent();
+        }
+        throw error;
       }
+      retryCurrentIntent(intentRevision);
       throw error;
     }
-    if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+    if (!isCurrent()) return;
     acceptedQueueMode = accepted;
     if (queueModeIntentRevision === intentRevision) {
       queueModeCheckpointDirty = false;
+      queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
       queueModeCheckpointRetryAttempt = 0;
     }
   });
 }
 
-function scheduleQueueModeCheckpoint(): void {
-  if (!active || suppressQueueModeCheckpoint) return;
+function scheduleQueueModeCheckpoint(field: QueueModeIntentField): void {
+  if (!hasQueueModeCheckpointAuthority(playlistRuntimeLease) || suppressQueueModeCheckpoint) return;
   queueModeCheckpointDirty = true;
   queueModeIntentRevision += 1;
+  queueModeFieldIntentRevision[field] = queueModeIntentRevision;
   queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   setManagedTimer(
@@ -2179,20 +2268,23 @@ async function refreshPersistedQueueModeUnlocked(
   snapshot: ProRoomSnapshot,
   options: {
     broadcast?: boolean;
+    checkpointGeneration?: number;
     preservePendingIntent?: boolean;
-    discardedIntent?: { revision: number; state: ReturnType<typeof capturePlaylistQueueModeState> };
+    discardedIntentRevision?: number;
   } = {},
 ): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease))
     return false;
   const previousAccepted = acceptedQueueMode;
-  const localBeforeRead = options.discardedIntent?.state ?? capturePlaylistQueueModeState();
-  const intentBeforeRead = options.discardedIntent?.revision ?? queueModeIntentRevision;
+  const intentBeforeRead = options.discardedIntentRevision ?? queueModeIntentRevision;
   const accepted = await api.getQueueMode(snapshot.roomCode, playlistRuntimeAbort?.signal);
   const currentSnapshot = playlistManager?.snapshot;
   if (
     !isPlaylistLeaseCurrent(lease) ||
+    (options.checkpointGeneration !== undefined &&
+      (options.checkpointGeneration !== queueModeCheckpointGeneration ||
+        !hasQueueModeCheckpointAuthority(lease))) ||
     !currentSnapshot ||
     currentSnapshot.roomCode !== snapshot.roomCode ||
     !queueModeMatchesPlaylist(accepted, currentSnapshot)
@@ -2200,14 +2292,17 @@ async function refreshPersistedQueueModeUnlocked(
     return false;
   }
   const local = capturePlaylistQueueModeState();
-  const changedDuringRead = queueModeIntentRevision !== intentBeforeRead;
-  const preserveField = (key: 'repeatMode' | 'shuffleEnabled'): boolean =>
-    (changedDuringRead && local[key] !== localBeforeRead[key]) ||
-    (options.preservePendingIntent !== false &&
-      queueModeCheckpointDirty &&
-      previousAccepted !== null &&
-      accepted[key] === previousAccepted[key] &&
-      local[key] !== previousAccepted[key]);
+  // Values alone cannot distinguish a fresh gesture from a revoked one that
+  // chose the same value. Track each field's intent through the pending read.
+  const preserveField = (key: QueueModeIntentField): boolean =>
+    queueModeCheckpointDirty &&
+    hasQueueModeCheckpointAuthority(lease) &&
+    queueModeFieldIntentRevision[key] > 0 &&
+    (queueModeFieldIntentRevision[key] > intentBeforeRead ||
+      (options.preservePendingIntent !== false &&
+        previousAccepted !== null &&
+        accepted[key] === previousAccepted[key] &&
+        local[key] !== previousAccepted[key]));
   const repeatMode = preserveField('repeatMode') ? local.repeatMode : accepted.repeatMode;
   const shuffleEnabled = preserveField('shuffleEnabled')
     ? local.shuffleEnabled
@@ -3573,10 +3668,9 @@ bus.on('state:playlist.currentQueueItemId', () => {
   pruneNonCurrentProRoomFileRows();
 });
 
-for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as const) {
-  bus.on(event, () => scheduleQueueModeCheckpoint());
-}
-bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint());
+bus.on('state:playlist.repeatMode', () => scheduleQueueModeCheckpoint('repeatMode'));
+bus.on('state:playlist.isShuffle', () => scheduleQueueModeCheckpoint('shuffleEnabled'));
+bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint('shuffleEnabled'));
 
 subscribeAccount((snapshot) => {
   const projectionKey = proRoomAccountIdentityProjectionKey(snapshot, getAccountStatsScope());
@@ -3637,6 +3731,13 @@ bus.on('settings-sync:changed', (enabled) => {
 });
 
 bus.on('state:room.context', () => {
+  if (
+    active &&
+    queueModeCheckpointDirty &&
+    !hasQueueModeCheckpointAuthority(playlistRuntimeLease)
+  ) {
+    cancelQueueModeCheckpoint();
+  }
   if (
     active &&
     effectsCheckpointState.dirty &&

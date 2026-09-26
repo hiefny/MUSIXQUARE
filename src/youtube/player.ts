@@ -1271,6 +1271,12 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
 
 // ─── Sub-Video Navigation Helper ───────────────────────────────────
 
+function canReadSettledNativePlaylist(): boolean {
+  // cuePlaylist is asynchronous: until indexing/loading settles, getPlaylist
+  // can still contain IDs from the previous playlist in this retained iframe.
+  return !isYtIndexing() && !isYtLoadInProgress();
+}
+
 /**
  * Single-video navigation using the host-snapshotted subItemsMap.
  * The resolved occurrence is handed back to playlist.ts so manual navigation
@@ -1299,7 +1305,11 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
 
     let subData = (getState('youtube.subItemsMap') || {})[pid];
 
-    if ((!subData || !subData.ids.length) && player?.getPlaylist) {
+    if (
+      (!subData || !subData.ids.length) &&
+      player?.getPlaylist &&
+      canReadSettledNativePlaylist()
+    ) {
       const ids = player.getPlaylist() || [];
       if (ids.length > 0) {
         updateSubItemIds(pid, ids);
@@ -1317,7 +1327,7 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
     // Fallback: about to fall off the end forward, but the iframe may have
     // lazily populated more items since the initial indexing snapshot.
     // Re-read getPlaylist() and retry if the cached list was truncated.
-    if (!inBounds && direction === 1 && player?.getPlaylist) {
+    if (!inBounds && direction === 1 && player?.getPlaylist && canReadSettledNativePlaylist()) {
       try {
         const freshIds = player.getPlaylist() || [];
         if (freshIds.length > (subData?.ids?.length ?? 0)) {
@@ -3969,6 +3979,7 @@ export function initYouTube(): void {
 
     if (
       player?.getPlaylist &&
+      canReadSettledNativePlaylist() &&
       queueItemId === getCurrentQueueItemId() &&
       currentItem?.playlistId === playlistId
     ) {

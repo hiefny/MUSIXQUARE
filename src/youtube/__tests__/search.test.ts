@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { setLanguageMode } from '../../i18n/index.ts';
 import { bus } from '../../core/events.ts';
 import { getState, setState } from '../../core/state.ts';
@@ -26,10 +26,47 @@ import {
 import { fetchOEmbedTitle, fetchWithTimeout } from '../oembed.ts';
 import { OEMBED_INITIAL_BATCH_SIZE } from '../constants.ts';
 
+const animationFrames = new Map<number, FrameRequestCallback>();
+let nextAnimationFrameId = 0;
+
+function installAnimationFrameQueue(): void {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = ++nextAnimationFrameId;
+    animationFrames.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => animationFrames.delete(id));
+}
+
+function flushAnimationFrame(): void {
+  const callbacks = [...animationFrames.values()];
+  animationFrames.clear();
+  for (const callback of callbacks) callback(16);
+}
+
+function useSearchFakeTimers(): void {
+  vi.useFakeTimers();
+  // Keep render frames owned by this fixture when a test replaces the clock.
+  installAnimationFrameQueue();
+}
+
+beforeEach(() => {
+  expect(animationFrames.size).toBe(0);
+  installAnimationFrameQueue();
+});
+
 afterEach(() => {
-  clearPreviewDebounce();
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
+  try {
+    clearPreviewDebounce();
+    clearYouTubeInputState();
+    // Cleanup also schedules a frame. Deliver it before restoring timers so the
+    // module's coalescing flag never outlives a discarded fake RAF callback.
+    flushAnimationFrame();
+    expect(animationFrames.size).toBe(0);
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 });
 
 describe('YouTube playlist title batch completion', () => {
@@ -51,7 +88,7 @@ describe('YouTube playlist title batch completion', () => {
     responseForIndex: (index: number) => Response | Promise<Response> = (index) =>
       Response.json({ title: `Title ${index}` }),
   ) {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     setState('network.hostConn', null);
     setState('youtube.currentSubIndex', 0);
     setState('youtube.subItemsMap', { [playlistId]: { ids: [...ids], titles: [] } });
@@ -158,7 +195,7 @@ describe('YouTube playlist title batch completion', () => {
 
 describe('YouTube request lifetime', () => {
   it('settles at the deadline when fetch never returns response headers', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     let requestSignal: AbortSignal | null = null;
     vi.stubGlobal(
       'fetch',
@@ -180,7 +217,7 @@ describe('YouTube request lifetime', () => {
   });
 
   it('settles and cancels when response headers arrive but its body never progresses', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const cancel = vi.fn(() => new Promise<void>(() => undefined));
     const response = new Response(
       new ReadableStream<Uint8Array>({
@@ -757,7 +794,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   }
 
   it('prefetches and synchronously exposes a playlist manifest before enabling play', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     const manifestRequests: string[] = [];
     vi.stubGlobal(
@@ -809,7 +846,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('keeps a video-attached Mix URL on the immediate single-video preview path', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     const requests: string[] = [];
     vi.stubGlobal(
@@ -838,7 +875,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('keeps play gated only for the bounded manifest budget, then permits iframe fallback', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     let resolveManifest!: (response: Response) => void;
     const pendingManifest = new Promise<Response>((resolve) => {
@@ -885,7 +922,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('drops a stale manifest when the URL changes before its prefetch resolves', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     mountYouTubePreview();
     let resolveStaleManifest!: (response: Response) => void;
     const staleManifest = new Promise<Response>((resolve) => {
@@ -934,7 +971,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('aborts an unfinished manifest prefetch when the preview overlay closes', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     const manifestRequest: { signal: AbortSignal | null } = { signal: null };
     let resolveManifest!: (response: Response) => void;
@@ -1054,7 +1091,7 @@ describe('YouTube input response body ownership', () => {
   });
 
   it('keeps the reopened playlist preview when the old metadata and manifest bodies cancel late', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mount();
     const playlistId = 'PL_ROUND7_REOPEN_BODY';
     const url = `https://youtube.com/playlist?list=${playlistId}`;
@@ -1115,15 +1152,6 @@ describe('YouTube input response body ownership', () => {
 
 describe('YouTube search result rendering sink', () => {
   it('coalesces a rendered result list into one scrollbar reveal per frame', async () => {
-    // Drain any prior render's frame before owning this test's scheduler.
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    const frames: FrameRequestCallback[] = [];
-    const animationFrame = vi
-      .spyOn(window, 'requestAnimationFrame')
-      .mockImplementation((callback) => {
-        frames.push(callback);
-        return frames.length;
-      });
     document.body.innerHTML = `
       <div id="youtube-preview"></div>
       <div id="youtube-preview-status"></div>
@@ -1152,16 +1180,14 @@ describe('YouTube search result rendering sink', () => {
     try {
       await searchYouTubeFromInput('single reveal probe 20260723');
       expect(reveal).not.toHaveBeenCalled();
-      expect(frames).toHaveLength(1);
-      frames.shift()!(16);
+      expect(animationFrames.size).toBe(1);
+      flushAnimationFrame();
 
       expect(reveal).toHaveBeenCalledTimes(1);
       expect(reveal).toHaveBeenCalledWith(document.getElementById('youtube-search-results'));
     } finally {
       cleanup();
       clearYouTubeInputState();
-      for (const frame of frames.splice(0)) frame(32);
-      animationFrame.mockRestore();
       document.body.innerHTML = '';
     }
   });

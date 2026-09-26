@@ -92,6 +92,59 @@ async function readSavedVisualizerMode(page: Page): Promise<string | null> {
   return page.evaluate(() => localStorage.getItem('musixquare-viz-mode'));
 }
 
+interface SpectrumDrawProbe {
+  curves: number;
+  restingLines: number;
+}
+
+async function installSpectrumDrawProbe(page: Page): Promise<void> {
+  await page.locator('#visualizerCanvas').evaluate((element) => {
+    const context = (element as HTMLCanvasElement).getContext('2d')!;
+    const counts: SpectrumDrawProbe = { curves: 0, restingLines: 0 };
+    Reflect.set(window, '__SPECTRUM_DRAW_PROBE__', counts);
+    const begin = context.beginPath.bind(context);
+    const move = context.moveTo.bind(context);
+    const line = context.lineTo.bind(context);
+    const curve = context.quadraticCurveTo.bind(context);
+    const stroke = context.stroke.bind(context);
+    let points: Array<[number, number]> = [];
+    let curved = false;
+    context.beginPath = () => {
+      points = [];
+      curved = false;
+      begin();
+    };
+    context.moveTo = (x, y) => {
+      points.push([x, y]);
+      move(x, y);
+    };
+    context.lineTo = (x, y) => {
+      points.push([x, y]);
+      line(x, y);
+    };
+    context.quadraticCurveTo = (...args) => {
+      curved = true;
+      curve(...args);
+    };
+    context.stroke = (path?: Path2D) => {
+      if (path) stroke(path);
+      else stroke();
+      if (curved) counts.curves++;
+      else if (
+        points.length === 2 &&
+        points[0][1] === points[1][1] &&
+        points[0][0] !== points[1][0]
+      ) {
+        counts.restingLines++;
+      }
+    };
+  });
+}
+
+async function readSpectrumDrawProbe(page: Page): Promise<SpectrumDrawProbe> {
+  return page.evaluate(() => Reflect.get(window, '__SPECTRUM_DRAW_PROBE__') as SpectrumDrawProbe);
+}
+
 async function readCircularInkBounds(page: Page): Promise<{ width: number; height: number }> {
   // Read this canvas's ink, then apply its actual CSS content-box scale.
   // An element screenshot also contains overlaid navigation and clipped
@@ -208,6 +261,41 @@ test.describe('mobile visualizer layout', () => {
   test.beforeEach(async ({ page }) => {
     await injectPeerServer(page);
   });
+
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1440, height: 900 },
+  ]) {
+    test(`keeps demo spectrum continuous across step changes at ${viewport.width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(viewport);
+      await page.route('https://demo.musixquare.com/linelight/*.m4a', (route) =>
+        route.fulfill({
+          path: fileURLToPath(new URL('./fixtures/demo-track.mp3', import.meta.url)),
+          contentType: 'audio/mpeg',
+        }),
+      );
+      await setupHostAndStart(page);
+      await emitDemoEvent(page, 'demo:enter');
+      await expect.poll(() => readState(page, 'playback.activity')).toBe('playing');
+      await expect(page.locator('#demo-overlay')).toHaveClass(/active/);
+      await installSpectrumDrawProbe(page);
+      await expect.poll(async () => (await readSpectrumDrawProbe(page)).curves).toBeGreaterThan(12);
+      for (const step of [2, 3, 1, 1]) {
+        const before = await readSpectrumDrawProbe(page);
+        await page.locator(`[data-demo-step="${step}"]`).click();
+        await expect
+          .poll(async () => (await readSpectrumDrawProbe(page)).curves)
+          .toBeGreaterThan(before.curves + 18);
+        expect(
+          (await readSpectrumDrawProbe(page)).restingLines,
+          `step ${step}: no blank restart`,
+        ).toBe(before.restingLines);
+        expect(await readState(page, 'playback.activity')).toBe('playing');
+      }
+    });
+  }
 
   test.describe('demo spectrum presentation', () => {
     test.use({ hasTouch: true });

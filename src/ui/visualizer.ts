@@ -1032,18 +1032,37 @@ export function initVisualizer(): void {
     _resizeListenerAdded = true;
 
     const handleResize = () => {
-      // Browser zoom can change the viewport, DPR and wrapper geometry in
-      // separate steps. Stop the old loop before resizing the bitmap so a
-      // stale frame cannot draw with the previous coordinate system and leave
-      // clipped arcs at the new canvas edges.
-      const wasHoldingPauseFrame = _isHoldingPauseFrame;
-      cancelVisualizerAnimation();
-
       const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
       const ctx = canvas?.getContext('2d');
       const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
       if (canvas && ctx && wrapper) {
+        const previousWidth = canvas.width;
+        const previousHeight = canvas.height;
+        const previousPixelRatio = _canvasPixelRatio;
         syncCanvasSize(canvas, ctx, wrapper);
+        // Demo steps and other layout updates also dispatch resize without
+        // changing this canvas. Keep their live analyser history and drawing
+        // loop instead of replaying the fresh-start spectrum warmup at zero.
+        if (
+          _visualizerLoopState === 'active' &&
+          _animationId !== null &&
+          wrapper.clientWidth > 10 &&
+          wrapper.clientHeight > 10 &&
+          canvas.width === previousWidth &&
+          canvas.height === previousHeight &&
+          _canvasPixelRatio === previousPixelRatio
+        )
+          return;
+      }
+
+      // Browser zoom can change the viewport, DPR and wrapper geometry in
+      // separate steps. Cancel the old loop within this same callback before
+      // another frame can draw with the previous coordinate system and leave
+      // clipped arcs at the new canvas edges. Static/held frames still repaint.
+      const wasHoldingPauseFrame = _isHoldingPauseFrame;
+      cancelVisualizerAnimation();
+
+      if (canvas && ctx && wrapper) {
         if (_lastCircularFrame || _lastSpectrumFrame) {
           redrawHeldFrame();
           _isHoldingPauseFrame = wasHoldingPauseFrame;

@@ -2080,7 +2080,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
     ) {
       return;
     }
-    const snapshot = manager.snapshot;
+    let snapshot = manager.snapshot;
     if (!snapshot) return;
     if (
       !acceptedQueueMode ||
@@ -2090,6 +2090,9 @@ async function persistQueueModeCheckpoint(): Promise<void> {
       await refreshPersistedQueueModeUnlocked(snapshot);
     }
     if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+    // A playlist mutation can commit while its queue-mode GET is pending.
+    // Build the PUT against that accepted playlist, not the pre-read revision.
+    snapshot = manager.snapshot ?? snapshot;
     const baseRevision = acceptedQueueMode?.revision;
     if (baseRevision === undefined) return;
     const local = capturePlaylistQueueModeState();

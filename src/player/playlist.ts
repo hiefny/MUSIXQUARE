@@ -588,7 +588,7 @@ export function setRepeatMode(mode: number, notify = true): void {
   if (mode !== prevMode) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      clearPreloadState();
+      clearPreloadState(false, true);
       schedulePreload();
     }
   }
@@ -642,7 +642,7 @@ export function setShuffle(
   if (enabled !== prevEnabled || orderChanged) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      clearPreloadState();
+      clearPreloadState(false, true);
       schedulePreload();
     }
   }
@@ -650,7 +650,7 @@ export function setShuffle(
 
 // ─── Clear Preload State ───────────────────────────────────────────
 
-export function clearPreloadState(force = false): void {
+export function clearPreloadState(force = false, preserveCurrentTransfer = false): void {
   const activeTarget = getState('preload.activeTarget');
   const ready = getState('preload.ready');
   const currentQueueItemId = getCurrentQueueItemId();
@@ -662,9 +662,10 @@ export function clearPreloadState(force = false): void {
     cancelProRoomPlaylistFilePreload(preloadOwner);
   }
 
-  // Cancel any in-flight backgroundTransfer to prevent stale preload data
-  // from reaching guests after backward navigation (host-only).
-  cancelPreloadTransfer(preloadOwner ?? undefined);
+  // Navigation cancels every old lane. Queue mode changes and non-current
+  // removal only replace speculation: slower guests still need the exact
+  // preload that has already become the host's current file.
+  cancelPreloadTransfer(preloadOwner ?? undefined, !force && preserveCurrentTransfer);
   if (force) resetPreloadReceiveAuthority();
 
   setState('preload.nextQueueItemId', null);
@@ -2417,7 +2418,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
     removedQueueItemIds.has(getState('preload.nextQueueItemId') ?? '') ||
     removedQueueItemIds.has(getState('preload.ready')?.queueItemId ?? '') ||
     removedQueueItemIds.has(getState('preload.activeTarget')?.queueItemId ?? '');
-  if (preloadOwnsRemovedItem) clearPreloadState();
+  if (preloadOwnsRemovedItem) clearPreloadState(false, !wasCurrent);
 
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
   if (recoveryTarget?.queueItemId && removedQueueItemIds.has(recoveryTarget.queueItemId)) {

@@ -26,6 +26,7 @@ import {
   type ProRoomSnapshot,
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
+import { handleProRoomTrackReorder } from '../media-hooks.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import {
   registerProPlaybackMediaEndpoint,
@@ -1139,6 +1140,86 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       expect(getState('playlist.repeatMode')).toBe(1);
     },
   );
+
+  it('preserves a repeat edit when its queue-mode refresh overlaps another local reorder', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    let canonical = {
+      ...snapshot(),
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [
+        ...snapshot().playlist,
+        {
+          queueItemId: ADDED_QUEUE_ITEM_ID,
+          name: 'Second track',
+          source: { kind: 'youtube' as const, videoId: ADDED_VIDEO_ID },
+        },
+      ],
+    };
+    let mode = {
+      schemaVersion: 1 as const,
+      view: 'queue-mode' as const,
+      roomCode: ROOM_CODE,
+      revision: 0,
+      playlistRevision: canonical.playlistRevision,
+      updatedAtMs: 2,
+      repeatMode: 0 as 0 | 1 | 2,
+      shuffleEnabled: false,
+      shuffleOrder: [] as QueueItemId[],
+    };
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockImplementation(async () => canonical);
+    const read = vi
+      .mocked(ProRoomApiClient.prototype.getQueueMode)
+      .mockImplementation(async () => mode);
+    acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+    await vi.waitFor(() => expect(getState('playlist.items')).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const reorder = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot')
+      .mockImplementation(async (input) => {
+        const rows = new Map(canonical.playlist.map((item) => [item.queueItemId, item]));
+        canonical = {
+          ...canonical,
+          revision: canonical.revision + 1,
+          playlistRevision: canonical.playlistRevision + 1,
+          playlist: input.playlistOrder!.map((queueItemId) => rows.get(queueItemId)!),
+        };
+        mode = { ...mode, playlistRevision: canonical.playlistRevision };
+        return canonical;
+      });
+    const update = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateQueueMode')
+      .mockImplementation(async (input) => {
+        if (input.playlistRevision !== canonical.playlistRevision) {
+          throw new ProRoomApiError('PLAYLIST_REVISION_CONFLICT', 409);
+        }
+        mode = { ...mode, revision: mode.revision + 1, repeatMode: input.repeatMode };
+        return mode;
+      });
+    restoreSpies.push(reorder, update);
+
+    handleProRoomTrackReorder(ADDED_QUEUE_ITEM_ID, QUEUE_ITEM_ID, getState('playlist.revision'));
+    await vi.waitFor(() =>
+      expect(getState('playlist.items')[0]?.queueItemId).toBe(ADDED_QUEUE_ITEM_ID),
+    );
+    let resolveRead!: (value: typeof mode) => void;
+    read.mockImplementationOnce(() => new Promise((resolve) => (resolveRead = resolve)));
+    setState('playlist.repeatMode', 1);
+    await vi.waitFor(() => expect(resolveRead).toBeTypeOf('function'));
+
+    // The same participant reorders again while the checkpoint refresh is
+    // awaiting HTTP. Its response already describes this newest playlist.
+    handleProRoomTrackReorder(QUEUE_ITEM_ID, ADDED_QUEUE_ITEM_ID, getState('playlist.revision'));
+    await vi.waitFor(() => expect(getState('playlist.items')[0]?.queueItemId).toBe(QUEUE_ITEM_ID));
+    resolveRead(mode);
+    await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect.soft(getState('playlist.repeatMode')).toBe(1);
+    expect.soft(mode.repeatMode).toBe(1);
+    expect.soft(update.mock.calls[0]?.[0].playlistRevision).toBe(canonical.playlistRevision);
+  });
 
   it.each([false, true])(
     'preserves a newer repeat edit after the preceding checkpoint (conflict=%s)',

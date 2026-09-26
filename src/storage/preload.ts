@@ -531,7 +531,10 @@ function abandonStalledPreloadSession(sessionId: number, reason: string): void {
  * already in flight arrives before the abort; later chunks are dropped by the
  * receiver's skipped-session guard.
  */
-export function cancelPreloadTransfer(queueItemId?: QueueItemId): void {
+export function cancelPreloadTransfer(
+  queueItemId?: QueueItemId,
+  preserveCurrentTransfer = false,
+): void {
   // Supersede any pending preloadNextTrack that is still awaiting a prior
   // serialized transfer — it will notice the generation mismatch after its
   // await and exit instead of starting a new (unwanted) transfer.
@@ -542,23 +545,40 @@ export function cancelPreloadTransfer(queueItemId?: QueueItemId): void {
   // Notify the exact peers that received PRELOAD_START before disposing the
   // transfer scope. This still works after local cache promotion clears its
   // ready/nextQueueItemId consumer fields.
-  cancelInFlightBackgroundTransfer();
+  const background = _inFlightBackgroundOwner;
+  const preservedScope =
+    preserveCurrentTransfer &&
+    background &&
+    isCurrentPreloadTransfer({
+      queueItemId: background.queueItemId,
+      sessionId: background.sessionId,
+      sourceId: preloadSourceId(background.sourceBlob),
+    })
+      ? background.scope
+      : null;
+  if (!preservedScope) cancelInFlightBackgroundTransfer();
 
   // Unicast: each entry tracks its own (sid, conn). May differ from the
   // broadcast sid if a unicast was started for an earlier preload session
   // that's still streaming to a late-joiner.
   for (const entry of _activePreloadUnicasts.values()) {
+    if (preserveCurrentTransfer && isCurrentPreloadTransfer(entry)) continue;
     safeSend(entry.conn, {
       type: MSG.PRELOAD_ABORT,
       queueItemId: entry.queueItemId,
       sessionId: entry.sessionId,
     });
     entry.scope.dispose();
+    _activePreloadUnicasts.delete(entry.scope);
   }
-  _activePreloadUnicasts.clear();
-  _preloadPeerOwners.clear();
+  for (const owners of _preloadPeerOwners.values()) {
+    for (const owner of owners) {
+      if (preserveCurrentTransfer && isCurrentPreloadTransfer(owner)) continue;
+      releasePreloadPeer(owner);
+    }
+  }
 
-  if (_preloadScope) {
+  if (_preloadScope && _preloadScope !== preservedScope) {
     _preloadScope.dispose();
     _preloadScope = null;
   }

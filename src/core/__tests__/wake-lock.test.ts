@@ -72,6 +72,86 @@ describe('core/wake-lock', () => {
 
     resolveRequest?.(sentinel);
     await flushAsync();
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['rejected', 'already-released'] as const)(
+    'serves a foreground re-acquire after an older pending request is %s',
+    async (outcome) => {
+      let resolveRequest!: (value: FakeWakeLockSentinel) => void;
+      let rejectRequest!: (reason: Error) => void;
+      request.mockReturnValueOnce(
+        new Promise<FakeWakeLockSentinel>((resolve, reject) => {
+          resolveRequest = resolve;
+          rejectRequest = reject;
+        }),
+      );
+
+      activateNoSleep();
+      // Visibility recovery can arrive before the native request settles.
+      reacquireWakeLockIfActive();
+      reacquireWakeLockIfActive();
+      expect(request).toHaveBeenCalledTimes(1);
+
+      if (outcome === 'rejected') {
+        rejectRequest(new Error('NotAllowedError (document became hidden)'));
+      } else {
+        const released = new FakeWakeLockSentinel();
+        released.simulateBrowserRelease();
+        resolveRequest(released);
+      }
+      await flushAsync();
+
+      expect(request).toHaveBeenCalledTimes(2);
+      deactivateNoSleep();
+      expect(sentinel.release).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('consumes repeated foreground requests once even when the replacement is denied', async () => {
+    let rejectRequest!: (reason: Error) => void;
+    request.mockReturnValueOnce(
+      new Promise<FakeWakeLockSentinel>((_resolve, reject) => {
+        rejectRequest = reject;
+      }),
+    );
+    request.mockRejectedValueOnce(new Error('NotAllowedError (battery saver)'));
+
+    activateNoSleep();
+    reacquireWakeLockIfActive();
+    reacquireWakeLockIfActive();
+    rejectRequest(new Error('NotAllowedError (document became hidden)'));
+    await flushAsync();
+    await flushAsync();
+    expect(request).toHaveBeenCalledTimes(2);
+
+    reacquireWakeLockIfActive();
+    await flushAsync();
+    expect(request).toHaveBeenCalledTimes(3);
+    deactivateNoSleep();
+    expect(sentinel.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('retires a queued foreground re-acquire on deactivation', async () => {
+    let rejectRequest!: (reason: Error) => void;
+    request.mockReturnValueOnce(
+      new Promise<FakeWakeLockSentinel>((_resolve, reject) => {
+        rejectRequest = reject;
+      }),
+    );
+
+    activateNoSleep();
+    reacquireWakeLockIfActive();
+    deactivateNoSleep();
+    rejectRequest(new Error('NotAllowedError (document became hidden)'));
+    await flushAsync();
+    expect(request).toHaveBeenCalledTimes(1);
+
+    // A later session must not inherit the retired recovery request.
+    request.mockRejectedValueOnce(new Error('NotAllowedError (battery saver)'));
+    activateNoSleep();
+    await flushAsync();
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it('reacquireWakeLockIfActive no-ops before activation', () => {
@@ -151,6 +231,7 @@ describe('core/wake-lock', () => {
 
     expect(() => activateNoSleep()).not.toThrow();
     await flushAsync();
+    expect(request).toHaveBeenCalledTimes(1);
 
     reacquireWakeLockIfActive();
     await flushAsync();

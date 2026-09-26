@@ -105,4 +105,24 @@ describe('settings sync checkpoint retry state', () => {
     expect(state.pendingFullPublishIntent).toBe(0);
     expect(state.begin()?.revision).toBeGreaterThan(first.revision);
   });
+
+  it('retires cancelled attempts without retiring later edits in the same lifecycle', () => {
+    const state = new SettingsSyncCheckpointState();
+    state.markDirty();
+    const original = state.begin()!;
+    state.markDirty();
+    expect(state.isLive(original)).toBe(true);
+
+    state.cancel();
+    state.markDirty();
+    const successor = state.begin()!;
+    expect(state.isLive(original)).toBe(false);
+    expect(state.isLive(successor)).toBe(true);
+    expect(state.nextRetryDelay(successor)).toBe(1_000);
+
+    state.succeed(original);
+
+    expect(state.dirty).toBe(true);
+    expect(state.nextRetryDelay(successor)).toBe(3_000);
+  });
 });

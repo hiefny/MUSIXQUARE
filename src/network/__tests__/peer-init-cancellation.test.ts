@@ -966,6 +966,49 @@ describe('network initialization ownership', () => {
     expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
+  it.each([true, false])(
+    'preserves a replacement peer retry budget when the old PRO ticket settles to %s',
+    async (ticketReady) => {
+      vi.useFakeTimers();
+      const peerA = makePeer('PRO-A', true);
+      const peerB = makePeer('STANDARD-B', true);
+      const oldTicket = deferred<boolean>();
+      const prepareFreshTicket = vi.fn(() => oldTicket.promise);
+      registerProRoomSignalingReconnectHandler(prepareFreshTicket);
+      mocks.createTransportPeer.mockResolvedValueOnce(peerA).mockResolvedValueOnce(peerB);
+
+      await createHostSessionWithShortCode(1);
+      setState('network.sessionCode', '000001');
+      setState('setup.sessionStarted', true);
+      peerA.fire('disconnected');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(prepareFreshTicket).toHaveBeenCalledOnce();
+
+      // Leave while the old credential request is in flight, then start a new
+      // room whose independent reconnect flight has already consumed one try.
+      leaveSession();
+      setState('network.appRole', 'host');
+      const newCode = await createHostSessionWithShortCode(1);
+      setState('network.sessionCode', newCode);
+      setState('setup.sessionStarted', true);
+      peerB.fire('disconnected');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(peerB.reconnect).toHaveBeenCalledOnce();
+      expect(getState('network.signalingHealth').attempt).toBe(2);
+
+      oldTicket.resolve(ticketReady);
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(getPeer()).toBe(peerB);
+      expect(peerA.reconnect).not.toHaveBeenCalled();
+      expect(peerB.reconnect).toHaveBeenCalledTimes(2);
+      expect(getState('network.signalingHealth').attempt).toBe(3);
+      await vi.advanceTimersByTimeAsync(27_000);
+      expect(peerB.reconnect).toHaveBeenCalledTimes(5);
+      expect(getState('network.signalingHealth').status).toBe('exhausted');
+    },
+  );
+
   it('does not let host A publish after cancellation and host B succeeds', async () => {
     const lateA = deferred<PeerInstance>();
     const peerA = makePeer('HOST-A', true);

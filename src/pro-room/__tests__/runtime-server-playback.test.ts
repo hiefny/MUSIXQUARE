@@ -1564,6 +1564,91 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     await vi.waitFor(() => expect(notifications()).toHaveLength(1));
   });
 
+  it('does not turn an already-enabled settings-sync click into a full-state takeover', async () => {
+    await observeSettingsNotifications();
+    const update = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+      .mockRejectedValueOnce(new ProRoomApiError('SETTINGS_SYNC_REVISION_CONFLICT', 409))
+      .mockImplementation(async (input) => ({
+        ...canonicalSettings(2, input.masterVolume),
+        effects: input.effects,
+      }));
+    restoreSpies.push(update);
+    vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockResolvedValue(
+      canonicalSettings(1, 1, 43),
+    );
+    expect(getState('audio.settingsSyncEnabled')).toBe(true);
+
+    // Clicking the already-selected ON chip is not an opt-in transition.
+    setSettingsSyncEnabled(true);
+    setState('audio.masterVolume', 0.4);
+
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update.mock.calls[1]?.[0]).toMatchObject({
+      masterVolume: 0.4,
+      effects: { reverb: { mixPercent: 43 } },
+    });
+    expect(getState('audio.reverbMix')).toBe(0.43);
+  });
+
+  it.each(['put', 'reconcile-read'] as const)(
+    'does not revive a revoked settings edit when permission returns before its %s settles',
+    async (phase) => {
+      await observeSettingsNotifications();
+      let rejectPut!: (error: unknown) => void;
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+        .mockImplementationOnce(
+          () =>
+            new Promise((_resolve, reject) => {
+              rejectPut = reject;
+            }),
+        )
+        .mockImplementation(async (input) => ({
+          ...canonicalSettings(2, input.masterVolume),
+          effects: input.effects,
+        }));
+      restoreSpies.push(update);
+      const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+      getSettingsSync.mockResolvedValue(canonicalSettings(1, 0.8, 43));
+      let resolveRead!: (value: ReturnType<typeof canonicalSettings>) => void;
+      if (phase === 'reconcile-read') {
+        getSettingsSync.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveRead = resolve;
+            }),
+        );
+      }
+      setState('audio.masterVolume', 0.4);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+      if (phase === 'reconcile-read') {
+        const reads = getSettingsSync.mock.calls.length;
+        rejectPut(new ProRoomApiError('SETTINGS_SYNC_REVISION_CONFLICT', 409));
+        await vi.waitFor(() => expect(getSettingsSync.mock.calls.length).toBeGreaterThan(reads));
+      }
+      const context = getState('room.context');
+      setState('room.context', { ...context, capabilities: [] });
+      setState('room.context', context);
+      const readsBefore = getSettingsSync.mock.calls.length;
+
+      if (phase === 'put') rejectPut(new ProRoomApiError('SETTINGS_SYNC_REVISION_CONFLICT', 409));
+      else resolveRead(canonicalSettings(1, 0.8, 43));
+      await new Promise((resolve) => setTimeout(resolve, 350));
+
+      expect(update).toHaveBeenCalledOnce();
+      expect(getSettingsSync).toHaveBeenCalledTimes(readsBefore);
+      expect(getState('audio.masterVolume')).toBe(0.4);
+      expect(getState('audio.reverbMix')).toBe(0);
+
+      // Regrant itself does not resurrect the retired edit, but a fresh edit
+      // still owns a normal checkpoint and can publish without retry starvation.
+      setState('audio.masterVolume', 0.6);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+      expect(update.mock.calls[1]?.[0]).toMatchObject({ masterVolume: 0.6 });
+    },
+  );
+
   it('silently hydrates changed settings after leaving and rejoining the same PRO room', async () => {
     const notifications = await observeSettingsNotifications();
     await receiveSettings(1, 0.6);

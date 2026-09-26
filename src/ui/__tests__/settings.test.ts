@@ -440,6 +440,29 @@ describe('initSettings playback mode guards', () => {
 });
 
 describe('settings synchronization preference', () => {
+  it.each(['on', 'off'] as const)(
+    'does not emit an opt-in transition for the selected %s chip',
+    (mode) => {
+      installSettingsSyncDom();
+      setState('audio.settingsSyncEnabled', mode === 'on');
+      initSettings();
+      const changed = vi.fn();
+      const stopObserving = bus.on('settings-sync:changed', changed);
+      try {
+        document.querySelector<HTMLElement>(`[data-settings-sync="${mode}"]`)!.click();
+
+        expect(changed).not.toHaveBeenCalled();
+        expect(getState('audio.settingsSyncEnabled')).toBe(mode === 'on');
+        expect(
+          document.querySelector(`[data-settings-sync="${mode}"]`)?.getAttribute('aria-pressed'),
+        ).toBe('true');
+        expect(localStorage.getItem('musixquare-settings-sync')).toBe(mode);
+      } finally {
+        stopObserving();
+      }
+    },
+  );
+
   it('defaults ON, persists OFF, and unlocks follower-local effect controls', () => {
     installSettingsSyncDom();
     installEffectSettingsDom();

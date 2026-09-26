@@ -873,7 +873,9 @@ export function setSettingsSyncEnabled(enabled: boolean): void {
   } catch {
     // Private browsing can make localStorage unavailable; state still works.
   }
-  bus.emit('settings-sync:changed', normalized);
+  // Re-selecting the active chip is not an opt-in transition. PRO treats an
+  // actual OFF-to-ON transition as intent to publish the complete local state.
+  if (changed) bus.emit('settings-sync:changed', normalized);
   if (!normalized) {
     resetSettingsChangeFeedback();
     clearPendingStandardSettingsPublish();

@@ -1739,6 +1739,7 @@ async function persistRoomEffects(): Promise<void> {
   if (!token) return;
   const notificationGeneration = effectsNotificationGeneration;
   await enqueueEffectsMutation(async () => {
+    if (!effectsCheckpointState.isLive(token)) return;
     const snapshot = effectsRuntimeSnapshot();
     if (
       !hasEffectsCheckpointAuthority(lease) ||
@@ -1761,6 +1762,7 @@ async function persistRoomEffects(): Promise<void> {
           snapshot.roomCode,
           playlistRuntimeAbort?.signal,
         );
+        if (!effectsCheckpointState.isLive(token)) return;
         if (!hasEffectsCheckpointAuthority(lease)) {
           cancelEffectsCheckpoint(lease);
           return;
@@ -1810,6 +1812,7 @@ async function persistRoomEffects(): Promise<void> {
             },
             playlistRuntimeAbort?.signal,
           );
+          if (!effectsCheckpointState.isLive(token)) return;
           if (hasEffectsCheckpointAuthority(lease)) {
             acceptedEffects = accepted;
             effectsCheckpointState.succeed(token);
@@ -1818,7 +1821,7 @@ async function persistRoomEffects(): Promise<void> {
           }
           return;
         } catch (error) {
-          if (!isPlaylistLeaseCurrent(lease)) return;
+          if (!effectsCheckpointState.isLive(token) || !isPlaylistLeaseCurrent(lease)) return;
           const revisionConflict =
             error instanceof ProRoomApiError && error.code === 'SETTINGS_SYNC_REVISION_CONFLICT';
           const transient = isTransientSettingsSyncFailure(error);
@@ -1844,6 +1847,7 @@ async function persistRoomEffects(): Promise<void> {
             // Read canonical first; only retry if local intent is still absent.
             canonical = await api.getSettingsSync(snapshot.roomCode, playlistRuntimeAbort?.signal);
           } catch (reconcileError) {
+            if (!effectsCheckpointState.isLive(token)) return;
             if (transient && isTransientSettingsSyncFailure(reconcileError)) {
               scheduleEffectsCheckpointRetry(token, error, lease);
               return;
@@ -1851,6 +1855,7 @@ async function persistRoomEffects(): Promise<void> {
             if (!cancelCurrentEffectsCheckpoint(token, lease)) return;
             throw reconcileError;
           }
+          if (!effectsCheckpointState.isLive(token)) return;
           if (!hasEffectsCheckpointAuthority(lease)) {
             cancelEffectsCheckpoint(lease);
             return;
@@ -1891,7 +1896,7 @@ async function persistRoomEffects(): Promise<void> {
         }
       }
     } catch (error) {
-      if (!isPlaylistLeaseCurrent(lease)) return;
+      if (!effectsCheckpointState.isLive(token) || !isPlaylistLeaseCurrent(lease)) return;
       if (!hasEffectsCheckpointAuthority(lease)) {
         // Actual authority/room-lease loss invalidates every pending intent.
         cancelEffectsCheckpoint(lease);

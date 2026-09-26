@@ -120,7 +120,7 @@ export function installRangeDragGuard(root: ParentNode = document): void {
 
       activePointerId = null;
       range.classList.remove('is-dragging');
-      range.dispatchEvent(new Event('change', { bubbles: true }));
+      if (!range.disabled) range.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
     range.addEventListener('pointerdown', (event) => {
@@ -143,6 +143,12 @@ export function installRangeDragGuard(root: ParentNode = document): void {
 
     range.addEventListener('pointermove', (event) => {
       if (event.pointerId !== activePointerId) return;
+      // Capture survives a remote authority change that disables the control.
+      // Retire the old gesture without overwriting the newly synced value.
+      if (range.disabled) {
+        finishDrag(event);
+        return;
+      }
       if (event.cancelable) event.preventDefault();
       applyRangeValue(range, event);
     });

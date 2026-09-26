@@ -3337,7 +3337,10 @@ export function initYouTube(): void {
             ...(fetchedAuthor ? { artist: fetchedAuthor } : {}),
           };
           const titleSnapshot = commitPlaylistItems(updated);
-          if (getCurrentQueueItemId() === queueItemId) {
+          // Demo/system-audio can retain the selected queue row while owning
+          // the player. A background title refresh may update that row, but
+          // must not replace the active source's now-playing metadata.
+          if (isPlaybackModeYouTube() && getCurrentQueueItemId() === queueItemId) {
             const currentTrackMeta = getState('player.currentTrackMeta');
             if (!item.playlistId || currentTrackMeta?.queueItemId !== queueItemId) {
               setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(updated[currentIndex]));

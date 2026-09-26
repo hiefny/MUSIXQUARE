@@ -1115,6 +1115,15 @@ describe('YouTube input response body ownership', () => {
 
 describe('YouTube search result rendering sink', () => {
   it('coalesces a rendered result list into one scrollbar reveal per frame', async () => {
+    // Drain any prior render's frame before owning this test's scheduler.
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    const frames: FrameRequestCallback[] = [];
+    const animationFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frames.push(callback);
+        return frames.length;
+      });
     document.body.innerHTML = `
       <div id="youtube-preview"></div>
       <div id="youtube-preview-status"></div>
@@ -1142,13 +1151,17 @@ describe('YouTube search result rendering sink', () => {
 
     try {
       await searchYouTubeFromInput('single reveal probe 20260723');
-      await new Promise((resolve) => window.setTimeout(resolve, 40));
+      expect(reveal).not.toHaveBeenCalled();
+      expect(frames).toHaveLength(1);
+      frames.shift()!(16);
 
       expect(reveal).toHaveBeenCalledTimes(1);
       expect(reveal).toHaveBeenCalledWith(document.getElementById('youtube-search-results'));
     } finally {
       cleanup();
       clearYouTubeInputState();
+      for (const frame of frames.splice(0)) frame(32);
+      animationFrame.mockRestore();
       document.body.innerHTML = '';
     }
   });

@@ -10,6 +10,7 @@ import type { FLACDecoderWebWorker } from '@wasm-audio-decoders/flac';
 import { decoderWorkerCall } from './worker-call.ts';
 import { withAudioDecoderStartup } from './startup-error.ts';
 import { IncrementalAacDecoder } from './aac-decoder.ts';
+import { runDecoderOperation } from './decoder-operation.ts';
 
 interface DecodedPcm {
   channelData: Float32Array[];
@@ -59,23 +60,29 @@ class IncrementalMp3Decoder extends WorkerAudioDecoder {
   }
 
   async init(): Promise<void> {
-    await withAudioDecoderStartup(async () => {
-      const { MPEGDecoderWebWorker } = await import('mpg123-decoder');
-      if (this.closed) return;
-      this.decoder = new MPEGDecoderWebWorker({ enableGapless: false });
-      await decoderWorkerCall(this.decoder, this.decoder.ready);
+    await runDecoderOperation(this, async () => {
+      await withAudioDecoderStartup(async () => {
+        const { MPEGDecoderWebWorker } = await import('mpg123-decoder');
+        if (this.closed) return;
+        this.decoder = new MPEGDecoderWebWorker({ enableGapless: false });
+        await decoderWorkerCall(this.decoder, this.decoder.ready);
+      });
     });
   }
 
   async decode(packet: EncodedPacket): Promise<void> {
-    if (this.closed || !this.decoder) return;
-    this.nextTimestamp ??= packet.timestamp;
-    this.emit(await decoderWorkerCall(this.decoder, this.decoder.decodeFrame(packet.data)));
+    await runDecoderOperation(this, async () => {
+      if (this.closed || !this.decoder) return;
+      this.nextTimestamp ??= packet.timestamp;
+      this.emit(await decoderWorkerCall(this.decoder, this.decoder.decodeFrame(packet.data)));
+    });
   }
 
   async flush(): Promise<void> {
-    if (!this.closed && this.decoder) await decoderWorkerCall(this.decoder, this.decoder.reset());
-    this.nextTimestamp = null;
+    await runDecoderOperation(this, async () => {
+      if (!this.closed && this.decoder) await decoderWorkerCall(this.decoder, this.decoder.reset());
+      this.nextTimestamp = null;
+    });
   }
 
   async close(): Promise<void> {
@@ -94,23 +101,29 @@ class IncrementalFlacDecoder extends WorkerAudioDecoder {
   }
 
   async init(): Promise<void> {
-    await withAudioDecoderStartup(async () => {
-      const { FLACDecoderWebWorker } = await import('@wasm-audio-decoders/flac');
-      if (this.closed) return;
-      this.decoder = new FLACDecoderWebWorker();
-      await decoderWorkerCall(this.decoder, this.decoder.ready);
+    await runDecoderOperation(this, async () => {
+      await withAudioDecoderStartup(async () => {
+        const { FLACDecoderWebWorker } = await import('@wasm-audio-decoders/flac');
+        if (this.closed) return;
+        this.decoder = new FLACDecoderWebWorker();
+        await decoderWorkerCall(this.decoder, this.decoder.ready);
+      });
     });
   }
 
   async decode(packet: EncodedPacket): Promise<void> {
-    if (this.closed || !this.decoder) return;
-    this.nextTimestamp ??= packet.timestamp;
-    this.emit(await decoderWorkerCall(this.decoder, this.decoder.decodeFrames([packet.data])));
+    await runDecoderOperation(this, async () => {
+      if (this.closed || !this.decoder) return;
+      this.nextTimestamp ??= packet.timestamp;
+      this.emit(await decoderWorkerCall(this.decoder, this.decoder.decodeFrames([packet.data])));
+    });
   }
 
   async flush(): Promise<void> {
-    if (!this.closed && this.decoder) await decoderWorkerCall(this.decoder, this.decoder.reset());
-    this.nextTimestamp = null;
+    await runDecoderOperation(this, async () => {
+      if (!this.closed && this.decoder) await decoderWorkerCall(this.decoder, this.decoder.reset());
+      this.nextTimestamp = null;
+    });
   }
 
   async close(): Promise<void> {

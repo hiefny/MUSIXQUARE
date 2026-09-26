@@ -8,7 +8,6 @@ import type { ProRoomPlaybackCheckpoint, ProRoomSnapshot } from '../contracts.ts
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import {
   ProRoomApiClient,
-  ProRoomApiError,
   type ProRoomPlaybackCommandResult,
   type ProRoomPlaybackPrepareEvent,
 } from '../api.ts';
@@ -229,17 +228,14 @@ describe('PRO playback controller authority ordering', () => {
     expect(clockWait).toHaveBeenCalledOnce();
   });
 
-  it('lets the server reject a queued command after participant capability changes without preparing or committing media', async () => {
+  it('retires a queued command locally after participant capability is revoked without preparing or committing media', async () => {
     let resolveFirst!: (result: ReturnType<typeof unchangedResult>) => void;
-    const execute = vi
-      .fn()
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveFirst = resolve;
-          }),
-      )
-      .mockRejectedValueOnce(new ProRoomApiError('PERMISSION_REQUIRED', 403));
+    const execute = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
     const heartbeat = vi.fn().mockResolvedValue(undefined);
     const { controller, endpoint } = controllerPorts({ execute, runHeartbeat: heartbeat });
     const operations: Promise<void>[] = [];
@@ -260,14 +256,10 @@ describe('PRO playback controller authority ordering', () => {
       setState('room.context', context(ROOM, EPOCH, []));
 
       resolveFirst(unchangedResult());
-      await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
       await Promise.all(operations);
 
-      expect(execute.mock.calls.map(([request]) => request.command.type)).toEqual([
-        'pause',
-        'next',
-      ]);
-      expect(heartbeat).toHaveBeenCalledOnce();
+      expect(execute.mock.calls.map(([request]) => request.command.type)).toEqual(['pause']);
+      expect(heartbeat).not.toHaveBeenCalled();
       expect(endpoint.prepare).not.toHaveBeenCalled();
       expect(endpoint.commit).not.toHaveBeenCalled();
     } finally {

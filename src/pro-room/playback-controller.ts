@@ -238,6 +238,39 @@ function createImplementation(
 ): ProRoomPlaybackImplementation {
   const MAX_CANCELLED_PLAYBACK_TRANSITION_IDS = 64;
   let unregisterLocalTimeline: (() => void) | null = null;
+  let unregisterCommandAuthority: (() => void) | null = null;
+  let commandAuthorityGeneration = 0;
+  let commandMediaGeneration = 0;
+  let commandPlayback: { roomId: string; playback: ProRoomPlaybackCheckpoint } | null = null;
+
+  function rememberCommandPlayback(roomId: string, playback: ProRoomPlaybackCheckpoint): void {
+    const previous = commandPlayback;
+    if (
+      previous?.roomId === roomId &&
+      previous.playback.coordinatorEpoch === playback.coordinatorEpoch &&
+      previous.playback.revision >= playback.revision
+    )
+      return;
+    if (
+      previous?.roomId !== roomId ||
+      previous.playback.coordinatorEpoch !== playback.coordinatorEpoch ||
+      previous.playback.queueItemId !== playback.queueItemId ||
+      previous.playback.youtubeSubIndex !== playback.youtubeSubIndex ||
+      previous.playback.youtubeVideoId !== playback.youtubeVideoId
+    )
+      commandMediaGeneration += 1;
+    commandPlayback = { roomId, playback };
+  }
+
+  function getCommandPlayback(): ProRoomPlaybackCheckpoint | null {
+    const snapshot = ports.getCanonicalSnapshot();
+    if (snapshot) rememberCommandPlayback(snapshot.roomCode, snapshot.playback);
+    const context = getState('room.context');
+    return commandPlayback?.roomId === context.roomId &&
+      commandPlayback.playback.coordinatorEpoch === context.epoch
+      ? commandPlayback.playback
+      : null;
+  }
   const canonicalPlaybackCommitOwner: PlaybackCommitOwner = () => true;
   const defaultPlaybackReconciliationIdentity = {};
   const defaultPlaybackReconciliationOwner: ProRoomPlaybackReconciliationLiveness = {
@@ -412,6 +445,7 @@ function createImplementation(
 
   async function executePlaybackCommandWithRecovery(
     input: Parameters<ProRoomApiClient['executePlaybackCommand']>[0],
+    canRetry: () => boolean,
   ): Promise<ProRoomPlaybackCommandResult> {
     const roomSignal = ports.getRoomAbortSignal();
     let lastError: unknown = new ProRoomApiError('NETWORK_ERROR');
@@ -439,7 +473,7 @@ function createImplementation(
         const retryable =
           error instanceof ProRoomApiError &&
           (error.code === 'NETWORK_ERROR' || (error.code === 'ABORTED' && timedOut));
-        if (!retryable || attempt > 0 || roomSignal?.aborted) throw error;
+        if (!retryable || attempt > 0 || roomSignal?.aborted || !canRetry()) throw error;
       } finally {
         clearManagedTimer(timeoutTimer);
         linked.detach();
@@ -1150,6 +1184,9 @@ function createImplementation(
     // generation; otherwise it would cancel the newer COMMIT and then reject
     // itself against state.highestKnownRevision.
     if (event.playback.revision < state.highestKnownRevision) return;
+    // Live COMMIT is authoritative before its follow-up heartbeat hydrates the
+    // snapshot. Command identity must move with this checkpoint, not that GET.
+    rememberCommandPlayback(context.roomId, event.playback);
     const existing = state.commitInFlight.get(event.playback.revision);
     if (existing) {
       if (existing.owner === isRequestCurrent || existing.owner === canonicalPlaybackCommitOwner) {
@@ -1291,12 +1328,15 @@ function createImplementation(
   async function submitPlaybackIntent(
     intent: Readonly<ProPlaybackUserIntent>,
     exactBasePlaybackRevision?: number,
+    canSubmit: () => boolean = () => true,
   ): Promise<void> {
     const context = getState('room.context');
     const snapshot = ports.getCanonicalSnapshot();
     if (
       !ports.isActive() ||
+      !canSubmit() ||
       context.kind !== 'pro' ||
+      !context.capabilities.includes('playback.control') ||
       !context.roomId ||
       context.roomId !== intent.roomId ||
       context.epoch !== intent.roomEpoch ||
@@ -1347,11 +1387,14 @@ function createImplementation(
       );
     };
     try {
-      const result = await executePlaybackCommandWithRecovery({
-        code: intent.roomId,
-        command: commandForPlaybackIntent(intent, baseRevision),
-        idempotencyKey: createProRoomIdempotencyKey(),
-      });
+      const result = await executePlaybackCommandWithRecovery(
+        {
+          code: intent.roomId,
+          command: commandForPlaybackIntent(intent, baseRevision),
+          idempotencyKey: createProRoomIdempotencyKey(),
+        },
+        canSubmit,
+      );
       if (!commandIsCurrent()) return;
       state.highestKnownRevision = Math.max(state.highestKnownRevision, result.playback.revision);
       if (result.status === 'preparing' && result.transition) {
@@ -1435,8 +1478,12 @@ function createImplementation(
     signal?: AbortSignal,
   ): Promise<void> {
     const commandGeneration = state.commandGeneration;
+    const authorityGeneration = commandAuthorityGeneration;
+    const canSubmit = () =>
+      authorityGeneration === commandAuthorityGeneration &&
+      getState('room.context').capabilities.includes('playback.control');
     const submit = async () => {
-      if (commandGeneration !== state.commandGeneration) return;
+      if (commandGeneration !== state.commandGeneration || !canSubmit()) return;
       const context = getState('room.context');
       const snapshot = ports.getPlaylistSnapshot();
       const item = snapshot?.playlist.find(
@@ -1474,6 +1521,7 @@ function createImplementation(
           youtubeSubIndex: request.youtubeSubIndex,
         },
         request.basePlaybackRevision,
+        canSubmit,
       );
     };
     // A preceding user command failure must not starve a newly committed first
@@ -1501,14 +1549,37 @@ function createImplementation(
         ? intent.observedPlaybackRevision
         : undefined;
     const commandGeneration = state.commandGeneration;
+    const authorityGeneration = commandAuthorityGeneration;
+    const seekSource = intent.kind === 'seek' ? getCommandPlayback() : null;
+    const seekMediaGeneration = commandMediaGeneration;
+    const canSubmit = (): boolean => {
+      if (
+        authorityGeneration !== commandAuthorityGeneration ||
+        !getState('room.context').capabilities.includes('playback.control')
+      )
+        return false;
+      if (intent.kind !== 'seek') return true;
+      const playback = getCommandPlayback();
+      // Seek is a position in the media the gesture targeted, not a position
+      // in whichever row/sub-video happens to own the queue after an HTTP wait.
+      return Boolean(
+        seekSource &&
+        playback &&
+        seekMediaGeneration === commandMediaGeneration &&
+        seekSource.queueItemId === intent.queueItemId &&
+        playback.queueItemId === intent.queueItemId &&
+        playback.youtubeSubIndex === seekSource.youtubeSubIndex &&
+        playback.youtubeVideoId === seekSource.youtubeVideoId,
+      );
+    };
     const submit = () => {
-      if (commandGeneration !== state.commandGeneration) {
+      if (commandGeneration !== state.commandGeneration || !canSubmit()) {
         if (intent.clientUiControlToken) {
           settleProPlaybackUiControl(intent.clientUiControlToken, 'failed');
         }
         return Promise.resolve();
       }
-      return submitPlaybackIntent(intent, exactBaseRevision);
+      return submitPlaybackIntent(intent, exactBaseRevision, canSubmit);
     };
     const operation = state.commandTail.then(submit, submit);
     state.commandTail = operation.catch(() => undefined);
@@ -2077,6 +2148,8 @@ function createImplementation(
   }
 
   function resetPlaylistRuntime(): void {
+    commandPlayback = null;
+    commandMediaGeneration += 1;
     state.cancelledCheckpointRecovery = null;
     state.commandGeneration += 1;
     const transition = state.activeTransition;
@@ -2098,9 +2171,14 @@ function createImplementation(
   }
 
   function stopLifecycle(): void {
+    commandPlayback = null;
+    commandMediaGeneration += 1;
     state.cancelledCheckpointRecovery = null;
     unregisterLocalTimeline?.();
     unregisterLocalTimeline = null;
+    unregisterCommandAuthority?.();
+    unregisterCommandAuthority = null;
+    commandAuthorityGeneration += 1;
     state.commandGeneration += 1;
     state.reconciliationSchedulerGeneration += 1;
     state.reconciliationInFlight = null;
@@ -2122,6 +2200,15 @@ function createImplementation(
   }
 
   function startLifecycle(): void {
+    unregisterCommandAuthority?.();
+    unregisterCommandAuthority = bus.on('state:room.context', () => {
+      const context = getState('room.context');
+      // A revoke/regrant cycle must not revive queued gestures. Canonical
+      // PREPARE/COMMIT handling remains independent of this local authority.
+      if (context.kind !== 'pro' || !context.capabilities.includes('playback.control')) {
+        commandAuthorityGeneration += 1;
+      }
+    });
     unregisterLocalTimeline?.();
     unregisterLocalTimeline = registerProRoomLocalPlaybackTimeline({
       getSnapshot: ports.getCanonicalSnapshot,

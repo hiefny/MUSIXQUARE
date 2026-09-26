@@ -779,6 +779,12 @@ describe('coordinator-free PRO server channel', () => {
     const bridge = proRoomServerBridge;
     const socket = await openBridge(bridge);
     const { controller, current, commit, execute, unregister } = createSnapshotPlaybackController();
+    // The surrounding recovery cases model a listener. This case also sends a
+    // human play command, so its participant needs delegated playback control.
+    setState('room.context', {
+      ...getState('room.context'),
+      capabilities: ['playback.control'],
+    });
     try {
       const restoring = controller.restorePersistedPlayback(current);
       await vi.advanceTimersByTimeAsync(100);
@@ -798,6 +804,7 @@ describe('coordinator-free PRO server channel', () => {
         positionSeconds: 23,
       });
       await vi.advanceTimersByTimeAsync(0);
+      expect(execute).toHaveBeenCalledOnce();
       expect(bridge.clockCalibrated).toBe(false);
       expect(commit).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ positionSeconds: 25, scheduleDelayMs: 0 }),

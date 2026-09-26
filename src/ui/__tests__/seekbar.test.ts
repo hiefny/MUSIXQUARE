@@ -512,6 +512,244 @@ describe('initSeekBar playback mode gates', () => {
     expect(getState('player.isSeeking')).toBe(false);
   });
 
+  it('retires an old seek drag when a different queue occurrence becomes current', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    try {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      initSeekBar();
+      installRangeDragGuard();
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 40));
+      slider.dispatchEvent(seekPointer('pointerdown', 1, 200));
+
+      // Remote selection or automatic advancement completes before release.
+      bus.emit('ui:seek-reset');
+      setState('playlist.currentQueueItemId', '20000000-0000-4000-8000-000000000002');
+      bus.emit('ui:duration-update', 180);
+      vi.mocked(getTrackPosition).mockReturnValue(3);
+      slider.dispatchEvent(seekPointer('pointermove', 1, 300));
+      slider.dispatchEvent(seekPointer('pointerup', 1, 300));
+
+      expect(seekTo).not.toHaveBeenCalled();
+      expect(getState('player.isSeeking')).toBe(false);
+      expect(slider.value).toBe('3');
+
+      slider.dispatchEvent(seekPointer('pointerdown', 2, 200));
+      slider.dispatchEvent(seekPointer('pointerup', 2, 200));
+      expect(seekTo).toHaveBeenCalledExactlyOnceWith(90);
+    } finally {
+      clearAllManagedTimers();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([true, false])(
+    'does not revive a held pointer after playback permission returns (initial grant: %s)',
+    (initiallyAllowed) => {
+      vi.stubGlobal('PointerEvent', MouseEvent);
+      try {
+        setState('network.appRole', 'guest');
+        setState('network.hostConn', { peer: 'host-1', open: true } as never);
+        setState('network.isOperator', initiallyAllowed);
+        setState('playback.mode', 'file');
+        setState('playback.activity', 'playing');
+        setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+        vi.mocked(getTrackPosition).mockReturnValue(21);
+        initSeekBar();
+        installRangeDragGuard();
+        const slider = document.getElementById('seek-slider') as HTMLInputElement;
+        vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 40));
+        slider.dispatchEvent(seekPointer('pointerdown', 1, 200));
+
+        // Authority can change twice while the captured pointer stays still.
+        // Neither input nor change observes the denied interval directly.
+        setState('network.isOperator', false);
+        expect(slider.getAttribute('aria-disabled')).toBe('true');
+        setState('network.isOperator', true);
+        expect(slider.getAttribute('aria-disabled')).toBe('false');
+        slider.dispatchEvent(seekPointer('pointerup', 1, 200));
+
+        expect(seekTo).not.toHaveBeenCalled();
+        expect(getState('player.isSeeking')).toBe(false);
+        expect(slider.value).toBe('21');
+
+        slider.dispatchEvent(seekPointer('pointerdown', 2, 300));
+        slider.dispatchEvent(seekPointer('pointerup', 2, 300));
+        expect(seekTo).toHaveBeenCalledExactlyOnceWith(90);
+      } finally {
+        clearAllManagedTimers();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it('retires a seek drag when a YouTube playlist changes sub-video under the same queue item', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    try {
+      setState('playback.mode', 'youtube');
+      setState('playback.activity', 'playing');
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('youtube.currentSubIndex', 0);
+      initSeekBar();
+      installRangeDragGuard();
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 40));
+      slider.dispatchEvent(seekPointer('pointerdown', 1, 200));
+
+      // The queue row and mode remain unchanged across a playlist sub-video.
+      setState('youtube.currentSubIndex', 1);
+      vi.mocked(getTrackPosition).mockReturnValue(4);
+      bus.emit('ui:time-update', 'fmt:4', 'fmt:180', 4, 180);
+      slider.dispatchEvent(seekPointer('pointermove', 1, 300));
+      slider.dispatchEvent(seekPointer('pointerup', 1, 300));
+
+      expect(getState('playlist.currentQueueItemId')).toBe(QUEUE_ITEM_ID);
+      expect(seekTo).not.toHaveBeenCalled();
+      expect(getState('player.isSeeking')).toBe(false);
+      expect(slider.value).toBe('4');
+
+      slider.dispatchEvent(seekPointer('pointerdown', 2, 200));
+      slider.dispatchEvent(seekPointer('pointerup', 2, 200));
+      expect(seekTo).toHaveBeenCalledExactlyOnceWith(90);
+    } finally {
+      clearAllManagedTimers();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(['before-timeout', 'after-timeout'] as const)(
+    'rejects a delayed iOS change when selection changes %s after pointer release',
+    (selectionBoundary) => {
+      vi.useFakeTimers();
+      try {
+        setState('playback.mode', 'file');
+        setState('playback.activity', 'playing');
+        setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+        initSeekBar();
+        const slider = document.getElementById('seek-slider') as HTMLInputElement;
+        slider.dispatchEvent(seekPointer('pointerdown', 1));
+        slider.value = '33';
+        slider.dispatchEvent(new Event('input'));
+        slider.dispatchEvent(seekPointer('pointerup', 1));
+        expect(getState('player.isSeeking')).toBe(true);
+
+        if (selectionBoundary === 'after-timeout') vi.advanceTimersByTime(350);
+        setState('playlist.currentQueueItemId', '20000000-0000-4000-8000-000000000002');
+        vi.mocked(getTrackPosition).mockReturnValue(3);
+        vi.advanceTimersByTime(351);
+        slider.dispatchEvent(new Event('change'));
+
+        expect(seekTo).not.toHaveBeenCalled();
+        expect(getState('player.isSeeking')).toBe(false);
+        expect(slider.value).toBe('3');
+      } finally {
+        clearAllManagedTimers();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(['ArrowRight', 'ArrowUp'])(
+    'accepts a new %s keyboard seek after retiring the preceding pointer gesture',
+    (key) => {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      initSeekBar();
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      slider.dispatchEvent(seekPointer('pointerdown', 1));
+      slider.value = '60';
+      slider.dispatchEvent(new Event('input'));
+      setState('playlist.currentQueueItemId', '20000000-0000-4000-8000-000000000002');
+      slider.dispatchEvent(seekPointer('pointerup', 1));
+      slider.dispatchEvent(new Event('change'));
+      expect(seekTo).not.toHaveBeenCalled();
+
+      const keydown = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      slider.dispatchEvent(keydown);
+      expect(keydown.defaultPrevented).toBe(false);
+      // jsdom has no native range keyboard default action. Supply its input
+      // and change events after the real keydown admission boundary.
+      slider.value = '42';
+      slider.dispatchEvent(new Event('input'));
+      slider.dispatchEvent(new Event('change'));
+      slider.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+
+      expect(seekTo).toHaveBeenCalledExactlyOnceWith(42);
+      expect(getState('player.isSeeking')).toBe(false);
+    },
+  );
+
+  it('accepts a fresh accessibility adjustment after a completed pointer seek and later queue change', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    slider.dispatchEvent(seekPointer('pointerdown', 1));
+    slider.value = '33';
+    slider.dispatchEvent(new Event('input'));
+    slider.dispatchEvent(seekPointer('pointerup', 1));
+    slider.dispatchEvent(new Event('change'));
+    expect(seekTo).toHaveBeenCalledExactlyOnceWith(33);
+    vi.mocked(seekTo).mockClear();
+
+    // This is an ordinary later selection, after the pointer command ended.
+    setState('playlist.currentQueueItemId', '20000000-0000-4000-8000-000000000002');
+    bus.emit('ui:seek-reset');
+    bus.emit('ui:duration-update', 180);
+    vi.mocked(getTrackPosition).mockReturnValue(3);
+
+    // Native accessibility range actions can set the value and dispatch
+    // input/change directly, without a preceding pointer or keyboard event.
+    slider.value = '42';
+    slider.dispatchEvent(new Event('input'));
+    slider.dispatchEvent(new Event('change'));
+
+    expect(seekTo).toHaveBeenCalledExactlyOnceWith(42);
+    expect(slider.value).toBe('42');
+    expect(getState('player.isSeeking')).toBe(false);
+  });
+
+  it('accepts a fresh accessibility adjustment after consuming a cancelled pointer change', () => {
+    vi.useFakeTimers();
+    try {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      initSeekBar();
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      slider.dispatchEvent(seekPointer('pointerdown', 1));
+      slider.value = '33';
+      slider.dispatchEvent(new Event('input'));
+      slider.dispatchEvent(seekPointer('pointerup', 1));
+      setState('playlist.currentQueueItemId', '20000000-0000-4000-8000-000000000002');
+      vi.mocked(getTrackPosition).mockReturnValue(3);
+      vi.advanceTimersByTime(351);
+
+      // Consume the original release's late change before a new action.
+      slider.dispatchEvent(new Event('change'));
+      expect(seekTo).not.toHaveBeenCalled();
+      expect(slider.value).toBe('3');
+
+      slider.value = '42';
+      slider.dispatchEvent(new Event('input'));
+      slider.dispatchEvent(new Event('change'));
+
+      expect(seekTo).toHaveBeenCalledExactlyOnceWith(42);
+      expect(slider.value).toBe('42');
+      expect(getState('player.isSeeking')).toBe(false);
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('preserves touch release and cancel when PointerEvent is unavailable', () => {
     vi.useFakeTimers();
     vi.stubGlobal('PointerEvent', undefined);

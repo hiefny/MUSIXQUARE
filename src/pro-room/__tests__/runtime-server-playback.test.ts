@@ -664,6 +664,14 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   });
 
   it('does not restart a PREPARE cancelled before its HTTP response arrives', async () => {
+    // A seek targets an established occurrence, not the empty room checkpoint.
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    prepareMedia.mockClear();
+    commitMedia.mockClear();
+    reportReady.mockClear();
     let resolveCommand!: (
       value: Awaited<ReturnType<ProRoomApiClient['executePlaybackCommand']>>,
     ) => void;
@@ -694,8 +702,8 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         schemaVersion: 1,
         roomCode: ROOM_CODE,
         status: 'preparing',
-        transition: prepareEvent(TRANSITION_READY),
-        playback: playback(0),
+        transition: prepareEvent(TRANSITION_READY, 1),
+        playback: playback(1),
         serverTimeMs: 10_000,
       });
 
@@ -3629,9 +3637,15 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   });
 
   it('settles a local seek token only after the canonical media endpoint applies', async () => {
-    const targetPlayback = playback(1, { positionSeconds: 42 });
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    prepareMedia.mockClear();
+    commitMedia.mockClear();
+    const targetPlayback = playback(2, { positionSeconds: 42 });
     const transition = {
-      ...prepareEvent(TRANSITION_READY),
+      ...prepareEvent(TRANSITION_READY, 1),
       target: targetPlayback,
     };
     executeCommand.mockResolvedValueOnce({
@@ -3639,7 +3653,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       roomCode: ROOM_CODE,
       status: 'preparing',
       transition,
-      playback: playback(0),
+      playback: playback(1),
       serverTimeMs: 10_000,
     });
     let resolveCommit!: (value: {
@@ -3664,7 +3678,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
       acceptProRoomRealtimeFrameForTests(
         serverFrame({
-          ...commitEvent(TRANSITION_READY, 1),
+          ...commitEvent(TRANSITION_READY, 2),
           playback: targetPlayback,
         } as unknown as Record<string, unknown>),
       );
@@ -3682,6 +3696,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   });
 
   it('does not mistake another participant revision for a provisional local command', async () => {
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    prepareMedia.mockClear();
+    commitMedia.mockClear();
     let rejectCommand!: (error: unknown) => void;
     executeCommand.mockImplementationOnce(
       () =>
@@ -3699,7 +3719,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
 
       acceptProRoomRealtimeFrameForTests(
-        serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+        serverFrame(commitEvent(null, 2) as unknown as Record<string, unknown>),
       );
       await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
       expect(settled.some((event) => event.status === 'applied')).toBe(false);

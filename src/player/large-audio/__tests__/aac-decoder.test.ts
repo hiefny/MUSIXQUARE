@@ -39,12 +39,14 @@ vi.mock('mediabunny', () => ({
 function create(config: Partial<AudioDecoderConfig> = {}) {
   const decoder = new IncrementalAacDecoder();
   const onSample = vi.fn();
+  const onError = vi.fn();
   Object.assign(decoder, {
     codec: 'aac',
     config: { codec: 'mp4a.40.2', sampleRate: 24000, numberOfChannels: 1, ...config },
     onSample,
+    onError,
   });
-  return { decoder, onSample };
+  return { decoder, onSample, onError };
 }
 
 function packet(timestamp: number): EncodedPacket {
@@ -68,18 +70,27 @@ describe('incremental AAC decoder', () => {
   it('marks worker bootstrap failures retryable without marking corrupt frames', async () => {
     mocks.ready.mockRejectedValueOnce(new Error('worker bootstrap interrupted'));
     const first = create();
-    const failure = await first.decoder.init().catch((error: unknown) => error);
+    await expect(first.decoder.init()).resolves.toBeUndefined();
+    expect(first.onError).toHaveBeenCalledOnce();
+    const failure: unknown = first.onError.mock.calls[0][0];
     expect(isAudioDecoderStartupError(failure)).toBe(true);
+    expect(mocks.free).toHaveBeenCalledOnce();
+    await first.decoder.decode(packet(0));
+    expect(mocks.decode).not.toHaveBeenCalled();
     await first.decoder.close();
     expect(mocks.free).toHaveBeenCalledOnce();
 
     const retry = create();
     await retry.decoder.init();
     mocks.decode.mockResolvedValueOnce({ ...pcm(2), errors: [{ message: 'corrupt AAC frame' }] });
-    const corrupt = await retry.decoder.decode(packet(0)).catch((error: unknown) => error);
+    await expect(retry.decoder.decode(packet(0))).resolves.toBeUndefined();
+    expect(retry.onError).toHaveBeenCalledOnce();
+    const corrupt: unknown = retry.onError.mock.calls[0][0];
     expect(corrupt).toBeInstanceOf(Error);
     expect(isAudioDecoderStartupError(corrupt)).toBe(false);
+    expect(mocks.free).toHaveBeenCalledTimes(2);
     await retry.decoder.close();
+    expect(mocks.free).toHaveBeenCalledTimes(2);
   });
 
   it.each(['mp4a.40.2', 'mp4a.40.02', 'mp4a.40.5', 'mp4a.40.05', 'mp4a.40.29'])(
@@ -169,23 +180,65 @@ describe('incremental AAC decoder', () => {
     expect(mocks.free).toHaveBeenCalledOnce();
   });
 
-  it('surfaces corrupt frames and rejects malformed PCM instead of shifting time', async () => {
-    const { decoder, onSample } = create();
+  it('reports corrupt frames and retires the decoder before further packets', async () => {
+    const { decoder, onSample, onError } = create();
     await decoder.init();
     mocks.decode.mockResolvedValueOnce({ ...pcm(2), errors: [{ message: 'corrupt AAC frame' }] });
-    await expect(decoder.decode(packet(0))).rejects.toThrow('corrupt AAC frame');
+    await expect(decoder.decode(packet(0))).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(new Error('corrupt AAC frame'));
+    expect(mocks.free).toHaveBeenCalledOnce();
+    await decoder.decode(packet(1));
+    await decoder.flush();
+    await decoder.close();
+    expect(mocks.decode).toHaveBeenCalledOnce();
+    expect(mocks.reset).not.toHaveBeenCalled();
+    expect(mocks.free).toHaveBeenCalledOnce();
+    expect(onSample).not.toHaveBeenCalled();
+  });
+
+  it('reports malformed PCM instead of shifting time and closes its decoder', async () => {
+    const { decoder, onSample, onError } = create();
+    await decoder.init();
     mocks.decode.mockResolvedValueOnce({ ...pcm(2), sampleRate: Number.NaN });
-    await expect(decoder.decode(packet(0))).rejects.toThrow('invalid PCM');
+    await expect(decoder.decode(packet(0))).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      new Error('Incremental AAC decoder returned invalid PCM'),
+    );
+    expect(mocks.free).toHaveBeenCalledOnce();
     expect(onSample).not.toHaveBeenCalled();
   });
 
   it('rejects a later sample-rate change instead of silently changing the established sample clock', async () => {
-    const { decoder, onSample } = create();
+    const { decoder, onSample, onError } = create();
     await decoder.init();
     mocks.decode.mockResolvedValueOnce(pcm(2));
     await decoder.decode(packet(0));
     mocks.decode.mockResolvedValueOnce(pcm(2, 44100));
-    await expect(decoder.decode(packet(1))).rejects.toThrow('output format changed');
+    await expect(decoder.decode(packet(1))).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(
+      new Error('Incremental AAC output format changed within the track'),
+    );
+    expect(mocks.free).toHaveBeenCalledOnce();
     expect(onSample).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a flush failure while cleanup rejects and makes later operations no-ops', async () => {
+    const { decoder, onSample, onError } = create();
+    await decoder.init();
+    const failure = new Error('worker reset failed');
+    mocks.reset.mockRejectedValueOnce(failure);
+    mocks.free.mockRejectedValueOnce(new Error('worker cleanup failed'));
+
+    await expect(decoder.flush()).resolves.toBeUndefined();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(mocks.free).toHaveBeenCalledOnce();
+
+    await decoder.decode(packet(2));
+    await decoder.flush();
+    await decoder.close();
+    expect(mocks.decode).not.toHaveBeenCalled();
+    expect(mocks.reset).toHaveBeenCalledOnce();
+    expect(mocks.free).toHaveBeenCalledOnce();
+    expect(onSample).not.toHaveBeenCalled();
   });
 });

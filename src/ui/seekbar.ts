@@ -111,6 +111,22 @@ const SEEK_DRAFT_RELEASE_FALLBACK_MS = 350;
 let _seekDraftActive = false;
 let _seekDenialFeedbackActive = false;
 let _proPlaybackTransitionLoading = false;
+let _seekGestureStarted = false;
+let _seekGestureCancelled = false;
+let _seekGestureRoom = getRoomContext();
+
+function beginSeekGesture(): void {
+  _seekGestureStarted = true;
+  _seekGestureCancelled = false;
+  _seekGestureRoom = getRoomContext();
+}
+
+function cancelSeekGesture(): void {
+  // Keep this tombstone after pointerup and the visual draft timeout: iOS can
+  // deliver change later, and a remote revoke/regrant must not revive it.
+  if (_seekGestureStarted) _seekGestureCancelled = true;
+  finishSeekDraft();
+}
 
 function anchorSeekDraft(slider: HTMLInputElement): void {
   const value = Number.parseFloat(slider.value);
@@ -149,13 +165,13 @@ function showSeekUnavailableFeedback(reason: SeekUnavailableReason): void {
 
 function rejectSeekInteraction(slider: HTMLInputElement, announce = true): boolean {
   const reason = getSeekUnavailableReason();
-  if (!reason) return false;
-  finishSeekDraft();
+  if (!reason && !_seekGestureCancelled) return false;
+  cancelSeekGesture();
   const timelineReason = getTimelineUnavailableReason();
   if (timelineReason) renderUnavailableTimeline(timelineReason);
   else renderCanonicalSeekPosition(slider);
   syncSeekAvailability(slider);
-  if (announce) showSeekUnavailableFeedback(reason);
+  if (announce && reason) showSeekUnavailableFeedback(reason);
   return true;
 }
 
@@ -200,6 +216,7 @@ function initSeekBarInput(signal?: AbortSignal): void {
 
   let activePointerId: number | null = null;
   const beginPointerDraft = (event: Event) => {
+    beginSeekGesture();
     _seekDenialFeedbackActive = false;
     if (rejectSeekInteraction(slider)) {
       event.preventDefault();
@@ -255,15 +272,20 @@ function initSeekBarInput(signal?: AbortSignal): void {
   slider.addEventListener(
     'change',
     () => {
-      if (rejectSeekInteraction(slider)) return;
-      beginSeekDraft(slider);
-      const seekTime = parseFloat(slider.value);
       try {
+        if (rejectSeekInteraction(slider)) return;
+        beginSeekDraft(slider);
+        const seekTime = parseFloat(slider.value);
         // PRO command admission emits its pending token synchronously. Release
         // the input draft only after that longer-lived projection can take over.
         seekTo(seekTime);
       } finally {
         finishSeekDraft(slider);
+        // This change consumes the gesture, including a rejected late change.
+        // Accessibility sliders can send fresh input/change without a pointer
+        // or keydown; a completed gesture must not leave them cancelled.
+        _seekGestureStarted = false;
+        _seekGestureCancelled = false;
       }
     },
     { signal },
@@ -299,9 +321,21 @@ function initSeekBarInput(signal?: AbortSignal): void {
   slider.addEventListener(
     'keydown',
     (event) => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+      if (
+        ![
+          'ArrowLeft',
+          'ArrowRight',
+          'ArrowUp',
+          'ArrowDown',
+          'Home',
+          'End',
+          'PageUp',
+          'PageDown',
+        ].includes(event.key)
+      ) {
         return;
       }
+      beginSeekGesture();
       _seekDenialFeedbackActive = false;
       if (rejectSeekInteraction(slider)) event.preventDefault();
     },
@@ -451,10 +485,13 @@ const _busScope = createBusScope();
 function initSeekBarBusHandlers(): void {
   _busScope.dispose();
   finishSeekDraft();
+  _seekGestureStarted = false;
+  _seekGestureCancelled = false;
   clearPendingSeekProjections();
   _proPlaybackTransitionLoading = false;
 
   const refreshAvailability = () => {
+    if (getSeekUnavailableReason()) cancelSeekGesture();
     syncSeekAvailability();
     const timelineReason = getTimelineUnavailableReason();
     if (timelineReason) renderUnavailableTimeline(timelineReason);
@@ -466,6 +503,20 @@ function initSeekBarBusHandlers(): void {
   _busScope.on('state:network.isOperator', refreshAvailability);
   _busScope.on('state:network.standardRoomCapabilities', refreshAvailability);
   _busScope.on('state:room.context', refreshAvailability);
+  _busScope.on('state:room.context', () => {
+    const context = getRoomContext();
+    if (
+      context.kind !== _seekGestureRoom.kind ||
+      context.roomId !== _seekGestureRoom.roomId ||
+      context.epoch !== _seekGestureRoom.epoch
+    )
+      cancelSeekGesture();
+  });
+  _busScope.on('state:playlist.currentQueueItemId', cancelSeekGesture);
+  _busScope.on('state:youtube.currentSubIndex', cancelSeekGesture);
+  _busScope.on('state:playback.mode', cancelSeekGesture);
+  _busScope.on('state:demo.active', cancelSeekGesture);
+  _busScope.on('state:network.hostConn', cancelSeekGesture);
   _busScope.on('state:playback.lifecycle', refreshAvailability);
   _busScope.on('youtube:zero-start-readiness-changed', refreshAvailability);
   // Zero-start keeps its protocol identity alive briefly after PLAYING so
@@ -518,7 +569,7 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('ui:seek-reset', () => {
-    finishSeekDraft();
+    cancelSeekGesture();
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
     // A PRO playing seek may intentionally tear down and re-prepare the same
@@ -603,7 +654,7 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('player:stop-all-media', () => {
-    finishSeekDraft();
+    cancelSeekGesture();
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
     const projection = keepOnlyCurrentQueueProjections();

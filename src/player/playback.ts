@@ -911,9 +911,9 @@ export function initPlayback(): void {
       handleEnded();
       return;
     }
-    void play(position, 0, capturedAt, () => isLocalFileOutputIdentityCurrent(identity)).catch(
-      (error) => log.warn('[Playback] Failed to refresh the current file position:', error),
-    );
+    void play(position, 0, capturedAt, () => isLocalFileOutputIdentityCurrent(identity), {
+      outputOnly: true,
+    }).catch((error) => log.warn('[Playback] Failed to refresh the current file position:', error));
   });
 
   // Safety polling: periodically check if track ended (called from UI loop)

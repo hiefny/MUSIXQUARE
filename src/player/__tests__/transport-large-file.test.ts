@@ -20,6 +20,10 @@ import type { DataConnection } from '../../types/index.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import { withAudioDecoderStartup } from '../large-audio/startup-error.ts';
 import { BoundedPlayback, type PcmChunk } from '../large-audio/bounded-playback.ts';
+import { BoundedAudioTrack } from '../large-audio/bounded-track.ts';
+import { ensureRunning } from '../../audio/context.ts';
+import { initPlayback } from '../playback.ts';
+import { initLocalOutputRejoin } from '../local-output-rejoin.ts';
 import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
@@ -28,6 +32,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   currentTime: 100,
+  contextState: 'running' as AudioContextState,
   monotonicMs: 1_000,
   start: vi.fn(),
   broadcast: vi.fn(),
@@ -42,7 +47,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../audio/context.ts', () => ({
   getCurrentTime: () => mocks.currentTime,
   getAudioContext: () => ({
-    state: 'running',
+    get state() {
+      return mocks.contextState;
+    },
     get currentTime() {
       return mocks.currentTime;
     },
@@ -160,6 +167,7 @@ beforeEach(() => {
   setPlayerNode(null);
   vi.clearAllMocks();
   mocks.currentTime = 100;
+  mocks.contextState = 'running';
   mocks.monotonicMs = 1_000;
   setState('network.appRole', 'host');
   setState('network.sessionCode', '123456');
@@ -647,6 +655,253 @@ describe('bounded file transport preparation', () => {
     expect(mocks.broadcast.mock.calls.filter(([message]) => message.type === MSG.PLAY)).toEqual([
       [expect.objectContaining({ time: 900 })],
     ]);
+  });
+
+  it.each(
+    (['nudge', 'editor', 'reset', 'none'] as const).flatMap((input) =>
+      [100, 5_100].map((preparationDelayMs) => ({ input, preparationDelayMs })),
+    ),
+  )(
+    'retains a pending host seek and its room PLAY when $input arrives after $preparationDelayMs ms of preparation',
+    async ({ input, preparationDelayMs }) => {
+      initSync();
+      const { track, pending, outputs } = controlledTrack();
+      setCurrentAudioBuffer(track);
+      if (input === 'reset') setState('sync.localOffset', 0.2);
+      const initial = hostSeek(20);
+      await advance();
+      pending[0]!.resolve();
+      await expect(initial).resolves.toBe(true);
+      mocks.broadcast.mockClear();
+
+      const seek = hostSeek(700);
+      await advance();
+      expect(pending).toHaveLength(2);
+      expect(getPlayerNode()).toBeNull();
+      expect(getSyncPongPlaybackState()).toEqual({ mode: 'file', activity: 'paused' });
+      await advance(preparationDelayMs);
+
+      if (input === 'nudge') bus.emit('sync:nudge', 100);
+      else if (input === 'editor') bus.emit('sync:set-manual-offset', 100);
+      else if (input === 'reset') bus.emit('sync:auto-sync');
+      await advance(100);
+      // Let every decoder preparation that production transport requested finish.
+      // The real boundary is asynchronous PCM preparation, not a suspended import.
+      for (let index = 1; index < pending.length; index++) {
+        pending[index]!.resolve();
+        await advance();
+      }
+      await seek;
+
+      expect(outputs).toHaveLength(2);
+      const audibleOffset = input === 'nudge' || input === 'editor' ? 0.1 : 0;
+      const platformOffset = (input === 'editor' || input === 'reset') && IS_WINDOWS ? 0.02 : 0;
+      expect(outputs.at(-1)?.offset).toBeCloseTo(700 + audibleOffset + platformOffset);
+      expect(getSyncPongPlaybackState()).toEqual({ mode: 'file', activity: 'playing' });
+      expect(mocks.broadcast.mock.calls.filter(([message]) => message.type === MSG.PLAY)).toEqual([
+        [expect.objectContaining({ time: 700, queueItemId: QUEUE_ITEM_ID })],
+      ]);
+    },
+  );
+
+  it.each(['manual', 'background'] as const)(
+    'preserves host seek publication across %s recovery during an actual bounded PCM read',
+    async (recovery) => {
+      initSync();
+      if (recovery === 'background') {
+        initPlayback();
+        initLocalOutputRejoin();
+      }
+      let releaseSeek!: () => void;
+      let seekReleased = false;
+      const seekGate = new Promise<void>((resolve) => {
+        releaseSeek = () => {
+          seekReleased = true;
+          resolve();
+        };
+      });
+      const openedPositions: number[] = [];
+      const track = new BoundedAudioTrack(
+        3_600,
+        48_000,
+        2,
+        async function* (position) {
+          openedPositions.push(position);
+          if (position >= 600 && !seekReleased) await seekGate;
+          for (let timestamp = position; timestamp < 3_600; timestamp += 1) {
+            yield {
+              timestamp,
+              buffer: { duration: 1, length: 48_000, numberOfChannels: 2 } as AudioBuffer,
+            };
+          }
+        },
+        vi.fn(),
+      );
+      const createPlayback = vi.spyOn(track, 'createPlayback');
+      setCurrentAudioBuffer(track);
+      await expect(hostSeek(20)).resolves.toBe(true);
+      mocks.broadcast.mockClear();
+
+      const seek = hostSeek(700);
+      await advance();
+      expect(openedPositions).toContain(700);
+      expect(getPlayerNode()).toBeNull();
+      if (recovery === 'manual') bus.emit('sync:nudge', 100);
+      else bus.emit('playback:local-output-rejoin', { reason: 'background-resume', mode: 'file' });
+      await advance(100);
+      releaseSeek();
+      await advance();
+      await seek;
+
+      expect(createPlayback).toHaveBeenCalledTimes(2);
+      expect(mocks.broadcast.mock.calls.filter(([message]) => message.type === MSG.PLAY)).toEqual([
+        [expect.objectContaining({ time: 700, queueItemId: QUEUE_ITEM_ID })],
+      ]);
+      expect(createPlayback.mock.calls.at(-1)?.[0].offset).toBeCloseTo(
+        recovery === 'manual' ? 700.1 : 700,
+      );
+    },
+  );
+
+  it.each(['pause', 'youtube', 'system-audio'] as const)(
+    'keeps %s authoritative after a manual edit during a pending host seek',
+    async (successor) => {
+      initSync();
+      const { track, pending, outputs } = controlledTrack();
+      setCurrentAudioBuffer(track);
+      const initial = hostSeek(20);
+      await advance();
+      pending[0]!.resolve();
+      await initial;
+      mocks.broadcast.mockClear();
+
+      const seek = hostSeek(700);
+      await advance();
+      bus.emit('sync:nudge', 100);
+      await advance(100);
+      if (successor === 'pause') pause(700, { showToast: false });
+      else {
+        stopAllMedia({ cancelInFlight: true });
+        setState('playback.mode', successor);
+      }
+      for (let index = 1; index < pending.length; index++) pending[index]!.resolve();
+      await advance(100);
+      await seek;
+
+      expect(outputs).toHaveLength(1);
+      expect(getPlayerNode()).toBeNull();
+      expect(mocks.broadcast.mock.calls.some(([message]) => message.type === MSG.PLAY)).toBe(false);
+      if (successor === 'pause') expect(getState('playback.activity')).toBe('paused');
+      else expect(getState('playback.mode')).toBe(successor);
+    },
+  );
+
+  it('keeps the original watchdog deadline while absorbing manual edits into slow preparation', async () => {
+    initSync();
+    const { track, pending, outputs } = controlledTrack();
+    setCurrentAudioBuffer(track);
+    const initial = hostSeek(20);
+    await advance();
+    pending[0]!.resolve();
+    await initial;
+    mocks.broadcast.mockClear();
+
+    const seek = hostSeek(700);
+    await advance();
+    const watchdog = getManagedTimer('navigator-lock-watchdog');
+    expect(watchdog).not.toBeNull();
+    await advance(5_100);
+    bus.emit('sync:nudge', 100);
+    await advance(100);
+    expect(getManagedTimer('navigator-lock-watchdog')).toBe(watchdog);
+    await advance(9_800);
+    await expect(seek).resolves.toBe(false);
+    pending[1]!.resolve();
+    await advance();
+
+    expect(pending[1]!.signal?.aborted).toBe(true);
+    expect(getManagedTimer('navigator-lock-watchdog')).toBeNull();
+    expect(getPlayerNode()).toBeNull();
+    expect(outputs).toHaveLength(1);
+    expect(mocks.broadcast.mock.calls.some(([message]) => message.type === MSG.PLAY)).toBe(false);
+  });
+
+  it.each([false, true])(
+    'keeps the canonical buffered seek when a local edit overlaps AudioContext setup (queued=%s)',
+    async (queuedSeek) => {
+      initSync();
+      setCurrentAudioBuffer({ duration: 3_600 } as AudioBuffer);
+      await expect(hostSeek(20)).resolves.toBe(true);
+      mocks.broadcast.mockClear();
+      let finishResume!: () => void;
+      mocks.contextState = 'suspended';
+      vi.mocked(ensureRunning).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishResume = resolve;
+          }),
+      );
+
+      const seek = hostSeek(700);
+      await advance();
+      if (queuedSeek) await expect(hostSeek(900)).resolves.toBe(false);
+      bus.emit('sync:nudge', 100);
+      await advance(100);
+      mocks.contextState = 'running';
+      finishResume();
+      await advance();
+      await seek;
+
+      const expectedPosition = queuedSeek ? 900 : 700;
+      expect(mocks.start.mock.calls.at(-1)?.[1]).toBeCloseTo(expectedPosition + 0.1);
+      expect(getTrackPosition()).toBeCloseTo(expectedPosition);
+      expect(mocks.broadcast).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: MSG.PLAY,
+          time: expectedPosition,
+          queueItemId: QUEUE_ITEM_ID,
+        }),
+      );
+    },
+  );
+
+  it('preserves a PRO seek and its authority completion when a manual nudge overlaps PCM preparation', async () => {
+    initSync();
+    setState('room.context', { ...getState('room.context'), kind: 'pro', role: 'member' });
+    const { track, pending, outputs } = controlledTrack();
+    setCurrentAudioBuffer(track);
+    const initial = play(20);
+    await advance();
+    pending[0]!.resolve();
+    await initial;
+    const commit = applyProPlaybackFileCommit({
+      authority: createProPlaybackAuthorityToken({
+        roomId: '123456',
+        roomEpoch: 7,
+        basePlaybackRevision: 1,
+        transitionId: 'manual-overlap-seek',
+      }),
+      committedPlaybackRevision: 2,
+      queueItemId: QUEUE_ITEM_ID,
+      state: 'playing',
+      positionSeconds: 700,
+      scheduleDelayMs: 200,
+      timingMode: 'scheduled-control',
+      isCurrent: () => true,
+    });
+    await advance();
+    bus.emit('sync:nudge', 100);
+    await advance(100);
+    for (let index = 1; index < pending.length; index++) {
+      pending[index]!.resolve();
+      await advance();
+    }
+
+    await expect(commit).resolves.toBe(true);
+    expect(outputs).toHaveLength(2);
+    expect(outputs.at(-1)?.offset).toBeCloseTo(700.1);
+    expect(outputs.at(-1)?.when).toBeCloseTo(100.2);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 
   it.each(['pause', 'youtube', 'system-audio'] as const)(

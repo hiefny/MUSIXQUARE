@@ -327,7 +327,10 @@ type PlayRecoveryTiming = 'catch-up' | 'canonical-rebase';
 interface PlayRecoveryOptions {
   readonly suppressPrompt?: boolean;
   readonly onRecoveredStarted?: () => void | Promise<void>;
-  /** A local output adjustment may retain healthy audio if replacement preparation fails. */
+  /**
+   * A local output refresh yields to pending transport and may retain healthy
+   * audio if replacement preparation fails.
+   */
   readonly outputOnly?: boolean;
   /**
    * `catch-up` preserves the requested timeline across a delayed recovery.
@@ -1109,14 +1112,29 @@ export async function play(
 ): Promise<boolean> {
   if (shouldApply?.() === false) return false;
   const recoveryGeneration = recoveryOptions?.recoveryGeneration;
-  if (recoveryGeneration === undefined) {
-    failedPlayRecoveryGeneration += 1;
-  } else if (recoveryGeneration !== failedPlayRecoveryGeneration) {
+  if (recoveryGeneration !== undefined && recoveryGeneration !== failedPlayRecoveryGeneration) {
     return false;
   }
   if (isPlayLocked()) {
+    const snapshot = getPlayLockSnapshot();
+    if (
+      recoveryOptions?.outputOnly === true &&
+      snapshot.consistent &&
+      snapshot.watchdogArmed &&
+      (snapshot.phase !== 'start-source' || pendingPlayIntent !== null)
+    ) {
+      // Manual offsets are already stored. Active preparation (or its queued
+      // successor) reads the latest value before starting. Preserve its
+      // canonical position, deadline and room PLAY continuation even when
+      // decoding takes longer than the ordinary stale-lock threshold. The
+      // watchdog, foreground recovery and real transport commands still own
+      // stale-lock recovery; a local refresh must not replace their intent.
+      return false;
+    }
     const recovery = recoverStalePlayLock('blocked-play');
     if (!recovery.recovered) {
+      // Once a source has started, a further adjustment needs a queued replay.
+      if (recoveryGeneration === undefined) failedPlayRecoveryGeneration += 1;
       log.warn('[Play] Blocked: queuing play request', recovery.snapshot);
       queuePendingPlayIntent({
         offset,
@@ -1133,6 +1151,10 @@ export async function play(
     }
     log.warn('[Play] Stale owner discarded; retrying current request', recovery.snapshot);
   }
+  // Unlock schedules mailbox consumption in a microtask. A local adjustment
+  // in that gap must also let the queued transport read the latest offset.
+  if (recoveryOptions?.outputOnly === true && pendingPlayIntent !== null) return false;
+  if (recoveryGeneration === undefined) failedPlayRecoveryGeneration += 1;
   const ownedRecoveryGeneration = failedPlayRecoveryGeneration;
   // Source-level guard for callers that reach play during a file load. The
   // resident buffer belongs to the previous track, so queue the requested time

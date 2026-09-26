@@ -20,6 +20,7 @@ import {
   parseCommand,
   executeCommand,
   shouldBroadcastCommand,
+  isWhisperCommand,
   getAvailableCommands,
   getCommandArgHint,
 } from '../chat/commands.ts';
@@ -1115,7 +1116,7 @@ function resetChatEditable(input: HTMLDivElement): void {
   input.contentEditable = 'false';
   input.replaceChildren();
   void input.offsetHeight; // Force reflow
-  input.contentEditable = 'true';
+  input.contentEditable = getState('network.chatMuted') ? 'false' : 'true';
 }
 
 export function sendChatMessage(): void {
@@ -1132,6 +1133,17 @@ export function sendChatMessage(): void {
   // ── Command intercept ──
   const initialCommand = parseCommand(text);
   const isVisibleBotCommand = initialCommand ? shouldBroadcastCommand(initialCommand) : false;
+  // A mute can arrive after a draft was typed. Reject chat-bearing submissions
+  // before echoing, clearing, or recording an accepted-send stamp so the same
+  // draft remains available immediately after an authoritative unmute.
+  if (
+    getState('network.chatMuted') &&
+    (!initialCommand || isVisibleBotCommand || isWhisperCommand(initialCommand))
+  ) {
+    showToast(t('chat.muted_placeholder'));
+    return;
+  }
+
   if (initialCommand && !isVisibleBotCommand) {
     // This submission has passed parsing and is accepted for local
     // execution. Policy-rejected attempts below deliberately do not update
@@ -1804,8 +1816,10 @@ export function initChat(): void {
     addNoticeChatMessage(sender, text, timestamp);
   });
 
-  // Muted state: disable input
-  _busScope.on('chat:muted-state-changed', (isMuted: boolean) => {
+  // The protocol owns mute state; editor presentation also catches up when
+  // moderation arrived before binding, or session cleanup clears that state.
+  const syncChatMuteState = () => {
+    const isMuted = getState('network.chatMuted');
     const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
     if (chatInput) {
       chatInput.setAttribute(
@@ -1822,7 +1836,9 @@ export function initChat(): void {
       chatInput.contentEditable = isMuted ? 'false' : 'true';
       chatInput.dataset.disabled = isMuted ? 'true' : 'false';
     }
-  });
+  };
+  _busScope.on('state:network.chatMuted', syncChatMuteState);
+  syncChatMuteState();
 
   // Clear all chat messages
   _busScope.on('chat:clear-all', () => {

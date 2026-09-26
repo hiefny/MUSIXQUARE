@@ -9,6 +9,7 @@ import { SessionScope } from '../core/session-scope.ts';
 import { getState, setState } from '../core/state.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import { MAX_PLAYLIST_SUB_ITEMS } from './constants.ts';
+import { getPlaylistSubItemsKey } from './queue-manifest.ts';
 
 // ─── Module State ──────────────────────────────────────────────────
 
@@ -372,7 +373,7 @@ function _touchSubMapEntry(
 function _getProtectedSubMapKeys(): Set<string> {
   const protectedKeys = new Set<string>();
   const currentItem = getQueueItemById(getState('playlist.currentQueueItemId'));
-  const playlistId = currentItem?.playlistId;
+  const playlistId = currentItem ? getPlaylistSubItemsKey(currentItem) : null;
   if (playlistId) protectedKeys.add(playlistId);
   return protectedKeys;
 }
@@ -395,12 +396,13 @@ function _pruneSubMap(subMap: SubItemsMap): SubItemsMap {
 export function updateSubItemIds(
   playlistId: string,
   ids: string[],
-  options: { manifestComplete?: boolean } = {},
+  options: { manifestComplete?: boolean; titleSourceKey?: string } = {},
 ): void {
   const subMap = _getSubMap();
   const nextIds = [...ids];
-  const existingIds = subMap[playlistId]?.ids || [];
-  const existingTitles = subMap[playlistId]?.titles || [];
+  const existing = subMap[playlistId] ?? subMap[options.titleSourceKey ?? ''];
+  const existingIds = existing?.ids || [];
+  const existingTitles = existing?.titles || [];
   const titlesById = new Map<string, string>();
   existingIds.forEach((id, index) => {
     const title = existingTitles[index];

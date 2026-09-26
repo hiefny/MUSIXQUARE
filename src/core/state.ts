@@ -198,6 +198,7 @@ function createInitialState(): StateTree {
       standardRoomAdministrators: new Map(),
       connectionType: 'unknown' as const,
       mutedPeers: new Set<string>(),
+      chatMuted: false,
       chatFrozen: false,
       slowmodeSeconds: 0,
       filterEnabled: false,

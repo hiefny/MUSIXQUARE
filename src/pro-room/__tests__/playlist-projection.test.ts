@@ -53,6 +53,7 @@ describe('PRO playlist projection', () => {
       thumbnail: 'https://example.test/thumbnail.jpg',
       videoId: 'dQw4w9WgXcQ',
       playlistId: 'PL1234567890',
+      youtubeVideoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
     });
     expect(projected[1]).toEqual({
       queueItemId: FILE_ID,
@@ -70,6 +71,7 @@ describe('PRO playlist projection', () => {
     const input = wirePlaylist();
     const legacy = projection.project(input);
     input[1]!.source = { kind: 'youtube', videoId: 'aaaaaaaaaaa' };
+    legacy[0]!.youtubeVideoIds![1] = 'local-change';
 
     const result = projection.toWire(legacy);
     expect(result).toEqual(wirePlaylist());

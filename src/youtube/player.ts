@@ -14,6 +14,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
+import { getPlaylistSubItems, getPlaylistSubItemsKey } from './queue-manifest.ts';
 import { MSG } from '../core/constants.ts';
 import { OrderedCommitLane } from '../core/ordered-commit-lane.ts';
 import { SessionScope } from '../core/session-scope.ts';
@@ -1303,10 +1304,11 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
       return;
     }
 
-    let subData = (getState('youtube.subItemsMap') || {})[pid];
+    let subData = getPlaylistSubItems(currentTrack);
 
     if (
       (!subData || !subData.ids.length) &&
+      !currentTrack.youtubeVideoIds &&
       player?.getPlaylist &&
       canReadSettledNativePlaylist()
     ) {
@@ -1327,7 +1329,13 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
     // Fallback: about to fall off the end forward, but the iframe may have
     // lazily populated more items since the initial indexing snapshot.
     // Re-read getPlaylist() and retry if the cached list was truncated.
-    if (!inBounds && direction === 1 && player?.getPlaylist && canReadSettledNativePlaylist()) {
+    if (
+      !inBounds &&
+      !currentTrack.youtubeVideoIds &&
+      direction === 1 &&
+      player?.getPlaylist &&
+      canReadSettledNativePlaylist()
+    ) {
       try {
         const freshIds = player.getPlaylist() || [];
         if (freshIds.length > (subData?.ids?.length ?? 0)) {
@@ -1370,11 +1378,12 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
  * source of the playlist ID.
  */
 function populateSubItemsForQueueItem(queueItemId: QueueItemId): void {
-  const playlistId = getQueueItemById(queueItemId)?.playlistId;
+  const item = getQueueItemById(queueItemId);
+  const playlistId = item?.playlistId;
   if (!playlistId) return;
   // This helper repairs a cancelled title fetch; it must not ask the current
   // iframe to invent an ID snapshot for a stale or not-yet-indexed row.
-  const entry = getState('youtube.subItemsMap')?.[playlistId];
+  const entry = getPlaylistSubItems(item);
   if (entry?.ids.some((_, index) => !entry.titles?.[index])) {
     bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
   }
@@ -1869,9 +1878,7 @@ export function initYouTube(): void {
         }
         if (subIndex !== null) {
           setYouTubeSubIndex(subIndex);
-          const title = item.playlistId
-            ? getState('youtube.subItemsMap')?.[item.playlistId]?.titles?.[subIndex]
-            : undefined;
+          const title = item.playlistId ? getPlaylistSubItems(item)?.titles?.[subIndex] : undefined;
           if (title) updatePlaybackTrackTitle(title, item);
         }
       }
@@ -2705,9 +2712,9 @@ export function initYouTube(): void {
 
     const playlistId = payload.playlistId ?? null;
     const subIndex = Math.max(0, payload.subIndex ?? 0);
-    const subMap = getState('youtube.subItemsMap') || {};
-    const hostIds = playlistId ? subMap[playlistId]?.ids : undefined;
-    const titles = playlistId ? subMap[playlistId]?.titles || [] : [];
+    const entry = getPlaylistSubItems(getQueueItemById(payload.queueItemId));
+    const hostIds = entry?.ids;
+    const titles = entry?.titles || [];
     const videoId = (hostIds && hostIds[subIndex]) || payload.videoId || null;
 
     if (!videoId && !playlistId) {
@@ -2786,9 +2793,10 @@ export function initYouTube(): void {
     // empty-check would mistake for a fully indexed list. Real indexed
     // playlists land at length >= 2 (any genuinely-1-item playlist will
     // simply re-index on each navigation — wasteful but harmless).
-    const subMap = getState('youtube.subItemsMap') || {};
     const playlistIdStr = playlistId as string | null;
-    const cachedEntry = playlistIdStr ? subMap[playlistIdStr] : undefined;
+    const cachedEntry = playlistIdStr
+      ? getPlaylistSubItems(getQueueItemById(queueItemId))
+      : undefined;
     const cachedIds = cachedEntry?.ids || [];
     const hasIndexedManifest =
       !!playlistIdStr && (cachedEntry?.manifestComplete === true || cachedIds.length > 1);
@@ -3134,8 +3142,7 @@ export function initYouTube(): void {
       const currentTrack = getQueueItemById(getCurrentQueueItemId());
       const pid = currentTrack?.playlistId;
       if (pid) {
-        const subMap = getState('youtube.subItemsMap') || {};
-        nextVideoId = subMap[pid]?.ids?.[nextIdx];
+        nextVideoId = getPlaylistSubItems(currentTrack)?.ids?.[nextIdx];
         log.debug(`[YouTube] Auto-advance cache fallback for index ${nextIdx} -> ${nextVideoId}`);
       }
     }
@@ -3940,11 +3947,8 @@ export function initYouTube(): void {
   // YouTube sub-item seek (from playlist-view sub-item click)
   bus.on('youtube:sub-seek', (queueItemId, subIdx, _isCurrent) => {
     const requestedTrack = getQueueItemById(queueItemId);
-    const requestedSubMap = getState('youtube.subItemsMap') || {};
     const requestedVideoId = requestedTrack?.playlistId
-      ? (requestedSubMap[requestedTrack.playlistId]?.ids?.[subIdx] ??
-        requestedTrack.videoId ??
-        null)
+      ? (getPlaylistSubItems(requestedTrack)?.ids?.[subIdx] ?? requestedTrack.videoId ?? null)
       : (requestedTrack?.videoId ?? null);
     if (
       routeProPlaybackCommand({
@@ -3976,6 +3980,26 @@ export function initYouTube(): void {
 
     // 1. Try to get IDs from current player if it matches the requested playlist
     const currentItem = getQueueItemById(queueItemId);
+
+    // A persisted PRO snapshot already supplies the complete immutable list.
+    // Refill an evicted title cache from it, never from a retained iframe or
+    // another occurrence of the same external playlist.
+    if (currentItem?.playlistId === playlistId && currentItem.youtubeVideoIds) {
+      const key = getPlaylistSubItemsKey(currentItem)!;
+      if (!getState('youtube.subItemsMap')[key]) {
+        updateSubItemIds(key, currentItem.youtubeVideoIds, {
+          manifestComplete: true,
+          titleSourceKey: playlistId,
+        });
+      }
+      fetchPlaylistSubTitles(playlistId, currentItem.youtubeVideoIds, {
+        fullFetch: true,
+        queueItemId,
+      }).catch((error) => {
+        log.warn(`[YouTube] Background title fetch failed for ${playlistId}`, error);
+      });
+      return;
+    }
 
     if (
       player?.getPlaylist &&

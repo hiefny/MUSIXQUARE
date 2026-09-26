@@ -192,6 +192,8 @@ export interface PlaylistItem {
   thumbnail?: string;
   videoId: string | null;
   playlistId: string | null;
+  /** Local PRO projection of this occurrence's immutable server manifest. */
+  youtubeVideoIds?: string[];
   isExpanded?: boolean;
 }
 
@@ -1027,6 +1029,8 @@ export interface StateTree {
     standardRoomAdministrators: Map<string, StandardRoomAdministrator>;
     connectionType: 'local' | 'remote' | 'unknown';
     mutedPeers: Set<string>;
+    /** Authoritative moderation projection for this participant's outbound chat. */
+    chatMuted: boolean;
     chatFrozen: boolean;
     slowmodeSeconds: number;
     filterEnabled: boolean;
@@ -1502,7 +1506,6 @@ interface BaseEventMap {
   'pro-room:administrators-updated': [administrators: ProRoomAdministrator[]];
   'network:kicked-explicitly': [];
   'network:room-password-changed': [password: string | null];
-  'chat:muted-state-changed': [isMuted: boolean];
   'chat:clear-all': [];
 
   // ── Playlist ────────────────────────────────────────────────────

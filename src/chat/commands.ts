@@ -896,6 +896,11 @@ export function shouldBroadcastCommand(cmd: ParsedCommand): boolean {
   );
 }
 
+/** Whisper aliases share ordinary chat's mute policy without hiding local commands. */
+export function isWhisperCommand(cmd: ParsedCommand): boolean {
+  return _resolveCommand(cmd.name)?.execute === cmdWhisper;
+}
+
 export function executeCommand(cmd: ParsedCommand, context?: CommandExecutionContext): void {
   const def = _resolveCommand(cmd.name);
   if (!def) {

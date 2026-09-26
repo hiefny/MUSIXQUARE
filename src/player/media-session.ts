@@ -8,6 +8,8 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
+import { getQueueItemById } from './queue-model.ts';
+import { getPlaylistSubItems } from '../youtube/queue-manifest.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime, pause } from './transport.ts';
 import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
@@ -111,8 +113,10 @@ export function updateMediaSessionMetadata(item: Partial<TrackMeta> | null): voi
   if (item.type === 'youtube') {
     const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (item.playlistId && currentYouTubeSubIndex !== -1) {
-      const subMap = getState('youtube.subItemsMap') || {};
-      const subData = subMap[item.playlistId];
+      const queueItem = getQueueItemById(item.queueItemId ?? null);
+      const subData = queueItem
+        ? getPlaylistSubItems(queueItem)
+        : getState('youtube.subItemsMap')[item.playlistId];
       if (
         subData?.titles &&
         currentYouTubeSubIndex >= 0 &&

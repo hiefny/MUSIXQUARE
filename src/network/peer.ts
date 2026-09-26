@@ -1280,6 +1280,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
     'network.roomPassword': '',
     'network.peerSlots': Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.mutedPeers': new Set<string>(),
+    'network.chatMuted': false,
     'network.chatFrozen': false,
     'network.slowmodeSeconds': 0,
     'network.filterEnabled': false,

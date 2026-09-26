@@ -888,7 +888,6 @@ export function initPlayback(): void {
     if (!isPlaybackPlayingFile()) return;
     const identity = captureLocalFileOutputIdentity();
     if (!identity) return;
-    const { buffer } = identity;
     // A background resume may occur during a track change, while the resident
     // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;
@@ -902,15 +901,7 @@ export function initPlayback(): void {
     // crossed the track boundary while Web Audio was frozen. Replaying exactly
     // at duration would be sanitized to duration - 100ms and briefly resurrect
     // the ended occurrence. Let the canonical end owner advance it instead.
-    if (
-      isActiveStandardRoomCoordinator() &&
-      Number.isFinite(buffer.duration) &&
-      buffer.duration > 0.1 &&
-      position >= buffer.duration - 0.005
-    ) {
-      handleEnded();
-      return;
-    }
+    if (isActiveStandardRoomCoordinator() && handleEnded()) return;
     void play(position, 0, capturedAt, () => isLocalFileOutputIdentityCurrent(identity), {
       outputOnly: true,
     }).catch((error) => log.warn('[Playback] Failed to refresh the current file position:', error));

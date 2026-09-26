@@ -280,7 +280,7 @@ export function receiveProRoomRealtimeChat(frame: ProRealtimeRelayEnvelope): voi
     setState('network.chatFrozen', payload.frozen);
     setState('network.filterEnabled', payload.filterEnabled);
     setState('network.slowmodeSeconds', payload.slowmodeSeconds as number);
-    bus.emit('chat:muted-state-changed', payload.muted);
+    setState('network.chatMuted', payload.muted);
     return;
   }
   if (frame.channel !== 'chat') return;
@@ -380,7 +380,7 @@ export function receiveProRoomRealtimeChat(frame: ProRealtimeRelayEnvelope): voi
     const targetLabel =
       (getState('network.lastKnownDeviceList') || []).find((candidate) => candidate.id === targetId)
         ?.label ?? t('common.peer');
-    if (targetId === myId) bus.emit('chat:muted-state-changed', payload.on);
+    if (targetId === myId) setState('network.chatMuted', payload.on);
     addSystemChatMessage(
       payload.on
         ? t('chat.cmd_muted', { name: targetLabel })
@@ -702,7 +702,7 @@ function handleChatMute(data: Record<string, unknown>, conn?: DataConnection): v
   const myId = getState('network.myId') || '';
 
   if (targetId === myId) {
-    bus.emit('chat:muted-state-changed', true);
+    setState('network.chatMuted', true);
   }
   addSystemChatMessage(t('chat.cmd_muted', { name: targetLabel }));
 }
@@ -716,7 +716,7 @@ function handleChatUnmute(data: Record<string, unknown>, conn?: DataConnection):
   const myId = getState('network.myId') || '';
 
   if (targetId === myId) {
-    bus.emit('chat:muted-state-changed', false);
+    setState('network.chatMuted', false);
   }
   addSystemChatMessage(t('chat.cmd_unmuted', { name: targetLabel }));
 }

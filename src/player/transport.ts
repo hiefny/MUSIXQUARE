@@ -894,7 +894,7 @@ function armStandardFileCanonicalEnd(
   delaySeconds: number,
 ): void {
   if (!isActiveStandardRoomCoordinator()) return;
-  if (!Number.isFinite(buffer.duration) || buffer.duration <= 0.1) return;
+  if (!Number.isFinite(buffer.duration) || buffer.duration <= 0) return;
 
   const isCurrentOccurrence = (): boolean =>
     isActiveStandardRoomCoordinator() &&
@@ -910,10 +910,7 @@ function armStandardFileCanonicalEnd(
     if (!isCurrentOccurrence()) return;
 
     const remainingSeconds = buffer.duration - getTrackPosition();
-    if (remainingSeconds <= CANONICAL_END_EPSILON_SEC) {
-      handleEnded();
-      return;
-    }
+    if (remainingSeconds <= CANONICAL_END_EPSILON_SEC && handleEnded()) return;
 
     // AudioContext.currentTime freezes while Safari suspends audio in the
     // background. Re-check against that canonical clock instead of treating a
@@ -1944,31 +1941,35 @@ export async function applyProPlaybackFileCommit(
   return true;
 }
 
-export function handleEnded(): void {
+export function handleEnded(): boolean {
   const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Guests don't handle track-end
+  if (hostConn) return false; // Guests don't handle track-end
 
-  const _currentAudioBuffer = getCurrentAudioBuffer();
-
-  const hasBufferDuration = !!(
-    _currentAudioBuffer &&
-    Number.isFinite(_currentAudioBuffer.duration) &&
-    _currentAudioBuffer.duration > 0.1
-  );
-
-  const duration = hasBufferDuration ? _currentAudioBuffer!.duration : 0;
-  if (!duration || !Number.isFinite(duration) || duration <= 0.1) return;
-  if (isFileTransportInactive()) return;
-  if (isExternalOwner()) return;
+  // A successfully decoded clip can be shorter than the end tolerance. Its
+  // positive duration still owns a real completion boundary.
+  const buffer = getCurrentAudioBuffer();
+  const duration = buffer?.duration ?? 0;
+  if (!Number.isFinite(duration) || duration <= 0) return false;
+  if (isFileTransportInactive()) return false;
+  if (isExternalOwner()) return false;
+  if (getLocalFilePendingStartDeadlineMs() !== undefined) return false;
 
   const curr = getTrackPosition();
   const isSeeking = getState('player.isSeeking');
   if (isSeeking) {
     log.debug('[handleEnded] Ignoring end signal while seeking');
-    return;
+    return false;
   }
 
-  const endEpsilon = isActiveStandardRoomCoordinator() ? CANONICAL_END_EPSILON_SEC : 0.05;
+  const sampleDuration = buffer && buffer.sampleRate > 0 ? 1 / buffer.sampleRate : 0;
+  // The ordinary 5/50ms tolerance must not consume a substantial part of a
+  // short clip. Only tolerate sample-clock rounding for those valid files.
+  const endEpsilon =
+    duration <= 0.1
+      ? Math.min(duration / 2, sampleDuration)
+      : isActiveStandardRoomCoordinator()
+        ? CANONICAL_END_EPSILON_SEC
+        : 0.05;
   if (curr >= duration - endEpsilon) {
     log.debug(`Track ended at ${curr.toFixed(2)}s / ${duration.toFixed(2)}s`);
     const queueItemId = getCurrentQueueItemId();
@@ -1983,7 +1984,7 @@ export function handleEnded(): void {
         mediaKind: 'file',
       })
     ) {
-      return;
+      return true;
     }
     stopAllMedia();
     setState('player.pausedAt', 0);
@@ -1991,7 +1992,9 @@ export function handleEnded(): void {
 
     // Auto-advance via playlist module
     bus.emit('player:ended');
+    return true;
   }
+  return false;
 }
 
 // ─── Toggle Play ───────────────────────────────────────────────────

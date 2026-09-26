@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { batchSetState as publishPreloadPromotion, getState, setState } from '../core/state.ts';
+import { getPlaylistSubItems } from '../youtube/queue-manifest.ts';
 import { MSG, WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../core/timers.ts';
@@ -719,9 +720,7 @@ export async function playTrack(
     return;
   }
 
-  const itemSubMap = getState('youtube.subItemsMap') || {};
-  const itemSubIds =
-    item.type === 'youtube' && item.playlistId ? itemSubMap[item.playlistId]?.ids : undefined;
+  const itemSubIds = getPlaylistSubItems(item)?.ids;
   const storedVideoSubIndex =
     item.type === 'youtube' && item.videoId && itemSubIds ? itemSubIds.indexOf(item.videoId) : -1;
   const rawRequestedSubIndex =
@@ -803,11 +802,8 @@ export async function playTrack(
     item.type === 'youtube' &&
     isYouTubeOwner()
   ) {
-    const subMap = getState('youtube.subItemsMap') || {};
     const requestedVideoId =
-      (item.playlistId ? subMap[item.playlistId]?.ids?.[requestedTrackSubIndex ?? 0] : null) ||
-      item.videoId ||
-      null;
+      getPlaylistSubItems(item)?.ids?.[requestedTrackSubIndex ?? 0] || item.videoId || null;
     const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
     const player = getYouTubePlayer();
     let residentVideoId: string;
@@ -1139,8 +1135,7 @@ export async function playTrack(
       // Broadcast one resolved videoId; playlistId is UI/navigation context,
       // not an instruction to start YouTube's native playlist engine. Prefer
       // the host's sub-item snapshot when available.
-      const subMap = getState('youtube.subItemsMap') || {};
-      const hostEntry = subMap[item.playlistId as string];
+      const hostEntry = getPlaylistSubItems(item);
       const hostIds = hostEntry?.ids;
       const resolvedSubIndex = requestedTrackSubIndex ?? 0;
       const broadcastVideoId = (hostIds && hostIds[resolvedSubIndex]) || (item.videoId ?? null);
@@ -1224,7 +1219,7 @@ export async function playTrack(
       // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
       // for navigation (next/prev/sub-seek) and title display.
       if (hostIds && hostIds.length > 0) {
-        const titles = subMap[item.playlistId as string]?.titles || [];
+        const titles = hostEntry?.titles || [];
         broadcast({
           type: MSG.YOUTUBE_PLAYLIST_INFO,
           playlistId: item.playlistId as string,
@@ -2597,13 +2592,9 @@ async function prepareAuthoritativePlayback(
     ? Math.max(0, request.positionSeconds)
     : 0;
   const subIndex = request.youtubeSubIndex ?? 0;
-  const subMap = getState('youtube.subItemsMap') || {};
   const resolvedVideoId =
     item.type === 'youtube'
-      ? request.youtubeVideoId ||
-        (item.playlistId ? subMap[item.playlistId]?.ids?.[subIndex] : null) ||
-        item.videoId ||
-        null
+      ? request.youtubeVideoId || getPlaylistSubItems(item)?.ids?.[subIndex] || item.videoId || null
       : null;
 
   let reuseResidentYouTube = false;

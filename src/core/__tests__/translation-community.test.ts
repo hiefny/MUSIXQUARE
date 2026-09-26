@@ -249,6 +249,67 @@ function updateCanonical(current: string) {
   env.ASSETS = assetsPort(createTranslationCatalogAssets(changed));
 }
 
+function seedApprovedCatalogEntries(appliedCount: number, pendingCount: number): string[] {
+  const entries = [...catalogs].flatMap(([locale, catalog]) =>
+    catalog.entries
+      .filter((entry) => entry.current.trim().length > 0 && entry.current.length < 1000)
+      .map((entry) => ({ ...entry, locale })),
+  );
+  const total = appliedCount + pendingCount;
+  expect(entries.length).toBeGreaterThan(total);
+  // Match SQLite's binary ordering, so pending approvals occur after every
+  // applied row. An implementation that stops after the first page loses them.
+  entries.sort((left, right) => {
+    for (const field of ['locale', 'surface', 'key'] as const) {
+      if (left[field] !== right[field]) return left[field] < right[field] ? -1 : 1;
+    }
+    return 0;
+  });
+  const statement = db.native.prepare(
+    `INSERT INTO mxqr_translation_suggestions
+     (suggestion_id,account_id,request_id,request_fingerprint,locale,surface,translation_key,
+      source_en,source_ko,current_text,proposed_text,reason,created_at,updated_at,status,revision,approved_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'approved',2,?)`,
+  );
+  const pendingIds: string[] = [];
+  const now = Date.now();
+  for (const [index, entry] of entries.slice(0, total).entries()) {
+    const id = crypto.randomUUID();
+    const applied = index < appliedCount;
+    statement.run(
+      id,
+      ACCOUNT_A,
+      crypto.randomUUID(),
+      'a'.repeat(64),
+      entry.locale,
+      entry.surface,
+      entry.key,
+      entry.sourceEn,
+      entry.sourceKo,
+      applied ? 'Previously published wording' : entry.current,
+      applied ? entry.current : `${entry.current} revised`,
+      '',
+      now,
+      now,
+      now,
+    );
+    if (!applied) pendingIds.push(id);
+  }
+  return pendingIds;
+}
+
+async function exportApprovedForTest() {
+  const response = await handleAdminTranslationCommunityRequest(
+    new Request(`${ORIGIN}/api/admin/translations/export`),
+    env,
+  );
+  if (!response) throw new Error('Missing export route');
+  return {
+    status: response.status,
+    body: (await response.json()) as { drafts: Array<{ suggestionId: string }>; error?: string },
+  };
+}
+
 describe('translation community actual auth and SQLite contract', () => {
   it('publishes a canonical proposal with server identity/time and no account identifiers', async () => {
     const result = await submit();
@@ -652,6 +713,49 @@ describe('translation community actual auth and SQLite contract', () => {
       env,
     );
     expect(await after!.json()).toMatchObject({ drafts: [] });
+  });
+  it('exports fresh approvals after more than 1000 already-applied approvals', async () => {
+    const ids = seedApprovedCatalogEntries(1201, 2);
+    const result = await exportApprovedForTest();
+    expect(result.status).toBe(200);
+    expect(result.body.drafts.map((item) => item.suggestionId)).toEqual(ids);
+  });
+  it('exports an empty list when all accumulated approvals have already been applied', async () => {
+    seedApprovedCatalogEntries(1200, 0);
+    const result = await exportApprovedForTest();
+    expect(result.status).toBe(200);
+    expect(result.body.drafts).toEqual([]);
+  });
+  it('keeps the 1000-unapplied-draft limit after skipping applied history', async () => {
+    const ids = seedApprovedCatalogEntries(1001, 1000);
+    const accepted = await exportApprovedForTest();
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.drafts.map((item) => item.suggestionId)).toEqual(ids);
+
+    db.native.exec('DELETE FROM mxqr_translation_suggestions');
+    seedApprovedCatalogEntries(1001, 1001);
+    const rejected = await exportApprovedForTest();
+    expect(rejected.status).toBe(413);
+    expect(rejected.body.error).toBe('EXPORT_TOO_LARGE');
+  });
+  it('still rejects stale approvals and oversized payloads after applied history', async () => {
+    const [id] = seedApprovedCatalogEntries(1201, 1);
+    db.native
+      .prepare('UPDATE mxqr_translation_suggestions SET current_text = ? WHERE suggestion_id = ?')
+      .run('Stale canonical wording', id!);
+    const stale = await exportApprovedForTest();
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toBe('STALE_APPROVED_SUGGESTIONS');
+
+    db.native.exec('DELETE FROM mxqr_translation_suggestions');
+    const largeIds = seedApprovedCatalogEntries(1201, 300);
+    const enlarge = db.native.prepare(
+      'UPDATE mxqr_translation_suggestions SET proposed_text = ? WHERE suggestion_id = ?',
+    );
+    for (const pendingId of largeIds) enlarge.run('x'.repeat(32_768), pendingId);
+    const oversized = await exportApprovedForTest();
+    expect(oversized.status).toBe(413);
+    expect(oversized.body.error).toBe('EXPORT_TOO_LARGE');
   });
   it('cascades actual account deletion through contributions, votes, counters and review history', async () => {
     const one = (await submit()).body.suggestion;

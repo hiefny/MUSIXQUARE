@@ -18,6 +18,9 @@ import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 // chat/protocol.ts). Same function object at runtime.
 import { broadcast } from '../network/peer-state.ts';
 import { updateSubItemTitlesBulk } from './_state.ts';
+import { getQueueItemById } from '../player/queue-model.ts';
+import { getPlaylistSubItemsKey } from './queue-manifest.ts';
+import type { QueueItemId } from '../types/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import {
   OEMBED_FETCH_TIMEOUT_MS,
@@ -958,12 +961,16 @@ export function cancelSubTitleFetch(): void {
 export async function fetchPlaylistSubTitles(
   playlistId: string,
   ids: string[],
-  _options?: { fullFetch?: boolean },
+  options?: { fullFetch?: boolean; queueItemId?: QueueItemId },
 ): Promise<void> {
   if (!ids || ids.length === 0) return;
 
+  const item = options?.queueItemId ? getQueueItemById(options.queueItemId) : null;
+  const cacheKey = item ? getPlaylistSubItemsKey(item) : playlistId;
+  if (!cacheKey || (item && item.playlistId !== playlistId)) return;
+
   const subMap = getState('youtube.subItemsMap') || {};
-  const data = subMap[playlistId];
+  const data = subMap[cacheKey];
   if (!data) return;
 
   // Abort any previous fetch loop
@@ -999,7 +1006,7 @@ export async function fetchPlaylistSubTitles(
     const lastPendingIdx = pendingIndices[pendingIndices.length - 1];
     const flushBatch = (): void => {
       if (abort.signal.aborted || _subTitleAbort !== abort) return;
-      const currentEntry = getState('youtube.subItemsMap')?.[playlistId];
+      const currentEntry = getState('youtube.subItemsMap')?.[cacheKey];
       if (!currentEntry) return;
       // A manifest may be replaced while oEmbed is pending. Titles describe
       // the captured video, so an old index must never label its successor.
@@ -1014,9 +1021,9 @@ export async function fetchPlaylistSubTitles(
       );
       batchBuffer = [];
       if (updates.length === 0) return;
-      updateSubItemTitlesBulk(playlistId, updates);
+      updateSubItemTitlesBulk(cacheKey, updates);
 
-      if (!hostConn) {
+      if (!hostConn && cacheKey === playlistId) {
         for (const update of updates) {
           broadcast({
             type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
@@ -1033,7 +1040,7 @@ export async function fetchPlaylistSubTitles(
 
       // Double-check map entry still exists
       const currentMap = getState('youtube.subItemsMap') || {};
-      const currentData = currentMap[playlistId];
+      const currentData = currentMap[cacheKey];
       if (!currentData) break;
 
       // Skip if title arrived during the loop via another path (e.g. state broadcast)

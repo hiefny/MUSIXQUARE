@@ -14,6 +14,10 @@ import { safeSend } from '../../network/peer.ts';
 import { updateSubItemTitle } from '../../youtube/_state.ts';
 import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from '../../pro-room/upload-queue.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
+import { ProRoomPlaylistProjection } from '../../pro-room/playlist-projection.ts';
+import { hydrateProRoomYouTubeManifests } from '../../pro-room/youtube-manifest-policy.ts';
+import { proYouTubeSubItemsKey } from '../../youtube/queue-manifest.ts';
+import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 
 const playlistTitleMarqueeMocks = vi.hoisted(() => ({
   init: vi.fn(),
@@ -91,6 +95,37 @@ function sampleItems(): PlaylistItem[] {
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
+
+it('renders and patches titles for each saved PRO manifest independently, including later batches', async () => {
+  const manifests = [
+    { queueItemId: FILE_A, ids: Array.from({ length: 180 }, (_, index) => `old${index}`) },
+    { queueItemId: YT_B, ids: Array.from({ length: 180 }, (_, index) => `new${index}`) },
+  ];
+  const playlist = manifests.map(({ queueItemId, ids }) => ({
+    queueItemId,
+    name: 'Saved playlist',
+    source: { kind: 'youtube' as const, videoId: ids[0]!, playlistId: 'PL_SHARED', videoIds: ids },
+  }));
+  setState(
+    'playlist.items',
+    new ProRoomPlaylistProjection()
+      .project(playlist)
+      .map((item) => ({ ...item, isExpanded: true })),
+  );
+  hydrateProRoomYouTubeManifests({ playlist } as ProRoomSnapshot);
+  initPlaylistView();
+  updatePlaylistUI();
+  for (let batch = 0; batch < 5; batch++) await nextAnimationFrame();
+  for (const { queueItemId, ids } of manifests) {
+    const selector = `.sub-playlist[data-queue-item-id="${queueItemId}"]`;
+    const rows = document.querySelectorAll<HTMLElement>(`${selector} [data-video-id]`);
+    expect(Array.from(rows, (element) => element.dataset.videoId)).toEqual(ids);
+    updateSubItemTitle(proYouTubeSubItemsKey(queueItemId), 1, `${queueItemId} title`);
+    expect(document.querySelector(`${selector} [data-sub-index="1"] .sub-name`)?.textContent).toBe(
+      `${queueItemId} title`,
+    );
+  }
+});
 
 function configurePlaylistFollowLayout(): ReturnType<typeof vi.fn> {
   const scroller = document.querySelector<HTMLElement>('.tab-body')!;

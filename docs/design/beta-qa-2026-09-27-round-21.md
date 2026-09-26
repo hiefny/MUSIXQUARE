@@ -80,6 +80,10 @@ tests do not measure physical audio alignment or decoder throughput.
 
 ## Open finding: late account responses can erase a newer browser login
 
+**Follow-up:** subsequently fixed and verified on `mxqr_beta`; see
+[account cookie response ownership](account-cookie-ownership-2026-09-27.md).
+The findings and counts below describe the original QA21 snapshot.
+
 **P2 reliability issue, not fixed in this round.** A native Chromium probe
 reproduced this ordering with two tabs sharing the same cookie store:
 

@@ -998,7 +998,18 @@ afterEach(() => {
       expect(
         db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_account_deleted_sessions').get(),
       ).toMatchObject({ count: 2 });
-      expect(response.headers.get('Set-Cookie')).toContain('Max-Age=600');
+      const tombstone = db.database
+        .prepare(
+          'SELECT deleted_at, expires_at FROM mxqr_account_deleted_sessions WHERE session_hash = ?',
+        )
+        .get(await sessionHash(firstToken)) as { deleted_at: number; expires_at: number };
+      expect(tombstone.expires_at - tombstone.deleted_at).toBe(10 * 60 * 1000);
+      const deletionSetCookie = response.headers.get('Set-Cookie');
+      expect(deletionSetCookie).toContain(`__Host-mxqr_account=${firstToken};`);
+      expect(deletionSetCookie).toContain(
+        `Expires=${new Date(tombstone.expires_at).toUTCString()}`,
+      );
+      expect(deletionSetCookie).not.toContain('Max-Age=');
 
       const otherDeviceProof = await handleAccountAuthRequest(
         request('/api/auth/room-assertion', {

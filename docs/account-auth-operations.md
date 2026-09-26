@@ -235,6 +235,27 @@ one account retains at most 128 browser sessions; issuing another session
 removes the least recently used excess sessions. Sign-out removes the current
 session, sign-out-all removes every session for the account, and account
 deletion removes the active account row and all of its account-session rows.
+
+New logins issue a distinct `__Host-mxqr_account_...` cookie for each session.
+Its signed creation time selects the newest scoped cookie regardless of header
+order, even after that session's database row is revoked. A revoked newest
+session returns anonymous instead of falling back to an older login. Existing
+`__Host-mxqr_account` cookies remain valid; reads never automatically upgrade
+them. The opaque session token and `statsScope` contracts are unchanged.
+
+Cookie cleanup targets only names carried by the request, and login replaces
+the predecessor sessions carried by its callback. Session cookies use an
+absolute `Expires` at the original 30-day deadline; deletion proof keeps the
+same cookie name and token with a ten-minute absolute expiry. Reads do not
+refresh these deadlines, and delayed responses cannot extend them. More than
+16 account-cookie entries or a Cookie header larger than 16 KiB fails closed.
+An independently initiated OAuth callback may still complete after sign-out;
+sign-out does not globally cancel pending login attempts.
+
+This cookie transition needs no schema migration, new secret, forced sign-out,
+or waiting period. Publishing it requires an App Worker release; beta commits
+alone do not change production behavior.
+
 An optional one-to-one statistics row keeps only the three nonnegative lifetime
 aggregates described above. Missing rows read as zero. Statistics writes accept
 bounded positive deltas from an authenticated same-origin client. Each

@@ -61,10 +61,27 @@ interface SessionPages {
   page: Page;
 }
 
-async function newGuest(browser: Browser, code: string): Promise<SessionPages> {
+const pageConsole = new WeakMap<Page, Array<{ type: string; text: string }>>();
+
+function trackSequencePage(page: Page): void {
+  trackPageErrors(page);
+  const messages: Array<{ type: string; text: string }> = [];
+  pageConsole.set(page, messages);
+  page.on('console', (message) => {
+    messages.push({ type: message.type(), text: message.text().slice(0, 2_000) });
+    if (messages.length > 200) messages.shift();
+  });
+}
+
+async function newGuest(
+  browser: Browser,
+  code: string,
+  onCreated?: (session: SessionPages) => void,
+): Promise<SessionPages> {
   const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const page = await context.newPage();
-  trackPageErrors(page);
+  trackSequencePage(page);
+  onCreated?.({ context, page });
   await injectPeerServer(page);
   await setupGuest(page, code);
   return { context, page };
@@ -73,7 +90,7 @@ async function newGuest(browser: Browser, code: string): Promise<SessionPages> {
 async function createHost(browser: Browser): Promise<SessionPages> {
   const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const page = await context.newPage();
-  trackPageErrors(page);
+  trackSequencePage(page);
   await injectPeerServer(page);
   return { context, page };
 }
@@ -202,6 +219,55 @@ async function captureHostLossDiagnostics(page: Page) {
       }),
     };
   });
+}
+
+async function captureSequenceFailurePage(page: Page) {
+  const console = pageConsole.get(page) ?? [];
+  const pageErrors = getPageErrors(page).map((error) => error.message);
+  if (page.isClosed()) return { closed: true, console, pageErrors };
+  const capture = async (read: () => Promise<unknown>) => {
+    try {
+      return await read();
+    } catch (error) {
+      return { diagnosticError: String(error) };
+    }
+  };
+  const [runtime, transport, pipeline] = await Promise.all([
+    capture(() => captureRuntimeSnapshot(page)),
+    capture(() => captureHostLossDiagnostics(page)),
+    capture(() =>
+      page.evaluate(() => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          ((path: string) => unknown) | undefined;
+        if (!get) return { unavailable: true };
+        const paths = [
+          'network.appRole',
+          'network.connectionType',
+          'network.isConnecting',
+          'network.signalingHealth',
+          'network.pendingTrackChangeQueueItemId',
+          'playback.mode',
+          'playback.loadSource',
+          'playback.pendingPlayTime',
+          'playback.pendingPlayTimeSetAt',
+          'playback.pendingRecoveryTarget',
+          'transfer.state',
+          'transfer.receivedCount',
+          'transfer.localSessionId',
+          'transfer.currentSessionId',
+          'preload.isPreloading',
+          'preload.nextQueueItemId',
+          'share.remote.download',
+          'player.decodeFailureQueueItemId',
+          'player.decodeFailureCount',
+          'recovery.pending',
+          'recovery.retryCount',
+        ];
+        return Object.fromEntries(paths.map((path) => [path, get(path) ?? null]));
+      }),
+    ),
+  ]);
+  return { closed: false, runtime, transport, pipeline, console, pageErrors };
 }
 
 async function seekHost(page: Page): Promise<number> {
@@ -360,10 +426,12 @@ async function performLifecycle(
   const playbackBeforeDisconnect = await readPlaybackProjection(host);
   const hostQueueBeforeDisconnect = await readQueueSnapshot(host);
   const snapshotBeforeDisconnect = await captureRuntimeSnapshot(host);
+  const retainGuest = ({ context, page }: SessionPages): void => {
+    contexts.push(context);
+    guests.push(page);
+  };
   if (lifecycle === 'late-join') {
-    const newcomer = await newGuest(browser, code);
-    contexts.push(newcomer.context);
-    guests.push(newcomer.page);
+    await newGuest(browser, code, retainGuest);
     await waitForDeviceCount(host, guests.length + 1);
     history.push('late-join -> newcomer joined during host playback');
     return current;
@@ -378,9 +446,7 @@ async function performLifecycle(
     await current.context.close();
     await waitForDeviceCount(host, guests.length);
     guests.splice(guests.indexOf(current.page), 1);
-    const replacement = await newGuest(browser, code);
-    contexts.push(replacement.context);
-    guests.push(replacement.page);
+    const replacement = await newGuest(browser, code, retainGuest);
     history.push('reconnect -> transport lost, fresh guest context rejoined');
     current = replacement;
   }
@@ -414,6 +480,7 @@ async function runSeededSequence(
   const history: string[] = [`seed=${plan.seed}`, `plan=${JSON.stringify(plan)}`];
   let hostContext: BrowserContext | undefined;
   let hostPage: Page | undefined;
+  let sequenceFailed = false;
   try {
     const hostSession = await createHost(browser);
     hostContext = hostSession.context;
@@ -426,9 +493,10 @@ async function runSeededSequence(
     await waitForPlaybackProjection(hostSession.page, 'PLAYING_AUDIO', 15_000);
     history.push('host started local fixture playback before guest admission');
 
-    let current = await newGuest(browser, code);
-    contexts.push(current.context);
-    guests.push(current.page);
+    let current = await newGuest(browser, code, ({ context, page }) => {
+      contexts.push(context);
+      guests.push(page);
+    });
     await waitForDeviceCount(hostSession.page, 2);
     await waitForPlaylistCount(current.page, 3, 15_000);
     await waitForPlaybackProjection(current.page, 'PLAYING_AUDIO', 15_000);
@@ -462,10 +530,17 @@ async function runSeededSequence(
       actions: history,
     });
   } catch (error) {
+    sequenceFailed = true;
+    const [host, guestSnapshots] = await Promise.all([
+      hostPage ? captureSequenceFailurePage(hostPage) : Promise.resolve(null),
+      Promise.all(guests.map((page) => captureSequenceFailurePage(page))),
+    ]);
     await persistSequenceArtifact(testInfo, `luna-seed-${plan.seed}-failure.json`, {
       ...plan,
       actions: history,
       error: String(error),
+      host,
+      guests: guestSnapshots,
     }).catch(() => {});
     throw error;
   } finally {
@@ -478,7 +553,7 @@ async function runSeededSequence(
         context.close().catch(() => {}),
       ),
     );
-    if (errors.length > 0)
+    if (errors.length > 0 && !sequenceFailed)
       throw new Error(`seed ${plan.seed} browser errors: ${errors.join(' | ')}`);
   }
 }

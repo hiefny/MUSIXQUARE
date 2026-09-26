@@ -1,6 +1,7 @@
 import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { log } from '../../core/log.ts';
 import type { LargeAudioPlayback } from '../file-playback-resource.ts';
+import { withLargeAudioOutput } from './output-error.ts';
 import {
   beginLargeAudioResource,
   recordLargeAudioPcm,
@@ -179,40 +180,48 @@ export class BoundedPlayback implements LargeAudioPlayback {
     ) {
       return;
     }
-    const node = context.createBufferSource();
-    node.buffer = buffer;
-    node.connect(destination);
-    node.onended = () => {
-      this.nodes.delete(node);
+    const node = withLargeAudioOutput(() => {
+      const source = context.createBufferSource();
       try {
-        node.disconnect();
-      } catch {
-        // The context/destination can disappear during session teardown.
+        source.buffer = buffer;
+        source.connect(destination);
+        source.onended = () => {
+          this.nodes.delete(source);
+          try {
+            source.disconnect();
+          } catch {
+            // The context/destination can disappear during session teardown.
+          }
+          source.onended = null;
+          if (!this.stopped) this.pump();
+        };
+        // Keep fractional starts for the browser's resampler. A duration passed
+        // to start() is rounded on the source clock independently of the next
+        // chunk's start; explicit absolute stops share the output-clock boundary.
+        // The reader supplies neighboring PCM beyond the logical end so source
+        // offset rounding cannot exhaust the buffer one sample before that stop.
+        source.start(startsAt, sourceOffset);
+        source.stop(endsAt);
+        return source;
+      } catch (error) {
+        source.onended = null;
+        try {
+          source.stop();
+        } catch {
+          // A failed start may leave no native output to stop.
+        }
+        try {
+          source.disconnect();
+        } catch {
+          // Preserve the original native scheduling failure.
+        }
+        throw error;
       }
-      node.onended = null;
-      if (!this.stopped) this.pump();
-    };
-    try {
-      // Keep fractional starts for the browser's resampler. A duration passed
-      // to start() is rounded on the source clock independently of the next
-      // chunk's start; explicit absolute stops share the output-clock boundary.
-      // The reader supplies neighboring PCM beyond the logical end so source
-      // offset rounding cannot exhaust the buffer one sample before that stop.
-      node.start(startsAt, sourceOffset);
-      node.stop(endsAt);
-      this.nodes.set(node, { buffer, endsAt });
-      this.scheduledThrough = Math.max(this.scheduledThrough, endsAt);
-      this.supplyGapActive = false;
-      this.nextChunk = null;
-    } catch (error) {
-      node.onended = null;
-      try {
-        node.disconnect();
-      } catch {
-        // Preserve the original source-start error.
-      }
-      throw error;
-    }
+    });
+    this.nodes.set(node, { buffer, endsAt });
+    this.scheduledThrough = Math.max(this.scheduledThrough, endsAt);
+    this.supplyGapActive = false;
+    this.nextChunk = null;
   }
 
   private skipStaleWindow(): void {

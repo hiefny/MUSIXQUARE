@@ -58,7 +58,10 @@ import {
   type FilePlaybackResource,
   type FilePlaybackSource,
 } from './file-playback-resource.ts';
-import { createLargeFileSource } from './large-file-source.ts';
+import { createLargeFileSource, isLargeFileDecoderStartError } from './large-file-source.ts';
+import { markDeviceTrackUnavailable, markFailedAndAdvance } from './device-track-failure.ts';
+import { isAudioDecoderStartupError } from './large-audio/startup-error.ts';
+import { isLargeAudioOutputError } from './large-audio/output-error.ts';
 
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
@@ -1239,6 +1242,7 @@ async function prepareLargeFileStart(
   invocation: number,
   isCurrent: () => boolean,
   preserveCurrentOutput: () => boolean,
+  onTerminalFailure: (error: unknown) => void,
 ): Promise<boolean> {
   if (!isLargeAudioTrack(resource)) return true;
   const abort = new AbortController();
@@ -1256,7 +1260,10 @@ async function prepareLargeFileStart(
   } catch (error) {
     if (!abort.signal.aborted && isCurrent()) {
       log.warn('[LargeFile] Could not prepare requested position', error);
-      if (!preserveCurrentOutput()) pause(getTrackPosition(), { showToast: false });
+      if (!preserveCurrentOutput()) {
+        pause(getTrackPosition(), { showToast: false });
+        onTerminalFailure(error);
+      }
       showToast(t('error.audio_decode_fail'));
     }
     return false;
@@ -1296,6 +1303,24 @@ async function _internalPlay(
       ? isLocalFileOutputIdentityCurrent(recoveryIdentity)
       : getCurrentQueueItemId() === recoveryQueueItemId &&
         getCurrentAudioBuffer() === recoveryBuffer;
+  const rejectTerminalFileDecoder = (error: unknown): void => {
+    if (
+      isAudioDecoderStartupError(error) ||
+      isLargeAudioOutputError(error) ||
+      !recoveryOutputIsCurrent()
+    )
+      return;
+    // Complete-PCM decoding rejects the whole track before publication. A
+    // bounded decoder can discover that same failure after output has begun;
+    // retire that resource so synchronization cannot retry it every tick.
+    setCurrentAudioBuffer(null);
+    if (!recoveryQueueItemId || getState('demo.active')) return;
+    if (getState('network.hostConn') || getState('room.context').kind === 'pro') {
+      markDeviceTrackUnavailable(recoveryQueueItemId);
+    } else {
+      markFailedAndAdvance(recoveryQueueItemId, stopAllMedia);
+    }
+  };
   const requestedStartAtMs = Number.isFinite(scheduleDeadlineMs)
     ? Number(scheduleDeadlineMs)
     : performance.now() + Math.max(0, scheduleDelay) * 1_000;
@@ -1569,6 +1594,7 @@ async function _internalPlay(
         isFilePlaybackPlaying() &&
         recoveryOutputIsCurrent() &&
         isFileSourceNodeUsable(previousOutput, _currentAudioBuffer),
+      rejectTerminalFileDecoder,
     );
     if (!prepared) return false;
   }
@@ -1632,10 +1658,16 @@ async function _internalPlay(
             ctx,
             destination ?? ctx.destination,
             (error) => {
-              if (getPlayerNode() !== candidateNode || !isCurrentLoadEpoch(myLoadEpoch)) return;
+              if (
+                getPlayerNode() !== candidateNode ||
+                !isCurrentLoadEpoch(myLoadEpoch) ||
+                !recoveryOutputIsCurrent()
+              )
+                return;
               log.error('[LargeFile] Decoding failed during playback', error);
               const position = getTrackPosition();
               pause(position, { showToast: false });
+              if (!recoveryOutputIsCurrent()) return;
               showToast(t('error.audio_decode_fail'));
               if (isActiveStandardRoomCoordinator()) {
                 broadcast({
@@ -1645,6 +1677,7 @@ async function _internalPlay(
                   reason: 'stop',
                 });
               }
+              rejectTerminalFileDecoder(error);
             },
           )
         : ctx.createBufferSource();
@@ -1685,7 +1718,11 @@ async function _internalPlay(
       candidateNode.start(startWhen, finalStartPos);
     } catch (error) {
       releaseUncommittedSourceNode(newNode);
-      if (!previousSourceUsable) {
+      const decoderRejected =
+        isLargeFileDecoderStartError(error) && !isLargeAudioOutputError(error);
+      const preservePreviousOutput =
+        previousSourceUsable && (!decoderRejected || recoveryOptions?.outputOnly === true);
+      if (!preservePreviousOutput) {
         if (getPlayerNode() === previousNode) stopPlayerNode();
         clearStandardHostCanonicalTimeline();
         setState('player.pausedAt', safeOffset);
@@ -1699,6 +1736,7 @@ async function _internalPlay(
           });
           bus.emit('visualizer:hold-frame');
         }
+        if (decoderRejected) rejectTerminalFileDecoder(error);
       }
       log.error('[Audio] Source start failed:', error);
       return false;

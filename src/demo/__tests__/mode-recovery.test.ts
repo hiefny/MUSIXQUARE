@@ -1177,6 +1177,74 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     },
   );
 
+  it.each(['standard', 'pro'] as const)(
+    'does not restore interrupted-demo effects over a successor %s session behind the exit curtain',
+    async (kind) => {
+      const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+      setState('network.appRole', 'guest');
+      setState('setup.sessionStarted', true);
+      setState('network.hostConn', hostConn);
+      markQueueAuthorityReady(hostConn);
+      setState('audio.reverbMix', 0.1);
+      setState('audio.eqValues', [1, 2, 3, 2, 1]);
+      await handleData(
+        {
+          type: MSG.DEMO_ENTER,
+          index: 0,
+          reverbOn: false,
+          bassBoostOn: false,
+          trebleBoostOn: false,
+          surroundOn: false,
+        },
+        hostConn,
+      );
+      await flush();
+      FakeXHR.pending[0]?.resolveOk();
+      await flush(50);
+
+      document.body.innerHTML = `
+        <div id="demo-overlay" class="active"></div>
+        <div id="demo-curtain" style="opacity: 0"></div>
+      `;
+      const exitAnimation = {
+        cancel: vi.fn(),
+        onfinish: null as (() => void) | null,
+        oncancel: null as (() => void) | null,
+      } as unknown as Animation;
+      Object.defineProperty(document.getElementById('demo-curtain')!, 'animate', {
+        configurable: true,
+        value: vi.fn(() => exitAnimation),
+      });
+
+      setState('network.hostConn', null);
+      expect(getState('demo.active')).toBe(false);
+      expect(exitAnimation.onfinish).toBeTypeOf('function');
+      if (kind === 'standard') {
+        setState('network.hostConn', { open: true, peer: 'host-2' } as DataConnection);
+      } else {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000002',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 2,
+          snapshotRevision: 1,
+          capabilities: [],
+        });
+      }
+      setState('audio.reverbMix', 0.6);
+      setState('audio.eqValues', [-1, -2, 0, 2, 4]);
+      vi.mocked(syncRoomEffectsUI).mockClear();
+
+      exitAnimation.onfinish?.call(exitAnimation, new Event('finish') as AnimationPlaybackEvent);
+      await flush(20);
+
+      expect(getState('audio.reverbMix')).toBe(0.6);
+      expect(getState('audio.eqValues')).toEqual([-1, -2, 0, 2, 4]);
+      expect(syncRoomEffectsUI).not.toHaveBeenCalled();
+    },
+  );
+
   it('keeps the newest host effect flags when they arrive during an in-flight guest load', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);

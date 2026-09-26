@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
 import { BoundedPlayback, type PcmChunk } from '../bounded-playback.ts';
 import { getLargeAudioDiagnostics } from '../diagnostics.ts';
+import { isLargeAudioOutputError } from '../output-error.ts';
 
 function pendingChunk() {
   let resolve!: (chunk: PcmChunk) => void;
@@ -190,6 +191,7 @@ describe('bounded sample-clock scheduling', () => {
     context.currentTime = 10;
     sources[0].onended?.();
     expect(options.onerror).toHaveBeenCalledOnce();
+    expect(isLargeAudioOutputError(options.onerror.mock.calls[0][0])).toBe(false);
     expect(options.onended).not.toHaveBeenCalled();
     expect(playback.ended).toBe(false);
     expect(playback.bufferedPcmBytes).toBe(0);
@@ -270,10 +272,65 @@ describe('bounded sample-clock scheduling', () => {
       expect(sources).toHaveLength(0);
       expect(playback.active).toBe(false);
       expect(options.onerror).toHaveBeenCalledOnce();
+      expect(isLargeAudioOutputError(options.onerror.mock.calls[0][0])).toBe(false);
       expect(options.onreleased).toHaveBeenCalledOnce();
       expect(options.onended).not.toHaveBeenCalled();
     },
   );
+
+  it.each(
+    (['create', 'connect', 'start', 'stop'] as const).flatMap((operation) =>
+      (['initial', 'later'] as const).map((phase) => ({ operation, phase })),
+    ),
+  )(
+    'identifies $phase native $operation failures without blaming decoded media',
+    async ({ operation, phase }) => {
+      const { sources, context, options } = setup();
+      const nativeFailure = new DOMException('Audio route changed', 'InvalidStateError');
+      const originalCreate = context.createBufferSource;
+      let calls = 0;
+      vi.spyOn(context, 'createBufferSource').mockImplementation(() => {
+        const shouldFail = ++calls === (phase === 'initial' ? 1 : 2);
+        if (shouldFail && operation === 'create') throw nativeFailure;
+        const source = originalCreate();
+        if (shouldFail && operation !== 'create') {
+          source[operation].mockImplementationOnce(() => {
+            throw nativeFailure;
+          });
+        }
+        return source;
+      });
+      const playback = new BoundedPlayback({
+        ...options,
+        firstChunk: chunk(0),
+        iterator: (async function* () {
+          yield chunk(0.25);
+        })(),
+      });
+      if (phase === 'initial') expect(options.onerror).toHaveBeenCalledOnce();
+      else {
+        expect(options.onerror).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+      }
+      expect(options.onerror).toHaveBeenCalledOnce();
+      const error: unknown = options.onerror.mock.calls[0][0];
+      expect(error).toMatchObject({ cause: nativeFailure });
+      expect(isLargeAudioOutputError(error)).toBe(true);
+      expect(isLargeAudioOutputError(new Error('source adapter', { cause: error }))).toBe(true);
+      expect(isLargeAudioOutputError(nativeFailure)).toBe(false);
+      expect(playback.active).toBe(false);
+      expect(playback.ended).toBe(false);
+      expect(options.onreleased).toHaveBeenCalledOnce();
+      expect(options.onended).not.toHaveBeenCalled();
+      expect(sources.every((source) => source.disconnect.mock.calls.length > 0)).toBe(true);
+    },
+  );
+
+  it('does not classify unrelated cyclic errors as output scheduling failures', () => {
+    const error = new Error('decode failed');
+    error.cause = error;
+    expect(isLargeAudioOutputError(error)).toBe(false);
+  });
 
   it('counts pending decoder gaps only after the audio deadline and once per recovered episode', async () => {
     const { sources, context, options } = setup();

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, expect, it, vi } from 'vitest';
 import { isLargeFileSource, type LargeAudioTrack } from '../file-playback-resource.ts';
-import { createLargeFileSource } from '../large-file-source.ts';
+import { createLargeFileSource, isLargeFileDecoderStartError } from '../large-file-source.ts';
 
 type StartOptions = Parameters<LargeAudioTrack['createPlayback']>[0];
 
@@ -168,7 +168,14 @@ describe('bounded file source adapter', () => {
       options.onended();
       return playback;
     });
-    expect(() => source.start(0, 0)).toThrow(failure);
+    let rejection: unknown;
+    try {
+      source.start(0, 0);
+    } catch (error) {
+      rejection = error;
+    }
+    expect(isLargeFileDecoderStartError(rejection)).toBe(true);
+    expect(rejection).toMatchObject({ cause: failure });
     expect(source.ended).toBe(true);
     expect(onerror).not.toHaveBeenCalled();
     expect(onended).not.toHaveBeenCalled();

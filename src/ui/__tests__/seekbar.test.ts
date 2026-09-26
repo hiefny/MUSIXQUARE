@@ -56,6 +56,54 @@ beforeEach(() => {
 });
 
 describe('initSeekBar playback mode gates', () => {
+  it('repaints authoritative position changes while file playback remains paused', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    initSeekBar();
+    setState('player.pausedAt', 42);
+    expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('42');
+    expect(document.getElementById('time-curr')?.innerText).toBe('fmt:42');
+    setState('player.pausedAt', 17);
+    expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('17');
+  });
+
+  it('restores a paused late join position when decoding publishes the duration', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    setState('player.pausedAt', 240);
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    slider.max = '0';
+    bus.emit('ui:seek-reset');
+    expect(slider.value).toBe('0');
+    bus.emit('ui:duration-update', 600);
+    expect(slider.value).toBe('240');
+    expect(document.getElementById('time-curr')?.innerText).toBe('fmt:240');
+  });
+
+  it('does not overwrite a playing timeline when its stored resume position changes', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    slider.value = '50';
+    setState('player.pausedAt', 10);
+    bus.emit('ui:duration-update', 600);
+    expect(slider.value).toBe('50');
+  });
+
+  it('keeps the current seek draft when a paused update arrives', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    slider.value = '50';
+    setState('player.isSeeking', true);
+    setState('player.pausedAt', 10);
+    bus.emit('ui:duration-update', 600);
+    expect(slider.value).toBe('50');
+  });
+
   it('cancels its animation without cancelling an unrelated timer with the same handle', () => {
     vi.useFakeTimers();
     const unrelatedTimer = vi.fn();

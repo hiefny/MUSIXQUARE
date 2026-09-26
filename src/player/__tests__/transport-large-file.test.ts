@@ -5,10 +5,21 @@ import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { IS_WINDOWS } from '../../core/platform.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { getSyncPongPlaybackState } from '../../network/sync.ts';
+import { getSyncPongPlaybackState, initSync } from '../../network/sync.ts';
+import { handleData } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
+import { registerPing, resetClockState } from '../../network/shared-clock.ts';
 import { createProPlaybackAuthorityToken } from '../../pro-room/playback-authority-hooks.ts';
-import { getPlayerNode, setCurrentAudioBuffer, setPlayerNode } from '../_state.ts';
+import {
+  getCurrentAudioBuffer,
+  getPlayerNode,
+  setCurrentAudioBuffer,
+  setPlayerNode,
+} from '../_state.ts';
+import type { DataConnection } from '../../types/index.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
+import { withAudioDecoderStartup } from '../large-audio/startup-error.ts';
+import { BoundedPlayback, type PcmChunk } from '../large-audio/bounded-playback.ts';
 import { setPlaybackFilePlaying, setPlaybackLifecycleState } from '../ownership.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -18,6 +29,10 @@ const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   showLoader: vi.fn(),
   showToast: vi.fn(),
+  sendToHost: vi.fn(),
+  announceSystemMessageLocally: vi.fn(),
+  broadcastSystemMessage: vi.fn(),
+  playTrack: vi.fn(),
 }));
 
 vi.mock('../../audio/context.ts', () => ({
@@ -45,11 +60,18 @@ vi.mock('../../audio/engine.ts', () => ({
 }));
 vi.mock('../../network/peer.ts', () => ({
   broadcast: mocks.broadcast,
-  sendToHost: vi.fn(),
+  sendToHost: mocks.sendToHost,
+}));
+vi.mock('../../chat/protocol.ts', () => ({
+  announceSystemMessageLocally: mocks.announceSystemMessageLocally,
+  broadcastSystemMessage: mocks.broadcastSystemMessage,
 }));
 vi.mock('../../ui/toast.ts', () => ({
   showLoader: mocks.showLoader,
   showToast: mocks.showToast,
+}));
+vi.mock('../playlist-loader.ts', () => ({
+  loadPlaylistModule: async () => ({ playTrack: mocks.playTrack }),
 }));
 
 import {
@@ -128,6 +150,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-09-23T00:00:00Z'));
   vi.spyOn(performance, 'now').mockImplementation(() => mocks.monotonicMs);
   resetState();
+  resetClockState();
   bus.clear();
   setCurrentAudioBuffer(null);
   setPlayerNode(null);
@@ -147,6 +170,9 @@ beforeEach(() => {
     capabilities: ['playback.control'],
   });
   setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+  setState('playlist.items', [
+    { queueItemId: QUEUE_ITEM_ID, type: 'file', videoId: '', playlistId: '', name: 'large.mp3' },
+  ]);
   const blob = new Blob(['large file']);
   setState('files.current', {
     queueItemId: QUEUE_ITEM_ID,
@@ -169,6 +195,319 @@ afterEach(() => {
 });
 
 describe('bounded file transport preparation', () => {
+  it.each([
+    { role: 'host', phase: 'initial' },
+    { role: 'host', phase: 'later' },
+    { role: 'guest', phase: 'initial' },
+    { role: 'guest', phase: 'later' },
+    { role: 'pro', phase: 'initial' },
+    { role: 'pro', phase: 'later' },
+  ] as const)(
+    'keeps $role playback retryable after a native output failure on the $phase chunk',
+    async ({ role, phase }) => {
+      if (role === 'pro') {
+        setState('room.context', { ...getState('room.context'), kind: 'pro', role: 'member' });
+      } else if (role === 'guest') {
+        setState('network.appRole', 'guest');
+        setState('room.context', { ...getState('room.context'), role: 'member' });
+        setState('network.hostConn', {
+          peer: 'host-1',
+          open: true,
+          send: vi.fn<DataConnection['send']>(),
+          close: vi.fn<DataConnection['close']>(),
+          on: () => {},
+        });
+      }
+      let releaseRead!: () => void;
+      const readGate = new Promise<void>((resolve) => {
+        releaseRead = resolve;
+      });
+      const chunk = (timestamp: number): PcmChunk => ({
+        timestamp,
+        buffer: {
+          duration: 1,
+          length: 48_000,
+          sampleRate: 48_000,
+          numberOfChannels: 2,
+        } as AudioBuffer,
+      });
+      const { track, pending } = controlledTrack();
+      vi.mocked(track.createPlayback).mockImplementationOnce(
+        (options) =>
+          new BoundedPlayback({
+            ...options,
+            duration: track.duration,
+            firstChunk: chunk(options.offset),
+            iterator: (async function* () {
+              await readGate;
+              yield chunk(options.offset + 1);
+            })(),
+            onreleased: vi.fn(),
+          }),
+      );
+      setCurrentAudioBuffer(track);
+      if (phase === 'initial')
+        mocks.start.mockImplementationOnce(() => {
+          throw new Error('audio output temporarily unavailable');
+        });
+      try {
+        const start = play(20);
+        await advance();
+        pending[0]!.resolve();
+        await expect(start).resolves.toBe(phase === 'later');
+        if (phase === 'later') {
+          mocks.start.mockImplementationOnce(() => {
+            throw new Error('audio output temporarily unavailable');
+          });
+          releaseRead();
+          await advance();
+          expect(getState('playback.activity')).toBe('paused');
+        }
+        expect(getCurrentAudioBuffer()).toBe(track);
+        expect(getState('playback.failedTrackKeys').size).toBe(0);
+        expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+        expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
+        expect(mocks.playTrack).not.toHaveBeenCalled();
+        expect(mocks.sendToHost).not.toHaveBeenCalled();
+        vi.mocked(track.prepare).mockResolvedValueOnce();
+        await expect(play(30)).resolves.toBe(true);
+        expect(track.dispose).not.toHaveBeenCalled();
+      } finally {
+        releaseRead();
+      }
+    },
+  );
+
+  it('keeps wrapped synchronous decoder startup failures retryable', async () => {
+    setState('room.context', { ...getState('room.context'), kind: 'pro', role: 'member' });
+    const { track, pending, outputs } = controlledTrack();
+    const startupError = await withAudioDecoderStartup(() =>
+      Promise.reject(new Error('worker unavailable')),
+    ).catch((error: unknown) => error);
+    vi.mocked(track.createPlayback).mockImplementationOnce((options) => {
+      options.onerror(startupError);
+      return { ended: true, stop: vi.fn(), disconnect: vi.fn() };
+    });
+    setCurrentAudioBuffer(track);
+    const start = play(20);
+    await advance();
+    pending[0]!.resolve();
+    await expect(start).resolves.toBe(false);
+    expect(getCurrentAudioBuffer()).toBe(track);
+    expect(getState('playback.failedTrackKeys').size).toBe(0);
+    expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+    vi.mocked(track.prepare).mockResolvedValueOnce();
+    await expect(play(30)).resolves.toBe(true);
+    expect(outputs).toHaveLength(1);
+    expect(track.dispose).not.toHaveBeenCalled();
+  });
+
+  it('rejects the device track when its first prepared PCM reports an immediate decoder failure', async () => {
+    setState('room.context', { ...getState('room.context'), kind: 'pro', role: 'member' });
+    const { track, pending } = controlledTrack();
+    vi.mocked(track.createPlayback).mockImplementationOnce((options) => {
+      options.onerror(new Error('invalid first PCM chunk'));
+      return { ended: true, stop: vi.fn(), disconnect: vi.fn() };
+    });
+    setCurrentAudioBuffer(track);
+    const start = play(20);
+    await advance();
+    pending[0]!.resolve();
+    await expect(start).resolves.toBe(false);
+    expect(getCurrentAudioBuffer()).toBeNull();
+    expect(getPlayerNode()).toBeNull();
+    expect(track.dispose).toHaveBeenCalledOnce();
+    expect(getState('playback.failedTrackKeys')).toEqual(new Set([`queue:${QUEUE_ITEM_ID}`]));
+    expect(mocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+  });
+
+  it.each(['playing', 'seeking'] as const)(
+    'does not decode the same failed %s segment again on ordinary guest synchronization',
+    async (phase) => {
+      const host: DataConnection = {
+        peer: 'host-1',
+        open: true,
+        send: vi.fn(),
+        close: vi.fn(),
+        on: vi.fn(),
+      };
+      initSync();
+      setState('network.appRole', 'guest');
+      setState('room.context', { ...getState('room.context'), role: 'member' });
+      setState('network.hostConn', host);
+      markQueueAuthorityReady(host);
+      const { track, pending, outputs } = controlledTrack();
+      setCurrentAudioBuffer(track);
+      const start = play(20);
+      await advance();
+      pending[0]!.resolve();
+      await start;
+      const error = new Error('invalid PCM midway through the file');
+      if (phase === 'playing') outputs[0]!.onerror(error);
+      else {
+        vi.mocked(track.prepare).mockRejectedValueOnce(error);
+        await expect(play(400)).resolves.toBe(false);
+      }
+      expect(getState('playback.activity')).toBe('paused');
+
+      for (const pingId of [1701, 1702, 1703]) {
+        registerPing(pingId);
+        await advance(10);
+        const pong = handleData(
+          {
+            type: MSG.SYNC_PONG,
+            pingId,
+            hostTime: Date.now(),
+            position: 20.01,
+            mode: 'file',
+            activity: 'playing',
+            queueItemId: QUEUE_ITEM_ID,
+          },
+          host,
+        );
+        await advance();
+        expect(track.prepare).toHaveBeenCalledTimes(phase === 'playing' ? 1 : 2);
+        await pong;
+      }
+      expect(getCurrentAudioBuffer()).toBeNull();
+      expect(track.dispose).toHaveBeenCalledOnce();
+      expect(getState('playback.failedTrackKeys')).toEqual(new Set([`queue:${QUEUE_ITEM_ID}`]));
+      expect(mocks.sendToHost).toHaveBeenCalledExactlyOnceWith({
+        type: MSG.GUEST_DECODE_FAILED,
+        queueItemId: QUEUE_ITEM_ID,
+      });
+      expect(mocks.announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+        'chat.device_track_unavailable_system_message',
+      );
+      expect(mocks.broadcast).not.toHaveBeenCalled();
+
+      const next = '97111111-1111-4111-8111-111111111112';
+      setState('playlist.currentQueueItemId', next);
+      setState('files.current', { ...getState('files.current')!, queueItemId: next });
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      await expect(play(30)).resolves.toBe(true);
+      expect(mocks.start).toHaveBeenCalledExactlyOnceWith(0, 30);
+      expect(getState('playback.failedTrackKeys').has(`queue:${next}`)).toBe(false);
+    },
+  );
+
+  it.each(['playing', 'seeking'] as const)(
+    'keeps a terminal PRO %s failure local across later authority commits',
+    async (phase) => {
+      setState('room.context', { ...getState('room.context'), kind: 'pro', role: 'member' });
+      const { track, pending, outputs } = controlledTrack();
+      setCurrentAudioBuffer(track);
+      const commit = (revision: number, positionSeconds: number) =>
+        applyProPlaybackFileCommit({
+          authority: createProPlaybackAuthorityToken({
+            roomId: '123456',
+            roomEpoch: 7,
+            basePlaybackRevision: revision - 1,
+            transitionId: `failure-${revision}`,
+          }),
+          committedPlaybackRevision: revision,
+          queueItemId: QUEUE_ITEM_ID,
+          state: 'playing',
+          positionSeconds,
+          scheduleDelayMs: 0,
+          timingMode: 'scheduled-control',
+          isCurrent: () => true,
+        });
+      const start = commit(2, 20);
+      await advance();
+      pending[0]!.resolve();
+      await expect(start).resolves.toBe(true);
+      const error = new Error('invalid PCM midway through the file');
+      if (phase === 'playing') outputs[0]!.onerror(error);
+      else {
+        vi.mocked(track.prepare).mockRejectedValueOnce(error);
+        await expect(commit(3, 400)).resolves.toBe(false);
+      }
+      for (const revision of [4, 5, 6]) await expect(commit(revision, 400)).resolves.toBe(false);
+      expect(track.prepare).toHaveBeenCalledTimes(phase === 'playing' ? 1 : 2);
+      expect(getCurrentAudioBuffer()).toBeNull();
+      expect(track.dispose).toHaveBeenCalledOnce();
+      expect(getState('playback.failedTrackKeys')).toEqual(new Set([`queue:${QUEUE_ITEM_ID}`]));
+      expect(mocks.announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+        'chat.device_track_unavailable_system_message',
+      );
+      expect(mocks.sendToHost).not.toHaveBeenCalled();
+      expect(mocks.broadcast).not.toHaveBeenCalled();
+      expect(mocks.playTrack).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['playing', 'seeking'] as const)(
+    'keeps decoder startup failures retryable while %s',
+    async (phase) => {
+      setState('room.context', { ...getState('room.context'), kind: 'pro', role: 'member' });
+      const { track, pending, outputs } = controlledTrack();
+      setCurrentAudioBuffer(track);
+      const start = play(20);
+      await advance();
+      pending[0]!.resolve();
+      await start;
+      const error = await withAudioDecoderStartup(() =>
+        Promise.reject(new Error('worker unavailable')),
+      ).catch((cause: unknown) => cause);
+      if (phase === 'playing') outputs[0]!.onerror(error);
+      else {
+        vi.mocked(track.prepare).mockRejectedValueOnce(error);
+        await expect(play(400)).resolves.toBe(false);
+      }
+      expect(getCurrentAudioBuffer()).toBe(track);
+      expect(getState('playback.failedTrackKeys').size).toBe(0);
+      expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      vi.mocked(track.prepare).mockResolvedValueOnce();
+      await expect(play(30)).resolves.toBe(true);
+      expect(outputs).toHaveLength(2);
+      expect(track.dispose).not.toHaveBeenCalled();
+    },
+  );
+
+  it('ignores a late output error from a superseded room incarnation', async () => {
+    const { track, pending, outputs } = controlledTrack();
+    setCurrentAudioBuffer(track);
+    const start = play(20);
+    await advance();
+    pending[0]!.resolve();
+    await start;
+    const source = getPlayerNode();
+    setState('room.context', { ...getState('room.context'), epoch: 8 });
+    outputs[0]!.onerror(new Error('obsolete output failed'));
+    expect(getPlayerNode()).toBe(source);
+    expect(getCurrentAudioBuffer()).toBe(track);
+    expect(getState('playback.activity')).toBe('playing');
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(mocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('uses the existing next-track policy when the host decoder fails after starting', async () => {
+    const next = '97111111-1111-4111-8111-111111111112';
+    setState('playlist.items', [
+      ...getState('playlist.items'),
+      { queueItemId: next, type: 'file', videoId: '', playlistId: '', name: 'next.mp3' },
+    ]);
+    const { track, pending, outputs } = controlledTrack();
+    setCurrentAudioBuffer(track);
+    const start = hostSeek(20);
+    await advance();
+    pending[0]!.resolve();
+    await start;
+    outputs[0]!.onerror(new Error('corrupt later frame'));
+    expect(getCurrentAudioBuffer()).toBeNull();
+    expect(getState('playback.failedTrackKeys')).toEqual(new Set([`queue:${QUEUE_ITEM_ID}`]));
+    expect(mocks.broadcast).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: MSG.PAUSE, queueItemId: QUEUE_ITEM_ID }),
+    );
+    await advance(600);
+    expect(mocks.playTrack).toHaveBeenCalledExactlyOnceWith(next);
+    expect(mocks.broadcastSystemMessage).toHaveBeenCalledExactlyOnceWith(
+      'chat.decode_skip_system_message',
+    );
+  });
+
   it('cancels the previous near-end deadline while a new host seek is being prepared', async () => {
     const { track, pending, outputs } = controlledTrack();
     setCurrentAudioBuffer(track);
@@ -252,6 +591,16 @@ describe('bounded file transport preparation', () => {
   );
 
   it('settles a failed host preparation at the requested paused position without publishing PLAY', async () => {
+    setState('playlist.items', [
+      ...getState('playlist.items'),
+      {
+        queueItemId: '97111111-1111-4111-8111-111111111112',
+        type: 'file',
+        videoId: '',
+        playlistId: '',
+        name: 'next.mp3',
+      },
+    ]);
     const { track, outputs } = controlledTrack();
     setCurrentAudioBuffer(track);
     setPlaybackFilePlaying();

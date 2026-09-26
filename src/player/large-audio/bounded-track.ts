@@ -25,18 +25,21 @@ interface PreparedRead {
 }
 
 /** A reader can be retired through both a generator finally and its owner. */
-function ownReader(reader: PcmIterator): PcmIterator {
+function ownReader(
+  reader: PcmIterator,
+  onRetiring: (closing: ReturnType<PcmIterator['return']>) => void,
+): PcmIterator {
   const releaseResource = beginLargeAudioResource('readers');
   let closing: ReturnType<PcmIterator['return']> | null = null;
   return {
     next: (...args) => reader.next(...args),
     return: () => {
-      closing ??= Promise.resolve()
-        .then(() => reader.return())
-        .then((result) => {
-          releaseResource();
-          return result;
-        });
+      if (!closing) {
+        closing = Promise.resolve()
+          .then(() => reader.return())
+          .finally(releaseResource);
+        onRetiring(closing);
+      }
       return closing;
     },
     throw: (error) => reader.throw(error),
@@ -56,7 +59,7 @@ export class BoundedAudioTrack implements LargeAudioTrack {
   private disposed = false;
   private readonly releaseResource = beginLargeAudioResource('tracks');
   private prepared: PreparedRead | null = null;
-  private preparationRetirement: Promise<void> = Promise.resolve();
+  private readonly retiringReaders = new Set<ReturnType<PcmIterator['return']>>();
   private readonly playbacks = new Set<BoundedPlayback>();
 
   constructor(
@@ -74,6 +77,53 @@ export class BoundedAudioTrack implements LargeAudioTrack {
       this.prepared?.chunks.reduce((total, chunk) => total + pcmBytes(chunk.buffer), 0) ?? 0;
     for (const playback of this.playbacks) bytes += playback.bufferedPcmBytes;
     return bytes;
+  }
+
+  private async waitForRetiringReaders(cancelled: Promise<never>): Promise<void> {
+    do {
+      await Promise.race([Promise.allSettled(this.retiringReaders), cancelled]);
+      // A playing source can be stopped while another reader is retiring.
+      // Include its new retirement before opening the waiting replacement.
+    } while (this.retiringReaders.size > 0);
+  }
+
+  private openOwnedReader(position: number): PcmIterator {
+    let cancelOpening!: () => void;
+    let wasCancelled = false;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      cancelOpening = () => reject(aborted());
+    });
+    // return() can precede the generator's first next(), before it has installed
+    // its race handler. Cancellation still must not reject out of band.
+    void cancelled.catch(() => undefined);
+    const reader = async function* (this: BoundedAudioTrack): PcmIterator {
+      let opened: PcmIterator | null = null;
+      try {
+        await this.waitForRetiringReaders(cancelled);
+        if (wasCancelled || this.disposed) return;
+        opened = this.openReader(position);
+        for (;;) {
+          const result = await opened.next();
+          if (result.done) return;
+          yield result.value;
+        }
+      } catch (error) {
+        if (!wasCancelled) throw error;
+      } finally {
+        await opened?.return();
+      }
+    }.call(this);
+    return ownReader(reader, (closing) => {
+      // Unblock a not-yet-opened reader before adding its own retirement to the
+      // gate; otherwise cancelled cold starts could wait for each other forever.
+      wasCancelled = true;
+      cancelOpening();
+      this.retiringReaders.add(closing);
+      const retired = (): void => {
+        this.retiringReaders.delete(closing);
+      };
+      void closing.then(retired, retired);
+    });
   }
 
   async prepare(position: number, signal?: AbortSignal): Promise<void> {
@@ -106,24 +156,20 @@ export class BoundedAudioTrack implements LargeAudioTrack {
         if (this.prepared === entry) this.prepared = null;
         entry.chunks = [];
         rejectCancelled(aborted());
-        if (entry.iterator) {
-          this.preparationRetirement = entry.iterator.return().then(
-            () => undefined,
-            () => undefined,
-          );
-        }
+        entry.iterator?.return().catch(() => undefined);
       },
     };
     this.prepared = entry;
     signal?.addEventListener('abort', entry.cancel, { once: true });
     try {
-      // AsyncGenerator.return cannot interrupt a pending decoder frame. Retire
-      // that reader before opening the newest seek, rather than accumulating a
-      // Worker per superseded request. Waiting intents are cancellable and do
-      // not open a decoder. Active playback has a separate reader and continues.
-      await Promise.race([this.preparationRetirement, cancelled]);
+      // AsyncGenerator.return cannot interrupt a pending decoder frame. Await
+      // retired readers before opening the newest seek, rather than accumulating
+      // a Worker per superseded request or paused playback. Waiting intents are
+      // cancellable and do not open a decoder. Still-active output is not retired
+      // and continues while a replacement is prepared.
+      await this.waitForRetiringReaders(cancelled);
       if (this.disposed || this.prepared !== entry || signal?.aborted) throw aborted();
-      const iterator = ownReader(this.openReader(offset));
+      const iterator = this.openOwnedReader(offset);
       entry.iterator = iterator;
       let bytes = 0;
       for (;;) {
@@ -169,7 +215,7 @@ export class BoundedAudioTrack implements LargeAudioTrack {
       offset - prepared.offset <= 1;
     if (!reusable) prepared?.cancel();
     else prepared.signal?.removeEventListener('abort', prepared.cancel);
-    const reader = reusable ? prepared.iterator! : ownReader(this.openReader(offset));
+    const reader = reusable ? prepared.iterator! : this.openOwnedReader(offset);
     const chunks = reusable ? prepared.chunks : [];
     const firstChunk = chunks.shift() ?? null;
     const iterator = (async function* (): PcmIterator {
@@ -191,7 +237,7 @@ export class BoundedAudioTrack implements LargeAudioTrack {
       getPendingPcmBuffers: () => chunks.map((chunk) => chunk.buffer),
       reopenReader: (position) => {
         chunks.length = 0;
-        return ownReader(this.openReader(position));
+        return this.openOwnedReader(position);
       },
       onreleased: () => {
         chunks.length = 0;

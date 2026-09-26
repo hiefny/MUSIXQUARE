@@ -7,9 +7,13 @@ import {
   Output,
 } from 'mediabunny';
 import { createHostGuestContexts, cleanupContexts } from './helpers/context-factory.ts';
-import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { connectHostAndGuest, setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { readQueueSnapshot, waitForCurrentQueueIndex } from './helpers/queue-state.ts';
-import { waitForPlaybackProjection, waitForPlaylistCount } from './helpers/wait.ts';
+import {
+  clickPlayButton,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
+} from './helpers/wait.ts';
 
 // A real, independently decodable MPEG-1 Layer III silence frame (48 kHz,
 // stereo, 32 kbps, reservoir disabled). Repeating it creates a valid long CBR
@@ -24,6 +28,127 @@ function mp3(seconds: number): Buffer {
   const bytes = Buffer.alloc(frames * SILENCE_FRAME.length);
   for (let i = 0; i < frames; i++) SILENCE_FRAME.copy(bytes, i * SILENCE_FRAME.length);
   return bytes;
+}
+
+for (const nativeParticipant of [null, 'host', 'guest'] as const) {
+  test(`hybrid MP3 paused late join, seek and resume with ${nativeParticipant ? `native ${nativeParticipant}` : 'bounded host and guest'}`, async ({
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const pair = await createHostGuestContexts(browser);
+    try {
+      await observeEngine(pair.hostPage, nativeParticipant === 'host' ? 8 : 2);
+      await observeEngine(pair.guestPage, nativeParticipant === 'guest' ? 8 : 2);
+      const code = await setupHostAndStart(pair.hostPage);
+      await pair.hostPage.locator('#file-input').setInputFiles([
+        { name: 'small.mp3', mimeType: 'audio/mpeg', buffer: mp3(30) },
+        { name: 'large.mp3', mimeType: 'audio/mpeg', buffer: mp3(600) },
+      ]);
+      await waitForPlaylistCount(pair.hostPage, 2);
+      await selectTrack(pair.hostPage, 1);
+      await waitForCurrentQueueIndex(pair.hostPage, 1);
+      await expect
+        .poll(async () => Number(await pair.hostPage.locator('#seek-slider').getAttribute('max')))
+        .toBeGreaterThan(590);
+      await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 40_000);
+      await clickPlayButton(pair.hostPage);
+      await waitForPlaybackProjection(pair.hostPage, 'PAUSED');
+
+      // A paused seek must become the late joiner's prepared position without
+      // starting its output, including when the participants use different engines.
+      const seek = async (position: number): Promise<void> => {
+        await pair.hostPage.locator('#seek-slider').evaluate((element, seconds) => {
+          const slider = element as HTMLInputElement;
+          slider.value = String(seconds);
+          slider.dispatchEvent(new Event('input', { bubbles: true }));
+          slider.dispatchEvent(new Event('change', { bubbles: true }));
+        }, position);
+      };
+      await seek(240);
+      await expect
+        .poll(async () => Number(await pair.hostPage.locator('#seek-slider').inputValue()))
+        .toBeCloseTo(240, 0);
+      await setupGuest(pair.guestPage, code);
+      await waitForPlaylistCount(pair.guestPage, 2);
+      await waitForCurrentQueueIndex(pair.guestPage, 1);
+      await waitForPlaybackProjection(pair.guestPage, 'PAUSED', 40_000);
+      await expect
+        .poll(async () => Number(await pair.guestPage.locator('#seek-slider').inputValue()))
+        .toBeCloseTo(240, 0);
+      expect((await readProbe(pair.guestPage)).chunkStarts).toBe(0);
+      expect((await readProbe(pair.guestPage)).wholeStarts).toBe(0);
+
+      // Supersede the paused target several times before resuming. Only the
+      // final target may win; the old near-end position must not finish the track.
+      for (const position of [599, 90, 450, 60]) await seek(position);
+      await clickPlayButton(pair.hostPage);
+      await Promise.all(
+        [pair.hostPage, pair.guestPage].map((page) =>
+          waitForPlaybackProjection(page, 'PLAYING_AUDIO', 40_000),
+        ),
+      );
+      await expect
+        .poll(async () => {
+          const positions = await Promise.all(
+            [pair.hostPage, pair.guestPage].map(async (page) =>
+              Number(await page.locator('#seek-slider').inputValue()),
+            ),
+          );
+          return (
+            positions.every((position) => position >= 59.9 && position < 90) &&
+            Math.abs(positions[0]! - positions[1]!) < 1
+          );
+        })
+        .toBe(true);
+      for (const [name, page] of [
+        ['host', pair.hostPage],
+        ['guest', pair.guestPage],
+      ] as const) {
+        if (name !== nativeParticipant) {
+          await expect.poll(async () => (await readProbe(page)).chunkStarts).toBeGreaterThan(10);
+        }
+      }
+
+      const beforeSmall = await Promise.all([readProbe(pair.hostPage), readProbe(pair.guestPage)]);
+      await selectTrack(pair.hostPage, 0);
+      await Promise.all(
+        [pair.hostPage, pair.guestPage].map(async (page, index) => {
+          await waitForCurrentQueueIndex(page, 0);
+          await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 30_000);
+          await expect
+            .poll(async () => (await readProbe(page)).wholeStarts)
+            .toBeGreaterThan(beforeSmall[index]!.wholeStarts);
+        }),
+      );
+    } finally {
+      for (const [name, page] of [
+        ['host', pair.hostPage],
+        ['guest', pair.guestPage],
+      ] as const) {
+        const snapshot = await page
+          .evaluate(() => {
+            const get = Reflect.get(window, '__MUSIXQUARE_GET_STATE__') as
+              ((path: string) => unknown) | undefined;
+            if (!get) return { unavailable: true };
+            const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+            return {
+              activity: get('playback.activity'),
+              pausedAt: get('player.pausedAt'),
+              current: get('playlist.currentQueueItemId'),
+              resident: get('files.current'),
+              slider: slider && { value: slider.value, max: slider.max },
+              probe: Reflect.get(window, '__HYBRID_AUDIO_PROBE__'),
+            };
+          })
+          .catch((error: unknown) => ({ diagnosticError: String(error) }));
+        await test.info().attach(`${name}-hybrid-lifecycle`, {
+          body: JSON.stringify(snapshot),
+          contentType: 'application/json',
+        });
+      }
+      await cleanupContexts(pair);
+    }
+  });
 }
 
 // Independently decodable AAC-LC silence: ffmpeg's native AAC encoder,

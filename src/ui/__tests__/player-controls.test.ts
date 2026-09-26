@@ -3031,6 +3031,38 @@ describe('initPlayerControls sync button', () => {
     );
   });
 
+  it('does not reopen a cancelled guest YouTube synchronization panel', async () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
+    const completion = vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete;
+    expect(completion).toBeTypeOf('function');
+
+    bus.emit('sync:close-manual');
+    completion?.();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('discards an unfinished manual offset when its guest connection is retired', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('network.hostConn', null);
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(commits).not.toHaveBeenCalled();
+  });
+
   it('commits a signed manual value on Enter and clamps it to -9999ms', async () => {
     const editor = await openEditableFileSyncControls();
     const commits = vi.fn();
@@ -3377,6 +3409,80 @@ describe('initPlayerControls sync button', () => {
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
 
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a stale PRO synchronization %s after rejoining the same room',
+    async (completion) => {
+      renderSyncControls();
+      const room = {
+        kind: 'pro' as const,
+        roomId: '000001',
+        role: 'member' as const,
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      };
+      setState('room.context', room);
+      setState('playback.mode', 'youtube');
+      setState('playback.activity', 'playing');
+      let resolveReconciliation!: (value: boolean) => void;
+      let rejectReconciliation!: (error: Error) => void;
+      proPlaybackRuntime.reconcile.mockReturnValueOnce(
+        new Promise<boolean>((resolve, reject) => {
+          resolveReconciliation = resolve;
+          rejectReconciliation = reject;
+        }),
+      );
+      initPlayerControls();
+      document.getElementById('btn-sync')?.click();
+      await vi.waitFor(() => expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1));
+
+      setState('room.context', { ...room, epoch: 2 });
+      if (completion === 'resolve') resolveReconciliation(true);
+      else rejectReconciliation(new Error('prior room incarnation failed'));
+      await vi.waitFor(() =>
+        expect(document.getElementById('btn-sync')?.getAttribute('aria-busy')).toBe('false'),
+      );
+
+      expect(showToast).not.toHaveBeenCalled();
+      expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(
+        false,
+      );
+    },
+  );
+
+  it('does not reopen manual synchronization after a pending PRO request was closed', async () => {
+    renderSyncControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    let resolveReconciliation!: (value: boolean) => void;
+    proPlaybackRuntime.reconcile.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveReconciliation = resolve;
+      }),
+    );
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await vi.waitFor(() => expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1));
+
+    bus.emit('sync:close-manual');
+    resolveReconciliation(true);
+    await vi.waitFor(() =>
+      expect(document.getElementById('btn-sync')?.getAttribute('aria-busy')).toBe('false'),
+    );
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+  });
+
   it('keeps the PRO participant nudge panel closed during zero-start', () => {
     renderSyncControls();
     setState('network.appRole', 'host');
@@ -3481,6 +3587,40 @@ describe('initPlayerControls sync button', () => {
     });
     expect(broadcastSpy).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('opens PRO file sync after reconciliation temporarily replaces the decoded resource', async () => {
+    renderSyncControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    proPlaybackRuntime.reconcile.mockImplementationOnce(async () => {
+      // The real PRO endpoint prepares its current file again before releasing
+      // rendezvous playback. Temporary resource unavailability is not dismissal.
+      setCurrentAudioBuffer(null);
+      setState('playback.activity', 'paused');
+      await Promise.resolve();
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      setState('playback.activity', 'playing');
+      return true;
+    });
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
+
+    expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
   });
 
   it('keeps a paused host nudge local instead of rebasing the room position', async () => {

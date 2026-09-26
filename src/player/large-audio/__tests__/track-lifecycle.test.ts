@@ -267,4 +267,305 @@ describe('bounded track ownership', () => {
     expect(closeCalls).toBe(1);
     expect(track.bufferedPcmBytes).toBe(0);
   });
+
+  it('retires a paused playback reader before opening another seek decoder', async () => {
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const opened: number[] = [];
+    const closed: number[] = [];
+    let liveReaders = 0;
+    let peakReaders = 0;
+    const track = new BoundedAudioTrack(
+      1_000,
+      48_000,
+      2,
+      async function* (position) {
+        opened.push(position);
+        peakReaders = Math.max(peakReaders, ++liveReaders);
+        try {
+          for (let time = position; time < position + 1; time += 0.25) yield makeChunk(time);
+          if (position === 0) await pendingRead;
+          yield makeChunk(position + 1);
+        } finally {
+          liveReaders--;
+          closed.push(position);
+        }
+      },
+      vi.fn(),
+    );
+    let latest: Promise<void> | undefined;
+    try {
+      await track.prepare(0);
+      const playback = track.createPlayback({
+        context: {
+          currentTime: 0,
+          createBufferSource: () => ({ connect() {}, disconnect() {}, stop() {}, start() {} }),
+        } as unknown as AudioContext,
+        destination: {} as AudioNode,
+        when: 0,
+        offset: 0,
+        onended: vi.fn(),
+        onerror: vi.fn(),
+      });
+      await flushReads();
+      playback.stop();
+      latest = track.prepare(90);
+      await flushReads();
+      expect(opened).toEqual([0]);
+      expect(closed).toEqual([]);
+      releaseRead();
+      await latest;
+      expect(opened).toEqual([0, 90]);
+      expect(closed).toEqual([0]);
+      expect(peakReaders).toBe(1);
+    } finally {
+      releaseRead();
+      await latest;
+      track.dispose();
+    }
+  });
+
+  it('prepares a replacement while current playback is busy, then gates only its retired reader', async () => {
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    let releaseReplacement!: () => void;
+    const pendingReplacement = new Promise<void>((resolve) => {
+      releaseReplacement = resolve;
+    });
+    const opened: number[] = [];
+    const track = new BoundedAudioTrack(
+      1_000,
+      48_000,
+      2,
+      async function* (position) {
+        opened.push(position);
+        for (let time = position; time < position + 1; time += 0.25) yield makeChunk(time);
+        if (position === 0) await pendingRead;
+        if (position === 90) await pendingReplacement;
+        for (let time = position + 1; time < position + 20; time += 0.25) yield makeChunk(time);
+      },
+      vi.fn(),
+    );
+    const context = {
+      currentTime: 0,
+      createBufferSource: () => ({ connect() {}, disconnect() {}, stop() {}, start() {} }),
+    } as unknown as AudioContext;
+    const createPlayback = (offset: number) =>
+      track.createPlayback({
+        context,
+        destination: {} as AudioNode,
+        when: 0,
+        offset,
+        onended: vi.fn(),
+        onerror: vi.fn(),
+      });
+    let latest: Promise<void> | undefined;
+    try {
+      await track.prepare(0);
+      const first = createPlayback(0);
+      await flushReads();
+      await track.prepare(90);
+      expect(opened).toEqual([0, 90]);
+      const replacement = createPlayback(90);
+      first.stop();
+      latest = track.prepare(180);
+      await flushReads();
+      expect(opened).toEqual([0, 90]);
+      expect(track.bufferedPcmBytes).toBeGreaterThan(0);
+      replacement.stop();
+      releaseRead();
+      await flushReads();
+      expect(opened).toEqual([0, 90]);
+      releaseReplacement();
+      await latest;
+      expect(opened).toEqual([0, 90, 180]);
+    } finally {
+      releaseRead();
+      releaseReplacement();
+      await latest;
+      track.dispose();
+    }
+  });
+
+  it('cancels cold starts waiting for retirement without opening decoders or deadlocking', async () => {
+    let releaseRead!: () => void;
+    const pendingRead = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const opened: number[] = [];
+    const track = new BoundedAudioTrack(
+      1_000,
+      48_000,
+      2,
+      async function* (position) {
+        opened.push(position);
+        for (let time = position; time < position + 1; time += 0.25) yield makeChunk(time);
+        if (position === 0) await pendingRead;
+        yield makeChunk(position + 1);
+      },
+      vi.fn(),
+    );
+    const createPlayback = (offset: number) =>
+      track.createPlayback({
+        context: {
+          currentTime: 0,
+          createBufferSource: () => ({ connect() {}, disconnect() {}, stop() {}, start() {} }),
+        } as unknown as AudioContext,
+        destination: {} as AudioNode,
+        when: 0,
+        offset,
+        onended: vi.fn(),
+        onerror: vi.fn(),
+      });
+    try {
+      await track.prepare(0);
+      const first = createPlayback(0);
+      await flushReads();
+      first.stop();
+      for (let position = 10; position <= 100; position += 10) {
+        const obsolete = createPlayback(position);
+        await flushReads();
+        obsolete.stop();
+      }
+      const latest = createPlayback(200);
+      await flushReads();
+      expect(opened).toEqual([0]);
+      releaseRead();
+      await flushReads();
+      await flushReads();
+      expect(opened).toEqual([0, 200]);
+      latest.stop();
+    } finally {
+      releaseRead();
+      track.dispose();
+    }
+  });
+
+  it('waits for a prepared reader to close before a clock-advanced cold start opens another', async () => {
+    let releaseClose!: () => void;
+    const pendingClose = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const opened: number[] = [];
+    const track = new BoundedAudioTrack(
+      1_000,
+      48_000,
+      2,
+      async function* (position) {
+        opened.push(position);
+        try {
+          for (let time = position; time < position + 2; time += 0.25) yield makeChunk(time);
+        } finally {
+          if (position === 0) await pendingClose;
+        }
+      },
+      vi.fn(),
+    );
+    try {
+      await track.prepare(0);
+      const playback = track.createPlayback({
+        context: {
+          currentTime: 0,
+          createBufferSource: () => ({ connect() {}, disconnect() {}, stop() {}, start() {} }),
+        } as unknown as AudioContext,
+        destination: {} as AudioNode,
+        when: 0,
+        offset: 2,
+        onended: vi.fn(),
+        onerror: vi.fn(),
+      });
+      await flushReads();
+      expect(opened).toEqual([0]);
+      releaseClose();
+      await flushReads();
+      await flushReads();
+      expect(opened).toEqual([0, 2]);
+      playback.stop();
+    } finally {
+      releaseClose();
+      track.dispose();
+    }
+  });
+
+  it('retires stale readers before reopening after background suspension', async () => {
+    vi.useFakeTimers();
+    let releaseClose!: () => void;
+    const pendingClose = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const opened: number[] = [];
+    const track = new BoundedAudioTrack(
+      1_000,
+      48_000,
+      2,
+      async function* (position) {
+        opened.push(position);
+        try {
+          for (let time = position; time < position + 30; time += 0.25) yield makeChunk(time);
+        } finally {
+          if (position === 0) await pendingClose;
+        }
+      },
+      vi.fn(),
+    );
+    const context = {
+      currentTime: 0,
+      createBufferSource: () => ({ connect() {}, disconnect() {}, stop() {}, start() {} }),
+    };
+    try {
+      await track.prepare(0);
+      const playback = track.createPlayback({
+        context: context as unknown as AudioContext,
+        destination: {} as AudioNode,
+        when: 0,
+        offset: 0,
+        onended: vi.fn(),
+        onerror: vi.fn(),
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      context.currentTime = 600;
+      await vi.advanceTimersByTimeAsync(100);
+      expect(opened).toEqual([0]);
+      releaseClose();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(opened).toEqual([0, 600]);
+      playback.stop();
+    } finally {
+      releaseClose();
+      track.dispose();
+      await flushReads();
+      vi.useRealTimers();
+    }
+  });
+
+  it('releases reader accounting and permits another seek when retired cleanup rejects', async () => {
+    const failure = new Error('decoder cleanup failed');
+    const closeReader = async (position: number): Promise<void> => {
+      if (position === 0) throw failure;
+    };
+    const track = new BoundedAudioTrack(
+      10,
+      48_000,
+      2,
+      async function* (position) {
+        try {
+          for (let time = position; time < position + 2; time += 0.25) yield makeChunk(time);
+        } finally {
+          await closeReader(position);
+        }
+      },
+      vi.fn(),
+    );
+    try {
+      await track.prepare(0);
+      await track.prepare(5);
+      expect(getLargeAudioDiagnostics().resources.readers.live).toBe(1);
+    } finally {
+      track.dispose();
+    }
+  });
 });

@@ -853,9 +853,9 @@ function loadManualSyncOverlayRuntime(): Promise<ManualSyncOverlayRuntime> {
   return _manualSyncOverlayLoad;
 }
 
-function closeManualSyncOverlay(): void {
+function closeManualSyncOverlay(cancelPending = true): void {
   _manualSyncOverlayRequest += 1;
-  _manualSyncOverlayRuntime?.closeManualSyncOverlayRuntime();
+  _manualSyncOverlayRuntime?.closeManualSyncOverlayRuntime(cancelPending);
 }
 
 type MainSyncUnavailableReason = 'no-media' | 'not-ready' | 'system-audio';
@@ -1915,7 +1915,10 @@ export function initPlayerControls(): void {
           ? !_manualSyncOverlayRuntime.canUseManualSyncPanelRuntime()
           : getMainSyncUnavailableReason() !== null
     ) {
-      closeManualSyncOverlay();
+      // PRO reconciliation can briefly replace its decoded resource. Hide the
+      // unavailable editor without cancelling that same request; the runtime
+      // still fences completion against room, connection, and track changes.
+      closeManualSyncOverlay(false);
     }
   };
   const reconcileStandardRoomSyncAvailability = () => {

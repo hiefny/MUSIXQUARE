@@ -6,6 +6,18 @@ import {
   type LargeFileSource,
 } from './file-playback-resource.ts';
 
+class LargeFileDecoderStartError extends Error {
+  constructor(cause: unknown) {
+    super('Large-file decoder failed during start', { cause });
+    this.name = 'LargeFileDecoderStartError';
+  }
+}
+
+/** A reported decoder rejection, distinct from an audio-route/start exception. */
+export function isLargeFileDecoderStartError(error: unknown): boolean {
+  return error instanceof LargeFileDecoderStartError;
+}
+
 /** Adapt a bounded decoder to the same one-shot output ownership as a native source. */
 export function createLargeFileSource(
   track: LargeAudioTrack,
@@ -58,7 +70,7 @@ export function createLargeFileSource(
       } finally {
         starting = false;
       }
-      if (failed) throw failure ?? new Error('Large-file source failed during start');
+      if (failed) throw new LargeFileDecoderStartError(failure);
     },
     stop() {
       if (stopped) return;

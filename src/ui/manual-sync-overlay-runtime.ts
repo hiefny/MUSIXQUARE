@@ -37,6 +37,7 @@ interface ManualSyncControllerBridge {
 }
 
 let previousFocus: HTMLElement | null = null;
+let manualSyncRequest = 0;
 const boundOverlays = new WeakSet<HTMLElement>();
 const boundEditors = new WeakSet<HTMLElement>();
 
@@ -136,7 +137,11 @@ function isAvailableFocusTarget(element: HTMLElement | null): element is HTMLEle
   );
 }
 
-function close(): void {
+function close(cancelPending = true): void {
+  // A pending rendezvous/reconciliation must not reopen a panel that was
+  // dismissed. A temporary availability hide during its own preparation is
+  // different: the same live request may open once its resource is ready.
+  if (cancelPending) manualSyncRequest += 1;
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay) return;
   const wasShown = overlay.classList.contains('show');
@@ -333,6 +338,7 @@ function open(fromDemo = false): boolean {
 }
 
 export function openDemoSyncRuntime(): void {
+  manualSyncRequest += 1;
   open(true);
 }
 
@@ -356,6 +362,21 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
 
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();
+  const mode = getState('playback.mode');
+  const queueItemId = getCurrentQueueItemId();
+  const request = ++manualSyncRequest;
+  const isCurrentRequest = (): boolean => {
+    const currentRoom = getRoomContext();
+    return (
+      request === manualSyncRequest &&
+      currentRoom.kind === room.kind &&
+      currentRoom.roomId === room.roomId &&
+      currentRoom.epoch === room.epoch &&
+      getState('network.hostConn') === hostConn &&
+      getState('playback.mode') === mode &&
+      getCurrentQueueItemId() === queueItemId
+    );
+  };
   const isProRoom = room.kind === 'pro';
   if (!hostConn && !isPlaybackModeFile() && !isPlaybackModeYouTube()) {
     showToast(t('toast.sync_no_media'));
@@ -363,15 +384,13 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
   }
 
   if (isProRoom) {
-    const roomId = room.roomId;
     const requestToken = bridge.beginRequest();
     void import('../pro-room/runtime.ts')
       .then(({ requestActiveProRoomPlaybackReconciliation }) =>
-        requestActiveProRoomPlaybackReconciliation(),
+        isCurrentRequest() ? requestActiveProRoomPlaybackReconciliation() : false,
       )
       .then((reconciled) => {
-        const currentRoom = getRoomContext();
-        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
+        if (!isCurrentRequest()) return;
         if (!reconciled) {
           showToast(t('toast.sync_not_ready'));
           return;
@@ -379,8 +398,7 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
         open();
       })
       .catch((error) => {
-        const currentRoom = getRoomContext();
-        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
+        if (!isCurrentRequest()) return;
         log.warn('[PRO Playback] Manual synchronization failed', error);
         showToast(t('toast.sync_not_ready'));
       })
@@ -401,6 +419,7 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
     guestRendezvousSync({
       suppressProgressToast: true,
       onComplete: () => {
+        if (!isCurrentRequest()) return;
         if (open()) showToast(t('toast.yt_manual_sync_prompt'));
       },
     });
@@ -427,8 +446,8 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
   open();
 }
 
-export function closeManualSyncOverlayRuntime(): void {
-  close();
+export function closeManualSyncOverlayRuntime(cancelPending = true): void {
+  close(cancelPending);
 }
 
 export function refreshManualSyncOverlayRuntime(): void {

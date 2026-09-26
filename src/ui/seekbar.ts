@@ -480,6 +480,26 @@ function initSeekBarBusHandlers(): void {
     refreshAvailability();
   });
 
+  const renderPausedFilePosition = (): void => {
+    const playback = getPlaybackModeActivitySnapshot();
+    if (
+      playback.mode !== 'file' ||
+      playback.activity !== 'paused' ||
+      getState('player.isSeeking') ||
+      _seekDraftActive
+    )
+      return;
+    const projection = getPendingSeekProjection();
+    const exactPosition = getTrackPosition();
+    const pausedAt = getState('player.pausedAt');
+    const positionSeconds =
+      projection?.targetSeconds ?? (exactPosition > 0 || pausedAt <= 0 ? exactPosition : pausedAt);
+    _rafAnchorTime = Number.isFinite(positionSeconds) && positionSeconds >= 0 ? positionSeconds : 0;
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(_rafAnchorTime);
+  };
+  _busScope.on('state:player.pausedAt', renderPausedFilePosition);
+
   _busScope.on('ui:duration-update', (duration) => {
     const timelineReason = getTimelineUnavailableReason();
     if (timelineReason) {
@@ -492,6 +512,9 @@ function initSeekBarBusHandlers(): void {
       setSeekSliderMax(slider, String(duration));
     }
     if (tTotal) tTotal.innerText = fmtTime(duration);
+    // A late join may receive PAUSE before its buffer and duration. Restore
+    // that same authoritative position after the zero-length rail expands.
+    renderPausedFilePosition();
   });
 
   _busScope.on('ui:seek-reset', () => {
@@ -576,14 +599,7 @@ function initSeekBarBusHandlers(): void {
     // can let a quick resume reuse the pre-pause rAF timestamp.
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
-    const projection = getPendingSeekProjection();
-    const exactPosition = getTrackPosition();
-    const pausedAt = getState('player.pausedAt');
-    const positionSeconds =
-      projection?.targetSeconds ?? (exactPosition > 0 || pausedAt <= 0 ? exactPosition : pausedAt);
-    _rafAnchorTime = Number.isFinite(positionSeconds) && positionSeconds >= 0 ? positionSeconds : 0;
-    _rafAnchorTs = performance.now();
-    renderSeekPosition(_rafAnchorTime);
+    renderPausedFilePosition();
   });
 
   _busScope.on('player:stop-all-media', () => {

@@ -1500,6 +1500,10 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   if (options.broadcastExit ?? true) broadcastDemoExit();
   supersedeDemoLoad();
   const exitGeneration = _demoLoadGeneration;
+  // Interrupted exits may start after hostConn has already been cleared.
+  // Capture that disconnected state so ordinary recovery still restores the
+  // effects, but a reconnect/new room behind the curtain owns its own settings.
+  const exitRoom = captureDemoRoomIdentity();
   const snapshot = _snapshot;
   const activeDemoTrackMeta = _activeDemoTrackMeta;
   _activeDemoTrackMeta = null;
@@ -1550,7 +1554,10 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
         // restored file-mode projection must be the final writer.
         if (restoreMedia) bus.emit('ui:seek-reset');
         restoreSnapshot(snapshot, {
-          audio: options.restoreAudioSettings ?? false,
+          audio:
+            (options.restoreAudioSettings ?? false) &&
+            _demoLoadGeneration === exitGeneration &&
+            isCurrentDemoRoom(exitRoom),
           media: restoreMedia,
           isCurrent: () =>
             _demoLoadGeneration === exitGeneration &&

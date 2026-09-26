@@ -3079,6 +3079,67 @@ describe('initPlayerControls sync button', () => {
     expect(editor.getAttribute('aria-invalid')).toBe('false');
   });
 
+  it('discards a file-sync draft when the host switches playback to YouTube', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    setState('sync.youtubeLocalOffset', 0.75);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('playback.mode', 'youtube');
+    expect(window.getSelection()?.toString()).toBe('+750');
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(commits).not.toHaveBeenCalled();
+    expect(editor.textContent).toBe('+750');
+  });
+
+  it('discards a YouTube-sync draft when playback returns to a local file', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    setState('playback.mode', 'youtube');
+    setState('sync.localOffset', -0.125);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('playback.mode', 'file');
+    editor.blur();
+
+    expect(commits).not.toHaveBeenCalled();
+    expect(editor.textContent).toBe('-125');
+  });
+
+  it('preserves an unfinished offset across track changes in the same playback mode', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('playlist.currentQueueItemId', 'next-file');
+    setCurrentAudioBuffer({ duration: 90 } as AudioBuffer);
+    setState('playback.activity', 'paused');
+    expect(editor.textContent).toBe('250');
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(commits).toHaveBeenCalledExactlyOnceWith(250);
+  });
+
+  it('refreshes the displayed manual offset when playback switches to YouTube', async () => {
+    const editor = await openEditableFileSyncControls();
+    setState('sync.youtubeLocalOffset', 0.75);
+    editor.blur();
+
+    setState('playback.mode', 'youtube');
+
+    expect(editor.textContent).toBe('+750');
+  });
+
   it('commits a sanitized positive value on blur', async () => {
     const editor = await openEditableFileSyncControls();
     const commits = vi.fn();

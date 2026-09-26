@@ -185,7 +185,8 @@ export class BoundedAudioTrack implements LargeAudioTrack {
           entry.chunks.push(result.value);
           bytes += pcmBytes(result.value.buffer);
           if (
-            result.value.timestamp + pcmChunkDuration(result.value) >= offset + PRIME_SECONDS ||
+            result.value.timestamp + pcmChunkDuration(result.value) >=
+              Math.min(this.duration, offset + PRIME_SECONDS) ||
             bytes >= PRIME_BYTES
           )
             break;

@@ -23,6 +23,9 @@ async function acquire<T>(start: () => Promise<T>): Promise<T> {
 const { wrappedLoaded, aliasWrappedLoaded: loadedAlias } = await acquire(() => import('./lazy.ts'));
 void wrappedLoaded();
 void loadedAlias();
-void import('./lazy.ts').then(({ callbackLoaded }) => callbackLoaded());
+void import('./lazy.ts').then(
+  ({ callbackLoaded }) => callbackLoaded(),
+  (error) => console.error('[DeadExportFixture] Callback module failed to load', error),
+);
 const { shadowedLazy } = { shadowedLazy: () => 7 };
 void shadowedLazy();

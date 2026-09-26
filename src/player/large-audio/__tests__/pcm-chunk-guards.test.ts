@@ -95,6 +95,96 @@ describe('bounded PCM interpolation guards', () => {
     expect(reads).toBe(4);
   });
 
+  it.each([
+    { audibleEnd: 3 / 48_000, guards: [5, 0] },
+    { audibleEnd: 4 / 48_000, guards: [5, 6] },
+  ])(
+    'keeps the required interpolation neighbors but stops delivering PCM beyond audible end $audibleEnd',
+    async ({ audibleEnd, guards }) => {
+      const closed = vi.fn();
+      let reads = 0;
+      const raw = (async function* (): PcmIterator {
+        try {
+          reads++;
+          yield chunk(0, [[1, 2, 3, 4]]);
+          reads++;
+          yield chunk(4 / 48_000, [[5, 6, 7, 8]]);
+          reads++;
+          throw new Error('unneeded encoded tail must not be decoded');
+        } finally {
+          closed();
+        }
+      })();
+      const reader = guardPcmChunkBoundaries(raw, audibleEnd);
+      try {
+        const first = (await reader.next()).value!;
+        expect(Array.from(first.buffer.getChannelData(0))).toEqual([1, 2, 3, 4, ...guards]);
+        expect(first.duration).toBe(4 / 48_000);
+        expect((await reader.next()).done).toBe(true);
+        expect(reads).toBe(2);
+        expect(closed).toHaveBeenCalledOnce();
+      } finally {
+        await reader.return();
+      }
+    },
+  );
+
+  it.each(
+    [44_100, 48_000, 96_000].flatMap((sampleRate) =>
+      [3, 3.25].map((endFrame) => ({ sampleRate, endFrame })),
+    ),
+  )(
+    'reads only the needed one-sample neighbors for end frame $endFrame at $sampleRate Hz',
+    async ({ sampleRate, endFrame }) => {
+      const timestamp = 1_234.567;
+      const expectedReads = endFrame === 3 ? 2 : 3;
+      let reads = 0;
+      const raw = (async function* (): PcmIterator {
+        reads++;
+        yield chunk(timestamp, [[1, 2, 3, 4]], sampleRate);
+        reads++;
+        yield chunk(timestamp + 4 / sampleRate, [[5]], sampleRate);
+        if (expectedReads === 3) {
+          reads++;
+          yield chunk(timestamp + 5 / sampleRate, [[6]], sampleRate);
+        }
+        reads++;
+        throw new Error('read beyond the required interpolation neighbors');
+      })();
+      const reader = guardPcmChunkBoundaries(raw, timestamp + endFrame / sampleRate);
+      try {
+        const first = (await reader.next()).value!;
+        expect(Array.from(first.buffer.getChannelData(0))).toEqual(
+          endFrame === 3 ? [1, 2, 3, 4, 5, 0] : [1, 2, 3, 4, 5, 6],
+        );
+        expect((await reader.next()).done).toBe(true);
+        expect(reads).toBe(expectedReads);
+      } finally {
+        await reader.return();
+      }
+    },
+  );
+
+  it('does not read another chunk when the current PCM already contains the end and interpolation guards', async () => {
+    let reads = 0;
+    const raw = (async function* (): PcmIterator {
+      reads++;
+      yield chunk(0, [[1, 2, 3, 4]]);
+      reads++;
+      throw new Error('the next chunk is outside the required audible and guard samples');
+    })();
+    const reader = guardPcmChunkBoundaries(raw, 2 / 48_000);
+    try {
+      const first = (await reader.next()).value!;
+      expect(Array.from(first.buffer.getChannelData(0))).toEqual([1, 2, 3, 4, 0, 0]);
+      expect(first.duration).toBe(4 / 48_000);
+      expect((await reader.next()).done).toBe(true);
+      expect(reads).toBe(1);
+    } finally {
+      await reader.return();
+    }
+  });
+
   it.each(['gap', 'rate', 'channels'] as const)(
     'does not interpolate across a %s discontinuity',
     async (kind) => {

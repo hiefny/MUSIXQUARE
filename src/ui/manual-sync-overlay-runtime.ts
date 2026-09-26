@@ -40,6 +40,7 @@ let previousFocus: HTMLElement | null = null;
 let manualSyncRequest = 0;
 const boundOverlays = new WeakSet<HTMLElement>();
 const boundEditors = new WeakSet<HTMLElement>();
+const editorOffsetModes = new WeakMap<HTMLElement, boolean>();
 
 function getManualSyncOffsetMs(): number {
   const seconds = isPlaybackModeYouTube()
@@ -56,6 +57,7 @@ function formatManualSyncOffsetMs(ms: number): string {
 }
 
 function renderEditorValue(editor: HTMLElement, ms = getManualSyncOffsetMs()): void {
+  editorOffsetModes.set(editor, isPlaybackModeYouTube());
   editor.textContent = formatManualSyncOffsetMs(ms);
   editor.setAttribute('aria-invalid', 'false');
 }
@@ -104,6 +106,13 @@ function normalizeDraft(editor: HTMLElement): void {
 }
 
 function commitEditor(editor: HTMLElement): boolean {
+  // File and YouTube offsets are separate device preferences. A host can
+  // switch sources while this field is focused; its old draft must not be
+  // committed to the new source's offset.
+  if (editorOffsetModes.get(editor) !== isPlaybackModeYouTube()) {
+    renderEditorValue(editor);
+    return true;
+  }
   const draft = sanitizeDraft(editor.textContent || '');
   if (!/^[+-]?\d+$/u.test(draft)) {
     editor.setAttribute('aria-invalid', 'true');
@@ -452,5 +461,10 @@ export function closeManualSyncOverlayRuntime(cancelPending = true): void {
 
 export function refreshManualSyncOverlayRuntime(): void {
   const editor = document.getElementById('manual-sync-value');
-  if (editor && editor.dataset.editing !== 'true') renderEditorValue(editor);
+  if (!editor) return;
+  const offsetModeChanged = editorOffsetModes.get(editor) !== isPlaybackModeYouTube();
+  if (offsetModeChanged || editor.dataset.editing !== 'true') {
+    renderEditorValue(editor);
+    if (offsetModeChanged && document.activeElement === editor) selectEditorText(editor);
+  }
 }

@@ -221,6 +221,61 @@ describe('bounded sample-clock scheduling', () => {
     );
   });
 
+  it('finishes a trimmed track without waiting for encoded audio beyond its audible end', async () => {
+    const { sources, context, options } = setup();
+    const tail = pendingChunk();
+    const readTail = vi.fn();
+    const playback = new BoundedPlayback({
+      ...options,
+      when: 2,
+      duration: 1,
+      firstChunk: chunk(0, 1),
+      iterator: (async function* () {
+        readTail();
+        yield await tail.promise;
+      })(),
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(1);
+      context.currentTime = 3;
+      sources[0].onended?.();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(options.onended).toHaveBeenCalledOnce();
+      expect(playback.ended).toBe(true);
+      expect(options.onerror).not.toHaveBeenCalled();
+      expect(readTail).not.toHaveBeenCalled();
+    } finally {
+      tail.resolve(chunk(1));
+      playback.stop();
+      await vi.advanceTimersByTimeAsync(1);
+    }
+  });
+
+  it('does not reject playable audio because decoding fails in a trimmed-off tail', async () => {
+    const { sources, context, options } = setup();
+    const playback = new BoundedPlayback({
+      ...options,
+      duration: 1,
+      firstChunk: chunk(0, 1),
+      iterator: (async function* () {
+        yield await Promise.reject<PcmChunk>(
+          new Error('corrupt encoded audio after the edit-list end'),
+        );
+      })(),
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(1);
+      expect(options.onerror).not.toHaveBeenCalled();
+      context.currentTime = 1;
+      sources[0].onended?.();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(options.onended).toHaveBeenCalledOnce();
+      expect(playback.ended).toBe(true);
+    } finally {
+      playback.stop();
+    }
+  });
+
   it.each([10.25, 10.2])(
     'stops at the logical track boundary %s without playing interpolation tail samples',
     async (duration) => {

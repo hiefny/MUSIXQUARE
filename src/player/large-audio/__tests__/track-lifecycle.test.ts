@@ -27,6 +27,31 @@ afterEach(async () => {
 });
 
 describe('bounded track ownership', () => {
+  it('primes only the audible remainder when an edit ends before the one-second target', async () => {
+    let reads = 0;
+    const track = new BoundedAudioTrack(
+      0.5,
+      48_000,
+      2,
+      async function* () {
+        reads++;
+        yield makeChunk(0);
+        reads++;
+        yield makeChunk(0.25);
+        reads++;
+        throw new Error('unneeded encoded tail');
+      },
+      vi.fn(),
+    );
+    try {
+      await track.prepare(0);
+      expect(reads).toBe(2);
+      expect(track.bufferedPcmBytes).toBe(2 * 12_000 * 2 * 4);
+    } finally {
+      track.dispose();
+    }
+  });
+
   it('primes a bounded second and cancels an obsolete seek without disposing the track', async () => {
     const closed: number[] = [];
     let releaseFirst!: () => void;

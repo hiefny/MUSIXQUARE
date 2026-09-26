@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { __resetModalStackForTests, syncOverlayState } from '../dom.ts';
@@ -102,6 +103,25 @@ describe('manual sync initial editor selection', () => {
 
     expect(document.activeElement).toBe(editor());
     expect(window.getSelection()?.toString()).toBe('-456');
+  });
+
+  it('rejects a draft for a different offset target even before the UI refreshes', () => {
+    setState('playback.mode', 'file');
+    setState('sync.youtubeLocalOffset', 0.75);
+    openDemoSyncRuntime();
+    const commits = vi.fn();
+    const unsubscribe = bus.on('sync:set-manual-offset', commits);
+    try {
+      editor().textContent = '250';
+      // This isolated runtime has no main player-controls state listener.
+      setState('playback.mode', 'youtube');
+      editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+      expect(commits).not.toHaveBeenCalled();
+      expect(editor().textContent).toBe('+750');
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('does not steal focus back from a newly opened dialog', () => {

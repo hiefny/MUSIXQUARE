@@ -1908,6 +1908,7 @@ export function initPlayerControls(): void {
 
   const closeManualSyncIfInvalid = () => {
     syncDemoTransportControls();
+    _manualSyncOverlayRuntime?.refreshManualSyncOverlayRuntime();
     if (
       getState('demo.active')
         ? isPlaybackModeSystemAudio()

@@ -222,6 +222,13 @@ export class BoundedPlayback implements LargeAudioPlayback {
     this.scheduledThrough = Math.max(this.scheduledThrough, endsAt);
     this.supplyGapActive = false;
     this.nextChunk = null;
+    if (audibleEnd === duration) {
+      // Container edits and gapless trims can end before encoded EOF. Once all
+      // audible PCM is scheduled, neither late tail reads nor their failures
+      // may delay or invalidate completion at the original audio-clock deadline.
+      this.finishedReading = true;
+      this.closeIterator();
+    }
   }
 
   private skipStaleWindow(): void {

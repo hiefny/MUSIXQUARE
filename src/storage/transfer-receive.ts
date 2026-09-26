@@ -1995,7 +1995,13 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
     () => {
       // A subsequent request, queue target, or host connection supersedes this
       // wait. Revalidate before any user-visible fallback or recovery action.
-      if (!isCurrentFileRequestOwner(requestOwner)) return;
+      if (
+        !isCurrentFileRequestOwner(requestOwner) ||
+        getState('network.hostConn') !== requestOwner.hostConn ||
+        !requestOwner.hostConn.open
+      ) {
+        return;
+      }
 
       const receivedCount = getState('transfer.receivedCount');
       if (receivedCount === 0) {
@@ -2019,33 +2025,29 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
           return;
         }
 
-        // Continue only on the exact host DataConnection that owned the
-        // request. Peer IDs can be reused after reconnects.
-        if (getState('network.hostConn') === requestOwner.hostConn && requestOwner.hostConn.open) {
-          const pendingFileName = queueItem.name;
+        const pendingFileName = queueItem.name;
 
-          // Check if preload is in progress for this track
-          const preloadTarget = getState('preload.activeTarget');
-          if (preloadTarget?.queueItemId === requestOwner.queueItemId) {
-            log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
-            showToast(t('transfer.preload_waiting'));
-            return;
-          }
-
-          log.debug(
-            `[file-wait timeout] Requesting from Host: ${pendingFileName} queueItemId: ${requestOwner.queueItemId}`,
-          );
-          const recoveryOwner = beginFileRequest(
-            requestOwner.hostConn,
-            requestOwner.queueItemId,
-            requestOwner.sessionId,
-          );
-          sendFileRequest(recoveryOwner, {
-            type: MSG.REQUEST_DATA_RECOVERY,
-            nextChunk: 0,
-            fileName: pendingFileName,
-          });
+        // Check if preload is in progress for this track
+        const preloadTarget = getState('preload.activeTarget');
+        if (preloadTarget?.queueItemId === requestOwner.queueItemId) {
+          log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
+          showToast(t('transfer.preload_waiting'));
+          return;
         }
+
+        log.debug(
+          `[file-wait timeout] Requesting from Host: ${pendingFileName} queueItemId: ${requestOwner.queueItemId}`,
+        );
+        const recoveryOwner = beginFileRequest(
+          requestOwner.hostConn,
+          requestOwner.queueItemId,
+          requestOwner.sessionId,
+        );
+        sendFileRequest(recoveryOwner, {
+          type: MSG.REQUEST_DATA_RECOVERY,
+          nextChunk: 0,
+          fileName: pendingFileName,
+        });
       }
     },
     10000,

@@ -25,6 +25,7 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { getTrackPosition, stopAllMediaAsync } from '../player/transport.ts';
+import { getCurrentLoadEpoch, isCurrentLoadEpoch } from '../player/_state.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -367,7 +368,13 @@ export async function startSystemAudioCapture(): Promise<void> {
   // before getDisplayMedia would lose the browser's trusted click gesture.
   const proLeaseAttempt = isProRoom ? beginProLeaseAttempt() : null;
   const startEpoch = ++_captureStartEpoch;
-  const attempt = performSystemAudioCaptureStart(startRoom, proLeaseAttempt, startEpoch);
+  const startLoadEpoch = getCurrentLoadEpoch();
+  const attempt = performSystemAudioCaptureStart(
+    startRoom,
+    proLeaseAttempt,
+    startEpoch,
+    startLoadEpoch,
+  );
   _captureStartPromise = attempt;
   try {
     await attempt;
@@ -380,6 +387,7 @@ async function performSystemAudioCaptureStart(
   startRoom: Readonly<SystemAudioRoomIdentity>,
   proLeaseAttempt: ProLeaseAttempt | null,
   startEpoch: number,
+  startLoadEpoch: number,
 ): Promise<void> {
   // Freeze the file debounce before the native picker opens. The picker can
   // remain open for seconds, far longer than the 300 ms transfer debounce.
@@ -393,6 +401,7 @@ async function performSystemAudioCaptureStart(
       startRoom,
       proLeaseAttempt,
       startEpoch,
+      startLoadEpoch,
       () => {
         pendingBroadcastDisposition.shouldResume = false;
       },
@@ -418,6 +427,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   startRoom: Readonly<SystemAudioRoomIdentity>,
   proLeaseAttempt: ProLeaseAttempt | null,
   startEpoch: number,
+  startLoadEpoch: number,
   onPreviousMediaStopped: () => void,
   onPreviousMediaRestored: () => void,
 ): Promise<void> {
@@ -438,7 +448,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     });
   } catch (e) {
     releaseProLeaseAttempt(proLeaseAttempt);
-    if (startEpoch !== _captureStartEpoch) return;
+    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) return;
     log.warn('[SystemAudio] getDisplayMedia denied or failed:', e);
     bus.emit('ui:show-toast', t('system_audio.capture_denied'));
     return;
@@ -447,7 +457,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   // getDisplayMedia itself is not abortable. stop/leave invalidates the epoch;
   // when the native picker eventually resolves, discard its tracks and release
   // any lease instead of resurrecting a capture after teardown.
-  if (startEpoch !== _captureStartEpoch) {
+  if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) {
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
     return;
@@ -543,6 +553,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     const leaseResult = await proLeaseAttempt!.result;
     if (
       startEpoch !== _captureStartEpoch ||
+      !isCurrentLoadEpoch(startLoadEpoch) ||
       !isCurrentSystemAudioRoom(startRoom) ||
       !isSelectedCaptureTrackLive()
     ) {
@@ -583,11 +594,23 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   } catch (error) {
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
+    if (
+      startEpoch !== _captureStartEpoch ||
+      !isCurrentLoadEpoch(startLoadEpoch) ||
+      !isCurrentSystemAudioRoom(startRoom)
+    ) {
+      return;
+    }
     throw error;
   }
 
+  // The picker may already be closed while audio initialization is still
+  // waiting for the context. A newer playlist/demo choice owns playback even
+  // though no captured stream exists yet for transport's force-stop probe.
+  // Check the shared load epoch only before our own STOP advances it.
   if (
     startEpoch !== _captureStartEpoch ||
+    !isCurrentLoadEpoch(startLoadEpoch) ||
     !isCurrentSystemAudioRoom(startRoom) ||
     !isSelectedCaptureTrackLive()
   ) {

@@ -9,6 +9,10 @@
 | Environment | Windows, Node 24.20.0, Vitest 5, jsdom·SQLite·가상 타이머 |
 | Related documents | [배포 준비 기록](../beta-release-readiness.md), [1차 발굴](beta-defect-harvest-2026-09-27.md), [B01–B04 수정](beta-defect-repair-2026-09-27.md) |
 
+후속 상태: 사용자 승인으로 C01–C03을 베타에서 수정했다.
+[수정·회귀 기록](beta-defect-repair-2026-09-27-round-2.md)을 참조한다.
+아래 실패와 미수정 표기는 발굴 당시의 관측을 보존한 것이다.
+
 재생·전송, 방·권한·YouTube, 데모·UI·설정, 계정·번역·서비스 워커를
 병렬 조사했다. 제품 코드와 추적 테스트는 바꾸지 않았으며, 독립 검토와
 재현을 거친 **새 확정 결함은 3건**이다. B01–B04를 다시 세지 않았다.

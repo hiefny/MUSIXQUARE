@@ -94,7 +94,9 @@ labeled portion still supports a current guard or operating interpretation:
   follow-up repairs and regression evidence for those four defects on beta.
 - [Beta defect harvest, round 2 — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-2.md) —
   discovery-only evidence for three additional defects after those repairs;
-  the release record keeps their unresolved status and verification limits.
+  the release record tracks their resolution and verification limits.
+- [Beta defect repair, round 2 — 2026-09-27](design/beta-defect-repair-2026-09-27-round-2.md) —
+  PRO playback restoration, ordered preload completion, and translation author deletion fences.
 - [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — dated
   defect record with a maintained residual-boundary and verification addendum.
 - [Runtime scenario verification — 2026-05-31](runtime-scenario-verification-2026-05-31.md) —

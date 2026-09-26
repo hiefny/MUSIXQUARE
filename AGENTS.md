@@ -15,6 +15,22 @@
   below. Once the owner ends the freeze, follow their publication instructions
   and the normal release workflow; audit-tooling-only changes need no App release.
 
+## Living beta release record
+
+- Read `docs/beta-release-readiness.md` before each beta QA round and before
+  preparing a main merge or production release.
+- At the end of each QA/change, update that document in the same change when
+  release scope, dependencies, schema/secrets/bindings, compatibility, version
+  requirements, verification evidence, unresolved issues, or recovery steps
+  change. If none changed, do not add a repetitive log entry.
+- Keep its current-state checklist and dated change log aligned. Record the
+  tested code SHA, environment, pass/fail/skip limits, and remaining actions;
+  preserve old QA reports as dated evidence. Never treat beta tests as the
+  successful exact-main-SHA release candidate.
+- This record does not authorize a main merge, workflow reactivation, or
+  production deployment. The competition freeze and owner instructions above
+  remain authoritative.
+
 ## Normal workflow
 
 - Outside the competition freeze, keep `main` as the only long-lived local and remote branch, per the owner's

@@ -20,6 +20,7 @@ live provider dashboard matches it.
 | Run or contribute locally                 | [Contributor guide](../CONTRIBUTING.md)                         | [Configuration reference](configuration-reference.md), [Local Worker integration](local-worker-integration.md)                              |
 | Understand the product architecture       | [Root overview](../README.md)                                   | [Account/room authority](design/account-identity-and-room-authority.md), [PRO architecture](design/pro-room-architecture-and-operations.md) |
 | Prepare or recover a production change    | [Production hotfix and rollback](hotfix-procedure.md)           | [Release versioning](release-versioning.md), [Runtime verification](runtime-scenario-verification-2026-05-31.md)                            |
+| Promote the current beta to production    | [Living beta release record](beta-release-readiness.md)         | [Production hotfix and rollback](hotfix-procedure.md), [release versioning](release-versioning.md)                                          |
 | Operate Cloudflare services               | [Configuration drift checks](../cloudflare/config-drift-ops.md) | Owning Worker runbook below                                                                                                                 |
 | Review intentional tradeoffs              | [Known and accepted risks](known-accepted.md)                   | Owning ADR and [security/performance policy](security-performance-tier-policy.md)                                                           |
 | Decide whether an old document is current | [Documentation governance](documentation-governance.md)         | [Latest documentation audit](documentation-audit-2026-08-30.md)                                                                             |
@@ -45,6 +46,11 @@ supersede them explicitly when the product boundary changes.
 - [Known and accepted risks](known-accepted.md)
 
 ## Maintained operations and release runbooks
+
+For the next `mxqr_beta` promotion, start with the
+[living beta release record](beta-release-readiness.md). It tracks the current
+release scope, remaining checks and dated QA updates without replacing the
+canonical release procedure.
 
 | Boundary                        | Current runbooks                                                                                                                                                             |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

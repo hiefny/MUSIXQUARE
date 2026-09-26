@@ -20,6 +20,7 @@ import {
 } from './network-bridge.ts';
 import {
   cancelProPlaybackPreparation,
+  cancelSupersededProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
   hasCancelledProPlaybackCheckpointRecovery,
@@ -1129,7 +1130,16 @@ function createImplementation(
     event: ProRoomPlaybackCommitEvent,
     isRequestCurrent: PlaybackCommitOwner = canonicalPlaybackCommitOwner,
   ): void {
-    if (!isRequestCurrent()) return;
+    const context = getState('room.context');
+    if (
+      !isRequestCurrent() ||
+      !ports.isActive() ||
+      context.kind !== 'pro' ||
+      !context.roomId ||
+      context.epoch !== event.playback.coordinatorEpoch
+    ) {
+      return;
+    }
     // A newer PREPARE can arrive in an HTTP command response before an older
     // WebSocket COMMIT. Keep its media owner and commit generation intact.
     if (hasNewerServerPlaybackTransition(event.playback.revision)) return;
@@ -1166,6 +1176,26 @@ function createImplementation(
     state.highestKnownRevision = Math.max(state.highestKnownRevision, event.playback.revision);
     state.cancelledCheckpointRecovery = null;
     const generation = ++state.commitGeneration;
+    const transition = state.activeTransition;
+    if (
+      transition &&
+      transition.event.target.revision <= event.playback.revision &&
+      (transition.event.transitionId !== event.transitionId ||
+        transition.event.target.revision !== event.playback.revision)
+    ) {
+      clearServerPlaybackTransition(transition);
+    }
+    // A committed transition no longer has a server PREPARE to CANCEL. A later
+    // pause/stop/snapshot must release its obsolete native preparation wait
+    // before queuing, while actual endpoint COMMITs remain serialized below.
+    cancelSupersededProPlaybackPreparation(
+      playbackAuthorityFor(
+        context.roomId,
+        context.epoch,
+        event.playback.revision,
+        event.transitionId,
+      ),
+    );
     const operation = state.commitTail
       .then(
         () => applyPlaybackCommit(event, receivedAtMs, generation, isRequestCurrent),

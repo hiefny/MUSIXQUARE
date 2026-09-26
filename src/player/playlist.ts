@@ -1862,6 +1862,13 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
     log.warn(`[Playlist] Invalid queue item ID: ${String(queueItemId)}`);
     return;
   }
+  // Keep the requesting connection across the iframe seek wait so playback
+  // authority is checked again before this becomes a host-local selection.
+  if (
+    deferStandardHostManualNavigation('operator track change', () => handleTrackChange(data, conn))
+  ) {
+    return;
+  }
   observePlayTrack(
     playTrack(queueItemId, undefined, { explicitPlaybackIntent: true }),
     'apply the operator track change',
@@ -1880,6 +1887,13 @@ function handleRequestNextTrack(data: Record<string, unknown>, conn: DataConnect
     log.debug('[Playlist] Ignoring stale next-track request');
     return;
   }
+  if (
+    deferStandardHostManualNavigation('operator next track', () =>
+      handleRequestNextTrack(data, conn),
+    )
+  ) {
+    return;
+  }
   playNextTrack();
 }
 
@@ -1893,6 +1907,13 @@ function handleRequestPrevTrack(data: Record<string, unknown>, conn: DataConnect
   }
   if (data.queueItemId !== getCurrentQueueItemId()) {
     log.debug('[Playlist] Ignoring stale previous-track request');
+    return;
+  }
+  if (
+    deferStandardHostManualNavigation('operator previous track', () =>
+      handleRequestPrevTrack(data, conn),
+    )
+  ) {
     return;
   }
   playPrevTrack();

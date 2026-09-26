@@ -88,6 +88,7 @@ import type {
   ProRoomSystemAudioState,
 } from './contracts.ts';
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
+import { applyProRoomSnapshotMonotonically } from './revision.ts';
 import { rebaseRoomSettingsIntent } from './effects-reconciliation.ts';
 import {
   isTransientSettingsSyncFailure,
@@ -266,6 +267,7 @@ let acceptedProPresence:
     })
   | null = null;
 let acceptedProAdministrators: ProRoomAdministrator[] = [];
+let publishedProMembershipSnapshot: ProRoomSnapshot | null = null;
 const seenQueueAdditionEventIds = new Set<string>();
 const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
 let lastAnnouncedQueueAdditionOrder = 0;
@@ -1100,9 +1102,22 @@ function publishProRoomAdministratorDirectory(
   return reconciliation.projection;
 }
 
-function publishProRoomAdministrators(snapshot: ProRoomSnapshot): void {
+function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
+  // Session reads and committed mutations have separate acceptance lanes. An
+  // older heartbeat must not resurrect a participant already removed by a
+  // successful kick, or roll the administrator directory back with it.
+  const result = applyProRoomSnapshotMonotonically(publishedProMembershipSnapshot, snapshot);
+  if (result.outcome === 'invalid' || result.outcome === 'conflict') {
+    log.warn(`[PRO] Membership snapshot rejected: ${result.outcome}`);
+    return;
+  }
+  if (result.outcome !== 'applied' || !result.snapshot) return;
+  publishedProMembershipSnapshot = result.snapshot;
+  reconcileAuthoritativePeers(result.snapshot);
   const administrators =
-    snapshot.authorityVersion === 1 && snapshot.administrators ? snapshot.administrators : [];
+    result.snapshot.authorityVersion === 1 && result.snapshot.administrators
+      ? result.snapshot.administrators
+      : [];
   publishProRoomAdministratorDirectory(administrators);
 }
 
@@ -1540,13 +1555,21 @@ function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateM
   return manager;
 }
 
-async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> {
+async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot, committed = false): Promise<void> {
   const manager = ensurePlaylistManager(snapshot);
   const lease = playlistRuntimeLease;
+  const sessionLease = controller.captureSessionLease();
   if (!lease) return;
-  await manager.acceptSnapshot(snapshot);
-  if (!isPlaylistLeaseCurrent(lease)) return;
-  publishProRoomAdministrators(snapshot);
+  const accepted = committed
+    ? await manager.acceptCommittedSnapshot(snapshot)
+    : await manager.acceptSnapshot(snapshot);
+  if (
+    !isPlaylistLeaseCurrent(lease) ||
+    !controller.isSessionLeaseCurrent(sessionLease, snapshot.roomCode)
+  ) {
+    return;
+  }
+  publishProRoomMembership(accepted);
   // Coalesce signaling requests that completed out of order before rendering
   // their rows. The accepted snapshot remains the authority fence.
   scheduleAcceptedQueueAdditionFlush();
@@ -2556,8 +2579,7 @@ const observer: ProRoomSessionObserver = {
     // only refreshes session-scoped adjunct state, avoiding a duplicate async
     // playlist projection of the same snapshot racing that explicit accept.
     bindProSystemAudioSession(snapshot);
-    reconcileAuthoritativePeers(snapshot);
-    publishProRoomAdministrators(snapshot);
+    publishProRoomMembership(snapshot);
   },
   authority(context) {
     applyAuthority(context);
@@ -2565,6 +2587,7 @@ const observer: ProRoomSessionObserver = {
   cleared() {
     acceptedProPresence = null;
     acceptedProAdministrators = [];
+    publishedProMembershipSnapshot = null;
     bus.emit('pro-room:administrators-updated', []);
     stopLifecycle();
     resetProSystemAudioService();
@@ -3434,20 +3457,16 @@ function requireActiveProRoomAuthorityLease(): { code: string; lease: number } {
   return { code, lease: controller.captureSessionLease() };
 }
 
-function acceptAdministratorDirectory(
-  code: string,
-  lease: number,
-  administrators: readonly ProRoomAdministrator[],
-): ProRoomAdministrator[] {
+function finishAdministratorMutation(code: string, lease: number): ProRoomAdministrator[] {
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
-  const projection = publishProRoomAdministratorDirectory(administrators);
-  // The directory mutation also changes participant roles/capabilities. A
-  // forced heartbeat reconciles those rows without making the committed
-  // directory mutation look failed if the follow-up network read is delayed.
+  // Mutation replies contain no revision, so they cannot safely replace a
+  // versioned directory in either response order. Publish the directory and
+  // participant roles together from the forced follow-up snapshot instead.
+  // A delayed/failed read must not make the already committed mutation fail.
   observeProRoomRuntimeTask(runHeartbeat(true), 'administrator-directory heartbeat');
-  return projection;
+  return getActiveProRoomAdministrators();
 }
 
 export async function updateActiveProRoomAdministrator(
@@ -3456,8 +3475,8 @@ export async function updateActiveProRoomAdministrator(
   signal?: AbortSignal,
 ): Promise<ProRoomAdministrator[]> {
   const { code, lease } = requireActiveProRoomAuthorityLease();
-  const directory = await api.updateAdministrator(code, memberId, permissions, signal);
-  return acceptAdministratorDirectory(code, lease, directory.administrators);
+  await api.updateAdministrator(code, memberId, permissions, signal);
+  return finishAdministratorMutation(code, lease);
 }
 
 export async function revokeActiveProRoomAdministrator(
@@ -3465,8 +3484,8 @@ export async function revokeActiveProRoomAdministrator(
   signal?: AbortSignal,
 ): Promise<ProRoomAdministrator[]> {
   const { code, lease } = requireActiveProRoomAuthorityLease();
-  const directory = await api.revokeAdministrator(code, memberId, signal);
-  return acceptAdministratorDirectory(code, lease, directory.administrators);
+  await api.revokeAdministrator(code, memberId, signal);
+  return finishAdministratorMutation(code, lease);
 }
 
 export async function kickActiveProRoomMember(
@@ -3486,10 +3505,7 @@ export async function kickActiveProRoomMember(
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
-  await acceptPlaylistSnapshot(snapshot);
-  if (!controller.isSessionLeaseCurrent(lease, code)) return;
-  reconcileAuthoritativePeers(snapshot);
-  publishProRoomAdministrators(snapshot);
+  await acceptPlaylistSnapshot(snapshot, true);
 }
 
 /** Disconnect exactly one live PRO presence without revoking member authority. */
@@ -3510,10 +3526,7 @@ export async function kickActiveProRoomPresence(
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
-  await acceptPlaylistSnapshot(snapshot);
-  if (!controller.isSessionLeaseCurrent(lease, code)) return;
-  reconcileAuthoritativePeers(snapshot);
-  publishProRoomAdministrators(snapshot);
+  await acceptPlaylistSnapshot(snapshot, true);
 }
 
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {

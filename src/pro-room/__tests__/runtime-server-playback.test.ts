@@ -43,11 +43,17 @@ import { captureProRoomLocalPlaybackTimeline } from '../local-playback-timeline.
 import {
   acceptProRoomRealtimeFrameForTests,
   joinProRoom,
+  getActiveProRoomAdministrators,
+  updateActiveProRoomAdministrator,
+  revokeActiveProRoomAdministrator,
   kickActiveProRoomMember,
   kickActiveProRoomPresence,
   requestActiveProRoomPlaybackReconciliation,
   requestFirstAppendSelectionForTests,
 } from '../runtime.ts';
+
+const nativeCreateSessionForQa20 = ProRoomApiClient.prototype.createSession;
+const nativeHeartbeatForQa20 = ProRoomApiClient.prototype.heartbeat;
 
 const ROOM_CODE = '000001';
 const ROOM_EPOCH = 7;
@@ -3843,4 +3849,596 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       baseRevision: 1,
     });
   });
+
+  it.each([false, true])(
+    'does not roll the administrator directory back behind a newer heartbeat (superseded=%s)',
+    async (superseded) => {
+      const granted = snapshot();
+      granted.revision = 2;
+      granted.presence.revision = 2;
+      const targetAdministrator = {
+        memberId: 'member_target_0001',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Offline administrator',
+        role: 'controller' as const,
+        onlineDeviceCount: 0,
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': false,
+          'chat.notice': false,
+        },
+        inheritedPermissions: [],
+      };
+      granted.administrators.push(targetAdministrator);
+      const latest = {
+        ...granted,
+        revision: 3,
+        presence: { ...granted.presence, revision: 3 },
+        administrators: granted.administrators.map((row) =>
+          row.memberId === targetAdministrator.memberId
+            ? { ...row, permissions: { ...row.permissions, 'media.add': false } }
+            : row,
+        ),
+      };
+      let finishBody!: () => void;
+      const client = new ProRoomApiClient({
+        fetch: async (input, init) => {
+          const path = new URL(String(input)).pathname;
+          if (path.endsWith('/sessions')) {
+            return Response.json({
+              snapshot: snapshot(),
+              session: { expiresAtMs: Date.now() + 60_000 },
+            });
+          }
+          expect(path).toContain('/administrators/member_target_0001');
+          expect(init?.method).toBe('PUT');
+          const encoded = JSON.stringify({
+            authorityVersion: 1,
+            administrators: granted.administrators,
+          });
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(body) {
+                body.enqueue(new TextEncoder().encode(encoded.slice(0, -1)));
+                finishBody = () => {
+                  body.enqueue(new TextEncoder().encode(encoded.slice(-1)));
+                  body.close();
+                };
+              },
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          );
+        },
+      });
+      // Real API parsing and its native body stream remain in this operation;
+      // the runtime singleton is routed to this independently authenticated client.
+      await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
+      const nativeUpdate = ProRoomApiClient.prototype.updateAdministrator;
+      restoreSpies.push(
+        vi
+          .spyOn(ProRoomApiClient.prototype, 'updateAdministrator')
+          .mockImplementation((code, memberId, permissions, signal) =>
+            nativeUpdate.call(client, code, memberId, permissions, signal),
+          ),
+      );
+      const update = updateActiveProRoomAdministrator(
+        targetAdministrator.memberId,
+        targetAdministrator.permissions,
+      );
+      await vi.waitFor(() => expect(finishBody).toBeDefined());
+      const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+      heartbeat.mockResolvedValue(superseded ? latest : granted);
+      if (superseded) {
+        acceptProRoomRealtimeFrameForTests(
+          serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
+        );
+        await vi.waitFor(() =>
+          expect(
+            getActiveProRoomAdministrators().find(
+              (row) => row.memberId === targetAdministrator.memberId,
+            )?.permissions['media.add'],
+          ).toBe(false),
+        );
+      }
+      const published: boolean[] = [];
+      const off = bus.on('pro-room:administrators-updated', (rows) => {
+        const row = rows.find((candidate) => candidate.memberId === targetAdministrator.memberId);
+        if (row) published.push(row.permissions['media.add']);
+      });
+      try {
+        finishBody();
+        await update;
+        await vi.waitFor(() =>
+          expect(
+            getActiveProRoomAdministrators().find(
+              (row) => row.memberId === targetAdministrator.memberId,
+            )?.permissions['media.add'],
+          ).toBe(!superseded),
+        );
+        if (superseded) expect(published).not.toContain(true);
+        else expect(published).toContain(true);
+      } finally {
+        off();
+      }
+    },
+  );
+  it.each([
+    ['kickMember', false],
+    ['kickMember', true],
+    ['kickPresence', false],
+    ['kickPresence', true],
+  ] as const)(
+    'accepts a successful %s response without losing newer membership (superseded=%s)',
+    async (method, superseded) => {
+      const withTarget = snapshot();
+      withTarget.revision = 2;
+      withTarget.presence.revision = 2;
+      withTarget.presence.participants.push({
+        participantId: 'participant_target_0001',
+        memberId: 'member_target_0001',
+        memberDisplayNumber: 1,
+        isAuthenticated: false,
+        displayName: 'Target',
+        devicePlatform: 'other',
+        role: 'member',
+        capabilities: [],
+        joinedAtMs: 2,
+      });
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(withTarget);
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+      );
+      await vi.waitFor(() =>
+        expect(getState('network.peerLabels').participant_target_0001).toBe('Target'),
+      );
+      const kicked = snapshot();
+      kicked.revision = 3;
+      kicked.presence.revision = 3;
+      const latest = structuredClone(kicked);
+      latest.revision = 4;
+      latest.presence.revision = 4;
+      latest.presence.participants.push({
+        participantId: 'participant_new_0001',
+        memberId: 'member_new_00001',
+        memberDisplayNumber: 2,
+        isAuthenticated: false,
+        displayName: 'New participant',
+        devicePlatform: 'other',
+        role: 'member',
+        capabilities: [...capabilitiesForProRoomRole('member')],
+        joinedAtMs: 3,
+      });
+      let finishBody!: () => void;
+      const client = new ProRoomApiClient({
+        fetch: async (input, init) => {
+          const path = new URL(String(input)).pathname;
+          if (path.endsWith('/sessions')) {
+            return Response.json({
+              snapshot: snapshot(),
+              session: { expiresAtMs: Date.now() + 60_000 },
+            });
+          }
+          expect(path).toContain(
+            method === 'kickMember' ? '/presence/kick' : '/presence/kick-device',
+          );
+          expect(init?.method).toBe('POST');
+          const encoded = JSON.stringify({ snapshot: kicked });
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(body) {
+                body.enqueue(new TextEncoder().encode(encoded.slice(0, -1)));
+                finishBody = () => {
+                  body.enqueue(new TextEncoder().encode(encoded.slice(-1)));
+                  body.close();
+                };
+              },
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          );
+        },
+      });
+      await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
+      const nativeKick = ProRoomApiClient.prototype[method];
+      restoreSpies.push(
+        vi
+          .spyOn(ProRoomApiClient.prototype, method)
+          .mockImplementation((code, target, signal) =>
+            nativeKick.call(client, code, target, signal),
+          ),
+      );
+      const operation = (
+        method === 'kickMember'
+          ? kickActiveProRoomMember('member_target_0001')
+          : kickActiveProRoomPresence('participant_target_0001')
+      ).then(
+        () => ({ outcome: 'success' }),
+        (error: unknown) => ({ outcome: 'failed', error }),
+      );
+      await vi.waitFor(() => expect(finishBody).toBeDefined());
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+        superseded ? latest : kicked,
+      );
+      if (superseded) {
+        acceptProRoomRealtimeFrameForTests(
+          serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
+        );
+        await vi.waitFor(() =>
+          expect(getState('network.peerLabels').participant_new_0001).toBe('New participant'),
+        );
+      }
+      finishBody();
+      expect(await operation).toEqual({ outcome: 'success' });
+      expect(getState('network.peerLabels').participant_target_0001).toBeUndefined();
+      expect(getState('network.peerLabels').participant_new_0001).toBe(
+        superseded ? 'New participant' : undefined,
+      );
+    },
+  );
+  it('does not publish an unversioned revoke reply after a newer regrant heartbeat', async () => {
+    const beforeRevoke = snapshot();
+    beforeRevoke.revision = 2;
+    beforeRevoke.presence.revision = 2;
+    const target = {
+      memberId: 'member_target_0001',
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
+      displayName: 'Offline administrator',
+      role: 'controller' as const,
+      onlineDeviceCount: 0,
+      permissions: {
+        'media.add': true,
+        'playback.control': true,
+        'members.kick': false,
+        'chat.notice': false,
+      },
+      inheritedPermissions: [],
+    };
+    beforeRevoke.administrators.push(target);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(beforeRevoke);
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(getActiveProRoomAdministrators()).toHaveLength(2));
+    let finishBody!: () => void;
+    const client = new ProRoomApiClient({
+      fetch: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (path.endsWith('/sessions'))
+          return Response.json({
+            snapshot: beforeRevoke,
+            session: { expiresAtMs: Date.now() + 60_000 },
+          });
+        expect(path).toContain('/administrators/member_target_0001');
+        expect(init?.method).toBe('DELETE');
+        const encoded = JSON.stringify({
+          authorityVersion: 1,
+          administrators: snapshot().administrators,
+        });
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(body) {
+              body.enqueue(new TextEncoder().encode(encoded.slice(0, -1)));
+              finishBody = () => {
+                body.enqueue(new TextEncoder().encode(encoded.slice(-1)));
+                body.close();
+              };
+            },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      },
+    });
+    await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
+    const nativeRevoke = ProRoomApiClient.prototype.revokeAdministrator;
+    restoreSpies.push(
+      vi
+        .spyOn(ProRoomApiClient.prototype, 'revokeAdministrator')
+        .mockImplementation((code, memberId, signal) =>
+          nativeRevoke.call(client, code, memberId, signal),
+        ),
+    );
+    const revoke = revokeActiveProRoomAdministrator(target.memberId);
+    await vi.waitFor(() => expect(finishBody).toBeDefined());
+    const regranted = structuredClone(beforeRevoke);
+    regranted.revision = 4;
+    regranted.presence.revision = 4;
+    regranted.administrators[1]!.permissions['media.add'] = false;
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(regranted);
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
+    );
+    await vi.waitFor(() =>
+      expect(getActiveProRoomAdministrators()[1]?.permissions['media.add']).toBe(false),
+    );
+    const publishedCounts: number[] = [];
+    const off = bus.on('pro-room:administrators-updated', (rows) =>
+      publishedCounts.push(rows.length),
+    );
+    try {
+      finishBody();
+      await revoke;
+      await vi.waitFor(() => expect(getActiveProRoomAdministrators()).toHaveLength(2));
+      expect(publishedCounts).not.toContain(1);
+    } finally {
+      off();
+    }
+  });
+
+  it('does not bounce a fast grant through an older pending heartbeat before its canonical follow-up', async () => {
+    const oldSnapshot = snapshot();
+    oldSnapshot.revision = 2;
+    oldSnapshot.presence.revision = 2;
+    const granted = structuredClone(oldSnapshot);
+    granted.revision = 3;
+    granted.presence.revision = 3;
+    const target = {
+      memberId: 'member_target_0001',
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
+      displayName: 'Offline administrator',
+      role: 'controller' as const,
+      onlineDeviceCount: 0,
+      permissions: {
+        'media.add': true,
+        'playback.control': true,
+        'members.kick': false,
+        'chat.notice': false,
+      },
+      inheritedPermissions: [],
+    };
+    granted.administrators.push(target);
+    let finishOldHeartbeat!: () => void;
+    let heartbeatRequests = 0;
+    const client = new ProRoomApiClient({
+      fetch: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (path.endsWith('/sessions'))
+          return Response.json({
+            snapshot: snapshot(),
+            session: { expiresAtMs: Date.now() + 60_000 },
+          });
+        if (path.endsWith('/presence/heartbeat')) {
+          heartbeatRequests++;
+          if (heartbeatRequests > 1) return Response.json({ snapshot: granted });
+          const encoded = JSON.stringify({ snapshot: oldSnapshot });
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(body) {
+                body.enqueue(new TextEncoder().encode(encoded.slice(0, -1)));
+                finishOldHeartbeat = () => {
+                  body.enqueue(new TextEncoder().encode(encoded.slice(-1)));
+                  body.close();
+                };
+              },
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          );
+        }
+        expect(path).toContain('/administrators/member_target_0001');
+        expect(init?.method).toBe('PUT');
+        return Response.json({ authorityVersion: 1, administrators: granted.administrators });
+      },
+    });
+    await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockImplementation((code, signal, known) =>
+      nativeHeartbeatForQa20.call(client, code, signal, known),
+    );
+    const nativeUpdate = ProRoomApiClient.prototype.updateAdministrator;
+    restoreSpies.push(
+      vi
+        .spyOn(ProRoomApiClient.prototype, 'updateAdministrator')
+        .mockImplementation((code, memberId, permissions, signal) =>
+          nativeUpdate.call(client, code, memberId, permissions, signal),
+        ),
+    );
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(finishOldHeartbeat).toBeDefined());
+    const publishedCounts: number[] = [];
+    const off = bus.on('pro-room:administrators-updated', (rows) =>
+      publishedCounts.push(rows.length),
+    );
+    try {
+      // An accepted write resolves even while the canonical-read response is
+      // still pending. It does not need to lend that unversioned reply to UI.
+      await updateActiveProRoomAdministrator(target.memberId, target.permissions);
+      expect(heartbeatRequests).toBe(1);
+      finishOldHeartbeat();
+      await vi.waitFor(() => expect(heartbeatRequests).toBe(2));
+      await vi.waitFor(() => expect(getActiveProRoomAdministrators()).toHaveLength(2));
+      expect(publishedCounts).toEqual([2]);
+    } finally {
+      off();
+    }
+  });
+  it('keeps a committed administrator grant successful when its follow-up heartbeat fails', async () => {
+    const permissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': false,
+      'chat.notice': false,
+    };
+    const granted = snapshot().administrators.concat({
+      memberId: 'member_target_0001',
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
+      displayName: 'Offline administrator',
+      role: 'controller',
+      onlineDeviceCount: 0,
+      permissions,
+      inheritedPermissions: [],
+    });
+    const client = new ProRoomApiClient({
+      fetch: async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path.endsWith('/sessions'))
+          return Response.json({
+            snapshot: snapshot(),
+            session: { expiresAtMs: Date.now() + 60_000 },
+          });
+        expect(path).toContain('/administrators/member_target_0001');
+        return Response.json({ authorityVersion: 1, administrators: granted });
+      },
+    });
+    await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
+    const nativeUpdate = ProRoomApiClient.prototype.updateAdministrator;
+    restoreSpies.push(
+      vi
+        .spyOn(ProRoomApiClient.prototype, 'updateAdministrator')
+        .mockImplementation((code, memberId, value, signal) =>
+          nativeUpdate.call(client, code, memberId, value, signal),
+        ),
+    );
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+    heartbeat.mockRejectedValue(new TypeError('Network unavailable after committed grant'));
+    await expect(
+      updateActiveProRoomAdministrator('member_target_0001', permissions),
+    ).resolves.toEqual(expect.any(Array));
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    expect(getState('room.context')).toMatchObject({ kind: 'pro', roomId: ROOM_CODE });
+  });
+
+  it.each(['kickMember', 'kickPresence'] as const)(
+    'still rejects an equal-revision conflicting %s response',
+    async (method) => {
+      const contradictory = snapshot();
+      contradictory.playlist[0]!.name = 'Conflicting same revision';
+      const client = new ProRoomApiClient({
+        fetch: async (input) => {
+          const path = new URL(String(input)).pathname;
+          if (path.endsWith('/sessions'))
+            return Response.json({
+              snapshot: snapshot(),
+              session: { expiresAtMs: Date.now() + 60_000 },
+            });
+          expect(path).toContain(
+            method === 'kickMember' ? '/presence/kick' : '/presence/kick-device',
+          );
+          return Response.json({ snapshot: contradictory });
+        },
+      });
+      await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
+      const nativeKick = ProRoomApiClient.prototype[method];
+      restoreSpies.push(
+        vi
+          .spyOn(ProRoomApiClient.prototype, method)
+          .mockImplementation((code, target, signal) =>
+            nativeKick.call(client, code, target, signal),
+          ),
+      );
+      await expect(
+        method === 'kickMember'
+          ? kickActiveProRoomMember('member_target_0001')
+          : kickActiveProRoomPresence('participant_target_0001'),
+      ).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_SNAPSHOT_CONFLICT' });
+      expect(getState('playlist.items')[0]?.name).toBe('Server-authoritative track');
+    },
+  );
+
+  it.each(['kickMember', 'kickPresence'] as const)(
+    'does not resurrect a kicked member when an older heartbeat finishes after %s',
+    async (method) => {
+      const withTarget = snapshot();
+      withTarget.revision = 2;
+      withTarget.presence.revision = 2;
+      withTarget.presence.participants.push({
+        participantId: 'participant_target_0001',
+        memberId: 'member_target_0001',
+        memberDisplayNumber: 1,
+        isAuthenticated: false,
+        displayName: 'Target',
+        devicePlatform: 'other',
+        role: 'member',
+        capabilities: [],
+        joinedAtMs: 2,
+      });
+      const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+      heartbeat.mockResolvedValue(withTarget);
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+      );
+      await vi.waitFor(() =>
+        expect(getState('network.peerLabels').participant_target_0001).toBe('Target'),
+      );
+      const oldHeartbeat = structuredClone(withTarget);
+      oldHeartbeat.revision = 3;
+      oldHeartbeat.presence.revision = 3;
+      const kicked = snapshot();
+      kicked.revision = 4;
+      kicked.presence.revision = 4;
+      let finishOldHeartbeat!: () => void;
+      const client = new ProRoomApiClient({
+        fetch: async (input) => {
+          const path = new URL(String(input)).pathname;
+          if (path.endsWith('/sessions'))
+            return Response.json({
+              snapshot: withTarget,
+              session: { expiresAtMs: Date.now() + 60_000 },
+            });
+          if (path.endsWith('/presence/heartbeat')) {
+            const encoded = JSON.stringify({ snapshot: oldHeartbeat });
+            return new Response(
+              new ReadableStream<Uint8Array>({
+                start(body) {
+                  body.enqueue(new TextEncoder().encode(encoded.slice(0, -1)));
+                  finishOldHeartbeat = () => {
+                    body.enqueue(new TextEncoder().encode(encoded.slice(-1)));
+                    body.close();
+                  };
+                },
+              }),
+              { headers: { 'content-type': 'application/json' } },
+            );
+          }
+          expect(path).toContain(
+            method === 'kickMember' ? '/presence/kick' : '/presence/kick-device',
+          );
+          return Response.json({ snapshot: kicked });
+        },
+      });
+      await nativeCreateSessionForQa20.call(client, { code: ROOM_CODE, pin: '12345678' });
+      heartbeat.mockClear();
+      heartbeat.mockImplementation((code, signal, known) =>
+        nativeHeartbeatForQa20.call(client, code, signal, known),
+      );
+      const nativeKick = ProRoomApiClient.prototype[method];
+      restoreSpies.push(
+        vi
+          .spyOn(ProRoomApiClient.prototype, method)
+          .mockImplementation((code, target, signal) =>
+            nativeKick.call(client, code, target, signal),
+          ),
+      );
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
+      );
+      await vi.waitFor(() => expect(finishOldHeartbeat).toBeDefined());
+      await (method === 'kickMember'
+        ? kickActiveProRoomMember('member_target_0001')
+        : kickActiveProRoomPresence('participant_target_0001'));
+      expect(getState('network.peerLabels').participant_target_0001).toBeUndefined();
+      const reintroduced: boolean[] = [];
+      const off = bus.on('network:device-list-update', (devices) => {
+        const projected = getState('network.lastKnownDeviceList');
+        expect(projected).not.toBeNull();
+        expect(devices).toEqual(projected);
+        reintroduced.push(
+          projected?.some((device) => device.id === 'participant_target_0001') ?? false,
+        );
+      });
+      try {
+        finishOldHeartbeat();
+        await heartbeat.mock.results[0]?.value;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(getState('network.peerLabels').participant_target_0001).toBeUndefined();
+        expect(reintroduced).not.toContain(true);
+      } finally {
+        off();
+      }
+    },
+  );
 });

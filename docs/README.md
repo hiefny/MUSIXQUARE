@@ -97,6 +97,9 @@ labeled portion still supports a current guard or operating interpretation:
   the release record tracks their resolution and verification limits.
 - [Beta defect repair, round 2 — 2026-09-27](design/beta-defect-repair-2026-09-27-round-2.md) —
   PRO playback restoration, ordered preload completion, and translation author deletion fences.
+- [Beta defect harvest, round 3 — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-3.md) —
+  one confirmed PRO late-join playback race during live system-audio sharing;
+  discovery only, with focused controls and explicit reproduction limits.
 - [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — dated
   defect record with a maintained residual-boundary and verification addendum.
 - [Runtime scenario verification — 2026-05-31](runtime-scenario-verification-2026-05-31.md) —

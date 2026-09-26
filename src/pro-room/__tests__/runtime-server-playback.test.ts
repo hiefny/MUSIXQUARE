@@ -40,6 +40,8 @@ import {
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import { requestProRoomTransportRecovery } from '../transport-recovery.ts';
 import { captureProRoomLocalPlaybackTimeline } from '../local-playback-timeline.ts';
+import { refreshProSystemAudioState } from '../system-audio-service.ts';
+import { restoreProPlaybackAfterSystemAudioRelease } from '../system-audio-bridge.ts';
 import {
   acceptProRoomRealtimeFrameForTests,
   joinProRoom,
@@ -375,6 +377,71 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     cancelMedia.mockClear();
     return current;
   }
+
+  it.each(['playing', 'paused'] as const)(
+    'restores the canonical %s YouTube checkpoint after a PRO system-audio lease ends',
+    async (state) => {
+      restoreSpies.push(
+        vi
+          .spyOn(ServerProRoomNetworkBridge.prototype, 'clockCalibrated', 'get')
+          .mockReturnValue(true),
+      );
+      const current = {
+        ...snapshot(playback(1, { state, positionSeconds: 37.5, updatedAtMs: Date.now() })),
+        revision: 2,
+      };
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame({ ...commitEvent(null, 1), playback: current.playback }),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(captureProRoomLocalPlaybackTimeline()).not.toBeNull());
+      prepareMedia.mockClear();
+      commitMedia.mockClear();
+      waitForClock.mockClear();
+      const systemAudio = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+      systemAudio.mockResolvedValue({
+        generation: 1,
+        status: 'live',
+        ownerParticipantId: PARTICIPANT_ID,
+        claimExpiresAt: null,
+        liveExpiresAt: Date.now() + 60_000,
+        publication: {
+          publicationId: 'publication_00001',
+          sessionId: 'session_000000001',
+          track: { trackName: 'audio-stereo', mid: '0' },
+        },
+      });
+      await refreshProSystemAudioState();
+      setState('playback.mode', 'system-audio');
+      setState('playback.activity', 'playing');
+      restoreProPlaybackAfterSystemAudioRelease(() => true);
+      systemAudio.mockResolvedValue({
+        generation: 2,
+        status: 'idle',
+        ownerParticipantId: null,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication: null,
+      });
+      await refreshProSystemAudioState();
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      expect(prepareMedia).toHaveBeenCalledOnce();
+      expect(commitMedia.mock.calls[0][0]).toEqual(
+        expect.objectContaining({
+          committedPlaybackRevision: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          state,
+        }),
+      );
+      if (state === 'paused') {
+        expect(commitMedia.mock.calls[0][0].positionSeconds).toBe(37.5);
+        expect(commitMedia.mock.calls[0][0].scheduleDelayMs).toBe(0);
+        expect(waitForClock).not.toHaveBeenCalled();
+      }
+      expect(executeCommand).not.toHaveBeenCalled();
+    },
+  );
 
   it('exposes only a settled applied server checkpoint to local offset correction', async () => {
     restoreSpies.push(

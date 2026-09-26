@@ -31,11 +31,13 @@ const migration = readFileSync(
 );
 class SqlStatement {
   constructor(
+    readonly database: SqlDatabase,
+    readonly sql: string,
     readonly statement: StatementSync,
     readonly values: SQLInputValue[] = [],
   ) {}
   bind(...values: SQLInputValue[]) {
-    return new SqlStatement(this.statement, values);
+    return new SqlStatement(this.database, this.sql, this.statement, values);
   }
   async first() {
     return this.statement.get(...this.values) ?? null;
@@ -47,17 +49,22 @@ class SqlStatement {
     return { success: true, meta: { changes: Number(this.statement.run(...this.values).changes) } };
   }
   async run() {
-    return this.execute();
+    await this.database.beforeRun?.(this.sql);
+    const result = this.execute();
+    await this.database.afterRun?.(this.sql);
+    return result;
   }
 }
 class SqlDatabase {
   readonly native = new DatabaseSync(':memory:');
   beforeBatch: (() => void) | null = null;
+  beforeRun: ((sql: string) => Promise<void>) | null = null;
+  afterRun: ((sql: string) => Promise<void>) | null = null;
   constructor() {
     this.native.exec(schema);
   }
   prepare(sql: string) {
-    return new SqlStatement(this.native.prepare(sql));
+    return new SqlStatement(this, sql, this.native.prepare(sql));
   }
   async batch(statements: SqlStatement[]) {
     this.beforeBatch?.();
@@ -226,6 +233,32 @@ async function call(
 }
 async function submit(proposed = 'Encerrar', token = TOKEN_A, requestId = crypto.randomUUID()) {
   return call(PREFIX, 'POST', { requestId, draft: draft(proposed) }, token);
+}
+async function deleteAuthor(pending: boolean) {
+  const response = await handleAccountAuthRequest(
+    await request('/api/auth/account', 'DELETE', { confirm: true }),
+    env,
+    undefined,
+    pending ? { orphanAccountProGrants: async () => false } : {},
+  );
+  expect(response?.status).toBe(pending ? 202 : 200);
+  if (pending) {
+    expect(
+      db.native.prepare('SELECT status FROM mxqr_accounts WHERE account_id = ?').get(ACCOUNT_A),
+    ).toEqual({ status: 'disabled' });
+    expect(
+      db.native
+        .prepare('SELECT COUNT(*) AS n FROM mxqr_account_deletions WHERE account_id = ?')
+        .get(ACCOUNT_A)?.n,
+    ).toBe(1);
+  }
+}
+function countVotes(suggestionId: string): number {
+  return Number(
+    db.native
+      .prepare('SELECT COUNT(*) AS n FROM mxqr_translation_votes WHERE suggestion_id = ?')
+      .get(suggestionId)?.n,
+  );
 }
 async function admin(id: string, status: 'approved' | 'rejected' | 'pending', revision: number) {
   const response = await handleAdminTranslationCommunityRequest(
@@ -788,6 +821,96 @@ describe('translation community actual auth and SQLite contract', () => {
       db.beforeBatch = null;
     };
     expect((await admin(one.id, 'approved', 1)).status).toBe(409);
+  });
+  describe.each(['PUT', 'DELETE'] as const)('vote %s author lifecycle', (method) => {
+    it.each(['active', 'fully-deleted', 'pending-deletion'] as const)(
+      'only admits a previously visible card while its author is active: %s',
+      async (state) => {
+        const suggestion = (await submit()).body.suggestion;
+        const url = `${PREFIX}/${suggestion.id}/vote`;
+        if (method === 'DELETE') expect((await call(url, 'PUT', {}, TOKEN_B)).status).toBe(200);
+        expect(
+          (await call(`${PREFIX}?locale=pt-br`, 'GET', undefined, TOKEN_B)).body.suggestions,
+        ).toHaveLength(1);
+        if (state !== 'active') await deleteAuthor(state === 'pending-deletion');
+        const response = await call(url, method, {}, TOKEN_B);
+        const list = await call(`${PREFIX}?locale=pt-br`, 'GET', undefined, TOKEN_B);
+        expect(list.body.suggestions).toHaveLength(state === 'active' ? 1 : 0);
+        if (state === 'active') {
+          expect(response.status).toBe(200);
+          expect(response.body.suggestion).toMatchObject({
+            author: 'Alice',
+            voted: method === 'PUT',
+            votes: method === 'PUT' ? 1 : 0,
+          });
+        } else {
+          expect(response.status).toBe(404);
+          expect(response.body).toEqual({ error: 'NOT_FOUND' });
+          expect(countVotes(suggestion.id)).toBe(
+            state === 'pending-deletion' && method === 'DELETE' ? 1 : 0,
+          );
+        }
+      },
+    );
+    it.each(['disabled', 'deletion-fence'] as const)(
+      'honors the independent author boundary: %s',
+      async (boundary) => {
+        const suggestion = (await submit()).body.suggestion;
+        const url = `${PREFIX}/${suggestion.id}/vote`;
+        if (method === 'DELETE') await call(url, 'PUT', {}, TOKEN_B);
+        if (boundary === 'disabled') {
+          db.native
+            .prepare("UPDATE mxqr_accounts SET status = 'disabled' WHERE account_id = ?")
+            .run(ACCOUNT_A);
+        } else {
+          db.native
+            .prepare('INSERT INTO mxqr_account_deletions (account_id,started_at) VALUES (?,?)')
+            .run(ACCOUNT_A, Date.now());
+        }
+        const response = await call(url, method, {}, TOKEN_B);
+        expect(response.status).toBe(404);
+        expect(response.body).toEqual({ error: 'NOT_FOUND' });
+        expect(countVotes(suggestion.id)).toBe(method === 'DELETE' ? 1 : 0);
+      },
+    );
+    it.each(['before-mutation', 'after-mutation', 'during-catalog'] as const)(
+      'closes a pending author deletion between request stages: %s',
+      async (stage) => {
+        const suggestion = (await submit()).body.suggestion;
+        const url = `${PREFIX}/${suggestion.id}/vote`;
+        if (method === 'DELETE') await call(url, 'PUT', {}, TOKEN_B);
+        let deleted = false;
+        const deletePending = async () => {
+          await deleteAuthor(true);
+          deleted = true;
+        };
+        if (stage === 'during-catalog') {
+          const port = assetsPort();
+          env.ASSETS = {
+            fetch: async (req: Request) => {
+              if (!deleted) await deletePending();
+              return port.fetch(req);
+            },
+          };
+        } else {
+          const hook = stage === 'before-mutation' ? 'beforeRun' : 'afterRun';
+          db[hook] = async (sql) => {
+            if (!/^(?:INSERT INTO|DELETE FROM) mxqr_translation_votes/u.test(sql)) return;
+            db[hook] = null;
+            await deletePending();
+          };
+        }
+        const response = await call(url, method, {}, TOKEN_B);
+        expect(deleted).toBe(true);
+        expect(response.status).toBe(404);
+        expect(response.body).toEqual({ error: 'NOT_FOUND' });
+        // A mutation before the deletion commits is valid; one after the
+        // deletion must not touch even the row pending final cascade cleanup.
+        expect(countVotes(suggestion.id)).toBe(
+          stage === 'before-mutation' ? (method === 'DELETE' ? 1 : 0) : method === 'PUT' ? 1 : 0,
+        );
+      },
+    );
   });
   it('uses stable bounded cursors and rejects a cursor reused for a different filter', async () => {
     for (let index = 0; index < 22; index++) await submit(`Alternativa ${index}`);

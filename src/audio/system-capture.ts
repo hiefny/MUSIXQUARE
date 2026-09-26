@@ -57,6 +57,7 @@ import {
   getProSystemAudioViewState,
   publishLocalProSystemAudio,
   releaseLocalProSystemAudioLease,
+  restoreProPlaybackAfterSystemAudioRelease,
   type ProSystemAudioLeaseAttempt,
 } from '../pro-room/system-audio-bridge.ts';
 
@@ -97,6 +98,7 @@ interface PreSystemAudioState {
 let _preSysAudioState: PreSystemAudioState | null = null;
 let _captureStartPromise: Promise<void> | null = null;
 let _captureStartEpoch = 0;
+let _captureRestoreEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
 let _standardMeteredRouteExpiresAt: number | null = null;
 let _captureTrackEndedCleanup: (() => void) | null = null;
@@ -368,6 +370,7 @@ export async function startSystemAudioCapture(): Promise<void> {
   // before getDisplayMedia would lose the browser's trusted click gesture.
   const proLeaseAttempt = isProRoom ? beginProLeaseAttempt() : null;
   const startEpoch = ++_captureStartEpoch;
+  ++_captureRestoreEpoch;
   const startLoadEpoch = getCurrentLoadEpoch();
   const attempt = performSystemAudioCaptureStart(
     startRoom,
@@ -885,6 +888,7 @@ function stopSystemAudioCapture(opts?: {
   reason?: SystemAudioStopReason;
 }): void {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
+  if (isSystemAudioActive() || _capturedStream || _captureStartPromise) ++_captureRestoreEpoch;
   ++_captureStartEpoch;
   _captureStartPromise = null;
   if (!isSystemAudioActive() && !_capturedStream) {
@@ -899,6 +903,13 @@ function stopSystemAudioCapture(opts?: {
 
   _debugLastStopBroadcastAt = Date.now();
   if (captureRoomKind === 'pro') {
+    if (shouldRestore && _preSysAudioState) {
+      const room = _preSysAudioState.room;
+      const restoreEpoch = _captureRestoreEpoch;
+      restoreProPlaybackAfterSystemAudioRelease(
+        () => restoreEpoch === _captureRestoreEpoch && isCurrentSystemAudioRoom(room),
+      );
+    }
     void releaseLocalProSystemAudioLease().catch((error) => {
       log.debug('[SystemAudio] PRO lease release failed:', error);
     });
@@ -946,6 +957,13 @@ function stopSystemAudioCapture(opts?: {
 export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState): void {
   // Restore channel UI to previous selection.
   syncStandardRoleControlState(snapshot.channelMode);
+
+  if (snapshot.room.kind === 'pro' && snapshot.playback.mode === 'youtube') {
+    // The server checkpoint (not this pre-share position) owns PRO YouTube.
+    // Resume through participant-local reconciliation after confirmed release.
+    setPlaybackIdle();
+    return;
+  }
 
   setState('player.pausedAt', snapshot.positionSeconds);
   setPlaybackTrackMeta(snapshot.currentTrackMeta ?? null);

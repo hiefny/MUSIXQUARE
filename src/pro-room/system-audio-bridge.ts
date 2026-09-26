@@ -15,6 +15,7 @@ interface ProSystemAudioBridgeAdapter {
   beginLeaseAttempt(signal?: AbortSignal): ProSystemAudioLeaseAttempt;
   publish(track: MediaStreamTrack): Promise<ProRoomSystemAudioState>;
   release(): Promise<ProRoomSystemAudioState | null>;
+  restorePlaybackAfterRelease?(isCurrent: () => boolean): void;
   view(): ProRoomSystemAudioViewState;
   ownerDisplayName(): string | null;
   isLocalOwner(): boolean;
@@ -71,6 +72,11 @@ export function publishLocalProSystemAudio(
 
 export function releaseLocalProSystemAudioLease(): Promise<ProRoomSystemAudioState | null> {
   return adapter.release();
+}
+
+/** Explicit successful capture stops may resume canonical playback once the lease is idle. */
+export function restoreProPlaybackAfterSystemAudioRelease(isCurrent: () => boolean): void {
+  adapter.restorePlaybackAfterRelease?.(isCurrent);
 }
 
 export function getProSystemAudioViewState(): ProRoomSystemAudioViewState {

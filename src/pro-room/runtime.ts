@@ -184,7 +184,25 @@ const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
 const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const api = new ProRoomApiClient();
-configureProSystemAudioService(api);
+configureProSystemAudioService(api, async (liveness) => {
+  const restored = await playbackController.reconcile({
+    showLoading: false,
+    youtubeOnly: true,
+    rendezvous: true,
+    preparePaused: true,
+    liveness,
+  });
+  if (restored || !liveness.isCurrent()) return true;
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  if (!snapshot) return false;
+  if (snapshot.playback.state === 'idle' || snapshot.playback.queueItemId === null) return true;
+  const item = snapshot?.playlist.find(
+    (candidate) => candidate.queueItemId === snapshot.playback.queueItemId,
+  );
+  // File playback deliberately remains paused after sharing. A fresh
+  // checkpoint with no YouTube target completes this restoration intent.
+  return item?.source.kind === 'pro-r2';
+});
 const bridge = proRoomServerBridge;
 
 function observeProRoomRuntimeTask(operation: Promise<unknown>, context: string): void {

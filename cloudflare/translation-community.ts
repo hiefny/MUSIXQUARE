@@ -56,6 +56,8 @@ const MAX_RESPONSE_BYTES = 768 * 1024;
 const EXPORT_PAGE_SIZE = 200;
 const MAX_EXPORT_DRAFTS = 1000;
 const ACTIVE_ACCOUNT = `EXISTS (SELECT 1 FROM mxqr_accounts a WHERE a.account_id = ? AND a.status = 'active' AND NOT EXISTS (SELECT 1 FROM mxqr_account_deletions d WHERE d.account_id = a.account_id))`;
+const ACTIVE_AUTHOR = `a.status = 'active' AND NOT EXISTS (SELECT 1 FROM mxqr_account_deletions d WHERE d.account_id = a.account_id)`;
+const VOTABLE_SUGGESTION = `EXISTS (SELECT 1 FROM mxqr_translation_suggestions s JOIN mxqr_accounts a ON a.account_id = s.account_id WHERE s.suggestion_id = ? AND s.status IN ('pending','approved') AND ${ACTIVE_AUTHOR})`;
 
 function json(payload: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(payload), {
@@ -125,10 +127,15 @@ function selection(accountId: string | null): { sql: string; values: SqlValue[] 
     values: [accountId],
   };
 }
-async function find(db: Database, id: string, accountId: string | null): Promise<SuggestionRow> {
+async function find(
+  db: Database,
+  id: string,
+  accountId: string | null,
+  activeAuthor = false,
+): Promise<SuggestionRow> {
   const query = selection(accountId);
   const found = await db
-    .prepare(`${query.sql} WHERE s.suggestion_id = ?`)
+    .prepare(`${query.sql} WHERE s.suggestion_id = ?${activeAuthor ? ` AND ${ACTIVE_AUTHOR}` : ''}`)
     .bind(...query.values, id)
     .first();
   if (!found) fail('NOT_FOUND', 404);
@@ -156,6 +163,13 @@ async function dto(
     value.surface,
     value.translation_key,
   );
+  return serializeSuggestion(value, entry, accountId);
+}
+function serializeSuggestion(
+  value: SuggestionRow,
+  entry: Entry | null,
+  accountId: string | null,
+): Suggestion {
   return {
     id: value.suggestion_id,
     locale: value.locale,
@@ -389,10 +403,7 @@ async function list(
   const filter = JSON.stringify([admin, locale, surface, key, sort, status]);
   const cursor = readCursor(url.searchParams.get('cursor'), filter);
   const query = selection(accountId);
-  const where = [
-    "a.status = 'active'",
-    'NOT EXISTS (SELECT 1 FROM mxqr_account_deletions d WHERE d.account_id = s.account_id)',
-  ];
+  const where = [ACTIVE_AUTHOR];
   const values = [...query.values];
   if (locale) {
     where.push('s.locale = ?');
@@ -449,26 +460,34 @@ async function list(
 }
 async function vote(request: Request, env: unknown, db: Database, id: string): Promise<Response> {
   const session = await mutationSession(request, env);
-  const before = await find(db, id, session.accountId);
+  const before = await find(db, id, session.accountId, true);
   if (!['pending', 'approved'].includes(before.status)) fail('SUGGESTION_CLOSED', 409);
   if (request.method === 'PUT') {
     await db
       .prepare(
-        `INSERT INTO mxqr_translation_votes (suggestion_id,account_id,created_at) SELECT ?,?,? WHERE ${ACTIVE_ACCOUNT} AND EXISTS (SELECT 1 FROM mxqr_translation_suggestions WHERE suggestion_id = ? AND status IN ('pending','approved')) ON CONFLICT(suggestion_id,account_id) DO NOTHING`,
+        `INSERT INTO mxqr_translation_votes (suggestion_id,account_id,created_at) SELECT ?,?,? WHERE ${ACTIVE_ACCOUNT} AND ${VOTABLE_SUGGESTION} ON CONFLICT(suggestion_id,account_id) DO NOTHING`,
       )
       .bind(id, session.accountId, Date.now(), session.accountId, id)
       .run();
   } else {
     await db
       .prepare(
-        `DELETE FROM mxqr_translation_votes WHERE suggestion_id = ? AND account_id = ? AND ${ACTIVE_ACCOUNT}`,
+        `DELETE FROM mxqr_translation_votes WHERE suggestion_id = ? AND account_id = ? AND ${ACTIVE_ACCOUNT} AND ${VOTABLE_SUGGESTION}`,
       )
-      .bind(id, session.accountId, session.accountId)
+      .bind(id, session.accountId, session.accountId, id)
       .run();
   }
-  const after = await find(db, id, session.accountId);
+  // Finish the asset lookup before the final author-fenced read: a deletion
+  // can commit while a cold catalog is loading, even after a valid vote.
+  const entry = await currentTranslationEntry(
+    env,
+    before.locale,
+    before.surface,
+    before.translation_key,
+  );
+  const after = await find(db, id, session.accountId, true);
   if (!['pending', 'approved'].includes(after.status)) fail('SUGGESTION_CLOSED', 409);
-  return json({ suggestion: await dto(after, env, session.accountId) });
+  return json({ suggestion: serializeSuggestion(after, entry, session.accountId) });
 }
 async function withdraw(
   request: Request,
@@ -586,7 +605,7 @@ async function exportApproved(env: unknown, db: Database): Promise<Response> {
     const after = cursor ? ' AND (s.locale,s.surface,s.translation_key) > (?,?,?)' : '';
     const result = await db
       .prepare(
-        `${query.sql} WHERE s.status = 'approved' AND a.status = 'active' AND NOT EXISTS (SELECT 1 FROM mxqr_account_deletions d WHERE d.account_id = s.account_id)${after} ORDER BY s.locale,s.surface,s.translation_key LIMIT ?`,
+        `${query.sql} WHERE s.status = 'approved' AND ${ACTIVE_AUTHOR}${after} ORDER BY s.locale,s.surface,s.translation_key LIMIT ?`,
       )
       .bind(...query.values, ...(cursor ?? []), EXPORT_PAGE_SIZE)
       .all();

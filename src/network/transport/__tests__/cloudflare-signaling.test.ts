@@ -4561,13 +4561,19 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       sessionId: '20000000-0000-4000-8000-000000000001',
     });
     conn.send({
+      type: MSG.PRELOAD_END,
+      queueItemId: '00000000-0000-4000-8000-000000000002',
+      sessionId: 2,
+      name: 'next.mp3',
+    });
+    conn.send({
       type: MSG.PLAY,
       time: 0,
       queueItemId: '00000000-0000-4000-8000-000000000001',
     });
 
     expect(control.sent).toHaveLength(2);
-    expect(bulk.sent).toHaveLength(3);
+    expect(bulk.sent).toHaveLength(4);
     expect(
       control.sent
         .map((frame) => JSON.parse(frame as string) as { type: string })
@@ -4580,6 +4586,10 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     });
     expect(JSON.parse(bulk.sent[2] as string)).toMatchObject({
       type: MSG.OPERATOR_FILE_UPLOAD_FINISH,
+    });
+    expect(JSON.parse(bulk.sent[3] as string)).toMatchObject({
+      type: MSG.PRELOAD_END,
+      sessionId: 2,
     });
   });
 

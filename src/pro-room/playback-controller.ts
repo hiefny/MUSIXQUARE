@@ -109,6 +109,7 @@ interface PlaybackReconciliationOptions {
   showLoading: boolean;
   youtubeOnly: boolean;
   rendezvous: boolean;
+  preparePaused: boolean;
   owner: ProRoomPlaybackReconciliationLiveness;
 }
 
@@ -223,6 +224,7 @@ interface ProRoomPlaybackImplementation {
       showLoading: boolean;
       youtubeOnly: boolean;
       rendezvous: boolean;
+      preparePaused?: boolean;
       liveness?: ProRoomPlaybackReconciliationLiveness;
     }>,
   ): Promise<boolean>;
@@ -1808,6 +1810,7 @@ function createImplementation(
     observedServerTimeMs: number,
     rendezvous: boolean,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
+    preparePaused = false,
   ): Promise<boolean> {
     if (
       !isRequestCurrent() ||
@@ -1834,14 +1837,16 @@ function createImplementation(
 
     const generation = state.commitGeneration;
     const runningRendezvous = rendezvous && playback.state === 'playing';
+    const prepareRenderer = runningRendezvous || (preparePaused && playback.state === 'paused');
     const authority = createProPlaybackAuthorityToken({
       roomId: roomCode,
       roomEpoch,
       basePlaybackRevision: playback.revision - 1,
       // A running manual sync uses a participant-local arm/release cycle. The
       // opaque ID never leaves this browser and cannot create a room revision.
-      // Paused checkpoints remain exact direct re-applications.
-      transitionId: runningRendezvous
+      // A paused renderer destroyed by system audio also needs preparation;
+      // its exact checkpoint is committed without a running timeline/lead.
+      transitionId: prepareRenderer
         ? `local_sync_${playback.revision}_${++state.reconciliationSequence}`
         : null,
     });
@@ -1861,7 +1866,7 @@ function createImplementation(
       playbackReconciliationStillCurrent(playback, roomCode, roomEpoch, generation);
     if (!isCurrent()) return false;
 
-    if (runningRendezvous) {
+    if (prepareRenderer) {
       let prepared: ProPlaybackPrepareResult;
       try {
         prepared = await prepareCurrentProPlaybackRendezvousAuthority({
@@ -1885,9 +1890,12 @@ function createImplementation(
       // target after it is ready, then release at one future server instant so
       // this endpoint rejoins the running timeline rather than hard-seeking at
       // an arbitrary response-arrival time.
-      const executeAtMs = getProRoomServerNow() + PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS;
+      const leadMs = runningRendezvous ? PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS : 0;
+      const executeAtMs = getProRoomServerNow() + leadMs;
       const rendezvousPosition =
-        playback.positionSeconds + Math.max(0, executeAtMs - playback.updatedAtMs) / 1_000;
+        playback.state === 'playing'
+          ? playback.positionSeconds + Math.max(0, executeAtMs - playback.updatedAtMs) / 1_000
+          : playback.positionSeconds;
       if (!isCurrent()) {
         cancelProPlaybackPreparation(authority);
         return false;
@@ -1900,7 +1908,7 @@ function createImplementation(
           queueItemId: playback.queueItemId,
           state: playback.state,
           positionSeconds: rendezvousPosition,
-          scheduleDelayMs: PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS,
+          scheduleDelayMs: leadMs,
           timingMode: 'scheduled-control',
           youtubeSubIndex: playback.youtubeSubIndex,
           youtubeVideoId: playback.youtubeVideoId,
@@ -1936,7 +1944,8 @@ function createImplementation(
   ): boolean {
     return (
       (!running.youtubeOnly || requested.youtubeOnly) &&
-      (running.rendezvous || !requested.rendezvous)
+      (running.rendezvous || !requested.rendezvous) &&
+      (running.preparePaused || !requested.preparePaused)
     );
   }
 
@@ -1956,6 +1965,7 @@ function createImplementation(
       // false means all supported media and is therefore the stronger request.
       youtubeOnly: left.youtubeOnly && right.youtubeOnly,
       rendezvous: left.rendezvous || right.rendezvous,
+      preparePaused: left.preparePaused || right.preparePaused,
       owner: left.owner,
     };
   }
@@ -2090,6 +2100,7 @@ function createImplementation(
         getProRoomServerNow(),
         options.rendezvous,
         requestStillCurrent,
+        options.preparePaused,
       );
     })().finally(() => {
       if (state.reconciliationInFlight !== flight) return;
@@ -2105,6 +2116,7 @@ function createImplementation(
       showLoading: boolean;
       youtubeOnly: boolean;
       rendezvous: boolean;
+      preparePaused?: boolean;
       liveness?: ProRoomPlaybackReconciliationLiveness;
     }>,
   ): Promise<boolean> {
@@ -2112,6 +2124,7 @@ function createImplementation(
       showLoading: false,
       youtubeOnly: options.youtubeOnly,
       rendezvous: options.rendezvous,
+      preparePaused: options.preparePaused ?? false,
       owner: options.liveness ?? defaultPlaybackReconciliationOwner,
     };
     if (!normalized.owner.isCurrent()) return Promise.resolve(false);
@@ -2360,6 +2373,7 @@ export class ProRoomPlaybackController {
       showLoading: boolean;
       youtubeOnly: boolean;
       rendezvous: boolean;
+      preparePaused?: boolean;
       liveness?: ProRoomPlaybackReconciliationLiveness;
     }>,
   ): Promise<boolean> {

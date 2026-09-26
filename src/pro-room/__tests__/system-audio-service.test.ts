@@ -75,6 +75,8 @@ const mocks = vi.hoisted(() => ({
   roomContextKind: 'pro' as 'pro' | 'standard',
   playbackMode: 'none' as 'none' | 'system-audio',
   sfuListener: null as ((event: Record<string, unknown>) => void) | null,
+  restorePlayback:
+    vi.fn<(liveness: { identity: object; isCurrent: () => boolean }) => Promise<boolean>>(),
 }));
 
 vi.mock('../../audio/context.ts', () => ({ getAudioContext: mocks.getAudioContext }));
@@ -164,6 +166,7 @@ import {
 import {
   beginLocalProSystemAudioLeaseAttempt,
   canPublishProSystemAudioWithCurrentCoordinator,
+  restoreProPlaybackAfterSystemAudioRelease,
 } from '../system-audio-bridge.ts';
 
 const LOCAL_ID = 'participant_local1';
@@ -291,7 +294,7 @@ function idle(generation = 0): ProRoomSystemAudioState {
   };
 }
 
-function preparing(generation = 1): ProRoomSystemAudioState {
+function preparing(generation = 1): Extract<ProRoomSystemAudioState, { status: 'preparing' }> {
   return {
     generation,
     status: 'preparing',
@@ -471,12 +474,13 @@ function deferred<T>(): {
 }
 
 beforeAll(() => {
-  configureProSystemAudioService(api as unknown as ProRoomApiClient);
+  configureProSystemAudioService(api as unknown as ProRoomApiClient, mocks.restorePlayback);
   registerProSystemAudioServiceListeners();
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.restorePlayback.mockReset().mockResolvedValue(true);
   mocks.roomContextKind = 'pro';
   mocks.playbackMode = 'none';
   mocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
@@ -505,6 +509,171 @@ afterEach(() => {
 });
 
 describe('PRO system-audio service orchestration', () => {
+  async function startLocalShare(): Promise<void> {
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockResolvedValueOnce(localLive());
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({} as MediaStreamTrack);
+  }
+
+  async function observeState(state: ProRoomSystemAudioState): Promise<void> {
+    api.getSystemAudioState.mockResolvedValueOnce(state);
+    await refreshProSystemAudioState();
+  }
+
+  it('restores an explicitly stopped owner only after authoritative idle and local teardown', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    const released = deferred<ProRoomSystemAudioState>();
+    api.releaseSystemAudioLease.mockReturnValueOnce(released.promise);
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    const release = releaseLocalProSystemAudioLease();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    released.resolve(idle(2));
+    await release;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+    await observeState(idle(2));
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('resumes a receiver after live ends but not on initial idle or initial live', async () => {
+    vi.useFakeTimers();
+    await observeState(idle());
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(live());
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    mocks.playbackMode = 'system-audio';
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+    expect(mocks.cleanupReception.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mocks.restorePlayback.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not restore an unarmed owner stop or failed preparing publication', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(2));
+    await releaseLocalProSystemAudioLease();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(preparing(3));
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    await observeState(idle(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+  });
+
+  it('restores receivers from current canonical playback after missed share generations', async () => {
+    vi.useFakeTimers();
+    await observeState(live());
+    await observeState(idle(5));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('retains observed receiver interruption through a successor preparing share', async () => {
+    vi.useFakeTimers();
+    await observeState(live());
+    await observeState({ ...preparing(3), ownerParticipantId: REMOTE_ID });
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(idle(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('retains unfinished receiver restoration when another share starts preparing', async () => {
+    vi.useFakeTimers();
+    mocks.restorePlayback.mockResolvedValueOnce(false);
+    await observeState(live());
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    const first = mocks.restorePlayback.mock.calls[0][0];
+    await observeState({ ...preparing(3), ownerParticipantId: REMOTE_ID });
+    expect(first.isCurrent()).toBe(false);
+    await observeState(idle(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains the explicit restoration intent across lease release failure and retry', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    api.releaseSystemAudioLease.mockRejectedValueOnce(new Error('temporary release failure'));
+    api.getSystemAudioState.mockResolvedValueOnce(localLive());
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(2));
+    await expect(releaseLocalProSystemAudioLease()).rejects.toThrow('temporary release failure');
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('keeps clock/API restoration retries owned and backs off until recovery', async () => {
+    vi.useFakeTimers();
+    mocks.restorePlayback.mockResolvedValue(false);
+    await observeState(live());
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(250 + 1_000 + 2_500 + 5_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(5);
+    const liveness = mocks.restorePlayback.mock.calls[0][0];
+    expect(liveness.isCurrent()).toBe(true);
+    mocks.restorePlayback.mockRejectedValueOnce(new Error('temporary heartbeat failure'));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(6);
+    mocks.restorePlayback.mockResolvedValue(true);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(7);
+    expect(liveness.isCurrent()).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(7);
+  });
+
+  it.each(['new-share', 'room-reset', 'new-incarnation', 'capture-cancelled'] as const)(
+    'invalidates restoration and retries on %s',
+    async (boundary) => {
+      vi.useFakeTimers();
+      await startLocalShare();
+      let captureCurrent = true;
+      restoreProPlaybackAfterSystemAudioRelease(() => captureCurrent);
+      mocks.restorePlayback.mockResolvedValue(false);
+      api.releaseSystemAudioLease.mockResolvedValueOnce(idle(2));
+      await releaseLocalProSystemAudioLease();
+      await vi.advanceTimersByTimeAsync(0);
+      const liveness = mocks.restorePlayback.mock.calls[0][0];
+      expect(liveness.isCurrent()).toBe(true);
+      if (boundary === 'new-share') await observeState(live(3));
+      if (boundary === 'room-reset') resetProSystemAudioService();
+      if (boundary === 'new-incarnation') bindProSystemAudioSession(snapshot('presence_local_02'));
+      if (boundary === 'capture-cancelled') captureCurrent = false;
+      expect(liveness.isCurrent()).toBe(false);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('does not revive an old explicit stop after a newer share generation is observed', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    await observeState(live(3));
+    // New receiver lifecycle owns the later stop; the old owner callback cannot resume early.
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+  });
+
   it('allows every playback-capable member without browser-coordinator proof', async () => {
     expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(true);
     api.getSystemAudioState.mockResolvedValueOnce(idle());

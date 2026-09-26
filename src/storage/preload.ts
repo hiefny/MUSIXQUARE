@@ -514,7 +514,6 @@ function abandonStalledPreloadSession(sessionId: number, reason: string): void {
   preloadReorderBuffer.delete(sessionId);
   preloadQueueItemBySid.delete(sessionId);
   clearManagedTimer(`preload-drain-${sessionId}`);
-  clearManagedTimer(`preload-end-deferred-${sessionId}`);
   clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
 }
@@ -609,7 +608,6 @@ export function resetPreloadReceiveAuthority(): void {
   ]);
   for (const sessionId of sessionIds) {
     clearManagedTimer(`preload-drain-${sessionId}`);
-    clearManagedTimer(`preload-end-deferred-${sessionId}`);
     clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   }
   preloadReorderBuffer.clear();
@@ -2055,26 +2053,12 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
         `[Preload] END received but ${freshSession.progress}/${freshSession.total}. Deferring STORAGE_END`,
       );
 
-      // Bound the deferred state. Preload broadcasts are one-way (no per-chunk
-      // recovery like main transfer), so a chunk that never arrives would
-      // otherwise leave this session stuck at finalized=false forever, leaking
-      // the reorder buffer and blocking cleanupStalePreloadSessions from
-      // evicting it. After the cap, mark the session skipped so it becomes
-      // evictable; the next track entry will fall back to main-transfer
-      // download via the standard handlePlayPreloaded path.
-      const sidLocal = sid;
-      setManagedTimer(
-        `preload-end-deferred-${sidLocal}`,
-        () => {
-          const cur = getState('preload.sessionState').get(sidLocal);
-          if (!cur || cur.finalized || cur.skipped) return;
-          log.warn(
-            `[Preload] Deferred END for session ${sidLocal} timed out (${cur.progress}/${cur.total}). Marking skipped.`,
-          );
-          abandonStalledPreloadSession(sidLocal, 'deferred END watchdog');
-        },
-        10_000,
-      );
+      // Older senders put END on the control channel, where it can overtake
+      // a healthy bulk tail. Keep the existing admission/progress watchdog as
+      // the sole stall deadline: START grants 30 s, accepted contiguous bytes
+      // grant 15 s, and parked preloads can yield to advancing current bytes.
+      // END (including duplicates) is not progress and must neither shorten
+      // that deadline nor extend a stalled session's RAM residency.
     }
   }
 
@@ -2112,9 +2096,7 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   const session = sessionState.get(sid);
   if (session && session.queueItemId !== queueItemId) return;
 
-  // Cancel any pending deferred-end timer that handlePreloadEnd may have
-  // set when it saw a partial session. Idempotent (no-op if absent).
-  clearManagedTimer(`preload-end-deferred-${sid}`);
+  // Cancel the receive watchdog. Idempotent (no-op if absent).
   clearManagedTimer(`preload-admission-watchdog-${sid}`);
 
   // Drop any reorder buffer entries for this sid — they would otherwise

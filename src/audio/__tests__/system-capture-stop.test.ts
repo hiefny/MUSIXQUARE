@@ -96,6 +96,7 @@ const proAudio = vi.hoisted(() => ({
   acquire: vi.fn(),
   publish: vi.fn(),
   release: vi.fn(),
+  restorePlayback: vi.fn<(isCurrent: () => boolean) => void>(),
   attemptToken: null as symbol | null,
   coordinatorCompatible: true,
 }));
@@ -143,6 +144,7 @@ vi.mock('../context.ts', () => ({
 }));
 
 vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
+  restoreProPlaybackAfterSystemAudioRelease: proAudio.restorePlayback,
   beginLocalProSystemAudioLeaseAttempt: vi.fn(() => {
     const token = Symbol('test-pro-lease-attempt');
     proAudio.attemptToken = token;
@@ -480,6 +482,29 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
     expect(getState('player.currentTrackMeta')).toBe(clicked);
     // …and system-audio ownership is released so the new flow can claim.
     expect(getState('playback.mode')).toBeNull();
+  });
+
+  it('defers PRO YouTube restoration to the current server checkpoint after explicit release', async () => {
+    setProRoom();
+    const legacyRestore = await startShareWithPriorYouTube();
+    bus.emit('system-audio:stop');
+    expect(proAudio.restorePlayback).toHaveBeenCalledOnce();
+    expect(legacyRestore).not.toHaveBeenCalled();
+    expect(getState('playback.activity')).toBe('idle');
+    const isCurrent = proAudio.restorePlayback.mock.calls[0][0];
+    expect(isCurrent()).toBe(true);
+    // Preparing the canonical renderer may repeat a now-inactive teardown.
+    bus.emit('system-audio:force-stop');
+    expect(isCurrent()).toBe(true);
+    await startShareWithPriorYouTube();
+    expect(isCurrent()).toBe(false);
+  });
+
+  it('does not arm PRO playback restoration on a force-stop transition', async () => {
+    setProRoom();
+    await startShareWithPriorYouTube();
+    bus.emit('system-audio:force-stop');
+    expect(proAudio.restorePlayback).not.toHaveBeenCalled();
   });
 
   it('explicit stop (system-audio:stop) still restores the pre-share snapshot', async () => {

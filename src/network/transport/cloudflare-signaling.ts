@@ -844,12 +844,16 @@ function isBulkPayload(data: unknown): boolean {
   const payload = data as Record<string, unknown>;
   if (toUint8Array(payload.chunk)) return true;
 
-  // File chunks are carried by the ordered bulk channel. Keep both terminal
+  // File chunks are carried by the ordered bulk channel. Keep their terminal
   // fences on that same channel as well: ordering is guaranteed within one
   // RTCDataChannel, but not between the bulk and control channels. Receivers
   // continue accepting these messages from either channel, so old senders
   // remain compatible while upgraded senders cannot overtake their last chunk.
-  return payload.type === MSG.FILE_END || payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH;
+  return (
+    payload.type === MSG.FILE_END ||
+    payload.type === MSG.PRELOAD_END ||
+    payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH
+  );
 }
 
 function isBenignDataChannelCloseError(event: Event): boolean {

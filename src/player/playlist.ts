@@ -798,6 +798,7 @@ export async function playTrack(
     !appliesServerAuthority &&
     !hostConn &&
     _isSameTrack &&
+    !options.forceNewYouTubeOccurrence &&
     item.type === 'youtube' &&
     isYouTubeOwner()
   ) {
@@ -2460,7 +2461,12 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   if (wasCurrent && successorQueueItemId) {
     setCurrentAudioBuffer(null);
     setState('files.current', null);
-    observePlayTrack(playTrack(successorQueueItemId), 'play the successor after removal');
+    // The snapshot already selects the successor. Preserve its occurrence
+    // boundary so a repeated video cannot take the current-row replay path.
+    observePlayTrack(
+      playTrack(successorQueueItemId, undefined, { forceNewYouTubeOccurrence: true }),
+      'play the successor after removal',
+    );
   } else if (preloadOwnsRemovedItem && nextItems.length > 0) {
     schedulePreload();
   }

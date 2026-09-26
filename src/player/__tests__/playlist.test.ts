@@ -2383,6 +2383,48 @@ describe('atomic batch playlist removal', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(successor.queueItemId);
     expect(stopYouTube).toHaveBeenCalledTimes(1);
   });
+
+  it('publishes a new occurrence when removing the playing row selects the same YouTube video', () => {
+    const current = youtubeItem('First occurrence', 'SAME_VIDEO_1');
+    const successor = youtubeItem('Second occurrence', 'SAME_VIDEO_1');
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
+    setState('playlist.items', [current, successor]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    setState('player.isFirstTrackLoad', false);
+    setPlaybackYouTubePlaying();
+    setPlaybackTrackMeta(current);
+    setYouTubePlayer({ getVideoData: () => ({ video_id: 'SAME_VIDEO_1' }) } as never);
+    const prepareRestart = vi
+      .spyOn(youtubeIframe, 'prepareSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+    const handoff = vi
+      .spyOn(youtubeIframe, 'handoffSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+    initPlaylist();
+
+    bus.emit('playlist:remove-tracks', [current.queueItemId]);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(successor.queueItemId);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.YOUTUBE_PLAY,
+        queueItemId: successor.queueItemId,
+        videoId: 'SAME_VIDEO_1',
+        autoplay: false,
+      }),
+    );
+    expect(prepareRestart).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(handoff).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(consumePendingAutoSyncOnReady()).toMatchObject({
+      isTrackTransition: true,
+      zeroStart: true,
+      targetTime: 0,
+      videoId: 'SAME_VIDEO_1',
+      skipSeek: false,
+    });
+  });
 });
 
 describe('guest queue authority bootstrap', () => {

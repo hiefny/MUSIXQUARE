@@ -14,6 +14,7 @@ import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
 import {
   isPlaybackActivityValue,
   isPlaybackIdle,
+  isPlaybackModeFile,
   isPlaybackModeYouTube,
   isPlaybackPlayingFile,
   isPlaybackPlayingYouTube,
@@ -347,14 +348,14 @@ export function initMediaSession(): void {
     }
     pendingLocalPlayRecovery = null;
     localPlayOwner = null;
+    if (isPlaybackModeFile() && isNonOperatorGuest()) {
+      // PLAY can be waiting for host time while the output is still paused.
+      // Preserve a newer PAUSE so the delayed PONG/reconciliation cannot resume it.
+      setLocalFilePaused(true);
+      pause(undefined, { showToast: false });
+      return;
+    }
     if (isPlaybackPlayingFile()) {
-      if (isNonOperatorGuest()) {
-        // Local pause: mark it so the host's SYNC_PONG bootstrap/drift in
-        // network/sync.ts does not auto-resume this guest within ~1s.
-        setLocalFilePaused(true);
-        pause(undefined, { showToast: false });
-        return;
-      }
       togglePlay();
     }
   });

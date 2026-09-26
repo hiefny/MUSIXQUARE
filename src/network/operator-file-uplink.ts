@@ -961,6 +961,11 @@ function cancelOutgoing(code: UplinkTerminalCode, notifyHost: boolean): void {
     batch.cancelCode = code;
   }
   const upload = outgoingUpload;
+  // A pending Blob read cannot be cancelled. Release this cancelled owner's
+  // slots now so a new host/session can upload while its stale read settles;
+  // the pump's batch predicate and identity-checked cleanup fence late work.
+  outgoingBatch = null;
+  outgoingUpload = null;
   if (!upload) return;
   if (notifyHost && upload.conn.open) {
     safeSend(upload.conn, {

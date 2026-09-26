@@ -980,6 +980,139 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 });
 
+describe('YouTube input response body ownership', () => {
+  function pendingBody(value: unknown) {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    let finishCancellation!: () => void;
+    const cancel = vi.fn(() => new Promise<void>((resolve) => (finishCancellation = resolve)));
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes.slice(0, Math.max(1, bytes.length - 1)));
+        },
+        cancel,
+      }),
+    );
+    return { response, cancel, finishCancellation: () => finishCancellation() };
+  }
+
+  function mount() {
+    document.body.innerHTML = `
+      <div id="youtube-preview" hidden></div>
+      <div id="youtube-preview-status"></div>
+      <img id="youtube-preview-thumb">
+      <div id="youtube-preview-title"></div>
+      <div id="youtube-preview-channel"></div>
+      <div id="youtube-search-results" hidden></div>
+      <button id="youtube-search-btn" disabled></button>
+      <button id="youtube-play-btn" disabled></button>
+    `;
+    clearYouTubeInputState();
+    return document.getElementById('youtube-play-btn') as HTMLButtonElement;
+  }
+
+  afterEach(() => {
+    clearYouTubeInputState();
+    document.body.innerHTML = '';
+  });
+
+  it('lets a replacement search finish while the old streamed body cancellation is pending', async () => {
+    const playButton = mount();
+    const oldQuery = 'round7 streamed search old';
+    const newQuery = 'round7 streamed search new';
+    const result = { videoId: 'AAAAAAAAAAA', title: 'Old result', channelTitle: 'Channel' };
+    const oldBody = pendingBody({ results: [result] });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), 'http://localhost');
+        if (url.pathname.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (url.searchParams.get('q') === oldQuery) return oldBody.response;
+        if (url.searchParams.get('q') === newQuery)
+          return Response.json({ results: [{ ...result, title: 'Current result' }] });
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    const oldSearch = searchYouTubeFromInput(oldQuery);
+    await vi.waitFor(() => expect(oldBody.response.body?.locked).toBe(true));
+    // Production input events run preview invalidation before the next search gesture.
+    fetchYouTubePreview(newQuery);
+    const newSearch = searchYouTubeFromInput(newQuery);
+    await Promise.all([oldSearch, newSearch]);
+
+    expect(oldBody.cancel).toHaveBeenCalledOnce();
+    expect(getSelectedYouTubeSearchResult(newQuery)?.title).toBe('Current result');
+    expect(playButton.disabled).toBe(false);
+    oldBody.finishCancellation();
+    await Promise.resolve();
+    expect(document.querySelector('.yt-search-title')?.textContent).toBe('Current result');
+    expect(document.getElementById('youtube-search-results')?.hasAttribute('aria-busy')).toBe(
+      false,
+    );
+  });
+
+  it('keeps the reopened playlist preview when the old metadata and manifest bodies cancel late', async () => {
+    vi.useFakeTimers();
+    const playButton = mount();
+    const playlistId = 'PL_ROUND7_REOPEN_BODY';
+    const url = `https://youtube.com/playlist?list=${playlistId}`;
+    const metadata = { title: 'Old preview', author_name: 'Channel' };
+    const manifest = {
+      playlistId,
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['AAAAAAAAAAA'],
+      title: 'Old manifest',
+    };
+    const oldMetadata = pendingBody(metadata);
+    const oldManifest = pendingBody(manifest);
+    let metadataRequests = 0;
+    let manifestRequests = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const requestUrl = String(input);
+        if (requestUrl.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (requestUrl.includes('/api/youtube-playlist-manifest'))
+          return ++manifestRequests === 1
+            ? oldManifest.response
+            : Response.json({ ...manifest, title: 'Current manifest' });
+        if (requestUrl.includes('youtube.com/oembed'))
+          return ++metadataRequests === 1
+            ? oldMetadata.response
+            : Response.json({ ...metadata, title: 'Current preview' });
+        throw new Error(`Unexpected request: ${requestUrl}`);
+      }),
+    );
+
+    fetchYouTubePreview(url);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(oldMetadata.response.body?.locked).toBe(true);
+    expect(oldManifest.response.body?.locked).toBe(true);
+    expect(playButton.disabled).toBe(true);
+
+    // Both close and reopen clear the input state before input restarts the same URL.
+    clearYouTubeInputState();
+    clearYouTubeInputState();
+    fetchYouTubePreview(url);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(oldMetadata.cancel).toHaveBeenCalledOnce();
+    expect(oldManifest.cancel).toHaveBeenCalledOnce();
+    expect(getPrefetchedYouTubePlaylistManifest(playlistId)?.title).toBe('Current manifest');
+    expect(playButton.disabled).toBe(false);
+
+    oldMetadata.finishCancellation();
+    oldManifest.finishCancellation();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.getElementById('youtube-preview-title')?.innerText).toBe('Current preview');
+    expect(document.getElementById('youtube-preview')?.hidden).toBe(false);
+    expect(getPrefetchedYouTubePlaylistManifest(playlistId)?.title).toBe('Current manifest');
+    expect(playButton.disabled).toBe(false);
+  });
+});
+
 describe('YouTube search result rendering sink', () => {
   it('coalesces a rendered result list into one scrollbar reveal per frame', async () => {
     document.body.innerHTML = `

@@ -87,6 +87,9 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta defect harvest — 2026-09-27](design/beta-defect-harvest-2026-09-27.md) —
+  discovery-only evidence, four confirmed unresolved defects. The
+  [living release record](beta-release-readiness.md) tracks their disposition.
 - [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — dated
   defect record with a maintained residual-boundary and verification addendum.
 - [Runtime scenario verification — 2026-05-31](runtime-scenario-verification-2026-05-31.md) —

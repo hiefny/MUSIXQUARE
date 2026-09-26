@@ -1341,7 +1341,13 @@ function createImplementation(
         });
       } else if (result.status === 'unchanged') {
         if (result.playback.revision > state.lastAppliedRevision) {
-          restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
+          restorePlaybackCheckpoint(
+            result.playback,
+            intent.roomId,
+            intent.roomEpoch,
+            canonicalPlaybackCommitOwner,
+            result.serverTimeMs,
+          );
           settleLocalPlaybackUiControl(localUiControl, 'applied', result.playback.positionSeconds);
         } else if (intent.kind === 'play' && result.playback.state === 'playing') {
           // The room can already be playing while a foregrounded WebKit iframe
@@ -1483,6 +1489,7 @@ function createImplementation(
     roomCode: string,
     roomEpoch: number,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
+    observedServerTimeMs = getProRoomServerNow(),
   ): void {
     const context = getState('room.context');
     if (
@@ -1511,8 +1518,10 @@ function createImplementation(
           transition?.event.target.revision === playback.revision
             ? transition.event.transitionId
             : `snapshot_${playback.revision}`,
-        serverTimeMs: getProRoomServerNow(),
-        executeAtMs: playback.updatedAtMs,
+        serverTimeMs: playback.state === 'playing' ? observedServerTimeMs : 0,
+        // Paused/idle snapshots restore immediately, including when the clock
+        // becomes calibrated while local media preparation is still pending.
+        executeAtMs: playback.state === 'playing' ? playback.updatedAtMs : 0,
         playback,
       },
       isRequestCurrent,
@@ -1541,6 +1550,17 @@ function createImplementation(
         isRequestCurrent,
       );
       return;
+    }
+    // Snapshots carry the checkpoint's update time, but no current server time.
+    // A late join can prepare media before its first socket clock response; do
+    // not synthesize a running COMMIT from the device's uncalibrated wall clock.
+    if (snapshot.playback.state === 'playing' && !isProRoomServerClockCalibrated()) {
+      const calibrated = await waitForFreshProRoomServerClockCalibration({
+        serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
+        fallbackTimeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
+        signal: ports.getRoomAbortSignal(),
+      });
+      if (!calibrated || !isRequestCurrent() || !ports.isPlaylistLeaseCurrent(lease)) return;
     }
     await restorePlaybackCheckpoint(
       snapshot.playback,

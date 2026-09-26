@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getState, resetState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
+import type { QueueItemId } from '../../types/index.ts';
 import type { ProRoomSignalingAccess } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -13,8 +14,15 @@ import {
   ServerProRoomNetworkBridge,
   onProRoomRealtimeConnection,
   onProRoomRealtimeEvent,
+  proRoomServerBridge,
 } from '../network-bridge.ts';
 import { ProRoomSessionController, type ProRoomSessionApiForTests } from '../session-controller.ts';
+import { ProRoomPlaybackController } from '../playback-controller.ts';
+import {
+  registerProPlaybackMediaEndpoint,
+  resetProPlaybackAuthorityHooks,
+  type ProPlaybackMediaEndpoint,
+} from '../playback-authority-hooks.ts';
 
 type SocketListener = (event: { data?: unknown; reason?: string }) => void;
 
@@ -403,6 +411,64 @@ function answerClockRequest(
   );
 }
 
+function createSnapshotPlaybackController(state: 'playing' | 'paused' = 'playing') {
+  const current = snapshot();
+  const queueItemId = '40000000-0000-4000-8000-000000000001' as QueueItemId;
+  current.playlist = [
+    { queueItemId, name: 'Late join', source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' } },
+  ];
+  current.currentQueueItemId = queueItemId;
+  current.playback = {
+    ...current.playback,
+    revision: 1,
+    state,
+    queueItemId,
+    positionSeconds: 23,
+    updatedAtMs: 10_000,
+    youtubeSubIndex: 0,
+    youtubeVideoId: 'dQw4w9WgXcQ',
+  };
+  setState('room.context', {
+    kind: 'pro',
+    roomId: ROOM_CODE,
+    role: 'member',
+    coordinatorId: null,
+    epoch: current.presence.coordinatorEpoch,
+    snapshotRevision: current.revision,
+    capabilities: [],
+  });
+  const prepare = vi.fn<ProPlaybackMediaEndpoint['prepare']>(async (request) => ({
+    status: 'ready',
+    authority: request.authority,
+    queueItemId: request.queueItemId,
+    mediaKind: 'youtube',
+    durationSeconds: 180,
+    youtubeSubIndex: 0,
+    youtubeVideoId: 'dQw4w9WgXcQ',
+  }));
+  const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) => ({
+    status: 'applied',
+    authority: request.authority,
+  }));
+  const unregister = registerProPlaybackMediaEndpoint({ prepare, commit });
+  const execute = vi.fn();
+  const reportReady = vi.fn();
+  const controller = new ProRoomPlaybackController({
+    isActive: () => true,
+    getCanonicalSnapshot: () => current,
+    getPlaylistSnapshot: () => current,
+    capturePlaylistLease: () => ({ generation: 1, roomCode: ROOM_CODE }),
+    isPlaylistLeaseCurrent: () => true,
+    getRoomAbortSignal: () => undefined,
+    subscribePlaylistProjection: () => () => undefined,
+    runHeartbeat: vi.fn().mockResolvedValue(undefined),
+    reportPlaybackTransitionReady: reportReady,
+    executePlaybackCommand: execute,
+    recoverTerminalSession: vi.fn().mockResolvedValue(undefined),
+  });
+  return { controller, current, prepare, commit, execute, reportReady, unregister };
+}
+
 beforeEach(() => {
   resetState();
   FakeWebSocket.instances = [];
@@ -646,6 +712,206 @@ describe('coordinator-free PRO server channel', () => {
     expect(bridge.connected).toBe(true);
     expect(getState('network.isConnecting')).toBe(false);
     bridge.disconnect();
+  });
+
+  it.each([1_000, 9_000_000])(
+    'waits for a real clock response before restoring a running snapshot at local time %i',
+    async (localTimeMs) => {
+      vi.setSystemTime(localTimeMs);
+      resetProPlaybackAuthorityHooks();
+      const bridge = proRoomServerBridge;
+      const socket = await openBridge(bridge);
+      const { controller, current, commit, execute, reportReady, unregister } =
+        createSnapshotPlaybackController();
+      try {
+        // OPEN only schedules clock probes. A ready local endpoint can beat the
+        // first response, so the snapshot has no trustworthy current server time.
+        const restoring = controller.restorePersistedPlayback(current);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(bridge.clockCalibrated).toBe(false);
+        expect.soft(commit).not.toHaveBeenCalled();
+
+        for (const request of clockRequests(socket)) answerClockRequest(socket, request, 12_000);
+        await vi.advanceTimersByTimeAsync(220);
+        await restoring;
+        expect(commit).toHaveBeenCalledOnce();
+        expect(commit.mock.calls[0]?.[0]).toEqual(
+          expect.objectContaining({
+            committedPlaybackRevision: 1,
+            positionSeconds: expect.closeTo(25, 0),
+            scheduleDelayMs: 0,
+          }),
+        );
+        // Late joining is participant-local; it must not rendezvous the room.
+        expect(execute).not.toHaveBeenCalled();
+        expect(reportReady).not.toHaveBeenCalled();
+      } finally {
+        controller.resetPlaylistRuntime();
+        unregister();
+        bridge.disconnect();
+      }
+    },
+  );
+
+  it('restores an exact paused snapshot immediately while the device clock is behind', async () => {
+    vi.setSystemTime(1_000);
+    resetProPlaybackAuthorityHooks();
+    const bridge = proRoomServerBridge;
+    await openBridge(bridge);
+    const { controller, current, commit, unregister } = createSnapshotPlaybackController('paused');
+    try {
+      await controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bridge.clockCalibrated).toBe(false);
+      expect(commit).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ state: 'paused', positionSeconds: 23, scheduleDelayMs: 0 }),
+      );
+    } finally {
+      controller.resetPlaylistRuntime();
+      unregister();
+      bridge.disconnect();
+    }
+  });
+
+  it('uses an unchanged command response time while the first snapshot clock read is pending', async () => {
+    vi.setSystemTime(9_000_000);
+    resetProPlaybackAuthorityHooks();
+    const bridge = proRoomServerBridge;
+    const socket = await openBridge(bridge);
+    const { controller, current, commit, execute, unregister } = createSnapshotPlaybackController();
+    try {
+      const restoring = controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(100);
+      execute.mockResolvedValue({
+        schemaVersion: 1,
+        roomCode: ROOM_CODE,
+        status: 'unchanged',
+        transition: null,
+        playback: current.playback,
+        serverTimeMs: 12_000,
+      });
+      await controller.enqueueIntent({
+        kind: 'play',
+        roomId: ROOM_CODE,
+        roomEpoch: current.presence.coordinatorEpoch,
+        queueItemId: current.playback.queueItemId,
+        positionSeconds: 23,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bridge.clockCalibrated).toBe(false);
+      expect(commit).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ positionSeconds: 25, scheduleDelayMs: 0 }),
+      );
+      for (const request of clockRequests(socket)) answerClockRequest(socket, request, 12_000);
+      await vi.advanceTimersByTimeAsync(220);
+      await restoring;
+      expect(commit).toHaveBeenCalledOnce();
+    } finally {
+      controller.resetPlaylistRuntime();
+      unregister();
+      bridge.disconnect();
+    }
+  });
+
+  it('keeps a paused snapshot immediate when clock calibration finishes during media preparation', async () => {
+    vi.setSystemTime(9_000_000);
+    resetProPlaybackAuthorityHooks();
+    const bridge = proRoomServerBridge;
+    const socket = await openBridge(bridge);
+    const { controller, current, prepare, commit, unregister } =
+      createSnapshotPlaybackController('paused');
+    let finishPreparation!: () => void;
+    prepare.mockImplementationOnce(
+      (request) =>
+        new Promise((resolve) => {
+          finishPreparation = () =>
+            resolve({
+              status: 'ready',
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              mediaKind: 'youtube',
+              durationSeconds: 180,
+              youtubeSubIndex: 0,
+              youtubeVideoId: 'dQw4w9WgXcQ',
+            });
+        }),
+    );
+    try {
+      await controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(commit).not.toHaveBeenCalled();
+      expect(bridge.clockCalibrated).toBe(false);
+      for (const request of clockRequests(socket)) answerClockRequest(socket, request, 12_000);
+      expect(bridge.clockCalibrated).toBe(true);
+      finishPreparation();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(commit).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ state: 'paused', positionSeconds: 23, scheduleDelayMs: 0 }),
+      );
+    } finally {
+      controller.resetPlaylistRuntime();
+      unregister();
+      bridge.disconnect();
+    }
+  });
+
+  it('lets a newer live COMMIT overtake a snapshot waiting for its first clock response', async () => {
+    vi.setSystemTime(9_000_000);
+    resetProPlaybackAuthorityHooks();
+    const bridge = proRoomServerBridge;
+    const socket = await openBridge(bridge);
+    const { controller, current, commit, unregister } = createSnapshotPlaybackController();
+    try {
+      const restoring = controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(100);
+      controller.acceptCommit({
+        type: 'pro-playback-commit',
+        transitionId: null,
+        serverTimeMs: 12_000,
+        executeAtMs: 12_000,
+        playback: { ...current.playback, revision: 2, positionSeconds: 60, updatedAtMs: 12_000 },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bridge.clockCalibrated).toBe(false);
+      expect(commit).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ committedPlaybackRevision: 2, positionSeconds: 60 }),
+      );
+      for (const request of clockRequests(socket)) answerClockRequest(socket, request, 12_000);
+      await vi.advanceTimersByTimeAsync(220);
+      await restoring;
+      expect(commit).toHaveBeenCalledOnce();
+    } finally {
+      controller.resetPlaylistRuntime();
+      unregister();
+      bridge.disconnect();
+    }
+  });
+
+  it('settles an uncalibrated snapshot wait and restores on a later calibrated heartbeat', async () => {
+    vi.setSystemTime(9_000_000);
+    resetProPlaybackAuthorityHooks();
+    const bridge = proRoomServerBridge;
+    const socket = await openBridge(bridge);
+    const { controller, current, commit, unregister } = createSnapshotPlaybackController();
+    try {
+      const restoring = controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await restoring;
+      expect(commit).not.toHaveBeenCalled();
+      const request = clockRequests(socket).at(-1);
+      expect(request).toBeDefined();
+      answerClockRequest(socket, request!, 12_000);
+      expect(bridge.clockCalibrated).toBe(true);
+      await controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(commit.mock.calls[0]?.[0].positionSeconds).toBeCloseTo(25, 0);
+    } finally {
+      controller.resetPlaylistRuntime();
+      unregister();
+      bridge.disconnect();
+    }
   });
 
   it('calibrates server time from the best round-trip clock sample', async () => {

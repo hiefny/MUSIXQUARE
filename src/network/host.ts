@@ -114,7 +114,9 @@ function lostStatefulStandardControl(previous: ConnectedPeer, projected: Connect
 
 function sendStandardAuthorityProjection(peer: ConnectedPeer, silent = false): void {
   const conn = peer.conn as DataConnection | null;
-  if (!conn?.open || !isStandardRoom()) return;
+  // Before APPLIED, only the ordered join envelope may cross this link.
+  // completeConnection publishes the latest projection after that boundary.
+  if (peer.status !== 'connected' || !conn?.open || !isStandardRoom()) return;
   if (peer.isOp) {
     safeSend(conn, {
       type: MSG.OPERATOR_GRANT,
@@ -174,7 +176,9 @@ function reprojectAllStandardPeerAuthority(): void {
 
 function resyncDemotedStandardPeer(peer: ConnectedPeer): void {
   const conn = peer.conn as DataConnection | null;
-  if (!conn?.open) return;
+  if (peer.status !== 'connected' || !conn?.open) return;
+  // Reconcile optimistic settings that raced the revoke. The ordered link
+  // delivers this after OPERATOR_REVOKE, without emitting toggle toasts.
   bus.emit('effects:resync-peer', conn);
   safeSend(conn, {
     type: MSG.REPEAT_MODE,
@@ -407,6 +411,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   let bootstrapId: string | null = null;
   let bootstrapPhase: 'awaiting-hello' | 'sending' | 'awaiting-applied' | 'settled' | 'failed' =
     isProRoom ? 'settled' : 'awaiting-hello';
+  let publishedQueueRevision: number | null = null;
+  let publishedRepeatMode: number | null = null;
+  let publishedShuffle: boolean | null = null;
   const bootstrapTimerName = `conn-bootstrap-timeout-${peerId}-${++_hostJoinBootstrapToken}`;
   let detectedConnectionType: 'local' | 'remote' | null = null;
   let connectionTypePublished = false;
@@ -708,6 +715,62 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
   };
 
+  const publishQueueAuthority = (refresh: boolean): boolean => {
+    let acknowledgements = 0;
+    let sent = false;
+    let bootstrapFrameIndex = 0;
+    let invalidFrame = false;
+    bus.emit(
+      'network:peer-bootstrap',
+      conn,
+      (frame) => {
+        if (!isJoinBootstrapPayloadFrame(frame, bootstrapFrameIndex)) {
+          invalidFrame = true;
+          return false;
+        }
+        const payload = frame as Record<string, unknown>;
+        const alreadyPublished =
+          refresh &&
+          (bootstrapFrameIndex === 0
+            ? payload.revision === publishedQueueRevision
+            : bootstrapFrameIndex === 1
+              ? payload.value === publishedRepeatMode
+              : payload.value === publishedShuffle);
+        const outgoing = { ...payload };
+        if (refresh && bootstrapFrameIndex === 0) {
+          // The guest already applied this connection's one-shot baseline.
+          // Catch up only a newer queue revision through its ordinary gate.
+          delete outgoing.bootstrap;
+          outgoing.refresh = true;
+        }
+        const didSend =
+          getState('network.activeHostConnByPeerId').get(peerId) === conn &&
+          conn.open &&
+          (alreadyPublished || safeSend(conn, outgoing as Parameters<typeof safeSend>[1]));
+        if (didSend) {
+          if (bootstrapFrameIndex === 0) publishedQueueRevision = payload.revision as number;
+          else if (bootstrapFrameIndex === 1) publishedRepeatMode = payload.value as number;
+          else publishedShuffle = payload.value as boolean;
+          bootstrapFrameIndex += 1;
+        }
+        return didSend;
+      },
+      (success) => {
+        acknowledgements += 1;
+        sent = success;
+      },
+    );
+
+    return (
+      acknowledgements === 1 &&
+      sent &&
+      !invalidFrame &&
+      bootstrapFrameIndex === 3 &&
+      conn.open &&
+      getState('network.activeHostConnByPeerId').get(peerId) === conn
+    );
+  };
+
   const sendJoinBootstrap = (
     hello: NonNullable<ReturnType<typeof snapshotJoinBootstrapHello>>,
   ): void => {
@@ -723,39 +786,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     bootstrapPhase = 'sending';
     bootstrapId = hello.bootstrapId;
-    let acknowledgements = 0;
-    let sent = false;
-    let bootstrapFrameIndex = 0;
-    let invalidFrame = false;
-    bus.emit(
-      'network:peer-bootstrap',
-      conn,
-      (frame) => {
-        if (!isJoinBootstrapPayloadFrame(frame, bootstrapFrameIndex)) {
-          invalidFrame = true;
-          return false;
-        }
-        const didSend =
-          getState('network.activeHostConnByPeerId').get(peerId) === conn &&
-          conn.open &&
-          safeSend(conn, frame as Parameters<typeof safeSend>[1]);
-        if (didSend) bootstrapFrameIndex += 1;
-        return didSend;
-      },
-      (success) => {
-        acknowledgements += 1;
-        sent = success;
-      },
-    );
-
-    if (
-      acknowledgements !== 1 ||
-      !sent ||
-      invalidFrame ||
-      bootstrapFrameIndex !== 3 ||
-      !conn.open ||
-      getState('network.activeHostConnByPeerId').get(peerId) !== conn
-    ) {
+    if (!publishQueueAuthority(false)) {
       failJoinBootstrap('queue authority send was not acknowledged');
       return;
     }
@@ -777,6 +808,17 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       applied.bootstrapId === bootstrapId &&
       getState('network.activeHostConnByPeerId').get(peerId) === conn
     ) {
+      // Broadcasts exclude this connecting peer while APPLIED crosses the
+      // network. Publish any changes before playback/file bootstrap observes
+      // the latest host state, without restarting already-connected guests.
+      const queueChanged =
+        publishedQueueRevision !== getState('playlist.revision') ||
+        publishedRepeatMode !== getState('playlist.repeatMode') ||
+        publishedShuffle !== getState('playlist.isShuffle');
+      if (queueChanged && !publishQueueAuthority(true)) {
+        failJoinBootstrap('queue catch-up send was not acknowledged');
+        return;
+      }
       bootstrapPhase = 'settled';
       clearManagedTimer(bootstrapTimerName);
       completeConnection();
@@ -1112,29 +1154,6 @@ bus.on('network:toggle-operator', (peerId) => {
     const wasGranted = getStandardRoomAdministratorByKey(key) !== null || target.isOp;
     if (wasGranted) revokeStandardRoomAuthority(key);
     else grantStandardRoomAuthority(key, { ...STANDARD_ROOM_FULL_PERMISSIONS });
-    // Revoke: re-baseline the demoted guest's effect state. Their optimistic
-    // local applies (slider preview / apply-before-request) may have raced the
-    // revoke and were silently dropped by verifyOperator with no NACK — the
-    // snapshot resend converges them back to room state. Ordered channel
-    // guarantees it lands after OPERATOR_REVOKE. (Bus event, not a direct
-    // import: effects.ts → peer.ts → host.ts would cycle.)
-    if (wasGranted) {
-      bus.emit('effects:resync-peer', conn);
-      // Same race class for the playlist toggles: an optimistic repeat/shuffle
-      // REQUEST_SETTING dies silently in verifyOperator after the revoke, and
-      // the effects snapshot doesn't cover these. _bootstrap marks them as a
-      // re-baseline, not a change — the handlers skip the toggle toast.
-      safeSend(conn, {
-        type: MSG.REPEAT_MODE,
-        value: getState('playlist.repeatMode') || 0,
-        _bootstrap: true,
-      });
-      safeSend(conn, {
-        type: MSG.SHUFFLE_MODE,
-        value: !!getState('playlist.isShuffle'),
-        _bootstrap: true,
-      });
-    }
     showToast(
       t('toast.op_status', {
         label: target.label,

@@ -889,9 +889,9 @@ export async function playTrack(
   // A persistent PRO object may still be arriving when its selection is
   // requested. Adopt that exact background promise before clearPreloadState()
   // gets a chance to cancel it; the recursive entry then uses either the completed
-  // preload fast path or the already-published foreground File.
+  // preload fast path or the already-published foreground File. Server PREPARE
+  // also adopts the download, while its options keep playback paused until COMMIT.
   if (
-    !appliesServerAuthority &&
     !hostConn &&
     isProRoomPersistentPlaylistFile(queueItemId) &&
     queueItemId === nextQueueItemId &&

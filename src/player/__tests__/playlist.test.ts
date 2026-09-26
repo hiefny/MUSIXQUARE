@@ -45,7 +45,6 @@ import {
   setCurrentAudioBuffer,
 } from '../_state.ts';
 import { initDecodeHandlers } from '../decode.ts';
-import type { FilePlaybackResource } from '../file-playback-resource.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -1255,7 +1254,7 @@ describe('PRO playlist mutation bridge', () => {
     expect(admitted).toHaveBeenCalledOnce();
   });
 
-  it('adopts an in-flight PRO preload resolver during server PREPARE without a second download', async () => {
+  it('prepares an adopted PRO preload through the server-authoritative foreground path', async () => {
     const currentFile = new File(['current'], 'current.flac', { type: 'audio/flac' });
     const current = fileItem(currentFile.name, currentFile);
     const next = fileItem('next.flac');
@@ -1289,11 +1288,7 @@ describe('PRO playlist mutation bridge', () => {
     const inFlight = new Promise<File>((resolve) => {
       finish = resolve;
     });
-    let residentAtResolution: ResidentFile | null | undefined;
-    let bufferAtResolution: FilePlaybackResource | null | undefined;
     const resolveFile = vi.fn(() => {
-      residentAtResolution = getState('files.current');
-      bufferAtResolution = getCurrentAudioBuffer();
       return inFlight.then((file) => {
         setState('playlist.items', [current, { ...next, file }]);
         return file;
@@ -1320,6 +1315,12 @@ describe('PRO playlist mutation bridge', () => {
       positionSeconds: 0,
     });
     await vi.waitFor(() => expect(resolveFile).toHaveBeenCalledOnce());
+    // The outgoing media is already stopped. Keep its PCM and encoded bytes
+    // released throughout the pending receive, before decoding the selected file.
+    expect(getState('files.current')).toBeNull();
+    expect(getCurrentAudioBuffer()).toBeNull();
+    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+    expect(getState('playback.activity')).toBe('pending');
     finish(downloaded);
     // The mocked decoder deliberately reports no AudioBuffer, so preparation
     // fails after the download seam. The assertion below is about adopting the
@@ -1330,10 +1331,6 @@ describe('PRO playlist mutation bridge', () => {
     });
 
     expect(resolveFile).toHaveBeenCalledOnce();
-    // Server PREPARE is silent: the currently audible resident remains owned
-    // until a canonical COMMIT replaces it.
-    expect(residentAtResolution).toMatchObject({ queueItemId: current.queueItemId });
-    expect(bufferAtResolution).toBe(currentBuffer);
     // Server PREPARE owns the foreground decode lane, but it adopts the same
     // runtime resolver/promise rather than issuing another R2 request.
     expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();

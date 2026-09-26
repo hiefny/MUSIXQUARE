@@ -1549,7 +1549,7 @@ async function _internalPlay(
   const ctx = getAudioContext();
 
   // 1. Get the current output sync offset (manual nudge + hidden platform compensation)
-  const localOffset = getEffectiveLocalFileOutputOffset();
+  let localOffset = getEffectiveLocalFileOutputOffset();
 
   // 2. Sanitize offset
   let safeOffset = Number(offset);
@@ -1572,31 +1572,37 @@ async function _internalPlay(
       : undefined;
   if (isLargeAudioTrack(_currentAudioBuffer)) {
     const previousOutput = getPlayerNode();
-    const preparationOffset =
-      safeOffset +
-      localOffset +
-      (outputDeadlineMs === undefined
-        ? 0
-        : Math.max(0, performance.now() - outputDeadlineMs) / 1000);
-    markPlayLockPhase(expectedPlayInvocation, 'prepare-segment');
-    const prepared = await prepareLargeFileStart(
-      _currentAudioBuffer,
-      Math.max(0, Math.min(duration - 0.001, preparationOffset)),
-      expectedPlayInvocation,
-      () =>
-        recoveryIntentIsCurrent() &&
-        isCurrentPlayInvocation(expectedPlayInvocation) &&
-        recoveryOutputIsCurrent() &&
-        getCurrentAudioBuffer() === _currentAudioBuffer,
-      () =>
-        recoveryOptions?.outputOnly === true &&
-        getPlayerNode() === previousOutput &&
-        isFilePlaybackPlaying() &&
-        recoveryOutputIsCurrent() &&
-        isFileSourceNodeUsable(previousOutput, _currentAudioBuffer),
-      rejectTerminalFileDecoder,
-    );
-    if (!prepared) return false;
+    do {
+      // An offset edit while paused is stored without queuing a replay. It can
+      // still arrive during this resume's decoder await; prime its latest
+      // audible position before committing the source and logical anchor.
+      localOffset = getEffectiveLocalFileOutputOffset();
+      const preparationOffset =
+        safeOffset +
+        localOffset +
+        (outputDeadlineMs === undefined
+          ? 0
+          : Math.max(0, performance.now() - outputDeadlineMs) / 1000);
+      markPlayLockPhase(expectedPlayInvocation, 'prepare-segment');
+      const prepared = await prepareLargeFileStart(
+        _currentAudioBuffer,
+        Math.max(0, Math.min(duration - 0.001, preparationOffset)),
+        expectedPlayInvocation,
+        () =>
+          recoveryIntentIsCurrent() &&
+          isCurrentPlayInvocation(expectedPlayInvocation) &&
+          recoveryOutputIsCurrent() &&
+          getCurrentAudioBuffer() === _currentAudioBuffer,
+        () =>
+          recoveryOptions?.outputOnly === true &&
+          getPlayerNode() === previousOutput &&
+          isFilePlaybackPlaying() &&
+          recoveryOutputIsCurrent() &&
+          isFileSourceNodeUsable(previousOutput, _currentAudioBuffer),
+        rejectTerminalFileDecoder,
+      );
+      if (!prepared) return false;
+    } while (localOffset !== getEffectiveLocalFileOutputOffset());
   }
 
   // Authority commits carry an absolute participant-local deadline. Audio

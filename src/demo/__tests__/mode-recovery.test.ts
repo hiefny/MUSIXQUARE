@@ -1245,7 +1245,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     },
   );
 
-  it('keeps the newest host effect flags when they arrive during an in-flight guest load', async () => {
+  it('keeps the newest applied host effects during an in-flight guest load', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     setState('network.hostConn', hostConn);
     setState('network.appRole', 'guest');
@@ -1254,6 +1254,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     await handleData({ type: MSG.DEMO_ENTER, index: 0, ...flags }, hostConn);
     await flush();
     expect(getState('demo.loading')).toBe(true);
+    setState('audio.reverbMix', 0.4);
     await handleData({ type: MSG.DEMO_ENTER, index: 0, ...flags, reverbOn: true }, hostConn);
     FakeXHR.pending[0].resolveOk();
     await flush(50);
@@ -1262,6 +1263,128 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     bus.emit('demo:authority-reset');
     await flush(300);
   });
+
+  it.each([false, true])(
+    'projects applied effects instead of divergent host demo flags (guest settings sync: %s)',
+    async (settingsSyncEnabled) => {
+      const effects =
+        await vi.importActual<typeof import('../../audio/effects.ts')>('../../audio/effects.ts');
+      effects.resetSettingsSyncAuthorityForTests();
+      effects.initEffectsHandlers();
+      const hostConn = { open: true, peer: 'host-1', send: vi.fn() } as unknown as DataConnection;
+      setState('network.hostConn', hostConn);
+      setState('network.appRole', 'guest');
+      setState('setup.sessionStarted', true);
+      markQueueAuthorityReady(hostConn);
+      effects.setSettingsSyncEnabled(settingsSyncEnabled);
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        ['reverb', 'bass', 'treble', 'surround']
+          .map((effect) => `<button data-demo-effect="${effect}"></button>`)
+          .join(''),
+      );
+      const expectEffectControls = (enabled: boolean) => {
+        expect(getState('demo.reverbOn')).toBe(enabled);
+        expect(getState('demo.bassBoostOn')).toBe(enabled);
+        expect(getState('demo.trebleBoostOn')).toBe(enabled);
+        expect(getState('demo.surroundOn')).toBe(enabled);
+        for (const button of document.querySelectorAll('[data-demo-effect]')) {
+          expect(button.getAttribute('aria-pressed')).toBe(String(enabled));
+          expect(button.classList.contains('active')).toBe(enabled);
+        }
+      };
+      // An OFF guest retains its own flat effects. An ON guest follows the
+      // retained flat authority while an OFF host experiments with its audio.
+      const settings = effects.captureRoomSettingsSyncState();
+      const canonicalSettings = settingsSyncEnabled
+        ? settings
+        : {
+            ...settings,
+            effects: {
+              ...settings.effects,
+              reverb: { ...settings.effects.reverb, mixPercent: 40 },
+              virtualBass: { strengthPercent: 60 },
+              virtualTreble: { enabled: true },
+              virtualSurround: { widthPercent: 120 },
+            },
+          };
+      await handleData(
+        {
+          type: MSG.SETTINGS_SYNC_SNAPSHOT,
+          version: 1,
+          epoch: 0,
+          sequence: 1,
+          settings: canonicalSettings,
+        },
+        hostConn,
+      );
+      const hostFlags = {
+        reverbOn: true,
+        bassBoostOn: true,
+        trebleBoostOn: true,
+        surroundOn: true,
+      };
+      await handleData({ type: MSG.DEMO_ENTER, index: 0, ...hostFlags }, hostConn);
+      await flush();
+      expectEffectControls(false);
+      FakeXHR.pending[0]!.resolveOk();
+      await flush(50);
+      // The same-track flags-only path is also used after host effect edits.
+      await handleData({ type: MSG.DEMO_ENTER, index: 0, ...hostFlags }, hostConn);
+      await flush(50);
+
+      expect(effects.captureRoomSettingsSyncState()).toEqual(settings);
+      expect(getState('audio.settingsSyncEnabled')).toBe(settingsSyncEnabled);
+      expectEffectControls(false);
+
+      // A settings snapshot arriving after DEMO_ENTER still owns the audio
+      // and its controls. An OFF follower applies it only after opting in.
+      const enabledSettings = {
+        ...settings,
+        effects: {
+          ...settings.effects,
+          reverb: { ...settings.effects.reverb, mixPercent: 40 },
+          virtualBass: { strengthPercent: 60 },
+          virtualTreble: { enabled: true },
+          virtualSurround: { widthPercent: 120 },
+        },
+      };
+      const latestSnapshot = {
+        type: MSG.SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        epoch: 0,
+        sequence: 2,
+        settings: enabledSettings,
+      };
+      await handleData(latestSnapshot, hostConn);
+      await flush(50);
+      expectEffectControls(settingsSyncEnabled);
+      if (!settingsSyncEnabled) {
+        effects.setSettingsSyncEnabled(true);
+        await handleData(latestSnapshot, hostConn);
+        await flush(50);
+      }
+      expectEffectControls(true);
+      effects.setSettingsSyncEnabled(false);
+      await handleData(
+        {
+          type: MSG.DEMO_ENTER,
+          index: 0,
+          reverbOn: false,
+          bassBoostOn: false,
+          trebleBoostOn: false,
+          surroundOn: false,
+        },
+        hostConn,
+      );
+      await flush(50);
+      expectEffectControls(true);
+      await handleData({ type: MSG.DEMO_EXIT }, hostConn);
+      await handleData({ type: MSG.DEMO_ENTER, index: 0, ...hostFlags }, hostConn);
+      await flush();
+      expectEffectControls(true);
+    },
+  );
 
   it('re-dispatches a host track advance that arrived during an in-flight guest load (DEMO-1)', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;

@@ -20,7 +20,11 @@ import type { DataConnection } from '../../types/index.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import { withAudioDecoderStartup } from '../large-audio/startup-error.ts';
 import { BoundedPlayback, type PcmChunk } from '../large-audio/bounded-playback.ts';
-import { setPlaybackFilePlaying, setPlaybackLifecycleState } from '../ownership.ts';
+import {
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
+  setPlaybackLifecycleState,
+} from '../ownership.ts';
 
 const mocks = vi.hoisted(() => ({
   currentTime: 100,
@@ -195,6 +199,81 @@ afterEach(() => {
 });
 
 describe('bounded file transport preparation', () => {
+  it.each([
+    { position: 0.2, adjustment: -0.5, audiblePosition: 0 },
+    { position: 3_599.8, adjustment: 0.5, audiblePosition: 3_599.999 },
+  ])(
+    'applies an offset edited during paused preparation at $position without moving the timeline',
+    async ({ position, adjustment, audiblePosition }) => {
+      const { track, pending, outputs } = controlledTrack();
+      setCurrentAudioBuffer(track);
+      setPlaybackFilePaused();
+      setState('player.pausedAt', position);
+      const start = hostSeek(position);
+      await advance();
+      expect(pending[0]!.position).toBeCloseTo(position);
+
+      adjustSync(adjustment);
+      pending[0]!.resolve();
+      await advance();
+
+      expect(outputs).toHaveLength(0);
+      expect(pending).toHaveLength(2);
+      expect(pending[1]!.position).toBeCloseTo(audiblePosition);
+      pending[1]!.resolve();
+      await expect(start).resolves.toBe(true);
+      expect(outputs).toHaveLength(1);
+      expect(outputs[0]!.offset).toBeCloseTo(audiblePosition);
+      expect(getState('player.startedAt')).toBeCloseTo(mocks.currentTime - position + adjustment);
+      expect(getTrackPosition()).toBeCloseTo(position);
+    },
+  );
+
+  it('retains the authoritative deadline while preparing the latest paused offset', async () => {
+    setState('room.context', { ...getState('room.context'), kind: 'pro', role: 'member' });
+    const { track, pending, outputs } = controlledTrack();
+    setCurrentAudioBuffer(track);
+    setPlaybackFilePaused();
+    const start = play(40, 0.2, performance.now() + 200);
+    await advance(150);
+    adjustSync(0.2);
+    adjustSync(0.3);
+    pending[0]!.resolve();
+    await advance();
+    expect(pending).toHaveLength(2);
+    expect(pending[1]!.position).toBeCloseTo(40.5);
+    await advance(500);
+    pending[1]!.resolve();
+
+    await expect(start).resolves.toBe(true);
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]!.offset).toBeCloseTo(40.95);
+    expect(outputs[0]!.when).toBeCloseTo(mocks.currentTime);
+    expect(getTrackPosition()).toBeCloseTo(40.45);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('cancels the latest offset preparation when pause supersedes a pending resume', async () => {
+    const { track, pending, outputs } = controlledTrack();
+    setCurrentAudioBuffer(track);
+    setPlaybackFilePaused();
+    setState('player.pausedAt', 100);
+    const start = hostSeek(100);
+    await advance();
+    adjustSync(0.5);
+    pending[0]!.resolve();
+    await advance();
+    expect(pending).toHaveLength(2);
+
+    pause(100, { showToast: false });
+    pending[1]!.resolve();
+    await expect(start).resolves.toBe(false);
+    expect(pending[1]!.signal?.aborted).toBe(true);
+    expect(outputs).toHaveLength(0);
+    expect(getTrackPosition()).toBe(100);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
   it.each([
     { role: 'host', phase: 'initial' },
     { role: 'host', phase: 'later' },

@@ -1736,10 +1736,10 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
 
   const applyEffectFlags = (): void => {
     if (!getState('demo.active')) return;
-    setState('demo.reverbOn', !!data.reverbOn);
-    setState('demo.bassBoostOn', !!data.bassBoostOn);
-    setState('demo.trebleBoostOn', !!data.trebleBoostOn);
-    setState('demo.surroundOn', !!data.surroundOn);
+    // Either device can opt out of settings sync. The host's demo flags can
+    // then differ from this device's applied audio, including when an ON
+    // follower retains canonical settings while an OFF host experiments.
+    applyDemoEffectState(readDemoEffectStateFromAudio(!!getState('demo.trebleBoostOn')));
     syncEffectButtons();
   };
 
@@ -1758,8 +1758,8 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
 
   const entry = enterDemoMode({ index, autoplay: false, broadcastEntry: false });
   // Entry publishes demo.active synchronously before fetching media. Apply
-  // host flags at this message boundary, including while a track is loading,
-  // so an older fetch completion cannot overwrite a newer effect update.
+  // applied effects at this message boundary, including while a track is
+  // loading, so an older fetch completion cannot overwrite a newer update.
   applyEffectFlags();
   void entry.catch((error: unknown) => log.warn('[Demo] Guest demo enter failed:', error));
 }

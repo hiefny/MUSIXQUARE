@@ -198,6 +198,7 @@ function createInitialState(): ProRoomPlaybackControllerState {
 }
 
 interface ProRoomPlaybackImplementation {
+  resolveProjectedQueueItemId(snapshot: ProRoomSnapshot): QueueItemId | null;
   acceptPrepare(event: ProRoomPlaybackPrepareEvent, receivedAtMs?: number): void;
   acceptCancel(transitionId: string): void;
   acceptCommit(event: ProRoomPlaybackCommitEvent, isRequestCurrent?: PlaybackCommitOwner): void;
@@ -1541,13 +1542,23 @@ function createImplementation(
     if (!isRequestCurrent() || hasNewerServerPlaybackTransition(playback.revision)) {
       return;
     }
+    const target = transition?.event.target;
+    // A direct commit can replace PREPARE at its reserved next revision. Reuse
+    // preparation only for the same checkpoint; commit time itself may change.
+    const preparedTransition =
+      target?.coordinatorEpoch === playback.coordinatorEpoch &&
+      target.revision === playback.revision &&
+      target.queueItemId === playback.queueItemId &&
+      target.state === playback.state &&
+      target.positionSeconds === playback.positionSeconds &&
+      target.youtubeVideoId === playback.youtubeVideoId &&
+      target.youtubeSubIndex === playback.youtubeSubIndex
+        ? transition
+        : null;
     acceptPlaybackCommit(
       {
         type: 'pro-playback-commit',
-        transitionId:
-          transition?.event.target.revision === playback.revision
-            ? transition.event.transitionId
-            : `snapshot_${playback.revision}`,
+        transitionId: preparedTransition?.event.transitionId ?? `snapshot_${playback.revision}`,
         serverTimeMs: playback.state === 'playing' ? observedServerTimeMs : 0,
         // Paused/idle snapshots restore immediately, including when the clock
         // becomes calibrated while local media preparation is still pending.
@@ -2152,7 +2163,43 @@ function createImplementation(
     }
   }
 
+  function resolveProjectedQueueItemId(snapshot: ProRoomSnapshot): QueueItemId | null {
+    const transition = state.activeTransition;
+    const context = getState('room.context');
+    const target = transition?.event.target.queueItemId;
+    if (
+      !transition ||
+      !target ||
+      !ports.isActive() ||
+      transition.clockAbort.signal.aborted ||
+      context.kind !== 'pro' ||
+      context.roomId !== snapshot.roomCode ||
+      transition.authority.roomId !== snapshot.roomCode ||
+      transition.authority.roomEpoch !== context.epoch ||
+      snapshot.playback.coordinatorEpoch !== context.epoch ||
+      snapshot.playback.revision !== transition.event.basePlaybackRevision ||
+      getState('playlist.currentQueueItemId') !== target
+    ) {
+      return snapshot.currentQueueItemId;
+    }
+
+    // A queue-only mutation still describes the committed selection, while
+    // the local endpoint may already be preparing the server's next target.
+    // Retain only that exact live target with an unchanged canonical source;
+    // deletion, source replacement, and newer playback remain authoritative.
+    const previous = ports
+      .getPlaylistSnapshot()
+      ?.playlist.find((item) => item.queueItemId === target);
+    const incoming = snapshot.playlist.find((item) => item.queueItemId === target);
+    return previous &&
+      incoming &&
+      JSON.stringify(previous.source) === JSON.stringify(incoming.source)
+      ? target
+      : snapshot.currentQueueItemId;
+  }
+
   return {
+    resolveProjectedQueueItemId,
     acceptPrepare: acceptPlaybackPrepare,
     acceptCancel: acceptPlaybackCancel,
     acceptCommit: acceptPlaybackCommit,
@@ -2175,6 +2222,10 @@ export class ProRoomPlaybackController {
 
   constructor(ports: ProRoomPlaybackControllerPorts) {
     this.implementation = createImplementation(ports, this.state);
+  }
+
+  resolveProjectedQueueItemId(snapshot: ProRoomSnapshot): QueueItemId | null {
+    return this.implementation.resolveProjectedQueueItemId(snapshot);
   }
 
   acceptPrepare(event: ProRoomPlaybackPrepareEvent, receivedAtMs?: number): void {

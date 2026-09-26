@@ -719,10 +719,13 @@ async function applyProjectedPlaylist(
       ? []
       : findRemovedProRoomQueueItemIds(previousItems, playlist);
     const survivingQueueItemIds = new Set(playlist.map((item) => item.queueItemId));
+    const projectedCurrent = firstProjection
+      ? snapshot.currentQueueItemId
+      : playbackController.resolveProjectedQueueItemId(snapshot);
     const authoritativeDeselection = shouldStopForAuthoritativeDeselection(
       firstProjection,
       previousCurrent,
-      snapshot.currentQueueItemId,
+      projectedCurrent,
       survivingQueueItemIds,
     );
     const removalTransition = firstProjection
@@ -733,7 +736,7 @@ async function applyProjectedPlaylist(
       // The room revision, unlike playlistRevision, also advances when the
       // selected item changes. It is therefore the safe legacy queue clock.
       revision: snapshot.revision,
-      currentQueueItemId: snapshot.currentQueueItemId,
+      currentQueueItemId: projectedCurrent,
     };
     const outcome = applyPlaylistSnapshot(payload, firstProjection ? 'rebase' : 'monotonic');
     if (outcome === 'invalid' || outcome === 'stale' || outcome === 'conflict') {

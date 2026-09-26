@@ -2095,6 +2095,11 @@ function appendStandardHostFiles(
     return false;
   }
 
+  if (!canAppendPlaylistItems(files.length)) {
+    showToast(t('playlist.queue_full'));
+    return false;
+  }
+
   const playlist = [...(getState('playlist.items') || [])];
   const addedQueueItemIds: QueueItemId[] = [];
   for (const file of files) {
@@ -2250,6 +2255,15 @@ function findShuffleRemovalSuccessor(
   return null;
 }
 
+function isCurrentRemovalBlockedByManualOffset(queueItemIds: readonly QueueItemId[]): boolean {
+  const currentQueueItemId = getCurrentQueueItemId();
+  return (
+    currentQueueItemId !== null &&
+    queueItemIds.includes(currentQueueItemId) &&
+    isStandardHostManualOffsetTransactionPending()
+  );
+}
+
 function handleRequestPlaylistRemove(
   data: {
     requestId: string;
@@ -2282,6 +2296,14 @@ function handleRequestPlaylistRemove(
   if (liveQueueItemIds.length === 0) {
     safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
     settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
+    return;
+  }
+  if (isCurrentRemovalBlockedByManualOffset(liveQueueItemIds)) {
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    settleStandardQueueMutationRequest(conn, data.requestId, {
+      outcome: 'rejected',
+      code: 'conflict',
+    });
     return;
   }
   try {
@@ -2385,13 +2407,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   if (requestedIds.size === 0) return;
 
   const currentQueueItemId = getCurrentQueueItemId();
-  if (
-    currentQueueItemId &&
-    requestedIds.has(currentQueueItemId) &&
-    isStandardHostManualOffsetTransactionPending()
-  ) {
-    return;
-  }
+  if (isCurrentRemovalBlockedByManualOffset(queueItemIds)) return;
 
   const removedQueueItemIds = new Set<QueueItemId>();
   for (const item of previousItems) {

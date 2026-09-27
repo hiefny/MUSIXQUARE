@@ -22,6 +22,7 @@
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
 | 후속 수동 싱크 수정                | S01 참가자별 시작 지연·S02 반복 직후 입력 대기를 `c3eae88c`에 반영. 이번 XS01·XS03 수정에서 긴 대기의 소유권·취소 경계 보완. 실기 첫 음 정렬은 별도 확인 대상. [기본 수정](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27) |
 | 극단값 수동 싱크 수정              | XS01 시작 예약/일반 상태·새 명령 우선권, XS02 로컬 파일 실제 출력 지연, XS03 PRO 기기 자체 일시정지 유지, XS04 늦은 타이머 위치 보정. [수정·검증 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
+| 후속 전체 QA / 현재 미해결          | 동일 제품 소스의 checkout `dd55d3bc` 검사. FQA01: 일반방 YouTube 외부 시작 복구 중 Sync 버튼의 별도 랑데부와 경합. 브라우저 두 번에서 추가 563–569ms 오차 확인, 미수정. 별도로 E2E 대기 조건 1건·coverage 선택 누락 2건. [전체 QA](design/beta-full-qa-2026-09-27.md) |
 | 후속 UI 수정                       | YouTube 상태 문구를 입력창 바로 뒤로 이동. 스켈레톤은 surface-3·불투명도 25–50%·1.6초 반복. 베타 반영 완료 |
 | 제품 버전 / PWA 캐시                | `8.6.61` / `v630`, main과 동일. 공개 승격용 증분은 아직 하지 않음            |
 | 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
@@ -35,6 +36,9 @@ SHA의 CI 후보, 실기 확인과 운영 상태 확인이 남아 있다. 현재
 3차 D01과 수동 싱크 S01–S02의 기본 수정·회귀 검증 이후, 극단값 감사에서
 XS01–XS04를 추가 확정한 뒤 이번 수정에 반영했다. 아래 실기·승격 확인은
 별도로 남아 있으며, 베타 테스트 통과가 프로덕션 배포 준비 완료를 뜻하지 않는다.
+후속 전체 QA에서는 FQA01을 추가 확정했다. 기존 XS01–XS04의 수정 기록은
+유지하며, 외부 복구 중 수동 Sync 진입 경계와 아래 검사 코드·설정 세 건은
+현재 미해결이다. 이번 QA에서는 제품·테스트·설정을 수정하지 않았다.
 
 ## 2. 이번 베타에서 함께 반영할 범위
 
@@ -87,6 +91,18 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
+**최신 전체 QA:** 제품 소스 `c242bfd1`, checkout `dd55d3bc`에서 Windows
+Node 24.20.0으로 전체 단위 **10,249 pass / 0 fail / 기존 1 skip**를 확인했다.
+동일 전체 suite의 broad coverage도 통과했다. Chromium 전체는
+**550 pass / 1 fail / 0 skip**, WebKit 모바일 lane은
+**60 pass / 0 fail / 기존 3 skip**다. Chromium 실패는 아래 QA-T01의 대기
+조건 문제로 분류했으며, 새 FQA01은 별도 모듈·브라우저 탐사에서 재현했다.
+Critical·Worker coverage 원본 gate는 기존 회귀 파일 선택 누락으로 실패한다.
+빠진 파일만 추가한 임시 진단 설정에서는 원래 threshold를 통과했지만,
+추적 설정은 아직 바꾸지 않았다. 전체 결과·빌드·제한·재현 근거는
+[최신 QA 기록](design/beta-full-qa-2026-09-27.md)을 따른다. 아래 과거 검증
+숫자는 해당 시점의 기록이며 최신 QA와 합산하지 않는다.
+
 아래 이전 전체 검증 대상 코드: `2347760c5e5b902327a05ca216c8b72409ee72d3`. 동일 제품 소스의
 작업 트리를 검증한 뒤 커밋했다. 이번 상세 근거는
 [4차 발굴·D01 수정 기록](design/beta-defect-harvest-2026-09-27-round-4.md)에 있다.
@@ -125,6 +141,9 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] XS02 — 시작 위치가 0 미만인 만큼 실제 출력만 대기. 기본·대용량 엔진과 방장/게스트/PRO/데모 공통 경로 검증, 공유 시작·논리 시각 유지. 새 모듈 96개와 실제 PCM Chromium 회귀 통과.
 - [x] XS03 — 실제 Media Session PAUSE가 PRO 예약·직접 시작을 취소. 해당 이전 commit만 처리 완료로 소비하여 PRO 제어기가 실패 복구로 다시 재생하지 않음. 명시적 재개·새 명령·종료 후 재진입 회귀 통과.
 - [x] XS04 — 예정 호출 시각보다 늦은 만큼 시작 위치 보정. ±9999ms·0ms, 1.5초 지연·60초 후 위치, 다음 시작 학습값 유지·플랫폼 lead·길이 제한 회귀 통과.
+- [ ] FQA01 — 일반방 YouTube 외부 시작 복구까지 포함한 완전한 소유권 계약을 UI·수동 싱크·랑데부 진입에 적용하고 회귀 검증. 느린 준비로 cohort에서 제외된 게스트가 대기 중 Sync를 눌렀을 때 두 예약이 경합하며, `-9999ms`에서 추가 약 0.56초 오차가 남는 브라우저 재현 두 번 확인. 제품 미수정.
+- [ ] QA-T01 — 곡 삭제·중도 입장 E2E에서 `>=2` 대기 대신 정확한 생존 queue ID/최신 revision 수렴을 기다리도록 해당 테스트 수정. 기존 3회 실패, 추가 조작 없는 실제 수렴 진단 3회 통과. 공통 최소 개수 helper의 의미는 유지.
+- [ ] QA-T02 / QA-T03 — critical profile에 기존 `device-failure-sequence-qa.test.ts`, Worker profile에 기존 `account-cookie-ordering.test.ts` 선택을 반영하고 원래 coverage gate 재검사. 임시 설정에서 각각 함수 coverage 85→90.71%, 90.97→93.98% 회복 확인. threshold 완화 없음, 추적 설정 미수정.
 - [ ] 최종 변경에 맞는 Chromium 및 지원되는 WebKit E2E. Windows WebKit의 Web Audio/WebRTC 미지원으로 건너뛴 항목은 Safari 실기 통과로 계산하지 않음.
 - [ ] 기존 로그인 유지, 탭 간 새 로그인과 늦은 로그아웃/탈퇴 응답, 익명/인증된 방 입장·계정 관련 API.
 - [ ] 일반방·PRO방과 API의 리버브 10초 경계, 데모 종료 후 설정 표시 및 실제 효과 일치.
@@ -454,6 +473,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-09-27 | S01–S02 수정 `c3eae88c` | 일반방/PRO 음수 보정의 참가자별 시작 지연, 일반방 반복 직후 입력 snapshot 대기. App만 추가 변경; 새 서버·DB·UI 계약 없음 | 전체 493파일/10,118 pass/기존 1 skip, 수정 완료 후 YouTube 937 pass, UI Chromium 6+1 pass, App/테스트/E2E 타입·린트·빌드 통과. 검사 시점과 실기 한계는 위 수정 항목 참조. 베타만 반영 |
 | 2026-09-27 | 극단값 동기화 감사: checkout `fe3fdb10`, 제품 `c3eae88c` | XS01–XS04 확정·미수정. 제품·계약 변경 없이 현재 미해결 목록과 발견 근거만 갱신 | 새 모듈 863개/823 pass/40 fail/0 skip, 같은 4원인 재현. YouTube UI 6 pass/2 fail, native PCM 4관측 및 소스 전환 1 pass. PRO 모사·실기 제한은 [감사 기록](design/extreme-manual-sync-audit-2026-09-27.md) 참조 |
 | 2026-09-27 | XS01–XS04 수정 `c242bfd17f652f1480a6e79731d5130b5b6f6c19` | App 클라이언트 소유권·실제 출력·시작 시각 보정, 늦은 새 명령 취소 포함. 새 UI/서버/DB 계약 없음. 베타만 반영 | 495파일 전체 10,245 pass/4 timeout/기존 1 skip 후 동일 4개 단독 통과, 고유 10,249 pass 확인. Chromium 14개·전체 타입/린트·빌드 통과. cache 증분은 승격 전 필요. [수정 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
+| 2026-09-27 | 후속 전체 QA: checkout `dd55d3bc`, 제품 `c242bfd1` | 제품 변경 없이 FQA01 추가 확정·미수정. 별도 E2E 대기 조건 1건·coverage 선택 누락 2건. 배포 범위·계약·버전·동결 유지 | 전체 단위 10,249 pass/기존 1 skip, broad coverage 통과. Chromium 550 pass/1 test-timing fail, WebKit 60 pass/기존 3 skip. 실제 Sync 버튼 새 결함 두 번 재현. 원본 critical/Worker gate 실패와 원인 입증은 [전체 QA](design/beta-full-qa-2026-09-27.md) 참조 |
 
 ### 실제 승격·배포 기록 — 아직 미실행
 

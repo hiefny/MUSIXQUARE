@@ -34,8 +34,9 @@ change manual offset limits or change room/UI policy.
 
 ## Verification
 
-Tested source: the repaired worktree based on `f0f534b2`; commit identity is
-recorded in the documentation-only follow-up without changing product sources.
+Tested source: `c242bfd17f652f1480a6e79731d5130b5b6f6c19`. The identical runtime
+sources were tested in the worktree before committing; this follow-up changes
+only documentation to record that identity.
 The full unit invocation ran 495 files / 10,250 cases: 10,245 passed, four timed
 out and one existing release-classification case was skipped (Windows lacks
 `jq`). The timed-out assertions are the dead-export analysis, configuration

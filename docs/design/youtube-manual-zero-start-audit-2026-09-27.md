@@ -210,9 +210,9 @@ wait. This repair direction has not been implemented or validated as a fix.
 ## Repair addendum — 2026-09-27
 
 The owner authorized repair after reviewing the findings. The changes were
-implemented on `mxqr_beta` from checkout `35f122a9`; the tested working tree is
-the code change containing this addendum. Main and production remain unchanged.
-The current release record links the final code commit after publication.
+implemented on `mxqr_beta` from checkout `35f122a9`; the tested working tree was
+committed as `c3eae88c`, including this addendum. Main and production remain
+unchanged. The current release record identifies this final code commit.
 
 ### S01: preserve negative offsets through the release deadline
 

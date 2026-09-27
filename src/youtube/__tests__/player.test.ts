@@ -1197,6 +1197,153 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('external zero-start fallback after a local delay', () => {
+    async function installDelayedFallback(offset: number, unmuteDelayMs: number) {
+      const stateMod = await import('../_state.ts');
+      const playerMod = await import('../player.ts');
+      const controller = await import('../zero-start.ts');
+      const timers = await import('../../core/timers.ts');
+      const realTimers =
+        await vi.importActual<typeof import('../../core/timers.ts')>('../../core/timers.ts');
+      const clock = await import('../../network/shared-clock.ts');
+      vi.mocked(timers.setManagedTimer).mockImplementation(realTimers.setManagedTimer);
+      vi.mocked(timers.clearManagedTimer).mockImplementation(realTimers.clearManagedTimer);
+      vi.mocked(timers.getManagedTimer).mockImplementation(realTimers.getManagedTimer);
+      vi.setSystemTime(new Date('2026-09-27T00:00:00Z'));
+      (window as unknown as { YT: unknown }).YT = {
+        PlayerState: { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 },
+      };
+
+      const hostPeerId = 'delayed-fallback-host';
+      const guestPeerId = 'delayed-fallback-guest';
+      const videoId = 'M7lc1UVf-VE';
+      setState('network.appRole', 'guest');
+      setState('network.myId', guestPeerId);
+      setState('network.hostConn', dataConnection(hostPeerId));
+      setState('sync.youtubeLocalOffset', offset);
+      setState('audio.masterVolume', 1);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId,
+          playlistId: null,
+          name: 'Delayed fallback',
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setPlaybackYouTubePlaying();
+      stateMod.setYouTubePlayer(null);
+      stateMod.setYtPrimed(true);
+      clock.resetClockState();
+      clock.registerPing(82);
+      expect(clock.processSyncPong(82, Date.now())).not.toBeNull();
+      playerMod.initYouTube();
+
+      const prepareAtHost = Date.now();
+      const run = {
+        version: 1 as const,
+        runId: 'delayed-external-audio-restore',
+        sequence: 1,
+        queueItemId: QUEUE_ITEM_ID,
+        videoId,
+      };
+      expect(
+        controller.handleYouTubeZeroStartPrepare(hostPeerId, {
+          ...run,
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          subIndex: null,
+          prepareAtHost,
+          decisionAtHost: prepareAtHost + 2_300,
+          startDeadlineAtHost: prepareAtHost + 3_000,
+          hostPlatform: 'other',
+        }),
+      ).toBe(true);
+      expect(
+        controller.handleYouTubeZeroStartCommit(hostPeerId, {
+          ...run,
+          type: MSG.YOUTUBE_ZERO_START_COMMIT,
+          startAtHost: prepareAtHost + 1_000,
+          reason: 'guest-timeout',
+          cohort: [hostPeerId],
+        }),
+      ).toBe(true);
+
+      const player = makeFakeYtPlayer({
+        __videoId: videoId,
+        __state: 2,
+        __currentTime: 0,
+        __muted: true,
+        __advanceClock: true,
+      });
+      const immediateUnmute = player.unMute;
+      let unmutePending = false;
+      player.unMute = () => {
+        if (unmuteDelayMs === 0) {
+          immediateUnmute();
+          return;
+        }
+        if (unmutePending || !player.isMuted()) return;
+        unmutePending = true;
+        setTimeout(() => {
+          unmutePending = false;
+          immediateUnmute();
+        }, unmuteDelayMs);
+      };
+      stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      expect(stateMod.markYtPlayerReady(player as unknown as YouTubePlayerInstance)).toBe(true);
+
+      return {
+        player,
+        playerMod,
+        releaseAfterMs: 1_000 - offset * 1_000,
+        cleanup: () => {
+          playerMod.stopYouTubeMode();
+          controller.resetYouTubeZeroStart();
+          realTimers.clearAllManagedTimers();
+          vi.mocked(timers.setManagedTimer).mockReset();
+          vi.mocked(timers.clearManagedTimer).mockReset();
+          vi.mocked(timers.getManagedTimer).mockReset().mockReturnValue(null);
+          stateMod.setYouTubePlayer(null);
+          stateMod.setYtPrimed(false);
+          clock.resetClockState();
+        },
+      };
+    }
+
+    it.each([0, -5, -9.999])(
+      'allows asynchronous audio restoration after offset %s waits past preparation',
+      async (offset) => {
+        const test = await installDelayedFallback(offset, 30);
+        try {
+          await vi.advanceTimersByTimeAsync(test.releaseAfterMs - 1);
+          expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(0);
+          await vi.advanceTimersByTimeAsync(301);
+          expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(1);
+          expect(test.player.getPlayerState()).toBe(1);
+          expect(test.player.isMuted()).toBe(false);
+          expect(test.playerMod.isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+        } finally {
+          test.cleanup();
+        }
+      },
+    );
+
+    it('cancels a delayed fallback while its asynchronous audio restore is pending', async () => {
+      const test = await installDelayedFallback(-5, 30);
+      try {
+        await vi.advanceTimersByTimeAsync(test.releaseAfterMs + 1);
+        expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(0);
+        test.playerMod.stopYouTubeMode();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(test.player.__log.filter(({ op }) => op === 'playVideo')).toHaveLength(0);
+        expect(test.playerMod.isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      } finally {
+        test.cleanup();
+      }
+    });
+  });
+
   describe('stopYouTubeMode()', () => {
     it('does not throw when no player exists', async () => {
       const { stopYouTubeMode } = await import('../player.ts');

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Investigation evidence; confirmed S01 and S02 remain unfixed |
+| Status | Dated investigation evidence; S01 and S02 subsequently repaired in beta — see repair addendum |
 | Reviewed beta | `ae98afc34790789174babfef0dcbefaee0741505` |
 | Compared main | `35759e8b07f1ee0b272afbd0af03c770a858889e` |
 | Environment | Windows, Node 24.20.0, Vitest 5; Chromium with local PeerJS and a deterministic YouTube facade |
@@ -186,6 +186,9 @@ directories are not a complete archive of all cases.
 
 ## Repair direction, not implemented
 
+This section preserves the investigation's original proposal. The implementation
+and verification below supersede its unfixed status.
+
 Preserve one participant-local timing contract across start and steady playback:
 requested offset, actual applied offset, and release time must agree. At zero,
 negative compensation needs scheduled delay rather than an impossible negative
@@ -203,3 +206,91 @@ trusted host snapshot, scoped to the same session, queue occurrence and playback
 run. A newer input or playback action must supersede it. Do not retry every
 `no-data` case indefinitely, or reuse the old run's snapshot just to avoid the
 wait. This repair direction has not been implemented or validated as a fix.
+
+## Repair addendum — 2026-09-27
+
+The owner authorized repair after reviewing the findings. The changes were
+implemented on `mxqr_beta` from checkout `35f122a9`; the tested working tree is
+the code change containing this addendum. Main and production remain unchanged.
+The current release record links the final code commit after publication.
+
+### S01: preserve negative offsets through the release deadline
+
+[`local-offset.ts`](../../src/youtube/local-offset.ts) now represents a playing
+start as an achievable media position plus a participant-local delay. For
+example, a requested -250 ms at room time zero keeps media position zero and
+delays that participant's release by 250 ms. At room time 100 ms only the
+remaining 150 ms is delayed. The room COMMIT, other participants' timing,
+existing platform lead and positive-offset prefix-skip policy are preserved.
+Paused seeks retain the existing position-only behavior.
+
+- Standard [`zero-start.ts`](../../src/youtube/zero-start.ts) schedules that local
+  delay, applies the effective offset at release, and catches up a late COMMIT or
+  delayed timer to the live canonical position. Normal on-time starts do not
+  receive an extra seek. A negatively offset host exposes the advancing room
+  clock while its own iframe is still waiting. Connection replacement after
+  room start preserves the host's intentional hold and the remaining cohort.
+- PRO [`authority-arm.ts`](../../src/youtube/authority-arm.ts) and
+  [`player.ts`](../../src/youtube/player.ts) carry the same residual delay through
+  the existing authority preparation/COMMIT. Calibration moves its reference
+  time and canonical position together so manual correction is not learned as
+  startup error. The direct snapshot/late-join playing path also waits only the
+  residual delay and rechecks ownership before playback.
+- The Standard fallback keeps preparation, intentional hold, asynchronous audio
+  restoration and PLAYING acknowledgement budgets separate. A -5 s or -9.999 s
+  hold no longer exhausts preparation time and immediately aborts unmute.
+- Cancellation, newer track/run, repeat, pause and session/player replacement
+  retain their ownership fences. The manual range remains ±9.999 seconds;
+  no UI, server schema or wire protocol changes were introduced.
+
+### S02: retain an accepted edit until a fresh snapshot arrives
+
+[`sync.ts`](../../src/youtube/sync.ts) retains a bounded manual-apply intent tied
+to the exact session, connection, player, queue occurrence, subindex, video,
+requested value and local pause state. Missing ordinary host data is retried
+every 250 ms without repeating the no-data toast. A newer edit supersedes the
+previous intent; a playback action or identity change cancels it.
+
+The deadline is 18.999 seconds, covering the existing readiness/cooldown budget
+plus the largest host-local negative hold. This is a maximum recovery window,
+not an added delay: an available fresh snapshot is used immediately. Ordinary
+Sync-panel preflight retains its original no-data feedback. Expiry after waiting
+for a snapshot produces one no-data message rather than unbounded retries.
+
+### Repair verification and limits
+
+Windows, pinned Node 24.20.0, Vitest 5 and pinned Chromium were used. The full
+unit suite ran while final edge-case changes were being completed; all YouTube
+tests were then rerun after source changes stopped. These counts overlap and
+must not be added together.
+
+| Check | Result and scope |
+| --- | --- |
+| Full unit suite | 493 files; 10,118 passed, zero failed, one existing Windows `jq`-dependent skip |
+| Final YouTube suite | 937 passed, zero failed/skipped, independently rerun on the final runtime sources |
+| Standard real-UI browser regression | Six scenarios passed: guest -250 ms, host -250 ms, host -5 s, both -250 ms, and host/guest +250 ms controls; offsets remain after the next start and six seconds later |
+| Repeat editor browser regression | One scenario passed: actual open editor across repeat-one, input +250 ms before the ordinary heartbeat, then correct application and retention after heartbeat resumes |
+| PRO module integration | 20 passed for actual authority/player modules, owner/member capability contexts, negative/positive offsets, late snapshot and cancellation; included in final YouTube suite |
+| Static/build checks | App, unit-test and E2E TypeScript checks; full App ESLint and both new E2E files; changed TypeScript formatting; E2E and production App builds passed |
+
+The six-case browser run preceded the last fallback audio-deadline and late
+COMMIT refinements; final unit integration covers those refinements. The repeat
+browser test ran after all runtime changes. The fallback tests independently
+failed for the old audio deadline at -5 s and -9.999 s, then passed the repair.
+The initial 17 manual-apply tests independently failed against the old S02
+implementation. This is repair validation, unlike the earlier observational
+tests that intentionally expected defective behavior.
+
+Both browser regressions use the real app/UI and local PeerJS with a progressing
+fake YouTube iframe. The repeat regression deliberately withholds only the
+ordinary heartbeat to hold the race window open; zero-start messages continue.
+The six-case tests allow 120 ms scheduling variance, so losing 250 ms cannot
+pass. These are not live YouTube, full browser-suite, physical iPhone/Safari or
+Bluetooth acoustic tests. Physical first-audio alignment remains a release
+check. Version/cache stay `8.6.61`/`v630` during the competition freeze; only beta
+publication is authorized.
+
+Ignored local artifacts: `scratch/youtube-manual-fix-full-results.json`,
+`scratch/youtube-manual-fix-youtube-final-results.json`,
+`scratch/youtube-manual-fix-browser.log`, and the input browser repair log under
+`scratch/youtube-manual-start-audit-2026-09-27/input/browser/`.

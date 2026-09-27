@@ -3,6 +3,8 @@ import { resetState, setState } from '../../core/state.ts';
 import {
   isCanonicalYouTubeManualOffsetEndpoint,
   resolveProCoordinatorYouTubeTarget,
+  resolveYouTubePlaybackStartTarget,
+  setYouTubeScheduledStartTimelineReader,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
 } from '../local-offset.ts';
@@ -26,7 +28,44 @@ function setActiveStandardHost(): void {
 }
 
 describe('PRO coordinator YouTube local offset', () => {
-  beforeEach(() => resetState());
+  beforeEach(() => {
+    resetState();
+    setYouTubeScheduledStartTimelineReader(() => null);
+  });
+
+  it.each([
+    [0, -0.25, 0, 250, -0.25],
+    [0.1, -0.25, 0, 150, -0.25],
+    [0.5, -0.25, 0.25, 0, -0.25],
+    [0, 0.25, 0.25, 0, 0.25],
+    [0, -9.999, 0, 9999, -9.999],
+    [0, -100, 0, 9999, -9.999],
+  ])(
+    'preserves a playing start at %s with offset %s',
+    (canonical, offset, local, wait, applied) => {
+      const target = resolveYouTubePlaybackStartTarget(canonical, offset, 300);
+      expect(target.localTime).toBeCloseTo(local);
+      expect(target.localStartDelayMs).toBeCloseTo(wait);
+      expect(target.effectiveOffset).toBeCloseTo(applied);
+      expect(target.localTime - target.effectiveOffset).toBeCloseTo(canonical + wait / 1000);
+    },
+  );
+
+  it('uses live scheduled room time only for the Standard host waiting at zero', () => {
+    setActiveStandardHost();
+    setState('sync.youtubeCoordinatorAppliedOffset', 0);
+    let pendingTime: number | null = 0.1;
+    setYouTubeScheduledStartTimelineReader(() => pendingTime);
+    expect(toCanonicalYouTubeTime(0, 300)).toBe(0.1);
+    pendingTime = 0.24;
+    expect(toCanonicalYouTubeTime(0, 300)).toBe(0.24);
+    pendingTime = null;
+    setState('sync.youtubeCoordinatorAppliedOffset', -0.25);
+    expect(toCanonicalYouTubeTime(0.1, 300)).toBeCloseTo(0.35);
+    pendingTime = 50;
+    setProCoordinator();
+    expect(toCanonicalYouTubeTime(0.1, 300)).toBeCloseTo(0.35);
+  });
 
   it('is an identity conversion in standard rooms and for PRO members', () => {
     setState('sync.youtubeLocalOffset', 0.25);

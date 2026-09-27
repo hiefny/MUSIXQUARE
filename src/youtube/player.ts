@@ -360,6 +360,8 @@ import {
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   rebaseProCoordinatorYouTubeNudgeAnchor,
   resolveProCoordinatorYouTubeTarget,
+  resolveYouTubePlaybackStartTarget,
+  setYouTubeScheduledStartTimelineReader,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
 } from './local-offset.ts';
@@ -379,6 +381,7 @@ import {
   handleYouTubeZeroStartTimeline,
   initYouTubeZeroStart,
   getYouTubeZeroStartSnapshot,
+  getYouTubeZeroStartPendingCanonicalPosition,
   isYouTubeZeroStartProtocolActive,
   resetYouTubeZeroStart,
   updateYouTubeZeroStartDesiredAudioState,
@@ -881,12 +884,11 @@ export async function applyProPlaybackYouTubeCommit(
     if (!player) return false;
     try {
       if ((player.getVideoData?.()?.video_id || '') !== request.youtubeVideoId) return false;
-      const target = resolveProCoordinatorYouTubeTarget(
+      const target = resolveYouTubePlaybackStartTarget(
         Number.isFinite(request.positionSeconds) ? Math.max(0, request.positionSeconds) : 0,
         getState('sync.youtubeLocalOffset') || 0,
         getYouTubeDuration(player),
       );
-      setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
       if (request.youtubeSubIndex !== undefined && request.youtubeSubIndex !== null) {
         setYouTubeSubIndex(request.youtubeSubIndex);
       }
@@ -907,6 +909,7 @@ export async function applyProPlaybackYouTubeCommit(
         subIndex: request.youtubeSubIndex ?? null,
         targetSeconds: target.localTime,
         executeDelayMs: request.scheduleDelayMs,
+        localStartDelayMs: target.localStartDelayMs,
         timingMode: request.timingMode,
         timelineLeadMs: request.timingMode === 'zero-start' ? lead.state.timelineLeadMs : undefined,
       });
@@ -917,6 +920,7 @@ export async function applyProPlaybackYouTubeCommit(
       ) {
         return false;
       }
+      setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
       setPlaybackYouTubePlaying();
       bus.emit('ui:update-play-state', true);
       if (request.timingMode === 'zero-start') {
@@ -926,7 +930,8 @@ export async function applyProPlaybackYouTubeCommit(
           ...committed,
         });
         const positiveLeadWasFullyScheduled =
-          request.scheduleDelayMs >= Math.max(0, committed.releaseLeadMs);
+          request.scheduleDelayMs + target.localStartDelayMs >=
+          Math.max(0, committed.releaseLeadMs);
         if (positiveLeadWasFullyScheduled) {
           scheduleProYouTubeLeadCalibration({
             generation,
@@ -936,8 +941,8 @@ export async function applyProPlaybackYouTubeCommit(
             queueItemId: request.queueItemId,
             videoId: request.youtubeVideoId,
             subIndex: request.youtubeSubIndex ?? null,
-            canonicalStartSeconds: target.canonicalTime,
-            canonicalExecuteAtMs,
+            canonicalStartSeconds: target.canonicalTime + target.localStartDelayMs / 1000,
+            canonicalExecuteAtMs: canonicalExecuteAtMs + target.localStartDelayMs,
             preparationGeneration: getProYouTubeAuthorityPreparationGeneration(),
             localOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
           });
@@ -979,6 +984,33 @@ export async function applyProPlaybackYouTubeCommit(
     if (request.youtubeVideoId && liveVideoId !== request.youtubeVideoId) return false;
 
     const duration = getYouTubeDuration(player);
+    if (request.state === 'playing') {
+      const initialPosition =
+        (Number.isFinite(request.positionSeconds) ? Math.max(0, request.positionSeconds) : 0) +
+        Math.max(0, performance.now() - scheduleDeadlineMs) / 1000;
+      const localWait = resolveYouTubePlaybackStartTarget(
+        initialPosition,
+        getState('sync.youtubeLocalOffset') || 0,
+        duration,
+      ).localStartDelayMs;
+      if (localWait > 0) {
+        setYtAutoplayIntent(false);
+        player.pauseVideo?.();
+        player.seekTo?.(0, true);
+        await delay(localWait);
+        if (
+          request.isCurrent?.() === false ||
+          generation !== proAuthorityYouTubeCommitGeneration ||
+          getState('room.context').kind !== 'pro' ||
+          getYouTubePlayer() !== player ||
+          getCurrentQueueItemId() !== request.queueItemId ||
+          !isPlaybackModeYouTube() ||
+          (request.youtubeVideoId &&
+            (player.getVideoData?.()?.video_id || '') !== request.youtubeVideoId)
+        )
+          return false;
+      }
+    }
     const setupLatenessSeconds =
       request.state === 'playing' ? Math.max(0, performance.now() - scheduleDeadlineMs) / 1_000 : 0;
     const target = resolveProCoordinatorYouTubeTarget(
@@ -1742,6 +1774,29 @@ export function initYouTube(): void {
     recoverZeroStartWithLegacyRendezvous(pending, 'peer-connection-replaced');
   };
 
+  const resolveZeroStartDelay = (canonicalPositionSec: number): number => {
+    const player = getYouTubePlayer();
+    const duration = player ? getYouTubeDuration(player) : 0;
+    const target = resolveYouTubePlaybackStartTarget(
+      canonicalPositionSec,
+      getState('sync.youtubeLocalOffset') || 0,
+      duration,
+    );
+    if (
+      shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
+        target.localTime,
+        target.canonicalTime + target.localStartDelayMs / 1000,
+        duration,
+        target.effectiveOffset,
+      )
+    ) {
+      setState('sync.youtubeLocalOffset', 0);
+      bus.emit('sync:display-update');
+      return 0;
+    }
+    return target.localStartDelayMs;
+  };
+
   const resolveZeroStartLocalTarget = (
     canonicalPositionSec: number,
     context: YouTubeZeroStartTargetContext,
@@ -1779,6 +1834,7 @@ export function initYouTube(): void {
     return clampZeroStartTarget(canonicalPositionSec, duration);
   };
 
+  setYouTubeScheduledStartTimelineReader(getYouTubeZeroStartPendingCanonicalPosition);
   initYouTubeZeroStart({
     getRole: getYouTubeZeroStartRole,
     getLocalPeerId: () => getState('network.myId') || 'local',
@@ -1799,6 +1855,7 @@ export function initYouTube(): void {
     sendToPeer: sendYouTubeZeroStartToPeer,
     sendToHost: sendYouTubeZeroStartToHost,
     resolveLocalTargetSec: resolveZeroStartLocalTarget,
+    getLocalStartDelayMs: resolveZeroStartDelay,
     toCanonicalPositionSec: (localPositionSec, context) => {
       const player = getYouTubePlayer();
       const duration = player ? getYouTubeDuration(player) : 0;
@@ -1957,6 +2014,8 @@ export function initYouTube(): void {
         event.reason === 'cohort-excluded' &&
         (event.targetLoadIssued === true || event.mediaAction === 'resident-reposition');
       const deadline = Date.now() + (canAdoptRemainingPrepareWindow ? 7_700 : 3_000);
+      const uncalibratedReleaseAt =
+        Date.now() + resolveZeroStartDelay(event.targetPositionSec ?? 0);
       const context: YouTubeZeroStartTargetContext = {
         role: 'guest',
         queueItemId: event.queueItemId,
@@ -1969,6 +2028,7 @@ export function initYouTube(): void {
       let settleIssued = false;
       let releasePlayIssued = false;
       let releaseAckDeadline = 0;
+      let releaseAudioDeadline = 0;
 
       const cleanupExactPlayer = (player: YouTubeZeroStartPlayer): void => {
         setYtAutoplayIntent(false);
@@ -2068,6 +2128,7 @@ export function initYouTube(): void {
             settleIssued = false;
             releasePlayIssued = false;
             releaseAckDeadline = 0;
+            releaseAudioDeadline = 0;
             const ownedPlayer = player;
             zeroStartExternalFallbackCleanup = () => {
               setYtAutoplayIntent(false);
@@ -2174,16 +2235,12 @@ export function initYouTube(): void {
 
           const releaseWaitMs =
             event.startAtHost !== null && isClockCalibrated()
-              ? event.startAtHost - getHostNow()
-              : 0;
+              ? event.startAtHost + resolveZeroStartDelay(0) - getHostNow()
+              : uncalibratedReleaseAt - Date.now();
           if (releaseWaitMs > 0) {
             // The iframe recovered before the authoritative COMMIT deadline.
             // Keep it silent and cued, then revalidate the exact run/connection
             // identity at release instead of letting this guest start early.
-            if (Date.now() >= deadline) {
-              abandonFallback(true);
-              return;
-            }
             const localTarget = resolveZeroStartLocalTarget(0, context);
             player.mute();
             player.pauseVideo();
@@ -2191,15 +2248,18 @@ export function initYouTube(): void {
             setManagedTimer(
               'yt-zero-start-external-fallback',
               attemptFallback,
-              Math.max(1, Math.min(releaseWaitMs, deadline - Date.now())),
+              Math.max(1, releaseWaitMs),
             );
             return;
           }
 
+          // An intentional negative hold may outlive the preparation budget.
+          // The iframe still needs its own bounded asynchronous audio restore.
+          if (!releaseAudioDeadline) releaseAudioDeadline = Math.max(deadline, Date.now() + 1000);
           restoreFallbackAudio(player, desiredAudio);
           const audioRestored = isFallbackAudioRestored(player, desiredAudio);
           if (!audioRestored) {
-            if (Date.now() < deadline) {
+            if (Date.now() < releaseAudioDeadline) {
               setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
             } else {
               abandonFallback(true);
@@ -2211,7 +2271,8 @@ export function initYouTube(): void {
             0,
             event.startAtHost !== null && isClockCalibrated()
               ? (getHostNow() - event.startAtHost) / 1_000
-              : (event.targetPositionSec ?? 0),
+              : (event.targetPositionSec ?? 0) +
+                  resolveZeroStartDelay(event.targetPositionSec ?? 0) / 1000,
           );
           const localTarget = resolveZeroStartLocalTarget(canonicalTarget, context);
           player.pauseVideo();
@@ -2232,7 +2293,7 @@ export function initYouTube(): void {
           releaseAckDeadline = Date.now() + 1_800;
           setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 0);
         } catch (error) {
-          if (Date.now() < deadline) {
+          if (Date.now() < Math.max(deadline, releaseAudioDeadline)) {
             setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
           } else {
             log.warn('[YouTube ZeroStart] Local fallback failed:', error);
@@ -2675,7 +2736,7 @@ export function initYouTube(): void {
           }
         : null;
     handleYouTubeZeroStartPeerConnectionReplaced(peerId);
-    if (target) {
+    if (target && getYouTubeZeroStartSnapshot()?.runId !== snapshot?.runId) {
       pendingReplacementFallback = target;
       setManagedTimer(
         'yt-zero-start-replacement-fallback',

@@ -1,4 +1,5 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
+import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
 import { getProYouTubeAudibleBaseLeadMs } from './pro-lead-learner.ts';
 
 const PLAYER_STATE = Object.freeze({
@@ -91,6 +92,11 @@ interface YouTubeAuthorityArmCommitRequest extends YouTubeAuthorityArmIdentity {
   /** Session-local timeline correction learned from earlier PRO zero-starts. */
   timelineLeadMs?: number;
   /**
+   * Participant-only wait while a negative manual offset still points before
+   * media time zero. The server deadline and other participants do not move.
+   */
+  localStartDelayMs?: number;
+  /**
    * Canonical target rebased by the runtime when COMMIT arrived late. Omit it
    * for an on-time commit that should release the already-settled target.
    */
@@ -107,8 +113,10 @@ export type YouTubeAuthorityArmCommitResult =
       platformLeadMs: number;
       /** Session-local correction learned from earlier stable starts. */
       timelineLeadMs: number;
-      /** Total amount by which playVideo() was scheduled before the server instant. */
+      /** Platform/learned lead, applied before the participant's delayed start instant. */
       releaseLeadMs: number;
+      /** Extra participant-only wait used to preserve a negative manual offset. */
+      localStartDelayMs: number;
       catchUpSeconds: number;
     }
   | {
@@ -163,6 +171,7 @@ type ActiveRun = {
   playCallAtMs: number;
   platformLeadMs: number;
   timelineLeadMs: number;
+  localStartDelayMs: number;
   catchUpSeconds: number;
 };
 
@@ -334,6 +343,7 @@ export class YouTubeAuthorityArmController {
         playCallAtMs: 0,
         platformLeadMs: 0,
         timelineLeadMs: 0,
+        localStartDelayMs: 0,
         catchUpSeconds: 0,
       };
       // `cancel()` restores once synchronously. Once the successor has safely
@@ -377,6 +387,11 @@ export class YouTubeAuthorityArmController {
       request.timingMode === 'zero-start'
         ? clamp(finiteOr(request.timelineLeadMs ?? 0, 0), -300, 300)
         : 0;
+    run.localStartDelayMs = clamp(
+      finiteOr(request.localStartDelayMs ?? 0, 0),
+      0,
+      MANUAL_SYNC_OFFSET_LIMIT_MS,
+    );
     const committedTargetSeconds = Math.max(
       0,
       finiteOr(request.targetSeconds ?? run.targetSeconds, run.targetSeconds),
@@ -390,7 +405,10 @@ export class YouTubeAuthorityArmController {
     const promise = new Promise<YouTubeAuthorityArmCommitResult>((resolve) => {
       run.commitResolve = resolve;
     });
-    const callDelayMs = Math.max(0, executeDelayMs - (run.platformLeadMs + run.timelineLeadMs));
+    const callDelayMs = Math.max(
+      0,
+      executeDelayMs + run.localStartDelayMs - (run.platformLeadMs + run.timelineLeadMs),
+    );
     this.#later(run, () => this.#release(run), callDelayMs);
     return promise;
   }
@@ -694,6 +712,7 @@ export class YouTubeAuthorityArmController {
       platformLeadMs: run.platformLeadMs,
       timelineLeadMs: run.timelineLeadMs,
       releaseLeadMs: run.platformLeadMs + run.timelineLeadMs,
+      localStartDelayMs: run.localStartDelayMs,
       catchUpSeconds: run.catchUpSeconds,
     });
     this.#run = null;

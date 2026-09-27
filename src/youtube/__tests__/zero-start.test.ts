@@ -67,6 +67,7 @@ function dispatchToGuest(
 function makeHarness(options?: {
   hostPlatform?: YouTubeZeroStartPlatform;
   guestPlatform?: YouTubeZeroStartPlatform;
+  hostOffsetSec?: number;
   guestOffsetSec?: number;
   hostVolume?: number;
   guestVolume?: number;
@@ -124,6 +125,14 @@ function makeHarness(options?: {
     createRunId: (sequence: number) => `run-${sequence}`,
   } satisfies Partial<YouTubeZeroStartDependencies>;
 
+  // Mirror the player integration's boundary handling: preparation can only
+  // seek within the media, while release later commits the offset that is
+  // physically achievable at its canonical position.
+  let hostAppliedOffsetSec = 0;
+  let guestAppliedOffsetSec = 0;
+  const localTarget = (canonical: number, offset: number): number =>
+    Math.max(0, Math.min(300, canonical + offset));
+
   host = new YouTubeZeroStartController({
     ...common,
     getRole: () => 'host',
@@ -155,10 +164,17 @@ function makeHarness(options?: {
     onPrepareSelection: () => options?.hostMediaAction,
     onHostFallbackRequired: options?.onHostFallbackRequired,
     onPhaseChange: options?.onHostPhaseChange,
-    toCanonicalPositionSec: options?.hostCanonicalTransform,
+    getLocalStartDelayMs: (canonical) =>
+      Math.max(0, -(canonical + (options?.hostOffsetSec ?? 0))) * 1_000,
+    resolveLocalTargetSec: (canonical) => {
+      const target = localTarget(canonical, options?.hostOffsetSec ?? 0);
+      hostAppliedOffsetSec = target - canonical;
+      return target;
+    },
+    toCanonicalPositionSec:
+      options?.hostCanonicalTransform ?? ((local) => Math.max(0, local - hostAppliedOffsetSec)),
   } as YouTubeZeroStartDependencies);
 
-  const guestOffset = options?.guestOffsetSec ?? 0;
   guest = new YouTubeZeroStartController({
     ...common,
     getRole: () => 'guest',
@@ -186,8 +202,15 @@ function makeHarness(options?: {
     getDesiredAudioState: options?.guestDesiredAudioState
       ? () => options.guestDesiredAudioState
       : undefined,
-    resolveLocalTargetSec: (canonical) => canonical + guestOffset,
-    toCanonicalPositionSec: options?.guestCanonicalTransform ?? ((local) => local - guestOffset),
+    getLocalStartDelayMs: (canonical) =>
+      Math.max(0, -(canonical + (options?.guestOffsetSec ?? 0))) * 1_000,
+    resolveLocalTargetSec: (canonical) => {
+      const target = localTarget(canonical, options?.guestOffsetSec ?? 0);
+      guestAppliedOffsetSec = target - canonical;
+      return target;
+    },
+    toCanonicalPositionSec:
+      options?.guestCanonicalTransform ?? ((local) => Math.max(0, local - guestAppliedOffsetSec)),
   } as YouTubeZeroStartDependencies);
 
   return { host, guest, hostPlayer, guestPlayer, hostOutbound, guestOutbound };
@@ -2627,5 +2650,273 @@ describe('YouTubeZeroStartController', () => {
       audibleBaseLeadMs: 0,
       timelineLeadMs: 0,
     });
+  });
+
+  describe('signed participant offsets at the beginning of a track', () => {
+    function begin(harness: Harness): number {
+      expect(harness.guest.advertiseCapability()).toBe(true);
+      expect(
+        harness.host.beginHostTransition({
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: VIDEO_ID,
+          subIndex: null,
+        }),
+      ).toBe(true);
+      vi.advanceTimersByTime(620);
+      const commit = [...harness.hostOutbound]
+        .reverse()
+        .find((message) => message.type === 'youtube-zero-start-commit');
+      if (!commit || commit.type !== 'youtube-zero-start-commit') {
+        throw new Error('Expected a committed zero-start');
+      }
+      return commit.startAtHost;
+    }
+
+    const negativeOffsets = [-0.1, -0.25, -1, -5, -9.999];
+    it.each(
+      (['host', 'guest'] as const).flatMap((role) =>
+        negativeOffsets.map((offset) => ({ role, offset })),
+      ),
+    )('preserves $role offset $offset without skipping the beginning', ({ role, offset }) => {
+      const harness = makeHarness({
+        advanceClock: true,
+        hostOffsetSec: role === 'host' ? offset : 0,
+        guestOffsetSec: role === 'guest' ? offset : 0,
+      });
+      const startAt = begin(harness);
+      const delayed = role === 'host' ? harness.host : harness.guest;
+      const delayedPlayer = role === 'host' ? harness.hostPlayer : harness.guestPlayer;
+      const otherPlayer = role === 'host' ? harness.guestPlayer : harness.hostPlayer;
+      vi.advanceTimersByTime(startAt - Date.now());
+      expect(delayed.getSnapshot().phase).toBe('scheduled');
+      expect(delayedPlayer.getCurrentTime()).toBe(0);
+      expect(delayedPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+      expect(otherPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+
+      vi.advanceTimersByTime(-offset * 1_000 - 1);
+      expect(delayed.getSnapshot().phase).toBe('scheduled');
+      expect(delayedPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(delayed.getSnapshot().phase).toBe('playing');
+      expect(delayedPlayer.getCurrentTime()).toBe(0);
+      expect(delayedPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+      expect(delayedPlayer.__log.filter((call) => call.op === 'seekTo').at(-1)?.args?.[0]).toBe(0);
+      expect(delayedPlayer.getCurrentTime() - otherPlayer.getCurrentTime()).toBeCloseTo(offset);
+      vi.advanceTimersByTime(500);
+      expect(delayedPlayer.getCurrentTime() - otherPlayer.getCurrentTime()).toBeCloseTo(offset);
+    });
+
+    it.each([
+      { hostOffset: -1, guestOffset: -0.25 },
+      { hostOffset: -0.25, guestOffset: -1 },
+      { hostOffset: -5, guestOffset: -5 },
+      { hostOffset: -0.25, guestOffset: 0.25 },
+      { hostOffset: 0.25, guestOffset: -0.25 },
+      { hostOffset: 0.25, guestOffset: 1 },
+    ])(
+      'keeps both offsets and the canonical deadline ($hostOffset / $guestOffset)',
+      ({ hostOffset, guestOffset }) => {
+        const learned = vi.fn();
+        const harness = makeHarness({
+          advanceClock: true,
+          hostOffsetSec: hostOffset,
+          guestOffsetSec: guestOffset,
+          onGuestLearnedTimelineLeadMs: learned,
+        });
+        const startAt = begin(harness);
+        vi.advanceTimersByTime(startAt - Date.now() + 6_000);
+        expect(
+          harness.guestPlayer.getCurrentTime() - harness.hostPlayer.getCurrentTime(),
+        ).toBeCloseTo(guestOffset - hostOffset);
+        const timeline = latestTimeline(harness);
+        expect(timeline.positionSec).toBeCloseTo((timeline.hostTime - startAt) / 1_000);
+        expect(
+          harness.hostOutbound.filter((message) => message.type === 'youtube-zero-start-commit'),
+        ).toHaveLength(1);
+        for (const [update] of learned.mock.calls) {
+          expect(update.timelineLeadMs).toBeCloseTo(0);
+        }
+      },
+    );
+
+    it('projects the host canonical position while its local speaker is still waiting', () => {
+      const harness = makeHarness({ advanceClock: true, hostOffsetSec: -5 });
+      const startAt = begin(harness);
+      expect(harness.host.getPendingCanonicalPositionSec()).toBe(0);
+      vi.advanceTimersByTime(startAt - Date.now() + 1_250);
+      expect(harness.host.getSnapshot().phase).toBe('scheduled');
+      expect(harness.hostPlayer.getCurrentTime()).toBe(0);
+      expect(harness.host.getPendingCanonicalPositionSec()).toBeCloseTo(1.25);
+      expect(harness.guestPlayer.getCurrentTime()).toBeCloseTo(1.25);
+      vi.advanceTimersByTime(3_750);
+      expect(harness.host.getPendingCanonicalPositionSec()).toBeNull();
+      expect(harness.hostPlayer.getCurrentTime()).toBe(0);
+      vi.advanceTimersByTime(250);
+      expect(latestTimeline(harness).positionSec).toBeCloseTo(5.25);
+    });
+
+    it('keeps a delayed host release when a guest connection changes after the room has started', () => {
+      const harness = makeHarness({ advanceClock: true, hostOffsetSec: -5 });
+      const startAt = begin(harness);
+      vi.advanceTimersByTime(startAt - Date.now() + 1_000);
+      harness.guestPlayer.__log.length = 0;
+      harness.host.handlePeerConnectionReplaced(GUEST_ID);
+      expect(harness.host.getSnapshot().phase).toBe('scheduled');
+      expect(harness.host.getPendingCanonicalPositionSec()).toBeCloseTo(1);
+      expect(
+        harness.hostOutbound.some((message) => message.type === 'youtube-zero-start-abort'),
+      ).toBe(false);
+      expect(harness.guestPlayer.__log.some((call) => call.op === 'pauseVideo')).toBe(false);
+      vi.advanceTimersByTime(4_000);
+      expect(harness.host.getSnapshot().phase).toBe('playing');
+      expect(harness.hostPlayer.getCurrentTime()).toBe(0);
+      expect(harness.guestPlayer.getCurrentTime()).toBeCloseTo(5);
+    });
+
+    it.each(['host', 'guest'] as const)(
+      'starts the release acknowledgement timeout after the delayed %s play call',
+      (role) => {
+        const hostFallback = vi.fn();
+        const guestFallback = vi.fn();
+        const harness = makeHarness({
+          advanceClock: true,
+          hostOffsetSec: role === 'host' ? -5 : 0,
+          guestOffsetSec: role === 'guest' ? -5 : 0,
+          onHostFallbackRequired: hostFallback,
+          onGuestFallbackRequired: guestFallback,
+        });
+        const startAt = begin(harness);
+        const delayed = role === 'host' ? harness.host : harness.guest;
+        const player = role === 'host' ? harness.hostPlayer : harness.guestPlayer;
+        player.playVideo = vi.fn();
+        vi.advanceTimersByTime(startAt - Date.now() + 4_999);
+        expect(delayed.getSnapshot().phase).toBe('scheduled');
+        expect(hostFallback).not.toHaveBeenCalled();
+        expect(guestFallback).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(player.playVideo).toHaveBeenCalledOnce();
+        expect(delayed.getSnapshot().phase).toBe('starting');
+        vi.advanceTimersByTime(1_799);
+        expect(hostFallback).not.toHaveBeenCalled();
+        expect(guestFallback).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(delayed.isInFlight()).toBe(false);
+        expect(role === 'host' ? hostFallback : guestFallback).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each(['cancel', 'reset', 'successor'] as const)(
+      'does not resurrect a delayed start after %s',
+      (action) => {
+        const options = { advanceClock: true, hostOffsetSec: -5, guestOffsetSec: -5 };
+        const harness = makeHarness(options);
+        const startAt = begin(harness);
+        vi.advanceTimersByTime(startAt - Date.now() + 1_000);
+        if (action === 'reset') {
+          harness.host.reset();
+          harness.guest.reset();
+        } else if (action === 'cancel') {
+          harness.host.cancel('superseded', true);
+        } else {
+          options.hostOffsetSec = 0;
+          options.guestOffsetSec = 0;
+          begin(harness);
+          vi.advanceTimersByTime(700);
+        }
+        harness.hostPlayer.__log.length = 0;
+        harness.guestPlayer.__log.length = 0;
+        vi.advanceTimersByTime(10_000);
+        for (const player of [harness.hostPlayer, harness.guestPlayer]) {
+          expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+        }
+        expect(harness.host.getPendingCanonicalPositionSec()).toBeNull();
+      },
+    );
+
+    it('preserves a negative correction across consecutive resident repeat starts', () => {
+      const learned = vi.fn();
+      const harness = makeHarness({
+        advanceClock: true,
+        guestOffsetSec: -0.25,
+        hostVideoId: VIDEO_ID,
+        guestVideoId: VIDEO_ID,
+        hostMediaAction: 'resident-reposition',
+        guestMediaAction: 'resident-reposition',
+        onGuestLearnedTimelineLeadMs: learned,
+      });
+      for (let occurrence = 0; occurrence < 2; occurrence += 1) {
+        const startAt = begin(harness);
+        vi.advanceTimersByTime(startAt - Date.now() + 3_500);
+        expect(
+          harness.guestPlayer.getCurrentTime() - harness.hostPlayer.getCurrentTime(),
+        ).toBeCloseTo(-0.25);
+      }
+      for (const [update] of learned.mock.calls) expect(update.timelineLeadMs).toBeCloseTo(0);
+      for (const player of [harness.hostPlayer, harness.guestPlayer]) {
+        expect(player.__log.some((call) => call.op === 'loadVideoById')).toBe(false);
+      }
+    });
+
+    it('rebases a prepared negative-offset guest when its included COMMIT arrives after release', () => {
+      const harness = makeHarness({
+        advanceClock: true,
+        guestOffsetSec: -0.25,
+        hostCommitDelayMs: 1_200,
+      });
+      const startAt = begin(harness);
+      vi.advanceTimersByTime(startAt - Date.now() + 499);
+      expect(harness.guestPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+      // Delivery schedules the already-late release for the next timer turn.
+      vi.advanceTimersByTime(2);
+      expect(harness.guestPlayer.getCurrentTime()).toBeCloseTo(0.25);
+      expect(harness.hostPlayer.getCurrentTime()).toBeCloseTo(0.5);
+      expect(
+        harness.guestPlayer.getCurrentTime() - harness.hostPlayer.getCurrentTime(),
+      ).toBeCloseTo(-0.25);
+      expect(harness.guest.getSnapshot().fallback).toBe(false);
+      vi.advanceTimersByTime(500);
+      expect(
+        harness.guestPlayer.getCurrentTime() - harness.hostPlayer.getCurrentTime(),
+      ).toBeCloseTo(-0.25);
+    });
+
+    it('does not seek again when a prepared negative-offset guest releases on time', () => {
+      const harness = makeHarness({ advanceClock: true, guestOffsetSec: -0.25 });
+      const startAt = begin(harness);
+      const seeks = harness.guestPlayer.__log.filter((call) => call.op === 'seekTo').length;
+      vi.advanceTimersByTime(startAt - Date.now() + 250);
+      expect(harness.guestPlayer.__log.filter((call) => call.op === 'seekTo')).toHaveLength(seeks);
+      expect(harness.guestPlayer.getCurrentTime()).toBe(0);
+      expect(harness.guest.getSnapshot().phase).toBe('playing');
+    });
+
+    it.each([-0.25, -1, -5])(
+      'uses only the remaining negative offset in a late fallback (%s seconds)',
+      (offset) => {
+        const learned = vi.fn();
+        const harness = makeHarness({
+          advanceClock: true,
+          guestOffsetSec: offset,
+          guestArmedDelayMs: 1_800,
+          onGuestLearnedTimelineLeadMs: learned,
+        });
+        expect(harness.guest.advertiseCapability()).toBe(true);
+        harness.host.beginHostTransition({
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: VIDEO_ID,
+          subIndex: null,
+        });
+        vi.advanceTimersByTime(3_000 - offset * 1_000 - 1);
+        expect(harness.guestPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+        vi.advanceTimersByTime(1);
+        expect(harness.guestPlayer.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+        expect(harness.guestPlayer.getCurrentTime()).toBe(0);
+        expect(
+          harness.guestPlayer.getCurrentTime() - harness.hostPlayer.getCurrentTime(),
+        ).toBeCloseTo(offset);
+        expect(harness.guest.getSnapshot().fallback).toBe(true);
+        expect(learned).not.toHaveBeenCalled();
+      },
+    );
   });
 });

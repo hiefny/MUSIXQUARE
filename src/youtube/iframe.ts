@@ -1819,6 +1819,7 @@ interface YouTubeAuthorityCommitRequest {
   executeDelayMs: number;
   timingMode: YouTubeAuthorityTimingMode;
   timelineLeadMs?: number;
+  localStartDelayMs?: number;
 }
 
 export function commitYouTubeAuthorityOccurrence(
@@ -1833,6 +1834,7 @@ export function commitYouTubeAuthorityOccurrence(
     executeDelayMs: request.executeDelayMs,
     timingMode: request.timingMode,
     timelineLeadMs: request.timelineLeadMs,
+    localStartDelayMs: request.localStartDelayMs,
   });
 }
 

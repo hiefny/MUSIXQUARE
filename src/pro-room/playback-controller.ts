@@ -42,6 +42,8 @@ import {
 } from './playback-authority-hooks.ts';
 import type { ProRoomFirstAppendSelectionRequest } from './playlist-state-manager.ts';
 import { registerProRoomLocalPlaybackTimeline } from './local-playback-timeline.ts';
+import { getProSystemAudioViewState } from './system-audio-bridge.ts';
+import type { ProRoomSystemAudioViewState } from './system-audio-controller.ts';
 
 const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
 const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
@@ -241,9 +243,42 @@ function createImplementation(
   const MAX_CANCELLED_PLAYBACK_TRANSITION_IDS = 64;
   let unregisterLocalTimeline: (() => void) | null = null;
   let unregisterCommandAuthority: (() => void) | null = null;
+  let unregisterSystemAudioState: (() => void) | null = null;
+  let snapshotPlaybackGeneration = 0;
+  let snapshotPlaybackBlocked = false;
+  let snapshotPlaybackOwner = createSnapshotPlaybackOwner();
   let commandAuthorityGeneration = 0;
   let commandMediaGeneration = 0;
   let commandPlayback: { roomId: string; playback: ProRoomPlaybackCheckpoint } | null = null;
+
+  function createSnapshotPlaybackOwner(): PlaybackCommitOwner {
+    const generation = snapshotPlaybackGeneration;
+    return () => generation === snapshotPlaybackGeneration && !snapshotPlaybackBlocked;
+  }
+
+  function invalidateSnapshotPlaybackOwner(): void {
+    snapshotPlaybackGeneration += 1;
+    snapshotPlaybackOwner = createSnapshotPlaybackOwner();
+  }
+
+  function observeSystemAudioOwnership(
+    view: Pick<ProRoomSystemAudioViewState, 'roomCode' | 'phase' | 'initialized'>,
+  ): void {
+    const context = getState('room.context');
+    if (context.kind !== 'pro' || view.roomCode !== context.roomId) return;
+    // The persisted checkpoint describes playback underneath a live share.
+    // Retire already-waiting restores as well as new heartbeat restores. Keep
+    // that fence through publisher recovery (live -> preparing -> live/idle).
+    const blocked =
+      view.phase === 'live'
+        ? true
+        : view.initialized && view.phase === 'idle'
+          ? false
+          : snapshotPlaybackBlocked;
+    if (blocked === snapshotPlaybackBlocked) return;
+    snapshotPlaybackBlocked = blocked;
+    invalidateSnapshotPlaybackOwner();
+  }
 
   function rememberCommandPlayback(roomId: string, playback: ProRoomPlaybackCheckpoint): void {
     const previous = commandPlayback;
@@ -1646,9 +1681,16 @@ function createImplementation(
     snapshot: ProRoomSnapshot,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
   ): Promise<void> {
+    const snapshotOwner = snapshotPlaybackOwner;
+    // Reuse the default owner identity so repeated heartbeat snapshots still
+    // coalesce. A caller's narrower reconciliation lifetime remains in force.
+    const restoreIsCurrent =
+      isRequestCurrent === canonicalPlaybackCommitOwner
+        ? snapshotOwner
+        : () => snapshotOwner() && isRequestCurrent();
     const lease = ports.capturePlaylistLease();
     if (
-      !isRequestCurrent() ||
+      !restoreIsCurrent() ||
       !lease ||
       lease.roomCode !== snapshot.roomCode ||
       !ports.isPlaylistLeaseCurrent(lease)
@@ -1661,7 +1703,7 @@ function createImplementation(
         snapshot.playback,
         snapshot.roomCode,
         snapshot.presence.coordinatorEpoch,
-        isRequestCurrent,
+        restoreIsCurrent,
       );
       return;
     }
@@ -1674,13 +1716,13 @@ function createImplementation(
         fallbackTimeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
         signal: ports.getRoomAbortSignal(),
       });
-      if (!calibrated || !isRequestCurrent() || !ports.isPlaylistLeaseCurrent(lease)) return;
+      if (!calibrated || !restoreIsCurrent() || !ports.isPlaylistLeaseCurrent(lease)) return;
     }
     await restorePlaybackCheckpoint(
       snapshot.playback,
       snapshot.roomCode,
       snapshot.presence.coordinatorEpoch,
-      isRequestCurrent,
+      restoreIsCurrent,
     );
   }
 
@@ -2161,6 +2203,7 @@ function createImplementation(
   }
 
   function resetPlaylistRuntime(): void {
+    invalidateSnapshotPlaybackOwner();
     commandPlayback = null;
     commandMediaGeneration += 1;
     state.cancelledCheckpointRecovery = null;
@@ -2184,6 +2227,10 @@ function createImplementation(
   }
 
   function stopLifecycle(): void {
+    unregisterSystemAudioState?.();
+    unregisterSystemAudioState = null;
+    snapshotPlaybackBlocked = false;
+    invalidateSnapshotPlaybackOwner();
     commandPlayback = null;
     commandMediaGeneration += 1;
     state.cancelledCheckpointRecovery = null;
@@ -2213,6 +2260,13 @@ function createImplementation(
   }
 
   function startLifecycle(): void {
+    unregisterSystemAudioState?.();
+    invalidateSnapshotPlaybackOwner();
+    unregisterSystemAudioState = bus.on(
+      'pro-system-audio:state-changed',
+      observeSystemAudioOwnership,
+    );
+    observeSystemAudioOwnership(getProSystemAudioViewState());
     unregisterCommandAuthority?.();
     unregisterCommandAuthority = bus.on('state:room.context', () => {
       const context = getState('room.context');

@@ -11774,13 +11774,13 @@ html:not(.ios-standalone) body {
 }
 
 .yt-search-skeleton .yt-search-thumb {
-  background: var(--surface-2);
+  background: var(--surface-3);
 }
 
 .yt-search-skeleton .yt-search-title {
   background-image:
-    linear-gradient(var(--surface-2), var(--surface-2)),
-    linear-gradient(var(--surface-2), var(--surface-2));
+    linear-gradient(var(--surface-3), var(--surface-3)),
+    linear-gradient(var(--surface-3), var(--surface-3));
   background-size:
     90% 0.75em,
     65% 0.75em;
@@ -11792,7 +11792,7 @@ html:not(.ios-standalone) body {
 
 .yt-search-skeleton .yt-search-channel {
   height: 1.3em;
-  background: linear-gradient(var(--surface-2), var(--surface-2)) left center / 42% 0.75em no-repeat;
+  background: linear-gradient(var(--surface-3), var(--surface-3)) left center / 42% 0.75em no-repeat;
 }
 
 [dir='rtl'] .yt-search-skeleton .yt-search-title {
@@ -11808,10 +11808,10 @@ html:not(.ios-standalone) body {
 @keyframes yt-search-skeleton-pulse {
   0%,
   100% {
-    opacity: 0.6;
+    opacity: 0.5;
   }
   50% {
-    opacity: 1;
+    opacity: 0.8;
   }
 }
 

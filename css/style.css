@@ -11808,10 +11808,10 @@ html:not(.ios-standalone) body {
 @keyframes yt-search-skeleton-pulse {
   0%,
   100% {
-    opacity: 0.5;
+    opacity: 0.25;
   }
   50% {
-    opacity: 0.8;
+    opacity: 0.5;
   }
 }
 

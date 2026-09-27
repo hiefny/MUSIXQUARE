@@ -718,7 +718,11 @@ export function isLocalFileStartPending(): boolean {
   );
 }
 
-/** An output-only rebuild must retain the already published start deadline. */
+/**
+ * An output-only rebuild must retain the already published room deadline.
+ * A negative manual offset can keep this device silent after that deadline;
+ * that participant-local hold must not become a second canonical delay.
+ */
 export function getLocalFilePendingStartDeadlineMs(): number | undefined {
   // Demo output has no queue occurrence and therefore no Standard queue
   // anchor. Its scheduled source still owns a real audio-clock deadline.
@@ -790,8 +794,8 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   }
 
   if (isNaN(pos)) pos = 0;
-  // A scheduled seek/resume must hold its requested position until audio
-  // starts, even when the requested offset is greater than the lead time.
+  // A scheduled seek/resume must hold its requested room position until the
+  // shared start, independently of this device's manual output offset.
   if (pos < (startedAtValid ? pausedAt : 0)) pos = pausedAt;
   if (duration > 0 && pos > duration) pos = duration;
 
@@ -1728,11 +1732,13 @@ async function _internalPlay(
         }
       };
 
-      // Determine the exact audio-context time to start
-      const startWhen = effectiveScheduleDelay > 0 ? ctx.currentTime + effectiveScheduleDelay : 0;
-
-      // Apply manual nudge to the audible start position
+      // A negative output offset can put the requested sample before zero.
+      // Keep that residual as participant-local silence instead of discarding
+      // it when clamping the sample position. Only the physical source waits:
+      // the published start, logical clock and room end retain their deadline.
       const nudgeOffset = safeOffset + localOffset;
+      const outputDelay = effectiveScheduleDelay + Math.max(0, -nudgeOffset);
+      const startWhen = outputDelay > 0 ? ctx.currentTime + outputDelay : 0;
       let finalStartPos = nudgeOffset;
       if (duration > 0) {
         finalStartPos = Math.max(0, Math.min(duration - 0.001, nudgeOffset));
@@ -1773,8 +1779,9 @@ async function _internalPlay(
   }
 
   // Update timing
-  // startedAt = wall-clock time when playback would have started from 0:00
-  //   = now - playbackPosition + syncCorrection
+  // This is the logical anchor readTrackPosition uses to recover room time;
+  // it is not the clamped source's physical start. Keep the participant-local
+  // pre-zero hold out of this clock and the published canonical deadline.
   const startedAt = getCurrentTime() + effectiveScheduleDelay - safeOffset + localOffset;
   setState('player.startedAt', startedAt);
   setState('player.pausedAt', safeOffset);

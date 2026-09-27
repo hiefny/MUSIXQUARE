@@ -73,6 +73,7 @@ vi.mock('../_state.ts', async (importOriginal) => {
 });
 
 vi.mock('../zero-start.ts', () => ({
+  isYouTubeZeroStartInFlight: vi.fn(() => false),
   isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
 }));
 

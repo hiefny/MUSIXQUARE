@@ -11,12 +11,14 @@ export interface PendingAutoSyncOptions {
 }
 
 interface YouTubePlayerRuntimeHooks {
+  cancelPendingAutoSync(): void;
   consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null;
   isYouTubeZeroStartExternalFallbackActive(): boolean;
   setPendingAutoSyncOnReady(active: boolean, options?: PendingAutoSyncOptions | null): void;
 }
 
 const unavailableHooks: YouTubePlayerRuntimeHooks = {
+  cancelPendingAutoSync: () => undefined,
   consumePendingAutoSyncOnReady: () => null,
   isYouTubeZeroStartExternalFallbackActive: () => false,
   setPendingAutoSyncOnReady: () => undefined,
@@ -30,6 +32,11 @@ let runtimeHooks = unavailableHooks;
  */
 export function configureYouTubePlayerRuntimeHooks(next: YouTubePlayerRuntimeHooks): void {
   runtimeHooks = next;
+}
+
+/** A trusted newer host command owns any still-pending participant-local start. */
+export function cancelPendingYouTubeStartFromSync(): void {
+  runtimeHooks.cancelPendingAutoSync();
 }
 
 export function consumePendingAutoSyncOnReadyFromIframe(): PendingAutoSyncOptions | null {

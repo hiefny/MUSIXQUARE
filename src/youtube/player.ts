@@ -711,6 +711,22 @@ export function cancelYtAutoSync(transferPlayerState = false): void {
 }
 
 let proAuthorityYouTubeCommitGeneration = 0;
+let proYouTubeLocalPauseGeneration = 0;
+let cancelProYouTubeCommitWait: (() => void) | null = null;
+
+/** A local PAUSE or newer commit must not leave an older release wait queued. */
+function waitForProYouTubeCommit(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      globalThis.clearTimeout(timer);
+      if (cancelProYouTubeCommitWait === finish) cancelProYouTubeCommitWait = null;
+      resolve();
+    };
+    const timer = globalThis.setTimeout(finish, ms);
+    cancelProYouTubeCommitWait = finish;
+  });
+}
+
 const proYouTubeLeadSession = new ProYouTubeLeadSession();
 const proYouTubeLeadCalibrationTimers = new Set<ReturnType<typeof globalThis.setTimeout>>();
 let proYouTubeLeadSessionKey: string | null = null;
@@ -864,6 +880,30 @@ export async function applyProPlaybackYouTubeCommit(
   }
   if (!request.queueItemId) return false;
   const generation = ++proAuthorityYouTubeCommitGeneration;
+  cancelProYouTubeCommitWait?.();
+  const localPauseGeneration = proYouTubeLocalPauseGeneration;
+  const requestedPlayer = getYouTubePlayer();
+  // A newer local PAUSE consumes this exact canonical frame without starting
+  // audio. Report it as handled: reporting media failure would make the PRO
+  // controller prepare/catch up the same frame and undo the participant's pause.
+  const consumedByLocalPause = (): boolean => {
+    const room = getState('room.context');
+    return (
+      request.state === 'playing' &&
+      localPauseGeneration !== proYouTubeLocalPauseGeneration &&
+      generation === proAuthorityYouTubeCommitGeneration &&
+      request.isCurrent?.() !== false &&
+      room.kind === 'pro' &&
+      room.roomId === request.authority.roomId &&
+      room.epoch === request.authority.roomEpoch &&
+      getYouTubePlayer() === requestedPlayer &&
+      requestedPlayer !== null &&
+      getCurrentQueueItemId() === request.queueItemId &&
+      isPlaybackModeYouTube() &&
+      (!request.youtubeVideoId ||
+        requestedPlayer.getVideoData?.()?.video_id === request.youtubeVideoId)
+    );
+  };
   clearProYouTubeLeadCalibrationTimers();
   cancelYtAutoSync();
 
@@ -913,6 +953,7 @@ export async function applyProPlaybackYouTubeCommit(
         timingMode: request.timingMode,
         timelineLeadMs: request.timingMode === 'zero-start' ? lead.state.timelineLeadMs : undefined,
       });
+      if (consumedByLocalPause()) return true;
       if (
         committed.status !== 'applied' ||
         request.isCurrent?.() === false ||
@@ -920,7 +961,13 @@ export async function applyProPlaybackYouTubeCommit(
       ) {
         return false;
       }
-      setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
+      setState(
+        'sync.youtubeCoordinatorAppliedOffset',
+        committed.targetSeconds -
+          target.canonicalTime -
+          target.localStartDelayMs / 1000 -
+          committed.releaseLatenessMs / 1000,
+      );
       setPlaybackYouTubePlaying();
       bus.emit('ui:update-play-state', true);
       if (request.timingMode === 'zero-start') {
@@ -964,8 +1011,10 @@ export async function applyProPlaybackYouTubeCommit(
     : 0;
   const scheduleDeadlineMs = performance.now() + delayMs;
   if (delayMs > 0) {
-    await delay(delayMs);
+    if (request.state === 'playing') await waitForProYouTubeCommit(delayMs);
+    else await delay(delayMs);
   }
+  if (consumedByLocalPause()) return true;
   if (request.isCurrent?.() === false || generation !== proAuthorityYouTubeCommitGeneration) {
     return false;
   }
@@ -997,7 +1046,8 @@ export async function applyProPlaybackYouTubeCommit(
         setYtAutoplayIntent(false);
         player.pauseVideo?.();
         player.seekTo?.(0, true);
-        await delay(localWait);
+        await waitForProYouTubeCommit(localWait);
+        if (consumedByLocalPause()) return true;
         if (
           request.isCurrent?.() === false ||
           generation !== proAuthorityYouTubeCommitGeneration ||
@@ -1115,6 +1165,11 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   // mode ownership has moved on. Revoke before any asynchronous server result
   // can reopen the physical output gate on the parked/replacement player.
   _proPlaybackPauseGateToken = null;
+  // Teardown invalidates a pending direct commit even if the same iframe and
+  // queue item are reclaimed before its cancelled wait resumes.
+  proAuthorityYouTubeCommitGeneration++;
+  cancelProYouTubeCommitWait?.();
+  clearProYouTubeLeadCalibrationTimers();
   cancelYouTubeAuthorityPreparation(true);
   getYtScope()?.dispose();
   setYtScope(null);
@@ -3046,6 +3101,13 @@ export function initYouTube(): void {
         cancelYtAutoSync();
         cancelGuestRendezvous();
         setLocalYouTubePaused(true);
+        if (getState('room.context').kind === 'pro') {
+          proYouTubeLocalPauseGeneration += 1;
+          cancelYouTubeAuthorityPreparation();
+          cancelProYouTubeCommitWait?.();
+          clearProYouTubeLeadCalibrationTimers();
+          setYtAutoplayIntent(false);
+        }
         if (player && player.getPlayerState() !== YT.PlayerState.PAUSED) player.pauseVideo();
         return;
       }
@@ -4310,6 +4372,7 @@ export function initYouTube(): void {
 // after this module has initialized every backing binding; iframe.ts can then
 // consume them without a static back-edge into this coordinator.
 configureYouTubePlayerRuntimeHooks({
+  cancelPendingAutoSync: cancelYtAutoSync,
   consumePendingAutoSyncOnReady: consumePendingAutoSyncOnReadyOwned,
   isYouTubeZeroStartExternalFallbackActive: isYouTubeZeroStartExternalFallbackActiveOwned,
   setPendingAutoSyncOnReady,

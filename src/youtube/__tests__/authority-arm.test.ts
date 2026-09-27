@@ -648,4 +648,84 @@ describe('YouTubeAuthorityArmController', () => {
     expect(player.__videoId).toBe('next-video');
     expect(player.__currentTime).toBe(3);
   });
+
+  it.each([
+    { platform: 'other', target: 0, hold: 9_999, learned: 0 },
+    { platform: 'other', target: 9.999, hold: 0, learned: 0 },
+    { platform: 'android', target: 0, hold: 9_999, learned: 40 },
+    { platform: 'android', target: 9.999, hold: 0, learned: -40 },
+  ] as const)(
+    'catches up only callback lateness while retaining $platform hold=$hold and learned=$learned',
+    async ({ platform, target, hold, learned }) => {
+      const { controller, player } = makeHarness({ platform });
+      await prepareReady(controller, 'resident', target);
+      const baseLead = getYouTubeAuthorityPlatformLeadMsForTests(platform);
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 699,
+        localStartDelayMs: hold,
+        timelineLeadMs: learned,
+        timingMode: 'zero-start',
+      });
+      // Model a blocked event loop: the clock moves, but no timer can run.
+      vi.setSystemTime(Date.now() + 1_500);
+      await vi.advanceTimersByTimeAsync(699 + hold - baseLead - learned);
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        platformLeadMs: baseLead,
+        timelineLeadMs: learned,
+        localStartDelayMs: hold,
+        releaseLatenessMs: 1_500,
+        targetSeconds: target + 1.5,
+        catchUpSeconds: 1.5,
+        callToPlayingMs: 0,
+      });
+      expect(player.__currentTime).toBeCloseTo(target + 1.5, 3);
+    },
+  );
+
+  it('bounds delayed catch-up at the media end without changing the canonical wait', async () => {
+    const { controller, player } = makeHarness();
+    player.__duration = 3;
+    await prepareReady(controller, 'resident', 2.5);
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 699,
+      timingMode: 'zero-start',
+    });
+    vi.setSystemTime(Date.now() + 1_500);
+    await vi.advanceTimersByTimeAsync(699);
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      targetSeconds: 3,
+      catchUpSeconds: 0.5,
+      releaseLatenessMs: 1_500,
+    });
+    expect(player.__currentTime).toBe(3);
+    expect(
+      player.__log
+        .filter((call) => call.op === 'seekTo')
+        .every((call) => Number(call.args?.[0]) <= 3),
+    ).toBe(true);
+  });
+
+  it('keeps ordinary callback jitter within the existing no-seek tolerance', async () => {
+    const { controller, player } = makeHarness();
+    await prepareReady(controller, 'resident', 0);
+    const seeks = count(player, 'seekTo');
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 699,
+      timingMode: 'zero-start',
+    });
+    vi.setSystemTime(Date.now() + 25);
+    await vi.advanceTimersByTimeAsync(699);
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      targetSeconds: 0,
+      catchUpSeconds: 0,
+      releaseLatenessMs: 0,
+    });
+    expect(count(player, 'seekTo')).toBe(seeks);
+  });
 });

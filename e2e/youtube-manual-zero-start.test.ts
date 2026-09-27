@@ -55,12 +55,15 @@ for (const [label, hostMs, guestMs] of [
   ['guest negative', 0, -250],
   ['host negative', -250, 0],
   ['host long negative', -5000, 0],
+  ['guest minimum', 0, -9999],
+  ['host minimum', -9999, 0],
+  ['opposite limits', 9999, -9999],
   ['both negative', -250, -250],
   ['guest positive control', 0, 250],
   ['host positive control', 250, 0],
 ] as const) {
   test(`preserves ${label} manual sync across the next YouTube start`, async ({ browser }) => {
-    test.setTimeout(90000);
+    test.setTimeout(110000);
     const pair = await createHostGuestContexts(browser);
     try {
       for (const page of [pair.hostPage, pair.guestPage]) {
@@ -95,7 +98,9 @@ for (const [label, hostMs, guestMs] of [
         playing(pair.guestPage, 'FAKEVID0001'),
       ]);
       // Allow the initial protocol and a fresh ordinary host heartbeat to settle.
-      await pair.hostPage.waitForTimeout(7000);
+      // A minimum offset must be tested away from the beginning of the current
+      // video, before checking its separate start-at-zero scheduling contract.
+      await pair.hostPage.waitForTimeout(Math.min(hostMs, guestMs) < -7000 ? 15000 : 7000);
       if (hostMs) {
         await editOffset(pair.hostPage, hostMs);
         await pair.hostPage.waitForTimeout(4500);

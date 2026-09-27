@@ -14,8 +14,11 @@ import {
   createProPlaybackAuthorityToken,
   getProPlaybackAuthorityKey,
   registerProPlaybackCommandHandler,
+  registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
+  type ProPlaybackMediaEndpoint,
 } from '../../pro-room/playback-authority-hooks.ts';
+import { ProRoomPlaybackController } from '../../pro-room/playback-controller.ts';
 
 const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444' as QueueItemId;
 const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555' as QueueItemId;
@@ -46,6 +49,12 @@ vi.mock('../../audio/engine.ts', () => ({
 vi.mock('../../audio/effects.ts', () => ({
   applySettings: vi.fn(async () => {}),
   setEngineMode: vi.fn(),
+}));
+
+vi.mock('../../pro-room/network-bridge.ts', () => ({
+  getProRoomServerNow: () => Date.now(),
+  isProRoomServerClockCalibrated: () => true,
+  waitForFreshProRoomServerClockCalibration: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../ui/player-controls.ts', () => ({
@@ -131,7 +140,7 @@ afterEach(() => {
 
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { registerProRoomLocalPlaybackTimeline } from '../../pro-room/local-playback-timeline.ts';
-import { initYouTubeSync } from '../sync.ts';
+import { initYouTubeSync, resetYouTubeSyncState } from '../sync.ts';
 import {
   prepareStandardHostManualOffsetRuntimeForTests,
   resetStandardHostManualOffsetTransaction,
@@ -140,7 +149,10 @@ import { toCanonicalYouTubeTime } from '../local-offset.ts';
 
 let unregisterTimeline: (() => void) | null = null;
 let nextRoomEpoch = 100;
+const controllers: ProRoomPlaybackController[] = [];
 afterEach(async () => {
+  for (const controller of controllers.splice(0)) controller.stopLifecycle();
+  registerProPlaybackMediaEndpoint(null);
   (await import('../iframe.ts')).cancelYouTubeAuthorityPreparation();
   resetStandardHostManualOffsetTransaction();
   clearAllManagedTimers();
@@ -155,6 +167,7 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
   await prepareStandardHostManualOffsetRuntimeForTests();
   const state = await import('../_state.ts');
   state.resetYouTubeModuleState();
+  resetYouTubeSyncState();
   const { applyProPlaybackYouTubeCommit } = await import('../player.ts');
   const { prepareYouTubeAuthorityOccurrence, cancelYouTubeAuthorityPreparation } =
     await import('../iframe.ts');
@@ -333,6 +346,7 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
       isCurrent: () => true,
     });
   return {
+    roomEpoch,
     player,
     currentTime,
     applyManual,
@@ -346,7 +360,274 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
   };
 }
 
+async function installMediaSessionActions() {
+  const { initYouTube } = await import('../player.ts');
+  const { initMediaSession } = await import('../../player/media-session.ts');
+  const actions = new Map<MediaSessionAction, MediaSessionActionHandler | null>();
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'mediaSession');
+  Object.defineProperty(navigator, 'mediaSession', {
+    configurable: true,
+    value: {
+      metadata: null,
+      playbackState: 'none',
+      setActionHandler: (action: MediaSessionAction, handler: MediaSessionActionHandler | null) =>
+        actions.set(action, handler),
+    },
+  });
+  (window as unknown as { YT: unknown }).YT = { PlayerState: { PLAYING: 1, PAUSED: 2 } };
+  initYouTube();
+  initMediaSession();
+  return {
+    trigger(action: MediaSessionAction) {
+      expect(actions.has(action)).toBe(true);
+      actions.get(action)?.({ action });
+    },
+    restore() {
+      if (descriptor) Object.defineProperty(navigator, 'mediaSession', descriptor);
+      else Reflect.deleteProperty(navigator, 'mediaSession');
+    },
+  };
+}
+
+function delayOneTimer(targetDelayMs: number, extraMs: number) {
+  const original = globalThis.setTimeout;
+  let delayed = false;
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
+    if (!delayed && ms === targetDelayMs) {
+      delayed = true;
+      return original(callback, ms + extraMs, ...args);
+    }
+    return original(callback, ms, ...args);
+  });
+  return () => delayed;
+}
+
 describe('PRO manual offset across YouTube zero-start', () => {
+  it.each(['prepared', 'direct'] as const)(
+    'consumes a pending %s release on an actual member Media Session pause, then allows explicit resume',
+    async (path) => {
+      const endpoint = await createProEndpoint();
+      await endpoint.applyManual(-9.999);
+      const actions = await installMediaSessionActions();
+      try {
+        const { isLocalYouTubePaused, setLocalYouTubePaused } = await import('../_state.ts');
+        const { authority, preparing } = endpoint.prepareNext();
+        await vi.advanceTimersByTimeAsync(1_000);
+        await preparing;
+        const pending = path === 'prepared' ? endpoint.commit(authority) : endpoint.commitDirect(0);
+        await vi.advanceTimersByTimeAsync(500);
+        actions.trigger('pause');
+        expect(isLocalYouTubePaused()).toBe(true);
+        await expect(pending).resolves.toBe(true);
+        const plays = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(endpoint.player.getPlayerState()).toBe(2);
+        expect(endpoint.player.playVideo).toHaveBeenCalledTimes(plays);
+
+        // This is the registered Media Session PLAY -> common local-rejoin
+        // seam. Its PRO adapter clears the pause before requesting a fresh
+        // canonical commit; an old consumed frame must not suppress that one.
+        let resumed: Promise<boolean> | null = null;
+        const rejoin = vi.fn(() => {
+          setLocalYouTubePaused(false);
+          resumed = endpoint.commitDirect(20);
+        });
+        bus.on('playback:local-output-rejoin', rejoin);
+        actions.trigger('play');
+        expect(rejoin).toHaveBeenCalledOnce();
+        await expect(resumed).resolves.toBe(true);
+        expect(endpoint.player.getPlayerState()).toBe(1);
+        expect(endpoint.currentTime()).toBeCloseTo(10.001, 3);
+        expect(getState('sync.youtubeLocalOffset')).toBe(-9.999);
+      } finally {
+        actions.restore();
+      }
+    },
+  );
+
+  it.each(['canonical-pause', 'queue', 'teardown-reentry'] as const)(
+    'does not consume a stale direct frame after local pause followed by %s',
+    async (replacement) => {
+      const endpoint = await createProEndpoint();
+      await endpoint.applyManual(-9.999);
+      const actions = await installMediaSessionActions();
+      try {
+        const { stopYouTubeMode } = await import('../player.ts');
+        const state = await import('../_state.ts');
+        const { preparing } = endpoint.prepareNext();
+        await vi.advanceTimersByTimeAsync(1_000);
+        await preparing;
+        const pending = endpoint.commitDirect(0);
+        await vi.advanceTimersByTimeAsync(500);
+        actions.trigger('pause');
+        if (replacement === 'canonical-pause') {
+          await expect(endpoint.commitDirect(0.5, 'paused')).resolves.toBe(true);
+        } else if (replacement === 'queue') {
+          setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+        } else {
+          stopYouTubeMode();
+          state.setYouTubePlayer(endpoint.player);
+          state.markYtPlayerReady(endpoint.player);
+          setPlaybackYouTubePlaying();
+        }
+        await expect(pending).resolves.toBe(false);
+        const plays = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(endpoint.player.getPlayerState()).toBe(2);
+        expect(endpoint.player.playVideo).toHaveBeenCalledTimes(plays);
+      } finally {
+        actions.restore();
+      }
+    },
+  );
+
+  it.each([-9.999, 0, 9.999])(
+    'catches up a 1.5 s late prepared callback at offset %ss without changing the learned lead',
+    async (offset) => {
+      const endpoint = await createProEndpoint();
+      await endpoint.applyManual(offset);
+      const { authority, preparing } = endpoint.prepareNext();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await preparing;
+      const delay = 699 + Math.max(0, -offset * 1000);
+      const delayed = delayOneTimer(delay, 1_500);
+      const release = endpoint.commit(authority);
+      await vi.advanceTimersByTimeAsync(delay + 1_500);
+      await expect(release).resolves.toBe(true);
+      expect(delayed()).toBe(true);
+      expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, offset) + 1.5, 3);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset, 3);
+      endpoint.setTimelineLive(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, offset) + 61.5, 3);
+
+      // A second on-time transition must still release at the ordinary
+      // deadline. Timer backlog is not a device-start latency observation.
+      const next = endpoint.prepareNext();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await next.preparing;
+      const plays = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+      const onTime = endpoint.commit(next.authority);
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(endpoint.player.playVideo).toHaveBeenCalledTimes(plays);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(onTime).resolves.toBe(true);
+      expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, offset), 3);
+    },
+  );
+
+  it('records a locally paused prepared commit as applied in the actual PRO controller without a fallback retry', async () => {
+    const endpoint = await createProEndpoint();
+    await endpoint.applyManual(-9.999);
+    const actions = await installMediaSessionActions();
+    try {
+      const { preparing } = endpoint.prepareNext();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await preparing;
+      endpoint.cancel();
+      const { prepareYouTubeAuthorityOccurrence } = await import('../iframe.ts');
+      const { applyProPlaybackYouTubeCommit } = await import('../player.ts');
+      const prepare = vi.fn<ProPlaybackMediaEndpoint['prepare']>(async (request) => {
+        const result = await prepareYouTubeAuthorityOccurrence({
+          authorityKey: getProPlaybackAuthorityKey(request.authority),
+          queueItemId: request.queueItemId,
+          videoId: request.youtubeVideoId!,
+          subIndex: request.youtubeSubIndex ?? 0,
+          positionSeconds: request.positionSeconds,
+        });
+        return result.ready
+          ? {
+              status: 'ready',
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              mediaKind: 'youtube',
+              durationSeconds: 180,
+              youtubeVideoId: request.youtubeVideoId!,
+              youtubeSubIndex: 0,
+            }
+          : {
+              status: 'failed',
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              reason: 'media-unavailable',
+            };
+      });
+      const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) =>
+        (await applyProPlaybackYouTubeCommit(request))
+          ? { status: 'applied', authority: request.authority }
+          : { status: 'failed', authority: request.authority, reason: 'media-unavailable' },
+      );
+      registerProPlaybackMediaEndpoint({ prepare, commit });
+      const checkpoint = {
+        coordinatorEpoch: endpoint.roomEpoch,
+        revision: 2,
+        state: 'playing' as const,
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        positionSeconds: 0,
+        updatedAtMs: Date.now() + 1_699,
+        youtubeVideoId: 'VIDEOBBBBBB',
+        youtubeSubIndex: 0,
+      };
+      const canonical = {
+        roomCode: '000001',
+        revision: 2,
+        playlistRevision: 1,
+        playlist: [],
+        currentQueueItemId: SECOND_QUEUE_ITEM_ID,
+        playback: checkpoint,
+        presence: { coordinatorEpoch: endpoint.roomEpoch },
+      } as unknown as ProRoomSnapshot;
+      const applied = vi.fn();
+      bus.on('sync:diagnostic-pro-checkpoint', applied);
+      const ports = {
+        isActive: () => true,
+        getCanonicalSnapshot: () => canonical,
+        getPlaylistSnapshot: () => canonical,
+        capturePlaylistLease: () => ({ generation: 1, roomCode: '000001' }),
+        isPlaylistLeaseCurrent: () => true,
+        getRoomAbortSignal: () => undefined,
+        subscribePlaylistProjection: () => () => undefined,
+        runHeartbeat: vi.fn().mockResolvedValue(undefined),
+        reportPlaybackTransitionReady: vi.fn().mockResolvedValue('waiting'),
+        executePlaybackCommand: vi.fn(),
+        recoverTerminalSession: vi.fn().mockResolvedValue(undefined),
+      };
+      const controller = new ProRoomPlaybackController(ports);
+      controllers.push(controller);
+      controller.acceptPrepare({
+        type: 'pro-playback-prepare',
+        transitionId: 'next-B',
+        serverTimeMs: Date.now(),
+        deadlineAtMs: Date.now() + 3_000,
+        basePlaybackRevision: 1,
+        target: checkpoint,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(ports.reportPlaybackTransitionReady).toHaveBeenCalledOnce();
+      controller.acceptCommit({
+        type: 'pro-playback-commit',
+        transitionId: 'next-B',
+        serverTimeMs: Date.now(),
+        executeAtMs: Date.now() + 699,
+        playback: checkpoint,
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(commit).toHaveBeenCalledOnce();
+      actions.trigger('pause');
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(endpoint.player.getPlayerState()).toBe(2);
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(commit).toHaveBeenCalledOnce();
+      expect(applied).toHaveBeenCalledWith(expect.objectContaining({ revision: 2 }));
+      expect(ports.runHeartbeat).toHaveBeenCalledOnce();
+      await controller.restorePersistedPlayback(canonical);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(endpoint.player.getPlayerState()).toBe(2);
+    } finally {
+      actions.restore();
+    }
+  });
+
   it.each(['owner', 'member'] as const)(
     'keeps a %s negative offset through the next track without changing the canonical deadline',
     async (role) => {

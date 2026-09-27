@@ -80,7 +80,11 @@ import {
   LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
 import { getEffectiveYouTubePlayLatencyMs } from './play-latency.ts';
-import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';
+import { isYouTubeZeroStartInFlight, isYouTubeZeroStartProtocolActive } from './zero-start.ts';
+import {
+  cancelPendingYouTubeStartFromSync,
+  isYouTubeZeroStartExternalFallbackActiveFromIframe as isYouTubeZeroStartExternalFallbackActive,
+} from './player-runtime-bridge.ts';
 import {
   cancelStandardHostManualOffsetTransaction,
   isStandardHostManualOffsetTransactionPending,
@@ -820,6 +824,14 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(hostTime, hostState, hostClock, (data.videoId as string) || '', hostSubIndex);
 
+  // This speaker may still be waiting for its negative manual offset after
+  // the host has resumed ordinary heartbeats. Keep those snapshots fresh,
+  // but leave iframe and play-intent ownership with its scheduled release or
+  // bounded fallback. Otherwise the legacy PLAYING projection starts it
+  // early. Explicit YOUTUBE_STATE/PLAY/STOP commands retain their separate
+  // cancellation paths and can supersede this local wait immediately.
+  if (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackActive()) return;
+
   // A paused/stopped canonical snapshot carries no scripted-play intent.
   // Clear both pieces before the player/mode readiness guard so a paused
   // late-join bootstrap cannot inherit the load's iOS watchdog or recreate a
@@ -1558,6 +1570,12 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   if (isExplicitTransportAction) {
     clearPendingManualRendezvous();
     clearPendingManualOffsetApply();
+    if (isYouTubeZeroStartProtocolActive() || isYouTubeZeroStartExternalFallbackActive()) {
+      // The host can have retired its own zero-start barrier while this
+      // speaker still waits. Its new command then arrives without ABORT.
+      // Retire the local release/fallback before applying that newer intent.
+      cancelPendingYouTubeStartFromSync();
+    }
   }
 
   // Record the host snapshot BEFORE the YouTube-mode guard. Late-join
@@ -1583,6 +1601,12 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     (data.videoId as string) || '',
     data.subIndex as number | undefined,
   );
+
+  if (
+    !isExplicitTransportAction &&
+    (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackActive())
+  )
+    return;
 
   const pending = _rt.pendingManualRendezvous;
   if (pending) {

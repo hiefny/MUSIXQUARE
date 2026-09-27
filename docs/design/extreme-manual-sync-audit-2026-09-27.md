@@ -13,6 +13,10 @@ The owner requested discovery and simulation, not another implementation pass.
 No runtime source, tracked test, main branch or production deployment was changed.
 Diagnostics live in ignored `scratch/extreme-sync-audit-2026-09-27/`.
 
+The owner subsequently authorized repair. See the separate
+[XS01–XS04 repair record](extreme-manual-sync-repair-2026-09-27.md) for that work;
+the counts and unrepaired behavior below describe the original audit baseline.
+
 ## Results
 
 Four independent causes were confirmed. Failed combinations are not separate

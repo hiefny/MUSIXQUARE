@@ -9,6 +9,10 @@
 | Environment | Windows, Node 24.20.0, Vitest 5, Node/jsdom·SQLite·가상 타이머 |
 | Related documents | [배포 준비 기록](../beta-release-readiness.md), [2차 발굴](beta-defect-harvest-2026-09-27-round-2.md), [C01–C03 수정](beta-defect-repair-2026-09-27-round-2.md) |
 
+후속 상태: 추가 발굴에서 새 결함이 확정되지 않아, 사용자 지시에 따라
+D01을 베타에서 수정했다. [4차 발굴·D01 수정 기록](beta-defect-harvest-2026-09-27-round-4.md)을 참조한다.
+아래 미수정·실패 표기는 발굴 당시의 관측을 보존한 것이다.
+
 미디어·전송, 방·권한·YouTube, 데모·UI·설정, 계정·API·서비스 워커를
 병렬 검토했다. **추가 확정 결함은 1건**이다. 2차에서 재현이 부족했던
 PRO 공유 도중 신규 입장 경계를 이번에 입증했다. B01–B04와 C01–C03은

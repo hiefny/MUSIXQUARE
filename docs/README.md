@@ -100,6 +100,9 @@ labeled portion still supports a current guard or operating interpretation:
 - [Beta defect harvest, round 3 — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-3.md) —
   one confirmed PRO late-join playback race during live system-audio sharing;
   discovery only, with focused controls and explicit reproduction limits.
+- [Beta defect harvest, round 4 and repair — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-4.md) —
+  no additional confirmed defects in the bounded review; repairs and verifies
+  the previously discovered PRO live-share snapshot restoration race.
 - [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — dated
   defect record with a maintained residual-boundary and verification addendum.
 - [Runtime scenario verification — 2026-05-31](runtime-scenario-verification-2026-05-31.md) —

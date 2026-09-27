@@ -7,6 +7,13 @@
 | Environment | Windows; pinned Node 24.20.0, Vitest 5, Playwright 1.63.0, Chromium revision 1243, WebKit revision 2359 |
 | Related     | [Discovery evidence](beta-full-qa-2026-09-27.md), [release readiness](../beta-release-readiness.md)     |
 
+The verified source tree was committed as
+`d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac`. Tests ran against the matching worktree
+before that commit. Final complete/critical runs compared 1,046 source,
+configuration and package files before and after execution with no hash changes;
+the intermediate timed-out run and final idle run also used identical sources.
+The following release-record update changes documentation only.
+
 The discovery report remains the record of the original failures. This change
 repairs FQA01 and QA-T01–QA-T03 on beta. It does not publish production, advance
 main, reactivate Operations Drift Audit, or change room policy or manual-offset

@@ -44,7 +44,7 @@ import {
 import { primeYouTubePlayer, waitForPendingYouTubePrimeBounce } from '../youtube/iframe.ts';
 import { YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS } from '../youtube/constants.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
-import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
@@ -895,7 +895,7 @@ type MainSyncUnavailableReason = 'no-media' | 'not-ready' | 'system-audio';
 function getMainSyncUnavailableReason(): MainSyncUnavailableReason | null {
   if (_mainSyncPending) return 'not-ready';
   if (isPlaybackModeSystemAudio()) return 'system-audio';
-  if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) return 'not-ready';
+  if (isPlaybackModeYouTube() && isYouTubeZeroStartSyncOwned()) return 'not-ready';
 
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();

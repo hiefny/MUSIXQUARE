@@ -143,6 +143,7 @@ beforeEach(() => {
     consumePendingAutoSyncOnReady: () => null,
     setPendingAutoSyncOnReady: () => undefined,
     isYouTubeZeroStartExternalFallbackActive: () => fallbackOwnsPlayer,
+    isYouTubeZeroStartExternalFallbackPending: () => fallbackOwnsPlayer,
   });
   host = { peer: 'host-one', open: true, send: vi.fn(), close: vi.fn(), on: vi.fn() };
   player = makeFakeYtPlayer({

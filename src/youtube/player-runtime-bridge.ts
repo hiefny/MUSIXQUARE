@@ -14,6 +14,7 @@ interface YouTubePlayerRuntimeHooks {
   cancelPendingAutoSync(): void;
   consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null;
   isYouTubeZeroStartExternalFallbackActive(): boolean;
+  isYouTubeZeroStartExternalFallbackPending(): boolean;
   setPendingAutoSyncOnReady(active: boolean, options?: PendingAutoSyncOptions | null): void;
 }
 
@@ -21,6 +22,7 @@ const unavailableHooks: YouTubePlayerRuntimeHooks = {
   cancelPendingAutoSync: () => undefined,
   consumePendingAutoSyncOnReady: () => null,
   isYouTubeZeroStartExternalFallbackActive: () => false,
+  isYouTubeZeroStartExternalFallbackPending: () => false,
   setPendingAutoSyncOnReady: () => undefined,
 };
 
@@ -45,6 +47,11 @@ export function consumePendingAutoSyncOnReadyFromIframe(): PendingAutoSyncOption
 
 export function isYouTubeZeroStartExternalFallbackActiveFromIframe(): boolean {
   return runtimeHooks.isYouTubeZeroStartExternalFallbackActive();
+}
+
+/** Includes the release acknowledgement after ordinary iframe events resume. */
+export function isYouTubeZeroStartExternalFallbackPendingFromSync(): boolean {
+  return runtimeHooks.isYouTubeZeroStartExternalFallbackPending();
 }
 
 export function setPendingAutoSyncOnReadyFromIframe(

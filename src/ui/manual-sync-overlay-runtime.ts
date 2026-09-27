@@ -22,7 +22,7 @@ import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { isFilePipelineBusyForPlay } from '../player/transport.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
-import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
 import { normalizeEmptyContentEditable, syncOverlayState } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
@@ -300,7 +300,7 @@ export function canUseManualSyncPanelRuntime(): boolean {
   const room = getRoomContext();
   const isProRoom = room.kind === 'pro';
   if (!hostConn?.open && !isProRoom && !isActiveStandardRoomCoordinator()) return false;
-  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
+  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartSyncOwned();
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
@@ -363,7 +363,7 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
     showToast(t('toast.sync_not_in_system_audio'));
     return;
   }
-  if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) {
+  if (isPlaybackModeYouTube() && isYouTubeZeroStartSyncOwned()) {
     close();
     showToast(t('toast.sync_not_ready'));
     return;

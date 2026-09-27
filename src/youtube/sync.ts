@@ -80,10 +80,11 @@ import {
   LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
 import { getEffectiveYouTubePlayLatencyMs } from './play-latency.ts';
-import { isYouTubeZeroStartInFlight, isYouTubeZeroStartProtocolActive } from './zero-start.ts';
+import { isYouTubeZeroStartInFlight } from './zero-start.ts';
+import { isYouTubeZeroStartSyncOwned } from './zero-start-ownership.ts';
 import {
   cancelPendingYouTubeStartFromSync,
-  isYouTubeZeroStartExternalFallbackActiveFromIframe as isYouTubeZeroStartExternalFallbackActive,
+  isYouTubeZeroStartExternalFallbackPendingFromSync as isYouTubeZeroStartExternalFallbackPending,
 } from './player-runtime-bridge.ts';
 import {
   cancelStandardHostManualOffsetTransaction,
@@ -250,7 +251,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // actions cancel zero-start before reaching this broadcaster, so the
   // established seek/pause path remains unchanged once the controller is no
   // longer in flight.
-  if (isYouTubeZeroStartProtocolActive()) return;
+  if (isYouTubeZeroStartSyncOwned()) return;
 
   // A Standard-host local seek is not authoritative until the iframe reports
   // the exact target (and, for playlists, confirms native auto-advance is
@@ -441,7 +442,7 @@ function isCurrentStateAction(action: GuestStateAction): boolean {
     !!action.hostConn?.open &&
     getCurrentQueueItemId() === action.queueItemId &&
     isPlaybackModeYouTube() &&
-    !isYouTubeZeroStartProtocolActive()
+    !isYouTubeZeroStartSyncOwned()
   );
 }
 
@@ -505,7 +506,7 @@ let _pendingManualOffsetApply: PendingManualOffsetApply | null = null;
 export function isGuestYouTubeTransitionPending(): boolean {
   return !!(
     _rt.rendezvous ||
-    isYouTubeZeroStartProtocolActive() ||
+    isYouTubeZeroStartSyncOwned() ||
     _rt.pendingManualRendezvous ||
     _pendingManualOffsetApply ||
     getManagedTimer('yt-clock-action') ||
@@ -526,7 +527,7 @@ function isCurrentRendezvous(attempt: GuestRendezvousAttempt): boolean {
       getState('youtube.currentSubIndex') === attempt.subIndex &&
       (player.getVideoData?.()?.video_id || '') === attempt.videoId &&
       isPlaybackModeYouTube() &&
-      !isYouTubeZeroStartProtocolActive()
+      !isYouTubeZeroStartSyncOwned()
     ) {
       return true;
     }
@@ -682,7 +683,7 @@ function isCurrentManualOffsetApply(pending: PendingManualOffsetApply): boolean 
       pending.requestedOffset === getYouTubeManualOffsetSec() &&
       pending.locallyPaused === isLocalYouTubePaused() &&
       isPlaybackModeYouTube() &&
-      !isYouTubeZeroStartProtocolActive()
+      !isYouTubeZeroStartSyncOwned()
     );
   } catch {
     return false;
@@ -770,7 +771,7 @@ function setCoordinatorManualYouTubeOffset(
   inputMode?: 'debounced' | 'committed',
 ): void {
   if (
-    isYouTubeZeroStartProtocolActive() ||
+    isYouTubeZeroStartSyncOwned() ||
     !isCanonicalYouTubeManualOffsetEndpoint() ||
     !Number.isFinite(requestedOffsetSeconds) ||
     !isPlaybackModeYouTube()
@@ -830,7 +831,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   // bounded fallback. Otherwise the legacy PLAYING projection starts it
   // early. Explicit YOUTUBE_STATE/PLAY/STOP commands retain their separate
   // cancellation paths and can supersede this local wait immediately.
-  if (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackActive()) return;
+  if (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackPending()) return;
 
   // A paused/stopped canonical snapshot carries no scripted-play intent.
   // Clear both pieces before the player/mode readiness guard so a paused
@@ -1087,7 +1088,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const notifyProgress = (message: string): void => {
     if (!opts.suppressProgressToast) notify(message);
   };
-  if (isYouTubeZeroStartProtocolActive()) {
+  if (isYouTubeZeroStartSyncOwned()) {
     notify(t('toast.sync_not_ready'));
     return { status: 'not-ready' };
   }
@@ -1570,7 +1571,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   if (isExplicitTransportAction) {
     clearPendingManualRendezvous();
     clearPendingManualOffsetApply();
-    if (isYouTubeZeroStartProtocolActive() || isYouTubeZeroStartExternalFallbackActive()) {
+    if (isYouTubeZeroStartSyncOwned()) {
       // The host can have retired its own zero-start barrier while this
       // speaker still waits. Its new command then arrives without ABORT.
       // Retire the local release/fallback before applying that newer intent.
@@ -1604,7 +1605,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
 
   if (
     !isExplicitTransportAction &&
-    (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackActive())
+    (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackPending())
   )
     return;
 

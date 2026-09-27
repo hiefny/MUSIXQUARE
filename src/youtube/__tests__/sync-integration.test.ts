@@ -1119,14 +1119,14 @@ describe('YouTube Sync — Regression Integration', () => {
       ).toBe(false);
     });
 
-    it('lets a newer host seek revoke a pending legacy fallback retry', async () => {
+    it('lets the host seek control revoke a pending legacy fallback retry', async () => {
       installPlayer({
         __state: 2,
         __currentTime: 0,
         __videoId: ZERO_START_VIDEO_ID,
       });
       const conn = installLiveZeroStartGuest();
-      const { initYouTube, scheduleYtAutoSync } = await importPlayer();
+      const { initYouTube } = await importPlayer();
       const { broadcast } = await import('../../network/peer.ts');
 
       initYouTube();
@@ -1138,16 +1138,18 @@ describe('YouTube Sync — Regression Integration', () => {
 
       const latestPlayer = installPlayer({
         __state: 2,
-        __currentTime: 42,
-        __videoId: 'dQw4w9WgXcQ',
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
       });
       vi.mocked(broadcast).mockClear();
-      scheduleYtAutoSync(42, { videoId: 'dQw4w9WgXcQ' });
+      bus.emit('youtube:seek-to', 42);
       expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
 
       vi.advanceTimersByTime(4_000);
 
       expect(latestPlayer.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
+      expect(latestPlayer.getCurrentTime()).toBe(42);
+      expect(latestPlayer.getPlayerState()).toBe(1);
       expect(
         vi
           .mocked(broadcast)
@@ -1158,6 +1160,49 @@ describe('YouTube Sync — Regression Integration', () => {
               message.videoId === ZERO_START_VIDEO_ID,
           ),
       ).toBe(false);
+    });
+
+    it('defers a late join bootstrap through host legacy recovery', async () => {
+      installPlayer({ __state: 2, __currentTime: 0, __videoId: ZERO_START_VIDEO_ID });
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube } = await importPlayer();
+      const { safeSend } = await import('../../network/peer.ts');
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      getYouTubePlayerMock.mockReturnValue(null);
+      vi.advanceTimersByTime(500);
+      expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
+      });
+      const lateJoin = dataConnection('host-recovery-late-join');
+      setState(
+        'network.activeHostConnByPeerId',
+        new Map([
+          [conn.peer, conn],
+          [lateJoin.peer, lateJoin],
+        ]),
+      );
+      vi.mocked(safeSend).mockClear();
+      bus.emit('network:peer-connected', lateJoin);
+      const bootstraps = () =>
+        vi
+          .mocked(safeSend)
+          .mock.calls.filter(
+            ([target, message]) => target === lateJoin && message.type === MSG.YOUTUBE_PLAY,
+          );
+      expect(bootstraps()).toHaveLength(0);
+      expect(getManagedTimer(`yt-zero-start-deferred-bootstrap-${lateJoin.peer}`)).not.toBeNull();
+
+      vi.advanceTimersByTime(500);
+      expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+      expect(player.getPlayerState()).toBe(1);
+      expect(bootstraps()).toHaveLength(1);
+      expect(bootstraps()[0]?.[1]).toMatchObject({ autoplay: true, videoId: ZERO_START_VIDEO_ID });
     });
 
     it('fences an escaped host-fallback callback after teardown transfers ownership', async () => {

@@ -14,6 +14,7 @@ export default defineConfig({
       'src/network/__tests__/*system-audio-sfu.test.ts',
       'src/audio/__tests__/{context-health,context-recovery,foreground-output-health,output-health,system-capture,system-capture-stop}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
+      'src/pro-room/__tests__/device-failure-sequence-qa.test.ts',
       'src/pro-room/__tests__/runtime-*.test.ts',
       'src/player/__tests__/{busy-guard,concurrency-invariants,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       'src/storage/__tests__/preload.test.ts',

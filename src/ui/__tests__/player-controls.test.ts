@@ -41,7 +41,7 @@ import {
 const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
-const zeroStartFacade = vi.hoisted(() => ({ active: false, inFlight: false }));
+const zeroStartFacade = vi.hoisted(() => ({ fallback: false, active: false, inFlight: false }));
 const platform = vi.hoisted(() => ({ android: false }));
 const youtubePrimer = vi.hoisted(() => ({
   prime: vi.fn((_options?: { retryPending?: boolean }) => false),
@@ -87,6 +87,11 @@ vi.mock('../../core/platform.ts', async (importOriginal) => ({
   get IS_ANDROID() {
     return platform.android;
   },
+}));
+
+vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
+  isYouTubeZeroStartExternalFallbackPendingFromSync: () => zeroStartFacade.fallback,
 }));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
@@ -153,6 +158,7 @@ beforeEach(() => {
   proSystemAudio.ownerName = null;
   proSystemAudio.coordinatorCompatible = true;
   zeroStartFacade.active = false;
+  zeroStartFacade.fallback = false;
   platform.android = false;
   zeroStartFacade.inFlight = false;
   proPlaybackRuntime.reconcile.mockResolvedValue(true);
@@ -3410,6 +3416,54 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
+  it('blocks external recovery through acknowledgement and enables Sync when it retires', async () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    zeroStartFacade.fallback = true;
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.click();
+    await settleManualSyncOverlayOpen();
+    expect(guestRendezvousSync).not.toHaveBeenCalled();
+
+    zeroStartFacade.fallback = false;
+    bus.emit('youtube:zero-start-readiness-changed');
+    expect(button.getAttribute('aria-disabled')).toBe('false');
+    button.click();
+    await settleManualSyncOverlayOpen();
+    expect(guestRendezvousSync).toHaveBeenCalledOnce();
+  });
+
+  it.each(['active', 'fallback'] as const)(
+    'preserves an open editor across the %s zero-start owner while guarding new Sync requests',
+    async (owner) => {
+      renderSyncControls();
+      setState('network.hostConn', makeConnection('host-1'));
+      setState('playback.mode', 'youtube');
+      setState('playback.activity', 'playing');
+      initPlayerControls();
+      document.getElementById('btn-sync')?.click();
+      await settleManualSyncOverlayOpen();
+      vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete?.();
+      const overlay = document.getElementById('manual-sync-overlay')!;
+      expect(overlay.classList.contains('show')).toBe(true);
+
+      zeroStartFacade[owner] = true;
+      bus.emit('youtube:zero-start-readiness-changed');
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('true');
+
+      zeroStartFacade[owner] = false;
+      bus.emit('youtube:zero-start-readiness-changed');
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('false');
+      expect(guestRendezvousSync).toHaveBeenCalledOnce();
+    },
+  );
+
   it('preserves the standard-host canonical rendezvous before opening local controls', async () => {
     renderSyncControls();
     setActiveStandardHost();
@@ -3494,6 +3548,7 @@ describe('initPlayerControls sync button', () => {
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
 
     zeroStartFacade.active = false;
+    zeroStartFacade.fallback = false;
     bus.emit('youtube:zero-start-readiness-changed');
 
     expect(button.getAttribute('aria-disabled')).toBe('false');

@@ -67,7 +67,7 @@ const transportMocks = vi.hoisted(() => ({
   hostStartAt: undefined as number | undefined,
   pendingDeadline: undefined as number | undefined,
 }));
-const zeroStartFacade = vi.hoisted(() => ({ active: false }));
+const zeroStartFacade = vi.hoisted(() => ({ fallback: false, active: false }));
 
 vi.mock('../../player/transport.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../player/transport.ts')>();
@@ -79,6 +79,11 @@ vi.mock('../../player/transport.ts', async (importOriginal) => {
     getLocalFilePendingStartDeadlineMs: () => transportMocks.pendingDeadline,
   };
 });
+
+vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
+  isYouTubeZeroStartExternalFallbackPendingFromSync: () => zeroStartFacade.fallback,
+}));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
   isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
@@ -100,6 +105,7 @@ beforeEach(() => {
   setDemoHostStartAt(null);
   setPlayLocked(false);
   zeroStartFacade.active = false;
+  zeroStartFacade.fallback = false;
   setLocalFilePaused(false);
 });
 
@@ -311,21 +317,25 @@ describe('manual sync nudge routing', () => {
     expect(applySpy).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects YouTube nudge and reset actions while zero-start owns the iframe', () => {
-    initSync();
-    const applySpy = vi.fn();
-    bus.on('youtube:apply-manual-sync', applySpy);
-    setPlaybackYouTubePlaying();
-    setState('network.hostConn', { open: true } as DataConnection);
-    setState('sync.youtubeLocalOffset', 0.25);
-    zeroStartFacade.active = true;
+  it.each(['active', 'fallback'] as const)(
+    'rejects YouTube edits while the %s zero-start owner is pending',
+    (owner) => {
+      initSync();
+      const applySpy = vi.fn();
+      bus.on('youtube:apply-manual-sync', applySpy);
+      setPlaybackYouTubePlaying();
+      setState('network.hostConn', { open: true } as DataConnection);
+      setState('sync.youtubeLocalOffset', 0.25);
+      zeroStartFacade[owner] = true;
 
-    bus.emit('sync:nudge', 10);
-    bus.emit('sync:auto-sync');
+      bus.emit('sync:nudge', 10);
+      bus.emit('sync:set-manual-offset', -1234);
+      bus.emit('sync:auto-sync');
 
-    expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
-    expect(applySpy).not.toHaveBeenCalled();
-  });
+      expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+      expect(applySpy).not.toHaveBeenCalled();
+    },
+  );
 
   it('lets a PRO coordinator nudge its decoded local file without hostConn', () => {
     initSync();

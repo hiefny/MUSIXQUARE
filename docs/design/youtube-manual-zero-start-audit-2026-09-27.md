@@ -8,6 +8,11 @@
 | Environment | Windows, Node 24.20.0, Vitest 5; Chromium with local PeerJS and a deterministic YouTube facade |
 | Scope | Manual YouTube sync on host/guest, subsequent track start/repeat, Standard and PRO |
 
+Follow-up: the [extreme-value audit](extreme-manual-sync-audit-2026-09-27.md)
+found uncovered ownership boundaries XS01 and XS03 after this repair, alongside
+two other playback defects. The observations and repair checks below are
+preserved as dated evidence, not a claim that all extreme cases are resolved.
+
 The owner clarified that manual synchronization followed by a track transition,
 not Bluetooth attachment, was the suspected trigger. The previous Bluetooth
 output-delay explanation was a hypothesis and is not the diagnosis of this

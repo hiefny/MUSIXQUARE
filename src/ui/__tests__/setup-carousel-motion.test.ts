@@ -575,7 +575,7 @@ describe('setup greeting reveal', () => {
 
     expect(source).toContain('const SETUP_GREETING_DELAY_MS = 0;');
     expect(source).toContain(
-      "document.addEventListener('animationend', handleFinalDraw, { signal })",
+      "document.addEventListener('mxqr:wordmark-draw-complete', handleFinalDraw, { signal })",
     );
     expect(source).toContain('SETUP_GREETING_FALLBACK_BUFFER_MS');
     expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches");
@@ -584,7 +584,8 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('opacity: 0;');
     expect(stylesheet).toContain('.setup-greeting-row.is-visible');
     expect(stylesheet).toContain('opacity 0.48s ease-out 0.36s');
-    expect(stylesheet).toContain('.logo-welcome > .wg,\n    .logo-welcome > .wl');
+    expect(stylesheet).toContain('mask: none !important;');
+    expect(source).toContain("document.dispatchEvent(new Event('mxqr:wordmark-start'))");
     expect(stylesheet).toContain('animation: none !important;');
   });
 
@@ -626,20 +627,25 @@ describe('setup greeting reveal', () => {
     expect(setupShared).toContain("el.querySelector('.setup-host-invite-stage')");
   });
 
-  it('welds animated wordmark joins without changing the reveal sequence', async () => {
+  it('keeps exact reveal geometry in nonpainting definitions', async () => {
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
-    const strokes = Array.from(parsed.querySelectorAll<SVGElement>('.logo-welcome > .wl'));
+    const strokes = Array.from(
+      parsed.querySelectorAll<SVGElement>('.logo-welcome defs [data-wordmark-strokes] > .wl'),
+    );
 
     expect(strokes).toHaveLength(36);
     expect(strokes[0]).toMatchObject({ dataset: { wt: '0', wd: '1080' } });
-    expect(strokes[0]?.getAttribute('height')).toBe('4.8');
-    expect(strokes[5]?.getAttribute('y')).toBe('30.5');
-    expect(strokes[9]?.getAttribute('height')).toBe('5.1');
-    expect(strokes[20]?.getAttribute('y')).toBe('35');
-    expect(strokes[24]?.getAttribute('width')).toBe('4.8');
-    expect(strokes[26]?.getAttribute('x')).toBe('205.4');
-    expect(strokes[32]?.getAttribute('points')).toContain('223.8 26');
+    expect(parsed.querySelectorAll('.logo-welcome > .wl')).toHaveLength(0);
+    expect(parsed.querySelectorAll('.logo-welcome > .wg')).toHaveLength(1);
+    expect(strokes[0]?.getAttribute('height')).toBe('4.5');
+    expect(strokes[5]?.getAttribute('y')).toBe('30.8');
+    expect(strokes[9]?.getAttribute('height')).toBe('4.5');
+    expect(strokes[20]?.getAttribute('x')).toBe('153.95');
+    expect(strokes[20]?.getAttribute('y')).toBe('35.3');
+    expect(strokes[24]?.getAttribute('width')).toBe('4.5');
+    expect(strokes[26]?.getAttribute('x')).toBe('205.7');
+    expect(strokes[32]?.getAttribute('points')).toContain('223.8 26.3');
   });
 
   it('uses opacity-transitioned language-list edge gradients instead of mask swaps', async () => {

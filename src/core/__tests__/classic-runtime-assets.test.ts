@@ -395,36 +395,8 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(metadata.get('meta[name="theme-color"]:content')).toBe('#121212');
   });
 
-  it('preserves deferred wordmark timing and its DOMContentLoaded boundary', async () => {
-    const { code } = await compiledAsset('wordmark-anim.js');
-    const firstWrites = new Map<string, string>();
-    const secondWrites = new Map<string, string>();
-    const ready = vi.fn();
-    const document = {
-      readyState: 'loading',
-      querySelectorAll: () => [
-        {
-          dataset: { wt: '120', wd: '30' },
-          style: { setProperty: (name: string, value: string) => firstWrites.set(name, value) },
-        },
-        {
-          dataset: { wt: '240' },
-          style: { setProperty: (name: string, value: string) => secondWrites.set(name, value) },
-        },
-      ],
-      addEventListener(eventName: string, listener: () => void) {
-        expect(eventName).toBe('DOMContentLoaded');
-        ready.mockImplementation(listener);
-      },
-    };
-
-    executeClassicScript(code, { document });
-    expect(firstWrites.size).toBe(0);
-
-    ready();
-    expect(Object.fromEntries(firstWrites)).toEqual({ '--wt': '120ms', '--wd': '30ms' });
-    expect(Object.fromEntries(secondWrites)).toEqual({ '--wt': '240ms' });
-  });
+  // Wordmark geometry and deferred lifecycle are exercised against the compiled
+  // runtime in wordmark-reveal-runtime.test.ts.
 
   it.each([false, true])(
     'paginates compiled editorial cards with reduced motion %s without changing the classic DOMContentLoaded boundary',

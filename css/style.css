@@ -553,62 +553,6 @@
     }
   }
 
-  @keyframes ghostIn {
-    to {
-      opacity: 1;
-    }
-  }
-
-  @keyframes wlr {
-    from {
-      clip-path: inset(0 100% 0 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wrl {
-    from {
-      clip-path: inset(0 0 0 100%);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wtb {
-    from {
-      clip-path: inset(0 0 100% 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wbt {
-    from {
-      clip-path: inset(100% 0 0 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wdiag {
-    from {
-      clip-path: inset(0 100% 100% 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
   @keyframes marquee-pingpong {
     0%,
     20% {
@@ -1245,45 +1189,15 @@
     stroke-linejoin: round;
   }
 
-  /* SVG Stroke Writing Animation — ghost underlay + per-bar directional reveal */
+  /* The wordmark runtime reveals one complete silhouette through an exact
+     union mask. Without that optional runtime, keep the static logo readable. */
   .logo-welcome > .wg {
-    opacity: 0.15;
-    animation: ghostIn 400ms 2500ms both;
-  }
-
-  .logo-welcome > .wl {
-    animation-duration: var(--wd, 150ms);
-    animation-timing-function: cubic-bezier(0.15, 0.5, 0.05, 1);
-    animation-delay: calc(var(--wt, 0ms) + 500ms);
-    animation-fill-mode: both;
-  }
-
-  .logo-welcome > .wlr {
-    animation-name: wlr;
-  }
-
-  .logo-welcome > .wrl {
-    animation-name: wrl;
-  }
-
-  .logo-welcome > .wtb {
-    animation-name: wtb;
-  }
-
-  .logo-welcome > .wbt {
-    animation-name: wbt;
-  }
-
-  .logo-welcome > .wdiag {
-    animation-name: wdiag;
+    opacity: 1;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .logo-welcome > .wg,
-    .logo-welcome > .wl {
-      animation: none !important;
-      opacity: 1 !important;
-      clip-path: none !important;
+    .logo-welcome > .wg {
+      mask: none !important;
     }
 
     .setup-brand-greeting-stage > .logo-welcome,

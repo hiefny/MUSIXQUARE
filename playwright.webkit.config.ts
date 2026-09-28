@@ -18,6 +18,7 @@ export default defineConfig({
     'setup-carousel-autoplay.test.ts',
     'setup-youtube-activation.test.ts',
     'app-entrance.test.ts',
+    'wordmark-reveal.test.ts',
     'rtl-player-layout.test.ts',
     'rtl-settings-layout.test.ts',
   ],

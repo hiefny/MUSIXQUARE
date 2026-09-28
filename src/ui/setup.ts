@@ -241,7 +241,7 @@ function armSetupGreeting(signal: AbortSignal): void {
 
   let longestDrawMs = 0;
   document.querySelectorAll<SVGSVGElement>('.logo-welcome').forEach((logo) => {
-    logo.querySelectorAll<SVGElement>(':scope > .wl').forEach((stroke) => {
+    logo.querySelectorAll<SVGElement>('[data-wordmark-strokes] > .wl').forEach((stroke) => {
       const startMs = Number(stroke.dataset.wt) || 0;
       const durationMs = Number(stroke.dataset.wd) || 0;
       const endMs = startMs + durationMs;
@@ -250,16 +250,22 @@ function armSetupGreeting(signal: AbortSignal): void {
   });
 
   let drawCompleted = false;
-  const handleFinalDraw = (event: AnimationEvent) => {
-    const stroke = event.target;
-    if (!(stroke instanceof SVGElement) || !stroke.matches('.logo-welcome > .wl')) return;
-    const endMs = (Number(stroke.dataset.wt) || 0) + (Number(stroke.dataset.wd) || 0);
-    if (drawCompleted || endMs < longestDrawMs) return;
+  const completeDraw = () => {
+    if (drawCompleted || signal.aborted) return;
     drawCompleted = true;
     clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
     revealAfterDelay();
   };
-  document.addEventListener('animationend', handleFinalDraw, { signal });
+  const handleFinalDraw = (event: Event) => {
+    const logo = event.target;
+    if (
+      logo instanceof SVGElement &&
+      logo.matches('.logo-welcome[data-wordmark-draw-complete="true"]')
+    ) {
+      completeDraw();
+    }
+  };
+  document.addEventListener('mxqr:wordmark-draw-complete', handleFinalDraw, { signal });
 
   const fallbackMs =
     SETUP_LOGO_DRAW_BASE_DELAY_MS +
@@ -267,6 +273,15 @@ function armSetupGreeting(signal: AbortSignal): void {
     SETUP_GREETING_DELAY_MS +
     SETUP_GREETING_FALLBACK_BUFFER_MS;
   setManagedTimer(SETUP_GREETING_FALLBACK_TIMER, revealSetupGreeting, fallbackMs);
+
+  // Begin only once onboarding is ready to paint. A slow locale/bootstrap
+  // must not spend the reveal behind the startup guard. Retain the request
+  // for a delayed classic runtime; the bounded fallback also works without it.
+  document.documentElement.setAttribute('data-wordmark-start-requested', '');
+  document.dispatchEvent(new Event('mxqr:wordmark-start'));
+  if (document.querySelector('.logo-welcome[data-wordmark-draw-complete="true"]')) {
+    completeDraw();
+  }
 }
 
 /** First-paint preparation and reveal must finish together, including invite entry. */

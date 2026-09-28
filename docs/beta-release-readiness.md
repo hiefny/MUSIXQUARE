@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 지속 갱신, 현재 프로덕션 승격 대기                                                                                                                                                                    |
 | Applies to         | `mxqr_beta` 누적 변경의 다음 main 병합·프로덕션 배포                                                                                                                                                            |
-| Last source review | 2026-09-27                                                                                                                                                                                                      |
+| Last source review | 2026-09-29                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
@@ -18,12 +18,13 @@
 | ----------------------------------- | ---------------------------------------------------------------------------- |
 | 동결                                | 대회 종료를 사용자가 명시하기 전까지 유지. 베타 커밋·푸시만 허용             |
 | 기준 main                           | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 로컬·원격 확인                  |
-| 검토한 베타 코드                    | `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac` — FQA01·QA-T01–QA-T03 및 반복 중 싱크 창 유지 수정. 동일 소스 작업 트리의 전체 검증을 마친 뒤 커밋 |
+| 검토한 베타 코드                    | `79f3a687a7222a69ff865846e0c715aa197d0f10` — 시작 로고 단일 리빌 마스크. 동일 소스 작업 트리 집중 검증 후 커밋. 이전 전체 QA의 코드 SHA·검증 범위는 아래 별도 보존 |
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
 | 후속 수동 싱크 수정                | S01 참가자별 시작 지연·S02 반복 직후 입력 대기를 `c3eae88c`에 반영. 이번 XS01·XS03 수정에서 긴 대기의 소유권·취소 경계 보완. 실기 첫 음 정렬은 별도 확인 대상. [기본 수정](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27) |
 | 극단값 수동 싱크 수정              | XS01 시작 예약/일반 상태·새 명령 우선권, XS02 로컬 파일 실제 출력 지연, XS03 PRO 기기 자체 일시정지 유지, XS04 늦은 타이머 위치 보정. [수정·검증 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
 | 후속 전체 QA / 수정 상태           | FQA01 외부 시작 복구·PLAYING 응답 대기까지 동기화 소유권 유지. QA-T01 정확한 큐 수렴 대기, QA-T02–03 coverage 파일 선택 수정. 전체 E2E에서 발견한 반복 중 싱크 창 닫힘도 수정. 단위 10,264개·4종 coverage gate·Chromium 552개·WebKit 60개·프로덕션 smoke 10개 통과. [수정·검증 기록](design/beta-full-qa-repair-2026-09-27.md) |
 | 후속 UI 수정                       | YouTube 상태 문구를 입력창 바로 뒤로 이동. 스켈레톤은 surface-3·불투명도 25–50%·1.6초 반복. 베타 반영 완료 |
+| 시작 로고 후속 수정                | 분리된 획 대신 완성 실루엣·정확한 단일 nonzero 마스크로 리빌. 오버스캔 제거, 기존 순서·타이밍 유지. 단위 88개·Chromium 21개·WebKit 6개·프로덕션 산출물 smoke 9개 통과. 전체 스위트 재실행 아님 |
 | 제품 버전 / PWA 캐시                | `8.6.61` / `v630`, main과 동일. 공개 승격용 증분은 아직 하지 않음            |
 | 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
 | Developer API D1 입력               | 현재 변경 기준 `apply_developer_api_d1=false`                                |
@@ -49,6 +50,7 @@ XS01–XS04를 추가 확정한 뒤 이번 수정에 반영했다. 아래 실기
 | 대용량 로컬 오디오 하이브리드 엔진     | 일반 파일은 기존 엔진, 큰 파일만 구간 디코딩. 새 지연 로딩 번들·WASM·라이선스 자산을 App 빌드에 포함. 작은 곡 복귀와 서로 다른 엔진 조합 확인 | [엔진 구현·검증 기록](design/large-local-audio-streaming-proposal.md), [RAM-only 정책](design/browser-media-storage-policy.md), [서드파티 고지](../THIRD-PARTY-NOTICES.md) |
 | 파일 전송·프리로드·동기화·세션 수명 QA | 현재 곡 우선 전송, 이전 작업 취소, 신규 참여·재접속·권한 변경, 수동 싱크·곡 끝 경계 등을 최신 App에 반영                                      | [시퀀스 QA](design/sequence-qa-2026-09-23.md), [QA20](design/beta-qa-2026-09-27-round-20.md), [QA21](design/beta-qa-2026-09-27-round-21.md), 나머지 회차는 같은 디렉터리   |
 | 데모·설정 UI·YouTube 검색              | 데모 스펙트럼 고정과 앱 설정 분리, 효과 UI 복원, 입력 포커스·검색 스켈레톤·빠른 추가, 마키 변경 포함                                          | [초기 베타 QA](design/beta-qa-2026-09-26.md), 관련 `e2e/` 회귀 테스트                                                                                                      |
+| 시작 로고 리빌                        | App HTML·CSS·기존 `/wordmark-anim.js`를 함께 반영. 한 마스크로 획 연결부를 그리며 미진행 획으로 확장하지 않음. 새 의존성·Worker 계약 없음 | [런타임](../browser/classic-runtime/wordmark-anim.ts), [브라우저 회귀](../e2e/wordmark-reveal.test.ts) |
 | 리버브 최대 10초                       | App, PRO Worker, Developer API backend/facade, 공개 OpenAPI를 함께 반영. 예전 30초 검증기가 남지 않도록 확인                                  | [공통 효과](../src/core/room-effects.ts), [PRO 효과](../cloudflare/pro-room-effects.ts), [OpenAPI](../public/developers/openapi.yaml)                                      |
 | 로그인 쿠키 응답 소유권                | App Worker 배포가 필요. 늦은 로그아웃·탈퇴 응답이 새 로그인을 지우는 문제 수정. 기존 쿠키 읽기 호환 유지                                      | [쿠키 수정·검증](design/account-cookie-ownership-2026-09-27.md), [계정 운영](account-auth-operations.md)                                                                   |
 | 일괄 발굴 결함 B01–B04                 | PRO YouTube 저장본 구분, 채팅 금지 후 초안 보존, 번역 내보내기, 짧은 파일 종료. 클라이언트와 App Worker를 함께 반영                           | [수정·회귀 기록](design/beta-defect-repair-2026-09-27.md) |
@@ -94,7 +96,14 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
-**최신 수정 검증:** `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac` 작업 트리(기준 checkout
+**최신 집중 검증:** `79f3a687a7222a69ff865846e0c715aa197d0f10`의 시작 로고 변경을
+Windows·Node 24.20.0에서 검증했다. 단위 88개, Chromium E2E 21개, Windows
+WebKit E2E 6개, 프로덕션 산출물 Chromium smoke 9개가 모두 통과했다.
+자세한 범위·초기 검사 수정·픽셀 판정 한계는 아래 2026-09-29 항목을 따른다.
+이번에 전체 단위·coverage·전체 E2E를 다시 실행하지 않았으며, 아래 전체 QA
+결과를 이 후속 코드 SHA의 전체 검증으로 해석하지 않는다.
+
+**이전 전체 QA 검증:** `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac` 작업 트리(기준 checkout
 `8c78a598`)에서 Windows·Node 24.20.0으로 전체 단위 **496파일·10,264 pass /
 0 fail / 0 skip**와 원래 broad coverage gate를 통과했다. Critical
 **50파일·1,772 pass**, tooling **13파일·342 pass**, Worker **26파일·1,726 pass**도
@@ -127,7 +136,8 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 [이전 수정 기록](design/beta-defect-repair-2026-09-27.md)의 해당 코드 관측값이다.
 쿠키의 별도 Chromium 지연 응답 검증은 [이전 수정 기록](design/account-cookie-ownership-2026-09-27.md)의 관측값이다.
 
-아래 표는 최신 수정 검증과 별도로 보존하는 과거 관측·실기 한계를 구분한다.
+아래 표의 전체 QA 수치는 `d3ef74ab` 시점이며, 최신 집중 검증과 별도로 보존하는
+과거 관측·실기 한계를 구분한다.
 
 | 확인                  | 결과 / 한계                                                                                                                            |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -455,6 +465,47 @@ Tooling·Worker 전용 coverage는 UI 수정 전 통과 결과를 유지한다. 
 확인 대상이다. 베타 수정의 로컬 검증만 진행하며 main·프로덕션·Operations Drift
 Audit 비활성화 상태는 유지한다.
 
+### 2026-09-29 시작 로고 — 정확한 단일 리빌 마스크
+
+검증 코드: `79f3a687a7222a69ff865846e0c715aa197d0f10`.
+기준 checkout `4f49c35d` 위의 동일 소스 작업 트리를 검증한 뒤 커밋했다.
+승인받은 로컬 비교안의 정확한 폴리곤 합성 방식을 적용했다. 36개 획은
+`defs` 안의 입력 도형으로만 남고, 완성 로고 실루엣에 하나의 nonzero 마스크
+경로를 적용한다. 기존 획 순서·지연·easing은 유지하고, 후속 획을 미리
+노출하던 오버스캔과 개별 획의 0.3 SVG 단위 덧칠을 제거했다.
+
+- 온보딩이 준비된 때부터 한 시계로 시작한다. 데스크톱 복제본은 고유 mask ID를
+  갖고 같은 시점에서 이어지며, 2,540ms 그리기 완료 후 기존 인사말로 전환한다.
+  2,900ms에는 마스크와 프레임 작업을 정리한다. 백그라운드 복귀·분리된 노드·
+  동작 줄이기·페이지 이탈·스크립트 실패 시 정적 로고와 인사말 fallback을 확인했다.
+- 단위 `classic-runtime-assets`, `wordmark-reveal-runtime`,
+  `setup-carousel-motion`: **3파일·88 pass / 0 fail / 0 skip**.
+- 새 `wordmark-reveal` 브라우저 회귀: Chromium **6 pass**, Windows WebKit
+  **6 pass**. 기존 entrance·greeting·carousel Chromium **15 pass**.
+  최종 각 실행의 fail·skip·retry는 0이다.
+- 초기 브라우저 검사에서 멈춘 테스트 시계와 미디어 이벤트 도착 순서 두 곳을
+  실제 DOM 상태 대기 후 시계 진행으로 수정했다. 픽셀 검사의 십자 이웃 판정은
+  U자 윤곽 모서리까지 내부로 포함해 WebKit 한 픽셀(alpha 239/255)을 검출했다.
+  대각 이웃이 alpha 4인 윤곽 경계임을 확인한 뒤, 참조 이미지의 **3×3 전체가
+  불투명한 픽셀**만 내부로 판정했다. alpha 허용치를 완화하지 않았다.
+- 두 엔진 각각 22/29px × 렌더 배율 1/2 × 소수점 위치 0/.25/.5/.75의
+  **16개 표본에서 내부 접합부 결함 0**. 800ms의 M·X 후속 획 조기 노출도 없다.
+  이는 브라우저 SVG rasterizer 검사이며 외곽 안티앨리어싱의 완전 일치나
+  실제 FHD 모니터·iPhone 하드웨어 검증을 뜻하지 않는다.
+- App/classic-runtime/단위/E2E 타입 검사, 변경 TS의 해당 ESLint 설정,
+  변경 CSS·TS의 Prettier, 소스 복잡도·classic-runtime·inline-JS·Playwright
+  API guard와 `git diff --check` 통과. HTML은 로고 블록 밖의 기존 서식을 유지했다.
+- E2E 빌드와 프로덕션 빌드 통과. 프로덕션 산출물의 legacy TV·초기 전송 용량·
+  prod hooks·prod security·SW app shell·font·service worker·UI kit guard
+  **8개**, 동일 산출물의 공식 Chromium candidate smoke **9개** 통과.
+
+이번 추가 변경은 App 클라이언트만 해당한다. 누적 `target=all`, D1 입력 off,
+새 dependency/schema/secret/binding 없음, 버전 `8.6.61`·cache `v630` 동결은 유지한다.
+공개 승격 전 버전·cache 증분과 최종 main SHA 검사는 여전히 필요하다.
+되돌릴 때에는 이 변경의 HTML·CSS·classic runtime·setup 완료 이벤트 연결을
+함께 되돌린다. 새 서버·데이터 복구 절차는 없다. main·프로덕션과 비활성화된
+Operations Drift Audit는 변경하지 않았다.
+
 ## 4. 대회 종료 후 실행 순서
 
 현재는 아래 절차를 실행하지 않는다. 사용자의 **대회 종료 및 승격 지시**를 확인한
@@ -556,6 +607,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-09-27 | XS01–XS04 수정 `c242bfd17f652f1480a6e79731d5130b5b6f6c19` | App 클라이언트 소유권·실제 출력·시작 시각 보정, 늦은 새 명령 취소 포함. 새 UI/서버/DB 계약 없음. 베타만 반영 | 495파일 전체 10,245 pass/4 timeout/기존 1 skip 후 동일 4개 단독 통과, 고유 10,249 pass 확인. Chromium 14개·전체 타입/린트·빌드 통과. cache 증분은 승격 전 필요. [수정 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
 | 2026-09-27 | 후속 전체 QA: checkout `dd55d3bc`, 제품 `c242bfd1` | 제품 변경 없이 FQA01 추가 확정·미수정. 별도 E2E 대기 조건 1건·coverage 선택 누락 2건. 배포 범위·계약·버전·동결 유지 | 전체 단위 10,249 pass/기존 1 skip, broad coverage 통과. Chromium 550 pass/1 test-timing fail, WebKit 60 pass/기존 3 skip. 실제 Sync 버튼 새 결함 두 번 재현. 원본 critical/Worker gate 실패와 원인 입증은 [전체 QA](design/beta-full-qa-2026-09-27.md) 참조 |
 | 2026-09-27 | FQA01·QA-T01–QA-T03 수정, `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac` (동일 소스 작업 트리 검증 후 커밋) | 외부 복구·PLAYING 응답 대기까지 동기화 소유권 유지, 새 명령·재진입·중도 입장 보완. E2E 수렴 조건·coverage 파일 선택 수정; UI·정책·Worker 계약·배포 범위 유지 | 전체 단위/broad 496파일·10,264 pass/0 fail/0 skip, critical 1,772·tooling 342·Worker 1,726과 원래 gate 통과. 정적 23개·Worker dry-run 6개·집중 Chromium 2개·WebKit 60개 통과/기존 3 skip. 최종 전체 Chromium 552개·프로덕션 smoke 10개 통과; cache 증분은 승격 전 필요. [수정 기록](design/beta-full-qa-repair-2026-09-27.md) |
+| 2026-09-29 | 시작 로고 리빌 `79f3a687a7222a69ff865846e0c715aa197d0f10` | 정확한 단일 nonzero 마스크, 복제본의 같은 타임라인, 완료·fallback 처리. App만 추가 변경, 누적 배포 범위·계약·버전 동결 유지 | 단위 88·Chromium 21·WebKit 6·프로덕션 smoke 9 pass, artifact guard 8개 통과. 두 엔진 각각 16개 내부 접합부 표본 통과. 전체 스위트·실기 재검증 아님 |
 
 ### 실제 승격·배포 기록 — 아직 미실행
 

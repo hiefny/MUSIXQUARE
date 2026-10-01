@@ -87,6 +87,9 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [main → beta merge-readiness audit — 2026-10-01](design/main-beta-merge-audit-2026-10-01.md) —
+  full cumulative diff review and current-SHA local verification, with dependency
+  audit blockers and remaining device/exact-main release gates recorded separately.
 - [Beta defect harvest — 2026-09-27](design/beta-defect-harvest-2026-09-27.md) —
   discovery-only evidence, four defects confirmed at that checkout. The
   [living release record](beta-release-readiness.md) tracks their disposition.

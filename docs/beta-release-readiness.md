@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 지속 갱신, 현재 프로덕션 승격 대기                                                                                                                                                                    |
 | Applies to         | `mxqr_beta` 누적 변경의 다음 main 병합·프로덕션 배포                                                                                                                                                            |
-| Last source review | 2026-09-29                                                                                                                                                                                                      |
+| Last source review | 2026-10-01                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
@@ -18,21 +18,24 @@
 | ----------------------------------- | ---------------------------------------------------------------------------- |
 | 동결                                | 대회 종료를 사용자가 명시하기 전까지 유지. 베타 커밋·푸시만 허용             |
 | 기준 main                           | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 로컬·원격 확인                  |
-| 검토한 베타 코드                    | `79f3a687a7222a69ff865846e0c715aa197d0f10` — 시작 로고 단일 리빌 마스크. 동일 소스 작업 트리 집중 검증 후 커밋. 이전 전체 QA의 코드 SHA·검증 범위는 아래 별도 보존 |
+| 검토한 베타 코드                    | `c263acce89a67d7f478e9b20a34d53fbb839a70e` — 2026-10-01 main 전체 diff 감사·현 SHA 전체 검증. 제품 코드는 수정하지 않음. [상세 감사](design/main-beta-merge-audit-2026-10-01.md) |
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
 | 후속 수동 싱크 수정                | S01 참가자별 시작 지연·S02 반복 직후 입력 대기를 `c3eae88c`에 반영. 이번 XS01·XS03 수정에서 긴 대기의 소유권·취소 경계 보완. 실기 첫 음 정렬은 별도 확인 대상. [기본 수정](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27) |
 | 극단값 수동 싱크 수정              | XS01 시작 예약/일반 상태·새 명령 우선권, XS02 로컬 파일 실제 출력 지연, XS03 PRO 기기 자체 일시정지 유지, XS04 늦은 타이머 위치 보정. [수정·검증 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
 | 후속 전체 QA / 수정 상태           | FQA01 외부 시작 복구·PLAYING 응답 대기까지 동기화 소유권 유지. QA-T01 정확한 큐 수렴 대기, QA-T02–03 coverage 파일 선택 수정. 전체 E2E에서 발견한 반복 중 싱크 창 닫힘도 수정. 단위 10,264개·4종 coverage gate·Chromium 552개·WebKit 60개·프로덕션 smoke 10개 통과. [수정·검증 기록](design/beta-full-qa-repair-2026-09-27.md) |
 | 후속 UI 수정                       | YouTube 상태 문구를 입력창 바로 뒤로 이동. 스켈레톤은 surface-3·불투명도 25–50%·1.6초 반복. 베타 반영 완료 |
 | 시작 로고 후속 수정                | 분리된 획 대신 완성 실루엣·정확한 단일 nonzero 마스크로 리빌. 오버스캔 제거, 기존 순서·타이밍 유지. 단위 88개·Chromium 21개·WebKit 6개·프로덕션 산출물 smoke 9개 통과. 전체 스위트 재실행 아님 |
+| 최신 전체 diff 감사                | 73 commits·364 files. 새 확정 런타임 결함 0건. 고유 unit 10,273개·4종 coverage·Chromium 558개·WebKit 66개(기존 3 skip)·production smoke 10개 통과. 아래 환경·skip 한계 참조 |
+| 현재 보안 승격 gate                 | `security:audit` 실패. main/beta lock 모두 9개 패키지(high 5/moderate 4), 운영 의존성만은 0. 베타 신규 도입으로 분류하지 않음. 관련 dependency/override 갱신 후 재검증 필요 |
 | 제품 버전 / PWA 캐시                | `8.6.61` / `v630`, main과 동일. 공개 승격용 증분은 아직 하지 않음            |
 | 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
 | Developer API D1 입력               | 현재 변경 기준 `apply_developer_api_d1=false`                                |
 | Operations Drift Audit              | `disabled_manually`; 종료·승격 지시 전에는 그대로 유지                       |
 | 최종 main SHA / CI 후보 / 배포 실행 | 아직 없음. 베타 검증을 프로덕션 배포 완료로 기록하지 않음                    |
 
-**아직 배포 준비 완료로 판정한 상태가 아니다.** 최종 버전·캐시 증분, 최종 main
-SHA의 CI 후보, 실기 확인과 운영 상태 확인이 남아 있다. 현재 main 커밋이
+**아직 배포 준비 완료로 판정한 상태가 아니다.** 2026-10-01 전체 diff 감사에서
+새 확정 런타임 결함은 0건이지만 현재 의존성 보안 검사가 실패한다. 보안 경고 정리,
+최종 버전·캐시 증분, 최종 main SHA의 CI 후보, 실기 확인과 운영 상태 확인이 남아 있다. 현재 main 커밋이
 모든 운영 Worker의 실제 배포 SHA라고 추정하지 않는다.
 3차 D01과 수동 싱크 S01–S02의 기본 수정·회귀 검증 이후, 극단값 감사에서
 XS01–XS04를 추가 확정한 뒤 이번 수정에 반영했다. 아래 실기·승격 확인은
@@ -96,11 +99,32 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
-**최신 집중 검증:** `79f3a687a7222a69ff865846e0c715aa197d0f10`의 시작 로고 변경을
+**최신 전체 diff 감사:** main `35759e8b` → beta
+`c263acce89a67d7f478e9b20a34d53fbb839a70e`를 Windows·Node 24.20.0에서
+새로 검토했다. 제품 코드 수정 없이 새 확정 런타임 결함 0건이며 기능 변경은
+조건부 병합 가능으로 판단했다. 현재 그대로 승격하는 것은 보류다.
+[전체 감사·명령·증거](design/main-beta-merge-audit-2026-10-01.md)를 함께 읽는다.
+
+| 최신 검사 | 결과 / 한계 |
+| --- | --- |
+| 전체 unit·4종 coverage | 전체 497파일 최초 10,272 pass / 1 기존 jq skip. 검증된 jq 경로로 해당 파일 97개와 tooling 342개 통과하여 고유 10,273개 확인. Critical 1,772 / Worker 1,726 포함 모든 원래 threshold 통과. 중복 profile 합산 없음 |
+| Chromium 전체 / WebKit UI | 558 pass·fail/skip/flaky 0 / 66 pass·fail/flaky 0·기존 desktop-only 3 skip. retry 0 |
+| Production 빌드 / 산출물 / Worker | 빌드·artifact guard 8개·Worker dry-run 6개·Chromium candidate 9개·WebKit SW 1개 통과. 실제 deploy 없음 |
+| Source·style·signature checks | 23개 중 22개 통과. security:audit는 실패: main과 beta 동일 9패키지(high 5/moderate 4). prod-only audit 0 |
+| Cache-history gate | 공개 version/cache 동결 상태여서 실패. build:checked 성공으로 주장하지 않음 |
+| 독립 모델 검사 | YouTube zero-start 441조합 / logo 36획 geometry 통과. 실기 음향·외부 서비스 장애 증거 아님 |
+| 실제 기기·CI 경계 | Windows WebKit에 Web Audio/RTC 없음 확인. 실제 iPhone Safari/PWA·Android 출력, 최종 Linux PR CI·main SHA 후보·실운영 확인 필요 |
+
+이번 결과는 위 beta SHA에 대한 로컬 관측이다. 보안 경고를 수정한 뒤에는 변경된
+의존성과 최종 SHA를 재검증한다. 운영 워크플로는 API 조회상
+`disabled_manually`를 유지했다. 제품 버전·캐시·배포 범위·스키마/secret/binding
+계약은 바꾸지 않았다. 다음 과거 결과는 당시 증거로 보존한다.
+
+**이전 집중 검증:** `79f3a687a7222a69ff865846e0c715aa197d0f10`의 시작 로고 변경을
 Windows·Node 24.20.0에서 검증했다. 단위 88개, Chromium E2E 21개, Windows
 WebKit E2E 6개, 프로덕션 산출물 Chromium smoke 9개가 모두 통과했다.
 자세한 범위·초기 검사 수정·픽셀 판정 한계는 아래 2026-09-29 항목을 따른다.
-이번에 전체 단위·coverage·전체 E2E를 다시 실행하지 않았으며, 아래 전체 QA
+해당 로고 집중 검증 때는 전체 단위·coverage·전체 E2E를 다시 실행하지 않았으며, 아래 전체 QA
 결과를 이 후속 코드 SHA의 전체 검증으로 해석하지 않는다.
 
 **이전 전체 QA 검증:** `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac` 작업 트리(기준 checkout
@@ -517,7 +541,9 @@ Operations Drift Audit는 변경하지 않았다.
    감사는 구 스크립트로 실패할 수 있으므로, 수정 병합 뒤의 결과와 구분한다.
 2. **최종 차이 확정:** 원격 refs를 확인하고 main 대비 베타 diff, 미커밋 작업,
    다른 작업의 변경을 확인한다. 대상 SHA와 위 표를 갱신한다. 기존 문서의 SHA를
-   다음 주 최신 코드로 간주하지 않는다.
+   다음 주 최신 코드로 간주하지 않는다. 2026-10-01에 확인한 dependency audit
+   경고를 선별 갱신으로 해소하고 관련 회귀·서명·보안 검사를 재실행한다.
+   main에도 있던 경고라는 이유로 PR 보안 gate를 우회하지 않는다.
 3. **버전·캐시 증분:** 현재 `8.6.61`/`v630`을 그대로 공개하지 않는다. 최종 기능
    범위에 맞는 SemVer와 더 큰 cache epoch를 확정하고, package/lockfile과 두 admin
    버전 mirror를 함께 맞춘다. 새 엔진의 기능 추가도 버전 판단에 포함한다.
@@ -608,6 +634,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-09-27 | 후속 전체 QA: checkout `dd55d3bc`, 제품 `c242bfd1` | 제품 변경 없이 FQA01 추가 확정·미수정. 별도 E2E 대기 조건 1건·coverage 선택 누락 2건. 배포 범위·계약·버전·동결 유지 | 전체 단위 10,249 pass/기존 1 skip, broad coverage 통과. Chromium 550 pass/1 test-timing fail, WebKit 60 pass/기존 3 skip. 실제 Sync 버튼 새 결함 두 번 재현. 원본 critical/Worker gate 실패와 원인 입증은 [전체 QA](design/beta-full-qa-2026-09-27.md) 참조 |
 | 2026-09-27 | FQA01·QA-T01–QA-T03 수정, `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac` (동일 소스 작업 트리 검증 후 커밋) | 외부 복구·PLAYING 응답 대기까지 동기화 소유권 유지, 새 명령·재진입·중도 입장 보완. E2E 수렴 조건·coverage 파일 선택 수정; UI·정책·Worker 계약·배포 범위 유지 | 전체 단위/broad 496파일·10,264 pass/0 fail/0 skip, critical 1,772·tooling 342·Worker 1,726과 원래 gate 통과. 정적 23개·Worker dry-run 6개·집중 Chromium 2개·WebKit 60개 통과/기존 3 skip. 최종 전체 Chromium 552개·프로덕션 smoke 10개 통과; cache 증분은 승격 전 필요. [수정 기록](design/beta-full-qa-repair-2026-09-27.md) |
 | 2026-09-29 | 시작 로고 리빌 `79f3a687a7222a69ff865846e0c715aa197d0f10` | 정확한 단일 nonzero 마스크, 복제본의 같은 타임라인, 완료·fallback 처리. App만 추가 변경, 누적 배포 범위·계약·버전 동결 유지 | 단위 88·Chromium 21·WebKit 6·프로덕션 smoke 9 pass, artifact guard 8개 통과. 두 엔진 각각 16개 내부 접합부 표본 통과. 전체 스위트·실기 재검증 아님 |
+| 2026-10-01 | main `35759e8b` → beta `c263acce`, 제품 수정 없는 전체 diff 감사 | 새 확정 런타임 결함 0건, 조건부 병합 가능. 현재 dependency audit 실패(main/beta 동일 high 5/moderate 4)와 version/cache gate·최종 main CI·실기 확인 잔여. 누적 `all` / D1 off 및 freeze 유지 | 고유 unit 10,273·4종 coverage·Chromium 558·WebKit 66(기존 3 skip)·production smoke 10·artifact guard 8·Worker dry-run 6 통과. [상세 감사](design/main-beta-merge-audit-2026-10-01.md) |
 
 ### 실제 승격·배포 기록 — 아직 미실행
 

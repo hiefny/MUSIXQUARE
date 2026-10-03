@@ -87,6 +87,11 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta sequence QA, round 6 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-6.md) —
+  SQ14–SQ15 discovery: PRO repeat/shuffle intent is lost during first hydration,
+  or remains unsaved after a required read fails. Independent runtime replays
+  use public Worker-generated snapshots. File, YouTube/demo and UI permission
+  controls pass within their stated limits. No product repair in this round.
 - [Beta sequence QA, round 5 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-5.md) —
   SQ10–SQ13 discovery and repair: preserve file pause checkpoints, retire PRO
   field intent correctly, retain known-rejected chat drafts, and restore

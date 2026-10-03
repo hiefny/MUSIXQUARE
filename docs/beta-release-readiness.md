@@ -18,7 +18,7 @@
 | ----------------------------------- | ---------------------------------------------------------------------------- |
 | 동결                                | 대회 종료를 사용자가 명시하기 전까지 유지. 베타 커밋·푸시만 허용             |
 | 기준 main                           | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 로컬·원격 확인                  |
-| 검토한 베타 코드                    | `c263acce89a67d7f478e9b20a34d53fbb839a70e` — 2026-10-01 main 전체 diff 감사·현 SHA 전체 검증. 제품 코드는 수정하지 않음. [상세 감사](design/main-beta-merge-audit-2026-10-01.md) |
+| 검토한 베타 코드                    | `53cbf60fd5f475a9beef2cfaa1d7023c9b456eea` — 2026-10-03 SQ01 수정·집중 회귀 검증. 이전 전체 diff 감사와 전체 스위트는 아래 별도 SHA의 dated evidence로 보존 |
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
 | 후속 수동 싱크 수정                | S01 참가자별 시작 지연·S02 반복 직후 입력 대기를 `c3eae88c`에 반영. 이번 XS01·XS03 수정에서 긴 대기의 소유권·취소 경계 보완. 실기 첫 음 정렬은 별도 확인 대상. [기본 수정](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27) |
 | 극단값 수동 싱크 수정              | XS01 시작 예약/일반 상태·새 명령 우선권, XS02 로컬 파일 실제 출력 지연, XS03 PRO 기기 자체 일시정지 유지, XS04 늦은 타이머 위치 보정. [수정·검증 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
@@ -102,10 +102,11 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
-**최신 수정 검증 — 2026-10-03:** 기준 checkout
-`a46b21a5b58f6d62645a041e07a53c7aae882648` 위의 SQ01 수정 작업 트리를
-Windows·Node 24.20.0에서 검증하고 커밋했다. 정확한 수정 커밋은 생성 후 아래
-기록에 연결한다. 이전 미디어를 멈추되 같은 활성 수신의 유효 prefix만 보존한다.
+**최신 수정 검증 — 2026-10-03:** 수정 코드
+`53cbf60fd5f475a9beef2cfaa1d7023c9b456eea`. 기준 checkout `a46b21a5` 위의
+동일한 SQ01 수정 작업 트리를 Windows·Node 24.20.0에서 검증하고 커밋했다.
+이후 문서에 SHA를 연결했으며 실행 소스·검사는 바꾸지 않았다.
+이전 미디어를 멈추되 같은 활성 수신의 유효 prefix만 보존한다.
 새 통합 회귀 **100 pass / 0 fail / 0 skip**, 관련 storage/player/network
 **117파일·2,896 pass / 0 fail / 0 skip**, Chromium **33 pass / fail·skip·flaky 0**
 (retry 0)이다. 새 통합 회귀와 관련 단위의 고유 합계는 **2,996개**다.
@@ -664,7 +665,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-09-29 | 시작 로고 리빌 `79f3a687a7222a69ff865846e0c715aa197d0f10` | 정확한 단일 nonzero 마스크, 복제본의 같은 타임라인, 완료·fallback 처리. App만 추가 변경, 누적 배포 범위·계약·버전 동결 유지 | 단위 88·Chromium 21·WebKit 6·프로덕션 smoke 9 pass, artifact guard 8개 통과. 두 엔진 각각 16개 내부 접합부 표본 통과. 전체 스위트·실기 재검증 아님 |
 | 2026-10-01 | main `35759e8b` → beta `c263acce`, 제품 수정 없는 전체 diff 감사 | 새 확정 런타임 결함 0건, 조건부 병합 가능. 현재 dependency audit 실패(main/beta 동일 high 5/moderate 4)와 version/cache gate·최종 main CI·실기 확인 잔여. 누적 `all` / D1 off 및 freeze 유지 | 고유 unit 10,273·4종 coverage·Chromium 558·WebKit 66(기존 3 skip)·production smoke 10·artifact guard 8·Worker dry-run 6 통과. [상세 감사](design/main-beta-merge-audit-2026-10-01.md) |
 | 2026-10-03 | 시퀀스 QA, checkout `edbfebed`, 제품 코드 동일 | SQ01 새 확정 1건·미수정. 늦은 PREPARE/START가 유효 prefix를 버려 전체 재전송; main 추출 소스도 재현. 제품·의존성·버전·계약·동결·배포 범위 유지 | 새 전송 matrix 78 pass/6 fail(한 원인), 최소 복구·대조군 beta/main 확인. 오디오 60·PRO/YouTube 19·Chromium 22·기존 전송 57 pass. 전체 재실행 아님. [상세 QA](design/beta-sequence-qa-2026-10-03.md) |
-| 2026-10-03 | SQ01 수정, 기준 checkout `a46b21a5` 위 검증 작업 트리 | 같은 활성 수신의 prefix만 PREPARE의 실제 미디어 정지 후 보존. START 검증·UI·정책·프로토콜·버전·Worker·D1 입력·동결 유지. 누적 target=all 그대로 | 새 회귀 100·관련 단위 2,896·Chromium 33 pass, fail/skip 0. 타입·lint·서식·복잡도·E2E/production build·artifact guard 8개 통과. 전체/실기 재검사 아님. [수정 근거](design/beta-sequence-qa-2026-10-03.md#repair-addendum--2026-10-03) |
+| 2026-10-03 | SQ01 수정 `53cbf60fd5f475a9beef2cfaa1d7023c9b456eea` | 같은 활성 수신의 prefix만 PREPARE의 실제 미디어 정지 후 보존. START 검증·UI·정책·프로토콜·버전·Worker·D1 입력·동결 유지. 누적 target=all 그대로 | 새 회귀 100·관련 단위 2,896·Chromium 33 pass, fail/skip 0. 타입·lint·서식·복잡도·E2E/production build·artifact guard 8개 통과. 전체/실기 재검사 아님. [수정 근거](design/beta-sequence-qa-2026-10-03.md#repair-addendum--2026-10-03) |
 
 ### 실제 승격·배포 기록 — 아직 미실행
 

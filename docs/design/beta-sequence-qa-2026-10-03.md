@@ -170,10 +170,11 @@ unresolved release gates. SQ01 now also needs resolution before promotion.
 
 ## Repair addendum — 2026-10-03
 
-**SQ01 repaired on `mxqr_beta`.** The tested working tree starts at
-`a46b21a5b58f6d62645a041e07a53c7aae882648`; the repair commit is recorded in the
-living release record after creation. The source and tests verified here are
-the ones committed, not a main release candidate. Environment: Windows,
+**SQ01 repaired on `mxqr_beta`, code commit
+`53cbf60fd5f475a9beef2cfaa1d7023c9b456eea`.** The identical working tree was
+tested over `a46b21a5b58f6d62645a041e07a53c7aae882648` before committing;
+the subsequent SHA annotation changes documentation only. This is not a main
+release candidate. Environment: Windows,
 Node 24.20.0, installed Vitest and pinned Chromium, local PeerJS.
 
 `handleFilePrepare` still invokes the real media stop. Before that call it

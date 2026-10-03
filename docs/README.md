@@ -88,9 +88,10 @@ These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
 - [Beta sequence QA, round 3 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-3.md) —
-  discovery-only evidence: SQ05 failed-demo settings rollback and SQ06 PRO
-  one-shot observation loss before heartbeat catch-up. Independent reproductions,
-  healthy controls and excluded reachability candidates; repairs remain pending.
+  SQ05–SQ06 discovery and repair: failed-demo settings rollback and PRO
+  one-shot observation loss before heartbeat catch-up. Preserves failing evidence,
+  independent reproductions and excluded reachability candidates; records fixes,
+  authority/permission controls, full unit and focused browser verification.
 - [Beta sequence QA, round 2 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-2.md) —
   SQ02–SQ04 discovery and repair: late resume progress rollback, obsolete file
   recovery during system-audio takeover, and pending YouTube start overriding

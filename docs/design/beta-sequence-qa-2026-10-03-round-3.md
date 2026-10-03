@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Dated discovery evidence; SQ05–SQ06 confirmed and not repaired in this round |
+| Status | Dated discovery evidence, followed by the SQ05–SQ06 repair addendum below |
 | Tested checkout | `mxqr_beta`, `60eb127322684b1a960a93910962192b7fc334f8` |
 | Product/test code | `1c26dc4ea10263790fedd345f9c20950d09dfc13` — includes SQ02–SQ04 repairs |
 | Main reference | `35759e8b07f1ee0b272afbd0af03c770a858889e` |
@@ -10,6 +10,9 @@
 | Related records | [Living release record](../beta-release-readiness.md), [previous sequence QA and repairs](beta-sequence-qa-2026-10-03-round-2.md) |
 
 ## Result and scope
+
+This section preserves the original discovery. Current disposition and later
+verification are recorded in the [repair addendum](#repair-addendum--2026-10-03).
 
 **Two new defects were confirmed and independently reproduced.** This round
 examined demo interruption and settings authority, PRO live playback commits
@@ -171,3 +174,105 @@ documentation-only round. Existing dependency-security, physical-device and
 exact-main-SHA release gates remain in the living record. The competition
 freeze still prohibits main advancement, production deployment and Operations
 Drift Audit reactivation.
+
+## Repair addendum — 2026-10-03
+
+The owner requested repair. Both findings were reproduced before changing
+their corresponding source. The fixes affect App client code and regression
+tests only. UI, settings policy, permissions, messages, server contracts,
+dependencies, release version/cache and deployment scope remain unchanged.
+Main and production stay frozen.
+
+Verification used Windows, pinned Node 24.20.0, Vitest and local Chromium/PeerJS.
+Tested product/test code is `d4dd4bbb94c58624f50887d12dc5dd017fb95f7a`, based on
+checkout `cb60292d5fb1b47000ec6ac6915faa466465cf25`. Subsequent edits only update
+documentation. It is not an exact-main-SHA release candidate.
+
+### SQ05: preserve newer applied effects during rollback
+
+Effects synchronization now retains the identity and effects of the latest
+authority actually applied on this device. Cached snapshots received while
+synchronization is OFF do not claim that ownership. The coordinator's own
+canonical publish is recorded too, and ending the session clears the record.
+
+A demo entry captures that applied authority. If failed entry later restores
+audio while synchronization is ON and a newer applied authority exists, room
+effects come from the latter rather than the old entry snapshot. Device-local
+channel role, preamp and subwoofer cutoff retain their existing rollback.
+Master volume is not added to the demo snapshot or rollback. Normal demo exit,
+local sync-OFF restoration and room/connection/generation guards remain intact.
+
+Twelve new actual demo/protocol/effects regressions cover loading and curtain
+timing, operator revocation, snapshot arrival after rollback, sync OFF, newer
+connection, unchanged authority, stale/conflicting snapshots, every effect
+including zero/false values, published coordinator edits and session cleanup.
+Five existing fixture mocks expose the new authority getter; their assertions
+were not weakened.
+
+The new browser regression uses real host and guest contexts/data channels.
+The host toggles bass using the demo UI while the guest's CDN request is held.
+After that setting and the debounced demo flags arrive, two controlled HTTP
+503 responses exhaust the guest's request and retry. Before the fix the guest
+returned to bass 0 instead of 0.6; after it, both state and the main settings
+chip retain 0.6. The successful-load/normal-exit control also passes. An early
+fixture released the failure before the host's debounced entry frame arrived,
+legitimately causing another demo attempt; the final test waits for that frame
+instead of changing the product's retry behavior or loosening a count assertion.
+
+### SQ06: use the current applied media revision for observations
+
+The PRO controller extends its existing applied-revision check for
+`advance-sub-video` to `ended` and `unavailable`. A successfully applied live
+COMMIT is sufficient to submit the exact current observation while a stored
+heartbeat snapshot catches up. The highest-known revision guard, room/epoch,
+permissions and command/authority generations still reject obsolete work.
+First-append selection retains its separate persisted-snapshot requirement.
+
+Twenty-one new regressions compose real session/runtime/controller/API body
+parsing and renderer/iframe callbacks. They cover immediate submission before
+heartbeat completion, queued current observations, newer seek/pause/sub-video/
+queue-item commits, a known but not yet applied successor, permission revocation
+and restoration, and actual leave/rejoin of the same room and epoch.
+
+Known-duration ENDED keeps its existing one-time canonical-boundary retry for
+personal-offset timing. A fixture whose server always returns `unchanged` now
+observes the initial event plus that retry; it is bounded at two and remains
+on the same revision. The fix does not remove that recovery path to satisfy an
+old assertion that only saw the retry after the initial event had been lost.
+
+### Completed verification
+
+| Check | Result |
+| --- | --- |
+| Whole unit suite | 503 unique files / 10,458 pass / 0 fail / 0 skip after the tool-path replay described below |
+| New tracked module regressions | 33 pass / 0 fail / 0 skip; independent review/replay agrees |
+| Focused Chromium | 9 files / 50 pass / 0 fail / 0 skip / 0 flaky, retries 0; includes the two new demo failure/success cases |
+| Static checks | App, test and E2E TypeScript; App lint and new E2E lint; changed-code formatting; source complexity, room-authority and Playwright API guards pass |
+| Builds | E2E and production builds pass; all eight production artifact guards pass |
+
+The initial whole-unit run had 10,457 pass, zero failures and one explicit
+local-tool skip. Setting `MXQR_TEST_JQ_PATH` to the already installed jq 1.8.2
+enabled the skipped release-script case; its complete 97-test file passed.
+Replacing that file's initial result yields 10,458 unique passing tests, not
+the sum of both runs. No test source or expectation was changed for this replay.
+`full-unit.json`, `jq-recheck.json` and `unit-reconciled.json` retain the counts.
+
+Tracked regressions:
+
+- [Demo authority rollback](../../src/demo/__tests__/mode-settings-recovery.test.ts)
+- [PRO observation/heartbeat ordering](../../src/pro-room/__tests__/runtime-playback-observation-hydration.test.ts)
+- [Browser demo settings recovery](../../e2e/demo-settings-recovery.test.ts)
+
+Ignored raw evidence is in `scratch/sq05-sq06-repair-2026-10-03/` (browser
+before/after, independent review, static checks and builds) and the preserved
+`scratch/qa3-2026-10-03/{session,pro}/` repair-control results. Discovery
+failures above remain unchanged. The PRO runtime regression models the server
+and native YouTube API; it does not validate live service behavior or physical
+speaker alignment. The entire E2E, WebKit, coverage and live-service suites
+were not rerun in this repair round. Existing dependency-security,
+physical-device, version/cache and final-main-SHA release gates remain.
+
+SQ05–SQ06 are resolved within the tested scope. The excluded discovery
+candidates remain unconfirmed and were not modified. No migration or special
+recovery step is introduced; the existing eventual release/rollback runbook
+still applies.

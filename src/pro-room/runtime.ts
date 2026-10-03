@@ -257,6 +257,7 @@ let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
 let presenceRecoveryAbort: AbortController | null = null;
 let controlChannelRecoveryAttempt = 0;
+let controlChannelRecoveryGeneration: number | null = null;
 let accountAuthorityFailClosed = false;
 let accountLeaseRenewalOwner: symbol | null = null;
 let accountIdentityLeaseExpiresAtMs: number | null = null;
@@ -2584,6 +2585,7 @@ function stopLifecycle(): void {
   heartbeatSingleFlight.reset();
   refreshInFlight = false;
   controlChannelRecoveryAttempt = 0;
+  controlChannelRecoveryGeneration = null;
   clearManagedTimer(HEARTBEAT_TIMER);
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
@@ -3094,21 +3096,35 @@ async function runHeartbeat(
   }
 }
 
-async function runControlChannelRecovery(): Promise<void> {
+async function runControlChannelRecovery(generation: number): Promise<void> {
   const lease = playlistRuntimeLease;
-  if (!active || !lease) return;
+  if (!active || !lease || generation !== controlChannelRecoveryGeneration) return;
   clearManagedTimer(HEARTBEAT_TIMER);
   try {
     await runHeartbeat(true, true);
+    if (
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      generation !== controlChannelRecoveryGeneration
+    )
+      return;
     // A transition may have started while this socket was offline. Its exact
     // descriptor is carried by the replacement one-use ticket, not by the
     // heartbeat snapshot, so consume it only after the channel is installed.
     const pendingTransition = bridge.consumePendingPlaybackTransition();
     if (pendingTransition) playbackController.acceptPrepare(pendingTransition);
     controlChannelRecoveryAttempt = 0;
-    if (bridge.connected) markProRoomTransportRecovered();
+    if (bridge.connected) {
+      playbackController.completeControlChannelRecovery(generation);
+      markProRoomTransportRecovered();
+    }
   } catch {
-    if (!active || !isPlaylistLeaseCurrent(lease)) return;
+    if (
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      generation !== controlChannelRecoveryGeneration
+    )
+      return;
     controlChannelRecoveryAttempt += 1;
     if (controlChannelRecoveryAttempt >= SIGNALING_RECOVERY_MAX_ATTEMPTS) {
       clearManagedTimer(HEARTBEAT_TIMER);
@@ -3130,7 +3146,7 @@ async function runControlChannelRecovery(): Promise<void> {
           controlChannelRecoveryAttempt + 1,
           SIGNALING_RECOVERY_MAX_ATTEMPTS,
         );
-        return runControlChannelRecovery();
+        return runControlChannelRecovery(generation);
       },
       delay,
     );
@@ -3143,11 +3159,12 @@ function beginControlChannelRecovery(): Promise<void> {
   cancelSettingsChangeNotification();
   controlChannelRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
-  playbackController.beginControlChannelRecovery();
+  const generation = playbackController.beginControlChannelRecovery();
+  controlChannelRecoveryGeneration = generation;
   // The authenticated server channel is known dead even when the room
   // incarnation is unchanged. Force the next accepted heartbeat to rebuild it.
   controller.invalidateControlChannel();
-  return runControlChannelRecovery();
+  return runControlChannelRecovery(generation);
 }
 
 function scheduleAccountIdentityLeaseRenewal(delayMs?: number | null): void {
@@ -3305,11 +3322,21 @@ async function refreshSignalingCredential(): Promise<boolean> {
   // renewable socket session. Mint one only for a disconnected channel;
   // periodic creation while connected produced unused server-side tickets.
   if (bridge.connected) return true;
+  const recoveryGeneration = controlChannelRecoveryGeneration;
   refreshInFlight = true;
   try {
     await controller.refreshSignaling();
+    if (
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      recoveryGeneration !== controlChannelRecoveryGeneration
+    )
+      return false;
     const pendingTransition = bridge.consumePendingPlaybackTransition();
     if (pendingTransition) playbackController.acceptPrepare(pendingTransition);
+    if (bridge.connected && recoveryGeneration !== null) {
+      playbackController.completeControlChannelRecovery(recoveryGeneration);
+    }
     return true;
   } catch (error) {
     if (isTerminalSessionError(error)) {

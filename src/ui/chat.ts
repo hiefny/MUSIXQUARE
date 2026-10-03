@@ -1178,7 +1178,9 @@ export function sendChatMessage(): void {
 
   // ── Slowmode check ──
   const slowmode = getState('network.slowmodeSeconds');
-  if (slowmode > 0 && !isHost && !isOp) {
+  // PRO signaling rate-limits ordinary messages from every role. Keep the
+  // standard-room moderator exemption without falsely echoing a dropped PRO send.
+  if (slowmode > 0 && (isProRoom || (!isHost && !isOp))) {
     const elapsed = (Date.now() - _lastSentTime) / 1000;
     if (elapsed < slowmode) {
       addSystemChatMessage(t('chat.cmd_slowmode_wait', { sec: Math.ceil(slowmode - elapsed) }));

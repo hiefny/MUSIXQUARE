@@ -50,6 +50,8 @@ import {
 import { transition } from '../player/lifecycle.ts';
 import {
   currentAudioBufferPcmBytes,
+  getTrackKeyFromItem,
+  isTrackFailed,
   liveAudioBufferPcmBytes,
   setPendingRecoveryTarget,
 } from '../player/_state.ts';
@@ -2187,6 +2189,13 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   const playlist = getState('playlist.items') || [];
   const indexHint = playlist.findIndex((item) => item.queueItemId === queueItemId);
   if (!queueItemId || indexHint < 0) return;
+
+  if (isTrackFailed(getTrackKeyFromItem(playlist[indexHint]))) {
+    _awaitedPreloadIdentity = null;
+    _activePlayPreloadedQueueItemId = undefined;
+    bus.emit('player:unavailable-file-selected', queueItemId);
+    return;
+  }
 
   log.debug(`[Guest] Command: Play Preloaded Track, queueItemId: ${queueItemId}`);
 

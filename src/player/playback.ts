@@ -22,10 +22,18 @@ import {
 } from './local-file-output-identity.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
-import { sendFileDeliveryUnavailable, unicastFile } from '../storage/transfer.ts';
+import {
+  cancelIncomingFileTransfer,
+  sendFileDeliveryUnavailable,
+  unicastFile,
+} from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, isRemoteGuest, safeSend, waitForGuestConnectionType } from '../network/peer.ts';
-import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
+import {
+  cancelRemoteShareWait,
+  prepareRemoteShareWait,
+  shouldWaitForRemoteShare,
+} from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
 import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
@@ -39,6 +47,7 @@ import {
   isCurrentLoadEpoch,
   getActiveLoadSessionId,
   getCurrentAudioBuffer,
+  getPlayerNode,
   getTrackKeyFromItem,
   isTrackFailed,
   newLoadEpoch,
@@ -76,6 +85,7 @@ import {
 } from '../pro-room/media-hooks.ts';
 import {
   createFileTrackMeta,
+  isExternalOwner,
   getPlaybackModeActivity,
   isPlaybackActiveYouTube,
   isPlaybackPausedOrPendingFile,
@@ -162,6 +172,51 @@ function setFileTrackMetaFromPlaylist(queueItemId: QueueItemId, fallbackName?: s
   const item = getQueueItemById(queueItemId);
   const name = item?.name || fallbackName || '';
   setPlaybackTrackMeta(item ?? { ...createFileTrackMeta(name), queueItemId });
+}
+
+/** Failed bytes stay suppressed; the host's selected occurrence still owns the output. */
+function selectUnavailableFile(queueItemId: QueueItemId, sessionId?: number): void {
+  const item = getQueueItemById(queueItemId);
+  if (
+    getState('room.context').kind !== 'standard' ||
+    !getState('network.hostConn') ||
+    isExternalOwner() ||
+    !item ||
+    !isTrackFailed(getTrackKeyFromItem(item))
+  )
+    return;
+
+  const localSid = getState('transfer.localSessionId');
+  const previousMeta = getState('transfer.meta');
+  const latestSid = Math.max(localSid, Number(previousMeta?.sessionId) || 0, sessionId || 0);
+  _guestPlayIntentEpoch += 1;
+  releaseActiveGuestFileRouteLoader();
+  const alreadyRetired =
+    getCurrentQueueItemId() === queueItemId &&
+    getState('playback.lifecycle') === PLAYBACK_STATE.IDLE &&
+    getState('transfer.state') === TRANSFER_STATE.IDLE &&
+    !getCurrentAudioBuffer() &&
+    !getPlayerNode() &&
+    !getState('files.current');
+  if (!alreadyRetired) {
+    _activePreloadWaiterCleanup?.();
+    _activePreloadWaiterCleanup = null;
+    stopAllMedia({ cancelInFlight: true, clearBuffer: true });
+    cancelIncomingFileTransfer('unavailable-file-selected');
+    cancelRemoteShareWait('unavailable-file-selected');
+    clearPreviousTrackState('unavailable-file-selected');
+  }
+  setPendingPlayTime(undefined);
+  setPendingRecoveryTarget(null);
+  setPlaybackTransferState(TRANSFER_STATE.IDLE);
+  selectQueueItemById(queueItemId);
+  setPlaybackTrackMeta(item);
+
+  // Keep an identity fence, not a downloadable file. Even PLAY can precede
+  // its new header: old equal-session bulk tails must not reclaim the output.
+  setState('transfer.localSessionId', latestSid);
+  setState('transfer.meta', { queueItemId, sessionId: latestSid, name: item.name });
+  showLoader(false);
 }
 
 function requestCurrentFile(queueItemId: QueueItemId, name: string, reason: string): void {
@@ -314,8 +369,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
   // Ignore repeat/seek/recovery commands for the same unsupported occurrence
   // and rejoin automatically when the host selects another queue item.
   if (isTrackFailed(getTrackKeyFromItem(incomingItem))) {
-    setPendingPlayTime(undefined);
-    showLoader(false);
+    selectUnavailableFile(incomingQueueItemId);
     log.debug(`[Guest] PLAY ignored for locally unsupported ${incomingQueueItemId}`);
     return;
   }
@@ -876,6 +930,7 @@ export function initPlayback(): void {
     releaseActiveGuestFileRouteLoader();
     stopAllMedia(options);
   });
+  bus.on('player:unavailable-file-selected', selectUnavailableFile);
 
   bus.on('system-audio:host-started', () => {
     _guestPlayIntentEpoch += 1;

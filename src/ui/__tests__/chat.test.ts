@@ -2704,5 +2704,118 @@ describe('Chat Module', () => {
       expect(sendToHost).toHaveBeenCalledTimes(1);
       expect(document.querySelectorAll('#chat-messages .chat-row')).toHaveLength(1);
     });
+
+    describe('PRO slowmode admission', () => {
+      let clock = Date.now();
+
+      beforeEach(() => {
+        // The send guard persists for this module, so each trace starts after
+        // the preceding one instead of moving its clock backwards.
+        clock += 10_000;
+        vi.spyOn(Date, 'now').mockImplementation(() => clock);
+      });
+
+      function setProRole(role: 'owner' | 'controller' | 'member'): void {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: role === 'member' ? [] : ['chat.notice'],
+        });
+        setState('network.myId', 'slowmode-actor');
+        setState('network.lastKnownDeviceList', [
+          {
+            id: 'slowmode-actor',
+            label: 'Actor',
+            isOp: role !== 'member',
+            isHost: role === 'owner',
+            status: 'connected',
+            role,
+          },
+        ]);
+      }
+
+      it.each(['owner', 'controller', 'member'] as const)(
+        'preserves a blocked %s draft without a false sent bubble, then permits retry',
+        async (role) => {
+          setProRole(role);
+          setState('network.slowmodeSeconds', 2);
+          const input = renderSendShell(`First ${role} message`);
+          const { sendChatMessage } = await import('../chat.ts');
+          sendChatMessage();
+          expect(proRealtimeMocks.send).toHaveBeenCalledTimes(1);
+          expect(input.textContent).toBe('');
+
+          clock += 600;
+          input.textContent = `Second ${role} message`;
+          sendChatMessage();
+          expect(proRealtimeMocks.send).toHaveBeenCalledTimes(1);
+          expect(input.textContent).toBe(`Second ${role} message`);
+          expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(1);
+          expect(document.querySelector('.chat-group.system')?.textContent).toContain(
+            'chat.cmd_slowmode_wait',
+          );
+
+          clock += 1_400;
+          sendChatMessage();
+          expect(proRealtimeMocks.send).toHaveBeenCalledTimes(2);
+          expect(proRealtimeMocks.send).toHaveBeenLastCalledWith(
+            'chat',
+            expect.objectContaining({ kind: 'message', text: `Second ${role} message` }),
+          );
+          expect(input.textContent).toBe('');
+          expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(2);
+        },
+      );
+
+      it.each(['owner', 'controller', 'member'] as const)(
+        'permits the same %s draft immediately when slowmode is disabled',
+        async (role) => {
+          setProRole(role);
+          setState('network.slowmodeSeconds', 2);
+          const input = renderSendShell(`Seed ${role}`);
+          const { sendChatMessage } = await import('../chat.ts');
+          sendChatMessage();
+          clock += 600;
+          input.textContent = `Retry ${role}`;
+          sendChatMessage();
+          expect(proRealtimeMocks.send).toHaveBeenCalledTimes(1);
+
+          setState('network.slowmodeSeconds', 0);
+          sendChatMessage();
+          expect(proRealtimeMocks.send).toHaveBeenCalledTimes(2);
+          expect(input.textContent).toBe('');
+          expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(2);
+        },
+      );
+
+      it.each(['host', 'operator'] as const)(
+        'retains the standard-room %s exemption',
+        async (role) => {
+          setState(
+            'network.hostConn',
+            role === 'host' ? null : ({ open: true, peer: 'host-1' } as DataConnection),
+          );
+          setState('network.appRole', role === 'host' ? 'host' : 'guest');
+          setState('network.isOperator', role === 'operator');
+          setState('network.slowmodeSeconds', 2);
+          const broadcast = vi.fn();
+          bus.on('network:broadcast', broadcast);
+          const input = renderSendShell(`First standard ${role}`);
+          const { sendChatMessage } = await import('../chat.ts');
+          sendChatMessage();
+          clock += 600;
+          input.textContent = `Second standard ${role}`;
+          sendChatMessage();
+          expect(role === 'host' ? broadcast : sendToHost).toHaveBeenCalledTimes(2);
+          expect(input.textContent).toBe('');
+          expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(2);
+          expect(proRealtimeMocks.send).not.toHaveBeenCalled();
+        },
+      );
+    });
   });
 });

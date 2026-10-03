@@ -30,6 +30,8 @@ import {
   currentAudioBufferPcmBytes,
   getPendingPlayTime,
   getPendingPlayTimeSetAt,
+  getTrackKeyFromItem,
+  isTrackFailed,
   liveAudioBufferPcmBytes,
   setPendingPlayTime,
   setPendingRecoveryTarget,
@@ -1845,6 +1847,22 @@ async function handleRemoteFileShare(
 
   if (!isRemoteDescriptorOwnerCurrent(ownerSnapshot, descriptor, conn)) {
     log.debug('[RemoteShare] Descriptor superseded during connection classification');
+    return;
+  }
+
+  if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(descriptor.queueItemId)))) {
+    // Speculative bytes have no authority over current playback. A foreground
+    // revisit does, but must pass the same adopted-context fence as a download.
+    if (descriptor.preload === true || isExternalOwner()) return;
+    const last = _lastAdoptedRemoteContext;
+    if (
+      descriptor.sessionId < getState('transfer.localSessionId') ||
+      (last && transferOwnerSupersedesDescriptor(last.queueItemId, last.sessionId, descriptor))
+    )
+      return;
+    adoptRemoteContext(descriptor);
+    completeFileRequest(conn, descriptor.queueItemId, descriptor.sessionId);
+    bus.emit('player:unavailable-file-selected', descriptor.queueItemId, descriptor.sessionId);
     return;
   }
 

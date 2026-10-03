@@ -1278,6 +1278,8 @@ interface BaseEventMap {
   'player:stop-all-media': [
     options?: { silent?: boolean; cancelInFlight?: boolean; clearBuffer?: boolean },
   ];
+  /** A validated host command selected an occurrence this guest cannot decode. */
+  'player:unavailable-file-selected': [queueItemId: QueueItemId, sessionId?: number];
   'playback:refresh-current-position': [];
   /**
    * Rejoin only this browser's output to the authoritative room timeline.

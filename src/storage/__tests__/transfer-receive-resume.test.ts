@@ -193,6 +193,8 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
       const { showLoader } = await import('../../ui/toast.ts');
       const recover = vi.fn();
       bus.on('storage:request-recovery', recover);
+      const selectUnavailable = vi.fn();
+      bus.on('player:unavailable-file-selected', selectUnavailable);
 
       try {
         markTrackFailed(`queue:${Q[0]}`);
@@ -219,6 +221,7 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
 
         receive[handlerName](resumeMsg({ sessionId: 5 }), conn);
 
+        expect(selectUnavailable).not.toHaveBeenCalled();
         expect(actualTimers.getManagedTimer('chunkWatchdog')).toBe(watchdog);
         expect(showLoader).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(13_001);
@@ -234,19 +237,21 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
   );
 
   it.each(['handleFileStart', 'handleFileResume'] as const)(
-    '%s still stops receive UI and watchdogs for the current failed occurrence',
+    '%s delegates retirement of the current failed occurrence without reopening storage',
     async (handlerName) => {
       const { markTrackFailed } = await import('../../player/_state.ts');
       const receive = await import('../transfer-receive.ts');
-      const { clearManagedTimer } = await import('../../core/timers.ts');
-      const { showLoader } = await import('../../ui/toast.ts');
       const { postCommand } = await import('../storage.ts');
+      const selectUnavailable = vi.fn();
+      bus.on('player:unavailable-file-selected', selectUnavailable);
       markTrackFailed(`queue:${Q[0]}`);
 
       receive[handlerName](resumeMsg({ sessionId: 5 }), conn);
 
-      expect(clearManagedTimer).toHaveBeenCalledWith('chunkWatchdog');
-      expect(showLoader).toHaveBeenCalledWith(false);
+      // Actual watchdog/output cleanup belongs to the playback coordinator;
+      // failed-file-revisit.test.ts composes that owner with this receiver.
+      expect(selectUnavailable).toHaveBeenCalledExactlyOnceWith(Q[0], 5);
+      expect(getState('playback.failedTrackKeys')).toContain(`queue:${Q[0]}`);
       expect(postCommand).not.toHaveBeenCalled();
     },
   );

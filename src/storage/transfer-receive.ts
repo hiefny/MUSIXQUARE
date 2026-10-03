@@ -852,7 +852,7 @@ export async function handleFilePrepare(
   // the next queue occurrence will enter through the normal path.
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
-    showLoader(false);
+    bus.emit('player:unavailable-file-selected', queueItemId, incomingSid);
     log.debug(`[Transfer] Ignoring FILE_PREPARE for locally unsupported ${queueItemId}`);
     return;
   }
@@ -1334,9 +1334,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   if (incomingSid < localSid || hasNewerPreparedFileOwner(queueItemId, incomingSid)) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    showLoader(false);
+    bus.emit('player:unavailable-file-selected', queueItemId, incomingSid);
     log.debug(`[file-start] Ignoring locally unsupported ${queueItemId}`);
     return;
   }
@@ -1545,6 +1543,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 // limited to the main transfer channel.
 export function handleFileResume(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
+  if (isExternalOwner()) return;
   const queueItemId = incomingQueueItemId(data);
   if (!queueItemId || !getQueueItemById(queueItemId)) return;
   const indexHint = findQueueItemIndex(queueItemId);
@@ -1555,9 +1554,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   if (incomingSid < localSid || hasNewerPreparedFileOwner(queueItemId, incomingSid)) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    showLoader(false);
+    bus.emit('player:unavailable-file-selected', queueItemId, incomingSid);
     log.debug(`[file-resume] Ignoring locally unsupported ${queueItemId}`);
     return;
   }

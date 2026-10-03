@@ -233,7 +233,8 @@ interface ProRoomPlaybackImplementation {
   startLifecycle(): void;
   stopLifecycle(): void;
   resetPlaylistRuntime(): void;
-  beginControlChannelRecovery(): void;
+  beginControlChannelRecovery(): number;
+  completeControlChannelRecovery(generation: number): void;
 }
 
 function createImplementation(
@@ -249,6 +250,8 @@ function createImplementation(
   let snapshotPlaybackOwner = createSnapshotPlaybackOwner();
   let commandAuthorityGeneration = 0;
   let commandMediaGeneration = 0;
+  let controlChannelGeneration = 0;
+  let controlChannelRecovering = false;
   let commandPlayback: { roomId: string; playback: ProRoomPlaybackCheckpoint } | null = null;
 
   function createSnapshotPlaybackOwner(): PlaybackCommitOwner {
@@ -1412,6 +1415,8 @@ function createImplementation(
       exactBasePlaybackRevision ?? Math.max(state.highestKnownRevision, snapshot.playback.revision);
     const localUiControl = trackLocalPlaybackUiControl(intent, baseRevision + 1);
     const commandGeneration = state.commandGeneration;
+    const preparationResponseGeneration = controlChannelGeneration;
+    const preparationResponseStartedConnected = !controlChannelRecovering;
     const commandIsCurrent = (): boolean => {
       const currentContext = getState('room.context');
       const currentSnapshot = ports.getCanonicalSnapshot();
@@ -1435,6 +1440,20 @@ function createImplementation(
         canSubmit,
       );
       if (!commandIsCurrent()) return;
+      if (
+        result.status === 'preparing' &&
+        result.transition &&
+        (preparationResponseGeneration !== controlChannelGeneration ||
+          !preparationResponseStartedConnected) &&
+        !sameServerTransition(state.activeTransition, result.transition)
+      ) {
+        // An HTTP PREPARE describes what was pending when that request was
+        // accepted. Its CANCEL may have been missed while the socket was
+        // offline. Only the recovered channel's exact pending transition can
+        // retain this response; committed results still use the revision fence.
+        settleLocalPlaybackUiControl(localUiControl, 'superseded');
+        return;
+      }
       state.highestKnownRevision = Math.max(state.highestKnownRevision, result.playback.revision);
       if (result.status === 'preparing' && result.transition) {
         bindAdmittedLocalPlaybackUiControl(
@@ -2205,6 +2224,8 @@ function createImplementation(
   }
 
   function resetPlaylistRuntime(): void {
+    controlChannelGeneration += 1;
+    controlChannelRecovering = false;
     invalidateSnapshotPlaybackOwner();
     commandPlayback = null;
     commandMediaGeneration += 1;
@@ -2229,6 +2250,8 @@ function createImplementation(
   }
 
   function stopLifecycle(): void {
+    controlChannelGeneration += 1;
+    controlChannelRecovering = false;
     unregisterSystemAudioState?.();
     unregisterSystemAudioState = null;
     snapshotPlaybackBlocked = false;
@@ -2307,7 +2330,9 @@ function createImplementation(
     );
   }
 
-  function beginControlChannelRecovery(): void {
+  function beginControlChannelRecovery(): number {
+    controlChannelGeneration += 1;
+    controlChannelRecovering = true;
     const transition = state.activeTransition;
     if (transition && !state.commitInFlight.has(transition.event.target.revision)) {
       transition.clockAbort.abort();
@@ -2317,6 +2342,11 @@ function createImplementation(
         settlePlaybackTransitionUi(transition.event.transitionId);
       }
     }
+    return controlChannelGeneration;
+  }
+
+  function completeControlChannelRecovery(generation: number): void {
+    if (generation === controlChannelGeneration) controlChannelRecovering = false;
   }
 
   function resolveProjectedQueueItemId(snapshot: ProRoomSnapshot): QueueItemId | null {
@@ -2368,6 +2398,7 @@ function createImplementation(
     stopLifecycle,
     resetPlaylistRuntime,
     beginControlChannelRecovery,
+    completeControlChannelRecovery,
   };
 }
 
@@ -2448,7 +2479,11 @@ export class ProRoomPlaybackController {
     this.implementation.resetPlaylistRuntime();
   }
 
-  beginControlChannelRecovery(): void {
-    this.implementation.beginControlChannelRecovery();
+  beginControlChannelRecovery(): number {
+    return this.implementation.beginControlChannelRecovery();
+  }
+
+  completeControlChannelRecovery(generation: number): void {
+    this.implementation.completeControlChannelRecovery(generation);
   }
 }

@@ -244,16 +244,22 @@ describe('remote-share to local direct transfer promotion', () => {
     const { markTrackFailed } = await import('../../player/_state.ts');
     const { handleFilePrepare, handleFileStart } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
-    const { showLoader } = await import('../../ui/toast.ts');
+    const selectUnavailable = vi.fn();
+    bus.on('player:unavailable-file-selected', selectUnavailable);
     markTrackFailed(`queue:${Q0}`);
 
     await handleFilePrepare(prepareFrame(Q0, 7), conn);
+    expect(selectUnavailable).toHaveBeenCalledExactlyOnceWith(Q0, 7);
+    selectUnavailable.mockClear();
     handleFileStart(startFrame(Q0, 7), conn);
 
+    // This fixture isolates the receiver. The playback coordinator owns full
+    // output/UI retirement, exercised by failed-file-revisit.test.ts.
+    expect(selectUnavailable).toHaveBeenCalledExactlyOnceWith(Q0, 7);
     expect(postCommand).not.toHaveBeenCalledWith(
       expect.objectContaining({ command: 'STORAGE_START', queueItemId: Q0 }),
     );
-    expect(showLoader).toHaveBeenCalledWith(false);
+    expect(getState('playback.failedTrackKeys')).toContain(`queue:${Q0}`);
   });
 
   it('turns a RAM admission rejection into one terminal device-local failure', async () => {

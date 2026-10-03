@@ -87,6 +87,10 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta sequence QA, round 2 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-2.md) —
+  SQ02–SQ04 confirmed and unrepaired: late resume progress rollback, obsolete
+  file recovery during system-audio takeover, and pending YouTube start
+  overriding a newer seek. Includes independent replays and healthy controls.
 - [Beta sequence QA — 2026-10-03](design/beta-sequence-qa-2026-10-03.md) —
   fresh asynchronous sequence probes; SQ01 direct-file prefix loss confirmed
   in beta and archived main, with recovery and neighboring controls. A dated

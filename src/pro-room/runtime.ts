@@ -2193,6 +2193,14 @@ function cancelQueueModeCheckpoint(): void {
   restoreAcceptedQueueModeWithPendingIntent();
 }
 
+function retireQueueModeFieldIntent(revision: number): void {
+  for (const field of ['repeatMode', 'shuffleEnabled'] as const) {
+    if (queueModeFieldIntentRevision[field] <= revision) {
+      queueModeFieldIntentRevision[field] = 0;
+    }
+  }
+}
+
 async function persistQueueModeCheckpoint(): Promise<void> {
   const manager = playlistManager;
   const lease = playlistRuntimeLease;
@@ -2239,31 +2247,35 @@ async function persistQueueModeCheckpoint(): Promise<void> {
     }
     let snapshot = manager.snapshot;
     if (!snapshot) return;
-    if (
-      !acceptedQueueMode ||
-      acceptedQueueMode.roomCode !== snapshot.roomCode ||
-      !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
-    ) {
-      const intentBeforeRead = queueModeIntentRevision;
-      if (
-        !(await refreshPersistedQueueModeUnlocked(snapshot, { checkpointGeneration: generation }))
-      ) {
-        // Another append can invalidate the GET while its body is pending.
-        // Do not pair stale local fields with the newer playlist revision.
-        retryCurrentIntent(intentBeforeRead);
-        return;
-      }
-    }
-    if (!isCurrent()) return;
-    // A playlist mutation can commit while its queue-mode GET is pending.
-    // Build the PUT against that accepted playlist, not the pre-read revision.
-    snapshot = manager.snapshot ?? snapshot;
-    const baseRevision = acceptedQueueMode?.revision;
-    if (baseRevision === undefined) return;
-    const local = capturePlaylistQueueModeState();
-    const intentRevision = queueModeIntentRevision;
+    let intentRevision = queueModeIntentRevision;
     let accepted: ProRoomQueueModeSnapshot;
     try {
+      if (
+        !acceptedQueueMode ||
+        acceptedQueueMode.roomCode !== snapshot.roomCode ||
+        !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
+      ) {
+        if (
+          !(await refreshPersistedQueueModeUnlocked(snapshot, {
+            checkpointGeneration: generation,
+          }))
+        ) {
+          // Another append can invalidate the GET while its body is pending.
+          // Do not pair stale local fields with the newer playlist revision.
+          retryCurrentIntent(intentRevision);
+          return;
+        }
+      }
+      if (!isCurrent()) return;
+      // A playlist mutation can commit while its queue-mode GET is pending.
+      // Build the PUT against that accepted playlist, not the pre-read revision.
+      snapshot = manager.snapshot ?? snapshot;
+      const baseRevision = acceptedQueueMode?.revision;
+      if (baseRevision === undefined) return;
+      const local = capturePlaylistQueueModeState();
+      // A failed read only owns the intent that started it. A successful read
+      // can include newer gestures, which now belong to this actual PUT.
+      intentRevision = queueModeIntentRevision;
       accepted = await api.updateQueueMode(
         {
           code: snapshot.roomCode,
@@ -2283,16 +2295,32 @@ async function persistQueueModeCheckpoint(): Promise<void> {
         (error.code === 'QUEUE_MODE_REVISION_CONFLICT' ||
           error.code === 'PLAYLIST_REVISION_CONFLICT')
       ) {
-        await refreshPersistedQueueModeUnlocked(snapshot, {
-          checkpointGeneration: generation,
-          preservePendingIntent: false,
-          discardedIntentRevision: intentRevision,
-        });
-        if (!isCurrent()) return;
-        if (queueModeIntentRevision === intentRevision) {
-          queueModeCheckpointDirty = false;
-          queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
-          queueModeCheckpointRetryAttempt = 0;
+        // The server wins a conflict even if its follow-up GET fails. Retire
+        // rejected fields before awaiting it so a later gesture cannot revive
+        // them; gestures newer than this PUT still own their debounce.
+        retireQueueModeFieldIntent(intentRevision);
+        try {
+          await refreshPersistedQueueModeUnlocked(snapshot, {
+            checkpointGeneration: generation,
+            preservePendingIntent: false,
+            discardedIntentRevision: intentRevision,
+          });
+        } catch (refreshError) {
+          if (isCurrent()) {
+            restoreAcceptedQueueModeWithPendingIntent();
+            // The conflict proved this baseline stale. A fresh gesture must
+            // read again instead of submitting another already-invalid CAS.
+            acceptedQueueMode = null;
+          }
+          throw refreshError;
+        } finally {
+          if (isCurrent()) {
+            restoreAcceptedQueueModeWithPendingIntent();
+            if (queueModeIntentRevision === intentRevision) {
+              queueModeCheckpointDirty = false;
+              queueModeCheckpointRetryAttempt = 0;
+            }
+          }
         }
         return;
       }
@@ -2302,11 +2330,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
         } else {
           // A fresh shuffle gesture must not re-send a denied repeat edit (or
           // vice versa) just because both fields share a snapshot PUT.
-          for (const field of ['repeatMode', 'shuffleEnabled'] as const) {
-            if (queueModeFieldIntentRevision[field] <= intentRevision) {
-              queueModeFieldIntentRevision[field] = 0;
-            }
-          }
+          retireQueueModeFieldIntent(intentRevision);
           restoreAcceptedQueueModeWithPendingIntent();
         }
         throw error;
@@ -2378,9 +2402,8 @@ async function refreshPersistedQueueModeUnlocked(
     queueModeFieldIntentRevision[key] > 0 &&
     (queueModeFieldIntentRevision[key] > intentBeforeRead ||
       (options.preservePendingIntent !== false &&
-        previousAccepted !== null &&
-        accepted[key] === previousAccepted[key] &&
-        local[key] !== previousAccepted[key]));
+        (previousAccepted === null ||
+          (accepted[key] === previousAccepted[key] && local[key] !== previousAccepted[key]))));
   const repeatMode = preserveField('repeatMode') ? local.repeatMode : accepted.repeatMode;
   const shuffleEnabled = preserveField('shuffleEnabled')
     ? local.shuffleEnabled

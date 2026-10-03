@@ -73,6 +73,7 @@ import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-de
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
 import { pause } from '../player/transport.ts';
 import { recordMainReceiveProgress } from './preload-watchdog.ts';
+import { captureGuestFilePause, restoreGuestFilePause } from '../player/guest-file-pause.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -340,6 +341,7 @@ function tryAdmitMainReceive(data: Record<string, unknown>): boolean {
 }
 
 type PendingPlaySnapshot = {
+  kind: 'play';
   time: number;
   setAt: number;
   currentQueueItemId: QueueItemId | null;
@@ -347,13 +349,21 @@ type PendingPlaySnapshot = {
   transferQueueItemId?: QueueItemId;
 };
 
-function capturePendingPlaySnapshot(): PendingPlaySnapshot | null {
+type PendingFileIntentSnapshot =
+  | PendingPlaySnapshot
+  | { kind: 'pause'; checkpoint: NonNullable<ReturnType<typeof captureGuestFilePause>> };
+
+function capturePendingFileIntent(data: Record<string, unknown>): PendingFileIntentSnapshot | null {
   const time = getPendingPlayTime();
-  if (time === undefined) return null;
+  if (time === undefined) {
+    const checkpoint = captureGuestFilePause(incomingQueueItemId(data), Number(data.sessionId));
+    return checkpoint ? { kind: 'pause', checkpoint } : null;
+  }
 
   const target = getState('playback.pendingRecoveryTarget');
   const meta = getState('transfer.meta');
   return {
+    kind: 'play',
     time,
     setAt: getPendingPlayTimeSetAt(),
     currentQueueItemId: getState('playlist.currentQueueItemId'),
@@ -375,12 +385,16 @@ function shouldRestorePendingPlay(
   );
 }
 
-function restorePendingPlaySnapshot(
-  snapshot: PendingPlaySnapshot | null,
+function restorePendingFileIntent(
+  snapshot: PendingFileIntentSnapshot | null,
   data: Record<string, unknown>,
   reason: string,
 ): void {
   if (!snapshot) return;
+  if (snapshot.kind === 'pause') {
+    restoreGuestFilePause(snapshot.checkpoint);
+    return;
+  }
   if (getPendingPlayTime() !== undefined) return;
   if (!shouldRestorePendingPlay(snapshot, data)) return;
   setPendingPlayTime(snapshot.time, snapshot.setAt);
@@ -709,7 +723,7 @@ function projectFilePrepareBeforeRouteCheck(
     getState('playlist.currentQueueItemId') === queueItemId
   )
     return;
-  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  const pendingFileIntent = capturePendingFileIntent(data);
   const name = (data.name as string) || '';
   const indexHint = findQueueItemIndex(queueItemId);
   // Selection is already authenticated. Route discovery determines where
@@ -732,7 +746,7 @@ function projectFilePrepareBeforeRouteCheck(
     mime: (data.mime as string) || '',
   });
   setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
-  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'route-pending file prepare');
+  restorePendingFileIntent(pendingFileIntent, data, 'route-pending file prepare');
 }
 
 async function receiveProRoomFileDirectly(
@@ -754,7 +768,7 @@ async function receiveProRoomFileDirectly(
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('fileWaitTimeout');
 
-  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  const pendingFileIntent = capturePendingFileIntent(data);
   bus.emit('player:stop-all-media');
 
   if (sessionId > getState('transfer.localSessionId')) {
@@ -785,7 +799,7 @@ async function receiveProRoomFileDirectly(
     total: safeSize > 0 ? Math.max(1, Math.ceil(safeSize / CHUNK_SIZE)) : 1,
   });
   setPlaybackTrackMeta(item);
-  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'PRO direct R2 prepare');
+  restorePendingFileIntent(pendingFileIntent, data, 'PRO direct R2 prepare');
 
   try {
     const file = await filePromise;
@@ -1015,7 +1029,7 @@ export async function handleFilePrepare(
     setState('preload.nextQueueItemId', null);
   }
 
-  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  const pendingFileIntent = capturePendingFileIntent(data);
 
   // The stable queue item ID selects the staged Blob. The name is only a
   // metadata consistency check; a name match alone never permits promotion.
@@ -1035,7 +1049,7 @@ export async function handleFilePrepare(
     // FILE_PREPARE where blob already assembled → promote straight to DECODING
     // via the preload-promoted path. shouldSkipIncomingFile() returns true
     // automatically once lifecycle is DECODING with PRELOAD_PROMOTED loadSource.
-    restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'preload-match stopAllMedia');
+    restorePendingFileIntent(pendingFileIntent, data, 'preload-match stopAllMedia');
 
     transition({
       type: 'FILE_PREPARE',
@@ -1152,7 +1166,7 @@ export async function handleFilePrepare(
 
       // Recover if preload assembly stalls. Remote preload shares the 60s
       // receive allowance; local preload gets 30s (longer than chunk receive).
-      restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'preload-waiting stopAllMedia');
+      restorePendingFileIntent(pendingFileIntent, data, 'preload-waiting stopAllMedia');
 
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
       setManagedTimer(
@@ -1280,7 +1294,7 @@ export async function handleFilePrepare(
 
     showLoader(true, t('transfer.preparing_name', { name: data.name as string }));
   }
-  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'file-prepare reset');
+  restorePendingFileIntent(pendingFileIntent, data, 'file-prepare reset');
 
   // Prepare watchdog with jitter recovery
   const prepareTimeout = getState('network.connectionType') === 'remote' ? 60000 : 15000;

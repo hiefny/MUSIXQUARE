@@ -35,6 +35,7 @@ import {
   shouldWaitForRemoteShare,
 } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import { clearGuestFilePause, rememberGuestFilePause } from './guest-file-pause.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
 import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
 import {
@@ -360,6 +361,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
   // previously failed to decode. Advance before that early return so an older
   // PLAY suspended on ICE classification cannot resume behind the new one.
   const playIntentEpoch = ++_guestPlayIntentEpoch;
+  clearGuestFilePause();
   releaseActiveGuestFileRouteLoader();
   const playTimeline = captureGuestFilePlayTiming(data, time);
   const queuePlayTimeline = (): void => setPendingPlayTime(playTimeline.time, playTimeline.setAt);
@@ -698,6 +700,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // "재생목록 끝" toast overwrites it. Just stop everything and clear
   // the stale track meta so title/indicator mirror the host's reset.
   if (endOfPlaylist) {
+    clearGuestFilePause();
     log.debug('[Guest] Host signalled end of playlist. Clearing track meta');
     setPlaybackTrackMeta(null);
     // Mirror host's deselected state so operator guest's togglePlay
@@ -714,6 +717,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // state, so retain the authoritative rendezvous time independently of the
   // concrete transport and use it once the file becomes playable.
   setState('player.pausedAt', time);
+  if (incomingQueueItemId) rememberGuestFilePause(incomingQueueItemId, time);
 
   const isUserPause = reason === undefined || reason === 'pause';
   // Stop the concrete WebAudio node before moving semantic state to PAUSED.
@@ -912,6 +916,7 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initPlayback(): void {
+  clearGuestFilePause();
   registerProRoomDirectFileHandler((file, queueItemId, sessionId) =>
     finalizeGuestFile(file, queueItemId, sessionId),
   );

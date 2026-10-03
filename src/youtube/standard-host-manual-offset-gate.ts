@@ -22,6 +22,7 @@ import {
 import { getCurrentSessionId, getYouTubePlayer, type YouTubePlayerInstance } from './_state.ts';
 
 export interface StandardHostManualOffsetRuntimeHooks {
+  readPlaybackIntent(): boolean | null;
   cancelForMediaTransition(): void;
   repairAfterTimerCleanup(): void;
   reset(): void;
@@ -43,6 +44,7 @@ export interface StandardHostManualOffsetLease {
 
 interface ActiveReservation {
   generation: number;
+  identity: UserInputIdentity | null;
   hooks: StandardHostManualOffsetRuntimeHooks | null;
   previous: ActiveReservation | null;
   baselineRequestedOffset: number;
@@ -343,6 +345,7 @@ function beginReservation(
 ): void {
   const reservation: ActiveReservation = {
     generation: ++generation,
+    identity: userIdentity ?? readUserInputIdentity(player),
     hooks: activeReservation?.hooks ?? null,
     previous: activeReservation,
     baselineRequestedOffset: activeReservation?.baselineRequestedOffset ?? priorRequestedOffset,
@@ -387,6 +390,13 @@ export function prepareStandardHostManualOffsetRuntimeForTests(): Promise<void> 
 
 export function isStandardHostManualOffsetTransactionPending(): boolean {
   return activeReservation !== null;
+}
+
+/** Read user intent, not the temporary native pause used by a local rendezvous. */
+export function getStandardHostManualOffsetPlaybackIntent(): boolean | null {
+  const reservation = activeReservation;
+  if (!reservation?.identity || !matchesUserInputIdentity(reservation.identity)) return null;
+  return reservation.hooks?.readPlaybackIntent() ?? null;
 }
 
 /** Keep one-shot local actions behind the same verified iframe boundary. */

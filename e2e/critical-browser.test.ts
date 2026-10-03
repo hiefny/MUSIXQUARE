@@ -427,6 +427,133 @@ test.describe('Critical browser release gate', () => {
     await expect(page.locator('.chat-bubble.mine')).toHaveCount(2);
   });
 
+  for (const scenario of [
+    { kind: 'message', draft: 'Recovered ordinary draft' },
+    { kind: 'whisper', draft: '/w Recipient Recovered private draft' },
+    { kind: 'freeze', draft: '/freeze on' },
+  ]) {
+    test(`PRO recovery preserves a rejected ${scenario.kind} submission for explicit retry`, async ({
+      page,
+    }) => {
+      await injectPeerServer(page);
+      await page.addInitScript((signalingUrl) => {
+        (window as unknown as Record<string, unknown>).__MUSIXQUARE_TRANSPORT__ = {
+          provider: 'cloudflare',
+          signalingUrl,
+        };
+      }, `${PRO_SIGNALING_ORIGIN}/api/rooms`);
+      const frames: Record<string, unknown>[] = [];
+      let connections = 0;
+      let closeSocket: (() => Promise<void>) | undefined;
+      let ticketCount = 0;
+      let ticketBlocked = false;
+      let releaseTicket = () => {};
+      const ticketGate = new Promise<void>((resolve) => {
+        releaseTicket = resolve;
+      });
+      await page.routeWebSocket(
+        (url) => url.pathname.includes('/api/pro-rooms/'),
+        (socket) => {
+          connections++;
+          closeSocket = () => socket.close({ code: 1001, reason: 'Test transient disconnect' });
+          socket.onMessage((raw) => {
+            if (typeof raw !== 'string') return;
+            const frame = JSON.parse(raw) as Record<string, unknown>;
+            if (frame.type === 'pro-clock')
+              socket.send(
+                JSON.stringify({
+                  type: 'pro-clock',
+                  version: 1,
+                  requestId: frame.requestId,
+                  clientSentAtMs: frame.clientSentAtMs,
+                  serverTimeMs: Date.now(),
+                }),
+              );
+            if (frame.type === 'pro-realtime' && frame.channel === 'chat') {
+              frames.push(frame.payload as Record<string, unknown>);
+            }
+          });
+        },
+      );
+      const snapshot = ownerSnapshot();
+      (snapshot.presence as { participants: unknown[] }).participants.push({
+        participantId: 'participant_00002',
+        memberId: 'member_0000000002',
+        memberDisplayNumber: 7,
+        isAuthenticated: false,
+        displayName: 'Recipient',
+        devicePlatform: 'other',
+        role: 'member',
+        capabilities: [],
+        joinedAtMs: Date.now(),
+      });
+      await page.route('**/api/pro-room/**', async (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (route.request().method() === 'OPTIONS') {
+          await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
+        } else if (path.endsWith('/bootstrap')) {
+          await fulfillProJson(page, route, { roomCode: PRO_ROOM_CODE, status: 'pin_required' });
+        } else if (path.endsWith('/owner-recovery') || path.endsWith('/presence/heartbeat')) {
+          await fulfillProJson(page, route, { snapshot });
+        } else if (path.endsWith('/signaling-tickets')) {
+          ticketCount++;
+          if (ticketCount > 1) {
+            ticketBlocked = true;
+            await ticketGate;
+          }
+          await fulfillProJson(page, route, {
+            ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}`,
+            expiresAtMs: Date.now() + 60_000,
+            role: 'member',
+            coordinatorEpoch: 2,
+            presenceIncarnationId: PRESENCE_INCARNATION_ID,
+            ticketSequence: ticketCount,
+            pendingPlaybackTransition: null,
+          });
+        } else {
+          await fulfillProJson(page, route, { error: 'TEST_ADJUNCT_UNAVAILABLE' }, 503);
+        }
+      });
+      await page.goto(`/${PRO_ROOM_CODE}#pro-recovery=${OWNER_RECOVERY_CLAIM}`);
+      await page.locator('#btn-setup-confirm:not([disabled])').click();
+      await waitForState(page, 'room.context.kind', 'pro');
+      await openChatDrawer(page);
+      await sendChat(page, 'Connected control');
+      await expect.poll(() => frames.length).toBe(1);
+      expect(frames[0]).toMatchObject({ kind: 'message', text: 'Connected control' });
+      await closeSocket!();
+      await expect.poll(() => ticketBlocked).toBe(true);
+      try {
+        await sendChat(page, scenario.draft);
+        await expect(page.locator('#chat-input')).toHaveText(scenario.draft);
+        await expect(page.locator('.chat-bubble.mine')).toHaveCount(1);
+        await expect(page.locator('#chat-messages')).toContainText(
+          /Could not connect|연결하지 못/u,
+        );
+        await waitForState(page, 'network.chatFrozen', false);
+        expect(frames).toHaveLength(1);
+      } finally {
+        releaseTicket();
+      }
+      await expect.poll(() => connections).toBe(2);
+      // Recovery itself must not automatically publish the retained command.
+      expect(frames).toHaveLength(1);
+      await page.locator('#btn-chat-send').click();
+      await expect.poll(() => frames.length).toBe(2);
+      expect(frames[1]).toMatchObject({ kind: scenario.kind });
+      await expect(page.locator('#chat-input')).toHaveText('');
+      if (scenario.kind === 'freeze') {
+        expect(frames[1]).toMatchObject({ on: true });
+        await waitForState(page, 'network.chatFrozen', true);
+      } else {
+        expect(frames[1]).toMatchObject({
+          text: scenario.kind === 'message' ? scenario.draft : 'Recovered private draft',
+        });
+        await expect(page.locator('.chat-bubble.mine')).toHaveCount(2);
+      }
+    });
+  }
+
   test('consumes an OAuth callback outcome once and scrubs it from the URL', async ({ page }) => {
     await injectPeerServer(page);
     await page.route('**/api/auth/session', (route) =>

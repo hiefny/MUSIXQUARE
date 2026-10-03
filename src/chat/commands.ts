@@ -52,11 +52,14 @@ interface CommandExecutionContext {
   botRequestId?: string;
 }
 
+/** False means a known transport rejection: retain the submission for retry. */
+type CommandResult = void | false;
+
 type Permission = 'host' | 'physical-host' | 'members' | 'notice' | 'bot' | 'all';
 
 interface CommandDef {
   permission: Permission;
-  execute: (args: string[], rawArgs: string, context?: CommandExecutionContext) => void;
+  execute: (args: string[], rawArgs: string, context?: CommandExecutionContext) => CommandResult;
   usage: string;
   description: string;
   suggestWhen?: () => boolean;
@@ -274,7 +277,13 @@ function cmdDeop(args: string[]): void {
   bus.emit('network:toggle-operator', target.peerId);
 }
 
-function cmdFreeze(args: string[]): void {
+function sendProChatCommand(payload: Parameters<typeof sendProRoomRealtime>[1]): boolean {
+  if (sendProRoomRealtime('chat', payload)) return true;
+  addSystemChatMessage(t('pro.connect_failed'));
+  return false;
+}
+
+function cmdFreeze(args: string[]): CommandResult {
   const flag = args[0]?.toLowerCase();
   if (flag !== 'on' && flag !== 'off') {
     addSystemChatMessage(t('chat.cmd_usage', { usage: '/freeze on|off' }));
@@ -282,8 +291,8 @@ function cmdFreeze(args: string[]): void {
   }
   const on = flag === 'on';
   if (getRoomContext().kind === 'pro') {
+    if (!sendProChatCommand({ kind: 'freeze', on })) return false;
     setState('network.chatFrozen', on);
-    sendProRoomRealtime('chat', { kind: 'freeze', on });
   } else if (isPhysicalStandardHost()) {
     setState('network.chatFrozen', on);
     bus.emit('network:broadcast', { type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
@@ -294,7 +303,7 @@ function cmdFreeze(args: string[]): void {
   addSystemChatMessage(on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
 }
 
-function cmdMute(args: string[]): void {
+function cmdMute(args: string[]): CommandResult {
   if (!args[0]) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_mute') }));
     return;
@@ -306,11 +315,14 @@ function cmdMute(args: string[]): void {
   }
 
   if (getRoomContext().kind === 'pro') {
-    sendProRoomRealtime('chat', {
-      kind: 'mute',
-      targetParticipantId: target.peerId,
-      on: true,
-    });
+    if (
+      !sendProChatCommand({
+        kind: 'mute',
+        targetParticipantId: target.peerId,
+        on: true,
+      })
+    )
+      return false;
     addSystemChatMessage(t('chat.cmd_muted', { name: target.label }));
   } else if (isPhysicalStandardHost()) {
     // Host executes directly
@@ -328,7 +340,7 @@ function cmdMute(args: string[]): void {
   }
 }
 
-function cmdUnmute(args: string[]): void {
+function cmdUnmute(args: string[]): CommandResult {
   if (!args[0]) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_unmute') }));
     return;
@@ -340,11 +352,14 @@ function cmdUnmute(args: string[]): void {
   }
 
   if (getRoomContext().kind === 'pro') {
-    sendProRoomRealtime('chat', {
-      kind: 'mute',
-      targetParticipantId: target.peerId,
-      on: false,
-    });
+    if (
+      !sendProChatCommand({
+        kind: 'mute',
+        targetParticipantId: target.peerId,
+        on: false,
+      })
+    )
+      return false;
     addSystemChatMessage(t('chat.cmd_unmuted', { name: target.label }));
   } else if (isPhysicalStandardHost()) {
     const current = getState('network.mutedPeers');
@@ -362,9 +377,9 @@ function cmdUnmute(args: string[]): void {
   }
 }
 
-function cmdClear(): void {
+function cmdClear(): CommandResult {
   if (getRoomContext().kind === 'pro') {
-    sendProRoomRealtime('chat', { kind: 'clear' });
+    if (!sendProChatCommand({ kind: 'clear' })) return false;
     bus.emit('chat:clear-all');
   } else if (isPhysicalStandardHost()) {
     bus.emit('network:broadcast', { type: MSG.CHAT_CLEAR });
@@ -374,7 +389,7 @@ function cmdClear(): void {
   }
 }
 
-function cmdFilter(args: string[]): void {
+function cmdFilter(args: string[]): CommandResult {
   const on = args[0]?.toLowerCase() === 'on';
   const off = args[0]?.toLowerCase() === 'off';
   if (!on && !off) {
@@ -383,8 +398,8 @@ function cmdFilter(args: string[]): void {
   }
 
   if (getRoomContext().kind === 'pro') {
+    if (!sendProChatCommand({ kind: 'filter', on })) return false;
     setState('network.filterEnabled', on);
-    sendProRoomRealtime('chat', { kind: 'filter', on });
     addSystemChatMessage(on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
   } else if (isPhysicalStandardHost()) {
     setState('network.filterEnabled', on);
@@ -395,7 +410,7 @@ function cmdFilter(args: string[]): void {
   }
 }
 
-function cmdSlowmode(args: string[]): void {
+function cmdSlowmode(args: string[]): CommandResult {
   const sec = parseInt(args[0] || '0', 10);
   if (isNaN(sec) || sec < 0 || sec > 60) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: '/slowmode 0~60' }));
@@ -403,8 +418,8 @@ function cmdSlowmode(args: string[]): void {
   }
 
   if (getRoomContext().kind === 'pro') {
+    if (!sendProChatCommand({ kind: 'slowmode', seconds: sec })) return false;
     setState('network.slowmodeSeconds', sec);
-    sendProRoomRealtime('chat', { kind: 'slowmode', seconds: sec });
     addSystemChatMessage(sec > 0 ? t('chat.cmd_slowmode_on', { sec }) : t('chat.cmd_slowmode_off'));
   } else if (isPhysicalStandardHost()) {
     setState('network.slowmodeSeconds', sec);
@@ -415,7 +430,7 @@ function cmdSlowmode(args: string[]): void {
   }
 }
 
-function cmdNotice(_: string[], rawArgs: string): void {
+function cmdNotice(_: string[], rawArgs: string): CommandResult {
   if (!rawArgs.trim()) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_notice') }));
     return;
@@ -430,8 +445,8 @@ function cmdNotice(_: string[], rawArgs: string): void {
   };
 
   if (getRoomContext().kind === 'pro') {
+    if (!sendProChatCommand({ kind: 'notice', text: rawArgs.trim() })) return false;
     rememberPinnedNotice(payload);
-    sendProRoomRealtime('chat', { kind: 'notice', text: rawArgs.trim() });
     addNoticeChatMessage(senderLabel, rawArgs.trim(), payload.ts);
     playAnnouncementSound();
   } else if (isPhysicalStandardHost()) {
@@ -471,7 +486,7 @@ function cmdNick(_: string[], rawArgs: string): void {
     });
 }
 
-function cmdWhisper(args: string[], rawArgs: string): void {
+function cmdWhisper(args: string[], rawArgs: string): CommandResult {
   if (!args[0]) {
     addSystemChatMessage(t('chat.cmd_usage', { usage: t('chat.cmd_u_w') }));
     return;
@@ -504,11 +519,14 @@ function cmdWhisper(args: string[], rawArgs: string): void {
   };
 
   if (getRoomContext().kind === 'pro') {
-    sendProRoomRealtime('chat', {
-      kind: 'whisper',
-      targetParticipantId: target.peerId,
-      text: msg,
-    });
+    if (
+      !sendProChatCommand({
+        kind: 'whisper',
+        targetParticipantId: target.peerId,
+        text: msg,
+      })
+    )
+      return false;
   } else if (isPhysicalStandardHost()) {
     // Host sends directly to target
     const connMap = getState('network.activeHostConnByPeerId');
@@ -901,7 +919,10 @@ export function isWhisperCommand(cmd: ParsedCommand): boolean {
   return _resolveCommand(cmd.name)?.execute === cmdWhisper;
 }
 
-export function executeCommand(cmd: ParsedCommand, context?: CommandExecutionContext): void {
+export function executeCommand(
+  cmd: ParsedCommand,
+  context?: CommandExecutionContext,
+): CommandResult {
   const def = _resolveCommand(cmd.name);
   if (!def) {
     addSystemChatMessage(t('chat.cmd_unknown', { cmd: cmd.name }));
@@ -911,6 +932,6 @@ export function executeCommand(cmd: ParsedCommand, context?: CommandExecutionCon
     addSystemChatMessage(permissionDeniedMessage(def.permission));
     return;
   }
-  if (context) def.execute(cmd.args, cmd.rawArgs, context);
-  else def.execute(cmd.args, cmd.rawArgs);
+  if (context) return def.execute(cmd.args, cmd.rawArgs, context);
+  return def.execute(cmd.args, cmd.rawArgs);
 }

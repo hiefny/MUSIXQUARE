@@ -39,6 +39,7 @@ import { createSystemAudioStartFrame } from '../network/system-audio-start.ts';
 import { getSystemAudioShareDeliverySnapshot } from '../network/system-audio-delivery.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
+import { getStandardHostManualOffsetPlaybackIntent } from '../youtube/standard-host-manual-offset-gate.ts';
 import {
   beginPendingBroadcastSuspension,
   discardPendingBroadcastSuspension,
@@ -638,6 +639,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   // Capture stable identity instead of an array position: the occurrence may
   // move while system audio is active, while stopAllMedia preserves its ID.
   const playback = getPlaybackModeActivitySnapshot();
+  if (!isProRoom && playback.mode === 'youtube') {
+    // A local manual-sync rendezvous temporarily pauses the iframe while the
+    // room still plays. Preserve its current user intent before teardown
+    // retires the transaction; PRO restoration uses the server checkpoint.
+    const playing = getStandardHostManualOffsetPlaybackIntent();
+    if (playing !== null) playback.activity = playing ? 'playing' : 'paused';
+  }
   const rawPositionSeconds =
     playback.activity === 'playing' || playback.activity === 'paused'
       ? getTrackPosition()

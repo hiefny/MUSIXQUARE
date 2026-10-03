@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { sendToHost } from '../../network/peer.ts';
@@ -2705,7 +2705,7 @@ describe('Chat Module', () => {
       expect(document.querySelectorAll('#chat-messages .chat-row')).toHaveLength(1);
     });
 
-    describe('PRO slowmode admission', () => {
+    describe('PRO submission admission', () => {
       let clock = Date.now();
 
       beforeEach(() => {
@@ -2737,6 +2737,135 @@ describe('Chat Module', () => {
           },
         ]);
       }
+
+      it.each(['owner', 'controller', 'member'] as const)(
+        'retains a failed %s message without consuming slowmode or retry dedup',
+        async (role) => {
+          setProRole(role);
+          setState('network.slowmodeSeconds', 2);
+          const text = `Offline ${role} draft`;
+          const input = renderSendShell(text);
+          proRealtimeMocks.send.mockReturnValueOnce(false);
+          const { sendChatMessage } = await import('../chat.ts');
+          sendChatMessage();
+          expect(input.textContent).toBe(text);
+          expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(0);
+          expect(document.querySelector('.chat-group.system')?.textContent).toContain(
+            'pro.connect_failed',
+          );
+          sendChatMessage();
+          expect(proRealtimeMocks.send).toHaveBeenCalledTimes(2);
+          expect(input.textContent).toBe('');
+          expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(1);
+          input.textContent = text;
+          sendChatMessage();
+          expect(proRealtimeMocks.send).toHaveBeenCalledTimes(2);
+        },
+      );
+
+      it.each([
+        '/freeze on',
+        '/mute Recipient',
+        '/unmute Recipient',
+        '/clear',
+        '/filter on',
+        '/slowmode 5',
+        '/notice Important announcement',
+        '/w Recipient Private message',
+        '/whisper Recipient Private message',
+      ])('retains a rejected %s command and applies it only on successful retry', async (text) => {
+        setProRole('owner');
+        setState('room.context', {
+          ...getState('room.context'),
+          capabilities: ['room.configure', 'chat.notice'],
+        });
+        setState('network.lastKnownDeviceList', [
+          ...(getState('network.lastKnownDeviceList') || []),
+          {
+            id: 'recipient',
+            label: 'Recipient',
+            status: 'connected',
+            isHost: false,
+            isOp: false,
+            role: 'member',
+          },
+        ]);
+        const clear = vi.fn();
+        bus.on('chat:clear-all', clear);
+        const input = renderSendShell(text);
+        proRealtimeMocks.send.mockReturnValueOnce(false);
+        const { sendChatMessage } = await import('../chat.ts');
+        sendChatMessage();
+        expect(input.textContent).toBe(text);
+        expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(0);
+        expect(document.querySelectorAll('.chat-group.system')).toHaveLength(1);
+        expect(document.querySelector('.chat-group.system')?.textContent).toContain(
+          'pro.connect_failed',
+        );
+        expect(getState('network.chatFrozen')).toBe(false);
+        expect(getState('network.filterEnabled')).toBe(false);
+        expect(getState('network.slowmodeSeconds')).toBe(0);
+        expect(botProtocolMocks.rememberPinnedNotice).not.toHaveBeenCalled();
+        expect(clear).not.toHaveBeenCalled();
+        sendChatMessage();
+        expect(proRealtimeMocks.send).toHaveBeenCalledTimes(2);
+        expect(input.textContent).toBe('');
+        if (text === '/freeze on') expect(getState('network.chatFrozen')).toBe(true);
+        if (text === '/filter on') expect(getState('network.filterEnabled')).toBe(true);
+        if (text === '/slowmode 5') expect(getState('network.slowmodeSeconds')).toBe(5);
+        if (text === '/clear') expect(clear).toHaveBeenCalledOnce();
+        if (text.startsWith('/notice '))
+          expect(botProtocolMocks.rememberPinnedNotice).toHaveBeenCalledOnce();
+        if (text.startsWith('/w'))
+          expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(1);
+        input.textContent = text;
+        sendChatMessage();
+        expect(proRealtimeMocks.send).toHaveBeenCalledTimes(2);
+      });
+
+      it('does not submit a BOT API request when its visible chat send fails', async () => {
+        setProRole('owner');
+        const input = renderSendShell('/bot play next');
+        proRealtimeMocks.send.mockReturnValueOnce(false);
+        const { sendChatMessage } = await import('../chat.ts');
+        sendChatMessage();
+        expect(input.textContent).toBe('/bot play next');
+        expect(document.querySelectorAll('.chat-bubble.mine')).toHaveLength(0);
+        expect(requestActiveProRoomBotCommand).not.toHaveBeenCalled();
+        expect(botProtocolMocks.beginLocalBotChatRequest).not.toHaveBeenCalled();
+        requestActiveProRoomBotCommand.mockResolvedValueOnce({
+          addedCount: 0,
+          summary: 'Ready',
+          playbackChanged: false,
+        });
+        sendChatMessage();
+        await vi.waitFor(() => expect(requestActiveProRoomBotCommand).toHaveBeenCalledOnce());
+        expect(input.textContent).toBe('');
+      });
+
+      it('still executes local help while PRO transport is unavailable', async () => {
+        setProRole('member');
+        const input = renderSendShell('/help');
+        proRealtimeMocks.send.mockReturnValue(false);
+        const { sendChatMessage } = await import('../chat.ts');
+        sendChatMessage();
+        expect(input.textContent).toBe('');
+        expect(proRealtimeMocks.send).not.toHaveBeenCalled();
+        expect(document.querySelector('.chat-group.system')?.textContent).toContain(
+          'chat.cmd_help_title',
+        );
+      });
+
+      it('does not steal focus from a dialog opened by a local command', async () => {
+        const input = renderSendShell('/nick Alice');
+        const dialogInput = document.createElement('input');
+        document.body.appendChild(dialogInput);
+        bus.on('account:open', () => dialogInput.focus());
+        const { sendChatMessage } = await import('../chat.ts');
+        sendChatMessage();
+        expect(input.textContent).toBe('');
+        expect(document.activeElement).toBe(dialogInput);
+      });
 
       it.each(['owner', 'controller', 'member'] as const)(
         'preserves a blocked %s draft without a false sent bubble, then permits retry',

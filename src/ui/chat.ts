@@ -1124,6 +1124,7 @@ export function sendChatMessage(): void {
   if (!input) return;
   let text = (input.textContent || '').trim();
   if (!text) return;
+  const submissionText = text;
 
   // Dedup: block identical message within 500ms (guards against double-fire from
   // duplicate event handlers, network reconnection glitches, or platform-specific quirks)
@@ -1145,17 +1146,23 @@ export function sendChatMessage(): void {
   }
 
   if (initialCommand && !isVisibleBotCommand) {
-    // This submission has passed parsing and is accepted for local
-    // execution. Policy-rejected attempts below deliberately do not update
-    // the stamp, so an immediately permitted retry cannot disappear into the
-    // double-fire guard.
-    _lastSentText = text;
-    _lastSentTs = now;
     text = boundChatSubmission(text);
+    const command = parseCommand(text) ?? initialCommand;
+    const needsTransportAdmission = getRoomContext().kind === 'pro';
+    if (needsTransportAdmission) {
+      input.focus();
+      if (executeCommand(command) === false) return;
+    }
+    // A known transport failure leaves the draft and retry stamp untouched.
+    // Local validation/help commands retain their existing consume behavior.
+    _lastSentText = submissionText;
+    _lastSentTs = now;
+    const restoreInputFocus = !needsTransportAdmission || document.activeElement === input;
     resetChatEditable(input);
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
-    executeCommand(parseCommand(text) ?? initialCommand);
+    // Commands may open an account dialog; do not steal its newly moved focus.
+    if (restoreInputFocus) input.focus();
+    if (!needsTransportAdmission) executeCommand(command);
     return;
   }
 
@@ -1187,13 +1194,6 @@ export function sendChatMessage(): void {
       return;
     }
   }
-  // Record the double-fire key only after every policy gate accepted the
-  // submission. This preserves duplicate-handler protection without turning
-  // a visible freeze/slowmode rejection into a silent rejection on retry.
-  _lastSentText = text;
-  _lastSentTs = now;
-  _lastSentTime = Date.now();
-
   text = boundChatSubmission(text);
 
   // ── Profanity filter (own messages too) ──
@@ -1208,6 +1208,25 @@ export function sendChatMessage(): void {
     visibleBotCommand && shouldBroadcastCommand(visibleBotCommand)
       ? createProRoomIdempotencyKey()
       : undefined;
+
+  if (
+    isProRoom &&
+    !sendProRoomRealtime('chat', {
+      kind: 'message',
+      text,
+      clientTs: now,
+      ...(botRequestId ? { botRequestId } : {}),
+    })
+  ) {
+    addSystemChatMessage(t('pro.connect_failed'));
+    return;
+  }
+
+  // Commit local submission only after policy and transport admission. Failed
+  // PRO sends must not consume drafts, slowmode, dedup, or a BOT API request.
+  _lastSentText = submissionText;
+  _lastSentTs = now;
+  _lastSentTime = now;
 
   const senderLabel = _getChatLabelBase();
   const displayName = formatChatDisplayName(senderLabel);
@@ -1245,17 +1264,9 @@ export function sendChatMessage(): void {
     ...(botRequestId ? { botRequestId } : {}),
   };
 
-  if (isProRoom) {
-    const sent = sendProRoomRealtime('chat', {
-      kind: 'message',
-      text,
-      clientTs: chatMsg.ts,
-      ...(botRequestId ? { botRequestId } : {}),
-    });
-    if (!sent) addSystemChatMessage(t('pro.connect_failed'));
-  } else if (!hostConn) {
+  if (!isProRoom && !hostConn) {
     bus.emit('network:broadcast', chatMsg);
-  } else {
+  } else if (!isProRoom) {
     sendToHost(chatMsg);
   }
 

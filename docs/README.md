@@ -88,10 +88,11 @@ These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
 - [Beta sequence QA, round 4 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-4.md) —
-  discovery-only evidence: SQ07 failed-file revisit leaves outgoing playback,
-  SQ08 PRO slowmode falsely shows successful submission, and SQ09 stale PREPARE
-  returns after reconnect. Independent reproductions, healthy controls and
-  subsequent COMMIT recovery; repairs remain pending.
+  SQ07–SQ09 discovery and repair: failed-file selection retires outgoing output,
+  PRO slowmode preserves drafts, and reconnect fences stale HTTP PREPARE.
+  Original failures preserved; 45 new module regressions, reconciled 10,503
+  unique unit passes and 75 focused Chromium passes. Cache/version and other
+  release gates remain separate from beta verification.
 - [Beta sequence QA, round 3 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-3.md) —
   SQ05–SQ06 discovery and repair: failed-demo settings rollback and PRO
   one-shot observation loss before heartbeat catch-up. Preserves failing evidence,

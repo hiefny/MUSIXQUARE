@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Dated discovery evidence — SQ07–SQ09 confirmed, not repaired |
+| Status | Dated discovery evidence with repair addendum — SQ07–SQ09 repaired and verified |
 | Tested checkout | `mxqr_beta`, `ed6552805d57ccd30bfc64a5dfa474ba0378c729` |
 | Product/test code | `d4dd4bbb94c58624f50887d12dc5dd017fb95f7a` — includes SQ05–SQ06 repairs |
 | Main reference | `35759e8b07f1ee0b272afbd0af03c770a858889e` |
@@ -10,6 +10,10 @@
 | Related records | [Living release record](../beta-release-readiness.md), [previous discovery and repairs](beta-sequence-qa-2026-10-03-round-3.md) |
 
 ## Result and scope
+
+The original discovery record below is preserved at its original checkout.
+Current resolution and tested repair SHA are in the
+[repair addendum](#repair-addendum--2026-10-03).
 
 **Three new defects were confirmed and independently checked.** This round
 examined local decoder failure and later selections, PRO reconnect/command
@@ -170,3 +174,118 @@ before promotion. No new dependency, schema, secret, binding, migration,
 version/cache change or recovery procedure is introduced by this records-only
 change. The existing security, device and exact-main-SHA release checks remain,
 along with the competition freeze.
+
+## Repair addendum — 2026-10-03
+
+Tested repair code: `a841b2d9315c23b71d78ca6263e3950b0a55cc82`, on `mxqr_beta`. The same source tree
+was verified before committing, starting from `9ea5df404669b821bc172293df7f0f397888dd05`.
+Environment: Windows, pinned Node 24.20.0, Vitest/jsdom, local Chromium/PeerJS,
+and jq 1.8.2 selected through `MXQR_TEST_JQ_PATH`. Main, production, product
+version `8.6.61`, cache `v630`, and the disabled Operations Drift Audit are
+unchanged. This is beta verification, not an exact-main-SHA release candidate.
+
+### SQ07: honor an unavailable selection without retrying its decoder
+
+Validated standard-room file commands now notify one playback coordinator of
+an unavailable authoritative selection. It stops the outgoing output, retires
+in-flight loads and foreground transfers, clears pending recovery/loader
+state, and selects the requested occurrence while retaining its failure memo.
+It does not retry decoding or advance the room on the guest's behalf.
+
+The receiver retains a session high-water mark and queue identity fence, so
+old outgoing bulk tails cannot reclaim output even when PLAY precedes its
+new header. Host identity, session freshness and external-owner checks still
+run before retirement. Repeated commands for an already-retired occurrence
+are idempotent and preserve a healthy speculative preload. The related
+foreground R2 descriptor and PLAY_PRELOADED paths reproduced the same failed
+occurrence admission gap and now use the same retirement behavior; speculative
+R2 preload descriptors cannot select or stop the current track.
+
+[Twenty-one composed regressions](../../src/player/__tests__/failed-file-revisit.test.ts)
+cover actual receive/protocol/playback composition, host command generation,
+PREPARE-first/PLAY-first/START-only order, valid old bulk frames, delayed load
+completion, current watchdog/UI cleanup, repeats, healthy successors, and
+R2/preload controls. Native output/decoder and HTTP boundaries are controlled;
+this is not physical audio, memory-limit or two-live-WebRTC-device validation.
+
+### SQ08: match the existing PRO slowmode contract before local submission
+
+PRO ordinary messages now apply the same interval to owner, controller and
+member before showing a sent bubble or clearing the draft. Standard-room
+moderator exemption, command/whisper behavior and server policy are unchanged.
+The existing wait message is reused; no UI redesign or new translation is
+introduced. The authority guard's single changed callsite fingerprint was
+updated for this exact predicate; read counts and guard enforcement remain.
+
+[Eight new chat cases](../../src/ui/__tests__/chat.test.ts) cover all three
+PRO roles, exact-interval retry, slowmode-OFF retry and standard-room
+host/operator controls. The real UI regression in
+[critical-browser](../../e2e/critical-browser.test.ts) reproduced draft loss
+before the fix, then verified draft retention, one outgoing frame/bubble and
+successful retry after a server snapshot disables slowmode. REST/WebSocket
+responses are controlled, not live production traffic.
+
+### SQ09: fence preparation responses by control-channel recovery
+
+The PRO controller tracks control-channel recovery generations. A preparing
+HTTP response initiated before a recovery boundary or during recovery may
+retain only the exact currently active transition. It cannot revive an old
+transition whose CANCEL was missed. Valid committed/unchanged responses keep
+the existing revision checks; healthy new commands and same-transition
+recovery remain supported.
+
+Runtime recovery carries the generation through retries and checks both the
+playlist lease and generation after asynchronous work, before consuming a
+replacement ticket or finishing recovery. Repeated disconnects, stop/reset
+and stale signaling refresh completions cannot finish a newer recovery.
+[Sixteen regressions](../../src/pro-room/__tests__/runtime-playback-reconnect-response.test.ts)
+include thirteen real runtime/API/bridge compositions and three controller
+lifetime cases. The repaired trace stays A → B → B COMMIT rather than
+A → B → A → B; this establishes obsolete-preparation prevention, not physical
+speaker timing. One original scratch probe also asserted the buggy cancellation
+of B; its repair replay flips exactly that trace assertion and preserves the
+original failure evidence separately.
+
+### Completed verification and remaining release gates
+
+| Check | Result |
+| --- | --- |
+| Whole-unit run plus final affected-file replay | 505 unique files / 10,503 pass / 0 fail / 0 skip after reconciling the replay described below |
+| New tracked module regressions | 45 pass: SQ07 21, SQ08 8, SQ09 16; included in the unique whole-unit total |
+| Final Chromium selection | 12 files / 75 pass / 0 fail / 0 skip / 0 flaky, workers 2, retries 0 |
+| Types and lint | App, unit-test, E2E and Node-script TypeScript; App ESLint and changed tooling ESLint pass |
+| Static boundaries | Source complexity, room authority, chunk pump, import graph, bus pairing, lifecycle writes and Playwright API guards pass; changed-code formatting and diff checks pass |
+| Local builds | E2E and production builds pass; all eight production artifact guards pass |
+| `build:checked` | Stops at the existing cache-history gate: beta runtime changes follow frozen `v630`. Prefix checks and the remaining three pre-build/eight artifact checks pass separately; the gate was not bypassed or weakened |
+
+The first whole-unit run had 10,499 pass and four failures in three older test
+files. One expected the previous selected row to survive a failed new selection;
+three asserted UI/watchdog calls directly inside isolated receiver modules.
+Those expectations were updated to the repaired ownership boundary, retaining
+stale-session rejection and no-storage-restart checks. The composed regression
+explicitly checks actual watchdog cancellation and loader retirement. Its
+bulk fixtures also use the protocol's real `chunkIndex` field. No product code
+changed after the final browser build. The independent final replay passed
+236 tests across six affected files and replaces those files' initial results
+without double-counting; raw initial failures
+remain in `unit-all.json`.
+
+The Chromium selection covers critical browser/UI, file transfer, preload and
+queue-mode cancellation, local common start, playback sync/advanced controls,
+reconnection, chat/commands, demo reliability and YouTube sync. This is not the
+whole E2E, WebKit, coverage, live-service or physical-device suite. The existing
+dependency-security gate was not re-audited or resolved by this repair.
+
+Ignored evidence root: `scratch/qa4-repair-2026-10-03/`: `audio/`, `chat/`,
+`pro/`, `unit-all.json`, `final-affected.json`, `unit-reconciled.json`,
+`browser-before.json`, `browser-after.json`, `browser-final.json`, build logs,
+type/lint/format logs and per-guard logs. Original discovery evidence above
+is retained independently.
+
+SQ07–SQ09 are resolved within the tested scope. These changes affect the App
+client, tests and an authority-guard fingerprint; no Worker policy, public
+protocol, dependency, schema, secret, binding or migration changes are added.
+Cumulative release scope remains `all`, Developer API D1 input remains false.
+No special data recovery is introduced. Eventual release/rollback follows the
+existing runbook after owner approval, version/cache advancement, dependency
+remediation and exact-main-SHA verification.

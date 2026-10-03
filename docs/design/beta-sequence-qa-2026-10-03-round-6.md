@@ -2,14 +2,14 @@
 
 | Field             | Value                                                                                                                           |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Status            | Discovery evidence; SQ14–SQ15 confirmed, not repaired in this round                                                             |
+| Status            | Discovery evidence retained; SQ14–SQ15 repaired in the [repair addendum](#repair-addendum--2026-10-03)                          |
 | Tested checkout   | `mxqr_beta`, `1341bafba76413f26c1500a6b48e508ffa3395c5`                                                                         |
 | Product/test code | `f617c80325771ef7519878c385fd24f55f90bdb3` — includes SQ10–SQ13 repairs                                                         |
 | Main reference    | `35759e8b07f1ee0b272afbd0af03c770a858889e`                                                                                      |
 | Environment       | Windows, pinned Node 24.20.0, Vitest 5/jsdom, local Chromium and PeerJS; controlled HTTP, decoder and iframe boundaries         |
 | Related records   | [Living release record](../beta-release-readiness.md), [previous discovery and repairs](beta-sequence-qa-2026-10-03-round-5.md) |
 
-## Result
+## Discovery result
 
 **Two new defects were confirmed in PRO repeat/shuffle persistence.** They
 share the required settings-read boundary but have independent causes:
@@ -28,7 +28,7 @@ handover, demo reentry and UI permission/search probes produced no new
 confirmed cause within the tested scope. Earlier SQ01–SQ13 remain repaired
 within their recorded scope.
 
-This is a discovery round: product code and tracked tests are unchanged.
+At discovery, product code and tracked tests were unchanged.
 Only repository evidence and release records are committed to beta. Main,
 production, version/cache, dependencies, schemas, bindings, secrets and the
 disabled Operations Drift Audit workflow are unchanged. No introduction commit
@@ -170,5 +170,97 @@ should add maintained regression coverage.
   a physical Safari/PWA/Bluetooth test, or a production deployment. Existing
   security, version/cache, exact-main CI and physical-device release gates remain.
 
-Current newly confirmed unresolved scope: **SQ14–SQ15, two defects**. No product
-repair was made in this discovery round.
+At the end of discovery, the newly confirmed unresolved scope was
+**SQ14–SQ15, two defects**. The authorized repair below supersedes that status.
+
+## Repair addendum — 2026-10-03
+
+Repair code SHA: `45c7ef7a4e0fef5b788efe11cb72d54c9b221929`. The discovery and pre-repair observations above
+remain historical evidence. SQ14 and SQ15 are repaired on `mxqr_beta`; the
+recorded regression scope has no remaining confirmed defect.
+
+Executable evidence: [queue persistence runtime](../../src/pro-room/runtime.ts),
+[required-read regressions](../../src/pro-room/__tests__/runtime-queue-mode-read-recovery.test.ts),
+[conflict recovery regressions](../../src/pro-room/__tests__/runtime-queue-mode-conflict-recovery.test.ts).
+
+### Changes and independent verification
+
+- **SQ14:** The first accepted queue-mode read preserves only the current
+  controller's dirty, explicitly edited fields when no prior baseline exists.
+  Untouched fields use canonical values. Canceled fields, old sessions and
+  observers cannot publish defaults or revive an earlier gesture.
+- **SQ15:** The required pre-PUT GET now shares the write's error handling.
+  Transient read failures use the existing three retries at 1, 3 and 10 seconds.
+  A failed read owns only its starting intent revision; a successful read may
+  include a newer gesture in the ensuing PUT. Authority, generation, lease and
+  abort checks still cancel stale work. HTTP 401/403 retires the rejected intent.
+- **Adjacent conflict recovery:** A rejected CAS must retire its old field
+  intent even if the reconciliation GET fails. Otherwise a later gesture can
+  republish the rejected value. Independent old-code probes passed 1 and failed
+  2 cases with GET 503/403. A stronger case also exposed an intermediate repair
+  retaining a known-stale baseline: a newer repeat gesture sent that stale CAS
+  and was lost (3 pass / 1 fail). The final code retires only fields owned by
+  the rejected PUT and invalidates a baseline whose reconciliation throws, so
+  the newer gesture performs a fresh required GET. All four controls pass.
+
+The original Worker-body replay was rerun before editing: 6 pass / 4 fail.
+After repair, the four defect assertions passed. One historical observational
+control expected the second repeat press to reach 1 because the first press
+had been lost. The original evidence is preserved; a repair-only copy expects
+the correct 0 → 1 → 2 cycle. That ten-case replay now passes without relaxing
+an error assertion. The same cycle has maintained regression coverage.
+
+No UI, server conflict policy, wire format, endpoint, Worker, database,
+dependency, secret or binding changed. This repair adds only App runtime logic
+and regression tests. It preserves the freeze, version `8.6.61`, cache `v630`,
+cumulative `target=all` and `apply_developer_api_d1=false` release inputs.
+
+### Final evidence
+
+Environment: Windows, pinned Node 24.20.0, Vitest 5/jsdom, jq 1.8.2 and
+Playwright 1.63 Chromium/PeerJS. Raw local evidence is under ignored
+`scratch/qa6-repair-2026-10-03/`.
+
+| Scope                                              | Result                                        | Evidence                                                                                                          |
+| -------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Maintained new read/conflict regressions           | 2 files, 31 pass / fail·skip 0                | `targeted-final.json`; 27 read/lifecycle cases and 4 native-parser conflict cases                                 |
+| Existing queue authority controls                  | 10 pass / fail·skip 0                         | `authority.json`                                                                                                  |
+| Worker-generated response replay                   | 10 pass / fail·skip 0                         | `worker-replay/final.json`; controlled runtime replay of local public Worker bodies                               |
+| Full unit suite                                    | 510 files, 10,637 pass / fail·skip·todo 0     | `unit-full.json`; new tests included, targeted repeats are not added to this count                                |
+| Chromium queue/operator controls                   | 3 files, 11 pass / fail·skip·flaky 0, retry 0 | `chromium.json`; actual Standard-room DOM and local PeerJS                                                        |
+| App/test types, changed-source lint and formatting | Pass                                          | `typecheck-app-final.log`, `typecheck-tests-final.log`, `lint-final.log`; selected Prettier check                 |
+| Source complexity and room authority boundaries    | Pass                                          | `guard-source-complexity.log`, `guard-room-authority-boundaries.log`                                              |
+| E2E and production local builds                    | Pass                                          | `build-e2e.log`, `build-production.log`                                                                           |
+| Production artifact guards                         | 8 pass                                        | `guard-*.log`: legacy TV, service worker, UI kit, transfer budget, production hooks/security, fonts and App shell |
+
+The read matrix includes healthy controls, initial hydration, post-append
+recovery, an untouched canonical field, retry exhaustion and a new retry
+budget, held 200/401/403/503 reads with newer gestures, revoke/regrant, and
+leave/rejoin. The conflict fixture uses the native response parser, a pending
+409 response body, and actual base-revision comparison in its controlled
+transport. It does not stub the outcome of the persistence operation.
+
+```text
+node node_modules/vitest/vitest.mjs run src/pro-room/__tests__/runtime-queue-mode-read-recovery.test.ts src/pro-room/__tests__/runtime-queue-mode-conflict-recovery.test.ts --maxWorkers=1
+node node_modules/vitest/vitest.mjs run --maxWorkers=2 --reporter=json --outputFile=scratch/qa6-repair-2026-10-03/unit-full.json
+npm run build:e2e
+node node_modules/@playwright/test/cli.js test e2e/playlist.test.ts e2e/operator.test.ts e2e/operator-upload-cancellation.test.ts --project=chromium --workers=1 --retries=0 --reporter=json
+npm run build
+```
+
+Use the pinned Node/browser paths listed above and set `MXQR_TEST_JQ_PATH` to
+the local `scratch/full-beta-repair-2026-09-27/tools/jq-windows-amd64.exe`.
+The browser run used App port 4214 and PeerJS port 9044; the production build
+was made only after the E2E run finished.
+
+### Limits and release actions
+
+The Chromium checks are adjacent Standard-room regressions, not a PRO browser
+reproduction. PRO proof uses real runtime and native API parsing with
+controlled transport/Worker bodies. No live room, account, hardware audio or
+physical device was used. Full E2E, WebKit, coverage and dependency-security
+audits were not rerun. Previously recorded security and cache-history gates
+remain; local build success is not `build:checked` or an exact-main release
+candidate. No main advance, PR, production deployment or Operations Drift Audit
+reactivation occurred. Follow the living release record after the owner ends
+the freeze.

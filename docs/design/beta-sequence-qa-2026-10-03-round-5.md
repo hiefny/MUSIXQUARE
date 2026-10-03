@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Dated discovery evidence — SQ10–SQ13 confirmed, not repaired in this round |
+| Status | Discovery evidence preserved below; subsequent beta repairs and verification are recorded in the [repair addendum](#repair-addendum--2026-10-03) |
 | Tested checkout | `mxqr_beta`, `cf11f8a3749d567d8f47bbd5db30b3be18e0d660` |
 | Product/test code | `a841b2d9315c23b71d78ca6263e3950b0a55cc82` — includes SQ07–SQ09 repairs |
 | Main reference | `35759e8b07f1ee0b272afbd0af03c770a858889e` |
@@ -236,3 +236,138 @@ public cache/version gates remain separate and unresolved. SQ10–SQ13 require
 repair and regression verification before promotion; no new schema, secret,
 binding, dependency or compatibility requirement is introduced by this
 documentation-only round.
+
+## Repair addendum — 2026-10-03
+
+The owner authorized revalidation and repair after the discovery round.
+Repairs began from `mxqr_beta` checkout
+`292bfacd7721dc1a42696cb6082a2a2c013d8399`, with unchanged pre-repair product
+code `a841b2d9315c23b71d78ca6263e3950b0a55cc82`. The original failing probes
+were rerun before changes; their results remain separate from the passing
+post-repair evidence below.
+
+**Verified repair code:** `f617c80325771ef7519878c385fd24f55f90bdb3`.
+The product code matches the verified working tree before this code commit;
+final test-only type-import/format cleanup also passed type, lint and
+formatting checks. **SQ10–SQ13 have no remaining confirmed defect
+within this verification scope.** This does not clear the existing public
+release gates.
+
+### Changes and preserved boundaries
+
+- **SQ10:** retain the latest authenticated host PAUSE checkpoint through the
+  synchronous file-PREPARE media teardown. Ownership includes the exact host
+  connection, room identity/epoch, queue occurrence, load epoch and file
+  session. A late-join pause without a header binds to its first admitted
+  session once. New PLAY, terminal end, new occurrence/session or retired
+  connection/load cannot inherit it. Ready small/large preload promotion and
+  recovery with already-received bytes have explicit controls. An operator's
+  subsequent Play uses the retained position instead of restarting the room.
+- **SQ11:** track pending room-settings gestures per field and revision,
+  separately from settings retained on the device. Cancellation retires only
+  the corresponding intent; canonical refresh and later unrelated gestures
+  cannot republish it. A newer same-field gesture, independent EQ/reverb
+  fields, transient retry and explicit settings OFF-to-ON full publication
+  retain their existing semantics. This is client intent accounting, not a
+  new Worker authorization or settings policy.
+- **SQ12:** ordinary PRO messages, whispers and chat commands commit local
+  echo, state changes, draft clearing and accepted-send bookkeeping only
+  after the existing send function accepts them. Known rejection retains the
+  draft and uses the existing connection-failure notice. It does not queue a
+  command for automatic transmission after recovery or introduce server ACK
+  guarantees. The visible BOT request also waits for local chat admission.
+  Standard-room command order, local help and account-dialog focus remain
+  covered by regression tests.
+- **SQ13:** system-audio capture reads the active standard-host manual-offset
+  transaction's semantic playing intent before retiring it. Both the gate
+  and runtime validate the current player/session/room/queue/video identity.
+  Explicit pause and settled/no-transaction behavior remain unchanged;
+  canonical position and PRO server-checkpoint restoration keep their
+  existing paths.
+
+No new dependency, protocol, Worker, schema, binding, secret, migration or UI
+layout is introduced. The App client needs a future authorized release. The
+cumulative beta release still requires `target=all` with
+`apply_developer_api_d1=false` for the previously documented changes.
+Version `8.6.61`, cache `v630`, main and production remain frozen.
+
+### Revalidation and adjacent cases
+
+Original pre-edit audio 29 pass/4 fail, strong Worker-backed settings client
+3 pass/1 fail, capture 4 pass/3 fail and Chromium chat 3 pass/3 fail were
+reproduced. After repair the same probes passed: audio 33, settings client 4,
+capture 7 and chat 6. The settings replay used freshly regenerated public
+Worker fixtures (2 passing sequences; 313 copied cases excluded by its name
+filter). These scratch replays overlap tracked regressions and are not added
+to the final unit or browser totals.
+
+Independent review also checked a terminal denial of the canonical GET made
+by a pending settings checkpoint: an older volume gesture must retire while
+a newer reverb gesture survives. Restoring only the previous outer-catch
+branch through a scratch source transform made this exact regression fail
+(`0.4` instead of canonical `0.8`); final code passed. This is an adjacent SQ11
+path, not a fifth independent finding. An earlier scratch probe accidentally
+intercepted a background refresh rather than this checkpoint GET; its invalid
+expectation is excluded from defect evidence.
+
+Tracked coverage includes 46 composed file-pause cases, 22 PRO runtime/API
+cases, 8 field-tracker cases, 15 added chat-unit cases and 18 capture/identity
+cases. Three new Chromium recovery cases verify ordinary message, whisper and
+freeze rejection, no automatic publish on recovery, and successful explicit
+retry. Existing effects tests were moved from removed difference-based helper
+exports to the active field-tracker API; their unchanged-field, concurrent
+field, initial hydration and explicit takeover behavior remains tested.
+Two obsolete source-spelling assertions were removed. No dead-export or
+complexity baseline was raised.
+
+Evidence lives in ignored `scratch/qa5-repair-2026-10-03/`: `audio/`, `pro/`,
+`pro-review/`, `youtube/`, `chat-before.json`, `chat-after.json`,
+`chat-unit.json` and `chat-tracked-browser.json`. The tracked tests preserve
+the executable regressions for another checkout; availability of local
+scratch evidence is not assumed.
+
+### Final verification
+
+Windows, pinned Node 24.20.0, Vitest 5, Playwright 1.63 Chromium and actual
+jq 1.8.2. Module/browser concurrency was limited to two workers. The full unit
+run includes the focused regressions; totals below do not add repeated runs.
+
+| Check | Final result |
+| --- | --- |
+| Full tracked unit suite | **508 files, 10,606 pass, 0 fail, 0 skip, 0 todo**; one complete run, including 97 release-state tests with jq |
+| Focused Chromium | **15 files, 98 pass, 0 fail, 0 skip, 0 flaky**, retry 0; includes the 3 new PRO rejection/retry regressions |
+| Types | App, unit, E2E and Node-script checks passed |
+| Lint and formatting | App lint, final changed-source lint, changed E2E tooling lint and changed-source Prettier passed |
+| Source guards | Authored assets/project coverage, release identity, brand/declarations, complexity, room-authority, profanity, hreflang/sitemap, chunk pump, imports, bus pairing, lifecycle, dead exports and Playwright API passed |
+| Builds | Final E2E and production local builds passed |
+| Production artifact guards | Legacy TV, service worker, UI kit, initial transfer budget, production hooks/security configuration, fonts and app shell — **8 passed** |
+| Cache-history guard | Expected outstanding release gate: frozen v630 has subsequent runtime changes; no version/cache bump or baseline bypass was made |
+
+Primary final artifacts: `unit-all.json`, `chromium-focused.json`,
+`build-e2e-final.log`, `build-production.log`, final type/lint/format logs and
+`guard-*.log` in the repair evidence directory. Browser selection covered
+critical startup/PRO recovery, chat and commands/cards, file transfer,
+preload, playback/advanced playback, late join/bootstrap catchup, reconnect,
+YouTube synchronization, system-audio controls and demo common-start/reliability.
+The initial dead-export check exposed the obsolete exported merge helper;
+removing that unused API restored the existing 79 self-only binding baseline.
+Initial test-import/format errors were repaired, without changing behavioral
+expectations to hide a product failure. All selected final checks passed
+except the explicitly retained public cache-history gate.
+
+### Limits and recovery
+
+The file and capture module compositions control native decoding, iframe,
+picker and audio-output boundaries. The strong PRO cases use actual Worker
+responses with runtime, network bridge and API body parsing, but controlled
+HTTP/WebSocket delivery. Chromium exercises real startup, DOM, local peer
+connections and socket recovery; provider/service responses are controlled
+where the fixture declares them. This is not physical acoustic alignment
+certification or a fresh full E2E, WebKit, coverage, live-service or security
+audit. Existing physical-device and exact-main-SHA promotion gates remain.
+
+Rollback requires reverting the App changes and their tests as a unit before
+the eventual authorized release; no database rollback or manual data repair
+is introduced. Do not reactivate Operations Drift Audit or advance main as
+part of this beta repair. Public version/cache increments and existing
+dependency-security remediation remain separate release work.

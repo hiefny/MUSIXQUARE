@@ -88,10 +88,11 @@ These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
 - [Beta sequence QA, round 5 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-5.md) —
-  SQ10–SQ13 confirmed and pending repair: lost file pause checkpoints, retired
-  PRO effect intent, known failed chat submission, and a temporary YouTube
-  synchronization pause captured as the post-sharing state. Independent
-  reproductions, healthy controls and modeled-media limits; discovery only.
+  SQ10–SQ13 discovery and repair: preserve file pause checkpoints, retire PRO
+  field intent correctly, retain known-rejected chat drafts, and restore
+  semantic YouTube playback after sharing. Original failures and independent
+  revalidation preserved, with module and Chromium regressions; native-media
+  and public-release limits remain explicit.
 - [Beta sequence QA, round 4 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-4.md) —
   SQ07–SQ09 discovery and repair: failed-file selection retires outgoing output,
   PRO slowmode preserves drafts, and reconnect fences stale HTTP PREPARE.

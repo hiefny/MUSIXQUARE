@@ -1318,6 +1318,10 @@ export async function handleFilePrepare(
 
 export function handleFileStart(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
+  // Recovery of the parked file cannot replace a newer external playback
+  // owner. Check before recording delivery or applying same-session recovery
+  // exceptions; the file's queue/session may still match after a mode switch.
+  if (isExternalOwner()) return;
   const queueItemId = incomingQueueItemId(data);
   if (!queueItemId || !getQueueItemById(queueItemId)) return;
   const indexHint = findQueueItemIndex(queueItemId);
@@ -1601,18 +1605,27 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   const startChunk = (data.startChunk as number) || 0;
 
-  // The host's startChunk is a control-plane assertion; ramstore's contiguous
-  // prefix is data-plane truth. Reuse it only inside the exact same session.
+  // The host's startChunk describes the requested suffix, not the guest's
+  // current progress: bulk chunks can overtake this control-channel header.
+  // Use the entire committed prefix, but only inside the exact same session.
   // Any identity mismatch degrades safely to a full restart.
-  const base = resumeIdentityMatches
-    ? Math.min(startChunk, ramContiguousCount(queueItemId, false, incomingSid))
-    : 0;
+  const base = resumeIdentityMatches ? ramContiguousCount(queueItemId, false, incomingSid) : 0;
 
   // receivedCount and nextExpectedChunk MUST move together — rebasing one
   // while the other keeps startChunk recreates the failure in the opposite
   // direction (drain stall at phantom completion, or chunks stranded in the
   // reorder buffer past a fast-forwarded pointer).
-  fileReorderBuffer.clear();
+  // Sparse chunks can also overtake the header. Keep them for this exact
+  // transfer so filling the gap drains the already received suffix once.
+  for (const [sessionId, chunks] of fileReorderBuffer) {
+    if (!resumeIdentityMatches || sessionId !== incomingSid) {
+      fileReorderBuffer.delete(sessionId);
+      continue;
+    }
+    for (const index of chunks.keys()) {
+      if (index < base) chunks.delete(index);
+    }
+  }
   setState('transfer.receivedCount', base);
   nextExpectedChunk = base;
 

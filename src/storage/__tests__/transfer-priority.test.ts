@@ -613,89 +613,97 @@ describe('preload receive watchdog while the main file owns bandwidth', () => {
     expect(getState('preload.sessionState').get(7)?.skipped).toBe(true);
   });
 
-  it('recognizes fresh main bytes after a delayed same-session resume lowers the count', async () => {
-    const target = connection('host');
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', target.conn);
-    setState('network.connectionType', 'local');
-    markQueueAuthorityReady(target.conn);
-    const current = new File([new Uint8Array(CHUNK_SIZE * 5 + 1)], 'current.mp3');
-    const next = new File([new Uint8Array(CHUNK_SIZE + 1)], 'next.mp3');
-    setState('playlist.items', [item(CURRENT, current), item(NEXT, next)]);
-    setState('playlist.currentQueueItemId', CURRENT);
-    await handleData(
-      {
-        type: MSG.PRELOAD_START,
-        queueItemId: NEXT,
-        sessionId: 7,
-        name: next.name,
-        mime: next.type,
-        total: 2,
-        size: next.size,
-      },
-      target.conn,
-    );
-    await handleData(
-      {
-        type: MSG.PRELOAD_CHUNK,
-        queueItemId: NEXT,
-        sessionId: 7,
-        chunkIndex: 0,
-        chunk: new Uint8Array(CHUNK_SIZE).fill(3),
-      },
-      target.conn,
-    );
-    const mainMeta = {
-      queueItemId: CURRENT,
-      sessionId: 6,
-      name: current.name,
-      mime: current.type,
-      total: 6,
-      size: current.size,
-    };
-    await handleData({ type: MSG.FILE_START, ...mainMeta }, target.conn);
-    const receiveChunk = (chunkIndex: number) =>
-      handleData(
+  it.each(['fresh suffix', 'duplicate prefix'] as const)(
+    'grants preload grace only for fresh main progress after a delayed resume: %s',
+    async (arrival) => {
+      const target = connection('host');
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', target.conn);
+      setState('network.connectionType', 'local');
+      markQueueAuthorityReady(target.conn);
+      const current = new File([new Uint8Array(CHUNK_SIZE * 5 + 1)], 'current.mp3');
+      const next = new File([new Uint8Array(CHUNK_SIZE + 1)], 'next.mp3');
+      setState('playlist.items', [item(CURRENT, current), item(NEXT, next)]);
+      setState('playlist.currentQueueItemId', CURRENT);
+      await handleData(
         {
-          type: MSG.FILE_CHUNK,
-          ...mainMeta,
-          chunkIndex,
-          chunk: new Uint8Array(CHUNK_SIZE),
+          type: MSG.PRELOAD_START,
+          queueItemId: NEXT,
+          sessionId: 7,
+          name: next.name,
+          mime: next.type,
+          total: 2,
+          size: next.size,
         },
         target.conn,
       );
-    for (let index = 0; index < 3; index++) {
-      await vi.advanceTimersByTimeAsync(3_000);
-      await receiveChunk(index);
-    }
-    expect(getState('transfer.receivedCount')).toBe(3);
-    // At 15 s the preload watchdog retains its bytes and checkpoints count 3.
-    await vi.advanceTimersByTimeAsync(6_001);
-    expect(getState('preload.sessionState').get(7)).toMatchObject({
-      skipped: false,
-      progress: 1,
-    });
+      await handleData(
+        {
+          type: MSG.PRELOAD_CHUNK,
+          queueItemId: NEXT,
+          sessionId: 7,
+          chunkIndex: 0,
+          chunk: new Uint8Array(CHUNK_SIZE).fill(3),
+        },
+        target.conn,
+      );
+      const mainMeta = {
+        queueItemId: CURRENT,
+        sessionId: 6,
+        name: current.name,
+        mime: current.type,
+        total: 6,
+        size: current.size,
+      };
+      await handleData({ type: MSG.FILE_START, ...mainMeta }, target.conn);
+      const receiveChunk = (chunkIndex: number) =>
+        handleData(
+          {
+            type: MSG.FILE_CHUNK,
+            ...mainMeta,
+            chunkIndex,
+            chunk: new Uint8Array(CHUNK_SIZE),
+          },
+          target.conn,
+        );
+      for (let index = 0; index < 3; index++) {
+        await vi.advanceTimersByTimeAsync(3_000);
+        await receiveChunk(index);
+      }
+      expect(getState('transfer.receivedCount')).toBe(3);
+      // At 15 s the preload watchdog retains its bytes and checkpoints count 3.
+      await vi.advanceTimersByTimeAsync(6_001);
+      expect(getState('preload.sessionState').get(7)).toMatchObject({
+        skipped: false,
+        progress: 1,
+      });
 
-    // A resume requested at count 1 can arrive after already-queued bulk chunks
-    // 1/2. The real receive handler rebases the same identity to startChunk 1;
-    // no fixture state mutation or artificial RAM loss is needed.
-    await handleData({ type: MSG.FILE_RESUME, ...mainMeta, startChunk: 1 }, target.conn);
-    expect(getState('transfer.receivedCount')).toBe(1);
-    await receiveChunk(1);
-    expect(getState('transfer.receivedCount')).toBe(2);
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(getState('preload.sessionState').get(7)).toMatchObject({
-      skipped: false,
-      progress: 1,
-    });
-    expect(getState('transfer.receivedCount')).toBeLessThan(mainMeta.total);
+      // A resume requested at count 1 can arrive after already-queued bulk chunks
+      // 1/2. Preserve their committed prefix; the older header itself and repeated
+      // chunks must not count as new bandwidth progress or extend preload grace.
+      await handleData({ type: MSG.FILE_RESUME, ...mainMeta, startChunk: 1 }, target.conn);
+      expect(getState('transfer.receivedCount')).toBe(3);
+      await receiveChunk(1);
+      expect(getState('transfer.receivedCount')).toBe(3);
+      if (arrival === 'fresh suffix') {
+        await receiveChunk(3);
+        expect(getState('transfer.receivedCount')).toBe(4);
+      }
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(getState('preload.sessionState').get(7)).toMatchObject({
+        skipped: arrival === 'duplicate prefix',
+        progress: 1,
+      });
+      expect(getState('transfer.receivedCount')).toBeLessThan(mainMeta.total);
 
-    // Neither the reduced counter nor unchanged RECEIVING state earns another
-    // lease without fresh accepted bytes.
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(getState('preload.sessionState').get(7)?.skipped).toBe(true);
-    expect(getState('preload.ready')).toBeNull();
-  });
+      // Neither a repeated header nor unchanged RECEIVING state earns another
+      // lease without fresh accepted bytes, even in the successful suffix case.
+      await handleData({ type: MSG.FILE_RESUME, ...mainMeta, startChunk: 1 }, target.conn);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(getState('preload.sessionState').get(7)?.skipped).toBe(true);
+      expect(getState('preload.ready')).toBeNull();
+    },
+  );
 
   it.each(['complete-preload', 'main-stalls'] as const)(
     'keeps accepted preload bytes during real main progress, then %s',

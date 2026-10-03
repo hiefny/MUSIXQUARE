@@ -115,6 +115,20 @@ function pendingAutoSyncMatchesCurrentOwner(): boolean {
   );
 }
 
+function retargetPendingAutoSync(targetTime: number): boolean {
+  if (!_pendingAutoSyncOnReady || !pendingAutoSyncMatchesCurrentOwner()) return false;
+  // Keep the original readiness/identity fence. A new seek can be accepted
+  // before the cue command or its notification arrives; both must converge
+  // on this latest canonical target, never the earlier zero-second intent.
+  _pendingAutoSyncOptions = {
+    ..._pendingAutoSyncOptions,
+    targetTime,
+    zeroStart: false,
+    skipSeek: false,
+  };
+  return true;
+}
+
 function pollPendingAutoSyncReady(generation: number, attempt = 0): void {
   setManagedTimer(
     'yt-pending-auto-sync-ready',
@@ -593,6 +607,9 @@ function retireYouTubeAutoSync(): void {
 function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boolean {
   const queueItemId = getCurrentQueueItemId();
   if (!queueItemId || !videoId || getYouTubeZeroStartRole() !== 'host') return false;
+  // Until the selected cue is ready, getVideoData/currentTime may still be
+  // from its predecessor. The pending start will enter here after consumption.
+  if (_pendingAutoSyncOnReady && pendingAutoSyncMatchesCurrentOwner()) return false;
   // Let the ordinary scheduleYtAutoSync fallback below supersede an
   // unverified local edit; zero-start must never inherit its iframe command.
   if (isStandardHostManualOffsetTransactionPending()) return false;
@@ -637,6 +654,17 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   // An unverified Standard-host local command may still arrive late from the
   // iframe. Keep room actions fail-closed for this bounded settle window.
   if (isStandardHostManualOffsetTransactionPending()) return;
+  if (
+    (overrides?.state ?? 1) === 1 &&
+    _pendingAutoSyncOnReady &&
+    pendingAutoSyncMatchesCurrentOwner()
+  ) {
+    // The iframe can still report the preceding video's state. Let the
+    // selected video's readiness own playback. Explicit seeks replace its
+    // target in seekYouTubeFromApp; a play's sampled old time cannot do so.
+    _pendingAutoSyncOptions = { ..._pendingAutoSyncOptions, state: 1 };
+    return;
+  }
   invalidateYouTubeZeroStartPendingIntegration();
   // Any ordinary play/pause/seek supersedes a zero-start barrier or its short
   // post-release calibration window. The legacy rendezvous then remains the
@@ -646,6 +674,10 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   if (!player) return;
   const queueItemId = getCurrentQueueItemId();
   if (!queueItemId) return;
+  // This accepted room action replaces any earlier cue/readiness intent for
+  // the occurrence. A delayed CUED event must not restart it after a pause
+  // or reassert a previous position after a play/seek.
+  clearPendingAutoSync();
   retireYouTubeAutoSync();
   const generation = youtubeAutoSyncGeneration;
   const sessionId = getCurrentSessionId();
@@ -1518,6 +1550,14 @@ type YouTubeFallbackAudioIntent = { muted: boolean; volume: number };
 function seekYouTubeFromApp(player: YouTubePlayerInstance, seconds: number): void {
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
+    if (isStandardHostManualOffsetTransactionPending()) return;
+    if (retargetPendingAutoSync(seconds)) {
+      // Preview locally, then let readiness publish the selected video's
+      // identity/target. Its preceding native state must neither turn a
+      // paused restore into PLAY nor broadcast the old video to guests.
+      player.seekTo(resolveCoordinatorLocalTarget(player, seconds).localTime, true);
+      return;
+    }
     const state = player.getPlayerState?.() ?? -1;
     // A pending rendezvous can report PAUSED while logically still playing.
     // Both relative skip and absolute seek must replace that pending target.

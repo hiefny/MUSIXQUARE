@@ -87,6 +87,11 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta sequence QA, round 7 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-7.md) —
+  No new confirmed defect in file/queue mutations, PRO prepare/commit, YouTube
+  controls and UI lifetime checks. 1,348 module/Worker and 10 Chromium cases
+  pass. A conditional watchdog failure remains separate because its native
+  trigger is unproven; this is focused evidence, not a complete release sign-off.
 - [Beta sequence QA, round 6 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-6.md) —
   SQ14–SQ15 discovery and repair: preserve the first PRO repeat/shuffle gesture,
   retry failed required reads, and retire conflicted intent without losing a

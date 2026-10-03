@@ -59,6 +59,7 @@ vi.mock('../../player/media-session-loader.ts', () => ({
 }));
 
 vi.mock('../../audio/effects.ts', () => ({
+  getAppliedRoomEffectsAuthority: vi.fn(() => null),
   applySettingsAsync: vi.fn(),
   syncRoomEffectsUI: vi.fn(),
 }));

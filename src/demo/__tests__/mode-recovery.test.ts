@@ -87,6 +87,7 @@ vi.mock('../../player/media-session-loader.ts', () => ({
 vi.mock('../../audio/effects.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../audio/effects.ts')>();
   return {
+    getAppliedRoomEffectsAuthority: actual.getAppliedRoomEffectsAuthority,
     applySettingsAsync: vi.fn(),
     syncRoomEffectsUI: vi.fn(actual.syncRoomEffectsUI),
   };

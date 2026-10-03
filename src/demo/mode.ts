@@ -34,7 +34,11 @@ import {
   stopAllMedia,
 } from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
-import { applySettingsAsync, syncRoomEffectsUI } from '../audio/effects.ts';
+import {
+  applySettingsAsync,
+  getAppliedRoomEffectsAuthority,
+  syncRoomEffectsUI,
+} from '../audio/effects.ts';
 import { setChannelMode } from '../audio/channel.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
@@ -84,6 +88,7 @@ type DemoRoomIdentity = Readonly<{
 
 type DemoSnapshot = {
   room: DemoRoomIdentity;
+  effectsAuthority: ReturnType<typeof getAppliedRoomEffectsAuthority>;
   channelMode: number;
   reverbMix: number;
   reverbDecay: number;
@@ -258,6 +263,7 @@ function captureSnapshot(): DemoSnapshot {
       : fallbackPausedAt;
   const snapshot: DemoSnapshot = {
     room: captureDemoRoomIdentity(),
+    effectsAuthority: getAppliedRoomEffectsAuthority(),
     channelMode: getState('audio.channelMode'),
     reverbMix: getState('audio.reverbMix'),
     reverbDecay: getState('audio.reverbDecay'),
@@ -339,16 +345,30 @@ function restoreSnapshot(
   const restoreMedia = options.media ?? true;
 
   if (restoreAudio) {
+    const authority = getAppliedRoomEffectsAuthority();
+    // Failure rolls back local demo choices, but an accepted room snapshot
+    // during loading or the exit curtain has superseded the captured effects.
+    // Device-local output role, preamp and cutoff still restore independently.
+    const effects =
+      getState('audio.settingsSyncEnabled') && authority !== snapshot.effectsAuthority
+        ? authority?.effects
+        : undefined;
     setChannelMode(snapshot.channelMode);
-    setState('audio.reverbMix', snapshot.reverbMix);
-    setState('audio.reverbDecay', snapshot.reverbDecay);
-    setState('audio.reverbPreDelay', snapshot.reverbPreDelay);
-    setState('audio.reverbLowCut', snapshot.reverbLowCut);
-    setState('audio.reverbHighCut', snapshot.reverbHighCut);
-    setState('audio.eqValues', [...snapshot.eqValues]);
-    setState('audio.stereoWidth', snapshot.stereoWidth);
-    setState('audio.virtualBass', snapshot.virtualBass);
-    setState('audio.exciter', snapshot.exciter);
+    setState('audio.reverbMix', effects ? effects.reverb.mixPercent / 100 : snapshot.reverbMix);
+    setState('audio.reverbDecay', effects?.reverb.decaySeconds ?? snapshot.reverbDecay);
+    setState('audio.reverbPreDelay', effects?.reverb.preDelaySeconds ?? snapshot.reverbPreDelay);
+    setState('audio.reverbLowCut', effects?.reverb.lowCutPercent ?? snapshot.reverbLowCut);
+    setState('audio.reverbHighCut', effects?.reverb.highCutPercent ?? snapshot.reverbHighCut);
+    setState('audio.eqValues', [...(effects?.equalizer.bandsDb ?? snapshot.eqValues)]);
+    setState(
+      'audio.stereoWidth',
+      effects ? effects.virtualSurround.widthPercent / 100 : snapshot.stereoWidth,
+    );
+    setState(
+      'audio.virtualBass',
+      effects ? effects.virtualBass.strengthPercent / 100 : snapshot.virtualBass,
+    );
+    setState('audio.exciter', effects?.virtualTreble.enabled ?? snapshot.exciter);
     setState('audio.userPreampGain', snapshot.userPreampGain);
     setState('audio.subFreq', snapshot.subFreq);
     syncRoomEffectsUI();

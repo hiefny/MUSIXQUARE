@@ -28,6 +28,7 @@ vi.mock('../../network/protocol.ts', () => ({
 }));
 vi.mock('../../audio/engine.ts', () => ({ initAudio: vi.fn(async () => {}) }));
 vi.mock('../../audio/effects.ts', () => ({
+  getAppliedRoomEffectsAuthority: vi.fn(() => null),
   applySettings: vi.fn(),
   applySettingsAsync: vi.fn(),
   syncRoomEffectsUI: vi.fn(),

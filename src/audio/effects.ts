@@ -398,6 +398,26 @@ interface SettingsAuthorityCache {
 
 let settingsAuthorityCache: SettingsAuthorityCache | null = null;
 
+// Cached authority can arrive while synchronization is OFF. Keep the applied
+// authority separate so a local rollback is superseded only by room settings
+// that actually took ownership of this device's effects.
+type AppliedRoomEffectsAuthority = Readonly<{
+  roomKey: string;
+  effects: RoomEffectsState;
+}>;
+let appliedRoomEffectsAuthority: AppliedRoomEffectsAuthority | null = null;
+
+/** Stable identity until a canonical settings application/commit supersedes it. */
+export function getAppliedRoomEffectsAuthority(): AppliedRoomEffectsAuthority | null {
+  return appliedRoomEffectsAuthority?.roomKey === currentSettingsRoomKey()
+    ? appliedRoomEffectsAuthority
+    : null;
+}
+
+function rememberAppliedRoomEffectsAuthority(effects: RoomEffectsState): void {
+  appliedRoomEffectsAuthority = { roomKey: currentSettingsRoomKey(), effects };
+}
+
 interface PendingStandardSettingsPublish {
   roomKey: string;
   settings: RoomSettingsSyncState;
@@ -411,6 +431,7 @@ let standardSettingsNotificationReady = false;
 export function resetSettingsSyncAuthorityForTests(): void {
   resetSettingsChangeFeedback();
   settingsAuthorityCache = null;
+  appliedRoomEffectsAuthority = null;
   pendingStandardSettingsPublish = null;
   pendingStandardSettingsRequestRoomKey = null;
 }
@@ -644,6 +665,7 @@ function applySettingsSyncState(value: RoomSettingsSyncState, notifyRemoteChange
     setState('audio.masterVolume', settings.masterVolume);
   }
   const applied = applyRoomEffectsState(settings.effects, { broadcast: false });
+  if (applied) rememberAppliedRoomEffectsAuthority(settings.effects);
   if (applied && notifyRemoteChange && before !== JSON.stringify(captureRoomSettingsSyncState())) {
     notifyRemoteSettingsChange();
   }
@@ -770,6 +792,11 @@ function commitCoordinatorSettingsAuthority(
     settings,
   };
   if (applyLocally && !applySettingsSyncState(settings, !!sourceConnection)) return false;
+  // The coordinator's own publish already applied the local edit before
+  // committing authority. It owns rollback just like an accepted remote edit.
+  if (!applyLocally && isSettingsSyncEnabled()) {
+    rememberAppliedRoomEffectsAuthority(settings.effects);
+  }
   const snapshot: AnyProtocolMsg = {
     type: MSG.SETTINGS_SYNC_SNAPSHOT,
     version: 1,
@@ -937,6 +964,7 @@ function handleSettingsSyncSessionStarted(started: unknown): void {
   if (!started) {
     resetSettingsChangeFeedback();
     settingsAuthorityCache = null;
+    appliedRoomEffectsAuthority = null;
     clearPendingStandardSettingsPublish();
     clearPendingStandardSettingsRequest();
     return;

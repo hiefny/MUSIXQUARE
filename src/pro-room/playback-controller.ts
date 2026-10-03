@@ -1393,7 +1393,9 @@ function createImplementation(
     const exactRevisionIsCurrent =
       exactBasePlaybackRevision === undefined ||
       (state.highestKnownRevision <= exactBasePlaybackRevision &&
-        (intent.kind === 'advance-sub-video'
+        (intent.kind === 'advance-sub-video' ||
+        intent.kind === 'ended' ||
+        intent.kind === 'unavailable'
           ? // COMMIT application precedes the heartbeat that refreshes the
             // playlist snapshot. The local media revision is therefore the
             // exact fence for iframe observations during that short window.

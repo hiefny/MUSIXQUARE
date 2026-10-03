@@ -18,7 +18,7 @@
 | ----------------------------------- | ---------------------------------------------------------------------------- |
 | 동결                                | 대회 종료를 사용자가 명시하기 전까지 유지. 베타 커밋·푸시만 허용             |
 | 기준 main                           | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 로컬·원격 확인                  |
-| 검토한 베타 코드                    | `a841b2d9315c23b71d78ca6263e3950b0a55cc82` — SQ07–SQ09 재현 후 수정·회귀 검증 완료. 이후 문서만 갱신 |
+| 검토한 베타 코드                    | `a841b2d9315c23b71d78ca6263e3950b0a55cc82` — SQ07–SQ09 수정 완료. checkout `cf11f8a3`의 5차 QA에서 SQ10–SQ13 새 확정·미수정; 문서만 갱신 |
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
 | 후속 수동 싱크 수정                | S01 참가자별 시작 지연·S02 반복 직후 입력 대기를 `c3eae88c`에 반영. 이번 XS01·XS03 수정에서 긴 대기의 소유권·취소 경계 보완. 실기 첫 음 정렬은 별도 확인 대상. [기본 수정](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27) |
 | 극단값 수동 싱크 수정              | XS01 시작 예약/일반 상태·새 명령 우선권, XS02 로컬 파일 실제 출력 지연, XS03 PRO 기기 자체 일시정지 유지, XS04 늦은 타이머 위치 보정. [수정·검증 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
@@ -30,6 +30,7 @@
 | 최신 시퀀스 QA 2차 수정 — 2026-10-03 | SQ02–SQ04 재현 후 수정 완료. 전체 단위 실행 후 영향 범위 재검증으로 고유 10,425 pass, 최종 fail/skip 0. Chromium 12파일·62 pass, fail·skip·flaky 0 (retry 0). [발견·수정 근거](design/beta-sequence-qa-2026-10-03-round-2.md#repair-addendum--2026-10-03) |
 | 최신 시퀀스 QA 3차 수정 — 2026-10-03 | SQ05 최신 적용 음향 설정 보존, SQ06 현재 적용 revision의 오류·종료 관측 전달 수정 완료. 고유 단위 10,458 pass, 최종 fail/skip 0. Chromium 9파일·50 pass, fail·skip·flaky 0 (retry 0). [발견·수정 근거](design/beta-sequence-qa-2026-10-03-round-3.md#repair-addendum--2026-10-03) |
 | 최신 시퀀스 QA 4차 수정 — 2026-10-03 | SQ07 실패 곡 재선택 시 이전 출력 정리, SQ08 PRO slowmode 초안 보존, SQ09 재접속 전/중 HTTP PREPARE 수명 검증 완료. 전체 단위 후 영향 파일 재검증으로 고유 505파일·10,503 pass, fail/skip 0. Chromium 12파일·75 pass, fail·skip·flaky 0 (retry 0). [수정·검증·한계](design/beta-sequence-qa-2026-10-03-round-4.md#repair-addendum--2026-10-03) |
+| 최신 시퀀스 QA 5차 발견 — 2026-10-03 | SQ10 정지 위치 손실, SQ11 취소된 볼륨 의도 재발행, SQ12 복구 중 채팅 허위 성공, SQ13 공유 종료 후 YouTube 임시정지 복원. 새 확정 4건·미수정. 기존 집중 단위 769개·추가 Worker 313개·Chromium 24개 통과; 실패 재현·독립 확인 별도. [증거·한계](design/beta-sequence-qa-2026-10-03-round-5.md) |
 | 현재 보안 승격 gate                 | `security:audit` 실패. main/beta lock 모두 9개 패키지(high 5/moderate 4), 운영 의존성만은 0. 베타 신규 도입으로 분류하지 않음. 관련 dependency/override 갱신 후 재검증 필요 |
 | 제품 버전 / PWA 캐시                | `8.6.61` / `v630`, main과 동일. 공개 승격용 증분은 아직 하지 않음            |
 | 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
@@ -43,6 +44,9 @@
 이어진 3차 시퀀스 QA의 **SQ05–SQ06도 재현 후 베타 수정·회귀 검증을 완료**했다.
 이어진 4차 시퀀스 QA의 **SQ07–SQ09도 재현 후 베타 수정·회귀 검증을 완료**했다.
 발견 당시 실패 근거와 수정 후 검증을 구분해 보존한다. SQ01–SQ09의 테스트 범위 내 미해결은 0건이다.
+그 뒤 5차 시퀀스 QA에서 **SQ10–SQ13 새 결함 4건을 확정했으며 아직 수정하지 않았다.**
+파일 정지 체크포인트·PRO 설정 의도·복구 중 채팅·공유 종료 복원 경계를
+수정하고 회귀 검증해야 한다. 이전 통과 기록을 이 네 결함의 해결 근거로 사용하지 않는다.
 기존 의존성 보안 경고는 미해결이다. 보안 경고 정리, 최종 버전·캐시
 증분, 최종 main SHA의 CI 후보, 실기 확인과 운영 상태 확인이 남아 있다. 현재 main 커밋이
 모든 운영 Worker의 실제 배포 SHA라고 추정하지 않는다.
@@ -111,6 +115,23 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
   방 재생 명령·권한 완화·파일 공유 종료 정책 변경은 없다.
 
 ## 3. 현재 검증과 남은 확인
+
+**최신 5차 시퀀스 발견 QA — 2026-10-03:** checkout
+`cf11f8a3749d567d8f47bbd5db30b3be18e0d660`, 제품 코드
+`a841b2d9315c23b71d78ca6263e3950b0a55cc82`, Windows·Node 24.20.0.
+SQ10–SQ13 **4건 미해결**을 확정했다. 오디오 33개=29 pass/4 fail,
+강한 PRO 설정·공개 Worker 프로브 6개=5 pass/1 fail,
+YouTube/데모/공유 67개=64 pass/3 fail, Chromium 채팅 6개=3 pass/3 fail.
+같은 원인의 초기 PRO 상태코드 탐사 6개=3 pass/3 fail은 별도로 보존한다.
+주 에이전트가 오디오·PRO·YouTube를 독립 재실행했고, 실제 브라우저 채팅은
+별도 소스 검토와 정상 연결/복구 대조군으로 확인했다.
+기존 집중 단위 고유 **24파일·769개**, 추가 복사본 기존 Worker **313개**,
+기존 Chromium **7파일·24개**는 전부 통과했다. 이들 통과가 새 실패를 상쇄하지 않는다.
+최종 실행 skip 0, 브라우저 retry/flaky 0. E2E 빌드 통과.
+제품·추적 테스트 수정 없이 기록만 갱신했으며 전체 스위트·coverage·WebKit·
+실운영·실기 음향·보안 재검증은 하지 않았다. UI 모듈 재현의 native iframe,
+picker, decoder와 외부 통신 경계는 제어된 모델이다.
+[재현 순서·원인·정상 대조·남은 수정](design/beta-sequence-qa-2026-10-03-round-5.md).
 
 **최신 SQ07–SQ09 수정 검증 — 2026-10-03:** 코드
 `a841b2d9315c23b71d78ca6263e3950b0a55cc82`, Windows·Node 24.20.0·jq 1.8.2.
@@ -232,7 +253,7 @@ SQ01 새 확정 1건·미수정. 실제 전송·수신·재생 정지 모듈을 
 **최신 전체 diff 감사:** main `35759e8b` → beta
 `c263acce89a67d7f478e9b20a34d53fbb839a70e`를 Windows·Node 24.20.0에서
 2026-10-01에 검토했다. 당시 새 확정 런타임 결함 0건으로 기능 변경은
-조건부 병합 가능으로 판단했다. 후속 SQ01–SQ09는 위와 같이 수정했지만 기존 보안·승격 gate와 대회 동결이 남아 현재 승격은 보류다.
+조건부 병합 가능으로 판단했다. 후속 SQ01–SQ09는 위와 같이 수정했지만 SQ10–SQ13 새 결함, 기존 보안·승격 gate와 대회 동결이 남아 현재 승격은 보류다.
 [전체 감사·명령·증거](design/main-beta-merge-audit-2026-10-01.md)를 함께 읽는다.
 
 | 최신 검사 | 결과 / 한계 |
@@ -320,6 +341,10 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 - [x] SQ07 — 실패 곡 재선택 시 이전 출력·진행 중 로드/수신을 정리하고 실패 곡을 선택하되 재디코딩하지 않음. 이전 bulk 청크·비인가/stale 명령 보호, 반복 요청의 정상 프리로드 보존, R2·PLAY_PRELOADED 포함 합성 21개 회귀 통과. [수정 근거](design/beta-sequence-qa-2026-10-03-round-4.md#repair-addendum--2026-10-03).
 - [x] SQ08 — PRO 모든 역할의 일반 채팅에 기존 서버 slowmode를 전송 전에 적용, 거부될 메시지의 초안 보존·허위 말풍선 방지. 기존 일반방 면제·귓말·명령 유지. 단위 8개 및 실제 UI 전/후 재현 통과. [수정 근거](design/beta-sequence-qa-2026-10-03-round-4.md#repair-addendum--2026-10-03).
 - [x] SQ09 — PRO 복구 전/중에 시작한 HTTP PREPARE는 현재 동일 transition일 때만 수용. 복구 generation·playlist lease로 오래된 ticket 완료도 차단. 유효 COMMIT·새 명령·중첩 단절·종료/재입장 포함 16개 회귀 통과. 실기 음향 정렬 보장을 뜻하지 않음. [수정 근거](design/beta-sequence-qa-2026-10-03-round-4.md#repair-addendum--2026-10-03).
+- [ ] SQ10 — 일반방 파일 PREPARE가 최신 정지 위치를 0초로 지우는 경계 수정. paused late join·ICE 대기 중 PAUSE/seek·OP 재생 시 방 전체 0초 재시작 재현. stale/비인가 PAUSE·최신 PLAY·전송 신원 보호 유지 필요. [발견 근거](design/beta-sequence-qa-2026-10-03-round-5.md#sq10--file-preparation-discards-the-paused-checkpoint).
+- [ ] SQ11 — PRO 권한 회수로 취소된 볼륨 변경이 복구 후 새로운 리버브 변경에 섞여 원격 최신 볼륨을 덮는 문제 수정. 새 개별 조작과 명시적 OFF→ON 전체 발행 구분 필요. [발견 근거](design/beta-sequence-qa-2026-10-03-round-5.md#sq11--a-fresh-effect-edit-republishes-canceled-volume-intent).
+- [ ] SQ12 — PRO 전송 함수가 false를 반환한 채팅/귓말/명령이 초안을 지우고 로컬 성공을 표시하는 문제 수정. 서버 ACK·명령 큐 정책 변경 없이 알려진 전송 거부 처리 필요. [발견 근거](design/beta-sequence-qa-2026-10-03-round-5.md#sq12--known-failed-chat-submission-still-commits-local-success).
+- [ ] SQ13 — 일반방 YouTube 수동 보정의 임시정지가 시스템 오디오 공유 종료 후 영구 정지 의도로 복원되는 문제 수정. 명시적 정지·최신 선택·방 소유권 보호 필요. [발견 근거](design/beta-sequence-qa-2026-10-03-round-5.md#sq13--temporary-synchronization-pause-becomes-a-permanent-restore-state).
 - [ ] iPhone Safari/PWA와 Android·Windows 혼합 방: 작은 곡 → 큰 MP3/FLAC/AAC → 작은 곡, 호스트·게스트 엔진이 다른 경우.
 - [ ] 시작·연속 seek·이전/다음·곡 끝 반복·중도 참여·프리로드 재정렬·큰 수동 싱크·네트워크 단절/재합류·잠금/복귀·장기 메모리 추이.
 - [x] S01 기본 수정 — 참가자별 시작 지연과 당시 회귀를 `c3eae88c`에 반영. 후속 XS01·XS03에서 긴 대기의 소유권·취소 경계 추가 수정. [기존 수정 범위](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27).
@@ -782,6 +807,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-03 | SQ05–SQ06 수정 `d4dd4bbb94c58624f50887d12dc5dd017fb95f7a` | 데모 실패 복원 시 최신 적용 효과 유지, PRO 현재 적용 미디어 관측 전달. UI·정책·서버 계약·의존성·버전/cache·동결 유지. 누적 target=all, D1 입력 false 그대로 | 전체 단위 후 jq 도구 경로 재검증으로 고유 503파일·10,458 pass, fail/skip 0. Chromium 9파일·50 pass, fail·skip·flaky 0 (retry 0). 새 모듈 33개 독립 검토·재실행 통과. App/테스트/E2E 타입·lint·서식·정적 guard, E2E·프로덕션 빌드 및 산출물 guard 8개 통과. 전체 E2E·WebKit·coverage·live·실기는 재실행 아님. [수정 근거](design/beta-sequence-qa-2026-10-03-round-3.md#repair-addendum--2026-10-03) |
 | 2026-10-03 | 4차 시퀀스 QA, checkout `ed655280`, 제품 `d4dd4bbb` | SQ07–SQ09 새 확정 3건·미수정. 문서만 변경; 제품·계약·의존성·버전/cache·배포 범위·동결 유지 | 새 실행 모듈 52개=45 pass/7 fail(세 원인), 독립 재검증 일치. 기존 고유 30파일·975 pass, Chromium 45 pass, fail·skip·flaky 0. Worker 추가 312개는 필터 제외. E2E 빌드 통과. 전체·실기·보안 재감사 아님. [상세 QA](design/beta-sequence-qa-2026-10-03-round-4.md) |
 | 2026-10-03 | SQ07–SQ09 수정 `a841b2d9315c23b71d78ca6263e3950b0a55cc82` | 실패 곡 재선택의 출력 정리·PRO slowmode 초안 보존·재접속 HTTP PREPARE 수명 검증. App 클라이언트·검사만 추가 변경. UI 구성·서버 정책·의존성·계약·버전/cache·동결 유지. 누적 target=all, D1 입력 false 그대로 | 전체 단위 후 영향 6파일·236개 최종 재검증으로 고유 505파일·10,503 pass, fail/skip 0. 새 모듈 45개 포함. Chromium 12파일·75 pass, fail·skip·flaky 0 (retry 0). 타입/lint/서식/정적 guard, E2E·production 빌드·artifact guard 8개 통과. build:checked cache gate는 공개 증분 전 예상 실패. [수정 근거](design/beta-sequence-qa-2026-10-03-round-4.md#repair-addendum--2026-10-03) |
+| 2026-10-03 | 5차 시퀀스 QA, checkout `cf11f8a3`, 제품 `a841b2d9` | SQ10–SQ13 새 확정 4건·미수정. 파일 정지 위치·취소 설정 의도·복구 중 채팅·공유 종료 복원. 문서만 변경; 제품·의존성·계약·버전/cache·배포 범위·동결 유지 | 강한 실행 프로브: 오디오29 pass/4 fail, PRO5 pass/1 fail, YouTube64 pass/3 fail, Chromium3 pass/3 fail. 기존 단위769·추가 Worker313·Chromium24 pass. 독립 재검증·정상 대조 확인; 초기 중복 탐사 별도. E2E 빌드 통과. 전체/실기/보안 재감사 아님. [상세 QA](design/beta-sequence-qa-2026-10-03-round-5.md) |
 
 ### 실제 승격·배포 기록 — 아직 미실행
 

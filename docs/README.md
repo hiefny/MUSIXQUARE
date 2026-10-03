@@ -87,6 +87,11 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta sequence QA, round 5 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-5.md) —
+  SQ10–SQ13 confirmed and pending repair: lost file pause checkpoints, retired
+  PRO effect intent, known failed chat submission, and a temporary YouTube
+  synchronization pause captured as the post-sharing state. Independent
+  reproductions, healthy controls and modeled-media limits; discovery only.
 - [Beta sequence QA, round 4 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-4.md) —
   SQ07–SQ09 discovery and repair: failed-file selection retires outgoing output,
   PRO slowmode preserves drafts, and reconnect fences stale HTTP PREPARE.

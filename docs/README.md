@@ -89,7 +89,8 @@ labeled portion still supports a current guard or operating interpretation:
 
 - [Beta sequence QA — 2026-10-03](design/beta-sequence-qa-2026-10-03.md) —
   fresh asynchronous sequence probes; SQ01 direct-file prefix loss confirmed
-  in beta and archived main, with recovery and neighboring controls. Unrepaired.
+  in beta and archived main, with recovery and neighboring controls. A dated
+  repair addendum records the beta fix and integrated regression evidence.
 - [main → beta merge-readiness audit — 2026-10-01](design/main-beta-merge-audit-2026-10-01.md) —
   full cumulative diff review and current-SHA local verification, with dependency
   audit blockers and remaining device/exact-main release gates recorded separately.

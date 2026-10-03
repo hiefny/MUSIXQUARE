@@ -247,6 +247,29 @@ function hasCompletedDirectReceive(
   );
 }
 
+function hasMatchingDirectReceivePrefix(
+  data: Record<string, unknown>,
+  queueItemId: QueueItemId,
+  sessionId: number,
+): boolean {
+  const meta = getState('transfer.meta');
+  const receivedCount = getState('transfer.receivedCount');
+  return (
+    sessionId === getState('transfer.localSessionId') &&
+    getState('playlist.currentQueueItemId') === queueItemId &&
+    meta?.queueItemId === queueItemId &&
+    meta.sessionId === sessionId &&
+    meta.name === data.name &&
+    (data.size === undefined || meta.size === data.size) &&
+    (data.total === undefined || meta.total === data.total) &&
+    (data.mime === undefined || meta.mime === data.mime) &&
+    receivedCount > 0 &&
+    receivedCount < Number(meta.total) &&
+    receivedCount === nextExpectedChunk &&
+    receivedCount === ramContiguousCount(queueItemId, false, sessionId)
+  );
+}
+
 function completeAcceptedFileRequest(
   data: Record<string, unknown>,
   conn: DataConnection | undefined,
@@ -1072,7 +1095,13 @@ export async function handleFilePrepare(
     return;
   }
 
-  // Not using preloaded track — stop current media
+  // Bulk bytes can overtake this control frame. Still stop the old audible
+  // source, but remember whether the exact incoming receive was already live.
+  // stopAllMedia resets transfer.state as well as the player; counters alone
+  // cannot authorize restoring that state after a cancellation or replacement.
+  const retainReceivingPrefix =
+    getState('transfer.state') === TRANSFER_STATE.RECEIVING &&
+    hasMatchingDirectReceivePrefix(data, queueItemId, incomingSid);
   bus.emit('player:stop-all-media');
 
   // Check if preload is IN PROGRESS for this track
@@ -1196,6 +1225,16 @@ export async function handleFilePrepare(
       queueItemId,
       name: data.name as string,
     });
+    if (
+      retainReceivingPrefix &&
+      isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, incomingSid, conn) &&
+      getState('playback.lifecycle') === PLAYBACK_STATE.DOWNLOADING &&
+      hasMatchingDirectReceivePrefix(data, queueItemId, incomingSid)
+    ) {
+      // Preserve the active receive so a following START can retain its exact
+      // RAM prefix. START still performs its own full metadata/owner checks.
+      setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
+    }
     showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
     // Lifecycle: fresh download — no preload match, no

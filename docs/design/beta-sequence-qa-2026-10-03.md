@@ -9,6 +9,10 @@
 | Environment      | Windows, Node 24.20.0, Vitest, local Chromium + PeerJS                                                              |
 | Related records  | [Living release record](../beta-release-readiness.md), [2026-10-01 full audit](main-beta-merge-audit-2026-10-01.md) |
 
+**Amended by the [repair addendum](#repair-addendum--2026-10-03) below.**
+The discovery body preserves the original unfixed observations; SQ01 has since
+been repaired and verified on beta.
+
 ## Result and scope
 
 **One additional defect was confirmed: SQ01, a recoverable direct-file receive
@@ -163,3 +167,88 @@ No live YouTube, Cloudflare, physical iPhone/PWA, Bluetooth, WAN handover or
 speaker-alignment result is claimed. The complete unit/coverage/E2E and
 security audit were not rerun; the 2026-10-01 dependency findings remain
 unresolved release gates. SQ01 now also needs resolution before promotion.
+
+## Repair addendum — 2026-10-03
+
+**SQ01 repaired on `mxqr_beta`.** The tested working tree starts at
+`a46b21a5b58f6d62645a041e07a53c7aae882648`; the repair commit is recorded in the
+living release record after creation. The source and tests verified here are
+the ones committed, not a main release candidate. Environment: Windows,
+Node 24.20.0, installed Vitest and pinned Chromium, local PeerJS.
+
+`handleFilePrepare` still invokes the real media stop. Before that call it
+captures whether an exact partial direct receive is active; after it, the
+handler restores `RECEIVING` only if the receive owner, connection/generation,
+queue occurrence, session, available metadata, counters and contiguous RAM
+prefix still match. The existing START validation remains intact. An already
+interrupted transfer cannot be revived just because its old prefix is present.
+Optional PREPARE size/total fields remain optional; the protocol still requires
+mime. No new wire field, UI, policy, dependency, worker or schema change.
+
+### Repair verification
+
+The new tracked regression is
+[`transfer-prepare-channel-ordering.test.ts`](../../src/storage/__tests__/transfer-prepare-channel-ordering.test.ts).
+Before changing runtime code, both minimized prefix-preservation tests failed
+(`IDLE` instead of `RECEIVING`). Their passing final assertions require exact
+file bytes, one decode, and no recovery request through the normal backoff.
+The previous observation tests which intentionally expected loss are not used
+as a green acceptance criterion.
+
+| Check | Final result / boundary |
+| --- | --- |
+| Original no-loss discovery matrix | 84 pass / 0 fail; five minimized cases were name-filtered out, not environment skips |
+| Tracked integrated regression | 100 pass / 0 fail / 0 skip. Includes all 84 channel weaves, minimized repeats and healthy controls, mismatched metadata, omitted size/total, pending PLAY with real stop, cancellation/reset, interrupted receive, new session/occurrence and retired connection |
+| Related storage/player/network units | 117 files, 2,896 pass / 0 fail / 0 skip; excludes the new regression above, no duplicate total |
+| Chromium | Six existing files, 33 pass / 0 fail / 0 skip / 0 flaky, retry 0. File transfer, preload, playback sync, late join, reconnect and preload queue-mode cancellation |
+| Static checks | App and test TypeScript, app ESLint, changed-source Prettier, source-complexity and diff whitespace checks passed |
+| Build/artifacts | E2E and production builds passed; all eight production artifact guards passed |
+
+The integrated test uses real sender scheduling, Cloudflare channel routing,
+binary codec, protocol guards, playback stop, recovery and RAM storage, with
+controlled channel delivery and only final native decode stubbed. Successful
+cases observe both recovery events and wire messages for 2,100 ms after END.
+The pending-PLAY case also observes the real stop's seek-reset and transient
+IDLE state. Cancellation checks specifically assert no receive resurrection;
+they do not claim to audit every lifecycle projection.
+
+The first expanded harness needed corrected optional-field expectations
+(mime is required), the cancellation counter expectation after real stop, and
+required resident-file index hints. These were test-fixture issues, not extra
+product defects; timeout and recovery assertions were not relaxed. A separate
+review approved the runtime boundary and requested the already-interrupted
+receive regression before completion.
+
+### Commands and local evidence
+
+Ignored evidence: `scratch/sq01-repair-2026-10-03/`. With pinned Node on PATH:
+
+```powershell
+node node_modules/vitest/vitest.mjs run src/storage/__tests__/transfer-prepare-channel-ordering.test.ts --maxWorkers=1 --reporter=json --outputFile=scratch/sq01-repair-2026-10-03/prepare-channel-ordering.json
+$qaTests = @(rg --files src/storage src/player src/network -g '*.test.ts' -g '!transfer-prepare-channel-ordering.test.ts')
+node node_modules/vitest/vitest.mjs run @qaTests --maxWorkers=3 --reporter=json --outputFile=scratch/sq01-repair-2026-10-03/related-unit.json
+npm run build:e2e
+$env:MXQR_E2E_APP_PORT = '4198'
+$env:MXQR_E2E_PEER_PORT = '9028'
+$env:PLAYWRIGHT_BROWSERS_PATH = "$PWD\scratch\beta-upgrade-2026-09-09\playwright-browsers"
+$env:PLAYWRIGHT_JSON_OUTPUT_FILE = 'scratch/sq01-repair-2026-10-03/e2e.json'
+node node_modules/@playwright/test/cli.js test e2e/file-transfer.test.ts e2e/preload.test.ts e2e/playback-sync.test.ts e2e/late-join.test.ts e2e/reconnection.test.ts e2e/preload-queue-mode-cancellation.test.ts --project=chromium --reporter=line,json
+npm run build
+```
+
+Reports: `original-matrix.json`, `prepare-channel-ordering.json`,
+`related-unit.json`, `e2e.json`; type, lint, source-complexity and build logs,
+plus `guard-*.log` for legacy TV, service worker, UI kit, initial transfer
+budget, production hooks/security, font and app-shell artifact checks.
+
+This is focused repair validation, not a new full-suite/coverage run. Browser
+tests use local PeerJS and fixtures; controlled unit channels establish the
+independent control/bulk ordering result. No physical iPhone/PWA, live
+Cloudflare, WAN throughput or acoustic-alignment result is claimed. Existing
+dependency security findings, frozen release identity/cache and final-main-SHA
+CI/physical checks remain release gates. `build:checked` is not claimed green.
+The cumulative deployment target remains `all` with no new D1 input; this
+repair itself only adds an App runtime change. Main, production and Operations
+Drift Audit remain untouched. If this repair needs rollback, revert its App
+change on beta and rerun the integrated and browser checks; preserve the
+discovery evidence and mark SQ01 unresolved again.

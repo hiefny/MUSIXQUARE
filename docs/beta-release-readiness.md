@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 지속 갱신, 현재 프로덕션 승격 대기                                                                                                                                                                    |
 | Applies to         | `mxqr_beta` 누적 변경의 다음 main 병합·프로덕션 배포                                                                                                                                                            |
-| Last source review | 2026-10-01                                                                                                                                                                                                      |
+| Last source review | 2026-10-03                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
@@ -26,6 +26,7 @@
 | 후속 UI 수정                       | YouTube 상태 문구를 입력창 바로 뒤로 이동. 스켈레톤은 surface-3·불투명도 25–50%·1.6초 반복. 베타 반영 완료 |
 | 시작 로고 후속 수정                | 분리된 획 대신 완성 실루엣·정확한 단일 nonzero 마스크로 리빌. 오버스캔 제거, 기존 순서·타이밍 유지. 단위 88개·Chromium 21개·WebKit 6개·프로덕션 산출물 smoke 9개 통과. 전체 스위트 재실행 아님 |
 | 최신 전체 diff 감사                | 73 commits·364 files. 새 확정 런타임 결함 0건. 고유 unit 10,273개·4종 coverage·Chromium 558개·WebKit 66개(기존 3 skip)·production smoke 10개 통과. 아래 환경·skip 한계 참조 |
+| 후속 시퀀스 QA — 2026-10-03        | checkout `edbfebedc12290d767bab79afc858c3046d8696c`, 제품 코드 동일. SQ01 새 확정 1건·미수정: 직결 전송에서 늦은 PREPARE가 수신 prefix를 지워 전체 재전송. main 추출 소스에도 재현. [상세 QA](design/beta-sequence-qa-2026-10-03.md) |
 | 현재 보안 승격 gate                 | `security:audit` 실패. main/beta lock 모두 9개 패키지(high 5/moderate 4), 운영 의존성만은 0. 베타 신규 도입으로 분류하지 않음. 관련 dependency/override 갱신 후 재검증 필요 |
 | 제품 버전 / PWA 캐시                | `8.6.61` / `v630`, main과 동일. 공개 승격용 증분은 아직 하지 않음            |
 | 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
@@ -33,9 +34,10 @@
 | Operations Drift Audit              | `disabled_manually`; 종료·승격 지시 전에는 그대로 유지                       |
 | 최종 main SHA / CI 후보 / 배포 실행 | 아직 없음. 베타 검증을 프로덕션 배포 완료로 기록하지 않음                    |
 
-**아직 배포 준비 완료로 판정한 상태가 아니다.** 2026-10-01 전체 diff 감사에서
-새 확정 런타임 결함은 0건이지만 현재 의존성 보안 검사가 실패한다. 보안 경고 정리,
-최종 버전·캐시 증분, 최종 main SHA의 CI 후보, 실기 확인과 운영 상태 확인이 남아 있다. 현재 main 커밋이
+**아직 배포 준비 완료로 판정한 상태가 아니다.** 2026-10-01 전체 diff 감사의
+새 확정 0건 이후, 2026-10-03 시퀀스 QA에서 SQ01을 추가 확정했으며 현재 미수정이다.
+기존 의존성 보안 경고도 미해결이다. SQ01 처리·보안 경고 정리, 최종 버전·캐시
+증분, 최종 main SHA의 CI 후보, 실기 확인과 운영 상태 확인이 남아 있다. 현재 main 커밋이
 모든 운영 Worker의 실제 배포 SHA라고 추정하지 않는다.
 3차 D01과 수동 싱크 S01–S02의 기본 수정·회귀 검증 이후, 극단값 감사에서
 XS01–XS04를 추가 확정한 뒤 이번 수정에 반영했다. 아래 실기·승격 확인은
@@ -99,10 +101,21 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
+**최신 후속 QA — 2026-10-03:** checkout
+`edbfebedc12290d767bab79afc858c3046d8696c`, 제품 코드는 직전 전체 감사와 같다.
+SQ01 새 확정 1건·미수정. 실제 전송·수신·재생 정지 모듈을 연결한
+84개 채널 도착 순서 중 78 pass / 6 fail이며 모두 같은 원인이다. 독립 재실행도
+동일했고, 최소 재현과 복구를 beta·main 추출 소스에서 확인했다. 파일 손상·영구
+정지는 확인되지 않았으며, 재현에서는 2초 복구 대기 후 처음부터 재전송했다.
+오디오 60개·PRO/YouTube 19개·Chromium 검색/데모 22개·기존 전송 회귀 57개는
+통과했다. 이 수치를 전체 스위트 재실행이나 실기·실운영 검증으로 해석하지 않는다.
+제품 변경 없이 발견·검증과 기록만 수행했다.
+[범위·재현·한계](design/beta-sequence-qa-2026-10-03.md)를 함께 읽는다.
+
 **최신 전체 diff 감사:** main `35759e8b` → beta
 `c263acce89a67d7f478e9b20a34d53fbb839a70e`를 Windows·Node 24.20.0에서
-새로 검토했다. 제품 코드 수정 없이 새 확정 런타임 결함 0건이며 기능 변경은
-조건부 병합 가능으로 판단했다. 현재 그대로 승격하는 것은 보류다.
+2026-10-01에 검토했다. 당시 새 확정 런타임 결함 0건으로 기능 변경은
+조건부 병합 가능으로 판단했다. 위 후속 SQ01 및 기존 gate가 남아 현재 승격은 보류다.
 [전체 감사·명령·증거](design/main-beta-merge-audit-2026-10-01.md)를 함께 읽는다.
 
 | 최신 검사 | 결과 / 한계 |
@@ -181,6 +194,7 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 
 다음 확인은 과거의 녹색 결과를 복사하지 말고, 실제 수행 환경과 SHA를 기록한다.
 
+- [ ] SQ01 — 일반방 직결 수신의 늦은 PREPARE → START가 받은 prefix를 지우는 결함. 실제 stop subscriber를 포함한 회귀로 수정·검증 필요. main에도 재현된 기존 결함이며, 현재는 발견만 완료. [2026-10-03 QA](design/beta-sequence-qa-2026-10-03.md).
 - [ ] iPhone Safari/PWA와 Android·Windows 혼합 방: 작은 곡 → 큰 MP3/FLAC/AAC → 작은 곡, 호스트·게스트 엔진이 다른 경우.
 - [ ] 시작·연속 seek·이전/다음·곡 끝 반복·중도 참여·프리로드 재정렬·큰 수동 싱크·네트워크 단절/재합류·잠금/복귀·장기 메모리 추이.
 - [x] S01 기본 수정 — 참가자별 시작 지연과 당시 회귀를 `c3eae88c`에 반영. 후속 XS01·XS03에서 긴 대기의 소유권·취소 경계 추가 수정. [기존 수정 범위](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27).
@@ -635,6 +649,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-09-27 | FQA01·QA-T01–QA-T03 수정, `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac` (동일 소스 작업 트리 검증 후 커밋) | 외부 복구·PLAYING 응답 대기까지 동기화 소유권 유지, 새 명령·재진입·중도 입장 보완. E2E 수렴 조건·coverage 파일 선택 수정; UI·정책·Worker 계약·배포 범위 유지 | 전체 단위/broad 496파일·10,264 pass/0 fail/0 skip, critical 1,772·tooling 342·Worker 1,726과 원래 gate 통과. 정적 23개·Worker dry-run 6개·집중 Chromium 2개·WebKit 60개 통과/기존 3 skip. 최종 전체 Chromium 552개·프로덕션 smoke 10개 통과; cache 증분은 승격 전 필요. [수정 기록](design/beta-full-qa-repair-2026-09-27.md) |
 | 2026-09-29 | 시작 로고 리빌 `79f3a687a7222a69ff865846e0c715aa197d0f10` | 정확한 단일 nonzero 마스크, 복제본의 같은 타임라인, 완료·fallback 처리. App만 추가 변경, 누적 배포 범위·계약·버전 동결 유지 | 단위 88·Chromium 21·WebKit 6·프로덕션 smoke 9 pass, artifact guard 8개 통과. 두 엔진 각각 16개 내부 접합부 표본 통과. 전체 스위트·실기 재검증 아님 |
 | 2026-10-01 | main `35759e8b` → beta `c263acce`, 제품 수정 없는 전체 diff 감사 | 새 확정 런타임 결함 0건, 조건부 병합 가능. 현재 dependency audit 실패(main/beta 동일 high 5/moderate 4)와 version/cache gate·최종 main CI·실기 확인 잔여. 누적 `all` / D1 off 및 freeze 유지 | 고유 unit 10,273·4종 coverage·Chromium 558·WebKit 66(기존 3 skip)·production smoke 10·artifact guard 8·Worker dry-run 6 통과. [상세 감사](design/main-beta-merge-audit-2026-10-01.md) |
+| 2026-10-03 | 시퀀스 QA, checkout `edbfebed`, 제품 코드 동일 | SQ01 새 확정 1건·미수정. 늦은 PREPARE/START가 유효 prefix를 버려 전체 재전송; main 추출 소스도 재현. 제품·의존성·버전·계약·동결·배포 범위 유지 | 새 전송 matrix 78 pass/6 fail(한 원인), 최소 복구·대조군 beta/main 확인. 오디오 60·PRO/YouTube 19·Chromium 22·기존 전송 57 pass. 전체 재실행 아님. [상세 QA](design/beta-sequence-qa-2026-10-03.md) |
 
 ### 실제 승격·배포 기록 — 아직 미실행
 

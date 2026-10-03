@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Dated discovery evidence — SQ02–SQ04 confirmed, not repaired |
+| Status | Dated discovery evidence, followed by the SQ02–SQ04 repair addendum below |
 | Tested checkout | `mxqr_beta`, `c46b5b5ec43da223049ffa0e345271de6d4dc544` |
 | Product code | `53cbf60fd5f475a9beef2cfaa1d7023c9b456eea` — includes the SQ01 repair |
 | Main reference | `35759e8b07f1ee0b272afbd0af03c770a858889e` |
@@ -10,6 +10,10 @@
 | Related records | [Living release record](../beta-release-readiness.md), [previous sequence QA and SQ01 repair](beta-sequence-qa-2026-10-03.md) |
 
 ## Result and scope
+
+This section preserves the original discovery result. For current repair status,
+see the [repair addendum](#repair-addendum--2026-10-03); its later validation does
+not change the failing observations recorded here.
 
 **Three new defects were confirmed.** This round explored delayed responses,
 recovery and playback-owner changes after the SQ01 repair. It did not repeat
@@ -241,3 +245,83 @@ followed by affected regression suites. The existing dependency-security,
 version/cache, physical-device and exact-main-SHA release gates still apply.
 No production deployment, workflow reactivation or main advancement is authorized
 by this QA result.
+
+## Repair addendum — 2026-10-03
+
+The owner requested reproduction/revalidation followed by repair. All three
+causes reproduced before the corresponding fixes. The repair changes only the
+App client and regression tests; UI, media policy, permissions, wire formats,
+dependencies, Worker/D1/secret/binding contracts and release identity remain
+unchanged. Main and production remain frozen.
+
+Tested product/test commit: `1c26dc4ea10263790fedd345f9c20950d09dfc13` on `mxqr_beta`. Documentation is recorded
+after that commit. Windows, pinned Node 24.20.0, Vitest and local Chromium/PeerJS
+were used. This is not an exact-main-SHA production release candidate.
+
+### What changed
+
+- **SQ02:** a same-identity RESUME keeps the entire committed RAM prefix and
+  its still-uncommitted sparse chunks. The request's older start offset cannot
+  roll back progress. Different queue/session/metadata still clears the receive
+  state, and missing actual prefix still requests the required bytes.
+- **SQ03:** an external playback owner retires pending recovery, correlated
+  request authority and any host resend authorization/pump. This retirement is
+  generation-bound, so a file → external media → same-file return cannot revive
+  an old async send. Late FILE_START is rejected before its same-session recovery
+  exception can overwrite external track metadata. A fresh recovery after
+  legitimate return to the file remains supported, including paused playback.
+- **SQ04:** while a selected YouTube cue is pending, seek changes its retained
+  target without discarding readiness or media identity. Explicit PLAY changes
+  the intended state without borrowing the previous iframe's position. PAUSE,
+  stop, replacement occurrence and owner changes retire obsolete start work.
+  The existing manual-offset transaction guard remains in force.
+
+Independent review of the first SQ04 candidate exposed two adjacent hazards:
+using a previous native video's position for an implicit PLAY, and ignoring an
+explicit PLAY during paused restoration. These were corrected before commit.
+The latter was separately reproduced (two failing cases), then passed with
+state-only promotion. The tests also preserve paused seek without accidental
+autoplay and normal zero-start when no seek occurs.
+
+### Regression evidence
+
+| Check | Result and interpretation |
+| --- | --- |
+| Whole unit run, then affected revalidation | 501 unique files / 10,425 pass, final fail/skip 0. Initial run: 10,418 pass / 1 obsolete test assertion failure. Final affected storage/player/network/YouTube run: 157 files / 4,030 pass; final YouTube run after the last guard/fixture correction: 37 files / 1,002 pass. Results replace matching files; overlapping counts are not added |
+| SQ02 new channel-order tests | 18 pass; lane-FIFO interleavings, delayed/duplicate headers, sparse holes, real missing prefix, wrong connection/queue/session and byte-exact completion. Original four reproduction/control cases also pass |
+| SQ03 recovery tests | New eight integration cases plus five host lifetime regressions (41 tests in the extended existing recovery file). Actual protocol/codec/RAM/stop/reception gate and sender pump are exercised; native decode is stubbed. Original failing gate now succeeds |
+| SQ04 new module tests | 20 pass; legacy/v2, event/watchdog readiness, physical cue FIFO, repeated/relative seeks, host offset, pending PLAY, paused restore and cancellation controls. Original five probes pass |
+| Chromium affected browser suite | 62 pass / 0 fail / 0 skip / 0 flaky, retry 0, across 12 files; includes the four new pending-cue UI cases and existing file/preload/reconnection/system-audio/YouTube/manual-sync controls |
+| Static checks | App/test/E2E TypeScript; App lint and changed E2E lint; changed source formatting; source complexity, room-authority, chunk-pump and Playwright API guards pass |
+| Builds | E2E and production builds pass; all eight production artifact guards pass. No deployment or release-identity increment |
+
+The old `transfer-priority` test asserted that a delayed RESUME reduced the
+counter from three to one. That assertion encoded SQ02. It now uses two stronger
+controls: only genuinely new suffix bytes earn preload grace; repeated headers
+and duplicate prefix chunks cannot extend the lease. A later stalled transfer
+still expires. No runtime watchdog tolerance was relaxed. New test fixture type
+omissions and a formatting issue were also corrected before final verification.
+
+Tracked reproductions and controls:
+
+- [RESUME channel ordering](../../src/storage/__tests__/transfer-resume-channel-ordering.test.ts)
+- [Recovery owner transitions](../../src/storage/__tests__/recovery-owner-transition.test.ts)
+- [Host recovery lifetime](../../src/storage/__tests__/recovery.test.ts)
+- [Main/preload progress watchdog](../../src/storage/__tests__/transfer-priority.test.ts)
+- [Pending YouTube intent](../../src/youtube/__tests__/pending-cue-seek-intent.test.ts)
+- [Chromium pending-cue seek](../../e2e/youtube-pending-seek.test.ts)
+
+Ignored raw evidence is in `scratch/sq02-sq04-repair-2026-10-03/`: `receive/`,
+`recovery/`, `youtube/`, `full-unit.json`, `final-affected-unit.json`,
+`final-youtube-unit.json`, `e2e.json` and build/static-check logs. The discovery
+evidence above remains unchanged. The browser test uses actual host/guest
+queue-row and seek-slider UI with a FIFO-controlled fake YouTube iframe. This
+does not validate live YouTube timing, physical speaker alignment, actual iPhone
+Safari/PWA, or native Bluetooth. The full E2E/coverage/Worker/live-service suites
+were not rerun in this repair round.
+
+SQ02–SQ04 are resolved within the tested scope. The pre-existing dependency
+security, version/cache, physical-device and final-main-SHA release gates in the
+[living release record](../beta-release-readiness.md) still apply. There is no
+new migration or special recovery step; use the existing release checkpoint and
+rollback procedure when publication is eventually authorized.

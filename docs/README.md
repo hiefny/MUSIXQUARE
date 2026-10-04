@@ -87,6 +87,12 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Final requested beta QA — 2026-10-04](design/beta-final-qa-2026-10-04.md) —
+  No new confirmed product defect; further discovery ends at the owner's
+  request. Full unit 10,637, new module 32, selected Chromium 43 plus four
+  native delay conditions, WebKit 66 with three existing skips, production
+  smoke 10 and eight artifact guards pass. Source is unchanged; physical
+  timing and existing security/cache promotion gates remain.
 - [Follow-up beta sequence QA — 2026-10-04](design/beta-sequence-qa-2026-10-04-round-2.md) —
   63 new module cases, 18 new mobile-view browser plans and 1,014 selected
   maintained cases pass. A repeated transient native post-seek difference

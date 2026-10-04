@@ -87,6 +87,12 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Follow-up beta sequence QA — 2026-10-04](design/beta-sequence-qa-2026-10-04-round-2.md) —
+  63 new module cases, 18 new mobile-view browser plans and 1,014 selected
+  maintained cases pass. A repeated transient native post-seek difference
+  recovers automatically; an unsupported room-projection diagnostic stays
+  separate with actual teardown controls. Product source is unchanged, and
+  this focused round does not replace the complete verification below.
 - [Large beta QA — 2026-10-04](design/beta-large-qa-2026-10-04.md) —
   Full unit/coverage and browser verification, 41 new media/PRO composite cases,
   production artifacts and six Worker dry-run bundles. Two test-oracle defects

@@ -146,6 +146,9 @@ async function captureRuntimeSnapshot(page: Page) {
         activity: get('playback.activity'),
         lifecycle: get('playback.lifecycle'),
         pausedAt: get('player.pausedAt'),
+        timelinePosition: Number(
+          (document.getElementById('seek-slider') as HTMLInputElement | null)?.value,
+        ),
         filesCurrent: file
           ? {
               queueItemId: file.queueItemId ?? null,
@@ -327,17 +330,24 @@ async function exercisePlaybackAction(
       await expect
         .poll(
           async () => {
-            const hostPosition = Number(await readState(host, 'player.pausedAt'));
-            const guestPosition = Number(await readState(currentGuest, 'player.pausedAt'));
+            // A guest resync can rebuild its source at a later offset. Compare
+            // ongoing timelines while retaining the host's seek-anchor check.
+            const [hostOffset, hostPosition, guestPosition] = await Promise.all([
+              readState(host, 'player.pausedAt').then(Number),
+              host.locator('#seek-slider').inputValue().then(Number),
+              currentGuest.locator('#seek-slider').inputValue().then(Number),
+            ]);
             return {
-              hostReachedTarget: Math.abs(hostPosition - target) <= 1.5,
+              hostReachedTarget: Math.abs(hostOffset - target) <= 1.5,
               guestTracksHost: Math.abs(guestPosition - hostPosition) <= 2.5,
             };
           },
           { timeout: 10_000 },
         )
         .toEqual({ hostReachedTarget: true, guestTracksHost: true });
-      history.push(`seek -> target ${target}s applied on host; guest offset follows within 2.5s`);
+      history.push(
+        `seek -> target ${target}s applied on host; guest current timeline follows within 2.5s`,
+      );
       return;
     }
     case 'next': {

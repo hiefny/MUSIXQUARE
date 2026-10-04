@@ -2709,9 +2709,9 @@ describe('Chat Module', () => {
       let clock = Date.now();
 
       beforeEach(() => {
-        // The send guard persists for this module, so each trace starts after
-        // the preceding one instead of moving its clock backwards.
-        clock += 10_000;
+        // The send guard persists, and collection may precede real sends by
+        // more than 10 seconds. Keep each trace after both clocks.
+        clock = Math.max(clock, Date.now()) + 10_000;
         vi.spyOn(Date, 'now').mockImplementation(() => clock);
       });
 

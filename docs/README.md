@@ -87,6 +87,11 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Large beta QA — 2026-10-04](design/beta-large-qa-2026-10-04.md) —
+  Full unit/coverage and browser verification, 41 new media/PRO composite cases,
+  production artifacts and six Worker dry-run bundles. Two test-oracle defects
+  repaired with original failures and controls preserved; product code unchanged.
+  Existing security/cache promotion gates and physical-device checks remain.
 - [Full local beta verification — 2026-10-03](design/beta-full-local-verification-2026-10-03.md) —
   Complete local unit/coverage, Chromium, official WebKit, production-artifact
   and Worker bundle checks on the unchanged beta code. Functional suites pass;

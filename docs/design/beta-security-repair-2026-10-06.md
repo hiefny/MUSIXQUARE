@@ -4,6 +4,7 @@
 | --- | --- |
 | Status | Dated evidence — `mxqr_beta`의 개발 의존성 보안 패치와 로컬 검증 |
 | Base checkout | `8beaf9027b4f6dbe2962a4022f2f54ce0677737e` 위의 package/lock 수정 작업 트리 |
+| Verified dependency commit | `b0d55351aa58f4a274076d6f31ae69630d260021` — 동일 작업 트리를 검증한 뒤 커밋, 이후 변경은 SHA 기록 문서만 |
 | Product source | `45c7ef7a4e0fef5b788efe11cb72d54c9b221929` 이후 제품 runtime 변경 없음 |
 | Main | `35759e8b07f1ee0b272afbd0af03c770a858889e`, 변경·병합·배포 없음 |
 | Environment | Windows, pinned Node 24.20.0/npm 12.0.2, Vitest 5, Playwright 1.63 Chromium, local PeerJS/Miniflare, jq 1.8.2 |

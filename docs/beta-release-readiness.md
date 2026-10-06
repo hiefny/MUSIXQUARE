@@ -18,7 +18,7 @@
 | ----------------------------------- | ---------------------------------------------------------------------------- |
 | 동결                                | 대회 종료를 사용자가 명시하기 전까지 유지. 베타 커밋·푸시만 허용             |
 | 기준 main                           | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 로컬·원격 확인                  |
-| 검토한 베타 코드                    | 제품 runtime `45c7ef7a4e0fef5b788efe11cb72d54c9b221929` 그대로. 10월 6일 비교 checkout `1349825f00a0c767dff5fc886c1b31c190940d09` 이후, 후속 보안 수정은 checkout `8beaf9027b4f6dbe2962a4022f2f54ce0677737e` 위 package/lock 작업 트리. 검증 파일 SHA256은 [보안 수정 기록](design/beta-security-repair-2026-10-06.md)에 보존. 제품·유지 검사 소스 변경 없음 |
+| 검토한 베타 코드                    | 제품 runtime `45c7ef7a4e0fef5b788efe11cb72d54c9b221929` 그대로. 후속 보안 의존성 수정 `b0d55351aa58f4a274076d6f31ae69630d260021` 검증 완료; 기준 checkout `8beaf902` 위 동일 작업 트리를 검증한 뒤 커밋했다. 이후 SHA 기록은 문서만 변경. 파일 SHA256은 [보안 수정 기록](design/beta-security-repair-2026-10-06.md)에 보존. 제품·유지 검사 소스 변경 없음 |
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
 | 후속 수동 싱크 수정                | S01 참가자별 시작 지연·S02 반복 직후 입력 대기를 `c3eae88c`에 반영. 이번 XS01·XS03 수정에서 긴 대기의 소유권·취소 경계 보완. 실기 첫 음 정렬은 별도 확인 대상. [기본 수정](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27) |
 | 극단값 수동 싱크 수정              | XS01 시작 예약/일반 상태·새 명령 우선권, XS02 로컬 파일 실제 출력 지연, XS03 PRO 기기 자체 일시정지 유지, XS04 늦은 타이머 위치 보정. [수정·검증 기록](design/extreme-manual-sync-repair-2026-09-27.md) |
@@ -40,7 +40,7 @@
 | 최신 후속 시퀀스 QA — 2026-10-04 | 새 모듈63 pass·독립 재실행 일치, 기존 선택18파일·고유1,014 pass, 새 Chromium18계획 pass/자동 retry·skip 0. 탐색 후 약2.3초 PCM 차이의 반복·자동복구 관측, FIFO2.3초 지연 대조3회 pass. 실제 teardown을 생략한 projection 진단1 fail은 공개 경로 미입증으로 분리; 실제 종료 대조군 통과. 제품 변경·새 확정 결함 없음, 전체 스위트 재실행 아님. [범위·관측·한계](design/beta-sequence-qa-2026-10-04-round-2.md) |
 | 마지막 요청 QA — 2026-10-04 | 새 확정 제품 결함0건으로 추가 발굴 종료. 전체 unit510파일·10,637 pass, 새 모듈32 pass·독립 일치, Chromium선택43+native지연4 pass, WebKit66 pass/기존3 skip, production smoke9+1·artifact guard8개 pass. FIFO3.2초 지연에서 실제 hard 보정 후 수렴 관측; 이전 nominal transient 원인·실기 음향은 미확정. 제품·유지 검사 변경 없음. [최종 범위·증거·한계](design/beta-final-qa-2026-10-04.md) |
 | 현재 보안 승격 gate                 | 10월 6일 후속 베타 수정으로 감사 13패키지(critical 1/high 7/moderate 5) → 0. `security:audit`·prod-only 감사·의존성 트리 통과, 설치 486패키지 서명·103 attestations 검증. 개발 하위 의존성만 갱신, jsdom/Miniflare의 Undici와 구형 minimatch의 brace API 호환성 분리. main은 이전 SHA 그대로이며 수정하지 않음. [수정·검증 근거](design/beta-security-repair-2026-10-06.md) |
-| 최신 보안 수정 QA — 2026-10-06 | checkout `8beaf902`의 의존성 수정 작업 트리. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
+| 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 제품 버전 / PWA 캐시                | `8.6.61` / `v630`, main과 동일. 공개 승격용 증분은 아직 하지 않음            |
 | 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
 | Developer API D1 입력               | 현재 변경 기준 `apply_developer_api_d1=false`                                |
@@ -170,8 +170,9 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
-**최신 보안 의존성 수정 — 2026-10-06:** checkout
-`8beaf9027b4f6dbe2962a4022f2f54ce0677737e` 위 package/lock 작업 트리,
+**최신 보안 의존성 수정 — 2026-10-06:** 의존성 코드
+`b0d55351aa58f4a274076d6f31ae69630d260021`. 기준 checkout `8beaf902` 위
+동일 package/lock 작업 트리를 검증한 뒤 커밋했고 이후 SHA 기록은 문서만 변경,
 제품 runtime `45c7ef7a` 그대로. Windows·pinned Node24.20.0/npm12.0.2·
 Vitest5/jsdom·Playwright1.63 Chromium·local PeerJS/Miniflare·jq1.8.2.
 전체 audit와 `security:audit`, prod-only audit 모두 **0건 / exit0**,
@@ -1040,7 +1041,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-04 | 후속 시퀀스 QA, checkout `1dc2d911`, 제품 `45c7ef7a` 그대로 | 새 확정 제품 결함0건. 일시 post-seek native 차이·자동 복구 관측을 실기/latency 확인에 연결. Projection 진단1 fail은 실제 종료 producer 미포함으로 분리·대조 통과. 제품·유지 검사·계약·의존성·버전/cache·복구·동결·누적 all / D1 false 유지; 결과 문서만 변경 | 새 모듈63 pass·독립 확인, 기존 선택18파일·고유1,014 pass, 새 Chromium18계획 pass/자동 retry·skip0. 별도 반복3+연속관측3+FIFO지연3 pass는 고유 수치와 분리. E2E 빌드·production 복원·prod-hooks pass. 전체 스위트·보안·실기/live 재감사 아님. 기존 승격 gate 잔여. [관측·근거·한계](design/beta-sequence-qa-2026-10-04-round-2.md) |
 | 2026-10-04 | 마지막 요청 QA, checkout `36deb60d`, 제품 `45c7ef7a` 그대로 | 새 확정 제품 결함0건으로 사용자 조건에 따라 추가 발굴 종료. 실제 FIFO3.2초 지연에서 hard 보정·수렴 관측; 이전 nominal transient 원인·실기 확인은 유지. 제품·유지 검사·의존성·계약·버전/cache·복구·동결·누적 all / D1 false 변경 없음, 문서만 갱신 | 전체 unit510파일·10,637 pass, 새 모듈32 pass·독립 확인, 유지Chromium43+native4·WebKit66(기존3 skip)·production smoke9+1·artifact guard8개 pass. 최종 admitted fail0, browserretry0, PRO 복사baseline323 name-filter 제외. 전체Chromium/coverage/static/security/Worker bundle 재실행 아님. 보안/cache·exact-main·실기/live 잔여. [최종 증거·한계](design/beta-final-qa-2026-10-04.md) |
 | 2026-10-06 | main `35759e8b` → beta checkout `1349825f` 비교, 제품 `45c7ef7a` 그대로 | 새 확정 런타임 결함0건. 공통 개발 의존성 경고13패키지(critical1/high7/moderate5)로 현재 상태 갱신, 베타 신규 도입0. 캐시·exact-main·실기/live gate 잔여. 제품·유지 검사·의존성·계약·버전/cache·복구·동결·누적all / D1 false 유지 | unit510파일 최초10,636 pass/도구1 timeout 후 동일 파일 원래 기준18 pass로 고유10,637 pass. 선택Chromium54 pass·retry/skip0, 전체 타입·lint·서식·E2E/production build·artifact guard8개 통과. 추가 bounded21관측은 엄격한 파형 일치 판정 아님. coverage·전체 E2E·WebKit·production smoke·Worker bundle 재실행 아님. [비교·검증·보안 근거](design/main-beta-comparison-2026-10-06.md) |
-| 2026-10-06 | 베타 전용 보안 의존성 수정, checkout `8beaf902` 위 검증 작업 트리, 제품 runtime `45c7ef7a` 동일 | 개발 하위 패치로 audit13→0 및 구형 brace API 복구. dev11노드만 변경/추가, 운영46노드·직접deps·Wrangler/Miniflare/workerd·schema/secrets/bindings·버전/cache·동결·누적all / D1 false 유지. main/배포/워크플로 변경 없음 | 첫 전체unit510파일·10,637 pass, 선택Chromium17 및 production artifact9 pass·retry/skip/flaky0. 타입/lint/서식·빌드·artifact guard8개·Worker dry-run6개·installed loopback20 pass, signatures486/attestations103 검증. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. 기존 cache/승격 확인 잔여. [수정 근거](design/beta-security-repair-2026-10-06.md) |
+| 2026-10-06 | 베타 전용 보안 의존성 수정 `b0d55351aa58f4a274076d6f31ae69630d260021`, 동일 작업 트리 검증 뒤 커밋. 제품 runtime `45c7ef7a` 동일 | 개발 하위 패치로 audit13→0 및 구형 brace API 복구. dev11노드만 변경/추가, 운영46노드·직접deps·Wrangler/Miniflare/workerd·schema/secrets/bindings·버전/cache·동결·누적all / D1 false 유지. main/배포/워크플로 변경 없음 | 첫 전체unit510파일·10,637 pass, 선택Chromium17 및 production artifact9 pass·retry/skip/flaky0. 타입/lint/서식·빌드·artifact guard8개·Worker dry-run6개·installed loopback20 pass, signatures486/attestations103 검증. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. 기존 cache/승격 확인 잔여. [수정 근거](design/beta-security-repair-2026-10-06.md) |
 
 ### 실제 승격·배포 기록 — 아직 미실행
 

@@ -71,6 +71,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained engineering guides and contracts
 
+- [Whole-project beta QA domains](beta-qa-domains.md) — 30 domains and 122
+  detailed scopes with criteria, source/test entry points, verification methods,
+  and cross-feature sequences. This is a QA planning guide, not new pass evidence.
 - [Playback state consumption](state-patterns.md)
 - [AppState decomposition and surviving contract](appstate-decomposition.md)
 - [System sync compensation](system-sync-compensation.md)

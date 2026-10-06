@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-08-30                                                            |
+| Last source review | 2026-10-06                                                            |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -87,6 +87,12 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Main and beta comparison — 2026-10-06](design/main-beta-comparison-2026-10-06.md) —
+  No new confirmed beta runtime defect across the 97-commit diff. Full unit
+  revalidation and 54 selected Chromium cases pass; an unchanged tooling timeout
+  resolves on focused rerun. Fresh main/beta audits match at 13 vulnerable dev
+  packages, including one critical warning; prod-only audit remains clean.
+  Beta cache promotion and physical-device checks remain.
 - [Final requested beta QA — 2026-10-04](design/beta-final-qa-2026-10-04.md) —
   No new confirmed product defect; further discovery ends at the owner's
   request. Full unit 10,637, new module 32, selected Chromium 43 plus four

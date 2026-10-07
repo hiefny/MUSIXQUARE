@@ -47,11 +47,12 @@
 | 제품 버전 / PWA 캐시                | 현재 App `8.7.2` / `v633` 배포 완료; YouTube BETA 제거·브랜드 표기 통일. 버전 일치·cache-history·`build:checked`와 정확한 main CI candidate 확인 |
 | 완료한 배포 범위                    | 최신 `target=app`; App은 `94fa5b03`, 다른 5개 Worker는 `8.7.0` 승격의 `e8001e93` 유지·부분 배포 호환성 재확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
-| Operations Drift Audit              | `active` 유지; `8.7.0` 배포 전 `37583844459`·배포 후 `37584995408` 성공, 각각 31 pass/0 fail/5 manual-only. 8.7.1·8.7.2의 새 감사 결과로 해석하지 않음 |
+| Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
 | 최신 App main SHA / CI 후보 / 배포 실행 | `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09` / main CI `37592984640` 및 immutable candidate / Release `37593498828` 성공. 아래 후속 패치 기록 참조 |
 | 후속 App 패치 | `8.7.2`/`v633` 완료 — YouTube BETA 제거·42언어 브랜드 `YouTube` 통일. 제품 `7ac40213` → PR #249/main `94fa5b03`, `app`/D1 false. 공개 자산·fresh en/ko 검증 통과 |
+| 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**현재 App은 `8.7.2` / `v633`, main `94fa5b03`이다.** 후속 패치를 `app`으로
+**배포된 App은 `8.7.2` / `v633`, 배포 제품의 main SHA는 `94fa5b03`이다.** 후속 패치를 `app`으로
 배포했고 다른 5개 Worker의 deployment·version·`git:e8001e93...` 기준은 유지됐다.
 정확한 main CI candidate·배포·공개 검증 결과는 아래 후속 패치 기록을 따른다.
 
@@ -657,6 +658,8 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 - [x] 8.7.1 공개 fresh 확인: 45개 자산 hash·ko/ja/ar HTML 3경로 200·en-US/ko-KR Chromium의 변경 문구/BETA·정상 줄바꿈·bootstrap ready·page error 0·v632 cache 확인. 실기·기존 운영 탭/PWA 확인과 구분하며 1절에 범위 기록.
 - [x] 후속 `8.7.2`/`v633`: PR #249·정확한 main `94fa5b03`의 CI `37592984640`/immutable candidate 및 Release `37593498828` 성공. `app`/D1 false, checkpoint·App 최종 소유권·선택된 smoke·coherent marker 확인. 다른 5개 Worker는 `e8001e93` 유지·호환성 통과.
 - [x] 8.7.2 공개 fresh 확인: 45개 자산 hash·ko/ja/ar HTML 3경로 200·en-US/ko-KR Chromium의 `YouTube` 표기·YouTube BETA 제거·정상 줄바꿈·bootstrap ready·page error 0·v633 cache 확인. 실기·기존 운영 탭/PWA 한계 유지.
+- [x] 8.7.2 완료된 로컬 검증·test-only 보완 `716c37af`: 로컬 unit 10,781·원격 PR CI/4종 coverage, 기준 전체 Chromium 로컬/원격 각각 581, 최종 원격 WebKit 66/기존 3 skip·SW 1·실제 9게스트 R2 로컬/원격 통과. ICE observer 회귀 51·정적/빌드·감사 0·drift 자동 31 통과. 최초 8/9 원인은 미확정이며 인증 Developer API canary·실기·수동 한계를 [전체 검증 기록](design/full-verification-8.7.2-2026-10-07.md)에 보존.
+- [x] 최종 Full E2E `37602041553`의 Chromium 581 pass/실패·skip·retry 0와 모든 job 실제 성공 확인. PR #251로 테스트·문서 게시; 검사 SHA `716c37af`와 후속 문서·main SHA는 구분한다. 후속 병합·CI 상태는 PR 연결 기록에서 확인하며 제품을 재배포하지 않음.
 - [ ] Drift 수동 5항목: zone routes, Access/MFA, WAF·비용 알림, 별도 Git-triggered 배포, 운영 review/check 정책. 자동 감사 통과로 완료 처리하지 않음.
 - [x] 2026-10-07 30라운드 후속 — 확정 12건 수정과 로컬 회귀 완료. 최종 unit 10,730개·4종 coverage, 초기 전체 Chromium 580개와 최종 영향 18개/production 17개, WebKit 66개(기존 3 skip), 전체/prod-only 보안 감사 0. 초기 실패·빌드 구분은 [후속 보고서](design/beta-30-round-repair-2026-10-07.md)에 보존.
 - [x] R08/R25 별도 보강 — 정상 파일 조각·메타데이터 계약 확인, 번역 초안의 지속 요청 ID와 제출 전 저장 성공 조건. 구형 UUID/선택 MIME 호환성 회귀도 수정. 원래 미확정 2건을 확정 결함 수에 합산하지 않음.
@@ -1160,6 +1163,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | 공개 승격·배포, 준비 `fe0b0230` → main `e8001e93c9390ec20b359b015d3dff890f2b5304`, PR #245 | `8.7.0`/`v631`, Release `37584399403`의 `all`/D1 false 성공. 6 Worker 공통 SHA·최종 소유권·PRO ready·coherent marker 확인, 감사 active 및 전후 자동 검사 성공. 문서 후속 커밋은 배포 SHA와 구분 | exact-main CI `37583802398`의 unit 10,729 pass/기존 Windows 전용 1 skip·4종 coverage·Chromium 17+22 통과. 공개 45자산 hash·10 HTML 200·fresh en/ko Chromium 통과. 초기 build/upgrade/fetch 실패의 후속 판정과 R26·수동5·실기 한계는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 보존 |
 | 2026-10-07 | YouTube 안내 후속 패치, 제품 `10feecac148291dbb54f4cb436fc6dc64d9e6490` → main `f005a70645fb6b115a3465346b5f22d4d83d4e1a`, PR #247 | `8.7.1`/`v632`, 42언어 링크·검색 안내 축약·줄바꿈 유지·BETA. Release `37590255149`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 새 데이터·서버 계약 없음 | exact-main CI `37589560758`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 공개45자산 hash·3HTML200·fresh en/ko 통과. 초기 PR CI 배지 기대값 실패·로컬 검증 범위·원본 배포 근거는 1절에 보존. R26·실기·운영 수동 한계 유지 |
 | 2026-10-07 | YouTube 브랜드 후속 패치, 제품 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf` → main `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09`, PR #249 | `8.7.2`/`v633`, YouTube BETA 제거·42언어 브랜드 `YouTube` 통일. Release `37593498828`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 서버·데이터 계약 변경 없음 | exact-main CI `37592984640`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 로컬unit153·정적/빌드·production5조합 및 공개45자산 hash·3HTML200·fresh en/ko 통과. 원본 배포 근거는 1절, 기존 실기·운영 한계 유지 |
+| 2026-10-07 | 8.7.2 전체 검증·test-only 관측기 보완, 기준 `61cedbc6` → `59eae678` → 최종 `716c37af6f57ae46112e1e6295562e50fdc03ff0`, PR #251 | 최초 운영 R2의 LAN 관찰 8/9는 원인 미확정. assertion을 유지한 진단 재실행은 통과. 이전 observer 반례 4개/정상 대조 1개와 후속 getter 예외 중 객체 교체 3종을 재현·수정해 회귀 51 통과. 제품·의존성·서버/DB·secret/binding·버전/cache·배포 변경 없음 | 최종 로컬 518파일·10,781 pass·broad 하한, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate 17/critical 22, 최종 로컬/원격 9게스트 R2·원격 WebKit 66/기존 3 skip·SW 1 통과. 기준 전체 Chromium 로컬/원격 각각 581, 정적 18·빌드/Worker 6·감사 0·서명 486/attestation 103·live 8명령·drift 31 통과. 최종 원격 Chromium도 581 pass/실패·retry 0, Full E2E `37602041553`의 모든 job 성공. 인증 canary·수동 5·실기·R26 한계 유지. [전체 근거](design/full-verification-8.7.2-2026-10-07.md) |
 
 ### 이전 8.7.0 실제 승격·배포 기록 — 2026-10-07 완료
 

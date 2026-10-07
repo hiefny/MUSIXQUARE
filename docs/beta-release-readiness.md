@@ -56,6 +56,16 @@
 배포했고 다른 5개 Worker의 deployment·version·`git:e8001e93...` 기준은 유지됐다.
 정확한 main CI candidate·배포·공개 검증 결과는 아래 후속 패치 기록을 따른다.
 
+**2026-10-07 저녁 운영 R2 재검사:** `a1543f8b`의 유지 검사로 새 방 3회 중 2 pass / 1 fail.
+추가 수동 관찰 진단 1회에서도 연결 9개·R2 경로는 정상이었으나 게스트 1개가 HTTP 200
+후 본문 수신을 120초 안에 끝내지 못했다. 기존 90초 비활동 감지·1회 재시도 관련 120개와
+혼합 전송 정책 14개는 통과했으며, 본문 미완료를 제품의 무한 대기로 단정하지 않는다.
+과거 전체 검사 통과를 이 후속 실행의 올그린으로 표현하지 않는다. 제품·배포 변경 없음.
+마지막 XHR 바이트 진단 1회는 GET 18개·다음 곡 재생·추가 GET 없음까지 통과했다.
+현재 곡 수신은 기기별 약 2.1–69.6초로 차이가 컸다. 서로 다른 새 방 총 5회 중
+3 pass / 2 fail이며, 성공한 방의 바이트 진행으로 이전 실패 원인을 소급 확정하지 않는다.
+[운영 재검사·원본 증거](design/full-verification-8.7.2-2026-10-07.md#운영-r2-후속-재검사--2026-10-07-저녁).
+
 **이전 `8.7.0` / `v631` 승격·배포 기록:** PR #245의 준비 SHA `fe0b0230`을
 main `e8001e93`으로 병합하고, 그 정확한 SHA의 CI candidate를 `all`로 배포했다.
 6개 Worker의 최종 소유권·PRO generation readiness·coherent-production marker와
@@ -1164,6 +1174,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | YouTube 안내 후속 패치, 제품 `10feecac148291dbb54f4cb436fc6dc64d9e6490` → main `f005a70645fb6b115a3465346b5f22d4d83d4e1a`, PR #247 | `8.7.1`/`v632`, 42언어 링크·검색 안내 축약·줄바꿈 유지·BETA. Release `37590255149`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 새 데이터·서버 계약 없음 | exact-main CI `37589560758`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 공개45자산 hash·3HTML200·fresh en/ko 통과. 초기 PR CI 배지 기대값 실패·로컬 검증 범위·원본 배포 근거는 1절에 보존. R26·실기·운영 수동 한계 유지 |
 | 2026-10-07 | YouTube 브랜드 후속 패치, 제품 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf` → main `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09`, PR #249 | `8.7.2`/`v633`, YouTube BETA 제거·42언어 브랜드 `YouTube` 통일. Release `37593498828`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 서버·데이터 계약 변경 없음 | exact-main CI `37592984640`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 로컬unit153·정적/빌드·production5조합 및 공개45자산 hash·3HTML200·fresh en/ko 통과. 원본 배포 근거는 1절, 기존 실기·운영 한계 유지 |
 | 2026-10-07 | 8.7.2 전체 검증·test-only 관측기 보완, 기준 `61cedbc6` → `59eae678` → 최종 `716c37af6f57ae46112e1e6295562e50fdc03ff0`, PR #251 | 최초 운영 R2의 LAN 관찰 8/9는 원인 미확정. assertion을 유지한 진단 재실행은 통과. 이전 observer 반례 4개/정상 대조 1개와 후속 getter 예외 중 객체 교체 3종을 재현·수정해 회귀 51 통과. 제품·의존성·서버/DB·secret/binding·버전/cache·배포 변경 없음 | 최종 로컬 518파일·10,781 pass·broad 하한, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate 17/critical 22, 최종 로컬/원격 9게스트 R2·원격 WebKit 66/기존 3 skip·SW 1 통과. 기준 전체 Chromium 로컬/원격 각각 581, 정적 18·빌드/Worker 6·감사 0·서명 486/attestation 103·live 8명령·drift 31 통과. 최종 원격 Chromium도 581 pass/실패·retry 0, Full E2E `37602041553`의 모든 job 성공. 인증 canary·수동 5·실기·R26 한계 유지. [전체 근거](design/full-verification-8.7.2-2026-10-07.md) |
+| 2026-10-07 | 운영 R2 미확정 관찰 후속 재검사, tested SHA `a1543f8baf40cea057fe817d18a064fbec7710da`, Windows/Node24.20.0/Playwright1.63 → App `94fa5b03` | 유지 검사 새 방3회 2pass/1fail, 수동 관찰 진단2회 1pass/1fail. 전부 host1/guest9·자동retry0·원래assertion/timeout 유지. 최초8/9는 소급 원인 미확정; native/prflx 보완 경로의 실제 필요성만 추가 입증. 제품·유지검사·정책·버전/cache·배포 변경 없음 | 진단 실패 방은 9개R2준비/경로·HTTP200 정상이나 guest1본문120초미완료. 마지막방은 18GET전체수신·전환통과, 현재GET2.1–69.6초. 지연은관측했으나 원인/복구결함미확정, 후속운영반복전체올그린아님. 기존정책14·다운로드120pass. [후속증거·한계](design/full-verification-8.7.2-2026-10-07.md#운영-r2-후속-재검사--2026-10-07-저녁) |
 
 ### 이전 8.7.0 실제 승격·배포 기록 — 2026-10-07 완료
 

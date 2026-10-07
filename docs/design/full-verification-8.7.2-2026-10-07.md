@@ -404,6 +404,46 @@ Chromium·WebKit job은 과거 실행 시각의 결과이며 전체 suite를 다
 `scratch/r2-remote-comparison-2026-10-07/attempt-{3,4,5}/` 및
 `combined-summary.json`에 보존한다. 추적 문서에는 인증 URL·토큰·방 식별자를 넣지 않는다.
 
+## 한 세션의 순차 반복 수신 — 2026-10-08
+
+사용자가 확인을 요청한 조건은 동시 여러 browser/context가 아니라 같은 세션에서
+파일을 차례로 다시 받는 것이다. 준비 SHA `aff88adbdb91c69e33d4965400334eb427532711`,
+Windows·Chromium `153.0.8010.12`, 기존 집 Wi-Fi에서 **browser 1개·context 1개·
+page 1개**를 유지하고, 새로 만든 동일한 2,153,280바이트 객체를 같은 URL·Bearer로
+미리 정한 6회 수신했다. 2026-10-08 01:24 KST 실행이며 앞선 대조와 동일 객체는 아니다.
+
+앱 대신 정적 favicon 문서에서 native XHR을 실행했다. 경로는 브라우저 →
+`share.musixquare.com` 다운로드 Worker → R2이며 R2 직접 GET가 아니다. 각 요청의
+종료 및 CDP terminal을 확인한 후 다음 요청을 시작해 최대 동시 GET는 1개였다.
+브라우저 기본 프로토콜 협상을 사용했고 캐시를 끄고 service worker를 차단했다.
+재시도는 없고 요청별 180초 진단 상한은 기존 테스트·제품의 timeout 변경이 아니다.
+
+| 회차 | 전체 본문 수신 시간 | 실제 프로토콜 | 관측 거점 | 결과 |
+| --- | --- | --- | --- | --- |
+| 1 | 1.814초 | HTTP/2 | LAX | HTTP 200·전체 본문·SHA-256 일치 |
+| 2 | 1.357초 | HTTP/3 | LAX | HTTP 200·전체 본문·SHA-256 일치 |
+| 3 | 0.789초 | HTTP/3 | LAX | HTTP 200·전체 본문·SHA-256 일치 |
+| 4 | 0.863초 | HTTP/3 | LAX | HTTP 200·전체 본문·SHA-256 일치 |
+| 5 | 0.829초 | HTTP/3 | LAX | HTTP 200·전체 본문·SHA-256 일치 |
+| 6 | 0.764초 | HTTP/3 | LAX | HTTP 200·전체 본문·SHA-256 일치 |
+
+**6/6 완료·실패/timeout 0·driver exit 0·인증된 객체 정리 성공.** 매회 XHR과 CDP
+양쪽에서 전체 바이트를 확인했고, disk/service-worker/cache 응답이 아닌 실제 수신이다.
+응답은 `Cache-Control: no-store`였으며 완료 시각을 먼저 잡은 뒤 payload hash를 검사했다.
+2–6회는 같은 HTTP/3 connection ID를 재사용했다. 첫 GET의 connectionReused도 true라
+첫 GET를 TLS 연결 수립까지 포함한 완전한 cold-start 측정이라고 부르지 않는다.
+
+이번 한 세션의 6회 순차 요청은 계속 빨랐다. 하지만 이전에는 단일 수신에서도
+131초 지연이 있었고, 이번에는 객체·시각·협상된 프로토콜도 달라졌다. 따라서
+동시 요청이 유일한 원인이라거나 HTTP/2 자체의 결함이라고 확정할 수 없다.
+LAX에서도 빠른 전송이 관측됐으므로 거점 이름만으로 지연을 판정할 수도 없다.
+기존 지연·정확한 원인 구간 미확정은 유지한다. 제품·유지 테스트·설정·배포 변경은 없다.
+
+원본: `scratch/r2-root-cause-2026-10-07/transport-serial-2026-10-08.{mjs,jsonl,log}`와
+`transport-serial-2026-10-08-exit.txt`. 계획·소스/스크립트/fixture hash, 요청별 CF-ray·
+프로토콜·connection ID·cache/바이트/시간·동시성·정리 결과를 보존했다. 원본 인증 URL·
+토큰·room ID·IP는 저장하지 않았다. 다른 에이전트가 harness와 6개 결과를 독립 확인했다.
+
 ## 최초 전체 검증 원본 증거
 
 추적 제외 폴더 `scratch/full-verification-8.7.2-2026-10-07/`에 원본을 보존한다.

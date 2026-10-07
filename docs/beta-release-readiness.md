@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 지속 갱신, 현재 프로덕션 승격 대기                                                                                                                                                                    |
+| Status             | Runbook — 2026-10-07 승격 승인, `8.7.0` / `v631` 릴리스 준비 중                                                                                                                                                  |
 | Applies to         | `mxqr_beta` 누적 변경의 다음 main 병합·프로덕션 배포                                                                                                                                                            |
 | Last source review | 2026-10-07                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -16,8 +16,9 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 동결                                | 대회 종료를 사용자가 명시하기 전까지 유지. 베타 커밋·푸시만 허용             |
+| 종료·승격 승인                      | 2026-10-07 사용자가 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
 | 기준 main                           | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 로컬·원격 확인                  |
+| 승격 준비 기준 checkout             | `efce531a690857790509fde5f851a9b72db1ee05` — 아래 검증 코드 이후 QA 근거를 보완한 문서 커밋. 새 제품 코드 검증 SHA로 대체하지 않음 |
 | 검토한 베타 코드 | `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋. 확정12건 수정·별도 안정성 보강2건과 전체 단위·4종 coverage, 전체 Chromium+최종 영향 범위 검증 완료. 비Markdown1,809파일의 검증 중 동일성 확인. [코드·산출물 근거](design/beta-30-round-repair-2026-10-07.md) |
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
 | 후속 수동 싱크 수정                | S01 참가자별 시작 지연·S02 반복 직후 입력 대기를 `c3eae88c`에 반영. 이번 XS01·XS03 수정에서 긴 대기의 소유권·취소 경계 보완. 실기 첫 음 정렬은 별도 확인 대상. [기본 수정](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27) |
@@ -43,84 +44,24 @@
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | `8.6.61` / `v630`, main과 동일. 공개 승격용 증분은 아직 하지 않음            |
+| 제품 버전 / PWA 캐시                | 공개 승격 준비 `8.7.0` / `v631`. 하이브리드 오디오 기능 추가를 minor에 반영하며, 최종 커밋의 버전 일치·cache-history 검증은 아래 실행 기록에서 확인 |
 | 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
 | Developer API D1 입력               | 현재 변경 기준 `apply_developer_api_d1=false`                                |
-| Operations Drift Audit              | `disabled_manually`; 종료·승격 지시 전에는 그대로 유지                       |
+| Operations Drift Audit              | 2026-10-07 재활성화 완료, GitHub API `state=active` 확인. 수정된 main의 수동 감사 결과 기록 대기 |
 | 최종 main SHA / CI 후보 / 배포 실행 | 아직 없음. 베타 검증을 프로덕션 배포 완료로 기록하지 않음                    |
 
-**아직 배포 준비 완료로 판정한 상태가 아니다.** 2026-10-01 전체 diff 감사의
-새 확정 0건 이후, 2026-10-03 시퀀스 QA에서 SQ01을 추가 확정한 뒤 베타에서 수정했다.
-그 수정 이후의 2차 시퀀스 QA에서 확정한 **SQ02–SQ04도 베타 수정·검증을 완료**했다.
-이어진 3차 시퀀스 QA의 **SQ05–SQ06도 재현 후 베타 수정·회귀 검증을 완료**했다.
-이어진 4차 시퀀스 QA의 **SQ07–SQ09도 재현 후 베타 수정·회귀 검증을 완료**했다.
-그 뒤 5차 시퀀스 QA의 **SQ10–SQ13도 재현 후 베타 수정·회귀 검증을 완료**했다.
-파일 정지 체크포인트·PRO 설정 의도·복구 중 채팅·공유 종료 복원 경계를
-보완했고, SQ11의 설정 조회 거부 경로도 함께 검증했다. 발견 당시 실패와
-수정 후 검증을 구분해 보존한다. SQ01–SQ13의 테스트 범위 내 미해결은 0건이다.
-이후 6차 발견 QA의 **SQ14–SQ15도 재현 후 베타 수정·회귀 검증을 완료**했다.
-PRO 반복·셔플의 최초 조회에서 새 조작을 보존하고, 필수 조회 예외에도 기존
-제한된 재시도를 적용했다. 인접 충돌 복구에서도 거절된 필드 의도를 정리하고,
-그동안 새로 누른 값은 최신 기준을 다시 조회해 저장하도록 보완했다.
-SQ01–SQ15 및 이번 인접 회귀 범위 내 확정 미해결은 0건이다.
-그 뒤 7차 시퀀스 QA에서 새 확정 결함은 0건이다. 강제 예외 주입으로 보인
-YouTube 복구 후보는 실제 브라우저/API 발생 경로를 입증하지 못해 확정에서
-제외하고 별도 보존했다. 집중 검증 통과를 전체·실기 무결함으로 확대하지 않는다.
-그 뒤 2026-10-03에는 추가 발굴을 중단하고 현재 코드로 전체 로컬 스위트를 실행했다.
-고유 unit 10,637개·4종 coverage gate·전체 Chromium 568개·WebKit 66개
-(기존 데스크탑 전용 3 skip)·프로덕션 산출물 smoke 10개가 첫 실행에 통과했다.
-제품·테스트 코드·의존성·검사 기준 변경은 없으며, 전체 결과는
-[당시 로컬 검증 기록](design/beta-full-local-verification-2026-10-03.md)에 보존한다.
-2026-10-04 대규모 QA에서는 동일 제품 코드로 전체 검사와 새 복합 경로 41개를 실행했다.
-최초 unit/Chromium 각 1건 실패는 QA-T04 수집 시계·QA-T05 시작 오프셋 판정 오류로
-재현하고 검사 코드만 수정했다. 최종 전체 unit 10,637개·4종 coverage gate와,
-수정된 Luna 25개를 같은 원본 case에 치환한 고유 Chromium 568개가 통과했다.
-WebKit 66 pass/기존 3 skip, production smoke 10 pass, 빌드·산출물 guard 8개·
-Worker dry-run 6개도 통과했다. 원본 실패·대조군·재검증과 실기 한계는
-[최신 대규모 QA 기록](design/beta-large-qa-2026-10-04.md)에 보존한다.
-그 뒤 후속 시퀀스 QA에서는 새 모듈63개·기존 선택 고유1,014개·새 Chromium18계획이
-통과했다. 탐색 직후 약2.3초의 native PCM 차이가 재현됐으나 연속 관측 시작 후
-328ms 이내 25ms 아래로 자동 복구됐다. 이 시간이 seek부터의 전체 지연이라는
-뜻은 아니며, 실기 지연 확인 대상으로 보존한다. 실제 teardown을 생략한 하위 진단
-1 fail은 사용자 경로 미입증으로 분리했고 실제 종료 대조군은 통과했다.
-[최신 후속 QA](design/beta-sequence-qa-2026-10-04-round-2.md)는 전체 스위트 통과를 새로 주장하지 않는다.
-마지막 요청 QA에서는 동일 제품의 전체 unit **10,637개**, 새 모듈 **32개**와
-독립 재실행, 선택 Chromium43개·native 지연4조건·WebKit66개(기존3 skip),
-production smoke9+1개·artifact guard8개가 통과했다. 새 확정 제품 결함0건으로
-사용자 조건에 따라 **추가 발굴을 종료**한다. 제어 메시지 FIFO3.2초 지연에서는
-실제 hard 보정과 최종 native 차이7ms 이내를 관측했다. 이전 nominal transient의
-원인이 입증되거나 물리적 첫 음 정렬이 완료된 뜻은 아니다.
-[최종 QA 기록](design/beta-final-qa-2026-10-04.md)에 초기 fixture 실패·대조군·
-전체/선택 범위와 한계를 보존한다. 이 QA 종료는 대회 종료·승격 지시가 아니다.
-이후 2026-10-06 사용자의 main/beta 비교 요청에서 새 확정 런타임 결함은 0건이다.
-당시 양쪽 보안 경고는 13개 패키지(critical 1/high 7/moderate 5)로 늘었으며,
-취약 객체·영향 버전은 동일하다. 전체 unit의 도구 검사 1 timeout은 원래 기준의
-동일 18개 재검증으로 해소했고, 고유 10,637개·선택 Chromium 54개가 통과했다.
-[최신 비교 기록](design/main-beta-comparison-2026-10-06.md)은 이번 범위와
-앞선 전체 QA·실기 한계를 구분한다. 대회 종료·공개 승격 지시는 아니다.
-이후 사용자 요청으로 **베타에만 개발 의존성 보안 패치를 반영해 감사 0건을 확인**했다.
-[후속 보안 수정 기록](design/beta-security-repair-2026-10-06.md)은 이전 비교의 13건을
-덮어쓰지 않고 수정된 의존성의 검증을 별도로 기록한다. cache-history gate와 최종 버전·캐시
-증분, 최종 main SHA의 CI 후보, 실기 확인과 운영 상태 확인은 남아 있다. 현재 main 커밋이
-모든 운영 Worker의 실제 배포 SHA라고 추정하지 않는다.
-3차 D01과 수동 싱크 S01–S02의 기본 수정·회귀 검증 이후, 극단값 감사에서
-XS01–XS04를 추가 확정한 뒤 이번 수정에 반영했다. 아래 실기·승격 확인은
-별도로 남아 있으며, 베타 테스트 통과가 프로덕션 배포 준비 완료를 뜻하지 않는다.
-후속 전체 QA의 FQA01과 검사 코드·설정 QA-T01–QA-T03은 베타에서 수정했다.
-이전 발견 보고서는 당시 실패를 보존하며, 현재 해결 근거는 후속 수정 기록을
-따른다. 이전 전체 QA에서 Chromium·WebKit·프로덕션 빌드 smoke와
-단위·coverage가 통과한 기록은 유지하며, 시퀀스 QA의 수정 전 실패와 수정 후 검증을 구분한다. 이 로컬 검증과 공개 승격 준비는
-별도로 구분한다.
+**승격은 승인됐으며 릴리스 검증·배포를 진행할 단계다.** 최신 검증 코드
+`4a605791`에서 30라운드 확정 12건과 별도 보강 2건을 반영했고, 전체/prod-only
+보안 감사는 0건이다. `efce531a`는 해당 검증 SHA를 보완 기록한 문서 커밋이다.
+이번 공개 버전은 하이브리드 오디오 기능을 포함한 `8.7.0`, PWA 캐시는 `v631`로
+준비한다. 최종 커밋의 `build:checked`, PR CI, 실제 main SHA의 production candidate와
+릴리스 실행 결과를 각각 확인해야 하며, 기존 베타 QA를 그 증거로 대신하지 않는다.
 
-2026-10-07 사용자의 새로운 독립 QA 요청으로 30라운드를 수행했다. 이전 QA 종료와
-당시 0건 판정은 보존하며, 이번 수집 항목을 다시 분석해 **새 확정 12건을 미수정으로 기록**한다.
-재생 명령·시계·큐 포커스·싱크 창·언어/폰트 복구·RTL 채팅·PWA 중복 창·진단 분류와
-개발 보안 gate가 해당한다. [30라운드·최종 판정](design/beta-30-round-qa-2026-10-07.md)에 재현 조건과 한계를 남겼다.
-발견 단계에서는 제품 변경 금지 요청에 따라 수리하지 않았다. 이후 사용자가 전체 진행을
-승인하여 확정 12건을 수정하고 미확정 2건에는 명시적인 안정성 정책을 적용했다.
-원래 판정 수를 소급 변경하지 않는다. 후속 결과는
-[수정·검증 기록](design/beta-30-round-repair-2026-10-07.md)을 따른다. 미해명 legacy SW
-갱신 관찰과 실기/live·공개 승격 준비는 별도로 남아 있다.
+R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 갱신 정지 1회는
+원인 미확정이다. 추가 진단 10/10 통과는 최초 관찰을 설명하지 못한다. 실제 기기
+음향·혼합 방·열린 탭/PWA·live 경로의 미완료 확인도 그대로 남긴다. 과거 QA의
+발견 당시 실패·후속 수정·동결 상태는 3절과 누적 이력에 날짜별 증거로 보존한다.
+현재 main SHA가 모든 운영 Worker의 실제 배포 SHA라고 추정하지 않는다.
 
 ## 2. 이번 베타에서 함께 반영할 범위
 
@@ -183,7 +124,11 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
-**최신 후속 수정 — 2026-10-07:** `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋. 확정 12건 수정과
+다음 QA 결과는 각 날짜·코드 SHA의 증거다. 당시 동결·보안 경고·버전 상태를 현재
+상태로 해석하지 않는다. 현재 승인·릴리스 준비 상태는 1절과 마지막 실행 기록을 따른다.
+
+**최신 후속 수정 — 2026-10-07:** `4a605791b7f4680cc85d4718117d8db231c1d772` — Windows,
+Node 24.20.0/npm 12.0.2에서 동일 작업 트리 검증 후 커밋. 확정 12건 수정과
 별도 보강 2건의 구현·로컬 검증 완료. 최종 unit517파일·10,730 pass, fail/skip/todo0,
 기존4종 coverage gate 통과. 초기 빌드 전체 Chromium83파일·580 pass 후 최종 호환성
 보완 빌드의 영향18개와 production17개 pass, WebKit66 pass/기존3skip. 자동retry0이며
@@ -587,6 +532,9 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 
 다음 확인은 과거의 녹색 결과를 복사하지 말고, 실제 수행 환경과 SHA를 기록한다.
 
+- [x] 2026-10-07 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인 확인. 정상 PR·배포 절차로 진행.
+- [ ] `8.7.0` / `v631`의 최종 커밋에서 버전 mirror·cache-history·`build:checked` 검증, PR CI 및 실제 main SHA의 immutable candidate 확인.
+- [ ] `target=all`, `apply_developer_api_d1=false` 릴리스의 checkpoint·6개 Worker 배포·live smoke·소유권/세대 readiness와 감사 재개 결과 기록.
 - [x] 2026-10-07 30라운드 후속 — 확정 12건 수정과 로컬 회귀 완료. 최종 unit 10,730개·4종 coverage, 초기 전체 Chromium 580개와 최종 영향 18개/production 17개, WebKit 66개(기존 3 skip), 전체/prod-only 보안 감사 0. 초기 실패·빌드 구분은 [후속 보고서](design/beta-30-round-repair-2026-10-07.md)에 보존.
 - [x] R08/R25 별도 보강 — 정상 파일 조각·메타데이터 계약 확인, 번역 초안의 지속 요청 ID와 제출 전 저장 성공 조건. 구형 UUID/선택 MIME 호환성 회귀도 수정. 원래 미확정 2건을 확정 결함 수에 합산하지 않음.
 - [ ] R26 후속 legacy 관찰 — 최초 Refresh 승인 뒤 15초 동안 갱신이 관측되지 않은 1회를 미확정으로 유지. 추가 계측 10/10 통과는 원인 입증이 아님. 재현 시 승인→SKIP_WAITING→waiting worker 상태→controllerchange→새 문서를 페이지 밖 기록으로 연결하고, 구형 실제 기기에서도 확인. [관측·진단·한계](design/beta-30-round-repair-2026-10-07.md#3-검증-기록).
@@ -955,10 +903,10 @@ Audit 비활성화 상태는 유지한다.
 함께 되돌린다. 새 서버·데이터 복구 절차는 없다. main·프로덕션과 비활성화된
 Operations Drift Audit는 변경하지 않았다.
 
-## 4. 대회 종료 후 실행 순서
+## 4. 승인된 승격 실행 순서
 
-현재는 아래 절차를 실행하지 않는다. 사용자의 **대회 종료 및 승격 지시**를 확인한
-뒤 진행하고, 실제 명령·승인 경계는 [정식 절차](hotfix-procedure.md)를 따른다.
+2026-10-07 사용자가 **대회 종료·main 병합·프로덕션 배포·감사 재활성화**를 승인했다.
+아래 절차를 진행하고, 실제 명령·검증 경계는 [정식 절차](hotfix-procedure.md)를 따른다.
 
 1. **종료·재개 기록:** 지시 일시를 아래 실행 기록에 남긴다. 이전 사용자 지시에
    따라 `Operations Drift Audit`의 `ops-drift-audit.yml`만 재활성화한다.
@@ -966,14 +914,15 @@ Operations Drift Audit는 변경하지 않았다.
    감사는 구 스크립트로 실패할 수 있으므로, 수정 병합 뒤의 결과와 구분한다.
 2. **최종 차이 확정:** 원격 refs를 확인하고 main 대비 베타 diff, 미커밋 작업,
    다른 작업의 변경을 확인한다. 대상 SHA와 위 표를 갱신한다. 기존 문서의 SHA를
-   다음 주 최신 코드로 간주하지 않는다. 2026-10-06 후속 수정에서 베타의 dependency
-   audit 경고는 당시 0건으로 해소했으나 10월7일 새 sharp 공지로 다시 미통과다.
-   이번 확정12건의 수정·검증 또는 명시적 처리 결정을 반영하고, 최종 의존성과 SHA에서 관련 회귀·서명·보안
-   검사를 다시 확인하며, 새 경고가 있으면 선별 갱신한다.
+   다음 주 최신 코드로 간주하지 않는다. 2026-10-07 후속 수정 `4a605791`에서
+   확정 12건과 별도 보강 2건을 반영했고 sharp 0.35.5로 전체/prod-only audit 0건,
+   서명·새 설치/native 실행 검증을 완료했다. 발견 당시 경고와 미수정 기록은
+   과거 증거로 보존한다. 최종 의존성과 SHA에서 보안 gate를 다시 확인하며,
+   새 경고가 있으면 선별 갱신한다. R26 최초 갱신 정지 관찰의 원인은 미확정이다.
    main에도 있던 경고라는 이유로 PR 보안 gate를 우회하지 않는다.
-3. **버전·캐시 증분:** 현재 `8.6.61`/`v630`을 그대로 공개하지 않는다. 최종 기능
-   범위에 맞는 SemVer와 더 큰 cache epoch를 확정하고, package/lockfile과 두 admin
-   버전 mirror를 함께 맞춘다. 새 엔진의 기능 추가도 버전 판단에 포함한다.
+3. **버전·캐시 증분:** `8.6.61`/`v630`에서 `8.7.0`/`v631`로 증분한다.
+   하이브리드 오디오 기능 추가를 minor에 반영하고, package/lockfile과 두 admin
+   버전 mirror를 함께 맞춘다.
    `npm run version:status`와 관련 guard로 확인한다.
 4. **최종 베타 검증·푸시·PR:** 변경에 필요한 테스트·타입·린트·guard를 통과시킨다.
    최종 버전/cache 변경을 커밋한 뒤 `npm run build:checked`를 실행한다.
@@ -994,8 +943,8 @@ Operations Drift Audit는 변경하지 않았다.
    갱신을 미룰 수 있으므로, 모든 참가자가 즉시 새 클라이언트가 됐다고 간주하지 않는다.
 8. **감사·마감:** 수정이 들어간 main에서 Operations Drift Audit을 수동 실행해
    보고서를 확인하고, 활성화 상태도 확인한다. 배포 SHA/버전/결과와 남은 확인을
-   아래에 기록한다. 성공 후 임시 PR 브랜치는 정상 정책으로 정리하되, 베타의
-   보관·제거는 동결 종료 후 사용자 지시와 진행 중인 작업을 확인해 결정한다.
+   아래에 기록한다. 성공 후 임시 PR 브랜치와 병합된 베타 브랜치는 정상 정책으로
+   정리하고 `main`으로 돌아온다. 다른 작업의 진행 중인 브랜치·미커밋 변경은 보존한다.
 
 main 병합만으로 Cloudflare가 바뀌지 않는다. 문서·감사 도구만의 향후 변경은
 저장소 반영으로 끝나지만, **이번 누적 베타는 App·Worker 배포가 필요하다.**
@@ -1082,19 +1031,19 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-06 | main `35759e8b` → beta checkout `1349825f` 비교, 제품 `45c7ef7a` 그대로 | 새 확정 런타임 결함0건. 공통 개발 의존성 경고13패키지(critical1/high7/moderate5)로 현재 상태 갱신, 베타 신규 도입0. 캐시·exact-main·실기/live gate 잔여. 제품·유지 검사·의존성·계약·버전/cache·복구·동결·누적all / D1 false 유지 | unit510파일 최초10,636 pass/도구1 timeout 후 동일 파일 원래 기준18 pass로 고유10,637 pass. 선택Chromium54 pass·retry/skip0, 전체 타입·lint·서식·E2E/production build·artifact guard8개 통과. 추가 bounded21관측은 엄격한 파형 일치 판정 아님. coverage·전체 E2E·WebKit·production smoke·Worker bundle 재실행 아님. [비교·검증·보안 근거](design/main-beta-comparison-2026-10-06.md) |
 | 2026-10-06 | 베타 전용 보안 의존성 수정 `b0d55351aa58f4a274076d6f31ae69630d260021`, 동일 작업 트리 검증 뒤 커밋. 제품 runtime `45c7ef7a` 동일 | 개발 하위 패치로 audit13→0 및 구형 brace API 복구. dev11노드만 변경/추가, 운영46노드·직접deps·Wrangler/Miniflare/workerd·schema/secrets/bindings·버전/cache·동결·누적all / D1 false 유지. main/배포/워크플로 변경 없음 | 첫 전체unit510파일·10,637 pass, 선택Chromium17 및 production artifact9 pass·retry/skip/flaky0. 타입/lint/서식·빌드·artifact guard8개·Worker dry-run6개·installed loopback20 pass, signatures486/attestations103 검증. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. 기존 cache/승격 확인 잔여. [수정 근거](design/beta-security-repair-2026-10-06.md) |
 | 2026-10-07 | 독립30라운드·사후 재분석, tested SHA `9afc36b4d8bccc575a923b0dfaadd103145ba09f` | Astra Ultra3×10세트 완료. 확정12건 미수정(P1 1/P2 8/P3 3), 미확정2·제외2. sharp 새 공지로high3패키지/단일원인, gate재실패; prod-only0. 제품/검사/설정/의존성/계약/버전/cache/main/배포 변경 없음. QA082의폐기된일일BOT문구만현행제한으로교정 | 기존선택365파일·고유8,716pass, 공유파일쓰기1제외. 전체suite/coverage아님. production/E2E build·artifact guard8·Worker dry-run6통과. QA055실기음향미실행, QA122운영소스/모형만. 새로운 실패·대조·독립검증과자동필터중단한계를 [30라운드·최종 판정](design/beta-30-round-qa-2026-10-07.md)에 보존. 동결/누적all·D1 false/복구절차 유지 |
-
 | 2026-10-07 | 30라운드 후속 수정, `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋 | 확정12수정·별도보강2. 재생/시계/포커스/검색/언어·폰트/PWA/진단·파일수신·번역재시도와sharp0.35.5. 새같은빌드 localeJSON40개를App에포함. 새schema/secrets/bindings없음, 누적all/D1 false·버전/cache·동결유지 | 최종unit517파일10,730pass/4종coverage; 초기전체Chromium580+최종영향18/production17, WebKit66/기존3skip. 자동retry0. 타입/lint/서식·source16/artifact8·Worker6·감사0/서명·새설치native검증. 원본실패보존, legacy승인후갱신관찰1원인미확정(추가10/10pass). 실기/live·cache-history·exact-main/승격잔여. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
+| 2026-10-07 | 공개 승격 준비, 기준 checkout `efce531a690857790509fde5f851a9b72db1ee05`, 최신 검증 코드 `4a605791` | 사용자 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인. 하이브리드 오디오 기능을 포함해 `8.7.0`/`v631` 준비, 누적 `target=all`/D1 false. 새 schema/secrets/bindings·복구 계약 추가 변경 없음 | 위 로컬 QA 증거 유지. 최종 버전/cache 커밋의 검증·PR/main CI·실제 배포·감사 결과는 아래에 별도 기록. R26 최초 legacy 승인 후 갱신 정지 1회는 미확정이며 추가 진단 10/10 통과로 해소 처리하지 않음. 실기/live 잔여 유지 |
 
-### 실제 승격·배포 기록 — 아직 미실행
+### 실제 승격·배포 기록 — 승인 후 준비 중
 
 | 기록 항목                                        | 값     |
 | ------------------------------------------------ | ------ |
-| 사용자 종료·승격 지시                            | 미확인 |
-| 최종 베타 코드 SHA / PR                          | 미정   |
+| 사용자 종료·승격 지시                            | 2026-10-07 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 명시 승인 |
+| 최종 베타 코드 SHA / PR                          | 기준 `efce531a690857790509fde5f851a9b72db1ee05`; 버전/cache 준비 커밋 및 PR 미정 |
 | 최종 main SHA / main CI run / candidate          | 미정   |
-| 제품 버전 / cache epoch                          | 미정   |
-| Release run / target / D1 입력                   | 미실행 |
+| 제품 버전 / cache epoch                          | `8.7.0` / `v631` 준비; 최종 커밋 검증 대기 |
+| Release run / target / D1 입력                   | 미실행 / `all` / `apply_developer_api_d1=false` |
 | checkpoint / Worker 버전·메시지 / smoke          | 미실행 |
 | fresh·기존 탭/PWA / 주요 기능 확인               | 미실행 |
-| Operations Drift Audit 재활성화 / main 실행 결과 | 미실행 |
-| 남긴 제한·복구 조치 / 완료 일시                  | 미정   |
+| Operations Drift Audit 재활성화 / main 실행 결과 | 2026-10-07 `state=active` 확인 / 수정된 main 감사 실행 대기 |
+| 남긴 제한·복구 조치 / 완료 일시                  | R26 갱신 정지 1회 원인 미확정(추가 진단 10/10 통과); 실기·live 확인 잔여 / 미완료 |

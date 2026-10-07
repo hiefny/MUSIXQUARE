@@ -1,19 +1,15 @@
 # Repository workflow
 
-## Competition freeze (owner instruction, 2026-09-23)
+## Competition freeze ended (owner instruction, 2026-10-07)
 
-- Until the owner explicitly says the competition has ended, work on
-  `mxqr_beta`. Keep this branch and leave the checkout on it between tasks.
-- Do not modify or advance `main`, merge changes into it, or deploy production
-  during this freeze. Local edits, commits, builds, and tests on `mxqr_beta`
-  are allowed.
-- The owner authorized ongoing remote pushes of `mxqr_beta` on 2026-09-25.
-  Commit and push beta work when complete. Do not create remote pull requests,
-  merge into `main`, or deploy production without separate authorization.
-  Keep the Operations Drift Audit workflow disabled until the owner ends the freeze.
-- This temporary exception takes precedence over the branch cleanup rules
-  below. Once the owner ends the freeze, follow their publication instructions
-  and the normal release workflow; audit-tooling-only changes need no App release.
+- The owner explicitly ended the competition and authorized promotion of the
+  accumulated `mxqr_beta` changes to `main`, production deployment, and
+  reactivation of Operations Drift Audit on 2026-10-07.
+- The 2026-09-23 freeze and its 2026-09-25 beta-push exception are historical.
+  Follow the normal workflow below, including PR review, the successful
+  exact-main-SHA CI candidate, and the production release procedure.
+- Reactivate only Operations Drift Audit; this authorization does not restore
+  unrelated disabled workflows. Audit-tooling-only changes need no App release.
 
 ## Living beta release record
 
@@ -27,13 +23,12 @@
   tested code SHA, environment, pass/fail/skip limits, and remaining actions;
   preserve old QA reports as dated evidence. Never treat beta tests as the
   successful exact-main-SHA release candidate.
-- This record does not authorize a main merge, workflow reactivation, or
-  production deployment. The competition freeze and owner instructions above
-  remain authoritative.
+- This record tracks evidence; owner authorization and the release procedure
+  remain authoritative. The 2026-10-07 promotion authorization is recorded above.
 
 ## Normal workflow
 
-- Outside the competition freeze, keep `main` as the only long-lived local and remote branch, per the owner's
+- Keep `main` as the only long-lived local and remote branch, per the owner's
   preference. Use a temporary `agent/` branch when a pull request is required.
 - After a task is merged, delete its temporary local and remote branches and
   return the checkout to `main`. Do not delete another task's active branch or

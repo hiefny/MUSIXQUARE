@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-10-06                                                            |
+| Last source review | 2026-10-07                                                            |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -90,9 +90,15 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta independent 30-round QA — 2026-10-07](design/beta-30-round-qa-2026-10-07.md) —
+  Astra Ultra, three agents per set across ten sets. Post-round adjudication
+  confirms 12 distinct unresolved defects; two observations remain provisional
+  and two candidates are rejected. Selected maintained tests total 8,716 unique
+  passing cases. A newly reviewed sharp advisory fails the dev security gate;
+  production-only audit remains zero. Product code and main were not changed.
 - [Beta dependency security repair — 2026-10-06](design/beta-security-repair-2026-10-06.md) —
-  Beta audit warnings fall from 13 packages to zero, with registry signatures
-  verified. Dev-only patches preserve each parent's Undici/brace API requirements
+  At the October 6 repair checkpoint, beta audit warnings fell from 13 packages
+  to zero, with registry signatures verified. Dev-only patches preserve each parent's Undici/brace API requirements
   and the pinned Wrangler version. Main and production remain frozen; the report
   records the changed dependency graph and its local verification.
 - [Main and beta comparison — 2026-10-06](design/main-beta-comparison-2026-10-06.md) —
@@ -100,7 +106,8 @@ labeled portion still supports a current guard or operating interpretation:
   revalidation and 54 selected Chromium cases pass; an unchanged tooling timeout
   resolves on focused rerun. Audits at this baseline match at 13 vulnerable dev
   packages, including one critical warning; prod-only audit remains clean.
-  The follow-up repair above clears beta's dependency warnings. Beta cache
+  The October 6 repair cleared beta's then-known dependency warnings. The October 7
+  QA above records a newly reviewed warning. Beta cache
   promotion and physical-device checks remain.
 - [Final requested beta QA — 2026-10-04](design/beta-final-qa-2026-10-04.md) —
   No new confirmed product defect; further discovery ends at the owner's

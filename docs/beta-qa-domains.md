@@ -4,11 +4,13 @@
 | --- | --- |
 | Status | Guide — QA 범위 설계, 실행 결과 아님 |
 | Applies to | mxqr_beta 전체 제품·브라우저·서버·데이터·QA 환경 |
-| Last source review | 2026-10-06 |
+| Last source review | 2026-10-07 — QA082의 현행 제한 재확인 |
 | Executable sources | [제품 소스](../src/), [브라우저 자산](../browser/), [Workers](../cloudflare/), [E2E](../e2e/), [도구/빌드](../package.json) |
 | Related documents | [베타 현재 상태](beta-release-readiness.md), [허용한 설계·제약](known-accepted.md), [모바일 확대 정책](mobile-app-zoom-policy.md), [문서 허브](README.md) |
 
-소스 검토 기준은 239bfe595aa8d9337a9e10b4165907182eeb386b이다.
+초기 소스 검토 기준은 239bfe595aa8d9337a9e10b4165907182eeb386b이다.
+2026-10-07의 30라운드 QA(`9afc36b4d8bccc575a923b0dfaadd103145ba09f`)에서
+QA082의 폐기된 일일 BOT 제한 문구를 현행 분/시간 제한으로 바로잡았다.
 **현재 베타를 하나의 제품으로 보고 30개 대분류·122개 세부 QA 범위를 정리했다.**
 main과의 차이 여부와 관계없이 사용자 기능, 권한, 데이터, 실패·복구 경계를 포함한다.
 
@@ -922,7 +924,7 @@ main 변경·프로덕션 쓰기/배포·Operations Drift Audit 재활성화의 
 
 ### QA082. BOT 요청·비용·방 변경·결과 — P1
 
-**판정:** authenticated room/session lease·request ID·권한·일일 비용 한계를 지킨다. 모델 응답이 늦어도 다른 방·계정에 명령·채팅 결과를 적용하지 않아야 한다.
+**판정:** authenticated room/session lease·request ID·권한·현재 요청 제한(인증 토큰별 분당 3회, 방별 기준 시점부터 1시간당 100회)을 지킨다. 모델 응답이 늦어도 다른 방·계정에 명령·채팅 결과를 적용하지 않아야 한다. 예전 일일 제한은 폐기된 계약이며 현재 검사 기준으로 사용하지 않는다.
 
 **방법:** 자동 / 브라우저 / 로컬서비스 / 운영확인
 

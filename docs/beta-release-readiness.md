@@ -81,6 +81,21 @@
 새 확정 런타임 결함·제품 수정·배포는 없으며 timeout·정책을 완화하지 않았다.
 [원인 추적·한계](design/full-verification-8.7.2-2026-10-07.md#운영-r2-원인-추적--2026-10-07).
 
+**2026-10-07 앱을 제외한 R2 대조:** `233b478e`에서 준비한 같은 인증 객체의 native
+XHR 직접 수신은 37 GET 중 34개 전체 완료·3개 180초 측정 timeout이었다. timeout도
+종료 직전까지 바이트가 증가했다. 앱·미디어·동기화 없이 지연이 재현됐으나 브라우저·
+네트워크·Cloudflare/R2 중 하위 원인은 미확정이다. 전부 실제 HTTP/2·초기 우선순위
+`High`였고, 원래 120초 검사를 바꾸지 않았다. 스크립트 exit 0은 전체 전송 성공이 아니다.
+원격 R2 job만 attempt 2로 재실행한 결과는 PUT 2개·완료 GET 18개·다음 곡 통과;
+첫 PUT부터 마지막 본문까지 3.006초였다. 전체 suite 재실행이나 로컬 실패 해소는 아니다.
+독립 browser 9개 대조도 2.251–94.764초 편차를 재현했고 단일 수신도 131.188초가
+걸려 동시성·한 browser 공유가 필수 조건은 아니었다. 이후 사용자가 인터넷 경로를
+바꾼 동일 객체 대조에서 핫스팟의 독립 9개는 전부 1.609–3.436초(HKG/NRT),
+원래 Wi-Fi 복귀 후에는 3개가 99–146초·1개가 180초 측정 timeout(LAX)이었다.
+원래 접속 경로와의 강한 연관성은 확인했지만 공유기·통신사·라우팅·Cloudflare/R2
+중 정확한 원인 구간은 미확정이다. 제품·배포 변경 없이 측정 기록만 보완한다.
+[직접 수신 대조·한계](design/full-verification-8.7.2-2026-10-07.md#앱을-제외한-r2-전송-대조--2026-10-07).
+
 **이전 `8.7.0` / `v631` 승격·배포 기록:** PR #245의 준비 SHA `fe0b0230`을
 main `e8001e93`으로 병합하고, 그 정확한 SHA의 CI candidate를 `all`로 배포했다.
 6개 Worker의 최종 소유권·PRO generation readiness·coherent-production marker와
@@ -685,7 +700,7 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 - [x] 8.7.2 공개 fresh 확인: 45개 자산 hash·ko/ja/ar HTML 3경로 200·en-US/ko-KR Chromium의 `YouTube` 표기·YouTube BETA 제거·정상 줄바꿈·bootstrap ready·page error 0·v633 cache 확인. 실기·기존 운영 탭/PWA 한계 유지.
 - [x] 8.7.2 완료된 로컬 검증·test-only 보완 `716c37af`: 로컬 unit 10,781·원격 PR CI/4종 coverage, 기준 전체 Chromium 로컬/원격 각각 581, 최종 원격 WebKit 66/기존 3 skip·SW 1·실제 9게스트 R2 로컬/원격 통과. ICE observer 회귀 51·정적/빌드·감사 0·drift 자동 31 통과. 최초 8/9 원인은 미확정이며 인증 Developer API canary·실기·수동 한계를 [전체 검증 기록](design/full-verification-8.7.2-2026-10-07.md)에 보존.
 - [x] 최종 Full E2E `37602041553`의 Chromium 581 pass/실패·skip·retry 0와 모든 job 실제 성공 확인. PR #251로 테스트·문서 게시; 검사 SHA `716c37af`와 후속 문서·main SHA는 구분한다. 후속 병합·CI 상태는 PR 연결 기록에서 확인하며 제품을 재배포하지 않음.
-- [ ] 운영 R2 추가 관찰 — shared 진단 1건은 계속 수신하던 두 GET의 126.590초 합계가 120초 검사 조건을 넘긴 것으로 확인. 20세션 진단도 두 게스트가 제한을 넘긴 뒤 총 38 GET 전체 수신. 원래 fail과 과거 본문 미완료 2건은 보존하며 지연의 하위 원인은 미확정. 독립 프로세스 전송 비교·물리 다기기 확인·두 실패 진단의 다음 곡 전환은 미완료. [원인 추적](design/full-verification-8.7.2-2026-10-07.md#운영-r2-원인-추적--2026-10-07).
+- [ ] 운영 R2 추가 관찰 — 앱 없이도 독립 browser·단일 수신에서 지연 재현. 같은 객체의 핫스팟 9개 전부 약 1.6–3.4초, 원래 Wi-Fi 복귀 후 99–146초·180초 측정 timeout으로 접속 경로 연관성 확인. 정확한 공유기/통신사/라우팅/Cloudflare 구간은 미확정. 원격 R2 job 재실행은 통과했으나 과거 실패를 지우지 않으며 물리 다기기·두 실패 앱 진단의 다음 곡 전환은 미검증. [직접 수신 대조](design/full-verification-8.7.2-2026-10-07.md#앱을-제외한-r2-전송-대조--2026-10-07).
 - [ ] Drift 수동 5항목: zone routes, Access/MFA, WAF·비용 알림, 별도 Git-triggered 배포, 운영 review/check 정책. 자동 감사 통과로 완료 처리하지 않음.
 - [x] 2026-10-07 30라운드 후속 — 확정 12건 수정과 로컬 회귀 완료. 최종 unit 10,730개·4종 coverage, 초기 전체 Chromium 580개와 최종 영향 18개/production 17개, WebKit 66개(기존 3 skip), 전체/prod-only 보안 감사 0. 초기 실패·빌드 구분은 [후속 보고서](design/beta-30-round-repair-2026-10-07.md)에 보존.
 - [x] R08/R25 별도 보강 — 정상 파일 조각·메타데이터 계약 확인, 번역 초안의 지속 요청 ID와 제출 전 저장 성공 조건. 구형 UUID/선택 MIME 호환성 회귀도 수정. 원래 미확정 2건을 확정 결함 수에 합산하지 않음.
@@ -1192,6 +1207,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | 8.7.2 전체 검증·test-only 관측기 보완, 기준 `61cedbc6` → `59eae678` → 최종 `716c37af6f57ae46112e1e6295562e50fdc03ff0`, PR #251 | 최초 운영 R2의 LAN 관찰 8/9는 원인 미확정. assertion을 유지한 진단 재실행은 통과. 이전 observer 반례 4개/정상 대조 1개와 후속 getter 예외 중 객체 교체 3종을 재현·수정해 회귀 51 통과. 제품·의존성·서버/DB·secret/binding·버전/cache·배포 변경 없음 | 최종 로컬 518파일·10,781 pass·broad 하한, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate 17/critical 22, 최종 로컬/원격 9게스트 R2·원격 WebKit 66/기존 3 skip·SW 1 통과. 기준 전체 Chromium 로컬/원격 각각 581, 정적 18·빌드/Worker 6·감사 0·서명 486/attestation 103·live 8명령·drift 31 통과. 최종 원격 Chromium도 581 pass/실패·retry 0, Full E2E `37602041553`의 모든 job 성공. 인증 canary·수동 5·실기·R26 한계 유지. [전체 근거](design/full-verification-8.7.2-2026-10-07.md) |
 | 2026-10-07 | 운영 R2 미확정 관찰 후속 재검사, tested SHA `a1543f8baf40cea057fe817d18a064fbec7710da`, Windows/Node24.20.0/Playwright1.63 → App `94fa5b03` | 유지 검사 새 방3회 2pass/1fail, 수동 관찰 진단2회 1pass/1fail. 전부 host1/guest9·자동retry0·원래assertion/timeout 유지. 최초8/9는 소급 원인 미확정; native/prflx 보완 경로의 실제 필요성만 추가 입증. 제품·유지검사·정책·버전/cache·배포 변경 없음 | 진단 실패 방은 9개R2준비/경로·HTTP200 정상이나 guest1본문120초미완료. 마지막방은 18GET전체수신·전환통과, 현재GET2.1–69.6초. 지연은관측했으나 원인/복구결함미확정, 후속운영반복전체올그린아님. 기존정책14·다운로드120pass. [후속증거·한계](design/full-verification-8.7.2-2026-10-07.md#운영-r2-후속-재검사--2026-10-07-저녁) |
 | 2026-10-07 | 운영 R2 원인 추적, tested SHA `aba657eda95dc4e572b7c9094074fc787b26edd5` → App `94fa5b03` / share Worker `e8001e93` | 추가 shared 진단의 126.590초 두 GET가 원래 120초 조건을 초과한 직접 원인 확인. 실패 뒤 같은 요청으로 전체 수신, 원래 fail 유지. 앞선 본문 실패 2건·HTTP/2 연관의 하위 원인은 미확정. 새 확정 코드 결함 0건, 문서만 변경·App 릴리스 불필요 | 과거 원격 12 job 중 10 success / 업로드 전 ICE 2 failure. shared tail 18 GET 모두 200·ok, CPU 1–10ms. 독립 프로세스는 입장 20초 조건 fail 뒤 약 8초 늦게 완료, 전송 미검증. 20세션 진단 fail 뒤 38 GET 전체 수신·다음 곡 미검사. 정적 대조 HTTP/2 3회·HTTP/3 1회 약 1초. 전체 suite 재실행 아님. [증거·원본 실패·한계](design/full-verification-8.7.2-2026-10-07.md#운영-r2-원인-추적--2026-10-07) |
+| 2026-10-07 | 앱 없는 R2 전송·사용자 네트워크 교차 대조, 준비 SHA `233b478e8590f672aa38cd7986847ce3f291b99b` | 같은 인증 객체 native XHR 37개 중 34개 완료·측정 timeout 3개. 독립 browser 9개·단일 수신도 지연. 동일 객체 핫스팟 9개 모두 약 1.6–3.4초, 원래 Wi-Fi 복귀 후 일부 99–146초·측정 timeout으로 접속 경로와 강한 연관성 확인. 정확한 원인 구간 미확정, 제품·유지 테스트·정책·배포 변경 없음 | 실제 HTTP/2·초기 priority High, 객체 정리 성공. 원격 기존 R2 job만 attempt 2 재실행해 18 GET·다음 곡 통과, PUT→마지막 본문 3.006초. 측정 종료 180초는 원래 120초 검사의 완화가 아니며 driver exit0을 모든 GET 통과로 해석하지 않음. 전체 suite 재실행 아님. [증거·한계](design/full-verification-8.7.2-2026-10-07.md#앱을-제외한-r2-전송-대조--2026-10-07) |
 
 ### 이전 8.7.0 실제 승격·배포 기록 — 2026-10-07 완료
 

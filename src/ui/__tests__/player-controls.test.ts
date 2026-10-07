@@ -21,6 +21,12 @@ import {
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
+import {
+  clearYouTubeInputState,
+  fetchYouTubePreview,
+  getSelectedYouTubeSearchResult,
+  searchYouTubeFromInput,
+} from '../../youtube/search.ts';
 import { showToast } from '../toast.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { initSettings } from '../settings.ts';
@@ -35,7 +41,7 @@ import {
 const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
-const zeroStartFacade = vi.hoisted(() => ({ active: false, inFlight: false }));
+const zeroStartFacade = vi.hoisted(() => ({ fallback: false, active: false, inFlight: false }));
 const platform = vi.hoisted(() => ({ android: false }));
 const youtubePrimer = vi.hoisted(() => ({
   prime: vi.fn((_options?: { retryPending?: boolean }) => false),
@@ -81,6 +87,11 @@ vi.mock('../../core/platform.ts', async (importOriginal) => ({
   get IS_ANDROID() {
     return platform.android;
   },
+}));
+
+vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
+  isYouTubeZeroStartExternalFallbackPendingFromSync: () => zeroStartFacade.fallback,
 }));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
@@ -147,6 +158,7 @@ beforeEach(() => {
   proSystemAudio.ownerName = null;
   proSystemAudio.coordinatorCompatible = true;
   zeroStartFacade.active = false;
+  zeroStartFacade.fallback = false;
   platform.android = false;
   zeroStartFacade.inFlight = false;
   proPlaybackRuntime.reconcile.mockResolvedValue(true);
@@ -171,6 +183,226 @@ function setActiveStandardHost(): void {
   setState('network.sessionCode', '123456');
   setState('setup.sessionStarted', true);
 }
+
+describe('YouTube search keyboard and result activation', () => {
+  let queryNumber = 0;
+  const results = [
+    { videoId: 'AAAAAAAAAAA', title: 'First song', channelTitle: 'First channel' },
+    { videoId: 'BBBBBBBBBBB', title: 'Second song', channelTitle: 'Second channel' },
+  ];
+
+  afterEach(() => {
+    clearYouTubeInputState();
+    vi.unstubAllGlobals();
+  });
+
+  function setup(searchResponse: Promise<Response> = Promise.resolve(Response.json({ results }))) {
+    document.body.innerHTML = `
+      <div id="youtube-url-overlay" class="active">
+        <div id="youtube-url-input" contenteditable="true"></div>
+        <div id="youtube-preview" hidden></div>
+        <div id="youtube-preview-status"></div>
+        <div id="youtube-search-results" hidden></div>
+        <button id="youtube-search-btn" disabled></button>
+        <button id="youtube-play-btn" disabled></button>
+        <button id="btn-yt-cancel"></button>
+      </div>
+    `;
+    clearYouTubeInputState();
+    youtubePrimer.prime.mockReturnValue(false);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (request: RequestInfo | URL) => {
+        const url = String(request);
+        if (url.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (url.includes('/api/youtube-search')) return searchResponse;
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    const input = document.getElementById('youtube-url-input')!;
+    const pending: Promise<void>[] = [];
+    const search = vi.fn(() => {
+      pending.push(searchYouTubeFromInput(input.textContent || ''));
+    });
+    const submit = vi.fn(() => {
+      const videoId = getSelectedYouTubeSearchResult(input.textContent || '')?.videoId;
+      // The real player closes and clears the popup synchronously on acceptance.
+      clearYouTubeInputState();
+      input.textContent = '';
+      document.getElementById('youtube-url-overlay')!.classList.remove('active');
+      return videoId;
+    });
+    bus.on('youtube:preview', fetchYouTubePreview);
+    bus.on('youtube:search-from-input', search);
+    bus.on('youtube:load-from-input', submit);
+    initPlayerControls();
+    input.textContent = `keyboard search ${++queryNumber}`;
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    return { input, pending, search, submit };
+  }
+
+  function enter(target: HTMLElement, extra: KeyboardEventInit = {}): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+      ...extra,
+    });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('searches on the first Enter and adds the default first result on the next Enter', async () => {
+    let resolve!: (response: Response) => void;
+    const { input, pending, search, submit } = setup(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    enter(input);
+    expect(search).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll('.yt-search-skeleton')).toHaveLength(5);
+    enter(input);
+    enter(input, { repeat: true });
+    expect(search).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+    resolve(Response.json({ results }));
+    await pending[0];
+    expect(document.querySelector('.yt-search-result')?.getAttribute('aria-pressed')).toBe('true');
+    enter(input, { repeat: true });
+    expect(submit).not.toHaveBeenCalled();
+    enter(input);
+    expect(search).toHaveBeenCalledOnce();
+    expect(submit).toHaveReturnedWith('AAAAAAAAAAA');
+    expect(youtubePrimer.prime).toHaveBeenCalledOnce();
+    expect(youtubePrimer.wait).not.toHaveBeenCalled();
+  });
+
+  it.each(['input-enter', 'row-enter', 'double-click'] as const)(
+    'adds the chosen result once through Add using %s',
+    async (activation) => {
+      const { input, pending, submit } = setup();
+      enter(input);
+      await pending[0];
+      const row = document.querySelectorAll<HTMLButtonElement>('.yt-search-result')[1];
+      const add = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+      const addClick = vi.spyOn(add, 'click');
+      row.click();
+      expect(submit).not.toHaveBeenCalled();
+      if (activation === 'input-enter') enter(input);
+      else if (activation === 'row-enter') expect(enter(row).defaultPrevented).toBe(true);
+      else {
+        row.click();
+        row
+          .querySelector('.yt-search-title')!
+          .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      }
+      expect(addClick).toHaveBeenCalledOnce();
+      expect(submit).toHaveBeenCalledOnce();
+      expect(submit).toHaveReturnedWith('BBBBBBBBBBB');
+      row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      enter(input, { repeat: true });
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['composing', 'legacy', 'composition-session'] as const)(
+    'does not search or add on %s IME Enter',
+    async (mode) => {
+      const { input, pending, search, submit } = setup();
+      const extra = { isComposing: mode === 'composing', keyCode: mode === 'legacy' ? 229 : 0 };
+      if (mode === 'composition-session')
+        input.dispatchEvent(new CompositionEvent('compositionstart'));
+      enter(input, extra);
+      expect(search).not.toHaveBeenCalled();
+      input.dispatchEvent(new CompositionEvent('compositionend'));
+      enter(input);
+      await pending[0];
+      if (mode === 'composition-session')
+        input.dispatchEvent(new CompositionEvent('compositionstart'));
+      enter(input, extra);
+      enter(document.querySelector<HTMLButtonElement>('.yt-search-result')!, extra);
+      expect(submit).not.toHaveBeenCalled();
+      input.dispatchEvent(new CompositionEvent('compositionend'));
+      enter(input);
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('keeps a disabled Add gate for both result Enter and double-click', async () => {
+    const { input, pending, submit } = setup();
+    enter(input);
+    await pending[0];
+    const row = document.querySelector<HTMLButtonElement>('.yt-search-result')!;
+    (document.getElementById('youtube-play-btn') as HTMLButtonElement).disabled = true;
+    enter(row);
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(submit).not.toHaveBeenCalled();
+    expect(youtubePrimer.prime).not.toHaveBeenCalled();
+  });
+
+  it('coalesces result activation and Enter while the gesture prime is pending', async () => {
+    const { input, pending, submit } = setup();
+    enter(input);
+    await pending[0];
+    let resolve!: (ready: boolean) => void;
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const row = document.querySelector<HTMLButtonElement>('.yt-search-result')!;
+    row.click();
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    row.click();
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    enter(input);
+    expect(youtubePrimer.prime).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+    resolve(true);
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(submit).toHaveReturnedWith('AAAAAAAAAAA');
+  });
+
+  it('does not silently replace a pending submission when another result is selected', async () => {
+    const { input, pending, submit } = setup();
+    enter(input);
+    await pending[0];
+    let resolve!: (ready: boolean) => void;
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    enter(input);
+    document.querySelectorAll<HTMLButtonElement>('.yt-search-result')[1].click();
+    resolve(true);
+    await vi.waitFor(() =>
+      expect(document.getElementById('youtube-play-btn')!.hasAttribute('aria-busy')).toBe(false),
+    );
+    expect(submit).not.toHaveBeenCalled();
+    enter(input);
+    expect(submit).toHaveReturnedWith('BBBBBBBBBBB');
+  });
+
+  it('rejects old result activation after input changes and can search the new query', async () => {
+    const { input, pending, search, submit } = setup();
+    enter(input);
+    await pending[0];
+    const oldRow = document.querySelector<HTMLButtonElement>('.yt-search-result')!;
+    input.textContent = 'a different query';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    oldRow.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(submit).not.toHaveBeenCalled();
+    enter(input);
+    await pending[1];
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(submit).not.toHaveBeenCalled();
+  });
+});
 
 describe('Android range scroll ownership', () => {
   beforeEach(() => {
@@ -1089,6 +1321,174 @@ describe('PRO room media-source capabilities', () => {
     expect(youtubePrimer.prime).toHaveBeenCalledWith({ retryPending: true });
     expect(youtubePrimer.wait).toHaveBeenCalledWith(1_500);
 
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(playButton.disabled).toBe(false);
+    expect(playButton.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it.each(['standard-role', 'standard-capability', 'pro-capability'] as const)(
+    'retires a pending iOS YouTube Add after %s authority is revoked and restored',
+    async (authority) => {
+      document.body.innerHTML = `
+        <div id="youtube-url-overlay" class="active"></div>
+        <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>
+        <button id="youtube-play-btn"></button>
+      `;
+      setState('setup.sessionStarted', true);
+      setState('network.appRole', 'guest');
+      if (authority === 'pro-capability') {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: ['media.add'],
+        });
+      } else {
+        setState('network.hostConn', makeConnection('host-1'));
+        setState('network.isOperator', true);
+        if (authority === 'standard-capability')
+          setState('network.standardRoomCapabilities', ['media.add']);
+      }
+      let resolvePrime!: (value: boolean) => void;
+      youtubePrimer.prime.mockReturnValueOnce(true);
+      youtubePrimer.wait.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          resolvePrime = resolve;
+        }),
+      );
+      const submit = vi.fn();
+      bus.on('youtube:load-from-input', submit);
+      initPlayerControls();
+      const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+      playButton.click();
+      expect(submit).not.toHaveBeenCalled();
+      expect(playButton.getAttribute('aria-busy')).toBe('true');
+
+      // The iframe's PLAYING proof is a real asynchronous boundary. Revoking
+      // media.add must retire the earlier gesture even if it is restored
+      // before that proof arrives; a subsequent click owns a fresh intent.
+      if (authority === 'pro-capability') {
+        const context = getState('room.context');
+        setState('room.context', { ...context, snapshotRevision: 2, capabilities: [] });
+        setState('room.context', { ...context, snapshotRevision: 3 });
+      } else if (authority === 'standard-capability') {
+        setState('network.standardRoomCapabilities', []);
+        setState('network.standardRoomCapabilities', ['media.add']);
+      } else {
+        setState('network.isOperator', false);
+        setState('network.isOperator', true);
+      }
+      resolvePrime(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(submit).not.toHaveBeenCalled();
+      expect(playButton.hasAttribute('aria-busy')).toBe(false);
+      expect(playButton.disabled).toBe(false);
+      playButton.click();
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['standard-connection', 'pro-room-epoch'] as const)(
+    'retires a pending YouTube Add when its %s lifetime changes',
+    async (lifetime) => {
+      document.body.innerHTML = `
+        <div id="youtube-url-overlay" class="active"></div>
+        <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>
+        <button id="youtube-play-btn"></button>
+      `;
+      setState('setup.sessionStarted', true);
+      setState('network.appRole', 'guest');
+      if (lifetime === 'pro-room-epoch') {
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: ['media.add'],
+        });
+      } else {
+        setState('network.hostConn', makeConnection('host-1'));
+        setState('network.isOperator', true);
+      }
+      let resolvePrime!: (value: boolean) => void;
+      youtubePrimer.prime.mockReturnValueOnce(true);
+      youtubePrimer.wait.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          resolvePrime = resolve;
+        }),
+      );
+      const submit = vi.fn();
+      bus.on('youtube:load-from-input', submit);
+      initPlayerControls();
+      const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+      playButton.click();
+      expect(submit).not.toHaveBeenCalled();
+      if (lifetime === 'pro-room-epoch') {
+        setState('room.context', { ...getState('room.context'), epoch: 2, snapshotRevision: 2 });
+      } else {
+        // A replacement connection to the same coordinator still represents
+        // a distinct transport lifetime, with its own admitted commands.
+        setState('network.hostConn', makeConnection('host-1'));
+      }
+      resolvePrime(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(submit).not.toHaveBeenCalled();
+      expect(playButton.hasAttribute('aria-busy')).toBe(false);
+      expect(playButton.disabled).toBe(false);
+      playButton.click();
+      expect(submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('keeps a pending YouTube Add through a same-room authority refresh that retains media.add', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-overlay" class="active"></div>
+      <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>
+      <button id="youtube-play-btn"></button>
+    `;
+    setState('setup.sessionStarted', true);
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['media.add' as const],
+    };
+    setState('room.context', context);
+    let resolvePrime!: (value: boolean) => void;
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolvePrime = resolve;
+      }),
+    );
+    const submit = vi.fn();
+    bus.on('youtube:load-from-input', submit);
+    initPlayerControls();
+    const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    playButton.click();
+    setState('room.context', {
+      ...context,
+      snapshotRevision: 2,
+      capabilities: ['media.add', 'playback.control'],
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(playButton.disabled).toBe(true);
+    resolvePrime(true);
     await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
     expect(playButton.disabled).toBe(false);
     expect(playButton.hasAttribute('aria-busy')).toBe(false);
@@ -2805,6 +3205,38 @@ describe('initPlayerControls sync button', () => {
     );
   });
 
+  it('does not reopen a cancelled guest YouTube synchronization panel', async () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
+    const completion = vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete;
+    expect(completion).toBeTypeOf('function');
+
+    bus.emit('sync:close-manual');
+    completion?.();
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('discards an unfinished manual offset when its guest connection is retired', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('network.hostConn', null);
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(commits).not.toHaveBeenCalled();
+  });
+
   it('commits a signed manual value on Enter and clamps it to -9999ms', async () => {
     const editor = await openEditableFileSyncControls();
     const commits = vi.fn();
@@ -2819,6 +3251,67 @@ describe('initPlayerControls sync button', () => {
     expect(commits).toHaveBeenCalledWith(-9999);
     expect(editor.textContent).toBe('-9999');
     expect(editor.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('discards a file-sync draft when the host switches playback to YouTube', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    setState('sync.youtubeLocalOffset', 0.75);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('playback.mode', 'youtube');
+    expect(window.getSelection()?.toString()).toBe('+750');
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(commits).not.toHaveBeenCalled();
+    expect(editor.textContent).toBe('+750');
+  });
+
+  it('discards a YouTube-sync draft when playback returns to a local file', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    setState('playback.mode', 'youtube');
+    setState('sync.localOffset', -0.125);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('playback.mode', 'file');
+    editor.blur();
+
+    expect(commits).not.toHaveBeenCalled();
+    expect(editor.textContent).toBe('-125');
+  });
+
+  it('preserves an unfinished offset across track changes in the same playback mode', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+    editor.focus();
+    editor.textContent = '250';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setState('playlist.currentQueueItemId', 'next-file');
+    setCurrentAudioBuffer({ duration: 90 } as AudioBuffer);
+    setState('playback.activity', 'paused');
+    expect(editor.textContent).toBe('250');
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(commits).toHaveBeenCalledExactlyOnceWith(250);
+  });
+
+  it('refreshes the displayed manual offset when playback switches to YouTube', async () => {
+    const editor = await openEditableFileSyncControls();
+    setState('sync.youtubeLocalOffset', 0.75);
+    editor.blur();
+
+    setState('playback.mode', 'youtube');
+
+    expect(editor.textContent).toBe('+750');
   });
 
   it('commits a sanitized positive value on blur', async () => {
@@ -2923,6 +3416,54 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
+  it('blocks external recovery through acknowledgement and enables Sync when it retires', async () => {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    zeroStartFacade.fallback = true;
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.click();
+    await settleManualSyncOverlayOpen();
+    expect(guestRendezvousSync).not.toHaveBeenCalled();
+
+    zeroStartFacade.fallback = false;
+    bus.emit('youtube:zero-start-readiness-changed');
+    expect(button.getAttribute('aria-disabled')).toBe('false');
+    button.click();
+    await settleManualSyncOverlayOpen();
+    expect(guestRendezvousSync).toHaveBeenCalledOnce();
+  });
+
+  it.each(['active', 'fallback'] as const)(
+    'preserves an open editor across the %s zero-start owner while guarding new Sync requests',
+    async (owner) => {
+      renderSyncControls();
+      setState('network.hostConn', makeConnection('host-1'));
+      setState('playback.mode', 'youtube');
+      setState('playback.activity', 'playing');
+      initPlayerControls();
+      document.getElementById('btn-sync')?.click();
+      await settleManualSyncOverlayOpen();
+      vi.mocked(guestRendezvousSync).mock.calls[0]?.[0]?.onComplete?.();
+      const overlay = document.getElementById('manual-sync-overlay')!;
+      expect(overlay.classList.contains('show')).toBe(true);
+
+      zeroStartFacade[owner] = true;
+      bus.emit('youtube:zero-start-readiness-changed');
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('true');
+
+      zeroStartFacade[owner] = false;
+      bus.emit('youtube:zero-start-readiness-changed');
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('false');
+      expect(guestRendezvousSync).toHaveBeenCalledOnce();
+    },
+  );
+
   it('preserves the standard-host canonical rendezvous before opening local controls', async () => {
     renderSyncControls();
     setActiveStandardHost();
@@ -3007,6 +3548,7 @@ describe('initPlayerControls sync button', () => {
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
 
     zeroStartFacade.active = false;
+    zeroStartFacade.fallback = false;
     bus.emit('youtube:zero-start-readiness-changed');
 
     expect(button.getAttribute('aria-disabled')).toBe('false');
@@ -3151,6 +3693,80 @@ describe('initPlayerControls sync button', () => {
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
 
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a stale PRO synchronization %s after rejoining the same room',
+    async (completion) => {
+      renderSyncControls();
+      const room = {
+        kind: 'pro' as const,
+        roomId: '000001',
+        role: 'member' as const,
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      };
+      setState('room.context', room);
+      setState('playback.mode', 'youtube');
+      setState('playback.activity', 'playing');
+      let resolveReconciliation!: (value: boolean) => void;
+      let rejectReconciliation!: (error: Error) => void;
+      proPlaybackRuntime.reconcile.mockReturnValueOnce(
+        new Promise<boolean>((resolve, reject) => {
+          resolveReconciliation = resolve;
+          rejectReconciliation = reject;
+        }),
+      );
+      initPlayerControls();
+      document.getElementById('btn-sync')?.click();
+      await vi.waitFor(() => expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1));
+
+      setState('room.context', { ...room, epoch: 2 });
+      if (completion === 'resolve') resolveReconciliation(true);
+      else rejectReconciliation(new Error('prior room incarnation failed'));
+      await vi.waitFor(() =>
+        expect(document.getElementById('btn-sync')?.getAttribute('aria-busy')).toBe('false'),
+      );
+
+      expect(showToast).not.toHaveBeenCalled();
+      expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(
+        false,
+      );
+    },
+  );
+
+  it('does not reopen manual synchronization after a pending PRO request was closed', async () => {
+    renderSyncControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    let resolveReconciliation!: (value: boolean) => void;
+    proPlaybackRuntime.reconcile.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveReconciliation = resolve;
+      }),
+    );
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await vi.waitFor(() => expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1));
+
+    bus.emit('sync:close-manual');
+    resolveReconciliation(true);
+    await vi.waitFor(() =>
+      expect(document.getElementById('btn-sync')?.getAttribute('aria-busy')).toBe('false'),
+    );
+
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+  });
+
   it('keeps the PRO participant nudge panel closed during zero-start', () => {
     renderSyncControls();
     setState('network.appRole', 'host');
@@ -3255,6 +3871,40 @@ describe('initPlayerControls sync button', () => {
     });
     expect(broadcastSpy).not.toHaveBeenCalled();
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('opens PRO file sync after reconciliation temporarily replaces the decoded resource', async () => {
+    renderSyncControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    proPlaybackRuntime.reconcile.mockImplementationOnce(async () => {
+      // The real PRO endpoint prepares its current file again before releasing
+      // rendezvous playback. Temporary resource unavailability is not dismissal.
+      setCurrentAudioBuffer(null);
+      setState('playback.activity', 'paused');
+      await Promise.resolve();
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      setState('playback.activity', 'playing');
+      return true;
+    });
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
+
+    expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
   });
 
   it('keeps a paused host nudge local instead of rebasing the room position', async () => {
@@ -3453,8 +4103,9 @@ describe('initPlayerControls sync button', () => {
     expect(overlay.classList.contains('show')).toBe(true);
     expect(overlay.getAttribute('aria-hidden')).toBe('false');
     expect(trigger.hasAttribute('inert')).toBe(true);
-    expect(document.activeElement).toBe(done);
+    expect(document.activeElement).toBe(first);
 
+    done.focus();
     done.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
     expect(document.activeElement).toBe(first);
 

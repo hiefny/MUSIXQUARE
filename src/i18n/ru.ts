@@ -422,10 +422,10 @@ const ru: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Достигнут лимит запросов BOT. Повторите попытку через {{duration}}',
   'chat.decode_skip_system_message':
     'Материал пропущен: некоторые устройства не поддерживают этот формат.',
+  'chat.large_track_playback_system_message':
+    'Этот трек очень большой, поэтому при его использовании возможны задержки.',
   'chat.large_local_track_system_message':
     'Этот материал занимает очень много места и может не воспроизводиться на некоторых устройствах.',
-  'chat.decode_memory_risk_system_message':
-    'При декодировании этот трек может потребовать около {{estimatedMiB}} MiB памяти, поэтому он может не воспроизводиться на этом устройстве.',
   'chat.device_track_unavailable_system_message':
     'На этом устройстве нельзя воспроизвести текущий материал.',
   'chat.system_audio_started_system_message':

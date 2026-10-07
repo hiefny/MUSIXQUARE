@@ -57,6 +57,7 @@ interface ConfiguredAuthConfig {
   subjectPepper: string;
   stateSecret: string;
   redirectUri: string;
+  accountCookieCleanup?: Set<string>;
 }
 
 interface UnconfiguredAuthConfig {
@@ -106,6 +107,7 @@ interface SessionTouch {
 
 interface StoredSessionBase {
   clearCookie?: boolean;
+  cookie?: AccountCookie;
   deletedAccountId?: string;
   deletedSessionExpiresAt?: number;
   sessionTouch?: SessionTouch | null;
@@ -190,6 +192,10 @@ function authDatabase(env: unknown): object | null {
 
 const AUTH_ROUTE_PREFIX = '/api/auth/';
 const AUTH_SESSION_COOKIE = '__Host-mxqr_account';
+const AUTH_SESSION_COOKIE_PREFIX = `${AUTH_SESSION_COOKIE}_`;
+const ACCOUNT_COOKIE_NAME_PURPOSE = 'account-cookie-name:v2';
+const ACCOUNT_COOKIE_MAX_COUNT = 16;
+const ACCOUNT_COOKIE_HEADER_MAX_BYTES = 16 * 1024;
 const OAUTH_FLOW_COOKIE_PREFIX = '__Host-mxqr_oauth_flow_';
 const OAUTH_FLOW_COOKIE_SUFFIX_LENGTH = 16;
 const OAUTH_FLOW_COOKIE_MAX_ACTIVE = 3;
@@ -307,25 +313,124 @@ function flowCookie(name: string, value: string): string {
   return `${name}=${value}; Path=/; Max-Age=${OAUTH_FLOW_TTL_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
 }
 
-function sessionCookie(value: string): string {
-  return `${AUTH_SESSION_COOKIE}=${value}; Path=/; Max-Age=${ACCOUNT_SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
+interface AccountCookie {
+  name: string;
+  value: string;
+  sessionHash: string;
+  // Signed issuance metadata survives server revocation, so an expired or
+  // revoked newest cookie cannot fall back to an older still-live login.
+  createdAtMs: number | null;
 }
 
-function deletedSessionCookie(value: string): string {
-  return `${AUTH_SESSION_COOKIE}=${value}; Path=/; Max-Age=${ACCOUNT_DELETED_SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
+async function sessionCookie(
+  config: ConfiguredAuthConfig,
+  value: string,
+  sessionHash: string,
+  createdAtMs: number,
+): Promise<string> {
+  const signature = await hmacDigest(
+    config.sessionPepper,
+    ACCOUNT_COOKIE_NAME_PURPOSE,
+    `${sessionHash}:${createdAtMs}`,
+  );
+  const name = `${AUTH_SESSION_COOKIE_PREFIX}${createdAtMs.toString(36)}_${signature}`;
+  return accountCookieHeader(name, value, createdAtMs + ACCOUNT_SESSION_TTL_SECONDS * 1000);
 }
 
-function readCookie(request: Request, name: string): string | null {
-  const rawCookie = request.headers.get('Cookie');
-  if (!rawCookie) return null;
-  for (const part of rawCookie.split(';')) {
-    const cookie = part.trim();
-    const separator = cookie.indexOf('=');
-    if (separator <= 0 || cookie.slice(0, separator) !== name) continue;
-    const value = cookie.slice(separator + 1);
-    return value || null;
+function accountCookieHeader(name: string, value: string, expiresAtMs: number): string {
+  // An absolute expiry cannot be extended by a delayed response arriving later.
+  return `${name}=${value}; Path=/; Expires=${new Date(expiresAtMs).toUTCString()}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function deletedSessionCookie(cookie: AccountCookie, deletedAtMs: number): string {
+  return accountCookieHeader(
+    cookie.name,
+    cookie.value,
+    deletedAtMs + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000,
+  );
+}
+
+function markAccountCookieForCleanup(config: ConfiguredAuthConfig, name: string): void {
+  (config.accountCookieCleanup ??= new Set()).add(name);
+}
+
+async function readAccountCookies(
+  request: Request,
+  config: ConfiguredAuthConfig,
+): Promise<AccountCookie[]> {
+  const header = request.headers.get('Cookie') ?? '';
+  if (new TextEncoder().encode(header).byteLength > ACCOUNT_COOKIE_HEADER_MAX_BYTES) {
+    throw new Error('AUTH_COOKIE_HEADER_TOO_LARGE');
   }
-  return null;
+  const entries = new Map<string, string>();
+  let count = 0;
+  for (const part of header.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 1) continue;
+    const name = part.slice(0, separator).trim();
+    if (name !== AUTH_SESSION_COOKIE && !name.startsWith(AUTH_SESSION_COOKIE_PREFIX)) continue;
+    if (++count > ACCOUNT_COOKIE_MAX_COUNT) throw new Error('AUTH_COOKIE_COUNT_EXCEEDED');
+    const value = part.slice(separator + 1).trim();
+    if (entries.has(name) && entries.get(name) !== value) throw new Error('AUTH_COOKIE_AMBIGUOUS');
+    entries.set(name, value);
+  }
+  const cookies: AccountCookie[] = [];
+  for (const [name, value] of entries) {
+    // Never reflect arbitrary header characters into Set-Cookie.
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(name)) continue;
+    if (!SESSION_TOKEN_RE.test(value)) {
+      markAccountCookieForCleanup(config, name);
+      continue;
+    }
+    const sessionHash = await hmacDigest(config.sessionPepper, 'account-session:v1', value);
+    if (name === AUTH_SESSION_COOKIE) {
+      cookies.push({ name, value, sessionHash, createdAtMs: null });
+      continue;
+    }
+    const match = /^([0-9a-z]{1,11})_([A-Za-z0-9_-]{43})$/.exec(
+      name.slice(AUTH_SESSION_COOKIE_PREFIX.length),
+    );
+    const createdAtMs = match ? Number.parseInt(match[1]!, 36) : NaN;
+    if (
+      !match ||
+      !Number.isSafeInteger(createdAtMs) ||
+      createdAtMs <= 0 ||
+      createdAtMs.toString(36) !== match[1] ||
+      !constantTimeStringEqual(
+        match[2]!,
+        await hmacDigest(
+          config.sessionPepper,
+          ACCOUNT_COOKIE_NAME_PURPOSE,
+          `${sessionHash}:${createdAtMs}`,
+        ),
+      )
+    ) {
+      markAccountCookieForCleanup(config, name);
+      continue;
+    }
+    cookies.push({ name, value, sessionHash, createdAtMs });
+  }
+  return cookies;
+}
+
+async function retireAccountCookies(
+  config: ConfiguredAuthConfig,
+  cookies: readonly AccountCookie[],
+  retainedHash?: string,
+): Promise<void> {
+  const hashes = [...new Set(cookies.map((cookie) => cookie.sessionHash))].filter(
+    (hash) => hash !== retainedHash,
+  );
+  if (hashes.length > 0) {
+    await d1Batch(
+      config.db,
+      hashes.map((hash) => ({
+        sql: `DELETE FROM ${SESSION_TABLE} WHERE session_hash = ?1`,
+        values: [hash],
+      })),
+    );
+  }
+  for (const cookie of cookies) markAccountCookieForCleanup(config, cookie.name);
 }
 
 function readCookieValues(request: Request, name: string): string[] {
@@ -1093,8 +1198,25 @@ async function d1Batch(db: object, statements: readonly SqlStatement[]): Promise
 async function createAccountSession(
   config: ConfiguredAuthConfig,
   googleSub: string,
-  nowMs = Date.now(),
-): Promise<{ token: string; account: AccountResponse }> {
+  requestedAtMs = Date.now(),
+  predecessors: readonly AccountCookie[] = [],
+): Promise<{ token: string; sessionHash: string; createdAtMs: number; account: AccountResponse }> {
+  // A callback explicitly replaces the sessions it observed. Preserve that
+  // order across equal millisecond timestamps or a worker clock moving back;
+  // a delayed predecessor deletion cookie must never outrank the new login.
+  const nowMs = Math.max(
+    requestedAtMs,
+    ...predecessors.map((cookie) => (cookie.createdAtMs === null ? 0 : cookie.createdAtMs + 1)),
+  );
+  const expiresAt = nowMs + ACCOUNT_SESSION_TTL_SECONDS * 1000;
+  if (
+    !isSafeInteger(nowMs) ||
+    nowMs <= 0 ||
+    !isSafeInteger(expiresAt) ||
+    !Number.isFinite(new Date(expiresAt).getTime())
+  ) {
+    throw new Error('ACCOUNT_SESSION_TIME_INVALID');
+  }
   const subjectHash = await hmacDigest(config.subjectPepper, 'google-subject:v1', googleSub);
   const proposedAccountId = `acct_${randomToken(16)}`;
   const accountUpsert = await d1Run(
@@ -1104,7 +1226,7 @@ async function createAccountSession(
      VALUES (?1, ?2, NULL, 0, 'active', ?3, ?3)
      ON CONFLICT(google_subject_hash) DO UPDATE SET
        updated_at = MAX(${ACCOUNT_TABLE}.updated_at, excluded.updated_at)`,
-    [proposedAccountId, subjectHash, nowMs],
+    [proposedAccountId, subjectHash, requestedAtMs],
   );
   if (d1ChangeCount(accountUpsert) !== 1) throw new Error('ACCOUNT_UNAVAILABLE');
   const account = await d1First(
@@ -1127,7 +1249,6 @@ async function createAccountSession(
 
   const token = randomToken(32);
   const sessionHash = await hmacDigest(config.sessionPepper, 'account-session:v1', token);
-  const expiresAt = nowMs + ACCOUNT_SESSION_TTL_SECONDS * 1000;
   const [sessionInsert] = await d1Batch(config.db, [
     {
       sql: `INSERT INTO ${SESSION_TABLE}
@@ -1135,6 +1256,13 @@ async function createAccountSession(
             VALUES (?1, ?2, ?3, ?3, ?4)`,
       values: [sessionHash, accountId, nowMs, expiresAt],
     },
+    ...[...new Set(predecessors.map((cookie) => cookie.sessionHash))].map((hash) => ({
+      // New login is explicit replacement, regardless of clock skew/ties.
+      // Retire its own slot before applying the account-wide session cap.
+      // Never revoke a successor that this callback did not receive.
+      sql: `DELETE FROM ${SESSION_TABLE} WHERE session_hash = ?1`,
+      values: [hash],
+    })),
     {
       // Always retain the just-issued browser plus the 127 most recently used
       // others. D1 batch is atomic, so a failed trim cannot leave an unbounded
@@ -1153,12 +1281,14 @@ async function createAccountSession(
     },
     {
       sql: `DELETE FROM ${DELETED_SESSION_TABLE} WHERE expires_at <= ?1`,
-      values: [nowMs],
+      values: [requestedAtMs],
     },
   ]);
   if (d1ChangeCount(sessionInsert) !== 1) throw new Error('ACCOUNT_UNAVAILABLE');
   return {
     token,
+    sessionHash,
+    createdAtMs: nowMs,
     account: accountResponse(account),
   };
 }
@@ -1276,17 +1406,38 @@ async function settleBestEffortSessionTouch(
 async function resolveStoredSession(
   request: Request,
   config: ConfiguredAuthConfig,
+  options: { touch?: boolean } = {},
+): Promise<StoredSession> {
+  const cookies = await readAccountCookies(request, config);
+  // All new logins are scoped. A legacy-only browser remains signed in
+  // without read-time reissuance or an expiry extension. Authentic scoped
+  // metadata takes precedence even if its session was revoked server-side.
+  cookies.sort((a, b) => {
+    const timeOrder = (b.createdAtMs ?? -1) - (a.createdAtMs ?? -1);
+    return (
+      timeOrder || (a.sessionHash < b.sessionHash ? 1 : a.sessionHash > b.sessionHash ? -1 : 0)
+    );
+  });
+  const selected = cookies[0];
+  if (!selected) return { authenticated: false };
+  // A newer revoked cookie is still a signed fence against fallback. Do not
+  // clear it until older presented sessions have been durably retired.
+  await retireAccountCookies(config, cookies.slice(1), selected.sessionHash);
+  const session = await resolveAccountCookie(selected, config, options);
+  if (session.clearCookie) markAccountCookieForCleanup(config, selected.name);
+  return { ...session, cookie: selected };
+}
+
+async function resolveAccountCookie(
+  cookie: AccountCookie,
+  config: ConfiguredAuthConfig,
   { touch = true }: { touch?: boolean } = {},
 ): Promise<StoredSession> {
-  const token = readCookie(request, AUTH_SESSION_COOKIE);
-  if (!token || !SESSION_TOKEN_RE.test(token)) {
-    return { authenticated: false, clearCookie: Boolean(token) };
-  }
-  const sessionHash = await hmacDigest(config.sessionPepper, 'account-session:v1', token);
+  const { sessionHash } = cookie;
   const nowMs = Date.now();
   const row = await d1First(
     config.db,
-    `SELECT s.session_hash, s.account_id, s.last_seen_at, s.expires_at,
+    `SELECT s.session_hash, s.account_id, s.created_at, s.last_seen_at, s.expires_at,
             a.nickname, a.profile_complete, a.status
        FROM ${SESSION_TABLE} s
        JOIN ${ACCOUNT_TABLE} a ON a.account_id = s.account_id
@@ -1295,6 +1446,9 @@ async function resolveStoredSession(
     [sessionHash],
   );
   const accountId = row?.account_id;
+  if (row && cookie.createdAtMs !== null && row.created_at !== cookie.createdAtMs) {
+    return { authenticated: false, clearCookie: true };
+  }
   if (
     !row ||
     typeof accountId !== 'string' ||
@@ -1363,11 +1517,7 @@ async function requireSession(
   const session = await resolveStoredSession(request, config, options);
   if (!session.authenticated) {
     const response = authJson({ error: 'AUTH_REQUIRED' }, 401);
-    return {
-      error: session.clearCookie
-        ? appendSetCookies(response, [clearCookie(AUTH_SESSION_COOKIE)])
-        : response,
-    };
+    return { error: response };
   }
   return { session };
 }
@@ -1592,13 +1742,23 @@ async function handleGoogleCallback(
   }
 
   try {
-    const { token } = await createAccountSession(config, identity.sub);
+    const predecessors = await readAccountCookies(request, config);
+    const { token, sessionHash, createdAtMs } = await createAccountSession(
+      config,
+      identity.sub,
+      Date.now(),
+      predecessors,
+    );
+    for (const cookie of predecessors) markAccountCookieForCleanup(config, cookie.name);
     const destination = new URL(flow.returnTo, new URL(config.redirectUri).origin);
     // Correlate the first app-owned session read with this completed OAuth
     // round trip. The marker is never authentication evidence: the new
     // HttpOnly session cookie and /api/auth/session remain authoritative.
     destination.searchParams.set('accountAuth', 'success');
-    return redirect(destination.toString(), 303, [clearCookie(cookieName), sessionCookie(token)]);
+    return redirect(destination.toString(), 303, [
+      clearCookie(cookieName),
+      await sessionCookie(config, token, sessionHash, createdAtMs),
+    ]);
   } catch {
     return callbackOutcomeRedirect(config, flow, 'error', cookieName);
   }
@@ -1631,9 +1791,7 @@ async function handleSession(
           })
         : authJson(body);
     await settleBestEffortSessionTouch(config, session.sessionTouch, integrations);
-    return session.clearCookie
-      ? appendSetCookies(response, [clearCookie(AUTH_SESSION_COOKIE)])
-      : response;
+    return response;
   } catch {
     return authJson({ error: 'AUTH_TEMPORARILY_UNAVAILABLE' }, 503);
   }
@@ -1823,7 +1981,10 @@ async function handleLogout(
         resolved.session.sessionHash,
       ]);
     }
-    return appendSetCookies(authJson({ ok: true }), [clearCookie(AUTH_SESSION_COOKIE)]);
+    if (resolved.session.cookie) {
+      markAccountCookieForCleanup(config, resolved.session.cookie.name);
+    }
+    return authJson({ ok: true });
   } catch {
     return authJson({ error: 'AUTH_TEMPORARILY_UNAVAILABLE' }, 503);
   }
@@ -1989,13 +2150,13 @@ async function handleAccountDelete(
   let deletingAccountId: string | null = null;
   let deletionStartedAt: number | null = null;
   let deletionCommitted = false;
-  let deletionSessionToken: string | null = null;
+  let deletionCookie: AccountCookie | undefined;
   try {
     const resolved = await requireExpectedAccountSession(request, config);
     if (resolved.error) return resolved.error;
     const accountId = resolved.session.accountId;
     deletingAccountId = accountId;
-    deletionSessionToken = readCookie(request, AUTH_SESSION_COOKIE);
+    deletionCookie = resolved.session.cookie;
     deletionStartedAt = Date.now();
     const deletionFence = await d1Run(
       config.db,
@@ -2063,9 +2224,7 @@ async function handleAccountDelete(
         // The minute cron independently resumes every durable deletion job.
       }
       return appendSetCookies(authJson({ ok: true, pending: true }, 202), [
-        deletionSessionToken && SESSION_TOKEN_RE.test(deletionSessionToken)
-          ? deletedSessionCookie(deletionSessionToken)
-          : clearCookie(AUTH_SESSION_COOKIE),
+        ...(deletionCookie ? [deletedSessionCookie(deletionCookie, deletionStartedAt)] : []),
       ]);
     }
     // Reconcile once more after session authority has been disabled and every
@@ -2081,9 +2240,7 @@ async function handleAccountDelete(
     await finalizeAccountDeletion(config.db, accountId, deletionStartedAt);
     fencedAccountId = null;
     return appendSetCookies(authJson({ ok: true }), [
-      deletionSessionToken && SESSION_TOKEN_RE.test(deletionSessionToken)
-        ? deletedSessionCookie(deletionSessionToken)
-        : clearCookie(AUTH_SESSION_COOKIE),
+      ...(deletionCookie ? [deletedSessionCookie(deletionCookie, deletionStartedAt)] : []),
     ]);
   } catch (error) {
     if (deletionCommitted) {
@@ -2093,9 +2250,9 @@ async function handleAccountDelete(
         // The minute cron independently resumes every durable deletion job.
       }
       return appendSetCookies(authJson({ ok: true, pending: true }, 202), [
-        deletionSessionToken && SESSION_TOKEN_RE.test(deletionSessionToken)
-          ? deletedSessionCookie(deletionSessionToken)
-          : clearCookie(AUTH_SESSION_COOKIE),
+        ...(deletionCookie && deletionStartedAt !== null
+          ? [deletedSessionCookie(deletionCookie, deletionStartedAt)]
+          : []),
       ]);
     }
     if (fencedAccountId && isSafeInteger(deletionStartedAt)) {
@@ -2162,9 +2319,7 @@ async function handleStandardRoomAssertion(
     }
     if (!session.authenticated || !session.account.profileComplete || !session.account.nickname) {
       const response = authJson({ assertion: null, deletionAssertion: null });
-      return session.clearCookie
-        ? appendSetCookies(response, [clearCookie(AUTH_SESSION_COOKIE)])
-        : response;
+      return response;
     }
     const assertion = await createStandardRoomAccountAssertion(
       {
@@ -2240,6 +2395,24 @@ export async function handleAccountAuthRequest(
     return authJson({ error: 'AUTH_NOT_CONFIGURED' }, 503);
   }
 
+  const response = await handleConfiguredAccountAuthRequest(
+    request,
+    env,
+    url,
+    config,
+    integrations,
+  );
+  const cleanup = [...(config.accountCookieCleanup ?? [])].map(clearCookie);
+  return cleanup.length > 0 ? appendSetCookies(response, cleanup) : response;
+}
+
+async function handleConfiguredAccountAuthRequest(
+  request: Request,
+  env: unknown,
+  url: URL,
+  config: ConfiguredAuthConfig,
+  integrations: AccountDeletionIntegrations,
+): Promise<Response> {
   switch (url.pathname) {
     case '/api/auth/google/start':
       return handleGoogleStart(request, config, url);

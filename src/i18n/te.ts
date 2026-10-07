@@ -421,10 +421,10 @@ const te: Record<I18nKey, string> = {
     'BOT అభ్యర్థన పరిమితి చేరుకుంది. {{duration}} వేచి ఉండి మళ్లీ ప్రయత్నించండి',
   'chat.decode_skip_system_message':
     'ట్రాక్ దాటవేయబడుతోంది: కొన్ని పరికరాల్లో ఈ ఫార్మాట్‌కు మద్దతు లేదు.',
+  'chat.large_track_playback_system_message':
+    'ఈ ట్రాక్ చాలా పెద్దది, కాబట్టి దీన్ని ఉపయోగిస్తున్నప్పుడు ఆలస్యం కావచ్చు.',
   'chat.large_local_track_system_message':
     'ఈ ట్రాక్ ఫైల్ చాలా పెద్దది; కొన్ని పరికరాల్లో ప్లే కాకపోవచ్చు.',
-  'chat.decode_memory_risk_system_message':
-    'డీకోడ్ చేస్తున్నప్పుడు ఈ ట్రాక్ దాదాపు {{estimatedMiB}} MiB మెమరీని ఉపయోగించవచ్చు; ఈ పరికరంలో ప్లే కాకపోవచ్చు.',
   'chat.device_track_unavailable_system_message':
     'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
   'chat.system_audio_started_system_message':

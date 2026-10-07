@@ -25,6 +25,7 @@ import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
 import { getTrackPosition, stopAllMediaAsync } from '../player/transport.ts';
+import { getCurrentLoadEpoch, isCurrentLoadEpoch } from '../player/_state.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -38,6 +39,7 @@ import { createSystemAudioStartFrame } from '../network/system-audio-start.ts';
 import { getSystemAudioShareDeliverySnapshot } from '../network/system-audio-delivery.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
+import { getStandardHostManualOffsetPlaybackIntent } from '../youtube/standard-host-manual-offset-gate.ts';
 import {
   beginPendingBroadcastSuspension,
   discardPendingBroadcastSuspension,
@@ -56,6 +58,7 @@ import {
   getProSystemAudioViewState,
   publishLocalProSystemAudio,
   releaseLocalProSystemAudioLease,
+  restoreProPlaybackAfterSystemAudioRelease,
   type ProSystemAudioLeaseAttempt,
 } from '../pro-room/system-audio-bridge.ts';
 
@@ -96,6 +99,7 @@ interface PreSystemAudioState {
 let _preSysAudioState: PreSystemAudioState | null = null;
 let _captureStartPromise: Promise<void> | null = null;
 let _captureStartEpoch = 0;
+let _captureRestoreEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
 let _standardMeteredRouteExpiresAt: number | null = null;
 let _captureTrackEndedCleanup: (() => void) | null = null;
@@ -367,7 +371,14 @@ export async function startSystemAudioCapture(): Promise<void> {
   // before getDisplayMedia would lose the browser's trusted click gesture.
   const proLeaseAttempt = isProRoom ? beginProLeaseAttempt() : null;
   const startEpoch = ++_captureStartEpoch;
-  const attempt = performSystemAudioCaptureStart(startRoom, proLeaseAttempt, startEpoch);
+  ++_captureRestoreEpoch;
+  const startLoadEpoch = getCurrentLoadEpoch();
+  const attempt = performSystemAudioCaptureStart(
+    startRoom,
+    proLeaseAttempt,
+    startEpoch,
+    startLoadEpoch,
+  );
   _captureStartPromise = attempt;
   try {
     await attempt;
@@ -380,6 +391,7 @@ async function performSystemAudioCaptureStart(
   startRoom: Readonly<SystemAudioRoomIdentity>,
   proLeaseAttempt: ProLeaseAttempt | null,
   startEpoch: number,
+  startLoadEpoch: number,
 ): Promise<void> {
   // Freeze the file debounce before the native picker opens. The picker can
   // remain open for seconds, far longer than the 300 ms transfer debounce.
@@ -393,6 +405,7 @@ async function performSystemAudioCaptureStart(
       startRoom,
       proLeaseAttempt,
       startEpoch,
+      startLoadEpoch,
       () => {
         pendingBroadcastDisposition.shouldResume = false;
       },
@@ -418,6 +431,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   startRoom: Readonly<SystemAudioRoomIdentity>,
   proLeaseAttempt: ProLeaseAttempt | null,
   startEpoch: number,
+  startLoadEpoch: number,
   onPreviousMediaStopped: () => void,
   onPreviousMediaRestored: () => void,
 ): Promise<void> {
@@ -438,7 +452,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     });
   } catch (e) {
     releaseProLeaseAttempt(proLeaseAttempt);
-    if (startEpoch !== _captureStartEpoch) return;
+    if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) return;
     log.warn('[SystemAudio] getDisplayMedia denied or failed:', e);
     bus.emit('ui:show-toast', t('system_audio.capture_denied'));
     return;
@@ -447,7 +461,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   // getDisplayMedia itself is not abortable. stop/leave invalidates the epoch;
   // when the native picker eventually resolves, discard its tracks and release
   // any lease instead of resurrecting a capture after teardown.
-  if (startEpoch !== _captureStartEpoch) {
+  if (startEpoch !== _captureStartEpoch || !isCurrentLoadEpoch(startLoadEpoch)) {
     releaseProLeaseAttempt(proLeaseAttempt);
     discardPendingCapture(stream);
     return;
@@ -543,6 +557,7 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     const leaseResult = await proLeaseAttempt!.result;
     if (
       startEpoch !== _captureStartEpoch ||
+      !isCurrentLoadEpoch(startLoadEpoch) ||
       !isCurrentSystemAudioRoom(startRoom) ||
       !isSelectedCaptureTrackLive()
     ) {
@@ -583,11 +598,23 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   } catch (error) {
     discardSelectedCapture();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
+    if (
+      startEpoch !== _captureStartEpoch ||
+      !isCurrentLoadEpoch(startLoadEpoch) ||
+      !isCurrentSystemAudioRoom(startRoom)
+    ) {
+      return;
+    }
     throw error;
   }
 
+  // The picker may already be closed while audio initialization is still
+  // waiting for the context. A newer playlist/demo choice owns playback even
+  // though no captured stream exists yet for transport's force-stop probe.
+  // Check the shared load epoch only before our own STOP advances it.
   if (
     startEpoch !== _captureStartEpoch ||
+    !isCurrentLoadEpoch(startLoadEpoch) ||
     !isCurrentSystemAudioRoom(startRoom) ||
     !isSelectedCaptureTrackLive()
   ) {
@@ -612,6 +639,13 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
   // Capture stable identity instead of an array position: the occurrence may
   // move while system audio is active, while stopAllMedia preserves its ID.
   const playback = getPlaybackModeActivitySnapshot();
+  if (!isProRoom && playback.mode === 'youtube') {
+    // A local manual-sync rendezvous temporarily pauses the iframe while the
+    // room still plays. Preserve its current user intent before teardown
+    // retires the transaction; PRO restoration uses the server checkpoint.
+    const playing = getStandardHostManualOffsetPlaybackIntent();
+    if (playing !== null) playback.activity = playing ? 'playing' : 'paused';
+  }
   const rawPositionSeconds =
     playback.activity === 'playing' || playback.activity === 'paused'
       ? getTrackPosition()
@@ -862,6 +896,7 @@ function stopSystemAudioCapture(opts?: {
   reason?: SystemAudioStopReason;
 }): void {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
+  if (isSystemAudioActive() || _capturedStream || _captureStartPromise) ++_captureRestoreEpoch;
   ++_captureStartEpoch;
   _captureStartPromise = null;
   if (!isSystemAudioActive() && !_capturedStream) {
@@ -876,6 +911,13 @@ function stopSystemAudioCapture(opts?: {
 
   _debugLastStopBroadcastAt = Date.now();
   if (captureRoomKind === 'pro') {
+    if (shouldRestore && _preSysAudioState) {
+      const room = _preSysAudioState.room;
+      const restoreEpoch = _captureRestoreEpoch;
+      restoreProPlaybackAfterSystemAudioRelease(
+        () => restoreEpoch === _captureRestoreEpoch && isCurrentSystemAudioRoom(room),
+      );
+    }
     void releaseLocalProSystemAudioLease().catch((error) => {
       log.debug('[SystemAudio] PRO lease release failed:', error);
     });
@@ -923,6 +965,13 @@ function stopSystemAudioCapture(opts?: {
 export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState): void {
   // Restore channel UI to previous selection.
   syncStandardRoleControlState(snapshot.channelMode);
+
+  if (snapshot.room.kind === 'pro' && snapshot.playback.mode === 'youtube') {
+    // The server checkpoint (not this pre-share position) owns PRO YouTube.
+    // Resume through participant-local reconciliation after confirmed release.
+    setPlaybackIdle();
+    return;
+  }
 
   setState('player.pausedAt', snapshot.positionSeconds);
   setPlaybackTrackMeta(snapshot.currentTrackMeta ?? null);

@@ -11,6 +11,7 @@ import {
   prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
   reconcileCurrentProPlaybackAuthority,
+  recoverCancelledProPlaybackCheckpoint,
   rendezvousCurrentProPlaybackAuthority,
   refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
@@ -20,6 +21,8 @@ import {
   type ProPlaybackPrepareRequest,
   type ProPlaybackCommitResult,
   type ProPlaybackPrepareResult,
+  type ProPlaybackCommitRequest,
+  type ProPlaybackMediaEndpoint,
 } from '../playback-authority-hooks.ts';
 
 const Q1 = '10000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -55,6 +58,193 @@ beforeEach(() => {
     snapshotRevision: 1,
     capabilities: ['playback.control'],
   });
+});
+
+describe('exact checkpoint recovery after a newer preparation is cancelled', () => {
+  const timing = () => ({ positionSeconds: 42, scheduleDelayMs: 0 });
+
+  async function cancelledPreparation() {
+    const prepare = vi.fn<ProPlaybackMediaEndpoint['prepare']>(async (request) =>
+      ready(request.authority),
+    );
+    const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) => ({
+      status: 'applied',
+      authority: request.authority,
+    }));
+    const cancel = vi.fn();
+    registerProPlaybackMediaEndpoint({ prepare, commit, cancel });
+    const pending = authority(10, 'pending-11');
+    await prepareProPlaybackAuthority({ authority: pending, queueItemId: Q1, positionSeconds: 0 });
+    expect(cancelProPlaybackPreparation(pending)).toBe(true);
+    const request: ProPlaybackCommitRequest = {
+      authority: authority(9, 'snapshot-10'),
+      committedPlaybackRevision: 10,
+      queueItemId: Q1,
+      state: 'playing',
+      positionSeconds: 30,
+      scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
+      isCurrent: () => true,
+    };
+    return { prepare, commit, cancel, request };
+  }
+
+  it('recovers only through the explicit seam and deduplicates its applied authority', async () => {
+    const h = await cancelledPreparation();
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: h.request.authority,
+        queueItemId: Q1,
+        positionSeconds: 30,
+      }),
+    ).resolves.toMatchObject({ status: 'superseded', reason: 'stale-authority' });
+    await expect(commitProPlaybackAuthority(h.request)).resolves.toMatchObject({
+      status: 'superseded',
+      reason: 'stale-authority',
+    });
+    await expect(recoverCancelledProPlaybackCheckpoint(h.request, timing)).resolves.toMatchObject({
+      status: 'applied',
+    });
+    await expect(recoverCancelledProPlaybackCheckpoint(h.request, timing)).resolves.toMatchObject({
+      status: 'applied',
+    });
+    expect(h.prepare).toHaveBeenCalledTimes(2);
+    expect(h.commit).toHaveBeenCalledTimes(1);
+    expect(h.commit).toHaveBeenCalledWith(expect.objectContaining({ positionSeconds: 42 }));
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: authority(9, 'generic-old-replay'),
+        queueItemId: Q1,
+        positionSeconds: 0,
+      }),
+    ).resolves.toMatchObject({ status: 'superseded', reason: 'stale-authority' });
+  });
+
+  it('rejects wrong revision, room, epoch, transition and non-current owner without endpoint work', async () => {
+    const h = await cancelledPreparation();
+    const invalid: ProPlaybackCommitRequest[] = [
+      { ...h.request, committedPlaybackRevision: 11 },
+      { ...h.request, authority: authority(8), committedPlaybackRevision: 9 },
+      { ...h.request, authority: authority(9, null) },
+      {
+        ...h.request,
+        authority: createProPlaybackAuthorityToken({
+          roomId: '000002',
+          roomEpoch: 7,
+          basePlaybackRevision: 9,
+          transitionId: 'snapshot',
+        }),
+      },
+      {
+        ...h.request,
+        authority: createProPlaybackAuthorityToken({
+          roomId: '000001',
+          roomEpoch: 8,
+          basePlaybackRevision: 9,
+          transitionId: 'snapshot',
+        }),
+      },
+      { ...h.request, isCurrent: () => false },
+      { ...h.request, isCurrent: undefined },
+    ];
+    for (const request of invalid) {
+      await expect(recoverCancelledProPlaybackCheckpoint(request, timing)).resolves.toMatchObject({
+        status: 'superseded',
+      });
+    }
+    expect(h.prepare).toHaveBeenCalledTimes(1);
+    expect(h.commit).not.toHaveBeenCalled();
+  });
+
+  it('reprepares an applied checkpoint after another cancelled preparation displaced its media', async () => {
+    const h = await cancelledPreparation();
+    await expect(recoverCancelledProPlaybackCheckpoint(h.request, timing)).resolves.toMatchObject({
+      status: 'applied',
+    });
+    const next = authority(10, 'second-pending-11');
+    await prepareProPlaybackAuthority({ authority: next, queueItemId: Q1, positionSeconds: 0 });
+    expect(cancelProPlaybackPreparation(next)).toBe(true);
+    await expect(recoverCancelledProPlaybackCheckpoint(h.request, timing)).resolves.toMatchObject({
+      status: 'applied',
+    });
+    expect(h.prepare).toHaveBeenCalledTimes(4);
+    expect(h.commit).toHaveBeenCalledTimes(2);
+    await expect(recoverCancelledProPlaybackCheckpoint(h.request, timing)).resolves.toMatchObject({
+      status: 'applied',
+    });
+    expect(h.prepare).toHaveBeenCalledTimes(4);
+    expect(h.commit).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['prepare', 'commit'] as const)(
+    'a newer PREPARE supersedes recovery awaiting %s without cancelling its successor',
+    async (phase) => {
+      const h = await cancelledPreparation();
+      let finish!: () => void;
+      const wait = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      let recoveryIsCurrent: (() => boolean) | undefined;
+      if (phase === 'prepare') {
+        h.prepare.mockImplementationOnce(async (request) => {
+          recoveryIsCurrent = request.isCurrent;
+          await wait;
+          return ready(request.authority);
+        });
+      } else {
+        h.commit.mockImplementationOnce(async (request) => {
+          recoveryIsCurrent = request.isCurrent;
+          await wait;
+          return { status: 'applied', authority: request.authority };
+        });
+      }
+      const recovery = recoverCancelledProPlaybackCheckpoint(h.request, timing);
+      await vi.waitFor(() => expect(recoveryIsCurrent).toBeDefined());
+      const next = authority(11, 'newer-12');
+      await expect(
+        prepareProPlaybackAuthority({ authority: next, queueItemId: Q1, positionSeconds: 0 }),
+      ).resolves.toMatchObject({ status: 'ready' });
+      expect(recoveryIsCurrent?.()).toBe(false);
+      finish();
+      await expect(recovery).resolves.toMatchObject({ status: 'superseded' });
+      await expect(
+        commitProPlaybackAuthority({
+          ...h.request,
+          authority: next,
+          committedPlaybackRevision: 12,
+        }),
+      ).resolves.toMatchObject({ status: 'applied' });
+      expect(h.cancel).not.toHaveBeenCalledWith(next);
+    },
+  );
+
+  it.each(['owner', 'reset'] as const)(
+    'revoking the %s during recovery blocks commit and stale allowance reuse',
+    async (fence) => {
+      const h = await cancelledPreparation();
+      let current = true;
+      let finish!: () => void;
+      const wait = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      h.prepare.mockImplementationOnce(async (request) => {
+        await wait;
+        return ready(request.authority);
+      });
+      const request = { ...h.request, isCurrent: () => current };
+      const recovery = recoverCancelledProPlaybackCheckpoint(request, timing);
+      expect(h.prepare).toHaveBeenCalledTimes(2);
+      if (fence === 'owner') current = false;
+      else resetProPlaybackAuthorityHooks();
+      finish();
+      await expect(recovery).resolves.toMatchObject({ status: 'superseded' });
+      expect(h.commit).not.toHaveBeenCalled();
+      await expect(recoverCancelledProPlaybackCheckpoint(request, timing)).resolves.toMatchObject({
+        status: 'superseded',
+      });
+      expect(h.prepare).toHaveBeenCalledTimes(2);
+    },
+  );
 });
 
 afterEach(() => {

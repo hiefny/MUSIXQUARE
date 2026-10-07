@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { batchSetState as publishPreloadPromotion, getState, setState } from '../core/state.ts';
+import { getPlaylistSubItems } from '../youtube/queue-manifest.ts';
 import { MSG, WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../core/timers.ts';
@@ -27,6 +28,9 @@ import {
   newLoadEpoch,
   isCurrentLoadEpoch,
   getCurrentAudioBuffer,
+  getCurrentLoadEpoch,
+  getTrackKeyFromItem,
+  isTrackFailed,
   setCurrentAudioBuffer,
 } from './_state.ts';
 import {
@@ -81,6 +85,7 @@ import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import {
   getPlaybackSelectionTrackMeta,
   isPlaybackIdleCompat,
+  isExternalOwner,
   isYouTubeOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
@@ -584,7 +589,7 @@ export function setRepeatMode(mode: number, notify = true): void {
   if (mode !== prevMode) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      clearPreloadState();
+      clearPreloadState(false, true);
       schedulePreload();
     }
   }
@@ -638,7 +643,7 @@ export function setShuffle(
   if (enabled !== prevEnabled || orderChanged) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
-      clearPreloadState();
+      clearPreloadState(false, true);
       schedulePreload();
     }
   }
@@ -646,7 +651,7 @@ export function setShuffle(
 
 // ─── Clear Preload State ───────────────────────────────────────────
 
-export function clearPreloadState(force = false): void {
+export function clearPreloadState(force = false, preserveCurrentTransfer = false): void {
   const activeTarget = getState('preload.activeTarget');
   const ready = getState('preload.ready');
   const currentQueueItemId = getCurrentQueueItemId();
@@ -658,9 +663,10 @@ export function clearPreloadState(force = false): void {
     cancelProRoomPlaylistFilePreload(preloadOwner);
   }
 
-  // Cancel any in-flight backgroundTransfer to prevent stale preload data
-  // from reaching guests after backward navigation (host-only).
-  cancelPreloadTransfer(preloadOwner ?? undefined);
+  // Navigation cancels every old lane. Queue mode changes and non-current
+  // removal only replace speculation: slower guests still need the exact
+  // preload that has already become the host's current file.
+  cancelPreloadTransfer(preloadOwner ?? undefined, !force && preserveCurrentTransfer);
   if (force) resetPreloadReceiveAuthority();
 
   setState('preload.nextQueueItemId', null);
@@ -714,9 +720,7 @@ export async function playTrack(
     return;
   }
 
-  const itemSubMap = getState('youtube.subItemsMap') || {};
-  const itemSubIds =
-    item.type === 'youtube' && item.playlistId ? itemSubMap[item.playlistId]?.ids : undefined;
+  const itemSubIds = getPlaylistSubItems(item)?.ids;
   const storedVideoSubIndex =
     item.type === 'youtube' && item.videoId && itemSubIds ? itemSubIds.indexOf(item.videoId) : -1;
   const rawRequestedSubIndex =
@@ -794,14 +798,12 @@ export async function playTrack(
     !appliesServerAuthority &&
     !hostConn &&
     _isSameTrack &&
+    !options.forceNewYouTubeOccurrence &&
     item.type === 'youtube' &&
     isYouTubeOwner()
   ) {
-    const subMap = getState('youtube.subItemsMap') || {};
     const requestedVideoId =
-      (item.playlistId ? subMap[item.playlistId]?.ids?.[requestedTrackSubIndex ?? 0] : null) ||
-      item.videoId ||
-      null;
+      getPlaylistSubItems(item)?.ids?.[requestedTrackSubIndex ?? 0] || item.videoId || null;
     const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
     const player = getYouTubePlayer();
     let residentVideoId: string;
@@ -883,9 +885,9 @@ export async function playTrack(
   // A persistent PRO object may still be arriving when its selection is
   // requested. Adopt that exact background promise before clearPreloadState()
   // gets a chance to cancel it; the recursive entry then uses either the completed
-  // preload fast path or the already-published foreground File.
+  // preload fast path or the already-published foreground File. Server PREPARE
+  // also adopts the download, while its options keep playback paused until COMMIT.
   if (
-    !appliesServerAuthority &&
     !hostConn &&
     isProRoomPersistentPlaylistFile(queueItemId) &&
     queueItemId === nextQueueItemId &&
@@ -1133,8 +1135,7 @@ export async function playTrack(
       // Broadcast one resolved videoId; playlistId is UI/navigation context,
       // not an instruction to start YouTube's native playlist engine. Prefer
       // the host's sub-item snapshot when available.
-      const subMap = getState('youtube.subItemsMap') || {};
-      const hostEntry = subMap[item.playlistId as string];
+      const hostEntry = getPlaylistSubItems(item);
       const hostIds = hostEntry?.ids;
       const resolvedSubIndex = requestedTrackSubIndex ?? 0;
       const broadcastVideoId = (hostIds && hostIds[resolvedSubIndex]) || (item.videoId ?? null);
@@ -1218,7 +1219,7 @@ export async function playTrack(
       // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
       // for navigation (next/prev/sub-seek) and title display.
       if (hostIds && hostIds.length > 0) {
-        const titles = subMap[item.playlistId as string]?.titles || [];
+        const titles = hostEntry?.titles || [];
         broadcast({
           type: MSG.YOUTUBE_PLAYLIST_INFO,
           playlistId: item.playlistId as string,
@@ -1856,6 +1857,13 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
     log.warn(`[Playlist] Invalid queue item ID: ${String(queueItemId)}`);
     return;
   }
+  // Keep the requesting connection across the iframe seek wait so playback
+  // authority is checked again before this becomes a host-local selection.
+  if (
+    deferStandardHostManualNavigation('operator track change', () => handleTrackChange(data, conn))
+  ) {
+    return;
+  }
   observePlayTrack(
     playTrack(queueItemId, undefined, { explicitPlaybackIntent: true }),
     'apply the operator track change',
@@ -1874,6 +1882,13 @@ function handleRequestNextTrack(data: Record<string, unknown>, conn: DataConnect
     log.debug('[Playlist] Ignoring stale next-track request');
     return;
   }
+  if (
+    deferStandardHostManualNavigation('operator next track', () =>
+      handleRequestNextTrack(data, conn),
+    )
+  ) {
+    return;
+  }
   playNextTrack();
 }
 
@@ -1887,6 +1902,13 @@ function handleRequestPrevTrack(data: Record<string, unknown>, conn: DataConnect
   }
   if (data.queueItemId !== getCurrentQueueItemId()) {
     log.debug('[Playlist] Ignoring stale previous-track request');
+    return;
+  }
+  if (
+    deferStandardHostManualNavigation('operator previous track', () =>
+      handleRequestPrevTrack(data, conn),
+    )
+  ) {
     return;
   }
   playPrevTrack();
@@ -2068,6 +2090,11 @@ function appendStandardHostFiles(
     return false;
   }
 
+  if (!canAppendPlaylistItems(files.length)) {
+    showToast(t('playlist.queue_full'));
+    return false;
+  }
+
   const playlist = [...(getState('playlist.items') || [])];
   const addedQueueItemIds: QueueItemId[] = [];
   for (const file of files) {
@@ -2223,6 +2250,15 @@ function findShuffleRemovalSuccessor(
   return null;
 }
 
+function isCurrentRemovalBlockedByManualOffset(queueItemIds: readonly QueueItemId[]): boolean {
+  const currentQueueItemId = getCurrentQueueItemId();
+  return (
+    currentQueueItemId !== null &&
+    queueItemIds.includes(currentQueueItemId) &&
+    isStandardHostManualOffsetTransactionPending()
+  );
+}
+
 function handleRequestPlaylistRemove(
   data: {
     requestId: string;
@@ -2255,6 +2291,14 @@ function handleRequestPlaylistRemove(
   if (liveQueueItemIds.length === 0) {
     safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
     settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
+    return;
+  }
+  if (isCurrentRemovalBlockedByManualOffset(liveQueueItemIds)) {
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    settleStandardQueueMutationRequest(conn, data.requestId, {
+      outcome: 'rejected',
+      code: 'conflict',
+    });
     return;
   }
   try {
@@ -2358,13 +2402,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   if (requestedIds.size === 0) return;
 
   const currentQueueItemId = getCurrentQueueItemId();
-  if (
-    currentQueueItemId &&
-    requestedIds.has(currentQueueItemId) &&
-    isStandardHostManualOffsetTransactionPending()
-  ) {
-    return;
-  }
+  if (isCurrentRemovalBlockedByManualOffset(queueItemIds)) return;
 
   const removedQueueItemIds = new Set<QueueItemId>();
   for (const item of previousItems) {
@@ -2412,7 +2450,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
     removedQueueItemIds.has(getState('preload.nextQueueItemId') ?? '') ||
     removedQueueItemIds.has(getState('preload.ready')?.queueItemId ?? '') ||
     removedQueueItemIds.has(getState('preload.activeTarget')?.queueItemId ?? '');
-  if (preloadOwnsRemovedItem) clearPreloadState();
+  if (preloadOwnsRemovedItem) clearPreloadState(false, !wasCurrent);
 
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
   if (recoveryTarget?.queueItemId && removedQueueItemIds.has(recoveryTarget.queueItemId)) {
@@ -2456,7 +2494,12 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   if (wasCurrent && successorQueueItemId) {
     setCurrentAudioBuffer(null);
     setState('files.current', null);
-    observePlayTrack(playTrack(successorQueueItemId), 'play the successor after removal');
+    // The snapshot already selects the successor. Preserve its occurrence
+    // boundary so a repeated video cannot take the current-row replay path.
+    observePlayTrack(
+      playTrack(successorQueueItemId, undefined, { forceNewYouTubeOccurrence: true }),
+      'play the successor after removal',
+    );
   } else if (preloadOwnsRemovedItem && nextItems.length > 0) {
     schedulePreload();
   }
@@ -2538,18 +2581,20 @@ async function prepareAuthoritativePlayback(
   if (getState('room.context').kind !== 'pro' || !isProPlaybackAuthorityToken(request.authority)) {
     return failedAuthorityPrepare(request, 'inactive-room');
   }
+  // Failure belongs to this device and immutable queue occurrence, not a
+  // playback revision. Heartbeats, seeks and resumes must not fetch/decode it
+  // again, while a different occurrence remains eligible for preparation.
+  if (item.type === 'file' && isTrackFailed(getTrackKeyFromItem(item))) {
+    return failedAuthorityPrepare(request, 'device-unavailable');
+  }
 
   const positionSeconds = Number.isFinite(request.positionSeconds)
     ? Math.max(0, request.positionSeconds)
     : 0;
   const subIndex = request.youtubeSubIndex ?? 0;
-  const subMap = getState('youtube.subItemsMap') || {};
   const resolvedVideoId =
     item.type === 'youtube'
-      ? request.youtubeVideoId ||
-        (item.playlistId ? subMap[item.playlistId]?.ids?.[subIndex] : null) ||
-        item.videoId ||
-        null
+      ? request.youtubeVideoId || getPlaylistSubItems(item)?.ids?.[subIndex] || item.videoId || null
       : null;
 
   let reuseResidentYouTube = false;
@@ -2626,6 +2671,9 @@ async function prepareAuthoritativePlayback(
     }
 
     clearManagedTimer('decode-fail-advance');
+    if (isTrackFailed(getTrackKeyFromItem(item))) {
+      return failedAuthorityPrepare(request, 'device-unavailable');
+    }
     const resident = getState('files.current');
     const buffer = getCurrentAudioBuffer();
     if (
@@ -2685,6 +2733,9 @@ async function commitAuthoritativePlayback(
   }
   const item = getQueueItemById(queueItemId);
   if (!item) return { status: 'failed', authority: request.authority, reason: 'missing-track' };
+  if (item.type === 'file' && isTrackFailed(getTrackKeyFromItem(item))) {
+    return { status: 'failed', authority: request.authority, reason: 'device-unavailable' };
+  }
 
   const applied =
     item.type === 'youtube'
@@ -2693,6 +2744,56 @@ async function commitAuthoritativePlayback(
   return applied
     ? { status: 'applied', authority: request.authority }
     : { status: 'failed', authority: request.authority, reason: 'media-unavailable' };
+}
+
+async function invalidateUnavailableAuthoritativePlayback(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<void> {
+  const initialItem = getQueueItemById(request.queueItemId);
+  if (initialItem?.type !== 'file' || !isTrackFailed(getTrackKeyFromItem(initialItem))) return;
+  const epoch = getCurrentLoadEpoch();
+  const delayMs = Number.isFinite(request.scheduleDelayMs)
+    ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
+    : 0;
+  if (delayMs > 0) await delay(delayMs);
+  const context = getState('room.context');
+  if (
+    request.isCurrent?.() === false ||
+    !isCurrentLoadEpoch(epoch) ||
+    context.kind !== 'pro' ||
+    context.roomId !== request.authority.roomId ||
+    context.epoch !== request.authority.roomEpoch
+  ) {
+    return;
+  }
+  // Queue projection can update or remove this row while the scheduled COMMIT
+  // waits, without starting a newer load. Apply only its current failed entry.
+  const item = getQueueItemById(request.queueItemId);
+  if (item?.type !== 'file' || !isTrackFailed(getTrackKeyFromItem(item))) return;
+  // A rejected PREPARE leaves the outgoing renderer alone. Once the server
+  // commits this unavailable occurrence, retire it locally so a healthy B
+  // cannot keep playing when the room returns to previously failed A.
+  if (
+    getCurrentQueueItemId() === item.queueItemId &&
+    !getCurrentAudioBuffer() &&
+    !getState('files.current') &&
+    !isFilePipelineBusyForPlay() &&
+    !isExternalOwner() &&
+    getState('playback.activity') === 'idle'
+  ) {
+    // Queue projection can select this occurrence from idle before COMMIT
+    // publishes its title. Keep presentation current without another teardown.
+    const selectionMeta = getPlaybackSelectionTrackMeta(item);
+    if (getState('player.currentTrackMeta') !== selectionMeta) {
+      setPlaybackTrackMeta(selectionMeta);
+    }
+    return;
+  }
+  stopAllMedia({ cancelInFlight: true });
+  setCurrentAudioBuffer(null);
+  setState('files.current', null);
+  selectQueueItemById(item.queueItemId);
+  setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(item));
 }
 
 export function initPlaylist(): void {
@@ -2706,6 +2807,29 @@ export function initPlaylist(): void {
   registerProPlaybackMediaEndpoint({
     prepare: prepareAuthoritativePlayback,
     commit: commitAuthoritativePlayback,
+    isCheckpointReady: (request) => {
+      if (
+        getState('playback.activity') !== request.state ||
+        getCurrentQueueItemId() !== request.queueItemId
+      )
+        return false;
+      const item = request.queueItemId ? getQueueItemById(request.queueItemId) : null;
+      if (item?.type === 'file') {
+        return (
+          !!getCurrentAudioBuffer() && getState('files.current')?.queueItemId === item.queueItemId
+        );
+      }
+      if (item?.type !== 'youtube' || !isYouTubeOwner() || !isYtPlayerReady()) return false;
+      try {
+        return (
+          (getYouTubePlayer()?.getVideoData?.()?.video_id || '') === request.youtubeVideoId &&
+          (getState('youtube.currentSubIndex') ?? 0) === (request.youtubeSubIndex ?? 0)
+        );
+      } catch {
+        return false;
+      }
+    },
+    invalidateCommitted: invalidateUnavailableAuthoritativePlayback,
     cancel: () => {
       // Make slow R2/decode work lose ownership immediately. The explicit
       // authority generation in playback-authority-hooks fences any late

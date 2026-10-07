@@ -6,7 +6,7 @@
  * injected so the same controller can serve a standard-room host or a
  * coordinator-free PRO endpoint without importing either topology.
  */
-import { MSG } from '../core/constants.ts';
+import { MANUAL_SYNC_OFFSET_LIMIT_MS, MSG } from '../core/constants.ts';
 import type {
   ProtocolMsg,
   YouTubeZeroStartAbortReason,
@@ -218,6 +218,11 @@ interface YouTubeZeroStartDependencies {
     canonicalPositionSec: number,
     context: YouTubeZeroStartTargetContext,
   ): number;
+  /** Participant-local hold at media zero; never moves the room COMMIT. */
+  getLocalStartDelayMs?(
+    canonicalPositionSec: number,
+    context: YouTubeZeroStartTargetContext,
+  ): number;
   /** Inverse of resolveLocalTargetSec, used to compare canonical timelines. */
   toCanonicalPositionSec?(localPositionSec: number, context: YouTubeZeroStartTargetContext): number;
   getLearnedTimelineLeadMs?(
@@ -270,6 +275,9 @@ type LocalRun = {
   preparedMs: number;
   commit: YouTubeZeroStartCommitMessage | null;
   playCallAt: number;
+  localStartDelayMs: number;
+  canonicalStartPositionSec: number;
+  playingAt: number;
   fallback: boolean;
   sample08: { hostTime: number; observedAt: number; driftMs: number } | null;
   sampled20: boolean;
@@ -770,6 +778,7 @@ class YouTubeZeroStartController {
         }, 80);
       }
       const playingAt = this.#now();
+      run.playingAt = playingAt;
       const commit = run.commit;
       if (commit) {
         const localReleaseAt = this.#hostTimeToLocal(commit.startAtHost);
@@ -819,6 +828,20 @@ class YouTubeZeroStartController {
     // Late entrants were never sent this run's PREPARE. Their replacement
     // connection invalidates only their capability, not the frozen cohort.
     if (!this.#hostBarrier?.expectedGuestIds.has(peerId)) return;
+    const run = this.#localRun;
+    if (
+      run?.commit &&
+      run.localStartDelayMs > 0 &&
+      (run.phase === 'scheduled' || run.phase === 'starting') &&
+      this.#now() >= run.commit.startAtHost
+    ) {
+      // The room is already playing while this speaker intentionally waits.
+      // Retire only the replaced connection; keep the local release and the
+      // remaining cohort alive. Its successor uses the normal late-join path.
+      this.#hostBarrier.expectedGuestIds.delete(peerId);
+      this.#hostBarrier.armedGuestIds.delete(peerId);
+      return;
+    }
     if (this.#localRun?.phase === 'playing') {
       // Playback is already established; only the short calibration window
       // still owns protocol state. End it locally without ABORT, otherwise
@@ -903,6 +926,20 @@ class YouTubeZeroStartController {
 
   isProtocolActive(): boolean {
     return Boolean(this.#localRun && this.#localRun.phase !== 'error');
+  }
+
+  getPendingCanonicalPositionSec(): number | null {
+    const run = this.#localRun;
+    if (
+      this.#deps.getRole() !== 'host' ||
+      !run?.commit ||
+      run.localStartDelayMs <= 0 ||
+      (run.phase !== 'scheduled' && run.phase !== 'starting')
+    )
+      return null;
+    return (
+      run.canonicalStartPositionSec + Math.max(0, (this.#now() - run.commit.startAtHost) / 1000)
+    );
   }
 
   getSnapshot(): YouTubeZeroStartSnapshot {
@@ -992,6 +1029,9 @@ class YouTubeZeroStartController {
       preparedMs: 0,
       commit: null,
       playCallAt: 0,
+      localStartDelayMs: 0,
+      canonicalStartPositionSec: 0,
+      playingAt: 0,
       fallback: false,
       sample08: null,
       sampled20: false,
@@ -1072,6 +1112,9 @@ class YouTubeZeroStartController {
       preparedMs: 0,
       commit: null,
       playCallAt: 0,
+      localStartDelayMs: 0,
+      canonicalStartPositionSec: 0,
+      playingAt: 0,
       fallback: false,
       sample08: null,
       sampled20: false,
@@ -1554,7 +1597,11 @@ class YouTubeZeroStartController {
     this.#emitState();
   }
 
-  #scheduleCommittedStart(run: LocalRun, commit: YouTubeZeroStartCommitMessage): void {
+  #scheduleCommittedStart(
+    run: LocalRun,
+    commit: YouTubeZeroStartCommitMessage,
+    canonicalPositionSec = 0,
+  ): void {
     if (
       !this.#isCurrentRun(run) ||
       run.phase === 'scheduled' ||
@@ -1568,7 +1615,19 @@ class YouTubeZeroStartController {
       return;
     }
     const localStartAt = this.#hostTimeToLocal(commit.startAtHost);
-    const callAt = localStartAt - (this.#deps.getRole() === 'guest' ? run.releaseLeadMs : 0);
+    run.localStartDelayMs = clamp(
+      finiteOr(
+        this.#deps.getLocalStartDelayMs?.(canonicalPositionSec, this.#targetContext(run)) ?? 0,
+        0,
+      ),
+      0,
+      MANUAL_SYNC_OFFSET_LIMIT_MS,
+    );
+    run.canonicalStartPositionSec = canonicalPositionSec;
+    const callAt =
+      localStartAt +
+      run.localStartDelayMs -
+      (this.#deps.getRole() === 'guest' ? run.releaseLeadMs : 0);
     run.phase = 'scheduled';
     run.commit = commit;
     this.#emitState();
@@ -1583,6 +1642,18 @@ class YouTubeZeroStartController {
         return;
       }
       try {
+        const releaseLatenessSec = Math.max(0, this.#now() - callAt) / 1000;
+        // Preparation keeps the achievable zero-boundary delta. Commit the
+        // intentional negative delta only when its delayed play is released.
+        if (run.localStartDelayMs > 0 || releaseLatenessSec > 0.04) {
+          const target = this.#resolveLocalTarget(
+            canonicalPositionSec + run.localStartDelayMs / 1000 + releaseLatenessSec,
+            run,
+          );
+          // A COMMIT or timer arriving after its deadline must join the live
+          // room position, rather than starting an old zero target late.
+          if (releaseLatenessSec > 0.04) player.seekTo(target, true);
+        }
         run.playCallAt = this.#now();
         run.phase = 'starting';
         this.#emitState();
@@ -1632,7 +1703,7 @@ class YouTubeZeroStartController {
         }, 100);
       }, YOUTUBE_ZERO_START_TIMING.pauseSeekGapMs);
       run.armed = true;
-      this.#scheduleCommittedStart(run, fallbackCommit);
+      this.#scheduleCommittedStart(run, fallbackCommit, canonicalTarget);
     } catch (error) {
       this.#requestExternalFallback(run, commit, 'prepare-failed');
       this.#deps.onError?.('late-fallback-failed', error);
@@ -1686,7 +1757,7 @@ class YouTubeZeroStartController {
       const barrier = this.#hostBarrier;
       if (!player || !barrier) return;
       const hostTime = this.#now();
-      if (hostTime - run.commit.startAtHost > YOUTUBE_ZERO_START_TIMING.timelineStopAfterMs) return;
+      if (hostTime - run.playingAt > YOUTUBE_ZERO_START_TIMING.timelineStopAfterMs) return;
       try {
         const reportedState = player.getPlayerState();
         const canonicalPosition = this.#readCanonicalPosition(player, run);
@@ -2201,4 +2272,8 @@ export function isYouTubeZeroStartProtocolActive(): boolean {
 
 export function getYouTubeZeroStartSnapshot(): YouTubeZeroStartSnapshot | null {
   return defaultController?.getSnapshot() ?? null;
+}
+
+export function getYouTubeZeroStartPendingCanonicalPosition(): number | null {
+  return defaultController?.getPendingCanonicalPositionSec() ?? null;
 }

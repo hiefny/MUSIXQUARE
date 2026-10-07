@@ -4,7 +4,6 @@ import {
   assertDecodedAudioBufferWithinBudget,
   bindEncodedReceiveReservationToBlob,
   estimateDecodedPcmBytes,
-  evaluateDecodeMemoryWarning,
   memoryReservationStatsForTests,
   reserveEncodedReceiveMemoryWithinBudget,
   reserveRemoteTransportMemoryWithinBudget,
@@ -30,28 +29,6 @@ const HIGH_MEMORY_BOUNDED_BUDGET = {
   maxDecodeWorkingSetBytes: 1024 * MIB,
 } as const;
 
-function warningThresholdForTier(
-  tier: ReturnType<typeof resolveDecodeMemoryBudget>['tier'],
-): NonNullable<ReturnType<typeof evaluateDecodeMemoryWarning>>['threshold'] {
-  const evaluation = evaluateDecodeMemoryWarning({
-    durationSeconds: 1,
-    probedChannelCount: 2,
-    hasReliableMetadata: true,
-    channelCount: 2,
-    outputSampleRate: 48_000,
-    estimatedPcmBytes: 2048 * MIB,
-    ownDecodeFootprintBytes: 2048 * MIB,
-    estimatedWorkingSetBytes: 2048 * MIB,
-    budget: {
-      tier,
-      maxDecodedPcmBytes: Number.MAX_SAFE_INTEGER,
-      maxDecodeWorkingSetBytes: Number.MAX_SAFE_INTEGER,
-    },
-  });
-  if (!evaluation) throw new Error(`Expected a warning threshold for ${tier}`);
-  return evaluation.threshold;
-}
-
 describe('AudioBuffer decode admission', () => {
   it('keeps iOS classification but does not impose a production memory ceiling', () => {
     const iphone = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
@@ -74,35 +51,7 @@ describe('AudioBuffer decode admission', () => {
     expect(estimateDecodedPcmBytes(Number.NaN)).toBe(0);
   });
 
-  it('keeps finite device-tier values advisory and separate from production admission', () => {
-    expect(warningThresholdForTier('ios')).toEqual({
-      tier: 'ios',
-      maxDecodedPcmBytes: 192 * MIB,
-      maxDecodeWorkingSetBytes: 320 * MIB,
-    });
-    expect(warningThresholdForTier('constrained')).toEqual({
-      tier: 'constrained',
-      maxDecodedPcmBytes: 256 * MIB,
-      maxDecodeWorkingSetBytes: 448 * MIB,
-    });
-    expect(warningThresholdForTier('standard')).toEqual({
-      tier: 'standard',
-      maxDecodedPcmBytes: 384 * MIB,
-      maxDecodeWorkingSetBytes: 768 * MIB,
-    });
-    expect(warningThresholdForTier('high-memory')).toEqual({
-      tier: 'high-memory',
-      maxDecodedPcmBytes: 512 * MIB,
-      maxDecodeWorkingSetBytes: 1024 * MIB,
-    });
-
-    expect(resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' })).toMatchObject({
-      maxDecodedPcmBytes: Number.MAX_SAFE_INTEGER,
-      maxDecodeWorkingSetBytes: Number.MAX_SAFE_INTEGER,
-    });
-  });
-
-  it('returns a non-throwing warning estimate and evaluates both PCM and working-set risk', async () => {
+  it('accounts for long decoded PCM and its encoded copies without rejecting production', async () => {
     const estimate = await assertBlobCanDecodeToAudioBuffer({ size: 1 * MIB } as Blob, {
       budget: resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' }),
       durationProbe: vi.fn().mockResolvedValue(600),
@@ -116,20 +65,8 @@ describe('AudioBuffer decode admission', () => {
       probedChannelCount: 2,
       estimatedPcmBytes: 600 * 48_000 * 2 * 4 * 1.25,
     });
-    expect(evaluateDecodeMemoryWarning(estimate)).toEqual({
-      reason: 'estimated-pcm',
-      estimatedMiB: Math.ceil(estimate.estimatedWorkingSetBytes / MIB),
-      threshold: warningThresholdForTier('ios'),
-    });
-
-    expect(
-      evaluateDecodeMemoryWarning({
-        ...estimate,
-        estimatedPcmBytes: 100 * MIB,
-        estimatedWorkingSetBytes: 321 * MIB,
-      }),
-    ).toMatchObject({ reason: 'working-set', estimatedMiB: 321 });
-    expect(evaluateDecodeMemoryWarning({ ...estimate, hasReliableMetadata: false })).toBeNull();
+    expect(estimate.ownDecodeFootprintBytes).toBe(estimate.estimatedPcmBytes + 2 * MIB);
+    expect(estimate.estimatedWorkingSetBytes).toBe(estimate.ownDecodeFootprintBytes);
   });
 
   it('estimates metadata without rejecting under the unbounded production policy', async () => {
@@ -156,7 +93,7 @@ describe('AudioBuffer decode admission', () => {
     expect(admission.estimatedWorkingSetBytes).toBeLessThan(budget.maxDecodeWorkingSetBytes);
   });
 
-  it('uses a stereo advisory estimate when a supported container has no channel parser', async () => {
+  it('uses a stereo accounting estimate when a supported container has no channel parser', async () => {
     const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
     const estimate = await assertBlobCanDecodeToAudioBuffer({ size: 4 * MIB } as Blob, {
       budget,
@@ -171,7 +108,6 @@ describe('AudioBuffer decode admission', () => {
       hasReliableMetadata: true,
       estimatedPcmBytes: 60 * 60 * 48_000 * 2 * 4 * 1.25,
     });
-    expect(evaluateDecodeMemoryWarning(estimate)).not.toBeNull();
   });
 
   it('does not pre-reject a long compressed program after estimating its PCM', async () => {
@@ -226,7 +162,7 @@ describe('AudioBuffer decode admission', () => {
     });
   });
 
-  it('fails warning metadata probes open so admission can still reach the native decoder', async () => {
+  it('fails metadata probes open so admission can still reach the native decoder', async () => {
     const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });
 
     await expect(
@@ -243,7 +179,7 @@ describe('AudioBuffer decode admission', () => {
     });
   });
 
-  it('bounds a stalled header probe so warning analysis cannot hold decode admission forever', async () => {
+  it('bounds a stalled header probe so memory accounting cannot hold decode admission forever', async () => {
     vi.useFakeTimers();
     try {
       const budget = resolveDecodeMemoryBudget({ userAgent: 'Mozilla/5.0 (iPhone)' });

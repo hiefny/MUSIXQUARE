@@ -581,7 +581,7 @@ components:
       minProperties: 1
       properties:
         mixPercent: { type: number, minimum: 0, maximum: 100 }
-        decaySeconds: { type: number, minimum: 0.1, maximum: 30 }
+        decaySeconds: { type: number, minimum: 0.1, maximum: 10 }
         preDelaySeconds: { type: number, minimum: 0, maximum: 1 }
         lowCutPercent: { type: number, minimum: 0, maximum: 100 }
         highCutPercent: { type: number, minimum: 0, maximum: 100 }
@@ -671,7 +671,7 @@ components:
       required: [mixPercent, decaySeconds, preDelaySeconds, lowCutPercent, highCutPercent]
       properties:
         mixPercent: { type: number, minimum: 0, maximum: 100 }
-        decaySeconds: { type: number, minimum: 0.1, maximum: 30 }
+        decaySeconds: { type: number, minimum: 0.1, maximum: 10 }
         preDelaySeconds: { type: number, minimum: 0, maximum: 1 }
         lowCutPercent: { type: number, minimum: 0, maximum: 100 }
         highCutPercent: { type: number, minimum: 0, maximum: 100 }

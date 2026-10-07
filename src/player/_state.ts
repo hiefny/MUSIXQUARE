@@ -9,6 +9,13 @@
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import type { PlaylistItem, QueueItemId, QueueTarget } from '../types/index.ts';
+import {
+  isLargeAudioTrack,
+  releaseFilePlaybackResource,
+  retainFilePlaybackResource,
+  type FilePlaybackResource,
+  type FilePlaybackSource,
+} from './file-playback-resource.ts';
 // ─── Module State ──────────────────────────────────────────────────
 //
 // pendingPlayTime, pendingPlayTimeSetAt, and failedTrackKeys live in the
@@ -51,8 +58,8 @@ import type { PlaylistItem, QueueItemId, QueueTarget } from '../types/index.ts';
 //                                 or clear it according to the abort-cause
 //                                 policy documented in the design file.
 
-let _playerNode: AudioBufferSourceNode | null = null;
-let _currentAudioBuffer: AudioBuffer | null = null;
+let _playerNode: FilePlaybackSource | null = null;
+let _currentAudioBuffer: FilePlaybackResource | null = null;
 let _loadEpoch = 0;
 let _activeLoadSessionId = 0;
 let _isPlayLocked = false;
@@ -61,17 +68,18 @@ let _lastClearedQueueItemId: QueueItemId | null = null;
 
 // ─── PlayerNode ────────────────────────────────────────────────────
 
-export function getPlayerNode(): AudioBufferSourceNode | null {
+export function getPlayerNode(): FilePlaybackSource | null {
   return _playerNode;
 }
 
-export function setPlayerNode(v: AudioBufferSourceNode | null): void {
+export function setPlayerNode(v: FilePlaybackSource | null): void {
   _playerNode = v;
 }
 
 // ─── AudioBuffer ───────────────────────────────────────────────────
 
-export function getCurrentAudioBuffer(): AudioBuffer | null {
+/** Historical accessor name; the resident may use complete or bounded PCM. */
+export function getCurrentAudioBuffer(): FilePlaybackResource | null {
   return _currentAudioBuffer;
 }
 
@@ -155,6 +163,7 @@ export function liveAudioBufferPcmBytes(exceptBuffer?: AudioBuffer): number {
   // been observable through the list in a test/browser implementation.
   if (
     _currentAudioBuffer &&
+    !isLargeAudioTrack(_currentAudioBuffer) &&
     _currentAudioBuffer !== exceptBuffer &&
     !seen.has(_currentAudioBuffer)
   ) {
@@ -166,16 +175,20 @@ export function liveAudioBufferPcmBytes(exceptBuffer?: AudioBuffer): number {
 
 /** PCM bytes held by the current strong AudioBuffer reference only. */
 export function currentAudioBufferPcmBytes(): number {
+  if (isLargeAudioTrack(_currentAudioBuffer)) return _currentAudioBuffer.bufferedPcmBytes;
   return _currentAudioBuffer ? estimateAudioBufferBytes(_currentAudioBuffer) : 0;
 }
 
-export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
+export function setCurrentAudioBuffer(buf: FilePlaybackResource | null): void {
   const prev = _currentAudioBuffer;
+  if (buf === prev) return;
+  retainFilePlaybackResource(buf);
   _currentAudioBuffer = buf;
+  releaseFilePlaybackResource(prev);
   if (buf !== prev) {
     bus.emit('player:buffer-changed');
   }
-  if (buf && buf !== prev) {
+  if (buf && !isLargeAudioTrack(buf)) {
     trackDecodedAudioBufferForAdmission(buf);
   }
 }
@@ -256,14 +269,28 @@ export function getPendingPlayTime(): number | undefined {
 /**
  * `setAt` anchors the requested position on this device's wall clock. It can
  * be in the future for a shared start; transfer/decode preserves it verbatim.
+ * Public PLAY also supplies its monotonic anchor captured before any awaits.
+ * Legacy callers without that anchor retain the wall-clock fallback.
  */
-export function setPendingPlayTime(time: number | undefined, setAt?: number): void {
+export function setPendingPlayTime(
+  time: number | undefined,
+  setAt?: number,
+  monotonicSetAt?: number | null,
+): void {
   setState('playback.pendingPlayTime', time);
   setState('playback.pendingPlayTimeSetAt', time === undefined ? 0 : (setAt ?? Date.now()));
+  setState(
+    'playback.pendingPlayTimeMonotonicSetAt',
+    time === undefined ? null : (monotonicSetAt ?? null),
+  );
 }
 
 export function getPendingPlayTimeSetAt(): number {
   return getState('playback.pendingPlayTimeSetAt');
+}
+
+export function getPendingPlayTimeMonotonicSetAt(): number | null {
+  return getState('playback.pendingPlayTimeMonotonicSetAt');
 }
 
 // ─── Pending Recovery Target ──────────────────────────────────────

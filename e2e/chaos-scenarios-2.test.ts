@@ -1569,13 +1569,36 @@ test.describe('Late Join During Track Removal', () => {
       await uploadFixture(hostPage, 'test03');
       await waitForPlaylistCount(hostPage, 3);
 
-      const removedId = (await readQueueSnapshot(hostPage)).items[0].queueItemId;
+      const beforeRemoval = await readQueueSnapshot(hostPage);
+      const removedId = beforeRemoval.items[0].queueItemId;
+      const expectedIds = beforeRemoval.items.slice(1).map((item) => item.queueItemId);
       const [joined] = await Promise.all([
         joinAsLateGuest(browser, code),
         removeFirstTrack(hostPage, 2),
       ]);
       lateGuest = joined;
-      await waitForPlaylistCount(lateGuest.guestPage, 2, 30_000);
+
+      // The upload helper waits for a minimum count, so the old three-item
+      // snapshot also satisfies two. Wait for the exact removal revision and
+      // survivors before checking the asynchronously updated guest rendering.
+      for (const page of [hostPage, lateGuest.guestPage]) {
+        await expect
+          .poll(async () => {
+            const snapshot = await readQueueSnapshot(page);
+            return {
+              ids: snapshot.items.map((item) => item.queueItemId),
+              revision: snapshot.revision,
+            };
+          })
+          .toEqual({ ids: expectedIds, revision: beforeRemoval.revision + 1 });
+        await expect
+          .poll(() =>
+            page
+              .locator('#playlist-ui > *')
+              .evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.queueItemId)),
+          )
+          .toEqual(expectedIds);
+      }
       expect(
         (await readQueueSnapshot(lateGuest.guestPage)).items.map((item) => item.queueItemId),
       ).not.toContain(removedId);

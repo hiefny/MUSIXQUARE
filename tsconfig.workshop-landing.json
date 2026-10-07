@@ -14,7 +14,9 @@
     ".workshop/translate/community-client.ts",
     ".workshop/translate/community.ts",
     ".workshop/translate/drafts.ts",
-    ".workshop/translate/storage-session.ts"
+    ".workshop/translate/draft-revision.ts",
+    ".workshop/translate/storage-session.ts",
+    ".workshop/translate/submission-request.ts"
   ],
   "exclude": []
 }

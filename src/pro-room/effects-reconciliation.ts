@@ -13,43 +13,33 @@ function cloneRoomEffects(effects: RoomEffectsState): RoomEffectsState {
 }
 
 /**
- * Reapply only the fields changed relative to `base` onto a newer canonical
- * snapshot. Two participants can therefore adjust unrelated controls without
- * a stale full-form write erasing either change.
+ * Reapply only fields still owned by a pending gesture. Retained device values
+ * need not match canonical after cancellation, but are no longer room intent.
  */
 function rebaseRoomEffectsIntent(
-  base: RoomEffectsState,
   desired: RoomEffectsState,
   canonical: RoomEffectsState,
+  fields: ReadonlyMap<string, number>,
 ): RoomEffectsState {
   const rebased = cloneRoomEffects(canonical);
-  for (const key of Object.keys(base.reverb) as (keyof RoomEffectsState['reverb'])[]) {
-    if (desired.reverb[key] !== base.reverb[key]) rebased.reverb[key] = desired.reverb[key];
+  for (const key of Object.keys(desired.reverb) as (keyof RoomEffectsState['reverb'])[]) {
+    if (fields.has(`reverb.${key}`)) rebased.reverb[key] = desired.reverb[key];
   }
   for (let index = 0; index < desired.equalizer.bandsDb.length; index += 1) {
-    if (desired.equalizer.bandsDb[index] !== base.equalizer.bandsDb[index]) {
+    if (fields.has(`equalizer.${index}`)) {
       rebased.equalizer.bandsDb[index] = desired.equalizer.bandsDb[index];
     }
   }
-  if (desired.virtualBass.strengthPercent !== base.virtualBass.strengthPercent) {
+  if (fields.has('virtualBass')) {
     rebased.virtualBass.strengthPercent = desired.virtualBass.strengthPercent;
   }
-  if (desired.virtualSurround.widthPercent !== base.virtualSurround.widthPercent) {
+  if (fields.has('virtualSurround')) {
     rebased.virtualSurround.widthPercent = desired.virtualSurround.widthPercent;
   }
-  if (desired.virtualTreble.enabled !== base.virtualTreble.enabled) {
+  if (fields.has('virtualTreble')) {
     rebased.virtualTreble.enabled = desired.virtualTreble.enabled;
   }
   return rebased;
-}
-
-/**
- * Reapply a scalar local intent over a newer canonical value. Volume shares
- * the effects resource revision, so an EQ-only stale writer must not also
- * restore its old volume.
- */
-function rebaseRoomScalarIntent(base: number, desired: number, canonical: number): number {
-  return desired === base ? canonical : desired;
 }
 
 interface RoomSettingsIntent {
@@ -57,37 +47,62 @@ interface RoomSettingsIntent {
   effects: RoomEffectsState;
 }
 
-/** Reconcile the atomic volume + DSP resource, including explicit takeover. */
-export function rebaseRoomSettingsIntent(
-  base: RoomSettingsIntent | null,
-  desired: RoomSettingsIntent,
-  canonical: RoomSettingsIntent,
-  forceFull = false,
-): RoomSettingsIntent {
-  if (forceFull) {
-    return { masterVolume: desired.masterVolume, effects: cloneRoomEffects(desired.effects) };
-  }
-  // With no accepted base, local values are merely device defaults, not an
-  // attributable edit. Initial PRO hydration must adopt server canonical;
-  // only an explicit OFF-to-ON takeover may replace the whole resource.
-  if (!base) {
-    return {
-      masterVolume: canonical.masterVolume,
-      effects: cloneRoomEffects(canonical.effects),
-    };
-  }
-  return {
-    masterVolume: rebaseRoomScalarIntent(
-      base.masterVolume,
-      desired.masterVolume,
-      canonical.masterVolume,
+function settingsFieldValues(settings: RoomSettingsIntent): Map<string, number | boolean> {
+  return new Map<string, number | boolean>([
+    ['masterVolume', settings.masterVolume],
+    ...Object.entries(settings.effects.reverb).map(
+      ([key, value]) => [`reverb.${key}`, value] as const,
     ),
-    effects: rebaseRoomEffectsIntent(base.effects, desired.effects, canonical.effects),
-  };
+    ...settings.effects.equalizer.bandsDb.map(
+      (value, index) => [`equalizer.${index}`, value] as const,
+    ),
+    ['virtualBass', settings.effects.virtualBass.strengthPercent],
+    ['virtualSurround', settings.effects.virtualSurround.widthPercent],
+    ['virtualTreble', settings.effects.virtualTreble.enabled],
+  ]);
 }
 
-/** @internal Focused reconciliation tests only. */
-export {
-  rebaseRoomEffectsIntent as rebaseRoomEffectsIntentForTests,
-  rebaseRoomScalarIntent as rebaseRoomScalarIntentForTests,
-};
+/** Keep retained device settings separate from gestures that may still publish. */
+export class RoomSettingsIntentTracker {
+  #observed = new Map<string, number | boolean>();
+  #revisions = new Map<string, number>();
+
+  observe(settings: RoomSettingsIntent): void {
+    this.#observed = settingsFieldValues(settings);
+  }
+
+  reset(settings: RoomSettingsIntent): void {
+    this.#revisions.clear();
+    this.observe(settings);
+  }
+
+  markChanged(settings: RoomSettingsIntent, revision: number): void {
+    const current = settingsFieldValues(settings);
+    for (const [field, value] of current) {
+      if (value !== this.#observed.get(field)) this.#revisions.set(field, revision);
+    }
+    this.#observed = current;
+  }
+
+  settle(revision: number): void {
+    for (const [field, owner] of this.#revisions) {
+      if (owner <= revision) this.#revisions.delete(field);
+    }
+  }
+
+  reconcile(
+    local: RoomSettingsIntent,
+    canonical: RoomSettingsIntent,
+    forceFull = false,
+  ): RoomSettingsIntent {
+    if (forceFull) {
+      return { masterVolume: local.masterVolume, effects: cloneRoomEffects(local.effects) };
+    }
+    return {
+      masterVolume: this.#revisions.has('masterVolume')
+        ? local.masterVolume
+        : canonical.masterVolume,
+      effects: rebaseRoomEffectsIntent(local.effects, canonical.effects, this.#revisions),
+    };
+  }
+}

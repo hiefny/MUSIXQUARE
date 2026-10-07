@@ -513,4 +513,219 @@ describe('YouTubeAuthorityArmController', () => {
     });
     expect(count(player, 'playVideo')).toBe(playsBeforeCommit + 1);
   });
+
+  it.each([
+    { platform: 'other', timingMode: 'zero-start', localStartDelayMs: 250, lead: 0 },
+    { platform: 'ios', timingMode: 'zero-start', localStartDelayMs: 250, lead: 0 },
+    { platform: 'android', timingMode: 'zero-start', localStartDelayMs: 250, lead: 250 },
+    { platform: 'android', timingMode: 'scheduled-control', localStartDelayMs: 250, lead: 0 },
+    { platform: 'other', timingMode: 'zero-start', localStartDelayMs: 9_999, lead: 0 },
+  ] as const)(
+    'preserves a negative manual offset using a local wait ($platform/$timingMode/$localStartDelayMs)',
+    async ({ platform, timingMode, localStartDelayMs, lead }) => {
+      const { controller, player } = makeHarness({ platform });
+      await prepareReady(controller, 'resident', 0);
+      const playsBefore = count(player, 'playVideo');
+      const seeksBefore = count(player, 'seekTo');
+      const startedAt = Date.now();
+      const committed = controller.commit({
+        ...identity,
+        targetSeconds: 0,
+        executeDelayMs: 699,
+        localStartDelayMs,
+        timingMode,
+      });
+      const callDelayMs = 699 + localStartDelayMs - lead;
+      await vi.advanceTimersByTimeAsync(callDelayMs - 1);
+      expect(controller.phase).toBe('scheduled');
+      expect(count(player, 'playVideo')).toBe(playsBefore);
+      expect(player.__currentTime).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        playCallAtMs: startedAt + callDelayMs,
+        localStartDelayMs,
+        releaseLeadMs: lead,
+        catchUpSeconds: 0,
+      });
+      expect(count(player, 'seekTo')).toBe(seeksBefore);
+      expect(count(player, 'playVideo')).toBe(playsBefore + 1);
+    },
+  );
+
+  it.each([
+    { targetSeconds: 0, localStartDelayMs: 150, expectedDelayMs: 150 },
+    { targetSeconds: 0.25, localStartDelayMs: 0, expectedDelayMs: 0 },
+  ])(
+    'uses only the remaining negative-offset wait after a late COMMIT ($localStartDelayMs ms)',
+    async ({ targetSeconds, localStartDelayMs, expectedDelayMs }) => {
+      const { controller, player } = makeHarness();
+      await prepareReady(controller, 'resident', 0);
+      const playsBefore = count(player, 'playVideo');
+      const committed = controller.commit({
+        ...identity,
+        targetSeconds,
+        executeDelayMs: 0,
+        localStartDelayMs,
+        timingMode: 'zero-start',
+      });
+      if (expectedDelayMs > 0) {
+        await vi.advanceTimersByTimeAsync(expectedDelayMs - 1);
+        expect(count(player, 'playVideo')).toBe(playsBefore);
+        await vi.advanceTimersByTimeAsync(1);
+      } else {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      await expect(committed).resolves.toMatchObject({ status: 'applied', localStartDelayMs });
+      expect(player.__currentTime).toBe(targetSeconds);
+    },
+  );
+
+  it.each([
+    { supplied: -250, normalized: 0 },
+    { supplied: Number.NaN, normalized: 0 },
+    { supplied: Number.POSITIVE_INFINITY, normalized: 0 },
+    { supplied: 50_000, normalized: 9_999 },
+  ])('bounds participant-only wait $supplied to $normalized', async ({ supplied, normalized }) => {
+    const { controller } = makeHarness();
+    await prepareReady(controller, 'resident', 0);
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 0,
+      localStartDelayMs: supplied,
+      timingMode: 'zero-start',
+    });
+    await vi.advanceTimersByTimeAsync(normalized);
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      localStartDelayMs: normalized,
+    });
+  });
+
+  it('cancels a long negative-offset wait before a pause or room teardown can be undone', async () => {
+    const { controller, player } = makeHarness();
+    await prepareReady(controller, 'resident', 0);
+    const playsBefore = count(player, 'playVideo');
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 699,
+      localStartDelayMs: 9_999,
+      timingMode: 'zero-start',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.cancelAll();
+    await expect(committed).resolves.toMatchObject({ status: 'superseded' });
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(count(player, 'playVideo')).toBe(playsBefore);
+    expect(player.__state).toBe(2);
+  });
+
+  it('replaces a long negative-offset wait with the next exact occurrence', async () => {
+    const { controller, player } = makeHarness();
+    await prepareReady(controller, 'resident', 0);
+    const first = controller.commit({
+      ...identity,
+      executeDelayMs: 699,
+      localStartDelayMs: 9_999,
+      timingMode: 'zero-start',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const nextIdentity = { ...identity, authorityKey: 'transition-2', videoId: 'next-video' };
+    const preparing = controller.prepare({ ...nextIdentity, strategy: 'load', targetSeconds: 3 });
+    await vi.runAllTimersAsync();
+    await expect(first).resolves.toMatchObject({ status: 'superseded' });
+    await expect(preparing).resolves.toMatchObject({ status: 'ready' });
+    const next = controller.commit({
+      ...nextIdentity,
+      executeDelayMs: 699,
+      timingMode: 'zero-start',
+    });
+    await vi.advanceTimersByTimeAsync(699);
+    await expect(next).resolves.toMatchObject({ status: 'applied', localStartDelayMs: 0 });
+    const playsAfterNext = count(player, 'playVideo');
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(count(player, 'playVideo')).toBe(playsAfterNext);
+    expect(player.__videoId).toBe('next-video');
+    expect(player.__currentTime).toBe(3);
+  });
+
+  it.each([
+    { platform: 'other', target: 0, hold: 9_999, learned: 0 },
+    { platform: 'other', target: 9.999, hold: 0, learned: 0 },
+    { platform: 'android', target: 0, hold: 9_999, learned: 40 },
+    { platform: 'android', target: 9.999, hold: 0, learned: -40 },
+  ] as const)(
+    'catches up only callback lateness while retaining $platform hold=$hold and learned=$learned',
+    async ({ platform, target, hold, learned }) => {
+      const { controller, player } = makeHarness({ platform });
+      await prepareReady(controller, 'resident', target);
+      const baseLead = getYouTubeAuthorityPlatformLeadMsForTests(platform);
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 699,
+        localStartDelayMs: hold,
+        timelineLeadMs: learned,
+        timingMode: 'zero-start',
+      });
+      // Model a blocked event loop: the clock moves, but no timer can run.
+      vi.setSystemTime(Date.now() + 1_500);
+      await vi.advanceTimersByTimeAsync(699 + hold - baseLead - learned);
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        platformLeadMs: baseLead,
+        timelineLeadMs: learned,
+        localStartDelayMs: hold,
+        releaseLatenessMs: 1_500,
+        targetSeconds: target + 1.5,
+        catchUpSeconds: 1.5,
+        callToPlayingMs: 0,
+      });
+      expect(player.__currentTime).toBeCloseTo(target + 1.5, 3);
+    },
+  );
+
+  it('bounds delayed catch-up at the media end without changing the canonical wait', async () => {
+    const { controller, player } = makeHarness();
+    player.__duration = 3;
+    await prepareReady(controller, 'resident', 2.5);
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 699,
+      timingMode: 'zero-start',
+    });
+    vi.setSystemTime(Date.now() + 1_500);
+    await vi.advanceTimersByTimeAsync(699);
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      targetSeconds: 3,
+      catchUpSeconds: 0.5,
+      releaseLatenessMs: 1_500,
+    });
+    expect(player.__currentTime).toBe(3);
+    expect(
+      player.__log
+        .filter((call) => call.op === 'seekTo')
+        .every((call) => Number(call.args?.[0]) <= 3),
+    ).toBe(true);
+  });
+
+  it('keeps ordinary callback jitter within the existing no-seek tolerance', async () => {
+    const { controller, player } = makeHarness();
+    await prepareReady(controller, 'resident', 0);
+    const seeks = count(player, 'seekTo');
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 699,
+      timingMode: 'zero-start',
+    });
+    vi.setSystemTime(Date.now() + 25);
+    await vi.advanceTimersByTimeAsync(699);
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      targetSeconds: 0,
+      catchUpSeconds: 0,
+      releaseLatenessMs: 0,
+    });
+    expect(count(player, 'seekTo')).toBe(seeks);
+  });
 });

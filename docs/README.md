@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-08-30                                                            |
+| Last source review | 2026-10-07                                                            |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -20,6 +20,7 @@ live provider dashboard matches it.
 | Run or contribute locally                 | [Contributor guide](../CONTRIBUTING.md)                         | [Configuration reference](configuration-reference.md), [Local Worker integration](local-worker-integration.md)                              |
 | Understand the product architecture       | [Root overview](../README.md)                                   | [Account/room authority](design/account-identity-and-room-authority.md), [PRO architecture](design/pro-room-architecture-and-operations.md) |
 | Prepare or recover a production change    | [Production hotfix and rollback](hotfix-procedure.md)           | [Release versioning](release-versioning.md), [Runtime verification](runtime-scenario-verification-2026-05-31.md)                            |
+| Promote the current beta to production    | [Living beta release record](beta-release-readiness.md)         | [Production hotfix and rollback](hotfix-procedure.md), [release versioning](release-versioning.md)                                          |
 | Operate Cloudflare services               | [Configuration drift checks](../cloudflare/config-drift-ops.md) | Owning Worker runbook below                                                                                                                 |
 | Review intentional tradeoffs              | [Known and accepted risks](known-accepted.md)                   | Owning ADR and [security/performance policy](security-performance-tier-policy.md)                                                           |
 | Decide whether an old document is current | [Documentation governance](documentation-governance.md)         | [Latest documentation audit](documentation-audit-2026-08-30.md)                                                                             |
@@ -46,6 +47,11 @@ supersede them explicitly when the product boundary changes.
 
 ## Maintained operations and release runbooks
 
+For the next `mxqr_beta` promotion, start with the
+[living beta release record](beta-release-readiness.md). It tracks the current
+release scope, remaining checks and dated QA updates without replacing the
+canonical release procedure.
+
 | Boundary                        | Current runbooks                                                                                                                                                             |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Release, recovery, and identity | [Production hotfix and rollback](hotfix-procedure.md), [release versioning](release-versioning.md), [runtime verification](runtime-scenario-verification-2026-05-31.md)      |
@@ -65,6 +71,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained engineering guides and contracts
 
+- [Whole-project beta QA domains](beta-qa-domains.md) — 30 domains and 122
+  detailed scopes with criteria, source/test entry points, verification methods,
+  and cross-feature sequences. This is a QA planning guide, not new pass evidence.
 - [Playback state consumption](state-patterns.md)
 - [AppState decomposition and surviving contract](appstate-decomposition.md)
 - [System sync compensation](system-sync-compensation.md)
@@ -81,6 +90,111 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta 30-round repair and verification — 2026-10-07](design/beta-30-round-repair-2026-10-07.md) —
+  Implements the 12 confirmed findings and two separate robustness improvements
+  after owner approval. The report preserves original failures, follow-up checks,
+  compatibility limits and one unresolved legacy SW update liveness observation after approval.
+  Main and production remain frozen.
+- [Beta independent 30-round QA — 2026-10-07](design/beta-30-round-qa-2026-10-07.md) —
+  Astra Ultra, three agents per set across ten sets. Post-round adjudication
+  confirmed 12 distinct unresolved defects at the discovery checkpoint; two observations remained provisional
+  and two candidates are rejected. Selected maintained tests total 8,716 unique
+  passing cases. At that discovery checkpoint, a newly reviewed sharp advisory failed the dev security gate;
+  production-only audit remained zero. Product code and main were not changed
+  during discovery; the subsequent repair is recorded separately above.
+- [Beta dependency security repair — 2026-10-06](design/beta-security-repair-2026-10-06.md) —
+  At the October 6 repair checkpoint, beta audit warnings fell from 13 packages
+  to zero, with registry signatures verified. Dev-only patches preserve each parent's Undici/brace API requirements
+  and the pinned Wrangler version. Main and production remain frozen; the report
+  records the changed dependency graph and its local verification.
+- [Main and beta comparison — 2026-10-06](design/main-beta-comparison-2026-10-06.md) —
+  No new confirmed beta runtime defect across the 97-commit diff. Full unit
+  revalidation and 54 selected Chromium cases pass; an unchanged tooling timeout
+  resolves on focused rerun. Audits at this baseline match at 13 vulnerable dev
+  packages, including one critical warning; prod-only audit remains clean.
+  The October 6 repair cleared beta's then-known dependency warnings. The October 7
+  QA above records a newly reviewed warning. Beta cache
+  promotion and physical-device checks remain.
+- [Final requested beta QA — 2026-10-04](design/beta-final-qa-2026-10-04.md) —
+  No new confirmed product defect; further discovery ends at the owner's
+  request. Full unit 10,637, new module 32, selected Chromium 43 plus four
+  native delay conditions, WebKit 66 with three existing skips, production
+  smoke 10 and eight artifact guards pass. Source is unchanged; physical
+  timing and existing security/cache promotion gates remain.
+- [Follow-up beta sequence QA — 2026-10-04](design/beta-sequence-qa-2026-10-04-round-2.md) —
+  63 new module cases, 18 new mobile-view browser plans and 1,014 selected
+  maintained cases pass. A repeated transient native post-seek difference
+  recovers automatically; an unsupported room-projection diagnostic stays
+  separate with actual teardown controls. Product source is unchanged, and
+  this focused round does not replace the complete verification below.
+- [Large beta QA — 2026-10-04](design/beta-large-qa-2026-10-04.md) —
+  Full unit/coverage and browser verification, 41 new media/PRO composite cases,
+  production artifacts and six Worker dry-run bundles. Two test-oracle defects
+  repaired with original failures and controls preserved; product code unchanged.
+  Existing security/cache promotion gates and physical-device checks remain.
+- [Full local beta verification — 2026-10-03](design/beta-full-local-verification-2026-10-03.md) —
+  Complete local unit/coverage, Chromium, official WebKit, production-artifact
+  and Worker bundle checks on the unchanged beta code. Functional suites pass;
+  existing dependency security and cache-history promotion gates remain.
+- [Beta sequence QA, round 7 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-7.md) —
+  No new confirmed defect in file/queue mutations, PRO prepare/commit, YouTube
+  controls and UI lifetime checks. 1,348 module/Worker and 10 Chromium cases
+  pass. A conditional watchdog failure remains separate because its native
+  trigger is unproven; this is focused evidence, not a complete release sign-off.
+- [Beta sequence QA, round 6 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-6.md) —
+  SQ14–SQ15 discovery and repair: preserve the first PRO repeat/shuffle gesture,
+  retry failed required reads, and retire conflicted intent without losing a
+  newer gesture. Independent native-parser/Worker-body replays, 31 new regression
+  tests, full unit and focused Chromium verification retain their stated limits.
+- [Beta sequence QA, round 5 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-5.md) —
+  SQ10–SQ13 discovery and repair: preserve file pause checkpoints, retire PRO
+  field intent correctly, retain known-rejected chat drafts, and restore
+  semantic YouTube playback after sharing. Original failures and independent
+  revalidation preserved, with module and Chromium regressions; native-media
+  and public-release limits remain explicit.
+- [Beta sequence QA, round 4 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-4.md) —
+  SQ07–SQ09 discovery and repair: failed-file selection retires outgoing output,
+  PRO slowmode preserves drafts, and reconnect fences stale HTTP PREPARE.
+  Original failures preserved; 45 new module regressions, reconciled 10,503
+  unique unit passes and 75 focused Chromium passes. Cache/version and other
+  release gates remain separate from beta verification.
+- [Beta sequence QA, round 3 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-3.md) —
+  SQ05–SQ06 discovery and repair: failed-demo settings rollback and PRO
+  one-shot observation loss before heartbeat catch-up. Preserves failing evidence,
+  independent reproductions and excluded reachability candidates; records fixes,
+  authority/permission controls, full unit and focused browser verification.
+- [Beta sequence QA, round 2 — 2026-10-03](design/beta-sequence-qa-2026-10-03-round-2.md) —
+  SQ02–SQ04 discovery and repair: late resume progress rollback, obsolete file
+  recovery during system-audio takeover, and pending YouTube start overriding
+  a newer seek. Preserves failing evidence and records the beta fixes,
+  independent reviews, cancellation controls and regression results.
+- [Beta sequence QA — 2026-10-03](design/beta-sequence-qa-2026-10-03.md) —
+  fresh asynchronous sequence probes; SQ01 direct-file prefix loss confirmed
+  in beta and archived main, with recovery and neighboring controls. A dated
+  repair addendum records the beta fix and integrated regression evidence.
+- [main → beta merge-readiness audit — 2026-10-01](design/main-beta-merge-audit-2026-10-01.md) —
+  full cumulative diff review and current-SHA local verification, with dependency
+  audit blockers and remaining device/exact-main release gates recorded separately.
+- [Beta defect harvest — 2026-09-27](design/beta-defect-harvest-2026-09-27.md) —
+  discovery-only evidence, four defects confirmed at that checkout. The
+  [living release record](beta-release-readiness.md) tracks their disposition.
+- [Beta defect repair — 2026-09-27](design/beta-defect-repair-2026-09-27.md) —
+  follow-up repairs and regression evidence for those four defects on beta.
+- [Beta defect harvest, round 2 — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-2.md) —
+  discovery-only evidence for three additional defects after those repairs;
+  the release record tracks their resolution and verification limits.
+- [Beta defect repair, round 2 — 2026-09-27](design/beta-defect-repair-2026-09-27-round-2.md) —
+  PRO playback restoration, ordered preload completion, and translation author deletion fences.
+- [Beta defect harvest, round 3 — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-3.md) —
+  one confirmed PRO late-join playback race during live system-audio sharing;
+  discovery only, with focused controls and explicit reproduction limits.
+- [Beta defect harvest, round 4 and repair — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-4.md) —
+  no additional confirmed defects in the bounded review; repairs and verifies
+  the previously discovered PRO live-share snapshot restoration race.
+- [Luna combination audit and ASTRA verification — 2026-09-27](design/beta-luna-combination-audit-2026-09-27.md) —
+  1,250 new local probe cases with explicit composition, outcome-variant, and
+  helper counts; no new confirmed defects or product changes. Native device,
+  live transport, and full E2E coverage are not implied.
 - [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — dated
   defect record with a maintained residual-boundary and verification addendum.
 - [Runtime scenario verification — 2026-05-31](runtime-scenario-verification-2026-05-31.md) —

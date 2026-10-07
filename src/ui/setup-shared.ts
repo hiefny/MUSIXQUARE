@@ -171,7 +171,12 @@ export function syncDesktopLeftPanel(): void {
     if (!areaEl || areaEl.style.display === 'none') continue;
 
     const headerSrc = areaEl.querySelector('.setup-header-text');
-    if (headerSrc) headerContainer.innerHTML = headerSrc.innerHTML;
+    if (headerSrc) {
+      headerContainer.innerHTML = headerSrc.innerHTML;
+      // The copied wordmark needs its own mask ID and the existing reveal
+      // position. Reconcile synchronously before the new layout can paint.
+      document.dispatchEvent(new Event('mxqr:wordmark-refresh'));
+    }
 
     const diagramEl = area.diagram(areaEl);
     if (diagramEl) {

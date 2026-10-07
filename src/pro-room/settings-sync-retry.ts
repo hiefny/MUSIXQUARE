@@ -4,6 +4,7 @@ const SETTINGS_SYNC_RETRY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
 const SETTINGS_SYNC_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 export interface SettingsSyncCheckpointToken {
+  generation: number;
   revision: number;
   fullPublishIntent: number;
 }
@@ -23,6 +24,7 @@ export function isTransientSettingsSyncFailure(error: unknown): boolean {
  */
 export class SettingsSyncCheckpointState {
   #dirty = false;
+  #generation = 0;
   #revision = 0;
   #retryAttempt = 0;
   #fullPublishIntentSequence = 0;
@@ -55,9 +57,15 @@ export class SettingsSyncCheckpointState {
   begin(): SettingsSyncCheckpointToken | null {
     if (!this.#dirty) return null;
     return {
+      generation: this.#generation,
       revision: this.#revision,
       fullPublishIntent: this.#pendingFullPublishIntent,
     };
+  }
+
+  /** Later edits retain the attempt; explicit opt-out/authority loss retires it. */
+  isLive(token: SettingsSyncCheckpointToken): boolean {
+    return token.generation === this.#generation;
   }
 
   nextRetryDelay(token: SettingsSyncCheckpointToken, minimumDelayMs = 0): number | null {
@@ -72,6 +80,7 @@ export class SettingsSyncCheckpointState {
   }
 
   succeed(token: SettingsSyncCheckpointToken): void {
+    if (!this.isLive(token)) return;
     if (
       token.fullPublishIntent !== 0 &&
       this.#pendingFullPublishIntent === token.fullPublishIntent
@@ -93,6 +102,7 @@ export class SettingsSyncCheckpointState {
 
   cancel(): void {
     this.#dirty = false;
+    this.#generation += 1;
     this.#revision += 1;
     this.#retryAttempt = 0;
     this.#pendingFullPublishIntent = 0;

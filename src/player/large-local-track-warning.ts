@@ -1,36 +1,25 @@
-/** Device-local compatibility messaging for risky AudioBuffer decodes. */
+/** Device-local compatibility messaging for large encoded local files. */
 
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
 import { LOCAL_LARGE_TRACK_WARNING_BYTES } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import type { QueueItemId } from '../types/index.ts';
-import { evaluateDecodeMemoryWarning, type DecodeMemoryEstimate } from './decode-admission.ts';
 
 const warnedQueueItems = new Set<QueueItemId>();
+const largePlaybackQueueItems = new Set<QueueItemId>();
+let largePlaybackBlobs = new WeakSet<Blob>();
 
-function announceOnce(
-  queueItemId: QueueItemId,
-  i18nKey: 'chat.decode_memory_risk_system_message' | 'chat.large_local_track_system_message',
-  params?: Record<string, string | number>,
-): boolean {
-  if (warnedQueueItems.has(queueItemId)) return false;
-  warnedQueueItems.add(queueItemId);
-  if (params) announceSystemMessageLocally(i18nKey, params);
-  else announceSystemMessageLocally(i18nKey);
-  return true;
-}
-
-/** Local-only advisory derived from decoded PCM and projected decode peak. */
-export function maybeAnnounceDecodeMemoryRiskWarning(
-  queueItemId: QueueItemId,
-  estimate: DecodeMemoryEstimate,
-): boolean {
-  const evaluation = evaluateDecodeMemoryWarning(estimate);
-  if (!evaluation) return false;
-  return announceOnce(queueItemId, 'chat.decode_memory_risk_system_message', {
-    estimatedMiB: evaluation.estimatedMiB,
-  });
+/** Announce only after the bounded engine has successfully prepared this track. */
+export function announceLargeTrackPlayback(identity: QueueItemId | Blob): void {
+  if (typeof identity === 'string') {
+    if (largePlaybackQueueItems.has(identity)) return;
+    largePlaybackQueueItems.add(identity);
+  } else {
+    if (largePlaybackBlobs.has(identity)) return;
+    largePlaybackBlobs.add(identity);
+  }
+  announceSystemMessageLocally('chat.large_track_playback_system_message');
 }
 
 export function maybeAnnounceLargeLocalTrackWarning(
@@ -45,11 +34,16 @@ export function maybeAnnounceLargeLocalTrackWarning(
     return false;
   }
 
-  return announceOnce(queueItemId, 'chat.large_local_track_system_message');
+  if (warnedQueueItems.has(queueItemId)) return false;
+  warnedQueueItems.add(queueItemId);
+  announceSystemMessageLocally('chat.large_local_track_system_message');
+  return true;
 }
 
 function resetLargeLocalTrackWarnings(): void {
   warnedQueueItems.clear();
+  largePlaybackQueueItems.clear();
+  largePlaybackBlobs = new WeakSet<Blob>();
 }
 
 // A queue occurrence is warned at most once per room session. Starting and

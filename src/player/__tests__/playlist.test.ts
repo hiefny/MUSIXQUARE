@@ -41,6 +41,7 @@ import {
   getCurrentAudioBuffer,
   getCurrentLoadEpoch,
   newLoadEpoch,
+  markTrackFailed,
   setCurrentAudioBuffer,
 } from '../_state.ts';
 import { initDecodeHandlers } from '../decode.ts';
@@ -63,6 +64,8 @@ import { PRO_ROOM_MAX_ASSET_BYTES } from '../../pro-room/contracts.ts';
 import {
   cancelProPlaybackPreparation,
   createProPlaybackAuthorityToken,
+  commitProPlaybackAuthority,
+  invalidateCommittedProPlaybackMedia,
   prepareProPlaybackAuthority,
   registerProPlaybackCommandHandler,
   registerProPlaybackMediaEndpoint,
@@ -249,6 +252,231 @@ function residentFor(item: PlaylistItem, blob: Blob, sessionId = 7): ResidentFil
     size: blob.size,
   };
 }
+
+describe('PRO unavailable occurrence preparation', () => {
+  function authority(revision: number, transitionId: string | null = `failed_${revision}`) {
+    return createProPlaybackAuthorityToken({
+      roomId: '000001',
+      roomEpoch: 1,
+      basePlaybackRevision: revision - 1,
+      transitionId,
+    });
+  }
+
+  it.each([false, true])(
+    'suppresses repeated failed occurrences across snapshots and revisions (control=$0)',
+    async (control) => {
+      enterProRoom(control ? ['playback.control'] : []);
+      setState('network.appRole', 'host');
+      setState('network.isOperator', true);
+      const file = new File(['same bytes'], 'large.flac', { type: 'audio/flac' });
+      const failed = fileItem(file.name, file);
+      const next = fileItem(file.name, file);
+      setState('playlist.items', [failed, next]);
+      const resolveFile = vi.fn(async () => null);
+      registerProRoomMediaHooks(proMediaHooks({ resolveFile, handlesPersistentFile: () => true }));
+      decodeMocks.loadAndBroadcastFile.mockImplementation(async (_file: File, qid: QueueItemId) => {
+        markTrackFailed(`queue:${qid}`);
+        return false;
+      });
+      initPlaylist();
+      await expect(
+        prepareProPlaybackAuthority({
+          authority: authority(1),
+          queueItemId: failed.queueItemId,
+          positionSeconds: 0,
+        }),
+      ).resolves.toMatchObject({ status: 'failed', reason: 'device-unavailable' });
+      expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledOnce();
+      decodeMocks.loadAndBroadcastFile.mockClear();
+      const stop = vi.spyOn(transport, 'stopAllMedia');
+      // Projection can drop the downloaded File reference; terminal identity
+      // must survive that projection and a newer server playback revision.
+      setState('playlist.items', [{ ...failed, file: undefined }, next]);
+      for (const revision of [1, 1, 2, 3]) {
+        await expect(
+          prepareProPlaybackAuthority({
+            authority: authority(revision),
+            queueItemId: failed.queueItemId,
+            positionSeconds: revision * 10,
+            state: revision === 2 ? 'paused' : 'playing',
+          }),
+        ).resolves.toMatchObject({ status: 'failed', reason: 'device-unavailable' });
+      }
+      expect(resolveFile).not.toHaveBeenCalled();
+      expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+      expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
+      expect(stop).not.toHaveBeenCalled();
+
+      // A distinct queue occurrence, even with the same File object, is eligible.
+      decodeMocks.loadAndBroadcastFile.mockImplementation(async (_file: File, qid: QueueItemId) => {
+        setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+        setState('files.current', residentFor(next, file));
+        return qid === next.queueItemId;
+      });
+      await expect(
+        prepareProPlaybackAuthority({
+          authority: authority(4),
+          queueItemId: next.queueItemId,
+          positionSeconds: 0,
+        }),
+      ).resolves.toMatchObject({ status: 'ready', queueItemId: next.queueItemId });
+      expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledOnce();
+      expect(getState('playback.failedTrackKeys')).toEqual(
+        new Set([`queue:${failed.queueItemId}`]),
+      );
+    },
+  );
+
+  it('keeps a failed R2 download eligible for the next snapshot', async () => {
+    enterProRoom([]);
+    const item = fileItem('network.flac');
+    const file = new File(['ok'], item.name, { type: 'audio/flac' });
+    setState('playlist.items', [item]);
+    const resolveFile = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('network unavailable'))
+      .mockImplementationOnce(async () => {
+        setState('playlist.items', [{ ...item, file }]);
+        return file;
+      });
+    registerProRoomMediaHooks(proMediaHooks({ resolveFile, handlesPersistentFile: () => true }));
+    decodeMocks.loadAndBroadcastFile.mockImplementation(async () => {
+      setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+      setState('files.current', residentFor(item, file));
+      return true;
+    });
+    initPlaylist();
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: authority(1),
+        queueItemId: item.queueItemId,
+        positionSeconds: 0,
+      }),
+    ).resolves.toMatchObject({ status: 'failed', reason: 'decode-failed' });
+    expect(getState('playback.failedTrackKeys').size).toBe(0);
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: authority(2),
+        queueItemId: item.queueItemId,
+        positionSeconds: 0,
+      }),
+    ).resolves.toMatchObject({ status: 'ready' });
+    expect(resolveFile).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['file', 'youtube'] as const)(
+    'retires outgoing %s only when unavailable A is committed',
+    async (kind) => {
+      enterProRoom([]);
+      const failed = fileItem('failed.flac');
+      const file = new File(['healthy'], 'healthy.mp3', { type: 'audio/mpeg' });
+      const healthy =
+        kind === 'file' ? fileItem(file.name, file) : youtubeItem('healthy video', 'healthy-video');
+      setState('playlist.items', [failed, healthy]);
+      setState('playlist.currentQueueItemId', healthy.queueItemId);
+      if (kind === 'file') {
+        setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+        setState('files.current', residentFor(healthy, file));
+      } else {
+        setPlaybackYouTubePlaying();
+        // Canonical projection may select A before the old iframe is retired.
+        setState('playlist.currentQueueItemId', failed.queueItemId);
+      }
+      markTrackFailed(`queue:${failed.queueItemId}`);
+      const stop = vi.spyOn(transport, 'stopAllMedia');
+      initPlaylist();
+      const token = authority(3);
+      await expect(
+        prepareProPlaybackAuthority({
+          authority: token,
+          queueItemId: failed.queueItemId,
+          positionSeconds: 0,
+        }),
+      ).resolves.toMatchObject({ status: 'failed', reason: 'device-unavailable' });
+      expect(stop).not.toHaveBeenCalled();
+      const request = {
+        authority: token,
+        committedPlaybackRevision: 3,
+        queueItemId: failed.queueItemId,
+        state: 'playing' as const,
+        positionSeconds: 0,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control' as const,
+        isCurrent: () => true,
+      };
+      await invalidateCommittedProPlaybackMedia(request);
+      expect(stop).toHaveBeenCalledExactlyOnceWith({ cancelInFlight: true });
+      expect(getCurrentAudioBuffer()).toBeNull();
+      expect(getState('files.current')).toBeNull();
+      expect(getState('playlist.currentQueueItemId')).toBe(failed.queueItemId);
+      expect(getState('player.currentTrackMeta')?.name).toBe(failed.name);
+      expect(getState('playback.activity')).toBe('idle');
+      stop.mockClear();
+      await invalidateCommittedProPlaybackMedia(request);
+      expect(stop).not.toHaveBeenCalled();
+      expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['request', 'load', 'room'] as const)(
+    'does not retire a successor after the %s fence changes',
+    async (fence) => {
+      vi.useFakeTimers();
+      enterProRoom([]);
+      const failed = fileItem('failed.flac');
+      const file = new File(['healthy'], 'healthy.mp3', { type: 'audio/mpeg' });
+      const healthy = fileItem(file.name, file);
+      setState('playlist.items', [failed, healthy]);
+      setState('playlist.currentQueueItemId', healthy.queueItemId);
+      const buffer = { duration: 60 } as AudioBuffer;
+      setCurrentAudioBuffer(buffer);
+      setState('files.current', residentFor(healthy, file));
+      markTrackFailed(`queue:${failed.queueItemId}`);
+      initPlaylist();
+      const stop = vi.spyOn(transport, 'stopAllMedia');
+      let current = true;
+      const pending = invalidateCommittedProPlaybackMedia({
+        authority: authority(3),
+        committedPlaybackRevision: 3,
+        queueItemId: failed.queueItemId,
+        state: 'playing',
+        positionSeconds: 0,
+        scheduleDelayMs: 100,
+        timingMode: 'scheduled-control',
+        isCurrent: () => current,
+      });
+      if (fence === 'request') current = false;
+      else if (fence === 'load') newLoadEpoch();
+      else setState('room.context', { ...getState('room.context'), epoch: 2 });
+      await vi.advanceTimersByTimeAsync(100);
+      await pending;
+      expect(stop).not.toHaveBeenCalled();
+      expect(getCurrentAudioBuffer()).toBe(buffer);
+      expect(getState('files.current')?.queueItemId).toBe(healthy.queueItemId);
+    },
+  );
+
+  it('rejects a direct seek/pause commit for an unavailable occurrence', async () => {
+    enterProRoom([]);
+    const failed = fileItem('failed.flac');
+    setState('playlist.items', [failed]);
+    markTrackFailed(`queue:${failed.queueItemId}`);
+    initPlaylist();
+    await expect(
+      commitProPlaybackAuthority({
+        authority: authority(1, null),
+        committedPlaybackRevision: 1,
+        queueItemId: failed.queueItemId,
+        state: 'paused',
+        positionSeconds: 25,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+      }),
+    ).resolves.toMatchObject({ status: 'failed', reason: 'device-unavailable' });
+    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+  });
+});
 
 describe('coordinator-free PRO playback routing', () => {
   it('routes a queue occurrence selection without mutating local playback first', async () => {
@@ -1026,7 +1254,7 @@ describe('PRO playlist mutation bridge', () => {
     expect(admitted).toHaveBeenCalledOnce();
   });
 
-  it('adopts an in-flight PRO preload resolver during server PREPARE without a second download', async () => {
+  it('prepares an adopted PRO preload through the server-authoritative foreground path', async () => {
     const currentFile = new File(['current'], 'current.flac', { type: 'audio/flac' });
     const current = fileItem(currentFile.name, currentFile);
     const next = fileItem('next.flac');
@@ -1060,11 +1288,7 @@ describe('PRO playlist mutation bridge', () => {
     const inFlight = new Promise<File>((resolve) => {
       finish = resolve;
     });
-    let residentAtResolution: ResidentFile | null | undefined;
-    let bufferAtResolution: AudioBuffer | null | undefined;
     const resolveFile = vi.fn(() => {
-      residentAtResolution = getState('files.current');
-      bufferAtResolution = getCurrentAudioBuffer();
       return inFlight.then((file) => {
         setState('playlist.items', [current, { ...next, file }]);
         return file;
@@ -1091,6 +1315,12 @@ describe('PRO playlist mutation bridge', () => {
       positionSeconds: 0,
     });
     await vi.waitFor(() => expect(resolveFile).toHaveBeenCalledOnce());
+    // The outgoing media is already stopped. Keep its PCM and encoded bytes
+    // released throughout the pending receive, before decoding the selected file.
+    expect(getState('files.current')).toBeNull();
+    expect(getCurrentAudioBuffer()).toBeNull();
+    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
+    expect(getState('playback.activity')).toBe('pending');
     finish(downloaded);
     // The mocked decoder deliberately reports no AudioBuffer, so preparation
     // fails after the download seam. The assertion below is about adopting the
@@ -1101,10 +1331,6 @@ describe('PRO playlist mutation bridge', () => {
     });
 
     expect(resolveFile).toHaveBeenCalledOnce();
-    // Server PREPARE is silent: the currently audible resident remains owned
-    // until a canonical COMMIT replaces it.
-    expect(residentAtResolution).toMatchObject({ queueItemId: current.queueItemId });
-    expect(bufferAtResolution).toBe(currentBuffer);
     // Server PREPARE owns the foreground decode lane, but it adopts the same
     // runtime resolver/promise rather than issuing another R2 request.
     expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
@@ -2153,6 +2379,48 @@ describe('atomic batch playlist removal', () => {
     expect(getState('playlist.items')).toEqual([successor]);
     expect(getState('playlist.currentQueueItemId')).toBe(successor.queueItemId);
     expect(stopYouTube).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes a new occurrence when removing the playing row selects the same YouTube video', () => {
+    const current = youtubeItem('First occurrence', 'SAME_VIDEO_1');
+    const successor = youtubeItem('Second occurrence', 'SAME_VIDEO_1');
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
+    setState('playlist.items', [current, successor]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    setState('player.isFirstTrackLoad', false);
+    setPlaybackYouTubePlaying();
+    setPlaybackTrackMeta(current);
+    setYouTubePlayer({ getVideoData: () => ({ video_id: 'SAME_VIDEO_1' }) } as never);
+    const prepareRestart = vi
+      .spyOn(youtubeIframe, 'prepareSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+    const handoff = vi
+      .spyOn(youtubeIframe, 'handoffSameVideoOccurrenceRestart')
+      .mockReturnValue(true);
+    initPlaylist();
+
+    bus.emit('playlist:remove-tracks', [current.queueItemId]);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(successor.queueItemId);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.YOUTUBE_PLAY,
+        queueItemId: successor.queueItemId,
+        videoId: 'SAME_VIDEO_1',
+        autoplay: false,
+      }),
+    );
+    expect(prepareRestart).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(handoff).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(consumePendingAutoSyncOnReady()).toMatchObject({
+      isTrackTransition: true,
+      zeroStart: true,
+      targetTime: 0,
+      videoId: 'SAME_VIDEO_1',
+      skipSeek: false,
+    });
   });
 });
 

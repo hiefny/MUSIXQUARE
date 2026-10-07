@@ -73,4 +73,22 @@ describe('local-file shared start timeline', () => {
     vi.setSystemTime(2_500);
     expect(resolveFilePlayTiming(timeline.time, timeline.setAt).offset).toBe(13.5);
   });
+
+  it.each([
+    [-5_000, 100],
+    [5_000, 100],
+    [-5_000, 600],
+    [5_000, 600],
+  ])('preserves the captured start after wall step %ims and preparation %ims', (step, elapsed) => {
+    calibrateHostOffset(50_000);
+    const timeline = captureGuestFilePlayTiming({ hostStartAt: 51_200 }, 12);
+    vi.setSystemTime(1_000 + elapsed + step);
+    vi.mocked(performance.now).mockReturnValue(10_000 + elapsed);
+
+    expect(resolveFilePlayTiming(timeline.time, timeline.setAt, timeline.monotonicSetAt)).toEqual({
+      offset: 12 + Math.max(0, elapsed - 200) / 1_000,
+      scheduleDelay: Math.max(0, 200 - elapsed) / 1_000,
+      scheduleDeadlineMs: 10_000 + Math.max(200, elapsed),
+    });
+  });
 });

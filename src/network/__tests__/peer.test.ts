@@ -271,6 +271,7 @@ describe('leaveSession', () => {
 
   it('resets session-scoped setup, transfer, sync, and identity state', () => {
     setState('setup.sessionStarted', true);
+    setState('network.chatMuted', true);
     setState('network.myJoinOrder', 3);
     setState('network.lastJoinCode', '123456');
     setState('network.roomPasswordRequired', true);
@@ -288,6 +289,7 @@ describe('leaveSession', () => {
     leaveSession();
 
     expect(getState('setup.sessionStarted')).toBe(false);
+    expect(getState('network.chatMuted')).toBe(false);
     expect(getState('network.myJoinOrder')).toBe(0);
     expect(getState('network.lastJoinCode')).toBe('');
     expect(getState('network.roomPasswordRequired')).toBe(false);

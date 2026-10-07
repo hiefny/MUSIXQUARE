@@ -423,10 +423,10 @@ const sv: Record<I18nKey, string> = {
   'chat.bot_rate_limited':
     'Gränsen för BOT-begäranden har nåtts. Vänta {{duration}} och försök igen',
   'chat.decode_skip_system_message': 'Spåret hoppas över: formatet stöds inte på vissa enheter.',
+  'chat.large_track_playback_system_message':
+    'Det här spåret är mycket stort, så fördröjningar kan uppstå vid användning.',
   'chat.large_local_track_system_message':
     'Den här spårfilen är mycket stor och kanske inte kan spelas på vissa enheter.',
-  'chat.decode_memory_risk_system_message':
-    'Spåret kan använda omkring {{estimatedMiB}} MiB minne under avkodningen och kanske inte kan spelas på den här enheten.',
   'chat.device_track_unavailable_system_message':
     'Den här enheten kan inte spela det aktuella spåret.',
   'chat.system_audio_started_system_message':

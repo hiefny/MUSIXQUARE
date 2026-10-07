@@ -67,7 +67,7 @@ const transportMocks = vi.hoisted(() => ({
   hostStartAt: undefined as number | undefined,
   pendingDeadline: undefined as number | undefined,
 }));
-const zeroStartFacade = vi.hoisted(() => ({ active: false }));
+const zeroStartFacade = vi.hoisted(() => ({ fallback: false, active: false }));
 
 vi.mock('../../player/transport.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../player/transport.ts')>();
@@ -79,6 +79,11 @@ vi.mock('../../player/transport.ts', async (importOriginal) => {
     getLocalFilePendingStartDeadlineMs: () => transportMocks.pendingDeadline,
   };
 });
+
+vi.mock('../../youtube/player-runtime-bridge.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../youtube/player-runtime-bridge.ts')>()),
+  isYouTubeZeroStartExternalFallbackPendingFromSync: () => zeroStartFacade.fallback,
+}));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
   isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
@@ -100,6 +105,7 @@ beforeEach(() => {
   setDemoHostStartAt(null);
   setPlayLocked(false);
   zeroStartFacade.active = false;
+  zeroStartFacade.fallback = false;
   setLocalFilePaused(false);
 });
 
@@ -157,7 +163,9 @@ describe('demo and pending-start manual controls', () => {
       initSync();
       if (event === 'sync:set-manual-offset') bus.emit(event, 9999);
       else bus.emit(event);
-      expect(transportMocks.play).toHaveBeenCalledWith(expect.any(Number), 0, 12345);
+      expect(transportMocks.play).toHaveBeenCalledWith(expect.any(Number), 0, 12345, undefined, {
+        outputOnly: true,
+      });
     },
   );
 
@@ -309,21 +317,25 @@ describe('manual sync nudge routing', () => {
     expect(applySpy).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects YouTube nudge and reset actions while zero-start owns the iframe', () => {
-    initSync();
-    const applySpy = vi.fn();
-    bus.on('youtube:apply-manual-sync', applySpy);
-    setPlaybackYouTubePlaying();
-    setState('network.hostConn', { open: true } as DataConnection);
-    setState('sync.youtubeLocalOffset', 0.25);
-    zeroStartFacade.active = true;
+  it.each(['active', 'fallback'] as const)(
+    'rejects YouTube edits while the %s zero-start owner is pending',
+    (owner) => {
+      initSync();
+      const applySpy = vi.fn();
+      bus.on('youtube:apply-manual-sync', applySpy);
+      setPlaybackYouTubePlaying();
+      setState('network.hostConn', { open: true } as DataConnection);
+      setState('sync.youtubeLocalOffset', 0.25);
+      zeroStartFacade[owner] = true;
 
-    bus.emit('sync:nudge', 10);
-    bus.emit('sync:auto-sync');
+      bus.emit('sync:nudge', 10);
+      bus.emit('sync:set-manual-offset', -1234);
+      bus.emit('sync:auto-sync');
 
-    expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
-    expect(applySpy).not.toHaveBeenCalled();
-  });
+      expect(getState('sync.youtubeLocalOffset')).toBe(0.25);
+      expect(applySpy).not.toHaveBeenCalled();
+    },
+  );
 
   it('lets a PRO coordinator nudge its decoded local file without hostConn', () => {
     initSync();
@@ -837,7 +849,7 @@ describe('background resume recovery', () => {
     bus.on('sync:diagnostic-standard-decision', (decision) => decisions.push(decision));
 
     registerPing(99);
-    vi.setSystemTime(1020);
+    vi.advanceTimersByTime(20);
     expect(processSyncPong(99, 5020)).not.toBeNull();
 
     bus.emit('sync:force-resync', { preserveClock: true });
@@ -855,7 +867,8 @@ describe('background resume recovery', () => {
 
     // The next preload can delay this reply. Preserve the established low-RTT
     // clock sample while applying the requested playback correction at once.
-    vi.setSystemTime(1520);
+    // Queueing advances elapsed time too; setSystemTime alone models a wall edit.
+    vi.advanceTimersByTime(500);
     await handleData(
       {
         type: MSG.SYNC_PONG,
@@ -982,7 +995,7 @@ describe('local-file sync correction', () => {
       setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
       setPlaybackFilePaused();
       registerPing(905);
-      vi.setSystemTime(receivedAt);
+      vi.advanceTimersByTime(receivedAt - 1000);
       await handleData(
         {
           type: MSG.SYNC_PONG,

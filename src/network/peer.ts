@@ -664,7 +664,8 @@ function bindBrowserConnectivityRecovery(): void {
 
 async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promise<void> {
   let peer = getPeer();
-  if (!peer || peer !== expectedPeer || peer.destroyed) {
+  if (peer !== expectedPeer) return;
+  if (peer.destroyed) {
     _reconnectAttempts = 0;
     return;
   }
@@ -681,7 +682,10 @@ async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promis
     log.info('[Transport] Requesting a fresh PRO signaling ticket before reconnect');
     const credentialReady = await requestProRoomSignalingReconnect();
     peer = getPeer();
-    if (!peer || peer !== expectedPeer || peer.destroyed) {
+    // The credential request can outlive leave/rejoin. Its completion must not
+    // reset a replacement peer's retry count or shorten its next backoff.
+    if (peer !== expectedPeer) return;
+    if (peer.destroyed) {
       _reconnectAttempts = 0;
       return;
     }
@@ -1276,6 +1280,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
     'network.roomPassword': '',
     'network.peerSlots': Array(MAX_GUEST_SLOTS + 1).fill(null) as (string | null)[],
     'network.mutedPeers': new Set<string>(),
+    'network.chatMuted': false,
     'network.chatFrozen': false,
     'network.slowmodeSeconds': 0,
     'network.filterEnabled': false,
@@ -1317,6 +1322,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
     'playback.loadSource': null,
     'playback.pendingPlayTime': undefined,
     'playback.pendingPlayTimeSetAt': 0,
+    'playback.pendingPlayTimeMonotonicSetAt': null,
     'playback.pendingRecoveryTarget': null,
     'playback.failedTrackKeys': new Set<string>(),
     // Sync

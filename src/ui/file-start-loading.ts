@@ -88,6 +88,7 @@ export function createFileStartLoadingController(onChange: (pending: boolean) =>
   scope.on('state:playback.activity', refreshFromState);
   scope.on('state:files.current', refreshFromState);
   scope.on('player:buffer-changed', refreshFromState);
+  scope.on('player:output-preparing', refreshFromState);
   scope.on('audio:ready', refreshFromState);
   document.addEventListener('visibilitychange', refreshFromState, {
     signal: abortController.signal,

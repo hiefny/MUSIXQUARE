@@ -192,6 +192,8 @@ export interface PlaylistItem {
   thumbnail?: string;
   videoId: string | null;
   playlistId: string | null;
+  /** Local PRO projection of this occurrence's immutable server manifest. */
+  youtubeVideoIds?: string[];
   isExpanded?: boolean;
 }
 
@@ -1027,6 +1029,8 @@ export interface StateTree {
     standardRoomAdministrators: Map<string, StandardRoomAdministrator>;
     connectionType: 'local' | 'remote' | 'unknown';
     mutedPeers: Set<string>;
+    /** Authoritative moderation projection for this participant's outbound chat. */
+    chatMuted: boolean;
     chatFrozen: boolean;
     slowmodeSeconds: number;
     filterEnabled: boolean;
@@ -1102,6 +1106,8 @@ export interface StateTree {
      * 0 = no pending time.
      */
     pendingPlayTimeSetAt: number;
+    /** Monotonic shared-start anchor; null for legacy untimed pending intents. */
+    pendingPlayTimeMonotonicSetAt: number | null;
     /**
      * The track we're awaiting (recovery, preload-promoted blob, deferred
      * play). Consumers read one atomic snapshot whose stable owner is
@@ -1274,6 +1280,8 @@ interface BaseEventMap {
   'player:stop-all-media': [
     options?: { silent?: boolean; cancelInFlight?: boolean; clearBuffer?: boolean },
   ];
+  /** A validated host command selected an occurrence this guest cannot decode. */
+  'player:unavailable-file-selected': [queueItemId: QueueItemId, sessionId?: number];
   'playback:refresh-current-position': [];
   /**
    * Rejoin only this browser's output to the authoritative room timeline.
@@ -1292,6 +1300,7 @@ interface BaseEventMap {
   ];
   'player:check-ended': [];
   'player:buffer-changed': [];
+  'player:output-preparing': [];
   /** Local-only feedback while a PRO playback command awaits canonical media application. */
   'pro-playback:ui-control-pending': [event: Readonly<ProPlaybackUiControlPendingEvent>];
   /** Exact terminal result for the matching local PRO UI control token. */
@@ -1501,7 +1510,6 @@ interface BaseEventMap {
   'pro-room:administrators-updated': [administrators: ProRoomAdministrator[]];
   'network:kicked-explicitly': [];
   'network:room-password-changed': [password: string | null];
-  'chat:muted-state-changed': [isMuted: boolean];
   'chat:clear-all': [];
 
   // ── Playlist ────────────────────────────────────────────────────
@@ -1654,7 +1662,7 @@ interface BaseEventMap {
   'visualizer:start': [];
   'visualizer:hold-frame': [];
   'visualizer:fade-out': [];
-  'visualizer:set-type': [mode: 'circular' | 'spectrum'];
+  'visualizer:refresh-presentation': [];
 
   // ── Worker ──────────────────────────────────────────────────────────
   'worker:timer-tick': [id: string];

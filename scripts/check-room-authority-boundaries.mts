@@ -419,7 +419,7 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/ui/chat.ts',
     [
-      "read:isOperator @ function:sendChatMessage :: variable isOp = isProRoom ? ownProParticipant?.role === 'owner' || ownProParticipant?.role === 'controller' : getState('network.isOperator') || false => consumers [isOp -> if (chatFrozen && !isHost && !isOp) | isOp -> if (slowmode > 0 && !isHost && !isOp) | isOp -> variable chatMsg = { type: MSG.CHAT, senderId: myId, ...(senderMemberId ? { senderMemberId } : {}), sender: senderLabel, senderLabel: senderLabel, isHost, isOp, text: text, ts: Date.now(), joinOrder: myJoinOrder, ...(botRequestId ? { botRequestId } : {}), } | isOp -> variable localBadge = isProRoom ? ownProParticipant?.role === 'owner' ? 'host' : ownProParticipant?.role === 'controller' ? 'op' : undefined : isHost ? 'host' : isOp ? 'op' : undefined]",
+      "read:isOperator @ function:sendChatMessage :: variable isOp = isProRoom ? ownProParticipant?.role === 'owner' || ownProParticipant?.role === 'controller' : getState('network.isOperator') || false => consumers [isOp -> if (chatFrozen && !isHost && !isOp) | isOp -> if (slowmode > 0 && (isProRoom || (!isHost && !isOp))) | isOp -> variable chatMsg = { type: MSG.CHAT, senderId: myId, ...(senderMemberId ? { senderMemberId } : {}), sender: senderLabel, senderLabel: senderLabel, isHost, isOp, text: text, ts: Date.now(), joinOrder: myJoinOrder, ...(botRequestId ? { botRequestId } : {}), } | isOp -> variable localBadge = isProRoom ? ownProParticipant?.role === 'owner' ? 'host' : ownProParticipant?.role === 'controller' ? 'op' : undefined : isHost ? 'host' : isOp ? 'op' : undefined]",
     ],
   ],
   [

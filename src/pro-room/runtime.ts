@@ -53,7 +53,7 @@ import {
 import { schedulePreload } from '../storage/preload.ts';
 import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import { resolveYouTubePlaylistManifest } from '../youtube/search.ts';
-import { resetRoomContext, setRoomContext } from '../rooms/authority.ts';
+import { hasRoomCapability, resetRoomContext, setRoomContext } from '../rooms/authority.ts';
 import type { PlaylistItem, PlaylistWireItem, QueueItemId, RoomContext } from '../types/index.ts';
 import {
   parseProQueueAdditionFrame,
@@ -88,7 +88,8 @@ import type {
   ProRoomSystemAudioState,
 } from './contracts.ts';
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
-import { rebaseRoomSettingsIntent } from './effects-reconciliation.ts';
+import { applyProRoomSnapshotMonotonically } from './revision.ts';
+import { RoomSettingsIntentTracker } from './effects-reconciliation.ts';
 import {
   isTransientSettingsSyncFailure,
   SettingsSyncCheckpointState,
@@ -183,7 +184,25 @@ const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
 const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const api = new ProRoomApiClient();
-configureProSystemAudioService(api);
+configureProSystemAudioService(api, async (liveness) => {
+  const restored = await playbackController.reconcile({
+    showLoading: false,
+    youtubeOnly: true,
+    rendezvous: true,
+    preparePaused: true,
+    liveness,
+  });
+  if (restored || !liveness.isCurrent()) return true;
+  const snapshot = playlistManager?.snapshot ?? controller.snapshot;
+  if (!snapshot) return false;
+  if (snapshot.playback.state === 'idle' || snapshot.playback.queueItemId === null) return true;
+  const item = snapshot?.playlist.find(
+    (candidate) => candidate.queueItemId === snapshot.playback.queueItemId,
+  );
+  // File playback deliberately remains paused after sharing. A fresh
+  // checkpoint with no YouTube target completes this restoration intent.
+  return item?.source.kind === 'pro-r2';
+});
 const bridge = proRoomServerBridge;
 
 function observeProRoomRuntimeTask(operation: Promise<unknown>, context: string): void {
@@ -220,18 +239,25 @@ let effectsSilentThroughRevision = -1;
 let effectsNotificationBaselinePending = false;
 let effectsSilentRefreshPending = false;
 let suppressEffectsCheckpoint = false;
-let effectsSessionBaseline: ReturnType<typeof captureRoomSettingsSyncState> | null = null;
+const effectsIntent = new RoomSettingsIntentTracker();
 const effectsCheckpointState = new SettingsSyncCheckpointState();
 let queueModeMutationTail: Promise<void> = Promise.resolve();
 let queueModeRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
 let suppressQueueModeCheckpoint = false;
 let queueModeCheckpointDirty = false;
+let queueModeCheckpointGeneration = 0;
 let queueModeIntentRevision = 0;
+type QueueModeIntentField = 'repeatMode' | 'shuffleEnabled';
+let queueModeFieldIntentRevision: Record<QueueModeIntentField, number> = {
+  repeatMode: 0,
+  shuffleEnabled: 0,
+};
 let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
 let presenceRecoveryAbort: AbortController | null = null;
 let controlChannelRecoveryAttempt = 0;
+let controlChannelRecoveryGeneration: number | null = null;
 let accountAuthorityFailClosed = false;
 let accountLeaseRenewalOwner: symbol | null = null;
 let accountIdentityLeaseExpiresAtMs: number | null = null;
@@ -260,6 +286,7 @@ let acceptedProPresence:
     })
   | null = null;
 let acceptedProAdministrators: ProRoomAdministrator[] = [];
+let publishedProMembershipSnapshot: ProRoomSnapshot | null = null;
 const seenQueueAdditionEventIds = new Set<string>();
 const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
 let lastAnnouncedQueueAdditionOrder = 0;
@@ -719,10 +746,13 @@ async function applyProjectedPlaylist(
       ? []
       : findRemovedProRoomQueueItemIds(previousItems, playlist);
     const survivingQueueItemIds = new Set(playlist.map((item) => item.queueItemId));
+    const projectedCurrent = firstProjection
+      ? snapshot.currentQueueItemId
+      : playbackController.resolveProjectedQueueItemId(snapshot);
     const authoritativeDeselection = shouldStopForAuthoritativeDeselection(
       firstProjection,
       previousCurrent,
-      snapshot.currentQueueItemId,
+      projectedCurrent,
       survivingQueueItemIds,
     );
     const removalTransition = firstProjection
@@ -733,7 +763,7 @@ async function applyProjectedPlaylist(
       // The room revision, unlike playlistRevision, also advances when the
       // selected item changes. It is therefore the safe legacy queue clock.
       revision: snapshot.revision,
-      currentQueueItemId: snapshot.currentQueueItemId,
+      currentQueueItemId: projectedCurrent,
     };
     const outcome = applyPlaylistSnapshot(payload, firstProjection ? 'rebase' : 'monotonic');
     if (outcome === 'invalid' || outcome === 'stale' || outcome === 'conflict') {
@@ -1091,9 +1121,22 @@ function publishProRoomAdministratorDirectory(
   return reconciliation.projection;
 }
 
-function publishProRoomAdministrators(snapshot: ProRoomSnapshot): void {
+function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
+  // Session reads and committed mutations have separate acceptance lanes. An
+  // older heartbeat must not resurrect a participant already removed by a
+  // successful kick, or roll the administrator directory back with it.
+  const result = applyProRoomSnapshotMonotonically(publishedProMembershipSnapshot, snapshot);
+  if (result.outcome === 'invalid' || result.outcome === 'conflict') {
+    log.warn(`[PRO] Membership snapshot rejected: ${result.outcome}`);
+    return;
+  }
+  if (result.outcome !== 'applied' || !result.snapshot) return;
+  publishedProMembershipSnapshot = result.snapshot;
+  reconcileAuthoritativePeers(result.snapshot);
   const administrators =
-    snapshot.authorityVersion === 1 && snapshot.administrators ? snapshot.administrators : [];
+    result.snapshot.authorityVersion === 1 && result.snapshot.administrators
+      ? result.snapshot.administrators
+      : [];
   publishProRoomAdministratorDirectory(administrators);
 }
 
@@ -1101,98 +1144,152 @@ function installMediaHooks(
   manager: ProRoomPlaylistStateManager,
   lease: PlaylistRuntimeLease,
 ): void {
-  const reportCurrentPlaylistError = (error: unknown) => {
-    if (isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
+  // A room can outlive a controller's grant. Queued writes belong to the
+  // uninterrupted grant that admitted them, not whichever grant exists later.
+  const roomSignal = playlistRuntimeAbort!.signal;
+  let mutationLifetime: ReturnType<typeof createRoomLinkedAbortController> | null = null;
+  let uploadQueue: ProRoomUploadQueue | null = null;
+  const reportCurrentPlaylistError = (signal: AbortSignal) => (error: unknown) => {
+    if (!signal.aborted && isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
   };
   const uploadBatchLoaderIds = new Map<string, string>();
-  const queue = new ProRoomUploadQueue({
-    signal: playlistRuntimeAbort?.signal,
-    run: async ({ id, file }, context) => {
-      if (!isPlaylistLeaseCurrent(lease)) return;
-      const progressText = t('pro.upload.batch_progress', {
-        current: context.current,
-        total: context.total,
-      });
-      let loaderId = uploadBatchLoaderIds.get(context.batchId);
-      if (!loaderId) {
-        loaderId = openTransferLoader('upload', progressText);
-        uploadBatchLoaderIds.set(context.batchId, loaderId);
-      } else {
-        showLoader(true, progressText, loaderId);
-      }
-      reportTransferProgress(loaderId, (context.current - 1) / context.total);
-      await manager.addLocalFile(
-        {
-          queueItemId: id,
-          file,
-          onProgress: (fraction) => {
-            context.onProgress(fraction);
-            reportTransferProgress(
-              loaderId,
-              (context.current - 1 + Math.max(0, Math.min(1, fraction))) / context.total,
-            );
+  const createUploadQueue = (signal: AbortSignal): ProRoomUploadQueue => {
+    const queue = new ProRoomUploadQueue({
+      signal,
+      run: async ({ id, file }, context) => {
+        if (signal.aborted || !isPlaylistLeaseCurrent(lease)) return;
+        const progressText = t('pro.upload.batch_progress', {
+          current: context.current,
+          total: context.total,
+        });
+        let loaderId = uploadBatchLoaderIds.get(context.batchId);
+        if (!loaderId) {
+          loaderId = openTransferLoader('upload', progressText);
+          uploadBatchLoaderIds.set(context.batchId, loaderId);
+        } else {
+          showLoader(true, progressText, loaderId);
+        }
+        reportTransferProgress(loaderId, (context.current - 1) / context.total);
+        await manager.addLocalFile(
+          {
+            queueItemId: id,
+            file,
+            onProgress: (fraction) => {
+              context.onProgress(fraction);
+              reportTransferProgress(
+                loaderId,
+                (context.current - 1 + Math.max(0, Math.min(1, fraction))) / context.total,
+              );
+            },
           },
-        },
-        {
-          signal: context.signal,
-          refreshBeforeUpload: context.isRetry,
-        },
-      );
-    },
-    reportFailure(error) {
-      if (isPlaylistLeaseCurrent(lease)) {
-        log.warn('[PRO] Persistent local upload failed', error);
-      }
-    },
-    onBatchSettled(result) {
-      const loaderId = uploadBatchLoaderIds.get(result.batchId);
-      if (loaderId) {
-        uploadBatchLoaderIds.delete(result.batchId);
-        closeTransferLoader(loaderId, result.failedCount === 0 && result.cancelledCount === 0);
-      }
-      if (result.failedCount === 0) return;
-      if (!isPlaylistLeaseCurrent(lease)) {
-        queue.dismissFailedBatch(result.batchId);
-        return;
-      }
-      observeProRoomRuntimeTask(
-        resolveProRoomUploadFailureDialog({
-          queue,
-          batchId: result.batchId,
-          show: () =>
-            showDialog({
-              title: t('pro.upload.batch_failed_title'),
-              message: t('pro.upload.batch_failed_message', {
-                total: result.requestedCount,
-                failed: result.failedCount,
+          {
+            signal: context.signal,
+            refreshBeforeUpload: context.isRetry,
+          },
+        );
+      },
+      reportFailure(error) {
+        if (!signal.aborted && isPlaylistLeaseCurrent(lease)) {
+          log.warn('[PRO] Persistent local upload failed', error);
+        }
+      },
+      onBatchSettled(result) {
+        const loaderId = uploadBatchLoaderIds.get(result.batchId);
+        if (loaderId) {
+          uploadBatchLoaderIds.delete(result.batchId);
+          closeTransferLoader(loaderId, result.failedCount === 0 && result.cancelledCount === 0);
+        }
+        if (result.failedCount === 0) return;
+        if (signal.aborted || uploadQueue !== queue || !isPlaylistLeaseCurrent(lease)) {
+          queue.dismissFailedBatch(result.batchId);
+          return;
+        }
+        observeProRoomRuntimeTask(
+          resolveProRoomUploadFailureDialog({
+            queue,
+            batchId: result.batchId,
+            show: () =>
+              showDialog({
+                title: t('pro.upload.batch_failed_title'),
+                message: t('pro.upload.batch_failed_message', {
+                  total: result.requestedCount,
+                  failed: result.failedCount,
+                }),
+                buttonText: t('common.retry'),
+                secondaryText: t('common.close'),
+                defaultFocus: 'secondary',
+                dismissible: true,
               }),
-              buttonText: t('common.retry'),
-              secondaryText: t('common.close'),
-              defaultFocus: 'secondary',
-              dismissible: true,
-            }),
-          isCurrent: () => isPlaylistLeaseCurrent(lease),
-          reportPresentationFailure: (error) =>
-            log.warn('[PRO] Upload failure dialog could not be presented', error),
-        }),
-        'upload failure dialog',
-      );
+            isCurrent: () =>
+              !signal.aborted && uploadQueue === queue && isPlaylistLeaseCurrent(lease),
+            reportPresentationFailure: (error) =>
+              log.warn('[PRO] Upload failure dialog could not be presented', error),
+          }),
+          'upload failure dialog',
+        );
+      },
+    });
+    return queue;
+  };
+  const retireUploadQueue = () => {
+    uploadQueue?.reset();
+    uploadQueue = null;
+    proRoomUploadQueue = null;
+    setActiveProRoomUploadQueue(null);
+    for (const loaderId of uploadBatchLoaderIds.values()) closeTransferLoader(loaderId, false);
+    uploadBatchLoaderIds.clear();
+  };
+  const reconcileMutationAuthority = () => {
+    const context = getState('room.context');
+    const canMutate =
+      !roomSignal.aborted &&
+      isPlaylistLeaseCurrent(lease) &&
+      context.kind === 'pro' &&
+      context.roomId === lease.roomCode &&
+      hasRoomCapability('queue.mutate');
+    if (!canMutate) {
+      mutationLifetime?.controller.abort();
+      mutationLifetime?.detach();
+      mutationLifetime = null;
+      retireUploadQueue();
+      return;
+    }
+    mutationLifetime ??= createRoomLinkedAbortController(roomSignal);
+    if (!hasRoomCapability('asset.upload')) {
+      retireUploadQueue();
+    } else if (!uploadQueue) {
+      uploadQueue = createUploadQueue(mutationLifetime.controller.signal);
+      proRoomUploadQueue = uploadQueue;
+      setActiveProRoomUploadQueue(uploadQueue);
+    }
+  };
+  const unsubscribeAuthority = bus.on('state:room.context', reconcileMutationAuthority);
+  roomSignal.addEventListener(
+    'abort',
+    () => {
+      unsubscribeAuthority();
+      reconcileMutationAuthority();
     },
-  });
-  proRoomUploadQueue = queue;
-  setActiveProRoomUploadQueue(queue);
+    { once: true },
+  );
+  reconcileMutationAuthority();
+  const captureMutationSignal = (): AbortSignal | null => {
+    reconcileMutationAuthority();
+    return mutationLifetime?.controller.signal ?? null;
+  };
   const hooks: ProRoomMediaHooks = {
     addFiles(files, rejectedCount) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      if (!captureMutationSignal() || !uploadQueue) return true;
       if (files.length === 0) return true;
       if (rejectedCount > 0) {
         bus.emit('ui:show-toast', t('toast.unsupported_files_excluded', { count: rejectedCount }));
       }
-      queue.enqueueFiles(files);
+      uploadQueue.enqueueFiles(files);
       return true;
     },
     addYouTube(item, _sourceUrl, completeVideoIds) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      const signal = captureMutationSignal();
+      if (!signal) return true;
       if (item.type !== 'youtube' || !item.videoId) return false;
       const currentIds = item.playlistId
         ? getState('youtube.subItemsMap')[item.playlistId]?.ids
@@ -1214,13 +1311,14 @@ function installMediaHooks(
           ...(item.title === undefined ? {} : { title: item.title }),
           ...(item.artist === undefined ? {} : { artist: item.artist }),
           ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
-          signal: playlistRuntimeAbort?.signal,
+          signal,
         })
-        .catch(reportCurrentPlaylistError);
+        .catch(reportCurrentPlaylistError(signal));
       return true;
     },
     updateTrackMetadata(queueItemId, metadata) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      const signal = captureMutationSignal();
+      if (!signal) return true;
       void manager
         .updateMetadata(
           queueItemId,
@@ -1230,29 +1328,29 @@ function installMediaHooks(
             ...(metadata.artist === undefined ? {} : { artist: metadata.artist }),
             ...(metadata.thumbnail === undefined ? {} : { thumbnail: metadata.thumbnail }),
           },
-          { signal: playlistRuntimeAbort?.signal },
+          { signal },
         )
-        .catch(reportCurrentPlaylistError);
+        .catch(reportCurrentPlaylistError(signal));
       return true;
     },
     removeTracks(queueItemIds) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
-      void manager
-        .removeMany(queueItemIds, { signal: playlistRuntimeAbort?.signal })
-        .catch(reportCurrentPlaylistError);
+      const signal = captureMutationSignal();
+      if (!signal) return true;
+      void manager.removeMany(queueItemIds, { signal }).catch(reportCurrentPlaylistError(signal));
       return true;
     },
     reorderTrack(queueItemId, beforeQueueItemId, baseRevision) {
-      if (!isPlaylistLeaseCurrent(lease)) return true;
+      const signal = captureMutationSignal();
+      if (!signal) return true;
       if (baseRevision !== getState('playlist.revision')) return false;
       const reordered = moveQueueItemBefore(queueItemId, beforeQueueItemId);
       if (!reordered) return true;
       void manager
         .reorder(
           reordered.map((item) => item.queueItemId),
-          { baseRevision, signal: playlistRuntimeAbort?.signal },
+          { baseRevision, signal },
         )
-        .catch(reportCurrentPlaylistError);
+        .catch(reportCurrentPlaylistError(signal));
       return true;
     },
     handlesPersistentFile(queueItemId) {
@@ -1418,7 +1516,7 @@ function resetPlaylistRuntime(): void {
   effectsSilentRefreshPending = false;
   cancelSettingsChangeNotification();
   suppressEffectsCheckpoint = false;
-  effectsSessionBaseline = null;
+  effectsIntent.reset(captureRoomSettingsSyncState());
   effectsCheckpointState.cancel();
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   queueModeMutationTail = Promise.resolve();
@@ -1426,6 +1524,8 @@ function resetPlaylistRuntime(): void {
   acceptedQueueMode = null;
   suppressQueueModeCheckpoint = false;
   queueModeCheckpointDirty = false;
+  queueModeCheckpointGeneration += 1;
+  queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
   queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   playbackController.resetPlaylistRuntime();
@@ -1437,7 +1537,7 @@ function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateM
   // This is the pre-hydration device baseline. If the initial GET fails and
   // the user edits a control, only the delta from this baseline is rebased
   // onto canonical state; untouched local defaults never overwrite the room.
-  effectsSessionBaseline = captureRoomSettingsSyncState();
+  effectsIntent.reset(captureRoomSettingsSyncState());
   playlistRuntimeAbort = new AbortController();
   playlistRoomCode = snapshot.roomCode;
   const lease: PlaylistRuntimeLease = {
@@ -1474,13 +1574,21 @@ function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateM
   return manager;
 }
 
-async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> {
+async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot, committed = false): Promise<void> {
   const manager = ensurePlaylistManager(snapshot);
   const lease = playlistRuntimeLease;
+  const sessionLease = controller.captureSessionLease();
   if (!lease) return;
-  await manager.acceptSnapshot(snapshot);
-  if (!isPlaylistLeaseCurrent(lease)) return;
-  publishProRoomAdministrators(snapshot);
+  const accepted = committed
+    ? await manager.acceptCommittedSnapshot(snapshot)
+    : await manager.acceptSnapshot(snapshot);
+  if (
+    !isPlaylistLeaseCurrent(lease) ||
+    !controller.isSessionLeaseCurrent(sessionLease, snapshot.roomCode)
+  ) {
+    return;
+  }
+  publishProRoomMembership(accepted);
   // Coalesce signaling requests that completed out of order before rendering
   // their rows. The accepted snapshot remains the authority fence.
   scheduleAcceptedQueueAdditionFlush();
@@ -1566,6 +1674,7 @@ function applyCanonicalRoomEffects(
     // create a second browser-originated broadcast path.
     return acceptCanonicalRoomSettings(effects, masterVolume, { notifyRemoteChange });
   } finally {
+    effectsIntent.observe(captureRoomSettingsSyncState());
     suppressEffectsCheckpoint = false;
   }
 }
@@ -1601,6 +1710,7 @@ function cancelEffectsCheckpoint(lease = playlistRuntimeLease): void {
   if (lease !== playlistRuntimeLease) return;
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   effectsCheckpointState.cancel();
+  effectsIntent.reset(captureRoomSettingsSyncState());
 }
 
 function isCurrentEffectsCheckpointToken(token: SettingsSyncCheckpointToken): boolean {
@@ -1608,15 +1718,17 @@ function isCurrentEffectsCheckpointToken(token: SettingsSyncCheckpointToken): bo
 }
 
 /**
- * Cancel only the attempt that still owns the current local intent. An older
- * request may settle after a newer audio edit has already installed its own
- * dirty revision and debounce timer; that stale result must be a no-op.
+ * Retire fields owned by this failed attempt. A newer audio edit keeps its
+ * field intent, dirty revision, and debounce timer; only the current attempt
+ * may cancel the whole checkpoint.
  */
 function cancelCurrentEffectsCheckpoint(
   token: SettingsSyncCheckpointToken,
   lease: PlaylistRuntimeLease,
 ): boolean {
-  if (!isPlaylistLeaseCurrent(lease) || !isCurrentEffectsCheckpointToken(token)) return false;
+  if (!isPlaylistLeaseCurrent(lease)) return false;
+  effectsIntent.settle(token.revision);
+  if (!isCurrentEffectsCheckpointToken(token)) return false;
   cancelEffectsCheckpoint(lease);
   return true;
 }
@@ -1706,29 +1818,6 @@ function reconcileEffectsCheckpointEpoch(
     });
 }
 
-function rebaseEffectsCheckpointIntent(
-  previousBase: ProRoomSettingsSyncSnapshot | null,
-  desiredBeforeRead: RoomEffectsState,
-  desiredVolumeBeforeRead: number,
-  canonical: ProRoomSettingsSyncSnapshot,
-  latestLocal: RoomEffectsState,
-  latestLocalVolume: number,
-  forceFullPublish: boolean,
-): { effects: RoomEffectsState; masterVolume: number } {
-  const attributableBase = previousBase ?? effectsSessionBaseline;
-  const rebased = rebaseRoomSettingsIntent(
-    attributableBase,
-    { effects: desiredBeforeRead, masterVolume: desiredVolumeBeforeRead },
-    canonical,
-    forceFullPublish,
-  );
-  return rebaseRoomSettingsIntent(
-    { effects: desiredBeforeRead, masterVolume: desiredVolumeBeforeRead },
-    { effects: latestLocal, masterVolume: latestLocalVolume },
-    rebased,
-  );
-}
-
 async function persistRoomEffects(): Promise<void> {
   const lease = playlistRuntimeLease;
   if (!hasEffectsCheckpointAuthority(lease) || !lease || suppressEffectsCheckpoint) {
@@ -1739,6 +1828,7 @@ async function persistRoomEffects(): Promise<void> {
   if (!token) return;
   const notificationGeneration = effectsNotificationGeneration;
   await enqueueEffectsMutation(async () => {
+    if (!effectsCheckpointState.isLive(token)) return;
     const snapshot = effectsRuntimeSnapshot();
     if (
       !hasEffectsCheckpointAuthority(lease) ||
@@ -1755,25 +1845,20 @@ async function persistRoomEffects(): Promise<void> {
     try {
       if (!base || snapshot.effectsRevision > base.revision) {
         const previousBase = base;
-        const desiredBeforeRead = desired;
-        const desiredVolumeBeforeRead = desiredVolume;
         const canonical = await api.getSettingsSync(
           snapshot.roomCode,
           playlistRuntimeAbort?.signal,
         );
+        if (!effectsCheckpointState.isLive(token)) return;
         if (!hasEffectsCheckpointAuthority(lease)) {
           cancelEffectsCheckpoint(lease);
           return;
         }
         const latestLocal = captureRoomEffectsState();
         const latestLocalVolume = getState('audio.masterVolume');
-        const rebased = rebaseEffectsCheckpointIntent(
-          previousBase,
-          desiredBeforeRead,
-          desiredVolumeBeforeRead,
+        const rebased = effectsIntent.reconcile(
+          { effects: latestLocal, masterVolume: latestLocalVolume },
           canonical,
-          latestLocal,
-          latestLocalVolume,
           forceFullPublish,
         );
         desired = rebased.effects;
@@ -1790,12 +1875,28 @@ async function persistRoomEffects(): Promise<void> {
         completeCanonicalEffectsBaseline(canonical);
       }
 
+      // A canceled edit may remain audible locally. Only fields owned by a
+      // current gesture (or explicit full-state takeover) may enter this PUT.
+      const normalized = effectsIntent.reconcile(
+        { effects: desired, masterVolume: desiredVolume },
+        base,
+        forceFullPublish,
+      );
+      if (
+        !roomEffectsEqual(desired, normalized.effects) ||
+        desiredVolume !== normalized.masterVolume
+      ) {
+        applyCanonicalRoomEffects(normalized.effects, normalized.masterVolume);
+      }
+      desired = normalized.effects;
+      desiredVolume = normalized.masterVolume;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         if (!hasEffectsCheckpointAuthority(lease)) {
           cancelEffectsCheckpoint(lease);
           return;
         }
         if (roomEffectsEqual(base.effects, desired) && base.masterVolume === desiredVolume) {
+          effectsIntent.settle(token.revision);
           effectsCheckpointState.succeed(token);
           return;
         }
@@ -1810,15 +1911,17 @@ async function persistRoomEffects(): Promise<void> {
             },
             playlistRuntimeAbort?.signal,
           );
+          if (!effectsCheckpointState.isLive(token)) return;
           if (hasEffectsCheckpointAuthority(lease)) {
             acceptedEffects = accepted;
+            effectsIntent.settle(token.revision);
             effectsCheckpointState.succeed(token);
           } else {
             cancelEffectsCheckpoint(lease);
           }
           return;
         } catch (error) {
-          if (!isPlaylistLeaseCurrent(lease)) return;
+          if (!effectsCheckpointState.isLive(token) || !isPlaylistLeaseCurrent(lease)) return;
           const revisionConflict =
             error instanceof ProRoomApiError && error.code === 'SETTINGS_SYNC_REVISION_CONFLICT';
           const transient = isTransientSettingsSyncFailure(error);
@@ -1836,14 +1939,13 @@ async function persistRoomEffects(): Promise<void> {
           }
 
           const previousBase = base;
-          const desiredBeforeRead = desired;
-          const desiredVolumeBeforeRead = desiredVolume;
           let canonical: ProRoomSettingsSyncSnapshot;
           try {
             // A transient PUT may have committed before its response was lost.
             // Read canonical first; only retry if local intent is still absent.
             canonical = await api.getSettingsSync(snapshot.roomCode, playlistRuntimeAbort?.signal);
           } catch (reconcileError) {
+            if (!effectsCheckpointState.isLive(token)) return;
             if (transient && isTransientSettingsSyncFailure(reconcileError)) {
               scheduleEffectsCheckpointRetry(token, error, lease);
               return;
@@ -1851,19 +1953,16 @@ async function persistRoomEffects(): Promise<void> {
             if (!cancelCurrentEffectsCheckpoint(token, lease)) return;
             throw reconcileError;
           }
+          if (!effectsCheckpointState.isLive(token)) return;
           if (!hasEffectsCheckpointAuthority(lease)) {
             cancelEffectsCheckpoint(lease);
             return;
           }
           const latestLocal = captureRoomEffectsState();
           const latestLocalVolume = getState('audio.masterVolume');
-          const rebased = rebaseEffectsCheckpointIntent(
-            previousBase,
-            desiredBeforeRead,
-            desiredVolumeBeforeRead,
+          const rebased = effectsIntent.reconcile(
+            { effects: latestLocal, masterVolume: latestLocalVolume },
             canonical,
-            latestLocal,
-            latestLocalVolume,
             forceFullPublish,
           );
           desired = rebased.effects;
@@ -1880,6 +1979,7 @@ async function persistRoomEffects(): Promise<void> {
           completeCanonicalEffectsBaseline(canonical);
           if (transient) {
             if (roomEffectsEqual(base.effects, desired) && base.masterVolume === desiredVolume) {
+              effectsIntent.settle(token.revision);
               effectsCheckpointState.succeed(token);
             } else {
               scheduleEffectsCheckpointRetry(token, error, lease);
@@ -1891,12 +1991,10 @@ async function persistRoomEffects(): Promise<void> {
         }
       }
     } catch (error) {
-      if (!isPlaylistLeaseCurrent(lease)) return;
+      if (!effectsCheckpointState.isLive(token) || !isPlaylistLeaseCurrent(lease)) return;
       if (!hasEffectsCheckpointAuthority(lease)) {
         // Actual authority/room-lease loss invalidates every pending intent.
         cancelEffectsCheckpoint(lease);
-      } else if (!isCurrentEffectsCheckpointToken(token)) {
-        // A newer edit owns dirty state and retry scheduling.
       } else if (isTransientSettingsSyncFailure(error)) {
         scheduleEffectsCheckpointRetry(token, error, lease);
       } else {
@@ -1914,9 +2012,11 @@ function scheduleEffectsCheckpoint(): void {
   const lease = playlistRuntimeLease;
   if (!hasEffectsCheckpointAuthority(lease)) {
     if (effectsCheckpointState.dirty) cancelEffectsCheckpoint();
+    else effectsIntent.observe(captureRoomSettingsSyncState());
     return;
   }
   effectsCheckpointState.markDirty();
+  effectsIntent.markChanged(captureRoomSettingsSyncState(), effectsCheckpointState.revision);
   armEffectsCheckpoint(EFFECTS_CHECKPOINT_DEBOUNCE_MS, lease);
 }
 
@@ -1928,8 +2028,6 @@ async function refreshPersistedEffectsUnlocked(
   if (!lease || !isPlaylistLeaseCurrent(lease) || lease.roomCode !== snapshot.roomCode)
     return false;
   const previousBase = acceptedEffects?.roomCode === snapshot.roomCode ? acceptedEffects : null;
-  const localBeforeRead = captureRoomEffectsState();
-  const localVolumeBeforeRead = getState('audio.masterVolume');
   const accepted = await api.getSettingsSync(snapshot.roomCode, playlistRuntimeAbort?.signal);
   const current = effectsRuntimeSnapshot();
   if (!isPlaylistLeaseCurrent(lease) || current?.roomCode !== snapshot.roomCode) return false;
@@ -1940,13 +2038,9 @@ async function refreshPersistedEffectsUnlocked(
   // A controller can have a debounced local edit while an invalidation GET is
   // queued ahead of its checkpoint. Rebase that intent instead of erasing it.
   if (isSettingsSyncEnabled() && canPublishSynchronizedSettings() && effectsCheckpointState.dirty) {
-    const rebased = rebaseEffectsCheckpointIntent(
-      previousBase,
-      localBeforeRead,
-      localVolumeBeforeRead,
+    const rebased = effectsIntent.reconcile(
+      { effects: latestLocal, masterVolume: latestLocalVolume },
       accepted,
-      latestLocal,
-      latestLocalVolume,
       effectsCheckpointState.pendingFullPublishIntent !== 0,
     );
     desired = rebased.effects;
@@ -2059,38 +2153,129 @@ function enqueueQueueModeMutation<T>(operation: () => Promise<T>): Promise<T> {
   return result;
 }
 
+function hasQueueModeCheckpointAuthority(lease: PlaylistRuntimeLease | null): boolean {
+  return !!(active && lease && isPlaylistLeaseCurrent(lease) && hasRoomCapability('queue.mutate'));
+}
+
+function restoreAcceptedQueueModeWithPendingIntent(): void {
+  const snapshot = playlistManager?.snapshot;
+  // If the playlist changed, its pending canonical GET will reconcile the
+  // canceled fields before any subsequent PUT can use the new revision.
+  if (!snapshot || !acceptedQueueMode || !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)) {
+    return;
+  }
+  suppressQueueModeCheckpoint = true;
+  try {
+    const local = capturePlaylistQueueModeState();
+    const keepShuffle = queueModeFieldIntentRevision.shuffleEnabled > 0;
+    applyPlaylistQueueModeState(
+      {
+        repeatMode:
+          queueModeFieldIntentRevision.repeatMode > 0
+            ? local.repeatMode
+            : acceptedQueueMode.repeatMode,
+        shuffleEnabled: keepShuffle ? local.shuffleEnabled : acceptedQueueMode.shuffleEnabled,
+        shuffleOrder: keepShuffle ? local.shuffleOrder : acceptedQueueMode.shuffleOrder,
+      },
+      false,
+    );
+  } finally {
+    suppressQueueModeCheckpoint = false;
+  }
+}
+
+function cancelQueueModeCheckpoint(): void {
+  clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
+  queueModeCheckpointGeneration += 1;
+  queueModeCheckpointDirty = false;
+  queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
+  queueModeCheckpointRetryAttempt = 0;
+  restoreAcceptedQueueModeWithPendingIntent();
+}
+
+function retireQueueModeFieldIntent(revision: number): void {
+  for (const field of ['repeatMode', 'shuffleEnabled'] as const) {
+    if (queueModeFieldIntentRevision[field] <= revision) {
+      queueModeFieldIntentRevision[field] = 0;
+    }
+  }
+}
+
 async function persistQueueModeCheckpoint(): Promise<void> {
   const manager = playlistManager;
   const lease = playlistRuntimeLease;
   const signal = playlistRuntimeAbort?.signal;
-  if (!active || suppressQueueModeCheckpoint || !manager || !lease || !signal) {
+  if (
+    !hasQueueModeCheckpointAuthority(lease) ||
+    suppressQueueModeCheckpoint ||
+    !manager ||
+    !lease ||
+    !signal
+  ) {
     return;
   }
-  await enqueueQueueModeMutation(async () => {
+  const generation = queueModeCheckpointGeneration;
+  const isCurrent = () =>
+    generation === queueModeCheckpointGeneration &&
+    hasQueueModeCheckpointAuthority(lease) &&
+    !signal.aborted;
+  const retryCurrentIntent = (intentRevision: number): void => {
     if (
-      !active ||
-      suppressQueueModeCheckpoint ||
-      !isPlaylistLeaseCurrent(lease) ||
-      signal.aborted
+      !isCurrent() ||
+      !queueModeCheckpointDirty ||
+      queueModeIntentRevision !== intentRevision ||
+      queueModeCheckpointRetryAttempt >= QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS.length
     ) {
       return;
     }
-    const snapshot = manager.snapshot;
-    if (!snapshot) return;
-    if (
-      !acceptedQueueMode ||
-      acceptedQueueMode.roomCode !== snapshot.roomCode ||
-      !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
-    ) {
-      await refreshPersistedQueueModeUnlocked(snapshot);
+    const delay = QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS[queueModeCheckpointRetryAttempt];
+    queueModeCheckpointRetryAttempt += 1;
+    setManagedTimer(
+      QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER,
+      () => {
+        if (!isCurrent() || queueModeIntentRevision !== intentRevision) return;
+        void persistQueueModeCheckpoint().catch((retryError) => {
+          log.warn('[PRO] Queue mode checkpoint retry failed', retryError);
+        });
+      },
+      delay,
+    );
+  };
+  await enqueueQueueModeMutation(async () => {
+    if (!isCurrent() || suppressQueueModeCheckpoint || !queueModeCheckpointDirty) {
+      return;
     }
-    if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
-    const baseRevision = acceptedQueueMode?.revision;
-    if (baseRevision === undefined) return;
-    const local = capturePlaylistQueueModeState();
-    const intentRevision = queueModeIntentRevision;
+    let snapshot = manager.snapshot;
+    if (!snapshot) return;
+    let intentRevision = queueModeIntentRevision;
     let accepted: ProRoomQueueModeSnapshot;
     try {
+      if (
+        !acceptedQueueMode ||
+        acceptedQueueMode.roomCode !== snapshot.roomCode ||
+        !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
+      ) {
+        if (
+          !(await refreshPersistedQueueModeUnlocked(snapshot, {
+            checkpointGeneration: generation,
+          }))
+        ) {
+          // Another append can invalidate the GET while its body is pending.
+          // Do not pair stale local fields with the newer playlist revision.
+          retryCurrentIntent(intentRevision);
+          return;
+        }
+      }
+      if (!isCurrent()) return;
+      // A playlist mutation can commit while its queue-mode GET is pending.
+      // Build the PUT against that accepted playlist, not the pre-read revision.
+      snapshot = manager.snapshot ?? snapshot;
+      const baseRevision = acceptedQueueMode?.revision;
+      if (baseRevision === undefined) return;
+      const local = capturePlaylistQueueModeState();
+      // A failed read only owns the intent that started it. A successful read
+      // can include newer gestures, which now belong to this actual PUT.
+      intentRevision = queueModeIntentRevision;
       accepted = await api.updateQueueMode(
         {
           code: snapshot.roomCode,
@@ -2104,53 +2289,70 @@ async function persistQueueModeCheckpoint(): Promise<void> {
         signal,
       );
     } catch (error) {
-      if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+      if (!isCurrent()) return;
       if (
         error instanceof ProRoomApiError &&
         (error.code === 'QUEUE_MODE_REVISION_CONFLICT' ||
           error.code === 'PLAYLIST_REVISION_CONFLICT')
       ) {
-        await refreshPersistedQueueModeUnlocked(snapshot, {
-          preservePendingIntent: false,
-          discardedIntent: { revision: intentRevision, state: local },
-        });
-        if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
-        if (queueModeIntentRevision === intentRevision) {
-          queueModeCheckpointDirty = false;
-          queueModeCheckpointRetryAttempt = 0;
+        // The server wins a conflict even if its follow-up GET fails. Retire
+        // rejected fields before awaiting it so a later gesture cannot revive
+        // them; gestures newer than this PUT still own their debounce.
+        retireQueueModeFieldIntent(intentRevision);
+        try {
+          await refreshPersistedQueueModeUnlocked(snapshot, {
+            checkpointGeneration: generation,
+            preservePendingIntent: false,
+            discardedIntentRevision: intentRevision,
+          });
+        } catch (refreshError) {
+          if (isCurrent()) {
+            restoreAcceptedQueueModeWithPendingIntent();
+            // The conflict proved this baseline stale. A fresh gesture must
+            // read again instead of submitting another already-invalid CAS.
+            acceptedQueueMode = null;
+          }
+          throw refreshError;
+        } finally {
+          if (isCurrent()) {
+            restoreAcceptedQueueModeWithPendingIntent();
+            if (queueModeIntentRevision === intentRevision) {
+              queueModeCheckpointDirty = false;
+              queueModeCheckpointRetryAttempt = 0;
+            }
+          }
         }
         return;
       }
-      if (
-        queueModeCheckpointDirty &&
-        queueModeCheckpointRetryAttempt < QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS.length
-      ) {
-        const delay = QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS[queueModeCheckpointRetryAttempt];
-        queueModeCheckpointRetryAttempt += 1;
-        setManagedTimer(
-          QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER,
-          () =>
-            void persistQueueModeCheckpoint().catch((retryError) => {
-              log.warn('[PRO] Queue mode checkpoint retry failed', retryError);
-            }),
-          delay,
-        );
+      if (error instanceof ProRoomApiError && (error.status === 401 || error.status === 403)) {
+        if (queueModeIntentRevision === intentRevision) {
+          cancelQueueModeCheckpoint();
+        } else {
+          // A fresh shuffle gesture must not re-send a denied repeat edit (or
+          // vice versa) just because both fields share a snapshot PUT.
+          retireQueueModeFieldIntent(intentRevision);
+          restoreAcceptedQueueModeWithPendingIntent();
+        }
+        throw error;
       }
+      retryCurrentIntent(intentRevision);
       throw error;
     }
-    if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
+    if (!isCurrent()) return;
     acceptedQueueMode = accepted;
     if (queueModeIntentRevision === intentRevision) {
       queueModeCheckpointDirty = false;
+      queueModeFieldIntentRevision = { repeatMode: 0, shuffleEnabled: 0 };
       queueModeCheckpointRetryAttempt = 0;
     }
   });
 }
 
-function scheduleQueueModeCheckpoint(): void {
-  if (!active || suppressQueueModeCheckpoint) return;
+function scheduleQueueModeCheckpoint(field: QueueModeIntentField): void {
+  if (!hasQueueModeCheckpointAuthority(playlistRuntimeLease) || suppressQueueModeCheckpoint) return;
   queueModeCheckpointDirty = true;
   queueModeIntentRevision += 1;
+  queueModeFieldIntentRevision[field] = queueModeIntentRevision;
   queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   setManagedTimer(
@@ -2168,20 +2370,23 @@ async function refreshPersistedQueueModeUnlocked(
   snapshot: ProRoomSnapshot,
   options: {
     broadcast?: boolean;
+    checkpointGeneration?: number;
     preservePendingIntent?: boolean;
-    discardedIntent?: { revision: number; state: ReturnType<typeof capturePlaylistQueueModeState> };
+    discardedIntentRevision?: number;
   } = {},
 ): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease))
     return false;
   const previousAccepted = acceptedQueueMode;
-  const localBeforeRead = options.discardedIntent?.state ?? capturePlaylistQueueModeState();
-  const intentBeforeRead = options.discardedIntent?.revision ?? queueModeIntentRevision;
+  const intentBeforeRead = options.discardedIntentRevision ?? queueModeIntentRevision;
   const accepted = await api.getQueueMode(snapshot.roomCode, playlistRuntimeAbort?.signal);
   const currentSnapshot = playlistManager?.snapshot;
   if (
     !isPlaylistLeaseCurrent(lease) ||
+    (options.checkpointGeneration !== undefined &&
+      (options.checkpointGeneration !== queueModeCheckpointGeneration ||
+        !hasQueueModeCheckpointAuthority(lease))) ||
     !currentSnapshot ||
     currentSnapshot.roomCode !== snapshot.roomCode ||
     !queueModeMatchesPlaylist(accepted, currentSnapshot)
@@ -2189,14 +2394,16 @@ async function refreshPersistedQueueModeUnlocked(
     return false;
   }
   const local = capturePlaylistQueueModeState();
-  const changedDuringRead = queueModeIntentRevision !== intentBeforeRead;
-  const preserveField = (key: 'repeatMode' | 'shuffleEnabled'): boolean =>
-    (changedDuringRead && local[key] !== localBeforeRead[key]) ||
-    (options.preservePendingIntent !== false &&
-      queueModeCheckpointDirty &&
-      previousAccepted !== null &&
-      accepted[key] === previousAccepted[key] &&
-      local[key] !== previousAccepted[key]);
+  // Values alone cannot distinguish a fresh gesture from a revoked one that
+  // chose the same value. Track each field's intent through the pending read.
+  const preserveField = (key: QueueModeIntentField): boolean =>
+    queueModeCheckpointDirty &&
+    hasQueueModeCheckpointAuthority(lease) &&
+    queueModeFieldIntentRevision[key] > 0 &&
+    (queueModeFieldIntentRevision[key] > intentBeforeRead ||
+      (options.preservePendingIntent !== false &&
+        (previousAccepted === null ||
+          (accepted[key] === previousAccepted[key] && local[key] !== previousAccepted[key]))));
   const repeatMode = preserveField('repeatMode') ? local.repeatMode : accepted.repeatMode;
   const shuffleEnabled = preserveField('shuffleEnabled')
     ? local.shuffleEnabled
@@ -2382,6 +2589,7 @@ function stopLifecycle(): void {
   heartbeatSingleFlight.reset();
   refreshInFlight = false;
   controlChannelRecoveryAttempt = 0;
+  controlChannelRecoveryGeneration = null;
   clearManagedTimer(HEARTBEAT_TIMER);
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
@@ -2395,8 +2603,7 @@ const observer: ProRoomSessionObserver = {
     // only refreshes session-scoped adjunct state, avoiding a duplicate async
     // playlist projection of the same snapshot racing that explicit accept.
     bindProSystemAudioSession(snapshot);
-    reconcileAuthoritativePeers(snapshot);
-    publishProRoomAdministrators(snapshot);
+    publishProRoomMembership(snapshot);
   },
   authority(context) {
     applyAuthority(context);
@@ -2404,6 +2611,7 @@ const observer: ProRoomSessionObserver = {
   cleared() {
     acceptedProPresence = null;
     acceptedProAdministrators = [];
+    publishedProMembershipSnapshot = null;
     bus.emit('pro-room:administrators-updated', []);
     stopLifecycle();
     resetProSystemAudioService();
@@ -2892,21 +3100,35 @@ async function runHeartbeat(
   }
 }
 
-async function runControlChannelRecovery(): Promise<void> {
+async function runControlChannelRecovery(generation: number): Promise<void> {
   const lease = playlistRuntimeLease;
-  if (!active || !lease) return;
+  if (!active || !lease || generation !== controlChannelRecoveryGeneration) return;
   clearManagedTimer(HEARTBEAT_TIMER);
   try {
     await runHeartbeat(true, true);
+    if (
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      generation !== controlChannelRecoveryGeneration
+    )
+      return;
     // A transition may have started while this socket was offline. Its exact
     // descriptor is carried by the replacement one-use ticket, not by the
     // heartbeat snapshot, so consume it only after the channel is installed.
     const pendingTransition = bridge.consumePendingPlaybackTransition();
     if (pendingTransition) playbackController.acceptPrepare(pendingTransition);
     controlChannelRecoveryAttempt = 0;
-    if (bridge.connected) markProRoomTransportRecovered();
+    if (bridge.connected) {
+      playbackController.completeControlChannelRecovery(generation);
+      markProRoomTransportRecovered();
+    }
   } catch {
-    if (!active || !isPlaylistLeaseCurrent(lease)) return;
+    if (
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      generation !== controlChannelRecoveryGeneration
+    )
+      return;
     controlChannelRecoveryAttempt += 1;
     if (controlChannelRecoveryAttempt >= SIGNALING_RECOVERY_MAX_ATTEMPTS) {
       clearManagedTimer(HEARTBEAT_TIMER);
@@ -2928,7 +3150,7 @@ async function runControlChannelRecovery(): Promise<void> {
           controlChannelRecoveryAttempt + 1,
           SIGNALING_RECOVERY_MAX_ATTEMPTS,
         );
-        return runControlChannelRecovery();
+        return runControlChannelRecovery(generation);
       },
       delay,
     );
@@ -2941,11 +3163,12 @@ function beginControlChannelRecovery(): Promise<void> {
   cancelSettingsChangeNotification();
   controlChannelRecoveryAttempt = 0;
   clearManagedTimer(HEARTBEAT_TIMER);
-  playbackController.beginControlChannelRecovery();
+  const generation = playbackController.beginControlChannelRecovery();
+  controlChannelRecoveryGeneration = generation;
   // The authenticated server channel is known dead even when the room
   // incarnation is unchanged. Force the next accepted heartbeat to rebuild it.
   controller.invalidateControlChannel();
-  return runControlChannelRecovery();
+  return runControlChannelRecovery(generation);
 }
 
 function scheduleAccountIdentityLeaseRenewal(delayMs?: number | null): void {
@@ -3103,11 +3326,21 @@ async function refreshSignalingCredential(): Promise<boolean> {
   // renewable socket session. Mint one only for a disconnected channel;
   // periodic creation while connected produced unused server-side tickets.
   if (bridge.connected) return true;
+  const recoveryGeneration = controlChannelRecoveryGeneration;
   refreshInFlight = true;
   try {
     await controller.refreshSignaling();
+    if (
+      !active ||
+      !isPlaylistLeaseCurrent(lease) ||
+      recoveryGeneration !== controlChannelRecoveryGeneration
+    )
+      return false;
     const pendingTransition = bridge.consumePendingPlaybackTransition();
     if (pendingTransition) playbackController.acceptPrepare(pendingTransition);
+    if (bridge.connected && recoveryGeneration !== null) {
+      playbackController.completeControlChannelRecovery(recoveryGeneration);
+    }
     return true;
   } catch (error) {
     if (isTerminalSessionError(error)) {
@@ -3273,20 +3506,16 @@ function requireActiveProRoomAuthorityLease(): { code: string; lease: number } {
   return { code, lease: controller.captureSessionLease() };
 }
 
-function acceptAdministratorDirectory(
-  code: string,
-  lease: number,
-  administrators: readonly ProRoomAdministrator[],
-): ProRoomAdministrator[] {
+function finishAdministratorMutation(code: string, lease: number): ProRoomAdministrator[] {
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
-  const projection = publishProRoomAdministratorDirectory(administrators);
-  // The directory mutation also changes participant roles/capabilities. A
-  // forced heartbeat reconciles those rows without making the committed
-  // directory mutation look failed if the follow-up network read is delayed.
+  // Mutation replies contain no revision, so they cannot safely replace a
+  // versioned directory in either response order. Publish the directory and
+  // participant roles together from the forced follow-up snapshot instead.
+  // A delayed/failed read must not make the already committed mutation fail.
   observeProRoomRuntimeTask(runHeartbeat(true), 'administrator-directory heartbeat');
-  return projection;
+  return getActiveProRoomAdministrators();
 }
 
 export async function updateActiveProRoomAdministrator(
@@ -3295,8 +3524,8 @@ export async function updateActiveProRoomAdministrator(
   signal?: AbortSignal,
 ): Promise<ProRoomAdministrator[]> {
   const { code, lease } = requireActiveProRoomAuthorityLease();
-  const directory = await api.updateAdministrator(code, memberId, permissions, signal);
-  return acceptAdministratorDirectory(code, lease, directory.administrators);
+  await api.updateAdministrator(code, memberId, permissions, signal);
+  return finishAdministratorMutation(code, lease);
 }
 
 export async function revokeActiveProRoomAdministrator(
@@ -3304,8 +3533,8 @@ export async function revokeActiveProRoomAdministrator(
   signal?: AbortSignal,
 ): Promise<ProRoomAdministrator[]> {
   const { code, lease } = requireActiveProRoomAuthorityLease();
-  const directory = await api.revokeAdministrator(code, memberId, signal);
-  return acceptAdministratorDirectory(code, lease, directory.administrators);
+  await api.revokeAdministrator(code, memberId, signal);
+  return finishAdministratorMutation(code, lease);
 }
 
 export async function kickActiveProRoomMember(
@@ -3325,10 +3554,7 @@ export async function kickActiveProRoomMember(
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
-  await acceptPlaylistSnapshot(snapshot);
-  if (!controller.isSessionLeaseCurrent(lease, code)) return;
-  reconcileAuthoritativePeers(snapshot);
-  publishProRoomAdministrators(snapshot);
+  await acceptPlaylistSnapshot(snapshot, true);
 }
 
 /** Disconnect exactly one live PRO presence without revoking member authority. */
@@ -3349,10 +3575,7 @@ export async function kickActiveProRoomPresence(
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
-  await acceptPlaylistSnapshot(snapshot);
-  if (!controller.isSessionLeaseCurrent(lease, code)) return;
-  reconcileAuthoritativePeers(snapshot);
-  publishProRoomAdministrators(snapshot);
+  await acceptPlaylistSnapshot(snapshot, true);
 }
 
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
@@ -3562,10 +3785,9 @@ bus.on('state:playlist.currentQueueItemId', () => {
   pruneNonCurrentProRoomFileRows();
 });
 
-for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as const) {
-  bus.on(event, () => scheduleQueueModeCheckpoint());
-}
-bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint());
+bus.on('state:playlist.repeatMode', () => scheduleQueueModeCheckpoint('repeatMode'));
+bus.on('state:playlist.isShuffle', () => scheduleQueueModeCheckpoint('shuffleEnabled'));
+bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint('shuffleEnabled'));
 
 subscribeAccount((snapshot) => {
   const projectionKey = proRoomAccountIdentityProjectionKey(snapshot, getAccountStatsScope());
@@ -3626,6 +3848,13 @@ bus.on('settings-sync:changed', (enabled) => {
 });
 
 bus.on('state:room.context', () => {
+  if (
+    active &&
+    queueModeCheckpointDirty &&
+    !hasQueueModeCheckpointAuthority(playlistRuntimeLease)
+  ) {
+    cancelQueueModeCheckpoint();
+  }
   if (
     active &&
     effectsCheckpointState.dirty &&

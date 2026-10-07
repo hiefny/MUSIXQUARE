@@ -36,7 +36,10 @@ vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));
 vi.mock('../../network/peer.ts', () => ({ broadcast: vi.fn() }));
 vi.mock('../../network/protocol.ts', () => ({ registerHandlers: vi.fn() }));
 vi.mock('../search.ts', () => ({ fetchPlaylistSubTitles: vi.fn() }));
-vi.mock('../zero-start.ts', () => ({ isYouTubeZeroStartProtocolActive: vi.fn(() => false) }));
+vi.mock('../zero-start.ts', () => ({
+  isYouTubeZeroStartInFlight: vi.fn(() => false),
+  isYouTubeZeroStartProtocolActive: vi.fn(() => false),
+}));
 vi.mock('../play-latency.ts', () => ({ getEffectiveYouTubePlayLatencyMs: () => 200 }));
 vi.mock('../_state.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../_state.ts')>()),

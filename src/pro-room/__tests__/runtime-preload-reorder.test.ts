@@ -2,10 +2,14 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as audioContext from '../../audio/context.ts';
+import * as audioEngine from '../../audio/engine.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, setState } from '../../core/state.ts';
 import { clearManagedTimer } from '../../core/timers.ts';
+import { getCurrentAudioBuffer, getPlayerNode } from '../../player/_state.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import { initPlaylist } from '../../player/playlist.ts';
 import { schedulePreload } from '../../storage/preload.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { ProRoomApiClient, type ProRoomSignalingAccess } from '../api.ts';
@@ -22,6 +26,13 @@ import { preloadProRoomPlaylistFile, resolveProRoomPlaylistFile } from '../media
 import { ProRoomMediaTransfer } from '../media-transfer.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { joinProRoom } from '../runtime.ts';
+import {
+  cancelProPlaybackPreparation,
+  createProPlaybackAuthorityToken,
+  prepareProPlaybackAuthority,
+} from '../playback-authority-hooks.ts';
+
+const downloadMedia = ProRoomMediaTransfer.prototype.download;
 
 const CURRENT_YOUTUBE_ID = '30000000-0000-4000-8000-000000000003' as QueueItemId;
 const FOREGROUND_QUEUE_ITEM_ID = '30000000-0000-4000-8000-000000000004' as QueueItemId;
@@ -266,13 +277,15 @@ describe('PRO preload target changes', { concurrent: false }, () => {
   afterEach(async () => {
     clearManagedTimer('preloadScheduleTimer');
     setState('files.current', null);
-    const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
-    const previousCloseCalls = closeSession.mock.calls.length;
-    requestProRoomLeave();
-    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
-    await vi.waitFor(() =>
-      expect(closeSession.mock.calls.length).toBeGreaterThan(previousCloseCalls),
-    );
+    if (getState('room.context').kind === 'pro') {
+      const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
+      const previousCloseCalls = closeSession.mock.calls.length;
+      requestProRoomLeave();
+      await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+      await vi.waitFor(() =>
+        expect(closeSession.mock.calls.length).toBeGreaterThan(previousCloseCalls),
+      );
+    }
     for (const spy of restoreSpies.splice(0).reverse()) spy.mockRestore();
   });
 
@@ -402,6 +415,165 @@ describe('PRO preload target changes', { concurrent: false }, () => {
     b.complete();
     await expect(foreground).resolves.toBe(PROMOTED_FILE);
     expect(downloads).toHaveLength(2);
+  });
+
+  async function startPartialPreload() {
+    const signals: AbortSignal[] = [];
+    const bodies: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const cancelBody = vi.fn();
+    const fetchMedia = vi.fn<typeof fetch>(async (_url, init) => {
+      signals.push(init!.signal as AbortSignal);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            bodies.push(controller);
+            controller.enqueue(new Uint8Array([1, 2]));
+          },
+          cancel: cancelBody,
+        }),
+        { status: 200, headers: { 'content-length': '4' } },
+      );
+    });
+    const getMediaDownload = vi.fn().mockImplementation(async (_code, assetId) => ({
+      asset: assetId === PROMOTE_SOURCE.assetId ? PROMOTE_SOURCE : CACHE_SOURCE,
+      url: 'http://worker.localhost:8789/local-download',
+      expiresAtMs: Date.now() + 60_000,
+    }));
+    const transfer = new ProRoomMediaTransfer({
+      cache,
+      fetch: fetchMedia,
+      api: {
+        endpoint: 'http://worker.localhost:8789/api/pro-room',
+        getMediaDownload,
+        createMediaReservation: vi.fn(),
+        completeMedia: vi.fn(),
+        deleteMedia: vi.fn(),
+      },
+    });
+    vi.mocked(ProRoomMediaTransfer.prototype.download).mockImplementation((input) =>
+      downloadMedia.call(transfer, input),
+    );
+    reorderNext(PROMOTE_QUEUE_ITEM_ID);
+    await vi.waitFor(() => expect(fetchMedia).toHaveBeenCalledOnce());
+    expect(getState('preload.activeTarget')?.queueItemId).toBe(PROMOTE_QUEUE_ITEM_ID);
+    expect(getState('playlist.currentQueueItemId')).toBe(CURRENT_YOUTUBE_ID);
+    initPlaylist();
+    return { signals, bodies, cancelBody, fetchMedia, getMediaDownload };
+  }
+
+  function prepareFile(queueItemId: QueueItemId, transitionId: string) {
+    const authority = createProPlaybackAuthorityToken({
+      roomId: ROOM_CODE,
+      roomEpoch: 1,
+      basePlaybackRevision: 0,
+      transitionId,
+    });
+    const preparation = prepareProPlaybackAuthority({
+      authority,
+      queueItemId,
+      positionSeconds: 0,
+      youtubeSubIndex: null,
+      youtubeVideoId: null,
+    });
+    return { authority, preparation };
+  }
+
+  it('adopts the partial preload body when the server prepares that queue item', async () => {
+    const { signals, bodies, cancelBody, fetchMedia, getMediaDownload } =
+      await startPartialPreload();
+    const buffer = { duration: 120 } as AudioBuffer;
+    const decode = vi.fn().mockResolvedValue(buffer);
+    const createBufferSource = vi.fn();
+    restoreSpies.push(
+      vi.spyOn(audioEngine, 'initAudio').mockResolvedValue(undefined),
+      vi.spyOn(audioContext, 'getAudioContext').mockReturnValue({
+        state: 'running',
+        sampleRate: 48_000,
+        decodeAudioData: decode,
+        createBufferSource,
+      } as unknown as AudioContext),
+    );
+    const { authority, preparation } = prepareFile(
+      PROMOTE_QUEUE_ITEM_ID,
+      'server-preload-promotion',
+    );
+    try {
+      await vi.waitFor(() =>
+        expect(getState('playlist.currentQueueItemId')).toBe(PROMOTE_QUEUE_ITEM_ID),
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect.soft(signals[0]?.aborted).toBe(false);
+      expect.soft(cancelBody).not.toHaveBeenCalled();
+      expect(fetchMedia).toHaveBeenCalledOnce();
+      expect(getMediaDownload).toHaveBeenCalledOnce();
+      bodies[0]!.enqueue(new Uint8Array([3, 4]));
+      bodies[0]!.close();
+      await expect(preparation).resolves.toMatchObject({
+        status: 'ready',
+        queueItemId: PROMOTE_QUEUE_ITEM_ID,
+        mediaKind: 'file',
+      });
+      expect(decode).toHaveBeenCalledOnce();
+      expect(new Uint8Array(decode.mock.calls[0]![0] as ArrayBuffer)).toEqual(
+        new Uint8Array([1, 2, 3, 4]),
+      );
+      expect(getCurrentAudioBuffer()).toBe(buffer);
+      expect(getState('files.current')?.queueItemId).toBe(PROMOTE_QUEUE_ITEM_ID);
+      expect(getState('playback.activity')).toBe('paused');
+      expect(getPlayerNode()).toBeNull();
+      expect(createBufferSource).not.toHaveBeenCalled();
+      expect(fetchMedia).toHaveBeenCalledOnce();
+    } finally {
+      cancelProPlaybackPreparation(authority);
+      await preparation;
+    }
+  });
+
+  it('cancels the adopted partial body when a newer server PREPARE owns another row', async () => {
+    const { signals, cancelBody, fetchMedia } = await startPartialPreload();
+    const old = prepareFile(PROMOTE_QUEUE_ITEM_ID, 'server-preload-old');
+    await vi.waitFor(() =>
+      expect(getState('playlist.currentQueueItemId')).toBe(PROMOTE_QUEUE_ITEM_ID),
+    );
+    expect(signals[0]?.aborted).toBe(false);
+
+    const next = prepareFile(CACHE_QUEUE_ITEM_ID, 'server-preload-new');
+    try {
+      await vi.waitFor(() => expect(fetchMedia).toHaveBeenCalledTimes(2));
+      await expect(old.preparation).resolves.toMatchObject({ status: 'superseded' });
+      expect(signals[0]?.aborted).toBe(true);
+      expect(cancelBody).toHaveBeenCalledOnce();
+      expect(signals[1]?.aborted).toBe(false);
+      expect(getState('playlist.currentQueueItemId')).toBe(CACHE_QUEUE_ITEM_ID);
+      expect(getCurrentAudioBuffer()).toBeNull();
+      expect(getState('files.current')).toBeNull();
+      expect(cache.get(PROMOTE_SOURCE)).toBeNull();
+    } finally {
+      cancelProPlaybackPreparation(next.authority);
+      await next.preparation;
+    }
+  });
+
+  it('cancels the adopted partial body when the participant leaves the room', async () => {
+    const { signals, cancelBody, fetchMedia } = await startPartialPreload();
+    const { preparation } = prepareFile(PROMOTE_QUEUE_ITEM_ID, 'server-preload-leave');
+    await vi.waitFor(() =>
+      expect(getState('playlist.currentQueueItemId')).toBe(PROMOTE_QUEUE_ITEM_ID),
+    );
+    expect(signals[0]?.aborted).toBe(false);
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    await expect(preparation).resolves.toMatchObject({ status: 'superseded' });
+    expect(signals[0]?.aborted).toBe(true);
+    expect(cancelBody).toHaveBeenCalledOnce();
+    expect(fetchMedia).toHaveBeenCalledOnce();
+    expect(getCurrentAudioBuffer()).toBeNull();
+    expect(getState('files.current')).toBeNull();
+    expect(getState('playlist.items').every((item) => !item.file)).toBe(true);
+    expect(cache.get(PROMOTE_SOURCE)).toBeNull();
+    await vi.waitFor(() =>
+      expect(ProRoomApiClient.prototype.closeSessionFenced).toHaveBeenCalled(),
+    );
   });
 
   it.each(['preload', 'foreground'] as const)(

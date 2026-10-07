@@ -80,7 +80,12 @@ import {
   LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
 import { getEffectiveYouTubePlayLatencyMs } from './play-latency.ts';
-import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';
+import { isYouTubeZeroStartInFlight } from './zero-start.ts';
+import { isYouTubeZeroStartSyncOwned } from './zero-start-ownership.ts';
+import {
+  cancelPendingYouTubeStartFromSync,
+  isYouTubeZeroStartExternalFallbackPendingFromSync as isYouTubeZeroStartExternalFallbackPending,
+} from './player-runtime-bridge.ts';
 import {
   cancelStandardHostManualOffsetTransaction,
   isStandardHostManualOffsetTransactionPending,
@@ -246,7 +251,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // actions cancel zero-start before reaching this broadcaster, so the
   // established seek/pause path remains unchanged once the controller is no
   // longer in flight.
-  if (isYouTubeZeroStartProtocolActive()) return;
+  if (isYouTubeZeroStartSyncOwned()) return;
 
   // A Standard-host local seek is not authoritative until the iframe reports
   // the exact target (and, for playlists, confirms native auto-advance is
@@ -437,7 +442,7 @@ function isCurrentStateAction(action: GuestStateAction): boolean {
     !!action.hostConn?.open &&
     getCurrentQueueItemId() === action.queueItemId &&
     isPlaybackModeYouTube() &&
-    !isYouTubeZeroStartProtocolActive()
+    !isYouTubeZeroStartSyncOwned()
   );
 }
 
@@ -488,14 +493,22 @@ const _rt: GuestSyncRuntime = {
 };
 
 const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
-let _pendingManualOffsetApplyUntil = 0;
+
+interface PendingManualOffsetApply extends GuestRendezvousAttempt {
+  until: number;
+  requestedOffset: number;
+  locallyPaused: boolean;
+  waitingForSnapshot: boolean;
+}
+
+let _pendingManualOffsetApply: PendingManualOffsetApply | null = null;
 
 export function isGuestYouTubeTransitionPending(): boolean {
   return !!(
     _rt.rendezvous ||
-    isYouTubeZeroStartProtocolActive() ||
+    isYouTubeZeroStartSyncOwned() ||
     _rt.pendingManualRendezvous ||
-    _pendingManualOffsetApplyUntil ||
+    _pendingManualOffsetApply ||
     getManagedTimer('yt-clock-action') ||
     getManagedTimer('yt-seek-play')
   );
@@ -514,7 +527,7 @@ function isCurrentRendezvous(attempt: GuestRendezvousAttempt): boolean {
       getState('youtube.currentSubIndex') === attempt.subIndex &&
       (player.getVideoData?.()?.video_id || '') === attempt.videoId &&
       isPlaybackModeYouTube() &&
-      !isYouTubeZeroStartProtocolActive()
+      !isYouTubeZeroStartSyncOwned()
     ) {
       return true;
     }
@@ -652,16 +665,32 @@ function deferManualRendezvousUntilReady(
 }
 
 function clearPendingManualOffsetApply(): void {
-  _pendingManualOffsetApplyUntil = 0;
+  _pendingManualOffsetApply = null;
   clearManagedTimer('yt-manual-offset-apply-retry');
 }
 
-function queueManualOffsetApplyRetry(): void {
-  if (!_pendingManualOffsetApplyUntil) {
-    _pendingManualOffsetApplyUntil =
-      Date.now() + MANUAL_RENDEZVOUS_RETRY_MAX_MS + RENDEZVOUS_COOLDOWN_MS;
+function isCurrentManualOffsetApply(pending: PendingManualOffsetApply): boolean {
+  try {
+    return (
+      _pendingManualOffsetApply === pending &&
+      pending.player === getYouTubePlayer() &&
+      pending.sessionId === getCurrentSessionId() &&
+      pending.hostConn === getState('network.hostConn') &&
+      pending.hostConn.open &&
+      pending.queueItemId === getCurrentQueueItemId() &&
+      pending.subIndex === getState('youtube.currentSubIndex') &&
+      pending.videoId === (pending.player.getVideoData?.()?.video_id || '') &&
+      pending.requestedOffset === getYouTubeManualOffsetSec() &&
+      pending.locallyPaused === isLocalYouTubePaused() &&
+      isPlaybackModeYouTube() &&
+      !isYouTubeZeroStartSyncOwned()
+    );
+  } catch {
+    return false;
   }
+}
 
+function queueManualOffsetApplyRetry(): void {
   clearManagedTimer('yt-manual-offset-apply-retry');
   setManagedTimer(
     'yt-manual-offset-apply-retry',
@@ -670,18 +699,68 @@ function queueManualOffsetApplyRetry(): void {
   );
 }
 
-function runManualOffsetApplyRendezvous(): void {
-  const result = guestRendezvousSync();
-  if (result.status === 'busy') {
-    if (!_pendingManualOffsetApplyUntil) {
-      queueManualOffsetApplyRetry();
-      return;
-    }
+function requestManualOffsetApplyRendezvous(): void {
+  clearPendingManualOffsetApply();
+  const player = getYouTubePlayer();
+  const hostConn = getState('network.hostConn');
+  const queueItemId = getCurrentQueueItemId();
+  if (!player || !hostConn?.open || !queueItemId || !isPlaybackModeYouTube()) {
+    guestRendezvousSync();
+    return;
+  }
+  let videoId: string;
+  try {
+    videoId = player.getVideoData?.()?.video_id || '';
+  } catch {
+    guestRendezvousSync();
+    return;
+  }
+  _pendingManualOffsetApply = {
+    player,
+    hostConn,
+    queueItemId,
+    sessionId: getCurrentSessionId(),
+    subIndex: getState('youtube.currentSubIndex'),
+    videoId,
+    requestedOffset: getYouTubeManualOffsetSec(),
+    locallyPaused: isLocalYouTubePaused(),
+    // A negatively offset host may still be in its bounded zero-start hold
+    // after this guest has started. Its first ordinary heartbeat can arrive
+    // later than the usual readiness/cooldown allowance.
+    until:
+      Date.now() +
+      MANUAL_RENDEZVOUS_RETRY_MAX_MS +
+      RENDEZVOUS_COOLDOWN_MS +
+      MANUAL_SYNC_OFFSET_LIMIT_SEC * 1000,
+    waitingForSnapshot: false,
+  };
+  runManualOffsetApplyRendezvous();
+}
 
-    if (Date.now() <= _pendingManualOffsetApplyUntil) {
-      queueManualOffsetApplyRetry();
-      return;
-    }
+function runManualOffsetApplyRendezvous(): void {
+  const pending = _pendingManualOffsetApply;
+  if (!pending) return;
+  if (!isCurrentManualOffsetApply(pending)) {
+    clearPendingManualOffsetApply();
+    return;
+  }
+  if (Date.now() >= pending.until) {
+    clearPendingManualOffsetApply();
+    if (pending.waitingForSnapshot) showToast(t('toast.yt_rendezvous_no_data'));
+    return;
+  }
+
+  // Zero-start retires the legacy snapshot, and its timeline calibration does
+  // not seed one. Preserve an already accepted edit until the next ordinary
+  // heartbeat, without repeating the no-data toast every 250ms. UI preflight
+  // still reports no-data immediately; only this owned, bounded intent waits.
+  const result = guestRendezvousSync({ deferMissingHostSnapshot: true });
+  // An iframe command may synchronously cancel this run or accept a new edit.
+  if (_pendingManualOffsetApply !== pending) return;
+  if (result.status === 'busy' || result.status === 'awaiting-snapshot') {
+    pending.waitingForSnapshot = result.status === 'awaiting-snapshot';
+    queueManualOffsetApplyRetry();
+    return;
   }
 
   clearPendingManualOffsetApply();
@@ -692,7 +771,7 @@ function setCoordinatorManualYouTubeOffset(
   inputMode?: 'debounced' | 'committed',
 ): void {
   if (
-    isYouTubeZeroStartProtocolActive() ||
+    isYouTubeZeroStartSyncOwned() ||
     !isCanonicalYouTubeManualOffsetEndpoint() ||
     !Number.isFinite(requestedOffsetSeconds) ||
     !isPlaybackModeYouTube()
@@ -745,6 +824,14 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostSubIndex = data.subIndex as number | undefined;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(hostTime, hostState, hostClock, (data.videoId as string) || '', hostSubIndex);
+
+  // This speaker may still be waiting for its negative manual offset after
+  // the host has resumed ordinary heartbeats. Keep those snapshots fresh,
+  // but leave iframe and play-intent ownership with its scheduled release or
+  // bounded fallback. Otherwise the legacy PLAYING projection starts it
+  // early. Explicit YOUTUBE_STATE/PLAY/STOP commands retain their separate
+  // cancellation paths and can supersede this local wait immediately.
+  if (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackPending()) return;
 
   // A paused/stopped canonical snapshot carries no scripted-play intent.
   // Clear both pieces before the player/mode readiness guard so a paused
@@ -981,10 +1068,13 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
 interface GuestRendezvousOptions {
   silent?: boolean;
   suppressProgressToast?: boolean;
+  /** A bounded manual-apply owner may wait for the next ordinary heartbeat. */
+  deferMissingHostSnapshot?: boolean;
   onComplete?: () => void;
 }
 
-type GuestRendezvousStatus = 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
+type GuestRendezvousStatus =
+  'started' | 'completed' | 'busy' | 'not-ready' | 'no-data' | 'awaiting-snapshot';
 
 interface GuestRendezvousResult {
   status: GuestRendezvousStatus;
@@ -998,7 +1088,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const notifyProgress = (message: string): void => {
     if (!opts.suppressProgressToast) notify(message);
   };
-  if (isYouTubeZeroStartProtocolActive()) {
+  if (isYouTubeZeroStartSyncOwned()) {
     notify(t('toast.sync_not_ready'));
     return { status: 'not-ready' };
   }
@@ -1034,6 +1124,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
     !_rt.lastHostSnapshot ||
     getHostNow() - _rt.lastHostSnapshot.hostClockAt > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS
   ) {
+    if (opts.deferMissingHostSnapshot) return { status: 'awaiting-snapshot' };
     notify(t('toast.yt_rendezvous_no_data'));
     return { status: 'no-data' };
   }
@@ -1434,7 +1525,7 @@ export function resetYouTubeSyncState(): void {
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvous = null;
-  _pendingManualOffsetApplyUntil = 0;
+  clearPendingManualOffsetApply();
   resetStandardHostManualOffsetTransaction();
   setState('sync.youtubeCoordinatorAppliedOffset', 0);
   setLocalYouTubePaused(false);
@@ -1477,7 +1568,16 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // final sync, while BUFFERING/CUED/PLAYING feedback must retain that intent.
   const isExplicitTransportAction =
     state === 2 || state === 0 || state === -1 || (state === 1 && data.hostPlayAt !== undefined);
-  if (isExplicitTransportAction) clearPendingManualRendezvous();
+  if (isExplicitTransportAction) {
+    clearPendingManualRendezvous();
+    clearPendingManualOffsetApply();
+    if (isYouTubeZeroStartSyncOwned()) {
+      // The host can have retired its own zero-start barrier while this
+      // speaker still waits. Its new command then arrives without ABORT.
+      // Retire the local release/fallback before applying that newer intent.
+      cancelPendingYouTubeStartFromSync();
+    }
+  }
 
   // Record the host snapshot BEFORE the YouTube-mode guard. Late-join
   // bootstrap YOUTUBE_STATE arrives while the guest is still loading the
@@ -1502,6 +1602,12 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
     (data.videoId as string) || '',
     data.subIndex as number | undefined,
   );
+
+  if (
+    !isExplicitTransportAction &&
+    (isYouTubeZeroStartInFlight() || isYouTubeZeroStartExternalFallbackPending())
+  )
+    return;
 
   const pending = _rt.pendingManualRendezvous;
   if (pending) {
@@ -1975,7 +2081,7 @@ export function initYouTubeSync(): void {
   });
 
   bus.on('youtube:player-ready', runPendingManualRendezvous);
-  bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
+  bus.on('youtube:apply-manual-sync', requestManualOffsetApplyRendezvous);
   bus.on('youtube:set-coordinator-manual-offset', setCoordinatorManualYouTubeOffset);
   subscribeRoomAuthorityLifecycle(reconcileCanonicalManualOffsetEndpoint);
   reconcileCanonicalManualOffsetEndpoint();

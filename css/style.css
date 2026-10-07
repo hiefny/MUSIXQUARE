@@ -553,62 +553,6 @@
     }
   }
 
-  @keyframes ghostIn {
-    to {
-      opacity: 1;
-    }
-  }
-
-  @keyframes wlr {
-    from {
-      clip-path: inset(0 100% 0 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wrl {
-    from {
-      clip-path: inset(0 0 0 100%);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wtb {
-    from {
-      clip-path: inset(0 0 100% 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wbt {
-    from {
-      clip-path: inset(100% 0 0 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
-  @keyframes wdiag {
-    from {
-      clip-path: inset(0 100% 100% 0);
-    }
-
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
   @keyframes marquee-pingpong {
     0%,
     20% {
@@ -1245,45 +1189,15 @@
     stroke-linejoin: round;
   }
 
-  /* SVG Stroke Writing Animation — ghost underlay + per-bar directional reveal */
+  /* The wordmark runtime reveals one complete silhouette through an exact
+     union mask. Without that optional runtime, keep the static logo readable. */
   .logo-welcome > .wg {
-    opacity: 0.15;
-    animation: ghostIn 400ms 2500ms both;
-  }
-
-  .logo-welcome > .wl {
-    animation-duration: var(--wd, 150ms);
-    animation-timing-function: cubic-bezier(0.15, 0.5, 0.05, 1);
-    animation-delay: calc(var(--wt, 0ms) + 500ms);
-    animation-fill-mode: both;
-  }
-
-  .logo-welcome > .wlr {
-    animation-name: wlr;
-  }
-
-  .logo-welcome > .wrl {
-    animation-name: wrl;
-  }
-
-  .logo-welcome > .wtb {
-    animation-name: wtb;
-  }
-
-  .logo-welcome > .wbt {
-    animation-name: wbt;
-  }
-
-  .logo-welcome > .wdiag {
-    animation-name: wdiag;
+    opacity: 1;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .logo-welcome > .wg,
-    .logo-welcome > .wl {
-      animation: none !important;
-      opacity: 1 !important;
-      clip-path: none !important;
+    .logo-welcome > .wg {
+      mask: none !important;
     }
 
     .setup-brand-greeting-stage > .logo-welcome,
@@ -1817,6 +1731,10 @@
     outline-offset: -3px;
   }
 
+  #visualizerCanvas[role='img'] {
+    cursor: default;
+  }
+
   /* Spectrum visualizer mode */
   body.viz-spectrum .vinyl-wrapper {
     width: 100%;
@@ -1979,6 +1897,9 @@
   .track-title.marquee {
     width: auto;
     animation: marquee-pingpong var(--marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    /* The first 20% of the shared cycle is stationary. Start within that hold
+       so every title begins moving after exactly one second, at any length. */
+    animation-delay: calc(1s - var(--marquee-duration, 10s) * 0.2);
     will-change: transform;
   }
 
@@ -2671,24 +2592,12 @@
     display: inline;
     white-space: nowrap;
     transform: translateX(0);
+    --playlist-marquee-wait: 1s;
   }
 
   /* An overflowing title moves only while it is useful. Keyboard focus works
      everywhere; a real hover pointer opts into hover motion at any viewport
      width. */
-  .track-name:focus-visible
-    .track-name-text.is-playlist-title-overflowing
-    > .playlist-title-marquee-content,
-  .sub-track-item:focus-visible
-    .sub-name.is-playlist-title-overflowing
-    > .playlist-title-marquee-content {
-    animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
-      infinite;
-    display: inline-block;
-    will-change: transform;
-    --marquee-offset: var(--playlist-marquee-offset);
-  }
-
   @media (any-hover: hover) {
     .track-item:hover
       .track-name-text.is-playlist-title-overflowing
@@ -2698,10 +2607,33 @@
       > .playlist-title-marquee-content {
       animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
         infinite;
+      /* Hover is an explicit request to read the hidden title: skip the hold. */
+      --playlist-marquee-wait: 0s;
+      animation-delay: calc(
+        var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+      );
       display: inline-block;
       will-change: transform;
       --marquee-offset: var(--playlist-marquee-offset);
     }
+  }
+
+  .track-name:focus-visible
+    .track-name-text.is-playlist-title-overflowing
+    > .playlist-title-marquee-content,
+  .sub-track-item:focus-visible
+    .sub-name.is-playlist-title-overflowing
+    > .playlist-title-marquee-content {
+    animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
+      infinite;
+    /* Keep an already focused title on its timeline when a pointer passes over it. */
+    --playlist-marquee-wait: 1s;
+    animation-delay: calc(
+      var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+    );
+    display: inline-block;
+    will-change: transform;
+    --marquee-offset: var(--playlist-marquee-offset);
   }
 
   /* Narrow touch layouts have no hover state to reveal the rest of the current
@@ -2720,6 +2652,11 @@
       > .playlist-title-marquee-content {
       animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
         infinite;
+      /* Automatic motion also retains its timeline on hybrid touch/hover devices. */
+      --playlist-marquee-wait: 1s;
+      animation-delay: calc(
+        var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+      );
       display: inline-block;
       will-change: transform;
       --marquee-offset: var(--playlist-marquee-offset);
@@ -8634,12 +8571,6 @@
     border-radius: 8px;
   }
 
-  body.demo-mobile.viz-circular #visualizerCanvas {
-    /* The demo stage is rectangular, while circular mode rasterizes a
-       square. Preserve that square when fitting it into the full stage. */
-    object-fit: contain;
-  }
-
   body.demo-mobile.viz-spectrum .demo-visualizer-slot .vinyl-wrapper {
     aspect-ratio: auto;
   }
@@ -11662,6 +11593,7 @@ html:not(.ios-standalone) body {
 .yt-search-result {
   position: relative;
   width: 100%;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
   gap: 10px;
@@ -11728,6 +11660,9 @@ html:not(.ios-standalone) body {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
+  /* Reserve the existing two-line title slot so loading and short titles
+     occupy the same row geometry as wrapped search results. */
+  min-height: 2.7em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -11741,6 +11676,64 @@ html:not(.ios-standalone) body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.yt-search-skeleton {
+  pointer-events: none;
+  cursor: default;
+}
+
+.yt-search-skeleton .yt-skeleton-block {
+  animation: yt-search-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.yt-search-skeleton .yt-search-thumb {
+  background: var(--surface-3);
+}
+
+.yt-search-skeleton .yt-search-title {
+  background-image:
+    linear-gradient(var(--surface-3), var(--surface-3)),
+    linear-gradient(var(--surface-3), var(--surface-3));
+  background-size:
+    90% 0.75em,
+    65% 0.75em;
+  background-position:
+    left 0.3em,
+    left 1.65em;
+  background-repeat: no-repeat;
+}
+
+.yt-search-skeleton .yt-search-channel {
+  height: 1.3em;
+  background: linear-gradient(var(--surface-3), var(--surface-3)) left center / 42% 0.75em no-repeat;
+}
+
+[dir='rtl'] .yt-search-skeleton .yt-search-title {
+  background-position:
+    right 0.3em,
+    right 1.65em;
+}
+
+[dir='rtl'] .yt-search-skeleton .yt-search-channel {
+  background-position: right center;
+}
+
+@keyframes yt-search-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yt-search-skeleton .yt-skeleton-block {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 /* Smaller preview meta line (channel / duration), distinct from yt-preview-meta */

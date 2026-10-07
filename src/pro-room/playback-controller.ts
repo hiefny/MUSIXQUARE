@@ -20,12 +20,15 @@ import {
 } from './network-bridge.ts';
 import {
   cancelProPlaybackPreparation,
+  cancelSupersededProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
+  hasCancelledProPlaybackCheckpointRecovery,
   invalidateCommittedProPlaybackMedia,
   prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
   reconcileCurrentProPlaybackAuthority,
+  recoverCancelledProPlaybackCheckpoint,
   rendezvousCurrentProPlaybackAuthority,
   refreshProPlaybackUiControlTimeout,
   registerProPlaybackCommandHandler,
@@ -39,6 +42,8 @@ import {
 } from './playback-authority-hooks.ts';
 import type { ProRoomFirstAppendSelectionRequest } from './playlist-state-manager.ts';
 import { registerProRoomLocalPlaybackTimeline } from './local-playback-timeline.ts';
+import { getProSystemAudioViewState } from './system-audio-bridge.ts';
+import type { ProRoomSystemAudioViewState } from './system-audio-controller.ts';
 
 const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
 const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
@@ -106,6 +111,7 @@ interface PlaybackReconciliationOptions {
   showLoading: boolean;
   youtubeOnly: boolean;
   rendezvous: boolean;
+  preparePaused: boolean;
   owner: ProRoomPlaybackReconciliationLiveness;
 }
 
@@ -113,6 +119,15 @@ interface PlaybackReconciliationFlight {
   options: PlaybackReconciliationOptions;
   promise: Promise<boolean>;
   schedulerGeneration: number;
+}
+
+interface CancelledCheckpointRecoveryFlight {
+  playback: ProRoomPlaybackCheckpoint;
+  roomCode: string;
+  roomEpoch: number;
+  generation: number;
+  isCurrent: () => boolean;
+  promise: Promise<ProPlaybackCommitResult | null>;
 }
 
 interface QueuedPlaybackReconciliation {
@@ -147,6 +162,7 @@ interface ProRoomPlaybackControllerState {
   commitGeneration: number;
   reconciliationSequence: number;
   reconciliationInFlight: PlaybackReconciliationFlight | null;
+  cancelledCheckpointRecovery: CancelledCheckpointRecoveryFlight | null;
   queuedReconciliations: QueuedPlaybackReconciliation[];
   reconciliationSchedulerGeneration: number;
   pendingLocalUiControls: Map<number, PendingLocalPlaybackUiControl>;
@@ -175,6 +191,7 @@ function createInitialState(): ProRoomPlaybackControllerState {
     commitGeneration: 0,
     reconciliationSequence: 0,
     reconciliationInFlight: null,
+    cancelledCheckpointRecovery: null,
     queuedReconciliations: [],
     reconciliationSchedulerGeneration: 0,
     pendingLocalUiControls: new Map(),
@@ -184,6 +201,7 @@ function createInitialState(): ProRoomPlaybackControllerState {
 }
 
 interface ProRoomPlaybackImplementation {
+  resolveProjectedQueueItemId(snapshot: ProRoomSnapshot): QueueItemId | null;
   acceptPrepare(event: ProRoomPlaybackPrepareEvent, receivedAtMs?: number): void;
   acceptCancel(transitionId: string): void;
   acceptCommit(event: ProRoomPlaybackCommitEvent, isRequestCurrent?: PlaybackCommitOwner): void;
@@ -208,13 +226,15 @@ interface ProRoomPlaybackImplementation {
       showLoading: boolean;
       youtubeOnly: boolean;
       rendezvous: boolean;
+      preparePaused?: boolean;
       liveness?: ProRoomPlaybackReconciliationLiveness;
     }>,
   ): Promise<boolean>;
   startLifecycle(): void;
   stopLifecycle(): void;
   resetPlaylistRuntime(): void;
-  beginControlChannelRecovery(): void;
+  beginControlChannelRecovery(): number;
+  completeControlChannelRecovery(generation: number): void;
 }
 
 function createImplementation(
@@ -223,6 +243,74 @@ function createImplementation(
 ): ProRoomPlaybackImplementation {
   const MAX_CANCELLED_PLAYBACK_TRANSITION_IDS = 64;
   let unregisterLocalTimeline: (() => void) | null = null;
+  let unregisterCommandAuthority: (() => void) | null = null;
+  let unregisterSystemAudioState: (() => void) | null = null;
+  let snapshotPlaybackGeneration = 0;
+  let snapshotPlaybackBlocked = false;
+  let snapshotPlaybackOwner = createSnapshotPlaybackOwner();
+  let commandAuthorityGeneration = 0;
+  let commandMediaGeneration = 0;
+  let controlChannelGeneration = 0;
+  let controlChannelRecovering = false;
+  let commandPlayback: { roomId: string; playback: ProRoomPlaybackCheckpoint } | null = null;
+
+  function createSnapshotPlaybackOwner(): PlaybackCommitOwner {
+    const generation = snapshotPlaybackGeneration;
+    return () => generation === snapshotPlaybackGeneration && !snapshotPlaybackBlocked;
+  }
+
+  function invalidateSnapshotPlaybackOwner(): void {
+    snapshotPlaybackGeneration += 1;
+    snapshotPlaybackOwner = createSnapshotPlaybackOwner();
+  }
+
+  function observeSystemAudioOwnership(
+    view: Pick<ProRoomSystemAudioViewState, 'roomCode' | 'phase' | 'initialized'>,
+  ): void {
+    const context = getState('room.context');
+    if (context.kind !== 'pro' || view.roomCode !== context.roomId) return;
+    // The persisted checkpoint describes playback underneath a live share.
+    // Retire already-waiting restores as well as new heartbeat restores. Keep
+    // that fence through publisher recovery (live -> preparing -> live/idle).
+    const blocked =
+      view.phase === 'live'
+        ? true
+        : view.initialized && view.phase === 'idle'
+          ? false
+          : snapshotPlaybackBlocked;
+    if (blocked === snapshotPlaybackBlocked) return;
+    snapshotPlaybackBlocked = blocked;
+    invalidateSnapshotPlaybackOwner();
+  }
+
+  function rememberCommandPlayback(roomId: string, playback: ProRoomPlaybackCheckpoint): void {
+    const previous = commandPlayback;
+    if (
+      previous?.roomId === roomId &&
+      previous.playback.coordinatorEpoch === playback.coordinatorEpoch &&
+      previous.playback.revision >= playback.revision
+    )
+      return;
+    if (
+      previous?.roomId !== roomId ||
+      previous.playback.coordinatorEpoch !== playback.coordinatorEpoch ||
+      previous.playback.queueItemId !== playback.queueItemId ||
+      previous.playback.youtubeSubIndex !== playback.youtubeSubIndex ||
+      previous.playback.youtubeVideoId !== playback.youtubeVideoId
+    )
+      commandMediaGeneration += 1;
+    commandPlayback = { roomId, playback };
+  }
+
+  function getCommandPlayback(): ProRoomPlaybackCheckpoint | null {
+    const snapshot = ports.getCanonicalSnapshot();
+    if (snapshot) rememberCommandPlayback(snapshot.roomCode, snapshot.playback);
+    const context = getState('room.context');
+    return commandPlayback?.roomId === context.roomId &&
+      commandPlayback.playback.coordinatorEpoch === context.epoch
+      ? commandPlayback.playback
+      : null;
+  }
   const canonicalPlaybackCommitOwner: PlaybackCommitOwner = () => true;
   const defaultPlaybackReconciliationIdentity = {};
   const defaultPlaybackReconciliationOwner: ProRoomPlaybackReconciliationLiveness = {
@@ -397,6 +485,7 @@ function createImplementation(
 
   async function executePlaybackCommandWithRecovery(
     input: Parameters<ProRoomApiClient['executePlaybackCommand']>[0],
+    canRetry: () => boolean,
   ): Promise<ProRoomPlaybackCommandResult> {
     const roomSignal = ports.getRoomAbortSignal();
     let lastError: unknown = new ProRoomApiError('NETWORK_ERROR');
@@ -424,7 +513,7 @@ function createImplementation(
         const retryable =
           error instanceof ProRoomApiError &&
           (error.code === 'NETWORK_ERROR' || (error.code === 'ABORTED' && timedOut));
-        if (!retryable || attempt > 0 || roomSignal?.aborted) throw error;
+        if (!retryable || attempt > 0 || roomSignal?.aborted || !canRetry()) throw error;
       } finally {
         clearManagedTimer(timeoutTimer);
         linked.detach();
@@ -644,6 +733,7 @@ function createImplementation(
       return;
     }
     if (sameServerTransition(state.activeTransition, event)) return;
+    state.cancelledCheckpointRecovery = null;
 
     const replacedTransitionId = state.activeTransition?.event.transitionId ?? null;
     if (state.activeTransition) {
@@ -701,6 +791,11 @@ function createImplementation(
     state.activeTransition = null;
   }
 
+  function hasNewerServerPlaybackTransition(playbackRevision: number): boolean {
+    const transition = state.activeTransition;
+    return !!transition && transition.event.target.revision > playbackRevision;
+  }
+
   function playbackCommitStillCurrent(
     event: ProRoomPlaybackCommitEvent,
     generation: number,
@@ -714,6 +809,7 @@ function createImplementation(
       context.kind === 'pro' &&
       !!context.roomId &&
       context.epoch === event.playback.coordinatorEpoch &&
+      !hasNewerServerPlaybackTransition(event.playback.revision) &&
       event.playback.revision > state.lastAppliedRevision &&
       event.playback.revision >= state.highestKnownRevision
     );
@@ -765,6 +861,26 @@ function createImplementation(
     if (state.activeTransition === transition) state.activeTransition = null;
   }
 
+  function canonicalCheckpointMatches(
+    playback: ProRoomPlaybackCheckpoint,
+    roomCode: string,
+    roomEpoch: number,
+  ): boolean {
+    const snapshot = ports.getCanonicalSnapshot();
+    const canonical = snapshot?.playback;
+    return (
+      snapshot?.roomCode === roomCode &&
+      canonical?.coordinatorEpoch === roomEpoch &&
+      canonical.revision === playback.revision &&
+      canonical.queueItemId === playback.queueItemId &&
+      canonical.state === playback.state &&
+      canonical.positionSeconds === playback.positionSeconds &&
+      canonical.updatedAtMs === playback.updatedAtMs &&
+      canonical.youtubeSubIndex === playback.youtubeSubIndex &&
+      canonical.youtubeVideoId === playback.youtubeVideoId
+    );
+  }
+
   async function catchUpExactPlaybackCheckpoint(
     event: ProRoomPlaybackCommitEvent,
     receivedAtMs: number,
@@ -799,6 +915,30 @@ function createImplementation(
     }
     if (prepared.status !== 'ready') {
       cancelProPlaybackPreparation(authority);
+      if (prepared.reason === 'stale-authority') {
+        const exactCheckpointIsCurrent = () => {
+          return (
+            playbackCommitStillCurrent(event, generation, isRequestCurrent) &&
+            canonicalCheckpointMatches(playback, roomCode, roomEpoch)
+          );
+        };
+        const timing = playbackCommitTiming(event, receivedAtMs);
+        return recoverCancelledProPlaybackCheckpoint(
+          {
+            authority,
+            committedPlaybackRevision: playback.revision,
+            queueItemId: playback.queueItemId,
+            state: playback.state,
+            positionSeconds: timing.positionSeconds,
+            scheduleDelayMs: timing.scheduleDelayMs,
+            timingMode: 'scheduled-control',
+            youtubeSubIndex: playback.youtubeSubIndex,
+            youtubeVideoId: playback.youtubeVideoId,
+            isCurrent: exactCheckpointIsCurrent,
+          },
+          () => playbackCommitTiming(event, receivedAtMs),
+        );
+      }
       return null;
     }
     const timing = playbackCommitTiming(event, receivedAtMs);
@@ -930,14 +1070,17 @@ function createImplementation(
       }
       if (prepared.status !== 'ready') {
         if (activeTransition) clearServerPlaybackTransition(activeTransition);
-        const catchup = await catchUpExactPlaybackCheckpoint(
-          event,
-          receivedAtMs,
-          generation,
-          context.roomId,
-          context.epoch,
-          isRequestCurrent,
-        );
+        const catchup =
+          prepared.reason === 'device-unavailable'
+            ? null
+            : await catchUpExactPlaybackCheckpoint(
+                event,
+                receivedAtMs,
+                generation,
+                context.roomId,
+                context.epoch,
+                isRequestCurrent,
+              );
         if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
         if (catchup?.status !== 'applied') {
           await silenceUnappliedCanonicalRenderer(
@@ -1001,7 +1144,12 @@ function createImplementation(
     // superseded can reach a freshly resumed endpoint before hydration. Clear
     // the failed transition and catch up from the exact committed checkpoint
     // immediately rather than waiting for the next heartbeat.
-    if (result.status !== 'applied' && playback.state !== 'idle' && playback.queueItemId) {
+    if (
+      result.status !== 'applied' &&
+      result.reason !== 'device-unavailable' &&
+      playback.state !== 'idle' &&
+      playback.queueItemId
+    ) {
       if (activeTransition) clearServerPlaybackTransition(activeTransition);
       result =
         (await catchUpExactPlaybackCheckpoint(
@@ -1057,13 +1205,28 @@ function createImplementation(
     event: ProRoomPlaybackCommitEvent,
     isRequestCurrent: PlaybackCommitOwner = canonicalPlaybackCommitOwner,
   ): void {
-    if (!isRequestCurrent()) return;
+    const context = getState('room.context');
+    if (
+      !isRequestCurrent() ||
+      !ports.isActive() ||
+      context.kind !== 'pro' ||
+      !context.roomId ||
+      context.epoch !== event.playback.coordinatorEpoch
+    ) {
+      return;
+    }
+    // A newer PREPARE can arrive in an HTTP command response before an older
+    // WebSocket COMMIT. Keep its media owner and commit generation intact.
+    if (hasNewerServerPlaybackTransition(event.playback.revision)) return;
     if (event.playback.revision <= state.lastAppliedRevision) return;
     // A lower revision can arrive after a newer WebSocket frame when a heartbeat
     // snapshot and the live channel cross. Reject it before advancing the local
     // generation; otherwise it would cancel the newer COMMIT and then reject
     // itself against state.highestKnownRevision.
     if (event.playback.revision < state.highestKnownRevision) return;
+    // Live COMMIT is authoritative before its follow-up heartbeat hydrates the
+    // snapshot. Command identity must move with this checkpoint, not that GET.
+    rememberCommandPlayback(context.roomId, event.playback);
     const existing = state.commitInFlight.get(event.playback.revision);
     if (existing) {
       if (existing.owner === isRequestCurrent || existing.owner === canonicalPlaybackCommitOwner) {
@@ -1089,7 +1252,28 @@ function createImplementation(
         ? state.activeTransition.event.transitionId
         : event.transitionId;
     state.highestKnownRevision = Math.max(state.highestKnownRevision, event.playback.revision);
+    state.cancelledCheckpointRecovery = null;
     const generation = ++state.commitGeneration;
+    const transition = state.activeTransition;
+    if (
+      transition &&
+      transition.event.target.revision <= event.playback.revision &&
+      (transition.event.transitionId !== event.transitionId ||
+        transition.event.target.revision !== event.playback.revision)
+    ) {
+      clearServerPlaybackTransition(transition);
+    }
+    // A committed transition no longer has a server PREPARE to CANCEL. A later
+    // pause/stop/snapshot must release its obsolete native preparation wait
+    // before queuing, while actual endpoint COMMITs remain serialized below.
+    cancelSupersededProPlaybackPreparation(
+      playbackAuthorityFor(
+        context.roomId,
+        context.epoch,
+        event.playback.revision,
+        event.transitionId,
+      ),
+    );
     const operation = state.commitTail
       .then(
         () => applyPlaybackCommit(event, receivedAtMs, generation, isRequestCurrent),
@@ -1184,12 +1368,15 @@ function createImplementation(
   async function submitPlaybackIntent(
     intent: Readonly<ProPlaybackUserIntent>,
     exactBasePlaybackRevision?: number,
+    canSubmit: () => boolean = () => true,
   ): Promise<void> {
     const context = getState('room.context');
     const snapshot = ports.getCanonicalSnapshot();
     if (
       !ports.isActive() ||
+      !canSubmit() ||
       context.kind !== 'pro' ||
+      !context.capabilities.includes('playback.control') ||
       !context.roomId ||
       context.roomId !== intent.roomId ||
       context.epoch !== intent.roomEpoch ||
@@ -1209,7 +1396,9 @@ function createImplementation(
     const exactRevisionIsCurrent =
       exactBasePlaybackRevision === undefined ||
       (state.highestKnownRevision <= exactBasePlaybackRevision &&
-        (intent.kind === 'advance-sub-video'
+        (intent.kind === 'advance-sub-video' ||
+        intent.kind === 'ended' ||
+        intent.kind === 'unavailable'
           ? // COMMIT application precedes the heartbeat that refreshes the
             // playlist snapshot. The local media revision is therefore the
             // exact fence for iframe observations during that short window.
@@ -1226,6 +1415,8 @@ function createImplementation(
       exactBasePlaybackRevision ?? Math.max(state.highestKnownRevision, snapshot.playback.revision);
     const localUiControl = trackLocalPlaybackUiControl(intent, baseRevision + 1);
     const commandGeneration = state.commandGeneration;
+    const preparationResponseGeneration = controlChannelGeneration;
+    const preparationResponseStartedConnected = !controlChannelRecovering;
     const commandIsCurrent = (): boolean => {
       const currentContext = getState('room.context');
       const currentSnapshot = ports.getCanonicalSnapshot();
@@ -1240,12 +1431,29 @@ function createImplementation(
       );
     };
     try {
-      const result = await executePlaybackCommandWithRecovery({
-        code: intent.roomId,
-        command: commandForPlaybackIntent(intent, baseRevision),
-        idempotencyKey: createProRoomIdempotencyKey(),
-      });
+      const result = await executePlaybackCommandWithRecovery(
+        {
+          code: intent.roomId,
+          command: commandForPlaybackIntent(intent, baseRevision),
+          idempotencyKey: createProRoomIdempotencyKey(),
+        },
+        canSubmit,
+      );
       if (!commandIsCurrent()) return;
+      if (
+        result.status === 'preparing' &&
+        result.transition &&
+        (preparationResponseGeneration !== controlChannelGeneration ||
+          !preparationResponseStartedConnected) &&
+        !sameServerTransition(state.activeTransition, result.transition)
+      ) {
+        // An HTTP PREPARE describes what was pending when that request was
+        // accepted. Its CANCEL may have been missed while the socket was
+        // offline. Only the recovered channel's exact pending transition can
+        // retain this response; committed results still use the revision fence.
+        settleLocalPlaybackUiControl(localUiControl, 'superseded');
+        return;
+      }
       state.highestKnownRevision = Math.max(state.highestKnownRevision, result.playback.revision);
       if (result.status === 'preparing' && result.transition) {
         bindAdmittedLocalPlaybackUiControl(
@@ -1265,7 +1473,13 @@ function createImplementation(
         });
       } else if (result.status === 'unchanged') {
         if (result.playback.revision > state.lastAppliedRevision) {
-          restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
+          restorePlaybackCheckpoint(
+            result.playback,
+            intent.roomId,
+            intent.roomEpoch,
+            canonicalPlaybackCommitOwner,
+            result.serverTimeMs,
+          );
           settleLocalPlaybackUiControl(localUiControl, 'applied', result.playback.positionSeconds);
         } else if (intent.kind === 'play' && result.playback.state === 'playing') {
           // The room can already be playing while a foregrounded WebKit iframe
@@ -1322,8 +1536,12 @@ function createImplementation(
     signal?: AbortSignal,
   ): Promise<void> {
     const commandGeneration = state.commandGeneration;
+    const authorityGeneration = commandAuthorityGeneration;
+    const canSubmit = () =>
+      authorityGeneration === commandAuthorityGeneration &&
+      getState('room.context').capabilities.includes('playback.control');
     const submit = async () => {
-      if (commandGeneration !== state.commandGeneration) return;
+      if (commandGeneration !== state.commandGeneration || !canSubmit()) return;
       const context = getState('room.context');
       const snapshot = ports.getPlaylistSnapshot();
       const item = snapshot?.playlist.find(
@@ -1361,6 +1579,7 @@ function createImplementation(
           youtubeSubIndex: request.youtubeSubIndex,
         },
         request.basePlaybackRevision,
+        canSubmit,
       );
     };
     // A preceding user command failure must not starve a newly committed first
@@ -1388,14 +1607,37 @@ function createImplementation(
         ? intent.observedPlaybackRevision
         : undefined;
     const commandGeneration = state.commandGeneration;
+    const authorityGeneration = commandAuthorityGeneration;
+    const seekSource = intent.kind === 'seek' ? getCommandPlayback() : null;
+    const seekMediaGeneration = commandMediaGeneration;
+    const canSubmit = (): boolean => {
+      if (
+        authorityGeneration !== commandAuthorityGeneration ||
+        !getState('room.context').capabilities.includes('playback.control')
+      )
+        return false;
+      if (intent.kind !== 'seek') return true;
+      const playback = getCommandPlayback();
+      // Seek is a position in the media the gesture targeted, not a position
+      // in whichever row/sub-video happens to own the queue after an HTTP wait.
+      return Boolean(
+        seekSource &&
+        playback &&
+        seekMediaGeneration === commandMediaGeneration &&
+        seekSource.queueItemId === intent.queueItemId &&
+        playback.queueItemId === intent.queueItemId &&
+        playback.youtubeSubIndex === seekSource.youtubeSubIndex &&
+        playback.youtubeVideoId === seekSource.youtubeVideoId,
+      );
+    };
     const submit = () => {
-      if (commandGeneration !== state.commandGeneration) {
+      if (commandGeneration !== state.commandGeneration || !canSubmit()) {
         if (intent.clientUiControlToken) {
           settleProPlaybackUiControl(intent.clientUiControlToken, 'failed');
         }
         return Promise.resolve();
       }
-      return submitPlaybackIntent(intent, exactBaseRevision);
+      return submitPlaybackIntent(intent, exactBaseRevision, canSubmit);
     };
     const operation = state.commandTail.then(submit, submit);
     state.commandTail = operation.catch(() => undefined);
@@ -1407,6 +1649,7 @@ function createImplementation(
     roomCode: string,
     roomEpoch: number,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
+    observedServerTimeMs = getProRoomServerNow(),
   ): void {
     const context = getState('room.context');
     if (
@@ -1425,21 +1668,30 @@ function createImplementation(
       return;
     }
     const transition = state.activeTransition;
-    if (
-      !isRequestCurrent() ||
-      (transition && transition.event.target.revision > playback.revision)
-    ) {
+    if (!isRequestCurrent() || hasNewerServerPlaybackTransition(playback.revision)) {
       return;
     }
+    const target = transition?.event.target;
+    // A direct commit can replace PREPARE at its reserved next revision. Reuse
+    // preparation only for the same checkpoint; commit time itself may change.
+    const preparedTransition =
+      target?.coordinatorEpoch === playback.coordinatorEpoch &&
+      target.revision === playback.revision &&
+      target.queueItemId === playback.queueItemId &&
+      target.state === playback.state &&
+      target.positionSeconds === playback.positionSeconds &&
+      target.youtubeVideoId === playback.youtubeVideoId &&
+      target.youtubeSubIndex === playback.youtubeSubIndex
+        ? transition
+        : null;
     acceptPlaybackCommit(
       {
         type: 'pro-playback-commit',
-        transitionId:
-          transition?.event.target.revision === playback.revision
-            ? transition.event.transitionId
-            : `snapshot_${playback.revision}`,
-        serverTimeMs: getProRoomServerNow(),
-        executeAtMs: playback.updatedAtMs,
+        transitionId: preparedTransition?.event.transitionId ?? `snapshot_${playback.revision}`,
+        serverTimeMs: playback.state === 'playing' ? observedServerTimeMs : 0,
+        // Paused/idle snapshots restore immediately, including when the clock
+        // becomes calibrated while local media preparation is still pending.
+        executeAtMs: playback.state === 'playing' ? playback.updatedAtMs : 0,
         playback,
       },
       isRequestCurrent,
@@ -1450,9 +1702,16 @@ function createImplementation(
     snapshot: ProRoomSnapshot,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
   ): Promise<void> {
+    const snapshotOwner = snapshotPlaybackOwner;
+    // Reuse the default owner identity so repeated heartbeat snapshots still
+    // coalesce. A caller's narrower reconciliation lifetime remains in force.
+    const restoreIsCurrent =
+      isRequestCurrent === canonicalPlaybackCommitOwner
+        ? snapshotOwner
+        : () => snapshotOwner() && isRequestCurrent();
     const lease = ports.capturePlaylistLease();
     if (
-      !isRequestCurrent() ||
+      !restoreIsCurrent() ||
       !lease ||
       lease.roomCode !== snapshot.roomCode ||
       !ports.isPlaylistLeaseCurrent(lease)
@@ -1460,11 +1719,31 @@ function createImplementation(
       return;
     }
     state.highestKnownRevision = Math.max(state.highestKnownRevision, snapshot.playback.revision);
+    if (snapshot.playback.revision === state.lastAppliedRevision) {
+      await recoverCancelledAppliedPlaybackCheckpoint(
+        snapshot.playback,
+        snapshot.roomCode,
+        snapshot.presence.coordinatorEpoch,
+        restoreIsCurrent,
+      );
+      return;
+    }
+    // Snapshots carry the checkpoint's update time, but no current server time.
+    // A late join can prepare media before its first socket clock response; do
+    // not synthesize a running COMMIT from the device's uncalibrated wall clock.
+    if (snapshot.playback.state === 'playing' && !isProRoomServerClockCalibrated()) {
+      const calibrated = await waitForFreshProRoomServerClockCalibration({
+        serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
+        fallbackTimeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
+        signal: ports.getRoomAbortSignal(),
+      });
+      if (!calibrated || !restoreIsCurrent() || !ports.isPlaylistLeaseCurrent(lease)) return;
+    }
     await restorePlaybackCheckpoint(
       snapshot.playback,
       snapshot.roomCode,
       snapshot.presence.coordinatorEpoch,
-      isRequestCurrent,
+      restoreIsCurrent,
     );
   }
 
@@ -1489,6 +1768,103 @@ function createImplementation(
     );
   }
 
+  function recoverCancelledAppliedPlaybackCheckpoint(
+    playback: ProRoomPlaybackCheckpoint,
+    roomCode: string,
+    roomEpoch: number,
+    isRequestCurrent: PlaybackCommitOwner,
+    allowFollowUp = true,
+  ): Promise<ProPlaybackCommitResult | null> {
+    const generation = state.commitGeneration;
+    let flight: CancelledCheckpointRecoveryFlight | null = null;
+    const isCurrent = () =>
+      (flight === null || state.cancelledCheckpointRecovery === flight) &&
+      isRequestCurrent() &&
+      (playback.state !== 'playing' || isProRoomServerClockCalibrated()) &&
+      playbackReconciliationStillCurrent(playback, roomCode, roomEpoch, generation) &&
+      canonicalCheckpointMatches(playback, roomCode, roomEpoch);
+    if (!isCurrent() || playback.state === 'idle' || !playback.queueItemId) {
+      return Promise.resolve(null);
+    }
+    const existing = state.cancelledCheckpointRecovery;
+    if (
+      existing &&
+      existing.roomCode === roomCode &&
+      existing.roomEpoch === roomEpoch &&
+      existing.generation === generation &&
+      canonicalCheckpointMatches(existing.playback, roomCode, roomEpoch)
+    ) {
+      // Independent heartbeat/rejoin owners may wait on the same renderer, but
+      // a follower must never replace or extend the original owner's liveness.
+      const afterRecovery = (result: ProPlaybackCommitResult | null) => {
+        if (!isCurrent()) return null;
+        if (
+          result?.status === 'applied' ||
+          !allowFollowUp ||
+          !hasCancelledProPlaybackCheckpointRecovery(roomCode, roomEpoch, playback.revision)
+        )
+          return result;
+        return recoverCancelledAppliedPlaybackCheckpoint(
+          playback,
+          roomCode,
+          roomEpoch,
+          isRequestCurrent,
+          false,
+        );
+      };
+      return existing.promise.then(afterRecovery, () => afterRecovery(null));
+    }
+    if (!hasCancelledProPlaybackCheckpointRecovery(roomCode, roomEpoch, playback.revision)) {
+      return Promise.resolve(null);
+    }
+    const authority = playbackAuthorityFor(
+      roomCode,
+      roomEpoch,
+      playback.revision,
+      `snapshot_${playback.revision}`,
+    );
+    const timing = () => ({
+      positionSeconds:
+        playback.state === 'playing'
+          ? playback.positionSeconds +
+            Math.max(0, getProRoomServerNow() - playback.updatedAtMs) / 1_000
+          : playback.positionSeconds,
+      scheduleDelayMs: 0,
+    });
+    flight = {
+      playback,
+      roomCode,
+      roomEpoch,
+      generation,
+      isCurrent,
+      promise: Promise.resolve(null),
+    };
+    state.cancelledCheckpointRecovery = flight;
+    const request = {
+      authority,
+      committedPlaybackRevision: playback.revision,
+      queueItemId: playback.queueItemId,
+      state: playback.state,
+      ...timing(),
+      timingMode: 'scheduled-control' as const,
+      youtubeSubIndex: playback.youtubeSubIndex,
+      youtubeVideoId: playback.youtubeVideoId,
+      isCurrent,
+    };
+    const operation = recoverCancelledProPlaybackCheckpoint(request, timing)
+      .then(async (result) => {
+        if (result.reason === 'device-unavailable' && isCurrent()) {
+          await invalidateCommittedProPlaybackMedia({ ...request, ...timing() });
+        }
+        return result;
+      })
+      .finally(() => {
+        if (state.cancelledCheckpointRecovery === flight) state.cancelledCheckpointRecovery = null;
+      });
+    flight.promise = operation;
+    return operation;
+  }
+
   /** Re-apply one exact server revision without manufacturing a new room event. */
   async function reapplyCurrentPlaybackCheckpoint(
     playback: ProRoomPlaybackCheckpoint,
@@ -1497,6 +1873,7 @@ function createImplementation(
     observedServerTimeMs: number,
     rendezvous: boolean,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
+    preparePaused = false,
   ): Promise<boolean> {
     if (
       !isRequestCurrent() ||
@@ -1511,16 +1888,28 @@ function createImplementation(
       return false;
     }
 
+    const cancelledRecovery = await recoverCancelledAppliedPlaybackCheckpoint(
+      playback,
+      roomCode,
+      roomEpoch,
+      isRequestCurrent,
+    );
+    if (cancelledRecovery && cancelledRecovery.status !== 'applied') return false;
+    // The heartbeat can have started recovery under this request's owner. Wait
+    // for it, then retain explicit sync's own offset/rendezvous application.
+
     const generation = state.commitGeneration;
     const runningRendezvous = rendezvous && playback.state === 'playing';
+    const prepareRenderer = runningRendezvous || (preparePaused && playback.state === 'paused');
     const authority = createProPlaybackAuthorityToken({
       roomId: roomCode,
       roomEpoch,
       basePlaybackRevision: playback.revision - 1,
       // A running manual sync uses a participant-local arm/release cycle. The
       // opaque ID never leaves this browser and cannot create a room revision.
-      // Paused checkpoints remain exact direct re-applications.
-      transitionId: runningRendezvous
+      // A paused renderer destroyed by system audio also needs preparation;
+      // its exact checkpoint is committed without a running timeline/lead.
+      transitionId: prepareRenderer
         ? `local_sync_${playback.revision}_${++state.reconciliationSequence}`
         : null,
     });
@@ -1540,7 +1929,7 @@ function createImplementation(
       playbackReconciliationStillCurrent(playback, roomCode, roomEpoch, generation);
     if (!isCurrent()) return false;
 
-    if (runningRendezvous) {
+    if (prepareRenderer) {
       let prepared: ProPlaybackPrepareResult;
       try {
         prepared = await prepareCurrentProPlaybackRendezvousAuthority({
@@ -1564,9 +1953,12 @@ function createImplementation(
       // target after it is ready, then release at one future server instant so
       // this endpoint rejoins the running timeline rather than hard-seeking at
       // an arbitrary response-arrival time.
-      const executeAtMs = getProRoomServerNow() + PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS;
+      const leadMs = runningRendezvous ? PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS : 0;
+      const executeAtMs = getProRoomServerNow() + leadMs;
       const rendezvousPosition =
-        playback.positionSeconds + Math.max(0, executeAtMs - playback.updatedAtMs) / 1_000;
+        playback.state === 'playing'
+          ? playback.positionSeconds + Math.max(0, executeAtMs - playback.updatedAtMs) / 1_000
+          : playback.positionSeconds;
       if (!isCurrent()) {
         cancelProPlaybackPreparation(authority);
         return false;
@@ -1579,7 +1971,7 @@ function createImplementation(
           queueItemId: playback.queueItemId,
           state: playback.state,
           positionSeconds: rendezvousPosition,
-          scheduleDelayMs: PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS,
+          scheduleDelayMs: leadMs,
           timingMode: 'scheduled-control',
           youtubeSubIndex: playback.youtubeSubIndex,
           youtubeVideoId: playback.youtubeVideoId,
@@ -1615,7 +2007,8 @@ function createImplementation(
   ): boolean {
     return (
       (!running.youtubeOnly || requested.youtubeOnly) &&
-      (running.rendezvous || !requested.rendezvous)
+      (running.rendezvous || !requested.rendezvous) &&
+      (running.preparePaused || !requested.preparePaused)
     );
   }
 
@@ -1635,6 +2028,7 @@ function createImplementation(
       // false means all supported media and is therefore the stronger request.
       youtubeOnly: left.youtubeOnly && right.youtubeOnly,
       rendezvous: left.rendezvous || right.rendezvous,
+      preparePaused: left.preparePaused || right.preparePaused,
       owner: left.owner,
     };
   }
@@ -1769,6 +2163,7 @@ function createImplementation(
         getProRoomServerNow(),
         options.rendezvous,
         requestStillCurrent,
+        options.preparePaused,
       );
     })().finally(() => {
       if (state.reconciliationInFlight !== flight) return;
@@ -1784,6 +2179,7 @@ function createImplementation(
       showLoading: boolean;
       youtubeOnly: boolean;
       rendezvous: boolean;
+      preparePaused?: boolean;
       liveness?: ProRoomPlaybackReconciliationLiveness;
     }>,
   ): Promise<boolean> {
@@ -1791,6 +2187,7 @@ function createImplementation(
       showLoading: false,
       youtubeOnly: options.youtubeOnly,
       rendezvous: options.rendezvous,
+      preparePaused: options.preparePaused ?? false,
       owner: options.liveness ?? defaultPlaybackReconciliationOwner,
     };
     if (!normalized.owner.isCurrent()) return Promise.resolve(false);
@@ -1827,6 +2224,12 @@ function createImplementation(
   }
 
   function resetPlaylistRuntime(): void {
+    controlChannelGeneration += 1;
+    controlChannelRecovering = false;
+    invalidateSnapshotPlaybackOwner();
+    commandPlayback = null;
+    commandMediaGeneration += 1;
+    state.cancelledCheckpointRecovery = null;
     state.commandGeneration += 1;
     const transition = state.activeTransition;
     if (transition) {
@@ -1847,8 +2250,20 @@ function createImplementation(
   }
 
   function stopLifecycle(): void {
+    controlChannelGeneration += 1;
+    controlChannelRecovering = false;
+    unregisterSystemAudioState?.();
+    unregisterSystemAudioState = null;
+    snapshotPlaybackBlocked = false;
+    invalidateSnapshotPlaybackOwner();
+    commandPlayback = null;
+    commandMediaGeneration += 1;
+    state.cancelledCheckpointRecovery = null;
     unregisterLocalTimeline?.();
     unregisterLocalTimeline = null;
+    unregisterCommandAuthority?.();
+    unregisterCommandAuthority = null;
+    commandAuthorityGeneration += 1;
     state.commandGeneration += 1;
     state.reconciliationSchedulerGeneration += 1;
     state.reconciliationInFlight = null;
@@ -1870,6 +2285,22 @@ function createImplementation(
   }
 
   function startLifecycle(): void {
+    unregisterSystemAudioState?.();
+    invalidateSnapshotPlaybackOwner();
+    unregisterSystemAudioState = bus.on(
+      'pro-system-audio:state-changed',
+      observeSystemAudioOwnership,
+    );
+    observeSystemAudioOwnership(getProSystemAudioViewState());
+    unregisterCommandAuthority?.();
+    unregisterCommandAuthority = bus.on('state:room.context', () => {
+      const context = getState('room.context');
+      // A revoke/regrant cycle must not revive queued gestures. Canonical
+      // PREPARE/COMMIT handling remains independent of this local authority.
+      if (context.kind !== 'pro' || !context.capabilities.includes('playback.control')) {
+        commandAuthorityGeneration += 1;
+      }
+    });
     unregisterLocalTimeline?.();
     unregisterLocalTimeline = registerProRoomLocalPlaybackTimeline({
       getSnapshot: ports.getCanonicalSnapshot,
@@ -1889,6 +2320,7 @@ function createImplementation(
           revision === state.highestKnownRevision &&
           !state.activeTransition &&
           state.commitInFlight.size === 0 &&
+          !state.cancelledCheckpointRecovery &&
           !state.reconciliationInFlight;
       },
     });
@@ -1898,7 +2330,9 @@ function createImplementation(
     );
   }
 
-  function beginControlChannelRecovery(): void {
+  function beginControlChannelRecovery(): number {
+    controlChannelGeneration += 1;
+    controlChannelRecovering = true;
     const transition = state.activeTransition;
     if (transition && !state.commitInFlight.has(transition.event.target.revision)) {
       transition.clockAbort.abort();
@@ -1908,9 +2342,50 @@ function createImplementation(
         settlePlaybackTransitionUi(transition.event.transitionId);
       }
     }
+    return controlChannelGeneration;
+  }
+
+  function completeControlChannelRecovery(generation: number): void {
+    if (generation === controlChannelGeneration) controlChannelRecovering = false;
+  }
+
+  function resolveProjectedQueueItemId(snapshot: ProRoomSnapshot): QueueItemId | null {
+    const transition = state.activeTransition;
+    const context = getState('room.context');
+    const target = transition?.event.target.queueItemId;
+    if (
+      !transition ||
+      !target ||
+      !ports.isActive() ||
+      transition.clockAbort.signal.aborted ||
+      context.kind !== 'pro' ||
+      context.roomId !== snapshot.roomCode ||
+      transition.authority.roomId !== snapshot.roomCode ||
+      transition.authority.roomEpoch !== context.epoch ||
+      snapshot.playback.coordinatorEpoch !== context.epoch ||
+      snapshot.playback.revision !== transition.event.basePlaybackRevision ||
+      getState('playlist.currentQueueItemId') !== target
+    ) {
+      return snapshot.currentQueueItemId;
+    }
+
+    // A queue-only mutation still describes the committed selection, while
+    // the local endpoint may already be preparing the server's next target.
+    // Retain only that exact live target with an unchanged canonical source;
+    // deletion, source replacement, and newer playback remain authoritative.
+    const previous = ports
+      .getPlaylistSnapshot()
+      ?.playlist.find((item) => item.queueItemId === target);
+    const incoming = snapshot.playlist.find((item) => item.queueItemId === target);
+    return previous &&
+      incoming &&
+      JSON.stringify(previous.source) === JSON.stringify(incoming.source)
+      ? target
+      : snapshot.currentQueueItemId;
   }
 
   return {
+    resolveProjectedQueueItemId,
     acceptPrepare: acceptPlaybackPrepare,
     acceptCancel: acceptPlaybackCancel,
     acceptCommit: acceptPlaybackCommit,
@@ -1923,6 +2398,7 @@ function createImplementation(
     stopLifecycle,
     resetPlaylistRuntime,
     beginControlChannelRecovery,
+    completeControlChannelRecovery,
   };
 }
 
@@ -1933,6 +2409,10 @@ export class ProRoomPlaybackController {
 
   constructor(ports: ProRoomPlaybackControllerPorts) {
     this.implementation = createImplementation(ports, this.state);
+  }
+
+  resolveProjectedQueueItemId(snapshot: ProRoomSnapshot): QueueItemId | null {
+    return this.implementation.resolveProjectedQueueItemId(snapshot);
   }
 
   acceptPrepare(event: ProRoomPlaybackPrepareEvent, receivedAtMs?: number): void {
@@ -1980,6 +2460,7 @@ export class ProRoomPlaybackController {
       showLoading: boolean;
       youtubeOnly: boolean;
       rendezvous: boolean;
+      preparePaused?: boolean;
       liveness?: ProRoomPlaybackReconciliationLiveness;
     }>,
   ): Promise<boolean> {
@@ -1998,7 +2479,11 @@ export class ProRoomPlaybackController {
     this.implementation.resetPlaylistRuntime();
   }
 
-  beginControlChannelRecovery(): void {
-    this.implementation.beginControlChannelRecovery();
+  beginControlChannelRecovery(): number {
+    return this.implementation.beginControlChannelRecovery();
+  }
+
+  completeControlChannelRecovery(generation: number): void {
+    this.implementation.completeControlChannelRecovery(generation);
   }
 }

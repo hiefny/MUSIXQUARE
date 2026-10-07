@@ -29,6 +29,12 @@ interface ProCoordinatorYouTubeNudgeAnchor {
 }
 
 let _nudgeAnchor: ProCoordinatorYouTubeNudgeAnchor | null = null;
+let _scheduledStartTimeline: (() => number | null) | null = null;
+
+/** The Standard start owner supplies room time while its own speaker waits. */
+export function setYouTubeScheduledStartTimelineReader(reader: () => number | null): void {
+  _scheduledStartTimeline = reader;
+}
 
 function clampTime(time: number, duration: number): number {
   if (!Number.isFinite(time)) return 0;
@@ -167,6 +173,12 @@ export function rebaseProCoordinatorYouTubeNudgeAnchor(
 /** Convert an iframe-local position to the room timeline. */
 export function toCanonicalYouTubeTime(localTime: number, duration = 0): number {
   if (!isCanonicalYouTubeManualOffsetEndpoint()) return localTime;
+  if (isStandardHostYouTubeManualOffsetEndpoint()) {
+    const scheduledTime = _scheduledStartTimeline?.();
+    if (scheduledTime !== null && scheduledTime !== undefined && Number.isFinite(scheduledTime)) {
+      return clampTime(scheduledTime, duration);
+    }
+  }
   const anchoredTime = readActiveNudgeAnchor(duration);
   if (anchoredTime !== null) return anchoredTime;
   return clampTime(localTime - getEffectiveProCoordinatorYouTubeOffset(), duration);
@@ -190,5 +202,23 @@ export function resolveProCoordinatorYouTubeTarget(
     localTime: local,
     requestedOffset: requested,
     effectiveOffset: local - canonical,
+  };
+}
+
+/** A playing start may wait at zero instead of discarding a negative offset.
+ * The returned effective delta belongs to the delayed release, not preparation.
+ * Paused seeks continue to use resolveProCoordinatorYouTubeTarget.
+ */
+export function resolveYouTubePlaybackStartTarget(
+  canonicalTime: number,
+  requestedOffset: number,
+  duration = 0,
+): ProCoordinatorYouTubeTarget & { localStartDelayMs: number } {
+  const target = resolveProCoordinatorYouTubeTarget(canonicalTime, requestedOffset, duration);
+  const delaySeconds = Math.max(0, -(target.canonicalTime + target.requestedOffset));
+  return {
+    ...target,
+    effectiveOffset: target.localTime - target.canonicalTime - delaySeconds,
+    localStartDelayMs: delaySeconds * 1000,
   };
 }

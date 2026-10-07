@@ -828,8 +828,7 @@ async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection)
   const ctx = getAudioContext();
   const widener = getWidener();
   if (!widener) {
-    log.error('[SysAudioSFU] Audio graph not ready');
-    return;
+    throw new Error('System audio graph not ready');
   }
 
   if (ctx.state !== 'running') {
@@ -994,9 +993,16 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
 
     setReceiverDelay(receiver);
     log.info(`[SysAudioSFU] Received stereo remote track (${reason}, mid=${mid || 'none'})`);
-    connectGuestTrack(track, pc).catch((error) =>
-      log.error('[SysAudioSFU] Failed to attach remote track:', error),
-    );
+    connectGuestTrack(track, pc).catch((error) => {
+      if (guestPc !== pc) return;
+      log.error('[SysAudioSFU] Failed to attach remote track:', error);
+      // This track has already been consumed by the subscription. Release
+      // both transport and pending receive state so a fresh START/READY can
+      // attach it again, even when no source became audible yet.
+      cleanupGuestSfu(false);
+      cleanupGuestSystemAudio();
+      bus.emit('ui:show-toast', t('system_audio.receive_failed'));
+    });
   };
 
   const attachExistingReceiverTracks = (reason: string) => {

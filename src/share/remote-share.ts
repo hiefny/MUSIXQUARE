@@ -30,6 +30,9 @@ import {
   currentAudioBufferPcmBytes,
   getPendingPlayTime,
   getPendingPlayTimeSetAt,
+  getPendingPlayTimeMonotonicSetAt,
+  getTrackKeyFromItem,
+  isTrackFailed,
   liveAudioBufferPcmBytes,
   setPendingPlayTime,
   setPendingRecoveryTarget,
@@ -115,6 +118,7 @@ interface DownloadEntry {
   abort: AbortController;
   intent: 'foreground' | 'preload';
   progress: number;
+  downloadStarted: boolean;
 }
 
 // Upload tracking stays keyed by playback request. Navigating to another
@@ -297,8 +301,10 @@ function rawRemoteShareError(error: unknown): string {
 function clearStaleRemotePlayback(reason: string): void {
   const pendingTime = getPendingPlayTime();
   const pendingSetAt = getPendingPlayTimeSetAt();
+  const pendingMonotonicSetAt = getPendingPlayTimeMonotonicSetAt();
   bus.emit('storage:clear-previous-track', reason);
-  if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
+  if (pendingTime !== undefined)
+    setPendingPlayTime(pendingTime, pendingSetAt, pendingMonotonicSetAt);
 }
 
 function toRemoteShareMessage(descriptor: RemoteFileSharePayload, preload = false): AnyProtocolMsg {
@@ -868,6 +874,7 @@ export function promoteRemotePreloadWait(queueItemId: QueueItemId, name: string)
     abort: new AbortController(),
     intent: 'foreground',
     progress: 0,
+    downloadStarted: false,
   };
   _activeDownload = promoted;
   adoptRemoteContext(promoted.descriptor);
@@ -1550,6 +1557,7 @@ async function runRemoteDownload(entry: DownloadEntry): Promise<void> {
       publishForegroundDownloadProgress(entry);
     };
 
+    entry.downloadStarted = true;
     let file: File;
     for (let attempt = 1; ; attempt++) {
       try {
@@ -1765,6 +1773,7 @@ async function handleRemotePreloadShare(descriptor: RemoteFileSharePayload): Pro
       abort: new AbortController(),
       intent: 'foreground',
       progress: 0,
+      downloadStarted: false,
     };
     _activeDownload = entry;
     adoptRemoteContext(foregroundDescriptor);
@@ -1797,6 +1806,7 @@ async function handleRemotePreloadShare(descriptor: RemoteFileSharePayload): Pro
     abort: new AbortController(),
     intent: 'preload',
     progress: 0,
+    downloadStarted: false,
   };
   _activePreloadDownload = entry;
   const meta = remotePreloadMeta(descriptor);
@@ -1840,6 +1850,22 @@ async function handleRemoteFileShare(
 
   if (!isRemoteDescriptorOwnerCurrent(ownerSnapshot, descriptor, conn)) {
     log.debug('[RemoteShare] Descriptor superseded during connection classification');
+    return;
+  }
+
+  if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(descriptor.queueItemId)))) {
+    // Speculative bytes have no authority over current playback. A foreground
+    // revisit does, but must pass the same adopted-context fence as a download.
+    if (descriptor.preload === true || isExternalOwner()) return;
+    const last = _lastAdoptedRemoteContext;
+    if (
+      descriptor.sessionId < getState('transfer.localSessionId') ||
+      (last && transferOwnerSupersedesDescriptor(last.queueItemId, last.sessionId, descriptor))
+    )
+      return;
+    adoptRemoteContext(descriptor);
+    completeFileRequest(conn, descriptor.queueItemId, descriptor.sessionId);
+    bus.emit('player:unavailable-file-selected', descriptor.queueItemId, descriptor.sessionId);
     return;
   }
 
@@ -1981,7 +2007,8 @@ async function handleRemoteFileShare(
       const isNewerContext =
         Number.isFinite(incomingSid) && (!Number.isFinite(trackedSid) || incomingSid > trackedSid);
       if (isNewerContext) {
-        _activeDownload.descriptor = descriptor;
+        const active = _activeDownload;
+        active.descriptor = descriptor;
         adoptRemoteContext(descriptor);
         prepareRemoteShareWait(
           descriptor.queueItemId,
@@ -1989,6 +2016,11 @@ async function handleRemoteFileShare(
           descriptor.sessionId,
           descriptor.objectId,
         );
+        // Rebinding keeps the existing GET and its progress-aware watchdog.
+        // Only descriptor/admission waits still need the absolute room timer.
+        if (_activeDownload === active && active.downloadStarted) {
+          clearManagedTimer(REMOTE_WAIT_TIMER);
+        }
         log.debug('[RemoteShare] Duplicate active descriptor. Download kept, context re-pointed');
       } else {
         log.debug('[RemoteShare] Duplicate active descriptor (same/older context), ignoring');
@@ -2008,6 +2040,7 @@ async function handleRemoteFileShare(
     abort,
     intent: 'foreground',
     progress: 0,
+    downloadStarted: false,
   };
   adoptRemoteContext(descriptor);
   let transportReservation: RemoteTransportMemoryReservation | null = null;
@@ -2088,6 +2121,7 @@ async function handleRemoteFileShare(
 
     // Retry one transient network failure. Policy, expiry, rate-limit, and
     // supersession failures are terminal for this descriptor.
+    if (_activeDownload?.abort === abort) _activeDownload.downloadStarted = true;
     let file: File;
     for (let attempt = 1; ; attempt++) {
       try {

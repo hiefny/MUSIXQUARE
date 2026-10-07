@@ -22,7 +22,9 @@ import {
   isDeviceLocalEffectTypeForTests as isDeviceLocalEffectType,
   publishLocalSettingsAuthorityForTests as publishLocalSettingsAuthority,
   resetSettingsSyncAuthorityForTests,
+  setReverbParam,
   setSettingsSyncEnabled,
+  syncRoomEffectsUI,
 } from '../effects.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
@@ -147,6 +149,49 @@ describe('resetVirtualBass', () => {
 });
 
 describe('room-wide effect snapshots', () => {
+  it('caps local decay before publishing and rejects an oversized room snapshot atomically', () => {
+    expect(applyRoomEffectsState(synchronizedEffects)).toBe(true);
+    setReverbParam('decay', 30, true);
+    const expected = structuredClone(synchronizedEffects);
+    expected.reverb.decaySeconds = 10;
+    expect(getState('audio.reverbDecay')).toBe(10);
+    expect(captureRoomSettingsSyncState()).toEqual({ masterVolume: 1, effects: expected });
+
+    const invalid = structuredClone(synchronizedEffects);
+    invalid.reverb.decaySeconds = 10.1;
+    invalid.equalizer.bandsDb = [0, 0, 0, 0, 0];
+    expect(applyRoomEffectsState(invalid)).toBe(false);
+    expect(captureRoomEffectsState()).toEqual(expected);
+  });
+
+  it('projects controls without changing audio state or emitting commands', () => {
+    const before = captureRoomSettingsSyncState();
+    const emit = vi.spyOn(bus, 'emit');
+    try {
+      syncRoomEffectsUI(synchronizedEffects);
+      expect(emit.mock.calls).toEqual([
+        ['ui:sync-reverb-param', 'mix', 40],
+        ['ui:sync-reverb-param', 'decay', 1],
+        ['ui:sync-reverb-param', 'predelay', 0.02],
+        ['ui:sync-reverb-param', 'lowcut', 10],
+        ['ui:sync-reverb-param', 'highcut', 30],
+        ['ui:sync-reverb-preset', 'advanced'],
+        ['ui:sync-eq-band', 0, 0],
+        ['ui:sync-eq-band', 1, -2],
+        ['ui:sync-eq-band', 2, 0],
+        ['ui:sync-eq-band', 3, 4],
+        ['ui:sync-eq-band', 4, 6],
+        ['ui:sync-eq-preset', 'bright'],
+        ['ui:sync-surround', true],
+        ['ui:sync-vbass', true],
+        ['ui:sync-exciter', true],
+      ]);
+      expect(captureRoomSettingsSyncState()).toEqual(before);
+    } finally {
+      emit.mockRestore();
+    }
+  });
+
   it('applies and captures only the persistent room-wide DSP fields', () => {
     setState('audio.userPreampGain', 1.7);
     setState('audio.exciter', false);

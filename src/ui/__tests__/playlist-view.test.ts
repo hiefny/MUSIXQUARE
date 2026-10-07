@@ -14,6 +14,10 @@ import { safeSend } from '../../network/peer.ts';
 import { updateSubItemTitle } from '../../youtube/_state.ts';
 import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from '../../pro-room/upload-queue.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
+import { ProRoomPlaylistProjection } from '../../pro-room/playlist-projection.ts';
+import { hydrateProRoomYouTubeManifests } from '../../pro-room/youtube-manifest-policy.ts';
+import { proYouTubeSubItemsKey } from '../../youtube/queue-manifest.ts';
+import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 
 const playlistTitleMarqueeMocks = vi.hoisted(() => ({
   init: vi.fn(),
@@ -91,6 +95,37 @@ function sampleItems(): PlaylistItem[] {
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
+
+it('renders and patches titles for each saved PRO manifest independently, including later batches', async () => {
+  const manifests = [
+    { queueItemId: FILE_A, ids: Array.from({ length: 180 }, (_, index) => `old${index}`) },
+    { queueItemId: YT_B, ids: Array.from({ length: 180 }, (_, index) => `new${index}`) },
+  ];
+  const playlist = manifests.map(({ queueItemId, ids }) => ({
+    queueItemId,
+    name: 'Saved playlist',
+    source: { kind: 'youtube' as const, videoId: ids[0]!, playlistId: 'PL_SHARED', videoIds: ids },
+  }));
+  setState(
+    'playlist.items',
+    new ProRoomPlaylistProjection()
+      .project(playlist)
+      .map((item) => ({ ...item, isExpanded: true })),
+  );
+  hydrateProRoomYouTubeManifests({ playlist } as ProRoomSnapshot);
+  initPlaylistView();
+  updatePlaylistUI();
+  for (let batch = 0; batch < 5; batch++) await nextAnimationFrame();
+  for (const { queueItemId, ids } of manifests) {
+    const selector = `.sub-playlist[data-queue-item-id="${queueItemId}"]`;
+    const rows = document.querySelectorAll<HTMLElement>(`${selector} [data-video-id]`);
+    expect(Array.from(rows, (element) => element.dataset.videoId)).toEqual(ids);
+    updateSubItemTitle(proYouTubeSubItemsKey(queueItemId), 1, `${queueItemId} title`);
+    expect(document.querySelector(`${selector} [data-sub-index="1"] .sub-name`)?.textContent).toBe(
+      `${queueItemId} title`,
+    );
+  }
+});
 
 function configurePlaylistFollowLayout(): ReturnType<typeof vi.fn> {
   const scroller = document.querySelector<HTMLElement>('.tab-body')!;
@@ -830,7 +865,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelector('.sub-playlist')?.hasAttribute('aria-busy')).toBe(false);
   });
 
-  it.each(['restore', 'focus', 'pointer', 'hidden', 'rerender', 'reorder'])(
+  it.each(['restore', 'focus', 'pointer', 'hidden', 'rerender', 'consecutive', 'reorder'])(
     'owns progressive sub-row focus through %s',
     async (intent) => {
       const ids = Array.from(
@@ -862,9 +897,15 @@ describe('playlist queue identity rendering and actions', () => {
         document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="10"]')!.focus();
         updatePlaylistUI();
       }
+      if (intent === 'consecutive') {
+        await nextAnimationFrame();
+        expect(document.querySelector('.sub-track-item[data-sub-index="900"]')).toBeNull();
+        expect(document.activeElement).toBe(document.body);
+        updatePlaylistUI();
+      }
       for (let frame = 0; frame < 5; frame += 1) await nextAnimationFrame();
       expect(document.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(1_000);
-      if (intent === 'restore' || intent === 'rerender' || intent === 'reorder') {
+      if (['restore', 'rerender', 'consecutive', 'reorder'].includes(intent)) {
         expect((document.activeElement as HTMLElement).dataset.subIndex).toBe(
           intent === 'rerender' ? '10' : '900',
         );

@@ -1,4 +1,5 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
+import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
 import { getProYouTubeAudibleBaseLeadMs } from './pro-lead-learner.ts';
 
 const PLAYER_STATE = Object.freeze({
@@ -33,6 +34,7 @@ export interface YouTubeAuthorityArmPlayer {
   setVolume(volume: number): void;
   getVolume(): number;
   getCurrentTime(): number;
+  getDuration?(): number;
   getPlayerState(): number;
   getVideoData(): { video_id?: string };
 }
@@ -91,6 +93,11 @@ interface YouTubeAuthorityArmCommitRequest extends YouTubeAuthorityArmIdentity {
   /** Session-local timeline correction learned from earlier PRO zero-starts. */
   timelineLeadMs?: number;
   /**
+   * Participant-only wait while a negative manual offset still points before
+   * media time zero. The server deadline and other participants do not move.
+   */
+  localStartDelayMs?: number;
+  /**
    * Canonical target rebased by the runtime when COMMIT arrived late. Omit it
    * for an on-time commit that should release the already-settled target.
    */
@@ -107,8 +114,14 @@ export type YouTubeAuthorityArmCommitResult =
       platformLeadMs: number;
       /** Session-local correction learned from earlier stable starts. */
       timelineLeadMs: number;
-      /** Total amount by which playVideo() was scheduled before the server instant. */
+      /** Platform/learned lead, applied before the participant's delayed start instant. */
       releaseLeadMs: number;
+      /** Extra participant-only wait used to preserve a negative manual offset. */
+      localStartDelayMs: number;
+      /** Callback delay caught up at release; zero within the timer-jitter tolerance. */
+      releaseLatenessMs: number;
+      /** Actual bounded seek target at release, before PLAYING acknowledgement latency. */
+      targetSeconds: number;
       catchUpSeconds: number;
     }
   | {
@@ -163,6 +176,10 @@ type ActiveRun = {
   playCallAtMs: number;
   platformLeadMs: number;
   timelineLeadMs: number;
+  localStartDelayMs: number;
+  releaseAtMs: number;
+  releaseLatenessMs: number;
+  releaseTargetSeconds: number;
   catchUpSeconds: number;
 };
 
@@ -334,6 +351,10 @@ export class YouTubeAuthorityArmController {
         playCallAtMs: 0,
         platformLeadMs: 0,
         timelineLeadMs: 0,
+        localStartDelayMs: 0,
+        releaseAtMs: 0,
+        releaseLatenessMs: 0,
+        releaseTargetSeconds: 0,
         catchUpSeconds: 0,
       };
       // `cancel()` restores once synchronously. Once the successor has safely
@@ -377,6 +398,11 @@ export class YouTubeAuthorityArmController {
       request.timingMode === 'zero-start'
         ? clamp(finiteOr(request.timelineLeadMs ?? 0, 0), -300, 300)
         : 0;
+    run.localStartDelayMs = clamp(
+      finiteOr(request.localStartDelayMs ?? 0, 0),
+      0,
+      MANUAL_SYNC_OFFSET_LIMIT_MS,
+    );
     const committedTargetSeconds = Math.max(
       0,
       finiteOr(request.targetSeconds ?? run.targetSeconds, run.targetSeconds),
@@ -390,7 +416,11 @@ export class YouTubeAuthorityArmController {
     const promise = new Promise<YouTubeAuthorityArmCommitResult>((resolve) => {
       run.commitResolve = resolve;
     });
-    const callDelayMs = Math.max(0, executeDelayMs - (run.platformLeadMs + run.timelineLeadMs));
+    const callDelayMs = Math.max(
+      0,
+      executeDelayMs + run.localStartDelayMs - (run.platformLeadMs + run.timelineLeadMs),
+    );
+    run.releaseAtMs = this.#now() + callDelayMs;
     this.#later(run, () => this.#release(run), callDelayMs);
     return promise;
   }
@@ -653,8 +683,21 @@ export class YouTubeAuthorityArmController {
       return;
     }
     try {
+      // A visible page can deliver a timer late without any visibility/rejoin
+      // event. Retain the planned platform lead and manual hold, but catch up
+      // only the extra callback delay instead of starting the old cue again.
+      const callbackLatenessMs = Math.max(0, this.#now() - run.releaseAtMs);
+      run.releaseLatenessMs =
+        callbackLatenessMs > TIMING.catchUpToleranceMs ? callbackLatenessMs : 0;
+      const callbackCatchUpSeconds = run.releaseLatenessMs / 1000;
+      run.releaseTargetSeconds = run.targetSeconds + run.catchUpSeconds + callbackCatchUpSeconds;
+      const duration = run.player.getDuration?.();
+      if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
+        run.releaseTargetSeconds = Math.min(duration, run.releaseTargetSeconds);
+      }
+      run.catchUpSeconds = Math.max(0, run.releaseTargetSeconds - run.targetSeconds);
       if (run.catchUpSeconds > 0) {
-        run.player.seekTo(run.targetSeconds + run.catchUpSeconds, true);
+        run.player.seekTo(run.releaseTargetSeconds, true);
       }
       run.phase = 'starting';
       run.playCallAtMs = this.#now();
@@ -694,6 +737,9 @@ export class YouTubeAuthorityArmController {
       platformLeadMs: run.platformLeadMs,
       timelineLeadMs: run.timelineLeadMs,
       releaseLeadMs: run.platformLeadMs + run.timelineLeadMs,
+      localStartDelayMs: run.localStartDelayMs,
+      releaseLatenessMs: run.releaseLatenessMs,
+      targetSeconds: run.releaseTargetSeconds,
       catchUpSeconds: run.catchUpSeconds,
     });
     this.#run = null;

@@ -323,6 +323,24 @@ function classifyBindings(
     const role = sourceRole(root, file);
     const path = slash(relative(root, file));
     const visit = (node: ts.Node): void => {
+      // An object binding creates a local symbol even when a generic wrapper
+      // preserves the imported module's namespace type. Resolve the property
+      // on that type rather than guessing from the local variable's spelling.
+      if (
+        ts.isBindingElement(node) &&
+        ts.isObjectBindingPattern(node.parent) &&
+        !node.dotDotDotToken
+      ) {
+        const name = node.propertyName ?? node.name;
+        if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
+          const property = checker.getPropertyOfType(
+            checker.getTypeAtLocation(node.parent),
+            name.text,
+          );
+          const binding = property ? bySymbol.get(resolveAlias(checker, property)) : null;
+          if (binding) recordReference(binding, role, path);
+        }
+      }
       if (ts.isIdentifier(node) && !isExportSurfaceName(node)) {
         const raw = checker.getSymbolAtLocation(node);
         if (raw) {

@@ -426,10 +426,10 @@ const ms: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Had permintaan BOT dicapai. Tunggu {{duration}} dan cuba lagi',
   'chat.decode_skip_system_message':
     'Melangkau trek: format tidak disokong pada sesetengah peranti.',
+  'chat.large_track_playback_system_message':
+    'Trek ini sangat besar, jadi kelewatan mungkin berlaku semasa menggunakannya.',
   'chat.large_local_track_system_message':
     'Saiz fail trek ini sangat besar dan mungkin tidak dapat dimainkan pada sesetengah peranti.',
-  'chat.decode_memory_risk_system_message':
-    'Trek ini mungkin menggunakan kira-kira {{estimatedMiB}} MiB memori ketika dinyahkod dan mungkin tidak dapat dimainkan pada peranti ini.',
   'chat.device_track_unavailable_system_message': 'Peranti ini tidak dapat memainkan trek semasa.',
   'chat.system_audio_started_system_message':
     'Perkongsian audio sistem telah bermula. Sedikit kependaman antara peranti hos dan tetamu adalah perkara biasa. Kami mengesyorkan agar kelantangan peranti hos dikecilkan untuk mengelakkan gema.',

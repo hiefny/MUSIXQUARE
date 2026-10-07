@@ -45,6 +45,7 @@ import {
 } from '../network/webrtc-audio-decoder-primer.ts';
 import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
 import type { ProRoomApiClient } from './api.ts';
+import type { ProRoomPlaybackReconciliationLiveness } from './playback-controller.ts';
 import type {
   ProRoomSnapshot,
   ProRoomSystemAudioPublication,
@@ -72,6 +73,8 @@ const SUBSCRIBER_RETRY_TIMER = 'pro-system-audio-subscriber-retry';
 const PUBLISHER_RETRY_TIMER = 'pro-system-audio-publisher-retry';
 const DIRECT_PROMOTION_RETRY_TIMER = 'pro-system-audio-direct-promotion-retry';
 const SUBSCRIBER_DISCONNECT_TIMER = 'pro-system-audio-subscriber-disconnect';
+const PLAYBACK_RESTORE_TIMER = 'pro-system-audio-playback-restore';
+const PLAYBACK_RESTORE_DELAYS_MS = [250, 1_000, 2_500, 5_000, 15_000] as const;
 const LEASE_HEARTBEAT_MS = 15_000;
 // LAN-direct has no duration cap, so a lost Cloudflare authority plane must
 // not leave an orphaned local publication running forever. Four missed normal
@@ -109,6 +112,15 @@ let activeLocalDirectPublicationKey: string | null = null;
 let oversizedDirectRefreshFlight: Promise<ProRoomSystemAudioState | void> | null = null;
 let ambiguousDirectPromotionPublicationId: string | null = null;
 let failedSfuPublisherSessionId: string | null = null;
+let restoreYouTubePlayback:
+  ((liveness: ProRoomPlaybackReconciliationLiveness) => Promise<boolean>) | null = null;
+let pendingLocalPlaybackRestore: {
+  epoch: number;
+  generation: number;
+  isCurrent: () => boolean;
+} | null = null;
+let playbackRestore: ProRoomPlaybackReconciliationLiveness | null = null;
+let interruptedReceiverPlayback: { roomCode: string | null; generation: number } | null = null;
 
 let coordinatorSource: MediaStreamAudioSourceNode | null = null;
 let coordinatorSubscriptionKey: string | null = null;
@@ -847,6 +859,32 @@ function notifySubscriberFailure(
   bus.emit('ui:show-toast', t('system_audio.connection_unstable', { name }));
 }
 
+function retryCoordinatorSubscription(identity: CoordinatorPublicationIdentity): void {
+  const state = controller?.getCurrentState();
+  if (
+    state?.status !== 'live' ||
+    !coordinatorPublicationMatches(identity, state) ||
+    state.ownerParticipantId === localParticipantId()
+  )
+    return;
+  cleanupCoordinatorSubscriptionForRetry();
+  setSystemAudioReceiving(false);
+  notifySubscriberFailure(state);
+  setManagedTimer(
+    SUBSCRIBER_RETRY_TIMER,
+    () => {
+      if (!coordinatorPublicationMatches(identity)) return;
+      const current = controller?.getCurrentState();
+      if (current?.status === 'live') {
+        void ensureCoordinatorSubscription(current, identity).catch((error) =>
+          log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error),
+        );
+      }
+    },
+    RECOVERY_DELAY_MS,
+  );
+}
+
 function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): void {
   const state = controller?.getCurrentState();
   if (
@@ -1009,8 +1047,84 @@ function reconcileCoordinatorState(state: ProRoomSystemAudioState): void {
   }
 }
 
+function cancelPlaybackRestore(): void {
+  playbackRestore = null;
+  clearManagedTimer(PLAYBACK_RESTORE_TIMER);
+}
+
+function restorePlaybackAfterRelease(isCurrent: () => boolean): void {
+  if (latestView.phase !== 'live' || !latestView.isLocalOwner || latestView.generation === null) {
+    return;
+  }
+  pendingLocalPlaybackRestore = {
+    epoch: serviceSessionEpoch,
+    generation: latestView.generation,
+    isCurrent,
+  };
+}
+
+function resumePlaybackAfterShare(
+  view: ProRoomSystemAudioViewState,
+  isOwnerCurrent: () => boolean,
+  onComplete: () => void = () => {},
+): void {
+  if (!restoreYouTubePlayback) return;
+  cancelPlaybackRestore();
+  const epoch = serviceSessionEpoch;
+  const liveness: ProRoomPlaybackReconciliationLiveness = {
+    identity: {},
+    isCurrent: () =>
+      playbackRestore === liveness &&
+      epoch === serviceSessionEpoch &&
+      isActiveProRoom() &&
+      latestView.roomCode === view.roomCode &&
+      latestView.generation === view.generation &&
+      latestView.phase === 'idle' &&
+      !latestView.localRequestPending &&
+      isOwnerCurrent(),
+  };
+  playbackRestore = liveness;
+  let retry = 0;
+  const restore = async (): Promise<void> => {
+    if (!liveness.isCurrent()) return;
+    let complete = false;
+    try {
+      complete = await restoreYouTubePlayback!(liveness);
+    } catch (error) {
+      log.debug('[PRO SystemAudio] Playback restoration will retry', error);
+    }
+    if (!liveness.isCurrent()) return;
+    if (complete) {
+      onComplete();
+      cancelPlaybackRestore();
+      return;
+    }
+    // A briefly unavailable API/clock must not leave the renderer permanently
+    // cued. Keep one owned retry, capped at the normal lease heartbeat interval.
+    const delay =
+      PLAYBACK_RESTORE_DELAYS_MS[Math.min(retry++, PLAYBACK_RESTORE_DELAYS_MS.length - 1)];
+    setManagedTimer(
+      PLAYBACK_RESTORE_TIMER,
+      () => {
+        observeSystemAudioTask(restore(), 'playback restoration retry');
+      },
+      delay,
+    );
+  };
+  // Explicit capture stop tears down its native graph synchronously after
+  // initiating release. Never restore underneath that teardown.
+  queueMicrotask(() => {
+    observeSystemAudioTask(restore(), 'playback restoration');
+  });
+}
+
 function onControllerState(view: ProRoomSystemAudioViewState): void {
   latestView = view;
+  if (view.phase === 'live' && view.generation !== null) {
+    interruptedReceiverPlayback = view.isLocalOwner
+      ? null
+      : { roomCode: view.roomCode, generation: view.generation };
+  }
   const state = controller?.getCurrentState() ?? null;
   bus.emit(
     'pro-system-audio:state-changed',
@@ -1030,6 +1144,44 @@ function onControllerState(view: ProRoomSystemAudioViewState): void {
     ownerDisplayName(state),
   );
   if (state) reconcileCoordinatorState(state);
+  if (view.phase !== 'idle' || view.localRequestPending || !view.initialized) {
+    cancelPlaybackRestore();
+    if (pendingLocalPlaybackRestore?.generation !== view.generation || view.localRequestPending) {
+      pendingLocalPlaybackRestore = null;
+    }
+    return;
+  }
+  const localRestore = pendingLocalPlaybackRestore;
+  pendingLocalPlaybackRestore = null;
+  const receiverRestore = interruptedReceiverPlayback;
+  if (playbackRestore?.isCurrent()) return;
+  const isReleasedGeneration = (generation: number | null) =>
+    generation !== null &&
+    view.generation !== null &&
+    view.generation >= generation &&
+    view.generation <= generation + 1;
+  if (
+    localRestore &&
+    localRestore.epoch === serviceSessionEpoch &&
+    isReleasedGeneration(localRestore.generation) &&
+    localRestore.isCurrent()
+  ) {
+    resumePlaybackAfterShare(view, localRestore.isCurrent);
+  } else if (
+    receiverRestore?.roomCode === view.roomCode &&
+    view.generation !== null &&
+    view.generation >= receiverRestore.generation
+  ) {
+    // An initial idle snapshot is not a playback action. Only receivers that
+    // actually observed this live share resume when it ends.
+    resumePlaybackAfterShare(
+      view,
+      () => true,
+      () => {
+        if (interruptedReceiverPlayback === receiverRestore) interruptedReceiverPlayback = null;
+      },
+    );
+  }
 }
 
 function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
@@ -1060,8 +1212,12 @@ function onLocalLeaseAuthorityConfirmed(): void {
   directAuthorityHeartbeatFailureStartedAt = null;
 }
 
-export function configureProSystemAudioService(api: ProRoomApiClient): void {
+export function configureProSystemAudioService(
+  api: ProRoomApiClient,
+  restorePlayback?: (liveness: ProRoomPlaybackReconciliationLiveness) => Promise<boolean>,
+): void {
   if (controller) return;
+  restoreYouTubePlayback = restorePlayback ?? null;
   controller = new ProRoomSystemAudioController(api, {
     state: onControllerState,
     localLeaseLost: onLocalLeaseLost,
@@ -1071,6 +1227,7 @@ export function configureProSystemAudioService(api: ProRoomApiClient): void {
     beginLeaseAttempt: beginLocalProSystemAudioLeaseAttempt,
     publish: publishLocalProSystemAudio,
     release: releaseLocalProSystemAudioLease,
+    restorePlaybackAfterRelease,
     view: getProSystemAudioViewState,
     ownerDisplayName: getProSystemAudioOwnerDisplayName,
     isLocalOwner: isLocalProSystemAudioOwner,
@@ -1102,6 +1259,9 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     queuedForcedRefresh = null;
     oversizedDirectRefreshFlight = null;
     serviceSessionEpoch += 1;
+    pendingLocalPlaybackRestore = null;
+    interruptedReceiverPlayback = null;
+    cancelPlaybackRestore();
     cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
     localLeaseAttemptOwner = null;
     expectedLeaseTransitions.clear();
@@ -1138,6 +1298,9 @@ export function resetProSystemAudioService(): void {
   const hadLocalActivity = Boolean(localTrack || localPublishFlight || publisherRecoveryFlight);
   const controllerWillNotifyLeaseLoss = Boolean(controller?.getCurrentLease());
   serviceSessionEpoch += 1;
+  pendingLocalPlaybackRestore = null;
+  interruptedReceiverPlayback = null;
+  cancelPlaybackRestore();
   cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
   localLeaseAttemptOwner = null;
   expectedLeaseTransitions.clear();
@@ -1767,7 +1930,13 @@ export function registerProSystemAudioServiceListeners(): void {
       const descriptorTrack = event.descriptor.track;
       if (!identity || !descriptorTrack) return;
       void attachCoordinatorTrack(identity, descriptorTrack, event.track, event.isCurrent).catch(
-        (error) => log.warn('[PRO SystemAudio] Track attach failed', error),
+        (error) => {
+          if (!event.isCurrent() || !coordinatorPublicationMatches(identity)) return;
+          log.warn('[PRO SystemAudio] Track attach failed', error);
+          // A received RTC track is emitted once per subscription. Retire the
+          // failed graph/transport so the existing retry can attach it again.
+          retryCoordinatorSubscription(identity);
+        },
       );
       return;
     }
@@ -1817,22 +1986,7 @@ export function registerProSystemAudioServiceListeners(): void {
       }
       const identity = captureCoordinatorPublicationIdentity(state);
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
-      cleanupCoordinatorSubscriptionForRetry();
-      setSystemAudioReceiving(false);
-      notifySubscriberFailure(state);
-      setManagedTimer(
-        SUBSCRIBER_RETRY_TIMER,
-        () => {
-          if (!coordinatorPublicationMatches(identity)) return;
-          const current = controller?.getCurrentState();
-          if (current?.status === 'live') {
-            void ensureCoordinatorSubscription(current, identity).catch((error) =>
-              log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error),
-            );
-          }
-        },
-        RECOVERY_DELAY_MS,
-      );
+      retryCoordinatorSubscription(identity);
       return;
     }
     if (event.type === 'publisher-state' && event.state === 'published') {

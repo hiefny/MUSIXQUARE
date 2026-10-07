@@ -16,6 +16,7 @@ import { t } from '../i18n/index.ts';
 import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getYouTubePlayer, setSubItemsLoadError } from '../youtube/_state.ts';
+import { getPlaylistSubItems, getPlaylistSubItemsKey } from '../youtube/queue-manifest.ts';
 import {
   createPlaylistReorderController,
   type PlaylistReorderController,
@@ -217,16 +218,17 @@ function toggleExpansion(queueItemId: QueueItemId): void {
   const timerKey = `sub-items-timeout-${queueItemId}`;
 
   if (expanding) {
-    const subMap = getState('youtube.subItemsMap') || {};
-    const existing = subMap[playlistId];
-    if (existing?.loadError) setSubItemsLoadError(playlistId, false);
+    const key = getPlaylistSubItemsKey(item)!;
+    const existing = getPlaylistSubItems(item);
+    if (existing?.loadError) setSubItemsLoadError(key, false);
     bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
     setManagedTimer(
       timerKey,
       () => {
-        const currentMap = getState('youtube.subItemsMap') || {};
-        const entry = currentMap[playlistId];
-        if (!entry?.ids?.length) setSubItemsLoadError(playlistId, true);
+        const currentItem = getQueueItemById(queueItemId);
+        if (!currentItem) return;
+        const entry = getPlaylistSubItems(currentItem);
+        if (!entry?.ids?.length) setSubItemsLoadError(key, true);
       },
       SUB_ITEMS_LOAD_TIMEOUT_MS,
     );
@@ -381,7 +383,7 @@ function scheduleSubPlaylistBatch(
   let frame = 0;
   frame = requestAnimationFrame(() => {
     _subPlaylistRenderFrames.delete(frame);
-    const latest = (getState('youtube.subItemsMap') || {})[playlistId];
+    const latest = getPlaylistSubItems(getQueueItemById(item.queueItemId));
     if (generation !== _subPlaylistRenderGeneration || !subUl.isConnected || latest?.ids !== ids) {
       return;
     }
@@ -437,7 +439,8 @@ function appendSubPlaylist(
   const subUl = document.createElement('ul');
   subUl.className = 'sub-playlist';
   subUl.dataset.playlistId = playlistId;
-  const subData = (getState('youtube.subItemsMap') || {})[playlistId];
+  subUl.dataset.queueItemId = item.queueItemId;
+  const subData = getPlaylistSubItems(item);
 
   if (subData?.ids) {
     const ids = subData.ids;
@@ -461,7 +464,7 @@ function appendSubPlaylist(
     }
     subUl.appendChild(fragment);
 
-    if (ids.length <= 1) {
+    if (ids.length <= 1 && !subData.manifestComplete) {
       const hintItem = document.createElement('li');
       hintItem.className = 'sub-track-item loading';
       const hint = document.createElement('span');
@@ -505,12 +508,11 @@ function appendSubPlaylist(
  * latest titles when they are created.
  */
 function patchRenderedSubPlaylistTitles(list: HTMLElement): boolean {
-  const subMap = getState('youtube.subItemsMap') || {};
   const changedTitles: HTMLElement[] = [];
   for (const subUl of list.querySelectorAll<HTMLUListElement>('.sub-playlist[data-playlist-id]')) {
     const playlistId = subUl.dataset.playlistId;
     if (!playlistId) return false;
-    const latest = subMap[playlistId];
+    const latest = getPlaylistSubItems(getQueueItemById(subUl.dataset.queueItemId ?? null));
     if (!latest?.ids || subUl.dataset.renderState !== 'items') return false;
 
     const renderedIds = _renderedSubPlaylistIds.get(subUl);
@@ -570,7 +572,18 @@ type PlaylistFocusSnapshot =
 
 function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
   const active = document.activeElement;
-  if (!(active instanceof HTMLElement) || !list.contains(active)) return null;
+  if (!(active instanceof HTMLElement) || !list.contains(active)) {
+    // A consecutive render can arrive before the detached late row is mounted.
+    // Keep that owner only while no user interaction has claimed focus instead.
+    const pending = _pendingProgressiveFocus;
+    return pending?.list === list &&
+      pending.generation === _subPlaylistRenderGeneration &&
+      list.isConnected &&
+      playlistIsVisible() &&
+      (active === document.body || active === document.documentElement)
+      ? pending.snapshot
+      : null;
+  }
   const uploadOwner = active.closest<HTMLElement>('[data-pro-upload-id]');
   const uploadId = uploadOwner?.dataset.proUploadId;
   if (uploadId) {
@@ -763,6 +776,7 @@ export function updatePlaylistUI(): void {
   // A pending touch probe is not exposed as an active drag, but its timer must
   // never retain a row that this full render is about to detach.
   _reorderController?.cancel();
+  const focusSnapshot = capturePlaylistFocus(list);
   cancelSubPlaylistProgressiveRenders();
 
   const playlist = getState('playlist.items');
@@ -785,7 +799,6 @@ export function updatePlaylistUI(): void {
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
   const followController = ensureFollowController(list, scrollContainer);
   const savedScrollTop = scrollContainer.scrollTop;
-  const focusSnapshot = capturePlaylistFocus(list);
   list.replaceChildren();
 
   if (playlist.length === 0 && uploads.length === 0) {

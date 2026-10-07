@@ -1446,7 +1446,7 @@ describe('REQUEST_SETTING validation', () => {
       { settingType: 'eq', band: 0, value: 13 },
       { settingType: MSG.STEREO_WIDTH, value: 201 },
       { settingType: MSG.REVERB_TYPE, value: 'advanced' },
-      { settingType: MSG.REVERB_DECAY, value: 30 },
+      { settingType: MSG.REVERB_DECAY, value: 10.1 },
       { settingType: MSG.REVERB_PREDELAY, value: 1 },
       { settingType: MSG.REVERB_LOWCUT, value: -1 },
       { settingType: 'repeat-mode', value: 3 },

@@ -11,6 +11,7 @@ import { MSG, type PlaybackActivityValue } from '../core/constants.ts';
 import { bus, createBusScope, type BusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
+import { getPlaylistSubItems } from './queue-manifest.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
@@ -116,7 +117,7 @@ function resolveIntendedVideoId(queueItemId: QueueItemId): string | null {
   if (!item || item.type !== 'youtube') return null;
   const subIndex = getState('youtube.currentSubIndex') ?? 0;
   if (item.playlistId) {
-    const ids = getState('youtube.subItemsMap')?.[item.playlistId]?.ids;
+    const ids = getPlaylistSubItems(item)?.ids;
     const subVideoId = ids?.[subIndex];
     if (subVideoId) return subVideoId;
     if (subIndex > 0) return null;

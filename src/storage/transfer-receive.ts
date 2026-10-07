@@ -51,6 +51,7 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
   getPendingPlayTimeSetAt,
+  getPendingPlayTimeMonotonicSetAt,
   currentAudioBufferPcmBytes,
   getTrackKeyFromItem,
   isTrackFailed,
@@ -72,6 +73,8 @@ import {
 import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
 import { pause } from '../player/transport.ts';
+import { recordMainReceiveProgress } from './preload-watchdog.ts';
+import { captureGuestFilePause, restoreGuestFilePause } from '../player/guest-file-pause.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -211,6 +214,47 @@ function hasSafeIncomingFileSize(data: Record<string, unknown>): boolean {
   );
 }
 
+function hasSafeIncomingFileChunk(data: Record<string, unknown>): boolean {
+  const chunk = data.chunk;
+  const chunkIndex = data.chunkIndex;
+  if (
+    !hasSafeIncomingFileSize(data) ||
+    !(chunk instanceof Uint8Array || isArrayBuffer(chunk)) ||
+    !Number.isSafeInteger(chunkIndex) ||
+    (chunkIndex as number) < 0 ||
+    (chunkIndex as number) >= (data.total as number) ||
+    typeof data.name !== 'string' ||
+    data.name.length === 0 ||
+    (data.mime !== undefined && typeof data.mime !== 'string')
+  )
+    return false;
+  const expectedBytes = Math.min(
+    CHUNK_SIZE,
+    (data.size as number) - (chunkIndex as number) * CHUNK_SIZE,
+  );
+  if (chunk.byteLength !== expectedBytes) return false;
+
+  const meta = getState('transfer.meta');
+  if (
+    !meta ||
+    meta.sessionId !== data.sessionId ||
+    !hasSafeIncomingFileSize({ size: meta.size, total: meta.total })
+  )
+    return true;
+  return (
+    meta.queueItemId === data.queueItemId &&
+    meta.name === data.name &&
+    meta.total === data.total &&
+    meta.size === data.size &&
+    // START/RESUME normalize an omitted optional MIME to the empty string.
+    // Only an explicitly nonempty descriptor constrains later chunk MIME.
+    (meta.mime === undefined ||
+      meta.mime === '' ||
+      data.mime === undefined ||
+      meta.mime === data.mime)
+  );
+}
+
 function incomingQueueItemId(data: Record<string, unknown>): QueueItemId | null {
   return typeof data.queueItemId === 'string' && data.queueItemId.length > 0
     ? data.queueItemId
@@ -243,6 +287,29 @@ function hasCompletedDirectReceive(
     getState('transfer.receivedCount') >= total &&
     (getState('transfer.state') === TRANSFER_STATE.PROCESSING ||
       getState('playback.lifecycle') === PLAYBACK_STATE.DECODING)
+  );
+}
+
+function hasMatchingDirectReceivePrefix(
+  data: Record<string, unknown>,
+  queueItemId: QueueItemId,
+  sessionId: number,
+): boolean {
+  const meta = getState('transfer.meta');
+  const receivedCount = getState('transfer.receivedCount');
+  return (
+    sessionId === getState('transfer.localSessionId') &&
+    getState('playlist.currentQueueItemId') === queueItemId &&
+    meta?.queueItemId === queueItemId &&
+    meta.sessionId === sessionId &&
+    meta.name === data.name &&
+    (data.size === undefined || meta.size === data.size) &&
+    (data.total === undefined || meta.total === data.total) &&
+    (data.mime === undefined || meta.mime === data.mime) &&
+    receivedCount > 0 &&
+    receivedCount < Number(meta.total) &&
+    receivedCount === nextExpectedChunk &&
+    receivedCount === ramContiguousCount(queueItemId, false, sessionId)
   );
 }
 
@@ -316,22 +383,33 @@ function tryAdmitMainReceive(data: Record<string, unknown>): boolean {
 }
 
 type PendingPlaySnapshot = {
+  kind: 'play';
   time: number;
   setAt: number;
+  monotonicSetAt: number | null;
   currentQueueItemId: QueueItemId | null;
   targetQueueItemId?: QueueItemId;
   transferQueueItemId?: QueueItemId;
 };
 
-function capturePendingPlaySnapshot(): PendingPlaySnapshot | null {
+type PendingFileIntentSnapshot =
+  | PendingPlaySnapshot
+  | { kind: 'pause'; checkpoint: NonNullable<ReturnType<typeof captureGuestFilePause>> };
+
+function capturePendingFileIntent(data: Record<string, unknown>): PendingFileIntentSnapshot | null {
   const time = getPendingPlayTime();
-  if (time === undefined) return null;
+  if (time === undefined) {
+    const checkpoint = captureGuestFilePause(incomingQueueItemId(data), Number(data.sessionId));
+    return checkpoint ? { kind: 'pause', checkpoint } : null;
+  }
 
   const target = getState('playback.pendingRecoveryTarget');
   const meta = getState('transfer.meta');
   return {
+    kind: 'play',
     time,
     setAt: getPendingPlayTimeSetAt(),
+    monotonicSetAt: getPendingPlayTimeMonotonicSetAt(),
     currentQueueItemId: getState('playlist.currentQueueItemId'),
     targetQueueItemId: target?.queueItemId,
     transferQueueItemId: meta?.queueItemId,
@@ -351,15 +429,19 @@ function shouldRestorePendingPlay(
   );
 }
 
-function restorePendingPlaySnapshot(
-  snapshot: PendingPlaySnapshot | null,
+function restorePendingFileIntent(
+  snapshot: PendingFileIntentSnapshot | null,
   data: Record<string, unknown>,
   reason: string,
 ): void {
   if (!snapshot) return;
+  if (snapshot.kind === 'pause') {
+    restoreGuestFilePause(snapshot.checkpoint);
+    return;
+  }
   if (getPendingPlayTime() !== undefined) return;
   if (!shouldRestorePendingPlay(snapshot, data)) return;
-  setPendingPlayTime(snapshot.time, snapshot.setAt);
+  setPendingPlayTime(snapshot.time, snapshot.setAt, snapshot.monotonicSetAt);
   log.debug(`[Transfer] Restored pending play time after ${reason}`);
 }
 
@@ -685,7 +767,7 @@ function projectFilePrepareBeforeRouteCheck(
     getState('playlist.currentQueueItemId') === queueItemId
   )
     return;
-  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  const pendingFileIntent = capturePendingFileIntent(data);
   const name = (data.name as string) || '';
   const indexHint = findQueueItemIndex(queueItemId);
   // Selection is already authenticated. Route discovery determines where
@@ -708,7 +790,7 @@ function projectFilePrepareBeforeRouteCheck(
     mime: (data.mime as string) || '',
   });
   setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
-  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'route-pending file prepare');
+  restorePendingFileIntent(pendingFileIntent, data, 'route-pending file prepare');
 }
 
 async function receiveProRoomFileDirectly(
@@ -730,7 +812,7 @@ async function receiveProRoomFileDirectly(
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('fileWaitTimeout');
 
-  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  const pendingFileIntent = capturePendingFileIntent(data);
   bus.emit('player:stop-all-media');
 
   if (sessionId > getState('transfer.localSessionId')) {
@@ -761,7 +843,7 @@ async function receiveProRoomFileDirectly(
     total: safeSize > 0 ? Math.max(1, Math.ceil(safeSize / CHUNK_SIZE)) : 1,
   });
   setPlaybackTrackMeta(item);
-  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'PRO direct R2 prepare');
+  restorePendingFileIntent(pendingFileIntent, data, 'PRO direct R2 prepare');
 
   try {
     const file = await filePromise;
@@ -828,7 +910,7 @@ export async function handleFilePrepare(
   // the next queue occurrence will enter through the normal path.
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
-    showLoader(false);
+    bus.emit('player:unavailable-file-selected', queueItemId, incomingSid);
     log.debug(`[Transfer] Ignoring FILE_PREPARE for locally unsupported ${queueItemId}`);
     return;
   }
@@ -991,7 +1073,7 @@ export async function handleFilePrepare(
     setState('preload.nextQueueItemId', null);
   }
 
-  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  const pendingFileIntent = capturePendingFileIntent(data);
 
   // The stable queue item ID selects the staged Blob. The name is only a
   // metadata consistency check; a name match alone never permits promotion.
@@ -1011,7 +1093,7 @@ export async function handleFilePrepare(
     // FILE_PREPARE where blob already assembled → promote straight to DECODING
     // via the preload-promoted path. shouldSkipIncomingFile() returns true
     // automatically once lifecycle is DECODING with PRELOAD_PROMOTED loadSource.
-    restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'preload-match stopAllMedia');
+    restorePendingFileIntent(pendingFileIntent, data, 'preload-match stopAllMedia');
 
     transition({
       type: 'FILE_PREPARE',
@@ -1071,7 +1153,13 @@ export async function handleFilePrepare(
     return;
   }
 
-  // Not using preloaded track — stop current media
+  // Bulk bytes can overtake this control frame. Still stop the old audible
+  // source, but remember whether the exact incoming receive was already live.
+  // stopAllMedia resets transfer.state as well as the player; counters alone
+  // cannot authorize restoring that state after a cancellation or replacement.
+  const retainReceivingPrefix =
+    getState('transfer.state') === TRANSFER_STATE.RECEIVING &&
+    hasMatchingDirectReceivePrefix(data, queueItemId, incomingSid);
   bus.emit('player:stop-all-media');
 
   // Check if preload is IN PROGRESS for this track
@@ -1122,7 +1210,7 @@ export async function handleFilePrepare(
 
       // Recover if preload assembly stalls. Remote preload shares the 60s
       // receive allowance; local preload gets 30s (longer than chunk receive).
-      restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'preload-waiting stopAllMedia');
+      restorePendingFileIntent(pendingFileIntent, data, 'preload-waiting stopAllMedia');
 
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
       setManagedTimer(
@@ -1195,6 +1283,16 @@ export async function handleFilePrepare(
       queueItemId,
       name: data.name as string,
     });
+    if (
+      retainReceivingPrefix &&
+      isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, incomingSid, conn) &&
+      getState('playback.lifecycle') === PLAYBACK_STATE.DOWNLOADING &&
+      hasMatchingDirectReceivePrefix(data, queueItemId, incomingSid)
+    ) {
+      // Preserve the active receive so a following START can retain its exact
+      // RAM prefix. START still performs its own full metadata/owner checks.
+      setPlaybackTransferState(TRANSFER_STATE.RECEIVING);
+    }
     showLoader(true, t('transfer.waiting_recovery', { name: data.name as string }));
   } else {
     // Lifecycle: fresh download — no preload match, no
@@ -1240,7 +1338,7 @@ export async function handleFilePrepare(
 
     showLoader(true, t('transfer.preparing_name', { name: data.name as string }));
   }
-  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'file-prepare reset');
+  restorePendingFileIntent(pendingFileIntent, data, 'file-prepare reset');
 
   // Prepare watchdog with jitter recovery
   const prepareTimeout = getState('network.connectionType') === 'remote' ? 60000 : 15000;
@@ -1278,6 +1376,10 @@ export async function handleFilePrepare(
 
 export function handleFileStart(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
+  // Recovery of the parked file cannot replace a newer external playback
+  // owner. Check before recording delivery or applying same-session recovery
+  // exceptions; the file's queue/session may still match after a mode switch.
+  if (isExternalOwner()) return;
   const queueItemId = incomingQueueItemId(data);
   if (!queueItemId || !getQueueItemById(queueItemId)) return;
   const indexHint = findQueueItemIndex(queueItemId);
@@ -1290,9 +1392,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   if (incomingSid < localSid || hasNewerPreparedFileOwner(queueItemId, incomingSid)) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    showLoader(false);
+    bus.emit('player:unavailable-file-selected', queueItemId, incomingSid);
     log.debug(`[file-start] Ignoring locally unsupported ${queueItemId}`);
     return;
   }
@@ -1501,6 +1601,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 // limited to the main transfer channel.
 export function handleFileResume(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
+  if (isExternalOwner()) return;
   const queueItemId = incomingQueueItemId(data);
   if (!queueItemId || !getQueueItemById(queueItemId)) return;
   const indexHint = findQueueItemIndex(queueItemId);
@@ -1511,9 +1612,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   if (incomingSid < localSid || hasNewerPreparedFileOwner(queueItemId, incomingSid)) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    showLoader(false);
+    bus.emit('player:unavailable-file-selected', queueItemId, incomingSid);
     log.debug(`[file-resume] Ignoring locally unsupported ${queueItemId}`);
     return;
   }
@@ -1561,18 +1660,27 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   const startChunk = (data.startChunk as number) || 0;
 
-  // The host's startChunk is a control-plane assertion; ramstore's contiguous
-  // prefix is data-plane truth. Reuse it only inside the exact same session.
+  // The host's startChunk describes the requested suffix, not the guest's
+  // current progress: bulk chunks can overtake this control-channel header.
+  // Use the entire committed prefix, but only inside the exact same session.
   // Any identity mismatch degrades safely to a full restart.
-  const base = resumeIdentityMatches
-    ? Math.min(startChunk, ramContiguousCount(queueItemId, false, incomingSid))
-    : 0;
+  const base = resumeIdentityMatches ? ramContiguousCount(queueItemId, false, incomingSid) : 0;
 
   // receivedCount and nextExpectedChunk MUST move together — rebasing one
   // while the other keeps startChunk recreates the failure in the opposite
   // direction (drain stall at phantom completion, or chunks stranded in the
   // reorder buffer past a fast-forwarded pointer).
-  fileReorderBuffer.clear();
+  // Sparse chunks can also overtake the header. Keep them for this exact
+  // transfer so filling the gap drains the already received suffix once.
+  for (const [sessionId, chunks] of fileReorderBuffer) {
+    if (!resumeIdentityMatches || sessionId !== incomingSid) {
+      fileReorderBuffer.delete(sessionId);
+      continue;
+    }
+    for (const index of chunks.keys()) {
+      if (index < base) chunks.delete(index);
+    }
+  }
   setState('transfer.receivedCount', base);
   nextExpectedChunk = base;
 
@@ -1628,17 +1736,10 @@ function applyFileChunk(data: Record<string, unknown>): void {
   )
     return;
 
-  // Reject a missing chunk rather than constructing an empty byte view.
-  if (data.chunk == null) {
-    log.warn('[Transfer] Received null/undefined chunk, skipping');
-    return;
-  }
-
-  // Validate the chunk with a cross-realm-safe ArrayBuffer check.
-  if (!(data.chunk instanceof Uint8Array) && !isArrayBuffer(data.chunk)) {
-    log.warn('[Transfer] Invalid chunk type received, ignoring');
-    return;
-  }
+  // Internal queued-chunk replay also reaches this function. Validate before
+  // admission, session replacement, storage writes or progress accounting.
+  // A rejected frame leaves the valid prefix and bounded watchdog recovery intact.
+  if (!hasSafeIncomingFileChunk(data)) return;
 
   // Skip if using preloaded file
   if (shouldSkipIncomingFile(data)) {
@@ -1773,23 +1874,8 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
   const sessionBuffer = fileReorderBuffer.get(incomingSid)!;
 
-  // Defense-in-depth chunk index bounds check. The protocol validator now
-  // enforces a non-negative safe integer for chunkIndex, but we repeat the
-  // guard here because the chunk index is ultimately keyed into a Map — any leak of a malformed value
-  // (negative, NaN, Infinity, or beyond meta.total) would bloat memory or
-  // stall the drain loop. If meta.total is known and chunkIndex exceeds it,
-  // drop the chunk; otherwise accept as usual.
+  // The complete frame and its active descriptor were checked before mutation.
   const chunkIndex = data.chunkIndex as number;
-  if (!Number.isFinite(chunkIndex) || chunkIndex < 0 || !Number.isInteger(chunkIndex)) {
-    log.warn(`[Transfer] Dropping chunk with invalid chunk index: ${chunkIndex}`);
-    return;
-  }
-  const metaPeek = getState('transfer.meta');
-  const expectedTotal = metaPeek?.total as number | undefined;
-  if (typeof expectedTotal === 'number' && expectedTotal > 0 && chunkIndex >= expectedTotal) {
-    log.warn(`[Transfer] Dropping chunk beyond total: ${chunkIndex} >= ${expectedTotal}`);
-    return;
-  }
 
   // A duplicate from a superseded/overlapping sender must not refresh the
   // watchdog or occupy the reorder map after its index was already committed.
@@ -1858,6 +1944,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   }
 
   // Process all contiguous chunks in order
+  const previousReceivedCount = receivedCount;
   while (sessionBuffer.has(nextExpectedChunk)) {
     const chunk = sessionBuffer.get(nextExpectedChunk)!;
 
@@ -1877,6 +1964,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   }
 
   setState('transfer.receivedCount', receivedCount);
+  if (receivedCount > previousReceivedCount) recordMainReceiveProgress(queueItemId, incomingSid);
   lastChunkTime = Date.now();
 
   // Reset recovery retry counter on meaningful progress — prevents cumulative
@@ -1992,7 +2080,13 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
     () => {
       // A subsequent request, queue target, or host connection supersedes this
       // wait. Revalidate before any user-visible fallback or recovery action.
-      if (!isCurrentFileRequestOwner(requestOwner)) return;
+      if (
+        !isCurrentFileRequestOwner(requestOwner) ||
+        getState('network.hostConn') !== requestOwner.hostConn ||
+        !requestOwner.hostConn.open
+      ) {
+        return;
+      }
 
       const receivedCount = getState('transfer.receivedCount');
       if (receivedCount === 0) {
@@ -2016,33 +2110,29 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
           return;
         }
 
-        // Continue only on the exact host DataConnection that owned the
-        // request. Peer IDs can be reused after reconnects.
-        if (getState('network.hostConn') === requestOwner.hostConn && requestOwner.hostConn.open) {
-          const pendingFileName = queueItem.name;
+        const pendingFileName = queueItem.name;
 
-          // Check if preload is in progress for this track
-          const preloadTarget = getState('preload.activeTarget');
-          if (preloadTarget?.queueItemId === requestOwner.queueItemId) {
-            log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
-            showToast(t('transfer.preload_waiting'));
-            return;
-          }
-
-          log.debug(
-            `[file-wait timeout] Requesting from Host: ${pendingFileName} queueItemId: ${requestOwner.queueItemId}`,
-          );
-          const recoveryOwner = beginFileRequest(
-            requestOwner.hostConn,
-            requestOwner.queueItemId,
-            requestOwner.sessionId,
-          );
-          sendFileRequest(recoveryOwner, {
-            type: MSG.REQUEST_DATA_RECOVERY,
-            nextChunk: 0,
-            fileName: pendingFileName,
-          });
+        // Check if preload is in progress for this track
+        const preloadTarget = getState('preload.activeTarget');
+        if (preloadTarget?.queueItemId === requestOwner.queueItemId) {
+          log.debug('[file-wait timeout] Preload in progress for this track, waiting...');
+          showToast(t('transfer.preload_waiting'));
+          return;
         }
+
+        log.debug(
+          `[file-wait timeout] Requesting from Host: ${pendingFileName} queueItemId: ${requestOwner.queueItemId}`,
+        );
+        const recoveryOwner = beginFileRequest(
+          requestOwner.hostConn,
+          requestOwner.queueItemId,
+          requestOwner.sessionId,
+        );
+        sendFileRequest(recoveryOwner, {
+          type: MSG.REQUEST_DATA_RECOVERY,
+          nextChunk: 0,
+          fileName: pendingFileName,
+        });
       }
     },
     10000,

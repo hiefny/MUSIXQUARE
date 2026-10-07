@@ -352,7 +352,13 @@ describe('remote guest PLAY → remote-share wait escalation (DV-2)', () => {
     resolveRoute('remote');
     await olderPlay;
 
-    expect(getState('playlist.currentQueueItemId')).toBe(QID_A);
+    // The failed occurrence is still the host's newest selection. Its local
+    // output stays idle, and the older route wait must not resurrect C.
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('playback.pendingPlayTime')).toBeUndefined();
+    expect(getState('playback.pendingRecoveryTarget')).toBeNull();
+    expect(getState('playback.failedTrackKeys')).toContain(`queue:${QID_B}`);
     expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
     expect(mocks.exactHostSend).not.toHaveBeenCalled();
   });

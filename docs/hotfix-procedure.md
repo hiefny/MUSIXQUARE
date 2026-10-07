@@ -9,6 +9,11 @@ copying a number from this procedure.
 This document is the canonical production hotfix note. Untracked workshop
 drafts are not release instructions.
 
+For the accumulated `mxqr_beta` promotion, first read the maintained
+[beta release record](beta-release-readiness.md). Reconcile its scope and
+outstanding work against the final diff, then follow this procedure. The record
+does not lift the owner's competition freeze or authorize a deployment.
+
 ## Normal Hotfix
 
 Use this path for ordinary production bugs that do not require immediate client replacement.

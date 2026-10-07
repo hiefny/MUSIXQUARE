@@ -1,6 +1,7 @@
 import { getState } from '../core/state.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { updateSubItemIds } from '../youtube/_state.ts';
+import { proYouTubeSubItemsKey } from '../youtube/queue-manifest.ts';
 import type { ProRoomSnapshot } from './contracts.ts';
 
 // Keep well below the manifest endpoint's per-IP minute budget so a room with
@@ -12,13 +13,14 @@ export function sameStringArray(left: readonly string[], right: readonly string[
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-/** Publish canonical server manifests into the legacy YouTube navigation map. */
+/** Cache canonical manifests by queue occurrence, never by external playlist ID. */
 export function hydrateProRoomYouTubeManifests(snapshot: ProRoomSnapshot): void {
   for (const item of snapshot.playlist) {
     if (item.source.kind !== 'youtube' || !item.source.playlistId || !item.source.videoIds) {
       continue;
     }
-    const current = getState('youtube.subItemsMap')[item.source.playlistId];
+    const key = proYouTubeSubItemsKey(item.queueItemId);
+    const current = getState('youtube.subItemsMap')[key];
     if (
       current &&
       current.manifestComplete === true &&
@@ -28,8 +30,9 @@ export function hydrateProRoomYouTubeManifests(snapshot: ProRoomSnapshot): void 
     }
     // updateSubItemIds clones the IDs and retains any richer titles already
     // fetched by this endpoint instead of replacing them with empty labels.
-    updateSubItemIds(item.source.playlistId, item.source.videoIds, {
+    updateSubItemIds(key, item.source.videoIds, {
       manifestComplete: true,
+      titleSourceKey: item.source.playlistId,
     });
   }
 }

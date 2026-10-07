@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import type { ProRoomSnapshot } from '../contracts.ts';
+import { proYouTubeSubItemsKey } from '../../youtube/queue-manifest.ts';
 import {
   claimLegacyYouTubeManifestCandidates,
   hydrateProRoomYouTubeManifests,
@@ -104,16 +105,22 @@ describe('PRO YouTube manifest runtime projection', () => {
 
       hydrateProRoomYouTubeManifests(authoritative);
 
-      expect(getState('youtube.subItemsMap').PL_MANIFEST).toEqual({
+      expect(getState('youtube.subItemsMap')[proYouTubeSubItemsKey(QUEUE_ITEM_ID)]).toEqual({
         ids,
         titles,
-        loadError: true,
+        loadError: undefined,
         manifestComplete: true,
       });
       if (authoritative.playlist[0]?.source.kind !== 'youtube') throw new Error('fixture');
       const firstVideoId = ids[0];
       authoritative.playlist[0].source.videoIds![0] = 'MUTATED0001';
-      expect(getState('youtube.subItemsMap').PL_MANIFEST?.ids[0]).toBe(firstVideoId);
+      expect(getState('youtube.subItemsMap')[proYouTubeSubItemsKey(QUEUE_ITEM_ID)]?.ids[0]).toBe(
+        firstVideoId,
+      );
+      expect(getState('youtube.subItemsMap').PL_MANIFEST?.ids).toEqual([
+        'OLDVIDEO001',
+        'OLDVIDEO002',
+      ]);
     },
   );
 
@@ -127,7 +134,7 @@ describe('PRO YouTube manifest runtime projection', () => {
 
     hydrateProRoomYouTubeManifests(snapshot(['NEWVIDEO001']));
 
-    expect(getState('youtube.subItemsMap').PL_MANIFEST).toMatchObject({
+    expect(getState('youtube.subItemsMap')[proYouTubeSubItemsKey(QUEUE_ITEM_ID)]).toMatchObject({
       ids: ['NEWVIDEO001'],
       titles: ['Only video'],
       manifestComplete: true,

@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
@@ -9,7 +10,18 @@ import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
-import { resetSettingsSyncAuthorityForTests } from '../../audio/effects.ts';
+import {
+  acceptCanonicalRoomSettings,
+  initEffectsHandlers,
+  resetSettingsSyncAuthorityForTests,
+  setExciter,
+  setStereoWidth,
+  setSettingsSyncEnabled,
+  setVirtualBass,
+} from '../../audio/effects.ts';
+import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
+import { MSG } from '../../core/constants.ts';
+import { handleData } from '../../network/protocol.ts';
 
 const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -56,6 +68,14 @@ class ResizeObserverStub {
   }
 }
 
+const reverbRangeInputs = (() => {
+  const markup = new DOMParser().parseFromString(readFileSync('index.html', 'utf8'), 'text/html');
+  return {
+    decay: markup.getElementById('reverb-decay-slider')!.outerHTML,
+    predelay: markup.getElementById('reverb-predelay-slider')!.outerHTML,
+  };
+})();
+
 function installEffectSettingsDom(): void {
   document.body.insertAdjacentHTML(
     'beforeend',
@@ -70,9 +90,9 @@ function installEffectSettingsDom(): void {
         <span id="val-reverb">0%</span>
         <input type="range" id="reverb-slider" min="0" max="100" value="0" />
         <span id="val-rvb-decay">5.0s</span>
-        <input type="range" id="reverb-decay-slider" min="0.1" max="10.0" step="0.1" value="5.0" />
+        ${reverbRangeInputs.decay}
         <span id="val-rvb-predelay">0.1s</span>
-        <input type="range" id="reverb-predelay-slider" min="0" max="0.5" step="0.01" value="0.1" />
+        ${reverbRangeInputs.predelay}
         <span id="val-rvb-lowcut">20Hz</span>
         <input type="range" id="reverb-lowcut-slider" min="0" max="100" step="1" value="0" />
         <span id="val-rvb-highcut">20.0kHz</span>
@@ -420,6 +440,29 @@ describe('initSettings playback mode guards', () => {
 });
 
 describe('settings synchronization preference', () => {
+  it.each(['on', 'off'] as const)(
+    'does not emit an opt-in transition for the selected %s chip',
+    (mode) => {
+      installSettingsSyncDom();
+      setState('audio.settingsSyncEnabled', mode === 'on');
+      initSettings();
+      const changed = vi.fn();
+      const stopObserving = bus.on('settings-sync:changed', changed);
+      try {
+        document.querySelector<HTMLElement>(`[data-settings-sync="${mode}"]`)!.click();
+
+        expect(changed).not.toHaveBeenCalled();
+        expect(getState('audio.settingsSyncEnabled')).toBe(mode === 'on');
+        expect(
+          document.querySelector(`[data-settings-sync="${mode}"]`)?.getAttribute('aria-pressed'),
+        ).toBe('true');
+        expect(localStorage.getItem('musixquare-settings-sync')).toBe(mode);
+      } finally {
+        stopObserving();
+      }
+    },
+  );
+
   it('defaults ON, persists OFF, and unlocks follower-local effect controls', () => {
     installSettingsSyncDom();
     installEffectSettingsDom();
@@ -1240,6 +1283,297 @@ describe('initSettings effect slider fill sync', () => {
     ]);
     expect(showToast).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['standard', true],
+    ['standard', false],
+    ['pro', true],
+    ['pro', false],
+  ] as const)(
+    'keeps virtual-effect controls aligned with audio in %s rooms (settings sync: %s)',
+    (kind, settingsSyncEnabled) => {
+      installEffectSettingsDom();
+      setState('room.context', {
+        kind,
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+      setState('audio.settingsSyncEnabled', settingsSyncEnabled);
+      initSettings();
+      const command = vi.fn();
+      bus.on('audio:update-effect', command);
+      bus.on('audio:set-virtual-effects', command);
+      vi.mocked(showToast).mockClear();
+
+      const expectControls = (enabled: string[]) => {
+        for (const button of document.querySelectorAll<HTMLElement>('[data-virtual-effect]')) {
+          const active = enabled.includes(button.dataset.virtualEffect!);
+          expect(button.classList.contains('active')).toBe(active);
+          expect(button.getAttribute('aria-pressed')).toBe(String(active));
+        }
+      };
+
+      // Demo and other non-settings surfaces use these audio setters without
+      // sending a separate UI event. Display the actual combination each time.
+      setVirtualBass(60);
+      expectControls(['bass']);
+      setExciter(true);
+      expectControls(['bass', 'treble']);
+      setStereoWidth(120);
+      expectControls(['bass', 'treble', 'surround']);
+      setVirtualBass(0);
+      expectControls(['treble', 'surround']);
+
+      // An interrupted demo restores its snapshot directly into the state store.
+      setState('audio.exciter', false);
+      setState('audio.stereoWidth', 1);
+      expectControls(['off']);
+      expect(command).not.toHaveBeenCalled();
+      expect(showToast).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('canonical effect state projection', () => {
+  it('projects the device role on mount, state changes, and reinitialization without commands', () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div id="woofer-cutoff-control" class="collapsed"></div>',
+    );
+    setState('audio.channelMode', -1);
+    const command = vi.fn();
+    bus.on('audio:set-channel-mode', command);
+    initSettings();
+    expect(document.querySelector('[data-ch="-1"]')!.getAttribute('aria-pressed')).toBe('true');
+
+    setState('audio.channelMode', 1);
+    expect(document.querySelector('[data-ch="1"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('[data-ch="-1"]')!.classList.contains('active')).toBe(false);
+    expect(document.querySelector('[data-role-mode="1"]')!.classList.contains('active')).toBe(true);
+    expect(document.getElementById('settings-role-description')!.dataset.i18n).toBe(
+      'settings.role_right_desc',
+    );
+
+    setState('audio.channelMode', 2);
+    initSettings();
+    expect(document.querySelector('[data-ch="2"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('woofer-cutoff-control')!.classList.contains('collapsed')).toBe(
+      false,
+    );
+    expect(command).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('preserves the temporary Center presentation while system audio is captured', () => {
+    const restoreProbe = configureSystemAudioCaptureActivityProbe(() => true);
+    try {
+      setState('audio.channelMode', -1);
+      initSettings();
+      expect(document.querySelector('[data-ch="0"]')!.getAttribute('aria-pressed')).toBe('true');
+      setState('audio.channelMode', 1);
+      expect(document.querySelector('[data-ch="0"]')!.getAttribute('aria-pressed')).toBe('true');
+      expect(getState('audio.channelMode')).toBe(1);
+    } finally {
+      restoreProbe();
+    }
+  });
+
+  it('mounts and remounts retained Off parameters without issuing an audio action', () => {
+    installEffectSettingsDom();
+    setState('audio.reverbDecay', 8);
+    setState('audio.reverbPreDelay', 0.3);
+    const command = vi.fn();
+    bus.on('audio:reverb-type-change', command);
+    bus.on('audio:update-effect', command);
+    initSettings();
+    expect(document.querySelector<HTMLInputElement>('#reverb-decay-slider')!.value).toBe('8');
+    expect(document.querySelector('[data-rvb-type="off"]')!.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    document.querySelector<HTMLButtonElement>('[data-rvb-type="advanced"]')!.click();
+    expect(document.querySelector<HTMLInputElement>('#reverb-predelay-slider')!.value).toBe('0.3');
+    expect(document.getElementById('reverb-sliders-area')!.classList.contains('collapsed')).toBe(
+      false,
+    );
+
+    setState('audio.reverbDecay', 9);
+    initSettings();
+    expect(document.querySelector<HTMLInputElement>('#reverb-decay-slider')!.value).toBe('9');
+    expect(command).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit Off button action as a reset rather than a projection', () => {
+    installEffectSettingsDom();
+    setState('audio.reverbDecay', 8);
+    setState('audio.reverbPreDelay', 0.3);
+    initSettings();
+    const command = vi.fn();
+    bus.on('audio:reverb-type-change', command);
+    document.querySelector<HTMLButtonElement>('[data-rvb-type="off"]')!.click();
+    expect(command).toHaveBeenCalledExactlyOnceWith('off');
+    expect(document.querySelector<HTMLInputElement>('#reverb-decay-slider')!.value).toBe('5');
+    expect(document.querySelector<HTMLInputElement>('#reverb-predelay-slider')!.value).toBe('0.1');
+    expect(document.querySelector('[data-rvb-type="off"]')!.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+  });
+
+  it.each(['standard', 'pro'] as const)(
+    'preserves accepted custom reverb values when the %s canonical mix is off',
+    async (kind) => {
+      installEffectSettingsDom();
+      setState('room.context', {
+        kind,
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+      initSettings();
+      const effects = createDefaultRoomEffectsState();
+      effects.reverb.decaySeconds = 8;
+      effects.reverb.preDelaySeconds = 0.3;
+
+      if (kind === 'standard') {
+        const host = {
+          peer: 'settings-audit-host',
+          open: true,
+          send: vi.fn(),
+        } as unknown as DataConnection;
+        setState('network.appRole', 'guest');
+        setState('network.hostConn', host);
+        initEffectsHandlers();
+        await handleData(
+          {
+            type: MSG.SETTINGS_SYNC_SNAPSHOT,
+            version: 1,
+            epoch: 1,
+            sequence: 1,
+            settings: { masterVolume: 1, effects },
+          },
+          host,
+        );
+      } else {
+        expect(acceptCanonicalRoomSettings(effects)).toBe(true);
+      }
+      expect(getState('audio.reverbMix')).toBe(0);
+      expect(getState('audio.reverbDecay')).toBe(8);
+      expect(getState('audio.reverbPreDelay')).toBe(0.3);
+      expect(document.querySelector<HTMLInputElement>('#reverb-decay-slider')!.value).toBe('8');
+      expect(document.querySelector<HTMLInputElement>('#reverb-predelay-slider')!.value).toBe(
+        '0.3',
+      );
+    },
+  );
+
+  it.each([
+    [0.1, 0.8],
+    [10, 1],
+  ])('represents canonical reverb decay %s / predelay %s in the controls', (decay, predelay) => {
+    installEffectSettingsDom();
+    initSettings();
+    const command = vi.fn();
+    bus.on('audio:reverb-type-change', command);
+    bus.on('audio:update-effect', command);
+    bus.on('audio:set-eq', command);
+    bus.on('audio:set-virtual-effects', command);
+    bus.on('settings-sync:publish-local', command);
+    const effects = createDefaultRoomEffectsState();
+    effects.reverb.mixPercent = 25;
+    effects.reverb.decaySeconds = decay;
+    effects.reverb.preDelaySeconds = predelay;
+
+    expect(acceptCanonicalRoomSettings(effects)).toBe(true);
+    expect(getState('audio.reverbDecay')).toBe(decay);
+    expect(getState('audio.reverbPreDelay')).toBe(predelay);
+    expect(document.querySelector<HTMLInputElement>('#reverb-decay-slider')!.value).toBe(
+      String(decay),
+    );
+    expect(document.querySelector<HTMLInputElement>('#reverb-predelay-slider')!.value).toBe(
+      String(predelay),
+    );
+    expect(command).not.toHaveBeenCalled();
+  });
+
+  it.each(['standard', 'pro'] as const)(
+    'keeps canonical effects and control locks coherent through %s sync opt-out and opt-in',
+    async (kind) => {
+      installEffectSettingsDom();
+      installSettingsSyncDom();
+      setState('room.context', {
+        kind,
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+      const host = {
+        peer: 'settings-audit-host',
+        open: true,
+        send: vi.fn(),
+      } as unknown as DataConnection;
+      if (kind === 'standard') {
+        setState('network.appRole', 'guest');
+        setState('network.hostConn', host);
+        initEffectsHandlers();
+      }
+      initSettings();
+      const effects = createDefaultRoomEffectsState();
+      effects.reverb = {
+        mixPercent: 50,
+        decaySeconds: 5,
+        preDelaySeconds: 0.12,
+        lowCutPercent: 0,
+        highCutPercent: 40,
+      };
+      effects.equalizer.bandsDb = [3, 2, 0, -1, -2];
+      effects.virtualBass.strengthPercent = 60;
+      const apply = async () => {
+        if (kind === 'pro') expect(acceptCanonicalRoomSettings(effects)).toBe(true);
+        else
+          await handleData(
+            {
+              type: MSG.SETTINGS_SYNC_SNAPSHOT,
+              version: 1,
+              epoch: 1,
+              sequence: 2,
+              settings: { masterVolume: 1, effects },
+            },
+            host,
+          );
+      };
+      setSettingsSyncEnabled(false);
+      await apply();
+      expect(getState('audio.reverbMix')).toBe(0);
+      expect(document.querySelector<HTMLInputElement>('#reverb-slider')!.value).toBe('0');
+      expect(document.querySelector<HTMLInputElement>('#reverb-slider')!.disabled).toBe(false);
+      expect(
+        document.querySelector('[data-virtual-effect="off"]')!.getAttribute('aria-pressed'),
+      ).toBe('true');
+
+      setSettingsSyncEnabled(true);
+      await apply();
+      expect(getState('audio.reverbMix')).toBe(0.5);
+      expect(document.querySelector<HTMLInputElement>('#reverb-slider')!.value).toBe('50');
+      expect(document.querySelector<HTMLInputElement>('#reverb-slider')!.disabled).toBe(true);
+      expect(document.querySelector('[data-rvb-type="arena"]')!.getAttribute('aria-pressed')).toBe(
+        'true',
+      );
+      expect(
+        document.querySelector('[data-virtual-effect="bass"]')!.getAttribute('aria-pressed'),
+      ).toBe('true');
+      expect(document.querySelector<HTMLInputElement>('#eq-slider-0')!.value).toBe('3');
+    },
+  );
 });
 
 describe('UI sound preference', () => {

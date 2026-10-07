@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initCommunity } from '../../../.workshop/translate/community';
 import { CommunityApiError, type Suggestion } from '../../../.workshop/translate/community-client';
-import { DRAFT_STORAGE_KEY, type Draft } from '../../../.workshop/translate/drafts';
+import { DRAFT_STORAGE_KEY, loadDrafts, type Draft } from '../../../.workshop/translate/drafts';
 
 const api = vi.hoisted(() => ({
   session: vi.fn(),
@@ -189,6 +189,27 @@ describe('translation community UI', () => {
     expect(dom.window.document.getElementById('submit-status')?.textContent).toBe('');
   });
 
+  it('keeps retry identity across sign-in renewal while using the newly observed session fence', async () => {
+    api.submit.mockRejectedValueOnce(new Error('response lost'));
+    await start();
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(button('submit-suggestion').disabled).toBe(false));
+    api.session.mockResolvedValue({
+      ...signedIn,
+      statsScope: 't'.repeat(43),
+      account: { ...signedIn.account, nickname: 'Renewed' },
+    });
+    dom.window.dispatchEvent(new dom.window.Event('focus'));
+    await vi.waitFor(() =>
+      expect(dom.window.document.getElementById('community-account')?.textContent).toBe('Renewed'),
+    );
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledTimes(2));
+    expect(api.submit.mock.calls[1]![1]).toBe(api.submit.mock.calls[0]![1]);
+    expect(api.submit.mock.calls[1]![2]).toBe('t'.repeat(43));
+  });
+
   it('discards old language responses even when a request implementation ignores abort', async () => {
     await start();
     const old = deferred<{ suggestions: Suggestion[]; nextCursor: null }>();
@@ -289,6 +310,156 @@ describe('translation editor submission integration', () => {
     input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     return input;
   }
+
+  async function reloadEditor() {
+    const saved = dom.window.localStorage.getItem(DRAFT_STORAGE_KEY);
+    dom.window.close();
+    dom = new JSDOM(html, { url: 'https://musixquare.com/translate' });
+    if (saved !== null) dom.window.localStorage.setItem(DRAFT_STORAGE_KEY, saved);
+    await startEditor();
+  }
+
+  it('saves, reviews and submits real editor inputs when randomUUID is unavailable', async () => {
+    const provider = globalThis.crypto;
+    const getRandomValues = vi.fn(provider.getRandomValues.bind(provider));
+    vi.stubGlobal('crypto', { getRandomValues, subtle: provider.subtle });
+    await startEditor();
+    const input = typeProposal('Vamos ouvir juntos.');
+    await vi.waitFor(() =>
+      expect(dom.window.document.getElementById('save-status')?.textContent).toBe('Saved locally'),
+    );
+    const first = loadDrafts(dom.window.localStorage).drafts[0]!;
+    expect(first).toMatchObject({ proposed: input.value, locale: 'pt-br' });
+    expect(first.revisionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+
+    const reason = dom.window.document.getElementById('reason') as HTMLTextAreaElement;
+    reason.value = 'More natural wording';
+    reason.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(loadDrafts(dom.window.localStorage).drafts[0]?.reason).toBe(reason.value),
+    );
+    const edited = loadDrafts(dom.window.localStorage).drafts[0]!;
+    expect(edited.revisionId).not.toBe(first.revisionId);
+
+    api.catalog.mockResolvedValue({
+      locale: portuguese,
+      languages: [portuguese],
+      entries: [
+        {
+          id: draft.id,
+          surface: draft.surface,
+          key: draft.key,
+          sourceEn: 'Listen together, wherever you are.',
+          sourceKo: draft.sourceKo,
+          current: 'Ouvir juntos.',
+        },
+      ],
+    });
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(button('review-source').hidden).toBe(false));
+    expect(api.submit).not.toHaveBeenCalled();
+    button('review-source').click();
+    const reviewed = loadDrafts(dom.window.localStorage).drafts[0]!;
+    expect(reviewed.sourceEn).toBe('Listen together, wherever you are.');
+    expect(reviewed.revisionId).not.toBe(edited.revisionId);
+    expect(reviewed.revisionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledOnce());
+    expect(api.submit.mock.calls[0]![0]).toEqual(reviewed);
+    expect(api.submit.mock.calls[0]![1]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(api.submit.mock.calls[0]![2]).toBe(scope);
+    await vi.waitFor(() => expect(input.value).toBe(''));
+    expect(loadDrafts(dom.window.localStorage).drafts).toEqual([]);
+    expect(getRandomValues).toHaveBeenCalled();
+    expect(crypto.randomUUID).toBeUndefined();
+  });
+
+  it('replays the saved request after a lost response and a full editor reload', async () => {
+    await startEditor();
+    api.submit.mockRejectedValueOnce(new Error('response lost after server committed'));
+    typeProposal('Vamos ouvir juntos.');
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(button('submit-suggestion').disabled).toBe(false));
+    const firstId = api.submit.mock.calls[0]![1];
+    await reloadEditor();
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledTimes(2));
+    expect(api.submit.mock.calls[1]![1]).toBe(firstId);
+  });
+
+  it('retains the server request identity if successful submission cleanup cannot be saved', async () => {
+    await startEditor();
+    const setItem = dom.window.Storage.prototype.setItem;
+    api.submit.mockImplementationOnce(async () => {
+      dom.window.Storage.prototype.setItem = () => {
+        throw new Error('quota');
+      };
+      return suggestion;
+    });
+    const input = typeProposal('Vamos ouvir juntos.');
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(input.value).toBe(''));
+    expect(dom.window.document.getElementById('storage-warning')?.hidden).toBe(false);
+    dom.window.Storage.prototype.setItem = setItem;
+    const firstId = api.submit.mock.calls[0]![1];
+    await reloadEditor();
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledTimes(2));
+    expect(api.submit.mock.calls[1]![1]).toBe(firstId);
+  });
+
+  it('blocks POST on an earlier failed save and retries only after persistence recovers', async () => {
+    await startEditor();
+    const write = vi.spyOn(dom.window.Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota');
+    });
+    const input = typeProposal('Vamos ouvir juntos.');
+    dom.window.dispatchEvent(new dom.window.PageTransitionEvent('pagehide'));
+    button('submit-suggestion').click();
+    await vi.waitFor(() =>
+      expect(dom.window.document.getElementById('submit-status')?.textContent).toBe(
+        'Save and review this draft before submitting.',
+      ),
+    );
+    expect(api.submit).not.toHaveBeenCalled();
+    expect(input.value).toBe('Vamos ouvir juntos.');
+    write.mockRestore();
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledOnce());
+  });
+
+  it('blocks submission of an in-memory draft after another tab changes storage', async () => {
+    await startEditor();
+    typeProposal('Vamos ouvir juntos.');
+    dom.window.dispatchEvent(new dom.window.PageTransitionEvent('pagehide'));
+    const remote = JSON.stringify({ version: 1, drafts: [{ ...draft, reason: 'Other tab' }] });
+    dom.window.localStorage.setItem(DRAFT_STORAGE_KEY, remote);
+    button('submit-suggestion').click();
+    await vi.waitFor(() =>
+      expect(dom.window.document.getElementById('submit-status')?.textContent).toBe(
+        'Save and review this draft before submitting.',
+      ),
+    );
+    expect(api.submit).not.toHaveBeenCalled();
+    expect(dom.window.localStorage.getItem(DRAFT_STORAGE_KEY)).toBe(remote);
+  });
+
+  it('assigns a new identity when the user writes another proposal with the same wording', async () => {
+    await startEditor();
+    const input = typeProposal('Vamos ouvir juntos.');
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(input.value).toBe(''));
+    const firstId = api.submit.mock.calls[0]![1];
+    typeProposal('Vamos ouvir juntos.');
+    button('submit-suggestion').click();
+    await vi.waitFor(() => expect(api.submit).toHaveBeenCalledTimes(2));
+    expect(api.submit.mock.calls[1]![1]).not.toBe(firstId);
+  });
 
   it.each([
     { code: 'en', nativeName: 'English', current: draft.sourceEn, proposed: 'Listen as one.' },

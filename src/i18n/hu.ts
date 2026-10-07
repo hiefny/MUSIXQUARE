@@ -423,10 +423,10 @@ const hu: Record<I18nKey, string> = {
     'Elérted a BOT-kérések korlátját. Várj {{duration}} ideig, majd próbáld újra',
   'chat.decode_skip_system_message':
     'A szám kihagyva: egyes eszközök nem támogatják ezt a formátumot.',
+  'chat.large_track_playback_system_message':
+    'Ez a szám nagyon nagy, ezért használat közben késések fordulhatnak elő.',
   'chat.large_local_track_system_message':
     'A szám fájlja nagyon nagy, ezért egyes eszközökön nem biztos, hogy lejátszható.',
-  'chat.decode_memory_risk_system_message':
-    'Ez a szám dekódolás közben körülbelül {{estimatedMiB}} MiB memóriát használhat, és lehet, hogy ezen az eszközön nem játszható le.',
   'chat.device_track_unavailable_system_message':
     'Ez az eszköz nem tudja lejátszani az aktuális számot.',
   'chat.system_audio_started_system_message':

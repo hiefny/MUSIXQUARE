@@ -93,6 +93,10 @@ function cancelForMediaTransition(): void {
 
 function runtimeHooks(): StandardHostManualOffsetRuntimeHooks {
   return {
+    readPlaybackIntent() {
+      const active = transaction;
+      return active && hasHardIdentity(active) ? active.playing : null;
+    },
     cancelForMediaTransition,
     repairAfterTimerCleanup() {
       const active = transaction;

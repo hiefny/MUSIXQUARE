@@ -16,6 +16,12 @@ import {
 } from '../../network/file-request-authority.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
+  claimPlaybackOwner,
+  createSystemAudioTrackMeta,
+  releasePlaybackOwner,
+  setPlaybackFilePaused,
+} from '../../player/ownership.ts';
+import {
   freezeFileDeliveryMode,
   markLocalFileR2Capable,
   resetFileDeliveryPolicies,
@@ -770,6 +776,67 @@ describe('host cached-blob recovery identity', () => {
 
     const { unicastFile } = await import('../transfer.ts');
     expect(unicastFile).not.toHaveBeenCalled();
+  });
+
+  it.each([MSG.REQUEST_CURRENT_FILE, MSG.REQUEST_DATA_RECOVERY])(
+    '%s does not serve a retained file during system-audio playback',
+    async (type) => {
+      setResident(Q0, 'selected.mp3', new Blob(['selected']), 7);
+      claimPlaybackOwner('system-audio', {
+        currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+      });
+      const conn = makeGuestConn('local');
+      await invokeRecoveryHandler(type, { queueItemId: Q0, sessionId: 7 }, conn);
+      const { unicastFile } = await import('../transfer.ts');
+      expect(unicastFile).not.toHaveBeenCalled();
+      expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_WAIT }));
+    },
+  );
+
+  it.each([MSG.REQUEST_CURRENT_FILE, MSG.REQUEST_DATA_RECOVERY])(
+    '%s cannot revive delayed route authorization after file → system audio → same file',
+    async (type) => {
+      setResident(Q0, 'selected.mp3', new Blob(['selected']), 7);
+      const conn = makeGuestConn('local');
+      const { initRecovery } = await import('../recovery.ts');
+      initRecovery();
+      // Enter the actual handler synchronously, then replace ownership while
+      // its asynchronous route decision has not resumed its continuation.
+      const pending = registeredHandlers.get(type)?.(
+        { type, requestId: ++nextTestRequestId, queueItemId: Q0, sessionId: 7 },
+        conn,
+      );
+      const retainedFile = getState('files.current');
+      claimPlaybackOwner('system-audio', {
+        currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+      });
+      releasePlaybackOwner('system-audio', { currentTrackMeta: null });
+      setPlaybackFilePaused();
+      expect(getState('files.current')).toBe(retainedFile);
+      await pending;
+      const { unicastFile } = await import('../transfer.ts');
+      expect(unicastFile).not.toHaveBeenCalled();
+
+      // A new request for this paused local file is still legitimate.
+      await invokeRecoveryHandler(type, { queueItemId: Q0, sessionId: 7 }, conn);
+      expect(unicastFile).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('invalidates an active unicast source predicate across temporary external takeover', async () => {
+    setResident(Q0, 'selected.mp3', new Blob(['selected']), 7);
+    const conn = makeGuestConn('local');
+    await invokeRecoveryHandler(MSG.REQUEST_DATA_RECOVERY, { queueItemId: Q0, sessionId: 7 }, conn);
+    const { unicastFile } = await import('../transfer.ts');
+    const options = vi.mocked(unicastFile).mock.calls[0]?.[4];
+    expect(options?.isSourceCurrent?.()).toBe(true);
+    claimPlaybackOwner('system-audio', {
+      currentTrackMeta: createSystemAudioTrackMeta('sharing'),
+    });
+    expect(options?.isSourceCurrent?.()).toBe(false);
+    releasePlaybackOwner('system-audio', { currentTrackMeta: null });
+    setPlaybackFilePaused();
+    expect(options?.isSourceCurrent?.()).toBe(false);
   });
 
   it('uses the matched host queue item in a refreshed remote descriptor', async () => {

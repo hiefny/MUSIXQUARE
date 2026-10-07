@@ -147,6 +147,59 @@ describe('participant-local output rejoin', () => {
     }
   });
 
+  it('retains a newer hardware PAUSE across a controlled pending PRO reconciliation result', async () => {
+    vi.useFakeTimers();
+    try {
+      const handlers = new Map<MediaSessionAction, MediaSessionActionHandler>();
+      Object.defineProperty(navigator, 'mediaSession', {
+        configurable: true,
+        value: {
+          setActionHandler(action: MediaSessionAction, handler: MediaSessionActionHandler | null) {
+            if (handler) handlers.set(action, handler);
+          },
+        },
+      });
+      initMediaSession();
+      startSession();
+      setProRoom();
+      setPlaybackFilePaused();
+      setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
+      setLocalFilePaused(true);
+      let finishReconciliation!: (reconciled: boolean) => void;
+      // This is a wrapper control at the mocked runtime boundary. The real
+      // standard-room wire regression separately proves the resume defect.
+      mocks.reconcilePro.mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishReconciliation = resolve;
+          }),
+      );
+
+      handlers.get('play')!({ action: 'play' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+      expect(isLocalFilePaused()).toBe(false);
+      const liveness = mocks.reconcilePro.mock.calls[0]?.[0]?.liveness;
+      expect(liveness?.isCurrent()).toBe(true);
+
+      handlers.get('pause')!({ action: 'pause' });
+      expect(isLocalFilePaused()).toBe(true);
+      expect(liveness?.isCurrent()).toBe(false);
+      finishReconciliation(false);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+      expect(isLocalFilePaused()).toBe(true);
+
+      handlers.get('play')!({ action: 'play' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.reconcilePro).toHaveBeenCalledTimes(2);
+      expect(isLocalFilePaused()).toBe(false);
+      expect(mocks.reconcilePro.mock.calls[1]?.[0]?.liveness?.isCurrent()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('cancels a busy YouTube retry on explicit PAUSE and permits the next PLAY', async () => {
     vi.useFakeTimers();
     try {

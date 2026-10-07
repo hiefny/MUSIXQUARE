@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { setLanguageMode } from '../../i18n/index.ts';
 import { bus } from '../../core/events.ts';
 import { getState, setState } from '../../core/state.ts';
@@ -26,10 +26,47 @@ import {
 import { fetchOEmbedTitle, fetchWithTimeout } from '../oembed.ts';
 import { OEMBED_INITIAL_BATCH_SIZE } from '../constants.ts';
 
+const animationFrames = new Map<number, FrameRequestCallback>();
+let nextAnimationFrameId = 0;
+
+function installAnimationFrameQueue(): void {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const id = ++nextAnimationFrameId;
+    animationFrames.set(id, callback);
+    return id;
+  });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => animationFrames.delete(id));
+}
+
+function flushAnimationFrame(): void {
+  const callbacks = [...animationFrames.values()];
+  animationFrames.clear();
+  for (const callback of callbacks) callback(16);
+}
+
+function useSearchFakeTimers(): void {
+  vi.useFakeTimers();
+  // Keep render frames owned by this fixture when a test replaces the clock.
+  installAnimationFrameQueue();
+}
+
+beforeEach(() => {
+  expect(animationFrames.size).toBe(0);
+  installAnimationFrameQueue();
+});
+
 afterEach(() => {
-  clearPreviewDebounce();
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
+  try {
+    clearPreviewDebounce();
+    clearYouTubeInputState();
+    // Cleanup also schedules a frame. Deliver it before restoring timers so the
+    // module's coalescing flag never outlives a discarded fake RAF callback.
+    flushAnimationFrame();
+    expect(animationFrames.size).toBe(0);
+  } finally {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
 });
 
 describe('YouTube playlist title batch completion', () => {
@@ -51,7 +88,7 @@ describe('YouTube playlist title batch completion', () => {
     responseForIndex: (index: number) => Response | Promise<Response> = (index) =>
       Response.json({ title: `Title ${index}` }),
   ) {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     setState('network.hostConn', null);
     setState('youtube.currentSubIndex', 0);
     setState('youtube.subItemsMap', { [playlistId]: { ids: [...ids], titles: [] } });
@@ -158,7 +195,7 @@ describe('YouTube playlist title batch completion', () => {
 
 describe('YouTube request lifetime', () => {
   it('settles at the deadline when fetch never returns response headers', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     let requestSignal: AbortSignal | null = null;
     vi.stubGlobal(
       'fetch',
@@ -180,7 +217,7 @@ describe('YouTube request lifetime', () => {
   });
 
   it('settles and cancels when response headers arrive but its body never progresses', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const cancel = vi.fn(() => new Promise<void>(() => undefined));
     const response = new Response(
       new ReadableStream<Uint8Array>({
@@ -236,6 +273,23 @@ describe('extractYouTubeVideoId', () => {
     expect(
       extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLxxx&index=1'),
     ).toBe('dQw4w9WgXcQ');
+  });
+
+  it.each([
+    'https://www.youtube.com/watch?v=',
+    'https://youtu.be/',
+    'https://youtube.com/shorts/',
+    'https://youtube.com/embed/',
+    'https://youtube.com/live/',
+  ])('does not substitute an eleven-character prefix in %s', (prefix) => {
+    const videoId = 'dQw4w9WgXcQ';
+    for (const extra of ['x', '-', '_']) {
+      const malformed = `${prefix}${videoId}${extra}`;
+      expect(extractYouTubeVideoId(malformed)).toBeNull();
+      expect(getYouTubeInputIntent(malformed).kind).toBe('invalid-url');
+    }
+    expect(extractYouTubeVideoId(`${prefix}${videoId}`)).toBe(videoId);
+    expect(extractYouTubeVideoId(`${prefix}${videoId}#t=12`)).toBe(videoId);
   });
 
   it('returns null for invalid URL', () => {
@@ -394,6 +448,134 @@ describe('YouTube search action state', () => {
 
     clearYouTubeInputState();
     document.body.innerHTML = '';
+  });
+});
+
+describe('YouTube search loading lifecycle', () => {
+  let queryNumber = 0;
+  const result = { videoId: 'KKKKKKKKKKK', title: 'Found song', channelTitle: 'Channel' };
+
+  function setup() {
+    document.body.innerHTML = `
+      <div id="youtube-preview" hidden></div>
+      <div id="youtube-preview-status"></div>
+      <div id="youtube-search-results" role="group" hidden></div>
+      <button id="youtube-search-btn" disabled></button>
+      <button id="youtube-play-btn" disabled></button>
+    `;
+    clearYouTubeInputState();
+    const requests = new Map<
+      string,
+      { resolve: (response: Response) => void; reject: (reason: Error) => void }
+    >();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), 'http://localhost');
+        if (url.pathname.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (url.pathname.includes('/api/youtube-search')) {
+          return new Promise<Response>((resolve, reject) => {
+            requests.set(url.searchParams.get('q')!, { resolve, reject });
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    return {
+      query: `skeleton lifecycle ${++queryNumber}`,
+      requests,
+      container: document.getElementById('youtube-search-results')!,
+      add: document.getElementById('youtube-play-btn') as HTMLButtonElement,
+    };
+  }
+
+  afterEach(() => {
+    clearYouTubeInputState();
+    document.body.innerHTML = '';
+  });
+
+  it('fills the result viewport with inert rows until real results replace them', async () => {
+    const { query, requests, container, add } = setup();
+    const search = searchYouTubeFromInput(query);
+    expect(container.hidden).toBe(false);
+    expect(container.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelectorAll('.yt-search-result.yt-search-skeleton')).toHaveLength(5);
+    expect(container.querySelectorAll('.yt-skeleton-block')).toHaveLength(15);
+    expect(container.querySelectorAll('button, img, [tabindex]')).toHaveLength(0);
+    expect(
+      Array.from(container.children).every((row) => row.getAttribute('aria-hidden') === 'true'),
+    ).toBe(true);
+    expect(add.disabled).toBe(true);
+    expect(getSelectedYouTubeSearchResult(query)).toBeNull();
+    await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+    requests.get(query)!.resolve(Response.json({ results: [result] }));
+    await search;
+    expect(container.hasAttribute('aria-busy')).toBe(false);
+    expect(container.querySelectorAll('.yt-search-skeleton')).toHaveLength(0);
+    expect(container.querySelectorAll('button')).toHaveLength(1);
+    expect(getSelectedYouTubeSearchResult(query)?.videoId).toBe(result.videoId);
+    expect(add.disabled).toBe(false);
+    fetchYouTubePreview(`  ${query}  `);
+    expect(add.disabled).toBe(false);
+    expect(getSelectedYouTubeSearchResult(query)?.videoId).toBe(result.videoId);
+  });
+
+  it.each(['empty', 'failure'] as const)(
+    'clears loading on %s and leaves search retryable',
+    async (outcome) => {
+      const { query, requests, container, add } = setup();
+      const search = searchYouTubeFromInput(query);
+      await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+      if (outcome === 'empty') requests.get(query)!.resolve(Response.json({ results: [] }));
+      else requests.get(query)!.reject(new Error('offline'));
+      await search;
+      expect(container.hidden).toBe(true);
+      expect(container.childElementCount).toBe(0);
+      expect(container.hasAttribute('aria-busy')).toBe(false);
+      expect(add.disabled).toBe(true);
+      expect((document.getElementById('youtube-search-btn') as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each(['changed-query', 'cleared-popup'] as const)(
+    'ignores late results after %s',
+    async (action) => {
+      const { query, requests, container, add } = setup();
+      const search = searchYouTubeFromInput(query);
+      await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+      if (action === 'changed-query') fetchYouTubePreview('a new search');
+      else clearYouTubeInputState();
+      expect(container.hidden).toBe(true);
+      expect(container.hasAttribute('aria-busy')).toBe(false);
+      requests.get(query)!.resolve(Response.json({ results: [result] }));
+      await search;
+      expect(container.childElementCount).toBe(0);
+      expect(getSelectedYouTubeSearchResult()).toBeNull();
+      expect(add.disabled).toBe(true);
+    },
+  );
+
+  it('keeps the newer search busy when an older aborted request finishes', async () => {
+    const { query, requests, container, add } = setup();
+    const oldSearch = searchYouTubeFromInput(query);
+    await vi.waitFor(() => expect(requests.has(query)).toBe(true));
+    const nextQuery = `${query} next`;
+    const nextSearch = searchYouTubeFromInput(nextQuery);
+    await vi.waitFor(() => expect(requests.has(nextQuery)).toBe(true));
+    requests.get(query)!.resolve(Response.json({ results: [result] }));
+    await oldSearch;
+    expect(container.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelectorAll('.yt-search-skeleton')).toHaveLength(5);
+    expect(add.disabled).toBe(true);
+    requests
+      .get(nextQuery)!
+      .resolve(Response.json({ results: [{ ...result, title: 'New result' }] }));
+    await nextSearch;
+    expect(container.hasAttribute('aria-busy')).toBe(false);
+    expect(getSelectedYouTubeSearchResult(nextQuery)?.title).toBe('New result');
   });
 });
 
@@ -629,7 +811,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   }
 
   it('prefetches and synchronously exposes a playlist manifest before enabling play', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     const manifestRequests: string[] = [];
     vi.stubGlobal(
@@ -681,7 +863,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('keeps a video-attached Mix URL on the immediate single-video preview path', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     const requests: string[] = [];
     vi.stubGlobal(
@@ -710,7 +892,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('keeps play gated only for the bounded manifest budget, then permits iframe fallback', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     let resolveManifest!: (response: Response) => void;
     const pendingManifest = new Promise<Response>((resolve) => {
@@ -757,7 +939,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('drops a stale manifest when the URL changes before its prefetch resolves', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     mountYouTubePreview();
     let resolveStaleManifest!: (response: Response) => void;
     const staleManifest = new Promise<Response>((resolve) => {
@@ -806,7 +988,7 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 
   it('aborts an unfinished manifest prefetch when the preview overlay closes', async () => {
-    vi.useFakeTimers();
+    useSearchFakeTimers();
     const playButton = mountYouTubePreview();
     const manifestRequest: { signal: AbortSignal | null } = { signal: null };
     let resolveManifest!: (response: Response) => void;
@@ -852,6 +1034,139 @@ describe('YouTube playlist manifest preview prefetch', () => {
   });
 });
 
+describe('YouTube input response body ownership', () => {
+  function pendingBody(value: unknown) {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    let finishCancellation!: () => void;
+    const cancel = vi.fn(() => new Promise<void>((resolve) => (finishCancellation = resolve)));
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(bytes.slice(0, Math.max(1, bytes.length - 1)));
+        },
+        cancel,
+      }),
+    );
+    return { response, cancel, finishCancellation: () => finishCancellation() };
+  }
+
+  function mount() {
+    document.body.innerHTML = `
+      <div id="youtube-preview" hidden></div>
+      <div id="youtube-preview-status"></div>
+      <img id="youtube-preview-thumb">
+      <div id="youtube-preview-title"></div>
+      <div id="youtube-preview-channel"></div>
+      <div id="youtube-search-results" hidden></div>
+      <button id="youtube-search-btn" disabled></button>
+      <button id="youtube-play-btn" disabled></button>
+    `;
+    clearYouTubeInputState();
+    return document.getElementById('youtube-play-btn') as HTMLButtonElement;
+  }
+
+  afterEach(() => {
+    clearYouTubeInputState();
+    document.body.innerHTML = '';
+  });
+
+  it('lets a replacement search finish while the old streamed body cancellation is pending', async () => {
+    const playButton = mount();
+    const oldQuery = 'round7 streamed search old';
+    const newQuery = 'round7 streamed search new';
+    const result = { videoId: 'AAAAAAAAAAA', title: 'Old result', channelTitle: 'Channel' };
+    const oldBody = pendingBody({ results: [result] });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), 'http://localhost');
+        if (url.pathname.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (url.searchParams.get('q') === oldQuery) return oldBody.response;
+        if (url.searchParams.get('q') === newQuery)
+          return Response.json({ results: [{ ...result, title: 'Current result' }] });
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    const oldSearch = searchYouTubeFromInput(oldQuery);
+    await vi.waitFor(() => expect(oldBody.response.body?.locked).toBe(true));
+    // Production input events run preview invalidation before the next search gesture.
+    fetchYouTubePreview(newQuery);
+    const newSearch = searchYouTubeFromInput(newQuery);
+    await Promise.all([oldSearch, newSearch]);
+
+    expect(oldBody.cancel).toHaveBeenCalledOnce();
+    expect(getSelectedYouTubeSearchResult(newQuery)?.title).toBe('Current result');
+    expect(playButton.disabled).toBe(false);
+    oldBody.finishCancellation();
+    await Promise.resolve();
+    expect(document.querySelector('.yt-search-title')?.textContent).toBe('Current result');
+    expect(document.getElementById('youtube-search-results')?.hasAttribute('aria-busy')).toBe(
+      false,
+    );
+  });
+
+  it('keeps the reopened playlist preview when the old metadata and manifest bodies cancel late', async () => {
+    useSearchFakeTimers();
+    const playButton = mount();
+    const playlistId = 'PL_ROUND7_REOPEN_BODY';
+    const url = `https://youtube.com/playlist?list=${playlistId}`;
+    const metadata = { title: 'Old preview', author_name: 'Channel' };
+    const manifest = {
+      playlistId,
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['AAAAAAAAAAA'],
+      title: 'Old manifest',
+    };
+    const oldMetadata = pendingBody(metadata);
+    const oldManifest = pendingBody(manifest);
+    let metadataRequests = 0;
+    let manifestRequests = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const requestUrl = String(input);
+        if (requestUrl.includes('/api/security-config'))
+          return Response.json({ capabilityRequired: false });
+        if (requestUrl.includes('/api/youtube-playlist-manifest'))
+          return ++manifestRequests === 1
+            ? oldManifest.response
+            : Response.json({ ...manifest, title: 'Current manifest' });
+        if (requestUrl.includes('youtube.com/oembed'))
+          return ++metadataRequests === 1
+            ? oldMetadata.response
+            : Response.json({ ...metadata, title: 'Current preview' });
+        throw new Error(`Unexpected request: ${requestUrl}`);
+      }),
+    );
+
+    fetchYouTubePreview(url);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(oldMetadata.response.body?.locked).toBe(true);
+    expect(oldManifest.response.body?.locked).toBe(true);
+    expect(playButton.disabled).toBe(true);
+
+    // Both close and reopen clear the input state before input restarts the same URL.
+    clearYouTubeInputState();
+    clearYouTubeInputState();
+    fetchYouTubePreview(url);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(oldMetadata.cancel).toHaveBeenCalledOnce();
+    expect(oldManifest.cancel).toHaveBeenCalledOnce();
+    expect(getPrefetchedYouTubePlaylistManifest(playlistId)?.title).toBe('Current manifest');
+    expect(playButton.disabled).toBe(false);
+
+    oldMetadata.finishCancellation();
+    oldManifest.finishCancellation();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.getElementById('youtube-preview-title')?.innerText).toBe('Current preview');
+    expect(document.getElementById('youtube-preview')?.hidden).toBe(false);
+    expect(getPrefetchedYouTubePlaylistManifest(playlistId)?.title).toBe('Current manifest');
+    expect(playButton.disabled).toBe(false);
+  });
+});
+
 describe('YouTube search result rendering sink', () => {
   it('coalesces a rendered result list into one scrollbar reveal per frame', async () => {
     document.body.innerHTML = `
@@ -881,7 +1196,9 @@ describe('YouTube search result rendering sink', () => {
 
     try {
       await searchYouTubeFromInput('single reveal probe 20260723');
-      await new Promise((resolve) => window.setTimeout(resolve, 40));
+      expect(reveal).not.toHaveBeenCalled();
+      expect(animationFrames.size).toBe(1);
+      flushAnimationFrame();
 
       expect(reveal).toHaveBeenCalledTimes(1);
       expect(reveal).toHaveBeenCalledWith(document.getElementById('youtube-search-results'));

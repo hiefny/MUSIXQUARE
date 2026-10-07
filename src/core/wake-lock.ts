@@ -12,6 +12,7 @@ let _wakeLockDesired = false;
 let _wakeLockSentinel: WakeLockSentinel | null = null;
 let _wakeLockRequest: Promise<void> | null = null;
 let _wakeLockGeneration = 0;
+let _wakeLockReacquirePending = false;
 
 function releaseWakeLock(sentinel: WakeLockSentinel): void {
   try {
@@ -66,10 +67,15 @@ function acquireWakeLock(): void {
     .finally(() => {
       if (_wakeLockRequest !== request) return;
       _wakeLockRequest = null;
+      const reacquirePending = _wakeLockReacquirePending;
+      _wakeLockReacquirePending = false;
 
       // A deactivate -> activate transition can occur while the old request
       // is pending. Once its stale result is released, serve the new intent.
-      if (_wakeLockDesired && requestGeneration !== _wakeLockGeneration) {
+      // Foreground recovery can also arrive before an older native request
+      // fails or returns a released sentinel. Consume that explicit retry
+      // once; a denied replacement must not create an automatic retry loop.
+      if (_wakeLockDesired && (requestGeneration !== _wakeLockGeneration || reacquirePending)) {
         acquireWakeLock();
       }
     });
@@ -95,6 +101,7 @@ export function deactivateNoSleep(): void {
 
   _wakeLockDesired = false;
   _wakeLockGeneration++;
+  _wakeLockReacquirePending = false;
   const sentinel = _wakeLockSentinel;
   _wakeLockSentinel = null;
   if (sentinel && !sentinel.released) releaseWakeLock(sentinel);
@@ -105,6 +112,7 @@ export function deactivateNoSleep(): void {
  * active setup/session still desires keep-awake.
  */
 export function reacquireWakeLockIfActive(): void {
+  if (_wakeLockDesired && _wakeLockRequest) _wakeLockReacquirePending = true;
   acquireWakeLock();
 }
 
@@ -112,6 +120,7 @@ export function reacquireWakeLockIfActive(): void {
 export function __resetWakeLockForTests(): void {
   _wakeLockDesired = false;
   _wakeLockGeneration++;
+  _wakeLockReacquirePending = false;
   const sentinel = _wakeLockSentinel;
   _wakeLockSentinel = null;
   _wakeLockRequest = null;

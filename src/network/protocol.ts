@@ -247,6 +247,19 @@ const MAX_CHUNK_BYTES = CHUNK_SIZE;
 const isBoundedChunk = (v: unknown): boolean =>
   isArrayBufferLike(v) && (v as ArrayBuffer | Uint8Array).byteLength <= MAX_CHUNK_BYTES;
 
+/** Match the fixed-size Blob slices emitted by both main-file send paths. */
+function hasExactMainFileChunkContract(data: Record<string, unknown>): boolean {
+  if (
+    !hasExactFileSizeContract(data) ||
+    !isBoundedChunk(data.chunk) ||
+    !isNonNegSafeInt(data.chunkIndex) ||
+    data.chunkIndex >= (data.total as number)
+  )
+    return false;
+  const expectedBytes = Math.min(CHUNK_SIZE, (data.size as number) - data.chunkIndex * CHUNK_SIZE);
+  return (data.chunk as ArrayBuffer | Uint8Array).byteLength === expectedBytes;
+}
+
 // Frames without a top-level queueItemId that still create/mutate a media
 // owner. Queue-scoped frames are detected generically below.
 const PRE_AUTHORITY_MEDIA_TYPES: ReadonlySet<string> = new Set([
@@ -612,7 +625,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.EXCITER]: (d) => (d.value === 0 || d.value === 1) && hasValidBootstrapFlag(d),
   [MSG.STEREO_WIDTH]: (d) => isBoundedNumber(d.value, 0, 200) && hasValidBootstrapFlag(d),
   [MSG.REVERB_TYPE]: (d) => isReverbPreset(d.value) && hasValidBootstrapFlag(d),
-  [MSG.REVERB_DECAY]: (d) => isBoundedNumber(d.value, 0.1, 30) && hasValidBootstrapFlag(d),
+  [MSG.REVERB_DECAY]: (d) => isBoundedNumber(d.value, 0.1, 10) && hasValidBootstrapFlag(d),
   [MSG.REVERB_PREDELAY]: (d) => isBoundedNumber(d.value, 0, 1) && hasValidBootstrapFlag(d),
   [MSG.REVERB_LOWCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
   [MSG.REVERB_HIGHCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
@@ -621,13 +634,12 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.CHAT_SLOWMODE]: (d) => isNonNegSafeInt(d.seconds) && (d.seconds as number) <= 60,
   [MSG.CHAT_FILTER]: (d) => typeof d.on === 'boolean',
   [MSG.FILE_CHUNK]: (d) =>
-    isBoundedChunk(d.chunk) &&
-    isNonNegInt(d.chunkIndex) &&
     isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
     typeof d.name === 'string' &&
     d.name.length > 0 &&
-    hasExactFileSizeContract(d),
+    (d.mime === undefined || typeof d.mime === 'string') &&
+    hasExactMainFileChunkContract(d),
   // sessionId must be a positive safe integer. Finite-but-unsafe or fractional
   // values can poison transfer.localSessionId just like Infinity, after which
   // the localSid<incomingSid guards in transfer-receive.ts reject

@@ -9,6 +9,7 @@
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
+import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
@@ -21,7 +22,7 @@ import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { isFilePipelineBusyForPlay } from '../player/transport.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
-import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
 import { normalizeEmptyContentEditable, syncOverlayState } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
@@ -36,8 +37,10 @@ interface ManualSyncControllerBridge {
 }
 
 let previousFocus: HTMLElement | null = null;
+let manualSyncRequest = 0;
 const boundOverlays = new WeakSet<HTMLElement>();
 const boundEditors = new WeakSet<HTMLElement>();
+const editorOffsetModes = new WeakMap<HTMLElement, boolean>();
 
 function getManualSyncOffsetMs(): number {
   const seconds = isPlaybackModeYouTube()
@@ -54,6 +57,7 @@ function formatManualSyncOffsetMs(ms: number): string {
 }
 
 function renderEditorValue(editor: HTMLElement, ms = getManualSyncOffsetMs()): void {
+  editorOffsetModes.set(editor, isPlaybackModeYouTube());
   editor.textContent = formatManualSyncOffsetMs(ms);
   editor.setAttribute('aria-invalid', 'false');
 }
@@ -102,6 +106,13 @@ function normalizeDraft(editor: HTMLElement): void {
 }
 
 function commitEditor(editor: HTMLElement): boolean {
+  // File and YouTube offsets are separate device preferences. A host can
+  // switch sources while this field is focused; its old draft must not be
+  // committed to the new source's offset.
+  if (editorOffsetModes.get(editor) !== isPlaybackModeYouTube()) {
+    renderEditorValue(editor);
+    return true;
+  }
   const draft = sanitizeDraft(editor.textContent || '');
   if (!/^[+-]?\d+$/u.test(draft)) {
     editor.setAttribute('aria-invalid', 'true');
@@ -135,7 +146,11 @@ function isAvailableFocusTarget(element: HTMLElement | null): element is HTMLEle
   );
 }
 
-function close(): void {
+function close(cancelPending = true): void {
+  // A pending rendezvous/reconciliation must not reopen a panel that was
+  // dismissed. A temporary availability hide during its own preparation is
+  // different: the same live request may open once its resource is ready.
+  if (cancelPending) manualSyncRequest += 1;
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay) return;
   const wasShown = overlay.classList.contains('show');
@@ -199,7 +214,11 @@ function bindEditor(editor: HTMLElement): void {
   const completeEdit = () => {
     if (commitEditor(editor)) {
       skipNextBlurCommit = true;
-      editor.blur();
+      // Finish editing without leaving the open modal's keyboard ownership.
+      // Focusing a button also dismisses the software keyboard on mobile.
+      const done = document.getElementById('btn-sync-done');
+      if (isAvailableFocusTarget(done)) done.focus({ preventScroll: true });
+      else editor.blur();
     } else {
       selectEditorText(editor);
     }
@@ -208,14 +227,6 @@ function bindEditor(editor: HTMLElement): void {
   editor.addEventListener('focus', () => {
     editor.dataset.editing = 'true';
     editor.setAttribute('aria-invalid', 'false');
-    clearManagedTimer('manual-sync-select-all');
-    setManagedTimer(
-      'manual-sync-select-all',
-      () => {
-        if (document.activeElement === editor) selectEditorText(editor);
-      },
-      0,
-    );
   });
   editor.addEventListener('compositionstart', () => {
     isComposing = true;
@@ -265,7 +276,6 @@ function bindEditor(editor: HTMLElement): void {
     close();
   });
   editor.addEventListener('blur', () => {
-    clearManagedTimer('manual-sync-select-all');
     editor.removeAttribute('data-editing');
     if (skipNextBlurCommit) {
       skipNextBlurCommit = false;
@@ -294,7 +304,7 @@ export function canUseManualSyncPanelRuntime(): boolean {
   const room = getRoomContext();
   const isProRoom = room.kind === 'pro';
   if (!hostConn?.open && !isProRoom && !isActiveStandardRoomCoordinator()) return false;
-  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
+  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartSyncOwned();
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
@@ -321,6 +331,15 @@ function open(fromDemo = false): boolean {
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('manual-sync-overlay');
+  const editor = document.getElementById('manual-sync-value');
+  if (!IS_IOS && !IS_ANDROID && isAvailableFocusTarget(editor)) {
+    // The modal stack may already have focused this editor. Select explicitly
+    // on open, without a deferred focus handler overwriting later pointer carets.
+    editor.focus({ preventScroll: true });
+    selectEditorText(editor);
+    return true;
+  }
+  // Keep the existing mobile entry point from requesting the software keyboard.
   setManagedTimer(
     'manual-sync-focus',
     () => {
@@ -332,6 +351,7 @@ function open(fromDemo = false): boolean {
 }
 
 export function openDemoSyncRuntime(): void {
+  manualSyncRequest += 1;
   open(true);
 }
 
@@ -347,7 +367,7 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
     showToast(t('toast.sync_not_in_system_audio'));
     return;
   }
-  if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) {
+  if (isPlaybackModeYouTube() && isYouTubeZeroStartSyncOwned()) {
     close();
     showToast(t('toast.sync_not_ready'));
     return;
@@ -355,6 +375,21 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
 
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();
+  const mode = getState('playback.mode');
+  const queueItemId = getCurrentQueueItemId();
+  const request = ++manualSyncRequest;
+  const isCurrentRequest = (): boolean => {
+    const currentRoom = getRoomContext();
+    return (
+      request === manualSyncRequest &&
+      currentRoom.kind === room.kind &&
+      currentRoom.roomId === room.roomId &&
+      currentRoom.epoch === room.epoch &&
+      getState('network.hostConn') === hostConn &&
+      getState('playback.mode') === mode &&
+      getCurrentQueueItemId() === queueItemId
+    );
+  };
   const isProRoom = room.kind === 'pro';
   if (!hostConn && !isPlaybackModeFile() && !isPlaybackModeYouTube()) {
     showToast(t('toast.sync_no_media'));
@@ -362,15 +397,13 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
   }
 
   if (isProRoom) {
-    const roomId = room.roomId;
     const requestToken = bridge.beginRequest();
     void import('../pro-room/runtime.ts')
       .then(({ requestActiveProRoomPlaybackReconciliation }) =>
-        requestActiveProRoomPlaybackReconciliation(),
+        isCurrentRequest() ? requestActiveProRoomPlaybackReconciliation() : false,
       )
       .then((reconciled) => {
-        const currentRoom = getRoomContext();
-        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
+        if (!isCurrentRequest()) return;
         if (!reconciled) {
           showToast(t('toast.sync_not_ready'));
           return;
@@ -378,8 +411,7 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
         open();
       })
       .catch((error) => {
-        const currentRoom = getRoomContext();
-        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
+        if (!isCurrentRequest()) return;
         log.warn('[PRO Playback] Manual synchronization failed', error);
         showToast(t('toast.sync_not_ready'));
       })
@@ -400,6 +432,7 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
     guestRendezvousSync({
       suppressProgressToast: true,
       onComplete: () => {
+        if (!isCurrentRequest()) return;
         if (open()) showToast(t('toast.yt_manual_sync_prompt'));
       },
     });
@@ -426,11 +459,16 @@ export function handleMainSyncButtonRuntime(bridge: ManualSyncControllerBridge):
   open();
 }
 
-export function closeManualSyncOverlayRuntime(): void {
-  close();
+export function closeManualSyncOverlayRuntime(cancelPending = true): void {
+  close(cancelPending);
 }
 
 export function refreshManualSyncOverlayRuntime(): void {
   const editor = document.getElementById('manual-sync-value');
-  if (editor && editor.dataset.editing !== 'true') renderEditorValue(editor);
+  if (!editor) return;
+  const offsetModeChanged = editorOffsetModes.get(editor) !== isPlaybackModeYouTube();
+  if (offsetModeChanged || editor.dataset.editing !== 'true') {
+    renderEditorValue(editor);
+    if (offsetModeChanged && document.activeElement === editor) selectEditorText(editor);
+  }
 }

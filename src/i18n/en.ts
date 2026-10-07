@@ -416,10 +416,10 @@ const en: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'Tracks added by BOT: {{count}}. Playback started',
   'chat.bot_rate_limited': 'BOT request limit reached. Wait {{duration}} and try again',
   'chat.decode_skip_system_message': 'Skipping track: unsupported format on some devices.',
+  'chat.large_track_playback_system_message':
+    'This track is very large, so you may experience delays while using it.',
   'chat.large_local_track_system_message':
     'This track has a very large file size and may not play on some devices.',
-  'chat.decode_memory_risk_system_message':
-    'This track may use about {{estimatedMiB}} MiB of memory while decoding and may not play on this device.',
   'chat.device_track_unavailable_system_message': 'This device can’t play the current track.',
   'chat.system_audio_started_system_message':
     'System audio sharing has started. A slight latency between host and guest devices is normal. We recommend lowering the host device volume to avoid echoes.',

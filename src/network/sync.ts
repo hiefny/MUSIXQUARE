@@ -26,16 +26,19 @@ import {
   adjustSync,
   setLocalManualSyncOffset,
   isLocalFileStartPending,
+  isFileSourceNodeUsable,
   getStandardHostPendingFileStartAt,
   getLocalFilePendingStartDeadlineMs,
 } from '../player/transport.ts';
 import { getPendingDemoHostStartAt } from '../demo/playback-timing.ts';
 import {
   getCurrentAudioBuffer,
+  getPlayerNode,
   isLocalFilePaused,
   setLocalFilePaused,
   isPlayLocked,
 } from '../player/_state.ts';
+import { isLargeAudioTrack } from '../player/file-playback-resource.ts';
 import {
   getHostNow,
   registerPing,
@@ -56,7 +59,7 @@ import {
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
-import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
 import {
   initRoomControl,
   resolveRoomControlKickTarget,
@@ -142,7 +145,7 @@ function canApplyManualSyncAction(): boolean {
     // Outside it, guests use their host snapshot and canonical timeline
     // endpoints (PRO plus an active standard host) remove the local offset
     // again before projecting any time to the room.
-    return !isYouTubeZeroStartProtocolActive();
+    return !isYouTubeZeroStartSyncOwned();
   }
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
@@ -219,9 +222,9 @@ function setManualSyncOffsetMs(ms: number): void {
   // A committed absolute value is one completed edit, not a click burst: a
   // playing local file should rebuild its AudioBufferSourceNode immediately.
   if (previousOffset === nextOffset || !isPlaybackPlayingFile()) return;
-  void play(getTrackPosition(), 0, getLocalFilePendingStartDeadlineMs()).catch((error) =>
-    log.warn('[Sync] Failed to apply the entered local file offset:', error),
-  );
+  void play(getTrackPosition(), 0, getLocalFilePendingStartDeadlineMs(), undefined, {
+    outputOnly: true,
+  }).catch((error) => log.warn('[Sync] Failed to apply the entered local file offset:', error));
 }
 
 // ─── Auto Sync ──────────────────────────────────────────────────────
@@ -268,9 +271,9 @@ export function handleAutoSync(): void {
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
   if (!isPlaybackPlayingFile()) return;
-  void play(getTrackPosition(), 0, getLocalFilePendingStartDeadlineMs()).catch((error) =>
-    log.warn('[Sync] Failed to restart file playback after sync reset:', error),
-  );
+  void play(getTrackPosition(), 0, getLocalFilePendingStartDeadlineMs(), undefined, {
+    outputOnly: true,
+  }).catch((error) => log.warn('[Sync] Failed to restart file playback after sync reset:', error));
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
@@ -287,6 +290,14 @@ export function getSyncPongPlaybackState(): SyncPongPlaybackState {
   // the new file is still decoding. That is not audible
   // playback, so the wire view advertises the paused file shadow.
   if (isPlaybackPlayingFile(playback)) {
+    const resource = getCurrentAudioBuffer();
+    if (isLargeAudioTrack(resource) && !isFileSourceNodeUsable(getPlayerNode(), resource)) {
+      // A host seek preserves playing intent while bounded PCM is prepared.
+      // Until an actual source commits, sync pings must not resume recipients
+      // on the retired timeline. Output-only manual-sync preparation leaves
+      // the current source running and therefore continues advertising play.
+      return { mode: 'file', activity: 'paused' };
+    }
     if (lifecycle === PLAYBACK_STATE.PLAYING) {
       return { mode: 'file', activity: 'playing' };
     }

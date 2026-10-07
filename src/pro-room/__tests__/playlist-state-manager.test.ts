@@ -356,6 +356,75 @@ describe('PRO room playlist state manager', () => {
     });
   });
 
+  it('accepts an older validated external commit without reprojecting or weakening snapshot reads', async () => {
+    const committed = activeSnapshot({
+      revision: 2,
+      playlistRevision: 1,
+      playlist: [youtube(A)],
+    });
+    const current = activeSnapshot({
+      ...committed,
+      revision: 3,
+      playlistRevision: 2,
+      playlist: [youtube(A), youtube(B)],
+    });
+    const sink = vi.fn();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: updatingApi(current).api,
+      mediaTransfer: mediaTransfer(),
+      sink,
+    });
+    await manager.acceptSnapshot(current);
+
+    await expect(manager.acceptCommittedSnapshot(committed)).resolves.toEqual(manager.snapshot);
+    expect(manager.snapshot?.revision).toBe(3);
+    expect(manager.snapshot?.playlist.map((item) => item.queueItemId)).toEqual([A, B]);
+    expect(sink).toHaveBeenCalledOnce();
+    await expect(manager.acceptSnapshot(committed)).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SNAPSHOT_STALE',
+    });
+    expect(sink).toHaveBeenCalledOnce();
+  });
+
+  it.each<[string, Partial<ProRoomSnapshot>, string]>([
+    ['malformed older snapshot', { revision: -1 }, 'INVALID'],
+    ['older snapshot from another room', { revision: 1, roomCode: '000001' }, 'CONFLICT'],
+    [
+      'equal-revision divergence',
+      { playlist: [{ ...youtube(A), title: 'divergent title' }] },
+      'CONFLICT',
+    ],
+  ])(
+    'rejects an external committed %s without changing installed state',
+    async (_name, overrides, error) => {
+      const current = activeSnapshot({
+        revision: 3,
+        playlistRevision: 1,
+        playlist: [youtube(A)],
+      });
+      const sink = vi.fn();
+      const manager = new ProRoomPlaylistStateManager({
+        code: ROOM_CODE,
+        api: updatingApi(current).api,
+        mediaTransfer: mediaTransfer(),
+        sink,
+      });
+      await manager.acceptSnapshot(current);
+      const installed = manager.snapshot;
+
+      await expect(
+        manager.acceptCommittedSnapshot(activeSnapshot({ ...current, ...overrides })),
+      ).rejects.toMatchObject({ code: `PRO_ROOM_PLAYLIST_SNAPSHOT_${error}` });
+      expect(manager.snapshot).toEqual(installed);
+      expect(sink).toHaveBeenCalledOnce();
+
+      await manager.acceptCommittedSnapshot(activeSnapshot({ ...current, revision: 4 }));
+      expect(manager.snapshot?.revision).toBe(4);
+      expect(sink).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it('still rejects an equal-revision conflicting mutation response', async () => {
     const initial = activeSnapshot({ playlistRevision: 1, playlist: [youtube(A)] });
     const response = deferred<ProRoomSnapshot>();

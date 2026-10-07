@@ -75,4 +75,45 @@ test.describe('Chat System', () => {
     expect(hostMessages).toContain('Message 2 from guest');
     expect(hostMessages).toContain('Message 3 from host');
   });
+
+  for (const language of ['he', 'en']) {
+    test(`${language} chat remains inside its drawer after sending mixed-direction text`, async ({}, testInfo) => {
+      const { hostPage: host, guestPage: guest } = pair;
+      await connectHostAndGuest(host, guest);
+      await guest.locator('#btn-language-select').click();
+      await guest.locator(`.language-option[data-lang="${language}"]`).click();
+      await guest.locator('#btn-language-dialog-done').click();
+      await openChatDrawer(host);
+      await openChatDrawer(guest);
+      const received = 'שלום חברים, מוזיקה טובה היום 🎵';
+      const sent = 'مرحبا שלום — hello!';
+      await sendChat(host, received);
+      await waitForChatMessage(guest, received);
+      await sendChat(guest, sent);
+      await waitForChatMessage(host, sent);
+      await expect(guest.locator('#chat-input')).toBeFocused();
+      await expect
+        .poll(() =>
+          guest.locator('#chat-drawer').evaluate((drawer) => {
+            const bounds = drawer.getBoundingClientRect();
+            const content = [
+              document.getElementById('chat-input')!,
+              ...drawer.querySelectorAll('.chat-text'),
+            ];
+            return Math.max(
+              ...content.map((element) => {
+                const rect = element.getBoundingClientRect();
+                return Math.max(bounds.left - rect.left, rect.right - bounds.right, 0);
+              }),
+            );
+          }),
+        )
+        .toBeLessThanOrEqual(1);
+      expect(await guest.locator('#chat-drawer').evaluate((drawer) => drawer.scrollLeft)).toBe(0);
+      await guest.screenshot({
+        path: testInfo.outputPath(`chat-${language}-after-send.png`),
+        animations: 'disabled',
+      });
+    });
+  }
 });

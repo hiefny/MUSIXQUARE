@@ -1,3 +1,5 @@
+import { acquireServiceWorkerPromptLock } from './sw-prompt-lock.ts';
+
 const UPDATE_DISMISSAL_KEY = 'mxqr-sw-update-dismissal-v1';
 const UPDATE_PROMPT_LEASE_KEY = 'mxqr-sw-update-prompt-lease-v1';
 const UPDATE_CHECK_LEASE_KEY = 'mxqr-sw-update-check-lease-v1';
@@ -36,6 +38,7 @@ interface ServiceWorkerGenerationResolver {
 interface ServiceWorkerUpdateLedger {
   isDismissed(generation: ServiceWorkerGeneration, now?: number): boolean;
   claimPrompt(generation: ServiceWorkerGeneration, now?: number): boolean;
+  acquirePrompt(generation: ServiceWorkerGeneration, onOwnershipLost: () => void): Promise<boolean>;
   releasePrompt(generation: ServiceWorkerGeneration): void;
   rememberDismissal(generation: ServiceWorkerGeneration, now?: number): void;
   rememberPresentationFailure(generation: ServiceWorkerGeneration, now?: number): void;
@@ -161,6 +164,7 @@ export function createServiceWorkerGenerationResolver(): ServiceWorkerGeneration
 export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
   const storage = readStorage();
   const owner = ownerId();
+  const promptCleanups = new Map<string, () => void>();
 
   const isDismissed = (generation: ServiceWorkerGeneration, now = Date.now()): boolean => {
     if (!storage) return false;
@@ -191,7 +195,7 @@ export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
     });
   };
 
-  return {
+  const ledger: ServiceWorkerUpdateLedger = {
     isDismissed,
     claimPrompt(generation, now = Date.now()) {
       if (!storage) return true;
@@ -213,7 +217,49 @@ export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
       if (!claimed) return true;
       return readStoredRecord<StoredLease>(storage, UPDATE_PROMPT_LEASE_KEY)?.owner === owner;
     },
+    async acquirePrompt(generation, onOwnershipLost) {
+      const unlock = await acquireServiceWorkerPromptLock(generation.promptIdentity);
+      if (unlock === false) return false;
+      if (isDismissed(generation) || !ledger.claimPrompt(generation)) {
+        unlock?.();
+        return false;
+      }
+      const ownsLease = () => {
+        if (!storage) return true;
+        const current = readStoredRecord<StoredLease>(storage, UPDATE_PROMPT_LEASE_KEY);
+        // Missing/denied storage remains fail-open. A real competing same-generation
+        // owner is different: retract our queued/open prompt after native convergence.
+        return (
+          !current ||
+          current.identity !== generation.promptIdentity ||
+          current.owner === owner ||
+          typeof current.owner !== 'string' ||
+          typeof current.expiresAt !== 'number' ||
+          current.expiresAt <= Date.now()
+        );
+      };
+      const onStorage = (event: StorageEvent) => {
+        if (event.key === UPDATE_PROMPT_LEASE_KEY && !ownsLease()) onOwnershipLost();
+      };
+      globalThis.addEventListener('storage', onStorage);
+      promptCleanups.set(generation.promptIdentity, () => {
+        globalThis.removeEventListener('storage', onStorage);
+        unlock?.();
+      });
+      if (unlock === null) {
+        // Legacy storage is not atomic. Let the original racing writes settle
+        // before presenting; the listener still covers a delayed losing write.
+        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 50));
+      }
+      if (isDismissed(generation) || !ownsLease()) {
+        ledger.releasePrompt(generation);
+        return false;
+      }
+      return true;
+    },
     releasePrompt(generation) {
+      promptCleanups.get(generation.promptIdentity)?.();
+      promptCleanups.delete(generation.promptIdentity);
       if (!storage) return;
       const current = readStoredRecord<StoredLease>(storage, UPDATE_PROMPT_LEASE_KEY);
       if (current?.owner === owner && current.identity === generation.promptIdentity) {
@@ -242,4 +288,5 @@ export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
       return readStoredRecord<StoredLease>(storage, UPDATE_CHECK_LEASE_KEY)?.owner === owner;
     },
   };
+  return ledger;
 }

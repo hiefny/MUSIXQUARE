@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_LARGE_TRACK_WARNING_BYTES } from '../../core/constants.ts';
 import { resetState, setState } from '../../core/state.ts';
 import type { QueueItemId } from '../../types/index.ts';
-import type { DecodeMemoryEstimate } from '../decode-admission.ts';
 
 const announceSystemMessageLocally = vi.fn();
 
@@ -12,26 +11,6 @@ vi.mock('../../chat/protocol.ts', () => ({
 
 const Q0 = '00000000-0000-4000-8000-000000000001' as QueueItemId;
 const Q1 = '00000000-0000-4000-8000-000000000002' as QueueItemId;
-const MIB = 1024 * 1024;
-
-function riskyIosEstimate(overrides: Partial<DecodeMemoryEstimate> = {}): DecodeMemoryEstimate {
-  return {
-    durationSeconds: 600,
-    probedChannelCount: 2,
-    hasReliableMetadata: true,
-    channelCount: 2,
-    outputSampleRate: 48_000,
-    estimatedPcmBytes: 193 * MIB,
-    ownDecodeFootprintBytes: 250 * MIB,
-    estimatedWorkingSetBytes: 250 * MIB,
-    budget: {
-      tier: 'ios',
-      maxDecodedPcmBytes: Number.MAX_SAFE_INTEGER,
-      maxDecodeWorkingSetBytes: Number.MAX_SAFE_INTEGER,
-    },
-    ...overrides,
-  };
-}
 
 describe('large local track compatibility warning', () => {
   beforeEach(async () => {
@@ -85,54 +64,6 @@ describe('large local track compatibility warning', () => {
     expect(announceSystemMessageLocally).not.toHaveBeenCalled();
   });
 
-  it('announces a memory-risk estimate once with projected MiB', async () => {
-    const { maybeAnnounceDecodeMemoryRiskWarning } =
-      await import('../large-local-track-warning.ts');
-
-    expect(maybeAnnounceDecodeMemoryRiskWarning(Q0, riskyIosEstimate())).toBe(true);
-    expect(maybeAnnounceDecodeMemoryRiskWarning(Q0, riskyIosEstimate())).toBe(false);
-    expect(announceSystemMessageLocally).toHaveBeenCalledOnce();
-    expect(announceSystemMessageLocally).toHaveBeenCalledWith(
-      'chat.decode_memory_risk_system_message',
-      { estimatedMiB: 250 },
-    );
-  });
-
-  it('applies device-local memory warnings in PRO rooms', async () => {
-    const { maybeAnnounceDecodeMemoryRiskWarning } =
-      await import('../large-local-track-warning.ts');
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'member',
-      coordinatorId: null,
-      epoch: 1,
-      snapshotRevision: 1,
-      capabilities: [],
-    });
-
-    expect(maybeAnnounceDecodeMemoryRiskWarning(Q0, riskyIosEstimate())).toBe(true);
-    expect(announceSystemMessageLocally).toHaveBeenCalledWith(
-      'chat.decode_memory_risk_system_message',
-      { estimatedMiB: 250 },
-    );
-  });
-
-  it('keeps safe or unreliable estimates silent and shares dedupe with the size fallback', async () => {
-    const { maybeAnnounceDecodeMemoryRiskWarning, maybeAnnounceLargeLocalTrackWarning } =
-      await import('../large-local-track-warning.ts');
-
-    expect(
-      maybeAnnounceDecodeMemoryRiskWarning(Q0, riskyIosEstimate({ estimatedPcmBytes: 100 * MIB })),
-    ).toBe(false);
-    expect(
-      maybeAnnounceDecodeMemoryRiskWarning(Q0, riskyIosEstimate({ hasReliableMetadata: false })),
-    ).toBe(false);
-    expect(maybeAnnounceLargeLocalTrackWarning(Q0, LOCAL_LARGE_TRACK_WARNING_BYTES + 1)).toBe(true);
-    expect(maybeAnnounceDecodeMemoryRiskWarning(Q0, riskyIosEstimate())).toBe(false);
-    expect(announceSystemMessageLocally).toHaveBeenCalledOnce();
-  });
-
   it('allows the same occurrence to be warned again in a new room session', async () => {
     const { maybeAnnounceLargeLocalTrackWarning } = await import('../large-local-track-warning.ts');
 
@@ -142,4 +73,62 @@ describe('large local track compatibility warning', () => {
 
     expect(announceSystemMessageLocally).toHaveBeenCalledTimes(2);
   });
+
+  it('announces bounded playback once per queue occurrence', async () => {
+    const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+    announceLargeTrackPlayback(Q0);
+    announceLargeTrackPlayback(Q0);
+    expect(announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+      'chat.large_track_playback_system_message',
+    );
+    announceLargeTrackPlayback(Q1);
+    expect(announceSystemMessageLocally).toHaveBeenCalledTimes(2);
+  });
+
+  it('also announces bounded playback in PRO rooms', async () => {
+    const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    announceLargeTrackPlayback(Q0);
+    expect(announceSystemMessageLocally).toHaveBeenCalledExactlyOnceWith(
+      'chat.large_track_playback_system_message',
+    );
+  });
+
+  it('deduplicates demo files by Blob identity without suppressing other demo tracks', async () => {
+    const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+    const first = new Blob(['first']);
+    const second = new Blob(['second']);
+    announceLargeTrackPlayback(first);
+    announceLargeTrackPlayback(first);
+    expect(announceSystemMessageLocally).toHaveBeenCalledOnce();
+    announceLargeTrackPlayback(second);
+    expect(announceSystemMessageLocally).toHaveBeenCalledTimes(2);
+    expect(announceSystemMessageLocally).toHaveBeenLastCalledWith(
+      'chat.large_track_playback_system_message',
+    );
+  });
+
+  it.each(['starting', 'leaving'] as const)(
+    'resets bounded-playback guidance for queue and demo identities on %s a session',
+    async (boundary) => {
+      const { announceLargeTrackPlayback } = await import('../large-local-track-warning.ts');
+      const demo = new Blob(['demo']);
+      if (boundary === 'leaving') setState('network.sessionCode', '123456');
+      announceLargeTrackPlayback(Q0);
+      announceLargeTrackPlayback(demo);
+      if (boundary === 'starting') setState('setup.sessionStarted', true);
+      else setState('network.sessionCode', '');
+      announceLargeTrackPlayback(Q0);
+      announceLargeTrackPlayback(demo);
+      expect(announceSystemMessageLocally).toHaveBeenCalledTimes(4);
+    },
+  );
 });

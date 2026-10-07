@@ -200,11 +200,23 @@ test.describe('Sync Controls', () => {
     await expect(pair.guestPage.locator('#manual-sync-range-hint')).toContainText(
       '-9999 … +9999 ms',
     );
+    // Opening on desktop selects the existing value. A plain keystroke must
+    // replace it, without requiring another click or producing a leading 60.
+    await expect(editor).toBeFocused();
+    await pair.guestPage.keyboard.press('6');
+    await expect(editor).toHaveText('6');
+    await editor.press('Enter');
+    await waitForSyncOffset(pair.guestPage, 0.006);
+
     await editor.fill('-1234');
     await editor.press('Enter');
 
     await waitForSyncOffset(pair.guestPage, -1.234);
     await expect(editor).toHaveText('-1234');
+    await expect(pair.guestPage.locator('#btn-sync-done')).toBeFocused();
+    await pair.guestPage.keyboard.press('Escape');
+    await expect(pair.guestPage.locator('#manual-sync-overlay')).not.toBeVisible();
+    await expect(pair.guestPage.locator('#btn-sync')).toBeFocused();
   });
 
   test('sync display shows current offset value', async () => {

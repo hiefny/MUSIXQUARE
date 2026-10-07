@@ -12,6 +12,7 @@ import {
   type SuggestionQuery,
 } from './community-client';
 import type { Draft, Entry } from './drafts';
+import { submissionRequestId } from './submission-request';
 
 interface CommunityOptions {
   currentDraft(): Draft | undefined;
@@ -47,7 +48,6 @@ export function initCommunity(options: CommunityOptions, root: Document = docume
   let queryKey = '';
   let disposed = false;
   const busy = new Set<string>();
-  const requests = new WeakMap<Draft, { scope: string; requestId: string }>();
 
   signIn.href = voteSignIn.href = TRANSLATION_SIGN_IN_URL;
 
@@ -306,19 +306,16 @@ export function initCommunity(options: CommunityOptions, root: Document = docume
     updateSubmit();
     submitStatus.textContent = 'Checking references…';
     try {
+      const requestId = await submissionRequestId(draft);
+      if (options.currentDraft() !== draft || session?.statsScope !== scope || disposed) return;
       if (!(await options.prepareDraft(draft))) {
         if (options.currentDraft() === draft)
-          submitStatus.textContent = 'Review this draft before submitting.';
+          submitStatus.textContent = 'Save and review this draft before submitting.';
         return;
       }
       if (options.currentDraft() !== draft || session?.statsScope !== scope || disposed) return;
-      let ticket = requests.get(draft);
-      if (!ticket || ticket.scope !== scope) {
-        ticket = { scope, requestId: crypto.randomUUID() };
-        requests.set(draft, ticket);
-      }
       submitStatus.textContent = 'Submitting…';
-      await submitSuggestion(draft, ticket.requestId, scope);
+      await submitSuggestion(draft, requestId, scope);
       if (disposed || session?.statsScope !== scope) return;
       const selected = options.currentDraft() === draft;
       options.onSubmitted(draft);

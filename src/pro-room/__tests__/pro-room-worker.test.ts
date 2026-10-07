@@ -9,6 +9,7 @@ import {
   createAccountAssertion,
 } from '../../../cloudflare/account-assertion.ts';
 import appWorker from '../../../cloudflare/app-worker.ts';
+import { normalizeStoredEffects } from '../../../cloudflare/pro-room-effects.ts';
 import {
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
@@ -20128,6 +20129,77 @@ describe('persistent PRO room audio effects', () => {
         virtualTreble: { enabled: true },
       },
     });
+  });
+
+  it.each(['/effects', '/settings-sync', 'developer'])(
+    'enforces the 10-second decay boundary for new %s writes',
+    async (route) => {
+      const context = await activatedRoom();
+      const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+      const send = (decaySeconds: number) => {
+        const effects = {
+          ...configuredEffectsV2,
+          reverb: { ...configuredEffectsV2.reverb, decaySeconds, preDelaySeconds: 1 },
+        };
+        return route === 'developer'
+          ? createInternalDeveloperCommand(
+              context.worker,
+              DEVELOPER_KEY_ID,
+              `developer-decay-boundary-${decaySeconds}`,
+              { type: 'set_effects', effects: { reverb: effects.reverb } },
+            )
+          : context.worker.fetch(
+              jsonRequest(
+                route,
+                'PUT',
+                {
+                  coordinatorEpoch: epoch,
+                  baseRevision: 0,
+                  effects,
+                  ...(route === '/settings-sync' ? { masterVolume: 0.35 } : {}),
+                },
+                context.ownerCookie,
+              ),
+            );
+      };
+      for (const invalid of [10.01, 30]) {
+        expect((await send(invalid)).status).toBe(400);
+      }
+      expect((await send(10)).status).toBe(route === 'developer' ? 202 : 200);
+      await expect(
+        (await context.worker.fetch(request('/settings-sync', {}, context.ownerCookie))).json(),
+      ).resolves.toMatchObject({
+        revision: 1,
+        effects: { reverb: { decaySeconds: 10, preDelaySeconds: 1 } },
+      });
+    },
+  );
+
+  it('validates stored effects against the same bounds as new writes', () => {
+    const stored = {
+      revision: 7,
+      updatedAtMs: 1000,
+      masterVolume: 0.35,
+      effects: {
+        ...configuredEffectsV2,
+        reverb: { ...configuredEffectsV2.reverb, decaySeconds: 10 },
+      },
+    };
+    expect(normalizeStoredEffects(stored)).toEqual({ state: stored, migrated: false });
+    for (const decaySeconds of [0.09, 10.01, 20, 30, Number.NaN, Number.POSITIVE_INFINITY, '10']) {
+      expect(
+        normalizeStoredEffects({
+          ...stored,
+          effects: { ...stored.effects, reverb: { ...stored.effects.reverb, decaySeconds } },
+        }),
+      ).toBeNull();
+    }
+    expect(
+      normalizeStoredEffects({
+        ...stored,
+        effects: { ...stored.effects, equalizer: { bandsDb: [13, 0, 0, 0, 0] } },
+      }),
+    ).toBeNull();
   });
 
   it('stores the complete effects resource in canonical state', async () => {

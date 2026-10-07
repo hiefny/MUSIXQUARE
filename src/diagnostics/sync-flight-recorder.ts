@@ -13,11 +13,13 @@ import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getPlayLockSnapshot, peekTrackPosition } from '../player/transport.ts';
 import { getCurrentAudioBuffer, getPlayerNode } from '../player/_state.ts';
+import { getLargeAudioDiagnostics } from '../player/large-audio/diagnostics.ts';
 import {
   getProRoomServerClockDiagnostics,
   getProRoomServerNow,
 } from '../pro-room/network-bridge.ts';
 import { getHostNow, getSharedClockDiagnostics } from '../network/shared-clock.ts';
+import { isStandardRoomRole } from '../rooms/authority.ts';
 
 const SAMPLE_INTERVAL_MS = 1_000;
 const MAX_SAMPLES = 20 * 60;
@@ -82,6 +84,7 @@ interface SyncFlightRecorderSample {
   standardClock: ReturnType<typeof getSharedClockDiagnostics>;
   proClock: ReturnType<typeof getProRoomServerClockDiagnostics>;
   audio: AudioClockSample | null;
+  largeAudio: ReturnType<typeof getLargeAudioDiagnostics>;
 }
 
 interface StandardPongObservation {
@@ -278,13 +281,16 @@ export function captureSyncFlightRecorderSampleForTests(): void {
   }
 
   const context = getState('room.context');
+  // Standard rooms retain the transport/session projection rather than filling
+  // the persistent-room context. Sampling already requires a started session.
+  const standardSession = isStandardRoomRole('host') || isStandardRoomRole('guest');
   samples.push({
     at: new Date(nowMs).toISOString(),
     wallElapsedMs: previousSampleAt > 0 ? nowMs - previousSampleAt : null,
     monotonicElapsedMs: previousMonotonicAt > 0 ? rounded(monoNow - previousMonotonicAt, 2) : null,
     visibility: typeof document !== 'undefined' ? document.visibilityState : 'unknown',
     focused: typeof document !== 'undefined' ? document.hasFocus() : null,
-    room: context.kind === 'pro' ? 'pro' : context.roomId ? 'standard' : 'none',
+    room: context.kind === 'pro' ? 'pro' : standardSession ? 'standard' : 'none',
     role: `${getState('network.appRole')}/${context.role}`,
     mode: getState('playback.mode'),
     activity: getState('playback.activity'),
@@ -308,6 +314,7 @@ export function captureSyncFlightRecorderSampleForTests(): void {
     standardClock: getSharedClockDiagnostics(nowMs),
     proClock: getProRoomServerClockDiagnostics(),
     audio,
+    largeAudio: getLargeAudioDiagnostics(),
   });
   previousSampleAt = nowMs;
   previousMonotonicAt = monoNow;

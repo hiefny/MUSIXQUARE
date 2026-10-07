@@ -762,10 +762,10 @@ const ptBr: Record<I18nKey, string> = {
     'O limite de solicitações do BOT foi atingido. Tente novamente em {{duration}}',
   'chat.decode_skip_system_message':
     'Formato incompatível em alguns dispositivos. Pulando para a próxima faixa.',
+  'chat.large_track_playback_system_message':
+    'Esta faixa é muito grande, por isso pode haver atrasos durante o uso.',
   'chat.large_local_track_system_message':
     'O arquivo desta faixa é muito grande e pode não ser reproduzido em alguns dispositivos.',
-  'chat.decode_memory_risk_system_message':
-    'Esta faixa pode usar cerca de {{estimatedMiB}} MiB de memória durante a decodificação e talvez não seja reproduzida neste dispositivo.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo não consegue reproduzir a faixa atual.',
   'chat.system_audio_started_system_message':

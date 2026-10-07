@@ -5,6 +5,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { createRetryableStylesheet } from './retryable-stylesheet.ts';
 import { LOCALE_FONT_CODES, type LocaleFontCode } from './locale-font-contract.ts';
 
 export { hasLocaleFont } from './locale-font-contract.ts';
@@ -18,41 +19,89 @@ interface LocaleFontAsset {
 }
 
 const FONT_ASSETS = {
-  arabic: { load: () => import('../../css/fonts/noto-arabic.css'), family: 'Noto Sans Arabic' },
+  arabic: {
+    load: createRetryableStylesheet('noto-arabic', () => import('../../css/fonts/noto-arabic.css')),
+    family: 'Noto Sans Arabic',
+  },
   bengali: {
-    load: () => import('../../css/fonts/noto-bengali.css'),
+    load: createRetryableStylesheet(
+      'noto-bengali',
+      () => import('../../css/fonts/noto-bengali.css'),
+    ),
     family: 'Noto Sans Bengali',
   },
-  cyrillic: { load: () => import('../../css/fonts/noto-cyrillic.css'), family: 'Noto Sans' },
+  cyrillic: {
+    load: createRetryableStylesheet(
+      'noto-cyrillic',
+      () => import('../../css/fonts/noto-cyrillic.css'),
+    ),
+    family: 'Noto Sans',
+  },
   devanagari: {
-    load: () => import('../../css/fonts/noto-devanagari.css'),
+    load: createRetryableStylesheet(
+      'noto-devanagari',
+      () => import('../../css/fonts/noto-devanagari.css'),
+    ),
     family: 'Noto Sans Devanagari',
   },
-  greek: { load: () => import('../../css/fonts/noto-greek.css'), family: 'Noto Sans' },
+  greek: {
+    load: createRetryableStylesheet('noto-greek', () => import('../../css/fonts/noto-greek.css')),
+    family: 'Noto Sans',
+  },
   gujarati: {
-    load: () => import('../../css/fonts/noto-gujarati.css'),
+    load: createRetryableStylesheet(
+      'noto-gujarati',
+      () => import('../../css/fonts/noto-gujarati.css'),
+    ),
     family: 'Noto Sans Gujarati',
   },
   gurmukhi: {
-    load: () => import('../../css/fonts/noto-gurmukhi.css'),
+    load: createRetryableStylesheet(
+      'noto-gurmukhi',
+      () => import('../../css/fonts/noto-gurmukhi.css'),
+    ),
     family: 'Noto Sans Gurmukhi',
   },
-  hebrew: { load: () => import('../../css/fonts/noto-hebrew.css'), family: 'Noto Sans Hebrew' },
-  japanese: { load: () => import('../../css/fonts/noto-jp.css'), family: 'Noto Sans JP' },
-  kannada: { load: () => import('../../css/fonts/noto-kannada.css'), family: 'Noto Sans Kannada' },
+  hebrew: {
+    load: createRetryableStylesheet('noto-hebrew', () => import('../../css/fonts/noto-hebrew.css')),
+    family: 'Noto Sans Hebrew',
+  },
+  japanese: {
+    load: createRetryableStylesheet('noto-jp', () => import('../../css/fonts/noto-jp.css')),
+    family: 'Noto Sans JP',
+  },
+  kannada: {
+    load: createRetryableStylesheet(
+      'noto-kannada',
+      () => import('../../css/fonts/noto-kannada.css'),
+    ),
+    family: 'Noto Sans Kannada',
+  },
   malayalam: {
-    load: () => import('../../css/fonts/noto-malayalam.css'),
+    load: createRetryableStylesheet(
+      'noto-malayalam',
+      () => import('../../css/fonts/noto-malayalam.css'),
+    ),
     family: 'Noto Sans Malayalam',
   },
   simplifiedChinese: {
-    load: () => import('../../css/fonts/noto-sc.css'),
+    load: createRetryableStylesheet('noto-sc', () => import('../../css/fonts/noto-sc.css')),
     family: 'Noto Sans SC',
   },
-  tamil: { load: () => import('../../css/fonts/noto-tamil.css'), family: 'Noto Sans Tamil' },
-  telugu: { load: () => import('../../css/fonts/noto-telugu.css'), family: 'Noto Sans Telugu' },
-  thai: { load: () => import('../../css/fonts/noto-thai.css'), family: 'Noto Sans Thai' },
+  tamil: {
+    load: createRetryableStylesheet('noto-tamil', () => import('../../css/fonts/noto-tamil.css')),
+    family: 'Noto Sans Tamil',
+  },
+  telugu: {
+    load: createRetryableStylesheet('noto-telugu', () => import('../../css/fonts/noto-telugu.css')),
+    family: 'Noto Sans Telugu',
+  },
+  thai: {
+    load: createRetryableStylesheet('noto-thai', () => import('../../css/fonts/noto-thai.css')),
+    family: 'Noto Sans Thai',
+  },
   traditionalChinese: {
-    load: () => import('../../css/fonts/noto-tc.css'),
+    load: createRetryableStylesheet('noto-tc', () => import('../../css/fonts/noto-tc.css')),
     family: 'Noto Sans TC',
   },
 } as const satisfies Readonly<Record<string, LocaleFontAsset>>;

@@ -327,6 +327,11 @@ export class ProRoomPlaylistStateManager {
     return this.#accept(snapshot);
   }
 
+  /** A successful mutation may arrive after a newer snapshot of its commit. */
+  acceptCommittedSnapshot(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
+    return this.#accept(snapshot, true);
+  }
+
   addYouTube(input: AddProRoomYouTubeInput): Promise<ProRoomSnapshot> {
     return this.#enqueue(async () => {
       assertNotAborted(input.signal);

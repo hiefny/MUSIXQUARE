@@ -224,7 +224,14 @@ class FakeAuthDb {
     if (normalized.includes('from mxqr_account_sessions s')) {
       const session = this.sessions.get(String(values[0]));
       const account = session ? this.accounts.get(session.account_id) : null;
-      return session && account ? { ...session, ...account } : null;
+      return session && account
+        ? {
+            ...session,
+            nickname: account.nickname,
+            profile_complete: account.profile_complete,
+            status: account.status,
+          }
+        : null;
     }
     if (normalized.includes('from mxqr_account_stats')) {
       const stats = this.accountStats.get(String(values[0]));
@@ -697,8 +704,12 @@ function cookiePair(response: Response, name: string): string {
   return value.trim().split(';')[0];
 }
 
-function optionalCookiePair(response: Response, name: string): string | null {
-  const value = setCookieValues(response).find((cookie) => cookie.trim().startsWith(`${name}=`));
+function optionalAccountCookiePair(response: Response): string | null {
+  const value = setCookieValues(response).find((cookie) =>
+    /^__Host-mxqr_account(?:_[a-z0-9]+_[A-Za-z0-9_-]{43})?=[A-Za-z0-9_-]{43}(?:;|$)/.test(
+      cookie.trim(),
+    ),
+  );
   return value ? value.trim().split(';')[0] : null;
 }
 
@@ -879,7 +890,7 @@ async function completeLogin(
     ),
     env,
   );
-  const sessionCookie = optionalCookiePair(callback!, '__Host-mxqr_account');
+  const sessionCookie = optionalAccountCookiePair(callback!);
   if (sessionCookie)
     expectedMutationScopes.set(sessionCookie, await statsScopeFor(env, sessionCookie));
   return {
@@ -1046,7 +1057,9 @@ describe('Google Authorization Code + PKCE account flow', () => {
     expect(result.callback.headers.get('Location')).toBe(
       'https://musixquare.com/000001?panel=connect&accountAuth=success#account',
     );
-    expect(result.sessionCookie).toMatch(/^__Host-mxqr_account=[A-Za-z0-9_-]{43}$/);
+    expect(result.sessionCookie).toMatch(
+      /^__Host-mxqr_account_[a-z0-9]+_[A-Za-z0-9_-]{43}=[A-Za-z0-9_-]{43}$/,
+    );
     const callbackCookies = setCookieValues(result.callback).join('\n');
     expect(callbackCookies).toContain(`${result.flowCookieName}=;`);
     expect(callbackCookies).toContain('HttpOnly');
@@ -1058,6 +1071,17 @@ describe('Google Authorization Code + PKCE account flow', () => {
     expect(db.sessions.size).toBe(1);
     const storedAccount = [...db.accounts.values()][0];
     const storedSession = [...db.sessions.values()][0];
+    expect(result.sessionCookie).toMatch(
+      new RegExp(`^__Host-mxqr_account_${storedSession.created_at.toString(36)}_`),
+    );
+    expect(storedSession.expires_at - storedSession.created_at).toBe(30 * 24 * 60 * 60 * 1000);
+    const sessionSetCookie = setCookieValues(result.callback).find((cookie) =>
+      cookie.startsWith(`${result.sessionCookie!};`),
+    );
+    expect(sessionSetCookie).toContain(
+      `Expires=${new Date(storedSession.expires_at).toUTCString()}`,
+    );
+    expect(sessionSetCookie).not.toContain('Max-Age=');
     const rawSessionToken = result.sessionCookie!.split('=')[1];
     expect(storedAccount.account_id).toMatch(/^acct_[A-Za-z0-9_-]{22}$/);
     expect(storedAccount.google_subject_hash).not.toBe(GOOGLE_SUBJECT);
@@ -1113,60 +1137,97 @@ describe('Google Authorization Code + PKCE account flow', () => {
     });
   });
 
-  it('keeps two simultaneous tab flows independent through both successful callbacks', async () => {
-    const db = new FakeAuthDb();
-    const env = authEnv(db);
-    const jar = new Map<string, string>();
-    const first = await startLogin(env, '/first');
-    applyResponseCookies(jar, first.response);
-    const second = await startLogin(env, '/second', cookieHeader(jar));
-    applyResponseCookies(jar, second.response);
+  it.each([
+    {
+      delivery: 'simultaneous request snapshots',
+      carriesFirstSession: false,
+      remainingSessions: 2,
+    },
+    {
+      delivery: 'a later request carrying the first session',
+      carriesFirstSession: true,
+      remainingSessions: 1,
+    },
+  ])(
+    'completes both tab flows with $delivery',
+    async ({ carriesFirstSession, remainingSessions }) => {
+      const db = new FakeAuthDb();
+      const env = authEnv(db);
+      const jar = new Map<string, string>();
+      const first = await startLogin(env, '/first');
+      applyResponseCookies(jar, first.response);
+      const second = await startLogin(env, '/second', cookieHeader(jar));
+      applyResponseCookies(jar, second.response);
+      // Both outstanding requests can carry the same pre-callback browser state.
+      // A callback sent after the first response instead replaces that browser session.
+      const simultaneousCookieSnapshot = cookieHeader(jar);
 
-    expect(first.flowCookieName).not.toBe(second.flowCookieName);
-    expect([...jar.keys()].filter((name) => name.startsWith('__Host-mxqr_oauth_flow_'))).toEqual(
-      expect.arrayContaining([first.flowCookieName, second.flowCookieName]),
-    );
+      expect(first.flowCookieName).not.toBe(second.flowCookieName);
+      expect([...jar.keys()].filter((name) => name.startsWith('__Host-mxqr_oauth_flow_'))).toEqual(
+        expect.arrayContaining([first.flowCookieName, second.flowCookieName]),
+      );
 
-    const firstCode = 'authorization-code-first';
-    const secondCode = 'authorization-code-second';
-    stubGoogleByAuthorizationCode({
-      [firstCode]: first.location.searchParams.get('nonce')!,
-      [secondCode]: second.location.searchParams.get('nonce')!,
-    });
-    const firstCallback = await handleAccountAuthRequest(
-      new Request(
-        `https://musixquare.com/api/auth/google/callback?code=${firstCode}&state=${first.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
-        { headers: { Cookie: cookieHeader(jar) } },
-      ),
-      env,
-    );
-    expect(firstCallback?.status).toBe(303);
-    expect(firstCallback?.headers.get('Location')).toBe(
-      'https://musixquare.com/first?accountAuth=success',
-    );
-    const firstCallbackCookies = setCookieValues(firstCallback!).join('\n');
-    expect(firstCallbackCookies).toContain(`${first.flowCookieName}=;`);
-    expect(firstCallbackCookies).not.toContain(`${second.flowCookieName}=;`);
-    applyResponseCookies(jar, firstCallback!);
-    expect(jar.has(first.flowCookieName)).toBe(false);
-    expect(jar.has(second.flowCookieName)).toBe(true);
+      const firstCode = 'authorization-code-first';
+      const secondCode = 'authorization-code-second';
+      stubGoogleByAuthorizationCode({
+        [firstCode]: first.location.searchParams.get('nonce')!,
+        [secondCode]: second.location.searchParams.get('nonce')!,
+      });
+      const firstCallback = await handleAccountAuthRequest(
+        new Request(
+          `https://musixquare.com/api/auth/google/callback?code=${firstCode}&state=${first.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
+          { headers: { Cookie: simultaneousCookieSnapshot } },
+        ),
+        env,
+      );
+      expect(firstCallback?.status).toBe(303);
+      expect(firstCallback?.headers.get('Location')).toBe(
+        'https://musixquare.com/first?accountAuth=success',
+      );
+      const firstCallbackCookies = setCookieValues(firstCallback!).join('\n');
+      expect(firstCallbackCookies).toContain(`${first.flowCookieName}=;`);
+      expect(firstCallbackCookies).not.toContain(`${second.flowCookieName}=;`);
+      applyResponseCookies(jar, firstCallback!);
+      expect(jar.has(first.flowCookieName)).toBe(false);
+      expect(jar.has(second.flowCookieName)).toBe(true);
 
-    const secondCallback = await handleAccountAuthRequest(
-      new Request(
-        `https://musixquare.com/api/auth/google/callback?code=${secondCode}&state=${second.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
-        { headers: { Cookie: cookieHeader(jar) } },
-      ),
-      env,
-    );
-    expect(secondCallback?.status).toBe(303);
-    expect(secondCallback?.headers.get('Location')).toBe(
-      'https://musixquare.com/second?accountAuth=success',
-    );
-    expect(setCookieValues(secondCallback!).join('\n')).toContain(`${second.flowCookieName}=;`);
-    expect(db.accounts.size).toBe(1);
-    expect(db.sessions.size).toBe(2);
-    expect(db.flows.size).toBe(2);
-  });
+      const secondCallback = await handleAccountAuthRequest(
+        new Request(
+          `https://musixquare.com/api/auth/google/callback?code=${secondCode}&state=${second.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
+          {
+            headers: {
+              Cookie: carriesFirstSession ? cookieHeader(jar) : simultaneousCookieSnapshot,
+            },
+          },
+        ),
+        env,
+      );
+      expect(secondCallback?.status).toBe(303);
+      expect(secondCallback?.headers.get('Location')).toBe(
+        'https://musixquare.com/second?accountAuth=success',
+      );
+      expect(setCookieValues(secondCallback!).join('\n')).toContain(`${second.flowCookieName}=;`);
+      expect(db.accounts.size).toBe(1);
+      expect(db.sessions.size).toBe(remainingSessions);
+      expect(db.flows.size).toBe(2);
+      const firstSessionCookie = optionalAccountCookiePair(firstCallback!)!;
+      const secondSessionCookie = optionalAccountCookiePair(secondCallback!)!;
+      expect(firstSessionCookie).not.toBe(secondSessionCookie);
+      const firstSession = await resolveAccountSession(
+        new Request('https://musixquare.com/', { headers: { Cookie: firstSessionCookie } }),
+        env,
+      );
+      expect(firstSession?.accountId ?? null).toBe(
+        carriesFirstSession ? null : [...db.accounts.keys()][0],
+      );
+      await expect(
+        resolveAccountSession(
+          new Request('https://musixquare.com/', { headers: { Cookie: secondSessionCookie } }),
+          env,
+        ),
+      ).resolves.toMatchObject({ accountId: [...db.accounts.keys()][0] });
+    },
+  );
 
   it('keeps the stats scope stable within one session and rotates it for a new session', async () => {
     const db = new FakeAuthDb();
@@ -1595,7 +1656,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
     expect(callback?.headers.get('Location')).toBe(
       'https://musixquare.com/000001?panel=connect&accountAuth=error#account',
     );
-    expect(optionalCookiePair(callback!, '__Host-mxqr_account')).toBeNull();
+    expect(optionalAccountCookiePair(callback!)).toBeNull();
   });
 
   it('bounds a Google token response body that stalls after its headers', async () => {
@@ -1634,7 +1695,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
     expect(callback?.headers.get('Location')).toBe(
       'https://musixquare.com/000001?panel=connect&accountAuth=error#account',
     );
-    expect(optionalCookiePair(callback!, '__Host-mxqr_account')).toBeNull();
+    expect(optionalAccountCookiePair(callback!)).toBeNull();
   });
 });
 
@@ -2470,7 +2531,9 @@ describe('account session mutations', () => {
     expect(logout?.status).toBe(200);
     expect(db.sessions.size).toBe(1);
     expect(db.deletedSessions.size).toBe(0);
-    expect(setCookieValues(logout!).join('\n')).toContain('__Host-mxqr_account=;');
+    expect(cookiePair(logout!, first.sessionCookie!.split('=')[0])).toBe(
+      `${first.sessionCookie!.split('=')[0]}=`,
+    );
 
     const logoutAll = await handleAccountAuthRequest(
       new Request('https://musixquare.com/api/auth/logout-all', {
@@ -2522,7 +2585,14 @@ describe('account session mutations', () => {
     expect(db.deletedSessions.size).toBe(1);
     expect(orphanAccountProGrants).toHaveBeenCalledTimes(2);
     expect(orphanAccountProGrants).toHaveBeenCalledWith(accountId);
-    expect(setCookieValues(deleted!).join('\n')).toContain('Max-Age=600');
+    const tombstone = [...db.deletedSessions.values()][0];
+    expect(tombstone.expires_at - tombstone.deleted_at).toBe(10 * 60 * 1000);
+    expect(cookiePair(deleted!, third.sessionCookie!.split('=')[0])).toBe(third.sessionCookie);
+    const deletionSetCookie = setCookieValues(deleted!).find((cookie) =>
+      cookie.startsWith(`${third.sessionCookie!};`),
+    );
+    expect(deletionSetCookie).toContain(`Expires=${new Date(tombstone.expires_at).toUTCString()}`);
+    expect(deletionSetCookie).not.toContain('Max-Age=');
   });
 
   it('keeps ordinary logout independent from account-deletion jobs and PRO authority', async () => {
@@ -2637,7 +2707,9 @@ describe('account session mutations', () => {
       assertion: null,
       deletionAssertion: null,
     });
-    expect(setCookieValues(expired!).join('\n')).toContain('__Host-mxqr_account=;');
+    expect(cookiePair(expired!, first.sessionCookie!.split('=')[0])).toBe(
+      `${first.sessionCookie!.split('=')[0]}=`,
+    );
   });
 
   it('purges every linked PRO authority before deleting the account', async () => {

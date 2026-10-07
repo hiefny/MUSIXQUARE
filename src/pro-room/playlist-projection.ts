@@ -93,6 +93,7 @@ export class ProRoomPlaylistProjection {
           ...cloneMetadata(item),
           videoId: source.videoId,
           playlistId: source.playlistId ?? null,
+          ...(source.videoIds ? { youtubeVideoIds: [...source.videoIds] } : {}),
         };
       }
       return {

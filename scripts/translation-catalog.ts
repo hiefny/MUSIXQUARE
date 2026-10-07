@@ -282,3 +282,43 @@ export async function loadCatalogs(repoRoot: string): Promise<Map<string, Catalo
   }
   return catalogs;
 }
+
+/** The app's recovery asset must keep dictionary and plural forms at one build revision. */
+export async function loadAppLocaleRecoveryData(repoRoot: string): Promise<
+  Map<
+    string,
+    {
+      version: 1;
+      locale: string;
+      dictionary: Dictionary;
+      pluralMessages: Record<string, Dictionary>;
+    }
+  >
+> {
+  const languages = await readLanguages(repoRoot);
+  const english = await readAppDictionary(repoRoot, 'en');
+  const modules = new Map();
+  for (const { code } of languages) {
+    if (code === 'en' || code === 'ko') continue;
+    const dictionary = await readAppDictionary(repoRoot, code, english);
+    assertKeys(dictionary, Object.keys(english), `recovery:${code}`);
+    const source = await parseSource(repoRoot, `src/i18n/${code}.ts`);
+    const declaration = source.statements
+      .filter(ts.isVariableStatement)
+      .filter((statement) =>
+        statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword),
+      )
+      .flatMap((statement) => [...statement.declarationList.declarations])
+      .find((entry) => ts.isIdentifier(entry.name) && entry.name.text === 'pluralMessages');
+    const pluralMessages: Record<string, Dictionary> = Object.create(null);
+    if (declaration?.initializer) {
+      for (const property of objectLiteral(declaration.initializer).properties) {
+        if (!ts.isPropertyAssignment(property))
+          throw new Error(`Unsupported plural entry: ${code}`);
+        pluralMessages[propertyName(property.name)] = stringDictionary(property.initializer);
+      }
+    }
+    modules.set(code, { version: 1 as const, locale: code, dictionary, pluralMessages });
+  }
+  return modules;
+}

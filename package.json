@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.6.61",
+  "version": "8.7.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -181,13 +181,18 @@
     "ws": "^8.21.3"
   },
   "dependencies": {
+    "@wasm-audio-decoders/aac": "0.0.1",
+    "@wasm-audio-decoders/flac": "0.2.11",
     "jsqr": "^1.4.0",
+    "mediabunny": "1.59.0",
+    "mpg123-decoder": "1.0.3",
     "peerjs": "^1.5.5",
     "qrcode": "^1.5.4"
   },
   "overrides": {
     "miniflare": {
-      "sharp": "0.35.4"
+      "sharp": "0.35.5",
+      "undici": "7.29.1"
     },
     "satori": {
       "fflate": "0.7.5"
@@ -195,9 +200,16 @@
     "@shuding/opentype.js": {
       "fflate": "0.7.5"
     },
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
+    "minimatch@3": {
+      "brace-expansion": "1.1.21"
+    },
+    "compression": "1.8.2",
+    "fast-uri": "3.1.8",
+    "postcss-selector-parser": "7.1.6",
+    "proxy-addr": "2.0.8",
     "qs": "6.16.0",
-    "undici": "7.29.0"
+    "source-map-js": "1.2.2"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

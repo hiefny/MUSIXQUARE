@@ -20,7 +20,13 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { readPlaybackProjection, waitForPlaybackProjection } from './helpers/wait.ts';
+import {
+  navigateToTab,
+  readPlaybackProjection,
+  waitForPlaybackProjection,
+  waitForPlaylistCount,
+} from './helpers/wait.ts';
+import { readQueueSnapshot, waitForCurrentQueueItemId } from './helpers/queue-state.ts';
 import {
   installFakeYt,
   readFakeYtLog,
@@ -235,6 +241,70 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
     await waitForPlaybackProjection(pair.guestPage, 'PLAYING_YOUTUBE', 20_000);
 
     expect(await readPlaybackProjection(pair.guestPage)).toBe('PLAYING_YOUTUBE');
+  });
+
+  test('deleting the current duplicate YouTube occurrence starts its same-video successor on the guest', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await waitForBus(pair.hostPage);
+    await waitForBus(pair.guestPage);
+
+    await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
+    await waitForFakeYtOp(pair.guestPage, 'playVideo');
+    await hostLoadYouTube(pair.hostPage, YT_VIDEO_URL);
+    await waitForPlaylistCount(pair.hostPage, 2);
+    await waitForPlaylistCount(pair.guestPage, 2);
+    const { items } = await readQueueSnapshot(pair.hostPage);
+    const firstId = items[0]!.queueItemId;
+    const successorId = items[1]!.queueItemId;
+    expect(successorId).not.toBe(firstId);
+
+    await navigateToTab(pair.hostPage, 'play');
+    await pair.hostPage
+      .locator(`.track-name[data-action="play"][data-queue-item-id="${firstId}"]`)
+      .click();
+    await waitForCurrentQueueItemId(pair.hostPage, firstId);
+    await waitForCurrentQueueItemId(pair.guestPage, firstId);
+    const guestTrackId = () =>
+      pair.guestPage.evaluate(() => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          ((path: string) => unknown) | undefined;
+        const meta = get?.('player.currentTrackMeta') as { queueItemId?: string } | null;
+        return meta?.queueItemId ?? null;
+      });
+    await expect.poll(guestTrackId).toBe(firstId);
+    await waitForPlaybackProjection(pair.guestPage, 'PLAYING_YOUTUBE');
+    await clearFakeYtLog(pair.guestPage);
+
+    await pair.hostPage.locator(`.btn-playlist-remove[data-queue-item-id="${firstId}"]`).click();
+    await pair.hostPage.locator('.playlist-selection-delete').click();
+    await waitForPlaylistCount(pair.hostPage, 1);
+    await waitForPlaylistCount(pair.guestPage, 1);
+    await waitForCurrentQueueItemId(pair.hostPage, successorId);
+    await waitForCurrentQueueItemId(pair.guestPage, successorId);
+
+    // Playlist projection alone already selects the survivor. Its playback
+    // metadata and a fresh iframe command prove the guest also loaded it.
+    await expect
+      .poll(async () => {
+        const [queueItemId, projection, log, player] = await Promise.all([
+          guestTrackId(),
+          readPlaybackProjection(pair.guestPage),
+          readFakeYtLog(pair.guestPage),
+          readFakeYtSnapshot(pair.guestPage),
+        ]);
+        return {
+          queueItemId,
+          projection,
+          receivedPlayCommand: log.some((entry) => entry.op === 'playVideo'),
+          player,
+        };
+      })
+      .toMatchObject({
+        queueItemId: successorId,
+        projection: 'PLAYING_YOUTUBE',
+        receivedPlayCommand: true,
+        player: { videoId: YT_VIDEO_ID, state: 1, destroyed: false },
+      });
   });
 
   // ── Test 4: stop mode propagation ────────────────────────────────────

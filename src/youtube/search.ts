@@ -18,6 +18,9 @@ import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 // chat/protocol.ts). Same function object at runtime.
 import { broadcast } from '../network/peer-state.ts';
 import { updateSubItemTitlesBulk } from './_state.ts';
+import { getQueueItemById } from '../player/queue-model.ts';
+import { getPlaylistSubItemsKey } from './queue-manifest.ts';
+import type { QueueItemId } from '../types/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import {
   OEMBED_FETCH_TIMEOUT_MS,
@@ -90,9 +93,9 @@ interface YouTubePlaylistManifestCacheEntry {
 // ─── URL Extraction ────────────────────────────────────────────────
 
 const VIDEO_PATTERNS = [
-  /(?:youtube\.com\/watch\?(?:[^&]*&)*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-  /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
-  /youtube\.com\/live\/([a-zA-Z0-9_-]{11})/,
+  /(?:youtube\.com\/watch\?(?:[^&]*&)*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/,
+  /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/,
+  /youtube\.com\/live\/([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/,
 ];
 
 export function extractYouTubeVideoId(url: string): string | null {
@@ -500,6 +503,7 @@ function clearSearchResults(): void {
   const resultsEl = getSearchResultsContainer();
   if (resultsEl) {
     resultsEl.hidden = true;
+    resultsEl.removeAttribute('aria-busy');
     resultsEl.replaceChildren();
     resultsEl.classList.remove('can-scroll-up', 'can-scroll-down');
     scheduleSearchScrollbarRelayout();
@@ -511,6 +515,33 @@ function abortSearch(): void {
     _searchAbort.abort();
     _searchAbort = null;
   }
+}
+
+function renderSearchSkeleton(): void {
+  const resultsEl = getSearchResultsContainer();
+  if (!resultsEl) return;
+
+  resultsEl.hidden = false;
+  resultsEl.setAttribute('aria-busy', 'true');
+  for (let index = 0; index < 5; index++) {
+    const row = document.createElement('div');
+    row.className = 'yt-search-result yt-search-skeleton';
+    row.setAttribute('aria-hidden', 'true');
+    const thumb = document.createElement('span');
+    thumb.className = 'yt-search-thumb yt-skeleton-block';
+    const meta = document.createElement('span');
+    meta.className = 'yt-search-meta';
+    const title = document.createElement('span');
+    title.className = 'yt-search-title yt-skeleton-block';
+    const channel = document.createElement('span');
+    channel.className = 'yt-search-channel yt-skeleton-block';
+    meta.append(title, channel);
+    row.append(thumb, meta);
+    resultsEl.appendChild(row);
+  }
+  resultsEl.scrollTop = 0;
+  bindSearchScrollMask();
+  scheduleSearchScrollbarRelayout();
 }
 
 function selectSearchResult(result: YouTubeSearchResult, query: string): void {
@@ -536,6 +567,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
 
   resultsEl.replaceChildren();
   resultsEl.hidden = false;
+  resultsEl.removeAttribute('aria-busy');
   bindSearchScrollMask();
   scheduleSearchScrollbarRelayout();
 
@@ -603,6 +635,7 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
   setStatus('youtube.searching');
   setYouTubePrimaryButton(false);
   setYouTubeSearchButton(false, true);
+  renderSearchSkeleton();
 
   const abort = new AbortController();
   _searchAbort = abort;
@@ -751,8 +784,15 @@ export function fetchYouTubePreview(url: string): void {
       clearSearchResults();
       _latestSearchQuery = '';
     }
-    setStatus('youtube.search_prompt');
-    setYouTubePrimaryButton(false);
+    const selected = getSelectedYouTubeSearchResult(intent.query || '');
+    setStatus(
+      _searchAbort
+        ? 'youtube.searching'
+        : selected
+          ? 'youtube.search_selected'
+          : 'youtube.search_prompt',
+    );
+    setYouTubePrimaryButton(selected !== null);
     setYouTubeSearchButton(_searchAbort === null, _searchAbort !== null);
     return;
   }
@@ -921,12 +961,16 @@ export function cancelSubTitleFetch(): void {
 export async function fetchPlaylistSubTitles(
   playlistId: string,
   ids: string[],
-  _options?: { fullFetch?: boolean },
+  options?: { fullFetch?: boolean; queueItemId?: QueueItemId },
 ): Promise<void> {
   if (!ids || ids.length === 0) return;
 
+  const item = options?.queueItemId ? getQueueItemById(options.queueItemId) : null;
+  const cacheKey = item ? getPlaylistSubItemsKey(item) : playlistId;
+  if (!cacheKey || (item && item.playlistId !== playlistId)) return;
+
   const subMap = getState('youtube.subItemsMap') || {};
-  const data = subMap[playlistId];
+  const data = subMap[cacheKey];
   if (!data) return;
 
   // Abort any previous fetch loop
@@ -962,7 +1006,7 @@ export async function fetchPlaylistSubTitles(
     const lastPendingIdx = pendingIndices[pendingIndices.length - 1];
     const flushBatch = (): void => {
       if (abort.signal.aborted || _subTitleAbort !== abort) return;
-      const currentEntry = getState('youtube.subItemsMap')?.[playlistId];
+      const currentEntry = getState('youtube.subItemsMap')?.[cacheKey];
       if (!currentEntry) return;
       // A manifest may be replaced while oEmbed is pending. Titles describe
       // the captured video, so an old index must never label its successor.
@@ -977,9 +1021,9 @@ export async function fetchPlaylistSubTitles(
       );
       batchBuffer = [];
       if (updates.length === 0) return;
-      updateSubItemTitlesBulk(playlistId, updates);
+      updateSubItemTitlesBulk(cacheKey, updates);
 
-      if (!hostConn) {
+      if (!hostConn && cacheKey === playlistId) {
         for (const update of updates) {
           broadcast({
             type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
@@ -996,7 +1040,7 @@ export async function fetchPlaylistSubTitles(
 
       // Double-check map entry still exists
       const currentMap = getState('youtube.subItemsMap') || {};
-      const currentData = currentMap[playlistId];
+      const currentData = currentMap[cacheKey];
       if (!currentData) break;
 
       // Skip if title arrived during the loop via another path (e.g. state broadcast)

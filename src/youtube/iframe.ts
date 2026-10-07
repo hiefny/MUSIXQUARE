@@ -71,6 +71,7 @@ import {
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
+import { getPlaylistSubItems } from './queue-manifest.ts';
 import { configureYouTubeIframeRuntimeHooks } from './iframe-runtime-bridge.ts';
 import {
   guestRendezvousSync,
@@ -277,7 +278,7 @@ function getExpectedYouTubeVideoId(queueItemId: QueueItemId, subIndex: number): 
   const item = getQueueItemById(queueItemId);
   if (!item || item.type !== 'youtube') return '';
   if (item.playlistId) {
-    const indexedVideoId = getState('youtube.subItemsMap')[item.playlistId]?.ids?.[subIndex];
+    const indexedVideoId = getPlaylistSubItems(item)?.ids?.[subIndex];
     if (indexedVideoId) return indexedVideoId;
   }
   return item.videoId || '';
@@ -536,7 +537,7 @@ function routeCurrentProYouTubeObservation(kind: 'ended' | 'unavailable'): boole
     const item = getQueueItemById(queueItemId);
     if (item?.type === 'youtube') {
       youtubeVideoId = item.playlistId
-        ? (getState('youtube.subItemsMap') || {})[item.playlistId]?.ids?.[youtubeSubIndex] || null
+        ? getPlaylistSubItems(item)?.ids?.[youtubeSubIndex] || null
         : item.videoId;
     }
   }
@@ -1203,9 +1204,7 @@ function getExpectedPlaybackVideoId(playlistIndex: number): string | null {
   const managedIndex = getState('youtube.currentSubIndex') ?? 0;
   const isNativeIndexTransition = playlistIndex >= 0 && playlistIndex !== getCachedYtPlaylistIdx();
   const expectedIndex = isNativeIndexTransition ? playlistIndex : managedIndex;
-  const mappedVideoId = (getState('youtube.subItemsMap') || {})[item.playlistId]?.ids?.[
-    expectedIndex
-  ];
+  const mappedVideoId = getPlaylistSubItems(item)?.ids?.[expectedIndex];
   if (mappedVideoId) return mappedVideoId;
   return expectedIndex === 0 ? item.videoId || null : null;
 }
@@ -1820,6 +1819,7 @@ interface YouTubeAuthorityCommitRequest {
   executeDelayMs: number;
   timingMode: YouTubeAuthorityTimingMode;
   timelineLeadMs?: number;
+  localStartDelayMs?: number;
 }
 
 export function commitYouTubeAuthorityOccurrence(
@@ -1834,6 +1834,7 @@ export function commitYouTubeAuthorityOccurrence(
     executeDelayMs: request.executeDelayMs,
     timingMode: request.timingMode,
     timelineLeadMs: request.timelineLeadMs,
+    localStartDelayMs: request.localStartDelayMs,
   });
 }
 
@@ -2327,7 +2328,7 @@ function onYouTubePlayerReady(event: { target: YouTubePlayerInstance }): void {
 
   // ── Playlist Snapshot & Sync (Host Only) ──
   const hostConn = getState('network.hostConn');
-  if (!hostConn && pid) {
+  if (!hostConn && pid && !getQueueItemById(getCurrentQueueItemId())?.youtubeVideoIds) {
     if (_ifr.isScrapingPlaylist && player?.cuePlaylist) {
       log.debug('[YouTube] Cueing playlist for backend scrape...', pid);
       const subIndex = getState('youtube.currentSubIndex') ?? 0;
@@ -2649,9 +2650,7 @@ function onYouTubePlayerError(event: { data: number; target: YouTubePlayerInstan
     const intendedTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
     const intendedPid = intendedTrack?.playlistId as string | undefined;
     const intendedSubIdx = getState('youtube.currentSubIndex') ?? 0;
-    const intendedSubIds = intendedPid
-      ? (getState('youtube.subItemsMap') || {})[intendedPid]?.ids || []
-      : [];
+    const intendedSubIds = intendedPid ? getPlaylistSubItems(intendedTrack)?.ids || [] : [];
     const intendedVid =
       (intendedSubIds[intendedSubIdx] as string | undefined) ||
       (intendedTrack?.videoId as string | undefined) ||
@@ -2829,8 +2828,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
     if (!hostConn) {
       const currentTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
       const pid = currentTrack?.playlistId;
-      const subMap = getState('youtube.subItemsMap') || {};
-      if (pid && (!subMap[pid] || !subMap[pid].ids.length)) {
+      if (pid && !getPlaylistSubItems(currentTrack)?.ids.length) {
         log.debug('[YouTube] Playback started. Triggering immediate playlist snapshot');
         _triggerPlaylistSnapshot(pid);
       }
@@ -3127,8 +3125,9 @@ function updateYouTubeUI(): void {
       const subIndex = getState('youtube.currentSubIndex') ?? 0;
       let videoId = (getState('player.currentTrackMeta')?.videoId as string) || '';
       if (playlistId && subIndex > 0) {
-        const subMap = getState('youtube.subItemsMap') || {};
-        const cachedId = subMap[playlistId]?.ids?.[subIndex];
+        const cachedId = getPlaylistSubItems(getQueueItemById(getCurrentQueueItemId()))?.ids?.[
+          subIndex
+        ];
         if (cachedId) {
           videoId = cachedId;
           log.debug(
@@ -3397,8 +3396,7 @@ function updateYouTubeUI(): void {
 
       // Pre-emptive title update from subItemsMap (if available) for instant feedback
       if (currentTrack?.playlistId && playlistIdx >= 0) {
-        const subMap = getState('youtube.subItemsMap') || {};
-        const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
+        const cachedTitle = getPlaylistSubItems(currentTrack)?.titles?.[playlistIdx];
         if (cachedTitle) {
           updatePlaybackTrackTitle(cachedTitle, currentTrack);
           _ifr.lastVideoTitle = cachedTitle;
@@ -3705,6 +3703,10 @@ export function clearSnapshotRetries(): void {
 }
 
 function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
+  if (getQueueItemById(getCurrentQueueItemId())?.youtubeVideoIds) {
+    _snapshotRetryCounts.delete(pid);
+    return;
+  }
   // Fire-time identity check: this timer (and its 1s retry chain) can outlive
   // the track that armed it — the YT→YT reuse path keeps the player and skips
   // stopYouTubeMode's clears. A pid mismatch means getPlaylist() now describes

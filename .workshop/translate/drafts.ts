@@ -5,7 +5,7 @@ import {
 
 export { validateProposal } from '../../src/i18n/translation-community';
 export type { Entry, ProposalIssue } from '../../src/i18n/translation-community';
-export type Draft = ProposalDraft;
+export type Draft = ProposalDraft & { revisionId?: string };
 
 export type StorageWarning =
   'unavailable' | 'invalid-data' | 'too-large' | 'read-failed' | 'write-failed';
@@ -32,8 +32,19 @@ function isTimestamp(value: unknown): value is string {
 
 function readDraft(value: unknown): Draft | null {
   if (!isRecord(value)) return null;
-  const { id, surface, key, sourceEn, sourceKo, current, locale, proposed, reason, updatedAt } =
-    value;
+  const {
+    id,
+    surface,
+    key,
+    sourceEn,
+    sourceKo,
+    current,
+    locale,
+    proposed,
+    reason,
+    updatedAt,
+    revisionId,
+  } = value;
   if (
     !isText(id, 256, true) ||
     (surface !== 'app' && surface !== 'about') ||
@@ -45,11 +56,26 @@ function readDraft(value: unknown): Draft | null {
     !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(locale) ||
     !isText(proposed, MAX_TEXT_LENGTH) ||
     !isText(reason, 4000) ||
-    !isTimestamp(updatedAt)
+    !isTimestamp(updatedAt) ||
+    (revisionId !== undefined &&
+      (typeof revisionId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(revisionId)))
   )
     return null;
   // Reconstruct only known fields: stored JSON is untrusted, including extra keys.
-  return { id, surface, key, sourceEn, sourceKo, current, locale, proposed, reason, updatedAt };
+  return {
+    id,
+    surface,
+    key,
+    sourceEn,
+    sourceKo,
+    current,
+    locale,
+    proposed,
+    reason,
+    updatedAt,
+    ...(revisionId === undefined ? {} : { revisionId }),
+  };
 }
 
 function readDrafts(value: unknown): Draft[] | null {

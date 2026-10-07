@@ -349,6 +349,7 @@ export type ProPlaybackPrepareFailureReason =
   | 'identity-mismatch'
   | 'media-unavailable'
   | 'decode-failed'
+  | 'device-unavailable'
   | 'player-unavailable'
   | 'audio-locked'
   | 'timeout'
@@ -397,6 +398,8 @@ export interface ProPlaybackCommitResult {
 export interface ProPlaybackMediaEndpoint {
   prepare(request: Readonly<ProPlaybackPrepareRequest>): Promise<ProPlaybackPrepareResult>;
   commit(request: Readonly<ProPlaybackCommitRequest>): Promise<ProPlaybackCommitResult>;
+  /** Read-only check for an already-applied renderer surviving a cancelled PREPARE. */
+  isCheckpointReady?(request: Readonly<ProPlaybackCommitRequest>): boolean;
   /** Abort participant-local work for one server-cancelled transition. */
   cancel?(authority: ProPlaybackAuthorityToken): void;
   /**
@@ -415,8 +418,10 @@ let activePreparation: {
   generation: number;
   authority: ProPlaybackAuthorityToken;
   promise: Promise<ProPlaybackPrepareResult>;
+  cancelWait: () => void;
 } | null = null;
 let highestSeen: ProPlaybackAuthorityToken | null = null;
+let cancelledPreparation: ProPlaybackAuthorityToken | null = null;
 let latestApplied: ProPlaybackAuthorityToken | null = null;
 let highestCommittedPlaybackRevision = 0;
 
@@ -433,6 +438,7 @@ function cancelPreparationIfStillOwned(
   }
   prepareGeneration += 1;
   activePreparation = null;
+  pending.cancelWait();
   endpoint.cancel?.(pending.authority);
 }
 
@@ -487,6 +493,23 @@ function failedPrepare(
   return { status, authority: request.authority, queueItemId: request.queueItemId, reason };
 }
 
+function createPreparation(
+  generation: number,
+  request: Readonly<ProPlaybackPrepareRequest>,
+  endpoint: ProPlaybackMediaEndpoint,
+): NonNullable<typeof activePreparation> {
+  const work = endpoint.prepare(request);
+  let cancelWait!: () => void;
+  const promise = new Promise<ProPlaybackPrepareResult>((resolve, reject) => {
+    cancelWait = () => resolve(failedPrepare(request, 'superseded', 'superseded'));
+    // Native decoding cannot be aborted. Retire its observation immediately so
+    // a newer COMMIT can proceed, but observe the original work to completion:
+    // its endpoint still owns cleanup and memory reservations until then.
+    void work.then(resolve, reject);
+  });
+  return { generation, authority: request.authority, promise, cancelWait };
+}
+
 export async function prepareProPlaybackAuthority(
   request: Readonly<ProPlaybackPrepareRequest>,
 ): Promise<ProPlaybackPrepareResult> {
@@ -518,7 +541,7 @@ export async function prepareProPlaybackAuthority(
       : result;
   }
 
-  if (activePreparation) endpoint.cancel?.(activePreparation.authority);
+  if (activePreparation) cancelPreparationIfStillOwned(activePreparation, endpoint);
 
   // Accepted server work supersedes a local correction even for the same
   // video. Retire its timers before any canonical iframe command; retain the
@@ -526,6 +549,7 @@ export async function prepareProPlaybackAuthority(
   resetStandardHostManualOffsetTransaction();
 
   const generation = ++prepareGeneration;
+  cancelledPreparation = null;
   const upstreamIsCurrent = request.isCurrent;
   const endpointRequest: Readonly<ProPlaybackPrepareRequest> = {
     ...request,
@@ -535,10 +559,10 @@ export async function prepareProPlaybackAuthority(
       !isOlderAuthority(request.authority, highestSeen) &&
       upstreamIsCurrent?.() !== false,
   };
-  const promise = endpoint.prepare(endpointRequest);
-  activePreparation = { generation, authority: request.authority, promise };
+  const pending = createPreparation(generation, endpointRequest, endpoint);
+  activePreparation = pending;
   highestSeen = request.authority;
-  const result = await promise;
+  const result = await pending.promise;
   if (
     generation !== prepareGeneration ||
     !activePreparation ||
@@ -600,9 +624,9 @@ export async function prepareCurrentProPlaybackRendezvousAuthority(
       request.isCurrent?.() !== false,
   };
   resetStandardHostManualOffsetTransaction();
-  const promise = endpoint.prepare(endpointRequest);
-  activePreparation = { generation, authority: request.authority, promise };
-  const result = await promise;
+  const pending = createPreparation(generation, endpointRequest, endpoint);
+  activePreparation = pending;
+  const result = await pending.promise;
   if (
     generation !== prepareGeneration ||
     !activePreparation ||
@@ -639,8 +663,153 @@ export function cancelProPlaybackPreparation(authority?: ProPlaybackAuthorityTok
 
   prepareGeneration += 1;
   activePreparation = null;
+  if (highestSeen && sameAuthority(pending.authority, highestSeen)) {
+    cancelledPreparation = pending.authority;
+  }
+  pending.cancelWait();
   mediaEndpoint?.cancel?.(pending.authority);
   return true;
+}
+
+/** Release obsolete preparation waits before an admitted COMMIT joins the serial queue. */
+export function cancelSupersededProPlaybackPreparation(
+  authority: ProPlaybackAuthorityToken,
+): boolean {
+  const pending = activePreparation;
+  if (
+    !pending ||
+    !isProPlaybackAuthorityToken(authority) ||
+    !activeAuthorityRoomMatches(authority) ||
+    compareAuthority(pending.authority, authority) > 0 ||
+    sameAuthority(pending.authority, authority)
+  ) {
+    return false;
+  }
+  return cancelProPlaybackPreparation(pending.authority);
+}
+
+/** Whether one cancelled PREPARE still permits recovery of its exact canonical base. */
+export function hasCancelledProPlaybackCheckpointRecovery(
+  roomId: string,
+  roomEpoch: number,
+  playbackRevision: number,
+): boolean {
+  return !!(
+    cancelledPreparation &&
+    highestSeen &&
+    sameAuthority(cancelledPreparation, highestSeen) &&
+    cancelledPreparation.roomId === roomId &&
+    cancelledPreparation.roomEpoch === roomEpoch &&
+    cancelledPreparation.basePlaybackRevision === playbackRevision &&
+    playbackRevision >= highestCommittedPlaybackRevision
+  );
+}
+
+/**
+ * Recover the exact committed base of a cancelled newer PREPARE. The controller
+ * must continuously verify the current canonical checkpoint through isCurrent.
+ * Historical highestSeen remains intact, so ordinary old frames stay rejected.
+ */
+export async function recoverCancelledProPlaybackCheckpoint(
+  request: Readonly<ProPlaybackCommitRequest>,
+  refreshTiming: () => Pick<ProPlaybackCommitRequest, 'positionSeconds' | 'scheduleDelayMs'>,
+): Promise<ProPlaybackCommitResult> {
+  if (!isProPlaybackAuthorityToken(request.authority)) {
+    throw new TypeError('A server authority token is required');
+  }
+  requireSafeCounter(request.committedPlaybackRevision, 'committedPlaybackRevision');
+  const rejected = (): ProPlaybackCommitResult => ({
+    status: 'superseded',
+    authority: request.authority,
+    reason: 'stale-authority',
+  });
+  if (
+    request.authority.transitionId === null ||
+    request.committedPlaybackRevision !== request.authority.basePlaybackRevision + 1 ||
+    request.state === 'idle' ||
+    !request.queueItemId ||
+    !activeAuthorityRoomMatches(request.authority) ||
+    request.isCurrent?.() !== true
+  )
+    return rejected();
+  const recoverable = hasCancelledProPlaybackCheckpointRecovery(
+    request.authority.roomId,
+    request.authority.roomEpoch,
+    request.committedPlaybackRevision,
+  );
+  if (
+    !recoverable &&
+    !activePreparation &&
+    latestApplied &&
+    sameAuthority(request.authority, latestApplied)
+  ) {
+    return { status: 'applied', authority: request.authority };
+  }
+  const cancelled = cancelledPreparation;
+  const endpoint = mediaEndpoint;
+  if (!endpoint || activePreparation || !cancelled || !recoverable) return rejected();
+
+  if (
+    request.committedPlaybackRevision === highestCommittedPlaybackRevision &&
+    endpoint.isCheckpointReady?.(request) === true
+  ) {
+    // A failed successor can leave the original renderer entirely untouched.
+    // Consume this cancellation without seeking, pausing or re-decoding it.
+    cancelledPreparation = null;
+    latestApplied = request.authority;
+    return { status: 'applied', authority: request.authority };
+  }
+
+  const generation = ++prepareGeneration;
+  const isCurrent = () =>
+    generation === prepareGeneration &&
+    cancelledPreparation === cancelled &&
+    activeAuthorityRoomMatches(request.authority) &&
+    request.isCurrent?.() === true;
+  resetStandardHostManualOffsetTransaction();
+  const pending = createPreparation(
+    generation,
+    {
+      authority: request.authority,
+      queueItemId: request.queueItemId,
+      positionSeconds: request.positionSeconds,
+      state: request.state,
+      youtubeSubIndex: request.youtubeSubIndex,
+      youtubeVideoId: request.youtubeVideoId,
+      isCurrent,
+    },
+    endpoint,
+  );
+  activePreparation = pending;
+  try {
+    const prepared = await pending.promise;
+    if (!isCurrent() || activePreparation !== pending) return rejected();
+    if (prepared.status !== 'ready') {
+      if (prepared.reason === 'device-unavailable') cancelledPreparation = null;
+      return {
+        status: prepared.status === 'superseded' ? 'superseded' : 'failed',
+        authority: request.authority,
+        reason: prepared.reason,
+      };
+    }
+    const { positionSeconds, scheduleDelayMs } = refreshTiming();
+    const result = await endpoint.commit({
+      ...request,
+      positionSeconds,
+      scheduleDelayMs,
+      isCurrent,
+    });
+    if (!isCurrent() || activePreparation !== pending) return rejected();
+    if (result.status === 'applied') {
+      latestApplied = request.authority;
+      highestCommittedPlaybackRevision = request.committedPlaybackRevision;
+      activePreparation = null;
+      cancelledPreparation = null;
+    }
+    return result;
+  } finally {
+    cancelPreparationIfStillOwned(pending, endpoint);
+  }
 }
 
 export async function commitProPlaybackAuthority(
@@ -704,10 +873,12 @@ export async function commitProPlaybackAuthority(
     // uncommitted media preparation at the same or an older base revision.
     prepareGeneration += 1;
     activePreparation = null;
+    pending.cancelWait();
     endpoint.cancel?.(pending.authority);
   }
 
   highestSeen = request.authority;
+  cancelledPreparation = null;
   let result: ProPlaybackCommitResult;
   resetStandardHostManualOffsetTransaction();
   try {
@@ -888,9 +1059,13 @@ export function resetProPlaybackAuthorityHooks(): void {
   // authority bookkeeping. In particular, YouTube PREPARE owns hard-mute,
   // warm-up, seek, and scheduled-release timers that could otherwise outlive
   // the PRO room and mutate the iframe after the user has left.
-  if (pending) mediaEndpoint?.cancel?.(pending.authority);
+  if (pending) {
+    pending.cancelWait();
+    mediaEndpoint?.cancel?.(pending.authority);
+  }
   mediaEndpoint?.reset?.();
   highestSeen = null;
+  cancelledPreparation = null;
   latestApplied = null;
   highestCommittedPlaybackRevision = 0;
   pendingSelectionCommands.clear();

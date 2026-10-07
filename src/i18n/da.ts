@@ -421,10 +421,10 @@ const da: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Grænsen for BOT-anmodninger er nået. Vent {{duration}}, og prøv igen',
   'chat.decode_skip_system_message':
     'Springer nummeret over: Formatet understøttes ikke på nogle enheder.',
+  'chat.large_track_playback_system_message':
+    'Dette nummer er meget stort, så der kan opstå forsinkelser under brug.',
   'chat.large_local_track_system_message':
     'Filen til dette nummer er meget stor og kan muligvis ikke afspilles på nogle enheder.',
-  'chat.decode_memory_risk_system_message':
-    'Dette nummer kan bruge omkring {{estimatedMiB}} MiB hukommelse under afkodningen og kan muligvis ikke afspilles på denne enhed.',
   'chat.device_track_unavailable_system_message':
     'Denne enhed kan ikke afspille det aktuelle nummer.',
   'chat.system_audio_started_system_message':

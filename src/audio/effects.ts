@@ -227,7 +227,7 @@ export function setReverbParam(
       setState('audio.reverbMix', Math.max(0, Math.min(1, v / 100)));
       break;
     case 'decay':
-      setState('audio.reverbDecay', Math.max(0.1, Math.min(30, v)));
+      setState('audio.reverbDecay', Math.max(0.1, Math.min(10, v)));
       break;
     case 'predelay':
       setState('audio.reverbPreDelay', Math.max(0, Math.min(1, v)));
@@ -398,6 +398,26 @@ interface SettingsAuthorityCache {
 
 let settingsAuthorityCache: SettingsAuthorityCache | null = null;
 
+// Cached authority can arrive while synchronization is OFF. Keep the applied
+// authority separate so a local rollback is superseded only by room settings
+// that actually took ownership of this device's effects.
+type AppliedRoomEffectsAuthority = Readonly<{
+  roomKey: string;
+  effects: RoomEffectsState;
+}>;
+let appliedRoomEffectsAuthority: AppliedRoomEffectsAuthority | null = null;
+
+/** Stable identity until a canonical settings application/commit supersedes it. */
+export function getAppliedRoomEffectsAuthority(): AppliedRoomEffectsAuthority | null {
+  return appliedRoomEffectsAuthority?.roomKey === currentSettingsRoomKey()
+    ? appliedRoomEffectsAuthority
+    : null;
+}
+
+function rememberAppliedRoomEffectsAuthority(effects: RoomEffectsState): void {
+  appliedRoomEffectsAuthority = { roomKey: currentSettingsRoomKey(), effects };
+}
+
 interface PendingStandardSettingsPublish {
   roomKey: string;
   settings: RoomSettingsSyncState;
@@ -411,6 +431,7 @@ let standardSettingsNotificationReady = false;
 export function resetSettingsSyncAuthorityForTests(): void {
   resetSettingsChangeFeedback();
   settingsAuthorityCache = null;
+  appliedRoomEffectsAuthority = null;
   pendingStandardSettingsPublish = null;
   pendingStandardSettingsRequestRoomKey = null;
 }
@@ -644,6 +665,7 @@ function applySettingsSyncState(value: RoomSettingsSyncState, notifyRemoteChange
     setState('audio.masterVolume', settings.masterVolume);
   }
   const applied = applyRoomEffectsState(settings.effects, { broadcast: false });
+  if (applied) rememberAppliedRoomEffectsAuthority(settings.effects);
   if (applied && notifyRemoteChange && before !== JSON.stringify(captureRoomSettingsSyncState())) {
     notifyRemoteSettingsChange();
   }
@@ -770,6 +792,11 @@ function commitCoordinatorSettingsAuthority(
     settings,
   };
   if (applyLocally && !applySettingsSyncState(settings, !!sourceConnection)) return false;
+  // The coordinator's own publish already applied the local edit before
+  // committing authority. It owns rollback just like an accepted remote edit.
+  if (!applyLocally && isSettingsSyncEnabled()) {
+    rememberAppliedRoomEffectsAuthority(settings.effects);
+  }
   const snapshot: AnyProtocolMsg = {
     type: MSG.SETTINGS_SYNC_SNAPSHOT,
     version: 1,
@@ -873,7 +900,9 @@ export function setSettingsSyncEnabled(enabled: boolean): void {
   } catch {
     // Private browsing can make localStorage unavailable; state still works.
   }
-  bus.emit('settings-sync:changed', normalized);
+  // Re-selecting the active chip is not an opt-in transition. PRO treats an
+  // actual OFF-to-ON transition as intent to publish the complete local state.
+  if (changed) bus.emit('settings-sync:changed', normalized);
   if (!normalized) {
     resetSettingsChangeFeedback();
     clearPendingStandardSettingsPublish();
@@ -935,6 +964,7 @@ function handleSettingsSyncSessionStarted(started: unknown): void {
   if (!started) {
     resetSettingsChangeFeedback();
     settingsAuthorityCache = null;
+    appliedRoomEffectsAuthority = null;
     clearPendingStandardSettingsPublish();
     clearPendingStandardSettingsRequest();
     return;
@@ -981,6 +1011,21 @@ function broadcastRoomEffectsState(state: RoomEffectsState): void {
   broadcast({ type: MSG.EXCITER, value: state.virtualTreble.enabled ? 1 : 0 } as AnyProtocolMsg);
 }
 
+/** Project accepted audio state into controls without audio or authority mutations. */
+export function syncRoomEffectsUI(state: RoomEffectsState = captureRoomEffectsState()): void {
+  bus.emit('ui:sync-reverb-param', 'mix', state.reverb.mixPercent);
+  bus.emit('ui:sync-reverb-param', 'decay', state.reverb.decaySeconds);
+  bus.emit('ui:sync-reverb-param', 'predelay', state.reverb.preDelaySeconds);
+  bus.emit('ui:sync-reverb-param', 'lowcut', state.reverb.lowCutPercent);
+  bus.emit('ui:sync-reverb-param', 'highcut', state.reverb.highCutPercent);
+  bus.emit('ui:sync-reverb-preset', detectRoomReverbPreset(state.reverb));
+  state.equalizer.bandsDb.forEach((band, index) => bus.emit('ui:sync-eq-band', index, band));
+  bus.emit('ui:sync-eq-preset', detectRoomEqPreset(state.equalizer.bandsDb));
+  bus.emit('ui:sync-surround', state.virtualSurround.widthPercent > 100);
+  bus.emit('ui:sync-vbass', state.virtualBass.strengthPercent > 0);
+  bus.emit('ui:sync-exciter', state.virtualTreble.enabled);
+}
+
 /**
  * Re-baseline the room-wide DSP graph and settings UI without a change toast.
  * Persisted PRO state and Developer API commands both use this exact path.
@@ -1002,18 +1047,7 @@ function applyRoomEffectsState(
   setState('audio.virtualBass', state.virtualBass.strengthPercent / 100);
   setState('audio.exciter', state.virtualTreble.enabled);
   applySettingsAsync();
-
-  bus.emit('ui:sync-reverb-param', 'mix', state.reverb.mixPercent);
-  bus.emit('ui:sync-reverb-param', 'decay', state.reverb.decaySeconds);
-  bus.emit('ui:sync-reverb-param', 'predelay', state.reverb.preDelaySeconds);
-  bus.emit('ui:sync-reverb-param', 'lowcut', state.reverb.lowCutPercent);
-  bus.emit('ui:sync-reverb-param', 'highcut', state.reverb.highCutPercent);
-  bus.emit('ui:sync-reverb-preset', detectRoomReverbPreset(state.reverb));
-  state.equalizer.bandsDb.forEach((band, index) => bus.emit('ui:sync-eq-band', index, band));
-  bus.emit('ui:sync-eq-preset', detectRoomEqPreset(state.equalizer.bandsDb));
-  bus.emit('ui:sync-surround', state.virtualSurround.widthPercent > 100);
-  bus.emit('ui:sync-vbass', state.virtualBass.strengthPercent > 0);
-  bus.emit('ui:sync-exciter', state.virtualTreble.enabled);
+  syncRoomEffectsUI(state);
 
   if (options.broadcast) broadcastRoomEffectsState(state);
   return true;

@@ -12,6 +12,11 @@ import {
   setCurrentAudioBuffer,
   setLocalFilePaused,
 } from '../player/_state.ts';
+import {
+  releaseFilePlaybackResource,
+  retainFilePlaybackResource,
+  type FilePlaybackResource,
+} from '../player/file-playback-resource.ts';
 import { prepareMediaSession } from '../player/media-session-loader.ts';
 import {
   getPlaybackModeActivitySnapshot,
@@ -29,7 +34,11 @@ import {
   stopAllMedia,
 } from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
-import { applySettingsAsync } from '../audio/effects.ts';
+import {
+  applySettingsAsync,
+  getAppliedRoomEffectsAuthority,
+  syncRoomEffectsUI,
+} from '../audio/effects.ts';
 import { setChannelMode } from '../audio/channel.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
@@ -79,6 +88,7 @@ type DemoRoomIdentity = Readonly<{
 
 type DemoSnapshot = {
   room: DemoRoomIdentity;
+  effectsAuthority: ReturnType<typeof getAppliedRoomEffectsAuthority>;
   channelMode: number;
   reverbMix: number;
   reverbDecay: number;
@@ -97,11 +107,10 @@ type DemoSnapshot = {
   // transfer.meta describes the active generation while currentFile keeps
   // the resident Blob and its queue/session owner atomic.
   transferMeta: Partial<FileMeta>;
-  currentAudioBuffer: AudioBuffer | null;
+  currentAudioBuffer: FilePlaybackResource | null;
   pausedAt: number;
   duration: number;
   playback: PlaybackModeActivity;
-  visualizerMode: 'circular' | 'spectrum';
 };
 
 type RestoreSnapshotOptions = {
@@ -199,14 +208,6 @@ function shouldShowFirstRunDemoPrompt(): boolean {
   return true;
 }
 
-function getCurrentVisualizerMode(): 'circular' | 'spectrum' {
-  return document.body.classList.contains('viz-spectrum') ? 'spectrum' : 'circular';
-}
-
-function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
-  bus.emit('visualizer:set-type', mode);
-}
-
 function captureDemoRoomIdentity(): DemoRoomIdentity {
   const room = getRoomContext();
   return Object.freeze({
@@ -260,8 +261,9 @@ function captureSnapshot(): DemoSnapshot {
     currentAudioBuffer
       ? getTrackPosition()
       : fallbackPausedAt;
-  return {
+  const snapshot: DemoSnapshot = {
     room: captureDemoRoomIdentity(),
+    effectsAuthority: getAppliedRoomEffectsAuthority(),
     channelMode: getState('audio.channelMode'),
     reverbMix: getState('audio.reverbMix'),
     reverbDecay: getState('audio.reverbDecay'),
@@ -284,8 +286,18 @@ function captureSnapshot(): DemoSnapshot {
       : fallbackPausedAt,
     duration: currentAudioBuffer?.duration ?? 0,
     playback,
-    visualizerMode: getCurrentVisualizerMode(),
   };
+  // Demo playback replaces the current resource. Its prior large-track
+  // decoder remains owned by this snapshot until restoration or dismissal.
+  if (currentAudioBuffer) retainFilePlaybackResource(currentAudioBuffer);
+  return snapshot;
+}
+
+function releaseSnapshotResource(snapshot: DemoSnapshot | null): void {
+  if (!snapshot?.currentAudioBuffer) return;
+  const resource = snapshot.currentAudioBuffer;
+  snapshot.currentAudioBuffer = null;
+  releaseFilePlaybackResource(resource);
 }
 
 function failClosedDemoMediaRestore(snapshot: DemoSnapshot): void {
@@ -333,18 +345,33 @@ function restoreSnapshot(
   const restoreMedia = options.media ?? true;
 
   if (restoreAudio) {
+    const authority = getAppliedRoomEffectsAuthority();
+    // Failure rolls back local demo choices, but an accepted room snapshot
+    // during loading or the exit curtain has superseded the captured effects.
+    // Device-local output role, preamp and cutoff still restore independently.
+    const effects =
+      getState('audio.settingsSyncEnabled') && authority !== snapshot.effectsAuthority
+        ? authority?.effects
+        : undefined;
     setChannelMode(snapshot.channelMode);
-    setState('audio.reverbMix', snapshot.reverbMix);
-    setState('audio.reverbDecay', snapshot.reverbDecay);
-    setState('audio.reverbPreDelay', snapshot.reverbPreDelay);
-    setState('audio.reverbLowCut', snapshot.reverbLowCut);
-    setState('audio.reverbHighCut', snapshot.reverbHighCut);
-    setState('audio.eqValues', [...snapshot.eqValues]);
-    setState('audio.stereoWidth', snapshot.stereoWidth);
-    setState('audio.virtualBass', snapshot.virtualBass);
-    setState('audio.exciter', snapshot.exciter);
+    setState('audio.reverbMix', effects ? effects.reverb.mixPercent / 100 : snapshot.reverbMix);
+    setState('audio.reverbDecay', effects?.reverb.decaySeconds ?? snapshot.reverbDecay);
+    setState('audio.reverbPreDelay', effects?.reverb.preDelaySeconds ?? snapshot.reverbPreDelay);
+    setState('audio.reverbLowCut', effects?.reverb.lowCutPercent ?? snapshot.reverbLowCut);
+    setState('audio.reverbHighCut', effects?.reverb.highCutPercent ?? snapshot.reverbHighCut);
+    setState('audio.eqValues', [...(effects?.equalizer.bandsDb ?? snapshot.eqValues)]);
+    setState(
+      'audio.stereoWidth',
+      effects ? effects.virtualSurround.widthPercent / 100 : snapshot.stereoWidth,
+    );
+    setState(
+      'audio.virtualBass',
+      effects ? effects.virtualBass.strengthPercent / 100 : snapshot.virtualBass,
+    );
+    setState('audio.exciter', effects?.virtualTreble.enabled ?? snapshot.exciter);
     setState('audio.userPreampGain', snapshot.userPreampGain);
     setState('audio.subFreq', snapshot.subFreq);
+    syncRoomEffectsUI();
   }
   if (restoreMedia && hasCurrentDemoRestoreAuthority(snapshot.room)) {
     if (
@@ -401,7 +428,6 @@ function restoreSnapshot(
     }
   }
 
-  setVisualizerMode(snapshot.visualizerMode);
   void applySettingsAsync();
 }
 
@@ -853,6 +879,7 @@ function applyDemoDomInactive(overlay: HTMLElement | null): void {
   syncAppThemeChrome();
   overlay?.classList.remove('active', 'entering', 'exiting');
   restoreVisualizer();
+  bus.emit('visualizer:refresh-presentation');
   updateOverlayOpenClass();
 }
 
@@ -1452,8 +1479,6 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
   setCurrentAudioBuffer(null);
   _demoStep = 1;
   _demoTrackIndex = normalizeDemoTrackIndex(options.index ?? 0);
-  setVisualizerMode('spectrum');
-
   setState('demo.active', true);
   const owner = beginDemoLoad();
   setState('demo.loading', true);
@@ -1495,6 +1520,10 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   if (options.broadcastExit ?? true) broadcastDemoExit();
   supersedeDemoLoad();
   const exitGeneration = _demoLoadGeneration;
+  // Interrupted exits may start after hostConn has already been cleared.
+  // Capture that disconnected state so ordinary recovery still restores the
+  // effects, but a reconnect/new room behind the curtain owns its own settings.
+  const exitRoom = captureDemoRoomIdentity();
   const snapshot = _snapshot;
   const activeDemoTrackMeta = _activeDemoTrackMeta;
   _activeDemoTrackMeta = null;
@@ -1527,30 +1556,42 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   _snapshot = null;
   setDemoDomActive(false, {
     afterCovered: () => {
-      if (options.restoreSnapshot === false) return;
-      const restoreMedia = shouldRestoreDemoSnapshotMedia(
-        getPlaybackModeActivitySnapshot(),
-        getState('playback.lifecycle'),
-      );
-      if (!restoreMedia) {
-        log.info('[Demo] Skipping stale media snapshot restore; new playback started during exit');
+      try {
+        if (options.restoreSnapshot === false) return;
+        const restoreMedia = shouldRestoreDemoSnapshotMedia(
+          getPlaybackModeActivitySnapshot(),
+          getState('playback.lifecycle'),
+        );
+        if (!restoreMedia) {
+          log.info(
+            '[Demo] Skipping stale media snapshot restore; new playback started during exit',
+          );
+        }
+        // Completing the demo commits the role and effects the user just chose.
+        // Failed/interrupted entry paths opt back into restoring the audio
+        // snapshot, while media restoration remains independent.
+        // Clear the demo timeline before restoring the captured owner. The
+        // restored file-mode projection must be the final writer.
+        if (restoreMedia) bus.emit('ui:seek-reset');
+        restoreSnapshot(snapshot, {
+          audio:
+            (options.restoreAudioSettings ?? false) &&
+            _demoLoadGeneration === exitGeneration &&
+            isCurrentDemoRoom(exitRoom),
+          media: restoreMedia,
+          isCurrent: () =>
+            _demoLoadGeneration === exitGeneration &&
+            !getState('demo.active') &&
+            !getState('demo.loading') &&
+            !!snapshot &&
+            hasCurrentDemoRestoreAuthority(snapshot.room),
+        });
+      } finally {
+        // The state setter retains a restored resource before this releases
+        // the snapshot. Authority resets and superseded restores release it
+        // too, so an abandoned decoder cannot survive a room/demo transition.
+        releaseSnapshotResource(snapshot);
       }
-      // Completing the demo commits the role and effects the user just chose.
-      // Failed/interrupted entry paths opt back into restoring the audio
-      // snapshot, while media and visualizer restoration remain independent.
-      // Clear the demo timeline before restoring the captured owner. The
-      // restored file-mode projection must be the final writer.
-      if (restoreMedia) bus.emit('ui:seek-reset');
-      restoreSnapshot(snapshot, {
-        audio: options.restoreAudioSettings ?? false,
-        media: restoreMedia,
-        isCurrent: () =>
-          _demoLoadGeneration === exitGeneration &&
-          !getState('demo.active') &&
-          !getState('demo.loading') &&
-          !!snapshot &&
-          hasCurrentDemoRestoreAuthority(snapshot.room),
-      });
     },
   });
 }
@@ -1715,10 +1756,10 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
 
   const applyEffectFlags = (): void => {
     if (!getState('demo.active')) return;
-    setState('demo.reverbOn', !!data.reverbOn);
-    setState('demo.bassBoostOn', !!data.bassBoostOn);
-    setState('demo.trebleBoostOn', !!data.trebleBoostOn);
-    setState('demo.surroundOn', !!data.surroundOn);
+    // Either device can opt out of settings sync. The host's demo flags can
+    // then differ from this device's applied audio, including when an ON
+    // follower retains canonical settings while an OFF host experiments.
+    applyDemoEffectState(readDemoEffectStateFromAudio(!!getState('demo.trebleBoostOn')));
     syncEffectButtons();
   };
 
@@ -1737,8 +1778,8 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
 
   const entry = enterDemoMode({ index, autoplay: false, broadcastEntry: false });
   // Entry publishes demo.active synchronously before fetching media. Apply
-  // host flags at this message boundary, including while a track is loading,
-  // so an older fetch completion cannot overwrite a newer effect update.
+  // applied effects at this message boundary, including while a track is
+  // loading, so an older fetch completion cannot overwrite a newer update.
   applyEffectFlags();
   void entry.catch((error: unknown) => log.warn('[Demo] Guest demo enter failed:', error));
 }

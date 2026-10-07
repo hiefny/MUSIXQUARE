@@ -39,19 +39,12 @@ import type {
   TrackMeta,
 } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
-import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
+import { broadcast, safeSend } from '../network/peer.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
-import { announceSystemMessageLocally, broadcastSystemMessage } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
-import {
-  findQueueItemIndex,
-  getCurrentQueueItemId,
-  getQueueItemById,
-  selectQueueItemById,
-} from './queue-model.ts';
-import { loadPlaylistModule } from './playlist-loader.ts';
+import { findQueueItemIndex, getCurrentQueueItemId, getQueueItemById } from './queue-model.ts';
 
 import {
   getCurrentAudioBuffer,
@@ -64,13 +57,10 @@ import {
   setPendingPlayTime,
   setPendingRecoveryTarget,
   getPendingPlayTimeSetAt,
+  getPendingPlayTimeMonotonicSetAt,
   setPlayPreloadedInProgress,
   getLastClearedQueueItemId,
   setLastClearedQueueItemId,
-  markTrackFailed,
-  isTrackFailed,
-  clearFailedTracks,
-  getTrackKeyFromItem,
   liveAudioBufferPcmBytes,
   trackDecodedAudioBufferForAdmission,
 } from './_state.ts';
@@ -84,9 +74,20 @@ import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
 import {
-  maybeAnnounceDecodeMemoryRiskWarning,
+  announceLargeTrackPlayback,
   maybeAnnounceLargeLocalTrackWarning,
 } from './large-local-track-warning.ts';
+import { shouldUseLargeFileEngine } from './large-file-policy.ts';
+import { markDeviceTrackUnavailable, markFailedAndAdvance } from './device-track-failure.ts';
+import {
+  isAudioDecoderStartupError,
+  withAudioDecoderStartup,
+} from './large-audio/startup-error.ts';
+import {
+  releaseFilePlaybackResource,
+  retainFilePlaybackResource,
+  type FilePlaybackResource,
+} from './file-playback-resource.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
   assertDecodedAudioBufferWithinBudget,
@@ -117,7 +118,7 @@ function isDecodeSupersededError(error: unknown): error is DecodeSupersededError
 }
 
 interface DecodeAdmissionLease {
-  readonly audioBuffer: AudioBuffer;
+  readonly audioBuffer: FilePlaybackResource;
   release(): void;
 }
 
@@ -167,24 +168,53 @@ async function decodeBlobToAudioBuffer(
       });
 
       if (!isCurrent()) throw new DecodeSupersededError(label);
+      if (shouldUseLargeFileEngine(admission, blob.size)) {
+        const { openLargeAudioTrack } = await withAudioDecoderStartup(
+          () => import('./large-audio/index.ts'),
+        );
+        if (!isCurrent()) throw new DecodeSupersededError(label);
+        const audioBuffer = await openLargeAudioTrack(blob, { isCurrent });
+        retainFilePlaybackResource(audioBuffer);
+        let released = false;
+        const release = (): void => {
+          if (released) return;
+          released = true;
+          releaseFilePlaybackResource(audioBuffer);
+        };
+        const prepareAbort = new AbortController();
+        const ownerPoll = globalThis.setInterval(() => {
+          if (!isCurrent()) prepareAbort.abort();
+        }, 100);
+        try {
+          if (!isCurrent()) throw new DecodeSupersededError(label);
+          await audioBuffer.prepare(0, prepareAbort.signal);
+          if (!isCurrent()) throw new DecodeSupersededError(label);
+          try {
+            announceLargeTrackPlayback(queueItemId ?? blob);
+          } catch (warningError) {
+            log.warn('[LargeFile] Could not announce playback mode', warningError);
+          }
+          return { audioBuffer, release };
+        } catch (error) {
+          release();
+          if (!isCurrent()) throw new DecodeSupersededError(label);
+          throw error;
+        } finally {
+          globalThis.clearInterval(ownerPoll);
+        }
+      }
       try {
-        if (queueItemId) {
-          let announcedMemoryRisk = false;
-          if (admission.hasReliableMetadata) {
-            announcedMemoryRisk = maybeAnnounceDecodeMemoryRiskWarning(queueItemId, admission);
-          }
-          if (
-            !announcedMemoryRisk &&
-            (!admission.hasReliableMetadata || admission.probedChannelCount === null)
-          ) {
-            // Metadata/header support is best-effort. Preserve the established
-            // encoded-size warning if the partial estimate was inconclusive.
-            maybeAnnounceLargeLocalTrackWarning(queueItemId, blob.size);
-          }
+        if (
+          queueItemId &&
+          (!admission.hasReliableMetadata || admission.probedChannelCount === null)
+        ) {
+          // Metadata/header support is best-effort. Preserve the established
+          // encoded-size warning if the partial estimate was inconclusive.
+          maybeAnnounceLargeLocalTrackWarning(queueItemId, blob.size);
         }
       } catch (warningError) {
         // Advisory UI must never turn a playable file into a decode failure.
-        log.warn('[DecodeMemoryWarning] Could not announce memory risk', warningError);
+        log.warn('[LargeLocalTrackWarning] Could not announce file size warning', warningError);
       }
       // Reserve synchronously after the async accounting boundary so ownership
       // and diagnostics cannot omit overlapping native decodes. Production
@@ -324,6 +354,7 @@ export async function loadAndBroadcastFile(
     name: file.name,
   });
 
+  let decoding = false;
   try {
     if (!isSystemAudioActive()) {
       // Don't let audio initialization block the whole activation if it hangs (e.g. autoplay blocked)
@@ -339,6 +370,7 @@ export async function loadAndBroadcastFile(
     // The previous track is already stopped. Drop the app-owned PCM reference
     // before admission so the next decode does not guarantee a two-buffer peak.
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+    decoding = true;
     const decoded = await decodeBlobToAudioBuffer(
       file,
       'host-load',
@@ -346,6 +378,7 @@ export async function loadAndBroadcastFile(
       queueItemId,
       isCurrentOwner,
     );
+    decoding = false;
     const audioBuffer = decoded.audioBuffer;
     try {
       // Re-verify after async decode. The native decode reservation remains
@@ -463,12 +496,14 @@ export async function loadAndBroadcastFile(
     const message = err instanceof Error ? err.message : String(err);
     showToast(t('error.load_failed', { msg: message }));
 
-    // Auto-advance only on a local-authority path. Standard-room guests receive
-    // the next FILE_START after their host advances and do not skip independently;
-    // a PRO endpoint routes the resulting selection through server authority.
+    // PRO's legacy media projection has no hostConn even on an ordinary member.
+    // Only decoder/admission failures are terminal on that device; graph init,
+    // audio unlock and decoder module/worker startup must remain retryable.
     const hostConn = getState('network.hostConn');
-    if (!hostConn) {
-      markFailedAndAdvance(queueItemId);
+    if (getState('room.context').kind === 'pro') {
+      if (decoding && !isAudioDecoderStartupError(err)) markDeviceTrackUnavailable(queueItemId);
+    } else if (!hostConn) {
+      markFailedAndAdvance(queueItemId, stopAllMedia);
     }
     return false;
   } finally {
@@ -487,11 +522,10 @@ export async function loadAndBroadcastFile(
 
 // ─── Local-Authority Auto-Advance on Decode Failure ────────────────
 //
-// Standard-room guests keep decoder failures device-local. A standard host or
-// PRO endpoint with playback authority may walk to the next playable track via
-// preloaded → shuffle → sequential priority. If no playable track remains,
-// the local player returns to IDLE rather than leaving the UI stuck; PRO row
-// selection still re-enters the server command seam.
+// Standard-room guests and all PRO participants keep decoder failures
+// device-local. Only standard/local playback authority walks to the next
+// playable track via preloaded → shuffle → sequential priority. If no playable
+// track remains, that local player returns to IDLE rather than leaving the UI stuck.
 //
 // Caller must already own local playback authority.
 export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: number): Promise<void> {
@@ -584,107 +618,6 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
   }
 }
 
-function markFailedAndAdvance(failedQueueItemId: QueueItemId): void {
-  const failedItem = getQueueItemById(failedQueueItemId);
-  if (!failedItem || getCurrentQueueItemId() !== failedQueueItemId) return;
-
-  broadcastSystemMessage('chat.decode_skip_system_message');
-  markTrackFailed(getTrackKeyFromItem(failedItem));
-
-  const playlist = getState('playlist.items') || [];
-  const playableCount = playlist.reduce(
-    (count, item) => count + (isTrackFailed(getTrackKeyFromItem(item)) ? 0 : 1),
-    0,
-  );
-  if (playableCount === 0) {
-    showToast(t('error.all_tracks_failed'));
-    clearFailedTracks();
-    stopAllMedia();
-    setCurrentAudioBuffer(null);
-    setPlaybackTrackMeta(null);
-    selectQueueItemById(null);
-    setState('files.current', null);
-    setState('player.pausedAt', 0);
-    setPlaybackIdle();
-    transition({ type: 'PAUSE', time: 0, queueItemId: null, endOfPlaylist: true });
-    broadcast({
-      type: MSG.PAUSE,
-      time: 0,
-      queueItemId: null,
-      endOfPlaylist: true,
-      reason: 'end-of-playlist',
-    });
-    return;
-  }
-
-  const advanceEpoch = getCurrentLoadEpoch();
-  setManagedTimer(
-    'decode-fail-advance',
-    () => {
-      if (
-        !isCurrentLoadEpoch(advanceEpoch) ||
-        getCurrentQueueItemId() !== failedQueueItemId ||
-        !getQueueItemById(failedQueueItemId)
-      ) {
-        log.debug('[Decode] Skipping auto-advance because queue ownership changed');
-        return;
-      }
-
-      void loadPlaylistModule()
-        .then(({ getShuffleNextPlayableQueueItemId, playNextTrack, playTrack }) => {
-          const livePlaylist = getState('playlist.items') || [];
-          const failedIndex = findQueueItemIndex(failedQueueItemId, livePlaylist);
-          if (failedIndex < 0 || getCurrentQueueItemId() !== failedQueueItemId) return;
-
-          const isGoodCandidate = (queueItemId: QueueItemId): boolean => {
-            const item = getQueueItemById(queueItemId, livePlaylist);
-            return (
-              !!item &&
-              queueItemId !== failedQueueItemId &&
-              !isTrackFailed(getTrackKeyFromItem(item))
-            );
-          };
-
-          let targetQueueItemId: QueueItemId | null = null;
-          const preloadedQueueItemId = getState('preload.nextQueueItemId');
-          if (preloadedQueueItemId && isGoodCandidate(preloadedQueueItemId)) {
-            targetQueueItemId = preloadedQueueItemId;
-          }
-
-          if (!targetQueueItemId && getState('playlist.isShuffle')) {
-            targetQueueItemId = getShuffleNextPlayableQueueItemId((queueItemId) =>
-              isGoodCandidate(queueItemId),
-            );
-          }
-
-          if (!targetQueueItemId && !getState('playlist.isShuffle')) {
-            const repeatMode = getState('playlist.repeatMode');
-            const maxProbe =
-              repeatMode === 1 ? livePlaylist.length : livePlaylist.length - 1 - failedIndex;
-            for (let probe = 1; probe <= maxProbe; probe++) {
-              const candidate = livePlaylist[(failedIndex + probe) % livePlaylist.length];
-              if (candidate && isGoodCandidate(candidate.queueItemId)) {
-                targetQueueItemId = candidate.queueItemId;
-                break;
-              }
-            }
-          }
-
-          if (targetQueueItemId) {
-            return playTrack(targetQueueItemId);
-          } else {
-            playNextTrack();
-          }
-        })
-        .catch((error) => {
-          log.warn('[Decode] Failed to load the playlist for decode-failure recovery:', error);
-          showToast(t('error.network_generic'));
-        });
-    },
-    600,
-  );
-}
-
 function recordGuestDecodeFailure(queueItemId: QueueItemId): number {
   // Descriptor-only remote delivery can bypass FILE_PREPARE/START. Keep
   // retries tied to the occurrence even after failed preload cleanup has
@@ -699,19 +632,6 @@ function recordGuestDecodeFailure(queueItemId: QueueItemId): number {
     'player.decodeFailureCount': failureCount,
   });
   return failureCount;
-}
-
-function markDeviceTrackUnavailable(queueItemId: QueueItemId): void {
-  // A terminal device-local rejection owns neither the failed occurrence's
-  // pending position nor its recovery target. Keeping either would let a
-  // PREPARE-lost successor inherit stale playback intent.
-  setPendingPlayTime(undefined);
-  setPendingRecoveryTarget(null);
-  const key = getTrackKeyFromItem(getQueueItemById(queueItemId));
-  if (isTrackFailed(key)) return;
-  markTrackFailed(key);
-  announceSystemMessageLocally('chat.device_track_unavailable_system_message');
-  sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
 }
 
 // Guest decoders can reject a track the host can play. That is a device-local
@@ -959,6 +879,7 @@ export async function loadPreloadedTrack(
   };
   const activationOwner = beginPreloadActivation(myEpoch, queueItemId, ready.sessionId, localBlob);
   let published = false;
+  let decoding = false;
   const ownsTarget = (): boolean =>
     isCurrentPreloadActivation(activationOwner) &&
     activationOwner.queueItemId === queueItemId &&
@@ -1073,6 +994,7 @@ export async function loadPreloadedTrack(
     log.debug('[Preload] Decoding audio for Buffer Mode...');
     showToast(t('toast.decoding_audio'));
 
+    decoding = true;
     const decoded = await decodeBlobToAudioBuffer(
       localBlob,
       'preload',
@@ -1080,6 +1002,7 @@ export async function loadPreloadedTrack(
       queueItemId,
       ownsTarget,
     );
+    decoding = false;
     const audioBuffer = decoded.audioBuffer;
     try {
       if (!ownsTarget()) {
@@ -1124,7 +1047,11 @@ export async function loadPreloadedTrack(
 
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined && ownsPublishedTarget()) {
-      const timing = resolveFilePlayTiming(pendingTime, getPendingPlayTimeSetAt());
+      const timing = resolveFilePlayTiming(
+        pendingTime,
+        getPendingPlayTimeSetAt(),
+        getPendingPlayTimeMonotonicSetAt(),
+      );
       log.info(`[Preload] Activating playback at ${timing.offset.toFixed(1)}s`);
       let recoveredStartFinalized = false;
       const finalizeRecoveredStart = (): void => {
@@ -1205,9 +1132,13 @@ export async function loadPreloadedTrack(
     if (!getState('preload.activeTarget')) clearManagedTimer('preloadUiWatchdog');
 
     const hostConn = getState('network.hostConn');
+    if (getState('room.context').kind === 'pro') {
+      if (decoding && !isAudioDecoderStartupError(error)) markDeviceTrackUnavailable(queueItemId);
+      return false;
+    }
     if (!hostConn) {
       showToast(t('transfer.preload_fail'));
-      markFailedAndAdvance(queueItemId);
+      markFailedAndAdvance(queueItemId, stopAllMedia);
       return false;
     }
 
@@ -1343,6 +1274,7 @@ export async function finalizeGuestFile(
   const myTransferSid = sessionId;
   const isAdmissionBoundFile = encodedReceiveReservationIdForBlob(file) !== undefined;
   const detachedPreviousBuffer = getCurrentAudioBuffer();
+  retainFilePlaybackResource(detachedPreviousBuffer);
   const detachedPreviousResident = getState('files.current');
   const ownsTarget = (): boolean => {
     const liveMeta = getState('transfer.meta');
@@ -1460,7 +1392,11 @@ export async function finalizeGuestFile(
     const hostConn = getState('network.hostConn');
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined && ownsTarget()) {
-      const timing = resolveFilePlayTiming(pendingTime, getPendingPlayTimeSetAt());
+      const timing = resolveFilePlayTiming(
+        pendingTime,
+        getPendingPlayTimeSetAt(),
+        getPendingPlayTimeMonotonicSetAt(),
+      );
       log.debug(`[Guest] Pending play at ${timing.offset.toFixed(1)}s`);
       let recoveredStartFinalized = false;
       const finalizeRecoveredStart = (): void => {
@@ -1541,6 +1477,7 @@ export async function finalizeGuestFile(
     ) {
       setCurrentAudioBuffer(detachedPreviousBuffer);
     }
+    releaseFilePlaybackResource(detachedPreviousBuffer);
     // Native decode cannot be cancelled. A replacement PREPARE/START may
     // already own the default loader before it starts another finalizer (M2),
     // so fence cleanup by the exact queue/transfer owner as well. ownsTarget

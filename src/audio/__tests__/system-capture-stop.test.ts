@@ -96,6 +96,7 @@ const proAudio = vi.hoisted(() => ({
   acquire: vi.fn(),
   publish: vi.fn(),
   release: vi.fn(),
+  restorePlayback: vi.fn<(isCurrent: () => boolean) => void>(),
   attemptToken: null as symbol | null,
   coordinatorCompatible: true,
 }));
@@ -143,6 +144,7 @@ vi.mock('../context.ts', () => ({
 }));
 
 vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
+  restoreProPlaybackAfterSystemAudioRelease: proAudio.restorePlayback,
   beginLocalProSystemAudioLeaseAttempt: vi.fn(() => {
     const token = Symbol('test-pro-lease-attempt');
     proAudio.attemptToken = token;
@@ -480,6 +482,29 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
     expect(getState('player.currentTrackMeta')).toBe(clicked);
     // …and system-audio ownership is released so the new flow can claim.
     expect(getState('playback.mode')).toBeNull();
+  });
+
+  it('defers PRO YouTube restoration to the current server checkpoint after explicit release', async () => {
+    setProRoom();
+    const legacyRestore = await startShareWithPriorYouTube();
+    bus.emit('system-audio:stop');
+    expect(proAudio.restorePlayback).toHaveBeenCalledOnce();
+    expect(legacyRestore).not.toHaveBeenCalled();
+    expect(getState('playback.activity')).toBe('idle');
+    const isCurrent = proAudio.restorePlayback.mock.calls[0][0];
+    expect(isCurrent()).toBe(true);
+    // Preparing the canonical renderer may repeat a now-inactive teardown.
+    bus.emit('system-audio:force-stop');
+    expect(isCurrent()).toBe(true);
+    await startShareWithPriorYouTube();
+    expect(isCurrent()).toBe(false);
+  });
+
+  it('does not arm PRO playback restoration on a force-stop transition', async () => {
+    setProRoom();
+    await startShareWithPriorYouTube();
+    bus.emit('system-audio:force-stop');
+    expect(proAudio.restorePlayback).not.toHaveBeenCalled();
   });
 
   it('explicit stop (system-audio:stop) still restores the pre-share snapshot', async () => {
@@ -873,6 +898,99 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
 });
 
 describe('system audio start failure rollback', () => {
+  it.each([
+    ['picker', 'resolve'],
+    ['picker', 'reject'],
+    ['initialization', 'resolve'],
+    ['initialization', 'reject'],
+  ] as const)(
+    'keeps a newer YouTube selection when obsolete capture %s settles with %s',
+    async (boundary, outcome) => {
+      preparePriorYouTubePlayback();
+      const successorQueueItemId = '00000000-0000-4000-8000-000000000002';
+      const successorItem: PlaylistItem = {
+        queueItemId: successorQueueItemId,
+        type: 'youtube',
+        name: 'New video',
+        title: 'New video',
+        videoId: 'video-2',
+        playlistId: null,
+      };
+      setState('playlist.items', [...getState('playlist.items'), successorItem]);
+      let resolvePending!: () => void;
+      let rejectPending!: (error: Error) => void;
+      if (boundary === 'initialization') {
+        vi.mocked(initAudio).mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve, reject) => {
+              resolvePending = resolve;
+              rejectPending = reject;
+            }),
+        );
+        stubDisplayMedia();
+      } else {
+        stubDisplayMedia(
+          (stream) =>
+            new Promise<MediaStream>((resolve, reject) => {
+              resolvePending = () => resolve(stream);
+              rejectPending = reject;
+            }),
+        );
+      }
+      const startPromise = startSystemAudioCapture();
+      if (boundary === 'initialization') {
+        await vi.waitFor(() => expect(initAudio).toHaveBeenCalledOnce());
+      }
+
+      // The initialization case is a local click after the picker closes. The
+      // picker case also covers a room command accepted while the picker is open.
+      // Both use the real playlist entry point to select the next video.
+      const { playTrack } = await import('../../player/playlist.ts');
+      await playTrack(successorQueueItemId);
+      expect(getState('playlist.currentQueueItemId')).toBe(successorQueueItemId);
+      expect(getState('player.currentTrackMeta')?.videoId).toBe('video-2');
+
+      const toastSpy = vi.fn();
+      const stopSpy = vi.fn();
+      bus.on('ui:show-toast', toastSpy);
+      bus.on('system-audio:stop', stopSpy);
+      if (outcome === 'resolve') resolvePending();
+      else rejectPending(new Error('obsolete capture setup failed'));
+      await startPromise;
+
+      expect(getState('player.currentTrackMeta')?.videoId).toBe('video-2');
+      expect(getState('playback.mode')).toBe('youtube');
+      expect(transport.stopAllMediaAsync).not.toHaveBeenCalled();
+      expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(
+        boundary === 'picker' && outcome === 'reject' ? 0 : 1,
+      );
+      expect(isSystemAudioActive()).toBe(false);
+      expect(toastSpy).not.toHaveBeenCalled();
+      expect(stopSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows a current capture to advance the real transport load epoch and restore on native stop', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    const actualTransport = await vi.importActual<typeof import('../../player/transport.ts')>(
+      '../../player/transport.ts',
+    );
+    transport.stopAllMediaAsync.mockImplementationOnce(actualTransport.stopAllMediaAsync);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(isSystemAudioActive()).toBe(true);
+    expect(getState('playback.mode')).toBe('system-audio');
+    expect(restoreSpy).not.toHaveBeenCalled();
+
+    lastDisplayCapture?.dispatchEnded();
+
+    expect(isSystemAudioActive()).toBe(false);
+    expect(restoreSpy).toHaveBeenCalledOnce();
+    expect(getState('player.currentTrackMeta')?.videoId).toBe('video-1');
+  });
+
   it('leaves prior playback untouched when audio initialization fails', async () => {
     const restoreSpy = preparePriorYouTubePlayback();
     const error = new Error('audio graph unavailable');

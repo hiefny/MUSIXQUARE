@@ -436,8 +436,14 @@ export function registerServiceWorker(): void {
           log.debug('[SW] Waiting worker prompt already dismissed for this generation');
           return;
         }
-        if (!updateLedger.claimPrompt(generation)) {
+        const promptAbort = new AbortController();
+        if (!(await updateLedger.acquirePrompt(generation, () => promptAbort.abort()))) {
           log.debug('[SW] Waiting worker prompt owned by another app client');
+          return;
+        }
+        if (!waitingWorkerIsCurrent() || activationState !== 'passive') {
+          updateLedger.releasePrompt(generation);
+          continueWithReplacement();
           return;
         }
 
@@ -450,11 +456,21 @@ export function registerServiceWorker(): void {
             message: t('dialog.sw_update_msg'),
             buttonText: t('common.refresh'),
             secondaryText: t('common.later'),
+            signal: promptAbort.signal,
           });
         } catch {
           result = undefined;
         }
         updateLedger.releasePrompt(generation);
+
+        if (promptAbort.signal.aborted) {
+          // Losing a best-effort legacy election is not a user dismissal and
+          // must not suppress the winning tab's prompt or a newer generation.
+          activationState = 'passive';
+          if (controllerChangedWhilePrompting) handlePassiveControllerChange();
+          continueWithReplacement();
+          return;
+        }
 
         if (!waitingWorkerIsCurrent()) {
           const replacement =

@@ -263,11 +263,10 @@ describe('PRO member-level chat projection', () => {
   });
 
   it('silently applies an authenticated reconnect control projection, including OFF values', () => {
+    setState('network.chatMuted', true);
     setState('network.chatFrozen', true);
     setState('network.filterEnabled', true);
     setState('network.slowmodeSeconds', 15);
-    const muted: boolean[] = [];
-    bus.on('chat:muted-state-changed', (on) => muted.push(on));
     const snapshotFrame: ProRealtimeRelayEnvelope = {
       type: 'pro-realtime',
       version: 1,
@@ -294,7 +293,7 @@ describe('PRO member-level chat projection', () => {
     expect(getState('network.chatFrozen')).toBe(false);
     expect(getState('network.filterEnabled')).toBe(false);
     expect(getState('network.slowmodeSeconds')).toBe(0);
-    expect(muted).toEqual([false]);
+    expect(getState('network.chatMuted')).toBe(false);
     expect(addSystemChatMessage).not.toHaveBeenCalled();
   });
 });

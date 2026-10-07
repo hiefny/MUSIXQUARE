@@ -87,7 +87,7 @@ function parseReverbState(value: unknown): RoomReverbState | null {
       'highCutPercent',
     ]) ||
     !boundedNumber(value.mixPercent, 0, 100) ||
-    !boundedNumber(value.decaySeconds, 0.1, 30) ||
+    !boundedNumber(value.decaySeconds, 0.1, 10) ||
     !boundedNumber(value.preDelaySeconds, 0, 1) ||
     !boundedNumber(value.lowCutPercent, 0, 100) ||
     !boundedNumber(value.highCutPercent, 0, 100)
@@ -197,7 +197,7 @@ export function parseRoomEffectsPatch(value: unknown): RoomEffectsPatch | null {
     }
     const ranges: Record<keyof RoomReverbState, readonly [number, number]> = {
       mixPercent: [0, 100],
-      decaySeconds: [0.1, 30],
+      decaySeconds: [0.1, 10],
       preDelaySeconds: [0, 1],
       lowCutPercent: [0, 100],
       highCutPercent: [0, 100],

@@ -356,7 +356,7 @@ describe('Developer API live canary smoke', () => {
                 effects: {
                   reverb: {
                     mixPercent: 0,
-                    decaySeconds: 5,
+                    decaySeconds: 10,
                     preDelaySeconds: 0.1,
                     lowCutPercent: 0,
                     highCutPercent: 0,

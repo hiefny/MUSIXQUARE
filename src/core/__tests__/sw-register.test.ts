@@ -549,6 +549,43 @@ describe('service-worker cache-retirement client handshake', () => {
     keepPromptOpen();
   });
 
+  it('retracts a late legacy ownership loser without recording a user dismissal or blocking reload', async () => {
+    moduleMocks.showDialog.mockImplementation(
+      (options: { signal: AbortSignal }) =>
+        new Promise((resolve) => {
+          options.signal.addEventListener('abort', () => resolve({ action: 'superseded' }), {
+            once: true,
+          });
+        }),
+    );
+    const harness = installServiceWorkerHarness(
+      { postMessage: vi.fn() },
+      'navigate',
+      true,
+      703,
+      704,
+    );
+    await registerWithHarness(harness);
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+    const signal = moduleMocks.showDialog.mock.calls[0]![0].signal as AbortSignal;
+    const key = 'mxqr-sw-update-prompt-lease-v1';
+    const winner = JSON.stringify({
+      identity: 'v704',
+      owner: 'native-other-client',
+      expiresAt: Date.now() + 300000,
+    });
+    localStorage.setItem(key, winner);
+    globalThis.dispatchEvent(new StorageEvent('storage', { key }));
+    await flushAsyncControllerChange();
+    expect(signal.aborted).toBe(true);
+    expect(localStorage.getItem(key)).toBe(winner);
+    expect(localStorage.getItem('mxqr-sw-update-dismissal-v1')).toBeNull();
+    expect(harness.waitingWorker!.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    harness.setController(harness.waitingWorker!, true, 'v704');
+    harness.emit('controllerchange');
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+  });
+
   it('briefly cools down a failed prompt presentation without hiding a newer generation', async () => {
     moduleMocks.showDialog.mockRejectedValueOnce(new Error('dialog unavailable'));
     const first = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);

@@ -8,12 +8,15 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
+import { getQueueItemById } from './queue-model.ts';
+import { getPlaylistSubItems } from '../youtube/queue-manifest.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime, pause } from './transport.ts';
 import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
 import {
   isPlaybackActivityValue,
   isPlaybackIdle,
+  isPlaybackModeFile,
   isPlaybackModeYouTube,
   isPlaybackPlayingFile,
   isPlaybackPlayingYouTube,
@@ -110,8 +113,10 @@ export function updateMediaSessionMetadata(item: Partial<TrackMeta> | null): voi
   if (item.type === 'youtube') {
     const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
     if (item.playlistId && currentYouTubeSubIndex !== -1) {
-      const subMap = getState('youtube.subItemsMap') || {};
-      const subData = subMap[item.playlistId];
+      const queueItem = getQueueItemById(item.queueItemId ?? null);
+      const subData = queueItem
+        ? getPlaylistSubItems(queueItem)
+        : getState('youtube.subItemsMap')[item.playlistId];
       if (
         subData?.titles &&
         currentYouTubeSubIndex >= 0 &&
@@ -347,15 +352,19 @@ export function initMediaSession(): void {
     }
     pendingLocalPlayRecovery = null;
     localPlayOwner = null;
+    if (isPlaybackModeFile() && isNonOperatorGuest()) {
+      // PLAY can be waiting for host time while the output is still paused.
+      // Preserve a newer PAUSE so the delayed PONG/reconciliation cannot resume it.
+      setLocalFilePaused(true);
+      pause(undefined, { showToast: false });
+      return;
+    }
     if (isPlaybackPlayingFile()) {
-      if (isNonOperatorGuest()) {
-        // Local pause: mark it so the host's SYNC_PONG bootstrap/drift in
-        // network/sync.ts does not auto-resume this guest within ~1s.
-        setLocalFilePaused(true);
-        pause(undefined, { showToast: false });
-        return;
-      }
       togglePlay();
+    } else if (isPlaybackModeFile() && getRoomContext().kind === 'standard' && isCoordinator()) {
+      // Host PLAY can still be awaiting native resume/init while activity is
+      // paused. Revoke that start even though there is no source to stop yet.
+      pause(undefined, { showToast: false });
     }
   });
 

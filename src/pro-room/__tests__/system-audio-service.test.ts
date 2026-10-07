@@ -75,6 +75,8 @@ const mocks = vi.hoisted(() => ({
   roomContextKind: 'pro' as 'pro' | 'standard',
   playbackMode: 'none' as 'none' | 'system-audio',
   sfuListener: null as ((event: Record<string, unknown>) => void) | null,
+  restorePlayback:
+    vi.fn<(liveness: { identity: object; isCurrent: () => boolean }) => Promise<boolean>>(),
 }));
 
 vi.mock('../../audio/context.ts', () => ({ getAudioContext: mocks.getAudioContext }));
@@ -164,6 +166,7 @@ import {
 import {
   beginLocalProSystemAudioLeaseAttempt,
   canPublishProSystemAudioWithCurrentCoordinator,
+  restoreProPlaybackAfterSystemAudioRelease,
 } from '../system-audio-bridge.ts';
 
 const LOCAL_ID = 'participant_local1';
@@ -291,7 +294,7 @@ function idle(generation = 0): ProRoomSystemAudioState {
   };
 }
 
-function preparing(generation = 1): ProRoomSystemAudioState {
+function preparing(generation = 1): Extract<ProRoomSystemAudioState, { status: 'preparing' }> {
   return {
     generation,
     status: 'preparing',
@@ -471,12 +474,13 @@ function deferred<T>(): {
 }
 
 beforeAll(() => {
-  configureProSystemAudioService(api as unknown as ProRoomApiClient);
+  configureProSystemAudioService(api as unknown as ProRoomApiClient, mocks.restorePlayback);
   registerProSystemAudioServiceListeners();
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.restorePlayback.mockReset().mockResolvedValue(true);
   mocks.roomContextKind = 'pro';
   mocks.playbackMode = 'none';
   mocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
@@ -505,6 +509,171 @@ afterEach(() => {
 });
 
 describe('PRO system-audio service orchestration', () => {
+  async function startLocalShare(): Promise<void> {
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockResolvedValueOnce(localLive());
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({} as MediaStreamTrack);
+  }
+
+  async function observeState(state: ProRoomSystemAudioState): Promise<void> {
+    api.getSystemAudioState.mockResolvedValueOnce(state);
+    await refreshProSystemAudioState();
+  }
+
+  it('restores an explicitly stopped owner only after authoritative idle and local teardown', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    const released = deferred<ProRoomSystemAudioState>();
+    api.releaseSystemAudioLease.mockReturnValueOnce(released.promise);
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    const release = releaseLocalProSystemAudioLease();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    released.resolve(idle(2));
+    await release;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+    await observeState(idle(2));
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('resumes a receiver after live ends but not on initial idle or initial live', async () => {
+    vi.useFakeTimers();
+    await observeState(idle());
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(live());
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    mocks.playbackMode = 'system-audio';
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+    expect(mocks.cleanupReception.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      mocks.restorePlayback.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not restore an unarmed owner stop or failed preparing publication', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(2));
+    await releaseLocalProSystemAudioLease();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(preparing(3));
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    await observeState(idle(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+  });
+
+  it('restores receivers from current canonical playback after missed share generations', async () => {
+    vi.useFakeTimers();
+    await observeState(live());
+    await observeState(idle(5));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('retains observed receiver interruption through a successor preparing share', async () => {
+    vi.useFakeTimers();
+    await observeState(live());
+    await observeState({ ...preparing(3), ownerParticipantId: REMOTE_ID });
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(idle(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('retains unfinished receiver restoration when another share starts preparing', async () => {
+    vi.useFakeTimers();
+    mocks.restorePlayback.mockResolvedValueOnce(false);
+    await observeState(live());
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    const first = mocks.restorePlayback.mock.calls[0][0];
+    await observeState({ ...preparing(3), ownerParticipantId: REMOTE_ID });
+    expect(first.isCurrent()).toBe(false);
+    await observeState(idle(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains the explicit restoration intent across lease release failure and retry', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    api.releaseSystemAudioLease.mockRejectedValueOnce(new Error('temporary release failure'));
+    api.getSystemAudioState.mockResolvedValueOnce(localLive());
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(2));
+    await expect(releaseLocalProSystemAudioLease()).rejects.toThrow('temporary release failure');
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+  });
+
+  it('keeps clock/API restoration retries owned and backs off until recovery', async () => {
+    vi.useFakeTimers();
+    mocks.restorePlayback.mockResolvedValue(false);
+    await observeState(live());
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(250 + 1_000 + 2_500 + 5_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(5);
+    const liveness = mocks.restorePlayback.mock.calls[0][0];
+    expect(liveness.isCurrent()).toBe(true);
+    mocks.restorePlayback.mockRejectedValueOnce(new Error('temporary heartbeat failure'));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(6);
+    mocks.restorePlayback.mockResolvedValue(true);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(7);
+    expect(liveness.isCurrent()).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(7);
+  });
+
+  it.each(['new-share', 'room-reset', 'new-incarnation', 'capture-cancelled'] as const)(
+    'invalidates restoration and retries on %s',
+    async (boundary) => {
+      vi.useFakeTimers();
+      await startLocalShare();
+      let captureCurrent = true;
+      restoreProPlaybackAfterSystemAudioRelease(() => captureCurrent);
+      mocks.restorePlayback.mockResolvedValue(false);
+      api.releaseSystemAudioLease.mockResolvedValueOnce(idle(2));
+      await releaseLocalProSystemAudioLease();
+      await vi.advanceTimersByTimeAsync(0);
+      const liveness = mocks.restorePlayback.mock.calls[0][0];
+      expect(liveness.isCurrent()).toBe(true);
+      if (boundary === 'new-share') await observeState(live(3));
+      if (boundary === 'room-reset') resetProSystemAudioService();
+      if (boundary === 'new-incarnation') bindProSystemAudioSession(snapshot('presence_local_02'));
+      if (boundary === 'capture-cancelled') captureCurrent = false;
+      expect(liveness.isCurrent()).toBe(false);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(mocks.restorePlayback).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('does not revive an old explicit stop after a newer share generation is observed', async () => {
+    vi.useFakeTimers();
+    await startLocalShare();
+    restoreProPlaybackAfterSystemAudioRelease(() => true);
+    await observeState(live(3));
+    // New receiver lifecycle owns the later stop; the old owner callback cannot resume early.
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).not.toHaveBeenCalled();
+  });
+
   it('allows every playback-capable member without browser-coordinator proof', async () => {
     expect(canPublishProSystemAudioWithCurrentCoordinator()).toBe(true);
     api.getSystemAudioState.mockResolvedValueOnce(idle());
@@ -1589,6 +1758,7 @@ describe('PRO system-audio service orchestration', () => {
     await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor,
       track: { id: 'first-stereo' } as MediaStreamTrack,
     });
@@ -1614,12 +1784,109 @@ describe('PRO system-audio service orchestration', () => {
     await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(2));
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor,
       track: { id: 'retry-stereo' } as MediaStreamTrack,
     });
     await vi.waitFor(() => expect(graph.sources).toHaveLength(2));
     expect(mocks.setSystemAudioReceiving.mock.calls).toEqual([[false], [true]]);
   });
+
+  it('retires an SFU receive attempt when native audio resume times out and retries its track', async () => {
+    const graph = installAudioGraphHarness();
+    // A PRO member may enter before its first audio graph has been created.
+    // Mobile WebKit can keep the native resume promise pending without a
+    // gesture. Exercise the real bounded native-resume helper, not a delayed
+    // application helper or a fabricated transport failure.
+    const nativeContext = {
+      state: 'suspended',
+      resume: vi.fn(() => new Promise<void>(() => undefined)),
+    };
+    vi.stubGlobal(
+      'AudioContext',
+      class {
+        constructor() {
+          return nativeContext;
+        }
+      },
+    );
+    const { ensureRunning } =
+      await vi.importActual<typeof import('../../audio/context.ts')>('../../audio/context.ts');
+    mocks.initAudio.mockImplementationOnce(ensureRunning);
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+    const descriptor = mocks.subscribe.mock.calls[0][0];
+    mocks.stopSubscriber.mockClear();
+    vi.useFakeTimers();
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      track: { id: 'blocked-stereo' } as MediaStreamTrack,
+      isCurrent: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(501);
+
+    expect(nativeContext.resume).toHaveBeenCalledOnce();
+    expect(graph.sources).toHaveLength(0);
+    expect(mocks.stopSubscriber).toHaveBeenCalledTimes(1);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(false);
+    expect(getManagedTimer('pro-system-audio-subscriber-retry')).not.toBeNull();
+
+    // The next attempt must allocate a fresh subscription: simply subscribing
+    // again to the same live PC cannot repeat its once-only track event.
+    nativeContext.state = 'running';
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(2);
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      track: { id: 'recovered-stereo' } as MediaStreamTrack,
+      isCurrent: () => true,
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(graph.sources).toHaveLength(1);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenLastCalledWith(true);
+  });
+
+  it.each(['transport-replaced', 'publication-replaced', 'room-left'] as const)(
+    'does not retire a successor SFU subscription when audio setup rejects after %s',
+    async (replacement) => {
+      installAudioGraphHarness();
+      const pendingAudio = deferred<void>();
+      mocks.initAudio.mockReturnValueOnce(pendingAudio.promise);
+      api.getSystemAudioState.mockResolvedValueOnce(live());
+      await refreshProSystemAudioState();
+      await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+      const descriptor = mocks.subscribe.mock.calls[0][0];
+      let current = true;
+      mocks.sfuListener?.({
+        type: 'subscriber-track',
+        descriptor,
+        track: { id: 'stale-stereo' } as MediaStreamTrack,
+        isCurrent: () => current,
+      });
+      await vi.waitFor(() => expect(mocks.initAudio).toHaveBeenCalledOnce());
+
+      if (replacement === 'transport-replaced') {
+        current = false;
+      } else if (replacement === 'publication-replaced') {
+        api.getSystemAudioState.mockResolvedValueOnce(live(2));
+        await refreshProSystemAudioState();
+      } else {
+        mocks.roomContextKind = 'standard';
+        bus.emit('state:room.context', { kind: 'standard' } as never, { kind: 'pro' } as never);
+      }
+      mocks.stopSubscriber.mockClear();
+      mocks.setSystemAudioReceiving.mockClear();
+      pendingAudio.reject(new Error('native audio initialization failed late'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mocks.stopSubscriber).not.toHaveBeenCalled();
+      expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+      expect(getManagedTimer('pro-system-audio-subscriber-retry')).toBeNull();
+    },
+  );
 
   it('debounces SFU disconnects and restores playing without removing the pending placeholder', async () => {
     const graph = installAudioGraphHarness();
@@ -1634,6 +1901,7 @@ describe('PRO system-audio service orchestration', () => {
     await refreshProSystemAudioState();
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor,
       track: { id: 'stereo' } as MediaStreamTrack,
     });
@@ -1947,6 +2215,7 @@ describe('PRO system-audio service orchestration', () => {
     const oldTrack = {} as MediaStreamTrack;
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor: {
         version: 2,
         sessionId: 'realtime_session_01',
@@ -1973,6 +2242,7 @@ describe('PRO system-audio service orchestration', () => {
   });
 
   it('does not attach a PRO SFU track before the trusted owner-switch boundary settles', async () => {
+    installAudioGraphHarness();
     const trustedBoundary = deferred<boolean>();
     mocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(trustedBoundary.promise);
     api.getSystemAudioState.mockResolvedValueOnce(live());
@@ -1981,6 +2251,7 @@ describe('PRO system-audio service orchestration', () => {
     mocks.initAudio.mockClear();
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor: {
         version: 2,
         sessionId: 'realtime_session_01',
@@ -2009,6 +2280,7 @@ describe('PRO system-audio service orchestration', () => {
     await refreshProSystemAudioState();
     mocks.sfuListener?.({
       type: 'subscriber-track',
+      isCurrent: () => true,
       descriptor: {
         version: 2,
         sessionId: 'realtime_session_01',

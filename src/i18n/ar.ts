@@ -407,10 +407,10 @@ const ar: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'المقاطع التي أضافها BOT: {{count}}. بدأ التشغيل',
   'chat.bot_rate_limited': 'بلغت طلبات BOT الحد المسموح. انتظر {{duration}} ثم حاول مجددًا',
   'chat.decode_skip_system_message': 'سيتم تخطي المقطع لأن تنسيقه غير مدعوم على بعض الأجهزة.',
+  'chat.large_track_playback_system_message':
+    'هذا المقطع كبير جدًا، لذا قد تواجه تأخيرًا أثناء استخدامه.',
   'chat.large_local_track_system_message':
     'حجم هذا المقطع كبير جدًا وقد يتعذّر تشغيله على بعض الأجهزة.',
-  'chat.decode_memory_risk_system_message':
-    'قد يستخدم هذا المقطع نحو {{estimatedMiB}} MiB من الذاكرة أثناء فك الترميز وقد لا يعمل على هذا الجهاز.',
   'chat.device_track_unavailable_system_message': 'لا يستطيع هذا الجهاز تشغيل المقطع الحالي.',
   'chat.system_audio_started_system_message':
     'بدأت مشاركة صوت النظام. من الطبيعي وجود تأخير بسيط بين أجهزة المضيف والضيوف. ننصح بخفض صوت جهاز المضيف لتجنب الصدى.',

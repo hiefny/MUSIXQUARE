@@ -38,12 +38,13 @@ import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
   clearPreviewDebounce,
   clearYouTubeInputState,
+  getSelectedYouTubeSearchResult,
   getYouTubeInputIntent,
 } from '../youtube/search.ts';
 import { primeYouTubePlayer, waitForPendingYouTubePrimeBounce } from '../youtube/iframe.ts';
 import { YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS } from '../youtube/constants.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
-import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
@@ -67,6 +68,7 @@ import {
   hasRoomCapability,
   isActiveStandardRoomCoordinator,
   isCoordinator,
+  isStandardRoomRole,
 } from '../rooms/authority.ts';
 import {
   roomCapabilityRequiredMessage,
@@ -633,6 +635,7 @@ function syncMainMediaSourceButtonLabel(): void {
 }
 
 function syncMediaSourceButtonAuthority(): void {
+  reconcileYouTubeGestureAuthority();
   syncMainMediaSourceButtonLabel();
   const canSelectMedia = hasRoomCapability('media.add') || hasRoomCapability('asset.upload');
   for (const id of ['btn-media-source', 'btn-add-media']) {
@@ -714,11 +717,21 @@ function openYouTubePopup(returnFocus?: HTMLElement | null): void {
 
 let youtubeGestureSubmitGeneration = 0;
 let youtubeGestureSubmitOwner: number | null = null;
+let releaseYouTubeGestureSubmit: (() => void) | null = null;
+let isYouTubeGestureAuthorityCurrent: (() => boolean) | null = null;
 
 function invalidateYouTubeGestureSubmit(): void {
   youtubeGestureSubmitGeneration++;
   youtubeGestureSubmitOwner = null;
-  getUiElement('youtube-play-btn')?.removeAttribute('aria-busy');
+  releaseYouTubeGestureSubmit?.();
+  releaseYouTubeGestureSubmit = null;
+  isYouTubeGestureAuthorityCurrent = null;
+}
+
+function reconcileYouTubeGestureAuthority(): void {
+  if (isYouTubeGestureAuthorityCurrent && !isYouTubeGestureAuthorityCurrent()) {
+    invalidateYouTubeGestureSubmit();
+  }
 }
 
 function submitYouTubeSearch(input: HTMLElement): void {
@@ -750,7 +763,38 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
   const submitGeneration = ++youtubeGestureSubmitGeneration;
   youtubeGestureSubmitOwner = submitGeneration;
   const submittedText = input.textContent || '';
+  const submittedResult = getSelectedYouTubeSearchResult(submittedText);
   const playButton = getUiElement<HTMLButtonElement>('youtube-play-btn');
+  const context = getRoomContext();
+  const hostConnection = getState('network.hostConn');
+  const wasStandardHost = isStandardRoomRole('host');
+  const wasStandardGuest = isStandardRoomRole('guest');
+  const sessionCode = getState('network.sessionCode');
+  const sessionStarted = getState('setup.sessionStarted');
+  isYouTubeGestureAuthorityCurrent = () => {
+    const current = getRoomContext();
+    return (
+      current.kind === context.kind &&
+      current.roomId === context.roomId &&
+      current.epoch === context.epoch &&
+      getState('network.hostConn') === hostConnection &&
+      isStandardRoomRole('host') === wasStandardHost &&
+      isStandardRoomRole('guest') === wasStandardGuest &&
+      getState('network.sessionCode') === sessionCode &&
+      getState('setup.sessionStarted') === sessionStarted &&
+      hasRoomCapability('media.add')
+    );
+  };
+  releaseYouTubeGestureSubmit = () => {
+    if (!playButton?.isConnected) return;
+    playButton.removeAttribute('aria-busy');
+    // A newer input/preview owns its own disabled state.
+    if (
+      (input.textContent || '') === submittedText &&
+      getSelectedYouTubeSearchResult(submittedText) === submittedResult
+    )
+      playButton.disabled = false;
+  };
   if (playButton) {
     playButton.disabled = true;
     playButton.setAttribute('aria-busy', 'true');
@@ -768,6 +812,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
       const overlay = getUiElement('youtube-url-overlay');
       if (overlay && !overlay.classList.contains('active')) return;
       if ((input.textContent || '') !== submittedText) return;
+      if (getSelectedYouTubeSearchResult(submittedText) !== submittedResult) return;
       bus.emit('youtube:load-from-input');
       if (IS_IOS || IS_ANDROID) input.blur();
     })
@@ -778,13 +823,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
       ) {
         return;
       }
-      youtubeGestureSubmitOwner = null;
-      if (playButton?.isConnected) {
-        playButton.removeAttribute('aria-busy');
-        // A changed input owns its newer preview gate; only restore the exact
-        // submission whose text is still present.
-        if ((input.textContent || '') === submittedText) playButton.disabled = false;
-      }
+      invalidateYouTubeGestureSubmit();
     })
     .catch((error) => {
       log.warn('[YouTube Prime] Submit flow failed', error);
@@ -846,9 +885,9 @@ function loadManualSyncOverlayRuntime(): Promise<ManualSyncOverlayRuntime> {
   return _manualSyncOverlayLoad;
 }
 
-function closeManualSyncOverlay(): void {
+function closeManualSyncOverlay(cancelPending = true): void {
   _manualSyncOverlayRequest += 1;
-  _manualSyncOverlayRuntime?.closeManualSyncOverlayRuntime();
+  _manualSyncOverlayRuntime?.closeManualSyncOverlayRuntime(cancelPending);
 }
 
 type MainSyncUnavailableReason = 'no-media' | 'not-ready' | 'system-audio';
@@ -856,7 +895,7 @@ type MainSyncUnavailableReason = 'no-media' | 'not-ready' | 'system-audio';
 function getMainSyncUnavailableReason(): MainSyncUnavailableReason | null {
   if (_mainSyncPending) return 'not-ready';
   if (isPlaybackModeSystemAudio()) return 'system-audio';
-  if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) return 'not-ready';
+  if (isPlaybackModeYouTube() && isYouTubeZeroStartSyncOwned()) return 'not-ready';
 
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();
@@ -1121,6 +1160,12 @@ export function initPlayerControls(): void {
   // future re-init paths don't stack duplicate handlers. Matches the pattern
   // in connect.ts and playlist-view.ts.
   _busScope.dispose();
+  invalidateYouTubeGestureSubmit();
+  _busScope.on('state:room.context', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:network.hostConn', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:network.sessionCode', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:setup.sessionStarted', reconcileYouTubeGestureAuthority);
+  _busScope.on('state:network.standardRoomCapabilities', reconcileYouTubeGestureAuthority);
   _domAbort?.abort();
   _closeDemoInlineControls();
   _fileStartLoadingController?.destroy();
@@ -1417,6 +1462,21 @@ export function initPlayerControls(): void {
   // YouTube popup (contenteditable)
   const ytInput = getUiElement('youtube-url-input');
   if (ytInput) {
+    let composing = false;
+    ytInput.addEventListener(
+      'compositionstart',
+      () => {
+        composing = true;
+      },
+      { signal: domSignal },
+    );
+    ytInput.addEventListener(
+      'compositionend',
+      () => {
+        composing = false;
+      },
+      { signal: domSignal },
+    );
     ytInput.addEventListener(
       'input',
       (e) => {
@@ -1438,10 +1498,14 @@ export function initPlayerControls(): void {
       'keydown',
       (e) => {
         if (e.key === 'Enter') {
-          if (e.isComposing || e.keyCode === 229) return;
+          if (composing || e.isComposing || e.keyCode === 229) return;
           e.preventDefault();
+          if (e.repeat) return;
+          const results = getUiElement('youtube-search-results');
+          if (results?.getAttribute('aria-busy') === 'true') return;
           const searchButton = getUiElement('youtube-search-btn') as HTMLButtonElement | null;
-          if (searchButton && !searchButton.disabled) {
+          const selected = getSelectedYouTubeSearchResult(ytInput.textContent || '');
+          if (!selected && searchButton && !searchButton.disabled) {
             submitYouTubeSearch(ytInput);
             return;
           }
@@ -1450,8 +1514,7 @@ export function initPlayerControls(): void {
           // honor the same gate as a physical button click, otherwise iOS falls
           // back to the asynchronous iframe indexer and loses this gesture.
           const playButton = getUiElement('youtube-play-btn') as HTMLButtonElement | null;
-          if (playButton?.disabled) return;
-          submitYouTubeFromGesture(ytInput);
+          playButton?.click();
         }
       },
       { signal: domSignal },
@@ -1467,6 +1530,42 @@ export function initPlayerControls(): void {
           clipboard?.getData('URL') ||
           '';
         document.execCommand('insertText', false, text);
+      },
+      { signal: domSignal },
+    );
+
+    const results = getUiElement('youtube-search-results');
+    const submitResult = (target: EventTarget | null): void => {
+      if (composing || youtubeGestureSubmitOwner !== null || !results || results.hidden) return;
+      if (results.getAttribute('aria-busy') === 'true') return;
+      const row =
+        target instanceof Element
+          ? target.closest<HTMLButtonElement>('button.yt-search-result[data-video-id]')
+          : null;
+      if (!row || !results.contains(row)) return;
+      if (!getSelectedYouTubeSearchResult(ytInput.textContent || '')) return;
+      const playButton = getUiElement<HTMLButtonElement>('youtube-play-btn');
+      if (!playButton || playButton.disabled) return;
+      // Selecting is synchronous. Delegate submission to Add in the same
+      // gesture stack so its preview gate and iOS unlock path stay shared.
+      row.click();
+      playButton.click();
+    };
+    results?.addEventListener(
+      'keydown',
+      (event) => {
+        if (event.key !== 'Enter' || composing || event.isComposing || event.keyCode === 229)
+          return;
+        event.preventDefault();
+        if (!event.repeat) submitResult(event.target);
+      },
+      { signal: domSignal },
+    );
+    results?.addEventListener(
+      'dblclick',
+      (event) => {
+        event.preventDefault();
+        submitResult(event.target);
       },
       { signal: domSignal },
     );
@@ -1548,11 +1647,14 @@ export function initPlayerControls(): void {
   syncPlayButtonAuthority();
   syncMainSyncButtonState();
 
-  // Language switch → refresh translated track title + tab title
+  // Refresh copy composed outside data-i18n, including authority feedback and
+  // the account badge, even when their underlying state has not changed.
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
   const refreshPlayerText = () => {
     refreshTrackTitle();
     setTabTitleTrack(getTabTitleTrack());
+    updateRoleBadge();
+    syncPlayButtonAuthority();
     syncMediaSourceButtonAuthority();
     syncMainSyncButtonState();
     syncVolumeAuthorityUI();
@@ -1844,6 +1946,7 @@ export function initPlayerControls(): void {
 
   const closeManualSyncIfInvalid = () => {
     syncDemoTransportControls();
+    _manualSyncOverlayRuntime?.refreshManualSyncOverlayRuntime();
     if (
       getState('demo.active')
         ? isPlaybackModeSystemAudio()
@@ -1851,7 +1954,10 @@ export function initPlayerControls(): void {
           ? !_manualSyncOverlayRuntime.canUseManualSyncPanelRuntime()
           : getMainSyncUnavailableReason() !== null
     ) {
-      closeManualSyncOverlay();
+      // PRO reconciliation can briefly replace its decoded resource. Hide the
+      // unavailable editor without cancelling that same request; the runtime
+      // still fences completion against room, connection, and track changes.
+      closeManualSyncOverlay(false);
     }
   };
   const reconcileStandardRoomSyncAvailability = () => {

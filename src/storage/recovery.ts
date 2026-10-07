@@ -42,7 +42,7 @@ import type { DataConnection, ResidentFile } from '../types/index.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import {
   createFileTrackMeta,
-  isYouTubeOwner,
+  isExternalOwner,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
@@ -58,6 +58,12 @@ let recoveryRequestGeneration = 0;
  * Requests a resend from the host when direct local file transfer is available.
  */
 export function sendRecoveryRequest(forceChunk: number | null = null): void {
+  // The selected local file can remain cached while YouTube or system audio
+  // owns playback. Selection alone must not revive that file's old recovery.
+  if (isExternalOwner()) {
+    resetRecoveryAuthority();
+    return;
+  }
   const selectedQueueItemId = getState('playlist.currentQueueItemId');
   const isProDirect = !!selectedQueueItemId && isProRoomPersistentPlaylistFile(selectedQueueItemId);
   // Remote guests receive files through remote-share descriptors; host resend is local-only.
@@ -138,6 +144,10 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     'recovery-backoff',
     () => {
       if (requestGeneration !== recoveryRequestGeneration) return;
+      if (isExternalOwner()) {
+        resetRecoveryAuthority();
+        return;
+      }
       setState('recovery.pending', false);
 
       // Re-fetch connection after backoff — the original reference may be stale
@@ -236,9 +246,9 @@ async function handleRequestCurrentFile(
   if (hostConn) return; // Guest ignores
   if (!conn || !conn.open) return;
 
-  // If Host is in YouTube mode, no local file to serve
-  if (isYouTubeOwner()) {
-    sendFileWait(conn, data, 'Host is playing YouTube');
+  // A retained file is not the active playback source during external media.
+  if (isExternalOwner()) {
+    sendFileWait(conn, data, 'Host is playing external media');
     return;
   }
 
@@ -309,6 +319,11 @@ async function handleRequestDataRecovery(
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
   if (!conn || !conn.open) return;
+
+  if (isExternalOwner()) {
+    sendFileWait(conn, data, 'Host is playing external media');
+    return;
+  }
 
   // Normalize start chunk
   let startChunk = 0;
@@ -381,6 +396,7 @@ async function handleRequestDataRecovery(
 // ─── Helpers ────────────────────────────────────────────────────────
 
 interface CachedBlobMatch {
+  generation: number;
   entry: Readonly<ResidentFile>;
   blob: Blob;
   sessionId: number;
@@ -457,6 +473,7 @@ function findMatchingBlob(queueItemId: string, reqSessionId?: number): CachedBlo
       sessionMatches(reqSessionId, current.sessionId)
     ) {
       return {
+        generation: recoveryRequestGeneration,
         entry: current,
         blob: current.blob,
         sessionId: current.sessionId,
@@ -482,6 +499,7 @@ function findMatchingBlob(queueItemId: string, reqSessionId?: number): CachedBlo
       sessionMatches(reqSessionId, preload.sessionId)
     ) {
       return {
+        generation: recoveryRequestGeneration,
         entry: preload,
         blob: preload.blob,
         sessionId: preload.sessionId,
@@ -495,6 +513,9 @@ function findMatchingBlob(queueItemId: string, reqSessionId?: number): CachedBlo
 }
 
 function isCachedBlobMatchCurrent(match: CachedBlobMatch): boolean {
+  // Do not revive an earlier authorization/pump after a temporary external
+  // takeover, even if the same queue occurrence and resident Blob return.
+  if (match.generation !== recoveryRequestGeneration || isExternalOwner()) return false;
   if (getState('playlist.currentQueueItemId') !== match.queueItemId) return false;
   if (match.source === 'current') {
     return getState('files.current') === match.entry;
@@ -525,7 +546,7 @@ function getBlobFallbackName(match: CachedBlobMatch, reqName: string): string {
 
 // ─── Register Handlers ──────────────────────────────────────────────
 
-/** Reset guest recovery ownership at a replacement host boundary. */
+/** Retire recovery work when its host, selection or playback owner changes. */
 function cancelPendingRecoveryRequest(): void {
   recoveryRequestGeneration += 1;
   clearManagedTimer('recovery-backoff');
@@ -557,6 +578,14 @@ export function initRecovery(): void {
   // A selection change also invalidates a scheduled backoff closure. Without
   // this, an old A callback could claim ownership again after B starts.
   bus.on('state:playlist.currentQueueItemId', cancelPendingRecoveryRequest);
+
+  const retireExternalPlaybackRecovery = (): void => {
+    if (isExternalOwner()) resetRecoveryAuthority();
+  };
+  bus.on('state:playback.mode', retireExternalPlaybackRecovery);
+  // A pending system-audio receiver first claims a placeholder, before its
+  // native stream and primary playback mode have necessarily been attached.
+  bus.on('state:player.currentTrackMeta', retireExternalPlaybackRecovery);
 
   log.info('[Recovery] Handlers registered');
 }

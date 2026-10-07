@@ -96,6 +96,44 @@ function sentStatuses(send: ReturnType<typeof vi.fn>) {
     .filter((message) => message.type === MSG.OPERATOR_FILE_UPLOAD_STATUS);
 }
 
+function makeAcknowledgingUploadHost(
+  peer: string,
+  acknowledgeFinish: (message: Record<string, unknown>) => boolean = () => true,
+) {
+  const messages: Record<string, unknown>[] = [];
+  const inboundDeliveries: Promise<void>[] = [];
+  const { conn, send } = makeConnection(peer, (message) => {
+    messages.push(message);
+    if (
+      message.type !== MSG.OPERATOR_FILE_UPLOAD_START &&
+      message.type !== MSG.OPERATOR_FILE_UPLOAD_FINISH
+    ) {
+      return;
+    }
+    const start = messages.find(
+      (candidate) =>
+        candidate.type === MSG.OPERATOR_FILE_UPLOAD_START &&
+        candidate.sessionId === message.sessionId,
+    );
+    const complete = message.type === MSG.OPERATOR_FILE_UPLOAD_FINISH;
+    if (complete && !acknowledgeFinish(message)) return;
+    queueInboundData(
+      {
+        type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+        requestId: message.requestId,
+        sessionId: message.sessionId,
+        status: complete ? 'complete' : 'ready',
+        loaded: complete ? start?.size : 0,
+        total: start?.size,
+        code: null,
+      },
+      conn,
+      inboundDeliveries,
+    );
+  });
+  return { conn, send, messages, inboundDeliveries };
+}
+
 beforeAll(() => {
   initStandardOperatorFileUplink();
 });
@@ -113,6 +151,69 @@ afterEach(() => {
 });
 
 describe('standard operator file uplink host receiver', () => {
+  it('discards trailing upload frames after a room reset and admits a fresh session', async () => {
+    const { conn, send } = makeConnection('admin-room-reset');
+    enterHost([{ conn }]);
+    const received = vi.fn((_file: File, acknowledge: (accepted: boolean) => void) => {
+      acknowledge(true);
+    });
+    const off = bus.on('standard-room:operator-file-received', received);
+    try {
+      await handleData(startMessage(3), conn);
+      setState('network.sessionCode', '654321');
+      send.mockClear();
+      await handleData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_CHUNK,
+          requestId: REQUEST_ID,
+          sessionId: SESSION_ID,
+          chunkIndex: 0,
+          chunk: new Uint8Array([1, 2, 3]),
+        },
+        conn,
+      );
+      await handleData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_FINISH,
+          requestId: REQUEST_ID,
+          sessionId: SESSION_ID,
+        },
+        conn,
+      );
+      expect(received).not.toHaveBeenCalled();
+      expect(sentStatuses(send)).toEqual([]);
+
+      const freshSessionId = '20000000-0000-4000-8000-000000000099';
+      await handleData(startMessage(1, { sessionId: freshSessionId, name: 'fresh.mp3' }), conn);
+      await handleData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_CHUNK,
+          requestId: REQUEST_ID,
+          sessionId: freshSessionId,
+          chunkIndex: 0,
+          chunk: new Uint8Array([4]),
+        },
+        conn,
+      );
+      await handleData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_FINISH,
+          requestId: REQUEST_ID,
+          sessionId: freshSessionId,
+        },
+        conn,
+      );
+      expect(received).toHaveBeenCalledTimes(1);
+      expect(received.mock.calls[0]?.[0].name).toBe('fresh.mp3');
+      expect(sentStatuses(send).at(-1)).toMatchObject({
+        status: 'complete',
+        sessionId: freshSessionId,
+      });
+    } finally {
+      off();
+    }
+  });
+
   it('keeps strict metadata and own-key admission before reserving an upload', async () => {
     const { conn, send } = makeConnection('admin-metadata-boundaries');
     enterHost([{ conn }]);
@@ -649,6 +750,212 @@ describe('standard operator file uplink host receiver', () => {
 });
 
 describe('standard operator file uplink sender', () => {
+  it('ignores a late final ACK after revoke and permits a fresh upload after regrant', async () => {
+    let finishReached!: (message: Record<string, unknown>) => void;
+    const firstFinish = new Promise<Record<string, unknown>>((resolve) => {
+      finishReached = resolve;
+    });
+    let holdComplete = true;
+    const host = makeAcknowledgingUploadHost('host-late-final-ack', (message) => {
+      if (!holdComplete) return true;
+      finishReached(message);
+      return false;
+    });
+    enterOperatorGuest(host.conn);
+    const progress: StandardOperatorFileUplinkProgress[] = [];
+    const off = bus.on('standard-room:operator-file-uplink-progress', (value) => {
+      if (value.direction === 'send') progress.push(value);
+    });
+    const oldBatch = uploadStandardOperatorFiles([
+      new File([new Uint8Array([1])], 'awaiting-ack.mp3', { type: 'audio/mpeg' }),
+      new File([new Uint8Array([2])], 'cancelled-queued.mp3', { type: 'audio/mpeg' }),
+    ]);
+    try {
+      const finish = await firstFinish;
+      setState('network.isOperator', false);
+      await oldBatch;
+      setState('network.isOperator', true);
+      await handleData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+          requestId: finish.requestId,
+          sessionId: finish.sessionId,
+          status: 'complete',
+          loaded: 1,
+          total: 1,
+          code: null,
+        },
+        host.conn,
+      );
+      holdComplete = false;
+      await uploadStandardOperatorFiles([
+        new File([new Uint8Array([3])], 'after-regrant.mp3', { type: 'audio/mpeg' }),
+      ]);
+      await Promise.all(host.inboundDeliveries);
+      expect(
+        host.messages
+          .filter((message) => message.type === MSG.OPERATOR_FILE_UPLOAD_START)
+          .map((message) => message.name),
+      ).toEqual(['awaiting-ack.mp3', 'after-regrant.mp3']);
+      expect(
+        progress.filter((value) => value.phase === 'complete').map((value) => value.fileName),
+      ).toEqual(['after-regrant.mp3']);
+      expect(
+        progress.filter(
+          (value) => value.fileName === 'awaiting-ack.mp3' && value.phase === 'aborted',
+        ),
+      ).toHaveLength(1);
+      expect(
+        host.messages.filter((message) => message.type === MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE),
+      ).toEqual([expect.objectContaining({ committedCount: 1 })]);
+    } finally {
+      off();
+    }
+  });
+
+  it.each([
+    { boundary: 'host replacement', readOutcome: 'resolve' },
+    { boundary: 'host replacement', readOutcome: 'reject' },
+    { boundary: 'authority regrant', readOutcome: 'resolve' },
+    { boundary: 'authority regrant', readOutcome: 'reject' },
+  ])(
+    'preserves the new batch after $boundary and a late Blob read $readOutcome',
+    async ({ boundary, readOutcome }) => {
+      let finishReached!: (message: Record<string, unknown>) => void;
+      const firstFinish = new Promise<Record<string, unknown>>((resolve) => {
+        finishReached = resolve;
+      });
+      let finishCount = 0;
+      const acknowledgeFinish = (message: Record<string, unknown>): boolean => {
+        finishCount += 1;
+        if (finishCount !== 1) return true;
+        finishReached(message);
+        return false;
+      };
+      const oldHost = makeAcknowledgingUploadHost('host-pending-read', acknowledgeFinish);
+      const newHost =
+        boundary === 'authority regrant'
+          ? oldHost
+          : makeAcknowledgingUploadHost('host-pending-read', acknowledgeFinish);
+      enterOperatorGuest(oldHost.conn);
+      const oldFile = new File([new Uint8Array([1, 2, 3])], 'old.mp3', { type: 'audio/mpeg' });
+      const slice = oldFile.slice.bind(oldFile);
+      let beginRead!: () => void;
+      let releaseRead!: () => void;
+      let rejectRead!: (error: Error) => void;
+      const readStarted = new Promise<void>((resolve) => {
+        beginRead = resolve;
+      });
+      const readReleased = new Promise<void>((resolve, reject) => {
+        releaseRead = resolve;
+        rejectRead = reject;
+      });
+      vi.spyOn(oldFile, 'slice').mockImplementation((...args) => {
+        const blob = slice(...args);
+        const read = blob.arrayBuffer.bind(blob);
+        vi.spyOn(blob, 'arrayBuffer').mockImplementation(async () => {
+          beginRead();
+          // A browser file read is uncancellable; hold that actual I/O boundary
+          // while the real uplink and chunk pump observe authority changes.
+          await readReleased;
+          return read();
+        });
+        return blob;
+      });
+      const progress: StandardOperatorFileUplinkProgress[] = [];
+      const off = bus.on('standard-room:operator-file-uplink-progress', (value) => {
+        if (value.direction === 'send') progress.push(value);
+      });
+      const oldBatch = uploadStandardOperatorFiles([
+        oldFile,
+        new File([new Uint8Array([4])], 'old-queued.mp3', { type: 'audio/mpeg' }),
+      ]);
+      let newBatch: Promise<void> | undefined;
+      try {
+        await readStarted;
+        if (boundary === 'authority regrant') {
+          setState('network.isOperator', false);
+          setState('network.isOperator', true);
+        } else {
+          setState('network.hostConn', newHost.conn);
+        }
+        newBatch = uploadStandardOperatorFiles([
+          new File([new Uint8Array([5])], 'fresh.mp3', { type: 'audio/mpeg' }),
+          new File([new Uint8Array([6])], 'fresh-next.mp3', { type: 'audio/mpeg' }),
+        ]);
+        // START is synchronous. Fail before awaiting the held FINISH if stale
+        // ownership wrongly rejects this new selection as host-busy.
+        expect(
+          newHost.messages.some(
+            (message) =>
+              message.type === MSG.OPERATOR_FILE_UPLOAD_START && message.name === 'fresh.mp3',
+          ),
+        ).toBe(true);
+        const finish = await firstFinish;
+        if (readOutcome === 'reject') rejectRead(new Error('Old source became unreadable'));
+        else releaseRead();
+        await oldBatch;
+
+        // The new file is still awaiting its actual terminal wire ACK when the
+        // old cleanup runs. Its ACK and next file prove both slots survived.
+        await handleData(
+          {
+            type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+            requestId: finish.requestId,
+            sessionId: finish.sessionId,
+            status: 'complete',
+            loaded: 1,
+            total: 1,
+            code: null,
+          },
+          newHost.conn,
+        );
+        await newBatch;
+      } finally {
+        releaseRead();
+        setState('network.appRole', 'idle');
+        await oldBatch;
+        await newBatch;
+        await Promise.all([...oldHost.inboundDeliveries, ...newHost.inboundDeliveries]);
+        off();
+      }
+
+      expect(
+        newHost.messages.filter(
+          (message) =>
+            message.type === MSG.OPERATOR_FILE_UPLOAD_START &&
+            ['fresh.mp3', 'fresh-next.mp3'].includes(String(message.name)),
+        ),
+      ).toHaveLength(2);
+      expect(
+        progress.filter((value) => value.phase === 'complete').map((value) => value.fileName),
+      ).toEqual(['fresh.mp3', 'fresh-next.mp3']);
+      const oldRequestId = oldHost.messages.find(
+        (message) => message.name === 'old.mp3',
+      )?.requestId;
+      const oldMessages = oldHost.messages.filter((message) => message.requestId === oldRequestId);
+      expect(
+        oldMessages.filter((message) => message.type === MSG.OPERATOR_FILE_UPLOAD_START),
+      ).toHaveLength(1);
+      expect(
+        oldMessages.some(
+          (message) =>
+            message.type === MSG.OPERATOR_FILE_UPLOAD_CHUNK ||
+            message.type === MSG.OPERATOR_FILE_UPLOAD_FINISH ||
+            message.type === MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE,
+        ),
+      ).toBe(false);
+      expect(
+        progress.filter((value) => value.fileName === 'old.mp3' && value.phase === 'aborted'),
+      ).toHaveLength(1);
+      expect(
+        newHost.messages.filter(
+          (message) => message.type === MSG.OPERATOR_FILE_UPLOAD_BATCH_COMPLETE,
+        ),
+      ).toEqual([expect.objectContaining({ committedCount: 2 })]);
+    },
+  );
+
   it('reports sender-side validation failures instead of silently dropping the file', async () => {
     const { conn, send } = makeConnection('host-invalid');
     enterOperatorGuest(conn);

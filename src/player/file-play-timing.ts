@@ -9,6 +9,8 @@ interface FilePlayTimeline {
   readonly time: number;
   /** Participant-local wall time at which the timeline reaches `time`. */
   readonly setAt: number;
+  /** Same anchor on the monotonic clock; OS wall-clock edits cannot move it. */
+  readonly monotonicSetAt: number;
   readonly needsClockSync: boolean;
 }
 
@@ -18,6 +20,7 @@ export function captureGuestFilePlayTiming(
   time: number,
 ): FilePlayTimeline {
   const receivedAt = Date.now();
+  const receivedMonotonicAt = performance.now();
   const hasSharedStart = typeof data.hostStartAt === 'number' && data.hostStartAt > 0;
   const hostAnchor = hasSharedStart ? data.hostStartAt : data.hostPlayAt;
   const hasAnchor = typeof hostAnchor === 'number' && Number.isFinite(hostAnchor) && hostAnchor > 0;
@@ -29,6 +32,7 @@ export function captureGuestFilePlayTiming(
       return {
         time: time + (hasSharedStart ? 0 : LEGACY_FILE_SCHEDULE_AHEAD_MS / 1_000),
         setAt: receivedAt + remainingMs,
+        monotonicSetAt: receivedMonotonicAt + remainingMs,
         needsClockSync: false,
       };
     }
@@ -40,6 +44,7 @@ export function captureGuestFilePlayTiming(
   return {
     time,
     setAt: receivedAt + (hasSharedStart ? LOCAL_FILE_START_LEAD_MS : 0),
+    monotonicSetAt: receivedMonotonicAt + (hasSharedStart ? LOCAL_FILE_START_LEAD_MS : 0),
     needsClockSync: hasAnchor && !calibrated,
   };
 }
@@ -48,18 +53,21 @@ export function captureGuestFilePlayTiming(
 export function resolveFilePlayTiming(
   time: number,
   setAt: number,
+  monotonicSetAt?: number | null,
 ): {
   offset: number;
   scheduleDelay: number;
   scheduleDeadlineMs: number;
 } {
-  const remainingMs = setAt === 0 ? 0 : setAt - Date.now();
+  const monotonicNow = performance.now();
+  const remainingMs =
+    monotonicSetAt != null ? monotonicSetAt - monotonicNow : setAt === 0 ? 0 : setAt - Date.now();
   const delayMs = Math.max(0, remainingMs);
   return {
     offset: time + Math.max(0, -remainingMs) / 1_000,
     scheduleDelay: delayMs / 1_000,
     // Transport consumes this absolute deadline after AudioContext setup and
     // any play-lock wait, so neither delay nor elapsed time is counted twice.
-    scheduleDeadlineMs: performance.now() + delayMs,
+    scheduleDeadlineMs: monotonicNow + delayMs,
   };
 }

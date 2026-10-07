@@ -20,6 +20,7 @@ import {
   parseCommand,
   executeCommand,
   shouldBroadcastCommand,
+  isWhisperCommand,
   getAvailableCommands,
   getCommandArgHint,
 } from '../chat/commands.ts';
@@ -1115,7 +1116,7 @@ function resetChatEditable(input: HTMLDivElement): void {
   input.contentEditable = 'false';
   input.replaceChildren();
   void input.offsetHeight; // Force reflow
-  input.contentEditable = 'true';
+  input.contentEditable = getState('network.chatMuted') ? 'false' : 'true';
 }
 
 export function sendChatMessage(): void {
@@ -1123,6 +1124,7 @@ export function sendChatMessage(): void {
   if (!input) return;
   let text = (input.textContent || '').trim();
   if (!text) return;
+  const submissionText = text;
 
   // Dedup: block identical message within 500ms (guards against double-fire from
   // duplicate event handlers, network reconnection glitches, or platform-specific quirks)
@@ -1132,18 +1134,35 @@ export function sendChatMessage(): void {
   // ── Command intercept ──
   const initialCommand = parseCommand(text);
   const isVisibleBotCommand = initialCommand ? shouldBroadcastCommand(initialCommand) : false;
+  // A mute can arrive after a draft was typed. Reject chat-bearing submissions
+  // before echoing, clearing, or recording an accepted-send stamp so the same
+  // draft remains available immediately after an authoritative unmute.
+  if (
+    getState('network.chatMuted') &&
+    (!initialCommand || isVisibleBotCommand || isWhisperCommand(initialCommand))
+  ) {
+    showToast(t('chat.muted_placeholder'));
+    return;
+  }
+
   if (initialCommand && !isVisibleBotCommand) {
-    // This submission has passed parsing and is accepted for local
-    // execution. Policy-rejected attempts below deliberately do not update
-    // the stamp, so an immediately permitted retry cannot disappear into the
-    // double-fire guard.
-    _lastSentText = text;
-    _lastSentTs = now;
     text = boundChatSubmission(text);
+    const command = parseCommand(text) ?? initialCommand;
+    const needsTransportAdmission = getRoomContext().kind === 'pro';
+    if (needsTransportAdmission) {
+      input.focus();
+      if (executeCommand(command) === false) return;
+    }
+    // A known transport failure leaves the draft and retry stamp untouched.
+    // Local validation/help commands retain their existing consume behavior.
+    _lastSentText = submissionText;
+    _lastSentTs = now;
+    const restoreInputFocus = !needsTransportAdmission || document.activeElement === input;
     resetChatEditable(input);
     input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
-    executeCommand(parseCommand(text) ?? initialCommand);
+    // Commands may open an account dialog; do not steal its newly moved focus.
+    if (restoreInputFocus) input.focus();
+    if (!needsTransportAdmission) executeCommand(command);
     return;
   }
 
@@ -1166,20 +1185,15 @@ export function sendChatMessage(): void {
 
   // ── Slowmode check ──
   const slowmode = getState('network.slowmodeSeconds');
-  if (slowmode > 0 && !isHost && !isOp) {
+  // PRO signaling rate-limits ordinary messages from every role. Keep the
+  // standard-room moderator exemption without falsely echoing a dropped PRO send.
+  if (slowmode > 0 && (isProRoom || (!isHost && !isOp))) {
     const elapsed = (Date.now() - _lastSentTime) / 1000;
     if (elapsed < slowmode) {
       addSystemChatMessage(t('chat.cmd_slowmode_wait', { sec: Math.ceil(slowmode - elapsed) }));
       return;
     }
   }
-  // Record the double-fire key only after every policy gate accepted the
-  // submission. This preserves duplicate-handler protection without turning
-  // a visible freeze/slowmode rejection into a silent rejection on retry.
-  _lastSentText = text;
-  _lastSentTs = now;
-  _lastSentTime = Date.now();
-
   text = boundChatSubmission(text);
 
   // ── Profanity filter (own messages too) ──
@@ -1194,6 +1208,25 @@ export function sendChatMessage(): void {
     visibleBotCommand && shouldBroadcastCommand(visibleBotCommand)
       ? createProRoomIdempotencyKey()
       : undefined;
+
+  if (
+    isProRoom &&
+    !sendProRoomRealtime('chat', {
+      kind: 'message',
+      text,
+      clientTs: now,
+      ...(botRequestId ? { botRequestId } : {}),
+    })
+  ) {
+    addSystemChatMessage(t('pro.connect_failed'));
+    return;
+  }
+
+  // Commit local submission only after policy and transport admission. Failed
+  // PRO sends must not consume drafts, slowmode, dedup, or a BOT API request.
+  _lastSentText = submissionText;
+  _lastSentTs = now;
+  _lastSentTime = now;
 
   const senderLabel = _getChatLabelBase();
   const displayName = formatChatDisplayName(senderLabel);
@@ -1231,17 +1264,9 @@ export function sendChatMessage(): void {
     ...(botRequestId ? { botRequestId } : {}),
   };
 
-  if (isProRoom) {
-    const sent = sendProRoomRealtime('chat', {
-      kind: 'message',
-      text,
-      clientTs: chatMsg.ts,
-      ...(botRequestId ? { botRequestId } : {}),
-    });
-    if (!sent) addSystemChatMessage(t('pro.connect_failed'));
-  } else if (!hostConn) {
+  if (!isProRoom && !hostConn) {
     bus.emit('network:broadcast', chatMsg);
-  } else {
+  } else if (!isProRoom) {
     sendToHost(chatMsg);
   }
 
@@ -1260,9 +1285,11 @@ export function sendChatMessage(): void {
   //
   const dummy = getUiElement('chat-ime-dummy') as HTMLInputElement | null;
   if (dummy) {
-    dummy.focus();
+    // Keep the synchronous IME handoff without scrolling RTL overflow containers
+    // toward the off-screen dummy or shifting the visible composer afterward.
+    dummy.focus({ preventScroll: true });
     input.replaceChildren();
-    input.focus();
+    input.focus({ preventScroll: true });
   } else {
     // Last-resort reset for unexpected DOM; it may not fully clear the iOS buffer.
     resetChatEditable(input);
@@ -1804,8 +1831,10 @@ export function initChat(): void {
     addNoticeChatMessage(sender, text, timestamp);
   });
 
-  // Muted state: disable input
-  _busScope.on('chat:muted-state-changed', (isMuted: boolean) => {
+  // The protocol owns mute state; editor presentation also catches up when
+  // moderation arrived before binding, or session cleanup clears that state.
+  const syncChatMuteState = () => {
+    const isMuted = getState('network.chatMuted');
     const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
     if (chatInput) {
       chatInput.setAttribute(
@@ -1822,7 +1851,9 @@ export function initChat(): void {
       chatInput.contentEditable = isMuted ? 'false' : 'true';
       chatInput.dataset.disabled = isMuted ? 'true' : 'false';
     }
-  });
+  };
+  _busScope.on('state:network.chatMuted', syncChatMuteState);
+  syncChatMuteState();
 
   // Clear all chat messages
   _busScope.on('chat:clear-all', () => {

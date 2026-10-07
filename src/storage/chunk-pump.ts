@@ -23,6 +23,7 @@ import { getState } from '../core/state.ts';
 import { DELAY } from '../core/constants.ts';
 import { delay } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
+import { waitForTransferCapacity } from './transfer-backpressure.ts';
 import type { AnyProtocolMsg, ConnectedPeer, DataConnection } from '../types/index.ts';
 
 // ─── Peer-health helpers ────────────────────────────────────────────
@@ -88,6 +89,17 @@ interface ChunkPumpOptions {
    */
   shouldContinue: () => boolean;
   /**
+   * Optional per-peer priority gate, awaited before reading and again before
+   * sending. A stopped gate ends only that peer, with no completion/exclusion
+   * callback; the wrapper owns its cancellation notification. Must not throw.
+   */
+  beforeChunk?: (peer: ConnectedPeer, canContinue: () => boolean) => Promise<'ready' | 'stopped'>;
+  /**
+   * Synchronous priority check paired with beforeChunk. Rechecked during
+   * capacity waits and immediately before sending. Must not throw.
+   */
+  isPeerReady?: (peer: ConnectedPeer) => boolean;
+  /**
    * Fired exactly once per excluded peer, at exclusion time. Must not throw
    * (use safeSend for any message it sends) and must stay PER-PEER — never
    * escalate a single peer's exclusion to session-level teardown.
@@ -132,6 +144,8 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
     stallTimeoutMs,
     isWritable,
     shouldContinue,
+    beforeChunk,
+    isPeerReady,
     onPeerExcluded,
     onPeerComplete,
     onChunkComplete,
@@ -182,30 +196,80 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
         };
         if (!canSend() || !conn) return;
 
-        for (let i = 0; i < total; i++) {
-          if (!canSend()) return;
-          const waitStart = Date.now();
-          while (conn.dataChannel && conn.dataChannel.bufferedAmount > bufferedLimit) {
-            if (!canSend()) return;
-            if (Date.now() - waitStart > stallTimeoutMs) {
+        const priorityReady = (): boolean => isPeerReady?.(p) ?? true;
+        const waitForTurn = async (): Promise<boolean> => {
+          while (canSend()) {
+            if (beforeChunk && (await beforeChunk(p, canSend)) === 'stopped') {
+              nextChunks[peerIndex] = total;
+              reportProgress();
+              canContinue();
+              return false;
+            }
+            if (!canSend()) return false;
+            // The async gate can become stale before its continuation runs.
+            if (!priorityReady()) {
+              if (!beforeChunk) await delay(DELAY.BACKPRESSURE);
+              continue;
+            }
+            const channel = conn.dataChannel;
+            let priorityInterrupted = false;
+            const result = await waitForTransferCapacity(
+              conn,
+              bufferedLimit,
+              stallTimeoutMs,
+              () => {
+                if (!canSend()) return false;
+                if (priorityReady()) return true;
+                priorityInterrupted = true;
+                return false;
+              },
+            );
+            if (!canSend()) return false;
+            if (
+              result === 'stopped' &&
+              (!priorityInterrupted ||
+                !conn.open ||
+                conn.dataChannel !== channel ||
+                (channel?.readyState && channel.readyState !== 'open'))
+            ) {
+              exclude(p, peerIndex);
+              return false;
+            }
+            // Foreground work pauses preload, rather than consuming its stall
+            // budget or excluding it. A resumed turn gets a fresh capacity wait.
+            if (priorityInterrupted || !priorityReady()) continue;
+            if (result === 'timeout') {
               log.warn(
                 `[ChunkPump] Backpressure timeout for peer ${p.label || p.id}. Excluding from remaining stream`,
               );
               exclude(p, peerIndex);
+              return false;
+            }
+            return true;
+          }
+          return false;
+        };
+
+        for (let i = 0; i < total; i++) {
+          let chunkBuf: ArrayBuffer | undefined;
+          while (true) {
+            if (!(await waitForTurn()) || !canSend()) return;
+            // No await separates this final priority check from read/send.
+            if (!priorityReady()) continue;
+            if (!chunkBuf) {
+              const start = i * chunkSize;
+              chunkBuf = await file
+                .slice(start, Math.min(start + chunkSize, file.size))
+                .arrayBuffer();
+              // A foreground transfer may have started or filled the channel
+              // during the read; check both gates again with the chunk retained.
+              continue;
+            }
+            if (!safeSend(conn, buildChunkMsg(new Uint8Array(chunkBuf), i))) {
+              exclude(p, peerIndex);
               return;
             }
-            // Unmanaged delay: concurrent peers must not replace one another's timer.
-            await delay(DELAY.BACKPRESSURE);
-          }
-          if (!canSend()) return;
-          const start = i * chunkSize;
-          const chunkBuf = await file
-            .slice(start, Math.min(start + chunkSize, file.size))
-            .arrayBuffer();
-          if (!canSend()) return;
-          if (!safeSend(conn, buildChunkMsg(new Uint8Array(chunkBuf), i))) {
-            exclude(p, peerIndex);
-            return;
+            break;
           }
           nextChunks[peerIndex] = i + 1;
           sentThrough = Math.max(sentThrough, i + 1);

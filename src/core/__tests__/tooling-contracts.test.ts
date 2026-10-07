@@ -61,6 +61,7 @@ describe('tooling reproducibility contracts', () => {
         'scripts/classic-runtime-assets.ts',
         'scripts/live-app-session-smoke.ts',
         'scripts/live-remote-share-smoke.ts',
+        'scripts/locale-recovery-assets.ts',
         'scripts/service-worker-asset.ts',
         'scripts/translation-catalog-assets.ts',
         'scripts/translation-catalog.ts',

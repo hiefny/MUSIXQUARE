@@ -4,7 +4,12 @@ import { E2E_APP_ORIGIN, E2E_PRODUCTION_PREVIEW_COMMAND } from './e2e/config.ts'
 /** Browser evidence for the exact production artifact emitted by build:checked. */
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['release-smoke.test.ts', 'production-candidate-smoke.test.ts'],
+  testMatch: [
+    'release-smoke.test.ts',
+    'production-candidate-smoke.test.ts',
+    'locale-recovery.test.ts',
+    'translation-retry.test.ts',
+  ],
   timeout: 60_000,
   expect: { timeout: 15_000 },
   forbidOnly: Boolean(process.env.CI),

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
@@ -9,6 +9,11 @@ import {
 function generation(cacheVersion: string | null, promptIdentity = cacheVersion || 'unknown:sw') {
   return { cacheVersion, promptIdentity };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe('service-worker update coordination', () => {
   beforeEach(() => {
@@ -61,6 +66,104 @@ describe('service-worker update coordination', () => {
     expect(first.claimUpdateCheck(now)).toBe(true);
     expect(second.claimUpdateCheck(now + 1)).toBe(false);
     expect(second.claimUpdateCheck(now + 60 * 60 * 1000)).toBe(true);
+  });
+
+  it('holds one native prompt lock across documents even when storage is unavailable', async () => {
+    const held = new Set<string>();
+    const request = vi.fn(
+      async (
+        name: string,
+        _options: unknown,
+        callback: (lock: object | null) => Promise<void> | void,
+      ) => {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          await callback({ name });
+        } finally {
+          held.delete(name);
+        }
+      },
+    );
+    vi.stubGlobal('navigator', { locks: { request } });
+    vi.stubGlobal('localStorage', undefined);
+    const first = createServiceWorkerUpdateLedger();
+    const second = createServiceWorkerUpdateLedger();
+    const current = generation('v494');
+    expect(await first.acquirePrompt(current, vi.fn())).toBe(true);
+    expect(await second.acquirePrompt(current, vi.fn())).toBe(false);
+    expect(held.size).toBe(1);
+    first.releasePrompt(current);
+    await Promise.resolve();
+    expect(await second.acquirePrompt(current, vi.fn())).toBe(true);
+    second.releasePrompt(current);
+  });
+
+  it('keeps updates available if Web Locks rejects and storage writes are denied', async () => {
+    vi.stubGlobal('navigator', {
+      locks: { request: vi.fn().mockRejectedValue(new Error('denied')) },
+    });
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('denied');
+      },
+    });
+    const ledger = createServiceWorkerUpdateLedger();
+    const current = generation('v494');
+    expect(await ledger.acquirePrompt(current, vi.fn())).toBe(true);
+    ledger.releasePrompt(current);
+  });
+
+  it('rejects a legacy race loser before presentation and leaves the winning lease intact', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {});
+    const ledger = createServiceWorkerUpdateLedger();
+    const current = generation('v494');
+    const lost = vi.fn();
+    const acquisition = ledger.acquirePrompt(current, lost);
+    await vi.advanceTimersByTimeAsync(0);
+    const key = 'mxqr-sw-update-prompt-lease-v1';
+    const competing = JSON.stringify({
+      identity: 'v494',
+      owner: 'other-client',
+      expiresAt: Date.now() + 300000,
+    });
+    localStorage.setItem(key, competing);
+    window.dispatchEvent(new StorageEvent('storage', { key }));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await acquisition).toBe(false);
+    expect(lost).toHaveBeenCalledOnce();
+    expect(localStorage.getItem(key)).toBe(competing);
+    expect(ledger.isDismissed(current)).toBe(false);
+  });
+
+  it('notifies late legacy ownership loss without suppressing the winner or another generation', async () => {
+    vi.stubGlobal('navigator', {});
+    const ledger = createServiceWorkerUpdateLedger();
+    const current = generation('v494');
+    const lost = vi.fn();
+    expect(await ledger.acquirePrompt(current, lost)).toBe(true);
+    const key = 'mxqr-sw-update-prompt-lease-v1';
+    localStorage.setItem(
+      key,
+      JSON.stringify({ identity: 'v495', owner: 'new-generation', expiresAt: Date.now() + 300000 }),
+    );
+    window.dispatchEvent(new StorageEvent('storage', { key }));
+    expect(lost).not.toHaveBeenCalled();
+    const competing = JSON.stringify({
+      identity: 'v494',
+      owner: 'same-generation-winner',
+      expiresAt: Date.now() + 300000,
+    });
+    localStorage.setItem(key, competing);
+    window.dispatchEvent(new StorageEvent('storage', { key }));
+    expect(lost).toHaveBeenCalledOnce();
+    ledger.releasePrompt(current);
+    expect(localStorage.getItem(key)).toBe(competing);
+    expect(ledger.isDismissed(current)).toBe(false);
+    window.dispatchEvent(new StorageEvent('storage', { key }));
+    expect(lost).toHaveBeenCalledOnce();
   });
 
   it('resolves an exact cache generation through the waiting worker protocol', async () => {

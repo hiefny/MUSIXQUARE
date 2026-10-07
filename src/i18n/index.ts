@@ -20,6 +20,7 @@ import {
 
 import type { I18nKey } from './ko.ts';
 import { hasLocaleFont } from './locale-font-contract.ts';
+import { loadLocaleRecovery, type LocaleModule } from './locale-recovery.ts';
 import {
   currentAppPathLanguage,
   currentAppPathMatchesLanguage,
@@ -52,11 +53,6 @@ const _pluralRules = new Map<LanguageCode, Intl.PluralRules>();
 const _pluralMessages: Partial<Record<LanguageCode, LocalePluralMessages>> = {
   en: EN_PLURAL_MESSAGES,
 };
-
-interface LocaleModule {
-  readonly default: Record<string, string>;
-  readonly pluralMessages?: LocalePluralMessages;
-}
 
 const _localeLoaders: Partial<Record<LanguageCode, () => Promise<LocaleModule>>> = {
   ar: () => import('./ar.ts'),
@@ -102,6 +98,7 @@ const _localeLoaders: Partial<Record<LanguageCode, () => Promise<LocaleModule>>>
 };
 
 const _loadingLocales = new Map<LanguageCode, Promise<void>>();
+const _failedLocales = new Set<LanguageCode>();
 
 // ─── Public API ─────────────────────────────────────────────────
 
@@ -467,6 +464,13 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
   if (existing) return existing;
 
   const pending = loader()
+    .catch((error: unknown) => {
+      // Failed ESM URLs remain failed in a browser document's module map.
+      // An explicit later retry uses build-bound data, not eval/cache-busting.
+      if (_failedLocales.has(code)) return loadLocaleRecovery(code);
+      _failedLocales.add(code);
+      throw error;
+    })
     .then((mod) => {
       // The dictionary and its grammatical overrides are exports of one lazy
       // module. Commit both synchronously only after that chunk resolves, so a
@@ -474,6 +478,7 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
       const dictionary = mod.default;
       const pluralMessages = 'pluralMessages' in mod ? mod.pluralMessages : undefined;
       _dicts[code] = dictionary;
+      _failedLocales.delete(code);
       if (pluralMessages) _pluralMessages[code] = pluralMessages;
     })
     .catch((error) => {

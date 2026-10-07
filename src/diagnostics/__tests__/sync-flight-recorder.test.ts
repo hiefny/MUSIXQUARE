@@ -125,6 +125,27 @@ afterEach(() => {
 });
 
 describe('sync flight recorder', () => {
+  it.each(['host', 'guest'] as const)(
+    'classifies a live Standard %s using its native session projection',
+    (role) => {
+      setState('network.appRole', role);
+      setState('network.sessionCode', '123456');
+      setState('setup.sessionStarted', true);
+      // Standard setup does not populate room.context.roomId or room.context.role.
+      captureSyncFlightRecorderSampleForTests();
+      const last = JSON.parse(collectSyncFlightRecorderText().trim().split('\n').at(-1) ?? '{}');
+      expect(last.room).toBe('standard');
+    },
+  );
+
+  it('keeps a standalone demo separate from an active Standard room', () => {
+    setState('setup.sessionStarted', true);
+    setState('demo.active', true);
+    captureSyncFlightRecorderSampleForTests();
+    const last = JSON.parse(collectSyncFlightRecorderText().trim().split('\n').at(-1) ?? '{}');
+    expect(last.room).toBe('none');
+  });
+
   it('aliases raw queue identity and reports canonical logical drift', () => {
     startStandardGuest();
     initSyncFlightRecorder();

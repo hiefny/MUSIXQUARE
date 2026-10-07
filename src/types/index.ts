@@ -1106,6 +1106,8 @@ export interface StateTree {
      * 0 = no pending time.
      */
     pendingPlayTimeSetAt: number;
+    /** Monotonic shared-start anchor; null for legacy untimed pending intents. */
+    pendingPlayTimeMonotonicSetAt: number | null;
     /**
      * The track we're awaiting (recovery, preload-promoted blob, deferred
      * play). Consumers read one atomic snapshot whose stable owner is

@@ -198,4 +198,28 @@ test.describe('YouTube search loading and quick add', () => {
     await expect(page.locator('#youtube-search-results button')).toHaveCount(RESULTS.length);
     expect(requests).toBe(2);
   });
+
+  test('an overlong video ID is rejected before a corrected URL adds its exact video', async ({
+    page,
+  }) => {
+    await openSearch(page);
+    const input = page.locator('#youtube-url-input');
+    await input.fill('https://www.youtube.com/watch?v=dQw4w9WgXcQx');
+    await expect(page.locator('#youtube-preview-status')).toHaveAttribute(
+      'data-i18n',
+      'youtube.invalid_link',
+    );
+    await input.press('Enter');
+    await expect(page.locator('#youtube-play-btn')).toBeDisabled();
+    await expect(page.locator('#youtube-url-overlay')).toBeVisible();
+    expect(await readState(page, 'playlist.items')).toEqual([]);
+
+    await input.fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=12');
+    await expect(page.locator('#youtube-play-btn')).toBeEnabled();
+    await input.press('Enter');
+    await expect
+      .poll(() => readState(page, 'playlist.items'))
+      .toEqual([expect.objectContaining({ videoId: 'dQw4w9WgXcQ' })]);
+    await expect(page.locator('#youtube-url-overlay')).not.toBeVisible();
+  });
 });

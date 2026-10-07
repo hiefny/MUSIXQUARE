@@ -572,7 +572,18 @@ type PlaylistFocusSnapshot =
 
 function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
   const active = document.activeElement;
-  if (!(active instanceof HTMLElement) || !list.contains(active)) return null;
+  if (!(active instanceof HTMLElement) || !list.contains(active)) {
+    // A consecutive render can arrive before the detached late row is mounted.
+    // Keep that owner only while no user interaction has claimed focus instead.
+    const pending = _pendingProgressiveFocus;
+    return pending?.list === list &&
+      pending.generation === _subPlaylistRenderGeneration &&
+      list.isConnected &&
+      playlistIsVisible() &&
+      (active === document.body || active === document.documentElement)
+      ? pending.snapshot
+      : null;
+  }
   const uploadOwner = active.closest<HTMLElement>('[data-pro-upload-id]');
   const uploadId = uploadOwner?.dataset.proUploadId;
   if (uploadId) {
@@ -765,6 +776,7 @@ export function updatePlaylistUI(): void {
   // A pending touch probe is not exposed as an active drag, but its timer must
   // never retain a row that this full render is about to detach.
   _reorderController?.cancel();
+  const focusSnapshot = capturePlaylistFocus(list);
   cancelSubPlaylistProgressiveRenders();
 
   const playlist = getState('playlist.items');
@@ -787,7 +799,6 @@ export function updatePlaylistUI(): void {
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
   const followController = ensureFollowController(list, scrollContainer);
   const savedScrollTop = scrollContainer.scrollTop;
-  const focusSnapshot = capturePlaylistFocus(list);
   list.replaceChildren();
 
   if (playlist.length === 0 && uploads.length === 0) {

@@ -303,7 +303,7 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
       ...start,
       type: 'file-chunk',
       chunkIndex: 0,
-      chunk: u8(0xaa),
+      chunk: new Uint8Array(CHUNK_SIZE).fill(0xaa),
     };
 
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
@@ -1154,6 +1154,79 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
     setState('playlist.currentQueueItemId', Q[0]!);
   });
 
+  it('assembles fixed-size Blob slices and their short tail after valid out-of-order delivery', async () => {
+    const { handleFileStart, handleFileChunk } = await import('../transfer-receive.ts');
+    const bytes = Uint8Array.from({ length: 2 * CHUNK_SIZE + 3 }, (_, index) => index % 251);
+    const source = new Blob([bytes], { type: 'audio/mpeg' });
+    const descriptor = {
+      queueItemId: Q[0],
+      name: 'sliced.mp3',
+      mime: source.type,
+      size: source.size,
+      total: 3,
+      sessionId: 14,
+    };
+    handleFileStart({ type: 'file-start', ...descriptor }, conn);
+    for (const chunkIndex of [1, 0, 2]) {
+      const chunk = await source
+        .slice(chunkIndex * CHUNK_SIZE, (chunkIndex + 1) * CHUNK_SIZE)
+        .arrayBuffer();
+      handleFileChunk({ type: 'file-chunk', ...descriptor, chunkIndex, chunk }, conn);
+      await Promise.resolve();
+      expect(getState('transfer.receivedCount')).toBe(
+        chunkIndex === 1 ? 0 : chunkIndex === 0 ? 2 : 3,
+      );
+    }
+    const received = ramReadBlob('sliced.mp3', false, 14);
+    expect(received?.size).toBe(source.size);
+    expect(received?.type).toBe(source.type);
+    expect(new Uint8Array(await received!.arrayBuffer())).toEqual(bytes);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
+  });
+
+  it.each(['handleFileStart', 'handleFileResume'] as const)(
+    '%s accepts exact Blob chunks after omitted optional MIME',
+    async (handlerName) => {
+      const receive = await import('../transfer-receive.ts');
+      const bytes = Uint8Array.from({ length: CHUNK_SIZE + 3 }, (_, index) => index % 251);
+      const source = new Blob([bytes], { type: 'audio/mpeg' });
+      const descriptor = {
+        queueItemId: Q[0],
+        name: 'optional-mime.mp3',
+        size: source.size,
+        total: 2,
+        sessionId: 14,
+      };
+      receive[handlerName](
+        {
+          type: handlerName === 'handleFileStart' ? 'file-start' : 'file-resume',
+          ...descriptor,
+          ...(handlerName === 'handleFileResume' ? { startChunk: 0 } : {}),
+        },
+        conn,
+      );
+      expect(getState('transfer.meta')?.mime).toBe('');
+
+      for (const chunkIndex of [0, 1]) {
+        const chunk = await source
+          .slice(chunkIndex * CHUNK_SIZE, (chunkIndex + 1) * CHUNK_SIZE)
+          .arrayBuffer();
+        receive.handleFileChunk(
+          { type: 'file-chunk', ...descriptor, mime: source.type, chunkIndex, chunk },
+          conn,
+        );
+        await Promise.resolve();
+        expect(getState('transfer.receivedCount')).toBe(chunkIndex + 1);
+      }
+
+      const received = ramReadBlob(descriptor.name, false, descriptor.sessionId);
+      expect(received?.size).toBe(source.size);
+      expect(new Uint8Array(await received!.arrayBuffer())).toEqual(bytes);
+      await expectCompletedMime(descriptor.name, descriptor.sessionId, Q[0]!, source.type);
+      expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
+    },
+  );
+
   it('adopts self-describing queue-item chunks without retaining pre-START buffers', async () => {
     const { handleFileChunk, getTransferMemoryStats } = await import('../transfer-receive.ts');
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
@@ -1172,7 +1245,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
             chunkIndex: index,
             total: 100,
             size: 99 * CHUNK_SIZE + 1,
-            chunk: u8(index),
+            chunk: new Uint8Array(CHUNK_SIZE).fill(index),
           },
           conn,
         );
@@ -1206,7 +1279,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       ...start,
       type: 'file-chunk',
       chunkIndex: 0,
-      chunk: u8(0xaa),
+      chunk: new Uint8Array(CHUNK_SIZE).fill(0xaa),
     };
 
     handleFileStart(start, conn);
@@ -1284,7 +1357,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         chunkIndex: 999,
         total,
         size: encodedSize,
-        chunk: u8(1),
+        chunk: new Uint8Array(CHUNK_SIZE).fill(1),
       },
       conn,
     );
@@ -1695,7 +1768,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
         sessionId: 6,
         queueItemId: Q[4],
         chunkIndex: 0,
-        chunk: u8(0xaa),
+        chunk: new Uint8Array(CHUNK_SIZE).fill(0xaa),
       },
       conn,
     );
@@ -1800,7 +1873,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       handleFileChunk(
         {
           type: 'file-chunk',
-          chunk: u8(index % 256),
+          chunk: new Uint8Array(CHUNK_SIZE).fill(index % 256),
           chunkIndex: index,
           queueItemId: Q[0],
           sessionId: 9,

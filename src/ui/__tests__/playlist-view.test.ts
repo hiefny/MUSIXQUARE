@@ -865,7 +865,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelector('.sub-playlist')?.hasAttribute('aria-busy')).toBe(false);
   });
 
-  it.each(['restore', 'focus', 'pointer', 'hidden', 'rerender', 'reorder'])(
+  it.each(['restore', 'focus', 'pointer', 'hidden', 'rerender', 'consecutive', 'reorder'])(
     'owns progressive sub-row focus through %s',
     async (intent) => {
       const ids = Array.from(
@@ -897,9 +897,15 @@ describe('playlist queue identity rendering and actions', () => {
         document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="10"]')!.focus();
         updatePlaylistUI();
       }
+      if (intent === 'consecutive') {
+        await nextAnimationFrame();
+        expect(document.querySelector('.sub-track-item[data-sub-index="900"]')).toBeNull();
+        expect(document.activeElement).toBe(document.body);
+        updatePlaylistUI();
+      }
       for (let frame = 0; frame < 5; frame += 1) await nextAnimationFrame();
       expect(document.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(1_000);
-      if (intent === 'restore' || intent === 'rerender' || intent === 'reorder') {
+      if (['restore', 'rerender', 'consecutive', 'reorder'].includes(intent)) {
         expect((document.activeElement as HTMLElement).dataset.subIndex).toBe(
           intent === 'rerender' ? '10' : '900',
         );

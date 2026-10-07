@@ -96,6 +96,20 @@ cookie, exact expected account scope, same-origin request and account CSRF
 header. Submission and vote/withdrawal admission use the existing atomic
 service-control rate limiter and fail closed when it is unavailable.
 
+The editor persists each draft revision before submitting. Retrying the same
+saved revision under the same account, including after a reload or in another
+tab, derives the same request ID. The existing `(account_id, request_id)` unique
+key returns the original receipt if the response or local draft cleanup failed.
+Edits, explicit source re-review, or a separately composed proposal receive a
+new revision; identical wording alone is not a global duplicate constraint.
+Unavailable, full or conflicted local storage blocks submission and retains the
+visible wording for copying. Existing version-1 drafts remain readable; their
+timestamp identifies the revision until edited. This adds no D1 migration,
+binding, secret or extra server retention. The policy applies to the upgraded
+editor; an older cached or rolled-back editor retains its former retry behavior.
+See [client identity](../.workshop/translate/submission-request.ts) and
+[Worker/SQLite regression](../src/core/__tests__/translation-community.test.ts).
+
 For an existing database, Production Release applies
 `cloudflare/auth.translation-community.migration.sql` before the new App Worker
 and reads back its required columns, unique approval index, vote triggers and

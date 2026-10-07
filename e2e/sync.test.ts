@@ -213,6 +213,10 @@ test.describe('Sync Controls', () => {
 
     await waitForSyncOffset(pair.guestPage, -1.234);
     await expect(editor).toHaveText('-1234');
+    await expect(pair.guestPage.locator('#btn-sync-done')).toBeFocused();
+    await pair.guestPage.keyboard.press('Escape');
+    await expect(pair.guestPage.locator('#manual-sync-overlay')).not.toBeVisible();
+    await expect(pair.guestPage.locator('#btn-sync')).toBeFocused();
   });
 
   test('sync display shows current offset value', async () => {

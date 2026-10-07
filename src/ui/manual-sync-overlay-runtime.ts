@@ -214,7 +214,11 @@ function bindEditor(editor: HTMLElement): void {
   const completeEdit = () => {
     if (commitEditor(editor)) {
       skipNextBlurCommit = true;
-      editor.blur();
+      // Finish editing without leaving the open modal's keyboard ownership.
+      // Focusing a button also dismisses the software keyboard on mobile.
+      const done = document.getElementById('btn-sync-done');
+      if (isAvailableFocusTarget(done)) done.focus({ preventScroll: true });
+      else editor.blur();
     } else {
       selectEditorText(editor);
     }

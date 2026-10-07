@@ -247,6 +247,19 @@ const MAX_CHUNK_BYTES = CHUNK_SIZE;
 const isBoundedChunk = (v: unknown): boolean =>
   isArrayBufferLike(v) && (v as ArrayBuffer | Uint8Array).byteLength <= MAX_CHUNK_BYTES;
 
+/** Match the fixed-size Blob slices emitted by both main-file send paths. */
+function hasExactMainFileChunkContract(data: Record<string, unknown>): boolean {
+  if (
+    !hasExactFileSizeContract(data) ||
+    !isBoundedChunk(data.chunk) ||
+    !isNonNegSafeInt(data.chunkIndex) ||
+    data.chunkIndex >= (data.total as number)
+  )
+    return false;
+  const expectedBytes = Math.min(CHUNK_SIZE, (data.size as number) - data.chunkIndex * CHUNK_SIZE);
+  return (data.chunk as ArrayBuffer | Uint8Array).byteLength === expectedBytes;
+}
+
 // Frames without a top-level queueItemId that still create/mutate a media
 // owner. Queue-scoped frames are detected generically below.
 const PRE_AUTHORITY_MEDIA_TYPES: ReadonlySet<string> = new Set([
@@ -621,13 +634,12 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.CHAT_SLOWMODE]: (d) => isNonNegSafeInt(d.seconds) && (d.seconds as number) <= 60,
   [MSG.CHAT_FILTER]: (d) => typeof d.on === 'boolean',
   [MSG.FILE_CHUNK]: (d) =>
-    isBoundedChunk(d.chunk) &&
-    isNonNegInt(d.chunkIndex) &&
     isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
     typeof d.name === 'string' &&
     d.name.length > 0 &&
-    hasExactFileSizeContract(d),
+    (d.mime === undefined || typeof d.mime === 'string') &&
+    hasExactMainFileChunkContract(d),
   // sessionId must be a positive safe integer. Finite-but-unsafe or fractional
   // values can poison transfer.localSessionId just like Infinity, after which
   // the localSid<incomingSid guards in transfer-receive.ts reject

@@ -84,6 +84,22 @@ describe('translation proposal validation', () => {
 });
 
 describe('translation draft storage', () => {
+  it('preserves a bounded revision ID and accepts pre-revision drafts', () => {
+    const storage = memoryStorage();
+    const current = { ...draft, revisionId: crypto.randomUUID() };
+    expect(saveDrafts([current], storage).ok).toBe(true);
+    expect(loadDrafts(storage).drafts).toEqual([current]);
+    expect(saveDrafts([draft], storage).ok).toBe(true);
+    expect(loadDrafts(storage).drafts).toEqual([draft]);
+    for (const revisionId of ['', 'not-a-uuid', 'x'.repeat(100_000)]) {
+      expect(saveDrafts([{ ...draft, revisionId }], storage)).toEqual({
+        ok: false,
+        warning: 'invalid-data',
+      });
+      expect(loadDrafts(storage).drafts).toEqual([draft]);
+    }
+  });
+
   it('retains unfinished drafts locally', () => {
     const storage = memoryStorage();
     const unfinished = { ...draft, proposed: '' };

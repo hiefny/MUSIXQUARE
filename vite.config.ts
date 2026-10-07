@@ -17,6 +17,7 @@ import { uiKitAsset } from './scripts/ui-kit-asset.ts';
 import { auxiliaryBrowserAssets } from './scripts/auxiliary-browser-assets.ts';
 import { useAsyncConnectMiddleware } from './scripts/async-connect-middleware.ts';
 import { translationCatalogAssets } from './scripts/translation-catalog-assets.ts';
+import { localeRecoveryAssets } from './scripts/locale-recovery-assets.ts';
 import { LANGUAGE_OPTIONS } from './src/i18n/locales.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
@@ -953,6 +954,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       uiKitAsset(),
       auxiliaryBrowserAssets(),
       translationCatalogAssets(),
+      localeRecoveryAssets(),
       flattenWorkshopHtml(),
       bindStaticLocaleFontAssets(),
       devPageAliases(),

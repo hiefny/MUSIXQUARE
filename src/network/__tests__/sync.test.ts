@@ -849,7 +849,7 @@ describe('background resume recovery', () => {
     bus.on('sync:diagnostic-standard-decision', (decision) => decisions.push(decision));
 
     registerPing(99);
-    vi.setSystemTime(1020);
+    vi.advanceTimersByTime(20);
     expect(processSyncPong(99, 5020)).not.toBeNull();
 
     bus.emit('sync:force-resync', { preserveClock: true });
@@ -867,7 +867,8 @@ describe('background resume recovery', () => {
 
     // The next preload can delay this reply. Preserve the established low-RTT
     // clock sample while applying the requested playback correction at once.
-    vi.setSystemTime(1520);
+    // Queueing advances elapsed time too; setSystemTime alone models a wall edit.
+    vi.advanceTimersByTime(500);
     await handleData(
       {
         type: MSG.SYNC_PONG,
@@ -994,7 +995,7 @@ describe('local-file sync correction', () => {
       setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
       setPlaybackFilePaused();
       registerPing(905);
-      vi.setSystemTime(receivedAt);
+      vi.advanceTimersByTime(receivedAt - 1000);
       await handleData(
         {
           type: MSG.SYNC_PONG,

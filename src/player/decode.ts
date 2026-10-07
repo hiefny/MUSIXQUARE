@@ -57,6 +57,7 @@ import {
   setPendingPlayTime,
   setPendingRecoveryTarget,
   getPendingPlayTimeSetAt,
+  getPendingPlayTimeMonotonicSetAt,
   setPlayPreloadedInProgress,
   getLastClearedQueueItemId,
   setLastClearedQueueItemId,
@@ -1046,7 +1047,11 @@ export async function loadPreloadedTrack(
 
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined && ownsPublishedTarget()) {
-      const timing = resolveFilePlayTiming(pendingTime, getPendingPlayTimeSetAt());
+      const timing = resolveFilePlayTiming(
+        pendingTime,
+        getPendingPlayTimeSetAt(),
+        getPendingPlayTimeMonotonicSetAt(),
+      );
       log.info(`[Preload] Activating playback at ${timing.offset.toFixed(1)}s`);
       let recoveredStartFinalized = false;
       const finalizeRecoveredStart = (): void => {
@@ -1387,7 +1392,11 @@ export async function finalizeGuestFile(
     const hostConn = getState('network.hostConn');
     const pendingTime = getPendingPlayTime();
     if (hostConn && pendingTime !== undefined && ownsTarget()) {
-      const timing = resolveFilePlayTiming(pendingTime, getPendingPlayTimeSetAt());
+      const timing = resolveFilePlayTiming(
+        pendingTime,
+        getPendingPlayTimeSetAt(),
+        getPendingPlayTimeMonotonicSetAt(),
+      );
       log.debug(`[Guest] Pending play at ${timing.offset.toFixed(1)}s`);
       let recoveredStartFinalized = false;
       const finalizeRecoveredStart = (): void => {

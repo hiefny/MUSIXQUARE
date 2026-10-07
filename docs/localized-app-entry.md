@@ -5,6 +5,14 @@ visible UI and `html[lang]` follow the saved preference or browser language,
 including on first load and installed PWA launches. Changing language in the
 app does not reload the document or discard a live session.
 
+If a lazy locale module fails to load, a later language selection or online
+retry can fetch a complete dictionary and plural data from an immutable JSON
+asset belonging to that same build. This avoids the browser's cached failed
+module import while preserving the current room and the latest language choice.
+The recovery assets are fetched only on that failure path. A failed optional
+font stylesheet is retried using a fresh native link to its original build URL;
+fallback fonts remain usable until the stylesheet actually loads.
+
 The root's canonical URL and Open Graph URL remain `https://musixquare.com/`.
 Its build-materialized English metadata and root WebSite schema describe the
 shared app entry; do not copy a locale document's head onto the root merely

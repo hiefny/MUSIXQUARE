@@ -13,6 +13,8 @@ import { loadCatalogs, type Catalog } from '../../../scripts/translation-catalog
 import { createTranslationCatalogAssets } from '../../../scripts/translation-catalog-assets.ts';
 import { normalizeSchemaSql } from '../../../scripts/sql-schema-normalization.mts';
 import type { ProposalDraft, Suggestion } from '../../i18n/translation-community.ts';
+import { submissionRequestId } from '../../../.workshop/translate/submission-request';
+import { loadDrafts, saveDrafts } from '../../../.workshop/translate/drafts';
 
 const ORIGIN = 'https://musixquare.com';
 const PREFIX = '/api/translations/suggestions';
@@ -99,22 +101,28 @@ function assetsPort(values = assets) {
     },
   };
 }
-async function seed(accountId: string, token: string, nickname: string | null) {
+async function seed(
+  accountId: string,
+  token: string,
+  nickname: string | null,
+  existingAccount = false,
+) {
   const now = Date.now();
-  db.native
-    .prepare(
-      'INSERT INTO mxqr_accounts (account_id,google_subject_hash,nickname,profile_complete,status,created_at,updated_at,nickname_key) VALUES (?,?,?,?,?,?,?,?)',
-    )
-    .run(
-      accountId,
-      accountId.padEnd(43, 'x'),
-      nickname,
-      nickname ? 1 : 0,
-      'active',
-      now,
-      now,
-      nickname?.toLowerCase() ?? null,
-    );
+  if (!existingAccount)
+    db.native
+      .prepare(
+        'INSERT INTO mxqr_accounts (account_id,google_subject_hash,nickname,profile_complete,status,created_at,updated_at,nickname_key) VALUES (?,?,?,?,?,?,?,?)',
+      )
+      .run(
+        accountId,
+        accountId.padEnd(43, 'x'),
+        nickname,
+        nickname ? 1 : 0,
+        'active',
+        now,
+        now,
+        nickname?.toLowerCase() ?? null,
+      );
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(PEPPER),
@@ -585,6 +593,61 @@ describe('translation community actual auth and SQLite contract', () => {
     expect(
       db.native.prepare('SELECT COUNT(*) AS n FROM mxqr_translation_suggestions').get()?.n,
     ).toBe(1);
+  });
+  it('keeps one SQLite record for a saved client revision across concurrent tabs and reload retries', async () => {
+    const saved = { ...draft(), revisionId: crypto.randomUUID() };
+    let raw: string | null = null;
+    const storage = {
+      getItem: () => raw,
+      setItem: (_key: string, value: string) => {
+        raw = value;
+      },
+    };
+    expect(saveDrafts([saved], storage).ok).toBe(true);
+    const submitSaved = async () => {
+      const restored = loadDrafts(storage).drafts[0]!;
+      return call(PREFIX, 'POST', {
+        requestId: await submissionRequestId(restored),
+        draft: restored,
+      });
+    };
+    const [first, concurrent] = await Promise.all([submitSaved(), submitSaved()]);
+    expect(first.status).toBe(200);
+    expect(concurrent.body.suggestion.id).toBe(first.body.suggestion.id);
+    // Ignore the successful response, restore the unchanged draft, then retry.
+    const retry = await submitSaved();
+    expect(retry.status).toBe(200);
+    expect(retry.body.suggestion.id).toBe(first.body.suggestion.id);
+    expect(
+      db.native.prepare('SELECT COUNT(*) AS n FROM mxqr_translation_suggestions').get()?.n,
+    ).toBe(1);
+    // An independently composed proposal may use identical wording.
+    expect(saveDrafts([{ ...saved, revisionId: crypto.randomUUID() }], storage).ok).toBe(true);
+    expect((await submitSaved()).body.suggestion.id).not.toBe(first.body.suggestion.id);
+    expect(
+      db.native.prepare('SELECT COUNT(*) AS n FROM mxqr_translation_suggestions').get()?.n,
+    ).toBe(2);
+  });
+  it('replays a saved revision after signing into the same account again and isolates another account', async () => {
+    const saved = { ...draft(), revisionId: crypto.randomUUID() };
+    const body = { requestId: await submissionRequestId(saved), draft: saved };
+    const first = await call(PREFIX, 'POST', body, TOKEN_A);
+    const renewedToken = 'C'.repeat(43);
+    await seed(ACCOUNT_A, renewedToken, 'Alice', true);
+    const initialRequest = await request('/', 'POST', {}, TOKEN_A);
+    const renewedRequest = await request('/', 'POST', {}, renewedToken);
+    expect(renewedRequest.headers.get('X-MXQR-Account-Expected-Scope')).not.toBe(
+      initialRequest.headers.get('X-MXQR-Account-Expected-Scope'),
+    );
+    const renewed = await call(PREFIX, 'POST', body, renewedToken);
+    expect(renewed.status).toBe(200);
+    expect(renewed.body.suggestion.id).toBe(first.body.suggestion.id);
+    const other = await call(PREFIX, 'POST', body, TOKEN_B);
+    expect(other.status).toBe(200);
+    expect(other.body.suggestion.id).not.toBe(first.body.suggestion.id);
+    expect(
+      db.native.prepare('SELECT COUNT(*) AS n FROM mxqr_translation_suggestions').get()?.n,
+    ).toBe(2);
   });
   it('atomically treats repeated PUT/DELETE as one account vote and ranks public suggestions', async () => {
     const one = (await submit('Encerrar')).body.suggestion;

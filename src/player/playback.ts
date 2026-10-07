@@ -308,6 +308,7 @@ function handleRemoteGuestPlay(
   incomingItem: { name?: string },
   time: number,
   setAt: number,
+  monotonicSetAt: number,
 ): void {
   if (shouldWaitForRemoteShare()) {
     const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
@@ -318,7 +319,7 @@ function handleRemoteGuestPlay(
       recoveryTarget?.queueItemId === incomingQueueItemId &&
       recoveryTarget.name === waitName;
     prepareRemoteShareWait(incomingQueueItemId, waitName, getRemoteWaitSessionId());
-    setPendingPlayTime(time, setAt);
+    setPendingPlayTime(time, setAt, monotonicSetAt);
     if (!alreadyWaiting) {
       requestCurrentFile(incomingQueueItemId, waitName, 'remote_share_wait');
     }
@@ -364,7 +365,8 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
   clearGuestFilePause();
   releaseActiveGuestFileRouteLoader();
   const playTimeline = captureGuestFilePlayTiming(data, time);
-  const queuePlayTimeline = (): void => setPendingPlayTime(playTimeline.time, playTimeline.setAt);
+  const queuePlayTimeline = (): void =>
+    setPendingPlayTime(playTimeline.time, playTimeline.setAt, playTimeline.monotonicSetAt);
   if (playTimeline.needsClockSync) bus.emit('sync:request-immediate-ping');
 
   // A decoder failure on this device does not advance or interrupt the room.
@@ -489,6 +491,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
         incomingItem,
         playTimeline.time,
         playTimeline.setAt,
+        playTimeline.monotonicSetAt,
       );
       return;
     }
@@ -590,7 +593,11 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
       }
     };
 
-    const timing = resolveFilePlayTiming(playTimeline.time, playTimeline.setAt);
+    const timing = resolveFilePlayTiming(
+      playTimeline.time,
+      playTimeline.setAt,
+      playTimeline.monotonicSetAt,
+    );
     const started = await startOwnedFile(
       timing.offset,
       timing.scheduleDelay,
@@ -620,6 +627,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
         incomingItem,
         playTimeline.time,
         playTimeline.setAt,
+        playTimeline.monotonicSetAt,
       );
       return;
     }

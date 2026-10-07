@@ -93,9 +93,9 @@ interface YouTubePlaylistManifestCacheEntry {
 // ─── URL Extraction ────────────────────────────────────────────────
 
 const VIDEO_PATTERNS = [
-  /(?:youtube\.com\/watch\?(?:[^&]*&)*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-  /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
-  /youtube\.com\/live\/([a-zA-Z0-9_-]{11})/,
+  /(?:youtube\.com\/watch\?(?:[^&]*&)*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/,
+  /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/,
+  /youtube\.com\/live\/([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/,
 ];
 
 export function extractYouTubeVideoId(url: string): string | null {

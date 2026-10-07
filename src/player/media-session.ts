@@ -361,6 +361,10 @@ export function initMediaSession(): void {
     }
     if (isPlaybackPlayingFile()) {
       togglePlay();
+    } else if (isPlaybackModeFile() && getRoomContext().kind === 'standard' && isCoordinator()) {
+      // Host PLAY can still be awaiting native resume/init while activity is
+      // paused. Revoke that start even though there is no source to stop yet.
+      pause(undefined, { showToast: false });
     }
   });
 

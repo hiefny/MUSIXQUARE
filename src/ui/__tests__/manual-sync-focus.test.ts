@@ -105,6 +105,42 @@ describe('manual sync initial editor selection', () => {
     expect(window.getSelection()?.toString()).toBe('-456');
   });
 
+  it.each(['keydown', 'beforeinput'] as const)(
+    'keeps a completed %s edit inside the modal so Escape can dismiss it',
+    (eventType) => {
+      openDemoSyncRuntime();
+      editor().textContent = '123';
+      const commits = vi.fn();
+      const unsubscribe = bus.on('sync:set-manual-offset', commits);
+      try {
+        editor().dispatchEvent(
+          eventType === 'keydown'
+            ? new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+            : new InputEvent('beforeinput', {
+                inputType: 'insertParagraph',
+                bubbles: true,
+                cancelable: true,
+              }),
+        );
+        expect(commits).toHaveBeenCalledExactlyOnceWith(123);
+        expect(document.activeElement).toBe(document.getElementById('btn-sync-done'));
+        expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(
+          true,
+        );
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+        expect(document.getElementById('manual-sync-overlay')?.getAttribute('aria-hidden')).toBe(
+          'true',
+        );
+        expect(document.activeElement).toBe(document.getElementById('btn-sync'));
+        expect(commits).toHaveBeenCalledTimes(1);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
   it('rejects a draft for a different offset target even before the UI refreshes', () => {
     setState('playback.mode', 'file');
     setState('sync.youtubeLocalOffset', 0.75);

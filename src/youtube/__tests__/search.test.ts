@@ -275,6 +275,23 @@ describe('extractYouTubeVideoId', () => {
     ).toBe('dQw4w9WgXcQ');
   });
 
+  it.each([
+    'https://www.youtube.com/watch?v=',
+    'https://youtu.be/',
+    'https://youtube.com/shorts/',
+    'https://youtube.com/embed/',
+    'https://youtube.com/live/',
+  ])('does not substitute an eleven-character prefix in %s', (prefix) => {
+    const videoId = 'dQw4w9WgXcQ';
+    for (const extra of ['x', '-', '_']) {
+      const malformed = `${prefix}${videoId}${extra}`;
+      expect(extractYouTubeVideoId(malformed)).toBeNull();
+      expect(getYouTubeInputIntent(malformed).kind).toBe('invalid-url');
+    }
+    expect(extractYouTubeVideoId(`${prefix}${videoId}`)).toBe(videoId);
+    expect(extractYouTubeVideoId(`${prefix}${videoId}#t=12`)).toBe(videoId);
+  });
+
   it('returns null for invalid URL', () => {
     expect(extractYouTubeVideoId('https://example.com')).toBeNull();
   });

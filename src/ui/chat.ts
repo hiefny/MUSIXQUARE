@@ -1285,9 +1285,11 @@ export function sendChatMessage(): void {
   //
   const dummy = getUiElement('chat-ime-dummy') as HTMLInputElement | null;
   if (dummy) {
-    dummy.focus();
+    // Keep the synchronous IME handoff without scrolling RTL overflow containers
+    // toward the off-screen dummy or shifting the visible composer afterward.
+    dummy.focus({ preventScroll: true });
     input.replaceChildren();
-    input.focus();
+    input.focus({ preventScroll: true });
   } else {
     // Last-resort reset for unexpected DOM; it may not fully clear the iOS buffer.
     resetChatEditable(input);

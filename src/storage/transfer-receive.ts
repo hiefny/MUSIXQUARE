@@ -51,6 +51,7 @@ import {
   getPendingPlayTime,
   setPendingPlayTime,
   getPendingPlayTimeSetAt,
+  getPendingPlayTimeMonotonicSetAt,
   currentAudioBufferPcmBytes,
   getTrackKeyFromItem,
   isTrackFailed,
@@ -213,6 +214,47 @@ function hasSafeIncomingFileSize(data: Record<string, unknown>): boolean {
   );
 }
 
+function hasSafeIncomingFileChunk(data: Record<string, unknown>): boolean {
+  const chunk = data.chunk;
+  const chunkIndex = data.chunkIndex;
+  if (
+    !hasSafeIncomingFileSize(data) ||
+    !(chunk instanceof Uint8Array || isArrayBuffer(chunk)) ||
+    !Number.isSafeInteger(chunkIndex) ||
+    (chunkIndex as number) < 0 ||
+    (chunkIndex as number) >= (data.total as number) ||
+    typeof data.name !== 'string' ||
+    data.name.length === 0 ||
+    (data.mime !== undefined && typeof data.mime !== 'string')
+  )
+    return false;
+  const expectedBytes = Math.min(
+    CHUNK_SIZE,
+    (data.size as number) - (chunkIndex as number) * CHUNK_SIZE,
+  );
+  if (chunk.byteLength !== expectedBytes) return false;
+
+  const meta = getState('transfer.meta');
+  if (
+    !meta ||
+    meta.sessionId !== data.sessionId ||
+    !hasSafeIncomingFileSize({ size: meta.size, total: meta.total })
+  )
+    return true;
+  return (
+    meta.queueItemId === data.queueItemId &&
+    meta.name === data.name &&
+    meta.total === data.total &&
+    meta.size === data.size &&
+    // START/RESUME normalize an omitted optional MIME to the empty string.
+    // Only an explicitly nonempty descriptor constrains later chunk MIME.
+    (meta.mime === undefined ||
+      meta.mime === '' ||
+      data.mime === undefined ||
+      meta.mime === data.mime)
+  );
+}
+
 function incomingQueueItemId(data: Record<string, unknown>): QueueItemId | null {
   return typeof data.queueItemId === 'string' && data.queueItemId.length > 0
     ? data.queueItemId
@@ -344,6 +386,7 @@ type PendingPlaySnapshot = {
   kind: 'play';
   time: number;
   setAt: number;
+  monotonicSetAt: number | null;
   currentQueueItemId: QueueItemId | null;
   targetQueueItemId?: QueueItemId;
   transferQueueItemId?: QueueItemId;
@@ -366,6 +409,7 @@ function capturePendingFileIntent(data: Record<string, unknown>): PendingFileInt
     kind: 'play',
     time,
     setAt: getPendingPlayTimeSetAt(),
+    monotonicSetAt: getPendingPlayTimeMonotonicSetAt(),
     currentQueueItemId: getState('playlist.currentQueueItemId'),
     targetQueueItemId: target?.queueItemId,
     transferQueueItemId: meta?.queueItemId,
@@ -397,7 +441,7 @@ function restorePendingFileIntent(
   }
   if (getPendingPlayTime() !== undefined) return;
   if (!shouldRestorePendingPlay(snapshot, data)) return;
-  setPendingPlayTime(snapshot.time, snapshot.setAt);
+  setPendingPlayTime(snapshot.time, snapshot.setAt, snapshot.monotonicSetAt);
   log.debug(`[Transfer] Restored pending play time after ${reason}`);
 }
 
@@ -1692,17 +1736,10 @@ function applyFileChunk(data: Record<string, unknown>): void {
   )
     return;
 
-  // Reject a missing chunk rather than constructing an empty byte view.
-  if (data.chunk == null) {
-    log.warn('[Transfer] Received null/undefined chunk, skipping');
-    return;
-  }
-
-  // Validate the chunk with a cross-realm-safe ArrayBuffer check.
-  if (!(data.chunk instanceof Uint8Array) && !isArrayBuffer(data.chunk)) {
-    log.warn('[Transfer] Invalid chunk type received, ignoring');
-    return;
-  }
+  // Internal queued-chunk replay also reaches this function. Validate before
+  // admission, session replacement, storage writes or progress accounting.
+  // A rejected frame leaves the valid prefix and bounded watchdog recovery intact.
+  if (!hasSafeIncomingFileChunk(data)) return;
 
   // Skip if using preloaded file
   if (shouldSkipIncomingFile(data)) {
@@ -1837,23 +1874,8 @@ function applyFileChunk(data: Record<string, unknown>): void {
 
   const sessionBuffer = fileReorderBuffer.get(incomingSid)!;
 
-  // Defense-in-depth chunk index bounds check. The protocol validator now
-  // enforces a non-negative safe integer for chunkIndex, but we repeat the
-  // guard here because the chunk index is ultimately keyed into a Map — any leak of a malformed value
-  // (negative, NaN, Infinity, or beyond meta.total) would bloat memory or
-  // stall the drain loop. If meta.total is known and chunkIndex exceeds it,
-  // drop the chunk; otherwise accept as usual.
+  // The complete frame and its active descriptor were checked before mutation.
   const chunkIndex = data.chunkIndex as number;
-  if (!Number.isFinite(chunkIndex) || chunkIndex < 0 || !Number.isInteger(chunkIndex)) {
-    log.warn(`[Transfer] Dropping chunk with invalid chunk index: ${chunkIndex}`);
-    return;
-  }
-  const metaPeek = getState('transfer.meta');
-  const expectedTotal = metaPeek?.total as number | undefined;
-  if (typeof expectedTotal === 'number' && expectedTotal > 0 && chunkIndex >= expectedTotal) {
-    log.warn(`[Transfer] Dropping chunk beyond total: ${chunkIndex} >= ${expectedTotal}`);
-    return;
-  }
 
   // A duplicate from a superseded/overlapping sender must not refresh the
   // watchdog or occupy the reorder map after its index was already committed.

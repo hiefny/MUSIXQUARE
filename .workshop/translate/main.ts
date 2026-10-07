@@ -10,6 +10,7 @@ import {
 import { loadTranslationCatalog } from './catalog-client';
 import { createStorageSession } from './storage-session';
 import { initCommunity } from './community';
+import { createDraftRevisionId } from './draft-revision';
 
 interface Language {
   code: string;
@@ -94,13 +95,13 @@ function reportActionFailure(error: unknown): void {
   element('load-error').hidden = false;
 }
 
-function persist(): void {
+function persist(): boolean {
   if (saveTimer !== undefined) clearTimeout(saveTimer);
   saveTimer = undefined;
   if (!storageSession.beforeSave()) {
     setStorageWarning();
     element('save-status').textContent = 'Saving paused. Copy your changes before reloading.';
-    return;
+    return false;
   }
   const result = saveDrafts([...drafts.values()]);
   if (result.ok) storageSession.afterSave();
@@ -108,6 +109,7 @@ function persist(): void {
   element('save-status').textContent = result.ok
     ? 'Saved locally'
     : 'Not saved. Copy your changes.';
+  return result.ok;
 }
 
 function selectedEntry(): Entry | undefined {
@@ -129,7 +131,6 @@ function referencesChanged(draft: Draft, entry: Entry): boolean {
 }
 
 async function prepareSubmission(draft: Draft): Promise<boolean> {
-  if (saveTimer !== undefined) persist();
   const next = await fetchCatalog(draft.locale);
   if (catalog?.locale.code === draft.locale) {
     catalog = next;
@@ -146,7 +147,10 @@ async function prepareSubmission(draft: Draft): Promise<boolean> {
     currentDraft() === draft &&
     !!entry &&
     !referencesChanged(draft, entry) &&
-    validateProposal(entry, draft.proposed).length === 0
+    validateProposal(entry, draft.proposed).length === 0 &&
+    // Persist the exact revision before POST, even after an earlier save failed.
+    // The server keeps the receipt keyed by its stable request ID if cleanup fails.
+    persist()
   );
 }
 
@@ -310,6 +314,7 @@ function updateDraft(): void {
       proposed: proposal.value,
       reason: reason.value,
       updatedAt: new Date().toISOString(),
+      revisionId: createDraftRevisionId(),
     });
   renderValidation();
 
@@ -429,6 +434,7 @@ reviewButton.addEventListener('click', () => {
     ...draft,
     ...entry,
     updatedAt: new Date().toISOString(),
+    revisionId: createDraftRevisionId(),
   });
   persist();
   renderValidation();

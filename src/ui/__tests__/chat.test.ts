@@ -374,6 +374,10 @@ describe('Chat Module', () => {
               ? ['truncate', ...reset, 'focus', 'input']
               : ['truncate', 'dummy-focus', 'clear', 'focus', 'input'],
         );
+        if (dummy) {
+          expect(dummy.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+          expect(input.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+        }
       } finally {
         vi.mocked(showToast).mockReset();
       }

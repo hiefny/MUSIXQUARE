@@ -17,6 +17,9 @@ import { log } from '../core/log.ts';
 
 const MAX_SAMPLES = 60;
 const PING_EXPIRY_MS = 5_000;
+// Ignore sub-100ms wall/monotonic disagreement from coarse browser clocks.
+// Larger local discontinuities still require a corroborating host observation.
+const LOCAL_CLOCK_PRECISION_MS = 100;
 
 // ─── State ────────────────────────────────────────────────────────
 
@@ -24,6 +27,12 @@ interface ClockSample {
   rtt: number;
   offset: number; // hostTime - localTime, corrected for half RTT
   timestamp: number;
+  monotonicTimestamp: number;
+}
+
+interface PendingPing {
+  sentAt: number;
+  monotonicSentAt: number;
 }
 
 interface SharedClockDiagnostics {
@@ -41,7 +50,7 @@ let _isHostClock = false;
 let _samples: ClockSample[] = [];
 let _bestOffset = 0;
 let _pongsReceived = 0;
-const _pendingPings = new Map<number, number>();
+const _pendingPings = new Map<number, PendingPing>();
 
 // ─── Getters ──────────────────────────────────────────────────────
 
@@ -118,11 +127,57 @@ export function setIsHostClock(value: boolean): void {
  */
 export function registerPing(pingId: number): void {
   const now = Date.now();
-  _pendingPings.set(pingId, now);
+  _pendingPings.set(pingId, { sentAt: now, monotonicSentAt: performance.now() });
 
   // Cleanup stale pings (>5s)
-  for (const [id, ts] of _pendingPings) {
-    if (now - ts > PING_EXPIRY_MS) _pendingPings.delete(id);
+  for (const [id, ping] of _pendingPings) {
+    if (now - ping.sentAt > PING_EXPIRY_MS) _pendingPings.delete(id);
+  }
+}
+
+/**
+ * A local clock edit changes Date.now but not the audio/monotonic timeline.
+ * Corroborate that discontinuity against host time before rebasing the old
+ * samples. Network queueing alone cannot satisfy the local-clock check;
+ * sleep on a platform whose monotonic clock stopped fails the host check.
+ * Rebase instead of discarding the established low-RTT measurements.
+ */
+function rebaseLocalClockStep(
+  ping: PendingPing,
+  hostTime: number,
+  receivedAt: number,
+  monotonicReceivedAt: number,
+): void {
+  if (_samples.length === 0) return;
+  const best = _samples.reduce((a, b) => (a.rtt < b.rtt ? a : b));
+  const elapsed = monotonicReceivedAt - best.monotonicTimestamp;
+  const step = receivedAt - best.timestamp - elapsed;
+  const monotonicRtt = monotonicReceivedAt - ping.monotonicSentAt;
+  if (
+    Math.abs(step) <= LOCAL_CLOCK_PRECISION_MS ||
+    elapsed < 0 ||
+    monotonicRtt < 0 ||
+    monotonicRtt > PING_EXPIRY_MS
+  ) {
+    return;
+  }
+  const expectedHostNow = best.timestamp + best.offset + elapsed;
+  const observedHostNow = hostTime + monotonicRtt / 2;
+  const uncertainty = (best.rtt + monotonicRtt) / 2 + LOCAL_CLOCK_PRECISION_MS;
+  if (Math.abs(observedHostNow - expectedHostNow) > uncertainty) return;
+  // With a slow reply, both a local edit and a stopped monotonic clock may
+  // explain the host observation. Wait for an unambiguous fresh sample.
+  if (Math.abs(observedHostNow - (expectedHostNow + step)) <= uncertainty) return;
+
+  for (const sample of _samples) {
+    sample.timestamp += step;
+    sample.offset -= step;
+  }
+  _bestOffset = best.offset;
+  // Some outstanding pings were sent before the step, others after it.
+  // Their own monotonic ages place each send in the new wall-clock epoch.
+  for (const pending of _pendingPings.values()) {
+    pending.sentAt = receivedAt - (monotonicReceivedAt - pending.monotonicSentAt);
   }
 }
 
@@ -139,7 +194,7 @@ export function processSyncPong(
   pingId: number,
   hostTime: number,
 ): { rtt: number; offset: number } | null {
-  const pingSentAt = _pendingPings.get(pingId);
+  const ping = _pendingPings.get(pingId);
 
   // Reject NaN / ±Infinity hostTime — a malicious or buggy peer sending
   // Infinity would otherwise propagate into `_bestOffset` and poison every
@@ -147,11 +202,19 @@ export function processSyncPong(
   // clean sample displaces it. The non-finite sample has nothing to
   // self-heal because `reduce((a, b) => a.rtt < b.rtt ? a : b)` could still
   // keep picking it depending on RTT ordering.
-  if (pingSentAt == null || !Number.isFinite(hostTime)) return null;
-  _pendingPings.delete(pingId);
+  if (ping == null || !Number.isFinite(hostTime)) return null;
 
   const receivedAt = Date.now();
-  const rtt = receivedAt - pingSentAt;
+  const monotonicReceivedAt = performance.now();
+  _pendingPings.delete(pingId);
+  const wallRtt = receivedAt - ping.sentAt;
+  const monotonicRtt = monotonicReceivedAt - ping.monotonicSentAt;
+  // An exchange spanning a wall-clock discontinuity can also be a stale
+  // reply held across sleep where performance.now stopped. Neither RTT nor
+  // host freshness is reliable; let the next fresh exchange calibrate it.
+  if (Math.abs(wallRtt - monotonicRtt) > LOCAL_CLOCK_PRECISION_MS) return null;
+  rebaseLocalClockStep(ping, hostTime, receivedAt, monotonicReceivedAt);
+  const rtt = wallRtt;
   // Enforce expiry on receipt too: background timer throttling can prevent
   // registerPing's cleanup from running before a very late reply arrives.
   if (rtt < 0 || rtt > PING_EXPIRY_MS) return null;
@@ -159,7 +222,7 @@ export function processSyncPong(
 
   // Offset = how far ahead host clock is from our clock
   // hostTime was sampled at (pingSentAt + halfRtt) in our time
-  const offset = hostTime - (pingSentAt + halfRtt);
+  const offset = hostTime - (ping.sentAt + halfRtt);
 
   // Date.now() step detection (NTP correction on network change, mobile
   // sleep/wake, manual time adjustment). After a step, every existing
@@ -184,7 +247,7 @@ export function processSyncPong(
     _samples = [];
   }
 
-  _samples.push({ rtt, offset, timestamp: receivedAt });
+  _samples.push({ rtt, offset, timestamp: receivedAt, monotonicTimestamp: monotonicReceivedAt });
 
   // Keep bounded by count AND age. Old samples' offsets become stale
   // because device clocks drift over time (mobile Date.now() can drift

@@ -269,14 +269,28 @@ export function getPendingPlayTime(): number | undefined {
 /**
  * `setAt` anchors the requested position on this device's wall clock. It can
  * be in the future for a shared start; transfer/decode preserves it verbatim.
+ * Public PLAY also supplies its monotonic anchor captured before any awaits.
+ * Legacy callers without that anchor retain the wall-clock fallback.
  */
-export function setPendingPlayTime(time: number | undefined, setAt?: number): void {
+export function setPendingPlayTime(
+  time: number | undefined,
+  setAt?: number,
+  monotonicSetAt?: number | null,
+): void {
   setState('playback.pendingPlayTime', time);
   setState('playback.pendingPlayTimeSetAt', time === undefined ? 0 : (setAt ?? Date.now()));
+  setState(
+    'playback.pendingPlayTimeMonotonicSetAt',
+    time === undefined ? null : (monotonicSetAt ?? null),
+  );
 }
 
 export function getPendingPlayTimeSetAt(): number {
   return getState('playback.pendingPlayTimeSetAt');
+}
+
+export function getPendingPlayTimeMonotonicSetAt(): number | null {
+  return getState('playback.pendingPlayTimeMonotonicSetAt');
 }
 
 // ─── Pending Recovery Target ──────────────────────────────────────

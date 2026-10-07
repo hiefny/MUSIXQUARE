@@ -247,6 +247,7 @@ function createInitialState(): StateTree {
       loadSource: null,
       pendingPlayTime: undefined,
       pendingPlayTimeSetAt: 0,
+      pendingPlayTimeMonotonicSetAt: null,
       pendingRecoveryTarget: null,
       failedTrackKeys: new Set<string>(),
     },

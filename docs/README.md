@@ -90,12 +90,18 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Beta 30-round repair and verification — 2026-10-07](design/beta-30-round-repair-2026-10-07.md) —
+  Implements the 12 confirmed findings and two separate robustness improvements
+  after owner approval. The report preserves original failures, follow-up checks,
+  compatibility limits and one unresolved legacy SW update liveness observation after approval.
+  Main and production remain frozen.
 - [Beta independent 30-round QA — 2026-10-07](design/beta-30-round-qa-2026-10-07.md) —
   Astra Ultra, three agents per set across ten sets. Post-round adjudication
-  confirms 12 distinct unresolved defects; two observations remain provisional
+  confirmed 12 distinct unresolved defects at the discovery checkpoint; two observations remained provisional
   and two candidates are rejected. Selected maintained tests total 8,716 unique
-  passing cases. A newly reviewed sharp advisory fails the dev security gate;
-  production-only audit remains zero. Product code and main were not changed.
+  passing cases. At that discovery checkpoint, a newly reviewed sharp advisory failed the dev security gate;
+  production-only audit remained zero. Product code and main were not changed
+  during discovery; the subsequent repair is recorded separately above.
 - [Beta dependency security repair — 2026-10-06](design/beta-security-repair-2026-10-06.md) —
   At the October 6 repair checkpoint, beta audit warnings fell from 13 packages
   to zero, with registry signatures verified. Dev-only patches preserve each parent's Undici/brace API requirements

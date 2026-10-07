@@ -30,6 +30,7 @@ import {
   currentAudioBufferPcmBytes,
   getPendingPlayTime,
   getPendingPlayTimeSetAt,
+  getPendingPlayTimeMonotonicSetAt,
   getTrackKeyFromItem,
   isTrackFailed,
   liveAudioBufferPcmBytes,
@@ -300,8 +301,10 @@ function rawRemoteShareError(error: unknown): string {
 function clearStaleRemotePlayback(reason: string): void {
   const pendingTime = getPendingPlayTime();
   const pendingSetAt = getPendingPlayTimeSetAt();
+  const pendingMonotonicSetAt = getPendingPlayTimeMonotonicSetAt();
   bus.emit('storage:clear-previous-track', reason);
-  if (pendingTime !== undefined) setPendingPlayTime(pendingTime, pendingSetAt);
+  if (pendingTime !== undefined)
+    setPendingPlayTime(pendingTime, pendingSetAt, pendingMonotonicSetAt);
 }
 
 function toRemoteShareMessage(descriptor: RemoteFileSharePayload, preload = false): AnyProtocolMsg {

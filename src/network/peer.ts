@@ -1322,6 +1322,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
     'playback.loadSource': null,
     'playback.pendingPlayTime': undefined,
     'playback.pendingPlayTimeSetAt': 0,
+    'playback.pendingPlayTimeMonotonicSetAt': null,
     'playback.pendingRecoveryTarget': null,
     'playback.failedTrackKeys': new Set<string>(),
     // Sync

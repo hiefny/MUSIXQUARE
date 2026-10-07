@@ -444,6 +444,8 @@ it('accepts omitted optional PREPARE metadata and preserves pending PLAY through
   await deliver(sender.bulk.sent[0]!, 'bulk');
   expect(getState('playback.pendingPlayTime')).toBe(12.5);
   const pendingSetAt = getState('playback.pendingPlayTimeSetAt');
+  const pendingMonotonicSetAt = getState('playback.pendingPlayTimeMonotonicSetAt');
+  expect(pendingMonotonicSetAt).not.toBeNull();
   const seekReset = vi.fn();
   const stoppedStates: string[] = [];
   bus.on('ui:seek-reset', seekReset);
@@ -460,12 +462,14 @@ it('accepts omitted optional PREPARE metadata and preserves pending PLAY through
   expect(getState('transfer.state')).toBe('RECEIVING');
   expect(getState('playback.pendingPlayTime')).toBe(12.5);
   expect(getState('playback.pendingPlayTimeSetAt')).toBe(pendingSetAt);
+  expect(getState('playback.pendingPlayTimeMonotonicSetAt')).toBe(pendingMonotonicSetAt);
   await deliver(start, 'control');
   expect(ramContiguousCount(A, false, 6)).toBe(1);
   for (const frame of sender.bulk.sent.slice(1)) await deliver(frame, 'bulk');
   await expectStored(file);
   expect(finalizeGuestFile).toHaveBeenCalledOnce();
   expect(getState('playback.pendingPlayTimeSetAt')).toBe(pendingSetAt);
+  expect(getState('playback.pendingPlayTimeMonotonicSetAt')).toBe(pendingMonotonicSetAt);
   await expectNoRecovery(receiver);
 });
 

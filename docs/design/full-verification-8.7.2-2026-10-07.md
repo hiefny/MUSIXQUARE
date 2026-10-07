@@ -653,6 +653,68 @@ R2 후속 원본은 `scratch/r2-root-cause-2026-10-07/transport-after-synthetic-
 이름의 `.mjs/.jsonl/.log/-exit.txt`다. 두 실행은 별도 객체·조건의 검사이므로 총 87개
 수신 성공을 87기기 또는 하나의 실험으로 표현하지 않는다.
 
+## 두 계정의 workers.dev 라우팅 대조 — 2026-10-08
+
+준비 SHA `8f30c5b98ffbd5a3838b121ecbdf1a3aad6bbaef`, 같은 집 Wi-Fi·Windows·Node
+`v24.20.0`·Chromium `153.0.8010.12`에서 기존 계정과 사용자의 playground 계정을
+비교했다. 두 계정에 같은 이름의 임시 Worker `mxqr-cross-account-20261008-b1`을
+만들고 각각의 workers.dev 주소로 접속했다. 기존 계정은 관리 API, playground는
+사용자가 로그인한 대시보드에서 배포했다. 앱·R2·다른 서비스 binding은 사용하지 않았다.
+
+두 Worker는 정확히 같은 1,960자 소스, compatibility date `2026-10-07`, flags/bindings
+없음, Default placement, invocation logs 100%를 사용했다. playground 편집기에서 복사한
+소스의 줄바꿈을 정규화해 로컬 canonical 파일과 일치를 확인하고 활성 버전 `64ea04a2`를
+확인했다. 기존 계정은 배포 후 settings API로 같은 조건을 확인했다. 계정의 모든 요금제·
+내부 정책이 같다는 검사는 아니다. 코드 SHA-256은
+`dc7739a04c9c44e53230092ea7f1fe98c13c4e69fb9918d999035a61c92bf740`이다.
+
+고정 합성 본문은 2,153,280바이트이며 SHA-256은
+`f431e3a1c7566550008206031c02183a2e98f3c3d0c059f599efa2fe614716f5`다. Worker는
+정확한 loopback Origin·허용 경로·만료 시각을 검사하고 불변 본문을 `no-store`로 반환한다.
+Authorization 값은 공개된 검사 식별자이며 비밀 인증 수단이 아니다. 사용자 데이터·계정
+자격 증명을 Worker에 넣지 않았고 만료 시각은 `2026-10-07T19:45:00Z`였다.
+
+각 회차는 새 Chromium 하나, 계정별 context/page 하나를 사용했다. 앱 없는 로컬 빈
+문서의 native XHR로 준비 A1/B1 후 순차 3개씩 A→B→B→A, 동시 9개씩 A→B→B→A를
+수행했다. 두 번째 회차는 계정 순서를 뒤집었다. QUIC·캐시·Service Worker를 배제하고
+요청 상한 45초·블록 간격 3초·재시도 0을 고정했다. CDP 원천 timestamp로 동시 요청
+중첩 1/9를 확인했다. 실행은 03:49–03:51 KST이며 아래 시간은 native XHR 본문 수신
+완료 기준이고 본문 해시 계산 시간은 제외한다.
+
+| 계정 | 순차 개별 요청 12개 | 동시 9개 전체 완료 4블록 | 응답 CF-Ray / Worker 실행 colo |
+| --- | --- | --- | --- |
+| 기존 MUSIXQUARE 계정 | 0.358–0.743초 | 1.832–2.652초 | 모두 LAX / LAX |
+| Playground 계정 | 0.340–0.888초 | 2.222–2.401초 | 모두 LAX / LAX |
+
+**본 측정 96/96·준비 4/4 모두 HTTP 200·전체 바이트/hash 일치·실제 H2·timeout 0**이다.
+총 수신은 215,328,000바이트다. 계정별로 각 회차 안에서는 연결 1개를 재사용했다.
+따라서 100번의 독립 라우팅 선택으로 해석하지 않는다. 새 브라우저 사이에서 숫자가 같은
+connection ID도 같은 연결로 합치지 않는다. 원본 20블록·XHR/CDP GET 각 100개·실행기/
+브라우저/Worker 해시·합성 본문 해시를 별도 검토해 일치를 확인했다.
+
+기존 계정 Worker는 실행기에서 삭제하고 settings 조회 404를 확인했다. Playground
+Worker도 이후 대시보드에서 삭제하고 목록에 원래 Worker 1개만 남은 것을 확인했다.
+두 브라우저는 종료했다. 새 DNS·Route·Custom Domain·저장소·운영 binding을 만들지
+않았고 기존 Worker·앱·운영 설정·제품 버전·cache epoch·프로덕션 배포는 변경하지 않았다.
+
+**같은 회선에서는 계정을 바꿔도 ICN으로 바뀌지 않았다.** 기존 계정만 LAX로 라우팅된다는
+가설을 이번 대조는 지지하지 않는다. 앞선 ICN 관측은 다른 계정의 Worker가 아니라
+Cloudflare 관리 API 경로였다. 계정마다 hostname·연결이 다르고 한 PC/회선·두 회차의
+관측이므로 Cloudflare/ISP의 구체적인 라우팅 정책이나 모든 계정의 동작을 입증하지 않는다.
+또한 이번 합성 Worker의 빠른 응답은 과거 R2 본문 지연의 해결·원인 입증이 아니다.
+계정 이전·앱 복제·추측성 제품 수정은 하지 않으며 기존 실패와 미확정 상태를 유지한다.
+
+준비 실행 b1/b2는 기존 계정 Worker 업로드 API의 HTTP 400/code 10021로 측정 전
+종료했다. b2는 `invalid placement mode: off`를 기록했다. v3에서는 해당 metadata를
+생략해 API가 허용하는 Default placement를 사용하고 실제 settings를 확인했다. 이는
+검사 배포 설정 오류이며 다운로드 실패가 아니다. 최초 오류 원본도 보존한다.
+
+원본은 `scratch/route-probe-2026-10-08/`의 `cross-account-worker-ui.mjs`,
+`cross-account-browser.mjs`, `cross-account-experiment-v3.mjs`,
+`cross-account-b3.{jsonl,log,exit}`, `cross-account-ui-evidence.json`,
+`cross-account-ui-cleanup.json`이다. b3 실행기 로그의 playground 정리 대기는 이후 UI
+정리 기록으로 완료되며 원본 로그를 덮어쓰지 않았다. 전체 suite·물리 다기기 재검사는 아니다.
+
 ## 최초 전체 검증 원본 증거
 
 추적 제외 폴더 `scratch/full-verification-8.7.2-2026-10-07/`에 원본을 보존한다.

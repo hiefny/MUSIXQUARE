@@ -380,7 +380,7 @@ const te: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'ఒకే నెట్‌వర్క్‌లోని కనెక్షన్‌లు అత్యంత నమ్మదగినవి',
   'help.local_file': 'లోకల్ ఫైల్‌ను ఎంచుకో',
   'help.load_local': 'లోకల్ ఫైల్‌ను లోడ్ చేయి',
-  'help.youtube_compat': 'YouTube (కంపాటిబిలిటీ మోడ్)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'YouTube మోడ్‌లో పాత్ర సెట్టింగ్‌లు, ఆడియో ఎఫెక్ట్‌లు అందుబాటులో ఉండవు.',
   'help.media_synced_detail':
@@ -495,7 +495,7 @@ const te: Record<I18nKey, string> = {
   'youtube.enter_link': 'YouTube లింక్‌ను నమోదు చేయి',
   'youtube.enter_source': 'YouTube లింక్ లేదా సెర్చ్‌ను నమోదు చేయి',
   'youtube.enter_link_prompt': 'YouTube సెర్చ్ పదం లేదా లింక్‌ను నమోదు చేయి',
-  'youtube.enter_source_placeholder': 'సెర్చ్ పదం లేదా https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube లింక్ లేదా సెర్చ్ పదం',
   'youtube.watch_together': 'కలిసి YouTube చూడండి',
   'youtube.ready': 'YouTube సిద్ధంగా ఉంది!\nప్లే నొక్కండి.',
   'youtube.thumbnail': 'YouTube ప్రివ్యూ థంబ్‌నెయిల్',

@@ -389,7 +389,7 @@ const ta: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'ஒரே நெட்வொர்க்கில் உள்ள இணைப்புகள் மிகவும் நம்பகமானவை',
   'help.local_file': 'உள்ளூர் கோப்பைத் தேர்ந்தெடு',
   'help.load_local': 'உள்ளூர் கோப்பை ஏற்று',
-  'help.youtube_compat': 'YouTube (இணக்கப் பயன்முறை)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'YouTube பயன்முறையில் பங்கு அமைப்புகளும் ஆடியோ விளைவுகளும் கிடைக்காது.',
   'help.media_synced_detail':
@@ -505,7 +505,7 @@ const ta: Record<I18nKey, string> = {
   'youtube.enter_link': 'YouTube இணைப்பை உள்ளிடு',
   'youtube.enter_source': 'YouTube இணைப்பு அல்லது தேடலை உள்ளிடு',
   'youtube.enter_link_prompt': 'YouTube தேடல் சொல்லை அல்லது இணைப்பை உள்ளிடு',
-  'youtube.enter_source_placeholder': 'தேடல் சொல் அல்லது https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube இணைப்பு அல்லது தேடல் சொல்',
   'youtube.watch_together': 'YouTube-ஐ ஒன்றாகப் பாருங்கள்',
   'youtube.ready': 'YouTube தயாராக உள்ளது!\nஇயக்கு என்பதை அழுத்தவும்.',
   'youtube.thumbnail': 'YouTube முன்னோட்டச் சிறுபடம்',

@@ -49,6 +49,7 @@
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active`; 배포 전 `37583844459`·배포 후 `37584995408` 성공, 각각 31 pass/0 fail/5 manual-only |
 | 최종 main SHA / CI 후보 / 배포 실행 | `e8001e93c9390ec20b359b015d3dff890f2b5304` / main CI `37583802398` 및 immutable candidate / Release `37584399403` 성공. [정확한 증거](design/release-8.7.0-2026-10-07.md) |
+| 후속 App 패치 | `8.7.1`/`v632` 준비 — 42언어 YouTube 입력 힌트·BETA 배지. 제품 `10feecac`, `app`/D1 false. 아래 후속 패치 검증·배포 상태를 따른다 |
 
 **`8.7.0` / `v631` 승격·배포를 완료했다.** PR #245의 준비 SHA `fe0b0230`을
 main `e8001e93`으로 병합하고, 그 정확한 SHA의 CI candidate를 `all`로 배포했다.
@@ -63,6 +64,36 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
 발견 당시 실패·후속 수정·동결 상태는 3절과 누적 이력에 날짜별 증거로 보존한다.
 이번 배포 종료 시 6개 Worker의 메시지는 모두 `git:e8001e93...`로 확인했다.
 이 문서만 보완하는 후속 main 커밋을 새로운 배포 SHA로 해석하지 않는다.
+
+### 후속 App 패치 준비 — 8.7.1 / v632, 2026-10-07
+
+- 코드 SHA `10feecac148291dbb54f4cb436fc6dc64d9e6490`: 42개 언어의 YouTube
+  입력 힌트를 링크·검색어 모두 안내하는 짧은 문구로 변경. 기존 자연스러운 줄바꿈을
+  유지하며 말줄임·줄 수 제한은 추가하지 않았다. 소스 선택의 호환 모드 표기는 기존
+  디자인의 BETA 배지로 대체하고 역할·음향 효과 제한 안내는 유지했다.
+  좁은 소스 선택 버튼에서는 배지가 다음 줄로 내려가 이름이 글자 단위로 쪼개지는
+  것을 피한다. 입력창의 줄바꿈에는 새 제한이 없다.
+- `8.7.1`/`v632`와 bootstrap cache query·admin 버전 mirror를 함께 변경했다.
+  배포 범위는 `target=app`, `apply_developer_api_d1=false`. 8.7.0의 누적 `all`
+  배포는 완료됐으며 이번 패치에 다시 적용하지 않는다. 새 의존성·DB·secret·binding·
+  미디어/서버 계약 변경은 없다. Operations Drift Audit은 active를 유지한다.
+- Windows/Node 24.20.0/npm 12.0.2에서 번역·UI·검색·release identity 관련
+  7파일 142개, 기존 Chromium 검색 E2E 7개가 통과했다(배지 줄바꿈 CSS 보완 전
+  `5929e9a4`). 42언어 320px 및 대표 7언어 390/1440px의 렌더링 56조합에서
+  입력 힌트의 정상 줄바꿈·넘침 없음과 배지 디자인·RTL을 확인했다. 최초 320px의
+  YouTube 이름 쪼개짐은 배지 줄바꿈 CSS로 보완하고 3언어×4폭 12조합을 재확인했다.
+  기존 중국어 2종 설명문의 본문 경계 초과 15px는 화면 내 표시되며 이번 변경과
+  무관해 보존했다. 렌더링 검사는 작성된 창을 DOM으로 표시한 검사이며 실기·방
+  동작 검증이 아니다. E2E build·전체 타입·lint·서식과 `10feecac` 커밋 후
+  `build:checked` 통과. 최종 production 산출물도 CSS 주입 없이 4조합 통과했다.
+  최초 PR CI `37588348701`에서 기존 branding 검사의 배지 개수 2개 기대가 1건
+  실패했다. 요청한 새 배지로 3개가 된 점에 맞춰 기존 검사만 수정했고, 관련
+  3파일 44개를 재검증했다(위 142개와 일부 중복). 새 유지 테스트는 추가하지 않았다.
+  전체 스위트와 최종 main SHA 검증으로 확대 해석하지 않는다. 수정 후 PR/main
+  CI·실제 배포는 준비 중이다.
+- 기존 8.7.0의 R26 미확정 관찰·실기·수동 운영 확인 한계는 그대로다. 이번 문구
+  패치 복구 기준은 이전 8.7.0 App과 정식 workflow의 소유권·호환성 checkpoint다.
+  아래 베타 누적 범위·과거 검증은 8.7.0 승격 당시의 기록이다.
 
 ## 2. 이번 베타에서 함께 반영할 범위
 
@@ -1047,6 +1078,8 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | 30라운드 후속 수정, `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋 | 확정12수정·별도보강2. 재생/시계/포커스/검색/언어·폰트/PWA/진단·파일수신·번역재시도와sharp0.35.5. 새같은빌드 localeJSON40개를App에포함. 새schema/secrets/bindings없음, 누적all/D1 false·버전/cache·동결유지 | 최종unit517파일10,730pass/4종coverage; 초기전체Chromium580+최종영향18/production17, WebKit66/기존3skip. 자동retry0. 타입/lint/서식·source16/artifact8·Worker6·감사0/서명·새설치native검증. 원본실패보존, legacy승인후갱신관찰1원인미확정(추가10/10pass). 실기/live·cache-history·exact-main/승격잔여. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
 | 2026-10-07 | 공개 승격 준비, 기준 checkout `efce531a690857790509fde5f851a9b72db1ee05`, 최신 검증 코드 `4a605791` | 사용자 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인. 하이브리드 오디오 기능을 포함해 `8.7.0`/`v631` 준비, 누적 `target=all`/D1 false. 새 schema/secrets/bindings·복구 계약 추가 변경 없음 | 위 로컬 QA 증거 유지. 최종 버전/cache 커밋의 검증·PR/main CI·실제 배포·감사 결과는 아래에 별도 기록. R26 최초 legacy 승인 후 갱신 정지 1회는 미확정이며 추가 진단 10/10 통과로 해소 처리하지 않음. 실기/live 잔여 유지 |
 | 2026-10-07 | 공개 승격·배포, 준비 `fe0b0230` → main `e8001e93c9390ec20b359b015d3dff890f2b5304`, PR #245 | `8.7.0`/`v631`, Release `37584399403`의 `all`/D1 false 성공. 6 Worker 공통 SHA·최종 소유권·PRO ready·coherent marker 확인, 감사 active 및 전후 자동 검사 성공. 문서 후속 커밋은 배포 SHA와 구분 | exact-main CI `37583802398`의 unit 10,729 pass/기존 Windows 전용 1 skip·4종 coverage·Chromium 17+22 통과. 공개 45자산 hash·10 HTML 200·fresh en/ko Chromium 통과. 초기 build/upgrade/fetch 실패의 후속 판정과 R26·수동5·실기 한계는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 보존 |
+
+| 2026-10-07 | YouTube 안내 후속 패치, 제품 `10feecac148291dbb54f4cb436fc6dc64d9e6490` | `8.7.1`/`v632`, 42언어 링크·검색 안내 축약, 줄바꿈 유지, 호환 모드 대신 BETA. `app`/D1 false; 새 데이터·서버 계약 없음 | 관련 unit142·검색 Chromium7, 렌더링56조합 및 배지 보완12조합 확인. 준비·배포 결과는 1절 후속 패치 기록을 따른다. 8.7.0 기존 실기·운영 한계 유지 |
 
 ### 실제 승격·배포 기록 — 2026-10-07 완료
 

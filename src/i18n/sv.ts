@@ -384,7 +384,7 @@ const sv: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Anslutningar inom samma nätverk är mest tillförlitliga',
   'help.local_file': 'Välj lokal fil',
   'help.load_local': 'Läs in lokal fil',
-  'help.youtube_compat': 'YouTube (kompatibilitetsläge)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'I YouTube-läget är rollinställningar och ljudeffekter inte tillgängliga.',
   'help.media_synced_detail': 'Valda medier spelas samtidigt på alla anslutna enheter.',
@@ -498,7 +498,7 @@ const sv: Record<I18nKey, string> = {
   'youtube.enter_link': 'Ange YouTube-länk',
   'youtube.enter_source': 'Ange YouTube-länk eller sök',
   'youtube.enter_link_prompt': 'Ange ett sökord eller en länk för YouTube',
-  'youtube.enter_source_placeholder': 'Sökord eller https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube-länk eller sökord',
   'youtube.watch_together': 'Titta på YouTube tillsammans',
   'youtube.ready': 'YouTube är klart!\nTryck på Spela upp.',
   'youtube.thumbnail': 'Förhandsbild för YouTube',

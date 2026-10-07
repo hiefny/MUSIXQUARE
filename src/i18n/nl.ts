@@ -383,7 +383,7 @@ const nl: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Verbindingen op hetzelfde netwerk zijn het betrouwbaarst',
   'help.local_file': 'Lokaal bestand kiezen',
   'help.load_local': 'Lokaal bestand laden',
-  'help.youtube_compat': 'YouTube (compatibiliteitsmodus)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'In YouTube-modus zijn rolinstellingen en audio-effecten niet beschikbaar.',
   'help.media_synced_detail':
@@ -504,7 +504,7 @@ const nl: Record<I18nKey, string> = {
   'youtube.enter_link': 'YouTube-link invoeren',
   'youtube.enter_source': 'YouTube-link of zoekterm invoeren',
   'youtube.enter_link_prompt': 'Voer een YouTube-zoekterm of link in',
-  'youtube.enter_source_placeholder': 'Zoekterm of https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube-link of zoekterm',
   'youtube.watch_together': 'Samen YouTube kijken',
   'youtube.ready': 'YouTube is klaar!\nDruk op Afspelen.',
   'youtube.thumbnail': 'YouTube-voorbeeldminiatuur',

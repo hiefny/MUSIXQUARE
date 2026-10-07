@@ -383,7 +383,7 @@ const ru: Record<I18nKey, string> = {
     'Соединение наиболее стабильно, когда все устройства находятся в одной локальной сети',
   'help.local_file': 'Выбрать локальный файл',
   'help.load_local': 'Загрузить локальный файл',
-  'help.youtube_compat': 'YouTube (Режим совместимости)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'В режиме YouTube настройки ролей и звуковые эффекты недоступны.',
   'help.media_synced_detail':
     'Выбранные медиафайлы одновременно воспроизводятся на всех подключенных устройствах.',
@@ -497,7 +497,7 @@ const ru: Record<I18nKey, string> = {
   'youtube.enter_link': 'Введите ссылку на YouTube',
   'youtube.enter_source': 'Поиск материала или ссылка на YouTube',
   'youtube.enter_link_prompt': 'Введите запрос поиска или ссылку на YouTube',
-  'youtube.enter_source_placeholder': 'Поисковый запрос или ссылка (https://youtube.com/...)',
+  'youtube.enter_source_placeholder': 'Ссылка на YouTube или поиск',
   'youtube.watch_together': 'Совместный просмотр YouTube',
   'youtube.ready': 'YouTube готов!\nНажмите «Воспроизвести», чтобы начать.',
   'youtube.thumbnail': 'Превью-картинка видео на YouTube',

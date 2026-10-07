@@ -384,7 +384,7 @@ const pl: Record<I18nKey, string> = {
     'Połączenie jest najbardziej stabilne, gdy wszystkie urządzenia korzystają z tej samej sieci lokalnej',
   'help.local_file': 'Wybierz plik lokalny',
   'help.load_local': 'Załaduj plik lokalny',
-  'help.youtube_compat': 'YouTube (Tryb zgodności)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'W trybie YouTube ustawienia ról i efekty dźwiękowe są niedostępne.',
   'help.media_synced_detail':
     'Wybrane multimedia są odtwarzane jednocześnie na wszystkich połączonych urządzeniach.',
@@ -500,7 +500,7 @@ const pl: Record<I18nKey, string> = {
   'youtube.enter_link': 'Wpisz link z YouTube',
   'youtube.enter_source': 'Wyszukaj materiał lub wpisz link z YouTube',
   'youtube.enter_link_prompt': 'Wpisz hasło wyszukiwania lub link z YouTube',
-  'youtube.enter_source_placeholder': 'Hasło lub https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Link do YouTube lub wyszukiwanie',
   'youtube.watch_together': 'Wspólne oglądanie YouTube',
   'youtube.ready': 'YouTube jest gotowy!\nNaciśnij Odtwórz, aby rozpocząć.',
   'youtube.thumbnail': 'Miniatura podglądu wideo z YouTube',

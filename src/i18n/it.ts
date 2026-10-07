@@ -385,7 +385,7 @@ const it: Record<I18nKey, string> = {
     'La connessione è più stabile quando tutti i dispositivi sono sulla stessa rete',
   'help.local_file': 'Seleziona file locale',
   'help.load_local': 'Carica file locale',
-  'help.youtube_compat': 'YouTube (Modalità compatibilità)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'In modalità YouTube, le impostazioni dei ruoli e gli effetti audio non sono disponibili.',
   'help.media_synced_detail':
@@ -501,7 +501,7 @@ const it: Record<I18nKey, string> = {
   'youtube.enter_link': 'Inserisci link di YouTube',
   'youtube.enter_source': 'Inserisci un link di YouTube o un termine di ricerca',
   'youtube.enter_link_prompt': 'Inserisci un termine di ricerca o un link di YouTube',
-  'youtube.enter_source_placeholder': 'Termine di ricerca o https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Link YouTube o ricerca',
   'youtube.watch_together': 'Guarda YouTube insieme',
   'youtube.ready': 'YouTube è pronto!\nPremi Riproduci per iniziare.',
   'youtube.thumbnail': 'Anteprima del video di YouTube',

@@ -385,7 +385,7 @@ const el: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Οι συνδέσεις στο ίδιο δίκτυο είναι οι πιο αξιόπιστες',
   'help.local_file': 'Επιλογή τοπικού αρχείου',
   'help.load_local': 'Φόρτωση τοπικού αρχείου',
-  'help.youtube_compat': 'YouTube (λειτουργία συμβατότητας)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'Στη λειτουργία YouTube, οι ρυθμίσεις ρόλων και τα ηχητικά εφέ δεν είναι διαθέσιμα.',
   'help.media_synced_detail':
@@ -503,7 +503,7 @@ const el: Record<I18nKey, string> = {
   'youtube.enter_link': 'Εισαγάγετε σύνδεσμο YouTube',
   'youtube.enter_source': 'Εισαγάγετε σύνδεσμο YouTube ή πραγματοποιήστε αναζήτηση',
   'youtube.enter_link_prompt': 'Εισαγάγετε όρο αναζήτησης ή σύνδεσμο YouTube',
-  'youtube.enter_source_placeholder': 'Όρος αναζήτησης ή https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Σύνδεσμος YouTube ή αναζήτηση',
   'youtube.watch_together': 'Παρακολούθηση YouTube μαζί',
   'youtube.ready': 'Το YouTube είναι έτοιμο!\nΠατήστε Αναπαραγωγή.',
   'youtube.thumbnail': 'Μικρογραφία προεπισκόπησης YouTube',

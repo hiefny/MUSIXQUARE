@@ -382,7 +382,7 @@ const fi: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Saman verkon yhteydet ovat luotettavimpia',
   'help.local_file': 'Valitse paikallinen tiedosto',
   'help.load_local': 'Lataa paikallinen tiedosto',
-  'help.youtube_compat': 'YouTube (yhteensopivuustila)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'YouTube-tilassa rooliasetukset ja äänitehosteet eivät ole käytettävissä.',
   'help.media_synced_detail':
@@ -495,7 +495,7 @@ const fi: Record<I18nKey, string> = {
   'youtube.enter_link': 'Anna YouTube-linkki',
   'youtube.enter_source': 'Anna YouTube-linkki tai hakusana',
   'youtube.enter_link_prompt': 'Anna YouTube-hakusana tai -linkki',
-  'youtube.enter_source_placeholder': 'Hakusana tai https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube-linkki tai hakusana',
   'youtube.watch_together': 'Katso YouTubea yhdessä',
   'youtube.ready': 'YouTube on valmis!\nPaina Toista.',
   'youtube.thumbnail': 'YouTube-videon esikatselukuva',

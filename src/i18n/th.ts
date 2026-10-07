@@ -372,7 +372,7 @@ const th: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'การเชื่อมต่อจะเสถียรที่สุดเมื่อทุกอุปกรณ์อยู่บนเครือข่ายเดียวกัน',
   'help.local_file': 'เลือกไฟล์ในเครื่อง',
   'help.load_local': 'โหลดไฟล์ในเครื่อง',
-  'help.youtube_compat': 'YouTube (โหมดเข้ากันได้)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'ในโหมด YouTube จะไม่สามารถแยกช่องสัญญาณลำโพงและใช้เอฟเฟกต์เสียงขั้นสูงได้',
   'help.media_synced_detail': 'สื่อที่เลือกจะเล่นพร้อมกันบนทุกอุปกรณ์ที่เชื่อมต่อ',
@@ -482,7 +482,7 @@ const th: Record<I18nKey, string> = {
   'youtube.enter_link': 'ใส่ลิงก์ YouTube',
   'youtube.enter_source': 'ใส่ลิงก์ YouTube หรือคำค้นหา',
   'youtube.enter_link_prompt': 'ใส่คำค้นหาหรือลิงก์ YouTube',
-  'youtube.enter_source_placeholder': 'คำค้นหาหรือ https://youtube.com/',
+  'youtube.enter_source_placeholder': 'ลิงก์ YouTube หรือคำค้นหา',
   'youtube.watch_together': 'ดู YouTube ด้วยกัน',
   'youtube.ready': 'YouTube พร้อมแล้ว!\nกดเล่น',
   'youtube.thumbnail': 'ภาพตัวอย่าง YouTube',

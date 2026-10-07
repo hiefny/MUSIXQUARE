@@ -380,7 +380,7 @@ const mr: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'एकाच नेटवर्कवरील कनेक्शन सर्वाधिक विश्वासार्ह असतात',
   'help.local_file': 'स्थानिक फाइल निवडा',
   'help.load_local': 'स्थानिक फाइल लोड करा',
-  'help.youtube_compat': 'YouTube (सुसंगतता मोड)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'YouTube मोडमध्ये भूमिका सेटिंग्ज आणि ऑडिओ इफेक्ट उपलब्ध नसतात.',
   'help.media_synced_detail':
     'निवडलेले मीडिया सर्व कनेक्ट केलेल्या डिव्हाइसवर एकाच वेळी प्ले होते.',
@@ -489,7 +489,7 @@ const mr: Record<I18nKey, string> = {
   'youtube.enter_link': 'YouTube लिंक प्रविष्ट करा',
   'youtube.enter_source': 'YouTube लिंक किंवा शोध प्रविष्ट करा',
   'youtube.enter_link_prompt': 'YouTube शोध संज्ञा किंवा लिंक प्रविष्ट करा',
-  'youtube.enter_source_placeholder': 'शोध संज्ञा किंवा https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube लिंक किंवा शोध शब्द',
   'youtube.watch_together': 'YouTube एकत्र पाहा',
   'youtube.ready': 'YouTube तयार आहे!\nप्ले दाबा.',
   'youtube.thumbnail': 'YouTube पूर्वदृश्य थंबनेल',

@@ -385,7 +385,7 @@ const kn: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'ಒಂದೇ ನೆಟ್‌ವರ್ಕ್‌ನ ಸಂಪರ್ಕಗಳು ಅತ್ಯಂತ ವಿಶ್ವಾಸಾರ್ಹವಾಗಿವೆ',
   'help.local_file': 'ಸ್ಥಳೀಯ ಫೈಲ್ ಆರಿಸಿ',
   'help.load_local': 'ಸ್ಥಳೀಯ ಫೈಲ್ ಲೋಡ್ ಮಾಡಿ',
-  'help.youtube_compat': 'YouTube (ಹೊಂದಾಣಿಕೆ ಮೋಡ್)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'YouTube ಮೋಡ್‌ನಲ್ಲಿ ಪಾತ್ರದ ಸೆಟ್ಟಿಂಗ್‌ಗಳು ಮತ್ತು ಆಡಿಯೊ ಪರಿಣಾಮಗಳು ಲಭ್ಯವಿಲ್ಲ.',
   'help.media_synced_detail': 'ಆರಿಸಿದ ಮೀಡಿಯಾ ಎಲ್ಲಾ ಸಂಪರ್ಕಗೊಂಡ ಸಾಧನಗಳಲ್ಲಿ ಏಕಕಾಲಕ್ಕೆ ಪ್ಲೇ ಆಗುತ್ತದೆ.',
@@ -497,7 +497,7 @@ const kn: Record<I18nKey, string> = {
   'youtube.enter_link': 'YouTube ಲಿಂಕ್ ನಮೂದಿಸಿ',
   'youtube.enter_source': 'YouTube ಲಿಂಕ್ ಅಥವಾ ಹುಡುಕಾಟ ನಮೂದಿಸಿ',
   'youtube.enter_link_prompt': 'YouTube ಹುಡುಕಾಟ ಪದ ಅಥವಾ ಲಿಂಕ್ ನಮೂದಿಸಿ',
-  'youtube.enter_source_placeholder': 'ಹುಡುಕಾಟ ಪದ ಅಥವಾ https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube ಲಿಂಕ್ ಅಥವಾ ಹುಡುಕಾಟ ಪದ',
   'youtube.watch_together': 'ಒಟ್ಟಿಗೆ YouTube ವೀಕ್ಷಿಸಿ',
   'youtube.ready': 'YouTube ಸಿದ್ಧವಾಗಿದೆ!\nಪ್ಲೇ ಬಟನ್ ಒತ್ತಿರಿ.',
   'youtube.thumbnail': 'YouTube ಮುನ್ನೋಟ ಥಂಬ್‌ನೇಲ್',

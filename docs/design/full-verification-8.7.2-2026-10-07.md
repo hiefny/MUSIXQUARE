@@ -599,6 +599,60 @@ Origin 헤더를 보내지 않아 403/28바이트로 중단됐다. 본 측정은
 완료된 두 실행의 개수·바이트·hash·실제 v3 창 크기·소스/스크립트 provenance·정리를
 독립 검토했다. 기존 helper와 fixture는 앞선 실험과 동일하다.
 
+## 앱·저장소를 제외한 Worker 주소 대조 — 2026-10-08
+
+준비 SHA `5f857cc4946165ad1c731fb8d045bca8cbebf7a5`, 집 Wi-Fi·Windows·Node
+`v24.20.0`·Chromium `153.0.8010.12`에서 기존 Cloudflare 계정에 별도 임시 Worker를
+생성했다. 앱·R2·다른 서비스 binding 없이 고정 합성 데이터 2,153,280바이트만 반환했다.
+같은 Worker를 `musixquare.com`의 고유 검사 경로 Route와 `workers.dev`에서 실행했다.
+새 Custom Domain이나 임시 서브도메인을 만든 실험은 아니다. Custom Domain은 삭제
+후에도 [별도 인증서가 남을 수 있어](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#certificates), 기존 인증서·DNS를 사용하는 고유 경로를 택했다.
+운영 앱 코드·기존 Worker 배포·DNS·인증서·요금제는 변경하지 않았다.
+
+Worker는 실행별 임의 bearer·정확한 loopback Origin·2시간 만료·허용 경로를 검사하고
+불변 본문을 `no-store`로 반환한다. 인증 정보는 로그에 저장하지 않았다. 로컬 핸들러
+24개 검사로 인증·만료·CORS·본문 크기/hash·반복 응답 불변성을 확인했다.
+
+브라우저 하나에서 경로별 context/page 하나를 사용했다. 로컬 빈 문서에서 native XHR을
+보내고 QUIC·캐시·Service Worker를 배제했다. 양쪽 각 준비 1회 후 순차 3회씩
+A→B→B→A, 동시 9회씩 A→B→B→A로 고정했다. 요청 상한 45초·블록 간격 3초·재시도 0이다.
+본문 hash 시간은 개별 다운로드 시간에서 제외하고 CDP 원천 timestamp로 요청 중첩
+1/9를 재계산했다. 두 경로의 URL path·본문·코드·인증 조건은 같지만 연결은 별개다.
+
+| 경로 | 순차 개별 요청 6회 | 동시 9개 전체 완료 1차 / 2차 |
+| --- | --- | --- |
+| 기존 MUSIXQUARE 호스트의 임시 Route | 0.383–0.860초 | 2.142 / 2.385초 |
+| 동일 Worker의 workers.dev | 0.425–0.798초 | 2.182 / 2.365초 |
+
+**본 측정 48/48·별도 준비 2/2 전체 수신·SHA 일치**, HTTP 200·실제 H2·CF-Ray와
+Worker의 `request.cf.colo` 모두 LAX다. 캐시/SW·timeout 0, 총 수신 107,664,000바이트다.
+준비 수신은 각각 1.263/1.428초였으며 본 측정과 구분한다. 검사 종료 후 생성한 Route와
+Worker를 삭제하고 API에서 부재를 확인했다. source/driver/browser 모듈 hash와 요청
+수·바이트·중첩·정리 결과를 독립 검토했다. 실험 시각은 03:25–03:26 KST다.
+
+시간대의 영향을 확인하려고 곧바로 기존 R2 native XHR 대조도 반복했다. 별도의 새
+MP3 객체 하나로 browser/context/page 각 1개, 준비 1회 후 순차9→동시9→동시9→순차9,
+요청 상한 60초·블록 간격 3초·재시도 0인 이전 v2 검사를 사용했다. 원본 스크립트는
+덮어쓰지 않고 새 출력 경로와 `wx`만 적용했다. 03:28 KST에 **본 측정 36/36·준비 1/1
+전체 수신·hash 일치**, 실제 H2/LAX·캐시/SW·timeout 0·인증 객체 정리 성공·exit 0이다.
+순차 개별 수신은 0.636–1.122초, 동시 9개 완료는 2.594/2.817초, 준비는 1.830초였다.
+R2 대조는 같은 용량이지만 합성 데이터와 다른 본문·호스트·연결이며, 동시에 무작위
+배치한 순수 R2 유무 대조로 해석하지 않는다.
+
+**이번 시간대에는 합성 Worker 두 주소와 기존 R2 경로 모두 빨랐다.** 기존 계정·도메인·
+LAX만으로 항상 느려지는 현상은 재현되지 않았다. 반대로 이전 131초 지연·120/180초
+실패가 해결됐거나 R2/앱/ISP 중 특정 계층이 원인이라는 증거도 아니다. 주소별 속도 차이가
+재현되지 않아 사용자가 허용한 다른 계정 실험은 이번에 실행하지 않았다. 계정 이전이나
+추측성 제품 수정 근거로 사용하지 않으며, 기존 미확정 상태와 과거 실패를 유지한다.
+전체 스위트·물리 다기기·장기 세션 재검사 및 App 배포는 하지 않았다.
+
+원본은 `scratch/route-probe-2026-10-08/`의 `worker.mjs`, `experiment.mjs`,
+`browser-probe.mjs`, `same-account-route-a1.{jsonl,log,exit}` 및 비밀값 없는 resource
+복구 기록에 보존한다. 로그의 `custom-domain` label은 위의 기존 호스트 Route를 뜻한다.
+R2 후속 원본은 `scratch/r2-root-cause-2026-10-07/transport-after-synthetic-2026-10-08`
+이름의 `.mjs/.jsonl/.log/-exit.txt`다. 두 실행은 별도 객체·조건의 검사이므로 총 87개
+수신 성공을 87기기 또는 하나의 실험으로 표현하지 않는다.
+
 ## 최초 전체 검증 원본 증거
 
 추적 제외 폴더 `scratch/full-verification-8.7.2-2026-10-07/`에 원본을 보존한다.

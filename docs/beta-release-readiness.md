@@ -66,6 +66,21 @@
 3 pass / 2 fail이며, 성공한 방의 바이트 진행으로 이전 실패 원인을 소급 확정하지 않는다.
 [운영 재검사·원본 증거](design/full-verification-8.7.2-2026-10-07.md#운영-r2-후속-재검사--2026-10-07-저녁).
 
+**2026-10-07 운영 R2 원인 추적:** `aba657ed` 기준 추가 shared Chromium 진단은
+게스트 1개의 현재 곡·프리로드 수신 합계가 126.590초여서 원래 120초 조건에 실패했다.
+실패 순간에도 바이트가 증가했고 같은 요청이 뒤이어 완료됐다. 이 실행의 무한 대기는
+아니지만, 앞선 두 본문 실패의 원인은 여전히 소급 확정 불가다. HTTP/2와 지연의
+상관관계만 있으며 원인 입증은 아니다. 관련 tail 18 GET는 모두 200·outcome `ok`였다.
+과거 유지 원격 job은 12개 중 10 success / 2 ICE 사전 조건 failure이며, 전체 workflow
+초록불과 개별 비차단 R2 job 성공을 구분한다. 독립 프로세스 진단은 입장 20초 조건에서
+실패한 뒤 약 8초 늦게 입장이 완료돼 전송 비교는 미완료다. 한 PC의 호스트 1·게스트 19
+진단도 다운로드 120초 조건에서 fail: 게스트 2·9가 늦었으나 같은 요청으로 실패 후
+약 8.1·27.8초에 프리로드까지 완료했고 최종 GET 38개를 모두 받았다. 다음 곡 전환은
+미검사다. 정적 파일 대조는 HTTP/2·HTTP/3 모두 약 1초였으므로 프로토콜만으로
+설명할 수 없다. 지연은 실제 관측한 품질 문제이며 물리 20기기·발생 확률 검증은 아니다.
+새 확정 런타임 결함·제품 수정·배포는 없으며 timeout·정책을 완화하지 않았다.
+[원인 추적·한계](design/full-verification-8.7.2-2026-10-07.md#운영-r2-원인-추적--2026-10-07).
+
 **이전 `8.7.0` / `v631` 승격·배포 기록:** PR #245의 준비 SHA `fe0b0230`을
 main `e8001e93`으로 병합하고, 그 정확한 SHA의 CI candidate를 `all`로 배포했다.
 6개 Worker의 최종 소유권·PRO generation readiness·coherent-production marker와
@@ -670,6 +685,7 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 - [x] 8.7.2 공개 fresh 확인: 45개 자산 hash·ko/ja/ar HTML 3경로 200·en-US/ko-KR Chromium의 `YouTube` 표기·YouTube BETA 제거·정상 줄바꿈·bootstrap ready·page error 0·v633 cache 확인. 실기·기존 운영 탭/PWA 한계 유지.
 - [x] 8.7.2 완료된 로컬 검증·test-only 보완 `716c37af`: 로컬 unit 10,781·원격 PR CI/4종 coverage, 기준 전체 Chromium 로컬/원격 각각 581, 최종 원격 WebKit 66/기존 3 skip·SW 1·실제 9게스트 R2 로컬/원격 통과. ICE observer 회귀 51·정적/빌드·감사 0·drift 자동 31 통과. 최초 8/9 원인은 미확정이며 인증 Developer API canary·실기·수동 한계를 [전체 검증 기록](design/full-verification-8.7.2-2026-10-07.md)에 보존.
 - [x] 최종 Full E2E `37602041553`의 Chromium 581 pass/실패·skip·retry 0와 모든 job 실제 성공 확인. PR #251로 테스트·문서 게시; 검사 SHA `716c37af`와 후속 문서·main SHA는 구분한다. 후속 병합·CI 상태는 PR 연결 기록에서 확인하며 제품을 재배포하지 않음.
+- [ ] 운영 R2 추가 관찰 — shared 진단 1건은 계속 수신하던 두 GET의 126.590초 합계가 120초 검사 조건을 넘긴 것으로 확인. 20세션 진단도 두 게스트가 제한을 넘긴 뒤 총 38 GET 전체 수신. 원래 fail과 과거 본문 미완료 2건은 보존하며 지연의 하위 원인은 미확정. 독립 프로세스 전송 비교·물리 다기기 확인·두 실패 진단의 다음 곡 전환은 미완료. [원인 추적](design/full-verification-8.7.2-2026-10-07.md#운영-r2-원인-추적--2026-10-07).
 - [ ] Drift 수동 5항목: zone routes, Access/MFA, WAF·비용 알림, 별도 Git-triggered 배포, 운영 review/check 정책. 자동 감사 통과로 완료 처리하지 않음.
 - [x] 2026-10-07 30라운드 후속 — 확정 12건 수정과 로컬 회귀 완료. 최종 unit 10,730개·4종 coverage, 초기 전체 Chromium 580개와 최종 영향 18개/production 17개, WebKit 66개(기존 3 skip), 전체/prod-only 보안 감사 0. 초기 실패·빌드 구분은 [후속 보고서](design/beta-30-round-repair-2026-10-07.md)에 보존.
 - [x] R08/R25 별도 보강 — 정상 파일 조각·메타데이터 계약 확인, 번역 초안의 지속 요청 ID와 제출 전 저장 성공 조건. 구형 UUID/선택 MIME 호환성 회귀도 수정. 원래 미확정 2건을 확정 결함 수에 합산하지 않음.
@@ -1175,6 +1191,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | YouTube 브랜드 후속 패치, 제품 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf` → main `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09`, PR #249 | `8.7.2`/`v633`, YouTube BETA 제거·42언어 브랜드 `YouTube` 통일. Release `37593498828`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 서버·데이터 계약 변경 없음 | exact-main CI `37592984640`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 로컬unit153·정적/빌드·production5조합 및 공개45자산 hash·3HTML200·fresh en/ko 통과. 원본 배포 근거는 1절, 기존 실기·운영 한계 유지 |
 | 2026-10-07 | 8.7.2 전체 검증·test-only 관측기 보완, 기준 `61cedbc6` → `59eae678` → 최종 `716c37af6f57ae46112e1e6295562e50fdc03ff0`, PR #251 | 최초 운영 R2의 LAN 관찰 8/9는 원인 미확정. assertion을 유지한 진단 재실행은 통과. 이전 observer 반례 4개/정상 대조 1개와 후속 getter 예외 중 객체 교체 3종을 재현·수정해 회귀 51 통과. 제품·의존성·서버/DB·secret/binding·버전/cache·배포 변경 없음 | 최종 로컬 518파일·10,781 pass·broad 하한, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate 17/critical 22, 최종 로컬/원격 9게스트 R2·원격 WebKit 66/기존 3 skip·SW 1 통과. 기준 전체 Chromium 로컬/원격 각각 581, 정적 18·빌드/Worker 6·감사 0·서명 486/attestation 103·live 8명령·drift 31 통과. 최종 원격 Chromium도 581 pass/실패·retry 0, Full E2E `37602041553`의 모든 job 성공. 인증 canary·수동 5·실기·R26 한계 유지. [전체 근거](design/full-verification-8.7.2-2026-10-07.md) |
 | 2026-10-07 | 운영 R2 미확정 관찰 후속 재검사, tested SHA `a1543f8baf40cea057fe817d18a064fbec7710da`, Windows/Node24.20.0/Playwright1.63 → App `94fa5b03` | 유지 검사 새 방3회 2pass/1fail, 수동 관찰 진단2회 1pass/1fail. 전부 host1/guest9·자동retry0·원래assertion/timeout 유지. 최초8/9는 소급 원인 미확정; native/prflx 보완 경로의 실제 필요성만 추가 입증. 제품·유지검사·정책·버전/cache·배포 변경 없음 | 진단 실패 방은 9개R2준비/경로·HTTP200 정상이나 guest1본문120초미완료. 마지막방은 18GET전체수신·전환통과, 현재GET2.1–69.6초. 지연은관측했으나 원인/복구결함미확정, 후속운영반복전체올그린아님. 기존정책14·다운로드120pass. [후속증거·한계](design/full-verification-8.7.2-2026-10-07.md#운영-r2-후속-재검사--2026-10-07-저녁) |
+| 2026-10-07 | 운영 R2 원인 추적, tested SHA `aba657eda95dc4e572b7c9094074fc787b26edd5` → App `94fa5b03` / share Worker `e8001e93` | 추가 shared 진단의 126.590초 두 GET가 원래 120초 조건을 초과한 직접 원인 확인. 실패 뒤 같은 요청으로 전체 수신, 원래 fail 유지. 앞선 본문 실패 2건·HTTP/2 연관의 하위 원인은 미확정. 새 확정 코드 결함 0건, 문서만 변경·App 릴리스 불필요 | 과거 원격 12 job 중 10 success / 업로드 전 ICE 2 failure. shared tail 18 GET 모두 200·ok, CPU 1–10ms. 독립 프로세스는 입장 20초 조건 fail 뒤 약 8초 늦게 완료, 전송 미검증. 20세션 진단 fail 뒤 38 GET 전체 수신·다음 곡 미검사. 정적 대조 HTTP/2 3회·HTTP/3 1회 약 1초. 전체 suite 재실행 아님. [증거·원본 실패·한계](design/full-verification-8.7.2-2026-10-07.md#운영-r2-원인-추적--2026-10-07) |
 
 ### 이전 8.7.0 실제 승격·배포 기록 — 2026-10-07 완료
 

@@ -2,8 +2,8 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 2026-10-07 승격 승인, `8.7.0` / `v631` 릴리스 준비 중                                                                                                                                                  |
-| Applies to         | `mxqr_beta` 누적 변경의 다음 main 병합·프로덕션 배포                                                                                                                                                            |
+| Status             | Runbook — 2026-10-07 `8.7.0` / `v631` 프로덕션 승격 완료; 실기·수동 운영 확인은 별도                                                                                                                                 |
+| Applies to         | `mxqr_beta` 누적 변경의 main 승격·프로덕션 배포 결과와 남은 확인                                                                                                                                                 |
 | Last source review | 2026-10-07                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
@@ -17,7 +17,7 @@
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
 | 종료·승격 승인                      | 2026-10-07 사용자가 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
-| 기준 main                           | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 로컬·원격 확인                  |
+| 승격 전 기준 main                   | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 당시 main·운영 App 기준으로 보존 |
 | 승격 준비 기준 checkout             | `efce531a690857790509fde5f851a9b72db1ee05` — 아래 검증 코드 이후 QA 근거를 보완한 문서 커밋. 새 제품 코드 검증 SHA로 대체하지 않음 |
 | 검토한 베타 코드 | `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋. 확정12건 수정·별도 안정성 보강2건과 전체 단위·4종 coverage, 전체 Chromium+최종 영향 범위 검증 완료. 비Markdown1,809파일의 검증 중 동일성 확인. [코드·산출물 근거](design/beta-30-round-repair-2026-10-07.md) |
 | 이전 발견 감사                     | Luna 조합 탐사 1,250개 통과·당시 새 확정 0건. D01 및 S01–S02 기본 수정 반영. 이후 극단값 감사에서 XS01–XS04 확정, 이번에 수정 |
@@ -44,24 +44,25 @@
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 공개 승격 준비 `8.7.0` / `v631`. 하이브리드 오디오 기능 추가를 minor에 반영하며, 최종 커밋의 버전 일치·cache-history 검증은 아래 실행 기록에서 확인 |
-| 예정 배포 범위                      | 현재 누적 변경 기준 `target=all`                                             |
-| Developer API D1 입력               | 현재 변경 기준 `apply_developer_api_d1=false`                                |
-| Operations Drift Audit              | 2026-10-07 재활성화 완료, GitHub API `state=active` 확인. 수정된 main의 수동 감사 결과 기록 대기 |
-| 최종 main SHA / CI 후보 / 배포 실행 | 아직 없음. 베타 검증을 프로덕션 배포 완료로 기록하지 않음                    |
+| 제품 버전 / PWA 캐시                | 배포 완료 `8.7.0` / `v631`; 하이브리드 오디오 기능을 minor에 반영. 버전 일치·cache-history·`build:checked` 통과 |
+| 완료한 배포 범위                    | `target=all`, 6개 Worker의 최종 deployment/100% version/공통 Git 메시지 검증 |
+| Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
+| Operations Drift Audit              | `active`; 배포 전 `37583844459`·배포 후 `37584995408` 성공, 각각 31 pass/0 fail/5 manual-only |
+| 최종 main SHA / CI 후보 / 배포 실행 | `e8001e93c9390ec20b359b015d3dff890f2b5304` / main CI `37583802398` 및 immutable candidate / Release `37584399403` 성공. [정확한 증거](design/release-8.7.0-2026-10-07.md) |
 
-**승격은 승인됐으며 릴리스 검증·배포를 진행할 단계다.** 최신 검증 코드
-`4a605791`에서 30라운드 확정 12건과 별도 보강 2건을 반영했고, 전체/prod-only
-보안 감사는 0건이다. `efce531a`는 해당 검증 SHA를 보완 기록한 문서 커밋이다.
-이번 공개 버전은 하이브리드 오디오 기능을 포함한 `8.7.0`, PWA 캐시는 `v631`로
-준비한다. 최종 커밋의 `build:checked`, PR CI, 실제 main SHA의 production candidate와
-릴리스 실행 결과를 각각 확인해야 하며, 기존 베타 QA를 그 증거로 대신하지 않는다.
+**`8.7.0` / `v631` 승격·배포를 완료했다.** PR #245의 준비 SHA `fe0b0230`을
+main `e8001e93`으로 병합하고, 그 정확한 SHA의 CI candidate를 `all`로 배포했다.
+6개 Worker의 최종 소유권·PRO generation readiness·coherent-production marker와
+모든 workflow smoke가 통과했다. 공개 자산 45개 hash·HTML 경로 10개·영어/한국어
+fresh Chromium 확인도 통과했다. [배포·검증 기록](design/release-8.7.0-2026-10-07.md)은
+최초 검사 실패와 후속 결과, 베타·PR·main·문서 후속 커밋의 역할을 구분한다.
 
 R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 갱신 정지 1회는
 원인 미확정이다. 추가 진단 10/10 통과는 최초 관찰을 설명하지 못한다. 실제 기기
-음향·혼합 방·열린 탭/PWA·live 경로의 미완료 확인도 그대로 남긴다. 과거 QA의
+음향·혼합 방·기존 운영 탭/PWA·인증 경로의 미완료 확인과 drift 수동 5항목을 남긴다. 과거 QA의
 발견 당시 실패·후속 수정·동결 상태는 3절과 누적 이력에 날짜별 증거로 보존한다.
-현재 main SHA가 모든 운영 Worker의 실제 배포 SHA라고 추정하지 않는다.
+이번 배포 종료 시 6개 Worker의 메시지는 모두 `git:e8001e93...`로 확인했다.
+이 문서만 보완하는 후속 main 커밋을 새로운 배포 SHA로 해석하지 않는다.
 
 ## 2. 이번 베타에서 함께 반영할 범위
 
@@ -125,7 +126,16 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 ## 3. 현재 검증과 남은 확인
 
 다음 QA 결과는 각 날짜·코드 SHA의 증거다. 당시 동결·보안 경고·버전 상태를 현재
-상태로 해석하지 않는다. 현재 승인·릴리스 준비 상태는 1절과 마지막 실행 기록을 따른다.
+상태로 해석하지 않는다. 현재 승인·배포 결과는 1절과 마지막 실행 기록을 따른다.
+
+**공개 승격·배포 — 2026-10-07:** main `e8001e93c9390ec20b359b015d3dff890f2b5304`의
+정확한 CI `37583802398`과 Release `37584399403`이 성공했다. Linux 전체 unit은
+517파일·10,729 pass/기존 Windows 전용 1 skip, 원래 4종 coverage 통과. production
+Chromium 17개·필수 Chromium 22개, 타입/lint/서식·source/artifact guard·6개 Worker
+bundle·security audit 0건·서명 487/attestation 104 검증. 6개 Worker 배포·live smoke·
+최종 소유권·PRO ready와 공개 fresh 확인을 완료했다. 원본 실패, 정확한 후보·도구 버전,
+Worker ID·checkpoint·감사 수동 범위·구형→신형 업그레이드 한계는
+[정식 배포 기록](design/release-8.7.0-2026-10-07.md)에 보존한다.
 
 **최신 후속 수정 — 2026-10-07:** `4a605791b7f4680cc85d4718117d8db231c1d772` — Windows,
 Node 24.20.0/npm 12.0.2에서 동일 작업 트리 검증 후 커밋. 확정 12건 수정과
@@ -533,8 +543,10 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 다음 확인은 과거의 녹색 결과를 복사하지 말고, 실제 수행 환경과 SHA를 기록한다.
 
 - [x] 2026-10-07 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인 확인. 정상 PR·배포 절차로 진행.
-- [ ] `8.7.0` / `v631`의 최종 커밋에서 버전 mirror·cache-history·`build:checked` 검증, PR CI 및 실제 main SHA의 immutable candidate 확인.
-- [ ] `target=all`, `apply_developer_api_d1=false` 릴리스의 checkpoint·6개 Worker 배포·live smoke·소유권/세대 readiness와 감사 재개 결과 기록.
+- [x] `8.7.0` / `v631` 버전 mirror·cache-history·`build:checked`, PR CI와 main `e8001e93`의 CI `37583802398` 및 immutable candidate 확인.
+- [x] Release `37584399403`: `all`/Developer API D1 false, checkpoint·6개 Worker 배포·모든 live smoke·최종 소유권·PRO readiness·coherent-production marker 확인. 배포 후 drift `37584995408` 31 pass/0 fail/5 manual-only.
+- [x] 공개 fresh 확인: 45개 자산 hash가 main candidate와 일치, 10개 HTML 경로 200, en-US/ko-KR native Chromium의 새 main·active SW/cache v631·정상 bootstrap·page error 0. 초기 경로 미기록 fetch timeout과 후속 계측 전체 통과는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 구분.
+- [ ] Drift 수동 5항목: zone routes, Access/MFA, WAF·비용 알림, 별도 Git-triggered 배포, 운영 review/check 정책. 자동 감사 통과로 완료 처리하지 않음.
 - [x] 2026-10-07 30라운드 후속 — 확정 12건 수정과 로컬 회귀 완료. 최종 unit 10,730개·4종 coverage, 초기 전체 Chromium 580개와 최종 영향 18개/production 17개, WebKit 66개(기존 3 skip), 전체/prod-only 보안 감사 0. 초기 실패·빌드 구분은 [후속 보고서](design/beta-30-round-repair-2026-10-07.md)에 보존.
 - [x] R08/R25 별도 보강 — 정상 파일 조각·메타데이터 계약 확인, 번역 초안의 지속 요청 ID와 제출 전 저장 성공 조건. 구형 UUID/선택 MIME 호환성 회귀도 수정. 원래 미확정 2건을 확정 결함 수에 합산하지 않음.
 - [ ] R26 후속 legacy 관찰 — 최초 Refresh 승인 뒤 15초 동안 갱신이 관측되지 않은 1회를 미확정으로 유지. 추가 계측 10/10 통과는 원인 입증이 아님. 재현 시 승인→SKIP_WAITING→waiting worker 상태→controllerchange→새 문서를 페이지 밖 기록으로 연결하고, 구형 실제 기기에서도 확인. [관측·진단·한계](design/beta-30-round-repair-2026-10-07.md#3-검증-기록).
@@ -906,7 +918,8 @@ Operations Drift Audit는 변경하지 않았다.
 ## 4. 승인된 승격 실행 순서
 
 2026-10-07 사용자가 **대회 종료·main 병합·프로덕션 배포·감사 재활성화**를 승인했다.
-아래 절차를 진행하고, 실제 명령·검증 경계는 [정식 절차](hotfix-procedure.md)를 따른다.
+이번 승격에 적용한 순서는 아래와 같으며 완료 증거는 마지막 실행 기록에 남겼다.
+향후 실제 명령·검증 경계도 [정식 절차](hotfix-procedure.md)를 따른다.
 
 1. **종료·재개 기록:** 지시 일시를 아래 실행 기록에 남긴다. 이전 사용자 지시에
    따라 `Operations Drift Audit`의 `ops-drift-audit.yml`만 재활성화한다.
@@ -947,7 +960,7 @@ Operations Drift Audit는 변경하지 않았다.
    정리하고 `main`으로 돌아온다. 다른 작업의 진행 중인 브랜치·미커밋 변경은 보존한다.
 
 main 병합만으로 Cloudflare가 바뀌지 않는다. 문서·감사 도구만의 향후 변경은
-저장소 반영으로 끝나지만, **이번 누적 베타는 App·Worker 배포가 필요하다.**
+저장소 반영으로 끝난다. **이번 누적 베타는 App·Worker 배포를 완료했다.**
 
 ## 5. 실패·복구 시 주의점
 
@@ -1033,17 +1046,19 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | 독립30라운드·사후 재분석, tested SHA `9afc36b4d8bccc575a923b0dfaadd103145ba09f` | Astra Ultra3×10세트 완료. 확정12건 미수정(P1 1/P2 8/P3 3), 미확정2·제외2. sharp 새 공지로high3패키지/단일원인, gate재실패; prod-only0. 제품/검사/설정/의존성/계약/버전/cache/main/배포 변경 없음. QA082의폐기된일일BOT문구만현행제한으로교정 | 기존선택365파일·고유8,716pass, 공유파일쓰기1제외. 전체suite/coverage아님. production/E2E build·artifact guard8·Worker dry-run6통과. QA055실기음향미실행, QA122운영소스/모형만. 새로운 실패·대조·독립검증과자동필터중단한계를 [30라운드·최종 판정](design/beta-30-round-qa-2026-10-07.md)에 보존. 동결/누적all·D1 false/복구절차 유지 |
 | 2026-10-07 | 30라운드 후속 수정, `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋 | 확정12수정·별도보강2. 재생/시계/포커스/검색/언어·폰트/PWA/진단·파일수신·번역재시도와sharp0.35.5. 새같은빌드 localeJSON40개를App에포함. 새schema/secrets/bindings없음, 누적all/D1 false·버전/cache·동결유지 | 최종unit517파일10,730pass/4종coverage; 초기전체Chromium580+최종영향18/production17, WebKit66/기존3skip. 자동retry0. 타입/lint/서식·source16/artifact8·Worker6·감사0/서명·새설치native검증. 원본실패보존, legacy승인후갱신관찰1원인미확정(추가10/10pass). 실기/live·cache-history·exact-main/승격잔여. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
 | 2026-10-07 | 공개 승격 준비, 기준 checkout `efce531a690857790509fde5f851a9b72db1ee05`, 최신 검증 코드 `4a605791` | 사용자 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인. 하이브리드 오디오 기능을 포함해 `8.7.0`/`v631` 준비, 누적 `target=all`/D1 false. 새 schema/secrets/bindings·복구 계약 추가 변경 없음 | 위 로컬 QA 증거 유지. 최종 버전/cache 커밋의 검증·PR/main CI·실제 배포·감사 결과는 아래에 별도 기록. R26 최초 legacy 승인 후 갱신 정지 1회는 미확정이며 추가 진단 10/10 통과로 해소 처리하지 않음. 실기/live 잔여 유지 |
+| 2026-10-07 | 공개 승격·배포, 준비 `fe0b0230` → main `e8001e93c9390ec20b359b015d3dff890f2b5304`, PR #245 | `8.7.0`/`v631`, Release `37584399403`의 `all`/D1 false 성공. 6 Worker 공통 SHA·최종 소유권·PRO ready·coherent marker 확인, 감사 active 및 전후 자동 검사 성공. 문서 후속 커밋은 배포 SHA와 구분 | exact-main CI `37583802398`의 unit 10,729 pass/기존 Windows 전용 1 skip·4종 coverage·Chromium 17+22 통과. 공개 45자산 hash·10 HTML 200·fresh en/ko Chromium 통과. 초기 build/upgrade/fetch 실패의 후속 판정과 R26·수동5·실기 한계는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 보존 |
 
-### 실제 승격·배포 기록 — 승인 후 준비 중
+### 실제 승격·배포 기록 — 2026-10-07 완료
 
 | 기록 항목                                        | 값     |
 | ------------------------------------------------ | ------ |
 | 사용자 종료·승격 지시                            | 2026-10-07 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 명시 승인 |
-| 최종 베타 코드 SHA / PR                          | 기준 `efce531a690857790509fde5f851a9b72db1ee05`; 버전/cache 준비 커밋 및 PR 미정 |
-| 최종 main SHA / main CI run / candidate          | 미정   |
-| 제품 버전 / cache epoch                          | `8.7.0` / `v631` 준비; 최종 커밋 검증 대기 |
-| Release run / target / D1 입력                   | 미실행 / `all` / `apply_developer_api_d1=false` |
-| checkpoint / Worker 버전·메시지 / smoke          | 미실행 |
-| fresh·기존 탭/PWA / 주요 기능 확인               | 미실행 |
-| Operations Drift Audit 재활성화 / main 실행 결과 | 2026-10-07 `state=active` 확인 / 수정된 main 감사 실행 대기 |
-| 남긴 제한·복구 조치 / 완료 일시                  | R26 갱신 정지 1회 원인 미확정(추가 진단 10/10 통과); 실기·live 확인 잔여 / 미완료 |
+| 최종 베타 코드 SHA / PR                          | 기준 문서 `efce531a`; 버전/cache 준비 `fe0b0230ec5621a5b892f75e0427c7bfb2569d66` / [PR #245](https://github.com/hiefny/MUSIXQUARE/pull/245) 병합 |
+| 최종 main SHA / main CI run / candidate          | `e8001e93c9390ec20b359b015d3dff890f2b5304` / [37583802398](https://github.com/hiefny/MUSIXQUARE/actions/runs/37583802398) / `production-candidate-e8001e93c9390ec20b359b015d3dff890f2b5304-37583802398-1` |
+| 제품 버전 / cache epoch                          | `8.7.0` / `v631`, 최종 소스·후보·공개 자산 확인 |
+| Release run / target / D1 입력                   | [37584399403](https://github.com/hiefny/MUSIXQUARE/actions/runs/37584399403) 성공 / `all` / `apply_developer_api_d1=false` |
+| checkpoint / Worker 버전·메시지 / smoke          | mutation 전 checkpoint 보존, 6개 Worker 100% version·`git:e8001e93...`·모든 live smoke·최종 ownership·PRO ready 확인. [ID·증거](design/release-8.7.0-2026-10-07.md) |
+| fresh·기존 탭/PWA / 주요 기능 확인               | 공개 45개 자산 hash·10개 HTML·fresh en/ko Chromium 통과. 로컬 v630→v631 단일/두 탭 동의 경로 통과; 실제 기존 운영 탭·설치 PWA·미디어/인증·실기는 미완료 |
+| Operations Drift Audit 재활성화 / main 실행 결과 | `active`; [배포 전](https://github.com/hiefny/MUSIXQUARE/actions/runs/37583844459)·[배포 후](https://github.com/hiefny/MUSIXQUARE/actions/runs/37584995408) 성공, 각각 31 pass/0 fail/5 manual-only |
+| 병합 브랜치 정리                                 | 로컬·원격 `mxqr_beta`의 `efce531a`가 main 조상임을 확인한 뒤 삭제. release 임시 브랜치도 정리; 이 문서 후속 PR은 별도 진행 |
+| 남긴 제한·복구 조치 / 완료 일시                  | R26 원인 미확정·실기·수동5항목 유지, rollback 없음 / Release 2026-10-07 16:02:35 KST 완료. 문서 후속 커밋은 추가 App 배포 대상 아님 |

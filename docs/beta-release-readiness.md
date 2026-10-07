@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 2026-10-07 App `8.7.1` / `v632` 후속 배포 완료; 다른 5개 Worker는 `8.7.0` 승격 기준 유지. 실기·수동 운영 확인은 별도                                                                                 |
+| Status             | Runbook — 2026-10-07 App `8.7.2` / `v633` 후속 배포 완료; 다른 5개 Worker는 `8.7.0` 승격 기준 유지. 실기·수동 운영 확인은 별도                                                                                 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App 패치의 프로덕션 배포 결과·현재 상태·남은 확인                                                                                                                                   |
 | Last source review | 2026-10-07                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -44,14 +44,14 @@
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 현재 App `8.7.1` / `v632` 배포 완료; YouTube 안내·BETA 패치. 버전 일치·cache-history·`build:checked`와 정확한 main CI candidate 확인 |
-| 완료한 배포 범위                    | 최신 `target=app`; App은 `f005a706`, 다른 5개 Worker는 `8.7.0` 승격의 `e8001e93` 유지·부분 배포 호환성 재확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
+| 제품 버전 / PWA 캐시                | 현재 App `8.7.2` / `v633` 배포 완료; YouTube BETA 제거·브랜드 표기 통일. 버전 일치·cache-history·`build:checked`와 정확한 main CI candidate 확인 |
+| 완료한 배포 범위                    | 최신 `target=app`; App은 `94fa5b03`, 다른 5개 Worker는 `8.7.0` 승격의 `e8001e93` 유지·부분 배포 호환성 재확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
-| Operations Drift Audit              | `active` 유지; `8.7.0` 배포 전 `37583844459`·배포 후 `37584995408` 성공, 각각 31 pass/0 fail/5 manual-only. 8.7.1의 새 감사 결과로 해석하지 않음 |
-| 최신 App main SHA / CI 후보 / 배포 실행 | `f005a70645fb6b115a3465346b5f22d4d83d4e1a` / main CI `37589560758` 및 immutable candidate / Release `37590255149` 성공. 아래 후속 패치 기록 참조 |
-| 후속 App 패치 | `8.7.1`/`v632` 완료 — 42언어 YouTube 입력 힌트·BETA 배지. 제품 `10feecac` → PR #247/main `f005a706`, `app`/D1 false. 공개 자산·fresh en/ko 검증 통과 |
+| Operations Drift Audit              | `active` 유지; `8.7.0` 배포 전 `37583844459`·배포 후 `37584995408` 성공, 각각 31 pass/0 fail/5 manual-only. 8.7.1·8.7.2의 새 감사 결과로 해석하지 않음 |
+| 최신 App main SHA / CI 후보 / 배포 실행 | `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09` / main CI `37592984640` 및 immutable candidate / Release `37593498828` 성공. 아래 후속 패치 기록 참조 |
+| 후속 App 패치 | `8.7.2`/`v633` 완료 — YouTube BETA 제거·42언어 브랜드 `YouTube` 통일. 제품 `7ac40213` → PR #249/main `94fa5b03`, `app`/D1 false. 공개 자산·fresh en/ko 검증 통과 |
 
-**현재 App은 `8.7.1` / `v632`, main `f005a706`이다.** 후속 패치를 `app`으로
+**현재 App은 `8.7.2` / `v633`, main `94fa5b03`이다.** 후속 패치를 `app`으로
 배포했고 다른 5개 Worker의 deployment·version·`git:e8001e93...` 기준은 유지됐다.
 정확한 main CI candidate·배포·공개 검증 결과는 아래 후속 패치 기록을 따른다.
 
@@ -69,7 +69,7 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
 이전 8.7.0 배포 종료 시에는 6개 Worker의 메시지를 모두 `git:e8001e93...`로 확인했다.
 이 문서만 보완하는 후속 main 커밋을 새로운 배포 SHA로 해석하지 않는다.
 
-### 후속 App 패치 준비 — 8.7.2 / v633, 2026-10-07
+### 후속 App 패치 배포 완료 — 8.7.2 / v633, 2026-10-07
 
 - 코드 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf`: 사용자 요청으로 YouTube BETA
   배지와 그 전용 배치 CSS 제거. 한국어의 브랜드 표기 4곳을 `YouTube`로 통일;
@@ -79,7 +79,36 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
   binding·서버/미디어 계약 변경 없음. 이전 App `f005a706`/8.7.1이 복구 기준이며,
   다른 5개 Worker의 `e8001e93` 기준과 기존 실기·운영 미확인 항목은 유지한다.
 - Windows/Node24.20.0/npm12.0.2에서 동일 코드의 관련 단위 8파일 153개 통과.
-  커밋 후 `build:checked` 통과. 정적 검사·좁은 화면 확인·PR/main CI·실제 배포는 진행 중이다.
+  전체 타입·lint·서식과 커밋 후 `build:checked` 통과. 최종 production 산출물의
+  좁은 화면 5조합도 통과했다. 이 로컬 결과는 전체 스위트·실기 검증과 구분한다.
+- [PR CI `37592284335`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37592284335)
+  성공 뒤 [PR #249](https://github.com/hiefny/MUSIXQUARE/pull/249)를 main
+  `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09`으로 병합했다. 정확한 main의
+  [CI `37592984640`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37592984640)도
+  성공: unit 10,729 pass/기존 Windows 전용 1 skip, 4종 coverage gate,
+  Chromium 17+22 pass. candidate는
+  `production-candidate-94fa5b03695122d1cf6b39d9e7a5374ec6e11e09-37592984640-1`,
+  manifest SHA-256은 `5c88d037c5e2478db104cba0a5a46ba86c9ca691cfe06040d4404d514c5b723a`다.
+- [Release `37593498828`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37593498828)
+  성공, `target=app`/D1 false. 배포 job 완료는 2026-10-07 08:25:48 UTC
+  (17:25:48 KST). 최종 App deployment `fbace026-da5f-45ca-aaa4-36fb150aa6ce`,
+  100% version `08821e3c-3a6f-408c-b0e4-e53af03d3585`, 메시지
+  `git:94fa5b03695122d1cf6b39d9e7a5374ec6e11e09`의 소유권 검사가 통과했다.
+  mutation 전 checkpoint에 이전 App deployment `eeab1ac4-cd94-415a-a179-a320930b468d`,
+  version `dfc661b6-b8d3-45e5-88c6-308dde8f6c14`/`git:f005a706...`를 보존했다.
+  다른 5개 Worker의 deployment·version·`git:e8001e93...`는 그대로이며 부분 배포
+  호환성 재확인이 통과했다. App generation·익명 계정 경계·현재 PRO 공개 경계·
+  Standard HTTPS signaling fallback smoke와 최종 소유권 검사가 통과했고,
+  `app`/`94fa5b03` coherent-production marker를 보존했다. 선택하지 않은 Worker의
+  별도 smoke와 PRO generation readiness 복원은 scope상 skip이며 rollback은 없었다.
+  Release 첨부의 `app-final-current.json`, `partial-release-compatibility-recheck.json`,
+  `final-verification-report.json`, `recovery-checkpoint.json`, `production-committed.json`이 원본 근거다.
+- 공개 검증: locale JSON 40개를 포함한 45개 자산 SHA-256이 정확한 CI candidate와
+  일치했고 ko/ja/ar HTML 3경로가 200이었다. fresh native Chromium en-US/ko-KR에서
+  소스 이름 `YouTube`, YouTube BETA 제거, 한국어 힌트 `YouTube 링크 또는 검색어`,
+  placeholder `white-space: normal`, bootstrap ready·page error 0·E2E hook 부재와
+  `v633` static/optional/runtime cache를 확인했다. 실제 기존 탭/PWA 업그레이드·
+  방 동작·인증·실기 확인을 대신하지 않는다. R26 미확정 관찰·운영 수동 5항목은 유지한다.
 
 ### 이전 App 패치 배포 완료 — 8.7.1 / v632, 2026-10-07
 
@@ -173,7 +202,7 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
 반영하기 위해 **`all`**을 사용했다. 변경이 없는 signaling·remote-share도 그 실행에
 포함되므로, 최종 대상과 복구 checkpoint는 정식 워크플로가 검증하게 한다.
 partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 거부한다.
-후속 8.7.1은 1절의 `app` 범위를 따르며, 이후 새 배포는 live SHA와 서버 의존성으로
+후속 8.7.1·8.7.2는 1절의 `app` 범위를 따르며, 이후 새 배포는 live SHA와 서버 의존성으로
 범위를 다시 판정한다.
 
 ### 데이터·호환성 경계
@@ -626,6 +655,8 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 - [x] 공개 fresh 확인: 45개 자산 hash가 main candidate와 일치, 10개 HTML 경로 200, en-US/ko-KR native Chromium의 새 main·active SW/cache v631·정상 bootstrap·page error 0. 초기 경로 미기록 fetch timeout과 후속 계측 전체 통과는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 구분.
 - [x] 후속 `8.7.1`/`v632`: PR #247·정확한 main `f005a706`의 CI `37589560758`/immutable candidate 및 Release `37590255149` 성공. `app`/D1 false, checkpoint·App 최종 소유권·선택된 smoke·coherent marker 확인. 다른 5개 Worker는 `e8001e93` 유지·호환성 통과.
 - [x] 8.7.1 공개 fresh 확인: 45개 자산 hash·ko/ja/ar HTML 3경로 200·en-US/ko-KR Chromium의 변경 문구/BETA·정상 줄바꿈·bootstrap ready·page error 0·v632 cache 확인. 실기·기존 운영 탭/PWA 확인과 구분하며 1절에 범위 기록.
+- [x] 후속 `8.7.2`/`v633`: PR #249·정확한 main `94fa5b03`의 CI `37592984640`/immutable candidate 및 Release `37593498828` 성공. `app`/D1 false, checkpoint·App 최종 소유권·선택된 smoke·coherent marker 확인. 다른 5개 Worker는 `e8001e93` 유지·호환성 통과.
+- [x] 8.7.2 공개 fresh 확인: 45개 자산 hash·ko/ja/ar HTML 3경로 200·en-US/ko-KR Chromium의 `YouTube` 표기·YouTube BETA 제거·정상 줄바꿈·bootstrap ready·page error 0·v633 cache 확인. 실기·기존 운영 탭/PWA 한계 유지.
 - [ ] Drift 수동 5항목: zone routes, Access/MFA, WAF·비용 알림, 별도 Git-triggered 배포, 운영 review/check 정책. 자동 감사 통과로 완료 처리하지 않음.
 - [x] 2026-10-07 30라운드 후속 — 확정 12건 수정과 로컬 회귀 완료. 최종 unit 10,730개·4종 coverage, 초기 전체 Chromium 580개와 최종 영향 18개/production 17개, WebKit 66개(기존 3 skip), 전체/prod-only 보안 감사 0. 초기 실패·빌드 구분은 [후속 보고서](design/beta-30-round-repair-2026-10-07.md)에 보존.
 - [x] R08/R25 별도 보강 — 정상 파일 조각·메타데이터 계약 확인, 번역 초안의 지속 요청 ID와 제출 전 저장 성공 조건. 구형 UUID/선택 MIME 호환성 회귀도 수정. 원래 미확정 2건을 확정 결함 수에 합산하지 않음.
@@ -999,7 +1030,7 @@ Operations Drift Audit는 변경하지 않았다.
 
 2026-10-07 사용자가 **대회 종료·main 병합·프로덕션 배포·감사 재활성화**를 승인했다.
 8.7.0 승격에 적용한 순서는 아래와 같으며 완료 증거는 마지막 8.7.0 실행 기록에 남겼다.
-후속 8.7.1의 완료 범위는 1절을, 향후 실제 명령·검증 경계는 [정식 절차](hotfix-procedure.md)를 따른다.
+후속 8.7.1·8.7.2의 완료 범위는 1절을, 향후 실제 명령·검증 경계는 [정식 절차](hotfix-procedure.md)를 따른다.
 
 1. **종료·재개 기록:** 지시 일시를 아래 실행 기록에 남긴다. 이전 사용자 지시에
    따라 `Operations Drift Audit`의 `ops-drift-audit.yml`만 재활성화한다.
@@ -1128,8 +1159,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | 공개 승격 준비, 기준 checkout `efce531a690857790509fde5f851a9b72db1ee05`, 최신 검증 코드 `4a605791` | 사용자 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인. 하이브리드 오디오 기능을 포함해 `8.7.0`/`v631` 준비, 누적 `target=all`/D1 false. 새 schema/secrets/bindings·복구 계약 추가 변경 없음 | 위 로컬 QA 증거 유지. 최종 버전/cache 커밋의 검증·PR/main CI·실제 배포·감사 결과는 아래에 별도 기록. R26 최초 legacy 승인 후 갱신 정지 1회는 미확정이며 추가 진단 10/10 통과로 해소 처리하지 않음. 실기/live 잔여 유지 |
 | 2026-10-07 | 공개 승격·배포, 준비 `fe0b0230` → main `e8001e93c9390ec20b359b015d3dff890f2b5304`, PR #245 | `8.7.0`/`v631`, Release `37584399403`의 `all`/D1 false 성공. 6 Worker 공통 SHA·최종 소유권·PRO ready·coherent marker 확인, 감사 active 및 전후 자동 검사 성공. 문서 후속 커밋은 배포 SHA와 구분 | exact-main CI `37583802398`의 unit 10,729 pass/기존 Windows 전용 1 skip·4종 coverage·Chromium 17+22 통과. 공개 45자산 hash·10 HTML 200·fresh en/ko Chromium 통과. 초기 build/upgrade/fetch 실패의 후속 판정과 R26·수동5·실기 한계는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 보존 |
 | 2026-10-07 | YouTube 안내 후속 패치, 제품 `10feecac148291dbb54f4cb436fc6dc64d9e6490` → main `f005a70645fb6b115a3465346b5f22d4d83d4e1a`, PR #247 | `8.7.1`/`v632`, 42언어 링크·검색 안내 축약·줄바꿈 유지·BETA. Release `37590255149`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 새 데이터·서버 계약 없음 | exact-main CI `37589560758`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 공개45자산 hash·3HTML200·fresh en/ko 통과. 초기 PR CI 배지 기대값 실패·로컬 검증 범위·원본 배포 근거는 1절에 보존. R26·실기·운영 수동 한계 유지 |
-
-| 2026-10-07 | YouTube 브랜드 후속 패치, 제품 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf` | `8.7.2`/`v633` 준비: YouTube BETA 제거, 42언어 브랜드 `YouTube` 통일. `app`/D1 false; 서버·데이터 계약 변경 없음 | 관련 unit153 pass. 최종 검증·배포 상태는 1절의 8.7.2 기록을 따름; 기존 실기·운영 한계 유지 |
+| 2026-10-07 | YouTube 브랜드 후속 패치, 제품 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf` → main `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09`, PR #249 | `8.7.2`/`v633`, YouTube BETA 제거·42언어 브랜드 `YouTube` 통일. Release `37593498828`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 서버·데이터 계약 변경 없음 | exact-main CI `37592984640`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 로컬unit153·정적/빌드·production5조합 및 공개45자산 hash·3HTML200·fresh en/ko 통과. 원본 배포 근거는 1절, 기존 실기·운영 한계 유지 |
 
 ### 이전 8.7.0 실제 승격·배포 기록 — 2026-10-07 완료
 

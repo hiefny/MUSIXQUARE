@@ -385,7 +385,7 @@ const fr: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Les connexions sur le même réseau sont les plus fiables',
   'help.local_file': 'Choisir un fichier local',
   'help.load_local': 'Charger un fichier local',
-  'help.youtube_compat': 'YouTube (mode de compatibilité)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'En mode YouTube, les réglages de rôle et les effets audio ne sont pas disponibles.',
   'help.media_synced_detail':
@@ -396,7 +396,7 @@ const fr: Record<I18nKey, string> = {
   'youtube.enter_link': 'Saisir un lien YouTube',
   'youtube.enter_source': 'Saisir un lien YouTube ou une recherche',
   'youtube.enter_link_prompt': 'Saisissez une recherche ou un lien YouTube',
-  'youtube.enter_source_placeholder': 'Recherche ou https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Lien YouTube ou recherche',
   'youtube.watch_together': 'Regarder YouTube ensemble',
   'youtube.ready': 'YouTube est prêt !\nAppuyez sur Lecture.',
   'youtube.thumbnail': 'Miniature d’aperçu YouTube',

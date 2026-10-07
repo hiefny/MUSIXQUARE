@@ -387,7 +387,7 @@ const ms: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Sambungan pada rangkaian yang sama adalah paling stabil',
   'help.local_file': 'Pilih fail setempat',
   'help.load_local': 'Muatkan fail setempat',
-  'help.youtube_compat': 'YouTube (Mod Keserasian)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'Dalam mod YouTube, tetapan peranan dan kesan audio tidak tersedia.',
   'help.media_synced_detail':
     'Media yang dipilih dimainkan serentak pada semua peranti yang disambungkan.',
@@ -501,7 +501,7 @@ const ms: Record<I18nKey, string> = {
   'youtube.enter_link': 'Masukkan pautan YouTube',
   'youtube.enter_source': 'Masukkan pautan YouTube atau buat carian',
   'youtube.enter_link_prompt': 'Masukkan istilah carian atau pautan YouTube',
-  'youtube.enter_source_placeholder': 'Istilah carian atau https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Pautan YouTube atau istilah carian',
   'youtube.watch_together': 'Tonton YouTube bersama',
   'youtube.ready': 'YouTube sudah sedia!\nTekan Main.',
   'youtube.thumbnail': 'Imej kecil pratonton YouTube',

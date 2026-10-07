@@ -385,7 +385,7 @@ const de: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Verbindungen im selben Netzwerk sind am zuverlässigsten',
   'help.local_file': 'Lokale Datei wählen',
   'help.load_local': 'Lokale Datei laden',
-  'help.youtube_compat': 'YouTube (Kompatibilitätsmodus)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'Im YouTube-Modus sind Rollen und Audioeffekte nicht verfügbar.',
   'help.media_synced_detail':
     'Das ausgewählte Medium wird gleichzeitig auf allen verbundenen Geräten abgespielt.',
@@ -395,7 +395,7 @@ const de: Record<I18nKey, string> = {
   'youtube.enter_link': 'YouTube-Link eingeben',
   'youtube.enter_source': 'YouTube-Link oder Suchbegriff eingeben',
   'youtube.enter_link_prompt': 'YouTube-Suchbegriff oder Link eingeben',
-  'youtube.enter_source_placeholder': 'Suchbegriff oder https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube-Link oder Suchbegriff',
   'youtube.watch_together': 'YouTube gemeinsam ansehen',
   'youtube.ready': 'YouTube ist bereit!\nDrücke auf Wiedergabe.',
   'youtube.thumbnail': 'YouTube-Vorschaubild',

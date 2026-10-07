@@ -384,7 +384,7 @@ const ptBr: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Conexões na mesma rede são as mais confiáveis',
   'help.local_file': 'Escolher arquivo local',
   'help.load_local': 'Carregar arquivo local',
-  'help.youtube_compat': 'YouTube (modo de compatibilidade)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'No modo YouTube, funções e efeitos de áudio ficam indisponíveis.',
   'help.media_synced_detail':
     'A mídia selecionada é reproduzida ao mesmo tempo em todos os dispositivos conectados.',
@@ -394,7 +394,7 @@ const ptBr: Record<I18nKey, string> = {
   'youtube.enter_link': 'Digite o link do YouTube',
   'youtube.enter_source': 'Digite um link ou termo de busca do YouTube',
   'youtube.enter_link_prompt': 'Digite um termo de busca ou link do YouTube',
-  'youtube.enter_source_placeholder': 'Termo de busca ou https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Link do YouTube ou busca',
   'youtube.watch_together': 'Assistir ao YouTube juntos',
   'youtube.ready': 'YouTube está pronto!\nToque em Reproduzir.',
   'youtube.thumbnail': 'Miniatura de prévia do YouTube',

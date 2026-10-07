@@ -382,7 +382,7 @@ const hu: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Az azonos hálózaton belüli kapcsolat a legmegbízhatóbb',
   'help.local_file': 'Helyi fájl kiválasztása',
   'help.load_local': 'Helyi fájl betöltése',
-  'help.youtube_compat': 'YouTube (kompatibilitási mód)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'YouTube módban a szerepbeállítások és a hangeffektusok nem érhetők el.',
   'help.media_synced_detail':
@@ -499,7 +499,7 @@ const hu: Record<I18nKey, string> = {
   'youtube.enter_link': 'Add meg a YouTube-hivatkozást',
   'youtube.enter_source': 'Adj meg YouTube-hivatkozást, vagy keress',
   'youtube.enter_link_prompt': 'Adj meg YouTube-keresőkifejezést vagy -hivatkozást',
-  'youtube.enter_source_placeholder': 'Keresőkifejezés vagy https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube-link vagy keresőkifejezés',
   'youtube.watch_together': 'Közös YouTube-nézés',
   'youtube.ready': 'A YouTube készen áll!\nNyomd meg a Lejátszás gombot.',
   'youtube.thumbnail': 'YouTube előnézeti kép',

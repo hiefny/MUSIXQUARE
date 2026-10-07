@@ -384,7 +384,7 @@ const ro: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Conexiunile în aceeași rețea sunt cele mai stabile',
   'help.local_file': 'Alege un fișier local',
   'help.load_local': 'Încarcă un fișier local',
-  'help.youtube_compat': 'YouTube (mod de compatibilitate)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'În modul YouTube, setările rolurilor și efectele audio nu sunt disponibile.',
   'help.media_synced_detail':
@@ -499,7 +499,7 @@ const ro: Record<I18nKey, string> = {
   'youtube.enter_link': 'Introdu linkul YouTube',
   'youtube.enter_source': 'Introdu un link YouTube sau caută',
   'youtube.enter_link_prompt': 'Introdu un termen de căutare sau un link YouTube',
-  'youtube.enter_source_placeholder': 'Termen de căutare sau https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Link YouTube sau căutare',
   'youtube.watch_together': 'Urmărește YouTube împreună cu ceilalți',
   'youtube.ready': 'YouTube este gata!\nApasă Redare.',
   'youtube.thumbnail': 'Miniatură de previzualizare YouTube',

@@ -382,7 +382,7 @@ const da: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Forbindelser på samme netværk er mest pålidelige',
   'help.local_file': 'Vælg lokal fil',
   'help.load_local': 'Indlæs lokal fil',
-  'help.youtube_compat': 'YouTube (kompatibilitetstilstand)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'I YouTube-tilstand er rolleindstillinger og lydeffekter ikke tilgængelige.',
   'help.media_synced_detail': 'Det valgte medie afspilles samtidigt på alle forbundne enheder.',
@@ -496,7 +496,7 @@ const da: Record<I18nKey, string> = {
   'youtube.enter_link': 'Indtast YouTube-link',
   'youtube.enter_source': 'Indtast YouTube-link eller søg',
   'youtube.enter_link_prompt': 'Indtast et søgeord eller link til YouTube',
-  'youtube.enter_source_placeholder': 'Søgeord eller https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube-link eller søgeord',
   'youtube.watch_together': 'Se YouTube sammen',
   'youtube.ready': 'YouTube er klar!\nTryk på Afspil.',
   'youtube.thumbnail': 'Forhåndsvisningsbillede fra YouTube',

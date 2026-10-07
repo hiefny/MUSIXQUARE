@@ -382,7 +382,7 @@ const bg: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Връзките в една и съща мрежа са най-надеждни',
   'help.local_file': 'Избор на локален файл',
   'help.load_local': 'Зареждане на локален файл',
-  'help.youtube_compat': 'YouTube (режим на съвместимост)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'В режим YouTube настройките за роля и звуковите ефекти не са достъпни.',
   'help.media_synced_detail':
@@ -498,7 +498,7 @@ const bg: Record<I18nKey, string> = {
   'youtube.enter_link': 'Въведи връзка към YouTube',
   'youtube.enter_source': 'Въведи връзка към YouTube или търси',
   'youtube.enter_link_prompt': 'Въведи дума за търсене в YouTube или връзка',
-  'youtube.enter_source_placeholder': 'Дума за търсене или https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Връзка към YouTube или търсене',
   'youtube.watch_together': 'Гледайте YouTube заедно',
   'youtube.ready': 'YouTube е готов!\nНатисни „Пускане“.',
   'youtube.thumbnail': 'Миниатюра за преглед в YouTube',

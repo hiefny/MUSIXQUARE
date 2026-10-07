@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v631"></script>
+    <script src="/bootstrap.js?cache=v632"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -3787,7 +3787,10 @@
                 />
               </svg>
             </div>
-            <span data-i18n="help.youtube_compat">YouTube (Compatibility Mode)</span>
+            <span class="media-source-label-row">
+              <span class="media-source-label-text" data-i18n="help.youtube_compat">YouTube</span>
+              <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
+            </span>
           </button>
           <button class="file-select-btn" id="btn-system-audio">
             <div class="btn-icon-bg">
@@ -3859,7 +3862,7 @@
               aria-label="Enter YouTube link or search"
               aria-describedby="youtube-preview-status"
               data-i18n-aria-label="youtube.enter_source"
-              data-placeholder="Search term or https://youtube.com/"
+              data-placeholder="YouTube link or search"
               data-i18n-data-placeholder="youtube.enter_source_placeholder"
             ></div>
             <button

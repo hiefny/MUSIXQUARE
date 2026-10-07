@@ -9668,6 +9668,11 @@
     min-width: 0;
   }
 
+  #btn-youtube-source .media-source-label-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
   .feature-badge,
   .file-select-btn .feature-badge {
     display: inline-flex;

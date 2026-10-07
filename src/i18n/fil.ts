@@ -389,7 +389,7 @@ const fil: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Pinakamaaasahan ang mga koneksyon sa iisang network',
   'help.local_file': 'Pumili ng lokal na file',
   'help.load_local': 'Mag-load ng lokal na file',
-  'help.youtube_compat': 'YouTube (Mode ng Compatibility)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'Sa YouTube mode, hindi available ang mga setting ng gampanin at audio effect.',
   'help.media_synced_detail':
@@ -507,7 +507,7 @@ const fil: Record<I18nKey, string> = {
   'youtube.enter_link': 'Ilagay ang link sa YouTube',
   'youtube.enter_source': 'Ilagay ang link sa YouTube o maghanap',
   'youtube.enter_link_prompt': 'Maglagay ng salitang hahanapin o link sa YouTube',
-  'youtube.enter_source_placeholder': 'Salitang hahanapin o https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube link o paghahanap',
   'youtube.watch_together': 'Sabay-sabay na manood sa YouTube',
   'youtube.ready': 'Handa na ang YouTube!\nPindutin ang I-play.',
   'youtube.thumbnail': 'Thumbnail ng preview sa YouTube',

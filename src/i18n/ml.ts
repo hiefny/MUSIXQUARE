@@ -387,7 +387,7 @@ const ml: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'ഒരേ നെറ്റ്‌വർക്കിലെ ബന്ധങ്ങളാണ് ഏറ്റവും വിശ്വസനീയം',
   'help.local_file': 'ലോക്കൽ ഫയൽ തിരഞ്ഞെടുക്കുക',
   'help.load_local': 'ലോക്കൽ ഫയൽ ലോഡ് ചെയ്യുക',
-  'help.youtube_compat': 'YouTube (അനുയോജ്യതാ മോഡ്)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'YouTube മോഡിൽ റോൾ ക്രമീകരണങ്ങളും ഓഡിയോ ഇഫക്റ്റുകളും ലഭ്യമല്ല.',
   'help.media_synced_detail':
     'തിരഞ്ഞെടുത്ത മീഡിയ ബന്ധിപ്പിച്ച എല്ലാ ഡിവൈസുകളിലും ഒരേസമയം പ്ലേ ചെയ്യും.',
@@ -500,7 +500,7 @@ const ml: Record<I18nKey, string> = {
   'youtube.enter_link': 'YouTube ലിങ്ക് നൽകുക',
   'youtube.enter_source': 'YouTube ലിങ്ക് നൽകുക അല്ലെങ്കിൽ തിരയുക',
   'youtube.enter_link_prompt': 'YouTube തിരയൽ വാക്കോ ലിങ്കോ നൽകുക',
-  'youtube.enter_source_placeholder': 'തിരയൽ വാക്ക് അല്ലെങ്കിൽ https://youtube.com/',
+  'youtube.enter_source_placeholder': 'YouTube ലിങ്ക് അല്ലെങ്കിൽ തിരയൽ വാക്ക്',
   'youtube.watch_together': 'ഒരുമിച്ച് YouTube കാണുക',
   'youtube.ready': 'YouTube തയ്യാറാണ്!\nപ്ലേ അമർത്തുക.',
   'youtube.thumbnail': 'YouTube പ്രിവ്യൂ ലഘുചിത്രം',

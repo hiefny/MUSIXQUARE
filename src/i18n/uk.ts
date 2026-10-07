@@ -383,7 +383,7 @@ const uk: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Найнадійніше працюють підключення в одній мережі',
   'help.local_file': 'Вибрати локальний файл',
   'help.load_local': 'Завантажити локальний файл',
-  'help.youtube_compat': 'YouTube (режим сумісності)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'У режимі YouTube налаштування ролей і звукові ефекти недоступні.',
   'help.media_synced_detail':
     'Вибране медіа відтворюється одночасно на всіх підключених пристроях.',
@@ -497,7 +497,7 @@ const uk: Record<I18nKey, string> = {
   'youtube.enter_link': 'Введіть посилання YouTube',
   'youtube.enter_source': 'Введіть посилання YouTube або пошуковий запит',
   'youtube.enter_link_prompt': 'Введіть пошуковий запит або посилання YouTube',
-  'youtube.enter_source_placeholder': 'Пошуковий запит або https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Посилання на YouTube або пошук',
   'youtube.watch_together': 'Дивитися YouTube разом',
   'youtube.ready': 'YouTube готовий!\nНатисніть «Відтворити».',
   'youtube.thumbnail': 'Мініатюра попереднього перегляду YouTube',

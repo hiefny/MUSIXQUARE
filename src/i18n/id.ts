@@ -385,7 +385,7 @@ const id: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Koneksi jaringan yang sama adalah yang paling stabil',
   'help.local_file': 'Pilih file lokal',
   'help.load_local': 'Muat file lokal',
-  'help.youtube_compat': 'YouTube (Mode Kompatibilitas)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'Dalam mode YouTube, pengaturan peran dan efek audio tidak tersedia.',
   'help.media_synced_detail':
     'Media yang dipilih diputar serentak di semua perangkat yang tersambung.',
@@ -395,7 +395,7 @@ const id: Record<I18nKey, string> = {
   'youtube.enter_link': 'Masukkan tautan YouTube',
   'youtube.enter_source': 'Masukkan tautan YouTube atau kata pencarian',
   'youtube.enter_link_prompt': 'Masukkan kata pencarian atau tautan YouTube',
-  'youtube.enter_source_placeholder': 'Kata pencarian atau https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Link YouTube atau kata pencarian',
   'youtube.watch_together': 'Tonton YouTube bersama',
   'youtube.ready': 'YouTube siap!\nTekan Putar.',
   'youtube.thumbnail': 'Gambar mini pratinjau YouTube',

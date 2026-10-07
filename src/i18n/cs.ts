@@ -382,7 +382,7 @@ const cs: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Nejspolehlivější je připojení ve stejné síti',
   'help.local_file': 'Vybrat místní soubor',
   'help.load_local': 'Načíst místní soubor',
-  'help.youtube_compat': 'YouTube (režim kompatibility)',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'V režimu YouTube nejsou dostupná nastavení rolí ani zvukové efekty.',
   'help.media_synced_detail':
     'Vybraná média se přehrávají současně na všech připojených zařízeních.',
@@ -497,7 +497,7 @@ const cs: Record<I18nKey, string> = {
   'youtube.enter_link': 'Zadejte odkaz YouTube',
   'youtube.enter_source': 'Zadejte odkaz YouTube nebo vyhledávejte',
   'youtube.enter_link_prompt': 'Zadejte hledaný výraz nebo odkaz YouTube',
-  'youtube.enter_source_placeholder': 'Hledaný výraz nebo https://youtube.com/',
+  'youtube.enter_source_placeholder': 'Odkaz na YouTube nebo hledaný výraz',
   'youtube.watch_together': 'Sledovat YouTube společně',
   'youtube.ready': 'YouTube je připraven!\nStiskněte Přehrát.',
   'youtube.thumbnail': 'Náhledový obrázek YouTube',

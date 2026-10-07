@@ -6,7 +6,7 @@
 | Applies to | `mxqr_beta`의 확정 12건 수정과 별도 안정성 보강 2건 |
 | Last source review | 2026-10-07 |
 | Baseline | `f98892cd1218defb80cc2ec99cd87024523da684` |
-| Tested code | `f98892cd` 기준 검증된 수정 작업 트리 — 아래 소스 digest와 불변 빌드 기록 참조 |
+| Tested code | `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋 — 아래 소스 digest와 불변 빌드 기록 참조 |
 | Related documents | [발견·재판정 원본](beta-30-round-qa-2026-10-07.md), [배포 준비 기록](../beta-release-readiness.md) |
 
 사용자의 전체 진행 승인으로 이전 읽기 전용 QA에서 수집한 항목을 수정했다.
@@ -170,3 +170,7 @@ legacy 승인 후 갱신 관찰 1건과 위 실기/live·공개 승격 항목이
 
 현재 CI는 main push/main 대상 PR에서 실행되므로 beta push를 exact-main CI 성공으로
 기록하지 않는다. main 병합·PR·배포·운영 감사 재활성화 없이 베타에만 커밋·푸시한다.
+
+검증 명령은 기준 HEAD `f98892cd` 위의 수정 작업 트리에서 실행했고, 비 Markdown
+1,809파일이 그대로인 상태를 확인해 코드 커밋 `4a605791b7f4680cc85d4718117d8db231c1d772`로 저장했다.
+이 SHA를 적는 후속 커밋은 문서만 변경한다. main의 정확한 후보 SHA로 실행한 CI는 아니다.

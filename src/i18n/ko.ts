@@ -375,7 +375,7 @@ const ko = {
   'help.connect_all_wifi': '같은 네트워크에서 가장 안정적이에요',
   'help.local_file': '로컬 파일 선택',
   'help.load_local': '로컬파일 불러오기',
-  'help.youtube_compat': '유튜브',
+  'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.',
   'help.media_synced_detail': '연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.',
   'help.wifi_hotspot': '핫스팟으로 네트워크를 구성할 수도 있어요',
@@ -485,7 +485,7 @@ const ko = {
   'youtube.enter_link': 'YouTube 링크 입력',
   'youtube.enter_source': 'YouTube 링크 또는 검색어 입력',
   'youtube.enter_link_prompt': 'YouTube 검색어 또는 링크를 입력하세요',
-  'youtube.enter_source_placeholder': '유튜브 링크 또는 검색어',
+  'youtube.enter_source_placeholder': 'YouTube 링크 또는 검색어',
   'youtube.watch_together': 'YouTube 함께보기',
   'youtube.ready': 'YouTube가 준비됐어요!\n재생 버튼을 눌러 보세요.',
   'youtube.thumbnail': 'YouTube 미리보기 썸네일',
@@ -563,7 +563,7 @@ const ko = {
   'toast.chat_notice_required': '채팅방 공지 권한이 필요해요.',
   'toast.room_owner_required': '방 소유자만 변경할 수 있어요.',
   'toast.system_audio_owner_required': '방을 직접 연 탭에서만 공유할 수 있어요',
-  'toast.host_only_youtube': '방장만 유튜브 링크를 추가할 수 있어요.',
+  'toast.host_only_youtube': '방장만 YouTube 링크를 추가할 수 있어요.',
   'toast.host_only_control': '방장만 조작할 수 있어요',
   'toast.host_setting_required': '방장만 이 설정을 변경할 수 있어요',
   'toast.host_only_file': '방장만 파일을 추가할 수 있어요',
@@ -784,7 +784,7 @@ const ko = {
   'player.play_speakers_html':
     '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> <bdi dir="ltr">L</bdi> 채널 출력</li><li><strong>오른쪽 스피커:</strong> <bdi dir="ltr">R</bdi> 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':
-    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장이 컴퓨터에서 Chrome 계열 브라우저를 사용하는 경우 이용 가능</li></ul>',
+    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>YouTube 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장이 컴퓨터에서 Chrome 계열 브라우저를 사용하는 경우 이용 가능</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 다시 시도해주세요. 회사/학교망이나 VPN에서는 연결이 제한될 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬 참여자는 공유기 가까이에서, 원격 참여자는 안정적인 인터넷 환경에서 시도해주세요.</li><li><strong>기타 문제:</strong> 네트워크 상태를 확인하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>를 참고해주시거나 맨 하단의 이메일로 연락해주세요.</li></ul>',
   'chat.peer_connected': '{{name}}님이 입장했어요',

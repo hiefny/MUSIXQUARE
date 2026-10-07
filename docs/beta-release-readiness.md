@@ -69,7 +69,19 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
 이전 8.7.0 배포 종료 시에는 6개 Worker의 메시지를 모두 `git:e8001e93...`로 확인했다.
 이 문서만 보완하는 후속 main 커밋을 새로운 배포 SHA로 해석하지 않는다.
 
-### 후속 App 패치 배포 완료 — 8.7.1 / v632, 2026-10-07
+### 후속 App 패치 준비 — 8.7.2 / v633, 2026-10-07
+
+- 코드 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf`: 사용자 요청으로 YouTube BETA
+  배지와 그 전용 배치 CSS 제거. 한국어의 브랜드 표기 4곳을 `YouTube`로 통일;
+  다른 41언어는 이미 같은 표기다. 입력 힌트 줄바꿈과 기존 제한 안내는 유지한다.
+  시스템 오디오·언어 선택의 기존 BETA 배지는 유지하며 개수 검사를 2개로 맞췄다.
+- `8.7.2`/`v633`, 배포 범위 `app`/Developer API D1 false. 새 의존성·DB·secret·
+  binding·서버/미디어 계약 변경 없음. 이전 App `f005a706`/8.7.1이 복구 기준이며,
+  다른 5개 Worker의 `e8001e93` 기준과 기존 실기·운영 미확인 항목은 유지한다.
+- Windows/Node24.20.0/npm12.0.2에서 동일 코드의 관련 단위 8파일 153개 통과.
+  커밋 후 `build:checked` 통과. 정적 검사·좁은 화면 확인·PR/main CI·실제 배포는 진행 중이다.
+
+### 이전 App 패치 배포 완료 — 8.7.1 / v632, 2026-10-07
 
 - 코드 SHA `10feecac148291dbb54f4cb436fc6dc64d9e6490`: 42개 언어의 YouTube
   입력 힌트를 링크·검색어 모두 안내하는 짧은 문구로 변경. 기존 자연스러운 줄바꿈을
@@ -1116,6 +1128,8 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-07 | 공개 승격 준비, 기준 checkout `efce531a690857790509fde5f851a9b72db1ee05`, 최신 검증 코드 `4a605791` | 사용자 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인. 하이브리드 오디오 기능을 포함해 `8.7.0`/`v631` 준비, 누적 `target=all`/D1 false. 새 schema/secrets/bindings·복구 계약 추가 변경 없음 | 위 로컬 QA 증거 유지. 최종 버전/cache 커밋의 검증·PR/main CI·실제 배포·감사 결과는 아래에 별도 기록. R26 최초 legacy 승인 후 갱신 정지 1회는 미확정이며 추가 진단 10/10 통과로 해소 처리하지 않음. 실기/live 잔여 유지 |
 | 2026-10-07 | 공개 승격·배포, 준비 `fe0b0230` → main `e8001e93c9390ec20b359b015d3dff890f2b5304`, PR #245 | `8.7.0`/`v631`, Release `37584399403`의 `all`/D1 false 성공. 6 Worker 공통 SHA·최종 소유권·PRO ready·coherent marker 확인, 감사 active 및 전후 자동 검사 성공. 문서 후속 커밋은 배포 SHA와 구분 | exact-main CI `37583802398`의 unit 10,729 pass/기존 Windows 전용 1 skip·4종 coverage·Chromium 17+22 통과. 공개 45자산 hash·10 HTML 200·fresh en/ko Chromium 통과. 초기 build/upgrade/fetch 실패의 후속 판정과 R26·수동5·실기 한계는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 보존 |
 | 2026-10-07 | YouTube 안내 후속 패치, 제품 `10feecac148291dbb54f4cb436fc6dc64d9e6490` → main `f005a70645fb6b115a3465346b5f22d4d83d4e1a`, PR #247 | `8.7.1`/`v632`, 42언어 링크·검색 안내 축약·줄바꿈 유지·BETA. Release `37590255149`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 새 데이터·서버 계약 없음 | exact-main CI `37589560758`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 공개45자산 hash·3HTML200·fresh en/ko 통과. 초기 PR CI 배지 기대값 실패·로컬 검증 범위·원본 배포 근거는 1절에 보존. R26·실기·운영 수동 한계 유지 |
+
+| 2026-10-07 | YouTube 브랜드 후속 패치, 제품 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf` | `8.7.2`/`v633` 준비: YouTube BETA 제거, 42언어 브랜드 `YouTube` 통일. `app`/D1 false; 서버·데이터 계약 변경 없음 | 관련 unit153 pass. 최종 검증·배포 상태는 1절의 8.7.2 기록을 따름; 기존 실기·운영 한계 유지 |
 
 ### 이전 8.7.0 실제 승격·배포 기록 — 2026-10-07 완료
 

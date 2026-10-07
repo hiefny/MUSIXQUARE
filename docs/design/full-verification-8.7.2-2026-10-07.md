@@ -365,6 +365,45 @@ Cloudflare 설정을 변경하지 않았다. 기존 실패와 아직 확정하�
 최초 10 GET는 사용자 확인 핫스팟, 뒤 9 GET는 사용자 확인 원래 Wi-Fi이며 같은
 객체 식별 URL의 hash를 유지했다. 다운로드 권한은 메모리에만 보관했고 객체 정리는 성공했다.
 
+## GitHub 원격 신규 방 3회 대조 — 2026-10-07
+
+사용자 요청에 따라 집 PC의 인터넷 경로를 거치지 않는 GitHub-hosted Ubuntu
+runner에서 기존 `Production large-room R2 smoke` job만 **미리 정한 3회** 실행했다.
+각각 다른 새 방이며 성공할 때까지 반복하지 않았다. 기존 run `37602041553`의
+attempt 3·4·5이고, 앞선 attempt 2 성공은 이번 3회에 합산하지 않는다.
+job 실행 시각은 2026-10-07 23:42–23:48 KST다.
+
+검사 소스는 `716c37af6f57ae46112e1e6295562e50fdc03ff0`이다. 조사 시작 main
+`76e19a43`까지의 차이는 이 보고서와 배포 기록 2개뿐이므로 검사·workflow·제품
+소스는 동일하다. 운영 App `94fa5b03` / share Worker `e8001e93`에 대해 검사했고
+제품·정책·제한 시간·배포는 변경하지 않았다.
+
+| 새 방 | attempt / R2 job | 실제 테스트 결과·시간 | PUT 200 / 전체 GET 200 | 첫 성공 PUT 응답 → 마지막 GET 본문 완료 |
+| --- | --- | --- | --- | --- |
+| 1 | [3 / 112852681033](https://github.com/hiefny/MUSIXQUARE/actions/runs/37602041553/job/112852681033) | pass · 31.7초 | 2 / 18 | 4.122초 |
+| 2 | [4 / 112854040802](https://github.com/hiefny/MUSIXQUARE/actions/runs/37602041553/job/112854040802) | pass · 30.3초 | 2 / 18 | 3.062초 |
+| 3 | [5 / 112855036964](https://github.com/hiefny/MUSIXQUARE/actions/runs/37602041553/job/112855036964) | pass · 28.2초 | 2 / 18 | 3.196초 |
+
+각 방은 호스트 1·게스트 9이고, 선택된 ICE host/host 연결 9개와 대규모 방의 실제
+R2 동의·전송 정책을 확인한다. 총 **3 pass / 0 fail, 자동 테스트 retry 0, PUT 6개·
+전체 본문 GET 54개 완료**다. 세 방 모두 다음 곡의 준비 완료·재생 시간 진행과
+프리로드 승격 뒤 추가 GET 없음까지 기존 assertion을 통과했다. 마지막 열은 여러
+요청을 포함한 로그 사건 간격이며 개별 GET 시간이나 방 입장부터의 전체 시간은 아니다.
+
+원격에서는 이번 집 Wi-Fi의 수십–수백 초 지연이 재현되지 않았다. 하지만 각 실행은
+원격 runner 한 대의 Chromium browser contexts이므로 물리 기기 10대·여러 가정·
+모바일 회선·iPhone 실기·실제 음향 정렬을 검증한 것은 아니다. 이 observer는 HTTP
+프로토콜·Cloudflare 거점을 기록하지 않으므로 이전 HTTP/2 또는 LAX 경로와 같다고
+주장하지 않는다. 과거 실패는 그대로 남기며 이번 성공으로 정확한 장애 구간이나
+전역적인 무결함을 확정하지 않는다.
+
+비차단 job의 실제 결과가 success임을 각각 확인했다. 같은 attempt에 보이는 전체
+Chromium·WebKit job은 과거 실행 시각의 결과이며 전체 suite를 다시 돌린 것이 아니다.
+기존 finally의 host/guest context 종료와 별도로 인증된 R2 객체 삭제를 확인했다고
+기록하지 않는다. 원본 로그·상태·각 회차 요약과 합계는 추적 제외
+`scratch/r2-remote-comparison-2026-10-07/attempt-{3,4,5}/` 및
+`combined-summary.json`에 보존한다. 추적 문서에는 인증 URL·토큰·방 식별자를 넣지 않는다.
+
 ## 최초 전체 검증 원본 증거
 
 추적 제외 폴더 `scratch/full-verification-8.7.2-2026-10-07/`에 원본을 보존한다.

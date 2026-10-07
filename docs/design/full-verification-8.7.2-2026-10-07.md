@@ -738,6 +738,44 @@ Cloudflare 관리 API 경로였다. 계정마다 hostname·연결이 다르고 �
 `run-meta.json`, `result.json`, `run.log`, `exit.txt`, `xhr-evidence.json`,
 `timing-summary.json` 및 생성한 검사/관측기/설정 파일에 보존한다.
 
+## 최종 코드 심층 검토 및 조사 종료 — 2026-10-08
+
+사용자가 관련 코드 전체를 마지막으로 검토하고 확정 근거가 없으면 종료하도록 요청했다.
+검토 SHA는 `a221f2a46d919fc796f8e8d5abce1f817cad62fe`다. 클라이언트 전송, Worker/R2,
+검사·실험 코드의 독립 검토와 전송 오케스트레이션 검토를 합쳤다. 새 운영 요청이나 계정/
+회선 실험은 하지 않았다. **이번 지연의 새 확정 코드 원인·수정 대상은 0건**이다.
+
+| 검토 경계 | 확인한 구현과 관측의 관계 |
+| --- | --- |
+| `r2-client.ts`, `remote-download.ts`, `remote-upload.ts`, request lifetime | native XHR가 본문 전체를 받은 뒤 File을 만든다. 진행 알림은 제한되고 예외가 격리된다. 본문 중간에 디코딩·저장소·제어 API를 기다리는 경로를 찾지 못했다. 제어 요청의 제한과 GET의 정지 감시는 별개다 |
+| `remote-share.ts`, file-delivery policy, preload/recovery, playlist/decode 진입점 | 현재 곡 대기/다운로드가 다음 곡 GET보다 우선한다. 같은 객체의 중복 descriptor와 프리로드 승격은 기존 GET를 재사용하며, 취소·재입장·큐 변경은 소유권으로 격리된다. 메모리 예약 대기는 XHR 전이므로 이미 200을 받은 뒤의 느린 본문을 설명하지 않는다 |
+| Remote Share Worker, upload assertion/contract, maintenance, Wrangler/CORS/lifecycle | 다운로드마다 `R2.get()`의 body를 그대로 Response에 넘긴다. 사용자 코드의 본문 버퍼링·속도 제한·직렬 큐가 없다. 인증/메타데이터/만료/유지보수 판정은 200 전에 끝나며 업로드 quota/rate limit은 GET 본문 경로에 없다. 새 객체가 2~3분 만에 만료되는 설정도 아니다 |
+| Service Worker | 다른 origin인 `share.musixquare.com`은 fetch 캐시 처리 대상에서 제외된다. 운영 앱 SW가 이 다운로드를 별도 캐시 큐에서 기다리게 하는 경로를 찾지 못했다 |
+| 유지 E2E·ICE/본문 observer, 앱 없는 XHR·회선 교차·H2/Node 실험 | 원래 완료 관측은 응답 헤더뿐 아니라 본문 완료를 기다린다. 단일 요청 131.188초는 native XHR와 CDP 완료 시각 양쪽에서 확인되고 해당 renderer heartbeat 최대 지연은 12.9ms다. 기존 setup 오류·부분 timeout에도 exit0인 실험·Node 수신창과 경로/시각 차이는 이미 한계로 분리되어 있으며, 과거 지연을 없던 것으로 바꿀 새 계측 결함은 없었다 |
+
+Worker의 직접 body 반환 형태는 [공식 R2 예제](https://developers.cloudflare.com/r2/api/workers/workers-api-usage/)와 같다.
+다만 R2가 공급하는 스트림부터 브라우저까지의 하위 전송 경로가 정상임을 증명하지는 않는다.
+검토한 App 관련 소스는 배포 기준 `94fa5b03`, Remote Share Worker 관련 소스·설정은
+`e8001e93`과 동일했다. 소스 동일성을 현재 외부 네트워크·계정 내부 설정의 동일성으로
+확대하지 않는다.
+
+90초 감시는 **마지막 실제 바이트 증가 이후의 정지**를 감지한다. 완전히 멎으면 취소하고
+조건에 따라 한 번 재시도하며, 계속 조금씩 받는 큰 파일은 총시간 제한 없이 유지한다.
+이 정책이 느린 수신을 오래 허용하는 것은 확인되지만, 수신 속도가 느려진 원인은 아니다.
+총시간/처리량 하한·Range·별도 우회 경로를 추가하는 것은 새 정책 또는 완화책이므로
+확정 버그 수정으로 취급하지 않는다.
+
+Windows·Node `v24.20.0`에서 관련 기존 테스트를 한 번 실행해 **19파일·594 pass,
+fail/skip 0**을 확인했다. 범위는 Share 전체, request lifetime, ICE observer, SW cache,
+프리로드 소유권/진행/I/O, recovery, 원격→직결 전환, remote wait와 file-request authority다.
+6분 동안 바이트가 증가하는 다운로드 유지, 완전 정지 후 한 번 재시도·실패 종료, 호스트
+교체 시 취소도 포함한다. 전체 suite나 실제 인터넷 품질 재검사는 아니다. 원본은
+`scratch/r2-final-code-audit-2026-10-08/{meta.json,unit.json,unit.log,unit.exit}`에 보존한다.
+
+**원인은 미확정으로 남기고 이번 조사는 종료한다.** 앞선 실패·느린 수신을 해결로 처리하지
+않으며 제품·검사 코드·정책·운영 설정·버전/cache·App 배포를 변경하지 않는다. 새 실험이나
+반복 검사를 예약하지 않는다. 이 문서의 이전 진단 후보는 후속 작업을 자동 승인하지 않는다.
+
 ## 최초 전체 검증 원본 증거
 
 추적 제외 폴더 `scratch/full-verification-8.7.2-2026-10-07/`에 원본을 보존한다.

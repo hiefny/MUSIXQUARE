@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { setupGuest, setupHostAndStart } from '../helpers/setup-flow.ts';
 import { waitForDeviceCount, waitForPlaylistCount } from '../helpers/wait.ts';
 import {
+  observeProductionIceTopology,
+  type CandidatePairObservation,
+} from '../helpers/production-ice-observation.ts';
+import {
   observeRemoteDownloads,
   waitForTrackPlaybackProgress,
   type DownloadObservation,
@@ -26,13 +30,6 @@ interface LiveRoom {
   guestPages: Page[];
   successfulR2Puts: Set<string>;
   downloads: DownloadObservation[];
-}
-
-interface CandidatePairObservation {
-  connectionState: RTCPeerConnectionState;
-  iceConnectionState: RTCIceConnectionState;
-  localType: RTCIceCandidateType | null;
-  remoteType: RTCIceCandidateType | null;
 }
 
 function isSuccessful(status: number): boolean {
@@ -160,85 +157,6 @@ async function waitForTrackTitle(page: Page, fragment: string, timeout = 60_000)
   );
 }
 
-async function readCandidatePairs(hostPage: Page): Promise<CandidatePairObservation[]> {
-  return hostPage.evaluate(async (key): Promise<CandidatePairObservation[]> => {
-    const connections =
-      ((window as unknown as Record<string, unknown>)[key] as RTCPeerConnection[] | undefined) ??
-      [];
-    const observations: CandidatePairObservation[] = [];
-
-    const candidateType = (
-      stats: RTCStatsReport,
-      candidateId: unknown,
-    ): RTCIceCandidateType | null => {
-      if (typeof candidateId !== 'string') return null;
-      const candidate = stats.get(candidateId) as { candidateType?: unknown } | undefined;
-      return typeof candidate?.candidateType === 'string'
-        ? (candidate.candidateType as RTCIceCandidateType)
-        : null;
-    };
-
-    for (const connection of connections) {
-      if (connection.connectionState === 'closed') continue;
-      let localType: RTCIceCandidateType | null = null;
-      let remoteType: RTCIceCandidateType | null = null;
-
-      try {
-        const transport = connection.sctp?.transport as unknown as {
-          iceTransport?: {
-            getSelectedCandidatePair?: () => {
-              local?: { type?: RTCIceCandidateType };
-              remote?: { type?: RTCIceCandidateType };
-            } | null;
-          };
-        };
-        const selected = transport?.iceTransport?.getSelectedCandidatePair?.();
-        localType = selected?.local?.type ?? null;
-        remoteType = selected?.remote?.type ?? null;
-      } catch {
-        // Fall back to getStats below.
-      }
-
-      if (!localType || !remoteType) {
-        try {
-          const stats = await connection.getStats();
-          let pair:
-            | {
-                localCandidateId?: unknown;
-                remoteCandidateId?: unknown;
-                selected?: unknown;
-                nominated?: unknown;
-                state?: unknown;
-              }
-            | undefined;
-          for (const report of stats.values()) {
-            if (report.type !== 'candidate-pair' || report.state !== 'succeeded') continue;
-            if (report.selected === true) {
-              pair = report;
-              break;
-            }
-            if (!pair && report.nominated === true) pair = report;
-          }
-          if (pair) {
-            localType = candidateType(stats, pair.localCandidateId);
-            remoteType = candidateType(stats, pair.remoteCandidateId);
-          }
-        } catch {
-          // A still-settling connection will be retried by expect.poll.
-        }
-      }
-
-      observations.push({
-        connectionState: connection.connectionState,
-        iceConnectionState: connection.iceConnectionState,
-        localType,
-        remoteType,
-      });
-    }
-    return observations;
-  }, RTC_PROBE_KEY);
-}
-
 async function requireNineLocalPeerConnections(
   hostPage: Page,
 ): Promise<CandidatePairObservation[]> {
@@ -246,7 +164,7 @@ async function requireNineLocalPeerConnections(
   await expect
     .poll(
       async () => {
-        latest = await readCandidatePairs(hostPage);
+        latest = await hostPage.evaluate(observeProductionIceTopology, RTC_PROBE_KEY);
         return latest.filter(
           (pair) =>
             pair.connectionState === 'connected' &&
@@ -259,7 +177,18 @@ async function requireNineLocalPeerConnections(
         message: 'All nine production host→guest connections must settle on host/host ICE pairs.',
       },
     )
-    .toBe(GUEST_COUNT);
+    .toBe(GUEST_COUNT)
+    .catch(async (error: unknown) => {
+      // Preserve the actual topology when this machine cannot establish all
+      // nine local pairs. A count alone cannot distinguish missing peers from
+      // connected peers using a different ICE route.
+      await test.info().attach('production-live-ice-topology', {
+        body: JSON.stringify(latest, null, 2),
+        contentType: 'application/json',
+      });
+      console.error(`[production-live] topology requirement failed: ${JSON.stringify(latest)}`);
+      throw error;
+    });
 
   const connected = latest.filter((pair) => pair.connectionState === 'connected');
   expect(connected).toHaveLength(GUEST_COUNT);

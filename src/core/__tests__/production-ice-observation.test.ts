@@ -407,6 +407,31 @@ describe('production selected ICE observation', () => {
     expect(localPairs(await observeProductionIceTopology(PROBE_KEY))).toHaveLength(1);
   });
 
+  it.each(['sctp', 'dtls', 'ice'] as const)(
+    'rejects pending fallback after %s transport replacement when the native getter throws',
+    async (transport) => {
+      const f = fixture();
+      f.getSelectedCandidatePair.mockImplementation(() => {
+        throw new Error('native observation unavailable');
+      });
+      let resolve!: (stats: RTCStatsReport) => void;
+      f.getStats.mockReturnValue(
+        new Promise<RTCStatsReport>((done) => {
+          resolve = done;
+        }),
+      );
+      const pending = observeProductionIceTopology(PROBE_KEY);
+      expect(f.getStats).toHaveBeenCalledOnce();
+      if (transport === 'sctp') f.pc.sctp = { ...f.pc.sctp };
+      if (transport === 'dtls') f.pc.sctp.transport = { ...f.transport };
+      if (transport === 'ice') {
+        f.transport.iceTransport = { getSelectedCandidatePair: f.getSelectedCandidatePair };
+      }
+      resolve(f.reports as unknown as RTCStatsReport);
+      expect(localPairs(await pending)).toHaveLength(0);
+    },
+  );
+
   it('treats an absent probe collection as empty', async () => {
     vi.stubGlobal('window', {});
     expect(await observeProductionIceTopology(PROBE_KEY)).toEqual([]);

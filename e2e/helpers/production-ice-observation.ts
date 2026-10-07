@@ -70,10 +70,13 @@ export async function observeProductionIceTopology(
     return !left || !right || left === right;
   };
   const readNative = (pc: RTCPeerConnection) => {
+    let sctpTransport: RTCSctpTransport | null | undefined;
+    let dtlsTransport: RTCDtlsTransport | undefined;
+    let transport: RTCIceTransport | undefined;
     try {
-      const sctpTransport = pc.sctp;
-      const dtlsTransport = sctpTransport?.transport;
-      const transport = dtlsTransport?.iceTransport;
+      sctpTransport = pc.sctp;
+      dtlsTransport = sctpTransport?.transport;
+      transport = dtlsTransport?.iceTransport;
       const pair = transport?.getSelectedCandidatePair?.();
       const copy = (candidate: RTCIceCandidate): Candidate =>
         Object.fromEntries(
@@ -90,9 +93,9 @@ export async function observeProductionIceTopology(
       };
     } catch {
       return {
-        sctpTransport: undefined,
-        dtlsTransport: undefined,
-        transport: undefined,
+        sctpTransport,
+        dtlsTransport,
+        transport,
         pair: null,
       };
     }

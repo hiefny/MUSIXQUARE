@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.4` / `v635`, 시그널링 `99f9103c` 유지. 2026-10-09 QA 후속 15건 로컬 수정·회귀 검증 완료, 제품 `8c14f0d6` / `8.7.5` / `v636` 미배포. 일반 검사43·기존 회귀966/API 키 수명8 통과; QA032 제공23pass는 부분 근거 확인·통합 완료 판정 보류 |
+| Status             | Runbook — 운영 App `8.7.4` / `v635`, 시그널링 `99f9103c` 유지. 2026-10-09 QA 후속 15건 로컬 수정·회귀 검증 완료, 제품 `8c14f0d6` / `8.7.5` / `v636` 미배포. 일반 검사43·기존 회귀966/API 키 수명8 통과; QA032 추가 제공 통합3·보조408 확인으로 합의한 로컬 범위 완료 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -16,8 +16,8 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| QA032 제공 결과 검토 — 2026-10-09 | 사용자 제공 기준/current HEAD `fa33c660d811ac51e0177a54738d5a814ca3857a`. 원본 JSON1파일23pass/fail·skip0 확인, guard/dispatch 단위 근거 인정. 종합 사례는 ramWrite/ramEnd를 테스트가 직접 호출하고 실제 preload receiver·wire decode 통합 실행이 없어 완료 판정 보류. 보조392/16·전후hash·정확한 명령은 제공 폴더에 원본 없어 미검증·미합산. 현재clean/추적1,964·비Markdown1,819 확인. 부모재실행/검사수정0·새 확정 제품 결함0·제품/main/운영/배포 변경0. [읽기 전용 판정](design/beta-30-round-repair-2026-10-09.md#qa032-사용자-제공-결과의-읽기-전용-검토--2026-10-09) |
-| API 인증 후 키 수명 재검증 — 2026-10-09 | `2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 새 GPT-6 Luna/high 세션과 부모 독립 확인, Windows/Node24.20.0. 최종 고유8pass/fail·skip0/retry0: 실제 초기 인증→Request reader 대기→회수/만료→본문 완료를 명시한 queue-mode·원래 queue-add 각4대조. 정상200/201·회수/만료 기존·새 요청401/PRO 저장 불변·epoch409. 원본4pass는 pull 자동 호출로 인증 후 순서 증거가 부족해 합산하지 않음; 최초 fixture 오류 보존. API는 직접 거절 없이 중단됐던 항목으로 분류 정정, 이번 서비스 거절0·새 확정0. 추적1,964/dist782 불변, 제품/main/배포 변경0. 두 재현 중 QA032만 미실행. [근거·한계](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09) |
+| QA032 추가 제공 결과 검토 — 2026-10-09 | 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`, 검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`와 차이는 문서2파일뿐. 원본 JSON4파일집계·19검사파일 고유434pass(기존23+통합3+보조16/392), fail·skip0 확인. 실제 protocol→main/preload receiver→storage→완료 Blob 및 역순 조립 통합3이 직접 RAM 쓰기/완료 없이 통과, 보조 원본 JSON·로그/보고서 명령 확인. 합의한 로컬 QA032 범위 완료·앞선 근거 보류 해소. binary codec/실제 WebRTC/live 검증 아님. 현재clean/추적1,964·비Markdown1,819 hash가 기존 manifest와 동일; 실행 전체의 전후hash는 별도 미제공. 부모 재실행/검사수정0·새 확정 제품 결함0·제품/main/운영/배포 변경0. [후속 판정](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09) |
+| API 인증 후 키 수명 재검증 — 2026-10-09 | `2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 새 GPT-6 Luna/high 세션과 부모 독립 확인, Windows/Node24.20.0. 최종 고유8pass/fail·skip0/retry0: 실제 초기 인증→Request reader 대기→회수/만료→본문 완료를 명시한 queue-mode·원래 queue-add 각4대조. 정상200/201·회수/만료 기존·새 요청401/PRO 저장 불변·epoch409. 원본4pass는 pull 자동 호출로 인증 후 순서 증거가 부족해 합산하지 않음; 최초 fixture 오류 보존. API는 직접 거절 없이 중단됐던 항목으로 분류 정정, 이번 서비스 거절0·새 확정0. 추적1,964/dist782 불변, 제품/main/배포 변경0. QA032의 현재 판정은 위 후속 제공 근거 행을 따름. [근거·한계](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09) |
 | 새 세션 마지막 독립 검증 — 2026-10-09 | `44ef6a789112c23f1c63c843853eca9d86054e45`, 로컬 GPT-6.1 Sol/xhigh·Windows/Node24.20.0. 새 scratch43pass(API11·공개 요청14·번역8·관리자10) 및 기존17파일966pass, 최종fail·skip0/자동retry0. 최초40pass/1fail은 삭제 fence의 HTTP 기대값 차이; 실제200/voted:false·DB 무쓰기와 원본 보존. 새 확정0. QA032는 기존 제한/공식 설명 확인만, API 스트리밍 수명도 미실행. 검증 전후 추적1,964/dist782 hash 불변, 이번 신규 보안 거절0. 임시 캐시 삭제는 실행 정책 거절로 scratch에 보존. 제품/main/배포 변경 없음. [범위·한계](design/beta-30-round-repair-2026-10-09.md#새-세션의-마지막-독립-검증--2026-10-09) |
 | 현재 일반 모델 후속 검증 — 2026-10-09 | `865bd58800302c6a20c2b1320bef8277b8de6424`, 사용자 선택 GPT-6.1 Sol/xhigh의 현재 도구에서 기존 회귀17파일966pass/fail·skip0. 공개 요청303·계정/관리자103·번역106·API/PRO454 및 방어적 소스 검토. 새 확정 결함0. 별도 Daybreak 요청·거절된 프로브 실행 없음; 기존 전체 검사와 중복, 심화 재현 완료로 세지 않음. 제품/검사 코드1,819파일 불변·미배포. [결과·한계](design/beta-30-round-repair-2026-10-09.md) |
 | Daybreak 심화 재시도 — 2026-10-09 | 대상 `8ff6fd12` → 문서 후속 `b24609f4`, 제품 입력 동일. 정식 Daybreak 모델 접속 뒤 실제 심화 단계는 계정 보안 등록·FIDO2 하드웨어 키 요구로 차단. 사용자 변경 모델 `GPT-6.1 Sol / xhigh`의 접근 재확인에서도 현재 카탈로그는 standard만 표시하고 Daybreak 요청은 403. 신규 보안 검사0건. R17·QA094·QA109·QA086·QA032 미완료 유지. 일반 모드의 모든 점검 거절로 확대하지 않음. 제품/검사 코드·main·배포 변경 없음. [재시도·정확한 한계](design/beta-30-round-repair-2026-10-09.md#daybreak-보안-심화-재시도--2026-10-09) |
@@ -491,7 +491,7 @@ schema/secrets/bindings·배포 변경 없음. 원격 exact-main-SHA CI candidat
 - [x] 새 세션의 일반 방어 경계 검증: `44ef6a78`, 새 로컬43·기존17파일966 통과, 새 확정0. 기존 전체/심화 검증과 합산하지 않음. [마지막 독립 검증](design/beta-30-round-repair-2026-10-09.md#새-세션의-마지막-독립-검증--2026-10-09).
 - [x] API 스트리밍 키 수명: `2a6e4812`, 실제 초기 인증 뒤 회수·만료를 적용한 queue-mode/queue-add 고유8대조 통과. API 자체 거절 없이 중단됐던 항목을 기존 QA032 거절과 구분해 일반 로컬 회귀로 확인. [최종 근거·관측 한계 보완](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09).
 - [x] QA032 사용자 제공 부분 실행 근거 검토: `fa33c660`, JSON23pass와 source의 guard/dispatch 검사 대응 확인. 부모 런타임 재실행0·원본 보존. [읽기 전용 검토](design/beta-30-round-repair-2026-10-09.md#qa032-사용자-제공-결과의-읽기-전용-검토--2026-10-09).
-- [ ] QA032 통합 수신 무결성 완료 근거: 제공 종합 사례는 테스트의 직접 RAM 쓰기/완료 호출에 의존하고 실제 preload receiver 및 binary wire 통합 경로를 입증하지 않아 완료 판정 보류. 보조392/16 원본·명령·전후hash도 제공 폴더에 없음. 과거 실행 거절은 보존하며 제공23pass를 부모 재실행·접근 승인 해제로 확대하지 않음. [범위·한계](design/beta-30-round-repair-2026-10-09.md#qa032-사용자-제공-결과의-읽기-전용-검토--2026-10-09).
+- [x] QA032 합의한 로컬 수신 무결성 범위: 추가 제공 통합3이 실제 main/preload receiver와 저장·완료 Blob/역순 조립을 검증하며 테스트 직접 RAM 쓰기/완료 없음. 보조16/392 원본·로그와 중복 없음 확인, 기존23 포함 고유434pass/fail·skip0. 앞선 세 공백 해소; binary codec·실제 WebRTC/live·실행 전후 전체hash는 별도 관측 한계다. 부모 재실행0·기존 거절 기록 보존. [완료 근거·정확한 범위](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09).
 - [ ] 실제 기기 검증 및 기존 미확정 기록은 각 전제 충족 후 별도 확인.
 
 다음 QA 결과는 각 날짜·코드 SHA의 증거다. 당시 동결·보안 경고·버전 상태를 현재
@@ -1377,6 +1377,17 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 QA032 추가 제공 근거 재검토: 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`,
+검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`; 두 SHA의 차이는 앞선 검토 문서2파일이다.
+보고된 Windows/Node24.20.0·Vitest5/jsdom·기존 network guard/15초/maxWorkers1/retry0.
+기존23+실제 receiver/storage 통합3+보조16/392의 원본 JSON4집계·고유19파일434pass/fail·skip0 확인.
+통합 main/preload 완료 Blob 및 역순 조립은 테스트 직접 RAM 쓰기/완료 없이 제품 경로로 검증하며,
+보조17파일408은 서로 중복 없음·로그와 보고서 명령 확인. 앞선 세 공백을 해소해 합의한 로컬
+QA032 범위 완료로 판정한다. 부모 신규 실행0·검사 수정0·새 확정 제품 결함0·원본 보존.
+현재 추적1,964/비Markdown1,819 hash는 기존 독립 manifest와 동일하며 제품/main/운영/배포 변경0.
+codec/실제 WebRTC/live·실행 전체 전후hash는 입증 범위 밖이고 exact-main CI·실기 등 release 조건은
+유지한다. 아래 첫 검토의 보류는 당시 자료에 대한 이력으로 보존한다. [후속 판정](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09).
 
 2026-10-09 QA032 사용자 제공 결과 검토: 기준/current HEAD `fa33c660d811ac51e0177a54738d5a814ca3857a`,
 보고된 Windows/Node24.20.0/Vitest5/jsdom·config network guard/15초/maxWorkers1/retry0.

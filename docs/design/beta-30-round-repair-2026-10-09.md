@@ -354,3 +354,63 @@ suite/coverage/browser·live·실기 및 exact-main-SHA CI candidate를 대신�
 없으며 문서만 반영한다. exact-main CI·실기 등 기존 release 조건은 유지한다.
 [읽기 전용 검토](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review.md),
 [원본 hash·정확한 관측 한계](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review.json).
+
+### QA032 추가 통합 근거의 읽기 전용 재검토 — 2026-10-09
+
+사용자가 추가 제공한 통합 검사3건과 보조 회귀408건의 소스·설정·원본 JSON·로그를
+읽기 전용으로 대조했다. **앞선 세 공백은 해소됐고, 합의한 로컬 QA032 범위는 완료**다.
+첫 검토의 보류는 당시 자료에 대한 이력으로 보존하며 현재 판정은 이 후속 절을 따른다.
+새 확정 제품 결함은 **0건**, 부모 런타임 재실행·검사 코드 수정도 **0건**이다.
+
+제공 보고서의 tested SHA는 `fa33c660d811ac51e0177a54738d5a814ca3857a`, 재검토 HEAD는
+`f271002ca35436837cc81a6aa67536013123ec4d`다. 두 SHA의 diff는 앞선 검토 문서2파일뿐이므로
+제품·유지 검사 입력은 같다. 제품 `8c14f0d6`, 준비 App `8.7.5`/`v636`, main
+`e7c5529a3273c7132880dd0ad4572b2463405c87`은 유지된다. 보고된 환경은 Windows/Node24.20.0,
+로그의 Vitest5.0.0, 새 통합 파일의 jsdom이다. 설정은 기존 network guard/15초를 유지하고
+maxWorkers1/retry0을 지정한다. 보고서 명령과 config·출력 위치·원본 결과가 대응한다.
+
+| 제공 결과 | 검사 파일 | pass | fail / skip | 검토한 근거 |
+| --- | --- | --- | --- | --- |
+| 최초 로컬 검사 | 1 | 23 | 0 / 0 | 기존 source/JSON hash 불변, 첫 검토의 단위 근거 유지 |
+| 추가 receiver/storage 통합 | 1 | 3 | 0 / 0 | 실제 main·preload receiver, 저장·완료 Blob, 역순 조립 |
+| 표준 보조 회귀 | 2 | 16 | 0 / 0 | config·원본 JSON·verbose 로그 일치 |
+| 유지 P2P/전송 회귀 | 15 | 392 | 0 / 0 | config·원본 JSON·verbose 로그 일치 |
+| 이번 제공 묶음의 고유 합계 | 19 | 434 | 0 / 0 | 파일+fullName 기준 중복0, 보조 두 집계의 파일 중복0 |
+
+434는 이번 제공 묶음의 집계다. 기존 전체 unit10,882나 다른 회귀 수치와 다시 합산하지
+않는다. 통합 JSON의 suite count는 암묵적 root 포함4이며 실제 `it`은3, 명시적 describe도3이다.
+
+- **Main 저장·완료 공백 해소:** 새 통합 파일은 `initTransfer`가 등록하는 실제 handler로
+  `handleData`→receiver→`postCommand`→RAM storage 경로를 연결한다. `ramStart`/`ramWrite`/
+  `ramEnd` 직접 호출이나 저장소 mock은 없다. 정상 첫 청크 뒤9변형을 넣어 contiguous1을
+  유지하고 정상 tail 뒤2를 확인하며, 실제 완료 Blob65,664바이트 전체를 비교한다.
+  `ramReadBlob`은 저장소의 `finalizedBlob`만 읽으므로 테스트가 별도로 조립한 결과가 아니다.
+- **Preload 실제 수신 공백 해소:** `initPreload`의 실제 START/CHUNK/END handler를
+  `handleData`로 구동한다. 첫 청크 뒤8변형에서 contiguous1 유지, 정상 tail 뒤2 및
+  완료 Blob65,792바이트 일치를 확인한다. 마지막 청크가 자동 완료할 수 있는 제품 계약이며,
+  PRELOAD_END도 수신한다. UI toast·번역만 mock하고 receiver/storage는 대체하지 않는다.
+- **보조 실행 근거 공백 해소:** canonical16은2파일, maintained392는15파일로 원본 JSON과
+  로그에 모두 pass가 기록되고 서로 중복되지 않는다. 보고서에 각각의 명령·설정·출력
+  경로가 있다. 더 이상 summary만으로 추정한 수치가 아니다.
+
+추가 역순 사례는 chunk1 먼저 수신 시 contiguous0, 잘못된 길이의 교체 입력 뒤 chunk0을
+수신하면2로 drain, 마지막 청크 뒤3·완료 Blob131,136바이트 전체 일치를 확인한다.
+이로써 기존 handler spy 위주의 근거에 protocol부터 실제 저장까지의 통합 근거를 보완했다.
+
+현재 Git clean·추적1,964/비Markdown1,819를 독립 확인했고 비Markdown 전체 SHA-256이
+기존 `qa2-api-lifetime-standard-2026-10-09/tracked-start.json`과 동일하다. 이는 현재 입력의
+불변 근거이며 사용자 실행 전체의 전후 hash manifest는 별도 제공되지 않았다. 제공 자료의
+hash와 검토 시점 비Markdown manifest는 새 검토 아티팩트에 저장하고, 첫 검토 아티팩트는 보존했다.
+
+입증 범위는 **디코딩된 메시지의 로컬 protocol/receiver/RAM 저장 경로**다. binary codec,
+실제 WebRTC·브라우저·live/실기까지 검증한 결과로 확대하지 않는다. 최초 버킷 고갈 사례는
+정상 스키마의 비예외 입력이며 보고서의 “비정상 flood” 표현보다 범위가 좁다. 보고서의
+“완벽한 필터링/모든 요건”은 실행한 사례에 한해 해석한다. 이 관측 한계를 새 제품 결함이나
+합의한 로컬 완료를 다시 보류하는 조건으로 추가하지 않는다.
+
+API 키 수명에 이어 QA032도 제공 근거로 합의한 로컬 범위가 완료됐으므로, 두 항목 중
+해당 범위의 미완료 항목은 **0건**이다. 과거 서비스 거절은 역사적 기록으로 유지한다.
+제품·유지 검사·main·운영·배포 변경은 없고 문서만 반영한다. 향후 PR 검토와 정확한 main
+SHA CI candidate 등 기존 release 조건·실기 확인은 별개다.
+[후속 읽기 전용 판정](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review-2.md),
+[집계·원본 hash](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review-2.json).

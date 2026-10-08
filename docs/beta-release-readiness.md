@@ -16,7 +16,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 시그널링 오류 진단 보강 — 2026-10-08 | 오류 전용 안전한 구조화 로그·sampling 1·signaling 대상 HTTPS smoke gate 추가. 과거 예외 원인은 미확정, 현재 검증·배포 대기. App `8.7.4`/`v635` 유지. 아래 전용 절 참조 |
+| 시그널링 오류 진단 보강 — 2026-10-08 | 오류 전용 안전한 구조화 로그·sampling 1·signaling 대상 HTTPS smoke gate 추가. `4374dcd9` 로컬 unit 10,810·Worker coverage 1,752 통과. 과거 예외 원인은 미확정, 현재 main CI·배포 대기. App `8.7.4`/`v635` 유지. 아래 전용 절 참조 |
 | 종료·승격 승인                      | 2026-10-07 사용자가 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
 | 승격 전 기준 main                   | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 당시 main·운영 App 기준으로 보존 |
 | 승격 준비 기준 checkout             | `efce531a690857790509fde5f851a9b72db1ee05` — 아래 검증 코드 이후 QA 근거를 보완한 문서 커밋. 새 제품 코드 검증 SHA로 대체하지 않음 |
@@ -188,7 +188,21 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
   기록이 여러 개일 수 있어 고유 사고·사용자 수로 합산하지 않는다.
   상세 운영 지침은 [오류 진단 runbook](../cloudflare/config-drift-ops.md#signaling-exception-investigation)을 따른다.
 - `target=signaling`에도 Standard HTTPS fallback smoke를 배포 gate로 포함한다.
-  검증·정확한 main CI 후보·배포 결과는 완료 후 이 절에 기록한다. 현재 배포 대기.
+- 런타임 `b55f2e55`, 후속 소스 가드 `4374dcd95aba1e6349d7f58cb825b5b64c8ab92d`.
+  Windows/Node24.20.0/npm12.0.2에서 최종 전체 unit 519파일·10,810 pass,
+  fail/skip 0. Worker coverage 27파일·1,752 pass 및 전체/개별 기준 통과
+  (statement 84.32%, branch 80.84%, function 92.76%, line 88.97%).
+  타입·lint·서식·Worker 경계·D1/ops-drift 계약·6개 Worker dry-run 통과.
+  추가 테스트는 오류 주입/원본 재전파·즉시 ingress·정상 close/error·poll abort499·
+  bounded privacy summary·배포 및 소스 가드 우회 방지를 검증한다.
+- 최초 전체 unit은 10,803 pass/2 fail이었다. 진단 wrapper 도입 후 기존 소스 가드가
+  공개 라우터 본문 대신 wrapper를 검사한 원인으로, wrapper의 정확한 구조를 검증한
+  뒤 실제 본문에 기존 검사를 적용하도록 수정했다. guard 19개 및 최종 전체 unit으로
+  재검증했으며 assertion 제거·timeout 완화는 없다. 독립 런타임 리뷰의 내부 cleanup
+  중복 기록과 AggregateError 배열 메서드 신뢰 문제도 수정·검증했다.
+- 로컬 근거는 ignored `scratch/signaling-diagnostics-2026-10-08/`에 보존한다.
+  전체 브라우저 E2E·실기·실제 운영 오류 재현은 수행하지 않았다. 정확한 main CI 후보와
+  배포 결과는 완료 후 이 절에 기록한다. 현재 배포 대기.
 
 ### 후속 App 패치 배포 완료 — 8.7.4 / v635, 2026-10-08
 

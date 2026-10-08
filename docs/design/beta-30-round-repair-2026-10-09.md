@@ -140,3 +140,38 @@ App/public docs·admin runtime·Developer API·facade·PRO가 변경 대상이�
 실물 오디오·모바일 소프트 키보드·물리 다중 기기·운영 서비스 실패는 검증하지 않았다.
 과거 legacy PWA 승인 뒤 reload 미관측과 운영 R2 지연 미확정 기록은 이번 15건과 별도로 유지한다.
 이번 변경이 그 원인을 해결했다고 주장하지 않는다.
+
+## Daybreak 보안 심화 재시도 — 2026-10-09
+
+사용자가 배포 전 건너뛴 보안 검증의 재시도를 요청했다. 대상 소스는
+`8ff6fd1251390a23b37686929a59d174ae0db467`이며 제품 입력은 위 `8c14f0d6`과 같다.
+결과는 **계정 보안 등록 조건으로 실행 미완료**다. 신규 보안 검사 실행은 0건이며,
+새 결함을 확인하지 못했다는 사실을 보안 통과로 해석하지 않는다.
+
+첫 서브에이전트 요청은 `access_programs.cyber=daybreak_blue` 누락으로 400을 반환했다.
+설치된 Codex CLI의 정식 `--cyber-access-program daybreak_blue` 옵션을 사용한 임시 세션에서는
+Daybreak 모델 접속 자체가 성공했다. 이후 `--approve-for-me`와 기존 승인 검토를 적용한
+보안 심화 세션에서 서비스가 실제로 다시 차단했다. 응답은 Daybreak Blue 승인과 별개로
+**Advanced Account Security 등록 및 호환 FIDO2 하드웨어 보안 키**가 필요하고,
+소프트웨어·동기화 패스키는 해당 하드웨어 요건을 충족하지 않는다고 명시했다.
+이는 저장소 테스트의 assertion 실패나 결함 재현 결과가 아니다.
+
+| 범위 | 이번 재시도 결과 |
+| --- | --- |
+| R17-C01 / QA073·075 API 키 수명 | 현재 코드·fixture 검토까지만 수행. 공유 계정 gate 재확인 후 프로브 실행 전에 중단 |
+| QA094 공개 요청 경계 | 초기 Windows 실행 환경 설정 오류 뒤 정상 검토 경로의 읽기는 성공. 신규 보안 실행 전 중단 |
+| QA109 번역 권한 | 신규 보안 실행 전 중단. 이전 정상 기능 99 pass를 새 보안 근거로 세지 않음 |
+| QA086 관리자 인증 | 신규 보안 실행 전 중단 |
+| QA032 비정상 전송 프레임 | 구체적 로컬 실험의 승인 사전 확인 뒤 Daybreak 서비스가 차단. 테스트 파일이 없는 사전 확인만 실행됐으며 비정상 프레임 실험은 작성·실행하지 않음 |
+
+원본 응답과 명령 기록은 [재시도 결과 JSON](../../scratch/qa2-security-retry-2026-10-09/result.json),
+[모델 접근 확인](../../scratch/qa2-security-retry-2026-10-09/access-check.json), 각 하위 폴더의
+`events.jsonl`에 보존했다. 초기 웹 세션의 Windows `setup refresh had errors`와
+최종 Daybreak 계정 등록 거절을 구분한다. 실행 중이던 다른 심화 세션도 정상 중단했고,
+비Markdown 1,819파일 hash 변경 0을 확인했다. 제품·검사 코드·계정 보안 설정·main·배포 변경은 없다.
+
+다음 진행 조건은 서비스가 안내한 [보안 등록 페이지](https://chatgpt.com/cyber)의
+Your eligibility에서 계정 등록을 완료한 뒤 같은 정상 검토 경로로 다시 확인하는 것이다.
+모델 선택이나 요청 옵션만으로 접근 권한이 부여되지는 않는다.
+([공식 Daybreak 요청·접근 설명](https://developers.openai.com/api/docs/guides/daybreak))
+이번 로컬 회귀 통과와 별도로 이 심화 검증은 배포 전 미완료 항목으로 유지한다.

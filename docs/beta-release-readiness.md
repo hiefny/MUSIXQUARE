@@ -2,20 +2,19 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.5` / `v636`, Worker6종 `0fc46bad` 배포 완료. 2026-10-09 QA 후속 15건 반영, PR #269·exact-main CI `37839818477`·Release `37840659848` 성공. 운영 smoke10·최종6Worker 소유권·PRO ready 확인. QA032 합의한 로컬 범위 완료; 실기·기존 미확정 운영 관측 한계 유지 |
+| Status             | Runbook — 운영 App `8.7.6` / `v640`, Worker6종 `ff7766cc` 배포 완료. 2026-10-09 PRO 활성화·계정 확인·선택 문구 반영, PR #271·exact-main CI `37857195274`·Release `37857830458` attempt1 성공. 운영 smoke10·최종6Worker 소유권·PRO ready·coherent marker 확인. QA032 합의한 로컬 범위 완료; 실기·기존 미확정 운영 관측 한계 유지 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
-**후속 변경 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명을 15분에서
-24시간으로 변경했다. 로컬 후보 `8.7.6` / `v640`이며 운영은 위 `8.7.5` / `v636`을
-유지한다. 이번 변경의 검증·배포 상태는 아래 PRO 활성화 링크 항목을 따른다.
-최초 활성화는 계정 확인·변경을 먼저 제공한 뒤 방 암호를 설정하도록 수정했다.
-사용자는 한국어/영어 실제 화면 검토 후 2026-10-09 기존 미배포 변경과 선택한 문구
-수정을 함께 배포하도록 승인했다. 이어 계정 확인 화면의 다음 단계 암호 설정 설명을
-삭제하도록 요청해 반영했다. 아래 과거 화면 검토 대기는 이 승인으로 해제되며,
-최종 PR/CI·exact-main 후보·정식 Release 성공 전까지 운영 완료로 취급하지 않는다.
+**후속 배포 완료 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명 24시간,
+계정 명시 확인·변경, 닉네임 설정, 모바일 버튼과 선택한 문구 수정을 `8.7.6` / `v640`으로
+배포했다. 최초 활성화는 계정 확인·변경을 먼저 제공한 뒤 방 암호를 설정한다.
+사용자는 한국어/영어 실제 화면 검토 후 누적 변경의 배포를 승인했고, 계정 확인
+화면의 다음 단계 암호 설정 설명은 요청에 따라 삭제했다. PR #271 병합 main
+`ff7766ccc0c83ab1eee15bc030347e9067764ee6`의 정확한 CI 후보로 정식 Release를 완료했다.
+아래 과거 화면 검토 대기·미배포 기록은 당시 상태로 보존한다.
 
 다음 배포 담당자는 이 문서부터 읽는다. 각 QA의 상세 보고서를 대체하지 않고,
 **배포에 필요한 현재 상태와 남은 작업**을 한곳에 모은다. 아래 관측값은 해당
@@ -23,9 +22,12 @@
 
 ## 1. 현재 상태
 
+아래 날짜별 검토·구현 행은 당시 상태를 보존한 이력이며, 현재 운영·배포 판정은
+최신 정식 릴리스 행을 따른다.
+
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 8.7.6 배포 승인·최종 문구 — 2026-10-09 | 사용자 배포 승인. 기존24시간 활성화 링크·계정 명시 확인/변경·닉네임 설정·모바일 버튼과 함께 배포 준비. PRO 계정 안내2키의 암호 단계 설명을 한영/영어fallback에서 삭제, KO YouTube 오류1키를 해요체로 수정. 환영합니다·외부페이지·접근성 설명 유지. 제품8.7.6/cachev640, schema/secrets/bindings/deps 변경0. 코드43c8a1a3의 전체unit523파일10,927pass/기존1skip/fail0·정적7명령·committed build·Worker6 dry-run·production Chromium12+추가문구4pass. 독립 검토 새 확정0. PR·exact-main CI·target all/D1 false Release 대기 |
+| 8.7.6 정식 릴리스 — 2026-10-09 | 사용자 승인 범위인24시간 활성화 링크·계정 명시 확인/변경·닉네임 설정·모바일 버튼·PRO 안내2키 암호 설명 삭제·KO YouTube 오류1키 해요체를 배포. 환영합니다·외부페이지·접근성 설명 유지, schema/secrets/bindings/deps 변경0. 로컬 코드43c8a1a3의 검증은 아래 보존. PR #271·PR CI37856697026 성공, 자동 리뷰 완료/inline0·독립 검토 새 확정0. main `ff7766ccc0c83ab1eee15bc030347e9067764ee6`의 CI37857195274 attempt1: unit523파일10,927pass/기존1skip/fail0·4종coverage·Chromium17+critical22 통과. Candidate782파일 hash/version 일치. Release37857830458 attempt1·all/D1 false 성공, App8.7.6/v640·Worker6종 동일 SHA/100% version·smoke10·최종소유권·PRO ready·signaling Custom Domain·coherent marker 확인. rollback 불필요, 기존 미확정·실기 한계 유지 |
 | 한국어 문체 읽기 전용 감사 — 2026-10-09 | 코드 `f05af6242b28abf216132024e42aee76faee93be`. 추적1,967파일 중 텍스트1,524파일 검색·한국어126파일 및 ko사전735키 검토. 합쇼체6항목(ko4·이벤트1·소개 데모1), 별도 짧은 명령형 오류안내1·데모 반말/구어5 확인. 명사형 알림20개는 선택적 문장화 후보, 버튼/제목·하세요/주세요·내부문서·생성물 복제는 문제 수에서 제외. 새 PRO 안내의 설정합니다2곳 포함. 제품문구 수정·배포 없음, 톤 정비 미반영 |
 | 계정 확인 모바일·닉네임 후속 — 2026-10-09 | 제품 코드 `c3a313c9518648a6d2b051feb78d2671a91fb423`. 닉네임 미지정 로그인 계정은 기존 프로필 설정 완료→계정 명시 확인→PIN으로 진행, 같은 scope의 열린 닉네임창에 합류·취소 시 등록 중단. 영문 `Continue` / `Another account`와 영어 fallback30개 축약, cache v639. 이전 긴 문구는320px 양쪽2줄·360px 보조2줄; 새 영어는320/360/375/390/414px 모두1줄·overflow/ellipsis0. 관련 단위9파일277pass, 전체 typecheck/lint·관련 format·committed build:checked 통과. 고유 Chromium12케이스를 dev·production dist 각각12pass/최종fail·skip·retry0, 320px 한영 실제 이미지 완성. 최초dev12실행의 claim 미보유 단발1회는 원인 미확정으로 보존. main/운영/배포 변경0 |
 | PRO 최초 활성화 계정 확인 구현 — 2026-10-09 | 검증 코드 `0eb6913300af226b90b0e564034bc997ffb92bbe`, 임시 `agent/pro-activation-24h`. 계정 새로 확인→로그인/계정 변경→명시 확인→PIN→등록, 한국어/영어 2행 전체 너비 버튼. 확인 후 계정 변경은 UI 취소·재확인 및 App의 expected-scope 검사로 등록 전에 거절. 전체 unit 후 최종 영향5파일171pass 치환 집계523파일10,920pass/기존1skip/fail0. 정적7명령·Chromium7·committed production build·App/PRO dry-run 통과, 실제 한영 이미지1장 완성. browser에서 발견한 번역 덮어쓰기 수정 및 독립 재검토 완료. schema/secrets/bindings/deps 변경0, 사용자 화면 확인 전 main 병합·배포 보류 |
@@ -68,17 +70,18 @@
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 현재 App `8.7.5` / `v636` 배포 완료; 2차 QA 후속15건 및 QA helper 반영. 정확한 main CI candidate·버전/캐시 일치·운영 App generation/초기 asset graph 검증 통과 |
-| 완료한 배포 범위                    | 최신 `target=all` / `0fc46bad`; App·PRO·remote-share·signaling·Developer API facade/backend6종 모두 exact git provenance 및100% version 최종 확인. PRO room-generation readiness는 같은 release SHA의 ready로 복구 |
+| 제품 버전 / PWA 캐시                | 현재 App `8.7.6` / `v640` 배포 완료; PRO 최초 활성화24시간·계정 확인/변경·닉네임 설정·모바일 버튼·선택 문구 수정 반영. 정확한 main CI candidate·버전/캐시 일치·운영 App generation/초기 asset graph 검증 통과 |
+| 완료한 배포 범위                    | 최신 `target=all` / `ff7766cc`; App·PRO·remote-share·signaling·Developer API facade/backend6종 모두 exact git provenance 및100% version 최종 확인. PRO room-generation readiness는 같은 release SHA의 ready로 복구 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
-| 최신 App main SHA / CI 후보 / 배포 실행 | `0fc46bad9233db6e7c9f7790d84052afbd53b6d8` / main CI `37839818477` attempt1 및 immutable candidate / Release `37840659848` attempt1 성공. 782파일 후보 hash·10개 운영 smoke·최종6Worker 소유권 확인 |
+| 최신 App main SHA / CI 후보 / 배포 실행 | `ff7766ccc0c83ab1eee15bc030347e9067764ee6` / main CI `37857195274` attempt1 및 immutable candidate / Release `37857830458` attempt1 성공. 782파일 후보 hash/version·10개 운영 smoke·최종6Worker 소유권·PRO ready·coherent marker 확인 |
 | 후속 App 패치 | `8.7.4`/`v635` 완료 — 1280px 이상 데스크톱 채팅 위쪽 여백 16px→12px, 모바일·다른 패딩 유지. 제품 `86ea0e8e` → PR #265/main `358b3fc3`, `app`/D1 false. 로컬 unit 10,781·production CSS 레이아웃 16조합·공개 CSS/SW hash 및 fresh ko 검증 통과 |
 | 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**배포된 App은 `8.7.5` / `v636`, 배포 main SHA는 `0fc46bad`이다.** 6개 Worker를 같은
+**배포된 App은 `8.7.6` / `v640`, 배포 main SHA는 `ff7766cc`이다.** 6개 Worker를 같은
 정확한 main CI 후보로 배포하고 모든 운영 smoke·최종 소유권·PRO ready를 확인했다.
-이전 App8.7.4/시그널링99f9103c 기록은 이력으로 보존한다. [정식 배포 결과](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09)를 따른다.
+[8.7.6 정식 Release](https://github.com/hiefny/MUSIXQUARE/actions/runs/37857830458)와
+아래 누적 변경 이력을 따른다. [이전 8.7.5 배포 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09) 및 App8.7.4/시그널링99f9103c 기록은 이력으로 보존한다.
 
 **2026-10-07 저녁 운영 R2 재검사:** `a1543f8b`의 유지 검사로 새 방 3회 중 2 pass / 1 fail.
 추가 수동 관찰 진단 1회에서도 연결 9개·R2 경로는 정상이었으나 게스트 1개가 HTTP 200
@@ -493,7 +496,7 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] 실제 발급→저장 상태 재로드→활성화에서 15분 이후·24시간 직전 성공 및 정확한 만료 시점 거절, 재발급 시 이전 링크 무효화 확인. 기존 15분 링크의 서명된 만료는 유지.
 - [x] 공통 claim의 24시간 초과 발급·검증 거절, 실제 CLI 출력의 24시간 수명 확인. 기존 복구/소유권 이전 수명 유지. 독립 diff 검토 새 결함0.
 - [x] 전체 unit 후 영향3파일64pass 치환 집계522파일10,887pass/기존1skip/최종fail0. 타입·lint·format 및 release identity/Developer API/D1/ops drift guard7명령, committed `4d1bfa84`의 production build·App/PRO dry-run 통과.
-- [ ] 배포 시 App·PRO를 함께 반영: PR 검토/CI·병합 후 exact-main-SHA CI candidate 및 정식 Release 필요. 현재 로컬 수정 단계, 운영 미반영.
+- [x] App·PRO 함께 반영: PR #271 검토/CI·병합 후 main `ff7766cc`의 exact-main CI37857195274 attempt1/immutable candidate로 Release37857830458 attempt1·all/D1 false 성공. 운영 App8.7.6/v640·Worker6종 배포 완료.
 - [x] 최초 활성화 계정 확인을 PIN보다 먼저 배치. 한국어 버튼은 사용자 지정 “이 계정으로 등록”/“다른 계정으로 로그인”, 2행 전체 너비. 로그인 이후에도 확인을 요구하며 취소/차단 시 자동 등록하지 않음.
 - [x] 확인한 세션 scope와 실제 계정 쿠키의 동일성을 App에서 검사하고, 누락/교체 시 grant·연결·PRO 호출 전에 거절. 프런트에서도 계정 변경 시 기존 PIN을 버리고 재확인. 기존 권한 검사 유지.
 - [x] 계정 확인 구현 검증: 전체 unit 후 최종 영향5파일171pass 치환 집계523파일10,920pass/기존1skip/fail0, 정적7명령·Chromium7·production build·App/PRO dry-run 통과. 코드 `0eb69133`, Windows/Node24.20.0/npm12.0.2. 실제 한영 화면1장 완성·시각검토, 배포 전 사용자에게 전달.
@@ -502,7 +505,7 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [ ] 최초dev 검사에서 claim 미보유 안내1회 관측 원인은 미확정. 수정 없이 같은 fixture로 최종 dev12 및 production12 모두 통과, 최종dev trace에서 문서 요청은각1회/reload0. 최초 실패를 HMR나 환경 문제로 단정하지 않으며 배포 검토 시 기록을 함께 확인한다.
 - [x] 사용자 선택 범위의 문구 수정: PRO 안내2키에서 암호 단계 문장 삭제, KO YouTube 로드 오류1키 해요체 교정. 환영합니다·외부페이지·접근성 설명 및 나머지 감사 후보는 유지.
 - [x] 최종 코드 `43c8a1a30d4778ec993e0b6edff7198147f281f2`, Windows/Node24.20.0/npm12.0.2: 전체unit523파일10,927pass/기존1skip/fail0, 정적7명령·committed build:checked·Worker6 dry-run 통과. Production Chromium12와 추가 한영 문구4 모두pass/skip·retry0. 실제 toast renderer 한영2개는 별도 격리 렌더 확인이며 YouTube 실패 전체 E2E로 세지 않음.
-- [ ] 최종 코드 PR 검토/CI → exact-main CI immutable candidate → target all / Developer API D1 false 정식 Release → live smoke/최종소유권 확인·기록 및 임시브랜치 정리.
+- [x] 최종 코드 PR #271 검토/CI → exact-main CI immutable candidate → all/D1 false 정식 Release → live smoke10·최종소유권·PRO ready·coherent marker 확인. 제품 임시브랜치 `agent/pro-activation-24h` 로컬/원격 정리 완료. 배포 근거 문서의 후속 PR 게시·해당 문서 브랜치 정리는 별도 GitHub 게시 작업이며 제품 재배포 대상이 아님.
 
 **2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
 Windows·Node24.20.0/npm12.0.2·Astra Ultra 3×10세트로 검토했다. 30라운드/122개 기본 QA ID를
@@ -1410,6 +1413,25 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 8.7.6 정식 배포 완료: PR [#271](https://github.com/hiefny/MUSIXQUARE/pull/271)·
+PR CI `37856697026` 성공, 자동 리뷰 완료/inline comments0·독립 검토 새 확정0 후
+main `ff7766ccc0c83ab1eee15bc030347e9067764ee6`으로 병합했다. 정확한 main push
+[CI37857195274](https://github.com/hiefny/MUSIXQUARE/actions/runs/37857195274) attempt1에서
+unit523파일10,927pass/기존1skip/fail0·4종coverage·Chromium17+critical22를 통과했다.
+immutable candidate782파일의 hash/version 일치를 확인하고
+[Release37857830458](https://github.com/hiefny/MUSIXQUARE/actions/runs/37857830458)
+attempt1·target all / Developer API D1 false로 App8.7.6/cachev640 및 Worker6종을
+동일 SHA로 배포했다. 운영 smoke10 모두 성공, 최종 deployment 소유권/100% version·
+PRO generation ready·signaling Custom Domain candidate·coherent-production marker를
+확인했다. 실패 복구 단계와 별도 recovery job은 skipped, rollback은 필요하지 않았다.
+원본은 ignored `scratch/pro-activation-release-2026-10-09/`의 `release-run.json`·
+`release.log` 및 `deployment/{deployments,recovery-checkpoint}/`에 보존했다. 로컬 검증 코드
+`43c8a1a3`의 아래 증거와 배포 main SHA를 구분하며, 이번 배포는 새 포렌식·실물기기·
+live OAuth/실제 claim 검증이 아니다. 개발서버 claim 미보유 단발 관측·기존 실기 및
+운영 미확정 한계를 유지한다. 제품 브랜치 `agent/pro-activation-24h` 로컬/원격은
+정리했고, 배포 근거 문서는 별도 후속 PR로 게시한다. 이 문서 후속 커밋은 배포 코드
+SHA를 바꾸지 않으며 제품 재배포를 요구하지 않는다.
 
 2026-10-09 8.7.6 최종 문구 수정·배포 승인: 사용자가 PRO 안내와 YouTube 오류만
 수정하고 환영 인사·외부페이지는 유지하며 배포까지 진행하도록 승인했다. 이어

@@ -216,8 +216,13 @@ matched provider data/code checkpoint.
   anonymous user signs in through the isolated popup; an authenticated user
   explicitly confirms the displayed account or chooses another account. Popup
   completion returns to account confirmation rather than registering the room.
+  A signed-in account without a nickname completes its existing profile flow
+  before this confirmation, without another Google sign-in or an invented name.
+  If the same session already has a nickname prompt open, the claim flow awaits
+  that prompt's result; deferring it also stops activation.
   The two full-width actions are stacked, with registration above account
-  switching. Only the subsequent PIN confirmation submits activation.
+  switching (English: `Continue` / `Another account`). Only the subsequent PIN
+  confirmation submits activation.
   The client carries the confirmed opaque session scope in
   `X-MXQR-Account-Expected-Scope`; the App compares it with the actual HttpOnly
   account session before grant admission, reverse-link writes, or forwarding.

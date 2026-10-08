@@ -102,6 +102,38 @@ describe('PRO activation account confirmation', () => {
     expect(mocks.dialog).toHaveBeenCalledTimes(2);
   });
 
+  it('completes a signed-in nickname before confirming that account without another Google sign-in', async () => {
+    session = { ...A, account: { nickname: '', profileComplete: false } };
+    mocks.login.mockImplementation(async () => {
+      expect(mocks.dialog).not.toHaveBeenCalled();
+      session = A;
+      return 'authenticated';
+    });
+    await expect(confirmProRoomActivationAccount()).resolves.toBe(A.statsScope);
+    expect(mocks.login).toHaveBeenCalledExactlyOnceWith();
+    expect(mocks.dialog).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: 'pro.activation_account_message:Account A' }),
+    );
+    expect(mocks.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops activation when nickname setup is deferred without inventing an account name', async () => {
+    session = { ...A, account: { nickname: '', profileComplete: false } };
+    mocks.login.mockResolvedValue('cancelled');
+    await expect(confirmProRoomActivationAccount()).resolves.toBeNull();
+    expect(mocks.dialog).not.toHaveBeenCalled();
+  });
+
+  it('offers a retry after nickname setup fails without accepting the incomplete account', async () => {
+    session = { ...A, account: { nickname: '', profileComplete: false } };
+    mocks.login.mockResolvedValue('error');
+    mocks.dialog.mockResolvedValue({ action: 'secondary' });
+    await expect(confirmProRoomActivationAccount()).resolves.toBeNull();
+    expect(mocks.dialog).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: 'pro.activation_account_unavailable' }),
+    );
+  });
+
   it.each(['blocked', 'cancelled', 'error'])(
     'retains account choice after popup %s without treating it as consent',
     async (outcome) => {

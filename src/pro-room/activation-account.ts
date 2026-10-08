@@ -66,6 +66,22 @@ export async function confirmProRoomActivationAccount(): Promise<string | null> 
       return null;
     }
 
+    if (snapshot.status === 'authenticated' && snapshot.account?.profileComplete === false) {
+      // This account is already signed in. Complete (or join) its existing
+      // nickname flow instead of asking Google to authenticate it again.
+      const outcome = await requestAccountLoginPopup().catch(() => 'error');
+      if (outcome === 'authenticated') continue;
+      if (outcome === 'cancelled') return null;
+      const retry = await showDialog({
+        title: t('pro.activation_account_title'),
+        message: t('pro.activation_account_unavailable'),
+        buttonText: t('common.retry'),
+        secondaryText: t('common.cancel'),
+      });
+      if (retry.action === 'ok') continue;
+      return null;
+    }
+
     const loginAttempt: { current: Promise<AccountLoginPopupOutcome> | null } = { current: null };
     const openLogin = () => {
       loginAttempt.current = requestAccountLoginPopup({ forceGoogleAccountChooser: true }).catch(

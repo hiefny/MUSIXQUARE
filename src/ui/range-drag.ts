@@ -1,3 +1,10 @@
+const cancelDragByRange = new WeakMap<HTMLInputElement, () => void>();
+
+/** Retire a gesture when its authority ends, even before another pointer event. */
+export function cancelRangeDrag(range: HTMLInputElement): void {
+  cancelDragByRange.get(range)?.();
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -106,22 +113,24 @@ export function installRangeDragGuard(root: ParentNode = document): void {
       applyRtlHorizontalArrow(range, event);
     });
 
-    const finishDrag = (event?: PointerEvent) => {
+    const finishDrag = (event?: PointerEvent, commit = true) => {
       if (activePointerId === null) return;
       if (event && event.pointerId !== activePointerId) return;
 
+      const pointerId = activePointerId;
+      activePointerId = null;
+      range.classList.remove('is-dragging');
       try {
-        if (event && range.hasPointerCapture(event.pointerId)) {
-          range.releasePointerCapture(event.pointerId);
+        if (range.hasPointerCapture(pointerId)) {
+          range.releasePointerCapture(pointerId);
         }
       } catch {
         // Some mobile browsers release capture before pointerup reaches us.
       }
 
-      activePointerId = null;
-      range.classList.remove('is-dragging');
-      if (!range.disabled) range.dispatchEvent(new Event('change', { bubbles: true }));
+      if (commit && !range.disabled) range.dispatchEvent(new Event('change', { bubbles: true }));
     };
+    cancelDragByRange.set(range, () => finishDrag(undefined, false));
 
     range.addEventListener('pointerdown', (event) => {
       if (range.disabled || event.button !== 0 || activePointerId !== null) return;
@@ -146,7 +155,7 @@ export function installRangeDragGuard(root: ParentNode = document): void {
       // Capture survives a remote authority change that disables the control.
       // Retire the old gesture without overwriting the newly synced value.
       if (range.disabled) {
-        finishDrag(event);
+        finishDrag(event, false);
         return;
       }
       if (event.cancelable) event.preventDefault();

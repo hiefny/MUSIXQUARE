@@ -15,7 +15,7 @@ export default defineConfig({
       'src/core/__tests__/signaling-diagnostics.test.ts',
       'src/core/__tests__/translation-community.test.ts',
       'src/core/__tests__/translation-community-route.test.ts',
-      'src/developer-api/__tests__/{developer-api-facade-worker,developer-api-worker}.test.ts',
+      'src/developer-api/__tests__/{developer-api-credential,developer-api-facade-worker,developer-api-worker}.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
       'src/pro-room/__tests__/{pro-room-grants,pro-room-worker,service-control}.test.ts',
       'src/share/__tests__/remote-share-worker.test.ts',

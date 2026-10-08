@@ -3,7 +3,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { IS_WINDOWS } from '../../core/platform.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
@@ -18,7 +18,12 @@ import {
   setPendingPlayTime,
 } from '../../player/_state.ts';
 import { setPlaybackLifecycleState } from '../../player/ownership.ts';
-import { getTrackPosition, isLocalFileStartPending, stopAllMedia } from '../../player/transport.ts';
+import {
+  getTrackPosition,
+  isLocalFileStartPending,
+  startHostFileAndBroadcastPlay,
+  stopAllMedia,
+} from '../../player/transport.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 interface Output {
@@ -302,3 +307,33 @@ it('public offset edit during shared lead then pause cancels every delayed sourc
   expect(outputPosition()).toBeNull();
   expect(m.broadcast).not.toHaveBeenCalled();
 });
+
+it.each([0, 250, 251, 400, 1500, 2000, 2200, -1500])(
+  'keeps host position and PONG aligned to healthy output after a visible wall step %ims',
+  async (step) => {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('room.context', {
+      ...getState('room.context'),
+      role: 'coordinator',
+      capabilities: ['playback.control'],
+    });
+    setState('network.activeHostConnByPeerId', new Map([[host.peer, host]]));
+    await startHostFileAndBroadcastPlay({
+      time: 30,
+      queueItemId: Q,
+      context: 'host clock regression',
+    });
+    await advance(1000);
+    expect(getTrackPosition()).toBeCloseTo(31, 3);
+    vi.setSystemTime(Date.now() + step);
+    const physical = outputPosition()! - platform;
+    expect(getTrackPosition()).toBeCloseTo(physical, 3);
+    await handleData({ type: MSG.SYNC_PING, pingId: 702 }, host);
+    const reply = vi.mocked(host.send).mock.calls.at(-1)?.[0] as { position: number };
+    expect(reply.position).toBeCloseTo(physical, 3);
+    await advance(1000);
+    expect(getTrackPosition()).toBeCloseTo(32, 3);
+  },
+);

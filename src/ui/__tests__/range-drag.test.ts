@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { installRangeDragGuard } from '../range-drag.ts';
+import { cancelRangeDrag, installRangeDragGuard } from '../range-drag.ts';
 
 function dispatchPointer(
   range: HTMLInputElement,
@@ -56,6 +56,35 @@ describe('range drag direction', () => {
       callback(0);
       return 1;
     });
+  });
+
+  it('retires captured authority without committing and accepts a new gesture', () => {
+    const range = renderRange('ltr');
+    const change = vi.fn();
+    range.addEventListener('change', change);
+    range.setPointerCapture = vi.fn();
+    range.hasPointerCapture = vi.fn(() => true);
+    range.releasePointerCapture = vi.fn(() => {
+      dispatchPointer(range, 'lostpointercapture', 140);
+    });
+    installRangeDragGuard();
+    dispatchPointerDown(range, 140);
+
+    cancelRangeDrag(range);
+    range.disabled = true;
+    range.value = '60';
+    range.disabled = false;
+    dispatchPointer(range, 'pointermove', 280);
+    dispatchPointer(range, 'pointerup', 280);
+
+    expect(range.releasePointerCapture).toHaveBeenCalledExactlyOnceWith(1);
+    expect(range.classList.contains('is-dragging')).toBe(false);
+    expect(range.value).toBe('60');
+    expect(change).not.toHaveBeenCalled();
+    dispatchPointerDown(range, 230);
+    dispatchPointer(range, 'pointerup', 230);
+    expect(range.value).toBe('65');
+    expect(change).toHaveBeenCalledOnce();
   });
 
   it('maps the physical left edge to the minimum in LTR', () => {

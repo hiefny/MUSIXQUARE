@@ -22,6 +22,7 @@ import {
   applyProPlaybackFileCommit,
   fmtTime,
   startHostFileAndBroadcastPlay,
+  captureFilePlayIntentGuard,
 } from './transport.ts';
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import {
@@ -1041,6 +1042,7 @@ export async function playTrack(
     // Play and broadcast only after the current activation succeeds. Failure
     // owns its auto-advance path; supersession transfers playback ownership to
     // the newer playTrack invocation.
+    const mayAutoStart = captureFilePlayIntentGuard();
     const activated = await loadPreloadedTrack(queueItemId, myLoadEpoch);
     if (!activated || !isCurrentLoadEpoch(myLoadEpoch) || getCurrentQueueItemId() !== queueItemId) {
       log.debug('[Host] Preloaded activation failed or superseded. Skipping play/broadcast');
@@ -1061,7 +1063,8 @@ export async function playTrack(
       time: 0,
       queueItemId,
       name: fileName,
-      shouldApply: () => isCurrentLoadEpoch(myLoadEpoch) && !!getQueueItemById(queueItemId),
+      shouldApply: () =>
+        mayAutoStart() && isCurrentLoadEpoch(myLoadEpoch) && !!getQueueItemById(queueItemId),
       onStarted: schedulePreload,
       context: 'activated preload',
     });
@@ -1358,6 +1361,7 @@ export async function playTrack(
     } else {
       sendFilePrepareByDelivery(prepareMsg, sessionId, { announcePending: true });
     }
+    const mayAutoStart = captureFilePlayIntentGuard();
     const didLoad = await loadAndBroadcastFile(
       file,
       queueItemId,
@@ -1455,7 +1459,7 @@ export async function playTrack(
         time: 0,
         queueItemId,
         name: file.name,
-        shouldApply: () => isCurrentLoadEpoch(myLoadEpoch),
+        shouldApply: () => mayAutoStart() && isCurrentLoadEpoch(myLoadEpoch),
         context: 'automatic track start',
       });
     }

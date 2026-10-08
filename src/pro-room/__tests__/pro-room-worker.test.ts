@@ -2744,6 +2744,26 @@ function environment(bucket = new FakeR2Bucket()) {
     R2_SECRET_ACCESS_KEY: 'test-secret-key'.padEnd(40, 'k'),
     R2_BUCKET_NAME: 'musixquare-pro-media',
     PRO_MEDIA_BUCKET: bucket,
+    // Direct internal-route tests use issued credentials. Full public-chain
+    // tests below replace this with their actual credential database.
+    DEVELOPER_API_DB: {
+      prepare: vi.fn(() => ({
+        bind: vi.fn((keyId: unknown, roomCode: unknown, roomGeneration: unknown) => ({
+          all: vi.fn(async () => ({ results: [] })),
+          run: vi.fn(async () => ({ meta: { changes: 1 } })),
+          first: vi.fn(async () => ({
+            key_id: keyId,
+            room_code: roomCode,
+            room_generation: roomGeneration,
+            authority_epoch: 0,
+            status: 'active',
+            revoked_at: null,
+            expires_at: Number.MAX_SAFE_INTEGER,
+            scope_mask: 255,
+          })),
+        })),
+      })),
+    },
     MUSIXQUARE_AUTH_DB: {
       prepare: vi.fn(() => ({
         bind: vi.fn(() => ({
@@ -6027,6 +6047,7 @@ describe('PRO room private Developer API projections', () => {
         }),
       }),
     };
+    (worker as unknown as { env: Record<string, unknown> }).env.DEVELOPER_API_DB = database;
     const limiter = {
       idFromName: (name: string) => name,
       get: () => ({
@@ -15062,11 +15083,30 @@ describe('persistent PRO room authentication, presence, and state', () => {
       error: 'DEVELOPER_API_AUTHORITY_STALE',
     });
     expect(internal.room.playlist).toEqual([playlistItem(queueItemId, ready.asset)]);
+    // A key issued under the new owner's epoch is required; changing only
+    // the request's epoch must not revive a previous owner's credential.
+    const currentDeveloperKey = 'N'.repeat(16);
+    (context.worker as unknown as { env: Record<string, unknown> }).env.DEVELOPER_API_DB = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => ({
+            key_id: currentDeveloperKey,
+            room_code: ROOM_CODE,
+            room_generation: 0,
+            authority_epoch: oldDeveloperAuthorityEpoch + 1,
+            status: 'active',
+            revoked_at: null,
+            expires_at: Number.MAX_SAFE_INTEGER,
+            scope_mask: developerApiScopes['queue:write'],
+          }),
+        }),
+      }),
+    };
     expect(
       (
         await mutateInternalDeveloperQueue(
           context.worker,
-          DEVELOPER_KEY_ID,
+          currentDeveloperKey,
           'owner-transfer-current-developer-mutation',
           { type: 'clear_owned' },
           undefined,

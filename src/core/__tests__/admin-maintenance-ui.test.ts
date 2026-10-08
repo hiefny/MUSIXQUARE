@@ -60,12 +60,104 @@ function installDom(): void {
 
 afterEach(() => {
   window.dispatchEvent(new Event('pagehide'));
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 
 describe('admin maintenance status UI', () => {
+  it.each(['expires', 'no-expiry', 'replaced', 'saving'] as const)(
+    'keeps persisted announcement status current without overwriting its draft: %s',
+    async (mode) => {
+      vi.useFakeTimers();
+      const now = new Date('2026-10-09T00:00:00Z').getTime();
+      vi.setSystemTime(now);
+      installDom();
+      let announcement = {
+        id: 'short-notice',
+        enabled: true,
+        message: 'Saved announcement',
+        expiresAt: mode === 'no-expiry' ? null : new Date(now + 1000).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+      };
+      let resolveSave!: (response: Response) => void;
+      const saveResponse = new Promise<Response>((resolve) => {
+        resolveSave = resolve;
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), location.origin).pathname;
+          if (path === '/api/admin/session') return Response.json({ authenticated: true });
+          if (path === '/api/admin/service-status')
+            return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
+          if (path === '/api/admin/announcement' && init?.method === 'POST') return saveResponse;
+          if (path === '/api/admin/announcement')
+            return Response.json({
+              revision: announcement.id === 'replacement' ? 2 : 1,
+              announcement,
+              history: [],
+            });
+          return Response.json({ ok: true, cards: [], summary: {} });
+        }),
+      );
+      window.eval(adminScript);
+      const tab = document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!;
+      const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
+      const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+      const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+      const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+      await vi.waitFor(() =>
+        expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false),
+      );
+      tab.click();
+      await vi.waitFor(() => expect(status.textContent).toMatch(/^Active/));
+      if (mode === 'replaced') {
+        announcement = {
+          ...announcement,
+          id: 'replacement',
+          message: 'Replacement',
+          expiresAt: null,
+        };
+        document.querySelector<HTMLButtonElement>('[data-refresh]')!.click();
+        await vi.waitFor(() => expect(message.value).toBe('Replacement'));
+      }
+      message.value = 'Unsaved edits';
+      enabled.checked = false;
+      expires.value = '2026-10-10T12:00';
+      if (mode === 'saving') {
+        document
+          .querySelector<HTMLFormElement>('[data-announcement-form]')!
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        await vi.waitFor(() => expect(status.textContent).toBe('Saving...'));
+      }
+
+      await vi.advanceTimersByTimeAsync(1200);
+
+      const expired = mode === 'expires' || mode === 'saving';
+      expect(status.textContent).toMatch(
+        mode === 'saving' ? /^Saving/ : expired ? /^Expired/ : /^Active/,
+      );
+      expect(tab.classList.contains('has-active-announcement')).toBe(!expired);
+      expect(tab.getAttribute('aria-label')).toBe(
+        expired ? 'Announcements' : 'Announcements, active announcement',
+      );
+      expect(message.value).toBe('Unsaved edits');
+      expect(enabled.checked).toBe(false);
+      expect(expires.value).toBe('2026-10-10T12:00');
+      if (mode === 'saving') {
+        resolveSave(
+          Response.json({
+            revision: 2,
+            announcement: { ...announcement, enabled: false },
+            history: [],
+          }),
+        );
+        await vi.waitFor(() => expect(status.textContent).toMatch(/^Disabled/));
+      }
+    },
+  );
   it.each(['stable', 'settling', 'moved', 'failure'] as const)(
     'restores inline confirmation focus after browser disable-blur without stealing it: %s',
     async (outcome) => {

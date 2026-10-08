@@ -156,6 +156,9 @@ const COMMAND_RESULT_CODES = new Set([
 ]);
 const BACKEND_ERROR_MAP: Readonly<Record<string, { error: string; status: number }>> =
   Object.freeze({
+    UNAUTHORIZED: { error: 'UNAUTHORIZED', status: 401 },
+    FORBIDDEN: { error: 'FORBIDDEN', status: 403 },
+    BACKEND_UNAVAILABLE: { error: 'BACKEND_UNAVAILABLE', status: 503 },
     INVALID_REQUEST: { error: 'INVALID_REQUEST', status: 400 },
     INVALID_MEDIA: { error: 'INVALID_REQUEST', status: 400 },
     ROOM_NOT_FOUND: { error: 'NOT_FOUND', status: 404 },

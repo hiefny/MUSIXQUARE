@@ -94,6 +94,29 @@ function namespace(responseFactory: (request: Request) => Response | Promise<Res
 }
 
 describe('private Developer API facade', () => {
+  it.each([
+    ['UNAUTHORIZED', 401],
+    ['FORBIDDEN', 403],
+    ['BACKEND_UNAVAILABLE', 503],
+  ] as const)('preserves the room mutation credential verdict %s', async (error, status) => {
+    const rooms = namespace(() => Response.json({ error }, { status }));
+    const response = await facadeWorker.fetch(
+      request(
+        {
+          roomCode: ROOM_CODE,
+          keyId: KEY_ID,
+          idempotencyKey: IDEMPOTENCY_KEY,
+          mutation: { type: 'clear' },
+        },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(response.status).toBe(status);
+    await expect(response.json()).resolves.toEqual({ error });
+  });
+
   it('forwards one fixed caller-relative projection intent without bearer credentials or paths', async () => {
     const rooms = namespace(() =>
       Response.json({

@@ -10,6 +10,7 @@ import { getState } from '../core/state.ts';
 import {
   MSG,
   CHUNK_SIZE,
+  MAX_EARLY_PRELOAD_CHUNKS,
   REMOTE_SHARE_MAX_BYTES,
   BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
   MAX_GUEST_SLOTS,
@@ -1190,6 +1191,11 @@ if (UNCLASSIFIED_PROTOCOL_TYPES.length > 0) {
 const INBOUND_BURST = 60;
 const INBOUND_REFILL_MS = 50;
 const _inboundBuckets = new Map<string, { tokens: number; lastRefill: number }>();
+// Valid host preload bytes can overtake START on a different ordered lane.
+// Keep their bounded pre-admission budget separate so they cannot consume the
+// control token needed to admit (or recover) the transfer. They remain limited;
+// only an exact active transfer qualifies for the exemption below.
+const _earlyPreloadBuckets = new Map<string, { tokens: number; lastRefill: number }>();
 
 type InboundRateLimitExemptionGuard = (
   msg: Readonly<Record<string, unknown>>,
@@ -1224,19 +1230,21 @@ function isInboundRateLimitExempt(
   }
 }
 
-function allowInboundFromPeer(peerId: string): boolean {
+function allowInboundFromPeer(peerId: string, earlyPreload = false): boolean {
   if (!peerId) return true;
+  const buckets = earlyPreload ? _earlyPreloadBuckets : _inboundBuckets;
+  const burst = earlyPreload ? MAX_EARLY_PRELOAD_CHUNKS : INBOUND_BURST;
   const now = Date.now();
-  let bucket = _inboundBuckets.get(peerId);
+  let bucket = buckets.get(peerId);
   if (!bucket) {
-    bucket = { tokens: INBOUND_BURST, lastRefill: now };
-    _inboundBuckets.set(peerId, bucket);
+    bucket = { tokens: burst, lastRefill: now };
+    buckets.set(peerId, bucket);
   }
   const elapsed = now - bucket.lastRefill;
   if (elapsed > 0) {
     const refill = Math.floor(elapsed / INBOUND_REFILL_MS);
     if (refill > 0) {
-      bucket.tokens = Math.min(INBOUND_BURST, bucket.tokens + refill);
+      bucket.tokens = Math.min(burst, bucket.tokens + refill);
       bucket.lastRefill = now;
     }
   }
@@ -1248,6 +1256,7 @@ function allowInboundFromPeer(peerId: string): boolean {
 /** Drop rate-limit state for a peer; call on disconnect to bound the map. */
 export function resetInboundRateLimit(peerId: string): void {
   _inboundBuckets.delete(peerId);
+  _earlyPreloadBuckets.delete(peerId);
 }
 
 // ─── Handler Registry ───────────────────────────────────────────────
@@ -1347,7 +1356,7 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
   if (
     conn?.peer &&
     !isInboundRateLimitExempt(msgType, msg, conn) &&
-    !allowInboundFromPeer(conn.peer)
+    !allowInboundFromPeer(conn.peer, isGuest && conn === hostConn && msgType === MSG.PRELOAD_CHUNK)
   ) {
     return;
   }

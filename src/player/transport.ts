@@ -75,7 +75,7 @@ const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
 const STANDARD_FILE_CANONICAL_END_TIMER = 'standard-file-canonical-end';
 const CANONICAL_END_EPSILON_SEC = 0.005;
 const STANDARD_HOST_PHYSICAL_REBASE_TOLERANCE_SEC = 0.25;
-const WALL_CLOCK_STEP_TOLERANCE_MS = 2_000;
+const WALL_CLOCK_STEP_TOLERANCE_MS = STANDARD_HOST_PHYSICAL_REBASE_TOLERANCE_SEC * 1_000;
 const PLAY_LOCK_WATCHDOG_MS = 15_000;
 const PLAY_LOCK_STALE_MS = 5_000;
 const naturallyEndedFileSources = new WeakSet<FilePlaybackSource>();
@@ -453,6 +453,12 @@ export function invalidatePendingFilePlayIntent(): void {
   clearPendingPlayIntent();
   failedPlayRecoveryGeneration += 1;
   revokeInFlightPlayStart();
+}
+
+/** A pending decode may finish, but a later PAUSE must revoke its automatic PLAY. */
+export function captureFilePlayIntentGuard(): () => boolean {
+  const fence = playStartFence;
+  return () => fence === playStartFence;
 }
 
 function getPlatformLocalFileOutputOffset(): number {

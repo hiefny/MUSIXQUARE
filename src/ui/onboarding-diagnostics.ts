@@ -123,15 +123,19 @@ function persistTimeline(): void {
   }
 }
 
+function pruneTimeline(now: number): void {
+  const cutoff = now - TIMELINE_MAX_AGE_MS;
+  timeline = timeline.filter((entry) => entry.at >= cutoff).slice(-TIMELINE_MAX_ENTRIES);
+}
+
 function recordLifecycle(event: string, detail: string): void {
+  const now = Date.now();
   timeline.push({
-    at: Date.now(),
+    at: now,
     event: redactDiagnosticText(event).slice(0, 80),
     detail: redactDiagnosticText(detail).slice(0, 240),
   });
-  if (timeline.length > TIMELINE_MAX_ENTRIES) {
-    timeline.splice(0, timeline.length - TIMELINE_MAX_ENTRIES);
-  }
+  pruneTimeline(now);
   persistTimeline();
 }
 
@@ -339,6 +343,9 @@ async function cacheSnapshot(): Promise<string[]> {
 /** Collect one passive, redacted snapshot suitable for sharing with support. */
 async function collectOnboardingDiagnosticSnapshot(): Promise<string> {
   const now = Date.now();
+  const previousLength = timeline.length;
+  pruneTimeline(now);
+  if (timeline.length !== previousLength) persistTimeline();
   const roomContext = getRoomContext();
   const hostConn = getState('network.hostConn');
   const signalingHealth = getState('network.signalingHealth');

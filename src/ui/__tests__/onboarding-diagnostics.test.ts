@@ -195,6 +195,26 @@ afterAll(() => {
 });
 
 describe('onboarding diagnostics snapshot', () => {
+  it.each(['new event', 'snapshot only'] as const)(
+    'expires timeline entries in a long-lived page on %s',
+    async (trigger) => {
+      sessionStorage.clear();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const start = Date.UTC(2026, 9, 9, 0, 0, 0);
+      vi.setSystemTime(start);
+      initOnboardingDiagnostics();
+      window.dispatchEvent(new Event('offline'));
+      vi.setSystemTime(start + 30 * 60 * 1000);
+      expect(await collectOnboardingDiagnosticSnapshot()).toContain('window:offline');
+      vi.setSystemTime(start + 30 * 60 * 1000 + 1);
+      if (trigger === 'new event') window.dispatchEvent(new Event('online'));
+      const snapshot = await collectOnboardingDiagnosticSnapshot();
+      expect(snapshot).not.toContain('window:offline');
+      expect(sessionStorage.getItem(TIMELINE_STORAGE_KEY)).not.toContain('window:offline');
+      if (trigger === 'new event') expect(snapshot).toContain('window:online');
+    },
+  );
+
   it('collects useful passive runtime, PWA, cache, and network state without mutating it', async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);

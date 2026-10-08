@@ -8308,8 +8308,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     .manual-sync-overlay,
-    .sync-glass-panel {
-      transition: none;
+    .manual-sync-overlay * {
+      /* Opening focus needs visible content, without a visibility transition. */
+      transition: none !important;
     }
   }
 

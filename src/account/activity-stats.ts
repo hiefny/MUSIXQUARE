@@ -180,7 +180,10 @@ function electCurrentDeviceLeader(
   // A device id is the minimum safe physical-device fence. Keep waiting
   // instead of freezing a leader decision while room identity projects.
   if (!myDeviceId) return null;
-  if (!runtime.myMemberAuthenticated || !myMemberId) return true;
+  // Account login can finish before its verified room identity arrives.
+  // An anonymous row cannot prove this is the account's only device; keep
+  // waiting instead of permanently electing it during that projection gap.
+  if (!runtime.myMemberAuthenticated || !myMemberId) return null;
 
   const candidates = new Map<string, number>();
   candidates.set(myDeviceId, normalizedJoinOrder(runtime.myJoinOrder));
@@ -401,6 +404,10 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
   }
 
   flushForRead(): Promise<AccountActivityStatsFlushResult> {
+    // A UI account subscriber may run before our subscriber during the same
+    // publication. Reconcile its already-published scope before selecting a
+    // batch, so a read for account B never joins account A's pending activity.
+    if (!this.#disposed) this.sync();
     // Capture the final visible interval immediately before the account UI
     // reads its aggregates. The regular sampler may still be up to one tick
     // behind when the user opens the panel.

@@ -77,6 +77,29 @@ test.describe('YouTube search loading and quick add', () => {
     expect(getPageErrors(page).map((error) => error.message)).toEqual([]);
   });
 
+  test('keeps the empty editable input in both directions of the modal Tab cycle', async ({
+    page,
+  }) => {
+    const opener = page.locator('#btn-media-source');
+    await opener.focus();
+    await page.keyboard.press('Enter');
+    await page.locator('#btn-youtube-source').focus();
+    await page.keyboard.press('Enter');
+    const input = page.locator('#youtube-url-input');
+    const cancel = page.locator('#btn-yt-cancel');
+    await expect(input).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(input).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(input).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(opener).toBeFocused();
+  });
+
   for (const viewport of [
     { name: 'desktop', width: 1280, height: 800, rtl: false },
     { name: 'mobile', width: 390, height: 844, rtl: false },

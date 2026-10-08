@@ -39,6 +39,7 @@ type ToneOptions = {
 let outputGraph: OutputGraph | null = null;
 let enabledCache: boolean | null = null;
 let enabledWriteFailed = false;
+let preferenceRevision = 0;
 let lastUiTouchAt = Number.NEGATIVE_INFINITY;
 let lastSessionSoundAt = Number.NEGATIVE_INFINITY;
 let lastSelfJoinAt = Number.NEGATIVE_INFINITY;
@@ -79,6 +80,7 @@ export function isUiSoundsEnabled(): boolean {
 }
 
 export function setUiSoundsEnabled(enabled: boolean): void {
+  preferenceRevision += 1;
   enabledCache = enabled;
   try {
     localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
@@ -268,8 +270,9 @@ function scheduleMicroEcho(
 }
 
 async function playTouch(force = false): Promise<void> {
+  const revision = preferenceRevision;
   const output = await readyOutput(force);
-  if (!output) return;
+  if (!output || revision !== preferenceRevision) return;
   schedulePitchlessTouch(output.context, output.touchInput, output.context.currentTime + 0.006);
 }
 
@@ -397,6 +400,7 @@ export function initUiSounds(): void {
 
 /** Test/HMR cleanup; production bootstrap initializes this module once. */
 export function resetUiSoundsForTests(): void {
+  preferenceRevision += 1;
   removeDomListeners?.();
   removeDomListeners = null;
   busScope.dispose();

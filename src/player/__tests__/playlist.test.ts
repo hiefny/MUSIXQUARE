@@ -2039,6 +2039,75 @@ describe('playTrack YouTube auto-rendezvous', () => {
 });
 
 describe('playTrack explicit file playback intent', () => {
+  it.each(
+    (['none', 'pause', 'stop'] as const).flatMap((action) =>
+      (['fresh', 'preloaded'] as const).map((source) => ({ action, source })),
+    ),
+  )(
+    'honors $action while the selected $source file waits for native decode',
+    async ({ action, source }) => {
+      vi.useFakeTimers();
+      const actualDecode = await vi.importActual<typeof import('../decode.ts')>('../decode.ts');
+      decodeMocks.loadAndBroadcastFile.mockImplementation(actualDecode.loadAndBroadcastFile);
+      decodeMocks.loadPreloadedTrack.mockImplementation(actualDecode.loadPreloadedTrack);
+      vi.spyOn(audioEngine, 'initAudio').mockResolvedValue();
+      vi.spyOn(audioEngine, 'getFilePlaybackDestination').mockReturnValue({} as GainNode);
+      vi.spyOn(audioContext, 'ensureRunning').mockResolvedValue();
+      vi.spyOn(audioContext, 'getCurrentTime').mockReturnValue(100);
+      let finishDecode!: (buffer: AudioBuffer) => void;
+      const decodeAudioData = vi.fn(
+        () =>
+          new Promise<AudioBuffer>((resolve) => {
+            finishDecode = resolve;
+          }),
+      );
+      const start = vi.fn();
+      vi.spyOn(audioContext, 'getAudioContext').mockReturnValue({
+        state: 'running',
+        currentTime: 100,
+        sampleRate: 48_000,
+        decodeAudioData,
+        createBufferSource: () => ({
+          buffer: null,
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          stop: vi.fn(),
+          start,
+          onended: null,
+        }),
+      } as unknown as AudioContext);
+      const selected = fileItem(
+        'pending.mp3',
+        new File(['audio'], 'pending.mp3', { type: 'audio/mpeg' }),
+      );
+      setCurrentAudioBuffer(null);
+      setState('network.appRole', 'host');
+      setState('setup.sessionStarted', true);
+      setState('player.isFirstTrackLoad', false);
+      setState('playlist.items', [selected]);
+      if (source === 'preloaded') {
+        setState('preload.nextQueueItemId', selected.queueItemId);
+        setState('preload.ready', residentFor(selected, selected.file!, 2));
+      }
+      const selection = playTrack(selected.queueItemId);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(decodeAudioData).toHaveBeenCalledOnce();
+      expect(getState('playback.activity')).toBe('pending');
+      if (action === 'pause') transport.pause();
+      if (action === 'stop') transport.stopAllMedia({ cancelInFlight: true });
+      finishDecode({ duration: 120 } as AudioBuffer);
+      await selection;
+      await vi.advanceTimersByTimeAsync(300);
+      expect(start).toHaveBeenCalledTimes(action === 'none' ? 1 : 0);
+      if (action === 'pause') {
+        expect(getCurrentAudioBuffer()).not.toBeNull();
+        expect(await transport.play(0)).toBe(true);
+        expect(start).toHaveBeenCalledOnce();
+      }
+      transport.stopAllMedia({ cancelInFlight: true, clearBuffer: true });
+    },
+  );
+
   it('retires the predecessor announcement when activating a ready preload', async () => {
     vi.useFakeTimers();
     const send = vi.fn();

@@ -15,6 +15,7 @@
     "cloudflare/account-assertion.ts",
     "cloudflare/account-nickname.ts",
     "cloudflare/display-name-policy.ts",
+    "cloudflare/developer-api-credential.ts",
     "cloudflare/pro-room-validation.ts",
     "cloudflare/pro-room-permissions.ts",
     "cloudflare/pro-room-generation.ts",

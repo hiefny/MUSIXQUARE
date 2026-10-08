@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-10-07                                                            |
+| Last source review | 2026-10-09 |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -90,11 +90,20 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Post-promotion 30-round repair — 2026-10-09](design/beta-30-round-repair-2026-10-09.md) —
+  Repairs the 13 confirmed findings and two owner-selected behavior requirements after fresh necessity checks.
+  API mutation-time credential validation and live announcement status are now explicit contracts.
+  Local verification, original failures and blocked security-depth limits are recorded separately from release evidence.
+- [Post-promotion independent 30-round QA — 2026-10-09](design/beta-30-round-qa-2026-10-09.md) —
+  Astra Ultra, three agents across ten sets on main `e7c5529a`.
+  At the audit baseline: 13 confirmed findings, 2 provisional observations and 8 excluded candidates;
+  complete baseline suites, new boundary probes, first failures and independent adjudication are separated.
+  Blocked security depth and physical/live limitations remain explicit. Product code and deployment unchanged.
 - [Beta 30-round repair and verification — 2026-10-07](design/beta-30-round-repair-2026-10-07.md) —
   Implements the 12 confirmed findings and two separate robustness improvements
   after owner approval. The report preserves original failures, follow-up checks,
   compatibility limits and one unresolved legacy SW update liveness observation after approval.
-  Main and production remain frozen.
+  At that historical checkpoint, main and production were frozen.
 - [Beta independent 30-round QA — 2026-10-07](design/beta-30-round-qa-2026-10-07.md) —
   Astra Ultra, three agents per set across ten sets. Post-round adjudication
   confirmed 12 distinct unresolved defects at the discovery checkpoint; two observations remained provisional

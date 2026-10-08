@@ -2,9 +2,9 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 2026-10-08 시그널링 오류 진단 `99f9103c` 배포 완료. App `8.7.4` / `v635` 유지; 나머지 4개 Worker는 `8.7.0` 승격 기준 유지. 실기·수동 운영 확인은 별도 |
+| Status             | Runbook — 운영 App `8.7.4` / `v635`, 시그널링 `99f9103c` 유지. 2026-10-09 QA 후속 15건 로컬 수정·`8.7.5`/`v636` 준비, 로컬 회귀 통과·production 산출물 검증 준비·미배포 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
-| Last source review | 2026-10-08                                                                                                                                                                                                      |
+| Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
@@ -16,6 +16,8 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| 2차 QA 후속 수정 — 2026-10-09 | `e7c5529a` 기준 임시 `agent/qa2-repairs-2026-10-09`. 기존 13건+사용자가 기준을 선택한 2건 구현. 14건 수정 전 새 재현/API 1건 소스 재검토. `8.7.5`/`v636`, unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과. 커밋 후 production 산출물 검증 준비. schema/secrets/bindings/deps 변경 없음, 미배포. [수정·검증 기록](design/beta-30-round-repair-2026-10-09.md) |
+| 2차 독립 30라운드 — 2026-10-09 | main `e7c5529a3273c7132880dd0ad4572b2463405c87`, Astra Ultra 3×10세트. 발견 당시 확정 13건(P1 0/P2 9/P3 4) 미수정·미확정 2·제외 8. 현재 수정 상태는 위 후속 수정 행을 따름. 전체 unit10,810/Chromium581/WebKit66+기존3skip/production17 및 4종coverage 통과. 보안 심화 실행 일부 차단·실기/운영 미검증 한계 유지. 제품 변경·배포 없음. [2차 30라운드·독립 재판정](design/beta-30-round-qa-2026-10-09.md) |
 | 시그널링 오류 진단 보강 — 2026-10-08 | `99f9103c` / main CI `37763992689` attempt 2 / Release `37764975511` 성공. 로컬 unit 10,810·Worker coverage 1,752 및 운영 smoke 통과, 대시보드 sampling 100%·invocation/traces off 확인. 과거 예외 원인은 미확정. App `8.7.4`/`v635` 유지. 아래 전용 절 참조 |
 | 종료·승격 승인                      | 2026-10-07 사용자가 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
 | 승격 전 기준 main                   | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 당시 main·운영 App 기준으로 보존 |
@@ -463,6 +465,25 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
   방 재생 명령·권한 완화·파일 공유 종료 정책 변경은 없다.
 
 ## 3. 현재 검증과 남은 확인
+
+**2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
+Windows·Node24.20.0/npm12.0.2·Astra Ultra 3×10세트로 검토했다. 30라운드/122개 기본 QA ID를
+분류했고, 발견 당시 확정 13건(P1 0/P2 9/P3 4)·미확정 2·제외 8이었다. 후속 수정은 아래 체크리스트와 수정 기록을 따른다.
+전체 unit519파일·10,810 pass, Chromium581 pass, WebKit66 pass/기존3skip, production17 pass,
+4종coverage·정적14명령·E2E/production build 및 산출물 guard 통과. 새 실패·교정·재현은 별도
+보존하며 반복/프로필 결과를 합산하지 않는다. 의존성 전체/prod-only 감사0·서명486/attestation103을
+새로 확인했고 새 설치는 하지 않았다. QA094 신규 보안 실행 및 QA109 심화는 Daybreak/계정 보안
+등록 조건으로 차단돼 소스 검토와 일반 기능 검사 범위를 구분했다. 과거 legacy PWA 승인 뒤 갱신
+정지1회·운영 R2 미확정 기록과 실기 확인 한계는 유지한다. 코드·유지 검사·의존성·버전/cache·
+schema/secrets/bindings·배포 변경 없음. 원격 exact-main-SHA CI candidate로 대체하지 않는다. [2차 30라운드·독립 재판정](design/beta-30-round-qa-2026-10-09.md).
+
+- [x] 30라운드 보고서 수집·후보 중복 제거·최종 독립 판정 및 코드/불변 산출물 동일성 확인.
+- [x] 이번 확정 13건과 추가 요구 2건 구현·개별 경계 회귀. [수정 기록](design/beta-30-round-repair-2026-10-09.md); 최종 unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과.
+- [x] 미확정 2건의 기대 동작을 사용자가 승인: API 변경 직전 개별 키 검사, 관리자 공지 만료 시 본문 상태 자동 갱신. 이미 최종 인증을 통과해 진행 중인 작업을 분산 롤백하는 계약은 아님.
+- [x] 통합 unit·4종 coverage·영향 Chromium·최종 WebKit 및 정적 검사 통과.
+- [ ] 커밋 후 production build·Worker bundle·candidate 브라우저 검증 마무리.
+- [ ] 향후 배포용 정확한 main SHA CI candidate 확보. 로컬 수정은 현재 배포 상태를 바꾸지 않음.
+- [ ] 제한된 보안 심화 실행·실제 기기 검증 및 기존 미확정 기록은 각 전제 충족 후 별도 확인.
 
 다음 QA 결과는 각 날짜·코드 SHA의 증거다. 당시 동결·보안 경고·버전 상태를 현재
 상태로 해석하지 않는다. 현재 승인·배포 결과는 1절과 마지막 실행 기록을 따른다.
@@ -1347,6 +1368,17 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 2차 QA 후속 수정: 사용자가 두 미확정 항목의 기대 동작을 승인하고 기존 13건까지
+총 15건 수정을 요청했다. 14건 새 실행 재현·API 1건 방어적 소스 확인 뒤 수정했다.
+App/public docs/admin·API/facade/PRO가 변경되며 `8.7.5`/`v636` 준비, schema/secrets/bindings/deps 유지.
+최종 unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과. 커밋 후 production 산출물 검증 준비, main 병합/원격 CI/배포 미수행. 차단된 보안 재현과 실기/운영 한계 유지.
+[후속 수정·원본 실패·검증 기록](design/beta-30-round-repair-2026-10-09.md).
+
+2026-10-09 2차 독립 QA: `e7c5529a3273c7132880dd0ad4572b2463405c87`, 30라운드·122범위 분류와 최종 재판정.
+확정 13건(P1 0/P2 9/P3 4) 미수정, 미확정 2·제외 8. 공통 전체 검증 통과와 새 경계 실패를
+분리하고 보안 실행 차단·실기/운영·기존 PWA 한계를 보존했다. 제품/배포 변경 없이 QA 문서만 갱신.
+[2차 30라운드·독립 재판정](design/beta-30-round-qa-2026-10-09.md) 및 위 현재 검증 체크리스트를 따른다.
 
 2026-10-08 시그널링 오류 진단 보강: `99f9103c`의 `signaling` 단독 배포 완료. 원인 미확정 예외를
 추적할 안전한 로그와 배포 gate를 추가하며, 앱/프로토콜/저장소 계약은 유지한다.

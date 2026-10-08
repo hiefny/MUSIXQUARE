@@ -223,3 +223,46 @@ Your eligibility에서 계정 등록을 완료한 뒤 같은 정상 검토 경�
 전체 suite·coverage·live·실기 재검증은 아니다. 별도 스트리밍 키 수명 재현과 거절된
 비정상 인증 호스트 프레임 실험은 실행하지 않았으며, 다른 신규 심화 프로브의 완료로도
 집계하지 않는다. 일반 회귀가 정상 실행된 사실과 기존 심화 실행 제한을 구분한다.
+
+### 새 세션의 마지막 독립 검증 — 2026-10-09
+
+사용자가 다섯 범위를 새 세션에서 마지막으로 확인하도록 요청했다. 로컬 프로젝트에
+`GPT-6.1 Sol / xhigh` 채팅을 만들고 동일 checkout
+`44ef6a789112c23f1c63c843853eca9d86054e45`에서 일반 방어 검증을 수행했다.
+별도 Daybreak 접근 프로그램을 요청하거나 이전에 제한된 실험을 새 세션으로 넘기지 않았다.
+환경은 Windows / Node24.20.0, 실제 제품 핸들러와 추적된 schema의 로컬 SQLite를 사용했다.
+기존 network guard·15초 제한·maxWorkers1·retry0을 유지했다.
+
+| 범위 | 새 로컬 검사 | 확인한 경계와 한계 |
+| --- | --- | --- |
+| R17-C01 / QA073·075 API | 11 pass / fail·skip0 | 요청 전 고정된 키의 revoked·expiry·scope·방/권한 세대 및 공개 조회, 거절 시 DB 불변·facade 미호출. 실제 변경 직전 검사 정책은 소스와 기존 회귀로 확인. 스트리밍 중 키 수명 변경 재현은 미실행 |
+| QA094 공개 요청 | 14 pass / fail·skip0 | 실제 App의 인증·Origin/CSRF·fetch-site·expected scope·method·JSON/완성 본문 제한, API/PRO/signaling의 공개·내부 route 분리 및 namespace 미호출. live WAF·브라우저 전수 검증 아님 |
+| QA109 번역 권한 | 8 pass / fail·skip0 | 계정별 requestId·철회 소유권·자기 vote 삭제, 비활성 voter/author·삭제 fence, batch 경계의 무쓰기 및 정상 철회. 실제 운영 경합 재현 아님 |
+| QA086 관리자 인증 | 10 pass / fail·skip0 | 실제 로그인 쿠키와 실제 SQLite review의 익명·변조·정확한 만료 시각·서명 secret 변경, Origin/CSRF·method·JSON, 정상 승인 및 author fence. 다른 모든 관리자 route·live Access/MFA 검사 아님 |
+| QA032 비정상 전송 프레임 | 실험 0건 | 공식 접근 설명·기존 거절 기록만 확인. 현재 계정 자격을 새로 조회하거나 프레임 실험을 작성·실행하지 않음 |
+
+새 scratch 검사 **43 pass / fail·skip0**, 기존 유지 회귀 **17파일·966 pass / fail·skip0**이다.
+새 검사에는 기존 회귀와 같은 일반 경계를 확인하는 사례도 있으므로 기존 전체 10,882건에
+더하거나 미완료 심화 검증의 완료 수로 세지 않는다. 새 확정 제품 결함은 **0건**이다.
+[독립 보고서](../../scratch/qa2-final-independent-2026-10-09/report.md)와
+[명령·각 검사·결과 JSON](../../scratch/qa2-final-independent-2026-10-09/result.json)에 근거를 보존했다.
+
+최초 새 검사 실행은 40 pass / 1 fail이었다. 삭제 fence만 있고 account가 active인 투표
+요청의 응답을 401로 예상했으나 실제 코드는 SQL 쓰기를 차단하고 200 및 `voted:false`,
+`votes:0`을 반환했다. 원본을 보존하고 최종 검사에 실제 응답 상태와 DB 전체 불변을 함께
+검증했다. 비활성 계정은 401, 정상 투표는 실제 저장·반환 상태 반영을 확인했으며 권한
+우회나 허위 추천 성공을 확인하지 않았다. 이후 signaling의 namespace 관측 fixture를
+제품 binding 이름에 맞춰 보완하고 43건을 다시 통과했다. 반복 통과 수는 합산하지 않는다.
+
+검증 전후 추적 **1,964파일**(비Markdown **1,819파일**)과 dist **782파일** hash 변경0,
+Git 상태 clean을 확인했다. 이번 실행의 신규 보안 실험 거절은 없었다. 임시 transform/tsx/
+Vite 캐시 삭제만 실행 정책이 `blocked by policy`로 거절해 미실행했고 추가 이유는
+제공되지 않았다. 다른 방식으로 재시도하지 않았으며 해당 캐시와
+[거절 기록](../../scratch/qa2-final-independent-2026-10-09/cleanup-rejection.json)을 scratch에 보존했다.
+이 cleanup 거절을 보안 QA 실패로 분류하지 않는다.
+
+위 동일성 기록은 이 문서 후속 갱신 이전의 새 세션 종료 시점이다. 이어서 이번 결과를
+보고서와 living 배포 기록에 문서만 반영한다. 제품·유지 검사·설정·의존성·schema/secrets/
+bindings·main·배포 변경은 없다. 제한된 API 스트리밍 키 수명과 QA032는 **미완료**다.
+기타 심화 조합·전체 suite/coverage·브라우저·live·실기 검증과 exact-main-SHA CI candidate를
+이번 실행으로 대체하지 않는다.

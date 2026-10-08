@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.4` / `v635`, 시그널링 `99f9103c` 유지. 2026-10-09 QA 후속 15건 로컬 수정·`8.7.5`/`v636` 준비, 로컬 회귀 통과·production 산출물 검증 준비·미배포 |
+| Status             | Runbook — 운영 App `8.7.4` / `v635`, 시그널링 `99f9103c` 유지. 2026-10-09 QA 후속 15건 로컬 수정·검증 완료, 제품 `8c14f0d6` / `8.7.5` / `v636` 미배포 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -16,7 +16,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 2차 QA 후속 수정 — 2026-10-09 | `e7c5529a` 기준 임시 `agent/qa2-repairs-2026-10-09`. 기존 13건+사용자가 기준을 선택한 2건 구현. 14건 수정 전 새 재현/API 1건 소스 재검토. `8.7.5`/`v636`, unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과. 커밋 후 production 산출물 검증 준비. schema/secrets/bindings/deps 변경 없음, 미배포. [수정·검증 기록](design/beta-30-round-repair-2026-10-09.md) |
+| 2차 QA 후속 수정 — 2026-10-09 | 제품 `8c14f0d6da9d351588116e3c7114a213685cd608`, 임시 `agent/qa2-repairs-2026-10-09`. 기존 13건+사용자가 기준을 선택한 2건 수정. 14건 수정 전 새 재현/API 1건 소스 재검토. `8.7.5`/`v636`, unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과. production build·Worker6·candidate17/WebKit SW1 통과. 추가 QA helper 경합만 수정·경계4통과, 제품 입력/산출물782파일 불변. schema/secrets/bindings/deps 변경 없음, 미배포. [수정·검증 기록](design/beta-30-round-repair-2026-10-09.md) |
 | 2차 독립 30라운드 — 2026-10-09 | main `e7c5529a3273c7132880dd0ad4572b2463405c87`, Astra Ultra 3×10세트. 발견 당시 확정 13건(P1 0/P2 9/P3 4) 미수정·미확정 2·제외 8. 현재 수정 상태는 위 후속 수정 행을 따름. 전체 unit10,810/Chromium581/WebKit66+기존3skip/production17 및 4종coverage 통과. 보안 심화 실행 일부 차단·실기/운영 미검증 한계 유지. 제품 변경·배포 없음. [2차 30라운드·독립 재판정](design/beta-30-round-qa-2026-10-09.md) |
 | 시그널링 오류 진단 보강 — 2026-10-08 | `99f9103c` / main CI `37763992689` attempt 2 / Release `37764975511` 성공. 로컬 unit 10,810·Worker coverage 1,752 및 운영 smoke 통과, 대시보드 sampling 100%·invocation/traces off 확인. 과거 예외 원인은 미확정. App `8.7.4`/`v635` 유지. 아래 전용 절 참조 |
 | 종료·승격 승인                      | 2026-10-07 사용자가 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
@@ -481,7 +481,7 @@ schema/secrets/bindings·배포 변경 없음. 원격 exact-main-SHA CI candidat
 - [x] 이번 확정 13건과 추가 요구 2건 구현·개별 경계 회귀. [수정 기록](design/beta-30-round-repair-2026-10-09.md); 최종 unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과.
 - [x] 미확정 2건의 기대 동작을 사용자가 승인: API 변경 직전 개별 키 검사, 관리자 공지 만료 시 본문 상태 자동 갱신. 이미 최종 인증을 통과해 진행 중인 작업을 분산 롤백하는 계약은 아님.
 - [x] 통합 unit·4종 coverage·영향 Chromium·최종 WebKit 및 정적 검사 통과.
-- [ ] 커밋 후 production build·Worker bundle·candidate 브라우저 검증 마무리.
+- [x] 제품 커밋 `8c14f0d6`에서 production build·Worker6·candidate Chromium17/WebKit SW1 통과. QA helper 관측 경합은 별도 재현 후 검사만 수정, 782파일 산출물 불변.
 - [ ] 향후 배포용 정확한 main SHA CI candidate 확보. 로컬 수정은 현재 배포 상태를 바꾸지 않음.
 - [ ] 제한된 보안 심화 실행·실제 기기 검증 및 기존 미확정 기록은 각 전제 충족 후 별도 확인.
 
@@ -1372,7 +1372,11 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 2026-10-09 2차 QA 후속 수정: 사용자가 두 미확정 항목의 기대 동작을 승인하고 기존 13건까지
 총 15건 수정을 요청했다. 14건 새 실행 재현·API 1건 방어적 소스 확인 뒤 수정했다.
 App/public docs/admin·API/facade/PRO가 변경되며 `8.7.5`/`v636` 준비, schema/secrets/bindings/deps 유지.
-최종 unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과. 커밋 후 production 산출물 검증 준비, main 병합/원격 CI/배포 미수행. 차단된 보안 재현과 실기/운영 한계 유지.
+제품 코드 `8c14f0d6da9d351588116e3c7114a213685cd608`의 최종 unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과.
+커밋 후 build:checked·Worker6·production Chromium17/WebKit SW1 통과. 첫 candidate 16pass/1fail은
+비동기 캐시 출처를 기다리지 않은 QA helper 경합으로 별도 재현·검사만 보완했고 경계4통과.
+비Markdown 최종1,819파일 동일성 및 제품 커밋의 산출물782파일 hash 불변 확인. main 병합/원격 CI/배포 미수행.
+차단된 보안 재현과 실기/운영 한계 유지.
 [후속 수정·원본 실패·검증 기록](design/beta-30-round-repair-2026-10-09.md).
 
 2026-10-09 2차 독립 QA: `e7c5529a3273c7132880dd0ad4572b2463405c87`, 30라운드·122범위 분류와 최종 재판정.

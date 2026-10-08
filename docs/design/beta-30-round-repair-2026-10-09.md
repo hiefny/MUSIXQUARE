@@ -2,11 +2,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Dated repair evidence — 로컬 회귀 통과, 커밋 후 production 산출물 검증 준비, 미배포 |
+| Status | Dated repair evidence — 15건 수정·로컬 검증 완료, 미배포 |
 | Applies to | 2차 QA 확정 13건과 사용자가 기대 동작을 선택한 미확정 2건 |
 | Baseline | main `e7c5529a3273c7132880dd0ad4572b2463405c87` |
 | Repair branch | `agent/qa2-repairs-2026-10-09` |
+| Tested code | `8c14f0d6da9d351588116e3c7114a213685cd608` — 같은 작업 트리의 회귀 통과 후 커밋, production build는 이 커밋에서 실행 |
 | Tested tree | 비Markdown 1,818파일 SHA-256 `8b293841da5681d70817153a1f24fa0141ecf78736cac49c72edb8a8eb5270ec`; 전체 unit·최종 browser 중 변경 0 |
+| QA-only follow-up | 아래 캐시 관측 helper·회귀 검사 2파일만 추가 변경. 최종 비Markdown 1,819파일 SHA-256 `eab49a13052b8febd71cd106344862f1d70dde425fc4c6875b405983e0a8578a`; 제품 입력·production artifact 변경 0 |
 | Product / cache | 준비 버전 `8.7.5` / `v636`; 운영은 `8.7.4` / `v635` 유지 |
 | Related documents | [발견 보고서](beta-30-round-qa-2026-10-09.md), [현재 배포 기록](../beta-release-readiness.md), [권한 계약](account-identity-and-room-authority.md), [릴리스 절차](../hotfix-procedure.md) |
 
@@ -73,11 +75,20 @@ PRO에는 기존 `DEVELOPER_API_DB` binding과 키 테이블을 사용한다. sc
 | 최종 WebKit | 66 pass / 기존 3 skip / fail·retry 0 | cache query를 보완한 최종 E2E 산출물, iPhone 13 WebKit 자동화. 실물 iPhone 검사 아님 |
 | 정적 검사 | 전체 typecheck·lint·format 및 선택 source guards 통과 | 새 leaf project 등록 뒤 전체 typecheck, 최종 matcher 뒤 test typecheck·lint·format, chunk-pump·lifecycle·import graph·hot-path·developer/D1/ops 계약 |
 | 최종 전체 unit + broad coverage | 522파일, 10,882 pass / fail·skip·retry 0 | statements 86.58% / branches 80.31% / functions 91.16% / lines 90.24%; 기존 하한 통과 |
-| Production build / bundles / candidate | 커밋 후 실행 준비 | [공통 실행 기록](../../scratch/qa2-repair-2026-10-09/common/) |
+| Production build / bundles | build:checked 및 Worker 6종 dry-run 통과 | 커밋된 HEAD에서 cache-history·보안 설정·산출물 guards 포함. App artifact 782파일의 SHA-256을 [manifest](../../scratch/qa2-repair-2026-10-09/common/production-manifest.json)에 기록 |
+| Production candidate browser | 최종 Chromium 17 pass / fail·skip·retry 0, WebKit SW 1 pass | 같은 782파일 산출물에서 실행 전후 manifest 일치. 로컬 산출물 검증이며 exact-main CI candidate 아님 |
+| QA helper 경계 검사 | 수정 전 1 fail / 대조 3 pass → 수정 후 4 pass | 늦은 캐시 출처 응답, 응답 없음, 추가 bootstrap 실패, aborted 구분. E2E typecheck·정규 tooling ESLint·format 통과 |
 
 선택 검사끼리와 전체·coverage 프로필의 통과 수는 합산하지 않는다. API·전송 변경은 다른
 담당자가 읽기 전용으로 검토했다. API 검토에서 미디어 후처리의 재검사 지점 두 곳을 추가했고
 보완 후 추가 발견 없음. [API 독립 소스 검토](../../scratch/qa2-repair-2026-10-09/account-session/api-readonly-review.md).
+
+| Coverage profile | Statements | Branches | Functions | Lines |
+| --- | --- | --- | --- | --- |
+| broad | 86.58% | 80.31% | 91.16% | 90.24% |
+| critical | 81.62% | 76.14% | 87.65% | 85.78% |
+| workers | 84.31% | 80.83% | 92.77% | 88.98% |
+| tooling | 78.27% | 73.87% | 87.09% | 80.14% |
 
 ## 최초 실패·검사 준비 보정
 
@@ -99,11 +110,28 @@ PRO에는 기존 `DEVELOPER_API_DB` binding과 키 테이블을 사용한다. sc
   초과했다. 모든 바이트·길이를 비교하는 Buffer.equals로 검사만 바꿨고, 같은 제한·coverage에서
   해당 10개가 통과했다. 제품 로직·검사 범위·timeout을 완화하지 않았으며 원본 실패를 보존했다.
 - 첫 Worker bundle 검사는 E2E 빌드가 dist를 재생성하는 동안 실행돼 디렉터리를 찾지 못했다.
-  빌드 완료 후 순차 검사로 다시 확인하며 이 실패를 Worker 코드 실패로 분류하지 않는다.
+  최종 production 빌드 완료 후 6종 dry-run이 통과했다. 이 최초 실패를 Worker 코드 실패로 분류하지 않는다.
+- 첫 production candidate는 16 pass / 1 fail이었다. 기존 캐시 복구 helper가 첫 ready를
+  최종 관측으로 간주해 비동기 Worker 출처 응답보다 먼저 실패할 수 있었다. 관측을 추가한
+  1회 통과만으로 최초 실패를 해소 처리하지 않았다. 관측 진단에서는 DOMContentLoaded 66.3ms에
+  ready, Worker 응답 83.6ms, degraded/CachedNavigation 84.1ms의 정상 비동기 순서를 기록했다.
+  별도 native helper 경계 검사에서 이 순서의 실패 1건·거부 대조 3건을 확인한 뒤, fallback
+  전용 helper만 degraded 또는 aborted를 기다리도록 고쳤다. 원래 15초 한도와 정확한
+  53 steps / 0 failures / 1 CachedNavigation 판정은 유지했다. 이후 경계 4건·정식 candidate
+  17건·WebKit SW 1건 통과. 최초 실패의 모든 메시지 순서는 캡처되지 않았으며, 확인한
+  helper 경합과 새 진단의 정상 수렴을 근거로 검사만 수정했다. 과거 legacy reload 이슈와는 별개다.
+- helper 후속 lint 최초 명령은 App ESLint 설정을 선택해 E2E project를 찾지 못했다.
+  저장소의 정규 tooling 설정으로 검사해 통과했다. lint 규칙이나 프로젝트 범위를 완화하지 않았다.
+
+공통 원본은 [실행 기록 디렉터리](../../scratch/qa2-repair-2026-10-09/common/)에 보존했다.
+`candidate.json`과 `helper-before.json`은 최초 실패, `candidate-observe.json`은 추가 관측,
+`candidate-final.json`과 `webkit-candidate.json`은 최종 산출물 검증이다.
+`source-helper-delta.json`은 제품 커밋 이후 변경이 위 QA 2파일뿐임을 기록하고,
+`source-final-check.json`은 그 최종 소스의 재검증 중 변경 0을 확인한다.
 
 ## 배포·회복
 
-현재 변경은 로컬 수정이며 PR/main 병합·원격 CI·프로덕션 배포는 수행하지 않았다.
+현재 변경은 임시 브랜치의 로컬 커밋이며 PR/main 병합·원격 CI·프로덕션 배포는 수행하지 않았다.
 App/public docs·admin runtime·Developer API·facade·PRO가 변경 대상이다. App `8.7.5`/`v636`으로
 준비했고 의존성 버전은 유지했다. 운영 반영 때에는 변경 Worker만 포함하는 저장소 release scope,
 성공한 **정확한 main SHA** CI candidate 및 기존 릴리스 절차를 적용해야 한다.

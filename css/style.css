@@ -11650,8 +11650,11 @@ html:not(.ios-standalone) body {
 
 .yt-search-meta {
   min-width: 0;
+  /* Keep row geometry stable without separating a short title from its channel. */
+  min-height: calc(13px * 2.7 + 4px + 11px * 1.3);
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 4px;
 }
 
@@ -11660,9 +11663,6 @@ html:not(.ios-standalone) body {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
-  /* Reserve the existing two-line title slot so loading and short titles
-     occupy the same row geometry as wrapped search results. */
-  min-height: 2.7em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -11692,6 +11692,7 @@ html:not(.ios-standalone) body {
 }
 
 .yt-search-skeleton .yt-search-title {
+  min-height: 2.7em;
   background-image:
     linear-gradient(var(--surface-3), var(--surface-3)),
     linear-gradient(var(--surface-3), var(--surface-3));

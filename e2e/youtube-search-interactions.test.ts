@@ -33,13 +33,15 @@ async function readRows(page: Page) {
     rows.map((row) => {
       const bounds = row.getBoundingClientRect();
       return ['.yt-search-thumb', '.yt-search-title', '.yt-search-channel'].map((selector) => {
-        const rect = row.querySelector(selector)!.getBoundingClientRect();
+        const element = row.querySelector(selector)!;
+        const rect = element.getBoundingClientRect();
         return {
           rowHeight: bounds.height,
           x: rect.x - bounds.x,
           y: rect.y - bounds.y,
           width: rect.width,
           height: rect.height,
+          lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
         };
       });
     }),
@@ -131,10 +133,24 @@ test.describe('YouTube search loading and quick add', () => {
         const actualRows = await readRows(page);
         for (let row = 0; row < skeletonRows.length; row++) {
           for (let part = 0; part < skeletonRows[row]!.length; part++) {
-            for (const key of ['rowHeight', 'x', 'y', 'width', 'height'] as const) {
+            // Preserve row/thumbnail geometry while allowing the title and channel
+            // to stay together when the loaded title only needs one line.
+            for (const key of ['rowHeight', 'x', 'width'] as const) {
               expect(actualRows[row]![part]![key]).toBeCloseTo(skeletonRows[row]![part]![key], 1);
             }
           }
+          const [thumb, title, channel] = actualRows[row]!;
+          expect(thumb!.y).toBeCloseTo(skeletonRows[row]![0]!.y, 1);
+          expect(thumb!.height).toBeCloseTo(skeletonRows[row]![0]!.height, 1);
+          expect(channel!.y - title!.y - title!.height).toBeCloseTo(4, 1);
+          expect((title!.y + channel!.y + channel!.height) / 2).toBeCloseTo(
+            thumb!.y + thumb!.height / 2,
+            1,
+          );
+        }
+        expect(actualRows[0]![1]!.height).toBeCloseTo(actualRows[0]![1]!.lineHeight, 1);
+        if (viewport.width < 500) {
+          expect(actualRows[1]![1]!.height).toBeCloseTo(actualRows[1]![1]!.lineHeight * 2, 1);
         }
         await page.screenshot({ path: testInfo.outputPath('search-results.png') });
         await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true });

@@ -896,6 +896,7 @@
     .chat-drawer-messages {
       overflow-y: auto;
       overflow-x: hidden;
+      padding-top: 12px;
       padding-inline-start: 16px;
       padding-inline-end: 16px;
       height: 100%;

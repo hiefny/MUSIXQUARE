@@ -337,6 +337,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-system-audio-contract-version.txt',
     'cloudflare/standard-room-pin-storage-contract-version.txt',
     'cloudflare/signaling-worker.ts',
+    'cloudflare/signaling-diagnostics.ts',
     'cloudflare/signaling-protocol.ts',
     'cloudflare/remote-share-upload-assertion.ts',
     'cloudflare/service-maintenance.ts',

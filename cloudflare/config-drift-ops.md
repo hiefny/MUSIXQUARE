@@ -114,8 +114,10 @@ not queried and must never be interpreted as passing.
 
 ## Worker URL observability
 
-All six production Wrangler configs currently keep sampled custom Worker logs
-enabled, but set `observability.logs.invocation_logs = false` and disable
+All six production Wrangler configs keep custom Worker logs enabled. Signaling
+uses `observability.logs.head_sampling_rate = 1` for error-only diagnostics;
+the other five Workers retain `0.1`. All set
+`observability.logs.invocation_logs = false` and disable
 automatic traces. This is the default credential-minimization boundary: the App
 OAuth callback receives one-use `code` and `state` query values, while PRO
 signaling accepts its bearer only through the WebSocket subprotocol header.
@@ -129,6 +131,42 @@ window and sampled events have been reviewed. Changing this baseline requires
 an intentional config, policy-test, and privacy review rather than automatic
 restoration. Operational visibility otherwise comes from the sampled,
 credential-free custom event schema and the release/health summaries.
+
+### Signaling exception investigation
+
+`[SignalingDiagnostic]` schema 1 records only failures: the fixed operation and
+object family (`worker`, `room`, `http_bridge`, `rate_limit`), disposition
+(`propagated`, `handled`, `background_registration`), validated Worker version
+UUID, allowlisted error type/code, provider boolean flags, and at most five
+known module/line/column coordinates. It never emits the raw error, stack,
+cause, URL, request/message body, socket attachment, close reason, room code,
+peer ID, or account ID. Up to two aggregate members use the same bounded
+summary. Existing raw-error warnings use this schema too.
+
+Successful requests, normal socket closes, and canceled HTTP polls do not gain
+diagnostic logs. No new storage, network request, timer, or retry is added.
+The original error object still propagates, preserving Durable Object retry
+and failure behavior. `webSocketError` records a failure of its cleanup handler,
+not every transport error notification. Message ingress still claims auth/PIN
+order synchronously before the first await.
+
+Head sampling at 1 removes sampling loss, not provider limits or failures before
+the logger runs. Cloudflare's native uncaught exception record may separately
+contain the original error; safe custom fields do not redact provider records.
+The same fault can appear in an initialization/background record and a later
+caller/Worker record. Count neither these records nor automatic alarm retries
+as unique incidents or affected people. A provider `remote` flag alone does
+not identify the root cause.
+
+When another exception occurs, correlate its UTC time and version with these
+records, then inspect the operation, disposition, error code and source
+coordinates. Compare handled diagnostics with the provider exception chart;
+do not label normal client disconnections as uncaught failures. Export only
+the safe schema for investigation and record any reproduction separately.
+Logs have provider-controlled retention and limits, so inspect within the
+account's retention window. Never enable URL-bearing invocation logs or traces
+to compensate for a missing event. After deploying, read back the live log
+settings: Operations Drift Audit does not compare observability settings.
 
 ## Worker Secret Inventory
 

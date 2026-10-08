@@ -28,6 +28,7 @@ type WorkerModule = {
     fetch(request: Request): Promise<Response>;
     webSocketMessage(ws: FakeSocket, raw: unknown): Promise<void>;
     webSocketClose(ws: FakeSocket): Promise<void>;
+    webSocketError(ws: FakeSocket): Promise<void>;
     alarm(): Promise<void>;
   };
   default: {
@@ -855,6 +856,197 @@ afterAll(() => {
   restoreWorkerGlobals();
 });
 
+describe('Cloudflare signaling failure boundary diagnostics', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('preserves a rejected public Worker dispatch and emits only safe context', async () => {
+    const routed = workerEnv();
+    const error = Object.assign(new Error('private-room=123456 token=private-token'), {
+      retryable: true,
+      remote: true,
+    });
+    routed.roomFetch.mockRejectedValueOnce(error);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const request = requestLike(
+      'https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=private-peer',
+      { Origin: 'https://musixquare.com', Upgrade: 'websocket', Authorization: 'private-token' },
+    );
+
+    await expect(workerModule.default.fetch(request, routed.env)).rejects.toBe(error);
+
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[SignalingDiagnostic]',
+      expect.objectContaining({
+        objectKind: 'worker',
+        operation: 'fetch',
+        disposition: 'propagated',
+        retryable: true,
+        remote: true,
+        errorCode: 'unknown',
+      }),
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private|123456|signal\.example/);
+  });
+
+  it.each(['fetch', 'alarm'] as const)(
+    'preserves room runtime failure in %s',
+    async (operation) => {
+      const state = new FakeDurableObjectState();
+      const room = new workerModule.MusixquareRoom(state);
+      const error = new Error('private-storage-failure');
+      if (operation === 'fetch') {
+        vi.spyOn(state, 'acceptWebSocket').mockImplementation(() => {
+          throw error;
+        });
+      } else {
+        vi.spyOn(state.storage, 'get').mockRejectedValue(error);
+      }
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const pending =
+        operation === 'fetch'
+          ? room.fetch(wsRequest('123456', 'host', 'private-peer'))
+          : room.alarm();
+      await expect(pending).rejects.toBe(error);
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        '[SignalingDiagnostic]',
+        expect.objectContaining({
+          objectKind: 'room',
+          operation,
+          disposition: 'propagated',
+        }),
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+    },
+  );
+
+  it('keeps host authentication receive-order claims synchronous and reports failed persistence', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state);
+    await room.fetch(wsRequest('123456', 'host', 'private-peer'));
+    await state.flushWaitUntil();
+    const host = lastServer();
+    const error = new Error('private-host-persistence');
+    vi.spyOn(state.storage, 'put').mockRejectedValueOnce(error);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const message = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'private-secret',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
+    );
+    expect(host.deserializeAttachment()).toMatchObject({ authStarted: true });
+    await expect(message).rejects.toBe(error);
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[SignalingDiagnostic]',
+      expect.objectContaining({
+        objectKind: 'room',
+        operation: 'webSocketMessage',
+        disposition: 'propagated',
+      }),
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+  });
+
+  it('labels a socket-error cleanup failure once and leaves its retry convergent', async () => {
+    const { room, state, host } = await createHostRoom();
+    const error = new Error('private-close-persistence');
+    vi.spyOn(state.storage, 'put').mockRejectedValueOnce(error);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    host.close();
+
+    await expect(room.webSocketError(host)).rejects.toBe(error);
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[SignalingDiagnostic]',
+      expect.objectContaining({
+        objectKind: 'room',
+        operation: 'webSocketError',
+        disposition: 'propagated',
+      }),
+    );
+    await expect(room.webSocketError(host)).resolves.toBeUndefined();
+    expect(await state.storage.get('roomMeta')).toMatchObject({ hostPeerId: null });
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not diagnose ordinary close/error cleanup or admission denials as exceptions', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { room, state, host } = await createHostRoom();
+    const guest = await joinGuest(room, 'normal-guest');
+    guest.close();
+    await room.webSocketError(guest);
+    await room.webSocketClose(guest);
+    host.close();
+    await room.webSocketClose(host);
+    await room.webSocketError(host);
+    await state.flushWaitUntil();
+    const rejected = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/123456/ws', {
+        Origin: 'https://untrusted.example',
+        Upgrade: 'websocket',
+      }),
+      workerEnv().env,
+    );
+    expect(rejected.status).toBe(403);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it('reports synchronous room rehydration failure without replacing the thrown object', () => {
+    const state = new FakeDurableObjectState();
+    const original = new Error('private-rehydration');
+    vi.spyOn(state, 'getWebSockets').mockImplementation(() => {
+      throw original;
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let caught: unknown;
+    try {
+      new workerModule.MusixquareRoom(state);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(original);
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[SignalingDiagnostic]',
+      expect.objectContaining({
+        objectKind: 'room',
+        operation: 'initialize',
+        disposition: 'propagated',
+      }),
+    );
+  });
+
+  it('identifies rate-object initialization and propagation without leaking its HMAC identity', async () => {
+    const state = new FakeDurableObjectState(`${STANDARD_WS_RATE_OBJECT_PREFIX}${'P'.repeat(43)}`);
+    const original = new Error('private-rate-storage');
+    vi.spyOn(state.storage, 'get').mockRejectedValue(original);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const room = new workerModule.MusixquareRoom(state);
+    await expect(
+      room.fetch(
+        new Request(`https://signaling-rate.internal${STANDARD_WS_RATE_CONSUME_PATH}`, {
+          method: 'POST',
+        }),
+      ),
+    ).rejects.toBe(original);
+    expect(
+      log.mock.calls.map(([, record]) => ({
+        objectKind: record.objectKind,
+        operation: record.operation,
+      })),
+    ).toEqual([
+      { objectKind: 'rate_limit', operation: 'initialize' },
+      { objectKind: 'rate_limit', operation: 'fetch' },
+    ]);
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private|PPPP|signaling-rate\.internal/);
+  });
+});
+
 describe('Cloudflare signaling protocol validation boundaries', () => {
   it('measures every supported WebSocket frame representation without coercion', () => {
     const bytes = new Uint8Array([1, 2, 3, 4]);
@@ -1679,12 +1871,24 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const internals = room as unknown as {
       saveRoomMeta(meta: RoomMeta): Promise<RoomMeta>;
     };
-    vi.spyOn(internals, 'saveRoomMeta').mockRejectedValueOnce(
-      new Error('simulated close persistence failure'),
-    );
+    const original = new Error('simulated close persistence failure');
+    vi.spyOn(internals, 'saveRoomMeta').mockRejectedValueOnce(original);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     host.close();
-    await expect(room.webSocketClose(host)).rejects.toThrow('simulated close persistence failure');
+    await expect(room.webSocketClose(host)).rejects.toBe(original);
+    expect(log.mock.calls.filter(([marker]) => marker === '[SignalingDiagnostic]')).toEqual([
+      [
+        '[SignalingDiagnostic]',
+        expect.objectContaining({
+          objectKind: 'room',
+          operation: 'webSocketClose',
+          disposition: 'propagated',
+          errorCode: 'unknown',
+        }),
+      ],
+    ]);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(original.message);
     expect(await state.storage.get('roomMeta')).toMatchObject({
       hostPeerId: 'host-1',
       hostReleaseAt: 0,
@@ -1696,6 +1900,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       hostReleaseAt: Date.now() + 120_000,
     });
     expect(state.storage.alarmTime).toBe(Date.now() + 120_000);
+    expect(log).toHaveBeenCalledTimes(1);
+    log.mockRestore();
   });
 
   it('rejects non-WebSocket room requests before Durable Object lookup', async () => {
@@ -10893,21 +11099,29 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     state.storage.setAlarm = vi.fn(async () => {
       throw new Error('alarm retry write unavailable');
     });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const room = new workerModule.MusixquareRoom(state);
 
     await room.fetch(wsRequest('123456', 'host', 'background-alarm-double-failure'));
     await state.flushWaitUntil();
 
-    const backgroundFailure = warn.mock.calls.find(
-      ([message]) => message === '[Room] Background maintenance alarm synchronization failed',
+    const backgroundFailure = log.mock.calls.find(
+      ([message, record]) =>
+        message === '[SignalingDiagnostic]' && record.errorType === 'AggregateError',
     )?.[1];
-    expect(backgroundFailure).toBeInstanceOf(AggregateError);
-    expect((backgroundFailure as AggregateError).errors).toEqual([
-      expect.objectContaining({ message: 'alarm read unavailable' }),
-      expect.objectContaining({ message: 'alarm retry write unavailable' }),
-    ]);
+    expect(backgroundFailure).toMatchObject({
+      objectKind: 'room',
+      operation: 'maintenance_alarm',
+      disposition: 'handled',
+      errorType: 'AggregateError',
+      related: [
+        expect.objectContaining({ errorType: 'Error', errorCode: 'unknown' }),
+        expect.objectContaining({ errorType: 'Error', errorCode: 'unknown' }),
+      ],
+    });
+    expect(JSON.stringify(log.mock.calls)).not.toContain('unavailable');
     expect(state.storage.alarmTime).toBeNull();
+    log.mockRestore();
   });
 
   it('does not use non-hibernatable WebSocket or timer APIs', async () => {

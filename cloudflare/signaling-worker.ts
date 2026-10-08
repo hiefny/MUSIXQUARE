@@ -11,6 +11,12 @@ import {
 } from './pro-room-generation.ts';
 import { isSafeVisibleDisplayName } from './display-name-policy.ts';
 import {
+  observeSignalingFailure,
+  reportSignalingFailure,
+  type SignalingObjectKind,
+  type SignalingOperation,
+} from './signaling-diagnostics.ts';
+import {
   consumeAbuseRateLimit,
   gateServiceMaintenance,
   readServiceMaintenance,
@@ -1604,7 +1610,15 @@ async function recordMetric(env: SignalingEnvPort, event: string, now = Date.now
       .bind(bucketMinute, event)
       .run();
   } catch (error) {
-    console.warn('[Metrics] Failed to record signaling metric', event, error);
+    reportSignalingFailure(
+      env,
+      {
+        objectKind: 'room',
+        operation: 'metrics_write',
+        disposition: 'handled',
+      },
+      error,
+    );
   }
 }
 
@@ -2435,6 +2449,7 @@ export class MusixquareRoom {
   private readonly state: DurableObjectStatePort;
   private readonly env: SignalingEnvPort;
   private readonly standardHttpBridgeOnly: boolean;
+  private readonly diagnosticObjectKind: SignalingObjectKind;
   private readonly standardHttpBridgeSessionId: string | null;
   private standardHttpBridgeReady: Promise<unknown>;
   private standardHttpBridgeMeta: StandardHttpBridgeMeta | null;
@@ -2528,6 +2543,11 @@ export class MusixquareRoom {
     this.standardHttpBridgeWaiter = null;
     this.standardHttpBridgeMutationSync = Promise.resolve();
     this.standardRateOnly = STANDARD_WS_RATE_OBJECT_NAME_RE.test(objectName);
+    this.diagnosticObjectKind = this.standardHttpBridgeOnly
+      ? 'http_bridge'
+      : this.standardRateOnly
+        ? 'rate_limit'
+        : 'room';
     this.standardRateState = null;
     this.standardRateStateInvalid = false;
     this.standardRateAlarmAt = null;
@@ -2577,46 +2597,53 @@ export class MusixquareRoom {
     this.alarmMaintenanceRetryAttempt = 0;
     this.proSocketsValidated = false;
     if (this.standardHttpBridgeOnly) {
-      const loadStandardHttpBridgeMeta = async () => {
-        const stored = await this.state.storage.get(STANDARD_HTTP_BRIDGE_META_KEY);
-        if (stored === undefined || stored === null) return;
-        const normalized = normalizeStandardHttpBridgeMeta(stored);
-        if (!normalized || normalized.sessionId !== this.standardHttpBridgeSessionId) {
-          await this.state.storage.delete(STANDARD_HTTP_BRIDGE_META_KEY);
-          await this.state.storage.deleteAlarm();
-          return;
-        }
-        // Outbound client WebSockets cannot hibernate. Only non-secret cursors
-        // survive in storage; a later request must re-authenticate by opening a
-        // new bridge rather than replaying either uplink or downlink payloads.
-        this.standardHttpBridgeMeta = normalized;
-      };
+      const loadStandardHttpBridgeMeta = () =>
+        this.observeFailure('initialize', async () => {
+          const stored = await this.state.storage.get(STANDARD_HTTP_BRIDGE_META_KEY);
+          if (stored === undefined || stored === null) return;
+          const normalized = normalizeStandardHttpBridgeMeta(stored);
+          if (!normalized || normalized.sessionId !== this.standardHttpBridgeSessionId) {
+            await this.state.storage.delete(STANDARD_HTTP_BRIDGE_META_KEY);
+            await this.state.storage.deleteAlarm();
+            return;
+          }
+          // Outbound client WebSockets cannot hibernate. Only non-secret cursors
+          // survive in storage; a later request must re-authenticate by opening a
+          // new bridge rather than replaying either uplink or downlink payloads.
+          this.standardHttpBridgeMeta = normalized;
+        });
       this.standardHttpBridgeReady =
         typeof state.blockConcurrencyWhile === 'function'
           ? state.blockConcurrencyWhile(loadStandardHttpBridgeMeta)
           : loadStandardHttpBridgeMeta();
       this.standardRateReady = Promise.resolve();
     } else if (this.standardRateOnly) {
-      const loadStandardRateState = async () => {
-        const [stored, storedAlarmAt] = await Promise.all([
-          this.state.storage.get(STANDARD_WS_RATE_STATE_KEY),
-          this.state.storage.getAlarm(),
-        ]);
-        const normalized =
-          stored === undefined || stored === null ? null : normalizeStandardWsRateState(stored);
-        if (stored !== undefined && stored !== null && !normalized) {
-          this.standardRateStateInvalid = true;
-        }
-        this.standardRateState = normalized;
-        this.standardRateAlarmAt = isSafeInteger(storedAlarmAt) ? storedAlarmAt : null;
-      };
+      const loadStandardRateState = () =>
+        this.observeFailure('initialize', async () => {
+          const [stored, storedAlarmAt] = await Promise.all([
+            this.state.storage.get(STANDARD_WS_RATE_STATE_KEY),
+            this.state.storage.getAlarm(),
+          ]);
+          const normalized =
+            stored === undefined || stored === null ? null : normalizeStandardWsRateState(stored);
+          if (stored !== undefined && stored !== null && !normalized) {
+            this.standardRateStateInvalid = true;
+          }
+          this.standardRateState = normalized;
+          this.standardRateAlarmAt = isSafeInteger(storedAlarmAt) ? storedAlarmAt : null;
+        });
       this.standardRateReady =
         typeof state.blockConcurrencyWhile === 'function'
           ? state.blockConcurrencyWhile(loadStandardRateState)
           : loadStandardRateState();
     } else {
       this.standardRateReady = Promise.resolve();
-      this.rehydrateSockets();
+      try {
+        this.rehydrateSockets();
+      } catch (error) {
+        this.reportFailure('initialize', 'propagated', error);
+        throw error;
+      }
     }
   }
 
@@ -2795,7 +2822,7 @@ export class MusixquareRoom {
         this.enqueueStandardHttpBridgeMutation(() =>
           this.handleStandardHttpBridgeSocketMessage(socket, fence, event),
         ),
-        'HTTP bridge outbound message',
+        'bridge_message',
       );
     });
     listen('close', (event) => {
@@ -2808,7 +2835,7 @@ export class MusixquareRoom {
             false,
           ),
         ),
-        'HTTP bridge outbound close',
+        'bridge_close',
       );
     });
     listen('error', () => {
@@ -2821,7 +2848,7 @@ export class MusixquareRoom {
             true,
           ),
         ),
-        'HTTP bridge outbound error',
+        'bridge_error',
       );
     });
   }
@@ -2918,7 +2945,7 @@ export class MusixquareRoom {
                 true,
               ),
             ),
-            'HTTP bridge oversized response cleanup',
+            'bridge_oversized_cleanup',
           );
         }
         return json({
@@ -3271,9 +3298,25 @@ export class MusixquareRoom {
     });
   }
 
-  private defer(task: Promise<unknown>, operation: string): void {
+  private reportFailure(
+    operation: SignalingOperation,
+    disposition: 'propagated' | 'handled' | 'background_registration',
+    error: unknown,
+  ): void {
+    reportSignalingFailure(
+      this.env,
+      { objectKind: this.diagnosticObjectKind, operation, disposition },
+      error,
+    );
+  }
+
+  private observeFailure<T>(operation: SignalingOperation, task: () => Promise<T>): Promise<T> {
+    return observeSignalingFailure(this.env, this.diagnosticObjectKind, operation, task);
+  }
+
+  private defer(task: Promise<unknown>, operation: SignalingOperation): void {
     const handled = task.catch((error) => {
-      console.warn(`[Room] Background ${operation} failed`, error);
+      this.reportFailure(operation, 'handled', error);
     });
     try {
       if (typeof this.state.waitUntil === 'function') {
@@ -3283,12 +3326,12 @@ export class MusixquareRoom {
     } catch (error) {
       // The handled task is already running. Keep the local/test fallback
       // rejection-safe even when waitUntil registration itself is unavailable.
-      console.warn(`[Room] Failed to register background ${operation}`, error);
+      this.reportFailure(operation, 'background_registration', error);
     }
   }
 
   private recordMetric(event: string, now = Date.now()): void {
-    this.defer(recordMetric(this.env, event, now), `metric ${event}`);
+    this.defer(recordMetric(this.env, event, now), 'metrics_background');
   }
 
   private admittedGuestIds(): Set<string> {
@@ -5150,7 +5193,7 @@ export class MusixquareRoom {
         this.clearMaintenanceAlarmRetry();
       },
       async (error) => {
-        console.warn('[Room] Failed to synchronize maintenance alarm', error);
+        this.reportFailure('maintenance_alarm', 'handled', error);
         try {
           await this.scheduleMaintenanceAlarmRetry();
         } catch (retryError) {
@@ -5169,7 +5212,7 @@ export class MusixquareRoom {
     // Keep the rejected branch observable: if both synchronization and its
     // durable retry fail, defer() reports the AggregateError instead of losing
     // the only evidence that no persistent alarm was armed.
-    this.defer(this.scheduleMaintenanceAlarm(), 'maintenance alarm synchronization');
+    this.defer(this.scheduleMaintenanceAlarm(), 'maintenance_alarm');
   }
 
   private acceptSocket(ws: SocketPort, attachment: SocketAttachment | null, tags: string[]): void {
@@ -5177,7 +5220,11 @@ export class MusixquareRoom {
     if (attachment) serializeSocketAttachment(ws, attachment);
   }
 
-  async fetch(request: Request): Promise<Response> {
+  fetch(request: Request): Promise<Response> {
+    return this.observeFailure('fetch', () => this.handleFetch(request));
+  }
+
+  private async handleFetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (this.standardHttpBridgeOnly) {
       return this.handleStandardHttpBridgeFetch(request, url);
@@ -6225,7 +6272,11 @@ export class MusixquareRoom {
     if (alarmError) throw alarmError;
   }
 
-  async alarm(): Promise<void> {
+  alarm(): Promise<void> {
+    return this.observeFailure('alarm', () => this.handleAlarm());
+  }
+
+  private async handleAlarm(): Promise<void> {
     if (this.standardHttpBridgeOnly) {
       await this.cleanupStandardHttpBridgeLease();
       return;
@@ -6519,6 +6570,10 @@ export class MusixquareRoom {
   }
 
   webSocketMessage(ws: SocketPort, raw: unknown): Promise<void> {
+    return this.observeFailure('webSocketMessage', () => this.handleWebSocketMessage(ws, raw));
+  }
+
+  private handleWebSocketMessage(ws: SocketPort, raw: unknown): Promise<void> {
     if (this.standardHttpBridgeOnly) return Promise.resolve();
     if (this.standardOrderedIngressBudgets.get(ws)?.rejected) return Promise.resolve();
     // Production Durable Objects answer this exact frame without waking the
@@ -6535,7 +6590,7 @@ export class MusixquareRoom {
     const rawBytes = rawMessageByteLength(raw);
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
-      this.defer(this.webSocketClose(ws), 'closed socket cleanup');
+      this.defer(this.handleWebSocketClose(ws), 'closed_socket_cleanup');
       this.recordMetric(
         attachment?.roomKind === 'pro' ? 'pro_realtime_oversized' : 'ws_message_oversized',
       );
@@ -6545,7 +6600,7 @@ export class MusixquareRoom {
       const pendingIngress = this.proRealtimeIngressDepth.get(ws) ?? 0;
       if (pendingIngress >= PRO_REALTIME_INGRESS_PENDING_LIMIT) {
         closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
-        this.defer(this.webSocketClose(ws), 'closed socket cleanup');
+        this.defer(this.handleWebSocketClose(ws), 'closed_socket_cleanup');
         this.recordMetric('pro_realtime_rate_limited');
         return Promise.resolve();
       }
@@ -6571,7 +6626,7 @@ export class MusixquareRoom {
       ) {
         budget.rejected = true;
         closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
-        this.defer(this.webSocketClose(ws), 'closed socket cleanup');
+        this.defer(this.handleWebSocketClose(ws), 'closed_socket_cleanup');
         this.recordMetric('ws_message_rate_limited');
         return Promise.resolve();
       }
@@ -6674,14 +6729,14 @@ export class MusixquareRoom {
     const rawBytes = rawMessageByteLength(raw);
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       this.recordMetric('ws_message_oversized');
       return;
     }
 
     if (attachment.role === 'guest' && !this.consumeGuestMessageToken(ws)) {
       closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       this.recordMetric('ws_message_rate_limited');
       return;
     }
@@ -6701,7 +6756,7 @@ export class MusixquareRoom {
           ? 'HOST_AUTH_FIRST_FRAME_INVALID'
           : 'GUEST_AUTH_FIRST_FRAME_INVALID';
         closeWithError(ws, 'invalid-id', reason, 1008);
-        await this.webSocketClose(ws);
+        await this.handleWebSocketClose(ws);
       }
       return;
     }
@@ -6716,7 +6771,7 @@ export class MusixquareRoom {
     const validation = validateIncomingMessage(message, role);
     if (validation === 'oversized') {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       this.recordMetric('ws_message_oversized');
       return;
     }
@@ -6726,7 +6781,7 @@ export class MusixquareRoom {
           ? 'HOST_AUTH_FIRST_FRAME_INVALID'
           : 'GUEST_AUTH_FIRST_FRAME_INVALID';
         closeWithError(ws, 'invalid-id', reason, 1008);
-        await this.webSocketClose(ws);
+        await this.handleWebSocketClose(ws);
       }
       return;
     }
@@ -6779,7 +6834,7 @@ export class MusixquareRoom {
     const rawBytes = rawMessageByteLength(raw);
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
-      this.defer(this.webSocketClose(ws), 'closed socket cleanup');
+      this.defer(this.handleWebSocketClose(ws), 'closed_socket_cleanup');
       this.recordMetric('pro_realtime_oversized');
       return Promise.resolve();
     }
@@ -6790,7 +6845,7 @@ export class MusixquareRoom {
     const pendingSignals = this.proSystemAudioSignalIngressDepth.get(ws) ?? 0;
     if (pendingSignals >= PRO_SYSTEM_AUDIO_SIGNAL_PENDING_LIMIT) {
       closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
-      this.defer(this.webSocketClose(ws), 'closed socket cleanup');
+      this.defer(this.handleWebSocketClose(ws), 'closed_socket_cleanup');
       this.recordMetric('pro_realtime_rate_limited');
       return Promise.resolve();
     }
@@ -6798,7 +6853,7 @@ export class MusixquareRoom {
     // sender accumulate an unbounded in-memory signal backlog.
     if (!this.consumeProRealtimeMessageToken(ws)) {
       closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
-      this.defer(this.webSocketClose(ws), 'closed socket cleanup');
+      this.defer(this.handleWebSocketClose(ws), 'closed_socket_cleanup');
       this.recordMetric('pro_realtime_rate_limited');
       return Promise.resolve();
     }
@@ -6838,7 +6893,7 @@ export class MusixquareRoom {
     }
     if (ownerAccountDeletionFence) {
       closeSocket(ws, 1008, 'PRO_OWNER_ACCOUNT_DELETED');
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       return;
     }
     const meta = await this.loadProRoomMeta();
@@ -6867,20 +6922,20 @@ export class MusixquareRoom {
         presenceRevoked ? 1008 : 1012,
         presenceRevoked ? 'PRO_PRESENCE_REVOKED' : 'PRO_ROOM_EPOCH_STALE',
       );
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       return;
     }
 
     const rawBytes = rawMessageByteLength(raw);
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       this.recordMetric('pro_realtime_oversized');
       return;
     }
     if (!messageTokenPreconsumed && !this.consumeProRealtimeMessageToken(ws)) {
       closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       this.recordMetric('pro_realtime_rate_limited');
       return;
     }
@@ -6893,7 +6948,7 @@ export class MusixquareRoom {
         : PRO_REALTIME_BODY_MAX_BYTES;
     if (rawBytes !== null && rawBytes > rawLimit) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
-      await this.webSocketClose(ws);
+      await this.handleWebSocketClose(ws);
       this.recordMetric('pro_realtime_oversized');
       return;
     }
@@ -7564,7 +7619,11 @@ export class MusixquareRoom {
     send(guest, { ...rest, from: attachment.peerId });
   }
 
-  async webSocketClose(ws: SocketPort): Promise<void> {
+  webSocketClose(ws: SocketPort): Promise<void> {
+    return this.observeFailure('webSocketClose', () => this.handleWebSocketClose(ws));
+  }
+
+  private async handleWebSocketClose(ws: SocketPort): Promise<void> {
     if (this.standardHttpBridgeOnly) return;
     const attachment = readAttachment(ws);
     if (!attachment) return;
@@ -7610,9 +7669,8 @@ export class MusixquareRoom {
     });
   }
 
-  async webSocketError(ws: SocketPort): Promise<void> {
-    if (this.standardHttpBridgeOnly) return;
-    await this.webSocketClose(ws);
+  webSocketError(ws: SocketPort): Promise<void> {
+    return this.observeFailure('webSocketError', () => this.handleWebSocketClose(ws));
   }
 
   private async releaseHost(ws: SocketPort, attachment: StandardHostOkAttachment): Promise<void> {
@@ -7715,7 +7773,7 @@ export class MusixquareRoom {
   }
 }
 
-export default {
+const signalingHandler = {
   async fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response> {
     const url = new URL(request.url);
     const match = url.pathname.match(ROOM_PATH);
@@ -7799,5 +7857,13 @@ export default {
     const id = env.MUSIXQUARE_ROOMS.idFromName(roomId);
     const room = env.MUSIXQUARE_ROOMS.get(id);
     return room.fetch(request);
+  },
+} satisfies PortableSignalingHandler;
+
+export default {
+  fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response> {
+    return observeSignalingFailure(env, 'worker', 'fetch', () =>
+      signalingHandler.fetch(request, env),
+    );
   },
 } satisfies PortableSignalingHandler;

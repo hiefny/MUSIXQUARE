@@ -23,7 +23,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| PRO 최초 활성화 계정 확인 구현 — 2026-10-09 | 기준 `0bb61397`, 로컬 `agent/pro-activation-24h` 작업 트리. 계정 새로 확인→로그인/계정 변경→명시 확인→PIN→등록, 한국어/영어 2행 전체 너비 버튼. 확인 이후 계정 변경은 UI 취소·재확인 및 App의 expected-scope 검사로 등록 전에 거절. 기존 claim/복구/이전 권한 유지. 전체 unit523파일10,919pass/기존1skip/fail0·정적7명령 통과 후, 실제 browser에서 발견한 번역 덮어쓰기 수정 및 dialog39·Chromium7pass. 최종 build·화면 확인 중. schema/secrets/bindings/deps 변경0, 미배포 |
+| PRO 최초 활성화 계정 확인 구현 — 2026-10-09 | 검증 코드 `0eb6913300af226b90b0e564034bc997ffb92bbe`, 임시 `agent/pro-activation-24h`. 계정 새로 확인→로그인/계정 변경→명시 확인→PIN→등록, 한국어/영어 2행 전체 너비 버튼. 확인 후 계정 변경은 UI 취소·재확인 및 App의 expected-scope 검사로 등록 전에 거절. 전체 unit 후 최종 영향5파일171pass 치환 집계523파일10,920pass/기존1skip/fail0. 정적7명령·Chromium7·committed production build·App/PRO dry-run 통과, 실제 한영 이미지1장 완성. browser에서 발견한 번역 덮어쓰기 수정 및 독립 재검토 완료. schema/secrets/bindings/deps 변경0, 사용자 화면 확인 전 main 병합·배포 보류 |
 | PRO 최초 활성화 계정 확인 UX 검토 — 2026-10-09 | `0576a58c13491b36bdd12b7e001d9dac1cddb21d` 읽기 전용 검토. 링크 접속 자체는 소유권을 확정하지 않으나 PIN 입력·제출 전에 계정 표시/확인/변경이 없다. 비로그인은 최초 활성화 요청401 후 로그인·자동 재시도, 로그인 상태는 현재 쿠키의 계정으로 등록한다. 일반 관리자 claim에서 의도하지 않은 로그인 계정 귀속 가능성을 사용자 흐름 공백으로 확인; 계정 귀속 grant는 서버 대상 계정 제한 유지. 기존 setup-flow/account UI125pass/fail·skip0, 실제 운영 claim 사용 없음. 계정 확인→PIN 설정→확정 및 제출 시 동일 계정 검증 개선은 미구현; 제품·검사 코드/운영 변경 없음 |
 | PRO 활성화 링크 24시간 — 2026-10-09 | 검증 코드 `4d1bfa84319d67f8866eaa8661e8c8a9c9a9a6e9`, 임시 `agent/pro-activation-24h`. 신규 활성화 링크 기본·최대 수명 24시간, App·PRO·CLI 공통 상한 사용. 로컬 `8.7.6`/`v637`, 운영 미반영. 전체 unit 후 영향3파일64pass 치환 집계522파일10,887pass/기존1skip/최종fail0; 정적7명령·production build·App/PRO dry-run 통과. 최초 캐시 주소 누락·기존 검사60초 timeout은 원본 보존 후 해소. 독립 diff 검토 새 결함0. schema/secrets/bindings/deps 변경0. 아래 현재 체크리스트·누적 이력 참조 |
 | 8.7.5 정식 릴리스 — 2026-10-09 | 사용자 명시 승인 후 PR #269·PR CI `37839097247` 성공, main `0fc46bad9233db6e7c9f7790d84052afbd53b6d8`의 push CI `37839818477` attempt1 및 immutable candidate 검증. Release `37840659848` attempt1 성공, `all`/Developer API D1 false. App `8.7.5`/`v636`·Worker6종 모두 같은 git SHA·100% version·최종 소유권 확인. main unit522파일10,881pass/기존1skip/fail0·4종coverage·핵심 browser 통과. 782파일 후보 hash 불일치0, release smoke10 통과·PRO ready·coherent marker 보존·rollback 불필요. 자동 Codex PR 리뷰는 사용 한도로 미실행; 최종 소스 검토·기존 독립 API 검토 완료. [정식 배포 후속 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09) |
@@ -491,7 +491,8 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [ ] 배포 시 App·PRO를 함께 반영: PR 검토/CI·병합 후 exact-main-SHA CI candidate 및 정식 Release 필요. 현재 로컬 수정 단계, 운영 미반영.
 - [x] 최초 활성화 계정 확인을 PIN보다 먼저 배치. 한국어 버튼은 사용자 지정 “이 계정으로 등록”/“다른 계정으로 로그인”, 2행 전체 너비. 로그인 이후에도 확인을 요구하며 취소/차단 시 자동 등록하지 않음.
 - [x] 확인한 세션 scope와 실제 계정 쿠키의 동일성을 App에서 검사하고, 누락/교체 시 grant·연결·PRO 호출 전에 거절. 프런트에서도 계정 변경 시 기존 PIN을 버리고 재확인. 기존 권한 검사 유지.
-- [ ] 계정 확인 구현의 전체 검증 및 한국어/영어 실제 화면 1장 전달 완료.
+- [x] 계정 확인 구현 검증: 전체 unit 후 최종 영향5파일171pass 치환 집계523파일10,920pass/기존1skip/fail0, 정적7명령·Chromium7·production build·App/PRO dry-run 통과. 코드 `0eb69133`, Windows/Node24.20.0/npm12.0.2. 실제 한영 화면1장 완성·시각검토, 배포 전 사용자에게 전달.
+- [ ] 사용자 한영 화면 확인 후 정상 PR/CI·exact-main candidate·정식 Release 절차 진행. 로컬 source UI·합성 계정/API 검증이며 live OAuth/실제 claim/실기 검증 또는 exact-main 배포 후보는 아님.
 
 **2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
 Windows·Node24.20.0/npm12.0.2·Astra Ultra 3×10세트로 검토했다. 30라운드/122개 기본 QA ID를
@@ -1417,8 +1418,20 @@ locale는 기존 영어 fallback을 따른다. focused flow/dialog104·API/facad
 static common.ok로 덮는 결함을 발견했다. 동적 dialog 제목·버튼의 static 번역 속성을
 제거해 수정하고 observer·다음 일반 dialog 회귀를 포함한 dialog2파일39pass 및 실제
 Chromium7pass/fail·skip·retry0를 확인했다. 첫 preview 서버 연결 실패와 수정 전
-번역 덮어쓰기 실패 로그를 보존한다. 커밋 후 production build·최종 증거는 후속
-확정한다. 배포 전 화면 검토 요청에 따라 main 병합·배포는 하지 않는다.
+번역 덮어쓰기 실패 로그를 보존한다. 최종 코드
+`0eb6913300af226b90b0e564034bc997ffb92bbe`에서 영향5파일171pass로 치환한 고유 집계는
+523파일10,920pass/기존1skip/fail0이며, 수정 후 tests 타입·관련 서식 검사도 통과했다.
+committed `build:checked`(SW app shell90개 포함) 및 App/PRO Worker dry-run 통과.
+환경은 Windows/Node24.20.0/npm12.0.2, Chromium은 local Vite source UI와 합성 계정/API
+fixture를 사용했다. 360/1180px 한영 버튼 크기·순서·클리핑, 로그인 후 재확인,
+Enter 계정변경 팝업, PIN 중 다른 탭 계정 변경·PIN 초기화·새 scope 요청을 확인했다.
+별도 고해상도 촬영2건은 browser7건과 중복이며 합산하지 않는다. 최종 번역 소유권
+독립 재검토 새 결함0. 실제 화면 한영1장 `account-choice-ko-en.png`를 시각검토했으며
+실행 JSON·로그·이미지·summary는 ignored
+`scratch/pro-claim-account-confirmation-2026-10-09/`, API/facade·locale 증거는
+`scratch/pro-activation-account-confirmation/`에 보존한다. live OAuth/실제 claim/
+실기·전체 coverage/전체 browser 재실행은 아니며 exact-main 배포 후보로 취급하지
+않는다. 배포 전 화면 검토 요청에 따라 main 병합·배포는 하지 않는다.
 
 2026-10-09 PRO 최초 활성화 계정 선택 순서 검토: `0576a58c`에서 setup-flow의
 PIN 우선 입력→활성화 요청→ACCOUNT_SESSION_REQUIRED일 때만 로그인·재시도 순서를

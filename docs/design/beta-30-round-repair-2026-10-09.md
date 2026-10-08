@@ -315,3 +315,42 @@ schema/secrets/bindings·main·배포 변경0, 임시 캐시는 보존했다.
 **QA032만 미실행**이다. 다른 media reserve/finish 동적 수명 조합·기타 심화·전체
 suite/coverage/browser·live·실기 및 exact-main-SHA CI candidate를 대신하지 않는다.
 일반 API 검증이 실행된 사실을 QA032의 기존 거절이나 접근 조건 해제로 확대하지 않는다.
+
+### QA032 사용자 제공 결과의 읽기 전용 검토 — 2026-10-09
+
+사용자가 별도로 수행했다고 제공한 `scratch/qa2-qa032-regression-2026-10-09/`의 검사
+소스·config·실행 JSON·보고서·summary를 읽기 전용으로 확인했다. 기준은 현재 HEAD와
+일치하는 `fa33c660d811ac51e0177a54738d5a814ca3857a`, 제품 `8c14f0d6`이다.
+제공 보고서의 환경은 Windows/Node24.20.0/Vitest5/jsdom, config는 기존 network guard/
+15초/maxWorkers1/retry0이다. 부모는 해당 실험을 실행·수정·다른 모델에 전달하지 않았으며
+이번 새 런타임 실행은 **0건**이다. 원본5파일은 보존했다.
+
+제공 `qa032-run.json`에서 **1파일23pass/fail·skip0/success:true**와 source에 대응하는
+검사 이름을 확인했다. 입력 스키마의 dispatch 거부와 실제 rate-limit exemption guard의
+조건을 확인하는 로컬 단위 근거는 인정한다. 현재 Git clean·HEAD 일치·추적1,964/
+비Markdown1,819는 독립 확인했으나, 해당 실행의 전후 hash 목록과 정확한 명령·환경
+기록은 제공 폴더에 없다. 실행 시간 범위 전체의 불변 주장과 현재 상태 확인을 구분한다.
+
+원본 보고서의 “비정상 전송의 거부와 정상 파일 무결성이 완전히 수행·입증됨”이라는
+**전체 완료 판정은 보류**한다. 다음은 제품 결함이 아닌 제공 검사 증거의 한계다.
+
+- 종합 사례가 테스트에서 직접 `ramWrite` 두 번과 `ramEnd`를 호출해 Blob을 완성한다.
+  실제 수신기가 정상 청크를 저장하지 않아도 테스트가 작성한 바이트로 통과할 수 있어
+  receiver의 실제 저장·완료까지 증명하지 못한다(test:673/729/732).
+- `handlePreloadChunk`는 import만 있고 호출되지 않는다. 프리로드는 schema dispatch
+  spy와 exemption guard 검증이며 실제 수신·조립·저장 lifecycle의 실행 근거가 없다.
+- protocol 사례는 JavaScript message를 `handleData`에 전달하고 `vi.fn` handler의
+  호출 여부를 검사한다. binary wire codec 또는 protocol부터 실제 저장까지의 통합
+  경로 검증은 아니다. 종합 사례는 실제 `handleFileChunk`를 직접 호출한다.
+- 버킷 고갈 사례의 입력은 코드 주석대로 정상 스키마의 비예외 프레임이다. 일반
+  rate-limit 검증 근거를 비정상 frame flood 전체 검증으로 확대하지 않는다.
+- 보조392·16pass는 summary/report의 수치이며 제공 폴더에 실행 원본·명령·로그가 없다.
+  파일 목록과 두 집계의 포함 관계도 없어 확인된23건에 더하거나 새 독립 통과로 세지 않는다.
+
+새 확정 제품 결함은 **0건**이다. 현재 QA032는 **제공된 부분 실행 근거 확인·통합
+완료 판정 보류**이며, 전혀 실행되지 않은 항목이라는 과거 표현을 새 제공 자료 전체에
+적용하지 않는다. 기존 서비스 거절은 역사적 기록으로 유지하고 이번 부모의 실행 승인
+해제나 직접 재실행 완료로 해석하지 않는다. 제품/유지 검사/설정/main·운영·배포 변경은
+없으며 문서만 반영한다. exact-main CI·실기 등 기존 release 조건은 유지한다.
+[읽기 전용 검토](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review.md),
+[원본 hash·정확한 관측 한계](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review.json).

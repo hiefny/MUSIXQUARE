@@ -748,6 +748,17 @@ const ta: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO அறையைச் செயல்படுத்து',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message':
+    'Register this room to “{{name}}”?\nYou’ll set the room password in the next step.',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.\nYou’ll confirm your account before setting the room password.',
+  'pro.activation_account_continue': 'Register with this account',
+  'pro.activation_account_switch': 'Sign in with another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'இந்த அறைக்கு புதிய 8 இலக்கக் கடவுச்சொல்லை அமைக்கவும்.',
   'pro.activation_pin_same': 'தற்காலிகக் கடவுச்சொல்லிலிருந்து வேறுபட்ட ஒன்றைத் தேர்வுசெய்யவும்.',
   'pro.claim_retry_title': 'PRO இணைப்பை மீண்டும் முயலவா?',

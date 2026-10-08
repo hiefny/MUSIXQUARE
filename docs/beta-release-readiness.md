@@ -9,10 +9,11 @@
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
 **후속 변경 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명을 15분에서
-24시간으로 변경했다. 로컬 후보 `8.7.6` / `v637`이며 운영은 위 `8.7.5` / `v636`을
+24시간으로 변경했다. 로컬 후보 `8.7.6` / `v638`이며 운영은 위 `8.7.5` / `v636`을
 유지한다. 이번 변경의 검증·배포 상태는 아래 PRO 활성화 링크 항목을 따른다.
-추가 읽기 전용 검토에서 최초 활성화의 계정 확인 화면 누락을 확인했다. 현재는 암호
-제출 후 요청 시점의 로그인 계정으로 등록하며, 계정 확인·변경을 먼저 제공하는 개선은 미구현이다.
+최초 활성화는 계정 확인·변경을 먼저 제공한 뒤 방 암호를 설정하도록 수정했다.
+사용자가 요청한 한국어/영어 실제 화면 확인 전에는 배포하지 않는다. 아래 최신 구현
+항목의 검증 상태를 따르며 이전 읽기 전용 검토 기록은 발견 당시 상태로 보존한다.
 
 다음 배포 담당자는 이 문서부터 읽는다. 각 QA의 상세 보고서를 대체하지 않고,
 **배포에 필요한 현재 상태와 남은 작업**을 한곳에 모은다. 아래 관측값은 해당
@@ -22,6 +23,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| PRO 최초 활성화 계정 확인 구현 — 2026-10-09 | 기준 `0bb61397`, 로컬 `agent/pro-activation-24h` 작업 트리. 계정 새로 확인→로그인/계정 변경→명시 확인→PIN→등록, 한국어/영어 2행 전체 너비 버튼. 확인 이후 계정 변경은 UI 취소·재확인 및 App의 expected-scope 검사로 등록 전에 거절. 기존 claim/복구/이전 권한 유지. 전체 unit523파일10,919pass/기존1skip/fail0·정적7명령 통과 후, 실제 browser에서 발견한 번역 덮어쓰기 수정 및 dialog39·Chromium7pass. 최종 build·화면 확인 중. schema/secrets/bindings/deps 변경0, 미배포 |
 | PRO 최초 활성화 계정 확인 UX 검토 — 2026-10-09 | `0576a58c13491b36bdd12b7e001d9dac1cddb21d` 읽기 전용 검토. 링크 접속 자체는 소유권을 확정하지 않으나 PIN 입력·제출 전에 계정 표시/확인/변경이 없다. 비로그인은 최초 활성화 요청401 후 로그인·자동 재시도, 로그인 상태는 현재 쿠키의 계정으로 등록한다. 일반 관리자 claim에서 의도하지 않은 로그인 계정 귀속 가능성을 사용자 흐름 공백으로 확인; 계정 귀속 grant는 서버 대상 계정 제한 유지. 기존 setup-flow/account UI125pass/fail·skip0, 실제 운영 claim 사용 없음. 계정 확인→PIN 설정→확정 및 제출 시 동일 계정 검증 개선은 미구현; 제품·검사 코드/운영 변경 없음 |
 | PRO 활성화 링크 24시간 — 2026-10-09 | 검증 코드 `4d1bfa84319d67f8866eaa8661e8c8a9c9a9a6e9`, 임시 `agent/pro-activation-24h`. 신규 활성화 링크 기본·최대 수명 24시간, App·PRO·CLI 공통 상한 사용. 로컬 `8.7.6`/`v637`, 운영 미반영. 전체 unit 후 영향3파일64pass 치환 집계522파일10,887pass/기존1skip/최종fail0; 정적7명령·production build·App/PRO dry-run 통과. 최초 캐시 주소 누락·기존 검사60초 timeout은 원본 보존 후 해소. 독립 diff 검토 새 결함0. schema/secrets/bindings/deps 변경0. 아래 현재 체크리스트·누적 이력 참조 |
 | 8.7.5 정식 릴리스 — 2026-10-09 | 사용자 명시 승인 후 PR #269·PR CI `37839097247` 성공, main `0fc46bad9233db6e7c9f7790d84052afbd53b6d8`의 push CI `37839818477` attempt1 및 immutable candidate 검증. Release `37840659848` attempt1 성공, `all`/Developer API D1 false. App `8.7.5`/`v636`·Worker6종 모두 같은 git SHA·100% version·최종 소유권 확인. main unit522파일10,881pass/기존1skip/fail0·4종coverage·핵심 browser 통과. 782파일 후보 hash 불일치0, release smoke10 통과·PRO ready·coherent marker 보존·rollback 불필요. 자동 Codex PR 리뷰는 사용 한도로 미실행; 최종 소스 검토·기존 독립 API 검토 완료. [정식 배포 후속 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09) |
@@ -487,7 +489,9 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] 공통 claim의 24시간 초과 발급·검증 거절, 실제 CLI 출력의 24시간 수명 확인. 기존 복구/소유권 이전 수명 유지. 독립 diff 검토 새 결함0.
 - [x] 전체 unit 후 영향3파일64pass 치환 집계522파일10,887pass/기존1skip/최종fail0. 타입·lint·format 및 release identity/Developer API/D1/ops drift guard7명령, committed `4d1bfa84`의 production build·App/PRO dry-run 통과.
 - [ ] 배포 시 App·PRO를 함께 반영: PR 검토/CI·병합 후 exact-main-SHA CI candidate 및 정식 Release 필요. 현재 로컬 수정 단계, 운영 미반영.
-- [ ] 추가 확인된 최초 활성화 UX: 계정 표시·현재 계정으로 계속/다른 계정 선택·로그인 완료를 PIN 입력보다 먼저 배치하고, 최종 제출에서도 확인한 계정을 유지하도록 개선 검토. 사용자 요청은 우선 현행 조사이며 아직 구현하지 않음.
+- [x] 최초 활성화 계정 확인을 PIN보다 먼저 배치. 한국어 버튼은 사용자 지정 “이 계정으로 등록”/“다른 계정으로 로그인”, 2행 전체 너비. 로그인 이후에도 확인을 요구하며 취소/차단 시 자동 등록하지 않음.
+- [x] 확인한 세션 scope와 실제 계정 쿠키의 동일성을 App에서 검사하고, 누락/교체 시 grant·연결·PRO 호출 전에 거절. 프런트에서도 계정 변경 시 기존 PIN을 버리고 재확인. 기존 권한 검사 유지.
+- [ ] 계정 확인 구현의 전체 검증 및 한국어/영어 실제 화면 1장 전달 완료.
 
 **2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
 Windows·Node24.20.0/npm12.0.2·Astra Ultra 3×10세트로 검토했다. 30라운드/122개 기본 QA ID를
@@ -1395,6 +1399,26 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 PRO 최초 활성화 계정 확인 구현: 사용자 승인 후 계정 선택을 PIN보다
+앞으로 옮기고 파란 “이 계정으로 등록”/회색 “다른 계정으로 로그인” 두 버튼을
+전체 너비의 2행으로 배치했다. 계정은 새로 조회하며 팝업 로그인/변경 후에도 명시
+확인을 받는다. 현재 프런트가 공개하는 계정 닉네임을 표시하고, 클레임은 기존처럼
+문서 메모리에만 유지한다. 최종 요청에는 비권한 세션 식별값인 expected scope를
+헤더로 넣고 App에서 실제 HttpOnly 세션과 비교한 뒤 기존 서버 account assertion을
+발행한다. 누락/잘못된 값/다른 계정은409, 비로그인은401이며 grant·계정 연결·DO
+호출 전에 중단한다. 헤더는 PRO에 전달하지 않는다. 구 UI의 scope 없는 활성화는
+거절되므로 새 UI 로드가 필요하다. 새 DB/schema/secret/binding/dependency 변경0.
+같은 미배포 제품8.7.6에서 PWA 변경을 덮도록 cache를v638로 올리고 bootstrap 주소도
+맞췄다. 한영 새 문구7키와 전체 열거30locale의 명시 영어 fallback을 추가했으며 다른
+locale는 기존 영어 fallback을 따른다. focused flow/dialog104·API/facade346·locale46
+통과, 독립 검토 새 결함0. 전체 unit523파일10,919pass/기존1skip/fail0 및 정적7명령
+통과 후 실제 Chromium에서 버튼 DOM 재배치 시 i18n observer가 사용자 지정 문구를
+static common.ok로 덮는 결함을 발견했다. 동적 dialog 제목·버튼의 static 번역 속성을
+제거해 수정하고 observer·다음 일반 dialog 회귀를 포함한 dialog2파일39pass 및 실제
+Chromium7pass/fail·skip·retry0를 확인했다. 첫 preview 서버 연결 실패와 수정 전
+번역 덮어쓰기 실패 로그를 보존한다. 커밋 후 production build·최종 증거는 후속
+확정한다. 배포 전 화면 검토 요청에 따라 main 병합·배포는 하지 않는다.
 
 2026-10-09 PRO 최초 활성화 계정 선택 순서 검토: `0576a58c`에서 setup-flow의
 PIN 우선 입력→활성화 요청→ACCOUNT_SESSION_REQUIRED일 때만 로그인·재시도 순서를

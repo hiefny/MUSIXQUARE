@@ -212,6 +212,20 @@ matched provider data/code checkpoint.
   bearer claim alone cannot create an anonymous owner. Recovery revokes the
   previous owner credential without changing the room's controller sessions or
   data.
+- First activation refreshes the account session before collecting a PIN. An
+  anonymous user signs in through the isolated popup; an authenticated user
+  explicitly confirms the displayed account or chooses another account. Popup
+  completion returns to account confirmation rather than registering the room.
+  The two full-width actions are stacked, with registration above account
+  switching. Only the subsequent PIN confirmation submits activation.
+  The client carries the confirmed opaque session scope in
+  `X-MXQR-Account-Expected-Scope`; the App compares it with the actual HttpOnly
+  account session before grant admission, reverse-link writes, or forwarding.
+  This scope conveys intent, never authority. Missing or changed scopes return
+  `ACCOUNT_SESSION_CHANGED` (409); the new UI reconfirms the account and PIN.
+  Cached older clients without the scope must load the updated UI. Logout or
+  account replacement also invalidates an open confirmation/PIN dialog locally.
+  Existing claim account bindings and recovery/transfer rules still apply.
 - Activation requires the claim and a new eight-digit PIN. The client derives
   the historical bootstrap value from the room code and supplies it
   automatically; the user does not type it and operators must not describe it

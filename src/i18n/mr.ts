@@ -724,6 +724,17 @@ const mr: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO रूम सक्रिय करा',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message':
+    'Register this room to “{{name}}”?\nYou’ll set the room password in the next step.',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.\nYou’ll confirm your account before setting the room password.',
+  'pro.activation_account_continue': 'Register with this account',
+  'pro.activation_account_switch': 'Sign in with another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'या रूमसाठी नवीन 8-अंकी पासवर्ड ठरवा.',
   'pro.activation_pin_same': 'तात्पुरत्या पासवर्डपेक्षा वेगळा पासवर्ड निवडा.',
   'pro.claim_retry_title': 'PRO लिंकचा पुन्हा प्रयत्न करायचा?',

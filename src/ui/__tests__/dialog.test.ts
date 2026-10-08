@@ -27,23 +27,29 @@ function createDialogDOM(): void {
 
   const title = document.createElement('h2');
   title.id = 'dialog-title';
+  title.dataset.i18n = 'common.info';
 
   const msg = document.createElement('p');
   msg.id = 'dialog-message';
 
   const okBtn = document.createElement('button');
   okBtn.id = 'btn-dialog-ok';
+  okBtn.dataset.i18n = 'common.ok';
   // jsdom has no layout; expose the button as focusable to the focus trap.
   Object.defineProperty(okBtn, 'offsetParent', { value: overlay, configurable: true });
 
   const secondaryBtn = document.createElement('button');
   secondaryBtn.id = 'btn-dialog-secondary';
+  secondaryBtn.dataset.i18n = 'common.cancel';
   Object.defineProperty(secondaryBtn, 'offsetParent', { value: overlay, configurable: true });
 
   overlay.appendChild(title);
   overlay.appendChild(msg);
-  overlay.appendChild(okBtn);
-  overlay.appendChild(secondaryBtn);
+  const actions = document.createElement('div');
+  actions.className = 'dialog-actions adaptive-action-group';
+  actions.appendChild(secondaryBtn);
+  actions.appendChild(okBtn);
+  overlay.appendChild(actions);
   document.body.appendChild(overlay);
 }
 
@@ -174,6 +180,142 @@ describe('Dialog System', () => {
       expect(order).toEqual(['activation']);
       await promise;
       expect(order).toEqual(['activation', 'resolved:ok']);
+    });
+
+    it.each(['click', 'Enter'])(
+      'runs only the selected secondary activation hook synchronously on %s',
+      async (gesture) => {
+        const { showDialog } = await import('../dialog.ts');
+        const order: string[] = [];
+        const primary = vi.fn();
+        const promise = showDialog({
+          title: 'Choose account',
+          secondaryText: 'Sign in with another account',
+          actionLayout: 'stacked',
+          onPrimaryActivation: primary,
+          onSecondaryActivation: () => order.push('activation'),
+        }).then((result) => {
+          order.push(`resolved:${result.action}`);
+        });
+        const secondary = document.getElementById('btn-dialog-secondary')!;
+        if (gesture === 'click') secondary.click();
+        else {
+          secondary.focus();
+          secondary.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          );
+        }
+        expect(primary).not.toHaveBeenCalled();
+        expect(order).toEqual(['activation']);
+        await promise;
+        expect(order).toEqual(['activation', 'resolved:secondary']);
+      },
+    );
+
+    it('keeps primary first in stacked keyboard order and restores the next ordinary dialog', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const controller = new AbortController();
+      const onSecondaryActivation = vi.fn();
+      const stacked = showDialog({
+        title: 'Choose account',
+        secondaryText: 'Switch account',
+        actionLayout: 'stacked',
+        onSecondaryActivation,
+        signal: controller.signal,
+      });
+      const ordinary = showDialog({ title: 'Next', secondaryText: 'Cancel' });
+      const actions = document.querySelector('.dialog-actions')!;
+      const primary = document.getElementById('btn-dialog-ok')!;
+      const secondary = document.getElementById('btn-dialog-secondary')!;
+      expect([...actions.children]).toEqual([primary, secondary]);
+      expect(actions.classList.contains('dialog-actions-stacked')).toBe(true);
+
+      secondary.focus();
+      secondary.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+      );
+      expect(document.activeElement).toBe(primary);
+      primary.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Tab',
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      expect(document.activeElement).toBe(secondary);
+
+      controller.abort();
+      vi.advanceTimersByTime(10);
+      await expect(stacked).resolves.toEqual({ action: 'superseded' });
+      expect([...actions.children]).toEqual([secondary, primary]);
+      expect(actions.classList.contains('dialog-actions-stacked')).toBe(false);
+      secondary.click();
+      await expect(ordinary).resolves.toEqual({ action: 'secondary' });
+      expect(onSecondaryActivation).not.toHaveBeenCalled();
+      closeDialog();
+    });
+
+    it('still resolves a secondary action when its browser activation hook fails', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        secondaryText: 'Sign in',
+        onSecondaryActivation: () => {
+          throw new Error('Popup blocked');
+        },
+      });
+      document.getElementById('btn-dialog-secondary')!.click();
+      await expect(promise).resolves.toEqual({ action: 'secondary' });
+    });
+
+    it('keeps runtime labels through added-node translation and the next ordinary dialog', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      // The real i18n observer translates added elements by their static keys.
+      // Match that boundary while this suite keeps its lightweight t() mock.
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (!(node instanceof HTMLElement)) continue;
+            for (const element of [node, ...node.querySelectorAll<HTMLElement>('[data-i18n]')]) {
+              const key = element.dataset.i18n;
+              if (key) element.textContent = key;
+            }
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      try {
+        const stacked = showDialog({
+          title: 'Register room',
+          buttonText: 'Register with this account',
+          secondaryText: 'Sign in with another account',
+          actionLayout: 'stacked',
+        });
+        const ordinary = showDialog({
+          title: 'Next ordinary dialog',
+          secondaryText: 'Keep editing',
+        });
+        await Promise.resolve();
+        expect(document.getElementById('btn-dialog-ok')?.textContent).toBe(
+          'Register with this account',
+        );
+        expect(document.getElementById('btn-dialog-secondary')?.textContent).toBe(
+          'Sign in with another account',
+        );
+
+        closeDialog('ok');
+        await stacked;
+        vi.advanceTimersByTime(10);
+        await Promise.resolve();
+        expect(document.getElementById('dialog-title')?.textContent).toBe('Next ordinary dialog');
+        expect(document.getElementById('btn-dialog-ok')?.textContent).toBe('common.ok');
+        expect(document.getElementById('btn-dialog-secondary')?.textContent).toBe('Keep editing');
+        closeDialog('secondary');
+        await expect(ordinary).resolves.toEqual({ action: 'secondary' });
+      } finally {
+        observer.disconnect();
+        closeDialog();
+      }
     });
 
     it('returns a Promise<DialogResult>', async () => {

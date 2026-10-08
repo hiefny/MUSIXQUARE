@@ -745,6 +745,17 @@ const ro: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Activează camera PRO',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message':
+    'Register this room to “{{name}}”?\nYou’ll set the room password in the next step.',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.\nYou’ll confirm your account before setting the room password.',
+  'pro.activation_account_continue': 'Register with this account',
+  'pro.activation_account_switch': 'Sign in with another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'Setează o parolă nouă din 8 cifre pentru această cameră.',
   'pro.activation_pin_same': 'Alege o parolă diferită de cea temporară.',
   'pro.claim_retry_title': 'Încerci din nou linkul PRO?',

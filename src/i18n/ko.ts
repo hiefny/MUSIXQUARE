@@ -716,6 +716,16 @@ const ko = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO 방 활성화',
+  'pro.activation_account_title': 'PRO 방을 등록할 계정',
+  'pro.activation_account_message':
+    '“{{name}}” 계정에 이 방을 등록할까요?\n다음 단계에서 방 암호를 설정합니다.',
+  'pro.activation_account_login_message':
+    '이 방을 등록할 계정으로 로그인해 주세요.\n계정을 확인한 뒤 방 암호를 설정합니다.',
+  'pro.activation_account_continue': '이 계정으로 등록',
+  'pro.activation_account_switch': '다른 계정으로 로그인',
+  'pro.activation_account_unavailable':
+    '계정 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.',
+  'pro.activation_complete': '등록 완료',
   'pro.activation_message': '이 방에서 사용할 새 8자리 암호를 설정해 주세요.',
   'pro.activation_pin_same': '임시 암호와 다른 암호를 설정해 주세요.',
   'pro.claim_retry_title': 'PRO 링크로 다시 시도할까요?',

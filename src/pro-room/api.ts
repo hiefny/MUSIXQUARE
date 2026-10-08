@@ -85,6 +85,7 @@ const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const OWNER_TRANSFER_REQUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
+const ACCOUNT_STATS_SCOPE_RE = /^[A-Za-z0-9_-]{43}$/;
 const ERROR_CODE_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const FORBIDDEN_UPLOAD_HEADERS = new Set([
@@ -272,6 +273,8 @@ export interface EnterProRoomPresenceOptions {
 export interface ActivateProRoomInput {
   code: string;
   claimToken: string;
+  /** Opaque session scope explicitly confirmed before the room PIN was chosen. */
+  expectedAccountScope: string;
   temporaryPin: string;
   newPin: string;
   ownerName?: string;
@@ -1381,6 +1384,12 @@ export class ProRoomApiClient {
     if (!parseProRoomClaimToken(input.claimToken)) {
       throw new ProRoomApiError('INVALID_CLAIM_TOKEN');
     }
+    if (
+      typeof input.expectedAccountScope !== 'string' ||
+      !ACCOUNT_STATS_SCOPE_RE.test(input.expectedAccountScope)
+    ) {
+      throw new ProRoomApiError('ACCOUNT_SESSION_CHANGED', 409);
+    }
     const ownerName =
       input.ownerName === undefined
         ? undefined
@@ -1393,6 +1402,7 @@ export class ProRoomApiClient {
     }
     return this.#request(`${path}/activation`, {
       method: 'POST',
+      headers: { 'X-MXQR-Account-Expected-Scope': input.expectedAccountScope },
       body: {
         claimToken: input.claimToken,
         temporaryPin: validatePin(input.temporaryPin),

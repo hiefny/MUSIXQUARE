@@ -735,6 +735,17 @@ const cs: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivovat místnost PRO',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message':
+    'Register this room to “{{name}}”?\nYou’ll set the room password in the next step.',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.\nYou’ll confirm your account before setting the room password.',
+  'pro.activation_account_continue': 'Register with this account',
+  'pro.activation_account_switch': 'Sign in with another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'Nastavte pro tuto místnost nové osmimístné heslo.',
   'pro.activation_pin_same': 'Zvolte jiné heslo než dočasné.',
   'pro.claim_retry_title': 'Zkusit odkaz PRO znovu?',

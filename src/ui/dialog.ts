@@ -21,8 +21,12 @@ interface DialogOptions {
   cancelText?: string;
   dismissible?: boolean;
   defaultFocus?: 'primary' | 'secondary';
+  /** Places primary then secondary on separate full-width rows. */
+  actionLayout?: 'stacked';
   /** Runs synchronously inside the validated primary click/Enter gesture. */
   onPrimaryActivation?: () => void;
+  /** Runs synchronously inside the secondary click/Enter gesture. */
+  onSecondaryActivation?: () => void;
   /** Cancels a queued or active dialog without disturbing another dialog. */
   signal?: AbortSignal;
   inputField?: {
@@ -179,6 +183,12 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       ? 'secondary'
       : 'primary';
 
+  // These elements become runtime-owned once a dialog opens. Static bootstrap
+  // translation keys must not overwrite custom copy when action rows move or
+  // the i18n observer translates a newly inserted element.
+  titleEl.removeAttribute('data-i18n');
+  okBtn.removeAttribute('data-i18n');
+  secondaryBtn?.removeAttribute('data-i18n');
   titleEl.textContent = title;
   msgEl.textContent = message;
   applyUserTextFontFallback(titleEl, title);
@@ -356,6 +366,18 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   syncOverlayState('dialog-overlay');
 
   const cleanup: (() => void)[] = [];
+  const stackedActions = o.actionLayout === 'stacked';
+  const actions = okBtn.closest('.dialog-actions');
+  if (stackedActions && actions) {
+    actions.classList.add('dialog-actions-stacked');
+    cleanup.push(() => actions.classList.remove('dialog-actions-stacked'));
+    if (secondaryBtn?.parentElement === actions && okBtn.parentElement === actions) {
+      // Keep keyboard and screen-reader order aligned with the visible rows.
+      const originalNextSibling = okBtn.nextSibling;
+      actions.insertBefore(okBtn, secondaryBtn);
+      cleanup.push(() => actions.insertBefore(okBtn, originalNextSibling));
+    }
+  }
   const on = (target: EventTarget | null, type: string, handler: EventListener) => {
     if (!target) return;
     target.addEventListener(type, handler);
@@ -431,6 +453,14 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   }
 
   const done = (action: string) => closeDialog(action);
+  const activateSecondary = () => {
+    try {
+      o.onSecondaryActivation?.();
+    } catch (error) {
+      log.debug('[Dialog] Secondary activation hook failed:', error);
+    }
+    done('secondary');
+  };
 
   on(overlay, 'click', (e) => {
     if (!dismissible || !_dialogActive) return;
@@ -439,7 +469,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   on(okBtn, 'click', () => tryValidateAndClose());
   if (hasSecondary && secondaryBtn) {
-    on(secondaryBtn, 'click', () => done('secondary'));
+    on(secondaryBtn, 'click', activateSecondary);
   }
 
   // Enter key on input confirms dialog (with validation)
@@ -465,11 +495,30 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       return;
     }
 
+    if (ke.key === 'Enter') {
+      const focused = document.activeElement;
+      if (focused === okBtn && !okBtn.disabled) {
+        ke.preventDefault();
+        tryValidateAndClose();
+      } else if (
+        hasSecondary &&
+        secondaryBtn &&
+        focused === secondaryBtn &&
+        !secondaryBtn.disabled
+      ) {
+        ke.preventDefault();
+        activateSecondary();
+      }
+      return;
+    }
+
     if (ke.key === 'Tab') {
+      const actionButtons = stackedActions
+        ? [okBtn, hasSecondary ? secondaryBtn : null]
+        : [hasSecondary ? secondaryBtn : null, okBtn];
       const focusables = [
         (_dialogInputFocusTarget || _dialogInput) as HTMLElement | null,
-        hasSecondary ? secondaryBtn : null,
-        okBtn,
+        ...actionButtons,
       ].filter((x): x is HTMLElement => x != null && x.offsetParent !== null);
       if (focusables.length === 0) return;
 

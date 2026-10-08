@@ -5614,6 +5614,15 @@
     flex-basis: 100%;
   }
 
+  .dialog-actions.dialog-actions-stacked {
+    flex-direction: column;
+  }
+
+  .dialog-actions.dialog-actions-stacked > button:not([hidden]) {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+
   .language-dialog {
     width: min(380px, 100%);
     max-height: min(500px, calc(var(--app-height, 100dvh) - 48px));

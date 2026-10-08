@@ -732,6 +732,16 @@ const da: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivér PRO-rum',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.',
+  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'Angiv en ny 8-cifret adgangskode til dette rum.',
   'pro.activation_pin_same': 'Vælg en anden adgangskode end den midlertidige.',
   'pro.claim_retry_title': 'Prøv PRO-linket igen?',

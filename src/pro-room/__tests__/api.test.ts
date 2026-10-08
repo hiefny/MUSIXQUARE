@@ -19,6 +19,7 @@ import {
 const ROOM_CODE = '000001';
 const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
 const CLAIM_TOKEN = `v1.${'a'.repeat(32)}.${'B'.repeat(43)}`;
+const ACCOUNT_SCOPE = 'S'.repeat(43);
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 const ASSET_ID = 'asset_00000000001';
 const IDEMPOTENCY_KEY = '018f977e-5df5-7c8f-bb80-55d847ddec0f';
@@ -430,6 +431,7 @@ describe('PRO room cookie session API', () => {
       client.activate({
         code: ROOM_CODE,
         claimToken: CLAIM_TOKEN,
+        expectedAccountScope: ACCOUNT_SCOPE,
         temporaryPin: '00000001',
         newPin: '12345678',
         ownerName: ' Owner ',
@@ -441,6 +443,7 @@ describe('PRO room cookie session API', () => {
     expect(url.toString()).not.toContain(CLAIM_TOKEN);
     expect(init.credentials).toBe('include');
     expect(new Headers(init.headers).get('authorization')).toBeNull();
+    expect(new Headers(init.headers).get('X-MXQR-Account-Expected-Scope')).toBe(ACCOUNT_SCOPE);
     expect(JSON.parse(String(init.body))).toEqual({
       claimToken: CLAIM_TOKEN,
       temporaryPin: '00000001',
@@ -448,6 +451,25 @@ describe('PRO room cookie session API', () => {
       ownerName: 'Owner',
     });
   });
+
+  it.each([undefined, null, '', 'S'.repeat(42), 'S'.repeat(44), '!'.repeat(43)])(
+    'rejects invalid activation account confirmation %s before sending',
+    (expectedAccountScope) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+
+      expect(() =>
+        client.activate({
+          code: ROOM_CODE,
+          claimToken: CLAIM_TOKEN,
+          expectedAccountScope: expectedAccountScope as string,
+          temporaryPin: '00000001',
+          newPin: '12345678',
+        }),
+      ).toThrowError(expect.objectContaining({ code: 'ACCOUNT_SESSION_CHANGED', status: 409 }));
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects an invisible PRO owner display name before sending activation', async () => {
     const fetchMock = vi.fn<typeof fetch>();
@@ -458,6 +480,7 @@ describe('PRO room cookie session API', () => {
         client.activate({
           code: ROOM_CODE,
           claimToken: CLAIM_TOKEN,
+          expectedAccountScope: ACCOUNT_SCOPE,
           temporaryPin: '00000001',
           newPin: '12345678',
           ownerName,

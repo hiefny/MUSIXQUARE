@@ -25,12 +25,18 @@ const mocks = vi.hoisted(() => ({
   showDialog: vi.fn(),
   takeClaims: vi.fn(),
   announceTakeover: vi.fn(),
+  confirmActivationAccount: vi.fn(),
+  captureActivationAccountIntent: vi.fn(),
 }));
 
 vi.mock('../../core/state.ts', () => ({ getState: mocks.getState }));
 vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
 vi.mock('../../account/session.ts', () => ({ requestAccountLoginPopup: mocks.loginPopup }));
+vi.mock('../activation-account.ts', () => ({
+  confirmProRoomActivationAccount: mocks.confirmActivationAccount,
+  captureActivationAccountIntent: mocks.captureActivationAccountIntent,
+}));
 vi.mock('../claim-fragment.ts', () => ({
   takeProRoomClaimsFromFragment: mocks.takeClaims,
 }));
@@ -50,6 +56,7 @@ import { clearPendingSessionRequestIdsForTests, enterProRoomFromSetup } from '..
 
 const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
+const ACCOUNT_SCOPE = 's'.repeat(43);
 type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>[0]>[0];
 
 beforeEach(() => {
@@ -69,6 +76,12 @@ beforeEach(() => {
   mocks.recoverOwner.mockResolvedValue({});
   mocks.transferOwner.mockResolvedValue({});
   mocks.loginPopup.mockResolvedValue('authenticated');
+  mocks.confirmActivationAccount.mockResolvedValue(ACCOUNT_SCOPE);
+  mocks.captureActivationAccountIntent.mockImplementation(() => ({
+    signal: new AbortController().signal,
+    isCurrent: () => true,
+    dispose: vi.fn(),
+  }));
   sessionStorage.clear();
   localStorage.clear();
   clearPendingSessionRequestIdsForTests();
@@ -83,6 +96,68 @@ afterEach(() => {
 });
 
 describe('PRO room setup flow', () => {
+  it('requires account consent before requesting a new PIN and sends the confirmed scope', async () => {
+    mocks.takeClaims.mockReturnValue({ activationClaimToken: CLAIM });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
+    let confirm: (scope: string | null) => void = () => undefined;
+    mocks.confirmActivationAccount.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          confirm = resolve;
+        }),
+    );
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '87654321' });
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await vi.waitFor(() => expect(mocks.confirmActivationAccount).toHaveBeenCalledOnce());
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.activate).not.toHaveBeenCalled();
+    confirm(ACCOUNT_SCOPE);
+    await expect(entering).resolves.toBe(true);
+    expect(mocks.activate).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedAccountScope: ACCOUNT_SCOPE }),
+      expect.any(AbortSignal),
+    );
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ buttonText: 'pro.activation_complete' }),
+    );
+  });
+
+  it('never asks for a PIN or consumes the claim when account confirmation is cancelled', async () => {
+    mocks.takeClaims.mockReturnValue({ activationClaimToken: CLAIM });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
+    mocks.confirmActivationAccount.mockResolvedValueOnce(null);
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.activate).not.toHaveBeenCalled();
+  });
+
+  it('discards the old PIN and reconfirms when the account changes during PIN entry', async () => {
+    mocks.takeClaims.mockReturnValue({ activationClaimToken: CLAIM });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
+    mocks.confirmActivationAccount
+      .mockResolvedValueOnce(ACCOUNT_SCOPE)
+      .mockResolvedValueOnce('b'.repeat(43));
+    let current = true;
+    mocks.captureActivationAccountIntent.mockImplementationOnce(() => ({
+      signal: new AbortController().signal,
+      isCurrent: () => current,
+      dispose: vi.fn(),
+    }));
+    mocks.showDialog
+      .mockImplementationOnce(async () => {
+        current = false;
+        return { action: 'ok', inputValue: '11111111' };
+      })
+      .mockResolvedValueOnce({ action: 'ok', inputValue: '22222222' });
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.confirmActivationAccount).toHaveBeenCalledTimes(2);
+    expect(mocks.activate).toHaveBeenCalledOnce();
+    expect(mocks.activate).toHaveBeenCalledWith(
+      expect.objectContaining({ newPin: '22222222', expectedAccountScope: 'b'.repeat(43) }),
+      expect.any(AbortSignal),
+    );
+  });
+
   it.each([
     {
       purpose: 'activation',
@@ -500,13 +575,14 @@ describe('PRO room setup flow', () => {
         claimToken: CLAIM,
         temporaryPin: '00000001',
         newPin: '87654321',
+        expectedAccountScope: ACCOUNT_SCOPE,
         ownerName: 'Peer 1',
       },
       expect.any(AbortSignal),
     );
   });
 
-  it('keeps an activation claim in memory across popup login and retries it after profile completion', async () => {
+  it('reconfirms the account and PIN after activation reports a missing account', async () => {
     mocks.takeClaims.mockReturnValue({
       activationClaimToken: CLAIM,
       ownerRecoveryClaimToken: null,
@@ -534,7 +610,8 @@ describe('PRO room setup flow', () => {
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
     expect(mocks.takeClaims).toHaveBeenCalledOnce();
-    expect(mocks.loginPopup).toHaveBeenCalledOnce();
+    expect(mocks.confirmActivationAccount).toHaveBeenCalledTimes(2);
+    expect(mocks.loginPopup).not.toHaveBeenCalled();
     expect(mocks.activate).toHaveBeenCalledTimes(2);
     expect(mocks.activate.mock.calls.map(([input]) => input.claimToken)).toEqual([CLAIM, CLAIM]);
     expect(JSON.stringify(sessionStorage)).not.toContain(CLAIM);
@@ -565,7 +642,7 @@ describe('PRO room setup flow', () => {
     });
   });
 
-  it('retains the claim after a blocked popup and allows an in-place login retry', async () => {
+  it('retains the activation claim while reconfirming a changed server account', async () => {
     mocks.takeClaims.mockReturnValue({
       activationClaimToken: CLAIM,
       ownerRecoveryClaimToken: null,
@@ -575,9 +652,11 @@ describe('PRO room setup flow', () => {
     });
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
     mocks.activate
-      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401))
+      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_CHANGED', 409))
       .mockResolvedValueOnce({});
-    mocks.loginPopup.mockResolvedValueOnce('blocked').mockResolvedValueOnce('authenticated');
+    mocks.confirmActivationAccount
+      .mockResolvedValueOnce(ACCOUNT_SCOPE)
+      .mockResolvedValueOnce('b'.repeat(43));
     mocks.showDialog.mockImplementation(
       async (options: { title?: string; onPrimaryActivation?: () => void }) => {
         if (options.title === 'pro.activation_title') {
@@ -593,13 +672,15 @@ describe('PRO room setup flow', () => {
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
-    expect(mocks.loginPopup).toHaveBeenCalledTimes(2);
-    const loginDialogs = mocks.showDialog.mock.calls
+    expect(mocks.loginPopup).not.toHaveBeenCalled();
+    expect(mocks.confirmActivationAccount).toHaveBeenCalledTimes(2);
+    const pinDialogs = mocks.showDialog.mock.calls
       .map(([options]) => options)
-      .filter((options) => options.title === 'pro.claim_login_title');
-    expect(loginDialogs.map((options) => options.message)).toEqual([
-      'pro.claim_login_message',
-      'pro.claim_popup_blocked_message',
+      .filter((options) => options.title === 'pro.activation_title');
+    expect(pinDialogs).toHaveLength(2);
+    expect(mocks.activate.mock.calls.map(([input]) => input.expectedAccountScope)).toEqual([
+      ACCOUNT_SCOPE,
+      'b'.repeat(43),
     ]);
     expect(sessionStorage.length).toBe(0);
     expect(localStorage.length).toBe(0);

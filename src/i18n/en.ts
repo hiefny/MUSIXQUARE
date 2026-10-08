@@ -723,6 +723,15 @@ const en: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Activate PRO room',
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.',
+  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'Set a new 8-digit password for this room.',
   'pro.activation_pin_same': 'Choose a password different from the temporary one.',
   'pro.claim_retry_title': 'Try the PRO link again?',

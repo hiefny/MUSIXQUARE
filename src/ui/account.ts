@@ -86,6 +86,7 @@ let _unsubscribeAccount: (() => void) | null = null;
 let _previousFocus: HTMLElement | null = null;
 let _profilePromptShownScope: string | null | undefined;
 let _profilePromptActive: ReturnType<typeof captureAccountMutationIntent> | null = null;
+let _profilePromptOperation: Promise<AccountNicknameChangeOutcome> | null = null;
 let _accountActionPending = false;
 let _accountLoginPopup: Window | null = null;
 let _accountLoginPopupMonitor: ReturnType<typeof setInterval> | null = null;
@@ -1168,15 +1169,29 @@ function refreshChangedAccountSession(error: unknown): void {
   }
 }
 
-export async function requestAccountNicknameChange(): Promise<AccountNicknameChangeOutcome> {
+export function requestAccountNicknameChange(): Promise<AccountNicknameChangeOutcome> {
   if (!isAccountAuthenticated()) {
     openAccountDialog();
-    return 'cancelled';
+    return Promise.resolve('cancelled');
   }
-  if (_profilePromptActive) return 'cancelled';
+  if (_profilePromptActive) {
+    // A claim flow may encounter the nickname prompt already opened by the
+    // account subscriber. Share its exact result, including Later or failure,
+    // only while it still belongs to this uninterrupted account session.
+    return _profilePromptActive.isCurrent() && _profilePromptOperation
+      ? _profilePromptOperation
+      : Promise.resolve('cancelled');
+  }
   const intent = captureAccountMutationIntent();
   _profilePromptActive = intent;
+  const operation = runAccountNicknameChange(intent);
+  _profilePromptOperation = operation;
+  return operation;
+}
 
+async function runAccountNicknameChange(
+  intent: ReturnType<typeof captureAccountMutationIntent>,
+): Promise<AccountNicknameChangeOutcome> {
   try {
     const account = getAccountSnapshot().account;
     let defaultValue = account?.profileComplete ? account.nickname : account?.nickname || '';
@@ -1228,6 +1243,7 @@ export async function requestAccountNicknameChange(): Promise<AccountNicknameCha
     intent.dispose();
     if (_profilePromptActive === intent) {
       _profilePromptActive = null;
+      _profilePromptOperation = null;
       // A successor account waits for the predecessor's dialog to retire.
       // Same-session cancellation still keeps the existing Later deferral.
       if (_unsubscribeAccount && getAccountStatsScope() !== intent.expectedScope) {
@@ -1512,6 +1528,7 @@ export function __resetAccountUiForTests(): void {
   _previousFocus = null;
   _profilePromptShownScope = undefined;
   _profilePromptActive = null;
+  _profilePromptOperation = null;
   _accountActionPending = false;
   _accountStats = null;
   _accountStatsOwner = null;

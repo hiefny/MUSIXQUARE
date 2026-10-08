@@ -711,6 +711,16 @@ const th: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'เปิดใช้งานห้อง PRO',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.',
+  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'ตั้งรหัสผ่านตัวเลขใหม่ 8 หลักสำหรับห้องนี้',
   'pro.activation_pin_same': 'เลือกรหัสผ่านที่ต่างจากรหัสผ่านชั่วคราว',
   'pro.claim_retry_title': 'ลองใช้ลิงก์ PRO อีกครั้งไหม',

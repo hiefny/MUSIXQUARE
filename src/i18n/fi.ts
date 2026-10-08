@@ -731,6 +731,16 @@ const fi: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivoi PRO-huone',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.',
+  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'Aseta huoneelle uusi 8-numeroinen salasana.',
   'pro.activation_pin_same': 'Valitse väliaikaisesta salasanasta poikkeava salasana.',
   'pro.claim_retry_title': 'Yritetäänkö PRO-linkkiä uudelleen?',

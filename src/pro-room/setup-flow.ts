@@ -10,6 +10,10 @@ import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api.ts';
 import { takeProRoomClaimsFromFragment } from './claim-fragment.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
+import {
+  captureActivationAccountIntent,
+  confirmProRoomActivationAccount,
+} from './activation-account.ts';
 import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 import { announceProRoomTabTakeover } from './tab-handoff.ts';
 import { consumeAccountLoginReturnForRoom } from '../account/login-return.ts';
@@ -298,13 +302,21 @@ async function requestClaimAccountLogin(options: {
 
 async function runClaimProtectedOperation<T>(
   operation: () => Promise<T>,
-  options: { requiresExistingAccount?: boolean } = {},
+  options: { requiresExistingAccount?: boolean; confirmedActivationAccount?: boolean } = {},
 ): Promise<{ ok: true; value: T } | { ok: false }> {
   let accountLoginCompleted = false;
   while (true) {
     try {
       return { ok: true, value: await operation() };
     } catch (error) {
+      if (
+        options.confirmedActivationAccount &&
+        error instanceof ProRoomApiError &&
+        (error.code === 'ACCOUNT_SESSION_CHANGED' || error.code === 'ACCOUNT_SESSION_REQUIRED')
+      ) {
+        // First activation must reconfirm identity before another PIN/claim attempt.
+        throw error;
+      }
       // The document-scoped ESM flight cannot be retried reliably. Its catch
       // already queued the single reload-required dialog; do not compete with
       // it using the claim retry surface.
@@ -375,6 +387,8 @@ async function promptPin(options: {
   message: string;
   autocomplete: string;
   temporaryPin?: string;
+  signal?: AbortSignal;
+  buttonText?: string;
 }): Promise<string | null> {
   const result = await showDialog({
     title: options.title,
@@ -396,9 +410,10 @@ async function promptPin(options: {
         return null;
       },
     },
-    buttonText: t('common.ok'),
+    buttonText: options.buttonText ?? t('common.ok'),
     secondaryText: t('common.cancel'),
     defaultFocus: 'primary',
+    signal: options.signal,
   });
   return result.action === 'ok' ? normalizeProRoomPin(result.inputValue) : null;
 }
@@ -596,47 +611,74 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
         return false;
       }
       const temporaryPin = deriveTemporaryProRoomPin(code);
-      const newPin = await promptPin({
-        title: t('pro.activation_title'),
-        message: t('pro.activation_message'),
-        autocomplete: 'new-password',
-        temporaryPin,
-      });
-      if (!newPin) return false;
-      let activationAttempts = 0;
-      const activation = await runClaimProtectedOperation(async () => {
-        if (activationAttempts > 0) {
-          const freshBootstrap = await runEntryOperation((signal) =>
-            runtime.getProRoomBootstrap(code, signal),
-          );
-          if (freshBootstrap.status === 'pin_required') {
-            try {
-              return await resumeExistingSession();
-            } catch (error) {
-              if (isMissingCookieSession(error)) {
-                throw new ProRoomApiError('ACTIVATION_UNAVAILABLE', 409);
+      while (true) {
+        const expectedAccountScope = await confirmProRoomActivationAccount();
+        if (!expectedAccountScope) return false;
+        const accountIntent = captureActivationAccountIntent(expectedAccountScope);
+        try {
+          const newPin = await promptPin({
+            title: t('pro.activation_title'),
+            message: t('pro.activation_message'),
+            autocomplete: 'new-password',
+            temporaryPin,
+            signal: accountIntent.signal,
+            buttonText: t('pro.activation_complete'),
+          });
+          if (!accountIntent.isCurrent()) continue;
+          if (!newPin) return false;
+          let activationAttempts = 0;
+          const activation = await runClaimProtectedOperation(
+            async () => {
+              if (!accountIntent.isCurrent())
+                throw new ProRoomApiError('ACCOUNT_SESSION_CHANGED', 409);
+              if (activationAttempts > 0) {
+                const freshBootstrap = await runEntryOperation((signal) =>
+                  runtime.getProRoomBootstrap(code, signal),
+                );
+                if (freshBootstrap.status === 'pin_required') {
+                  try {
+                    return await resumeExistingSession();
+                  } catch (error) {
+                    if (isMissingCookieSession(error)) {
+                      throw new ProRoomApiError('ACTIVATION_UNAVAILABLE', 409);
+                    }
+                    throw error;
+                  }
+                }
               }
-              throw error;
-            }
-          }
-        }
-        activationAttempts += 1;
-        await claimReloadGuard?.fenceOutcomeUnknownMutation();
-        return runEntryOperation((signal) =>
-          runtime.activateProRoom(
-            {
-              code,
-              claimToken: activationClaimToken,
-              temporaryPin,
-              newPin,
-              ownerName: getState('network.myDeviceLabel') || 'Owner',
+              activationAttempts += 1;
+              await claimReloadGuard?.fenceOutcomeUnknownMutation();
+              if (!accountIntent.isCurrent())
+                throw new ProRoomApiError('ACCOUNT_SESSION_CHANGED', 409);
+              return runEntryOperation((signal) =>
+                runtime.activateProRoom(
+                  {
+                    code,
+                    claimToken: activationClaimToken,
+                    temporaryPin,
+                    newPin,
+                    expectedAccountScope,
+                    ownerName: getState('network.myDeviceLabel') || 'Owner',
+                  },
+                  signal,
+                ),
+              );
             },
-            signal,
-          ),
-        );
-      });
-      if (activation.ok) clearPendingSessionRequestId(code);
-      return activation.ok;
+            { confirmedActivationAccount: true },
+          );
+          if (activation.ok) clearPendingSessionRequestId(code);
+          return activation.ok;
+        } catch (error) {
+          if (
+            error instanceof ProRoomApiError &&
+            (error.code === 'ACCOUNT_SESSION_CHANGED' || error.code === 'ACCOUNT_SESSION_REQUIRED')
+          )
+            continue;
+          throw error;
+        } finally {
+          accountIntent.dispose();
+        }
+      }
     }
 
     // A host-only HttpOnly cookie survives a reload. Try it before asking for

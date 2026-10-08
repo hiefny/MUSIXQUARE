@@ -732,6 +732,16 @@ const te: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO గదిని యాక్టివేట్ చేయి',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.',
+  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'ఈ గదికి కొత్త 8 అంకెల పాస్‌వర్డ్‌ను సెట్ చేయండి.',
   'pro.activation_pin_same': 'తాత్కాలిక పాస్‌వర్డ్‌కు భిన్నమైనదాన్ని ఎంచుకోండి.',
   'pro.claim_retry_title': 'PRO లింక్‌ను మళ్లీ ప్రయత్నించాలా?',

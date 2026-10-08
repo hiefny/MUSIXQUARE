@@ -120,5 +120,9 @@ describe('offline PRO room activation-claim CLI', () => {
 
     expect(output.trim()).toMatch(/^#pro-claim=v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u);
     expect(output).not.toContain(SECRET);
+    const payload = JSON.parse(
+      Buffer.from(output.trim().split('.')[1]!, 'base64url').toString('utf8'),
+    ) as { iat: number; exp: number };
+    expect(payload.exp - payload.iat).toBe(24 * 60 * 60 * 1000);
   });
 });

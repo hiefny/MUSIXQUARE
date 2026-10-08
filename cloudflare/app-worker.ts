@@ -27,7 +27,10 @@ import {
   proRoomGenerationHeaderValue,
   proRoomObjectName,
 } from './pro-room-generation.ts';
-import { issueProRoomOwnerTransferRevocationReceipt } from './pro-room-claims.ts';
+import {
+  issueProRoomOwnerTransferRevocationReceipt,
+  PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS,
+} from './pro-room-claims.ts';
 import { isValidPeerId } from './signaling-protocol.ts';
 import {
   consumeAbuseRateLimit,
@@ -344,7 +347,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.7.5';
+const ADMIN_ASSET_VERSION = '8.7.6';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -383,6 +386,8 @@ const ADMIN_PASSWORD_MIN_BYTES = 16;
 const ADMIN_PASSWORD_MAX_BYTES = 256;
 const ADMIN_SESSION_NONCE_RE = /^[A-Za-z0-9_-]{22}$/;
 const ADMIN_SESSION_SIGNATURE_DOMAIN = 'mxqr-admin-session:v1\0';
+const ACCOUNT_EXPECTED_SCOPE_HEADER = 'X-MXQR-Account-Expected-Scope';
+const ACCOUNT_STATS_SCOPE_RE = /^[A-Za-z0-9_-]{43}$/;
 const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activation-claim)?$/;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-recovery-claim$/;
@@ -413,7 +418,6 @@ const ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION = 1;
 const RELEASE_SHA_RE = /^[0-9a-f]{40}$/;
 const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
-const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENT_TTL_MS = 15 * 60 * 1000;
@@ -894,6 +898,9 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
   // identity is resolved from the App Worker's host-only session cookie and
   // replaced with a short-lived room/audience-bound service assertion.
   headers.delete(ACCOUNT_ASSERTION_HEADER);
+  // This browser precondition is checked only by the App facade; it never
+  // grants downstream account authority or accompanies the service assertion.
+  headers.delete(ACCOUNT_EXPECTED_SCOPE_HEADER);
   const accountRequiredAssertionPaths = new Set([
     `/v1/rooms/${roomCode}/activation`,
     `/v1/rooms/${roomCode}/owner-recovery`,
@@ -906,6 +913,7 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
   ]);
   const accountLeaseAssertionPath = `/v1/rooms/${roomCode}/sessions/current/account/lease`;
   const accountRequired = accountRequiredAssertionPaths.has(upstreamPath);
+  const activationPath = upstreamPath === `/v1/rooms/${roomCode}/activation`;
   const ownershipTransferPath = upstreamPath === `/v1/rooms/${roomCode}/owner-transfer`;
   let accountAssertionContext: { accountId: string; roomGeneration: number } | null = null;
   if (accountLinkAssertionPaths.has(upstreamPath) || upstreamPath === accountLeaseAssertionPath) {
@@ -918,9 +926,25 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
     }
     try {
-      const account = await resolveAccountSession(request, env);
+      const account = await resolveAccountSession(request, env, {
+        includeStatsScope: activationPath,
+      });
       if (accountRequired && (!account?.profileComplete || !account.nickname)) {
         return json({ error: 'ACCOUNT_SESSION_REQUIRED' }, 401);
+      }
+      if (activationPath) {
+        const expectedScope = request.headers.get(ACCOUNT_EXPECTED_SCOPE_HEADER);
+        if (
+          !expectedScope ||
+          !ACCOUNT_STATS_SCOPE_RE.test(expectedScope) ||
+          !account?.statsScope ||
+          !constantTimeEqual(expectedScope, account.statsScope)
+        ) {
+          // Check the confirmation before grant admission, the account reverse
+          // index, or the first room mutation. A cookie replaced in another tab
+          // must return to account confirmation, including cached old clients.
+          return json({ error: 'ACCOUNT_SESSION_CHANGED' }, 409);
+        }
       }
       if (account?.profileComplete && account.nickname && assertionSecret.length >= 32) {
         // A lease renewal skips the reverse-index write because the exact
@@ -5061,7 +5085,7 @@ function isValidAdminActivationLink(
     typeof payload.expiresAt !== 'number' ||
     !Number.isSafeInteger(payload.expiresAt) ||
     payload.expiresAt <= nowMs ||
-    payload.expiresAt > nowMs + ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS + 5_000
+    payload.expiresAt > nowMs + PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS + 5_000
   ) {
     return false;
   }

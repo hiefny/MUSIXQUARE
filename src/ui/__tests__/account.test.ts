@@ -214,10 +214,12 @@ describe('optional account UI', () => {
       }
       initAccount();
       await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(1));
+      const predecessor = firstPrompt === 'pending' ? requestAccountNicknameChange() : null;
       cookieScope = 'n'.repeat(43);
       await reconcileAccountLoginSession();
       await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(2));
       if (firstPrompt === 'pending') expect(firstSignal?.aborted).toBe(true);
+      if (predecessor) await expect(predecessor).resolves.toBe('cancelled');
       await reconcileAccountLoginSession();
       document.dispatchEvent(new Event('visibilitychange'));
       await Promise.resolve();
@@ -2269,7 +2271,8 @@ describe('optional account UI', () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ error: 'NICKNAME_TAKEN' }, 409));
     const operation = requestAccountNicknameChange();
     await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(2));
-    expect(await requestAccountNicknameChange()).toBe('cancelled');
+    const joined = requestAccountNicknameChange();
+    expect(joined).toBe(operation);
     applyAccountSession({
       configured: true,
       authenticated: false,
@@ -2277,8 +2280,10 @@ describe('optional account UI', () => {
       statsScope: null,
     });
     applyAccountSession(original);
+    await expect(requestAccountNicknameChange()).resolves.toBe('cancelled');
     answer({ action: 'ok', inputValue: 'Retry' });
     expect(await operation).toBe('cancelled');
+    expect(await joined).toBe('cancelled');
     expect(fetch).toHaveBeenCalledOnce();
     expect(showToast).toHaveBeenCalledOnce();
   });
@@ -2347,6 +2352,125 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(1));
     expect(getAccountSnapshot().status).toBe('authenticated');
     expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it.each(['completed', 'cancelled', 'error'] as const)(
+    'joins an automatic nickname prompt without OAuth and returns its %s result',
+    async (outcome) => {
+      let answer!: (result: { action: string; inputValue?: string }) => void;
+      vi.mocked(showDialog).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(
+          jsonResponse({
+            configured: true,
+            authenticated: true,
+            account: { nickname: '', profileComplete: false },
+            statsScope: STATS_SCOPE,
+          }),
+        )
+        .mockResolvedValueOnce(
+          outcome === 'error'
+            ? jsonResponse({ error: 'AUTH_TEMPORARILY_UNAVAILABLE' }, 503)
+            : jsonResponse({
+                configured: true,
+                authenticated: true,
+                account: { nickname: 'NewOwner', profileComplete: true },
+                statsScope: STATS_SCOPE,
+              }),
+        );
+      const open = vi.spyOn(window, 'open');
+      initAccount();
+      await vi.waitFor(() => expect(showDialog).toHaveBeenCalledOnce());
+      const profile = requestAccountNicknameChange();
+      const login = requestAccountLoginPopup();
+      let settled = false;
+      void login.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(showDialog).toHaveBeenCalledOnce();
+      expect(open).not.toHaveBeenCalled();
+
+      answer(
+        outcome === 'cancelled'
+          ? { action: 'secondary' }
+          : { action: 'ok', inputValue: 'NewOwner' },
+      );
+      await expect(profile).resolves.toBe(outcome);
+      await expect(login).resolves.toBe(outcome === 'completed' ? 'authenticated' : outcome);
+      expect(showDialog).toHaveBeenCalledOnce();
+      expect(open).not.toHaveBeenCalled();
+      expect(
+        vi.mocked(fetch).mock.calls.filter(([url]) => url === '/api/auth/profile'),
+      ).toHaveLength(outcome === 'cancelled' ? 0 : 1);
+      expect(getAccountSnapshot().account?.profileComplete).toBe(outcome === 'completed');
+    },
+  );
+
+  it('joins nickname saving after its dialog closed without cancelling or posting twice', async () => {
+    let finishSave!: (response: Response) => void;
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'ok', inputValue: 'NewOwner' });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: '', profileComplete: false },
+          statsScope: STATS_SCOPE,
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishSave = resolve;
+        }),
+      );
+    const open = vi.spyOn(window, 'open');
+    initAccount();
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenLastCalledWith(
+        '/api/auth/profile',
+        expect.objectContaining({ method: 'PATCH' }),
+      ),
+    );
+    const completion = requestAccountLoginPopup();
+    let settled = false;
+    void completion.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+    expect(showDialog).toHaveBeenCalledOnce();
+
+    finishSave(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'NewOwner', profileComplete: true },
+        statsScope: STATS_SCOPE,
+      }),
+    );
+    await expect(completion).resolves.toBe('authenticated');
+    expect(vi.mocked(fetch).mock.calls.filter(([url]) => url === '/api/auth/profile')).toHaveLength(
+      1,
+    );
+    expect(showDialog).toHaveBeenCalledOnce();
   });
 
   it('replaces the popup-login dialog with the first nickname prompt instead of stacking modals', async () => {

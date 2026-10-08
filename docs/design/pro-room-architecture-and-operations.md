@@ -200,7 +200,7 @@ matched provider data/code checkpoint.
   screen, from the generation-`0` emergency offline CLI, or as an account-bound
   setup handoff after a verified account redeems an operator-run voucher. It is
   scoped to one room, signed with `PRO_ROOM_ACTIVATION_SECRET`, and delivered
-  only in the URL fragment `#pro-claim=...`. It expires within fifteen minutes.
+  only in the URL fragment `#pro-claim=...`. New links expire 24 hours after issuance.
   Issuance atomically advances a room-local `activationClaimGeneration`, so
   issuing again immediately invalidates every older unredeemed activation link.
   Activation consumes that claim counter by moving the room out of
@@ -212,6 +212,25 @@ matched provider data/code checkpoint.
   bearer claim alone cannot create an anonymous owner. Recovery revokes the
   previous owner credential without changing the room's controller sessions or
   data.
+- First activation refreshes the account session before collecting a PIN. An
+  anonymous user signs in through the isolated popup; an authenticated user
+  explicitly confirms the displayed account or chooses another account. Popup
+  completion returns to account confirmation rather than registering the room.
+  A signed-in account without a nickname completes its existing profile flow
+  before this confirmation, without another Google sign-in or an invented name.
+  If the same session already has a nickname prompt open, the claim flow awaits
+  that prompt's result; deferring it also stops activation.
+  The two full-width actions are stacked, with registration above account
+  switching (English: `Continue` / `Another account`). Only the subsequent PIN
+  confirmation submits activation.
+  The client carries the confirmed opaque session scope in
+  `X-MXQR-Account-Expected-Scope`; the App compares it with the actual HttpOnly
+  account session before grant admission, reverse-link writes, or forwarding.
+  This scope conveys intent, never authority. Missing or changed scopes return
+  `ACCOUNT_SESSION_CHANGED` (409); the new UI reconfirms the account and PIN.
+  Cached older clients without the scope must load the updated UI. Logout or
+  account replacement also invalidates an open confirmation/PIN dialog locally.
+  Existing claim account bindings and recovery/transfer rules still apply.
 - Activation requires the claim and a new eight-digit PIN. The client derives
   the historical bootstrap value from the room code and supplies it
   automatically; the user does not type it and operators must not describe it
@@ -834,7 +853,7 @@ URL.
 
 Before the first room-code reuse, verify a completed, non-production canary
 incarnation through the whole protocol: deletion remains immediately
-inaccessible, the 10-to-15-minute credential-expiry fence and one-hour
+inaccessible, the 10-to-15-minute media-URL expiry fence and one-hour
 continuous empty-prefix window complete, every old credential fails, a manual
 admin registration advances the generation exactly once, and only new
 credentials and the new R2 prefix work. First confirm the cutover row is
@@ -846,7 +865,7 @@ this first proof.
 The normal operator flow is the Access-protected admin screen. Register the
 textual six-digit code, then issue its activation link. The claim is returned
 only in a `Cache-Control: no-store` response, is never written to D1 or a log,
-expires within fifteen minutes, and becomes stale immediately if an operator
+expires 24 hours after issuance, and becomes stale immediately if an operator
 issues another link. Copy it directly to the intended owner.
 
 The offline issuer is an emergency generation-`0` tool for a registered
@@ -858,7 +877,10 @@ authoritative activation-claim counter and any offline activation link is
 intentionally rejected. Use the admin screen for normal activation, every
 retry, and every room generation greater than zero. The CLI reads the signing secret only from
 `PRO_ROOM_ACTIVATION_SECRET`, writes only a URL fragment to stdout, and gives
-that fragment a fifteen-minute lifetime.
+that fragment a 24-hour lifetime. Previously issued links retain their signed
+expiry; issue a replacement link to receive the longer lifetime. Activation
+does not impose a 24-hour expiry on the room itself. Owner recovery and
+ownership-transfer links retain their separate short lifetimes.
 
 PowerShell example that avoids placing the secret in command history or argv:
 

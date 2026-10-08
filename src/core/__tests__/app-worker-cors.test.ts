@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -33,6 +33,7 @@ import {
   SERVICE_CONTROL_STATUS_VERSION_HEADER,
 } from '../../../cloudflare/service-maintenance.ts';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
+import { verifyAccountAssertion } from '../../../cloudflare/account-assertion.ts';
 
 const PRODUCT_VERSION = (
   JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as {
@@ -869,6 +870,202 @@ function withCentralEntitlementLedger(
     },
   };
 }
+
+describe('PRO activation account confirmation', () => {
+  function fixture() {
+    const authDatabase = new sqlite.DatabaseSync(':memory:');
+    authDatabase.exec(authSchema);
+    centralEntitlementDatabases.add(authDatabase);
+    const adminDatabase = new sqlite.DatabaseSync(':memory:');
+    adminDatabase.exec(adminMetricsSchema);
+    centralEntitlementDatabases.add(adminDatabase);
+    const sessionPepper = 'session-pepper-for-tests-at-least-32-bytes';
+    const accountId = `acct_${'A'.repeat(22)}`;
+    const otherAccountId = `acct_${'B'.repeat(22)}`;
+    const accountToken = 'S'.repeat(43);
+    const otherAccountToken = 'T'.repeat(43);
+    const nowMs = Date.now();
+    for (const [id, token, subject, nickname] of [
+      [accountId, accountToken, 'A'.repeat(43), 'First owner'],
+      [otherAccountId, otherAccountToken, 'B'.repeat(43), 'Other owner'],
+    ]) {
+      authDatabase
+        .prepare(
+          `INSERT INTO mxqr_accounts
+           (account_id, google_subject_hash, nickname, profile_complete, status, created_at, updated_at)
+           VALUES (?, ?, ?, 1, 'active', ?, ?)`,
+        )
+        .run(id!, subject!, nickname!, nowMs, nowMs);
+      const sessionHash = createHmac('sha256', sessionPepper)
+        .update(`account-session:v1\0${token}`)
+        .digest('base64url');
+      authDatabase
+        .prepare(
+          `INSERT INTO mxqr_account_sessions
+           (session_hash, account_id, created_at, last_seen_at, expires_at)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(sessionHash, id!, nowMs, nowMs, nowMs + 60_000);
+    }
+    adminDatabase
+      .prepare(
+        `INSERT INTO mxqr_pro_room_registry
+         (room_code, label, status, activation_state, room_generation, created_at, updated_at)
+         VALUES ('000001', 'Confirmation room', 'registered', 'unactivated', 0, 1, 1)`,
+      )
+      .run();
+    adminDatabase
+      .prepare(
+        `INSERT INTO mxqr_pro_grant_audit (actor_id, action, result, created_at)
+         VALUES ('system:entitlement-backfill', 'entitlement.backfill', 'complete', 1)`,
+      )
+      .run();
+    const adminPrepare = vi.fn(
+      (sql: string) => new CentralEntitlementStatement(adminDatabase.prepare(sql)),
+    );
+    const authPrepare = vi.fn(
+      (sql: string) => new CentralEntitlementStatement(authDatabase.prepare(sql)),
+    );
+    const upstreamFetch = vi.fn(async (_request: Request) => Response.json({ ok: true }));
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+      MXQR_AUTH_SESSION_PEPPER: sessionPepper,
+      MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
+      MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MUSIXQUARE_AUTH_DB: { prepare: authPrepare },
+      MUSIXQUARE_ADMIN_DB: {
+        prepare: adminPrepare,
+        async batch(statements: CentralEntitlementStatement[]) {
+          return Promise.all(statements.map((statement) => statement.run()));
+        },
+      },
+      PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch },
+    };
+    const activationBody = {
+      claimToken: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}`,
+      temporaryPin: '00000001',
+      newPin: '12345678',
+    };
+    return {
+      env,
+      accountId,
+      accountToken,
+      otherAccountToken,
+      authDatabase,
+      authPrepare,
+      adminPrepare,
+      upstreamFetch,
+      activationBody,
+      async scopeFor(token = accountToken) {
+        const response = await appWorker.fetch(
+          new Request('https://musixquare.com/api/auth/session', {
+            headers: { Cookie: `__Host-mxqr_account=${token}` },
+          }),
+          env,
+        );
+        expect(response.status).toBe(200);
+        const session = (await response.json()) as { statsScope: string };
+        expect(session.statsScope).toMatch(/^[A-Za-z0-9_-]{43}$/);
+        authPrepare.mockClear();
+        adminPrepare.mockClear();
+        return session.statsScope;
+      },
+      activate(expectedScope: string | undefined, token: string | null = accountToken) {
+        return appWorker.fetch(
+          new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/activation', {
+            method: 'POST',
+            headers: {
+              Origin: 'https://musixquare.com',
+              'Content-Type': 'application/json',
+              ...(token === null ? {} : { Cookie: `__Host-mxqr_account=${token}` }),
+              ...(expectedScope === undefined
+                ? {}
+                : { 'X-MXQR-Account-Expected-Scope': expectedScope }),
+              'X-MXQR-Account-Assertion': 'untrusted-browser-assertion',
+            },
+            body: JSON.stringify(activationBody),
+          }),
+          env,
+        );
+      },
+    };
+  }
+
+  it.each([undefined, '', 'S'.repeat(42), 'S'.repeat(44), '!'.repeat(43), 'S'.repeat(43)])(
+    'rejects absent, malformed, or stale confirmation %s before grant or link work',
+    async (expectedScope) => {
+      const setup = fixture();
+      const response = await setup.activate(expectedScope);
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({ error: 'ACCOUNT_SESSION_CHANGED' });
+      expect(setup.upstreamFetch).not.toHaveBeenCalled();
+      expect(setup.adminPrepare).not.toHaveBeenCalled();
+      expect(setup.authPrepare.mock.calls.map(([sql]) => sql)).not.toEqual(
+        expect.arrayContaining([expect.stringMatching(/^\s*(?:INSERT|UPDATE|DELETE)\b/i)]),
+      );
+      expect(
+        setup.authDatabase.prepare('SELECT * FROM mxqr_account_pro_room_generations').all(),
+      ).toEqual([]);
+    },
+  );
+
+  it('rejects a replaced cookie after confirmation without linking either account', async () => {
+    const setup = fixture();
+    const expectedScope = await setup.scopeFor();
+    const response = await setup.activate(expectedScope, setup.otherAccountToken);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'ACCOUNT_SESSION_CHANGED' });
+    expect(setup.upstreamFetch).not.toHaveBeenCalled();
+    expect(setup.adminPrepare).not.toHaveBeenCalled();
+    expect(
+      setup.authDatabase.prepare('SELECT * FROM mxqr_account_pro_room_generations').all(),
+    ).toEqual([]);
+  });
+
+  it('preserves login-required for anonymous activation even with a prior confirmation', async () => {
+    const setup = fixture();
+    const expectedScope = await setup.scopeFor();
+    const response = await setup.activate(expectedScope, null);
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'ACCOUNT_SESSION_REQUIRED' });
+    expect(setup.upstreamFetch).not.toHaveBeenCalled();
+    expect(setup.adminPrepare).not.toHaveBeenCalled();
+    expect(
+      setup.authDatabase.prepare('SELECT * FROM mxqr_account_pro_room_generations').all(),
+    ).toEqual([]);
+  });
+
+  it('forwards a matching confirmation with only server-verified account authority', async () => {
+    const setup = fixture();
+    const expectedScope = await setup.scopeFor();
+    const response = await setup.activate(expectedScope);
+
+    expect(response.status).toBe(200);
+    expect(setup.upstreamFetch).toHaveBeenCalledOnce();
+    const forwarded = setup.upstreamFetch.mock.calls[0]![0];
+    expect(forwarded.headers.get('X-MXQR-Account-Expected-Scope')).toBeNull();
+    expect(forwarded.headers.get('Cookie')).toBeNull();
+    await expect(forwarded.json()).resolves.toEqual(setup.activationBody);
+    await expect(
+      verifyAccountAssertion(
+        forwarded.headers.get('X-MXQR-Account-Assertion'),
+        setup.env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET,
+        { audience: 'pro-room', roomCode: '000001', roomGeneration: 0 },
+      ),
+    ).resolves.toMatchObject({ accountId: setup.accountId, nickname: 'First owner' });
+    expect(
+      setup.authDatabase
+        .prepare(
+          'SELECT account_id, room_code, room_generation FROM mxqr_account_pro_room_generations',
+        )
+        .all(),
+    ).toEqual([{ account_id: setup.accountId, room_code: '000001', room_generation: 0 }]);
+  });
+});
 
 const activeBulkTestControllers = new Set<AbortController>();
 const activeBulkTestWork = new Set<Promise<unknown>>();
@@ -6244,7 +6441,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             roomCode,
             roomGeneration,
             activationUrl: `https://musixquare.com/${roomCode}#pro-claim=secret-claim`,
-            expiresAt: Date.now() + 15 * 60 * 1000,
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
           });
         }),
       })),

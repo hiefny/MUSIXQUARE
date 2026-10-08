@@ -735,6 +735,16 @@ const kn: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO ರೂಮ್ ಸಕ್ರಿಯಗೊಳಿಸಿ',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.',
+  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'ಈ ರೂಮ್‌ಗೆ ಹೊಸ 8-ಅಂಕಿಯ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿ.',
   'pro.activation_pin_same': 'ತಾತ್ಕಾಲಿಕ ಪಾಸ್‌ವರ್ಡ್‌ಗಿಂತ ಭಿನ್ನವಾದುದನ್ನು ಆರಿಸಿ.',
   'pro.claim_retry_title': 'PRO ಲಿಂಕ್ ಅನ್ನು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಬೇಕೆ?',

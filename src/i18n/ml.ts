@@ -743,6 +743,16 @@ const ml: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO റൂം സജീവമാക്കുക',
+  // English fallback for the new PRO account confirmation copy.
+  'pro.activation_account_title': 'Choose an account for this PRO room',
+  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Sign in to the account you want to register this room to.',
+  'pro.activation_account_continue': 'Continue',
+  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_unavailable':
+    'We couldn’t verify your account. Please try again shortly.',
+  'pro.activation_complete': 'Complete registration',
   'pro.activation_message': 'ഈ റൂമിന് പുതിയ 8 അക്ക പാസ്‌വേഡ് സജ്ജമാക്കുക.',
   'pro.activation_pin_same': 'താൽക്കാലിക പാസ്‌വേഡിൽ നിന്ന് വ്യത്യസ്തമായത് തിരഞ്ഞെടുക്കുക.',
   'pro.claim_retry_title': 'PRO ലിങ്ക് വീണ്ടും ശ്രമിക്കണോ?',

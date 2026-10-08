@@ -36,6 +36,7 @@ import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
 import {
   isConnectionFileDeliveryPending,
   isConnectionFileDeliveryUnsupported,
+  isGuestDirectFileDelivery,
 } from '../share/file-delivery-policy.ts';
 import { t } from '../i18n/index.ts';
 import type { DataConnection, ResidentFile } from '../types/index.ts';
@@ -66,8 +67,14 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
   }
   const selectedQueueItemId = getState('playlist.currentQueueItemId');
   const isProDirect = !!selectedQueueItemId && isProRoomPersistentPlaylistFile(selectedQueueItemId);
-  // Remote guests receive files through remote-share descriptors; host resend is local-only.
-  if (isRemoteGuest() && !isProDirect) {
+  const selectedMeta = getState('transfer.meta');
+  const isFrozenDirect = isGuestDirectFileDelivery(
+    selectedQueueItemId,
+    selectedMeta?.queueItemId === selectedQueueItemId ? selectedMeta?.sessionId : undefined,
+  );
+  // A relabeled connection retains its admitted direct session and recovery.
+  // New remote transfers still use whole-object descriptors.
+  if (isRemoteGuest() && !isProDirect && !isFrozenDirect) {
     log.info('[Recovery] Remote guest - skipping direct host recovery');
     clearManagedTimer('chunkWatchdog');
     if (

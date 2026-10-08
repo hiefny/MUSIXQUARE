@@ -401,6 +401,28 @@ async function errorCode(response: Response): Promise<string | undefined> {
 }
 
 describe('Developer API key credentials', () => {
+  it.each([
+    ['UNAUTHORIZED', 401],
+    ['FORBIDDEN', 403],
+    ['BACKEND_UNAVAILABLE', 503],
+  ] as const)('preserves the final room credential verdict %s', async (code, status) => {
+    const current = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+      facadePayload: { error: code },
+      facadeStatus: status,
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/queue/items`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'idempotency-key': IDEMPOTENCY_KEY },
+        body: JSON.stringify({ videoId: 'M7lc1UVf-VE', name: 'Credential policy' }),
+      }),
+      current.env,
+    );
+    expect(response.status).toBe(status);
+    expect(await errorCode(response)).toBe(code);
+  });
+
   it('parses only the exact 96-bit id and 256-bit secret envelope', () => {
     expect(parseDeveloperApiKey(API_KEY)).toEqual({ keyId: KEY_ID, secret: KEY_SECRET });
     expect(parseDeveloperApiKey(`${API_KEY}.extra`)).toBeNull();

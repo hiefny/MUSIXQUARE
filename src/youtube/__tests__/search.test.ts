@@ -241,6 +241,25 @@ describe('YouTube request lifetime', () => {
 });
 
 describe('extractYouTubeVideoId', () => {
+  it.each([
+    'https://WWW.YouTube.com/watch?v=aB3dE5gH7_j',
+    'https://Youtu.Be/aB3dE5gH7_j',
+    'https://YouTube.com/shorts/aB3dE5gH7_j',
+    'https://YouTube.com/live/aB3dE5gH7_j',
+    'YouTube.com/embed/aB3dE5gH7_j',
+  ])('normalizes hostname case while preserving the video ID: %s', (url) => {
+    expect(extractYouTubeVideoId(url)).toBe('aB3dE5gH7_j');
+    expect(getYouTubeInputIntent(url)).toMatchObject({ kind: 'video-url', videoId: 'aB3dE5gH7_j' });
+  });
+
+  it.each([
+    'https://YouTube.com/WATCH?v=aB3dE5gH7_j',
+    'https://YouTube.com/watch?V=aB3dE5gH7_j',
+    'https://Youtu.Be/aB3dE5gH7_jx',
+  ])('preserves path, parameter and video length validation: %s', (url) => {
+    expect(extractYouTubeVideoId(url)).toBeNull();
+    expect(getYouTubeInputIntent(url).kind).toBe('invalid-url');
+  });
   it('extracts from standard watch URL', () => {
     expect(extractYouTubeVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(
       'dQw4w9WgXcQ',

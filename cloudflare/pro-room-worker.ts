@@ -74,6 +74,10 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.ts';
 import { cancelReadableBody, readBodyBytesLimited } from './pro-room-body.ts';
+import {
+  checkDeveloperMutationCredential,
+  developerMutationScopes,
+} from './developer-api-credential.ts';
 import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.ts';
 import {
   finalizeProRoomActivationEntitlement,
@@ -6115,6 +6119,7 @@ export class MusixquareProRoom {
               command,
             }),
           }),
+          true,
         ),
       { rollbackStorageFailure: true },
     );
@@ -6237,7 +6242,7 @@ export class MusixquareProRoom {
     }
     const mutateQueue = (input: Request, terminal: BotTerminalOptions | null = null) =>
       this.withStateCapacityRollback(
-        () => this.handleInternalDeveloperQueueMutation(input, terminal),
+        () => this.handleInternalDeveloperQueueMutation(input, terminal, true),
         {
           rollbackStorageFailure: true,
         },
@@ -6387,6 +6392,7 @@ export class MusixquareProRoom {
                 },
               }),
             }),
+            true,
           ),
         { rollbackStorageFailure: true },
       );
@@ -6436,6 +6442,26 @@ export class MusixquareProRoom {
       : errorResponse('DEVELOPER_API_AUTHORITY_STALE', 409);
   }
 
+  async developerMutationCredentialError(keyId: string, requiredScope: number, trustedBot = false) {
+    // Only in-process BOT calls can opt out of the external API credential
+    // check. A caller-selected key id or JSON field cannot grant this flag.
+    if (trustedBot && keyId === BOT_DEVELOPER_KEY_ID) return null;
+    const error = await checkDeveloperMutationCredential(
+      this.env.DEVELOPER_API_DB,
+      keyId,
+      this.activeRoom.roomCode,
+      this.activeRoom.roomGeneration,
+      this.activeRoom.developerAuthorityEpoch,
+      requiredScope,
+    );
+    return error
+      ? errorResponse(
+          error,
+          error === 'BACKEND_UNAVAILABLE' ? 503 : error === 'FORBIDDEN' ? 403 : 401,
+        )
+      : null;
+  }
+
   async handleInternalDeveloperRead(request: Request) {
     if (!this.activeRoom.provisioned || this.activeRoom.status !== 'active') {
       return errorResponse('ROOM_NOT_FOUND', 404);
@@ -6471,7 +6497,7 @@ export class MusixquareProRoom {
     return projection ? jsonResponse(projection) : errorResponse('ROOM_STATE_INVALID', 503);
   }
 
-  async handleInternalDeveloperCommandCreate(request: Request) {
+  async handleInternalDeveloperCommandCreate(request: Request, trustedBot = false) {
     if (!this.activeRoom.provisioned || this.activeRoom.status !== 'active') {
       return errorResponse('ROOM_NOT_FOUND', 404);
     }
@@ -6497,6 +6523,14 @@ export class MusixquareProRoom {
 
     const scope = `developer:${parsed.value.keyId}:playback`;
     const fingerprint = await this.idempotencyFingerprint(scope, command);
+    const credentialError = await this.developerMutationCredentialError(
+      parsed.value.keyId,
+      command.type === 'set_effects'
+        ? developerMutationScopes.effects
+        : developerMutationScopes.playback,
+      trustedBot,
+    );
+    if (credentialError) return credentialError;
     const replay = this.replayDeveloperCommandIdempotency(
       scope,
       parsed.value.idempotencyKey,
@@ -6689,6 +6723,7 @@ export class MusixquareProRoom {
   async handleInternalDeveloperQueueMutation(
     request: Request,
     botTerminal: BotTerminalOptions | null = null,
+    trustedBot = false,
   ) {
     if (!this.activeRoom.provisioned || this.activeRoom.status !== 'active') {
       return errorResponse('ROOM_NOT_FOUND', 404);
@@ -6740,6 +6775,12 @@ export class MusixquareProRoom {
     }
     const scope = `developer:${developerKeyId}:queue:${mutation.type}`;
     const fingerprint = await this.idempotencyFingerprint(scope, mutation);
+    const credentialError = await this.developerMutationCredentialError(
+      developerKeyId,
+      developerMutationScopes.queue,
+      trustedBot,
+    );
+    if (credentialError) return credentialError;
     const replay = this.replayIdempotency(scope, idempotencyKey, fingerprint, null, developerKeyId);
     if (replay) return replay;
 
@@ -7039,7 +7080,7 @@ export class MusixquareProRoom {
     return jsonResponse(responseBody, responseStatus);
   }
 
-  async handleInternalDeveloperQueueModeUpdate(request: Request) {
+  async handleInternalDeveloperQueueModeUpdate(request: Request, trustedBot = false) {
     if (!this.activeRoom.provisioned || this.activeRoom.status !== 'active') {
       return errorResponse('ROOM_NOT_FOUND', 404);
     }
@@ -7076,6 +7117,12 @@ export class MusixquareProRoom {
     const shuffleEnabled = mutation.shuffleEnabled === true;
     const scope = `developer:${developerKeyId}:queue-mode:update`;
     const fingerprint = await this.idempotencyFingerprint(scope, mutation);
+    const credentialError = await this.developerMutationCredentialError(
+      developerKeyId,
+      developerMutationScopes.playback,
+      trustedBot,
+    );
+    if (credentialError) return credentialError;
     const replay = this.replayIdempotency(scope, idempotencyKey, fingerprint);
     if (replay) return replay;
     if (mutation.baseRevision !== this.activeRoom.queueMode.revision) {
@@ -7148,6 +7195,11 @@ export class MusixquareProRoom {
     if (!media) return errorResponse('INVALID_MEDIA', 400);
     const scope = `developer:${developerKeyId}:media:reserve`;
     const fingerprint = await this.idempotencyFingerprint(scope, media);
+    const credentialError = await this.developerMutationCredentialError(
+      developerKeyId,
+      developerMutationScopes.media,
+    );
+    if (credentialError) return credentialError;
     const replay = this.replayIdempotency(scope, idempotencyKey, fingerprint);
     if (replay) return replay;
     if (!this.env.PRO_MEDIA_BUCKET || !r2S3Config(this.env)) {
@@ -7214,6 +7266,12 @@ export class MusixquareProRoom {
       now: new Date(nowMs),
     });
     if (!uploadUrl) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
+
+    const finalCredentialError = await this.developerMutationCredentialError(
+      developerKeyId,
+      developerMutationScopes.media,
+    );
+    if (finalCredentialError) return finalCredentialError;
 
     this.activeRoom.assets[assetId] = {
       status: 'reserved',
@@ -7292,6 +7350,11 @@ export class MusixquareProRoom {
     const assetId = parsed.value.assetId;
     const scope = `developer:${parsed.value.keyId}:media:complete:${assetId}`;
     const fingerprint = await this.idempotencyFingerprint(scope, { assetId });
+    const credentialError = await this.developerMutationCredentialError(
+      parsed.value.keyId,
+      developerMutationScopes.media,
+    );
+    if (credentialError) return credentialError;
     const replay = this.replayIdempotency(scope, parsed.value.idempotencyKey, fingerprint);
     if (replay) return replay;
     const asset = this.activeRoom.assets[assetId];
@@ -7350,6 +7413,11 @@ export class MusixquareProRoom {
     } catch {
       return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
+    const preparedCredentialError = await this.developerMutationCredentialError(
+      parsed.value.keyId,
+      developerMutationScopes.media,
+    );
+    if (preparedCredentialError) return preparedCredentialError;
     // A previous attempt may have copied the final object and then lost its
     // response or been interrupted before the Durable Object commit. The
     // immutable final object is a valid recovery source when every reserved
@@ -7378,6 +7446,14 @@ export class MusixquareProRoom {
       try {
         const staged = await bucket.get(stagingObjectKey);
         if (!staged?.body) return errorResponse('UPLOAD_INCOMPLETE', 409);
+        const copyCredentialError = await this.developerMutationCredentialError(
+          parsed.value.keyId,
+          developerMutationScopes.media,
+        );
+        if (copyCredentialError) {
+          cancelReadableBody(staged.body, 'developer-credential-inactive');
+          return copyCredentialError;
+        }
         await bucket.put(asset.objectKey, staged.body, {
           httpMetadata: { contentType: asset.mime },
           customMetadata: expectedObjectMetadata,
@@ -7393,6 +7469,11 @@ export class MusixquareProRoom {
       }
     }
 
+    const finalCredentialError = await this.developerMutationCredentialError(
+      parsed.value.keyId,
+      developerMutationScopes.media,
+    );
+    if (finalCredentialError) return finalCredentialError;
     const nowMs = Date.now();
     const queueItem: PlaylistItem = {
       queueItemId: asset.developerQueueItemId,

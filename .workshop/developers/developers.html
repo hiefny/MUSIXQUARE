@@ -102,6 +102,16 @@
             </dd>
           </div>
           <div>
+            <dt>Revocation and expiry</dt>
+            <dd>
+              Write requests must still have an active, unexpired key when the room authorizes the state change,
+              after reading the request and completing asynchronous preparation. This also applies to requests
+              accepted before the key was revoked or expired. An invalid key returns <code>401 UNAUTHORIZED</code>;
+              an unavailable credential check returns <code>503 BACKEND_UNAVAILABLE</code> without admitting the change.
+              Revocation does not undo changes already authorized and in progress, or previously committed actions.
+            </dd>
+          </div>
+          <div>
             <dt>Authority and attribution</dt>
             <dd>
               Treat every Developer API key as a highest-privilege room credential within its assigned scopes. API

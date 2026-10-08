@@ -353,6 +353,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/service-control-contract-version.txt',
     'cloudflare/pro-room-worker.ts',
     'cloudflare/pro-room-body.ts',
+    'cloudflare/developer-api-credential.ts',
     'cloudflare/pro-room-claims.ts',
     'cloudflare/pro-room-crypto.ts',
     'cloudflare/service-control-object.ts',

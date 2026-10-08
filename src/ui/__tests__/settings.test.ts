@@ -22,6 +22,7 @@ import {
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
+import { installRangeDragGuard } from '../range-drag.ts';
 
 const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -944,6 +945,53 @@ describe('initSettings effect slider fill sync', () => {
     expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
       true,
     );
+  });
+
+  it('cancels a captured effect drag on authority loss before an immediate regrant', () => {
+    installEffectSettingsDom();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    initSettings();
+    installRangeDragGuard();
+    const range = document.getElementById('reverb-decay-slider') as HTMLInputElement;
+    vi.spyOn(range, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 100,
+      bottom: 20,
+      width: 100,
+      height: 20,
+      toJSON: () => ({}),
+    });
+    const dispatch = (type: string, clientX: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        pointerId: { value: 1 },
+        button: { value: 0 },
+        clientX: { value: clientX },
+      });
+      range.dispatchEvent(event);
+    };
+    dispatch('pointerdown', 30);
+    expect(range.classList.contains('is-dragging')).toBe(true);
+
+    setState('network.standardRoomCapabilities', []);
+    expect(range.disabled).toBe(true);
+    expect(range.classList.contains('is-dragging')).toBe(false);
+    bus.emit('ui:sync-reverb-param', 'decay', 6);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    expect(range.disabled).toBe(false);
+    dispatch('pointermove', 85);
+    dispatch('pointerup', 85);
+    expect(range.value).toBe('6');
+
+    dispatch('pointerdown', 65);
+    dispatch('pointerup', 65);
+    expect(Number(range.value)).toBeGreaterThan(6);
   });
 
   it('honors an explicitly projected PRO effects capability', () => {

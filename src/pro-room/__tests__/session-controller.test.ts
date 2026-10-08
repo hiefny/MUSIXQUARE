@@ -933,6 +933,54 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledWith(snapshot(), signaling(), undefined);
   });
 
+  it.each([true, false])(
+    'uses the latest nickname when a signaling ticket arrives after rename (refresh=%s)',
+    async (refreshInPlace) => {
+      const { api, transport, controller } = fixtures();
+      await controller.join({ code: ROOM_CODE, pin: '12345678' });
+      let resolveTicket!: (access: ProRoomSignalingAccess) => void;
+      api.createSignalingTicket.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveTicket = resolve;
+          }),
+      );
+      const refreshing = controller.refreshSignaling();
+      const renamed = snapshot({
+        revision: 2,
+        presence: {
+          ...snapshot().presence,
+          revision: 2,
+          participants: snapshot().presence.participants.map((participant) => ({
+            ...participant,
+            displayName: 'Renamed owner',
+          })),
+        },
+        viewer: { ...snapshot().viewer!, displayName: 'Renamed owner' },
+      });
+      api.attachCurrentAccount.mockResolvedValueOnce(renamed);
+      api.createSignalingTicket.mockResolvedValueOnce({ ...signaling(), ticketSequence: 2 });
+      await controller.attachCurrentAccount();
+      transport.reconfigure.mockClear();
+      transport.refreshCredentials.mockResolvedValueOnce(refreshInPlace);
+      resolveTicket({ ...signaling(), ticketSequence: 3 });
+      await refreshing;
+      expect(transport.refreshCredentials).toHaveBeenLastCalledWith(
+        renamed,
+        expect.objectContaining({ ticketSequence: 3 }),
+        undefined,
+      );
+      if (!refreshInPlace) {
+        expect(transport.reconfigure).toHaveBeenCalledWith(
+          renamed,
+          expect.objectContaining({ ticketSequence: 3 }),
+          undefined,
+        );
+      }
+      expect(controller.snapshot?.viewer?.displayName).toBe('Renamed owner');
+    },
+  );
+
   it('does not accept a control-channel rebuild that finishes after leave', async () => {
     const { transport, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678' });
@@ -952,6 +1000,47 @@ describe('PRO room session controller', () => {
 
     await expect(refreshing).rejects.toThrow('PRO_ROOM_SESSION_SUPERSEDED');
     expect(controller.snapshot).toBeNull();
+  });
+
+  it('keeps the latest nickname when an earlier account refresh ticket resolves last', async () => {
+    const { api, transport, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
+    const renamed = (displayName: string, revision: number): ProRoomSnapshot =>
+      snapshot({
+        revision,
+        viewer: { ...snapshot().viewer!, displayName },
+        presence: {
+          ...snapshot().presence,
+          revision,
+          participants: snapshot().presence.participants.map((participant) => ({
+            ...participant,
+            displayName,
+          })),
+        },
+      });
+    const earlier = renamed('First rename', 2);
+    const latest = renamed('Latest rename', 3);
+    let resolveTicket!: (access: ProRoomSignalingAccess) => void;
+    api.attachCurrentAccount.mockResolvedValueOnce(earlier);
+    api.createSignalingTicket.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveTicket = resolve;
+        }),
+    );
+    const firstRefresh = controller.attachCurrentAccount();
+    await vi.waitFor(() => expect(resolveTicket).toBeTypeOf('function'));
+    api.attachCurrentAccount.mockResolvedValueOnce(latest);
+    api.createSignalingTicket.mockResolvedValueOnce({ ...signaling(), ticketSequence: 2 });
+    await controller.attachCurrentAccount();
+    resolveTicket({ ...signaling(), ticketSequence: 3 });
+    await firstRefresh;
+    expect(transport.reconfigure).toHaveBeenLastCalledWith(
+      latest,
+      expect.objectContaining({ ticketSequence: 3 }),
+      undefined,
+    );
+    expect(controller.snapshot?.viewer?.displayName).toBe('Latest rename');
   });
 
   it('always clears local authority even when revoking the server session fails', async () => {

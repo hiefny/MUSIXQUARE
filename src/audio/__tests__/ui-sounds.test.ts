@@ -158,6 +158,32 @@ describe('UI sounds', () => {
     expect(context.createBufferSource).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['off', 'off-on', 'unchanged'] as const)(
+    'retires an opt-in preview after a later preference choice: %s',
+    async (choice) => {
+      setUiSoundsEnabled(true);
+      Object.defineProperty(context, 'state', { configurable: true, value: 'suspended' });
+      let finishResume!: () => void;
+      vi.mocked(context.resume).mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finishResume = resolve;
+        }),
+      );
+      playUiTouchSound({ force: true });
+      if (choice !== 'unchanged') setUiSoundsEnabled(false);
+      if (choice === 'off-on') setUiSoundsEnabled(true);
+      Object.defineProperty(context, 'state', { configurable: true, value: 'running' });
+      finishResume();
+      await flushSounds();
+      expect(context.createBufferSource).toHaveBeenCalledTimes(choice === 'unchanged' ? 1 : 0);
+      if (choice === 'off-on') {
+        playUiTouchSound({ force: true });
+        await flushSounds();
+        expect(context.createBufferSource).toHaveBeenCalledOnce();
+      }
+    },
+  );
+
   it.each(['touch', 'announcement', 'session'] as const)(
     'rechecks sound opt-in and visibility after native resume: %s',
     async (kind) => {

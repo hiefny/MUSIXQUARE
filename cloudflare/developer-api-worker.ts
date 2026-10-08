@@ -2066,6 +2066,8 @@ async function facadeRead(
 }
 
 const COMMAND_ERROR_STATUSES = Object.freeze({
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
   INVALID_REQUEST: 400,
   NOT_FOUND: 404,
   ROOM_SLEEPING: 409,

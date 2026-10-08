@@ -99,8 +99,14 @@ const VIDEO_PATTERNS = [
 ];
 
 export function extractYouTubeVideoId(url: string): string | null {
+  // Hostnames are case-insensitive; paths, query names and video IDs are not.
+  const normalizedHost = url.replace(
+    /^((?:[a-z][a-z0-9+.-]*:)?\/\/)?([^/?#]+)/i,
+    (_authority, prefix: string | undefined, host: string) =>
+      `${prefix || ''}${host.toLowerCase()}`,
+  );
   for (const pattern of VIDEO_PATTERNS) {
-    const match = url.match(pattern);
+    const match = normalizedHost.match(pattern);
     if (match) return match[1];
   }
   return null;

@@ -30,7 +30,7 @@ import {
   type LanguageCode,
 } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
-import { syncRangeProgress } from './range-drag.ts';
+import { cancelRangeDrag, syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
@@ -153,6 +153,7 @@ function _updateHostCtrlLockUI(): void {
       el.setAttribute('aria-disabled', locked ? 'true' : 'false');
       // Disable range inputs to prevent visual desync (slider moves but audio unchanged)
       el.querySelectorAll<HTMLInputElement>('input[type="range"]').forEach((input) => {
+        if (locked) cancelRangeDrag(input);
         input.disabled = locked;
       });
     }

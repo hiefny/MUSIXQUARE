@@ -70,7 +70,11 @@ import {
   isProRoomPersistentPlaylistFile,
   resolveProRoomPlaylistFile,
 } from '../pro-room/media-hooks.ts';
-import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
+import {
+  isGuestDirectFileDelivery,
+  isGuestR2FileDelivery,
+  recordGuestFileDelivery,
+} from '../share/file-delivery-policy.ts';
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
 import { pause } from '../player/transport.ts';
 import { recordMainReceiveProgress } from './preload-watchdog.ts';
@@ -462,9 +466,9 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
   const sessionId = data ? Number(data.sessionId) : undefined;
   if (isGuestR2FileDelivery(queueItemId, sessionId)) return true;
 
-  // Remote guests use authenticated whole-object remote share instead of direct file chunks;
-  // orchestrator gates isDataTarget=false so stale direct frames are dropped.
-  if (isRemoteGuest()) return true;
+  // ICE may change after admission; the sender retains this exact direct
+  // assignment too. New remote sessions still use whole-object delivery.
+  if (isRemoteGuest() && !isGuestDirectFileDelivery(queueItemId, sessionId)) return true;
 
   if (data && !queueItemId) return true;
   if (queueItemId && isProRoomPersistentPlaylistFile(queueItemId)) return true;
@@ -965,7 +969,7 @@ export async function handleFilePrepare(
 
   // Remote guests do not use the local P2P path. Every queue file waits for
   // an R2 descriptor; bundled demo audio travels only through DEMO_* messages.
-  if (isRemoteGuest()) {
+  if (isRemoteGuest() && !isGuestDirectFileDelivery(queueItemId, incomingSid)) {
     let confirmedRemote = true;
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
@@ -1401,7 +1405,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     clearManagedTimer('chunkWatchdog');
     return;
   }
-  recordGuestFileDelivery(queueItemId, incomingSid, 'direct-local');
+  if (!isRemoteGuest()) recordGuestFileDelivery(queueItemId, incomingSid, 'direct-local');
   const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data);
 
   // Persistent PRO occurrences are participant-owned R2 downloads. Even a

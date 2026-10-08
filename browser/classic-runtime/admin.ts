@@ -343,7 +343,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.7.4';
+const ADMIN_SCRIPT_VERSION = '8.7.5';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -5888,7 +5888,11 @@ function clearAnnouncementExpiryTimer(): void {
   }
 }
 
-function setAnnouncementActiveIndicator(active: unknown, expiresAt: AdminTimestamp = null): void {
+function setAnnouncementActiveIndicator(
+  active: unknown,
+  expiresAt: AdminTimestamp = null,
+  onExpire?: () => void,
+): void {
   clearAnnouncementExpiryTimer();
   const isActive = Boolean(active);
   announcementTabEl?.classList.toggle('has-active-announcement', isActive);
@@ -5906,6 +5910,7 @@ function setAnnouncementActiveIndicator(active: unknown, expiresAt: AdminTimesta
     const remainingMs = expiryMs - Date.now();
     if (remainingMs <= 0) {
       setAnnouncementActiveIndicator(false);
+      onExpire?.();
       return;
     }
     announcementExpiryTimer = window.setTimeout(
@@ -5928,16 +5933,7 @@ function isAnnouncementActiveForAdmin(
   return true;
 }
 
-function renderAnnouncement(payload: AdminApiPayload): void {
-  const announcement = payload.announcement || {};
-  const message = announcement.message || '';
-  const active = isAnnouncementActiveForAdmin(payload, announcement);
-  setAnnouncementActiveIndicator(active, announcement.expiresAt);
-  if (announcementMessageEl) announcementMessageEl.value = message;
-  if (announcementEnabledEl) announcementEnabledEl.checked = Boolean(announcement.enabled);
-  if (announcementExpiresEl)
-    announcementExpiresEl.value = toDatetimeLocalValue(announcement.expiresAt);
-
+function renderAnnouncementStatus(announcement: AdminAnnouncement, active: boolean): void {
   const statusParts: string[] = [];
   statusParts.push(active ? 'Active' : announcement.enabled ? 'Expired' : 'Disabled');
   if (announcement.expiresAt)
@@ -5945,6 +5941,24 @@ function renderAnnouncement(payload: AdminApiPayload): void {
   if (announcement.updatedAt)
     statusParts.push(`updated ${formatAdminDateTime(announcement.updatedAt)}`);
   if (announcementStatusEl) announcementStatusEl.textContent = statusParts.join(' - ');
+}
+
+function renderAnnouncement(payload: AdminApiPayload): void {
+  const announcement = payload.announcement || {};
+  const message = announcement.message || '';
+  const active = isAnnouncementActiveForAdmin(payload, announcement);
+  renderAnnouncementStatus(announcement, active);
+  const renderedStatus = announcementStatusEl?.textContent;
+  setAnnouncementActiveIndicator(active, announcement.expiresAt, () => {
+    // Only the persisted status expires; leave the administrator's draft intact.
+    // A pending save or error owns its own feedback until the next response.
+    if (announcementStatusEl?.textContent === renderedStatus)
+      renderAnnouncementStatus(announcement, false);
+  });
+  if (announcementMessageEl) announcementMessageEl.value = message;
+  if (announcementEnabledEl) announcementEnabledEl.checked = Boolean(announcement.enabled);
+  if (announcementExpiresEl)
+    announcementExpiresEl.value = toDatetimeLocalValue(announcement.expiresAt);
 
   if (!announcementPreviewEl) return;
   if (!message) {

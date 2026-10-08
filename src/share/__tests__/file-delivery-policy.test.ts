@@ -10,6 +10,7 @@ import {
   getR2FileTargets,
   getUnsupportedFileTargetsForTests,
   isGuestR2FileDelivery,
+  isGuestDirectFileDelivery,
   isLocalFileR2CapableForTests,
   markLocalFileR2Capable,
   markLateLocalPeerForR2,
@@ -45,6 +46,24 @@ beforeEach(() => {
 });
 
 describe('bounded local file delivery policy', () => {
+  it('retains direct delivery only for its admitted queue, session and host connection', () => {
+    const host = { peer: 'host', open: true } as DataConnection;
+    setState('network.hostConn', host);
+    recordGuestFileDelivery(Q0, 7, 'direct-local');
+    setState('network.connectionType', 'remote');
+    expect(isGuestDirectFileDelivery(Q0, 7)).toBe(true);
+    expect(isGuestDirectFileDelivery(Q0, 8)).toBe(false);
+    expect(isGuestDirectFileDelivery(null, 7)).toBe(false);
+    setState('network.hostConn', { peer: 'host', open: true } as DataConnection);
+    expect(isGuestDirectFileDelivery(Q0, 7)).toBe(false);
+    recordGuestFileDelivery(Q0, 1, 'direct-local');
+    expect(isGuestDirectFileDelivery(Q0, 1)).toBe(true);
+    expect(isGuestDirectFileDelivery(Q0, 7)).toBe(false);
+    recordGuestFileDelivery(Q0, 8, 'r2');
+    expect(isGuestDirectFileDelivery(Q0, 8)).toBe(false);
+    expect(isGuestR2FileDelivery(Q0, 8)).toBe(true);
+  });
+
   it('keeps exactly eight local guests on direct P2P', () => {
     setState(
       'network.connectedPeers',

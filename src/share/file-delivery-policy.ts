@@ -38,6 +38,7 @@ interface GuestDelivery {
   queueItemId: QueueItemId;
   sessionId: number;
   mode: 'direct-local' | 'r2';
+  hostConn: DataConnection | null;
 }
 
 const guestDeliveryByQueueItem = new Map<QueueItemId, GuestDelivery>();
@@ -364,8 +365,14 @@ export function recordGuestFileDelivery(
 ): void {
   if (!queueItemId || !validSessionId(sessionId)) return;
   const previous = guestDeliveryByQueueItem.get(queueItemId);
-  if (previous && previous.sessionId > sessionId) return;
-  guestDeliveryByQueueItem.set(queueItemId, { queueItemId, sessionId, mode });
+  const hostConn = getState('network.hostConn');
+  if (previous && previous.hostConn === hostConn && previous.sessionId > sessionId) return;
+  guestDeliveryByQueueItem.set(queueItemId, {
+    queueItemId,
+    sessionId,
+    mode,
+    hostConn,
+  });
 }
 
 export function isGuestR2FileDelivery(
@@ -376,6 +383,20 @@ export function isGuestR2FileDelivery(
   const delivery = guestDeliveryByQueueItem.get(queueItemId);
   if (!delivery || delivery.mode !== 'r2') return false;
   return sessionId === undefined || !validSessionId(sessionId) || delivery.sessionId === sessionId;
+}
+
+/** Keep an admitted direct session stable if its ICE classification changes. */
+export function isGuestDirectFileDelivery(
+  queueItemId: QueueItemId | null,
+  sessionId: number | undefined,
+): boolean {
+  if (!queueItemId || !validSessionId(sessionId ?? 0)) return false;
+  const delivery = guestDeliveryByQueueItem.get(queueItemId);
+  return (
+    delivery?.mode === 'direct-local' &&
+    delivery.sessionId === sessionId &&
+    delivery.hostConn === getState('network.hostConn')
+  );
 }
 
 export function resetFileDeliveryPolicies(): void {

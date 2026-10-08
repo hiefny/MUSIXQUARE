@@ -300,8 +300,7 @@ export class ProRoomSessionController {
   async refreshSignaling(signal?: AbortSignal): Promise<void> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
-    const snapshot = this.#snapshot;
-    if (!snapshot) throw new Error('PRO_ROOM_SESSION_INACTIVE');
+    if (!this.#snapshot) throw new Error('PRO_ROOM_SESSION_INACTIVE');
     let access: ProRoomSignalingAccess;
     try {
       access = await this.api.createSignalingTicket(roomCode, signal);
@@ -310,7 +309,10 @@ export class ProRoomSessionController {
       throw error;
     }
     this.#assertOperationCurrent(operationEpoch);
-    this.#assertAccessMatches(snapshot, access);
+    // The ticket request may overlap a committed nickname/account refresh.
+    // Transport metadata must come from the latest accepted snapshot, not
+    // from the snapshot that happened to exist when the request began.
+    let snapshot = this.#currentSnapshotForAccess(access);
     let refreshed: boolean;
     try {
       refreshed = this.transport.refreshCredentials
@@ -322,6 +324,7 @@ export class ProRoomSessionController {
     }
     this.#assertOperationCurrent(operationEpoch);
     if (!refreshed) {
+      snapshot = this.#currentSnapshotForAccess(access);
       try {
         await this.transport.reconfigure(snapshot, access, signal);
       } catch (error) {
@@ -330,7 +333,7 @@ export class ProRoomSessionController {
       }
       this.#assertOperationCurrent(operationEpoch);
     }
-    this.#controlChannelContext = this.#context;
+    this.#controlChannelContext = projectProRoomContext(snapshot);
     this.#controlChannelDisplayName = snapshot.viewer?.displayName ?? null;
     this.#controlChannelMemberId = snapshot.viewer?.memberId ?? null;
   }
@@ -514,12 +517,12 @@ export class ProRoomSessionController {
       try {
         const access = await this.api.createSignalingTicket(accepted.roomCode, signal);
         this.#assertOperationCurrent(operationEpoch);
-        this.#assertAccessMatches(accepted, access);
-        await this.transport.reconfigure(accepted, access, signal);
+        const channelSnapshot = this.#currentSnapshotForAccess(access);
+        await this.transport.reconfigure(channelSnapshot, access, signal);
         this.#assertOperationCurrent(operationEpoch);
-        this.#controlChannelContext = nextContext;
-        this.#controlChannelDisplayName = accepted.viewer?.displayName ?? null;
-        this.#controlChannelMemberId = accepted.viewer?.memberId ?? null;
+        this.#controlChannelContext = projectProRoomContext(channelSnapshot);
+        this.#controlChannelDisplayName = channelSnapshot.viewer?.displayName ?? null;
+        this.#controlChannelMemberId = channelSnapshot.viewer?.memberId ?? null;
       } catch (error) {
         // Preserve the authenticated room when replacing its server channel
         // fails. A later heartbeat mints a fresh one-use ticket and retries.
@@ -578,6 +581,13 @@ export class ProRoomSessionController {
     this.observer.authority(context);
     this.observer.snapshot(accepted);
     return accepted;
+  }
+
+  #currentSnapshotForAccess(access: ProRoomSignalingAccess): ProRoomSnapshot {
+    const snapshot = this.#snapshot;
+    if (!snapshot) throw new Error('PRO_ROOM_SESSION_INACTIVE');
+    this.#assertAccessMatches(snapshot, access);
+    return snapshot;
   }
 
   #assertAccessMatches(snapshot: ProRoomSnapshot, access: ProRoomSignalingAccess): void {

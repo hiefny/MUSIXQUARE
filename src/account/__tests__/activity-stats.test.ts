@@ -392,6 +392,59 @@ describe('account activity session counting', () => {
     );
   });
 
+  it.each([true, false])(
+    'waits for authenticated room identity before counting (earlier device=%s)',
+    async (hasEarlierDevice) => {
+      const harness = createHarness({
+        authenticated: false,
+        runtime: {
+          sessionStarted: true,
+          myDeviceId: 'device-later',
+          myMemberId: 'anonymous-member',
+          myMemberAuthenticated: false,
+          myJoinOrder: 2,
+          playbackMode: 'file',
+          playbackActivity: 'playing',
+          currentQueueItemId: 'queue-1',
+        },
+      });
+      harness.setAuthenticated(true);
+      harness.settleLeadership();
+      harness.advance(3);
+      await harness.tracker.flush();
+      expect(harness.addStats).not.toHaveBeenCalled();
+
+      harness.patchRuntime({
+        myMemberId: 'member-own',
+        myMemberAuthenticated: true,
+        connectedDevices: hasEarlierDevice
+          ? [
+              {
+                id: 'device-first',
+                memberId: 'member-own',
+                joinOrder: 1,
+                status: 'connected',
+                isAuthenticated: true,
+              },
+            ]
+          : [],
+      });
+      harness.settleLeadership();
+      harness.advance(12);
+      await harness.tracker.flush();
+      if (hasEarlierDevice) expect(harness.addStats).not.toHaveBeenCalled();
+      else
+        expect(harness.addStats).toHaveBeenCalledWith(
+          {
+            sessionCountDelta: 1,
+            listeningSecondsDelta: 12,
+            trackCountDelta: 1,
+          },
+          STATS_SCOPE_A,
+        );
+    },
+  );
+
   it('starts fresh when another account signs in during the active room', async () => {
     const harness = createHarness();
     harness.patchRuntime({
@@ -1049,6 +1102,8 @@ describe('account activity lifecycle', () => {
       statsScope: STATS_SCOPE_A,
     });
     setState('network.myId', 'device-own');
+    setState('network.myMemberId', 'member-own');
+    setState('network.myMemberAuthenticated', true);
     setState('setup.sessionStarted', true);
     setState('playback.mode', 'system-audio');
     setState('playback.activity', 'playing');

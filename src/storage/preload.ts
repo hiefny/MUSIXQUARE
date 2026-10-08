@@ -10,7 +10,14 @@ import { SessionScope } from '../core/session-scope.ts';
 import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
-import { MSG, CHUNK_SIZE, DELAY, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
+import {
+  MSG,
+  CHUNK_SIZE,
+  MAX_EARLY_PRELOAD_CHUNKS,
+  DELAY,
+  TRANSFER_STATE,
+  PLAYBACK_STATE,
+} from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
 import {
@@ -60,6 +67,7 @@ import { resolveDecodeMemoryBudget } from '../player/decode-admission.ts';
 import {
   freezeFileDeliveryMode,
   isGuestR2FileDelivery,
+  isGuestDirectFileDelivery,
   recordGuestFileDelivery,
 } from '../share/file-delivery-policy.ts';
 import {
@@ -89,7 +97,6 @@ let latestPreloadSessionId = 0;
 let lastPreloadUiSessionId = 0;
 let lastPreloadUiPercent = -1;
 const MAX_EARLY_PRELOAD_SESSIONS = 4;
-const MAX_EARLY_PRELOAD_CHUNKS = 64;
 const MAX_EARLY_PRELOAD_BYTES = 4 * 1024 * 1024;
 let _activePlayPreloadedQueueItemId: string | undefined;
 let _preloadScope: SessionScope | null = null;
@@ -1566,7 +1573,10 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   const routeQueueItemId =
     typeof data.queueItemId === 'string' ? (data.queueItemId as QueueItemId) : null;
   const incomingSessionId = Number(data.sessionId);
-  if (isRemoteGuest() || isGuestR2FileDelivery(routeQueueItemId, incomingSessionId)) {
+  if (
+    (isRemoteGuest() && !isGuestDirectFileDelivery(routeQueueItemId, incomingSessionId)) ||
+    isGuestR2FileDelivery(routeQueueItemId, incomingSessionId)
+  ) {
     log.info('[Preload] Skipped direct preload for remote guest');
     return;
   }
@@ -1905,15 +1915,14 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  // Remote guests receive authenticated whole objects instead of direct chunks.
-  if (isRemoteGuest()) return;
-
   // Exact session identity is mandatory on every preload chunk.
   const sid = data.sessionId as number;
   // Repeat the protocol guard at the sink before keying reorder/session maps.
   if (!Number.isSafeInteger(sid) || sid <= 0) return;
   const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
   if (!queueItemId) return;
+  if (isGuestR2FileDelivery(queueItemId, sid)) return;
+  if (isRemoteGuest() && !isGuestDirectFileDelivery(queueItemId, sid)) return;
 
   // We intentionally DO NOT drop chunks for sid < latestPreloadSessionId.
   // This allows "stale" preloads (like a late-joiner's unicastPreload that

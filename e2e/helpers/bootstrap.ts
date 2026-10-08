@@ -37,11 +37,15 @@ function formatBootstrapObservation(observation: BootstrapObservation): string {
   );
 }
 
-async function waitForBootstrapTerminal(page: Page, timeout: number): Promise<void> {
+async function waitForBootstrapTerminal(
+  page: Page,
+  timeout: number,
+  awaitingCachedNavigation = false,
+): Promise<void> {
   try {
     await page
       .locator(
-        'html[data-bootstrap-state="ready"], ' +
+        (awaitingCachedNavigation ? '' : 'html[data-bootstrap-state="ready"], ') +
           'html[data-bootstrap-state="degraded"], ' +
           'html[data-bootstrap-state="aborted"]',
       )
@@ -78,7 +82,10 @@ export async function waitForBootstrapCachedNavigationFallback(
   page: Page,
   timeout = 15_000,
 ): Promise<void> {
-  await waitForBootstrapTerminal(page, timeout);
+  // The Worker probe may publish CachedNavigation after the eager app wiring
+  // first reports ready. Wait for that asynchronous publication, while still
+  // rejecting aborted bootstraps and any additional failure/fallback below.
+  await waitForBootstrapTerminal(page, timeout, true);
 
   const observation = await readBootstrapObservation(page);
   if (

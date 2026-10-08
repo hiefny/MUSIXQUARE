@@ -225,6 +225,19 @@ room-authoritative and does not inherit the permissions of a browser member.
 Integrations must authenticate the human requester and confirm destructive
 intent themselves, as specified by the public Developer API contract.
 
+Developer API writes also require a fresh individual credential lookup at the
+PRO room's serialized mutation boundary, after body parsing and asynchronous
+preparation. The key must remain active, unexpired, and scoped to the current
+room incarnation and authority epoch. Revocation/expiry while a request is
+waiting therefore prevents its next state change; unavailable credential D1
+fails closed. Media completion checks again before copying and before publishing
+the ready asset and queue item. This is final-check admission, not a distributed
+rollback: a change already authorized and in progress, including an accepted
+playback transition, may finish. An unpublished copied media object remains
+under its existing reservation and normal expiry cleanup. The in-process BOT
+path keeps its separate member-authority checks and cannot select this exception
+through public JSON. See [the dated repair evidence](beta-30-round-repair-2026-10-09.md).
+
 The internal model separates at least:
 
 ```text

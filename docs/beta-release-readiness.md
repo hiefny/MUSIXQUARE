@@ -20,7 +20,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| PRO 활성화 링크 24시간 — 2026-10-09 | 기준 main `c8ac8b62a5929fa4e588fb935c20efb876d27522`, 임시 `agent/pro-activation-24h`. 신규 활성화 링크 기본·최대 수명 24시간, App·PRO·CLI 공통 상한 사용. 로컬 `8.7.6`/`v637`, 운영 미반영. 발급·만료 집중39pass/필터 제외544 및 실제 CLI7pass, 독립 diff 검토 새 결함0. 전체 unit·정적·build 검증 진행 중. schema/secrets/bindings/deps 변경0. 아래 현재 체크리스트·누적 이력 참조 |
+| PRO 활성화 링크 24시간 — 2026-10-09 | 검증 코드 `4d1bfa84319d67f8866eaa8661e8c8a9c9a9a6e9`, 임시 `agent/pro-activation-24h`. 신규 활성화 링크 기본·최대 수명 24시간, App·PRO·CLI 공통 상한 사용. 로컬 `8.7.6`/`v637`, 운영 미반영. 전체 unit 후 영향3파일64pass 치환 집계522파일10,887pass/기존1skip/최종fail0; 정적7명령·production build·App/PRO dry-run 통과. 최초 캐시 주소 누락·기존 검사60초 timeout은 원본 보존 후 해소. 독립 diff 검토 새 결함0. schema/secrets/bindings/deps 변경0. 아래 현재 체크리스트·누적 이력 참조 |
 | 8.7.5 정식 릴리스 — 2026-10-09 | 사용자 명시 승인 후 PR #269·PR CI `37839097247` 성공, main `0fc46bad9233db6e7c9f7790d84052afbd53b6d8`의 push CI `37839818477` attempt1 및 immutable candidate 검증. Release `37840659848` attempt1 성공, `all`/Developer API D1 false. App `8.7.5`/`v636`·Worker6종 모두 같은 git SHA·100% version·최종 소유권 확인. main unit522파일10,881pass/기존1skip/fail0·4종coverage·핵심 browser 통과. 782파일 후보 hash 불일치0, release smoke10 통과·PRO ready·coherent marker 보존·rollback 불필요. 자동 Codex PR 리뷰는 사용 한도로 미실행; 최종 소스 검토·기존 독립 API 검토 완료. [정식 배포 후속 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09) |
 | QA032 추가 제공 결과 검토 — 2026-10-09 | 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`, 검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`와 차이는 문서2파일뿐. 원본 JSON4파일집계·19검사파일 고유434pass(기존23+통합3+보조16/392), fail·skip0 확인. 실제 protocol→main/preload receiver→storage→완료 Blob 및 역순 조립 통합3이 직접 RAM 쓰기/완료 없이 통과, 보조 원본 JSON·로그/보고서 명령 확인. 합의한 로컬 QA032 범위 완료·앞선 근거 보류 해소. binary codec/실제 WebRTC/live 검증 아님. 현재clean/추적1,964·비Markdown1,819 hash가 기존 manifest와 동일; 실행 전체의 전후hash는 별도 미제공. 부모 재실행/검사수정0·새 확정 제품 결함0·제품/main/운영/배포 변경0. [후속 판정](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09) |
 | API 인증 후 키 수명 재검증 — 2026-10-09 | `2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 새 GPT-6 Luna/high 세션과 부모 독립 확인, Windows/Node24.20.0. 최종 고유8pass/fail·skip0/retry0: 실제 초기 인증→Request reader 대기→회수/만료→본문 완료를 명시한 queue-mode·원래 queue-add 각4대조. 정상200/201·회수/만료 기존·새 요청401/PRO 저장 불변·epoch409. 원본4pass는 pull 자동 호출로 인증 후 순서 증거가 부족해 합산하지 않음; 최초 fixture 오류 보존. API는 직접 거절 없이 중단됐던 항목으로 분류 정정, 이번 서비스 거절0·새 확정0. 추적1,964/dist782 불변, 제품/main/배포 변경0. QA032의 현재 판정은 위 후속 제공 근거 행을 따름. [근거·한계](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09) |
@@ -482,7 +482,7 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] 발급기·검증기·App 관리자 및 계정 귀속 grant 응답 검증을 공통 24시간 상한으로 정렬.
 - [x] 실제 발급→저장 상태 재로드→활성화에서 15분 이후·24시간 직전 성공 및 정확한 만료 시점 거절, 재발급 시 이전 링크 무효화 확인. 기존 15분 링크의 서명된 만료는 유지.
 - [x] 공통 claim의 24시간 초과 발급·검증 거절, 실제 CLI 출력의 24시간 수명 확인. 기존 복구/소유권 이전 수명 유지. 독립 diff 검토 새 결함0.
-- [ ] 전체 unit·정적 검사 및 committed HEAD의 production build 검증.
+- [x] 전체 unit 후 영향3파일64pass 치환 집계522파일10,887pass/기존1skip/최종fail0. 타입·lint·format 및 release identity/Developer API/D1/ops drift guard7명령, committed `4d1bfa84`의 production build·App/PRO dry-run 통과.
 - [ ] 배포 시 App·PRO를 함께 반영: PR 검토/CI·병합 후 exact-main-SHA CI candidate 및 정식 Release 필요. 현재 로컬 수정 단계, 운영 미반영.
 
 **2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
@@ -1397,9 +1397,17 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 사용해 관리자와 계정 귀속 grant 발급 경로가 같은 기간을 수용한다. PRO 발급·검증과
 오프라인 CLI도 같은 상수를 사용한다. UI는 서버 `expiresAt`을 표시하므로 별도 문구
 하드코딩 변경은 없다. 제품 `8.7.6`/cache `v637`, schema/secrets/bindings/deps 변경0.
-기준 main `c8ac8b62` 작업 트리에서 Windows·Node24.20.0/npm12.0.2로 집중39pass
-(필터 제외544), 별도 실제 CLI7pass/실패·skip0를 확인했다. 전체 검사와 중복 합산하지
-않는다. 전체 unit·정적·production build 결과는 후속 확정한다.
+기준 main `c8ac8b62`, 최종 검증 코드 `4d1bfa84319d67f8866eaa8661e8c8a9c9a9a6e9`.
+Windows·Node24.20.0/npm12.0.2·Wrangler4.130.0에서 집중39pass(필터 제외544),
+별도 실제 CLI7pass를 확인했다. 최초 전체 unit522파일은10,885pass/2fail/기존1skip:
+캐시 버전 상승 때 `index.html`의 bootstrap 주소가 빠진 실패는 v637로 맞춰 수정했고,
+기존 production-security-rollout 검사60초 timeout은 제한 변경 없이 해당 파일을 다시
+실행해 통과했다. 최종 영향3파일64pass/fail·skip0를 기존 파일 결과와 치환하면
+522파일10,887pass/기존1skip/최종fail0다. 최초 전체 실행·build 실패 로그는 보존하며
+전체 suite를 다시 실행한 것으로 표현하거나 집중/CLI/재검사 수를 중복 합산하지 않는다.
+정적7명령(typecheck/lint/format 및 release identity/Developer API/D1/ops drift guards),
+App Worker 구문 검사, committed HEAD의 production build 및 App/PRO Worker dry-run
+통과. 독립 diff 검토 새 결함0. 새 coverage·실제 browser/live 검증은 수행하지 않았다.
 
 기존 링크의 서명된 만료 시각은 자동 연장하지 않으며 새 기간은 재발급부터 적용된다.
 재발급/활성화/방 삭제·세대 변경의 무효화와 계정 귀속은 유지한다. 방 자체의 사용

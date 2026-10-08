@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.4` / `v635`, 시그널링 `99f9103c` 유지. 2026-10-09 QA 후속 15건 로컬 수정·회귀 검증 완료, 제품 `8c14f0d6` / `8.7.5` / `v636` 미배포. 일반 검사43·기존 회귀966/API 키 수명8 통과; QA032 추가 제공 통합3·보조408 확인으로 합의한 로컬 범위 완료 |
+| Status             | Runbook — 운영 App `8.7.5` / `v636`, Worker6종 `0fc46bad` 배포 완료. 2026-10-09 QA 후속 15건 반영, PR #269·exact-main CI `37839818477`·Release `37840659848` 성공. 운영 smoke10·최종6Worker 소유권·PRO ready 확인. QA032 합의한 로컬 범위 완료; 실기·기존 미확정 운영 관측 한계 유지 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -16,7 +16,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 8.7.5 릴리스 준비 — 2026-10-09 | 사용자가 QA 완료 뒤 main 병합·배포를 명시 지시. 제품 `8c14f0d6` 및 QA helper `8ff6fd12`, 준비 App `8.7.5`/`v636`. 원격 main `e7c5529a`와 기준 동일·작업 트리 clean 확인, 최종 diff 소스 검토 및 release-identity/cache-history 통과. App·PRO·Developer API 동시 변경으로 `target=all`, `apply_developer_api_d1=false`; schema/secrets/bindings/deps 변경 없음. PR 검토·CI·정확한 merge-SHA main candidate·정식 Release 및 운영 smoke 대기. 운영은 아직 `8.7.4`/`v635` 유지 |
+| 8.7.5 정식 릴리스 — 2026-10-09 | 사용자 명시 승인 후 PR #269·PR CI `37839097247` 성공, main `0fc46bad9233db6e7c9f7790d84052afbd53b6d8`의 push CI `37839818477` attempt1 및 immutable candidate 검증. Release `37840659848` attempt1 성공, `all`/Developer API D1 false. App `8.7.5`/`v636`·Worker6종 모두 같은 git SHA·100% version·최종 소유권 확인. main unit522파일10,881pass/기존1skip/fail0·4종coverage·핵심 browser 통과. 782파일 후보 hash 불일치0, release smoke10 통과·PRO ready·coherent marker 보존·rollback 불필요. 자동 Codex PR 리뷰는 사용 한도로 미실행; 최종 소스 검토·기존 독립 API 검토 완료. [정식 배포 후속 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09) |
 | QA032 추가 제공 결과 검토 — 2026-10-09 | 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`, 검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`와 차이는 문서2파일뿐. 원본 JSON4파일집계·19검사파일 고유434pass(기존23+통합3+보조16/392), fail·skip0 확인. 실제 protocol→main/preload receiver→storage→완료 Blob 및 역순 조립 통합3이 직접 RAM 쓰기/완료 없이 통과, 보조 원본 JSON·로그/보고서 명령 확인. 합의한 로컬 QA032 범위 완료·앞선 근거 보류 해소. binary codec/실제 WebRTC/live 검증 아님. 현재clean/추적1,964·비Markdown1,819 hash가 기존 manifest와 동일; 실행 전체의 전후hash는 별도 미제공. 부모 재실행/검사수정0·새 확정 제품 결함0·제품/main/운영/배포 변경0. [후속 판정](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09) |
 | API 인증 후 키 수명 재검증 — 2026-10-09 | `2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 새 GPT-6 Luna/high 세션과 부모 독립 확인, Windows/Node24.20.0. 최종 고유8pass/fail·skip0/retry0: 실제 초기 인증→Request reader 대기→회수/만료→본문 완료를 명시한 queue-mode·원래 queue-add 각4대조. 정상200/201·회수/만료 기존·새 요청401/PRO 저장 불변·epoch409. 원본4pass는 pull 자동 호출로 인증 후 순서 증거가 부족해 합산하지 않음; 최초 fixture 오류 보존. API는 직접 거절 없이 중단됐던 항목으로 분류 정정, 이번 서비스 거절0·새 확정0. 추적1,964/dist782 불변, 제품/main/배포 변경0. QA032의 현재 판정은 위 후속 제공 근거 행을 따름. [근거·한계](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09) |
 | 새 세션 마지막 독립 검증 — 2026-10-09 | `44ef6a789112c23f1c63c843853eca9d86054e45`, 로컬 GPT-6.1 Sol/xhigh·Windows/Node24.20.0. 새 scratch43pass(API11·공개 요청14·번역8·관리자10) 및 기존17파일966pass, 최종fail·skip0/자동retry0. 최초40pass/1fail은 삭제 fence의 HTTP 기대값 차이; 실제200/voted:false·DB 무쓰기와 원본 보존. 새 확정0. QA032는 기존 제한/공식 설명 확인만, API 스트리밍 수명도 미실행. 검증 전후 추적1,964/dist782 hash 불변, 이번 신규 보안 거절0. 임시 캐시 삭제는 실행 정책 거절로 scratch에 보존. 제품/main/배포 변경 없음. [범위·한계](design/beta-30-round-repair-2026-10-09.md#새-세션의-마지막-독립-검증--2026-10-09) |
@@ -53,17 +53,17 @@
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 현재 App `8.7.4` / `v635` 배포 완료; 데스크톱 채팅 위쪽 여백을 메시지 간격과 같은 12px로 조정. 버전 일치·cache-history·`build:checked`와 정확한 main CI candidate 확인 |
-| 완료한 배포 범위                    | 최신 `target=signaling` / `99f9103c`; App은 `358b3fc3`, 나머지 4개 Worker는 `e8001e93` 유지·부분 배포 호환성 및 다른 5개 deployment 불변 확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
+| 제품 버전 / PWA 캐시                | 현재 App `8.7.5` / `v636` 배포 완료; 2차 QA 후속15건 및 QA helper 반영. 정확한 main CI candidate·버전/캐시 일치·운영 App generation/초기 asset graph 검증 통과 |
+| 완료한 배포 범위                    | 최신 `target=all` / `0fc46bad`; App·PRO·remote-share·signaling·Developer API facade/backend6종 모두 exact git provenance 및100% version 최종 확인. PRO room-generation readiness는 같은 release SHA의 ready로 복구 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
-| 최신 App main SHA / CI 후보 / 배포 실행 | `358b3fc39c08b3442aa495d4fa52c1eb0a97a871` / main CI `37729046851` 및 immutable candidate / Release `37729556678` 성공. 아래 후속 패치 기록 참조 |
+| 최신 App main SHA / CI 후보 / 배포 실행 | `0fc46bad9233db6e7c9f7790d84052afbd53b6d8` / main CI `37839818477` attempt1 및 immutable candidate / Release `37840659848` attempt1 성공. 782파일 후보 hash·10개 운영 smoke·최종6Worker 소유권 확인 |
 | 후속 App 패치 | `8.7.4`/`v635` 완료 — 1280px 이상 데스크톱 채팅 위쪽 여백 16px→12px, 모바일·다른 패딩 유지. 제품 `86ea0e8e` → PR #265/main `358b3fc3`, `app`/D1 false. 로컬 unit 10,781·production CSS 레이아웃 16조합·공개 CSS/SW hash 및 fresh ko 검증 통과 |
 | 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**배포된 App은 `8.7.4` / `v635`, App 배포 main SHA는 `358b3fc3`이다.** 이후 시그널링만
-`99f9103c`로 배포했으며, App과 나머지 4개 Worker의 deployment·version은 유지됐다.
-정확한 main CI candidate·배포·공개 검증 결과는 아래 후속 패치 기록을 따른다.
+**배포된 App은 `8.7.5` / `v636`, 배포 main SHA는 `0fc46bad`이다.** 6개 Worker를 같은
+정확한 main CI 후보로 배포하고 모든 운영 smoke·최종 소유권·PRO ready를 확인했다.
+이전 App8.7.4/시그널링99f9103c 기록은 이력으로 보존한다. [정식 배포 결과](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09)를 따른다.
 
 **2026-10-07 저녁 운영 R2 재검사:** `a1543f8b`의 유지 검사로 새 방 3회 중 2 pass / 1 fail.
 추가 수동 관찰 진단 1회에서도 연결 9개·R2 경로는 정상이었으나 게스트 1개가 HTTP 200
@@ -488,7 +488,7 @@ schema/secrets/bindings·배포 변경 없음. 원격 exact-main-SHA CI candidat
 - [x] 미확정 2건의 기대 동작을 사용자가 승인: API 변경 직전 개별 키 검사, 관리자 공지 만료 시 본문 상태 자동 갱신. 이미 최종 인증을 통과해 진행 중인 작업을 분산 롤백하는 계약은 아님.
 - [x] 통합 unit·4종 coverage·영향 Chromium·최종 WebKit 및 정적 검사 통과.
 - [x] 제품 커밋 `8c14f0d6`에서 production build·Worker6·candidate Chromium17/WebKit SW1 통과. QA helper 관측 경합은 별도 재현 후 검사만 수정, 782파일 산출물 불변.
-- [ ] 향후 배포용 정확한 main SHA CI candidate 확보. 로컬 수정은 현재 배포 상태를 바꾸지 않음.
+- [x] 정확한 main `0fc46bad`의 CI `37839818477`/immutable candidate 및 Release `37840659848` 성공. App8.7.5/v636·all/D1 false·운영 smoke10·최종6Worker 소유권·PRO ready 확인. [배포 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09).
 - [x] 새 세션의 일반 방어 경계 검증: `44ef6a78`, 새 로컬43·기존17파일966 통과, 새 확정0. 기존 전체/심화 검증과 합산하지 않음. [마지막 독립 검증](design/beta-30-round-repair-2026-10-09.md#새-세션의-마지막-독립-검증--2026-10-09).
 - [x] API 스트리밍 키 수명: `2a6e4812`, 실제 초기 인증 뒤 회수·만료를 적용한 queue-mode/queue-add 고유8대조 통과. API 자체 거절 없이 중단됐던 항목을 기존 QA032 거절과 구분해 일반 로컬 회귀로 확인. [최종 근거·관측 한계 보완](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09).
 - [x] QA032 사용자 제공 부분 실행 근거 검토: `fa33c660`, JSON23pass와 source의 guard/dispatch 검사 대응 확인. 부모 런타임 재실행0·원본 보존. [읽기 전용 검토](design/beta-30-round-repair-2026-10-09.md#qa032-사용자-제공-결과의-읽기-전용-검토--2026-10-09).
@@ -1378,6 +1378,18 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 8.7.5/v636 정식 배포 완료: 사용자 명시 승인·최종 소스 검토 후 PR #269 및
+PR CI `37839097247` 성공, main `0fc46bad9233db6e7c9f7790d84052afbd53b6d8`의
+push CI `37839818477` attempt1·immutable candidate를 정식 Release `37840659848` attempt1로
+배포했다. all/Developer API D1 false, main unit522파일10,881pass/기존1skip/fail0·4종coverage·
+핵심 browser 통과, 후보782파일 hash 일치. App·PRO·remote-share·signaling·Developer API
+facade/backend6종100% 및 exact git provenance 최종 확인, 운영 smoke10·PRO ready·coherent
+marker 통과·복구 checkpoint 보존·rollback 불필요. 새 schema/secrets/bindings/deps 변경0,
+기존 App·번역 idempotent D1 baseline 적용/검증은 정식 절차로 수행했다. 자동 Codex 리뷰는
+사용 한도로 미실행이며 최종 소스/기존 독립 API 검토로 구분 기록한다. Operations Drift Audit은
+active 유지·다른 workflow 변경0. 실기 및 기존 미확정 운영 관측은 유지하고 문서만 후속 반영.
+[정확한 배포·복구 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09).
 
 2026-10-09 8.7.5 릴리스 준비: 사용자가 완료된 QA 수정분의 배포를 명시 지시했다.
 제품 `8c14f0d6`/QA helper `8ff6fd12`, 준비 `8.7.5`/`v636`, 원격 main `e7c5529a`가

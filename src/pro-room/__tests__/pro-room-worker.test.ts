@@ -8909,7 +8909,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(await responseJson(after)).toEqual({ roomCode, status: 'activation_required' });
   });
 
-  it('rotates short-lived activation generations so only the newest admin link works', async () => {
+  it('rotates 24-hour activation generations so only the newest admin link works', async () => {
     const roomCode = '000002';
     const state = new FakeState();
     const worker = new MusixquareProRoom(state as never, environment() as never);
@@ -8946,8 +8946,8 @@ describe('persistent PRO room bootstrap and activation', () => {
         }),
       ),
     );
-    expect(second.expiresAt).toBeGreaterThan(issuedAt);
-    expect(second.expiresAt).toBeLessThanOrEqual(issuedAt + 15 * 60 * 1000 + 1_000);
+    expect(second.expiresAt).toBeGreaterThanOrEqual(issuedAt + 24 * 60 * 60 * 1000);
+    expect(second.expiresAt).toBeLessThanOrEqual(Date.now() + 24 * 60 * 60 * 1000);
 
     const claimFrom = (activationUrl: string): string => {
       const encoded = new URL(activationUrl).hash.match(/^#pro-claim=(.+)$/)?.[1];
@@ -8979,6 +8979,68 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(current.status).toBe(200);
     expect(JSON.stringify(await responseJson(current))).not.toContain('pro-claim');
   });
+
+  it.each([
+    { elapsedMs: 15 * 60 * 1000 + 1, expectedStatus: 200 },
+    { elapsedMs: 24 * 60 * 60 * 1000 - 1, expectedStatus: 200 },
+    { elapsedMs: 24 * 60 * 60 * 1000, expectedStatus: 401 },
+  ])(
+    'enforces the issued activation deadline after $elapsedMs ms',
+    async ({ elapsedMs, expectedStatus }) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const issuedAt = Date.now();
+      const roomCode = '000002';
+      const state = new FakeState();
+      const env = environment();
+      const worker = new MusixquareProRoom(state as never, env as never);
+      const adminHeaders = {
+        'x-mxqr-pro-room-code': roomCode,
+        'x-mxqr-pro-room-generation': '0',
+      };
+      const provision = await worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/provision', {
+          method: 'POST',
+          headers: adminHeaders,
+        }),
+      );
+      expect(provision.status).toBe(200);
+      const issuedResponse = await worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/activation-claim', {
+          method: 'POST',
+          headers: adminHeaders,
+        }),
+      );
+      expect(issuedResponse.status).toBe(200);
+      const issued = await responseJson(issuedResponse);
+      expect(issued.expiresAt).toBe(issuedAt + 24 * 60 * 60 * 1000);
+      const claimToken = new URLSearchParams(new URL(issued.activationUrl).hash.slice(1)).get(
+        'pro-claim',
+      );
+      expect(claimToken).toBeTruthy();
+
+      vi.setSystemTime(issuedAt + elapsedMs);
+      const reloaded = new MusixquareProRoom(state as never, env as never);
+      const response = await reloaded.fetch(
+        await withAccountAssertion(
+          jsonRequestForRoom(roomCode, '/activation', 'POST', {
+            claimToken,
+            temporaryPin: '00000002',
+            newPin: '12345678',
+          }),
+          ACTIVATION_OWNER_ACCOUNT_ID,
+          'Owner',
+          roomCode,
+        ),
+      );
+      expect(response.status).toBe(expectedStatus);
+      if (expectedStatus === 401) {
+        expect(await responseJson(response)).toEqual({ error: 'ACTIVATION_INVALID' });
+      }
+      expect(storedCanonicalRoom(state).status).toBe(
+        expectedStatus === 200 ? 'active' : 'unactivated',
+      );
+    },
+  );
 
   it('binds a grant activation claim to its target account without consuming it on mismatch', async () => {
     const roomCode = '000002';
@@ -9189,12 +9251,12 @@ describe('persistent PRO room bootstrap and activation', () => {
     });
   });
 
-  it('refuses activation claims whose requested lifetime exceeds fifteen minutes', async () => {
+  it('refuses activation claims whose requested lifetime exceeds 24 hours', async () => {
     const nowMs = Date.now();
     await expect(
       issueProRoomActivationClaim('000002', ACTIVATION_SECRET, {
         nowMs,
-        expiresAtMs: nowMs + 15 * 60 * 1000 + 1,
+        expiresAtMs: nowMs + 24 * 60 * 60 * 1000 + 1,
       }),
     ).rejects.toThrow('Invalid expiry');
   });

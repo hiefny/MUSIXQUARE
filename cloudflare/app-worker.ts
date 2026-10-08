@@ -27,7 +27,10 @@ import {
   proRoomGenerationHeaderValue,
   proRoomObjectName,
 } from './pro-room-generation.ts';
-import { issueProRoomOwnerTransferRevocationReceipt } from './pro-room-claims.ts';
+import {
+  issueProRoomOwnerTransferRevocationReceipt,
+  PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS,
+} from './pro-room-claims.ts';
 import { isValidPeerId } from './signaling-protocol.ts';
 import {
   consumeAbuseRateLimit,
@@ -344,7 +347,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.7.5';
+const ADMIN_ASSET_VERSION = '8.7.6';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -413,7 +416,6 @@ const ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION = 1;
 const RELEASE_SHA_RE = /^[0-9a-f]{40}$/;
 const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
-const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENT_TTL_MS = 15 * 60 * 1000;
@@ -5061,7 +5063,7 @@ function isValidAdminActivationLink(
     typeof payload.expiresAt !== 'number' ||
     !Number.isSafeInteger(payload.expiresAt) ||
     payload.expiresAt <= nowMs ||
-    payload.expiresAt > nowMs + ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS + 5_000
+    payload.expiresAt > nowMs + PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS + 5_000
   ) {
     return false;
   }

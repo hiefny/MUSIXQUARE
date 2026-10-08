@@ -8,6 +8,10 @@
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
+**후속 변경 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명을 15분에서
+24시간으로 변경했다. 로컬 후보 `8.7.6` / `v637`이며 운영은 위 `8.7.5` / `v636`을
+유지한다. 이번 변경의 검증·배포 상태는 아래 PRO 활성화 링크 항목을 따른다.
+
 다음 배포 담당자는 이 문서부터 읽는다. 각 QA의 상세 보고서를 대체하지 않고,
 **배포에 필요한 현재 상태와 남은 작업**을 한곳에 모은다. 아래 관측값은 해당
 커밋·확인일의 기록이며, 배포 직전에 실제 Git·CI·Cloudflare 상태와 다시 맞춘다.
@@ -16,6 +20,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| PRO 활성화 링크 24시간 — 2026-10-09 | 기준 main `c8ac8b62a5929fa4e588fb935c20efb876d27522`, 임시 `agent/pro-activation-24h`. 신규 활성화 링크 기본·최대 수명 24시간, App·PRO·CLI 공통 상한 사용. 로컬 `8.7.6`/`v637`, 운영 미반영. 발급·만료 집중39pass/필터 제외544 및 실제 CLI7pass, 독립 diff 검토 새 결함0. 전체 unit·정적·build 검증 진행 중. schema/secrets/bindings/deps 변경0. 아래 현재 체크리스트·누적 이력 참조 |
 | 8.7.5 정식 릴리스 — 2026-10-09 | 사용자 명시 승인 후 PR #269·PR CI `37839097247` 성공, main `0fc46bad9233db6e7c9f7790d84052afbd53b6d8`의 push CI `37839818477` attempt1 및 immutable candidate 검증. Release `37840659848` attempt1 성공, `all`/Developer API D1 false. App `8.7.5`/`v636`·Worker6종 모두 같은 git SHA·100% version·최종 소유권 확인. main unit522파일10,881pass/기존1skip/fail0·4종coverage·핵심 browser 통과. 782파일 후보 hash 불일치0, release smoke10 통과·PRO ready·coherent marker 보존·rollback 불필요. 자동 Codex PR 리뷰는 사용 한도로 미실행; 최종 소스 검토·기존 독립 API 검토 완료. [정식 배포 후속 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09) |
 | QA032 추가 제공 결과 검토 — 2026-10-09 | 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`, 검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`와 차이는 문서2파일뿐. 원본 JSON4파일집계·19검사파일 고유434pass(기존23+통합3+보조16/392), fail·skip0 확인. 실제 protocol→main/preload receiver→storage→완료 Blob 및 역순 조립 통합3이 직접 RAM 쓰기/완료 없이 통과, 보조 원본 JSON·로그/보고서 명령 확인. 합의한 로컬 QA032 범위 완료·앞선 근거 보류 해소. binary codec/실제 WebRTC/live 검증 아님. 현재clean/추적1,964·비Markdown1,819 hash가 기존 manifest와 동일; 실행 전체의 전후hash는 별도 미제공. 부모 재실행/검사수정0·새 확정 제품 결함0·제품/main/운영/배포 변경0. [후속 판정](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09) |
 | API 인증 후 키 수명 재검증 — 2026-10-09 | `2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 새 GPT-6 Luna/high 세션과 부모 독립 확인, Windows/Node24.20.0. 최종 고유8pass/fail·skip0/retry0: 실제 초기 인증→Request reader 대기→회수/만료→본문 완료를 명시한 queue-mode·원래 queue-add 각4대조. 정상200/201·회수/만료 기존·새 요청401/PRO 저장 불변·epoch409. 원본4pass는 pull 자동 호출로 인증 후 순서 증거가 부족해 합산하지 않음; 최초 fixture 오류 보존. API는 직접 거절 없이 중단됐던 항목으로 분류 정정, 이번 서비스 거절0·새 확정0. 추적1,964/dist782 불변, 제품/main/배포 변경0. QA032의 현재 판정은 위 후속 제공 근거 행을 따름. [근거·한계](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09) |
@@ -471,6 +476,14 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
   방 재생 명령·권한 완화·파일 공유 종료 정책 변경은 없다.
 
 ## 3. 현재 검증과 남은 확인
+
+**PRO 활성화 링크 24시간 — 2026-10-09:**
+
+- [x] 발급기·검증기·App 관리자 및 계정 귀속 grant 응답 검증을 공통 24시간 상한으로 정렬.
+- [x] 실제 발급→저장 상태 재로드→활성화에서 15분 이후·24시간 직전 성공 및 정확한 만료 시점 거절, 재발급 시 이전 링크 무효화 확인. 기존 15분 링크의 서명된 만료는 유지.
+- [x] 공통 claim의 24시간 초과 발급·검증 거절, 실제 CLI 출력의 24시간 수명 확인. 기존 복구/소유권 이전 수명 유지. 독립 diff 검토 새 결함0.
+- [ ] 전체 unit·정적 검사 및 committed HEAD의 production build 검증.
+- [ ] 배포 시 App·PRO를 함께 반영: PR 검토/CI·병합 후 exact-main-SHA CI candidate 및 정식 Release 필요. 현재 로컬 수정 단계, 운영 미반영.
 
 **2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
 Windows·Node24.20.0/npm12.0.2·Astra Ultra 3×10세트로 검토했다. 30라운드/122개 기본 QA ID를
@@ -1378,6 +1391,24 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 PRO 최초 활성화 링크 유효기간 변경: 사용자 요청에 따라 신규 링크의
+기본·최대 수명을 15분에서 24시간으로 확대했다. 공통 claim 상수를 App 응답 검사에도
+사용해 관리자와 계정 귀속 grant 발급 경로가 같은 기간을 수용한다. PRO 발급·검증과
+오프라인 CLI도 같은 상수를 사용한다. UI는 서버 `expiresAt`을 표시하므로 별도 문구
+하드코딩 변경은 없다. 제품 `8.7.6`/cache `v637`, schema/secrets/bindings/deps 변경0.
+기준 main `c8ac8b62` 작업 트리에서 Windows·Node24.20.0/npm12.0.2로 집중39pass
+(필터 제외544), 별도 실제 CLI7pass/실패·skip0를 확인했다. 전체 검사와 중복 합산하지
+않는다. 전체 unit·정적·production build 결과는 후속 확정한다.
+
+기존 링크의 서명된 만료 시각은 자동 연장하지 않으며 새 기간은 재발급부터 적용된다.
+재발급/활성화/방 삭제·세대 변경의 무효화와 계정 귀속은 유지한다. 방 자체의 사용
+기한, 복구/소유권 이전, 미디어 정리 유예는 변경하지 않는다. 삭제 즉시 활성화 세대를
+무효화하므로 미디어 URL 기준 정리 대기를 24시간으로 확대하지 않는다. 이전 PRO
+버전으로 복구하면 새 24시간 claim은 거절되므로 링크를 다시 발급해야 한다. 배포는
+App·PRO를 함께 포함해야 하며 현재 workflow의 PRO→App 교체 사이에는 구형 App이
+새 24시간 발급 응답을 일시 거절할 수 있다. 현재 로컬 수정이며 PR·main CI·정식
+배포는 미실행이다. 원본 로컬 근거는 `scratch/pro-activation-24h-2026-10-09/`에 보존한다.
 
 2026-10-09 8.7.5/v636 정식 배포 완료: 사용자 명시 승인·최종 소스 검토 후 PR #269 및
 PR CI `37839097247` 성공, main `0fc46bad9233db6e7c9f7790d84052afbd53b6d8`의

@@ -6244,7 +6244,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             roomCode,
             roomGeneration,
             activationUrl: `https://musixquare.com/${roomCode}#pro-claim=secret-claim`,
-            expiresAt: Date.now() + 15 * 60 * 1000,
+            expiresAt: Date.now() + 24 * 60 * 60 * 1000,
           });
         }),
       })),

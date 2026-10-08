@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createSignedToken } from '../../../cloudflare/pro-room-crypto.ts';
 
 import {
   createProRoomOwnerTransferCommitProof,
@@ -31,6 +32,48 @@ const EXPECTED_REVOCATION_TOKEN =
   'v1.eyJwdXJwb3NlIjoicHJvLXJvb20tb3duZXItdHJhbnNmZXItcmV2b2NhdGlvbiIsInJvb21Db2RlIjoiMDAwMDAwIiwicm9vbUdlbmVyYXRpb24iOjMsInRyYW5zZmVySWQiOiJ0cmFuc2Zlcl8wMTIzNDU2Nzg5YWJjZGVmQUJDREVGIiwidGFyZ2V0QWNjb3VudElkIjoiYWNjdF8wMTIzNDU2Nzg5YWJjZGVmZ2hpamtsIiwicmVxdWVzdElkIjoicmVxdWVzdC1pZC0wMDAwMDEiLCJyZXZva2VkQXRNcyI6MTcwMDAwMDAwMDAwMCwiZXhwaXJlc0F0TXMiOjE3MDAwMDAwNjAwMDB9.L8ecExIG9NqyKSTLcwfxoQqxHL3A0SMqTFTRKBpmYDQ';
 
 describe('PRO room claim wire contract', () => {
+  it('issues activation claims for 24 hours and expires them at the exact deadline', async () => {
+    const token = await issueProRoomActivationClaim(ROOM_CODE, SECRET, { nowMs: NOW_MS });
+    const expiresAt = NOW_MS + 24 * 60 * 60 * 1000;
+    for (const nowMs of [NOW_MS, NOW_MS + 15 * 60 * 1000 + 1, expiresAt - 1]) {
+      await expect(
+        verifyProRoomActivationClaim(token, ROOM_CODE, SECRET, nowMs),
+      ).resolves.toMatchObject({ iat: NOW_MS, exp: expiresAt });
+    }
+    await expect(
+      verifyProRoomActivationClaim(token, ROOM_CODE, SECRET, expiresAt),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects activation lifetimes beyond 24 hours at issuance and verification', async () => {
+    const expiresAtMs = NOW_MS + 24 * 60 * 60 * 1000 + 1;
+    await expect(
+      issueProRoomActivationClaim(ROOM_CODE, SECRET, { nowMs: NOW_MS, expiresAtMs }),
+    ).rejects.toThrow('Invalid expiry');
+
+    const validToken = await issueProRoomActivationClaim(ROOM_CODE, SECRET, { nowMs: NOW_MS });
+    const payload = await verifyProRoomActivationClaim(validToken, ROOM_CODE, SECRET, NOW_MS);
+    expect(payload).not.toBeNull();
+    const overlongToken = await createSignedToken({ ...payload, exp: expiresAtMs }, SECRET);
+    await expect(
+      verifyProRoomActivationClaim(overlongToken, ROOM_CODE, SECRET, NOW_MS),
+    ).resolves.toBeNull();
+  });
+
+  it('preserves the signed expiry of previously issued 15-minute activation links', async () => {
+    const expiresAtMs = NOW_MS + 15 * 60 * 1000;
+    const token = await issueProRoomActivationClaim(ROOM_CODE, SECRET, {
+      nowMs: NOW_MS,
+      expiresAtMs,
+    });
+    await expect(
+      verifyProRoomActivationClaim(token, ROOM_CODE, SECRET, expiresAtMs - 1),
+    ).resolves.toMatchObject({ exp: expiresAtMs });
+    await expect(
+      verifyProRoomActivationClaim(token, ROOM_CODE, SECRET, expiresAtMs),
+    ).resolves.toBeNull();
+  });
+
   it('keeps activation token bytes and schema stable', async () => {
     const token = await issueProRoomActivationClaim(ROOM_CODE, SECRET, {
       nowMs: NOW_MS,

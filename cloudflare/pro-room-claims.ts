@@ -10,7 +10,7 @@ import {
 import { INITIAL_PRO_ROOM_GENERATION, isProRoomGeneration } from './pro-room-generation.ts';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
 
-export const PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
+export const PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS = 24 * 60 * 60 * 1000;
 export const PRO_ROOM_OWNER_RECOVERY_CLAIM_DEFAULT_LIFETIME_MS = 10 * 60 * 1000;
 export const PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 export const PRO_ROOM_OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS = 10 * 60 * 1000;

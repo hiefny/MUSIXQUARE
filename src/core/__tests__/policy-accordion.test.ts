@@ -344,8 +344,11 @@ describe('policy-page accordions', () => {
       facadeConfig,
     ]) {
       expect(config).toMatch(/\[observability\]\s+enabled = true/u);
-      expect(config).toMatch(
-        /\[observability\.logs\]\s+enabled = true\s+head_sampling_rate = 0\.1\s+invocation_logs = false/u,
+      const logs = config.match(/\[observability\.logs\]([^[]+)/u)?.[1];
+      expect(logs).toMatch(/enabled = true/u);
+      expect(logs).toMatch(/invocation_logs = false/u);
+      expect(logs).toMatch(
+        config === signalingConfig ? /^head_sampling_rate = 1$/mu : /^head_sampling_rate = 0\.1$/mu,
       );
       expect(config).toMatch(/\[observability\.traces\]\s+enabled = false/u);
     }

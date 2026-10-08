@@ -2779,7 +2779,10 @@ describe('release deployment rollback state', () => {
     );
     const httpSignalingSmokeEnd = workflow.indexOf('\n      - name:', httpSignalingSmokeStart + 1);
     const httpSignalingSmoke = workflow.slice(httpSignalingSmokeStart, httpSignalingSmokeEnd);
-    expect(httpSignalingSmoke).toContain("if: inputs.target == 'all' || inputs.target == 'app'");
+    expect(httpSignalingSmoke).toContain(
+      "if: inputs.target == 'all' || inputs.target == 'app' || inputs.target == 'signaling'",
+    );
+    expect(httpSignalingSmoke).not.toContain('continue-on-error:');
     expect(httpSignalingSmoke).toContain('run: npm run smoke:live:standard-http-signaling');
     expect(httpSignalingSmoke).toContain(
       'MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}',

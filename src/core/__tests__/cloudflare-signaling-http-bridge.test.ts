@@ -428,6 +428,29 @@ describe('Cloudflare Standard HTTP signaling bridge', () => {
     expect(responseJson(superseded).error).toBe('STANDARD_HTTP_BRIDGE_POLL_SUPERSEDED');
   });
 
+  it('keeps an aborted long poll as HTTP 499 without reporting an exception', async () => {
+    const { room } = createBridge();
+    await openBridge(room);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const controller = new AbortController();
+    const pending = room.fetch(
+      new Request(
+        bridgeRequest('poll', envelope({ v: 1, requestEpoch: 1, ack: 0, waitMs: 15_000 })),
+        { signal: controller.signal },
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(
+        (room as unknown as { standardHttpBridgeWaiter: unknown }).standardHttpBridgeWaiter,
+      ).not.toBeNull(),
+    );
+    controller.abort();
+    const response = await pending;
+    expect(response.status).toBe(499);
+    expect(responseJson(response).error).toBe('STANDARD_HTTP_BRIDGE_POLL_ABORTED');
+    expect(log).not.toHaveBeenCalled();
+  });
+
   it('fences events from an old outbound socket after close and re-open', async () => {
     const { state, namespace, room } = createBridge();
     await openBridge(room);
@@ -504,10 +527,59 @@ describe('Cloudflare Standard HTTP signaling bridge', () => {
     const secondSocket = namespace.sockets[1];
     state.storage.deleteBarrier = null;
     state.storage.deleteError = new Error('simulated storage deletion failure');
-    await expect(room.fetch(bridgeRequest('close', envelope()))).rejects.toThrow(
-      'simulated storage deletion failure',
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(room.fetch(bridgeRequest('close', envelope()))).rejects.toBe(
+      state.storage.deleteError,
     );
     expect(secondSocket?.closed).toBe(true);
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[SignalingDiagnostic]',
+      expect.objectContaining({
+        objectKind: 'http_bridge',
+        operation: 'fetch',
+        disposition: 'propagated',
+      }),
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/simulated|123456|bridge-peer|SSSS|GGGG/);
+  });
+
+  it('reports bridge initialization failure while preserving the original rejection', async () => {
+    const state = new FakeDurableObjectState();
+    const original = new Error('private-bridge-storage');
+    vi.spyOn(state.storage, 'get').mockRejectedValue(original);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const room = new workerModule.MusixquareRoom(state);
+    await expect(openBridge(room)).rejects.toBe(original);
+    expect(
+      log.mock.calls.map(([, record]) => ({
+        objectKind: record.objectKind,
+        operation: record.operation,
+      })),
+    ).toEqual([
+      { objectKind: 'http_bridge', operation: 'initialize' },
+      { objectKind: 'http_bridge', operation: 'fetch' },
+    ]);
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private|123456|bridge-peer|SSSS|GGGG/);
+  });
+
+  it('records a handled outbound-message storage failure without exposing its frame', async () => {
+    const { room, state, namespace } = createBridge();
+    await openBridge(room);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(state.storage, 'put').mockRejectedValueOnce(new Error('private-message-storage'));
+    namespace.sockets[0]?.emitMessage(
+      JSON.stringify({ type: 'secret-frame', token: 'private-token' }),
+    );
+    await expect(state.flushWaitUntil()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[SignalingDiagnostic]',
+      expect.objectContaining({
+        objectKind: 'http_bridge',
+        operation: 'bridge_message',
+        disposition: 'handled',
+      }),
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/private|secret-frame|SSSS|GGGG/);
   });
 
   it('fails closed with REAUTH_REQUIRED after an isolate restart and clears cursor state', async () => {

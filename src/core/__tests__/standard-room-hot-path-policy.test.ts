@@ -223,4 +223,35 @@ describe('standard-room security/performance policy', () => {
       /standard WebSocket path must not reach Service-Control outside maintenance/u,
     );
   });
+
+  it('rejects a direct Service-Control consume before the public fetch observer', async () => {
+    const current = await sources();
+    const stacked = replaceOrThrow(
+      current.signalingWorker,
+      "    return observeSignalingFailure(env, 'worker', 'fetch', () =>",
+      "    void consumeAbuseRateLimit(env, { scope: 'regression', identity: 'regression', limit: 120, windowMs: 60_000 });\n" +
+        "    return observeSignalingFailure(env, 'worker', 'fetch', () =>",
+    );
+
+    expect(() => assertStandardRoomHotPath({ ...current, signalingWorker: stacked })).toThrow(
+      /signaling fetch wrapper must only observe and forward/u,
+    );
+  });
+
+  it.each([
+    [
+      "observeSignalingFailure(env, 'worker', 'fetch'",
+      "observeSignalingFailure(env, 'room', 'fetch'",
+    ],
+    ['signalingHandler.fetch(request, env)', 'otherHandler.fetch(request, env)'],
+    ['signalingHandler.fetch(request, env)', 'signalingHandler.fetch(request, otherEnv)'],
+    ['signalingHandler.fetch(request, env)', 'fetch(request)'],
+  ])('rejects a public fetch wrapper bypass: %s -> %s', async (search, replacement) => {
+    const current = await sources();
+    const bypassed = replaceOrThrow(current.signalingWorker, search, replacement);
+
+    expect(() => assertStandardRoomHotPath({ ...current, signalingWorker: bypassed })).toThrow(
+      /signaling fetch wrapper must only observe and forward/u,
+    );
+  });
 });

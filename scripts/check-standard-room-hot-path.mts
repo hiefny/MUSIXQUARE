@@ -306,6 +306,67 @@ function findDefaultFetchMethod(parsed: ts.SourceFile): MethodWithBody {
   return method;
 }
 
+function findSignalingRouterMethod(parsed: ts.SourceFile): MethodWithBody {
+  const wrapper = findDefaultFetchMethod(parsed);
+  const statement = wrapper.body.statements[0];
+  const observer = statement && ts.isReturnStatement(statement) ? statement.expression : undefined;
+  const args = observer && ts.isCallExpression(observer) ? observer.arguments : [];
+  const callback = args[3];
+  const forward = callback && ts.isArrowFunction(callback) ? callback.body : undefined;
+  // Only unwrap this transparent error observer. Extra work or another target
+  // would otherwise hide a new common-path dependency from the router checks.
+  if (
+    wrapper.body.statements.length !== 1 ||
+    !observer ||
+    !ts.isCallExpression(observer) ||
+    !ts.isIdentifier(observer.expression) ||
+    observer.expression.text !== 'observeSignalingFailure' ||
+    args.length !== 4 ||
+    !args[0] ||
+    !ts.isIdentifier(args[0]) ||
+    args[0].text !== 'env' ||
+    !args[1] ||
+    !ts.isStringLiteral(args[1]) ||
+    args[1].text !== 'worker' ||
+    !args[2] ||
+    !ts.isStringLiteral(args[2]) ||
+    args[2].text !== 'fetch' ||
+    !callback ||
+    !ts.isArrowFunction(callback) ||
+    callback.parameters.length !== 0 ||
+    callback.modifiers?.length ||
+    !forward ||
+    !ts.isCallExpression(forward) ||
+    !ts.isPropertyAccessExpression(forward.expression) ||
+    !ts.isIdentifier(forward.expression.expression) ||
+    forward.expression.expression.text !== 'signalingHandler' ||
+    forward.expression.name.text !== 'fetch' ||
+    forward.arguments.length !== 2 ||
+    forward.arguments.some(
+      (argument, index) =>
+        !ts.isIdentifier(argument) || argument.text !== (index === 0 ? 'request' : 'env'),
+    )
+  ) {
+    throw new Error(
+      'signaling fetch wrapper must only observe and forward request/env to signalingHandler.fetch',
+    );
+  }
+
+  const initializer = variableInitializer(parsed, 'signalingHandler');
+  const handler = ts.isSatisfiesExpression(initializer) ? initializer.expression : initializer;
+  const methods = ts.isObjectLiteralExpression(handler)
+    ? handler.properties.filter(
+        (property): property is ts.MethodDeclaration =>
+          ts.isMethodDeclaration(property) && property.name.getText(parsed) === 'fetch',
+      )
+    : [];
+  const method = methods[0];
+  if (methods.length !== 1 || !method || !methodHasBody(method)) {
+    throw new Error(`Expected exactly one signalingHandler.fetch() method in ${parsed.fileName}.`);
+  }
+  return method;
+}
+
 function isInsideProBranch(node: ts.Node, parsed: ts.SourceFile): boolean {
   let child: ts.Node = node;
   let parent: ts.Node | undefined = node.parent;
@@ -462,7 +523,7 @@ function assertSignalingBoundary(signalingWorkerSource: string, failures: string
     );
   }
 
-  const fetchMethod = findDefaultFetchMethod(parsed);
+  const fetchMethod = findSignalingRouterMethod(parsed);
   const maintenanceStatements = fetchMethod.body.statements.filter(
     (statement) => callsNamed(statement, new Set(['gateServiceMaintenance'])).length > 0,
   );

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Dated repair evidence — 15건 수정·로컬 검증 완료, 미배포 |
+| Status | Dated repair evidence — 15건 수정·로컬 검증 및 8.7.5/v636 정식 배포 완료; 아래 배포 후속 기록 참조 |
 | Applies to | 2차 QA 확정 13건과 사용자가 기대 동작을 선택한 미확정 2건 |
 | Baseline | main `e7c5529a3273c7132880dd0ad4572b2463405c87` |
 | Repair branch | `agent/qa2-repairs-2026-10-09` |
@@ -414,3 +414,57 @@ API 키 수명에 이어 QA032도 제공 근거로 합의한 로컬 범위가 �
 SHA CI candidate 등 기존 release 조건·실기 확인은 별개다.
 [후속 읽기 전용 판정](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review-2.md),
 [집계·원본 hash](../../scratch/qa2-qa032-regression-2026-10-09/evidence-review-2.json).
+
+### 8.7.5 정식 배포 후속 기록 — 2026-10-09
+
+사용자가 QA 완료 후 main 병합·배포를 명시 지시했다. 최종 변경 소스와 기존 독립 API
+검토를 다시 확인한 뒤 PR [#269](https://github.com/hiefny/MUSIXQUARE/pull/269)로 게시했다.
+자동 Codex PR 리뷰는 사용 한도로 실행되지 않았고, 최종 소스 검토 및 기존 독립 API 검토와
+구분 기록한다. 필수 GitHub 리뷰 승인 규칙은 없으며 검토·CI gate를 우회하지 않았다.
+
+PR CI [37839097247](https://github.com/hiefny/MUSIXQUARE/actions/runs/37839097247) 성공 뒤
+`0fc46bad9233db6e7c9f7790d84052afbd53b6d8`로 squash 병합했다. PR HEAD와 병합 main의
+파일 tree 차이는0이다. 제품 SHA `8c14f0d6`의 기존 로컬 증거를 main CI로 대체하지 않고,
+그 정확한 merge SHA의 push CI
+[37839818477](https://github.com/hiefny/MUSIXQUARE/actions/runs/37839818477) attempt1이
+전부 성공한 뒤 정식 Release
+[37840659848](https://github.com/hiefny/MUSIXQUARE/actions/runs/37840659848) attempt1을
+`target=all`/`apply_developer_api_d1=false`로 실행했다. **정식 배포 성공**이다.
+
+main CI는 Linux/Node24.20.0 환경에서 전체 unit522파일·10,881pass/기존1skip/fail0,
+broad·critical·Worker·tooling coverage와 정적/핵심 browser gate를 통과했다. Broad coverage는
+statements86.59%/branches80.31%/functions91.16%/lines90.24%다. Critical1,894·Worker1,773·
+tooling342는 별도 중복 프로필이다. Immutable manifest의 도구는 Nodev24.20.0/npm11.19.0/
+Wrangler4.130.0으로 기록됐다. 원격 skip1은 기존 로컬10,882pass 기록과 분리한다.
+
+후보 manifest의 commit·runId·attempt·main-ci profile 및 App8.7.5/cache636을 확인하고,
+다운로드한782파일 전체의 크기/SHA-256이 manifest와 일치함을 독립 확인했다. Release도
+같은 후보를 재빌드하지 않고 재검증·배포했다. 배포 전 immutable Worker/R2 checkpoint를
+보존했으며 기존 App·번역 D1 baseline 적용/검증은 canonical 절차로 수행했다. 새로운 schema,
+secret, binding, dependency-resolution 변경은 없고 Developer API D1 baseline은 적용하지 않았다.
+
+| Worker | 최종 deployment ID | 100% version ID |
+| --- | --- | --- |
+| PRO room | b0634f75-9992-484f-8c02-38c30a34a9d4 | c56b71a1-48e7-4829-8eb2-c7ea9275bd54 |
+| Remote Share | 1f1acf2a-4668-4850-846c-85ae2c9e1dfd | 84b0d6ed-a5f2-4134-8e7a-8e7d07d54d64 |
+| Signaling | b9e62cb8-35e6-4d61-9bf8-05bf6848e4f8 | 49d08ca7-b50b-4a8b-8d3a-7864c82f1e5c |
+| Developer API facade | ddbf6df4-e213-4053-9ce8-096c7f4e827f | 072cde53-69d4-4d5b-865c-7f083c8b344f |
+| Developer API backend | 176e0852-7f0f-48fe-b22f-47ccced07428 | 004bd1ca-33f4-46a4-9bf4-c342a1e4356a |
+| App | d9d74231-ccdf-4c07-9be1-b4a403581b75 | f3f8b58c-aec4-425b-80cc-728363d6ebfc |
+
+6개 Worker의 최종 message는 `git:0fc46bad9233db6e7c9f7790d84052afbd53b6d8`이고
+`final-verification-report.json`의6결과 모두 verified다. Release의 PRO media CORS·PRO room·
+remote-share·signaling·remote host assertion·Developer API·App generation/asset graph·
+anonymous account boundary·App 이후 PRO public boundary·Standard HTTPS signaling fallback,
+**10개 운영 smoke가 모두 통과**했다. PRO generation readiness를 같은 SHA의 ready로
+복구했고 coherent-production marker도 보존했다. 실패 복구 job은 skipped로 rollback은 없었다.
+
+Operations Drift Audit은 active 유지, 다른 workflow를 변경하지 않았다. 물리 기기·기존 미확정
+운영 관측·별도 live QA032 transport 범위는 이번 release smoke가 대체하지 않는다. 원래 QA
+보고서의 발견·실패·검증 당시 미배포 상태는 dated evidence로 보존한다. 이 후속 문서 변경은
+런타임 입력이 없어 별도 App 릴리스를 요구하지 않는다. 병합된 수정 브랜치는 정리했고 checkout을
+main으로 복귀했다. 최종 문서도 PR로 게시한 뒤 main만 유지한다.
+
+[실행 집계·배포 원본 연결](../../scratch/qa2-release-2026-10-09/summary.json),
+[후보 hash 확인](../../scratch/qa2-release-2026-10-09/candidate-hash-check.json),
+[최종 소스 검토](../../scratch/qa2-release-2026-10-09/premerge-review.md).

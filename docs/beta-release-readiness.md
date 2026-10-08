@@ -23,7 +23,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 계정 확인 모바일·닉네임 후속 — 2026-10-09 | 기준 `eb446b62`, 로컬 수정 검증 중. 닉네임 미지정 로그인 계정은 기존 프로필 설정 완료→계정 명시 확인→PIN으로 진행하고 같은 scope의 열린 닉네임창 결과에 합류, 취소 시 등록 중단. 영문 `Continue` / `Another account` 및 30개 영어 fallback 축약, cache v639. 실제 기존 긴 문구는320px 양쪽2줄·360px 보조만2줄, 375/390/414px 한 줄; 말줄임·overflow 없음. 새 문구는 다섯 폭 모두1줄. 기존 한영 화면은 이전 증거로 보존하고 모바일 화면·회귀 검증 갱신 중. main/운영/배포 변경0 |
+| 계정 확인 모바일·닉네임 후속 — 2026-10-09 | 제품 코드 `c3a313c9518648a6d2b051feb78d2671a91fb423`. 닉네임 미지정 로그인 계정은 기존 프로필 설정 완료→계정 명시 확인→PIN으로 진행, 같은 scope의 열린 닉네임창에 합류·취소 시 등록 중단. 영문 `Continue` / `Another account`와 영어 fallback30개 축약, cache v639. 이전 긴 문구는320px 양쪽2줄·360px 보조2줄; 새 영어는320/360/375/390/414px 모두1줄·overflow/ellipsis0. 관련 단위9파일277pass, 전체 typecheck/lint·관련 format·committed build:checked 통과. 고유 Chromium12케이스를 dev·production dist 각각12pass/최종fail·skip·retry0, 320px 한영 실제 이미지 완성. 최초dev12실행의 claim 미보유 단발1회는 원인 미확정으로 보존. main/운영/배포 변경0 |
 | PRO 최초 활성화 계정 확인 구현 — 2026-10-09 | 검증 코드 `0eb6913300af226b90b0e564034bc997ffb92bbe`, 임시 `agent/pro-activation-24h`. 계정 새로 확인→로그인/계정 변경→명시 확인→PIN→등록, 한국어/영어 2행 전체 너비 버튼. 확인 후 계정 변경은 UI 취소·재확인 및 App의 expected-scope 검사로 등록 전에 거절. 전체 unit 후 최종 영향5파일171pass 치환 집계523파일10,920pass/기존1skip/fail0. 정적7명령·Chromium7·committed production build·App/PRO dry-run 통과, 실제 한영 이미지1장 완성. browser에서 발견한 번역 덮어쓰기 수정 및 독립 재검토 완료. schema/secrets/bindings/deps 변경0, 사용자 화면 확인 전 main 병합·배포 보류 |
 | PRO 최초 활성화 계정 확인 UX 검토 — 2026-10-09 | `0576a58c13491b36bdd12b7e001d9dac1cddb21d` 읽기 전용 검토. 링크 접속 자체는 소유권을 확정하지 않으나 PIN 입력·제출 전에 계정 표시/확인/변경이 없다. 비로그인은 최초 활성화 요청401 후 로그인·자동 재시도, 로그인 상태는 현재 쿠키의 계정으로 등록한다. 일반 관리자 claim에서 의도하지 않은 로그인 계정 귀속 가능성을 사용자 흐름 공백으로 확인; 계정 귀속 grant는 서버 대상 계정 제한 유지. 기존 setup-flow/account UI125pass/fail·skip0, 실제 운영 claim 사용 없음. 계정 확인→PIN 설정→확정 및 제출 시 동일 계정 검증 개선은 미구현; 제품·검사 코드/운영 변경 없음 |
 | PRO 활성화 링크 24시간 — 2026-10-09 | 검증 코드 `4d1bfa84319d67f8866eaa8661e8c8a9c9a9a6e9`, 임시 `agent/pro-activation-24h`. 신규 활성화 링크 기본·최대 수명 24시간, App·PRO·CLI 공통 상한 사용. 로컬 `8.7.6`/`v637`, 운영 미반영. 전체 unit 후 영향3파일64pass 치환 집계522파일10,887pass/기존1skip/최종fail0; 정적7명령·production build·App/PRO dry-run 통과. 최초 캐시 주소 누락·기존 검사60초 timeout은 원본 보존 후 해소. 독립 diff 검토 새 결함0. schema/secrets/bindings/deps 변경0. 아래 현재 체크리스트·누적 이력 참조 |
@@ -494,7 +494,8 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] 확인한 세션 scope와 실제 계정 쿠키의 동일성을 App에서 검사하고, 누락/교체 시 grant·연결·PRO 호출 전에 거절. 프런트에서도 계정 변경 시 기존 PIN을 버리고 재확인. 기존 권한 검사 유지.
 - [x] 계정 확인 구현 검증: 전체 unit 후 최종 영향5파일171pass 치환 집계523파일10,920pass/기존1skip/fail0, 정적7명령·Chromium7·production build·App/PRO dry-run 통과. 코드 `0eb69133`, Windows/Node24.20.0/npm12.0.2. 실제 한영 화면1장 완성·시각검토, 배포 전 사용자에게 전달.
 - [ ] 사용자 한영 화면 확인 후 정상 PR/CI·exact-main candidate·정식 Release 절차 진행. 로컬 source UI·합성 계정/API 검증이며 live OAuth/실제 claim/실기 검증 또는 exact-main 배포 후보는 아님.
-- [ ] 후속 닉네임 미지정 흐름·영문 축약·모바일 실제 한 줄 검증 및 수정된 화면 확인. 기존 클리핑 검사만으로는 자연 줄바꿈을 판정하지 못했으므로 text Range의 줄 수도 검사한다.
+- [x] 후속 닉네임 미지정 흐름·영문 축약·모바일 한 줄 검증 완료. 관련 단위277·Chromium 고유12케이스의 dev/production 각각12pass, 전체 typecheck/lint·관련 format·build:checked 통과. text Range 줄 수 검사 추가, 320px 한영 실제 화면 시각검토·전달.
+- [ ] 최초dev 검사에서 claim 미보유 안내1회 관측 원인은 미확정. 수정 없이 같은 fixture로 최종 dev12 및 production12 모두 통과, 최종dev trace에서 문서 요청은각1회/reload0. 최초 실패를 HMR나 환경 문제로 단정하지 않으며 배포 검토 시 기록을 함께 확인한다.
 
 **2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
 Windows·Node24.20.0/npm12.0.2·Astra Ultra 3×10세트로 검토했다. 30라운드/122개 기본 QA ID를
@@ -1414,10 +1415,23 @@ nickname UI를 재사용해 설정 완료 뒤 실제 닉네임을 명시 확인�
 버튼은320px 둘다2줄, 360px 보조2줄, 375/390/414px 한 줄이었다. `white-space:normal`
 자연 줄바꿈이며 말줄임·버튼 밖 overflow는 없었다. 새 영어는 다섯 폭에서 전부 한
 줄이며 Range rect로 검증한다. 같은 미배포8.7.6의 cache/bootstrap을v639로 정렬.
-관련 단위9파일277pass/fail·skip0 및 전체 typecheck/lint 통과, 기존 자동 닉네임창의
-완료/나중에/오류·저장 중 합류와 계정 교체 취소 경계를 포함한다. 실제 browser의
-닉네임 저장→계정 확인→PIN 흐름도 Google 재로그인 없이 통과했다. 최종 코드 SHA·
-build·전체 선택 browser 결과·새 실제 한영 모바일 이미지 기록 예정. 배포 없음.
+관련 단위9파일277pass/fail·skip0 및 전체 typecheck/lint·관련 서식 통과, 기존 자동
+닉네임창의 완료/나중에/오류·저장 중 합류와 계정 교체 취소 경계를 포함한다.
+제품 코드 `c3a313c9518648a6d2b051feb78d2671a91fb423`의 committed `build:checked`
+통과(SW app shell90개). Windows/Node24.20.0/npm12.0.2·Chromium에서 고유12케이스를
+local Vite source와 production dist로 각각12pass/fail·skip·retry0 확인했다. 두 실행은
+중복이며24개 고유 검증으로 세지 않는다. 320/360/390/1180px 한영 한 줄·클리핑,
+비로그인·계정변경·PIN 도중 계정변경 및 이미 로그인한 닉네임 미지정 계정의
+설정→명시 확인→PIN을 검증했다(프로필PATCH1회·Google 로그인0회). 서버 API는
+합성fixture이며 live OAuth/실제 계정/claim·실기·전체 unit/coverage/browser 재실행은
+아니다. 부모는 최종320px 실제 한영 이미지 `account-choice-ko-en-mobile.png`를
+시각검토했다. 이미지·측정JSON·선택 browser 로그/trace/summary는 ignored
+`scratch/pro-claim-account-confirmation-2026-10-09/mobile-followup/`, nickname 합류
+단위는 `scratch/pro-activation-account-confirmation/nickname-join-tests.json`에 보존.
+최초dev12실행은11pass/1fail로 첫KO320에서 claim 미보유 안내가 나왔다. fixture/제품
+수정 없이 최종dev12·production12가 통과했으며 최종dev trace는 문서요청각1회/
+reload0이다. 최초 실패 원인을 확정할 근거는 부족하므로 HMR/환경 문제라고 단정하지
+않고 원인 미확정 관측으로 보존한다. 사용자 새 화면 검토 전 main 병합·배포 없음.
 
 2026-10-09 PRO 최초 활성화 계정 확인 구현: 사용자 승인 후 계정 선택을 PIN보다
 앞으로 옮기고 파란 “이 계정으로 등록”/회색 “다른 계정으로 로그인” 두 버튼을

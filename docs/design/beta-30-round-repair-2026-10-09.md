@@ -266,3 +266,52 @@ Vite 캐시 삭제만 실행 정책이 `blocked by policy`로 거절해 미실�
 bindings·main·배포 변경은 없다. 제한된 API 스트리밍 키 수명과 QA032는 **미완료**다.
 기타 심화 조합·전체 suite/coverage·브라우저·live·실기 검증과 exact-main-SHA CI candidate를
 이번 실행으로 대체하지 않는다.
+
+### API 키 수명 로컬 재검증 완료 — 2026-10-09
+
+사용자가 일반 모델의 새 세션에서 두 미완료 재현을 확인하고 싶다고 다시 요청했다.
+원본을 재검토하니 QA032에는 직접 거절 기록이 있으나 API 재검증은 자체 거절 없이
+공유 접근 제한 확인 뒤 중단된 항목이었다. API 원본 round-17의 수명 사례는 실제로
+실행했던 로컬 검사다. 두 항목을 같은 직접 거절로 묶거나 API 자체가 실행 불가라고
+해석한 설명은 너무 넓었으며 이번 기록에서 정정한다. QA032를 재구성·실행하거나
+새 모델에 넘기지는 않았다.
+
+API만 `GPT-6 Luna / high` 새 로컬 채팅에서 검증했다. tested SHA는
+`2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 제품은 `8c14f0d6` 그대로다.
+Windows / pinned Node24.20.0 / 기존 network guard / timeout15초 / maxWorkers1 / retry0.
+실제 public Worker → facade → PRO와 로컬 SQLite key DB·canonical DO storage fixture를
+사용했고, 인증과 최종 credential helper는 실제 제품 코드로 실행했다. 계정·키·본문은
+합성된 정상 입력이며 live 네트워크·설치·별도 접근 프로그램 요청은 없다.
+
+새 세션의 최초 준비 오류와 2pass/2fail은 보존했다. config import·중복 선언·fixture
+storage API·정리 참조 오류를 구분했으며, 실행 가능한 실패는 PRO에 SQLite binding을
+연결하지 않은 `BACKEND_UNAVAILABLE`과 자연 만료 row의 active 상태를 revoked로
+예상한 검사 오류였다. scratch에서만 보정한 뒤 새 세션은 4pass를 보고했다.
+
+부모의 독립 검토에서 추가 관측 한계를 확인했다. 원본 검사의 `ReadableStream.pull()`은
+reader가 없어도 자동 호출되므로 실제 인증 뒤 body 읽기에 들어갔다는 증거가 부족했다.
+해당 4pass는 원본으로 남기고 post-admission 완료 수로 합산하지 않았다. 별도 scratch
+검사에서는 highWaterMark0과 실제 Request reader.read를 관측하고, 인증 뒤 호출되는
+room limiter를 원래 응답 그대로 관측했다. 모든 사례에서 **인증 완료 → 실제 본문 읽기
+대기 → 권한 변경/정상 대조 → 정상 JSON 전달** 순서와 변경 전 active·미래 expiry를
+assertion 및 로그로 확인했다. 최종 credential 검사를 대체하거나 생략하지 않았다.
+
+| 경로 | 정상 대조 | 키 회수 후 기존/새 요청 | 자연 만료 후 기존/새 요청 | 방 권한 세대 변경 대조 |
+| --- | --- | --- | --- | --- |
+| queue-mode PUT | 200·공개 all/내부 enum1·shuffle 반영 | 401 / 401·PRO room/storage 불변 | 401 / 401·PRO room/storage 불변 | 409 / 409·queue-mode 불변 |
+| queue/items POST — 원래 후보 경로 | 201·공개/저장 항목1개 생성 | 401 / 401·항목0개·PRO room/storage 불변 | 401 / 401·항목0개·PRO room/storage 불변 | 409 / 409·항목0개 |
+
+최종 고유 **8pass / fail·skip0 / 자동 retry0**, 새 확정 제품 결함0이다. 회수는 실제
+저장소 key CLI를 로컬 SQLite에 실행했다. 자연 만료는 status가 active인 채 expires_at으로
+거부됐으며, epoch 대조군에서 시험이 직접 저장한 권한 변경과 요청의 business 쓰기는
+구분했다. 분산 롤백 계약을 확인한 결과는 아니다.
+[관측 보완·독립 결과](../../scratch/qa2-api-lifetime-standard-2026-10-09/verification-addendum.md),
+[단계·각 응답·정확한 명령](../../scratch/qa2-api-lifetime-standard-2026-10-09/verified-summary.json)을 보존했다.
+
+추적1,964파일(비Markdown1,819)·dist782 hash 변경0, main·branch·HEAD 유지 및 clean을
+문서 갱신 전에 확인했다. 이번 API 실행의 서비스 거절0, 제품/유지 검사/설정/의존성/
+schema/secrets/bindings·main·배포 변경0, 임시 캐시는 보존했다.
+원래 요청했던 두 미완료 재현 중 **API 스트리밍 키 수명은 위 두 경로에서 완료**했고
+**QA032만 미실행**이다. 다른 media reserve/finish 동적 수명 조합·기타 심화·전체
+suite/coverage/browser·live·실기 및 exact-main-SHA CI candidate를 대신하지 않는다.
+일반 API 검증이 실행된 사실을 QA032의 기존 거절이나 접근 조건 해제로 확대하지 않는다.

@@ -2,8 +2,8 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 2026-10-08 App `8.7.4` / `v635` 후속 배포 완료; 다른 5개 Worker는 `8.7.0` 승격 기준 유지. 실기·수동 운영 확인은 별도                                                                                 |
-| Applies to         | `mxqr_beta` 누적 승격과 후속 App 패치의 프로덕션 배포 결과·현재 상태·남은 확인                                                                                                                                   |
+| Status             | Runbook — 2026-10-08 시그널링 오류 진단 `99f9103c` 배포 완료. App `8.7.4` / `v635` 유지; 나머지 4개 Worker는 `8.7.0` 승격 기준 유지. 실기·수동 운영 확인은 별도 |
+| Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-08                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
@@ -16,7 +16,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 시그널링 오류 진단 보강 — 2026-10-08 | 오류 전용 안전한 구조화 로그·sampling 1·signaling 대상 HTTPS smoke gate 추가. `4374dcd9` 로컬 unit 10,810·Worker coverage 1,752 통과. 과거 예외 원인은 미확정, 현재 main CI·배포 대기. App `8.7.4`/`v635` 유지. 아래 전용 절 참조 |
+| 시그널링 오류 진단 보강 — 2026-10-08 | `99f9103c` / main CI `37763992689` attempt 2 / Release `37764975511` 성공. 로컬 unit 10,810·Worker coverage 1,752 및 운영 smoke 통과, 대시보드 sampling 100%·invocation/traces off 확인. 과거 예외 원인은 미확정. App `8.7.4`/`v635` 유지. 아래 전용 절 참조 |
 | 종료·승격 승인                      | 2026-10-07 사용자가 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
 | 승격 전 기준 main                   | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 당시 main·운영 App 기준으로 보존 |
 | 승격 준비 기준 checkout             | `efce531a690857790509fde5f851a9b72db1ee05` — 아래 검증 코드 이후 QA 근거를 보완한 문서 커밋. 새 제품 코드 검증 SHA로 대체하지 않음 |
@@ -46,15 +46,15 @@
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
 | 제품 버전 / PWA 캐시                | 현재 App `8.7.4` / `v635` 배포 완료; 데스크톱 채팅 위쪽 여백을 메시지 간격과 같은 12px로 조정. 버전 일치·cache-history·`build:checked`와 정확한 main CI candidate 확인 |
-| 완료한 배포 범위                    | 최신 `target=app`; App은 `358b3fc3`, 다른 5개 Worker는 `8.7.0` 승격의 `e8001e93` 유지·부분 배포 호환성 재확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
+| 완료한 배포 범위                    | 최신 `target=signaling` / `99f9103c`; App은 `358b3fc3`, 나머지 4개 Worker는 `e8001e93` 유지·부분 배포 호환성 및 다른 5개 deployment 불변 확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
 | 최신 App main SHA / CI 후보 / 배포 실행 | `358b3fc39c08b3442aa495d4fa52c1eb0a97a871` / main CI `37729046851` 및 immutable candidate / Release `37729556678` 성공. 아래 후속 패치 기록 참조 |
 | 후속 App 패치 | `8.7.4`/`v635` 완료 — 1280px 이상 데스크톱 채팅 위쪽 여백 16px→12px, 모바일·다른 패딩 유지. 제품 `86ea0e8e` → PR #265/main `358b3fc3`, `app`/D1 false. 로컬 unit 10,781·production CSS 레이아웃 16조합·공개 CSS/SW hash 및 fresh ko 검증 통과 |
 | 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**배포된 App은 `8.7.4` / `v635`, 배포 제품의 main SHA는 `358b3fc3`이다.** 후속 패치를 `app`으로
-배포했고 다른 5개 Worker의 deployment·version·`git:e8001e93...` 기준은 유지됐다.
+**배포된 App은 `8.7.4` / `v635`, App 배포 main SHA는 `358b3fc3`이다.** 이후 시그널링만
+`99f9103c`로 배포했으며, App과 나머지 4개 Worker의 deployment·version은 유지됐다.
 정확한 main CI candidate·배포·공개 검증 결과는 아래 후속 패치 기록을 따른다.
 
 **2026-10-07 저녁 운영 R2 재검사:** `a1543f8b`의 유지 검사로 새 방 3회 중 2 pass / 1 fail.
@@ -171,7 +171,7 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
 이전 8.7.0 배포 종료 시에는 6개 Worker의 메시지를 모두 `git:e8001e93...`로 확인했다.
 이 문서만 보완하는 후속 main 커밋을 새로운 배포 SHA로 해석하지 않는다.
 
-### 시그널링 오류 진단 보강 — 2026-10-08
+### 시그널링 오류 진단 보강 배포 완료 — 2026-10-08
 
 - 사용자가 최근 24시간 Worker 예외 3건, 최근 7일 10건을 확인한 뒤 안전한 진단
   보강을 승인했다. 과거 오류의 원인·사용자 영향·QA 연관성은 미확정이며,
@@ -201,8 +201,34 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
   재검증했으며 assertion 제거·timeout 완화는 없다. 독립 런타임 리뷰의 내부 cleanup
   중복 기록과 AggregateError 배열 메서드 신뢰 문제도 수정·검증했다.
 - 로컬 근거는 ignored `scratch/signaling-diagnostics-2026-10-08/`에 보존한다.
-  전체 브라우저 E2E·실기·실제 운영 오류 재현은 수행하지 않았다. 정확한 main CI 후보와
-  배포 결과는 완료 후 이 절에 기록한다. 현재 배포 대기.
+  최종 커밋의 `build:checked`도 통과했다. 전체 브라우저 E2E·실기·실제 운영 오류
+  재현은 수행하지 않았다. 원격에서는 필수 browser/candidate gate를 통과했다.
+- [PR #267](https://github.com/hiefny/MUSIXQUARE/pull/267)의
+  [CI `37763147383`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37763147383)는
+  11개 job 모두 성공했다. 원격 전체 unit은 10,809 pass/Windows 전용 기존 1 skip이며,
+  로컬의 10,810 pass와 구분한다. 독립 리뷰에서 병합 차단 사항은 없었다.
+- 정확한 main `99f9103c7e5da24e990082b071897eccb80ad504`의
+  [CI `37763992689`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37763992689)는
+  attempt 1의 Types job이 검사 실행 전 Corepack의 npm 12.0.2 registry 조회 중
+  `UND_ERR_SOCKET` / `other side closed`로 실패했다. 코드 변경 없이 실패 job만
+  재실행한 attempt 2에서 전체 11개 job 성공. 통과한 sibling 결과와 동일 run의
+  immutable candidate를 보존한 정상 절차이며 최초 실패를 없었던 것으로 취급하지 않는다.
+- [Release `37764975511`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37764975511)
+  성공, 2026-10-08 19:42:24 KST 완료. `target=signaling` / Developer API D1 false.
+  시그널링 deployment `8ebd4423-0823-44cc-aeab-95774f874981`, 100% version
+  `09342092-1e16-4f12-ab62-9b568592591b`, 메시지 `git:99f9103c7e5da24e990082b071897eccb80ad504`.
+  WebSocket smoke·Remote Share host assertion·Standard HTTPS fallback 모두 첫 실행에
+  통과했다. 최종 deployment 소유권·Custom Domain·부분 배포 호환성 확인도 성공.
+  recovery는 skip, rollback은 없었다. 배포 뒤 다른 5개 Worker의 deployment ID를
+  개별 조회해 모두 이전 값과 동일함을 확인했다.
+- 배포 후 운영 대시보드에서 Workers logs 활성·대시보드 보존 활성·sampling 100%,
+  invocation 로그 꺼짐·traces 꺼짐·Issues 감지 꺼짐을 직접 확인했다. 코드 가드만으로
+  live 설정을 확인했다고 표현하지 않는다. 추후 오류가 생기면 안전한 diagnostic과
+  provider 예외를 같은 시각·버전으로 대조한다. 과거 10건의 원인과 실제 영향은 여전히 미확정.
+- 복구 기준은 이전 시그널링 `e8001e93` / version `440b001f-986d-44ae-8ebd-ee2d3fb00cc9`이며
+  immutable checkpoint와 canonical hotfix 절차를 따른다. 복구 시 로그 sampling도
+  복구한 코드의 Wrangler 계약과 일치하는지 확인하고 invocation/traces off를 유지한다.
+  이 후속 기록은 문서만 변경하며 새 App 또는 Worker 배포를 요구하지 않는다.
 
 ### 후속 App 패치 배포 완료 — 8.7.4 / v635, 2026-10-08
 
@@ -1322,7 +1348,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 
 ### 누적 변경 이력
 
-2026-10-08 시그널링 오류 진단 보강: `signaling` 단독 배포 준비. 원인 미확정 예외를
+2026-10-08 시그널링 오류 진단 보강: `99f9103c`의 `signaling` 단독 배포 완료. 원인 미확정 예외를
 추적할 안전한 로그와 배포 gate를 추가하며, 앱/프로토콜/저장소 계약은 유지한다.
 최종 코드·검증·배포 근거는 위 전용 절을 따른다.
 

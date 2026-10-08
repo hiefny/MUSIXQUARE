@@ -489,7 +489,7 @@ const ko = {
   'youtube.watch_together': 'YouTube 함께보기',
   'youtube.ready': 'YouTube가 준비됐어요!\n재생 버튼을 눌러 보세요.',
   'youtube.thumbnail': 'YouTube 미리보기 썸네일',
-  'youtube.load_fail': 'YouTube API 로드 실패.\n인터넷 연결 확인!',
+  'youtube.load_fail': 'YouTube를 불러오지 못했어요.\n인터넷 연결을 확인해 주세요.',
   'youtube.video_unavailable': '영상을 재생할 수 없어 다음 트랙으로 넘어가요.',
   'youtube.load_timeout': 'YouTube 로드 시간 초과.\n다시 시도해주세요.',
   'youtube.invalid_link': '유효하지 않은 YouTube 링크',
@@ -717,10 +717,8 @@ const ko = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO 방 활성화',
   'pro.activation_account_title': 'PRO 방을 등록할 계정',
-  'pro.activation_account_message':
-    '“{{name}}” 계정에 이 방을 등록할까요?\n다음 단계에서 방 암호를 설정합니다.',
-  'pro.activation_account_login_message':
-    '이 방을 등록할 계정으로 로그인해 주세요.\n계정을 확인한 뒤 방 암호를 설정합니다.',
+  'pro.activation_account_message': '“{{name}}” 계정에 이 방을 등록할까요?',
+  'pro.activation_account_login_message': '이 방을 등록할 계정으로 로그인해 주세요.',
   'pro.activation_account_continue': '이 계정으로 등록',
   'pro.activation_account_switch': '다른 계정으로 로그인',
   'pro.activation_account_unavailable':

@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 2026-10-08 App `8.7.3` / `v634` 후속 배포 완료; 다른 5개 Worker는 `8.7.0` 승격 기준 유지. 실기·수동 운영 확인은 별도                                                                                 |
+| Status             | Runbook — 2026-10-08 App `8.7.4` / `v635` 후속 배포 완료; 다른 5개 Worker는 `8.7.0` 승격 기준 유지. 실기·수동 운영 확인은 별도                                                                                 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App 패치의 프로덕션 배포 결과·현재 상태·남은 확인                                                                                                                                   |
 | Last source review | 2026-10-08                                                                                                                                                                                                      |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -44,16 +44,15 @@
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 현재 App `8.7.3` / `v634` 배포 완료; YouTube 검색 제목·채널 간격 복구. 버전 일치·cache-history·`build:checked`와 정확한 main CI candidate 확인 |
-| 완료한 배포 범위                    | 최신 `target=app`; App은 `10be9957`, 다른 5개 Worker는 `8.7.0` 승격의 `e8001e93` 유지·부분 배포 호환성 재확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
+| 제품 버전 / PWA 캐시                | 현재 App `8.7.4` / `v635` 배포 완료; 데스크톱 채팅 위쪽 여백을 메시지 간격과 같은 12px로 조정. 버전 일치·cache-history·`build:checked`와 정확한 main CI candidate 확인 |
+| 완료한 배포 범위                    | 최신 `target=app`; App은 `358b3fc3`, 다른 5개 Worker는 `8.7.0` 승격의 `e8001e93` 유지·부분 배포 호환성 재확인. 과거 `all`을 이번 패치에 재실행하지 않음 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
-| 최신 App main SHA / CI 후보 / 배포 실행 | `10be9957c1e586d315f36bff1edf95191ddf1656` / main CI `37722363300` 및 immutable candidate / Release `37722846236` 성공. 아래 후속 패치 기록 참조 |
-| 후속 App 패치 | `8.7.3`/`v634` 완료 — 한 줄 검색 제목 아래의 빈 줄 제거, 행·썸네일·스켈레톤 높이 유지. 제품 `08ea35d3` → PR #263/main `10be9957`, `app`/D1 false. 로컬 고유 unit10,781·검색 E2E7·공개 CSS hash/fresh ko 검증 통과 |
-| 준비 중 App 패치 | `8.7.4`/`v635`, 코드 `86ea0e8e` — 1280px 이상 데스크톱 채팅의 위쪽 여백을 16px→12px로 조정. `build:checked`·production CSS 레이아웃 16조합 통과; 전체 unit·타입/lint 및 PR/main CI·배포·공개 확인 대기. 현재 배포는 `8.7.3`/`10be9957` 유지 |
+| 최신 App main SHA / CI 후보 / 배포 실행 | `358b3fc39c08b3442aa495d4fa52c1eb0a97a871` / main CI `37729046851` 및 immutable candidate / Release `37729556678` 성공. 아래 후속 패치 기록 참조 |
+| 후속 App 패치 | `8.7.4`/`v635` 완료 — 1280px 이상 데스크톱 채팅 위쪽 여백 16px→12px, 모바일·다른 패딩 유지. 제품 `86ea0e8e` → PR #265/main `358b3fc3`, `app`/D1 false. 로컬 unit 10,781·production CSS 레이아웃 16조합·공개 CSS/SW hash 및 fresh ko 검증 통과 |
 | 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**배포된 App은 `8.7.3` / `v634`, 배포 제품의 main SHA는 `10be9957`이다.** 후속 패치를 `app`으로
+**배포된 App은 `8.7.4` / `v635`, 배포 제품의 main SHA는 `358b3fc3`이다.** 후속 패치를 `app`으로
 배포했고 다른 5개 Worker의 deployment·version·`git:e8001e93...` 기준은 유지됐다.
 정확한 main CI candidate·배포·공개 검증 결과는 아래 후속 패치 기록을 따른다.
 
@@ -171,24 +170,39 @@ R26의 중복 안내 수정은 검증했지만 최초 legacy Refresh 승인 뒤 
 이전 8.7.0 배포 종료 시에는 6개 Worker의 메시지를 모두 `git:e8001e93...`로 확인했다.
 이 문서만 보완하는 후속 main 커밋을 새로운 배포 SHA로 해석하지 않는다.
 
-### 후속 App 패치 준비 — 8.7.4 / v635, 2026-10-08
+### 후속 App 패치 배포 완료 — 8.7.4 / v635, 2026-10-08
 
 - 코드 `86ea0e8efb25ba2fe6fef2030999c606e68963e0`: 1280px 이상 데스크톱의
   `.chat-drawer-messages` 위쪽 패딩을 16px에서 12px로 줄여 메시지 사이 간격과 맞춘다.
   일반·시스템 메시지 모두 같은 컨테이너 규칙을 적용한다. 모바일 위쪽 패딩 16px,
   좌우·아래 패딩 16px, 메시지 간격 12px와 시스템 말풍선 내부 위아래 패딩 10px는 유지한다.
-- Windows/Node24.20.0/npm12.0.2에서 위 코드의 `build:checked` 통과. 해당 production CSS를
+- Windows/Node24.20.0/npm12.0.2에서 위 코드의 전체 unit 10,781개(fail/skip 0),
+  타입·lint·서식·Worker 경계·D1/ops-drift 계약·문법 검사와 `build:checked` 통과. 해당 production CSS를
   사용한 격리된 offline Chromium DOM에서 1280/1440px 데스크톱과 1279/390px 모바일,
   LTR/RTL·dark/light의 16조합을 모두 통과했다. 위쪽 여백은 데스크톱 12px·모바일 16px,
   메시지 간격 12px·시스템 내부 위아래 10px·좌우/아래 16px 유지, page error 0을 확인했다.
-  전체 unit·타입/lint는 진행 중이며 실제 앱 E2E·실기·공개 배포 검증으로 해석하지 않는다.
+  이 레이아웃 검증은 격리된 DOM의 CSS 검사이며 전체 앱 E2E·실기 검증으로 해석하지 않는다.
   JSON·PNG 근거는 ignored `scratch/chat-top-spacing-2026-10-08/layout-2026-10-08T04-37-35.442Z/`에 보존한다.
-- 예정 배포 범위는 `app`/Developer API D1 false. 의존성·정책·DB migration·secret·binding·
+- 배포 범위는 `app`/Developer API D1 false. 의존성·정책·DB migration·secret·binding·
   미디어/서버 계약 변경 없음. 복구 기준은 이전 App `8.7.3`/`v634`의
   `10be9957c1e586d315f36bff1edf95191ddf1656`이며 다른 5개 Worker는 `e8001e93`을 유지한다.
-- PR 검토·정확한 main SHA의 성공 CI candidate·Production Release·공개 확인이 남아 있다.
-  현재 배포는 `8.7.3`/`v634`/`10be9957`이며 이번 로컬 검사로 main candidate를 대체하지 않는다.
-  기존 실기·기존 운영 탭/PWA 한계와 R2 원인 미확정/조사 종료는 유지한다.
+- [PR #265](https://github.com/hiefny/MUSIXQUARE/pull/265)의
+  [CI `37728546626`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37728546626)와
+  정확한 main `358b3fc39c08b3442aa495d4fa52c1eb0a97a871`의
+  [CI `37729046851`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37729046851)는
+  각각 11개 job 모두 성공했다. 그 main의 immutable candidate를 배포했다.
+- [Release `37729556678`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37729556678)
+  성공, 2026-10-08 13:54:37 KST 완료. 최종 App deployment
+  `e0a08a0e-10b7-4ac4-8b27-c3a3523acf64`, 100% version
+  `1a8bf0fc-7775-4b47-aba8-2d26e5494708`, 메시지 `git:358b3fc39c08b3442aa495d4fa52c1eb0a97a871`.
+  App 최종 소유권·선택된 release smoke·다른 5개 Worker의 deployment/version 유지와
+  부분 배포 호환성 확인을 통과했다. 정상 성공으로 recovery job은 skip, rollback 없음.
+- 공개 확인은 첫 실행에서 통과했다. fresh Chromium ko-KR/1280px에서 bootstrap 52/0fail/0fallback,
+  page error 0·E2E hook 부재·active SW/cache `v635`, 실제 위쪽 패딩 12px·간격 12px·
+  좌우/아래 패딩 16px를 확인했다. `/assets/main-DeZptvTU.css` 241,159바이트와 전체 SW의
+  SHA-256이 로컬 production 산출물과 각각 일치했다. JSON·PNG 및 배포 근거는 ignored
+  `scratch/chat-top-spacing-2026-10-08/`의 `public-2026-10-08T04-54-53.397Z/`와
+  `release-artifacts/`에 보존한다. 기존 실기·기존 운영 탭/PWA 한계와 R2 원인 미확정/조사 종료는 유지한다.
 
 ### 후속 App 패치 배포 완료 — 8.7.3 / v634, 2026-10-08
 
@@ -816,7 +830,7 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 - [x] 후속 `8.7.2`/`v633`: PR #249·정확한 main `94fa5b03`의 CI `37592984640`/immutable candidate 및 Release `37593498828` 성공. `app`/D1 false, checkpoint·App 최종 소유권·선택된 smoke·coherent marker 확인. 다른 5개 Worker는 `e8001e93` 유지·호환성 통과.
 - [x] 8.7.2 공개 fresh 확인: 45개 자산 hash·ko/ja/ar HTML 3경로 200·en-US/ko-KR Chromium의 `YouTube` 표기·YouTube BETA 제거·정상 줄바꿈·bootstrap ready·page error 0·v633 cache 확인. 실기·기존 운영 탭/PWA 한계 유지.
 - [x] 후속 `8.7.3`/`v634`: PR #263·main `10be9957`의 CI `37722363300`/immutable candidate 및 Release `37722846236` 성공. `app`/D1 false·App 소유권·선택된 smoke·다른 5개 Worker 호환성 확인. 고유 로컬 unit10,781·검색 E2E7·공개 CSS hash/fresh ko bootstrap·v634 확인. 실기·기존 운영 탭/PWA 한계와 R2 조사 종료 유지.
-- [ ] 후속 `8.7.4`/`v635` 준비: 코드 `86ea0e8e`, 데스크톱 채팅 위쪽 여백 16px→12px. `build:checked`·production CSS 레이아웃 16조합 통과. 전체 unit·타입/lint, PR 검토·정확한 main CI candidate·`app`/D1 false 배포·공개 확인 대기. 현재 App 배포는 `8.7.3`/`10be9957`, 다른 5개 Worker는 `e8001e93` 유지.
+- [x] 후속 `8.7.4`/`v635`: PR #265·main `358b3fc3`의 CI `37729046851`/immutable candidate 및 Release `37729556678` 성공. `app`/D1 false·App 소유권·선택된 smoke·다른 5개 Worker 호환성 확인. 로컬 unit 10,781·production CSS 레이아웃 16조합·정적/build·공개 CSS/SW hash 및 fresh ko bootstrap/v635/위쪽 12px 확인. 전체 E2E·실기·기존 운영 탭/PWA 한계와 R2 조사 종료 유지.
 - [x] 8.7.2 완료된 로컬 검증·test-only 보완 `716c37af`: 로컬 unit 10,781·원격 PR CI/4종 coverage, 기준 전체 Chromium 로컬/원격 각각 581, 최종 원격 WebKit 66/기존 3 skip·SW 1·실제 9게스트 R2 로컬/원격 통과. ICE observer 회귀 51·정적/빌드·감사 0·drift 자동 31 통과. 최초 8/9 원인은 미확정이며 인증 Developer API canary·실기·수동 한계를 [전체 검증 기록](design/full-verification-8.7.2-2026-10-07.md)에 보존.
 - [x] 최종 Full E2E `37602041553`의 Chromium 581 pass/실패·skip·retry 0와 모든 job 실제 성공 확인. PR #251로 테스트·문서 게시; 검사 SHA `716c37af`와 후속 문서·main SHA는 구분한다. 후속 병합·CI 상태는 PR 연결 기록에서 확인하며 제품을 재배포하지 않음.
 - [ ] 운영 R2 원인 미확정(이번 조사 종료) — 앱 없이도 독립 browser·단일 수신에서 지연 재현. 핫스팟/집 Wi-Fi 교차 대조로 접속 경로 연관성 확인, 정확한 하위 원인 미확정. 원격 새 방 3/3·GET 54개와 집 순차 6회는 완료. H2·동일 객체 고정 본 측정 72개에서도 한 연결의 동시 9개가 54초→17초로 달랐다. 후속 Worker/관리 API Node 대조는 기본 수신창에서 차이가 컸지만 16MiB 창에서는 양쪽 모두 빠르게 완료했다. 합성 Worker 주소 대조 본48+준비2와 직후 R2 본36+준비1도 H2/LAX에서 전부 빠르게 완료·정리했다. 최신 두 계정 workers.dev 대조 본96+준비4도 전부 빠르게 완료·양쪽 LAX·임시 Worker 삭제 확인. 계정 변경으로 ICN이 되지 않았으며 S3 직결이나 Chromium 지연 원인 입증은 아니므로 추측에 따른 제품 수정은 보류한다. 과거 실패 해소·물리 다기기 검증·두 실패 앱 진단의 다음 곡 전환도 미검증. [최신 계정 대조](design/full-verification-8.7.2-2026-10-07.md#두-계정의-workersdev-라우팅-대조--2026-10-08).
@@ -1339,7 +1353,7 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 | 2026-10-08 | 지연 이슈 최종 심층 코드 리뷰, 기준 `a221f2a4`, Windows/Node24.20.0 | 브라우저 전송·오케스트레이션·Worker/R2·SW·실험 관측 검토, 새 확정 원인/수정대상0건. 기존 관련19파일594pass/fail·skip0 | 느린 본문은 실제 관측이며 정지감시 정책과 원인은 구분. 과거 실패·하위 원인 미확정 보존, 사용자 요청대로 조사 종료. 새 운영 실험·제품/테스트코드 수정·배포 없음. [근거](design/full-verification-8.7.2-2026-10-07.md#최종-코드-심층-검토-및-조사-종료--2026-10-08) |
 
 | 2026-10-08 | YouTube 검색 제목·채널 간격 수정, 코드 `08ea35d3` → PR #263/main `10be9957` | 제목의 두 줄 최소 높이를 메타데이터 묶음으로 옮겨 빈 줄 제거. 8.7.3/v634 App 배포 완료·다른 5개 Worker 유지 | 로컬 고유 unit10,781·Chromium 검색7·타입/lint/서식/경계/build 통과. PR/main CI 각11job·Release37722846236·공개 CSS hash/fresh ko 검증 성공. jq/로그 경로/공개 CSS 조회기의 초기 한계와 보완은 위 8.7.3 기록에 보존 |
-| 2026-10-08 | 데스크톱 채팅 위쪽 여백 조정 준비, 코드 `86ea0e8e` | 1280px 이상에서 16px→12px, 모바일·다른 패딩·메시지 간격·내부 패딩 유지. 8.7.4/v635 App 패치 준비이며 현재 배포8.7.3/10be9957·다른5개 Worker e8001e93 유지 | Windows `build:checked`·offline Chromium production CSS 레이아웃16조합 통과/page error0. 전체 unit·타입/lint 및 PR/main CI candidate·Release·공개 확인 대기. 정책·migration·secret·binding 변경 없음. 이전 App8.7.3/10be9957이 복구 기준 |
+| 2026-10-08 | 데스크톱 채팅 위쪽 여백 조정, 코드 `86ea0e8e` → PR #265/main `358b3fc3` | 1280px 이상에서 16px→12px, 모바일·다른 패딩·메시지 간격·내부 패딩 유지. 8.7.4/v635 App 배포 완료·다른 5개 Worker e8001e93 유지. 정책·migration·secret·binding 변경 없음; 이전 App8.7.3/10be9957이 복구 기준 | 로컬 unit 10,781·정적/build·offline Chromium production CSS 레이아웃 16조합 통과. PR/main CI 각 11job·Release37729556678·공개 CSS/SW hash/fresh ko/v635/위쪽 12px 확인. 전체 E2E·실기·기존 운영 탭/PWA 한계 유지 |
 
 ### 이전 8.7.0 실제 승격·배포 기록 — 2026-10-07 완료
 

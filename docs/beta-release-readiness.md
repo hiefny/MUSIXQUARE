@@ -16,6 +16,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| 8.7.5 릴리스 준비 — 2026-10-09 | 사용자가 QA 완료 뒤 main 병합·배포를 명시 지시. 제품 `8c14f0d6` 및 QA helper `8ff6fd12`, 준비 App `8.7.5`/`v636`. 원격 main `e7c5529a`와 기준 동일·작업 트리 clean 확인, 최종 diff 소스 검토 및 release-identity/cache-history 통과. App·PRO·Developer API 동시 변경으로 `target=all`, `apply_developer_api_d1=false`; schema/secrets/bindings/deps 변경 없음. PR 검토·CI·정확한 merge-SHA main candidate·정식 Release 및 운영 smoke 대기. 운영은 아직 `8.7.4`/`v635` 유지 |
 | QA032 추가 제공 결과 검토 — 2026-10-09 | 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`, 검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`와 차이는 문서2파일뿐. 원본 JSON4파일집계·19검사파일 고유434pass(기존23+통합3+보조16/392), fail·skip0 확인. 실제 protocol→main/preload receiver→storage→완료 Blob 및 역순 조립 통합3이 직접 RAM 쓰기/완료 없이 통과, 보조 원본 JSON·로그/보고서 명령 확인. 합의한 로컬 QA032 범위 완료·앞선 근거 보류 해소. binary codec/실제 WebRTC/live 검증 아님. 현재clean/추적1,964·비Markdown1,819 hash가 기존 manifest와 동일; 실행 전체의 전후hash는 별도 미제공. 부모 재실행/검사수정0·새 확정 제품 결함0·제품/main/운영/배포 변경0. [후속 판정](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09) |
 | API 인증 후 키 수명 재검증 — 2026-10-09 | `2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 새 GPT-6 Luna/high 세션과 부모 독립 확인, Windows/Node24.20.0. 최종 고유8pass/fail·skip0/retry0: 실제 초기 인증→Request reader 대기→회수/만료→본문 완료를 명시한 queue-mode·원래 queue-add 각4대조. 정상200/201·회수/만료 기존·새 요청401/PRO 저장 불변·epoch409. 원본4pass는 pull 자동 호출로 인증 후 순서 증거가 부족해 합산하지 않음; 최초 fixture 오류 보존. API는 직접 거절 없이 중단됐던 항목으로 분류 정정, 이번 서비스 거절0·새 확정0. 추적1,964/dist782 불변, 제품/main/배포 변경0. QA032의 현재 판정은 위 후속 제공 근거 행을 따름. [근거·한계](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09) |
 | 새 세션 마지막 독립 검증 — 2026-10-09 | `44ef6a789112c23f1c63c843853eca9d86054e45`, 로컬 GPT-6.1 Sol/xhigh·Windows/Node24.20.0. 새 scratch43pass(API11·공개 요청14·번역8·관리자10) 및 기존17파일966pass, 최종fail·skip0/자동retry0. 최초40pass/1fail은 삭제 fence의 HTTP 기대값 차이; 실제200/voted:false·DB 무쓰기와 원본 보존. 새 확정0. QA032는 기존 제한/공식 설명 확인만, API 스트리밍 수명도 미실행. 검증 전후 추적1,964/dist782 hash 불변, 이번 신규 보안 거절0. 임시 캐시 삭제는 실행 정책 거절로 scratch에 보존. 제품/main/배포 변경 없음. [범위·한계](design/beta-30-round-repair-2026-10-09.md#새-세션의-마지막-독립-검증--2026-10-09) |
@@ -1377,6 +1378,13 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 8.7.5 릴리스 준비: 사용자가 완료된 QA 수정분의 배포를 명시 지시했다.
+제품 `8c14f0d6`/QA helper `8ff6fd12`, 준비 `8.7.5`/`v636`, 원격 main `e7c5529a`가
+QA 기준과 동일함을 확인했다. 최종 변경 소스·기존 독립 API 검토와 회귀 근거 재확인,
+release-identity/cache-history 통과·새 코드 변경 없음. App·PRO·Developer API를 함께
+반영하기 위해 정식 Production Release `all`/Developer API D1 false를 선택한다.
+PR 및 exact-main-SHA CI candidate·운영 배포/검증은 아직 대기이며 기존 운영 상태를 유지한다.
 
 2026-10-09 QA032 추가 제공 근거 재검토: 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`,
 검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`; 두 SHA의 차이는 앞선 검토 문서2파일이다.

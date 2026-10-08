@@ -175,3 +175,23 @@ Your eligibility에서 계정 등록을 완료한 뒤 같은 정상 검토 경�
 모델 선택이나 요청 옵션만으로 접근 권한이 부여되지는 않는다.
 ([공식 Daybreak 요청·접근 설명](https://developers.openai.com/api/docs/guides/daybreak))
 이번 로컬 회귀 통과와 별도로 이 심화 검증은 배포 전 미완료 항목으로 유지한다.
+
+### GPT-6.1 Sol / xhigh 접근 재확인 — 2026-10-09
+
+사용자가 OpenAI 권장 방식으로 `GPT-6.1 Sol / xhigh`를 선택했다고 알려 다시 정상 접근
+조건을 확인했다. 대상 checkout은 문서 후속 `b24609f4`이며 제품·검사 입력은 위와 같다.
+`codex debug models`가 조회한 현재 계정 모델 카탈로그에서 `gpt-6.1-sol`은 xhigh를
+지원하지만 `available_access_programs.cyber`는 `standard`만 표시됐다.
+도구 호출·파일 읽기·보안 실험을 금지한 접근 확인 요청에 해당 모델/xhigh 및 정식
+`--cyber-access-program daybreak_blue`를 지정하자 서비스는 403과
+`Daybreak isn't available for this model`을 반환했다. CLI 자체 재접속도 같은 응답이었다.
+([카탈로그 요약](../../scratch/qa2-security-retry-2026-10-09/model-retry-02/access-summary.json),
+[접근 요청 원본](../../scratch/qa2-security-retry-2026-10-09/model-retry-02/program-events.jsonl))
+
+이는 **현재 계정·모델 조합의 Daybreak 접근 요청**에 대한 거절이다. 일반 모드에서
+모든 방어적 점검이 거절된다거나 프로젝트 결함이 발견됐다는 결과로 확대하지 않는다.
+이전에 거절된 구체적 심화 실험은 재작성·실행하지 않았고 신규 보안 검사 실행은 0건이다.
+공식 문서도 모델 선택과 접근 프로그램 권한을 구분하며, GPT-6.1 Sol의 Daybreak 사용에는
+해당 접근 승인이 필요하다고 설명한다.
+([공식 모델·접근 프로그램 설명](https://developers.openai.com/api/docs/guides/daybreak))
+이 새 접근 결과가 앞서 필요한 계정 보안 등록이나 실험 실행 승인을 충족했다는 증거는 아니다.

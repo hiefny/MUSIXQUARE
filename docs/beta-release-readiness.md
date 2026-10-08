@@ -25,7 +25,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 8.7.6 배포 승인·최종 문구 — 2026-10-09 | 사용자 배포 승인. 기존24시간 활성화 링크·계정 명시 확인/변경·닉네임 설정·모바일 버튼과 함께 배포 준비. PRO 계정 안내2키의 암호 단계 설명을 한영/영어fallback에서 삭제, KO YouTube 오류1키를 해요체로 수정. 환영합니다·외부페이지·접근성 설명 유지. 제품8.7.6/cachev640, schema/secrets/bindings/deps 변경0. App/PRO 공통 런타임 변경이므로 정식 Release target all / Developer API D1 false. 독립 기능 검토 새 확정0; 최종검사·PR·exact-main CI·release 대기 |
+| 8.7.6 배포 승인·최종 문구 — 2026-10-09 | 사용자 배포 승인. 기존24시간 활성화 링크·계정 명시 확인/변경·닉네임 설정·모바일 버튼과 함께 배포 준비. PRO 계정 안내2키의 암호 단계 설명을 한영/영어fallback에서 삭제, KO YouTube 오류1키를 해요체로 수정. 환영합니다·외부페이지·접근성 설명 유지. 제품8.7.6/cachev640, schema/secrets/bindings/deps 변경0. 코드43c8a1a3의 전체unit523파일10,927pass/기존1skip/fail0·정적7명령·committed build·Worker6 dry-run·production Chromium12+추가문구4pass. 독립 검토 새 확정0. PR·exact-main CI·target all/D1 false Release 대기 |
 | 한국어 문체 읽기 전용 감사 — 2026-10-09 | 코드 `f05af6242b28abf216132024e42aee76faee93be`. 추적1,967파일 중 텍스트1,524파일 검색·한국어126파일 및 ko사전735키 검토. 합쇼체6항목(ko4·이벤트1·소개 데모1), 별도 짧은 명령형 오류안내1·데모 반말/구어5 확인. 명사형 알림20개는 선택적 문장화 후보, 버튼/제목·하세요/주세요·내부문서·생성물 복제는 문제 수에서 제외. 새 PRO 안내의 설정합니다2곳 포함. 제품문구 수정·배포 없음, 톤 정비 미반영 |
 | 계정 확인 모바일·닉네임 후속 — 2026-10-09 | 제품 코드 `c3a313c9518648a6d2b051feb78d2671a91fb423`. 닉네임 미지정 로그인 계정은 기존 프로필 설정 완료→계정 명시 확인→PIN으로 진행, 같은 scope의 열린 닉네임창에 합류·취소 시 등록 중단. 영문 `Continue` / `Another account`와 영어 fallback30개 축약, cache v639. 이전 긴 문구는320px 양쪽2줄·360px 보조2줄; 새 영어는320/360/375/390/414px 모두1줄·overflow/ellipsis0. 관련 단위9파일277pass, 전체 typecheck/lint·관련 format·committed build:checked 통과. 고유 Chromium12케이스를 dev·production dist 각각12pass/최종fail·skip·retry0, 320px 한영 실제 이미지 완성. 최초dev12실행의 claim 미보유 단발1회는 원인 미확정으로 보존. main/운영/배포 변경0 |
 | PRO 최초 활성화 계정 확인 구현 — 2026-10-09 | 검증 코드 `0eb6913300af226b90b0e564034bc997ffb92bbe`, 임시 `agent/pro-activation-24h`. 계정 새로 확인→로그인/계정 변경→명시 확인→PIN→등록, 한국어/영어 2행 전체 너비 버튼. 확인 후 계정 변경은 UI 취소·재확인 및 App의 expected-scope 검사로 등록 전에 거절. 전체 unit 후 최종 영향5파일171pass 치환 집계523파일10,920pass/기존1skip/fail0. 정적7명령·Chromium7·committed production build·App/PRO dry-run 통과, 실제 한영 이미지1장 완성. browser에서 발견한 번역 덮어쓰기 수정 및 독립 재검토 완료. schema/secrets/bindings/deps 변경0, 사용자 화면 확인 전 main 병합·배포 보류 |
@@ -501,6 +501,7 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] 후속 닉네임 미지정 흐름·영문 축약·모바일 한 줄 검증 완료. 관련 단위277·Chromium 고유12케이스의 dev/production 각각12pass, 전체 typecheck/lint·관련 format·build:checked 통과. text Range 줄 수 검사 추가, 320px 한영 실제 화면 시각검토·전달.
 - [ ] 최초dev 검사에서 claim 미보유 안내1회 관측 원인은 미확정. 수정 없이 같은 fixture로 최종 dev12 및 production12 모두 통과, 최종dev trace에서 문서 요청은각1회/reload0. 최초 실패를 HMR나 환경 문제로 단정하지 않으며 배포 검토 시 기록을 함께 확인한다.
 - [x] 사용자 선택 범위의 문구 수정: PRO 안내2키에서 암호 단계 문장 삭제, KO YouTube 로드 오류1키 해요체 교정. 환영합니다·외부페이지·접근성 설명 및 나머지 감사 후보는 유지.
+- [x] 최종 코드 `43c8a1a30d4778ec993e0b6edff7198147f281f2`, Windows/Node24.20.0/npm12.0.2: 전체unit523파일10,927pass/기존1skip/fail0, 정적7명령·committed build:checked·Worker6 dry-run 통과. Production Chromium12와 추가 한영 문구4 모두pass/skip·retry0. 실제 toast renderer 한영2개는 별도 격리 렌더 확인이며 YouTube 실패 전체 E2E로 세지 않음.
 - [ ] 최종 코드 PR 검토/CI → exact-main CI immutable candidate → target all / Developer API D1 false 정식 Release → live smoke/최종소유권 확인·기록 및 임시브랜치 정리.
 
 **2차 독립 QA — 2026-10-09:** main `e7c5529a3273c7132880dd0ad4572b2463405c87`를
@@ -1419,7 +1420,17 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 환영 인사·외부/데모 문구·접근성 설명은 변경하지 않았다. 동일 미배포 제품8.7.6,
 PWA cache/bootstrap v640. 기존24시간 claim 및 계정 확인 흐름을 함께 포함하며
 새 DB/schema/secret/binding/dependency는 없다. 독립 전체 기능 diff 검토 새 확정0,
-선행 개발서버 claim 누락1회의 미확정 관측은 유지한다. 최종검증·PR·정확한 main
+선행 개발서버 claim 누락1회의 미확정 관측은 유지한다. 최종 코드
+`43c8a1a30d4778ec993e0b6edff7198147f281f2`의 Windows/Node24.20.0/npm12.0.2
+전체unit523파일10,927pass/기존1skip/fail0, 정적7명령·committed build:checked·
+Worker6 dry-run 통과. 합성계정/API를 사용하는 production Chromium12 및 추가
+한영 정확한 문구4가 모두pass/skip·retry0이며 320px 버튼은 한 줄·넘침0이다.
+toast 실제 renderer/i18n과 production CSS의 한영2개 격리 확인은 별도이며 전체
+YouTube 실패 E2E로 세지 않는다. 최종12 trace의 claim 문서요청 각1회/reload0이나
+이전dev 실패 원인을 확정하지 않는다. 원본은 ignored
+`scratch/pro-activation-release-2026-10-09/`의 unit.json·static-results.json·build.log·
+worker-bundles.log와 browser/summary.json·trace에 보존했다. 실물기기/Safari·live
+OAuth/실제claim 검증은 아니며 exact-main 후보를 대체하지 않는다. PR·정확한 main
 CI 후보 이후 canonical target all / Developer API D1 false로 배포할 계획이며 현재
 운영은8.7.5/v636이다. 과거 화면검토 대기는 이번 명시승인으로 해제했다.
 

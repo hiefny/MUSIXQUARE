@@ -2,13 +2,24 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.7` / `v642`, App SHA `18246271` 배포 완료. QA3 확정9건 수정·예방3건 보강, PR #273·exact-main CI `37882728076`·Release `37883236502` 성공. 다른 Worker5종은 `ff7766cc` 유지·부분 배포 호환성 확인. R26 보완 원본55pass 채택·합의한 로컬 검증 범위 완료·보류 해제. live provider·운영 HTTPS 쿠키·실기/운영 관측 한계 유지 |
+| Status             | Runbook — 운영 App `8.7.8` / `v643`, App SHA `12ecbf71` 배포 완료. iPhone YouTube 탭 전환의 수평 이동 제거, PR #277·exact-main CI `37907874855`·Release `37908451698` 성공. App 100% version·운영 smoke4·소유권·coherent marker 확인, 다른 Worker5종 `ff7766cc` 유지. 실제 iPhone Safari/PWA 확인은 사용자 후속 대기. 기존 R26 범위 완료와 provider/실기 관측 한계 유지 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
-**최신 배포 완료 — 2026-10-09:** QA3 확정9건 수정과 승인된 예방 보강3건을
+**최신 배포 완료 — 2026-10-09:** 사용자 승인한 11번 방식으로 비활성 YouTube
+패널의 수평 이동 두 곳을 제거하고 기존 깊이·크로스페이드·iframe 유지 처리를
+보존한 App `8.7.8` / `v643`을 배포했다. [PR #277](https://github.com/hiefny/MUSIXQUARE/pull/277)
+병합 main `12ecbf71d6fe27b7c1eca85abbc00a8575b1b4df`의 성공
+[CI `37907874855`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37907874855) attempt1·
+782파일 immutable candidate를 [Release `37908451698`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37908451698)
+attempt1에서 재사용했다. `app` / Developer API D1 false, 운영 smoke4·최종 App
+소유권·coherent marker 통과, 복구 불필요. 다른 Worker5종은 `ff7766cc`를 유지한다.
+실제 제품의 iPhone Safari/PWA 재생·탭 전환은 사용자가 8.7.8 업데이트 적용 후
+확인할 후속 항목이며, 배포 성공을 실기 깜빡임 해결 확정으로 표현하지 않는다.
+
+**이전 배포 완료 — 2026-10-09:** QA3 확정9건 수정과 승인된 예방 보강3건을
 App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 `18246271903a3a856fa6c9d566c4e584c9a86aac`의 성공 CI `37882728076` attempt1과
 782파일 immutable candidate를 Release `37883236502` attempt1에서 사용했다.
@@ -16,7 +27,7 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 복구 불필요. 다른 Worker5종은 `ff7766cc`를 유지하며 부분 배포 호환성을 확인했다.
 [수정·검증·정식 배포 결과](design/beta-qa3-repair-2026-10-09.md).
 
-**미배포 후속 수정 — 2026-10-09:** iPhone YouTube 탭 전환 깜빡임의 단일 HTML
+**11번 방식의 최초 준비 이력 — 2026-10-09:** iPhone YouTube 탭 전환 깜빡임의 단일 HTML
 대조에서 수평 이동이 있는 조합은 재현, 수평 이동이 없는 05·11번은 정상으로
 사용자가 보고했다. 11번과 같이 비활성 재생 패널의 `left`와 transform X만 0으로
 변경하고 기존 Z=-1px·크로스페이드·iframe 유지 처리를 보존한다. 로컬
@@ -24,7 +35,8 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 `8.7.7` / `v642` 그대로다. 검증 범위와 남은 확인은 아래 체크리스트·누적 이력을 따른다.
 사용자는 같은 날 실서비스 배포 후 직접 iPhone 확인을 하겠다고 명시 승인했다.
 배포 범위는 `app` / Developer API D1 false이며, 정식 PR·exact-main CI·Release
-완료 전에는 위 준비 상태를 배포 완료로 해석하지 않는다.
+완료 전에는 위 준비 상태를 배포 완료로 해석하지 않았다. 현재 배포 판정은 위
+8.7.8 완료 기록을 따른다.
 
 **이전 배포 완료 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명 24시간,
 계정 명시 확인·변경, 닉네임 설정, 모바일 버튼과 선택한 문구 수정을 `8.7.6` / `v640`으로
@@ -65,6 +77,7 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| 8.7.8 iPhone YouTube 전환 수정 배포 — 2026-10-09 | PR277·자동 리뷰 완료/inline0·독립 검토 새 확정0. main `12ecbf71` CI37907874855 attempt1 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과. 782파일 hash/version 일치. Release37908451698 attempt1·app/D1 false 성공, App8.7.8/v643·100% version·smoke4·최종 소유권/coherent marker 확인. 다른 Worker5종ff7766cc 호환·유지, rollback 불필요. 실제 iPhone/PWA 확인과 기존 숨은 fullscreen 키보드 포커스 후속은 남음 |
 | R26 보완 원본 최종 판정 — 2026-10-09 | 검토 HEAD `7dd457c2b3c5b63186dd3a20b31fa7601a6ec831`, 배포 제품18246271과 문서2파일 차이. Vitest47(39+8)/Chromium8의 최신55pass·fail/skip0 채택. 요청24개 같은 origin·기발급 flow 성공2·PKCE 대응·세션 후속 인증 확인, 합의한 로컬 범위 보류 해제. 현재clean·추적1,977/비Markdown1,830과 제공manifest 전수hash 일치·누락/추가/불일치0. 제출HEAD 전체값 불일치는 실제Git값으로 정정. Node24.13.1/핀24.20.0·live/운영쿠키/실기 제외 범위 유지, 부모실행0·새제품결함0·재배포 불필요. [최종 판정](design/beta-qa3-repair-2026-10-09.md#r26-보완-원본-최종-판정--2026-10-09) |
 | R26 사용자 제공 근거 검토 — 2026-10-09 | 검토 HEAD `b85148da`, 배포 제품 `18246271`과 차이는 문서2파일. 원본 Vitest2파일43pass(복제 알고리즘대조1+제품통합38+합성 성공OAuth4)·Chromium8pass/fail0 채택. 브라우저 최종 내부 URL 일치는 인정하나 route-only 집계는 리디렉션 각 hop의 외부 요청0 증명 아님. 기존 비정상 flow는 취소만, 성공분기 분리 검증 미완료. 실제Node24.13.1은 핀24.20.0과 다름; 현재 추적1,977/비Markdown1,830·clean이며 제출1,967/1,822와 불일치, 실행 전후hash manifest 미제공. 부모·독립 검토는 읽기만 수행·재실행0·새 제품 결함0·재배포 없음. [후속 판정](design/beta-qa3-repair-2026-10-09.md#r26-사용자-제공-재검증-원본-검토--2026-10-09) |
 | 8.7.7 정식 릴리스·3차 QA 수정 — 2026-10-09 | 확정9건 수정·예방3건 보강 완료. 로컬 제품20eb6d07 검증을 보존하고 PR #273 검토/CI37882215473 후 main `18246271903a3a856fa6c9d566c4e584c9a86aac`의 CI37882728076 attempt1 성공. 원격 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과. Candidate782파일 hash/version 일치. Release37883236502 attempt1·app/D1 false 성공, App8.7.7/v642·100% version·smoke4·최종 소유권·coherent marker 확인. 다른 Worker5종ff7766cc 유지·호환성 확인, rollback 불필요. 기존 심화/provider/실기 한계 유지. [후속 기록](design/beta-qa3-repair-2026-10-09.md) |
@@ -533,14 +546,17 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
-**iPhone YouTube 전환 후속 — 2026-10-09, 미배포:**
+**iPhone YouTube 전환 후속 — 2026-10-09, 배포 완료·사용자 실기 확인 대기:**
 
 - [x] 사용자 실서비스 배포 승인. App만 배포하며 iPhone Safari/PWA 실기 확인은 사용자가 배포 후 수행할 예정.
 - [x] 단일 HTML 사용자 실기 대조: 08·09·10·12·13 깜빡임, 11 정상. 이전 05 정상과 합쳐 수평 이동 제거를 수정 방향으로 선택. OS 내부 결함 확정이나 제품 실기 완료로 확대하지 않음.
 - [x] 비활성 YouTube 패널 `left:0`, `translate3d(0,0,-1px)` 적용. 나머지 숨김·깊이·전환·iframe 수명 유지, 관련 주석 정정. schema/secrets/bindings/deps 변경 없음.
 - [x] Windows/Node24.20.0의 관련 Vitest3파일76pass/fail·skip0. Chromium 제품 CSS/탭 모듈 fixture의 모바일·태블릿·wide cascade, 동일 iframe 유지와 클릭 대조 확인. 이 검사는 실제 YouTube/전체 앱 세션 검사가 아님.
 - [x] 제품 커밋 `983d18c2db8a40468be8da173445b8f4cece3b8c`의 `build:checked`·관련 서식·release identity 통과, 독립 diff 검토 새 확정 결함0. 전체 unit/typecheck/lint·제품 WebKit E2E 재실행 결과는 아님.
-- [ ] 수정 제품의 iPhone Safari/PWA 실제 영상으로 나가기·복귀·빠른 왕복·재생 지속 확인. 정식 PR/CI/exact-main candidate/배포 미실행.
+- [x] 사용자 배포 승인 뒤 로컬 전체검사 최초10,989pass/기존1skip/ESLint 설정 로딩 timeout1. 해당18검사 파일을 코드·제한시간 변경 없이 단독 재실행해18pass, 고유 최종10,990pass/1skip. 최초 실패 보존·전체 재실행 성공으로 표현하지 않음. 전체 typecheck/lint/format·Worker syntax·API/D1/drift guard 통과.
+- [x] PR277 리뷰/CI37907351589 성공 후 main `12ecbf71`의 CI37907874855 attempt1 성공. 전체530파일10,990pass/기존1skip/fail0, coverage4종·candidate17/critical22 통과, immutable candidate782파일 hash/version 일치.
+- [x] Release37908451698 attempt1·app/D1 false 성공. App deployment/version 100%·운영 smoke4·최종 소유권/coherent marker 검증, 복구 불필요. 운영 index/bootstrap와 service-worker의 v643 공개 GET도 확인.
+- [ ] 수정 제품8.7.8의 iPhone Safari/PWA 실제 영상으로 나가기·복귀·빠른 왕복·재생 지속 확인. 사용자가 배포 후 확인 예정이며 이전 HTML 정상 결과를 제품 실기 완료로 대체하지 않음.
 - [ ] 별도 기존 접근성 관찰: 제품 CSS fixture에서 비활성 패널의 fullscreen 버튼에 역방향 키보드 포커스가 도달. 수정 전 수평 이동 조합과 수정 후 모두 동일하게 재현. 이번 변경으로 새로 생긴 문제로 분류하지 않으며 전체 앱 접근성 확인·처리는 별도 후속 범위.
 
 **3차 독립 QA — 2026-10-09:** [최종 결과·30개 범위·원본](design/beta-30-round-qa3-2026-10-09.md).
@@ -1483,6 +1499,32 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 8.7.8 iPhone YouTube 전환 수정 정식 배포: 사용자 실서비스 배포 승인 후
+PR [#277](https://github.com/hiefny/MUSIXQUARE/pull/277)의 자동 코드리뷰 완료·inline0과
+독립 검토·PR CI37907351589 성공을 확인했다. 병합 main
+`12ecbf71d6fe27b7c1eca85abbc00a8575b1b4df`의 CI37907874855 attempt1은
+Ubuntu/Node24.20.0에서 전체530파일10,990pass/Windows 전용 기존1skip/fail0,
+coverage4종·production candidate/SW17·critical browser22 통과. 782파일
+immutable candidate의 SHA/version/hash를 대조했다. 로컬 전체 최초 실패는 ESLint
+config 조회의15초 timeout1이며 동일 파일18건 단독 재실행은643ms로 전건 통과했다.
+코드·검사·제한시간 변경 없이 재확인했고 최초 실패/준비 명령 오류 로그도 보존했다.
+로컬 전체 정적7검사와 이전 committed build:checked가 통과했다.
+
+Release [37908451698](https://github.com/hiefny/MUSIXQUARE/actions/runs/37908451698)
+attempt1·target app/Developer API D1 false 성공, 2026-10-09 18:02 KST 완료.
+App8.7.8/v643, deployment `db79d475-d5f3-41e7-a6e1-e6ef4d921663`, 100% version
+`2e424812-cc95-4efa-a4d0-498e60ae49e8`, `git:12ecbf71...` 소유권 확인.
+generation·anonymous account·PRO public·Standard HTTPS signaling smoke4와
+coherent-production marker 통과. 다른 Worker5종ff7766cc의 부분 배포 호환성 확인,
+schema/secrets/bindings/deps 변경 없음. rollback은 불필요했고 사전 App 복구 기준
+SHA18246271/version `aee53298-c1e2-4d9b-ac37-26a6df9b9f20`과 immutable checkpoint를
+보존했다. 이후 복구는 canonical hotfix 절차와 실제 ownership/floor 재검증을 따른다.
+공개 index/worker200 및 v643을 후속 확인했으나 기존 열린 PWA의 코드 교체나
+물리 iPhone 깜빡임 해결을 입증한 것은 아니다. 사용자 실기 결과와 기존 fullscreen
+키보드 포커스 항목은 위 체크리스트에 남긴다. 원본 CI/Release JSON·로그·candidate·
+deployment/recovery/commit marker는 `scratch/ios-youtube-parking-fix-2026-10-09/`에
+보존했다. 이 배포 결과 기록의 후속 문서 병합은 App 재배포 대상이 아니다.
 
 2026-10-09 iPhone YouTube 탭 전환 수평 이동 제거(미배포): 기준 main
 `985d877d7a5997d72d86f2d84089772c26dae261`에서 사용자 단일 HTML 결과를 반영했다.

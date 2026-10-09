@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.6` / `v640`, Worker6종 `ff7766cc` 배포 완료. PR #271·exact-main CI `37857195274`·Release `37857830458` 성공 근거 유지. 2026-10-09 후속 3차 QA: 29라운드 완료·R26 부분 차단, 확정9건 수정·예방3건 구현, 로컬회귀 통과·추가WebKit 준비경로 조사 중. App8.7.7/v642 배포 예정, 운영은8.7.6 유지; QA032 로컬 완료 및 기존 실기·운영 관측 한계 유지 |
+| Status             | Runbook — 운영 App `8.7.6` / `v640`, Worker6종 `ff7766cc` 배포 완료. PR #271·exact-main CI `37857195274`·Release `37857830458` 성공 근거 유지. 2026-10-09 후속 3차 QA: 29라운드 완료·R26 부분 차단, 확정9건 수정·예방3건 구현, 로컬회귀 통과·WebKit fixture 원인 확인·PR #273 검토/CI 대기. App8.7.7/v642 배포 예정, 운영은8.7.6 유지; QA032 로컬 완료 및 기존 실기·운영 관측 한계 유지 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -34,6 +34,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| 3차 QA 후속 수정 — 2026-10-09 | 제품20eb6d07·App8.7.7/v642, 확정9건 수정·예방3건 구현, 로컬회귀530파일10,990pass/기존1skip/최종fail0. 최종 전체typecheck/lint/format·build:checked·Worker6 dry-run·production17/SW2/WebKit SW1 통과. PR #273 및 정확한 main CI/Release 대기. 기존 심화/실기 한계 유지. [후속 기록](design/beta-qa3-repair-2026-10-09.md) |
 | 최신 3차 도메인 QA — 2026-10-09 | 기준 `bf4912b2`, Windows/Node24.20.0·6.1 Sol/xhigh·3×10세트. 29완료/R26 부분차단, 확정9(P2 7/P3 2) 미수정·미확정3. 고유 Vitest5,944(5,928pass/16assertion fail)·Chromium59(54pass/5fail), 부모 별도41(30pass/11재현fail)로 원인·대조 재판정. 확정8건 독립 재실행, OAuth복귀주소1건은 차단 전 원본+코드 확인·독립 재실행 미완료. R28 guard9·보존candidate782hash·설치lock486버전 일치. 문서 갱신 직전 추적1,967/비Markdown1,822·dist782불변 확인, 최종 문서3개만 갱신. 새 전체suite/coverage/WebKit/live/exact-main CI/배포 아님. [최종 결과](design/beta-30-round-qa3-2026-10-09.md) |
 | 8.7.6 정식 릴리스 — 2026-10-09 | 사용자 승인 범위인24시간 활성화 링크·계정 명시 확인/변경·닉네임 설정·모바일 버튼·PRO 안내2키 암호 설명 삭제·KO YouTube 오류1키 해요체를 배포. 환영합니다·외부페이지·접근성 설명 유지, schema/secrets/bindings/deps 변경0. 로컬 코드43c8a1a3의 검증은 아래 보존. PR #271·PR CI37856697026 성공, 자동 리뷰 완료/inline0·독립 검토 새 확정0. main `ff7766ccc0c83ab1eee15bc030347e9067764ee6`의 CI37857195274 attempt1: unit523파일10,927pass/기존1skip/fail0·4종coverage·Chromium17+critical22 통과. Candidate782파일 hash/version 일치. Release37857830458 attempt1·all/D1 false 성공, App8.7.6/v640·Worker6종 동일 SHA/100% version·smoke10·최종소유권·PRO ready·signaling Custom Domain·coherent marker 확인. rollback 불필요, 기존 미확정·실기 한계 유지 |
 | 한국어 문체 읽기 전용 감사 — 2026-10-09 | 코드 `f05af6242b28abf216132024e42aee76faee93be`. 추적1,967파일 중 텍스트1,524파일 검색·한국어126파일 및 ko사전735키 검토. 합쇼체6항목(ko4·이벤트1·소개 데모1), 별도 짧은 명령형 오류안내1·데모 반말/구어5 확인. 명사형 알림20개는 선택적 문장화 후보, 버튼/제목·하세요/주세요·내부문서·생성물 복제는 문제 수에서 제외. 새 PRO 안내의 설정합니다2곳 포함. 제품문구 수정·배포 없음, 톤 정비 미반영 |
@@ -1685,7 +1686,7 @@ Advanced Account Security·호환 FIDO2 하드웨어 키 요구로 다시 차단
 제품·검사 코드1,819파일 hash 변경0, 계정 보안 설정/main/배포 변경 없음. 미완료 범위와 다음 조건은
 [재시도 기록](design/beta-30-round-repair-2026-10-09.md#daybreak-보안-심화-재시도--2026-10-09)을 따른다.
 
-2026-10-09 3차 QA 후속 수정: 코드 20eb6d07, App8.7.7/v642, 확정9건 수정과 예방3건 구현. 로컬 전체 후 영향 파일 치환530파일10,990pass/기존1skip/최종fail0, 최종YT1,065·PRO184·UI391 회귀, production candidate17·SW2·WebKit SW1 통과. WebKit PIN2건은 레이아웃 도달 전 준비경로 실패 조사 중. source/schema/secrets/bindings/deps 유지, target app/D1 false 예정. [후속 기록](design/beta-qa3-repair-2026-10-09.md).
+2026-10-09 3차 QA 후속 수정: 코드 20eb6d07, App8.7.7/v642, 확정9건 수정과 예방3건 구현. 로컬 전체 후 영향 파일 치환530파일10,990pass/기존1skip/최종fail0, 최종YT1,065·PRO184·UI391 회귀, production candidate17·SW2·WebKit SW1 통과. WebKit PIN 초기2실패는 SW의 context-route 우회→preview503으로 확인(v640 대조 동일); UI fixture의 SW 분리와 별도 실제SW 검증으로 처리. schema/secrets/bindings/deps 유지, target app/D1 false 예정. [후속 기록](design/beta-qa3-repair-2026-10-09.md).
 
 2026-10-09 2차 QA 후속 수정: 사용자가 두 미확정 항목의 기대 동작을 승인하고 기존 13건까지
 총 15건 수정을 요청했다. 14건 새 실행 재현·API 1건 방어적 소스 확인 뒤 수정했다.

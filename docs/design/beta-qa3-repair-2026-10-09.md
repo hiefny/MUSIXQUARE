@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 구현·로컬 회귀 완료, 추가 WebKit 준비 경로 조사 및 PR·정식 배포 전 |
+| Status | 구현·로컬 회귀 완료, PR #273 검토·CI 및 정식 배포 대기 |
 | Applies to | QA3 확정 9건과 사용자 승인 예방 보강 3건 |
 | Last source review | 2026-10-09 |
 | Executable sources | `src/player`, `src/youtube`, `src/pro-room`, `src/ui`, `src/i18n`, `browser/service-worker.ts`, `cloudflare/account-auth.ts`와 유지 회귀 검사 |
@@ -52,14 +52,39 @@ PR·정식 배포 결과는 완료 시 이 문서와 living record에 함께 기
 | PRO 인계 | 유지 고유184pass, 새 회귀12 포함. 강제 stale 알림 기존 실패→통과; 정상 superseded·expired·통신 실패·기존 heartbeat 중 알림·늦은 정리/이동 대조. |
 | UI | 유지10파일391pass·실제 목록 보간3pass, 해당 담당자 Chromium4pass. 부모 최종 산출물 검증은 아래 별도. |
 | 부모 통합 Chromium | native 파일 종료/STOP5pass; 채팅·모달·YouTube·파일/백그라운드17pass; 최종 YouTube/critical13pass(앞선 파일과 중복, 합산하지 않음). |
-| production 산출물 | candidate Chromium17pass, 실제 SW 갱신2pass, WebKit SW fallback1pass. 최종 UI 추가 검사는 Chromium3pass/WebKit 닉네임1pass; WebKit PIN2건은 레이아웃 도달 전 claim 준비 안내로 실패하여 별도 조사 중. |
-| 정적·번들 | typecheck·lint·format 통과, 별도 source/policy guard12종 통과. committed `20eb6d07` build:checked·Worker6종 dry-run 통과. 최신 코드 전체 typecheck 재확인 진행 중. |
+| production 산출물 | candidate Chromium17pass, 실제 SW 갱신2pass, WebKit SW fallback1pass. UI는 아래 fixture 진단 뒤 Chromium3+WebKit3=6pass/fail·skip·retry0로 확인했다. dist782파일을 사용했으며 정식 CI candidate와 구분한다. |
+| 정적·번들 | 최종 전체 typecheck·lint·format 통과, 별도 source/policy guard12종 통과. committed `20eb6d07` build:checked·Worker6종 dry-run 통과. |
 | 독립 검토 | OAuth 성공 callback의 저장 경로 재검증 누락, no-store 응답의 본문 지연 시 cache 회수 유지, authority가 소비한 CUED의 proof 해제 순서를 보완하고 재검토. 기존 QA 발견 수를 이 구현 중간 수정 수와 합산하지 않는다. |
 
 첫 SW 테스트2건은 추가 AbortSignal을 반영하지 않은 호출 인자 기대값이었다. 결과·cache 정책
 assertion은 유지했다. lint의 async fixture/미처리 promise2곳과 bootstrap cache URL 누락,
 후속 runtime commit을 덮지 못한 cache history guard 실패도 로그에 보존했다. 최종 covering
 epoch `v642`와 동기화된 초기 스크립트 주소로 build:checked가 통과했다.
+
+추가 WebKit PIN2건의 첫 실패는 레이아웃 결함이나 claim 유실이 아니었다. Service Worker를
+허용한 UI fixture에서 bootstrap 요청이 Playwright context route를 거치지 않아 로컬 preview의
+503을 받았다. 같은 v640 baseline도 동일하게 실패했다. SW를 차단한 대조에서는 실제 account와
+bootstrap 요청이 각각200으로 fixture에 도달하고 정상 account 선택→PIN→320×280 스크롤 조작이
+통과했다. 해당 UI 검사는 네트워크 fixture를 고립하도록 `serviceWorkers: 'block'`을 명시한다.
+실제 SW 활성화·갱신·오프라인 동작은 SW를 허용한 위 별도 Chromium/WebKit 검사로 유지한다.
+이 진단은 과거 단발 dev claim-missing의 원인을 소급 설명하지 않는다.
+
+핵심 재실행 명령(고정 Node24.20.0을 PATH에 사용):
+
+```sh
+npm run typecheck
+npm run lint
+npm run format:check
+node node_modules/vitest/vitest.mjs run --maxWorkers 4
+node node_modules/vitest/vitest.mjs run src/youtube --maxWorkers 2
+npm run build:checked
+npm run check:worker-bundles
+npm run test:e2e:candidate
+node node_modules/@playwright/test/cli.js test --config playwright.webkit-service-worker.config.ts
+```
+
+새 fixture 회귀는 `e2e/dialog-locale-layout.test.ts`·`e2e/chat.test.ts`와 유지 단위 검사에
+포함했다. 원본 명령·환경 변수·단계별 JSON은 각 scratch 담당자 `repair-notes.md`와 부모 로그에 있다.
 
 R26에서 이전 자동 안전 검토가 중단한 심화 실행은 반복하거나 다른 세션으로 넘기지 않았다.
 기존 원본과 방어적 코드 검토를 이용하며, 수정 후 정상 OAuth 복귀와 기존 유지 회귀를 검증한다.

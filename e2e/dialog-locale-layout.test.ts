@@ -2,6 +2,10 @@ import { expect, test, type Page } from '@playwright/test';
 import en from '../src/i18n/en.ts';
 import ko from '../src/i18n/ko.ts';
 
+// These synthetic account/API routes must reach Playwright. A controlling
+// service worker can bypass route interception; SW behavior has separate tests.
+test.use({ serviceWorkers: 'block' });
+
 async function localAccount(page: Page, incomplete: boolean) {
   await page.context().route('**/*', async (route) => {
     const url = new URL(route.request().url());

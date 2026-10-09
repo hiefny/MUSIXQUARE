@@ -2,7 +2,11 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
+import {
+  restoreSessionReset,
+  scheduleDocumentReload,
+  scheduleSessionReset,
+} from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
 import { getAccountSnapshot, getAccountStatsScope, subscribeAccount } from '../account/state.ts';
 import { ProRoomAccountReconciler } from './account-reconciliation.ts';
@@ -254,7 +258,7 @@ let queueModeFieldIntentRevision: Record<QueueModeIntentField, number> = {
   shuffleEnabled: 0,
 };
 let queueModeCheckpointRetryAttempt = 0;
-let terminalRecoveryInFlight = false;
+let terminalRecoveryOwner: symbol | null = null;
 let presenceRecoveryAbort: AbortController | null = null;
 let controlChannelRecoveryAttempt = 0;
 let controlChannelRecoveryGeneration: number | null = null;
@@ -2883,10 +2887,9 @@ const accountReconciler = new ProRoomAccountReconciler({
 
 onProRoomTabTakeover((roomCode) => {
   if (!active || controller.snapshot?.roomCode !== roomCode) return;
-  observeProRoomRuntimeTask(
-    recoverTerminalSession(new ProRoomApiError('PRESENCE_SUPERSEDED', 409)),
-    'superseded-tab recovery',
-  );
+  // Delivery may lag a newer entry. Only the server can decide whether this
+  // tab's captured participant/incarnation has actually been superseded.
+  observeProRoomRuntimeTask(runHeartbeat(true), 'tab takeover validation');
 });
 
 function isTerminalSessionError(error: unknown): error is ProRoomApiError {
@@ -2901,8 +2904,9 @@ function isTerminalSessionError(error: unknown): error is ProRoomApiError {
 }
 
 async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
-  if (terminalRecoveryInFlight) return;
-  terminalRecoveryInFlight = true;
+  if (terminalRecoveryOwner) return;
+  const recoveryOwner = Symbol();
+  terminalRecoveryOwner = recoveryOwner;
   stopLifecycle();
   if (error.code === 'PRESENCE_EXPIRED') {
     const recoveryAbort = new AbortController();
@@ -2920,6 +2924,7 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
       if (bridge.connected) markProRoomTransportRecovered();
       return;
     } catch (recoveryError) {
+      if (terminalRecoveryOwner !== recoveryOwner) return;
       if (
         recoveryError instanceof Error &&
         (recoveryError.name === 'AbortError' ||
@@ -2945,12 +2950,20 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   } catch (disconnectError) {
     log.warn('[PRO] Terminal session transport cleanup failed', disconnectError);
   }
+  // Disconnect can yield while this document leaves or opens another session.
+  if (terminalRecoveryOwner !== recoveryOwner) return;
   // Another tab with the same HttpOnly cookie explicitly took ownership.
   // Leave this document inert and navigate home; reloading the room URL would
   // immediately challenge the new tab and recreate the takeover loop.
   if (error.code === 'PRESENCE_SUPERSEDED') {
     if (typeof window !== 'undefined') {
-      scheduleSessionReset(t('pro.active_tab_title'), () => window.location.replace('/'));
+      scheduleSessionReset(t('pro.active_tab_title'), () => {
+        if (terminalRecoveryOwner !== recoveryOwner) {
+          restoreSessionReset();
+          return;
+        }
+        window.location.replace('/');
+      });
     }
     return;
   }
@@ -3051,10 +3064,17 @@ async function runHeartbeat(
 ): Promise<void> {
   const lease = playlistRuntimeLease;
   if (!active || !lease) return;
+  const sessionLease = controller.captureSessionLease();
+  const isCurrent = () =>
+    active &&
+    isPlaylistLeaseCurrent(lease) &&
+    controller.isSessionLeaseCurrent(sessionLease, lease.roomCode);
   try {
     await heartbeatSingleFlight.run(
       async () => {
+        if (!isCurrent()) return;
         const snapshot = await controller.heartbeat();
+        if (!isCurrent()) return;
         await acceptPlaylistSnapshot(snapshot);
       },
       { forceFollowUp },
@@ -3065,12 +3085,7 @@ async function runHeartbeat(
     // network flight, so a local recovery cannot lend its owner to another
     // caller (and an ordinary heartbeat remains room-authoritative).
     const snapshot = controller.snapshot;
-    if (
-      active &&
-      snapshot &&
-      isPlaylistLeaseCurrent(lease) &&
-      snapshot.roomCode === lease.roomCode
-    ) {
+    if (isCurrent() && snapshot && snapshot.roomCode === lease.roomCode) {
       recoverAccountMediaHooksFromCanonicalSnapshot(snapshot);
       if (effectsNotificationBaselinePending) {
         effectsSilentThroughRevision = Math.max(
@@ -3085,6 +3100,12 @@ async function runHeartbeat(
       refreshHeartbeatAdjunctState(snapshot, playbackIsCurrent);
     }
   } catch (error) {
+    // Both successful reads and failures belong to the session that requested
+    // them; an old flight must never recover or terminate a successor.
+    if (!isCurrent()) {
+      if (propagateFailure) throw error;
+      return;
+    }
     if (isTerminalSessionError(error)) {
       await recoverTerminalSession(error);
     } else {
@@ -3094,7 +3115,7 @@ async function runHeartbeat(
     }
     if (propagateFailure) throw error;
   } finally {
-    if (isPlaylistLeaseCurrent(lease) && active) {
+    if (isCurrent()) {
       setManagedTimer(HEARTBEAT_TIMER, () => runHeartbeat(), HEARTBEAT_INTERVAL_MS);
     }
   }
@@ -3461,7 +3482,7 @@ function startLifecycle(): void {
   visibilityPlaybackRecoveryAttempt = 0;
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   playbackController.startLifecycle();
-  terminalRecoveryInFlight = false;
+  terminalRecoveryOwner = null;
   bindVisibilityRefresh();
   clearManagedTimer(HEARTBEAT_TIMER);
   setManagedTimer(HEARTBEAT_TIMER, () => runHeartbeat(), HEARTBEAT_INTERVAL_MS);
@@ -3631,6 +3652,7 @@ export async function resumeProRoom(
   code: string,
   options: EnterProRoomPresenceOptions = {},
 ): Promise<ProRoomSnapshot> {
+  terminalRecoveryOwner = null;
   await prepareRoomSessionFeatures(options.signal);
   const snapshot = await controller.resume(code, options);
   return finalizeOpenedRoom(snapshot);
@@ -3640,6 +3662,7 @@ export async function joinProRoom(
   input: CreateProRoomSessionInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  terminalRecoveryOwner = null;
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.join(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3649,6 +3672,7 @@ export async function activateProRoom(
   input: ActivateProRoomInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  terminalRecoveryOwner = null;
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.activate(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3658,6 +3682,7 @@ export async function recoverProRoomOwner(
   input: RecoverProRoomOwnerInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  terminalRecoveryOwner = null;
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.recoverOwner(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3667,6 +3692,7 @@ export async function transferProRoomOwner(
   input: TransferProRoomOwnerInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  terminalRecoveryOwner = null;
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.transferOwner(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3707,6 +3733,7 @@ export async function changeActiveProRoomPin(pin: string, signal?: AbortSignal):
 }
 
 function leaveActiveProRoom(signal?: AbortSignal): Promise<void> {
+  terminalRecoveryOwner = null;
   // `leave()` also supersedes an authentication/transport open that has not
   // published a snapshot yet. Skipping it when snapshot is null can let a
   // cancelled setup request finish later and silently re-enter the room.
@@ -3763,6 +3790,7 @@ function startAtomicPresenceClose(snapshot: ProRoomSnapshot): Promise<void> | nu
 function hardCloseActiveProRoom(): boolean {
   const snapshot = playlistManager?.snapshot ?? controller.snapshot;
   if (!active || !snapshot) return false;
+  terminalRecoveryOwner = null;
   // Calling the async API method synchronously reaches fetch() before it
   // yields. Only after the keepalive request has started may local teardown
   // abort managers, timers, and the server control channel.

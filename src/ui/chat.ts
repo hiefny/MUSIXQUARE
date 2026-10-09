@@ -1148,7 +1148,7 @@ export function sendChatMessage(): void {
   if (initialCommand && !isVisibleBotCommand) {
     text = boundChatSubmission(text);
     const command = parseCommand(text) ?? initialCommand;
-    const needsTransportAdmission = getRoomContext().kind === 'pro';
+    const needsTransportAdmission = getRoomContext().kind === 'pro' || isWhisperCommand(command);
     if (needsTransportAdmission) {
       input.focus();
       if (executeCommand(command) === false) return;
@@ -1222,12 +1222,6 @@ export function sendChatMessage(): void {
     return;
   }
 
-  // Commit local submission only after policy and transport admission. Failed
-  // PRO sends must not consume drafts, slowmode, dedup, or a BOT API request.
-  _lastSentText = submissionText;
-  _lastSentTs = now;
-  _lastSentTime = now;
-
   const senderLabel = _getChatLabelBase();
   const displayName = formatChatDisplayName(senderLabel);
   const myJoinOrder =
@@ -1248,8 +1242,6 @@ export function sendChatMessage(): void {
         : undefined;
   const senderMemberId = ownProParticipant?.memberId || getState('network.myMemberId') || '';
   const senderKey = senderMemberId || myId;
-  addChatMessage(displayName, text, true, localBadge, myJoinOrder, senderKey);
-
   const chatMsg = {
     type: MSG.CHAT,
     senderId: myId,
@@ -1267,8 +1259,18 @@ export function sendChatMessage(): void {
   if (!isProRoom && !hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else if (!isProRoom) {
-    sendToHost(chatMsg);
+    if (sendToHost(chatMsg) === false) {
+      addSystemChatMessage(t('error.connect_failed'));
+      return;
+    }
   }
+
+  // Admission only: no remote delivery ACK is implied. A known local refusal
+  // must leave the draft, dedup/slowmode stamps and BOT request available.
+  _lastSentText = submissionText;
+  _lastSentTs = now;
+  _lastSentTime = now;
+  addChatMessage(displayName, text, true, localBadge, myJoinOrder, senderKey);
 
   if (botRequestId && visibleBotCommand) {
     executeCommand(visibleBotCommand, { botRequestId });

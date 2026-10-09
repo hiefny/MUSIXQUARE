@@ -90,6 +90,13 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [3차 QA 후속 수정·예방 보강 — 2026-10-09](design/beta-qa3-repair-2026-10-09.md):
+  확정 9건과 승인된 예방 보강 3건의 재검증·수정·릴리스 근거. 기존 감사 판정과 provider/실기 한계를 보존한다.
+- [8.7.6 follow-up third 30-round QA — 2026-10-09](design/beta-30-round-qa3-2026-10-09.md) —
+  6.1 Sol/xhigh, three agents across ten sets on main `bf4912b2`; 29 complete rounds and one partially executed safety-blocked round.
+  At the audit baseline, nine confirmed findings were unrepaired, with three conditional observations kept separate. The linked follow-up repair record tracks their current disposition.
+  Eight findings were independently replayed; the OAuth return-origin finding uses pre-block local evidence and source review.
+  Unique focused cases, first failures, parent adjudication and physical/live/security limits are recorded. Product and deployment unchanged.
 - [Post-promotion 30-round repair — 2026-10-09](design/beta-30-round-repair-2026-10-09.md) —
   Repairs the 13 confirmed findings and two owner-selected behavior requirements after fresh necessity checks.
   API mutation-time credential validation and live announcement status are now explicit contracts.

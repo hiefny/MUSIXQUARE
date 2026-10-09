@@ -1391,6 +1391,18 @@ describe('Google Authorization Code + PKCE account flow', () => {
     ]);
   });
 
+  it.each([
+    ['/rooms/../000001?panel=connect#account', '/000001?panel=connect&accountAuth=success#account'],
+    [
+      '/account-complete.html?accountClient=qa3-normal',
+      '/account-complete.html?accountClient=qa3-normal&accountAuth=success',
+    ],
+  ])('preserves the same-origin OAuth destination for %s', async (returnTo, expected) => {
+    const result = await completeLogin(authEnv(), returnTo);
+    expect(result.callback.status).toBe(303);
+    expect(result.callback.headers.get('Location')).toBe(`https://musixquare.com${expected}`);
+  });
+
   it('sanitizes an external return path instead of creating an open redirect', async () => {
     const result = await completeLogin(authEnv(), 'https://evil.example/steal');
     expect(result.callback.status).toBe(303);

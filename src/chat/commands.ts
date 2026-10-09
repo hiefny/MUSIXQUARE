@@ -534,7 +534,10 @@ function cmdWhisper(args: string[], rawArgs: string): CommandResult {
     if (conn) conn.send(payload);
   } else {
     // Guest sends to host, host forwards to target
-    sendToHost(payload);
+    if (sendToHost(payload) === false) {
+      addSystemChatMessage(t('error.connect_failed'));
+      return false;
+    }
   }
 
   // Show locally as "whisper to X"

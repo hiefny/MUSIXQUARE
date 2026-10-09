@@ -3601,7 +3601,7 @@ describe('YouTube Sync — Regression Integration', () => {
       async (state) => {
         // The broadcaster's manual dedupe timestamp intentionally survives the
         // guest-sync reset; move beyond prior tests' independent fake timelines.
-        vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
+        vi.spyOn(performance, 'now').mockReturnValue(Date.parse('2030-01-01T00:00:00.000Z'));
         installPlayer({ __state: state, __videoId: 'NEXT_VIDEO', __currentTime: 0 });
         const { broadcastYouTubeSync } = await importSync();
         const { broadcast } = await import('../../network/peer.ts');

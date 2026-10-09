@@ -49,6 +49,29 @@ describe('t() translation function', () => {
     const result = t('toast.device_connected', { name: 'Test' });
     expect(result).toContain('Test');
   });
+
+  it.each([t, tHtml])('never reinterprets inserted values as template slots (%#)', (translate) => {
+    for (const params of [
+      { title: 'Song {{position}} $&', position: 1 },
+      { position: 1, title: 'Song {{position}} $&' },
+    ]) {
+      const result = translate('playlist.reorder_handle', params);
+      expect(result).toContain(
+        translate === tHtml ? 'Song {{position}} $&amp;' : 'Song {{position}} $&',
+      );
+      expect(result).not.toContain('{{title}}');
+      expect(result).toContain('1');
+    }
+  });
+
+  it('escapes inserted HTML once while leaving unknown template slots intact', () => {
+    expect(tHtml('playlist.reorder_handle', { title: '<Song {{position}}> & "test"' })).toContain(
+      '&lt;Song {{position}}&gt; &amp; &quot;test&quot;',
+    );
+    expect(t('playlist.reorder_handle', Object.create({ title: 'Inherited' }))).toContain(
+      '{{title}}',
+    );
+  });
 });
 
 describe('getResolvedLanguage', () => {

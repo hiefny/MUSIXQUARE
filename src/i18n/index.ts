@@ -154,12 +154,11 @@ function _translationTemplate(key: I18nKey, params?: TranslationParams): string 
 }
 
 function _interpolate(str: string, params?: TranslationParams): string {
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      str = str.split(`{{${k}}}`).join(String(v));
-    }
-  }
-  return str;
+  if (!params) return str;
+  // Match only the original template; values may contain literal placeholders.
+  return str.replace(/\{\{([^{}]+)\}\}/g, (slot, key: string) =>
+    Object.prototype.hasOwnProperty.call(params, key) ? String(params[key]) : slot,
+  );
 }
 
 /**
@@ -177,17 +176,18 @@ export function t(key: I18nKey, params?: TranslationParams): string {
 
 /** Translate with HTML-safe interpolation (escapes param values for innerHTML contexts). */
 export function tHtml(key: I18nKey, params?: Record<string, string | number>): string {
-  let str = _translationTemplate(key, params);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      const escaped = String(v).replace(
+  const str = _translationTemplate(key, params);
+  if (!params) return str;
+  const escapedParams = Object.fromEntries(
+    Object.entries(params).map(([k, v]) => [
+      k,
+      String(v).replace(
         /[&<>"']/g,
         (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] || c,
-      );
-      str = str.split(`{{${k}}}`).join(escaped);
-    }
-  }
-  return str;
+      ),
+    ]),
+  );
+  return _interpolate(str, escapedParams);
 }
 
 /** Current effective language (after system resolution). */

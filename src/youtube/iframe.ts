@@ -156,6 +156,7 @@ const PRO_TITLE_PERSIST_MAX_ATTEMPTS = 3;
 const SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER = 'yt-same-video-occurrence-handoff';
 const SAME_VIDEO_OCCURRENCE_PAUSE_POLL_MS = 20;
 const SAME_VIDEO_OCCURRENCE_PAUSE_TIMEOUT_MS = 500;
+const REUSED_FEEDBACK_TIMEOUT_TIMER = 'yt-reused-feedback-timeout';
 const STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER = 'yt-standard-host-manual-repeat-one';
 const STANDARD_HOST_MANUAL_REPEAT_ONE_POLL_MS = 100;
 const STANDARD_HOST_MANUAL_REPEAT_ONE_METADATA_TIMEOUT_MS = 2_000;
@@ -627,6 +628,7 @@ function completeSameVideoOccurrenceHandoff(
   }
 
   clearSameVideoOccurrenceRestart();
+  settleReusedCallbackSelection(getYouTubePlayer());
   setYtLoadInProgress(false);
   bus.emit('youtube:auto-play', pending);
   return true;
@@ -1496,12 +1498,15 @@ export function handoffSameVideoOccurrenceRestart(
 }
 
 function resetResidentYouTubeSync(player: YouTubePlayerInstance): void {
+  resettingResidentPlayer = player;
   try {
     // Pause preserves the resident buffer and iOS gesture without generating
     // the ENDED event or discarded playback state of stopVideo().
     player.pauseVideo?.();
   } catch {
     /* best-effort pause while the iframe is rebuilding */
+  } finally {
+    resettingResidentPlayer = null;
   }
   clearManagedTimer('yt-clock-action');
   clearManagedTimer('yt-seek-play');
@@ -1509,8 +1514,74 @@ function resetResidentYouTubeSync(player: YouTubePlayerInstance): void {
   resetYouTubeSyncState();
 }
 
+let resettingResidentPlayer: YouTubePlayerInstance | null = null;
+let reusedCallbackSelection: {
+  player: YouTubePlayerInstance;
+  sessionId: number;
+  queueItemId: QueueItemId | null;
+  videoId: string | null;
+  playlistId: string | null;
+  subIndex: number;
+  needsProgress: boolean;
+  pending: boolean;
+} | null = null;
+
+export function clearYouTubeCallbackSelection(): void {
+  reusedCallbackSelection = null;
+  clearManagedTimer(REUSED_FEEDBACK_TIMEOUT_TIMER);
+}
+
+function settleReusedCallbackSelection(player: YouTubePlayerInstance | null): void {
+  const selection = reusedCallbackSelection;
+  if (
+    selection?.player === player &&
+    selection.sessionId === getCurrentSessionId() &&
+    selection.queueItemId === getCurrentQueueItemId()
+  ) {
+    selection.pending = false;
+    clearManagedTimer(REUSED_FEEDBACK_TIMEOUT_TIMER);
+  }
+}
+
+function isStaleReusedPlayerFeedback(player: YouTubePlayerInstance, state: number): boolean {
+  const selection = reusedCallbackSelection;
+  if (!selection || selection.player !== player) return false;
+  if (
+    selection.sessionId !== getCurrentSessionId() ||
+    selection.queueItemId !== getCurrentQueueItemId()
+  )
+    return true;
+  try {
+    // A queued state has no occurrence token. Read the live state and target
+    // together before projecting it under the current queue occurrence.
+    if (player.getPlayerState() !== state) return true;
+    const videoId = player.getVideoData?.()?.video_id || '';
+    const playlistIndex = player.getPlaylistIndex?.() ?? -1;
+    if (selection.pending) {
+      if (selection.videoId && selection.videoId !== videoId) return true;
+      if (selection.playlistId) {
+        const ids = player.getPlaylist?.();
+        if (playlistIndex !== selection.subIndex || !videoId || ids?.[playlistIndex] !== videoId) {
+          return true;
+        }
+      }
+      // Same-video occurrences and unresolved playlists cannot prove a new
+      // command using the outgoing pause alone. CUED/BUFFERING/PLAYING is the
+      // command-progress boundary; the explicit same-video handoff runs first.
+      if (selection.needsProgress && state !== 5 && state !== 3 && state !== 1) return true;
+      if (!videoId) return true;
+      selection.pending = false;
+      clearManagedTimer(REUSED_FEEDBACK_TIMEOUT_TIMER);
+    }
+    return !isVideoDataForCurrentSelection(videoId, playlistIndex);
+  } catch {
+    return true;
+  }
+}
+
 /** Retire outgoing work while keeping this video's iframe and buffer resident. */
 export function adoptResidentYouTubeOccurrence(videoId: string): void {
+  clearYouTubeCallbackSelection();
   const player = getYouTubePlayer();
   if (player) resetResidentYouTubeSync(player);
   // A previous cue may still be pending even while getVideoData reports the
@@ -1526,6 +1597,7 @@ export function loadYouTubeVideo(
   opts: LoadYouTubeVideoOptions = {},
 ): void {
   subIndex = sanitizeRetainedPlaylistIndex(subIndex);
+  clearYouTubeCallbackSelection();
   const preparedSameVideoRestart = preparedSameVideoOccurrenceRestart;
   preparedSameVideoOccurrenceRestart = null;
   // A newer load always supersedes an unclaimed same-video handoff.
@@ -1554,6 +1626,12 @@ export function loadYouTubeVideo(
   // loadVideoById/loadPlaylist on the same player preserves the gesture.
   const isYouTubeToYouTube = player?.loadVideoById && isPlaybackModeYouTube();
   let isSameVideoReuse = false;
+  let outgoingVideoId = '';
+  try {
+    outgoingVideoId = player?.getVideoData?.()?.video_id || '';
+  } catch {
+    /* A rebuilding facade cannot prove an incoming target. */
+  }
   if (isYouTubeToYouTube && videoId) {
     try {
       const preparedRestartMatches =
@@ -1607,6 +1685,23 @@ export function loadYouTubeVideo(
     playlistId,
     Boolean(opts.indexingCallback),
   );
+  const targetVideoId = commandPlaylistId
+    ? getPlaylistSubItems(getQueueItemById(getCurrentQueueItemId()))?.ids[subIndex] ||
+      (subIndex === 0 ? videoId : null)
+    : videoId;
+  reusedCallbackSelection =
+    isYouTubeToYouTube && isYtPlayerReady()
+      ? {
+          player: player!,
+          sessionId,
+          queueItemId: getCurrentQueueItemId(),
+          videoId: targetVideoId,
+          playlistId: commandPlaylistId,
+          subIndex,
+          needsProgress: outgoingVideoId === targetVideoId || !targetVideoId,
+          pending: true,
+        }
+      : null;
   // Fence metadata before a retained PRIME handoff can defer the physical
   // load. The outgoing iframe remains readable during that window.
   expectYouTubeMetadataVideoId(videoId && !commandPlaylistId ? videoId : null);
@@ -1645,6 +1740,31 @@ export function loadYouTubeVideo(
   }
   const scope = replaceYtScope();
   setYtLoadInProgress(true);
+  const callbackSelection = reusedCallbackSelection;
+  if (callbackSelection) {
+    setManagedTimer(
+      REUSED_FEEDBACK_TIMEOUT_TIMER,
+      () => {
+        if (
+          reusedCallbackSelection !== callbackSelection ||
+          !callbackSelection.pending ||
+          getYouTubePlayer() !== callbackSelection.player ||
+          scope.aborted ||
+          getCurrentSessionId() !== sessionId ||
+          getCurrentQueueItemId() !== callbackSelection.queueItemId
+        )
+          return;
+        // Missing/mismatched target proof must not quarantine a ready iframe
+        // forever. End only this attempt; Stop retains the normal iOS parking path.
+        reusedCallbackSelection = null;
+        setYtLoadInProgress(false);
+        showLoader(false);
+        showToast(t('youtube.load_timeout'));
+        bus.emit('youtube:stop-mode');
+      },
+      SCRIPT_LOAD_TIMEOUT_MS,
+    );
+  }
 
   showToast(t('youtube.effects_disabled'));
 
@@ -1673,6 +1793,18 @@ export function loadYouTubeVideo(
     showLoader(true, t('youtube.indexing_playlist'));
   }
 
+  // A facade is not readiness. Arm before construction (which can throw),
+  // and bind the deadline to this load so it cannot retire a successor.
+  setManagedTimer(
+    'yt-load-timeout',
+    () => {
+      if (getCurrentSessionId() !== sessionId || scope.aborted || isYtPlayerReady()) return;
+      log.warn('[YouTube] Load timeout triggered.');
+      abandonUnreadyYouTubeLoad('youtube.load_timeout');
+    },
+    SCRIPT_LOAD_TIMEOUT_MS,
+  );
+
   if (!retainedHandoffDeferred && !window.YT?.Player) {
     runWhenYouTubeApiReady(
       () => {
@@ -1700,23 +1832,7 @@ export function loadYouTubeVideo(
     createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
   }
 
-  // Safety timeout
-  setManagedTimer(
-    'yt-load-timeout',
-    () => {
-      if (getCurrentSessionId() === sessionId && !scope.aborted && !getYouTubePlayer()) {
-        log.warn('[YouTube] Load timeout triggered.');
-        setYtLoadInProgress(false);
-        showLoader(false);
-        showToast(t('youtube.load_timeout'));
-        // Don't strand the user in YouTube mode with no player. Drop back to
-        // IDLE and let stop-mode tear down the iframe scaffolding so a retry
-        // (or any other action) starts from a clean slate.
-        bus.emit('youtube:stop-mode');
-      }
-    },
-    SCRIPT_LOAD_TIMEOUT_MS,
-  );
+  if (getCurrentSessionId() !== sessionId || scope.aborted) return;
 
   // This event reports media readiness. player-controls projects the current
   // PRO playback capability separately so an in-place grant/revoke can update
@@ -1949,6 +2065,27 @@ export async function prepareYouTubeAuthorityOccurrence(
 type CreateYouTubePlayerOptions = {
   prime?: boolean;
 };
+
+function abandonUnreadyYouTubeLoad(message: 'youtube.load_timeout' | 'youtube.load_fail'): void {
+  clearManagedTimer('yt-load-timeout');
+  const player = getYouTubePlayer();
+  if (player && !isYtPlayerReady()) {
+    // An unready facade cannot be parked safely or retain an iOS gesture.
+    // Retire its identity before destroy can flush any queued callbacks.
+    forgetRetainedYouTubePlayer(player);
+    setYouTubePlayer(null);
+    try {
+      player.destroy?.();
+    } catch (error) {
+      log.debug('[YouTube] Failed to destroy unready player:', error);
+    }
+  }
+  setYtLoadInProgress(false);
+  setYtPriming(false);
+  showLoader(false);
+  showToast(t(message));
+  bus.emit('youtube:stop-mode');
+}
 
 function createYouTubePlayer(
   videoId: string | null,
@@ -2251,7 +2388,18 @@ function createYouTubePlayer(
 
   if (videoId) playerOptions.videoId = videoId;
 
-  setYouTubePlayer(new YT.Player('youtube-player', playerOptions));
+  try {
+    setYouTubePlayer(new YT.Player('youtube-player', playerOptions));
+  } catch (error) {
+    log.warn('[YouTube] Player construction failed:', error);
+    if (prime) {
+      setYtPriming(false);
+      setYtLoadInProgress(false);
+    } else {
+      abandonUnreadyYouTubeLoad('youtube.load_fail');
+    }
+    return;
+  }
   setYouTubeSubIndex(subIndex);
 
   // A11y: add title to iframe once YouTube API creates it
@@ -2273,12 +2421,14 @@ function createYouTubePlayer(
 // ─── Player Events ─────────────────────────────────────────────────
 
 function onYouTubePlayerReady(event: { target: YouTubePlayerInstance }): void {
+  if (event.target === getYouTubePlayer() && isYtPlayerReady()) return;
   if (!markYtPlayerReady(event.target)) {
     log.debug('[YouTube] Ignoring stale player ready event');
     return;
   }
   bus.emit('youtube:zero-start-readiness-changed');
   setYtLoadInProgress(false);
+  clearManagedTimer('yt-load-timeout');
   log.debug('[YouTube] Player ready');
 
   const indexing = isYtIndexing();
@@ -2715,6 +2865,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   // already claimed the global slot. Never project that retired player's
   // state into the new queue occurrence.
   if (event.target !== getYouTubePlayer()) return;
+  if (event.target === resettingResidentPlayer) return;
   const indexing = isYtIndexing();
   const player = getYouTubePlayer();
   if (!player) return; // Player destroyed during async state transition
@@ -2787,11 +2938,15 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   // On the real release PLAYING the controller first closes its in-flight
   // phase and returns false, so that one event continues through the normal
   // path below exactly once.
+  // Target proof is independent of projection: authority/zero-start may hold a
+  // healthy CUED target longer than the load deadline while consuming events.
+  const staleReusedFeedback = isStaleReusedPlayerFeedback(player, state);
   if (handleYouTubeAuthorityPlayerState(state)) return;
   if (handleYouTubeZeroStartPlayerState(state)) return;
   if (isYouTubeZeroStartExternalFallbackActiveFromIframe()) return;
 
   if (!isPlaybackModeYouTube() && !indexing) return;
+  if (staleReusedFeedback) return;
 
   if (state !== YT.PlayerState.ENDED) {
     cancelGuestEndedFallback();

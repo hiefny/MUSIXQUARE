@@ -1195,13 +1195,13 @@ async function runAccountNicknameChange(
   try {
     const account = getAccountSnapshot().account;
     let defaultValue = account?.profileComplete ? account.nickname : account?.nickname || '';
-    let hint = t('account.nickname_hint');
+    let hint = () => t('account.nickname_hint');
     while (true) {
       const result = await showDialog({
-        title: t('account.nickname_title'),
-        message: t('account.nickname_message'),
+        title: () => t('account.nickname_title'),
+        message: () => t('account.nickname_message'),
         inputField: {
-          placeholder: t('account.nickname_placeholder'),
+          placeholder: () => t('account.nickname_placeholder'),
           defaultValue,
           // HTML maxLength counts UTF-16 code units. Leave room for 12 astral
           // code points (for example emoji); the validator enforces the exact
@@ -1211,8 +1211,8 @@ async function runAccountNicknameChange(
           validator: validateAccountNickname,
           preserveWhitespace: true,
         },
-        buttonText: t('common.ok'),
-        secondaryText: account?.profileComplete ? t('common.cancel') : t('common.later'),
+        buttonText: () => t('common.ok'),
+        secondaryText: () => (account?.profileComplete ? t('common.cancel') : t('common.later')),
         defaultFocus: 'primary',
         dismissible: true,
         signal: intent.signal,
@@ -1236,7 +1236,7 @@ async function runAccountNicknameChange(
         // validator passes. Keep the attempted spelling and immediately let
         // both first-login and later rename flows try another name.
         defaultValue = result.inputValue || '';
-        hint = message;
+        hint = () => accountNicknameMutationErrorMessage(error);
       }
     }
   } finally {

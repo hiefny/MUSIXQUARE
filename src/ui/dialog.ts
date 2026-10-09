@@ -5,6 +5,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
@@ -13,12 +14,15 @@ import { applyUserTextFontFallback } from './user-text-font.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
+/** Literal copy is stable; callbacks opt into refresh on locale changes. */
+type DialogText = string | (() => string);
+
 interface DialogOptions {
-  title?: string;
-  message?: string;
-  buttonText?: string;
-  secondaryText?: string;
-  cancelText?: string;
+  title?: DialogText;
+  message?: DialogText;
+  buttonText?: DialogText;
+  secondaryText?: DialogText;
+  cancelText?: DialogText;
   dismissible?: boolean;
   defaultFocus?: 'primary' | 'secondary';
   /** Places primary then secondary on separate full-width rows. */
@@ -30,7 +34,7 @@ interface DialogOptions {
   /** Cancels a queued or active dialog without disturbing another dialog. */
   signal?: AbortSignal;
   inputField?: {
-    placeholder?: string;
+    placeholder?: DialogText;
     defaultValue?: string;
     maxLength?: number;
     inputMode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
@@ -38,7 +42,7 @@ interface DialogOptions {
     autocomplete?: string;
     splitEvery?: number;
     separator?: string;
-    hint?: string;
+    hint?: DialogText;
     validator?: (value: string) => string | null;
     /** Keep significant whitespace for validators and the resolved value. */
     preserveWhitespace?: boolean;
@@ -72,6 +76,10 @@ const _dialogQueue: Array<{
 }> = [];
 
 // ─── Internal ────────────────────────────────────────────────────
+
+function dialogText(text?: DialogText): string {
+  return typeof text === 'function' ? text() : text || '';
+}
 
 function drainDialogQueue(): void {
   if (_dialogActive) return;
@@ -158,23 +166,23 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   const secondaryBtn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
 
   if (!overlay || !titleEl || !msgEl || !okBtn) {
-    showToast(typeof opts === 'string' ? opts : opts?.message || t('common.info'));
+    showToast(typeof opts === 'string' ? opts : dialogText(opts?.message) || t('common.info'));
     resolve({ action: 'fallback' });
     setManagedTimer('dialog-drain', drainDialogQueue, 0);
     return;
   }
 
   const o = typeof opts === 'object' && opts ? opts : { message: String(opts ?? '') };
-  const title = typeof opts === 'string' ? t('common.info') : o.title || t('common.info');
-  const message = typeof opts === 'string' ? String(opts ?? '') : String(o.message || '');
-  const buttonText = o.buttonText ? String(o.buttonText) : t('common.ok');
+  const title = dialogText(o.title) || t('common.info');
+  const message = dialogText(o.message);
+  const buttonText = dialogText(o.buttonText) || t('common.ok');
   const secondaryTextRaw =
     o.secondaryText !== undefined && o.secondaryText !== null
       ? o.secondaryText
       : o.cancelText !== undefined && o.cancelText !== null
         ? o.cancelText
         : '';
-  const secondaryText = String(secondaryTextRaw ?? '').trim();
+  const secondaryText = dialogText(secondaryTextRaw).trim();
   const hasSecondary = !!secondaryText;
   const dismissible = o.dismissible === true;
   const defaultFocus = o.defaultFocus
@@ -191,11 +199,15 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   secondaryBtn?.removeAttribute('data-i18n');
   titleEl.textContent = title;
   msgEl.textContent = message;
+  // Keep the message separate so locale refresh never rebuilds the editor.
+  const messageNode = document.createTextNode(message);
+  msgEl.replaceChildren(messageNode);
   applyUserTextFontFallback(titleEl, title);
   applyUserTextFontFallback(msgEl, message);
 
   // Input field support
   const inputCfg = typeof opts === 'object' && opts ? opts.inputField : undefined;
+  const placeholder = dialogText(inputCfg?.placeholder);
   if (inputCfg) {
     _dialogPreserveWhitespace = inputCfg.preserveWhitespace === true;
     const maxLen = inputCfg.maxLength || 0;
@@ -204,7 +216,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       const group = document.createElement('div');
       group.className = 'dialog-input-split';
       group.setAttribute('role', 'group');
-      group.setAttribute('aria-label', inputCfg.placeholder || title);
+      group.setAttribute('aria-label', placeholder || title);
 
       const inputs: HTMLInputElement[] = [];
       const separator = inputCfg.separator ?? '-';
@@ -238,7 +250,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         input.maxLength = size;
         if (inputCfg.pattern) input.pattern = inputCfg.pattern;
         if (inputCfg.autocomplete) input.setAttribute('autocomplete', inputCfg.autocomplete);
-        input.setAttribute('aria-label', `${inputCfg.placeholder || title} ${index + 1}`);
+        input.setAttribute('aria-label', `${placeholder || title} ${index + 1}`);
 
         input.addEventListener('beforeinput', (e) => {
           if (e.inputType === 'insertCompositionText') return;
@@ -287,8 +299,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       input.className = 'dialog-input';
       input.dir = 'auto';
       input.setAttribute('role', 'textbox');
-      input.setAttribute('aria-label', inputCfg.placeholder || title);
-      if (inputCfg.placeholder) input.setAttribute('data-placeholder', inputCfg.placeholder);
+      input.setAttribute('aria-label', placeholder || title);
+      if (placeholder) input.setAttribute('data-placeholder', placeholder);
       if (inputCfg.inputMode) input.setAttribute('inputmode', inputCfg.inputMode);
       if (inputCfg.pattern) input.setAttribute('pattern', inputCfg.pattern);
       if (inputCfg.autocomplete) input.setAttribute('autocomplete', inputCfg.autocomplete);
@@ -324,7 +336,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     hint.className = 'dialog-hint';
     hint.setAttribute('aria-live', 'polite');
     hint.setAttribute('aria-atomic', 'true');
-    hint.textContent = inputCfg.hint || '';
+    hint.textContent = dialogText(inputCfg.hint);
     applyUserTextFontFallback(hint, hint.textContent);
     msgEl.appendChild(hint);
     _dialogInput?.setAttribute('aria-describedby', hint.id);
@@ -333,7 +345,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       .forEach((input) => input.setAttribute('aria-describedby', hint.id));
     setDialogInputInvalid(false);
     _dialogHint = hint;
-    _dialogHintDefault = inputCfg.hint || '';
+    _dialogHintDefault = dialogText(inputCfg.hint);
     _dialogValidator = inputCfg.validator || null;
   } else {
     _dialogInput = null;
@@ -391,6 +403,38 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   };
 
   _dialogActive = { resolve, prevFocus, cleanup };
+  cleanup.push(
+    bus.on('i18n:changed', () => {
+      const currentTitle = dialogText(o.title) || t('common.info');
+      titleEl.textContent = currentTitle;
+      messageNode.textContent = dialogText(o.message);
+      okBtn.textContent = dialogText(o.buttonText) || t('common.ok');
+      if (secondaryBtn && hasSecondary)
+        secondaryBtn.textContent = dialogText(secondaryTextRaw).trim();
+      applyUserTextFontFallback(titleEl, currentTitle);
+      applyUserTextFontFallback(msgEl, messageNode.textContent || '');
+      if (_dialogInput && inputCfg) {
+        const currentPlaceholder = dialogText(inputCfg.placeholder);
+        _dialogInput.setAttribute('aria-label', currentPlaceholder || currentTitle);
+        if (_dialogInput.classList.contains('dialog-input')) {
+          if (currentPlaceholder) _dialogInput.setAttribute('data-placeholder', currentPlaceholder);
+          else _dialogInput.removeAttribute('data-placeholder');
+        }
+        _dialogInput.querySelectorAll('.dialog-input-segment').forEach((input, index) => {
+          input.setAttribute('aria-label', `${currentPlaceholder || currentTitle} ${index + 1}`);
+        });
+        _dialogHintDefault = dialogText(inputCfg.hint);
+        if (_dialogHint) {
+          const rawValue = _dialogInputValueGetter?.() || '';
+          const value = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
+          _dialogHint.textContent =
+            (_dialogHint.classList.contains('error') ? _dialogValidator?.(value) : null) ||
+            _dialogHintDefault;
+          applyUserTextFontFallback(_dialogHint, _dialogHint.textContent);
+        }
+      }
+    }),
+  );
   if (o.signal) {
     on(o.signal, 'abort', () => {
       if (_dialogActive?.resolve === resolve) closeDialog('superseded');

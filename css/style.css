@@ -5427,6 +5427,18 @@
     max-width: 380px;
   }
 
+  /* Keep every generic dialog action reachable even when header, input and
+     wrapped buttons together exceed the available layout viewport height. */
+  #dialog-overlay .dialog {
+    max-height: calc(var(--app-height, 100vh) - 48px);
+    max-height: calc(100dvh - 48px);
+    overflow-y: auto;
+  }
+
+  #dialog-overlay .dialog > * {
+    flex-shrink: 0;
+  }
+
   .dialog-header {
     display: flex;
     align-items: center;

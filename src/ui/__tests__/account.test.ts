@@ -1547,7 +1547,7 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(showDialog).toHaveBeenCalledOnce());
     expect(showDialog).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: 'Set nickname',
+        title: expect.any(Function),
         inputField: expect.objectContaining({ defaultValue: 'Minsu' }),
       }),
     );
@@ -2308,10 +2308,15 @@ describe('optional account UI', () => {
       expect.objectContaining({
         inputField: expect.objectContaining({
           defaultValue: 'Taken',
-          hint: 'That nickname is already in use.',
+          hint: expect.any(Function),
           preserveWhitespace: true,
         }),
       }),
+    );
+    const retryOptions = vi.mocked(showDialog).mock.calls[1]?.[0];
+    const retryHint = typeof retryOptions === 'object' ? retryOptions.inputField?.hint : undefined;
+    expect(typeof retryHint === 'function' ? retryHint() : retryHint).toBe(
+      'That nickname is already in use.',
     );
   });
 

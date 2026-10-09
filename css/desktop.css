@@ -132,7 +132,7 @@
       width: 100%;
 
       /* The wide dashboard keeps every panel visible, including the play panel
-       that mobile parks off-screen while YouTube owns playback. */
+       that mobile hides in place while YouTube owns playback. */
     }
     body.mode-youtube #tab-play:not(.active) {
       position: relative;

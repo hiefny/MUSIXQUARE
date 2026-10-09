@@ -1376,7 +1376,7 @@ serviceWorker.addEventListener('fetch', (event) => {
       }
     },
   ).catch(() => null);
-  void networkResponse.then(resolveCacheResponse);
+  networkResponse.then(resolveCacheResponse, () => resolveCacheResponse(null));
   const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, cacheResponse);
   event.waitUntil(cacheUpdate);
   event.respondWith(

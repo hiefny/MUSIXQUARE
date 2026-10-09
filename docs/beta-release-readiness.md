@@ -535,7 +535,8 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] 단일 HTML 사용자 실기 대조: 08·09·10·12·13 깜빡임, 11 정상. 이전 05 정상과 합쳐 수평 이동 제거를 수정 방향으로 선택. OS 내부 결함 확정이나 제품 실기 완료로 확대하지 않음.
 - [x] 비활성 YouTube 패널 `left:0`, `translate3d(0,0,-1px)` 적용. 나머지 숨김·깊이·전환·iframe 수명 유지, 관련 주석 정정. schema/secrets/bindings/deps 변경 없음.
 - [x] Windows/Node24.20.0의 관련 Vitest3파일76pass/fail·skip0. Chromium 제품 CSS/탭 모듈 fixture의 모바일·태블릿·wide cascade, 동일 iframe 유지와 클릭 대조 확인. 이 검사는 실제 YouTube/전체 앱 세션 검사가 아님.
-- [ ] 수정 제품의 iPhone Safari/PWA 실제 영상으로 나가기·복귀·빠른 왕복·재생 지속 확인. 로컬 빌드 및 정식 PR/CI/exact-main candidate/배포는 완료 근거가 확보된 단계만 후속 기록.
+- [x] 제품 커밋 `983d18c2db8a40468be8da173445b8f4cece3b8c`의 `build:checked`·관련 서식·release identity 통과, 독립 diff 검토 새 확정 결함0. 전체 unit/typecheck/lint·제품 WebKit E2E 재실행 결과는 아님.
+- [ ] 수정 제품의 iPhone Safari/PWA 실제 영상으로 나가기·복귀·빠른 왕복·재생 지속 확인. 정식 PR/CI/exact-main candidate/배포 미실행.
 - [ ] 별도 기존 접근성 관찰: 제품 CSS fixture에서 비활성 패널의 fullscreen 버튼에 역방향 키보드 포커스가 도달. 수정 전 수평 이동 조합과 수정 후 모두 동일하게 재현. 이번 변경으로 새로 생긴 문제로 분류하지 않으며 전체 앱 접근성 확인·처리는 별도 후속 범위.
 
 **3차 독립 QA — 2026-10-09:** [최종 결과·30개 범위·원본](design/beta-30-round-qa3-2026-10-09.md).
@@ -1484,7 +1485,11 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 left/X/Z 전체 조합 중 수평 이동이 하나라도 남은 01·08·09·10·12·13은 깜빡이고,
 둘 다 0인 05(Z0)·11(Z-1)은 정상이라는 보고다. Z 깊이는 기존 iOS 레이어 분리
 목적을 보존하고 두 수평 이동만 제거했다. App8.7.8/v643·버전 mirrors/bootstrap를
-로컬 준비했으며 main 병합·배포는 미실행이다. 기존76개 단위검사 통과는 CSS의
+로컬 준비했으며 main 병합·배포는 미실행이다. 제품 커밋은
+`983d18c2db8a40468be8da173445b8f4cece3b8c`, 해당 HEAD의 `build:checked`와
+관련 서식·release identity 통과, 독립 diff 검토 새 확정0이다. 기존76개 단위검사
+및 아래 browser 확인은 그 커밋과 동일한 관련 코드의 commit 전 작업 트리에서
+수행했다. 전체 unit/typecheck/lint·제품 WebKit E2E는 재실행하지 않았다. 단위검사 통과는 CSS의
 실기 깜빡임 검증을 뜻하지 않는다. 제품 CSS와 실제 탭 모듈을 묶은 독립 fixture에서
 390/844/1024/1279px 숨김·표본 hit-test0, 1280/1440px wide 표시·transform none과
 iframe 동일성·복귀 이벤트를 확인했다. fixture는 srcdoc iframe이며 전체 제품의

@@ -31,8 +31,8 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 대조에서 수평 이동이 있는 조합은 재현, 수평 이동이 없는 05·11번은 정상으로
 사용자가 보고했다. 11번과 같이 비활성 재생 패널의 `left`와 transform X만 0으로
 변경하고 기존 Z=-1px·크로스페이드·iframe 유지 처리를 보존한다. 로컬
-`agent/ios-youtube-tab-parking`에 App `8.7.8` / `v643`을 준비했으며 운영은 위
-`8.7.7` / `v642` 그대로다. 검증 범위와 남은 확인은 아래 체크리스트·누적 이력을 따른다.
+`agent/ios-youtube-tab-parking`에 App `8.7.8` / `v643`을 준비했으며 당시 운영은
+`8.7.7` / `v642`였다. 검증 범위와 남은 확인은 아래 체크리스트·누적 이력을 따른다.
 사용자는 같은 날 실서비스 배포 후 직접 iPhone 확인을 하겠다고 명시 승인했다.
 배포 범위는 `app` / Developer API D1 false이며, 정식 PR·exact-main CI·Release
 완료 전에는 위 준비 상태를 배포 완료로 해석하지 않았다. 현재 배포 판정은 위
@@ -125,19 +125,19 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 현재 App `8.7.7` / `v642` 배포 완료; QA3 확정9건 수정·예방3건 보강 반영. 정확한 main CI candidate·782파일 hash/버전 일치·운영 App generation/초기 asset graph 검증 통과 |
-| 완료한 배포 범위                    | 최신 `target=app` / `18246271`; App exact git provenance·100% version 최종 확인. 다른 Worker5종은 이전 all 릴리스 `ff7766cc` 유지·부분 배포 호환성 재확인. 이번 App 배포는 PRO room-generation readiness marker를 새 SHA로 재기록하는 all 릴리스가 아님 |
+| 제품 버전 / PWA 캐시                | 현재 App `8.7.8` / `v643` 배포 완료; QA3 수정에 iPhone YouTube 탭 전환 수평 이동 제거를 추가. 정확한 main CI candidate·782파일 hash/버전 일치·운영 App generation/초기 asset graph 검증 통과 |
+| 완료한 배포 범위                    | 최신 `target=app` / `12ecbf71`; App exact git provenance·100% version 최종 확인. 다른 Worker5종은 이전 all 릴리스 `ff7766cc` 유지·부분 배포 호환성 재확인. 이번 App 배포는 PRO room-generation readiness marker를 새 SHA로 재기록하는 all 릴리스가 아님 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
-| 최신 App main SHA / CI 후보 / 배포 실행 | `18246271903a3a856fa6c9d566c4e584c9a86aac` / main CI `37882728076` attempt1 및 immutable candidate / Release `37883236502` attempt1 성공. 782파일 후보 hash/version·4개 운영 smoke·최종 App 소유권·coherent marker 확인 |
+| 최신 App main SHA / CI 후보 / 배포 실행 | `12ecbf71d6fe27b7c1eca85abbc00a8575b1b4df` / main CI `37907874855` attempt1 및 immutable candidate / Release `37908451698` attempt1 성공. 782파일 후보 hash/version·4개 운영 smoke·최종 App 소유권·coherent marker 확인 |
 | 후속 App 패치 | `8.7.4`/`v635` 완료 — 1280px 이상 데스크톱 채팅 위쪽 여백 16px→12px, 모바일·다른 패딩 유지. 제품 `86ea0e8e` → PR #265/main `358b3fc3`, `app`/D1 false. 로컬 unit 10,781·production CSS 레이아웃 16조합·공개 CSS/SW hash 및 fresh ko 검증 통과 |
 | 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**배포된 App은 `8.7.7` / `v642`, 배포 main SHA는 `18246271`이다.** 정확한 main CI
+**배포된 App은 `8.7.8` / `v643`, 배포 main SHA는 `12ecbf71`이다.** 정확한 main CI
 후보로 App을 배포하고 운영 smoke4개·최종 소유권을 확인했다. 다른 Worker5종은
 `ff7766cc` 유지·호환성 확인 상태다.
-[8.7.7 정식 Release](https://github.com/hiefny/MUSIXQUARE/actions/runs/37883236502)와
-아래 누적 변경 이력을 따른다. 이전8.7.6/8.7.5 및 App8.7.4/시그널링99f9103c 배포 기록은 이력으로 보존한다.
+[8.7.8 정식 Release](https://github.com/hiefny/MUSIXQUARE/actions/runs/37908451698)와
+아래 누적 변경 이력을 따른다. 이전8.7.7/8.7.6/8.7.5 및 App8.7.4/시그널링99f9103c 배포 기록은 이력으로 보존한다.
 
 **2026-10-07 저녁 운영 R2 재검사:** `a1543f8b`의 유지 검사로 새 방 3회 중 2 pass / 1 fail.
 추가 수동 관찰 진단 1회에서도 연결 9개·R2 경로는 정상이었으나 게스트 1개가 HTTP 200

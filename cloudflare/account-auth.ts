@@ -711,6 +711,9 @@ function sanitizeReturnTo(value: unknown, redirectUri: string): string {
     const resolved = new URL(value, base);
     if (resolved.origin !== base) return '/';
     const normalized = `${resolved.pathname}${resolved.search}${resolved.hash}` || '/';
+    // This path is parsed again after the OAuth round trip. Normalization
+    // must not turn a same-origin input into an authority-relative reference.
+    if (new URL(normalized, base).origin !== base) return '/';
     // returnTo is encrypted into a host-only cookie together with PKCE state.
     // Bound bytes (not JS code units) so multibyte paths cannot create a token
     // that openFlow rejects or a browser silently drops at its ~4 KiB limit.
@@ -1620,7 +1623,12 @@ function callbackOutcomeRedirect(
   outcome: 'success' | 'error' | 'cancelled',
   cookieName: string,
 ): Response {
-  const destination = new URL(flow.returnTo, new URL(config.redirectUri).origin);
+  // Revalidate persisted flows too: a cookie may have been issued by the
+  // previous release before the normalized-path origin check existed.
+  const destination = new URL(
+    sanitizeReturnTo(flow.returnTo, config.redirectUri),
+    new URL(config.redirectUri).origin,
+  );
   destination.searchParams.set('accountAuth', outcome);
   return redirect(destination.toString(), 303, [clearCookie(cookieName)]);
 }
@@ -1750,7 +1758,10 @@ async function handleGoogleCallback(
       predecessors,
     );
     for (const cookie of predecessors) markAccountCookieForCleanup(config, cookie.name);
-    const destination = new URL(flow.returnTo, new URL(config.redirectUri).origin);
+    const destination = new URL(
+      sanitizeReturnTo(flow.returnTo, config.redirectUri),
+      new URL(config.redirectUri).origin,
+    );
     // Correlate the first app-owned session read with this completed OAuth
     // round trip. The marker is never authentication evidence: the new
     // HttpOnly session cookie and /api/auth/session remain authoritative.

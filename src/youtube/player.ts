@@ -333,6 +333,7 @@ import {
   refreshYouTubeDisplay,
   markYtStateBroadcast,
   clearSnapshotRetries,
+  clearYouTubeCallbackSelection,
   showLiveStreamSyncWarning,
   hideYouTubeTapToPlayGate,
   ensureRetainedYouTubePlayerHardMuted,
@@ -1298,6 +1299,7 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
   clearManagedTimer('yt-guest-ended-fallback');
 
   clearManagedTimer('yt-load-timeout');
+  clearYouTubeCallbackSelection();
   clearManagedTimer('yt-mix-snapshot');
   clearManagedTimer('yt-refresh-display');
   clearManagedTimer('yt-prime-bounce-timeout');
@@ -3998,6 +4000,17 @@ export function initYouTube(): void {
     // aborts in-flight preview work, while completed manifests intentionally
     // remain available through this synchronous cache seam.
     const prefetchedManifest = playlistId ? getPrefetchedYouTubePlaylistManifest(playlistId) : null;
+
+    // Admission belongs before consuming the draft; the queue model's final
+    // limit check cannot restore the closed overlay or selected search result.
+    if (
+      roomContext.kind === 'standard' &&
+      !getState('network.hostConn') &&
+      !canAppendPlaylistItems()
+    ) {
+      showToast(t('playlist.queue_full'));
+      return;
+    }
 
     _closeYouTubeInputOverlay(input);
 

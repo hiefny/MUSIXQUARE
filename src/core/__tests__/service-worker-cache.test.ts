@@ -30,6 +30,7 @@ const [SERVICE_WORKER_SOURCE, EXECUTABLE_SERVICE_WORKER_SOURCE] = await Promise.
   }).then(({ code }) => code),
 ]);
 const ACTIVE_CACHE_VERSION = SERVICE_WORKER_CACHE_VERSION;
+const STATIC_REVALIDATION_TIMEOUT_MS = 5_000;
 const NAVIGATION_NETWORK_TIMEOUT_MS = Number(
   /^\s*const NAVIGATION_NETWORK_TIMEOUT_MS = ([\de_+.]+);$/mu
     .exec(SERVICE_WORKER_SOURCE)?.[1]
@@ -635,7 +636,13 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('online asset');
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+    if (url.endsWith('/bootstrap.js')) {
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
+        signal: expect.any(AbortSignal),
+      });
+    } else {
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+    }
   });
 
   it.each([
@@ -654,7 +661,13 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(503);
     expect(await response.text()).toBe('Offline');
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+    if (url.endsWith('/bootstrap.js')) {
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request, {
+        signal: expect.any(AbortSignal),
+      });
+    } else {
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+    }
   });
 
   it('uses the static cache for same-origin assets', async () => {
@@ -1540,6 +1553,125 @@ describe('service worker cache policy', () => {
     expect(waitUntilWasSynchronous).toBe(true);
     expect(work).toHaveLength(1);
     expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it.each(['headers', 'body'] as const)(
+    'releases cached static revalidation after stalled %s without replacing the cached body',
+    async (stage) => {
+      vi.useFakeTimers();
+      let fetchSignal: AbortSignal | null | undefined;
+      let finishHeaders!: (response: Response) => void;
+      const cancel = vi.fn(() => new Promise<void>(() => {}));
+      const incomplete = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('incomplete'));
+          },
+          cancel,
+        }),
+      );
+      cacheMatch.mockResolvedValue(new Response('cached stable asset'));
+      fetchMock.mockImplementation((_request, init) => {
+        fetchSignal = init?.signal;
+        return stage === 'body'
+          ? Promise.resolve(incomplete)
+          : new Promise<Response>((resolve) => {
+              finishHeaders = resolve;
+            });
+      });
+      try {
+        const { response, work, waitUntilWasSynchronous } = await dispatchWithWork(
+          new Request('https://musixquare.com/fouc-cleanup.js'),
+        );
+        expect(await response.text()).toBe('cached stable asset');
+        expect(waitUntilWasSynchronous).toBe(true);
+        let finished = false;
+        const completion = Promise.all(work).then(() => {
+          finished = true;
+        });
+        await vi.advanceTimersByTimeAsync(STATIC_REVALIDATION_TIMEOUT_MS - 1);
+        expect(finished).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await completion;
+        expect(fetchSignal?.aborted).toBe(true);
+        expect(cachePut).not.toHaveBeenCalled();
+        if (stage === 'headers') {
+          // Even a transport that ignores abort must not resurrect late data.
+          finishHeaders(incomplete);
+          await vi.advanceTimersByTimeAsync(0);
+        }
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(cachePut).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('applies no-store revocation at headers even when its denial body stalls', async () => {
+    vi.useFakeTimers();
+    const request = new Request('https://musixquare.com/fouc-cleanup.js');
+    let stale = true;
+    cacheMatch.mockImplementation(async () => (stale ? new Response('old asset') : undefined));
+    cacheEntryDelete.mockImplementation(() => {
+      stale = false;
+      return true;
+    });
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('denied'));
+          },
+          cancel,
+        }),
+        { status: 410, headers: { 'Cache-Control': 'no-store' } },
+      ),
+    );
+    try {
+      const { work } = await dispatchWithWork(request);
+      await Promise.all(work);
+      expect(stale).toBe(false);
+      expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+      expect(cachePut).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(STATIC_REVALIDATION_TIMEOUT_MS);
+      expect(cancel).toHaveBeenCalledOnce();
+      fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+      expect((await dispatch(request)).status).toBe(503);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('revalidates a stable asset once its complete body arrives before the deadline', async () => {
+    vi.useFakeTimers();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const received = new Response(
+      new ReadableStream<Uint8Array>({
+        start: (controller) => {
+          body = controller;
+        },
+      }),
+    );
+    cacheMatch.mockResolvedValue(new Response('cached stable asset'));
+    fetchMock.mockResolvedValue(received);
+    try {
+      const { response, work } = await dispatchWithWork(
+        new Request('https://musixquare.com/fouc-cleanup.js'),
+      );
+      expect(await response.text()).toBe('cached stable asset');
+      body.enqueue(new TextEncoder().encode('complete replacement'));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(cachePut).not.toHaveBeenCalled();
+      body.close();
+      await Promise.all(work);
+      expect(cachePut).toHaveBeenCalledOnce();
+      expect(await cachePut.mock.calls[0]![1].text()).toBe('complete replacement');
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('serves an immutable hashed asset without re-fetching or rewriting it', async () => {

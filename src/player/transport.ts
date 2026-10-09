@@ -2211,7 +2211,13 @@ export function stopPlayback(): void {
     return;
   }
 
-  if (wasCompatIdle) return; // Nothing to stop
+  if (wasCompatIdle) {
+    // Natural completion is already idle while the playlist's next/repeat
+    // timer is pending. An explicit STOP must still cancel that future play.
+    clearManagedTimer('ended-advance-retry');
+    clearManagedTimer('ended-advance-next');
+    return;
+  }
 
   if (isYouTubeOwner()) {
     // Broadcast before clearing local ownership; stopYouTubeMode cannot infer

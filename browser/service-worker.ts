@@ -37,6 +37,10 @@ const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
 // neither succeeds nor rejects for a long time. A navigation must reach the
 // active cached shell instead of leaving WebKit on its blank provisional page.
 const NAVIGATION_NETWORK_TIMEOUT_MS = 3_000;
+// Cached stable assets can paint immediately, but their background fetch
+// still owns the incumbent worker's fetch event and can delay an approved
+// update. Bound headers AND body before attempting a cache replacement.
+const STATIC_REVALIDATION_TIMEOUT_MS = 5_000;
 const NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS = 2_000;
 const NAVIGATION_STATE_PATH_PREFIX = '/.mxqr-navigation-fallback/';
 // The optional full font is useful after an interrupted reopen, but it must
@@ -1106,7 +1110,11 @@ function isInstallOwnedAppShellRequest(request: Request): boolean {
   });
 }
 
-function fetchNavigationWithTimeout(request: Request): Promise<Response> {
+function fetchCompleteResponseWithTimeout(
+  request: Request,
+  timeoutMs: number,
+  onHeaders?: (response: Response) => void,
+): Promise<Response> {
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   let timeoutId: number | undefined;
   let removeRequestAbortListener: () => void = () => undefined;
@@ -1150,8 +1158,8 @@ function fetchNavigationWithTimeout(request: Request): Promise<Response> {
         /* an already-settled fetch needs no further cancellation */
       }
       cancelBody();
-      reject(new Error('NAVIGATION_NETWORK_TIMEOUT'));
-    }, NAVIGATION_NETWORK_TIMEOUT_MS);
+      reject(new Error('NETWORK_BODY_TIMEOUT'));
+    }, timeoutMs);
   });
   const network = (
     controller ? fetch(request, { signal: controller.signal }) : fetch(request)
@@ -1159,18 +1167,19 @@ function fetchNavigationWithTimeout(request: Request): Promise<Response> {
     response = received;
     if (abandoned) {
       cancelBody();
-      throw new Error('NAVIGATION_NETWORK_TIMEOUT');
+      throw new Error('NETWORK_BODY_TIMEOUT');
     }
-    // fetch resolves at headers. Drain a clone before committing navigation
-    // so an incomplete HTML body still reaches the existing 3s fallback.
+    onHeaders?.(received);
+    // fetch resolves at headers. Drain a clone before committing the response
+    // so an incomplete body still reaches the caller's bounded fallback.
     // Return the original Response to retain its URL, redirect, status and
-    // header semantics. The original tee buffers this small document; the
+    // header semantics. The original tee buffers this cacheable body; the
     // probe discards chunks instead of allocating a second complete copy.
     reader = received.clone().body?.getReader();
     if (reader) {
       try {
         while (!(await reader.read()).done) {
-          if (abandoned) throw new Error('NAVIGATION_NETWORK_TIMEOUT');
+          if (abandoned) throw new Error('NETWORK_BODY_TIMEOUT');
         }
       } finally {
         reader.releaseLock();
@@ -1246,7 +1255,10 @@ serviceWorker.addEventListener('fetch', (event) => {
 
   // Navigation (HTML): network-first, fallback to cached index
   if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
-    const networkResponse = fetchNavigationWithTimeout(request);
+    const networkResponse = fetchCompleteResponseWithTimeout(
+      request,
+      NAVIGATION_NETWORK_TIMEOUT_MS,
+    );
     // Start CacheStorage lookup while the radio fetch is in flight. If the
     // timeout wins, the already-resolved active shell can paint immediately.
     const cachedShell = matchActiveNavigationShell(request);
@@ -1349,8 +1361,23 @@ serviceWorker.addEventListener('fetch', (event) => {
   // revalidating. A retired cache is a last-resort offline fallback, never a
   // normal cache miss response: otherwise the first request after an update
   // can combine the new HTML/JS generation with an old stable CSS or icon.
-  const networkResponse = fetch(request).catch(() => null);
-  const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, networkResponse);
+  let resolveCacheResponse!: (response: Response | null) => void;
+  const cacheResponse = new Promise<Response | null>((resolve) => {
+    resolveCacheResponse = resolve;
+  });
+  const networkResponse = fetchCompleteResponseWithTimeout(
+    request,
+    STATIC_REVALIDATION_TIMEOUT_MS,
+    (response) => {
+      // Revocation is authoritative at headers, even if its body stalls.
+      // Keep the normal request-order fence without caching partial bodies.
+      if (response.status !== 206 && !responseAllowsCacheStorage(response)) {
+        resolveCacheResponse(response);
+      }
+    },
+  ).catch(() => null);
+  void networkResponse.then(resolveCacheResponse);
+  const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, cacheResponse);
   event.waitUntil(cacheUpdate);
   event.respondWith(
     (async () => {

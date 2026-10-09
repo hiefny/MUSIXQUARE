@@ -109,7 +109,7 @@ export { cancelStandardHostManualOffsetTransaction, isStandardHostManualOffsetTr
 const MANUAL_BROADCAST_DEDUP_MS = 500;
 const RENDEZVOUS_LOADING_OWNER = 'rendezvous' as const;
 const CLOCK_ACTION_LOADING_OWNER = 'clock-action' as const;
-let _lastManualBroadcastAt = 0;
+let _lastManualBroadcastAt = -Infinity;
 type ManualOffsetEndpointIdentity = 'pro' | `standard-host:${string}` | null;
 let _manualOffsetEndpointIdentity: ManualOffsetEndpointIdentity = null;
 let guestStateActionGeneration = 0;
@@ -261,7 +261,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // Dedup heartbeats that immediately follow a manual broadcast. Manual
   // broadcasts always pass through (the caller explicitly asked for a
   // fresh sync).
-  if (!isManual && Date.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) return;
+  if (!isManual && performance.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) return;
 
   // A still-settling local nudge can make the iframe report transient BUFFERING
   // and PLAYING states. Neither those states nor the settling heartbeat are
@@ -385,7 +385,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
       isManual,
       title: getState('player.currentTrackMeta')?.title,
     });
-    if (isManual) _lastManualBroadcastAt = Date.now();
+    if (isManual) _lastManualBroadcastAt = performance.now();
     log.debug(
       `[YouTube] Broadcast sync: t=${canonicalTime}, s=${state}${isManual ? ' (Manual)' : ''}`,
     );
@@ -462,6 +462,8 @@ function setStateActionTimer(
   );
 }
 
+// Local cooldowns and intent lifetimes use the monotonic clock. Host snapshots
+// and scheduled room instants stay on getHostNow(), which can be recalibrated.
 interface GuestSyncRuntime {
   /** Last host position seen in a PLAYING heartbeat (null if host is paused). */
   lastHostSyncTime: number | null;
@@ -469,7 +471,7 @@ interface GuestSyncRuntime {
   hostTimeStaleCount: number;
   /** True while the guest is paused in response to a host-side ad. */
   hostAdPauseActive: boolean;
-  /** Date.now() expiry: until this moment, drift correction is suppressed. */
+  /** performance.now() expiry: until this moment, drift correction is suppressed. */
   autoSyncUntil: number;
   /** Freshest host position snapshot — consumed by rendezvous extrapolation. */
   lastHostSnapshot: HostPositionSnapshot | null;
@@ -488,7 +490,7 @@ const _rt: GuestSyncRuntime = {
   autoSyncUntil: 0,
   lastHostSnapshot: null,
   rendezvous: null,
-  lastRendezvousAt: 0,
+  lastRendezvousAt: -Infinity,
   pendingManualRendezvous: null,
 };
 
@@ -551,7 +553,7 @@ export function suppressDriftUntil(ms: number): void {
   // Math.max never shortens an existing suppression window — handleYouTubeState
   // may have set a longer window (waitMs + POST_SCHEDULED_ACTION_COOLDOWN_MS)
   // that this async call from iframe.ts must not overwrite.
-  _rt.autoSyncUntil = Math.max(_rt.autoSyncUntil, Date.now() + ms);
+  _rt.autoSyncUntil = Math.max(_rt.autoSyncUntil, performance.now() + ms);
 }
 
 // Updated on every MSG.YOUTUBE_SYNC heartbeat (~HEARTBEAT_INTERVAL_MS).
@@ -608,7 +610,7 @@ function runPendingManualRendezvous(): void {
   const pending = _rt.pendingManualRendezvous;
   if (!pending) return;
 
-  const now = Date.now();
+  const now = performance.now();
   if (now > pending.until) {
     clearPendingManualRendezvous();
     log.debug('[YouTube Sync] Pending manual rendezvous expired before it could start');
@@ -654,7 +656,7 @@ function deferManualRendezvousUntilReady(
   const queueItemId = getCurrentQueueItemId();
   if (!hostConn?.open || !queueItemId) return;
   _rt.pendingManualRendezvous = {
-    until: Date.now() + MANUAL_RENDEZVOUS_RETRY_MAX_MS,
+    until: performance.now() + MANUAL_RENDEZVOUS_RETRY_MAX_MS,
     hostConn,
     queueItemId,
     videoId: _rt.lastHostSnapshot?._videoId,
@@ -728,7 +730,7 @@ function requestManualOffsetApplyRendezvous(): void {
     // after this guest has started. Its first ordinary heartbeat can arrive
     // later than the usual readiness/cooldown allowance.
     until:
-      Date.now() +
+      performance.now() +
       MANUAL_RENDEZVOUS_RETRY_MAX_MS +
       RENDEZVOUS_COOLDOWN_MS +
       MANUAL_SYNC_OFFSET_LIMIT_SEC * 1000,
@@ -744,7 +746,7 @@ function runManualOffsetApplyRendezvous(): void {
     clearPendingManualOffsetApply();
     return;
   }
-  if (Date.now() >= pending.until) {
+  if (performance.now() >= pending.until) {
     clearPendingManualOffsetApply();
     if (pending.waitingForSnapshot) showToast(t('toast.yt_rendezvous_no_data'));
     return;
@@ -862,7 +864,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   // runs between here and the mismatch block within one invocation — the
   // function has no awaits, so no inner re-check is needed. Restore one if
   // this gate is ever relaxed.
-  if (!isManual && Date.now() < _rt.autoSyncUntil) return;
+  if (!isManual && performance.now() < _rt.autoSyncUntil) return;
 
   try {
     // If this is a manual sync request from the host, trigger precision rendezvous immediately
@@ -992,7 +994,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
             setYouTubeSubIndex(hostSubIndex);
           }
         }
-        _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
+        _rt.autoSyncUntil = performance.now() + LOAD_DRIFT_SUPPRESS_MS;
         return;
       }
     }
@@ -1108,7 +1110,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   }
 
   // Debounce: cooldown prevents rapid-fire calls that crash YouTube iframe
-  const now = Date.now();
+  const now = performance.now();
   if (_rt.rendezvous) {
     log.debug('[Rendezvous] Debounced: in progress');
     return { status: 'busy', retryAfterMs: 250 };
@@ -1228,9 +1230,10 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   cancelClockAction();
   clearManagedTimer('yt-seek-play');
   if (!isCurrentRendezvous(attempt)) return { status: 'not-ready' };
-  _rt.lastRendezvousAt = Date.now();
+  _rt.lastRendezvousAt = performance.now();
   // Suppress drift fighter for MARGIN + RENDEZVOUS_DRIFT_SUPPRESS_MS
-  _rt.autoSyncUntil = Date.now() + RENDEZVOUS_MARGIN_SEC * 1000 + RENDEZVOUS_DRIFT_SUPPRESS_MS;
+  _rt.autoSyncUntil =
+    performance.now() + RENDEZVOUS_MARGIN_SEC * 1000 + RENDEZVOUS_DRIFT_SUPPRESS_MS;
   bus.emit('youtube:sync-loading', true, RENDEZVOUS_LOADING_OWNER);
   notifyProgress(t('toast.yt_rendezvous_start'));
   if (!isCurrentRendezvous(attempt)) return { status: 'not-ready' };
@@ -1521,7 +1524,7 @@ export function resetYouTubeSyncState(): void {
   cancelClockAction();
   clearManagedTimer('yt-seek-play');
   _rt.rendezvous = null;
-  _rt.lastRendezvousAt = 0;
+  _rt.lastRendezvousAt = -Infinity;
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvous = null;
@@ -1767,7 +1770,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         const mismatchHostPlayAt = Number(data.hostPlayAt) || 0;
         if (mismatchHostPlayAt > 0 && isClockCalibrated()) {
           const waitForPlay = Math.max(MISMATCH_MIN_WAIT_MS, mismatchHostPlayAt - getHostNow());
-          _rt.autoSyncUntil = Date.now() + waitForPlay + IMMEDIATE_ACTION_COOLDOWN_MS;
+          _rt.autoSyncUntil = performance.now() + waitForPlay + IMMEDIATE_ACTION_COOLDOWN_MS;
           bus.emit('youtube:sync-loading', true, CLOCK_ACTION_LOADING_OWNER);
           setStateActionTimer(
             'yt-clock-action',
@@ -1783,7 +1786,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             waitForPlay,
           );
         } else {
-          _rt.autoSyncUntil = Date.now() + LOAD_DRIFT_SUPPRESS_MS;
+          _rt.autoSyncUntil = performance.now() + LOAD_DRIFT_SUPPRESS_MS;
         }
         return;
       }
@@ -1830,7 +1833,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         }
 
         // 4. Suppress drift correction during wait
-        _rt.autoSyncUntil = Date.now() + waitMs + POST_SCHEDULED_ACTION_COOLDOWN_MS;
+        _rt.autoSyncUntil = performance.now() + waitMs + POST_SCHEDULED_ACTION_COOLDOWN_MS;
 
         // 5. Show sync loading state on guest
         bus.emit('youtube:sync-loading', true, CLOCK_ACTION_LOADING_OWNER);
@@ -1869,7 +1872,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
             duration,
           );
         }
-        _rt.autoSyncUntil = Date.now() + IMMEDIATE_ACTION_COOLDOWN_MS;
+        _rt.autoSyncUntil = performance.now() + IMMEDIATE_ACTION_COOLDOWN_MS;
         setStateActionTimer(
           'yt-clock-action',
           action,
@@ -1949,7 +1952,7 @@ function executeImmediate(
   if (!isCurrentStateAction(action)) return;
 
   // Suppress drift correction while YouTube buffers the seek.
-  _rt.autoSyncUntil = Date.now() + IMMEDIATE_ACTION_COOLDOWN_MS;
+  _rt.autoSyncUntil = performance.now() + IMMEDIATE_ACTION_COOLDOWN_MS;
 
   if (state === 1 && player.playVideo) {
     if (player.seekTo) {

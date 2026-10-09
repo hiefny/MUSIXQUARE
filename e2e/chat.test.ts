@@ -7,6 +7,7 @@
  * - Chat drawer UI interaction
  */
 import { test, expect } from '@playwright/test';
+import type { DataConnection } from '../src/types/index.ts';
 import {
   createHostGuestContexts,
   cleanupContexts,
@@ -50,6 +51,44 @@ test.describe('Chat System', () => {
     await waitForChatMessage(pair.guestPage, 'Reply from guest!');
 
     await waitForChatMessage(pair.hostPage, 'Reply from guest!');
+  });
+
+  test('known local send refusals retain ordinary and whisper drafts for an exact retry', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await openChatDrawer(pair.guestPage);
+    for (const draft of ['Retained ordinary draft', '/w #0 Retained private draft']) {
+      await pair.guestPage.locator('#chat-input').fill(draft);
+      const before = await pair.guestPage.locator('.chat-bubble.mine').count();
+      const rejected = await pair.guestPage.evaluate(() => {
+        const getState = (
+          window as unknown as {
+            __MUSIXQUARE_GET_STATE__: (path: string) => DataConnection;
+          }
+        ).__MUSIXQUARE_GET_STATE__;
+        const connection = getState('network.hostConn');
+        const original = connection.send;
+        let refusals = 0;
+        connection.send = () => {
+          refusals += 1;
+          throw new DOMException('Controlled local send refusal', 'InvalidStateError');
+        };
+        try {
+          document.getElementById('btn-chat-send')!.click();
+        } finally {
+          connection.send = original;
+        }
+        return refusals;
+      });
+      expect(rejected).toBe(1);
+      await expect(pair.guestPage.locator('#chat-input')).toHaveText(draft);
+      await expect(pair.guestPage.locator('.chat-bubble.mine')).toHaveCount(before);
+      const text = draft.replace('/w #0 ', '');
+      await expect(pair.hostPage.locator('#chat-messages')).not.toContainText(text);
+      await pair.guestPage.locator('#btn-chat-send').click();
+      await expect(pair.guestPage.locator('#chat-input')).toBeEmpty();
+      await expect(pair.guestPage.locator('.chat-bubble.mine')).toHaveCount(before + 1);
+      await waitForChatMessage(pair.hostPage, text);
+    }
   });
 
   test('bidirectional chat exchange', async () => {

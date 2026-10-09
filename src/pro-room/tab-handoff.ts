@@ -31,7 +31,7 @@ function getChannel(): BroadcastChannel | null {
         try {
           listener(roomCode);
         } catch {
-          // One stale tab observer cannot suppress authoritative takeover cleanup.
+          // One stale tab observer cannot suppress another tab's validation.
         }
       }
     });
@@ -53,7 +53,7 @@ export function announceProRoomTabTakeover(roomCode: string): void {
   }
 }
 
-/** Listen for an explicit takeover performed by another tab in this profile. */
+/** Listen for takeover hints; receivers must validate their current server presence. */
 export function onProRoomTabTakeover(listener: TakeoverListener): () => void {
   listeners.add(listener);
   getChannel();

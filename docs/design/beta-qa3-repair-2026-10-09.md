@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | App 8.7.7 / v642 정식 배포 완료. PR #273·exact-main CI 37882728076·Release 37883236502 성공, 기존 보안·provider·실기 한계 유지 |
+| Status | App 8.7.7 / v642 정식 배포 완료. PR #273·exact-main CI 37882728076·Release 37883236502 성공. R26 추가 제공 원본 51pass 확인·범위별 채택, 전체 검증 공백 해소 판정은 보류. provider·실기 한계 유지 |
 | Applies to | QA3 확정 9건과 사용자 승인 예방 보강 3건 |
 | Last source review | 2026-10-09 |
 | Executable sources | `src/player`, `src/youtube`, `src/pro-room`, `src/ui`, `src/i18n`, `browser/service-worker.ts`, `cloudflare/account-auth.ts`와 유지 회귀 검사 |
@@ -88,9 +88,11 @@ node node_modules/@playwright/test/cli.js test --config playwright.webkit-servic
 새 fixture 회귀는 `e2e/dialog-locale-layout.test.ts`·`e2e/chat.test.ts`와 유지 단위 검사에
 포함했다. 원본 명령·환경 변수·단계별 JSON은 각 scratch 담당자 `repair-notes.md`와 부모 로그에 있다.
 
-R26에서 이전 자동 안전 검토가 중단한 심화 실행은 반복하거나 다른 세션으로 넘기지 않았다.
-기존 원본과 방어적 코드 검토를 이용하며, 수정 후 정상 OAuth 복귀와 기존 유지 회귀를 검증한다.
-이 경로의 독립 심화 재현·실제 외부 이동·live OAuth까지 완료했다고 기록하지 않는다.
+수정·배포 당시 R26에서 이전 자동 안전 검토가 중단한 심화 실행은 반복하거나 다른 세션으로
+넘기지 않았다. 당시에는 기존 원본과 방어적 코드 검토를 이용하고, 수정 후 정상 OAuth 복귀와
+기존 유지 회귀를 검증했다. 독립 심화 재현·실제 외부 이동·live OAuth까지 완료한 근거는 아니었다.
+이후 사용자가 제공한 원본의 채택 범위와 남은 한계는 아래
+[R26 제공 원본 재검토](#r26-사용자-제공-재검증-원본-검토--2026-10-09)를 따른다.
 
 PWA 수정은 **수정된 worker가 활성화된 이후의 재검증**에 적용된다. 이미 실행 중인
 v640 worker의 끝나지 않은 요청을 새 배포가 소급 취소하지 못한다. 최초 갱신이 기존 요청에
@@ -126,9 +128,74 @@ CI·Release 원본은 ignored `scratch/qa3-repair-2026-10-09/root/`의
 
 이번 운영 확인은 선택된 공개 경계·배포 신원의 검증이다. live OAuth·실제 provider 사건 순서,
 물리 기기·키보드·media key·음향이나 기존 운영 탭/PWA 전체 갱신을 완료했다는 뜻은 아니다.
-R26 심화 차단, 예방 3건의 실제 도달성 미입증, 과거 dev claim-missing·legacy SW 단발 정지·
-운영 R2 원인 미확정과 위 PWA 최초 갱신 한계를 그대로 유지한다.
+배포 당시의 R26 심화 차단은 역사적 경위로 보존하며, 후속 제공 원본의 현재 판정은 아래 절을
+따른다. 예방 3건의 실제 도달성 미입증, 과거 dev claim-missing·legacy SW 단발 정지·운영 R2
+원인 미확정과 위 PWA 최초 갱신 한계는 유지한다.
 이후 문서 커밋은 배포 코드 SHA와 구분하며 새로운 제품 릴리스를 요구하지 않는다.
+
+## R26 사용자 제공 재검증 원본 검토 — 2026-10-09
+
+사용자는 배포 후 별도 환경에서 수행한 A3-R26-C01 재검증 결과와 원본을 제공했다.
+이번 검토에서는 제출된 코드·JSON·로그와 제품 소스를 읽었으며, 제공 스크립트를 실행하거나
+import하지 않았다. **추가 검사 재실행 0건, 새 확정 제품 결함 0건, 제품·운영 변경 0건**이다.
+제공된 **51pass / 0fail**은 원본에 기록된 결과로 확인하고 아래 범위에서 채택한다.
+이는 검토자가 51건을 독립 재실행했다거나 모든 미완료 영역을 해소했다는 판정이 아니다.
+
+원본은 ignored `scratch/qa3-r26-reverification-2026-10-09/`의
+`r26-deep-reproduction.test.ts`, `r26-oauth-lifecycle.test.ts`,
+`r26-browser-navigation.ts`, `vitest.r26.config.ts`, `vitest-run.json`,
+`vitest-run.log`, `browser-navigation-run.json`, `browser-navigation.log`,
+`summary.json`, `report.md`에 보존한다. 이번 판정은 원본의 문구·코드·결과를 수정하지 않고
+이 문서에 덧붙인다. Vitest JSON·로그는 2파일 43pass이며 브라우저 8건은 별도 결과다.
+검토 시점 원본 10파일의 SHA-256·집계·Git 상태는 별도 ignored
+`scratch/qa3-r26-evidence-review-2026-10-09/review.json`에 기록했다.
+
+| 제공 근거 | 채택 범위와 한계 |
+| --- | --- |
+| 독립 심화 재현 39pass | 수정 전 결함 메커니즘의 축약 복제 알고리즘 대조 1건과, 실제 제품 App Worker를 호출하는 통합 38건이다. 수정 전 제품 전체를 실행한 39건으로 해석하지 않는다. 취소·오류 복귀, 정상 경로 보존, 입력 경계 및 기발급 flow 쿠키의 취소 분기를 뒷받침한다. |
+| 성공 OAuth 통합 4pass | 실제 제품 start·callback·토큰 처리·RS256 검증·계정 생성 경로를 사용하고, token/JWKS 응답은 로컬 합성 제공자로 대체한다. 선택한 4개 returnTo의 성공 복귀 주소, 세션 쿠키 헤더 존재, flow 쿠키 삭제 및 SQLite 계정 1개 생성을 확인했다. |
+| Chromium 브라우저 8pass | 실제 App Worker를 연결한 로컬 HTTP 서버에서 시작 요청과 callback 리디렉션을 브라우저가 따라가고, 기록된 최종 URL 8개가 기대값과 일치한다. Google 인증 화면은 서버에서 취소 callback으로 대체하므로 실제 제공자 또는 브라우저의 성공 로그인 전체 흐름 검증은 아니다. |
+
+**전체 검증 공백 해소 판정은 보류한다.** 이는 새 제품 결함 판정이 아니라, 아래 관측·주장
+범위의 제한이다. 제출 보고서의 “외부 요청 시도 0건 완전 차단”과 “전체 파이프라인 100% 검증”은
+그대로 채택하지 않는다.
+
+- **브라우저 네트워크 관측:** `r26-browser-navigation.ts:158`부터의 `externalRequests`는
+  `context.route` 콜백에서만 수집하고 별도의 request/response 관측을 사용하지 않는다.
+  Playwright는 리디렉션에서 route handler를 첫 URL에만 호출한다고 명시한다.
+  따라서 배열이 비었다는 결과가 리디렉션 각 단계의 외부 요청 시도 0건을 입증하지는 않는다.
+  URL 판정도 `startsWith(serverOrigin)`여서 파싱한 origin의 정확한 동등성 판정과 다르다.
+  최종 URL 8건 일치는 유효한 별도 관측으로 채택한다.
+  [Playwright의 리디렉션 처리 설명](https://playwright.dev/docs/network#redirects).
+- **브라우저 쿠키 경계:** 로컬 HTTP adapter는 `__Host-mxqr_` 쿠키 이름을 바꾸고 `Secure`
+  속성을 제거한다(`r26-browser-navigation.ts:83`, `:100`). 이 결과는 운영 HTTPS의
+  `__Host-`·Secure 쿠키 정책까지 브라우저에서 검증한 근거가 아니다.
+- **기발급 flow의 성공 분기:** 심화 Group G는 비정상 returnTo를 담은 기존 쿠키를 모사해
+  취소 callback 한 건을 검증했다(`r26-deep-reproduction.test.ts:274`). 성공 통합 4건은
+  모두 수정된 start에서 새 쿠키를 발급받는다. 성공 callback에 이전 쿠키 경로를 재검사하는
+  제품 코드는 확인했지만, 그 방어를 별도로 통과시킨 실행 근거는 이번 제공본에 없다.
+- **PKCE·세션 주장:** 성공 통합은 `S256` 표기와 challenge/verifier 존재를 확인한다
+  (`r26-oauth-lifecycle.test.ts:112`, `:125`). 둘의 digest 대응 관계를 직접 비교하지 않는다.
+  발급 쿠키의 후속 인증 사용이나 세션 DB 행의 직접 assertion도 없으므로, “합성 제공자를
+  사용한 성공 OAuth 통합 4건 통과”로 기록한다. 실제 Google 서버 통신은 미실행이며,
+  로컬 서명·검증 성공을 상용 제공자 전체 검증으로 확대하지 않는다.
+
+실행 환경은 제공본 기준 Windows / Node `24.13.1` / Playwright `1.63.0`
+(Chromium headless) / Vitest `5.0.0` / `node:sqlite` in-memory다.
+Node `24.13.1`은 저장소 `package.json`과 `.node-version`에 고정한 `24.20.0`과 다르다.
+제출된 “엔진 24.20.0 호환”이라는 설명을 저장소 고정 환경의 검사 통과로 대체하지 않는다.
+
+검토 기준 HEAD는 `b85148dabfba96b2dafcdb43dd6f69f97734f342`다.
+배포 SHA `18246271903a3a856fa6c9d566c4e584c9a86aac`와 Git 차이는 문서 2파일뿐이어서
+두 커밋의 현재 제품 소스가 같음을 확인했다. 문서 갱신 전 checkout은 clean이며 실제 추적
+파일은 **1,977개 / 비Markdown 1,830개**로, 제출 보고서의 **1,967개 / 1,822개**와 다르다.
+실행 전후 전체 파일 hash manifest가 제공되지 않았으므로 현재 clean 상태와 두 커밋의 비교를
+과거 실행 전후 모든 파일의 불변 증명으로 소급하지 않는다.
+
+현재 판정은 **R26의 추가 로컬 회귀 근거 확보·범위별 채택, 전체 공백 해소 보류**다.
+이번 검토로 새로 확인된 제품 수정·재배포 필요성은 없다. 제품 버전과 운영 배포 SHA는 그대로
+유지하며, 이 문서 보강만을 이유로 Release를 재실행하지 않는다. 실기 iOS/Safari·하드웨어·
+실음향 및 예방 3건의 실제 provider 발생 조건은 이 추가 제공본의 범위 밖이다.
 
 ## 배포·복구 계약
 

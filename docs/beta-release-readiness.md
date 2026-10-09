@@ -2,7 +2,7 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.7` / `v642`, App SHA `18246271` 배포 완료. QA3 확정9건 수정·예방3건 보강, PR #273·exact-main CI `37882728076`·Release `37883236502` 성공. 다른 Worker5종은 `ff7766cc` 유지·부분 배포 호환성 확인. R26 심화·provider 도달성·기존 실기/운영 관측 한계 유지 |
+| Status             | Runbook — 운영 App `8.7.7` / `v642`, App SHA `18246271` 배포 완료. QA3 확정9건 수정·예방3건 보강, PR #273·exact-main CI `37882728076`·Release `37883236502` 성공. 다른 Worker5종은 `ff7766cc` 유지·부분 배포 호환성 확인. R26 제공 원본51pass의 추가 로컬 근거 채택, 브라우저 전수 계측·기존 flow 성공분기 근거는 미완료. live provider·실기/운영 관측 한계 유지 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
@@ -31,6 +31,12 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 
 **후속 수정 완료 — 2026-10-09:** 확정9건과 미확정3건의 권고 방향을 사용자 승인에 따라 재검증·수정·배포했다. OAuth1건의 수정 전 확인은 기존 원본+소스 검토로 한정했다. 미확정은 실제 provider 발생을 입증한 것으로 승격하지 않고 예방 보강으로 기록한다. [구현·검증·배포 기록](design/beta-qa3-repair-2026-10-09.md).
 
+**R26 제공 원본 후속 검토 — 2026-10-09:** 사용자 제공 Vitest43·Chromium8의 51pass를
+읽기 전용으로 확인했다. 실제 제품 로컬 통합·합성 성공 OAuth·기대 내부 최종 URL의 추가
+근거로 채택하며, 외부 요청 전수 계측과 기존 비정상 flow의 성공 callback 분리 검증은
+미완료로 유지한다. 새 제품 결함은 확인하지 않았고 제공 검사 재실행·제품·운영 변경은 없다.
+환경·추적 파일 수 및 "100%" 표현의 정정은 [후속 판정](design/beta-qa3-repair-2026-10-09.md#r26-사용자-제공-재검증-원본-검토--2026-10-09)을 따른다.
+
 다음 배포 담당자는 이 문서부터 읽는다. 각 QA의 상세 보고서를 대체하지 않고,
 **배포에 필요한 현재 상태와 남은 작업**을 한곳에 모은다. 아래 관측값은 해당
 커밋·확인일의 기록이며, 배포 직전에 실제 Git·CI·Cloudflare 상태와 다시 맞춘다.
@@ -42,6 +48,7 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| R26 사용자 제공 근거 검토 — 2026-10-09 | 검토 HEAD `b85148da`, 배포 제품 `18246271`과 차이는 문서2파일. 원본 Vitest2파일43pass(복제 알고리즘대조1+제품통합38+합성 성공OAuth4)·Chromium8pass/fail0 채택. 브라우저 최종 내부 URL 일치는 인정하나 route-only 집계는 리디렉션 각 hop의 외부 요청0 증명 아님. 기존 비정상 flow는 취소만, 성공분기 분리 검증 미완료. 실제Node24.13.1은 핀24.20.0과 다름; 현재 추적1,977/비Markdown1,830·clean이며 제출1,967/1,822와 불일치, 실행 전후hash manifest 미제공. 부모·독립 검토는 읽기만 수행·재실행0·새 제품 결함0·재배포 없음. [후속 판정](design/beta-qa3-repair-2026-10-09.md#r26-사용자-제공-재검증-원본-검토--2026-10-09) |
 | 8.7.7 정식 릴리스·3차 QA 수정 — 2026-10-09 | 확정9건 수정·예방3건 보강 완료. 로컬 제품20eb6d07 검증을 보존하고 PR #273 검토/CI37882215473 후 main `18246271903a3a856fa6c9d566c4e584c9a86aac`의 CI37882728076 attempt1 성공. 원격 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과. Candidate782파일 hash/version 일치. Release37883236502 attempt1·app/D1 false 성공, App8.7.7/v642·100% version·smoke4·최종 소유권·coherent marker 확인. 다른 Worker5종ff7766cc 유지·호환성 확인, rollback 불필요. 기존 심화/provider/실기 한계 유지. [후속 기록](design/beta-qa3-repair-2026-10-09.md) |
 | 최신 3차 도메인 QA — 2026-10-09 | 기준 `bf4912b2`, Windows/Node24.20.0·6.1 Sol/xhigh·3×10세트. 29완료/R26 부분차단, 확정9(P2 7/P3 2) 미수정·미확정3. 고유 Vitest5,944(5,928pass/16assertion fail)·Chromium59(54pass/5fail), 부모 별도41(30pass/11재현fail)로 원인·대조 재판정. 확정8건 독립 재실행, OAuth복귀주소1건은 차단 전 원본+코드 확인·독립 재실행 미완료. R28 guard9·보존candidate782hash·설치lock486버전 일치. 문서 갱신 직전 추적1,967/비Markdown1,822·dist782불변 확인, 최종 문서3개만 갱신. 새 전체suite/coverage/WebKit/live/exact-main CI/배포 아님. [최종 결과](design/beta-30-round-qa3-2026-10-09.md) |
 | 8.7.6 정식 릴리스 — 2026-10-09 | 사용자 승인 범위인24시간 활성화 링크·계정 명시 확인/변경·닉네임 설정·모바일 버튼·PRO 안내2키 암호 설명 삭제·KO YouTube 오류1키 해요체를 배포. 환영합니다·외부페이지·접근성 설명 유지, schema/secrets/bindings/deps 변경0. 로컬 코드43c8a1a3의 검증은 아래 보존. PR #271·PR CI37856697026 성공, 자동 리뷰 완료/inline0·독립 검토 새 확정0. main `ff7766ccc0c83ab1eee15bc030347e9067764ee6`의 CI37857195274 attempt1: unit523파일10,927pass/기존1skip/fail0·4종coverage·Chromium17+critical22 통과. Candidate782파일 hash/version 일치. Release37857830458 attempt1·all/D1 false 성공, App8.7.6/v640·Worker6종 동일 SHA/100% version·smoke10·최종소유권·PRO ready·signaling Custom Domain·coherent marker 확인. rollback 불필요, 기존 미확정·실기 한계 유지 |
@@ -517,7 +524,9 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] 미확정3건은 사용자 승인한 기대 동작으로 예방 보강 완료. 실제 도달 조건은 미입증 유지: 오래된 탭 takeover 알림, YouTube ready 누락, 이전 pause/새 metadata 순서. 합성 현상 재현만으로 확정하지 않음. [후속 구현·검증](design/beta-qa3-repair-2026-10-09.md).
 - [x] PR #273 검토·PR CI 통과 후 main `18246271`의 CI37882728076 attempt1 성공: 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22. 782파일 후보 hash/version 확인.
 - [x] Release37883236502 attempt1·app/D1 false 성공: App8.7.7/v642·smoke4·100% version/최종 소유권·coherent marker 확인, 복구 불필요. 제품 수정 임시 브랜치 삭제·main 복귀 완료. 배포 후 문서 게시만 별도 임시 PR로 처리하며 App 재배포 대상이 아님.
-- [ ] R26은 자동 안전 검토의 사이버보안 위험 가능성으로 중단. 중단 전358pass/3fail 보존; 독립 보안 재실행·추가 심화 미완료. 다른 모델·세션을 통한 차단 작업 재시도 없음.
+- [x] R26 최초 자동 안전 검토 중단 전358pass/3fail 원본과 정확한 중단 후속 동작 불명 이력을 보존. 이번 부모 검토는 사용자가 별도로 제공한 원본을 읽었으며 차단 작업 실행·위임 재시도 없음.
+- [x] R26 사용자 제공 원본51pass(Vitest43+Chromium8)를 추가 근거로 채택. 새 flow의 제품 통합과 합성 성공 OAuth, 취소 후 실제 Chromium 최종 내부 URL 일치 확인. 검토자가 해당 검사를 재실행한 결과는 아님.
+- [ ] R26 외부 요청/리디렉션 각 hop 전수 계측, 기존 비정상 flow의 성공 callback 분리 검증 근거 미완료. live Google·운영 HTTPS 쿠키 조건은 미검증 유지. PKCE 대응 관계·발급 세션 후속 사용까지 이번4건이 입증한 것으로 확대하지 않음. [범위·환경/출처 정정](design/beta-qa3-repair-2026-10-09.md#r26-사용자-제공-재검증-원본-검토--2026-10-09).
 - [ ] 이전 dev claim-missing·legacy SW 단발 정지·운영 R2 지연/미완료와 물리 키보드·media key·음향 등 실기 한계 유지. 이번 로컬 결과로 원인을 소급 확정하지 않음.
 
 **PRO 활성화 링크 24시간 — 2026-10-09:**
@@ -1443,6 +1452,17 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 R26 사용자 제공 재검증 원본의 읽기 전용 검토: HEAD `b85148dabfba96b2dafcdb43dd6f69f97734f342`,
+배포 제품 `18246271903a3a856fa6c9d566c4e584c9a86aac`과 문서2파일만 다름. 원본 JSON·로그·
+검사 코드를 부모와 독립 검토자가 읽어 Vitest43pass/Chromium8pass·fail0 및 실제 제품 호출을 확인했다.
+추가 로컬 근거는 채택하지만 route-only 집계로 각 redirect hop을 전수 관측하지 못하는 한계와 기존 flow
+성공 callback 분리 검증 부재로 "모든 공백 해소" 판정은 보류한다. 전체 OAuth100% 표현도
+합성 성공 통합4건으로 한정. 실제Node24.13.1≠저장소핀24.20.0, 현재 추적1,977/비Markdown1,830·clean;
+제출1,967/1,822 및 전후hash 일치 주장에는 대응 manifest가 없어 그대로 채택하지 않았다.
+원본10파일 hash·집계는 `scratch/qa3-r26-evidence-review-2026-10-09/review.json`에 보존했다.
+새 제품 결함0·제공 검사 재실행0·제품/운영/배포 변경0, 기존 live/실기 한계 유지.
+[상세 판정](design/beta-qa3-repair-2026-10-09.md#r26-사용자-제공-재검증-원본-검토--2026-10-09).
 
 2026-10-09 8.7.7 정식 배포: QA3 확정9건 수정과 승인된 예방3건을 PR #273으로 병합했다.
 최신 PR head `6f4ea2f6`의 CI37882215473·자동 리뷰(추가 inline0)와 독립 소스 검토를 거쳐

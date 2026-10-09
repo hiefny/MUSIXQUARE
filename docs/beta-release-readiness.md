@@ -2,18 +2,24 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.8` / `v643`, App SHA `12ecbf71` 배포 완료. iPhone YouTube 탭 전환의 수평 이동 제거, PR #277·exact-main CI `37907874855`·Release `37908451698` 성공. App 100% version·운영 smoke4·소유권·coherent marker 확인, 다른 Worker5종 `ff7766cc` 유지. 8.7.8 깜빡임은 사용자 해결 확인; 헤더 독립8.7.9/v645 준비 중. 기존 R26 범위 완료와 provider/실기 관측 한계 유지 |
+| Status             | Runbook — 운영 App `8.7.9` / `v645`, App SHA `b831b932` 배포 완료. 헤더 독립 크로스페이드·로딩/시크 1.2초 차단 제거, PR #279·exact-main CI `37929745403`·Release `37930447317` 성공. App 100% version·운영 smoke4·소유권·coherent marker 확인, 다른 Worker5종 `ff7766cc` 유지. 새 헤더 변경의 iPhone Safari/PWA 실기는 사용자 후속 확인 대기. 기존 R26 범위 완료와 provider/실기 관측 한계 유지 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
-**헤더 독립 크로스페이드 준비 — 2026-10-09:** 사용자가 운영 8.7.8의 iPhone
+**최신 배포 완료 — 2026-10-09:** 사용자가 운영 8.7.8의 iPhone
 깜빡임 해결을 확인한 뒤 로딩·시크 중에도 크로스페이드를 유지하도록 수정·배포를
 승인했다. App `8.7.9` / `v645`에서 1.2초 전역 차단을 제거하고 일반 탭 전환의
-헤더만 live 그룹으로 분리한다. 헤더 위를 가리는 창과 setup/media 전환은 기존
-겹침 순서를 보존하며 크로스페이드는 유지한다. `app` / D1 false, 계약·의존성 변경
-없음. 현재 운영은 아래 8.7.8이며 새 PR·exact-main 후보·배포·실기 확인은 준비 중.
+헤더만 live 그룹으로 분리했다. 헤더 위를 가리는 창과 setup/media 전환은 기존
+겹침 순서를 보존하며 크로스페이드는 유지한다. [PR #279](https://github.com/hiefny/MUSIXQUARE/pull/279)
+병합 main `b831b9328500514df0cdc1853246af1d451e760e`의 성공
+[CI `37929745403`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37929745403) attempt1·
+782파일 immutable candidate를 [Release `37930447317`](https://github.com/hiefny/MUSIXQUARE/actions/runs/37930447317)
+attempt1에서 사용했다. `app` / Developer API D1 false, 운영 smoke4·최종 App
+소유권·coherent marker 통과, 복구 불필요. 다른 Worker5종 `ff7766cc` 유지·부분
+배포 호환성 확인, 계약·의존성 변경 없음. 새 헤더 변경의 iPhone Safari/PWA
+실기는 사용자 후속 확인 대기이며 이전 8.7.8 해결 보고와 구분한다.
 [원인·범위·검증·복구](design/header-crossfade-2026-10-09.md).
 
 **이전 배포 완료 — 2026-10-09:** 사용자 승인한 11번 방식으로 비활성 YouTube
@@ -43,8 +49,8 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 `8.7.7` / `v642`였다. 검증 범위와 남은 확인은 아래 체크리스트·누적 이력을 따른다.
 사용자는 같은 날 실서비스 배포 후 직접 iPhone 확인을 하겠다고 명시 승인했다.
 배포 범위는 `app` / Developer API D1 false이며, 정식 PR·exact-main CI·Release
-완료 전에는 위 준비 상태를 배포 완료로 해석하지 않았다. 현재 배포 판정은 위
-8.7.8 완료 기록을 따른다.
+완료 전에는 위 준비 상태를 배포 완료로 해석하지 않았다. 그 8.7.8 배포 판정은
+위의 해당 완료 기록을 따르며 현재 운영 상태는 최신 배포 기록을 따른다.
 
 **이전 배포 완료 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명 24시간,
 계정 명시 확인·변경, 닉네임 설정, 모바일 버튼과 선택한 문구 수정을 `8.7.6` / `v640`으로
@@ -85,7 +91,7 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 헤더 독립 크로스페이드 준비 — 2026-10-09 | 운영8.7.8 깜빡임 사용자 해결 확인 후 로딩/시크 1.2초 차단 제거·일반 탭 헤더 live 그룹·가림 표면/경합 정리 구현. App8.7.9/v645, app/D1 false, 계약·의존성 변경0. 커튼 실제 DOM 회귀 보강: 최종 전체531파일11,017pass/기존1skip/fail0·Chromium50pass. 최종 제품65229795의 정적7·committed build 통과. PR·exact-main CI·배포 준비 중. [기록](design/header-crossfade-2026-10-09.md) |
+| 8.7.9 헤더 독립 크로스페이드 배포 — 2026-10-09 | PR279 초기 자동리뷰 P1 커튼 조건 수정·회귀 보강·해결, 최종 독립 검토 차단0·PR CI37929168928 성공. main `b831b932` CI37929745403 attempt1 전체531파일11,017pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과, candidate782파일 hash/version 일치. Release37930447317 attempt1·app/D1 false 성공, App8.7.9/v645·100% version·smoke4·최종 소유권/coherent marker 확인. 다른 Worker5종ff7766cc 유지·호환, 복구 불필요. 제품65229795의 로컬 정적7/build·실제 DOM Chromium50 근거와 새 헤더 실기 대기 유지. [기록](design/header-crossfade-2026-10-09.md) |
 | 8.7.8 iPhone YouTube 전환 수정 배포 — 2026-10-09 | PR277·자동 리뷰 완료/inline0·독립 검토 새 확정0. main `12ecbf71` CI37907874855 attempt1 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과. 782파일 hash/version 일치. Release37908451698 attempt1·app/D1 false 성공, App8.7.8/v643·100% version·smoke4·최종 소유권/coherent marker 확인. 다른 Worker5종ff7766cc 호환·유지, rollback 불필요. 사용자가 깜빡임 해결 확인. 기존 숨은 fullscreen 키보드 포커스는 별도 후속 |
 | R26 보완 원본 최종 판정 — 2026-10-09 | 검토 HEAD `7dd457c2b3c5b63186dd3a20b31fa7601a6ec831`, 배포 제품18246271과 문서2파일 차이. Vitest47(39+8)/Chromium8의 최신55pass·fail/skip0 채택. 요청24개 같은 origin·기발급 flow 성공2·PKCE 대응·세션 후속 인증 확인, 합의한 로컬 범위 보류 해제. 현재clean·추적1,977/비Markdown1,830과 제공manifest 전수hash 일치·누락/추가/불일치0. 제출HEAD 전체값 불일치는 실제Git값으로 정정. Node24.13.1/핀24.20.0·live/운영쿠키/실기 제외 범위 유지, 부모실행0·새제품결함0·재배포 불필요. [최종 판정](design/beta-qa3-repair-2026-10-09.md#r26-보완-원본-최종-판정--2026-10-09) |
 | R26 사용자 제공 근거 검토 — 2026-10-09 | 검토 HEAD `b85148da`, 배포 제품 `18246271`과 차이는 문서2파일. 원본 Vitest2파일43pass(복제 알고리즘대조1+제품통합38+합성 성공OAuth4)·Chromium8pass/fail0 채택. 브라우저 최종 내부 URL 일치는 인정하나 route-only 집계는 리디렉션 각 hop의 외부 요청0 증명 아님. 기존 비정상 flow는 취소만, 성공분기 분리 검증 미완료. 실제Node24.13.1은 핀24.20.0과 다름; 현재 추적1,977/비Markdown1,830·clean이며 제출1,967/1,822와 불일치, 실행 전후hash manifest 미제공. 부모·독립 검토는 읽기만 수행·재실행0·새 제품 결함0·재배포 없음. [후속 판정](design/beta-qa3-repair-2026-10-09.md#r26-사용자-제공-재검증-원본-검토--2026-10-09) |
@@ -134,19 +140,19 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 현재 App `8.7.8` / `v643` 배포 완료; QA3 수정에 iPhone YouTube 탭 전환 수평 이동 제거를 추가. 정확한 main CI candidate·782파일 hash/버전 일치·운영 App generation/초기 asset graph 검증 통과 |
-| 완료한 배포 범위                    | 최신 `target=app` / `12ecbf71`; App exact git provenance·100% version 최종 확인. 다른 Worker5종은 이전 all 릴리스 `ff7766cc` 유지·부분 배포 호환성 재확인. 이번 App 배포는 PRO room-generation readiness marker를 새 SHA로 재기록하는 all 릴리스가 아님 |
+| 제품 버전 / PWA 캐시                | 현재 App `8.7.9` / `v645` 배포 완료; 8.7.8 수평 이동 제거에 헤더 독립 크로스페이드·로딩/시크 차단 제거 추가. 정확한 main CI candidate·782파일 hash/버전 일치·운영 App generation/초기 asset graph 검증 통과 |
+| 완료한 배포 범위                    | 최신 `target=app` / `b831b932`; App exact git provenance·100% version 최종 확인. 다른 Worker5종은 이전 all 릴리스 `ff7766cc` 유지·부분 배포 호환성 재확인. 이번 App 배포는 PRO room-generation readiness marker를 새 SHA로 재기록하는 all 릴리스가 아님 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
-| 최신 App main SHA / CI 후보 / 배포 실행 | `12ecbf71d6fe27b7c1eca85abbc00a8575b1b4df` / main CI `37907874855` attempt1 및 immutable candidate / Release `37908451698` attempt1 성공. 782파일 후보 hash/version·4개 운영 smoke·최종 App 소유권·coherent marker 확인 |
+| 최신 App main SHA / CI 후보 / 배포 실행 | `b831b9328500514df0cdc1853246af1d451e760e` / main CI `37929745403` attempt1 및 immutable candidate / Release `37930447317` attempt1 성공. 782파일 후보 hash/version·4개 운영 smoke·최종 App 소유권·coherent marker 확인 |
 | 후속 App 패치 | `8.7.4`/`v635` 완료 — 1280px 이상 데스크톱 채팅 위쪽 여백 16px→12px, 모바일·다른 패딩 유지. 제품 `86ea0e8e` → PR #265/main `358b3fc3`, `app`/D1 false. 로컬 unit 10,781·production CSS 레이아웃 16조합·공개 CSS/SW hash 및 fresh ko 검증 통과 |
 | 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**배포된 App은 `8.7.8` / `v643`, 배포 main SHA는 `12ecbf71`이다.** 정확한 main CI
+**배포된 App은 `8.7.9` / `v645`, 배포 main SHA는 `b831b932`이다.** 정확한 main CI
 후보로 App을 배포하고 운영 smoke4개·최종 소유권을 확인했다. 다른 Worker5종은
 `ff7766cc` 유지·호환성 확인 상태다.
-[8.7.8 정식 Release](https://github.com/hiefny/MUSIXQUARE/actions/runs/37908451698)와
-아래 누적 변경 이력을 따른다. 이전8.7.7/8.7.6/8.7.5 및 App8.7.4/시그널링99f9103c 배포 기록은 이력으로 보존한다.
+[8.7.9 정식 Release](https://github.com/hiefny/MUSIXQUARE/actions/runs/37930447317)와
+아래 누적 변경 이력을 따른다. 이전8.7.8/8.7.7/8.7.6/8.7.5 및 App8.7.4/시그널링99f9103c 배포 기록은 이력으로 보존한다.
 
 **2026-10-07 저녁 운영 R2 재검사:** `a1543f8b`의 유지 검사로 새 방 3회 중 2 pass / 1 fail.
 추가 수동 관찰 진단 1회에서도 연결 9개·R2 경로는 정상이었으나 게스트 1개가 HTTP 200
@@ -555,12 +561,14 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 ## 3. 현재 검증과 남은 확인
 
-**헤더 독립 크로스페이드 — 2026-10-09, 8.7.9/v645 준비:**
+**헤더 독립 크로스페이드 — 2026-10-09, 8.7.9/v645 배포 완료·실기 확인 대기:**
 
 - [x] 수정·배포 사용자 승인. 전역 1.2초 차단 제거, 일반 탭 헤더 live 그룹 분리와 가림 표면·혼합 배치·전환 종료 소유권 처리.
 - [x] Windows/Node24.20.0, 기존 관련138건·새 회귀27건 통과. 제품 SHA와 최종 검증은 [상세 기록](design/header-crossfade-2026-10-09.md)에 누적.
 - [x] 커튼 실제 DOM 회귀 보강: 최종 전체531파일11,017pass/기존1skip/fail0·Chromium50pass. 최종 제품65229795의 정적7·committed build 통과. 독립 코드/배포범위 검토 새 차단0.
-- [ ] PR 검토·정확한 main CI 후보·정식 app/D1 false 배포.
+- [x] PR279 초기 자동리뷰의 P1 커튼 조건 수정·회귀 보강·해결, 최종 독립 검토 차단0. 최종 PR CI37929168928 성공 후 main `b831b932`의 CI37929745403 attempt1 전체11 job 성공: 531파일11,017pass/기존1skip/fail0·coverage4종·candidate17/critical22 통과.
+- [x] immutable candidate782파일 SHA/version/hash 검증, 최종 제품과 main의 browser 입력10개 hash 일치. Release37930447317 attempt1·app/D1 false 성공: App100% version·운영 smoke4·최종 소유권/coherent marker 확인, 다른 Worker5종ff7766cc 유지·호환, 복구 불필요.
+- [x] 운영 root index·service-worker·bootstrap·main CSS 공개 GET4개 모두200·exact-main candidate SHA-256 일치. index v645·헤더 분리 CSS 확인. 기존 열린 PWA의 코드 적용이나 실기 동작 확인을 뜻하지 않음.
 - [ ] 새 헤더 변경의 실제 iPhone Safari/PWA 로딩 시작·종료·시크 직후 탭 왕복 확인.
 
 **iPhone YouTube 전환 후속 — 2026-10-09, 8.7.8 배포 완료·사용자 해결 확인:**
@@ -1517,12 +1525,43 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 
 ### 누적 변경 이력
 
+2026-10-09 8.7.9 헤더 독립 크로스페이드 정식 배포: PR
+[#279](https://github.com/hiefny/MUSIXQUARE/pull/279)의 초기 자동리뷰 P1 커튼 조건을
+수정·회귀 보강해 해결했고 최종 독립 검토 차단0·PR CI37929168928 성공을 확인했다.
+최종 제품 `652297954cd0d88bef018cc3d7c47f972f0457bc`의 로컬 전체531파일
+11,017pass/기존1skip/fail0·정적7·committed build·실제 index DOM Chromium50pass를
+보존한다. 병합 main `b831b9328500514df0cdc1853246af1d451e760e`의
+CI37929745403 attempt1은 전체11 job 성공, Ubuntu/Node24.20.0에서
+531파일11,017pass/Windows 전용 기존1skip/fail0·coverage4종·candidate/SW17·
+critical browser22 통과. 782파일 immutable candidate의 SHA/version/hash와
+browser 입력10개의 최종 제품/main hash 일치를 확인했다. 초기54d28703의
+축소 fixture·커튼 수정 전 실패는 [상세 기록](design/header-crossfade-2026-10-09.md)에 보존한다.
+
+Release [37930447317](https://github.com/hiefny/MUSIXQUARE/actions/runs/37930447317)
+attempt1·target app/Developer API D1 false 성공, 2026-10-09 21:32:29 KST 완료.
+App8.7.9/v645, deployment `4493db1c-9cb1-4025-b790-9a4cc461c81a`, 100% version
+`cdde09ba-db0a-49bd-bdbd-5a3d05f0f15a`, `git:b831b932...` 최종 소유권 확인.
+generation·anonymous account·PRO public·Standard HTTPS signaling smoke4와
+coherent-production marker 통과. 다른 Worker5종ff7766cc의 부분 배포 호환성
+재확인·배포 없음, schema/secrets/bindings/deps 변경 없음. 복구 불필요·recovery
+job은 skip, 사전 App 기준SHA12ecbf71/deployment `db79d475-d5f3-41e7-a6e1-e6ef4d921663`/
+version `2e424812-cc95-4efa-a4d0-498e60ae49e8` checkpoint 보존. 이후 복구는
+canonical hotfix 절차와 실제 ownership/floor 재검증을 따른다. 21:33:53 KST에
+운영 root index·service-worker·bootstrap·main CSS 공개 GET4개200·candidate
+SHA-256 전부 일치, index v645와 헤더 분리 CSS 확인(`live-assets.json`). 이는
+기존 열린 PWA의 코드 적용이나 실기 결과가 아니다. 새 헤더 변경의
+iPhone Safari/PWA 로딩·시크·탭 왕복은 사용자 후속 확인 대기다. 원본 CI/Release
+JSON·로그·candidate·`release-records`·`release-commit`·browser 입력 hash 대조는
+`scratch/header-crossfade-2026-10-09/`에 보존했다. 배포 결과 기록의 문서 병합은
+App 재배포 대상이 아니다.
+
 2026-10-09 헤더 독립 크로스페이드 준비: 운영8.7.8 깜빡임 사용자 해결 확인 후
 로딩/시크에서도 탭 효과 유지와 배포를 승인했다. App8.7.9/v645에서 로딩의
 전역1.2초 차단을 제거하고 일반 탭의 헤더 live 그룹을 분리한다. 가림 표면·혼합
 배치는 root 합성을 보존하고 비동기 새 창은 진행 중 효과만 종료하며 대기시간을
 추가하지 않는다. 최종 새27회귀·전체11,017pass/기존1skip/fail0·실제 DOM Chromium50pass, app/D1 false·계약 변경0.
-최종 전체검사·정확한 main CI·정식배포·새 헤더 실기는 [상세 기록](design/header-crossfade-2026-10-09.md)에 이어서 기록한다.
+당시 후속 확인 예정이던 정확한 main CI·정식배포 결과는 위 완료 기록과
+[상세 기록](design/header-crossfade-2026-10-09.md)에 추가했다. 새 헤더 실기는 별도 대기다.
 
 2026-10-09 8.7.8 iPhone YouTube 전환 수정 정식 배포: 사용자 실서비스 배포 승인 후
 PR [#277](https://github.com/hiefny/MUSIXQUARE/pull/277)의 자동 코드리뷰 완료·inline0과

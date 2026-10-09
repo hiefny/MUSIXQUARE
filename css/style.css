@@ -774,6 +774,26 @@
     will-change: transform;
   }
 
+  /* Normal tab transitions keep only the live header image. Its own logo and
+     loading-text motion continues without replaying an old snapshot. The
+     runtime opts out when an overlay needs the original root stacking order. */
+  html.tab-header-transition #main-header {
+    view-transition-name: main-header;
+  }
+
+  ::view-transition-group(main-header),
+  ::view-transition-new(main-header) {
+    animation: none;
+  }
+
+  ::view-transition-old(main-header) {
+    display: none;
+  }
+
+  ::view-transition-new(main-header) {
+    mix-blend-mode: normal;
+  }
+
   /* Header loading progress */
   .header-progress-bg {
     position: absolute;

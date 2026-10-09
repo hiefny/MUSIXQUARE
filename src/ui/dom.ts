@@ -39,11 +39,12 @@ export function cycleFocusWithin(
 // ─── Batch View Transition ───────────────────────────────────────
 
 let _batchedTransitionCb: (() => void) | null = null;
-
-let _suppressViewTransitionUntil = 0;
+let _batchedTransitionPreservesHeader = false;
+let _headerTransitionGeneration = 0;
 let _immediateTransitionDepth = 0;
 
 interface ViewTransitionLike {
+  skipTransition?: () => void;
   ready?: Promise<void>;
   finished?: Promise<void>;
   updateCallbackDone?: Promise<void>;
@@ -51,11 +52,48 @@ interface ViewTransitionLike {
 
 type DocumentWithViewTransition = Document & {
   startViewTransition?: (callback: () => void) => ViewTransitionLike;
+  webkitFullscreenElement?: Element | null;
+  webkitCurrentFullScreenElement?: Element | null;
+  webkitIsFullScreen?: boolean;
 };
 
-/** Suppress View Transitions for the given duration (ms). */
-export function suppressViewTransitions(durationMs: number): void {
-  _suppressViewTransitionUntil = Date.now() + durationMs;
+interface TransitionOptions {
+  /** Ordinary tab updates can keep the header live outside the root crossfade. */
+  preserveHeader?: boolean;
+}
+
+function canPreserveTransitionHeader(): boolean {
+  // Named snapshots paint above the root snapshot. Keep occluding surfaces in
+  // their original stack rather than lifting the header over a dialog/drawer.
+  // The video-local YouTube sync shield does not cover the app header.
+  const doc = document as DocumentWithViewTransition;
+  if (
+    OVERLAYS.some(isShown) ||
+    doc.fullscreenElement ||
+    doc.webkitFullscreenElement ||
+    doc.webkitCurrentFullScreenElement ||
+    doc.webkitIsFullScreen
+  ) {
+    return false;
+  }
+  // The curtain is permanently mounted with opacity 0. Only its visible or
+  // running WAAPI state occludes chrome; a finished reveal at zero does not.
+  const curtain = getUiElement('demo-curtain');
+  if (
+    curtain &&
+    (Number.parseFloat(getComputedStyle(curtain).opacity) > 0 ||
+      curtain
+        .getAnimations?.()
+        .some((animation) => animation.playState === 'running' || animation.pending))
+  ) {
+    return false;
+  }
+  return !document.querySelector(
+    'body.overlay-open, body.mode-demo, body.demo-chrome-hiding, body.has-fake-fullscreen, ' +
+      '.chat-drawer.open, .chat-backdrop.open, .toast.show, .session-reset-overlay.show, ' +
+      '.debug-memory-overlay, .file-drop-feedback.is-visible, ' +
+      '.playlist-reorder-ghost, .playlist-reorder-settle, .skip-link:focus',
+  );
 }
 
 /** Apply a prepared initial view synchronously; later transitions keep their own scheduling. */
@@ -68,21 +106,17 @@ export function runWithoutViewTransitions(callback: () => void): void {
   }
 }
 
-export function animateTransition(callback: () => void): void {
+export function animateTransition(callback: () => void, options: TransitionOptions = {}): void {
   const transitionDocument = document as DocumentWithViewTransition;
-  // Skip View Transitions while the header loading-bar CSS transition
-  // is in progress — startViewTransition snapshots replay CSS transitions,
-  // causing the loading animation to appear twice.
-  if (
-    _immediateTransitionDepth > 0 ||
-    Date.now() < _suppressViewTransitionUntil ||
-    !transitionDocument.startViewTransition
-  ) {
+  if (_immediateTransitionDepth > 0 || !transitionDocument.startViewTransition) {
     callback();
     return;
   }
 
   if (_batchedTransitionCb !== null) {
+    // A batched setup/mode update may open an overlay. Only isolate chrome
+    // when every update in this native transition is an ordinary tab change.
+    _batchedTransitionPreservesHeader &&= options.preserveHeader === true;
     const oldCb = _batchedTransitionCb;
     _batchedTransitionCb = () => {
       oldCb();
@@ -92,11 +126,28 @@ export function animateTransition(callback: () => void): void {
   }
 
   _batchedTransitionCb = callback;
+  _batchedTransitionPreservesHeader = options.preserveHeader === true;
   Promise.resolve()
     .then(() => {
       const cb = _batchedTransitionCb;
+      const preserveHeader = _batchedTransitionPreservesHeader;
       _batchedTransitionCb = null;
+      _batchedTransitionPreservesHeader = false;
       if (!cb) return;
+      const root = document.documentElement;
+      const generation = ++_headerTransitionGeneration;
+      root.classList.toggle(
+        'tab-header-transition',
+        preserveHeader && canPreserveTransitionHeader(),
+      );
+      let stopWatchingHeader = () => {};
+      const releaseHeader = () => {
+        stopWatchingHeader();
+        // A superseded transition must not clear a newer transition's group.
+        if (generation === _headerTransitionGeneration) {
+          root.classList.remove('tab-header-transition');
+        }
+      };
       let executed = false;
       try {
         // startViewTransition returns a ViewTransition object whose
@@ -110,17 +161,50 @@ export function animateTransition(callback: () => void): void {
         const vt = transitionDocument.startViewTransition(() => {
           executed = true;
           cb();
+          // Tab lifecycle listeners may synchronously reveal a modal too.
+          if (generation === _headerTransitionGeneration && !canPreserveTransitionHeader()) {
+            root.classList.remove('tab-header-transition');
+          }
         });
+        if (root.classList.contains('tab-header-transition') && vt?.skipTransition) {
+          // A network/session dialog can arrive after capture. Finish only the
+          // obsolete tab effect so the live overlay regains its correct stack;
+          // no cooldown is imposed on the next tab transition.
+          const checkHeaderOcclusion = () => {
+            if (generation !== _headerTransitionGeneration) return;
+            if (!root.classList.contains('tab-header-transition')) {
+              stopWatchingHeader();
+              return;
+            }
+            if (!canPreserveTransitionHeader()) {
+              vt.skipTransition?.();
+              releaseHeader();
+            }
+          };
+          const observer = new MutationObserver(checkHeaderOcclusion);
+          observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['class', 'style'],
+            childList: true,
+            subtree: true,
+          });
+          const events = ['fullscreenchange', 'webkitfullscreenchange', 'focusin'];
+          for (const event of events) document.addEventListener(event, checkHeaderOcclusion);
+          stopWatchingHeader = () => {
+            observer.disconnect();
+            for (const event of events) document.removeEventListener(event, checkHeaderOcclusion);
+          };
+        }
         vt?.ready?.catch(() => {
           /* noop — benign abort */
         });
-        vt?.finished?.catch(() => {
-          /* noop — benign abort */
-        });
+        if (vt?.finished !== undefined) void vt.finished.then(releaseHeader, releaseHeader);
+        else releaseHeader();
         vt?.updateCallbackDone?.catch(() => {
           /* noop — benign abort */
         });
       } catch {
+        releaseHeader();
         if (!executed) cb();
       }
     })

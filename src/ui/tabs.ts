@@ -14,59 +14,62 @@ import { scrollToWithPreferredMotion } from './scroll-motion.ts';
 // ─── Tab Switching ───────────────────────────────────────────────
 
 export function switchTab(tabId: string): void {
-  animateTransition(() => {
-    document.querySelectorAll('.tab-content').forEach((el) => el.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach((el) => {
-      el.classList.remove('active');
-      el.setAttribute('aria-selected', 'false');
-      el.setAttribute('tabindex', '-1');
-    });
-    const tabEl = document.getElementById(`tab-${tabId}`);
-    if (tabEl) tabEl.classList.add('active');
-    const skipLink = document.querySelector<HTMLAnchorElement>('.skip-link');
-    if (skipLink && tabEl) skipLink.href = `#${tabEl.id}`;
-    // Select nav item by data-tab attribute instead of index to avoid
-    // DOM-order coupling with the hardcoded array.
-    const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
-    if (navItem) {
-      navItem.classList.add('active');
-      navItem.setAttribute('aria-selected', 'true');
-      navItem.setAttribute('tabindex', '0');
-    }
+  animateTransition(
+    () => {
+      document.querySelectorAll('.tab-content').forEach((el) => el.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach((el) => {
+        el.classList.remove('active');
+        el.setAttribute('aria-selected', 'false');
+        el.setAttribute('tabindex', '-1');
+      });
+      const tabEl = document.getElementById(`tab-${tabId}`);
+      if (tabEl) tabEl.classList.add('active');
+      const skipLink = document.querySelector<HTMLAnchorElement>('.skip-link');
+      if (skipLink && tabEl) skipLink.href = `#${tabEl.id}`;
+      // Select nav item by data-tab attribute instead of index to avoid
+      // DOM-order coupling with the hardcoded array.
+      const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+      if (navItem) {
+        navItem.classList.add('active');
+        navItem.setAttribute('aria-selected', 'true');
+        navItem.setAttribute('tabindex', '0');
+      }
 
-    // Gesture-owning views use this generic lifecycle signal to cancel input
-    // immediately when their mobile/tablet panel becomes inactive.
-    bus.emit('ui:tab-changed', tabId);
+      // Gesture-owning views use this generic lifecycle signal to cancel input
+      // immediately when their mobile/tablet panel becomes inactive.
+      bus.emit('ui:tab-changed', tabId);
 
-    if (tabId === 'settings') {
-      bus.emit('ui:settings-tab-opened');
-    }
+      if (tabId === 'settings') {
+        bus.emit('ui:settings-tab-opened');
+      }
 
-    if (tabId === 'connect') {
-      bus.emit('ui:connect-tab-opened');
-    }
+      if (tabId === 'connect') {
+        bus.emit('ui:connect-tab-opened');
+      }
 
-    if (tabId === 'playlist') {
-      bus.emit('ui:playlist-tab-opened');
-    }
+      if (tabId === 'playlist') {
+        bus.emit('ui:playlist-tab-opened');
+      }
 
-    if (tabId === 'play') {
-      setManagedTimer(
-        'tab-play-check',
-        () => {
-          if (isPlaybackModeYouTube()) {
-            bus.emit('youtube:refresh-display');
-          }
-          bus.emit('ui:visualizer-check');
-        },
-        50,
-      );
-    }
+      if (tabId === 'play') {
+        setManagedTimer(
+          'tab-play-check',
+          () => {
+            if (isPlaybackModeYouTube()) {
+              bus.emit('youtube:refresh-display');
+            }
+            bus.emit('ui:visualizer-check');
+          },
+          50,
+        );
+      }
 
-    if (tabEl) bus.emit('ui:scrollbar-reveal', tabEl);
+      if (tabEl) bus.emit('ui:scrollbar-reveal', tabEl);
 
-    bus.emit('ui:close-chat-drawer');
-  });
+      bus.emit('ui:close-chat-drawer');
+    },
+    { preserveHeader: true },
+  );
 }
 
 // ─── Init ────────────────────────────────────────────────────────

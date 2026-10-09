@@ -1394,20 +1394,21 @@
     );
   }
 
-  /* Keep the YouTube-owning play tab mounted off-screen so its iframe and
-     playback state survive navigation to another tab. */
+  /* Keep the YouTube iframe mounted and hidden in place so playback survives
+     tab navigation. Horizontal off-screen moves flash during iOS view
+     transitions; retain the existing depth isolation without moving sideways. */
   body.mode-youtube #tab-play:not(.active) {
     display: flex;
     position: absolute;
     top: 0;
-    left: -100vw;
+    left: 0;
     width: 100%;
     height: 100%;
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     z-index: -1;
-    transform: translate3d(-100vw, 0, -1px);
+    transform: translate3d(0, 0, -1px);
   }
 
   /* Play tab needs flex for centering content */

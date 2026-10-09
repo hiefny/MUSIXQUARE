@@ -16,6 +16,16 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 복구 불필요. 다른 Worker5종은 `ff7766cc`를 유지하며 부분 배포 호환성을 확인했다.
 [수정·검증·정식 배포 결과](design/beta-qa3-repair-2026-10-09.md).
 
+**미배포 후속 수정 — 2026-10-09:** iPhone YouTube 탭 전환 깜빡임의 단일 HTML
+대조에서 수평 이동이 있는 조합은 재현, 수평 이동이 없는 05·11번은 정상으로
+사용자가 보고했다. 11번과 같이 비활성 재생 패널의 `left`와 transform X만 0으로
+변경하고 기존 Z=-1px·크로스페이드·iframe 유지 처리를 보존한다. 로컬
+`agent/ios-youtube-tab-parking`에 App `8.7.8` / `v643`을 준비했으며 운영은 위
+`8.7.7` / `v642` 그대로다. 검증 범위와 남은 확인은 아래 체크리스트·누적 이력을 따른다.
+사용자는 같은 날 실서비스 배포 후 직접 iPhone 확인을 하겠다고 명시 승인했다.
+배포 범위는 `app` / Developer API D1 false이며, 정식 PR·exact-main CI·Release
+완료 전에는 위 준비 상태를 배포 완료로 해석하지 않는다.
+
 **이전 배포 완료 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명 24시간,
 계정 명시 확인·변경, 닉네임 설정, 모바일 버튼과 선택한 문구 수정을 `8.7.6` / `v640`으로
 배포했다. 최초 활성화는 계정 확인·변경을 먼저 제공한 뒤 방 암호를 설정한다.
@@ -522,6 +532,16 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
   방 재생 명령·권한 완화·파일 공유 종료 정책 변경은 없다.
 
 ## 3. 현재 검증과 남은 확인
+
+**iPhone YouTube 전환 후속 — 2026-10-09, 미배포:**
+
+- [x] 사용자 실서비스 배포 승인. App만 배포하며 iPhone Safari/PWA 실기 확인은 사용자가 배포 후 수행할 예정.
+- [x] 단일 HTML 사용자 실기 대조: 08·09·10·12·13 깜빡임, 11 정상. 이전 05 정상과 합쳐 수평 이동 제거를 수정 방향으로 선택. OS 내부 결함 확정이나 제품 실기 완료로 확대하지 않음.
+- [x] 비활성 YouTube 패널 `left:0`, `translate3d(0,0,-1px)` 적용. 나머지 숨김·깊이·전환·iframe 수명 유지, 관련 주석 정정. schema/secrets/bindings/deps 변경 없음.
+- [x] Windows/Node24.20.0의 관련 Vitest3파일76pass/fail·skip0. Chromium 제품 CSS/탭 모듈 fixture의 모바일·태블릿·wide cascade, 동일 iframe 유지와 클릭 대조 확인. 이 검사는 실제 YouTube/전체 앱 세션 검사가 아님.
+- [x] 제품 커밋 `983d18c2db8a40468be8da173445b8f4cece3b8c`의 `build:checked`·관련 서식·release identity 통과, 독립 diff 검토 새 확정 결함0. 전체 unit/typecheck/lint·제품 WebKit E2E 재실행 결과는 아님.
+- [ ] 수정 제품의 iPhone Safari/PWA 실제 영상으로 나가기·복귀·빠른 왕복·재생 지속 확인. 정식 PR/CI/exact-main candidate/배포 미실행.
+- [ ] 별도 기존 접근성 관찰: 제품 CSS fixture에서 비활성 패널의 fullscreen 버튼에 역방향 키보드 포커스가 도달. 수정 전 수평 이동 조합과 수정 후 모두 동일하게 재현. 이번 변경으로 새로 생긴 문제로 분류하지 않으며 전체 앱 접근성 확인·처리는 별도 후속 범위.
 
 **3차 독립 QA — 2026-10-09:** [최종 결과·30개 범위·원본](design/beta-30-round-qa3-2026-10-09.md).
 
@@ -1463,6 +1483,24 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 iPhone YouTube 탭 전환 수평 이동 제거(미배포): 기준 main
+`985d877d7a5997d72d86f2d84089772c26dae261`에서 사용자 단일 HTML 결과를 반영했다.
+left/X/Z 전체 조합 중 수평 이동이 하나라도 남은 01·08·09·10·12·13은 깜빡이고,
+둘 다 0인 05(Z0)·11(Z-1)은 정상이라는 보고다. Z 깊이는 기존 iOS 레이어 분리
+목적을 보존하고 두 수평 이동만 제거했다. App8.7.8/v643·버전 mirrors/bootstrap를
+로컬 준비했으며 main 병합·배포는 미실행이다. 제품 커밋은
+`983d18c2db8a40468be8da173445b8f4cece3b8c`, 해당 HEAD의 `build:checked`와
+관련 서식·release identity 통과, 독립 diff 검토 새 확정0이다. 기존76개 단위검사
+및 아래 browser 확인은 그 커밋과 동일한 관련 코드의 commit 전 작업 트리에서
+수행했다. 전체 unit/typecheck/lint·제품 WebKit E2E는 재실행하지 않았다. 단위검사 통과는 CSS의
+실기 깜빡임 검증을 뜻하지 않는다. 제품 CSS와 실제 탭 모듈을 묶은 독립 fixture에서
+390/844/1024/1279px 숨김·표본 hit-test0, 1280/1440px wide 표시·transform none과
+iframe 동일성·복귀 이벤트를 확인했다. fixture는 srcdoc iframe이며 전체 제품의
+YouTube 재생/refresh 구현 실행이나 iOS WebKit 영상 합성 검사가 아니다. 비활성
+fullscreen 키보드 포커스 노출은 수정 전후 동일한 별도 기존 관찰로 남긴다.
+원본 fixture·Vitest JSON은 `scratch/ios-youtube-parking-fix-2026-10-09/`, 이전 HTML
+비교 근거는 `scratch/ios-youtube-root-cause-2026-10-09/`에 보존한다.
 
 2026-10-09 R26 보완 원본 최종 판정: 실제 검토 HEAD `7dd457c2b3c5b63186dd3a20b31fa7601a6ec831`,
 배포 제품18246271과 문서2파일 차이. 제공 Vitest47pass/Chromium8pass·fail/skip0과 실제 검사

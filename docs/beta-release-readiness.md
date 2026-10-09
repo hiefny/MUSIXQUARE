@@ -536,6 +536,7 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 - [x] R26 첫 제공 원본51pass(Vitest43+Chromium8)의 채택·보류 이력을 보존. 현재 판정은 이를 포함하는 아래 보완55건을 따르며 이전 결과와 합산하지 않음.
 - [x] R26 보완 원본55pass(Vitest47+Chromium8)를 읽기 전용 확인. 브라우저8케이스 요청24개 전부 동일 origin, 기발급 비정상 flow의 성공 callback2건·PKCE 대응·발급 세션 후속 인증을 확인하여 앞선 두 핵심 공백 해소·합의한 로컬 범위 완료. 검토자 재실행0.
 - [x] R26 제공manifest 추적1,977/비Markdown1,830 전수 대조·현재hash 불일치0. 제출HEAD 표기 불일치는 실제검토HEAD `7dd457c2b3c5b63186dd3a20b31fa7601a6ec831`로 정정. 단일snapshot과 과거 실행 전후 증명을 구분.
+- [x] 최신55건 원본11파일을 별도 `scratch/qa3-r26-evidence-closure-2026-10-09/supplied-55-pass/`에 복사·hash 확인. 첫51건은 당시hash와 일치하는2파일만 별도 복구했고8파일은 미복구임을 `preservation.json`과 상세 기록에 명시. 최초 판정/Git 이력·hash 보존을 원본 전체 복구로 표현하지 않음. 현재 완료 판정은 최신55건의 자체 근거만 사용.
 - R26 범위 한계: Node24.13.1 결과를 저장소핀24.20.0의 재실행으로 표현하지 않음. live Google·운영 HTTPS 쿠키·실기는 이번 로컬 범위 밖이며 보류 해제에 새 완료 조건으로 추가하지 않음. [최종 판정·범위](design/beta-qa3-repair-2026-10-09.md#r26-보완-원본-최종-판정--2026-10-09).
 - [ ] 이전 dev claim-missing·legacy SW 단발 정지·운영 R2 지연/미완료와 물리 키보드·media key·음향 등 실기 한계 유지. 이번 로컬 결과로 원인을 소급 확정하지 않음.
 
@@ -1473,6 +1474,9 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 부모 제공검사 실행0·새 제품 결함0·제품/운영/배포 변경0. Node24.13.1/핀24.20.0 및 live/
 운영HTTPS쿠키/실기 제외 범위는 계속 명시하되 이번 보류의 새 조건으로 확대하지 않는다.
 원본11파일 hash·전체manifest 대조·요청집계는 `scratch/qa3-r26-evidence-closure-2026-10-09/evidence-review.json`에 보존.
+최신11파일은 별도 `supplied-55-pass/` 사본으로 보존·hash 확인했다. 첫51건은 당시hash 일치2파일만
+`first-51-pass-recovered/`에 복구하고 나머지8파일 미복구를 `preservation.json`에 명시했다.
+초기 이력 보존 한계는 남으며 최신55건 자체 근거에 따른 완료 판정과 구분한다.
 [최종 판정](design/beta-qa3-repair-2026-10-09.md#r26-보완-원본-최종-판정--2026-10-09).
 
 2026-10-09 R26 사용자 제공 재검증 원본의 읽기 전용 검토: HEAD `b85148dabfba96b2dafcdb43dd6f69f97734f342`,

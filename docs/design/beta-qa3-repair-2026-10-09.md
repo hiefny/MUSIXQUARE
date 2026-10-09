@@ -153,8 +153,14 @@ import하지 않았다. **추가 검사 재실행 0건, 새 확정 제품 결함
 이 문서에 판정을 덧붙였다. 첫 Vitest JSON·로그는 2파일 43pass였으며 브라우저 8건은 별도 결과다.
 검토 시점 원본 10파일의 SHA-256·집계·Git 상태는 별도 ignored
 `scratch/qa3-r26-evidence-review-2026-10-09/review.json`에 기록했다.
-제공 scratch는 이후 사용자의 보완본으로 갱신됐다. 첫 판정과 당시 hash 기록을 보존하되,
-이전 원본 파일 자체의 별도 백업이 존재한다고 해석하지 않는다.
+제공 scratch는 이후 사용자의 보완본으로 갱신됐다. 첫 판정과 당시 hash 기록은 보존됐지만,
+이것이 이전 원본 파일 자체의 보존을 대신하지는 않는다. 후속 보존 점검에서 당시 hash와
+일치하는 `r26-deep-reproduction.test.ts`·`vitest.r26.config.ts` 2파일만
+`scratch/qa3-r26-evidence-closure-2026-10-09/first-51-pass-recovered/`에 복사·검증했다.
+나머지 브라우저 코드·결과·로그, OAuth 코드, report·summary, Vitest 결과·로그 8파일의
+이전 버전은 복구하지 못했다. 미복구 목록은 같은 디렉터리 상위의 `preservation.json`에,
+당시 hash는 첫 `review.json`에 남겨 이력 보존 한계를 공개한다. 추정 복원이나 새 실행으로
+이전 원본을 대체하지 않았다. 최신 완료 판정은 아래 55건의 자체 결과만 사용한다.
 
 | 제공 근거 | 채택 범위와 한계 |
 | --- | --- |
@@ -237,7 +243,12 @@ OAuth 관련 보완도 실제 제품의 해당 동작을 직접 통과한다.
 - `:342`의 세션 검사는 성공 callback에서 발급된 쿠키로 실제 `/api/auth/session`을
   호출해 200·`authenticated: true`를 확인한다. 세션 DB 1건과 계정 active도 직접 확인했다.
 
-현재 제공 원본은 `scratch/qa3-r26-reverification-2026-10-09/`에 있다.
+현재 제공 원본은 `scratch/qa3-r26-reverification-2026-10-09/`에 있다. 이 경로가 다음
+제출에서 다시 갱신돼도 현재 근거를 보존하도록 최신 원본 11파일 전체를
+`scratch/qa3-r26-evidence-closure-2026-10-09/supplied-55-pass/`에 별도로 복사했고,
+검토 당시 hash와 모두 일치함을 확인했다. `preservation.json`은 이 사본과 초기 2파일의
+부분 복구·8파일 미복구를 구분한다. 현재 근거의 보존 조치는 완료했으나 초기 원본 전체를
+복구했다고 판정하지 않는다.
 검토한 11파일의 SHA-256, Vitest·브라우저 집계, 개별 요청 수와 origin 대조, Git 상태 및
 manifest 검토 결과는 ignored
 `scratch/qa3-r26-evidence-closure-2026-10-09/evidence-review.json`에 보존한다.

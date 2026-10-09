@@ -39,10 +39,11 @@ the release workflow's fresh ownership/compatibility checks remain authoritative
 
 ## Verification and remaining work
 
-Base checkout: `9e91ecd403d53f043bd35c4105b71aaa752de6e3`, Windows, Node 24.20.0.
-The source SHA and final local/CI/release evidence will be recorded before and
-after the corresponding release gates; working-tree results are not an exact
-main candidate.
+Tested product commit: `54d28703b086bb55aac2f49f7e40f3ac613bedf8`, based on
+`9e91ecd403d53f043bd35c4105b71aaa752de6e3`, Windows, Node 24.20.0. Unit/static
+checks ran on that working tree before commit; the browser runner records exact
+input hashes. The production build ran on committed `54d28703`. These local
+results are not the successful exact-main CI candidate.
 
 - Existing focused unit suite: 138 pass, 0 fail/skip.
 - New tab/loading integration and transition lifecycle regression: 21 pass,
@@ -66,7 +67,8 @@ main candidate.
   it separately. Initial lint caught a Promise-valued conditional; corrected
   without changing lint rules. Final static/browser results above supersede
   these implementation-stage failures.
-- Committed production build: pending.
+- Committed `build:checked`: pass, including release/cache identity and
+  production asset/security/transfer-budget/service-worker guards.
 - Reviewed PR, successful exact-main CI candidate, production workflow and live
   smoke checks: pending.
 - Physical iPhone Safari/PWA verification of this header change remains a

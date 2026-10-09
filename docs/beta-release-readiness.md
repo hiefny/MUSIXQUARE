@@ -22,6 +22,9 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 변경하고 기존 Z=-1px·크로스페이드·iframe 유지 처리를 보존한다. 로컬
 `agent/ios-youtube-tab-parking`에 App `8.7.8` / `v643`을 준비했으며 운영은 위
 `8.7.7` / `v642` 그대로다. 검증 범위와 남은 확인은 아래 체크리스트·누적 이력을 따른다.
+사용자는 같은 날 실서비스 배포 후 직접 iPhone 확인을 하겠다고 명시 승인했다.
+배포 범위는 `app` / Developer API D1 false이며, 정식 PR·exact-main CI·Release
+완료 전에는 위 준비 상태를 배포 완료로 해석하지 않는다.
 
 **이전 배포 완료 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명 24시간,
 계정 명시 확인·변경, 닉네임 설정, 모바일 버튼과 선택한 문구 수정을 `8.7.6` / `v640`으로
@@ -532,6 +535,7 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 **iPhone YouTube 전환 후속 — 2026-10-09, 미배포:**
 
+- [x] 사용자 실서비스 배포 승인. App만 배포하며 iPhone Safari/PWA 실기 확인은 사용자가 배포 후 수행할 예정.
 - [x] 단일 HTML 사용자 실기 대조: 08·09·10·12·13 깜빡임, 11 정상. 이전 05 정상과 합쳐 수평 이동 제거를 수정 방향으로 선택. OS 내부 결함 확정이나 제품 실기 완료로 확대하지 않음.
 - [x] 비활성 YouTube 패널 `left:0`, `translate3d(0,0,-1px)` 적용. 나머지 숨김·깊이·전환·iframe 수명 유지, 관련 주석 정정. schema/secrets/bindings/deps 변경 없음.
 - [x] Windows/Node24.20.0의 관련 Vitest3파일76pass/fail·skip0. Chromium 제품 CSS/탭 모듈 fixture의 모바일·태블릿·wide cascade, 동일 iframe 유지와 클릭 대조 확인. 이 검사는 실제 YouTube/전체 앱 세션 검사가 아님.

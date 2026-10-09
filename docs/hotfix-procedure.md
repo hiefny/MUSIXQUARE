@@ -518,6 +518,14 @@ and Cloudflare Worker version IDs identify the exact deployed build.
 | User dismisses update dialog                | The waiting worker is not activated by app code. The update applies on a later natural load/update path.                                                                                                                                                                                                                                                                                                                                          |
 | PWA/background tab                          | Delivery depends on when the browser wakes the page and allows the update check. Treat this as browser-controlled.                                                                                                                                                                                                                                                                                                                                |
 
+Stable same-origin static revalidation has a five-second deadline covering
+both response headers and body. A cached response is still returned immediately;
+timed-out work is aborted and cannot replace the cache with a late response.
+This prevents that background fetch from indefinitely holding an approved
+update after the bounded worker is active. Deploying the fix cannot cancel
+requests already owned by an older worker: a stuck first upgrade may still
+require the request to settle or all app tabs to close before reopening.
+
 Bumping `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`
 creates fresh active app-shell caches and is the current lightweight way to
 make existing clients notice an app-shell migration. The build injects that

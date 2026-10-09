@@ -6,7 +6,6 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
 import type { StandardOperatorFileUplinkProgress } from '../types/index.ts';
-import { suppressViewTransitions } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 
 const TOAST_MAX_LINE_CHARS = 50;
@@ -302,9 +301,6 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
         };
     _loaderHolders.set(key, holder);
     clearManagedTimer('loader-reset');
-    // Suppress View Transitions while the loading CSS transition plays
-    // (1s transform + buffer) to prevent snapshot-replay double-animation
-    suppressViewTransitions(1200);
     header?.classList.add('loading');
     // Repeated progress/text updates for an existing background holder must
     // not promote it over a newer foreground operation.
@@ -316,8 +312,6 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
       renderLoader(foreground[1]);
       return;
     }
-    // Suppress through the reverse CSS transition as well
-    suppressViewTransitions(1200);
     header?.classList.remove('loading');
     setManagedTimer(
       'loader-reset',

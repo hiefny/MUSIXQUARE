@@ -2,13 +2,21 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.6` / `v640`, Worker6종 `ff7766cc` 배포 완료. PR #271·exact-main CI `37857195274`·Release `37857830458` 성공 근거 유지. 2026-10-09 후속 3차 QA: 29라운드 완료·R26 부분 차단, 확정9건 수정·예방3건 구현, 로컬회귀 통과·WebKit fixture 원인 확인·PR #273 검토/CI 대기. App8.7.7/v642 배포 예정, 운영은8.7.6 유지; QA032 로컬 완료 및 기존 실기·운영 관측 한계 유지 |
+| Status             | Runbook — 운영 App `8.7.7` / `v642`, App SHA `18246271` 배포 완료. QA3 확정9건 수정·예방3건 보강, PR #273·exact-main CI `37882728076`·Release `37883236502` 성공. 다른 Worker5종은 `ff7766cc` 유지·부분 배포 호환성 확인. R26 심화·provider 도달성·기존 실기/운영 관측 한계 유지 |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-09 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
-**후속 배포 완료 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명 24시간,
+**최신 배포 완료 — 2026-10-09:** QA3 확정9건 수정과 승인된 예방 보강3건을
+App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
+`18246271903a3a856fa6c9d566c4e584c9a86aac`의 성공 CI `37882728076` attempt1과
+782파일 immutable candidate를 Release `37883236502` attempt1에서 사용했다.
+`app` / Developer API D1 false, 운영 smoke4개·최종 App 소유권·coherent marker 확인,
+복구 불필요. 다른 Worker5종은 `ff7766cc`를 유지하며 부분 배포 호환성을 확인했다.
+[수정·검증·정식 배포 결과](design/beta-qa3-repair-2026-10-09.md).
+
+**이전 배포 완료 — 2026-10-09:** PRO 최초 활성화 링크의 신규 발급 수명 24시간,
 계정 명시 확인·변경, 닉네임 설정, 모바일 버튼과 선택한 문구 수정을 `8.7.6` / `v640`으로
 배포했다. 최초 활성화는 계정 확인·변경을 먼저 제공한 뒤 방 암호를 설정한다.
 사용자는 한국어/영어 실제 화면 검토 후 누적 변경의 배포를 승인했고, 계정 확인
@@ -18,10 +26,10 @@
 
 **최신 후속 QA — 2026-10-09:** main `bf4912b203d07c7e48ba34d0dbf38da528257c98`에서
 3개 에이전트씩 10세트를 진행했다. 29라운드는 완료했고 R26은 기존 로컬 실행 뒤 안전 검토로 중단됐다.
-부모 최종 판정은 **확정9건(P2 7/P3 2) 미수정·미확정3건**이다. 이번 감사는 제품·배포를 바꾸지 않았으며
-아래 성공한 8.7.6 배포 기록과 구분한다. [3차 QA·근거·남은 범위](design/beta-30-round-qa3-2026-10-09.md).
+발견 당시 부모 최종 판정은 **확정9건(P2 7/P3 2) 미수정·미확정3건**이었다. 감사 자체는 제품·배포를
+바꾸지 않았으며, 현재는 위 8.7.7 수정·예방 보강 배포 완료 기록을 따른다. [3차 QA·근거·남은 범위](design/beta-30-round-qa3-2026-10-09.md).
 
-**후속 수정 승인 — 2026-10-09:** 확정9건과 미확정3건의 권고 방향을 사용자 승인에 따라 재검증·수정 중이다. 미확정은 실제 provider 발생을 입증한 것으로 승격하지 않고 예방 보강으로 기록한다. [구현·검증·배포 기록](design/beta-qa3-repair-2026-10-09.md).
+**후속 수정 완료 — 2026-10-09:** 확정9건과 미확정3건의 권고 방향을 사용자 승인에 따라 재검증·수정·배포했다. OAuth1건의 수정 전 확인은 기존 원본+소스 검토로 한정했다. 미확정은 실제 provider 발생을 입증한 것으로 승격하지 않고 예방 보강으로 기록한다. [구현·검증·배포 기록](design/beta-qa3-repair-2026-10-09.md).
 
 다음 배포 담당자는 이 문서부터 읽는다. 각 QA의 상세 보고서를 대체하지 않고,
 **배포에 필요한 현재 상태와 남은 작업**을 한곳에 모은다. 아래 관측값은 해당
@@ -34,7 +42,7 @@
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| 3차 QA 후속 수정 — 2026-10-09 | 제품20eb6d07·App8.7.7/v642, 확정9건 수정·예방3건 구현, 로컬회귀530파일10,990pass/기존1skip/최종fail0. 최종 전체typecheck/lint/format·build:checked·Worker6 dry-run·production17/SW2/WebKit SW1 통과. PR #273 및 정확한 main CI/Release 대기. 기존 심화/실기 한계 유지. [후속 기록](design/beta-qa3-repair-2026-10-09.md) |
+| 8.7.7 정식 릴리스·3차 QA 수정 — 2026-10-09 | 확정9건 수정·예방3건 보강 완료. 로컬 제품20eb6d07 검증을 보존하고 PR #273 검토/CI37882215473 후 main `18246271903a3a856fa6c9d566c4e584c9a86aac`의 CI37882728076 attempt1 성공. 원격 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과. Candidate782파일 hash/version 일치. Release37883236502 attempt1·app/D1 false 성공, App8.7.7/v642·100% version·smoke4·최종 소유권·coherent marker 확인. 다른 Worker5종ff7766cc 유지·호환성 확인, rollback 불필요. 기존 심화/provider/실기 한계 유지. [후속 기록](design/beta-qa3-repair-2026-10-09.md) |
 | 최신 3차 도메인 QA — 2026-10-09 | 기준 `bf4912b2`, Windows/Node24.20.0·6.1 Sol/xhigh·3×10세트. 29완료/R26 부분차단, 확정9(P2 7/P3 2) 미수정·미확정3. 고유 Vitest5,944(5,928pass/16assertion fail)·Chromium59(54pass/5fail), 부모 별도41(30pass/11재현fail)로 원인·대조 재판정. 확정8건 독립 재실행, OAuth복귀주소1건은 차단 전 원본+코드 확인·독립 재실행 미완료. R28 guard9·보존candidate782hash·설치lock486버전 일치. 문서 갱신 직전 추적1,967/비Markdown1,822·dist782불변 확인, 최종 문서3개만 갱신. 새 전체suite/coverage/WebKit/live/exact-main CI/배포 아님. [최종 결과](design/beta-30-round-qa3-2026-10-09.md) |
 | 8.7.6 정식 릴리스 — 2026-10-09 | 사용자 승인 범위인24시간 활성화 링크·계정 명시 확인/변경·닉네임 설정·모바일 버튼·PRO 안내2키 암호 설명 삭제·KO YouTube 오류1키 해요체를 배포. 환영합니다·외부페이지·접근성 설명 유지, schema/secrets/bindings/deps 변경0. 로컬 코드43c8a1a3의 검증은 아래 보존. PR #271·PR CI37856697026 성공, 자동 리뷰 완료/inline0·독립 검토 새 확정0. main `ff7766ccc0c83ab1eee15bc030347e9067764ee6`의 CI37857195274 attempt1: unit523파일10,927pass/기존1skip/fail0·4종coverage·Chromium17+critical22 통과. Candidate782파일 hash/version 일치. Release37857830458 attempt1·all/D1 false 성공, App8.7.6/v640·Worker6종 동일 SHA/100% version·smoke10·최종소유권·PRO ready·signaling Custom Domain·coherent marker 확인. rollback 불필요, 기존 미확정·실기 한계 유지 |
 | 한국어 문체 읽기 전용 감사 — 2026-10-09 | 코드 `f05af6242b28abf216132024e42aee76faee93be`. 추적1,967파일 중 텍스트1,524파일 검색·한국어126파일 및 ko사전735키 검토. 합쇼체6항목(ko4·이벤트1·소개 데모1), 별도 짧은 명령형 오류안내1·데모 반말/구어5 확인. 명사형 알림20개는 선택적 문장화 후보, 버튼/제목·하세요/주세요·내부문서·생성물 복제는 문제 수에서 제외. 새 PRO 안내의 설정합니다2곳 포함. 제품문구 수정·배포 없음, 톤 정비 미반영 |
@@ -79,18 +87,19 @@
 | 최신 보안 수정 QA — 2026-10-06 | 의존성 수정 `b0d55351`의 동일 작업 트리 검증 후 커밋. 전체 unit 510파일·10,637 pass, 선택 Chromium 17 pass, production artifact Chromium 9 pass; fail/skip/todo·browser retry/flaky 0. 타입·lint·서식·E2E/production build·artifact guard 8개·Worker dry-run 6개·installed loopback 20개 통과. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. [상세 근거](design/beta-security-repair-2026-10-06.md) |
 | 최신 독립 QA — 2026-10-07 | 발견 당시 Astra Ultra3×10세트·30/30완료, 확정12(P1 1/P2 8/P3 3)·미확정2·제외2. 선택365파일·고유8,716 pass. 당시 미수정 기록을 보존하고 현재 수정 상태는 다음 행을 따른다. [발견·최종 판정](design/beta-30-round-qa-2026-10-07.md) |
 | 30라운드 후속 수정 — 2026-10-07 | 확정12건 수정·별도 보강2건. 최종 unit517파일·10,730 pass/4종coverage gate; 초기 빌드 Chromium83파일·580 pass, 최종 빌드 영향18/production17 pass, WebKit66 pass/기존3skip. R26 중복 안내 수정은 검증했으나 최초 legacy 승인 뒤 갱신 정지1회는 원인 미확정; 추가진단10/10통과로 지우지 않음. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 제품 버전 / PWA 캐시                | 현재 App `8.7.6` / `v640` 배포 완료; PRO 최초 활성화24시간·계정 확인/변경·닉네임 설정·모바일 버튼·선택 문구 수정 반영. 정확한 main CI candidate·버전/캐시 일치·운영 App generation/초기 asset graph 검증 통과 |
-| 완료한 배포 범위                    | 최신 `target=all` / `ff7766cc`; App·PRO·remote-share·signaling·Developer API facade/backend6종 모두 exact git provenance 및100% version 최종 확인. PRO room-generation readiness는 같은 release SHA의 ready로 복구 |
+| 제품 버전 / PWA 캐시                | 현재 App `8.7.7` / `v642` 배포 완료; QA3 확정9건 수정·예방3건 보강 반영. 정확한 main CI candidate·782파일 hash/버전 일치·운영 App generation/초기 asset graph 검증 통과 |
+| 완료한 배포 범위                    | 최신 `target=app` / `18246271`; App exact git provenance·100% version 최종 확인. 다른 Worker5종은 이전 all 릴리스 `ff7766cc` 유지·부분 배포 호환성 재확인. 이번 App 배포는 PRO room-generation readiness marker를 새 SHA로 재기록하는 all 릴리스가 아님 |
 | Developer API D1 입력               | `apply_developer_api_d1=false`; App의 일반 idempotent baseline·번역 등 기존 계약 적용·검증과 구분 |
 | Operations Drift Audit              | `active` 유지; 최신 `8.7.2` 전체 검증의 `37595270795` 성공, 31 pass/0 fail/5 manual-only. 이전 `8.7.0` 배포 전후 실행 `37583844459`·`37584995408`은 과거 근거로 보존 |
-| 최신 App main SHA / CI 후보 / 배포 실행 | `ff7766ccc0c83ab1eee15bc030347e9067764ee6` / main CI `37857195274` attempt1 및 immutable candidate / Release `37857830458` attempt1 성공. 782파일 후보 hash/version·10개 운영 smoke·최종6Worker 소유권·PRO ready·coherent marker 확인 |
+| 최신 App main SHA / CI 후보 / 배포 실행 | `18246271903a3a856fa6c9d566c4e584c9a86aac` / main CI `37882728076` attempt1 및 immutable candidate / Release `37883236502` attempt1 성공. 782파일 후보 hash/version·4개 운영 smoke·최종 App 소유권·coherent marker 확인 |
 | 후속 App 패치 | `8.7.4`/`v635` 완료 — 1280px 이상 데스크톱 채팅 위쪽 여백 16px→12px, 모바일·다른 패딩 유지. 제품 `86ea0e8e` → PR #265/main `358b3fc3`, `app`/D1 false. 로컬 unit 10,781·production CSS 레이아웃 16조합·공개 CSS/SW hash 및 fresh ko 검증 통과 |
 | 8.7.2 전체 검증·검사 보완 — 2026-10-07 | 테스트만 보완한 `716c37af`: 로컬 unit 518파일·10,781 pass, 원격 PR CI 10,780 pass/Windows 전용 1 skip·4종 coverage·candidate17·critical22, 실제 9게스트 R2 로컬/원격 통과. 기준 `61cedbc6` 전체 Chromium은 로컬/원격 각각581 pass; 최종 원격 WebKit66/기존3skip·SW1도 통과. 최초 R2 8/9 원인은 미확정. 최종 원격 Chromium도 581 pass/실패·retry 0. PR #251로 테스트·문서 게시, 제품·배포 변경 없음. [결과·실패·한계](design/full-verification-8.7.2-2026-10-07.md) |
 
-**배포된 App은 `8.7.6` / `v640`, 배포 main SHA는 `ff7766cc`이다.** 6개 Worker를 같은
-정확한 main CI 후보로 배포하고 모든 운영 smoke·최종 소유권·PRO ready를 확인했다.
-[8.7.6 정식 Release](https://github.com/hiefny/MUSIXQUARE/actions/runs/37857830458)와
-아래 누적 변경 이력을 따른다. [이전 8.7.5 배포 기록](design/beta-30-round-repair-2026-10-09.md#875-정식-배포-후속-기록--2026-10-09) 및 App8.7.4/시그널링99f9103c 기록은 이력으로 보존한다.
+**배포된 App은 `8.7.7` / `v642`, 배포 main SHA는 `18246271`이다.** 정확한 main CI
+후보로 App을 배포하고 운영 smoke4개·최종 소유권을 확인했다. 다른 Worker5종은
+`ff7766cc` 유지·호환성 확인 상태다.
+[8.7.7 정식 Release](https://github.com/hiefny/MUSIXQUARE/actions/runs/37883236502)와
+아래 누적 변경 이력을 따른다. 이전8.7.6/8.7.5 및 App8.7.4/시그널링99f9103c 배포 기록은 이력으로 보존한다.
 
 **2026-10-07 저녁 운영 R2 재검사:** `a1543f8b`의 유지 검사로 새 방 3회 중 2 pass / 1 fail.
 추가 수동 관찰 진단 1회에서도 연결 9개·R2 경로는 정상이었으나 게스트 1개가 HTTP 200
@@ -503,9 +512,11 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
 
 - [x] 기준 `bf4912b203d07c7e48ba34d0dbf38da528257c98`에서 3×10세트 수행, 완료29/부분차단1의 결과 기록30개 수집. 30개 모두 완전 실행으로 표현하지 않음.
 - [x] 확정8건 독립 재실행·OAuth복귀주소1건 기존 로컬 실패/대조 및 소스 확인. 부모 단위26·Chromium15의 총41개에서 예상30pass/11재현fail, 새 하네스 실패·retry0. 실패 assertion 수와 결함 수 구분.
-- [x] 제품·유지 테스트·설정·의존성·버전/cache·schema/secrets/bindings·Git HEAD·dist 불변 확인. 이번 문서 갱신은 새 release candidate나 배포가 아님.
+- [x] 발견 감사 당시 제품·유지 테스트·설정·의존성·버전/cache·schema/secrets/bindings·Git HEAD·dist 불변 확인. 당시 감사 문서 갱신은 새 release candidate나 배포가 아니었으며, 이후 수정·배포는 아래 별도 기록을 따름.
 - [x] 확정9건 수정 및 경계 회귀(후속 코드20eb6d07, 상세 검증·보안 한계는 후속 기록): OAuth 복귀 origin, 자연종료 STOP, 가득 찬 YouTube 입력, 뒤로 이동한 시계의 보정, Standard 채팅 전송 거절, 짧은 높이 PIN창, PWA 재검증 대기, 보간 값 재치환, 열린 닉네임창 언어 혼합.
 - [x] 미확정3건은 사용자 승인한 기대 동작으로 예방 보강 완료. 실제 도달 조건은 미입증 유지: 오래된 탭 takeover 알림, YouTube ready 누락, 이전 pause/새 metadata 순서. 합성 현상 재현만으로 확정하지 않음. [후속 구현·검증](design/beta-qa3-repair-2026-10-09.md).
+- [x] PR #273 검토·PR CI 통과 후 main `18246271`의 CI37882728076 attempt1 성공: 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22. 782파일 후보 hash/version 확인.
+- [x] Release37883236502 attempt1·app/D1 false 성공: App8.7.7/v642·smoke4·100% version/최종 소유권·coherent marker 확인, 복구 불필요. 제품 수정 임시 브랜치 삭제·main 복귀 완료. 배포 후 문서 게시만 별도 임시 PR로 처리하며 App 재배포 대상이 아님.
 - [ ] R26은 자동 안전 검토의 사이버보안 위험 가능성으로 중단. 중단 전358pass/3fail 보존; 독립 보안 재실행·추가 심화 미완료. 다른 모델·세션을 통한 차단 작업 재시도 없음.
 - [ ] 이전 dev claim-missing·legacy SW 단발 정지·운영 R2 지연/미완료와 물리 키보드·media key·음향 등 실기 한계 유지. 이번 로컬 결과로 원인을 소급 확정하지 않음.
 
@@ -1432,6 +1443,18 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-09 8.7.7 정식 배포: QA3 확정9건 수정과 승인된 예방3건을 PR #273으로 병합했다.
+최신 PR head `6f4ea2f6`의 CI37882215473·자동 리뷰(추가 inline0)와 독립 소스 검토를 거쳐
+main `18246271903a3a856fa6c9d566c4e584c9a86aac`의 CI37882728076 attempt1이 성공했다.
+Ubuntu/Node24.20.0에서 전체530파일10,990pass/기존1skip/fail0, 4종coverage 및
+candidate17/critical22 통과. 782파일 immutable candidate의 SHA·hash·8.7.7/v642를 확인하고
+Release37883236502 attempt1에서 app/D1 false로 배포했다. 운영 smoke4개·App100% version
+`aee53298-c1e2-4d9b-ac37-26a6df9b9f20`·최종 소유권·coherent marker가 확인됐고 복구는 불필요했다.
+다른 Worker5종은ff7766cc 유지·부분 배포 호환성 재확인, schema/secrets/bindings/deps 변경0.
+로컬 치환 집계와 원격 전체 실행을 구분하며 R26 심화·provider 도달성·실기·기존 운영 관측
+한계는 유지한다. 제품 임시 브랜치 삭제·main 복귀 후 이 기록은 문서 전용 PR로 게시한다.
+[원본·수정·배포 근거](design/beta-qa3-repair-2026-10-09.md).
 
 2026-10-09 8.7.6 후속 3차 QA: `bf4912b203d07c7e48ba34d0dbf38da528257c98`에서
 6.1 Sol/xhigh 에이전트3개씩10세트 실행. 완료29/부분차단R26의 보고서30개를 수집하고 최종

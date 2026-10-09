@@ -76,10 +76,22 @@ function canPreserveTransitionHeader(): boolean {
   ) {
     return false;
   }
+  // The curtain is permanently mounted with opacity 0. Only its visible or
+  // running WAAPI state occludes chrome; a finished reveal at zero does not.
+  const curtain = getUiElement('demo-curtain');
+  if (
+    curtain &&
+    (Number.parseFloat(getComputedStyle(curtain).opacity) > 0 ||
+      curtain
+        .getAnimations?.()
+        .some((animation) => animation.playState === 'running' || animation.pending))
+  ) {
+    return false;
+  }
   return !document.querySelector(
-    'body.overlay-open, body.mode-demo, body.has-fake-fullscreen, ' +
+    'body.overlay-open, body.mode-demo, body.demo-chrome-hiding, body.has-fake-fullscreen, ' +
       '.chat-drawer.open, .chat-backdrop.open, .toast.show, .session-reset-overlay.show, ' +
-      '.debug-memory-overlay, .demo-curtain, .file-drop-feedback.is-visible, ' +
+      '.debug-memory-overlay, .file-drop-feedback.is-visible, ' +
       '.playlist-reorder-ghost, .playlist-reorder-settle, .skip-link:focus',
   );
 }
@@ -172,7 +184,7 @@ export function animateTransition(callback: () => void, options: TransitionOptio
           const observer = new MutationObserver(checkHeaderOcclusion);
           observer.observe(document.body, {
             attributes: true,
-            attributeFilter: ['class'],
+            attributeFilter: ['class', 'style'],
             childList: true,
             subtree: true,
           });

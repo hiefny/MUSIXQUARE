@@ -32,14 +32,16 @@ was not a playback synchronization or iframe lifetime requirement.
 - Preserve the 8.7.8 iframe parking fix, synchronous first-paint scopes, native
   unsupported-browser fallback, and playback/session behavior.
 
-App 8.7.9 / cache v644; release target `app`, Developer API D1 false. There are
+App 8.7.9 / cache v645; release target `app`, Developer API D1 false. There are
 no dependency, schema, binding, secret, or protocol changes. The prior App
 8.7.8 / `12ecbf71d6fe27b7c1eca85abbc00a8575b1b4df` is the recovery baseline;
 the release workflow's fresh ownership/compatibility checks remain authoritative.
 
 ## Verification and remaining work
 
-Tested product commit: `54d28703b086bb55aac2f49f7e40f3ac613bedf8`, based on
+### Initial implementation and review evidence
+
+Initial product commit: `54d28703b086bb55aac2f49f7e40f3ac613bedf8`, based on
 `9e91ecd403d53f043bd35c4105b71aaa752de6e3`, Windows, Node 24.20.0. Unit/static
 checks ran on that working tree before commit; the browser runner records exact
 input hashes. The production build ran on committed `54d28703`. These local
@@ -81,3 +83,28 @@ Raw evidence is in `scratch/header-crossfade-2026-10-09/`: `full-unit.json`,
 `final-static-results.json`, `browser-results.json`, their logs, and preserved
 initial/reproduction runs. Independent code and release-scope reviews report
 no remaining blocking issue.
+
+### Follow-up: permanently mounted demo curtain
+
+PR #279's automated review identified that the inactive `.demo-curtain` is
+always present in the real document. Testing presence unconditionally prevented
+header isolation. The initial reduced DOM fixture missed this, so its passes
+do not establish the final real-markup behavior. Reproduction with the actual
+inactive curtain produced 12 failing/9 passing unit cases and one failing
+browser case; preserve `curtain-before.*` and `browser-curtain-before-*`.
+
+The guard now checks computed curtain opacity and running/pending WAAPI state,
+including `demo-chrome-hiding`. A finished reveal at opacity zero permits normal
+tab transitions. Style mutations are observed as well as classes. The cache
+advances again to v645 to cover this later runtime commit; v644 was never deployed.
+
+- Final new regression suite: 27 pass, fail/skip 0; related UI/demo suite:
+  274 pass, fail/skip 0.
+- Final native Chromium fixture now uses the complete actual `index.html` body
+  with scripts/noscript removed, completed-boot state, and synthetic iframe
+  content. 50 pass, 0 fail/page errors, stable source hashes, visible mobile and
+  desktop screenshots. This replaces the initial reduced-fixture counts.
+- Final full unit rerun: 531 files, 11,017 pass / 1 existing skip / 0 fail
+  with eight workers. Final static/build evidence and product SHA follow below.
+- The old PR CI candidate is superseded by the curtain fix. Reviewed final-head
+  PR CI, exact-main CI, and production release remain required.

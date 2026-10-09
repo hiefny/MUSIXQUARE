@@ -40,6 +40,7 @@ beforeEach(() => {
   transitions = [];
   document.documentElement.classList.remove('tab-header-transition');
   document.body.innerHTML = `
+    <style>.demo-curtain { opacity: 0; }</style>
     <header id="main-header">
       <div id="header-loading-text"><span class="header-loading-text-content"></span></div>
       <div id="header-progress-bg" style="transform: scaleX(0)"></div>
@@ -53,6 +54,7 @@ beforeEach(() => {
     <div id="tab-settings" class="tab-content"></div>
     <div id="tab-connect" class="tab-content"></div>
     <div id="dialog-overlay" class="dialog-overlay"></div>
+    <div id="demo-curtain" class="demo-curtain" aria-hidden="true"></div>
   `;
 
   originalTransition = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
@@ -249,6 +251,50 @@ describe('batched and overlapping tab transitions', () => {
   });
 });
 
+describe('the permanently mounted demo curtain', () => {
+  it.each(['1', '0.4'])(
+    'keeps root crossfade while the curtain is visible at opacity %s after demo mode exits',
+    async (opacity) => {
+      document.getElementById('demo-curtain')!.style.opacity = opacity;
+
+      switchTab('settings');
+      await flushTransitionTasks();
+
+      expect(nativeTransition).toHaveBeenCalledOnce();
+      expect(transitions[0].headerPreservedAtCapture).toBe(false);
+      transitions[0].update();
+      expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
+      expect(preservesHeader()).toBe(false);
+    },
+  );
+
+  it.each([
+    { phase: 'running', playState: 'running', pending: false, preservesHeader: false },
+    { phase: 'pending', playState: 'idle', pending: true, preservesHeader: false },
+    { phase: 'finished', playState: 'finished', pending: false, preservesHeader: true },
+  ])(
+    'handles a $phase curtain animation whose current opacity is zero',
+    async ({ playState, pending, preservesHeader: expected }) => {
+      const curtain = document.getElementById('demo-curtain')!;
+      // WAAPI can begin covering the page at opacity 0, or retain a finished
+      // reveal with fill: forwards. A static DOM-presence check conflates them.
+      Object.defineProperty(curtain, 'getAnimations', {
+        configurable: true,
+        value: vi.fn().mockReturnValue([{ playState, pending }]),
+      });
+
+      switchTab('settings');
+      await flushTransitionTasks();
+
+      expect(nativeTransition).toHaveBeenCalledOnce();
+      expect(transitions[0].headerPreservedAtCapture).toBe(expected);
+      transitions[0].update();
+      expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
+      expect(preservesHeader()).toBe(expected);
+    },
+  );
+});
+
 describe('overlays appearing while a tab crossfade is running', () => {
   it('ends the snapshot presentation when a modal opens after the tab update', async () => {
     switchTab('settings');
@@ -278,6 +324,28 @@ describe('overlays appearing while a tab crossfade is running', () => {
 
     expect(transitions[0].skip).not.toHaveBeenCalled();
     expect(preservesHeader()).toBe(false);
+  });
+
+  it('ends the snapshot presentation when the curtain starts covering after a tab update', async () => {
+    switchTab('settings');
+    await flushTransitionTasks();
+    transitions[0].update();
+    await flushTransitionTasks();
+    expect(preservesHeader()).toBe(true);
+
+    const curtain = document.getElementById('demo-curtain')!;
+    Object.defineProperty(curtain, 'getAnimations', {
+      configurable: true,
+      value: vi.fn().mockReturnValue([{ playState: 'running', pending: false }]),
+    });
+    // animateDemoCurtain writes the starting inline opacity before animate().
+    // The mutation arrives while the first animation frame can still be zero.
+    curtain.style.opacity = '0';
+    await flushTransitionTasks();
+
+    expect(transitions[0].skip).toHaveBeenCalledOnce();
+    expect(preservesHeader()).toBe(false);
+    expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
   });
 
   it('ends only the latest snapshot presentation when an overlay opens after supersession', async () => {

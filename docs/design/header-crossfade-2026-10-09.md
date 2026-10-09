@@ -104,7 +104,11 @@ advances again to v645 to cover this later runtime commit; v644 was never deploy
   with scripts/noscript removed, completed-boot state, and synthetic iframe
   content. 50 pass, 0 fail/page errors, stable source hashes, visible mobile and
   desktop screenshots. This replaces the initial reduced-fixture counts.
-- Final full unit rerun: 531 files, 11,017 pass / 1 existing skip / 0 fail
-  with eight workers. Final static/build evidence and product SHA follow below.
+- Final product SHA: `652297954cd0d88bef018cc3d7c47f972f0457bc`. Full unit rerun:
+  531 files, 11,017 pass / 1 existing skip / 0 fail with eight workers. All seven
+  required static checks pass again, and `build:checked` passes on committed
+  `65229795`. Final browser input hashes match this product source. Evidence:
+  `final-full-unit.json`, `curtain-static-results.json`,
+  `final-build-checked.log`, `browser-results.json`.
 - The old PR CI candidate is superseded by the curtain fix. Reviewed final-head
   PR CI, exact-main CI, and production release remain required.

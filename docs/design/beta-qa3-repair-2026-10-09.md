@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 구현·로컬 회귀 완료, PR #273 검토·CI 및 정식 배포 대기 |
+| Status | App 8.7.7 / v642 정식 배포 완료. PR #273·exact-main CI 37882728076·Release 37883236502 성공, 기존 보안·provider·실기 한계 유지 |
 | Applies to | QA3 확정 9건과 사용자 승인 예방 보강 3건 |
 | Last source review | 2026-10-09 |
 | Executable sources | `src/player`, `src/youtube`, `src/pro-room`, `src/ui`, `src/i18n`, `browser/service-worker.ts`, `cloudflare/account-auth.ts`와 유지 회귀 검사 |
@@ -10,11 +10,12 @@
 
 ## 범위와 판정
 
-기준은 main `bf4912b203d07c7e48ba34d0dbf38da528257c98`, 운영 참고는
+수정 전 기준은 main `bf4912b203d07c7e48ba34d0dbf38da528257c98`, 당시 운영 참고는
 `ff7766ccc0c83ab1eee15bc030347e9067764ee6` / App `8.7.6` / `v640`이다.
 사용자는 확정 9건과 미확정 3건의 권고 방향을 승인하고, 수정 전 재검증·문서·주석·배포까지 요청했다.
-임시 브랜치 `agent/qa3-remediation`에서 기존 QA 문서를 보존하며 작업한다.
-예정 제품 버전은 `8.7.7`, PWA cache epoch는 `v642`이다.
+임시 브랜치 `agent/qa3-remediation`에서 기존 QA 문서를 보존하며 수정했고,
+PR #273 병합 main `18246271903a3a856fa6c9d566c4e584c9a86aac`의 정확한 CI 후보로
+App `8.7.7`, PWA cache epoch `v642`를 배포했다. 제품 임시 브랜치는 로컬·원격 모두 정리했다.
 
 미확정 3건은 자연스러운 실제 provider/브라우저 발생 조건을 입증한 것으로 승격하지 않는다.
 명시적인 동작 기준을 정하고 **예방 보강**으로 처리한다. 합성 조건의 재실행 통과는
@@ -42,7 +43,8 @@
 `scratch/qa3-repair-2026-10-09/{root,youtube,ui,handoff}/`에 보존한다.
 scratch는 Git에 포함되지 않으며 아래 결과를 정식 main CI 후보로 대체하지 않는다.
 제품 코드 최종 로컬 빌드 SHA는 `20eb6d07b6d7c0e38f7cd28f39d80092a9b7322a`다.
-PR·정식 배포 결과는 완료 시 이 문서와 living record에 함께 기록한다.
+아래 로컬 근거와 별도로, 정확한 main SHA의 CI·정식 배포 결과는 이 문서의
+[배포 완료 기록](#877-정식-배포-완료--2026-10-09)과 living record에 기록한다.
 
 | 검증 | 결과·해석 |
 | --- | --- |
@@ -98,13 +100,43 @@ v640 worker의 끝나지 않은 요청을 새 배포가 소급 취소하지 못�
 실기 iOS/Safari, 하드웨어 media key, 물리 키보드, 실음향, 실제 provider 사건 순서는
 로컬 합성·headless 통과와 별개다. 과거 개발 claim-missing·운영 R2 관측 한계도 유지한다.
 
+## 8.7.7 정식 배포 완료 — 2026-10-09
+
+[PR #273](https://github.com/hiefny/MUSIXQUARE/pull/273)을 검토·병합한 뒤,
+정확한 main SHA의 성공한 CI 후보로 2026-10-09 13:20 KST에 App을 배포했다.
+이 절의 CI 전체 실행은 위 로컬 영향 파일 치환 집계와 별도 근거이며, 두 수치를 합산하지 않는다.
+
+| 항목 | 실제 완료 근거 |
+| --- | --- |
+| PR 검토·CI | [PR CI 37882215473](https://github.com/hiefny/MUSIXQUARE/actions/runs/37882215473) 성공. 최신 PR head `6f4ea2f`의 자동 리뷰 완료, inline comments 0. 구현 중 독립 검토·보완 근거는 위에 보존 |
+| 배포 main SHA | `18246271903a3a856fa6c9d566c4e584c9a86aac` |
+| 정확한 main CI | [37882728076](https://github.com/hiefny/MUSIXQUARE/actions/runs/37882728076) attempt 1 성공. unit 530파일 **10,990 pass / 기존 1 skip / fail 0**, broad·critical·tooling·Worker 4종 coverage gate 통과. broad statements 86.58% / branches 80.33% / functions 91.2% / lines 90.23%. Candidate Chromium 17 + critical 22 pass |
+| Immutable candidate | `production-candidate-18246271903a3a856fa6c9d566c4e584c9a86aac-37882728076-1`. 로컬에서도 782파일의 manifest hash 전체 일치 확인 |
+| 정식 Release | [37883236502](https://github.com/hiefny/MUSIXQUARE/actions/runs/37883236502) attempt 1 성공. `target=app`, `apply_developer_api_d1=false`, App `8.7.7` / cache `v642` |
+| App 배포 신원 | version `aee53298-c1e2-4d9b-ac37-26a6df9b9f20`, deployment `3db777f9-aa73-4c2c-abc9-da23000cdb52`, message `git:18246271903a3a856fa6c9d566c4e584c9a86aac`. 최종 소유권 검증의 expected/current 값 일치, `app-final-current.json`의 해당 version 100% 확인 |
+| 유지 Worker 호환성 | PRO·remote-share·signaling·Developer API facade/backend 5종은 `ff7766ccc0c83ab1eee15bc030347e9067764ee6` 유지. 부분 배포 사전 호환성 확인·변경 직전 재확인 통과. 6종을 새 SHA로 배포한 것으로 해석하지 않음 |
+| 운영 확인 | App generation, anonymous App account boundary, 현재 PRO public boundary, Standard HTTPS signaling fallback의 선택된 live smoke 4단계 모두 성공. 최종 App 소유권 확인 후 coherent-production commit marker 보존 |
+| 복구·정리 | mutation 전 immutable recovery checkpoint 저장. 실패 복구 단계와 recovery job은 skipped, rollback 불필요. 제품 브랜치 `agent/qa3-remediation` 로컬·원격 삭제 및 main 복귀 완료. 배포 결과 문서는 후속 문서 전용 PR로 게시하며 제품 재배포 대상이 아님 |
+
+CI·Release 원본은 ignored `scratch/qa3-repair-2026-10-09/root/`의
+`main-ci.json`·`main-ci.log`·`release.json`·`release.log`에 보존한다.
+`scratch/qa3-repair-2026-10-09/production-release/`에는 deployment·recovery checkpoint·
+`partial-release-compatibility-recheck.json`·`final-verification-report.json`과
+`production-committed.json`을 포함한 Release artifact를 보존한다.
+
+이번 운영 확인은 선택된 공개 경계·배포 신원의 검증이다. live OAuth·실제 provider 사건 순서,
+물리 기기·키보드·media key·음향이나 기존 운영 탭/PWA 전체 갱신을 완료했다는 뜻은 아니다.
+R26 심화 차단, 예방 3건의 실제 도달성 미입증, 과거 dev claim-missing·legacy SW 단발 정지·
+운영 R2 원인 미확정과 위 PWA 최초 갱신 한계를 그대로 유지한다.
+이후 문서 커밋은 배포 코드 SHA와 구분하며 새로운 제품 릴리스를 요구하지 않는다.
+
 ## 배포·복구 계약
 
 변경은 App 브라우저 입력과 App Worker의 계정 복귀 처리다. D1 schema, secrets,
 service bindings, wire protocol, 의존성 변경은 없다. 정상 절차상 배포 대상은 `app`,
 `apply_developer_api_d1=false`다. App의 통상 idempotent D1 baseline 처리는 유지한다.
 
-PR 검토 후 병합한 정확한 main SHA의 성공 CI candidate를 Production Release에서 사용한다.
-브랜치 검사나 기존 v640 후보를 배포 증거로 대체하지 않는다. 실패 시 워크플로의
+이번 Production Release는 PR 검토 후 병합한 정확한 main SHA의 성공 CI candidate를 사용했다.
+브랜치 검사나 기존 v640 후보를 배포 증거로 대체하지 않았다. 이후 실패 시에도 워크플로의
 소유권·호환성 검증과 복구 checkpoint를 따르며, 구버전 앱을 재배포할 때도 새로운
-단조 cache epoch가 필요하다. 배포 종료 후 임시 브랜치를 정리하고 main으로 복귀한다.
+단조 cache epoch가 필요하다.

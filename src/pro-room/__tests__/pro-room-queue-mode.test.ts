@@ -24,6 +24,13 @@ const playlistOf = (...ids: string[]): QueueModePlaylistItem[] =>
   ids.map((queueItemId) => ({ queueItemId }));
 const PLAYLIST = playlistOf(A, B, C);
 
+/** `count` distinct v4 UUIDs, numbered from a counter in the first group. */
+const distinctQueueItemIds = (count: number): string[] =>
+  Array.from(
+    { length: count },
+    (_unused, index) => `${index.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`,
+  );
+
 function values(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { repeatMode: 0, shuffleEnabled: false, shuffleOrder: [], ...overrides };
 }
@@ -106,11 +113,29 @@ describe('PRO queue mode participant input', () => {
   it.each([
     ['a string order', `${A},${B},${C}`],
     ['an object order', { 0: A, 1: B, 2: C }],
-    ['an order over the playlist cap', Array.from({ length: PLAYLIST_MAX_ITEMS + 1 }, () => A)],
   ])('rejects %s', (_label, shuffleOrder) => {
-    expect(PLAYLIST_MAX_ITEMS).toBe(1000);
     expect(
       parseQueueModeValues(values({ shuffleEnabled: true, shuffleOrder }), PLAYLIST),
+    ).toBeNull();
+  });
+
+  it('caps a shuffle order at 1,000 entries even when it is an exact permutation', () => {
+    expect(PLAYLIST_MAX_ITEMS).toBe(1000);
+    // Distinct, valid, in-playlist ids: only the length cap can reject the larger order.
+    const atCap = distinctQueueItemIds(PLAYLIST_MAX_ITEMS);
+    expect(
+      parseQueueModeValues(
+        values({ shuffleEnabled: true, shuffleOrder: atCap }),
+        playlistOf(...atCap),
+      ),
+    ).toEqual({ repeatMode: 0, shuffleEnabled: true, shuffleOrder: atCap });
+
+    const overCap = distinctQueueItemIds(PLAYLIST_MAX_ITEMS + 1);
+    expect(
+      parseQueueModeValues(
+        values({ shuffleEnabled: true, shuffleOrder: overCap }),
+        playlistOf(...overCap),
+      ),
     ).toBeNull();
   });
 

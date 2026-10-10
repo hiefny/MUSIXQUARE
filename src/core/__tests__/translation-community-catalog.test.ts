@@ -170,6 +170,12 @@ const ABOUT_ENTRY: Entry = {
   current: 'Escuchar juntos',
 };
 
+const VALID_MANIFEST = { version: 1, locales: { [LOCALE]: CATALOG_PATH } };
+const MAX_ASSET_BYTES = 4 * 1024 * 1024;
+const MAX_CATALOG_ENTRIES = 4096;
+const MAX_KEY_LENGTH = 200;
+const MAX_TEXT_LENGTH = 32_768;
+
 type AssetHandler = () => Response | Promise<Response>;
 
 function jsonAsset(value: unknown, contentType = 'application/json; charset=utf-8'): AssetHandler {
@@ -177,9 +183,27 @@ function jsonAsset(value: unknown, contentType = 'application/json; charset=utf-
     new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': contentType } });
 }
 
+/** The valid manifest, padded with trailing JSON whitespace to exactly `bytes`. */
+function paddedManifest(bytes: number): string {
+  const json = JSON.stringify(VALID_MANIFEST);
+  return json + ' '.repeat(bytes - json.length);
+}
+
+function catalogOf(entries: readonly unknown[]) {
+  return { locale: { code: LOCALE }, entries };
+}
+
+function entryWithKey(key: string): Entry {
+  return { ...APP_ENTRY, id: `app:${key}`, key };
+}
+
+function numberedEntries(count: number): Entry[] {
+  return Array.from({ length: count }, (_unused, index) => entryWithKey(`generated.${index}`));
+}
+
 function catalogAssets({
-  manifest = jsonAsset({ version: 1, locales: { [LOCALE]: CATALOG_PATH } }),
-  catalog = jsonAsset({ locale: { code: LOCALE }, entries: [APP_ENTRY, ABOUT_ENTRY] }),
+  manifest = jsonAsset(VALID_MANIFEST),
+  catalog = jsonAsset(catalogOf([APP_ENTRY, ABOUT_ENTRY])),
 }: { manifest?: AssetHandler; catalog?: AssetHandler } = {}) {
   const handlers = new Map<string, AssetHandler>([
     [MANIFEST_PATH, manifest],
@@ -258,42 +282,107 @@ describe('canonical translation catalog lookup', () => {
     );
     expect(fetch).toHaveBeenCalledTimes(1);
 
-    handlers.set(MANIFEST_PATH, jsonAsset({ version: 1, locales: { [LOCALE]: CATALOG_PATH } }));
+    handlers.set(MANIFEST_PATH, jsonAsset(VALID_MANIFEST));
     await expect(currentTranslationEntry(env, LOCALE, 'app', 'player.play')).resolves.toEqual(
       APP_ENTRY,
     );
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  // Each manifest case serves a body that would otherwise be accepted, so only
+  // the named gate can reject it and the catalog asset is never requested.
   it.each([
     [
       'a manifest with another version',
-      { manifest: jsonAsset({ version: 2, locales: { [LOCALE]: CATALOG_PATH } }) },
-    ],
-    ['a missing manifest', { manifest: () => new Response('Not found', { status: 404 }) }],
-    ['a non-JSON manifest', { manifest: jsonAsset({ version: 1 }, 'text/html') }],
-    [
-      'a duplicate entry id',
-      { catalog: jsonAsset({ locale: { code: LOCALE }, entries: [APP_ENTRY, APP_ENTRY] }) },
+      jsonAsset({ version: 2, locales: { [LOCALE]: CATALOG_PATH } }),
     ],
     [
-      'a catalog for another locale',
-      { catalog: jsonAsset({ locale: { code: 'fr' }, entries: [APP_ENTRY] }) },
+      'a manifest with a non-200 status',
+      () => new Response(JSON.stringify(VALID_MANIFEST), { status: 404, headers: JSON_HEADERS }),
     ],
-    ['an empty catalog', { catalog: jsonAsset({ locale: { code: LOCALE }, entries: [] }) }],
+    ['a manifest with a non-JSON content type', jsonAsset(VALID_MANIFEST, 'text/html')],
     [
-      'an entry whose id does not match its key',
-      {
-        catalog: jsonAsset({
-          locale: { code: LOCALE },
-          entries: [{ ...APP_ENTRY, id: 'app:other.key' }],
+      'a manifest declaring a length over 4 MiB',
+      () =>
+        new Response(JSON.stringify(VALID_MANIFEST), {
+          status: 200,
+          headers: { ...JSON_HEADERS, 'Content-Length': String(MAX_ASSET_BYTES + 1) },
         }),
-      },
     ],
-  ])('is unavailable for %s', async (_label, assets) => {
-    const { env } = catalogAssets(assets);
+    [
+      'an undeclared manifest body over 4 MiB',
+      () =>
+        new Response(paddedManifest(MAX_ASSET_BYTES + 1), { status: 200, headers: JSON_HEADERS }),
+    ],
+  ])('is unavailable for %s', async (_label, manifest) => {
+    const { env, fetch } = catalogAssets({ manifest });
     await expect(currentTranslationEntry(env, LOCALE, 'app', 'player.play')).rejects.toEqual(
       UNAVAILABLE,
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a manifest of exactly 4 MiB, declared or not', async () => {
+    const atLimit = paddedManifest(MAX_ASSET_BYTES);
+    expect(new TextEncoder().encode(atLimit).byteLength).toBe(MAX_ASSET_BYTES);
+    for (const headers of [
+      JSON_HEADERS,
+      { ...JSON_HEADERS, 'Content-Length': String(MAX_ASSET_BYTES) },
+    ]) {
+      const { env } = catalogAssets({
+        manifest: () => new Response(atLimit, { status: 200, headers }),
+      });
+      await expect(currentTranslationEntry(env, LOCALE, 'app', 'player.play')).resolves.toEqual(
+        APP_ENTRY,
+      );
+    }
+  });
+
+  // Each catalog case keeps one valid entry beside the rejected one, so only the
+  // named validator can reject it.
+  it.each([
+    ['a duplicate entry id', catalogOf([APP_ENTRY, APP_ENTRY])],
+    ['a catalog for another locale', { locale: { code: 'fr' }, entries: [APP_ENTRY] }],
+    ['an empty catalog', catalogOf([])],
+    [
+      'an entry whose id does not match its key',
+      catalogOf([APP_ENTRY, { ...ABOUT_ENTRY, id: 'about:other.key' }]),
+    ],
+    [
+      'an entry for an unknown surface',
+      catalogOf([APP_ENTRY, { ...ABOUT_ENTRY, surface: 'other', id: 'other:hero.title' }]),
+    ],
+    [
+      'a key over 200 characters',
+      catalogOf([APP_ENTRY, entryWithKey('k'.repeat(MAX_KEY_LENGTH + 1))]),
+    ],
+    ...(['sourceEn', 'sourceKo', 'current'] as const).map(
+      (field): [string, ReturnType<typeof catalogOf>] => [
+        `a ${field} text over 32,768 characters`,
+        catalogOf([APP_ENTRY, { ...ABOUT_ENTRY, [field]: 'x'.repeat(MAX_TEXT_LENGTH + 1) }]),
+      ],
+    ),
+    ['more than 4,096 entries', catalogOf([APP_ENTRY, ...numberedEntries(MAX_CATALOG_ENTRIES)])],
+  ])('is unavailable for %s', async (_label, catalog) => {
+    const { env, fetch } = catalogAssets({ catalog: jsonAsset(catalog) });
+    await expect(currentTranslationEntry(env, LOCALE, 'app', 'player.play')).rejects.toEqual(
+      UNAVAILABLE,
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts a catalog at every entry and size limit', async () => {
+    const longKey = entryWithKey('k'.repeat(MAX_KEY_LENGTH));
+    const longText = 'x'.repeat(MAX_TEXT_LENGTH);
+    const largest = { ...ABOUT_ENTRY, sourceEn: longText, sourceKo: longText, current: longText };
+    const entries = [APP_ENTRY, largest, longKey, ...numberedEntries(MAX_CATALOG_ENTRIES - 3)];
+    expect(entries).toHaveLength(MAX_CATALOG_ENTRIES);
+    const { env } = catalogAssets({ catalog: jsonAsset(catalogOf(entries)) });
+    await expect(currentTranslationEntry(env, LOCALE, 'about', 'hero.title')).resolves.toEqual(
+      largest,
+    );
+    await expect(currentTranslationEntry(env, LOCALE, 'app', longKey.key)).resolves.toEqual(
+      longKey,
     );
   });
 

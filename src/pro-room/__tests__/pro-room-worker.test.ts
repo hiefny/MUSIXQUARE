@@ -9026,6 +9026,76 @@ describe('PRO admission capacity and throttle', () => {
     );
   }, 60_000);
 
+  it('keeps one presence-close receipt per live session so leave/resume loops cannot freeze owner control', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const joined = await worker.fetch(admission({ key: 'loop-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    let envelope = await responseJson(joined);
+    bindCookiePresence(cookie, envelope);
+    const presenceCloseKeys = (ledger: Record<string, unknown>) =>
+      Object.keys(ledger).filter((key) => key.includes(':presence-close:'));
+    const closeKey = (index: number) => `presence-loop-close-${String(index).padStart(6, '0')}`;
+    const closeBodies: Record<string, unknown>[] = [];
+    // Presence resume is never throttled, so one public session can repeat
+    // pagehide-close and resume indefinitely. More cycles than the 256-entry
+    // shared ledger holds must neither fail nor accumulate receipts.
+    for (let index = 0; index < 260; index += 1) {
+      const body = {
+        expectedParticipantId: envelope.snapshot.viewer.participantId,
+        expectedPresenceIncarnationId: envelope.snapshot.viewer.presenceIncarnationId,
+        baseRevision: envelope.snapshot.revision,
+        currentQueueItemId: null,
+        playback: null,
+      };
+      closeBodies.push(body);
+      expect((await worker.fetch(unloadCloseRequest(body, cookie, closeKey(index)))).status).toBe(
+        200,
+      );
+      const entered = await enterPresence(worker, cookie);
+      expect(entered.status).toBe(200);
+      envelope = await responseJson(entered);
+      bindCookiePresence(cookie, envelope);
+    }
+    expect(presenceCloseKeys(worker.room!.idempotency)).toHaveLength(1);
+    const queued = await replacePlaylist(
+      context,
+      [
+        {
+          queueItemId: '55555555-5555-4555-8555-555555555555',
+          name: 'Close loop survivor',
+          source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+        },
+      ],
+      'presence-close-loop',
+    );
+    expect(queued.status).toBe(200);
+
+    // The latest close still replays. An earlier close named an incarnation
+    // that has ended, so its late retry is refused without closing the
+    // current one.
+    const latest = await worker.fetch(unloadCloseRequest(closeBodies[259]!, cookie, closeKey(259)));
+    expect(latest.status).toBe(200);
+    expect(await responseJson(latest)).toEqual({ ok: true });
+    const stale = await worker.fetch(unloadCloseRequest(closeBodies[0]!, cookie, closeKey(0)));
+    expect(stale.status).toBe(409);
+    expect(await responseJson(stale)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
+    expect(
+      worker.room!.presence.participants[envelope.snapshot.viewer.participantId]
+        ?.presenceIncarnationId,
+    ).toBe(envelope.snapshot.viewer.presenceIncarnationId);
+
+    // Once the session is gone its receipt can never replay, so the next
+    // request releases it.
+    expect(
+      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
+    ).toBe(200);
+    expect((await worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+    expect(presenceCloseKeys(worker.room!.idempotency)).toEqual([]);
+    expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
+  }, 60_000);
+
   it('replays a session-create receipt that an earlier Worker left in the shared ledger', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const requestId = nextRequestId();

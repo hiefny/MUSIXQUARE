@@ -4,7 +4,7 @@
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Evidence — completed behaviour-neutral refactor, not yet released                                                                                                                                                                                 |
 | Applies to         | PRO room effects and queue-mode persistence in `src/pro-room/runtime.ts`                                                                                                                                                                          |
-| Last source review | 2026-10-11 (base main `933c6f54`, tested code `4adecea3`)                                                                                                                                                                                         |
+| Last source review | 2026-10-11 (base main `933c6f54`, tested code `4adecea3`, review follow-up `f1d35b5e`)                                                                                                                                                            |
 | Executable sources | [lane](../../src/pro-room/persisted-resource-lane.ts), [runtime](../../src/pro-room/runtime.ts), [lane suite](../../src/pro-room/__tests__/runtime-persisted-resource-lane.test.ts), [critical coverage profile](../../vitest.critical.config.ts) |
 | Related documents  | [Release record](../release-record.md), [release procedure](../hotfix-procedure.md), [version rules](../release-versioning.md)                                                                                                                    |
 
@@ -18,8 +18,11 @@ production remains `8.8.0` / `v646`.
 - `4adecea3` (`4adecea315a14fee2ead36a49f317c98a26cac9c`) — the lane
   extraction, its tests, the critical coverage entry and its CI policy pin,
   and the PWA cache bump (`scripts/service-worker-asset.ts` and the
-  `index.html` bootstrap query). All results below were measured on this
-  commit.
+  `index.html` bootstrap query). The verification, coverage, and
+  differential results below were measured on this commit.
+- `f1d35b5e` — test-only review follow-up that pins when the effects wrapper
+  reads the notification generation. Its re-run is in
+  [Review follow-up](#review-follow-up--notification-generation-pin).
 
 The product version stays `8.8.0` because no shipped behaviour changes. The PWA
 cache moves to `v647` because `guard:sw-cache-version` requires a bump for any
@@ -28,7 +31,8 @@ bootstrap query to the same epoch, so both change together. Nothing changes in
 the wire protocol, Workers, D1, R2, secrets, or bindings. The change should
 merge through PR review and the successful exact-main-SHA CI candidate, then
 ship with the next App release (`target=app`). These local results are not
-that candidate.
+that candidate. The release record lists this undeployed App change as a §2
+open item; its §1 stays at production `8.8.0` / `v646` until the deployment.
 
 ## What changed
 
@@ -272,3 +276,53 @@ For comparison, the seven runtime test files that already covered this code
 M4, M7, and M10 pass them unchanged. The lane suite closes those gaps,
 including the shared-lock ordering that M1 breaks and the identical-promise
 contract that M2 breaks.
+
+## Review follow-up — notification generation pin
+
+A review found that nothing pinned when the effects wrapper reads the
+notification generation. `refreshPersistedEffects` captures
+`effectsNotificationGeneration` when it is called, and every pass of the flight
+it creates uses that value, as the old copy at `933c6f54` did. A mutant that
+passes `effectsNotificationGeneration` at pass time instead left every
+`src/pro-room` test passing. The difference is observable:
+`beginControlChannelRecovery` and the `settings-sync:changed` listener bump the
+notification generation without bumping the runtime generation, so a flight
+created before them stays live, and `shouldNotifyCanonicalEffects` compares the
+value its pass was given.
+
+`f1d35b5e` changes tests only:
+
+- `runtime-server-playback.test.ts` holds a refresh's GET across a
+  settings-sync OFF/ON toggle and lets a newer head join the flight. The
+  coalesced second pass starts after the toggle, applies the newer settings
+  without a toast, and a later revision still notifies. A bump during the first
+  pass's GET would not tell the two reads apart, because both read before the
+  GET starts.
+- The lane suite's wiring pin also requires the call-time capture followed by
+  `refreshPersistedEffectsUnlocked(target, notificationGeneration)`. The suite
+  still has 23 tests.
+
+The behavioural test also passes against base `933c6f54` (its file: 125 / 125),
+so it pins existing behaviour. Under the pass-time mutant, the `runtime-*` files
+plus `settings-sync-retry` (22 files) give 2 fail / 362 pass, and the two
+failures are the new pins.
+
+Re-run at `f1d35b5e` in the same environment. The working tree held only the
+uncommitted release-record edit.
+
+| Command                                   | Result                                                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                       | pass (51 s)                                                                                    |
+| `npm run lint`                            | pass, 0 warnings (59 s)                                                                        |
+| `npm run format:check`                    | pass (24 s)                                                                                    |
+| `npx vitest run src/pro-room`             | 77 files / 1,596 tests pass, 0 skip (52 s)                                                     |
+| `npm test`                                | 532 files / 11,098 pass, 1 skip (the existing skip), 0 fail (153 s)                            |
+| `npm run test:coverage:critical`          | 57 files / 1,943 tests pass, all thresholds met (53 s); coverage figures as in the table above |
+| `npm run guard:dead-exports`              | pass; test-only 21 (baseline 21), self-only 79 (baseline 79)                                   |
+| `npm run guard:import-graph`              | pass; 346 files, 1,820 edges, 0 cycles                                                         |
+| `npm run guard:room-authority-boundaries` | pass; 0 PRO direct reads                                                                       |
+| `npm run guard:source-complexity`         | pass; `runtime.ts` 3,896 / 10,000 lines                                                        |
+| `npm run guard:bus-pairing`               | pass; 198 emitted / 198 listened                                                               |
+| `npm run guard:lifecycle-writes`          | pass                                                                                           |
+| `npm run guard:sw-cache-version`          | pass; `v647` (`4adecea3`) covers all committed PWA runtime changes                             |
+| `npm run build:checked`                   | pass (31 s), including `guard:sw-app-shell` (90 assets) and the production build               |

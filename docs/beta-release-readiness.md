@@ -2,15 +2,27 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status | PRO 선택형 입장 암호 `8.8.0` / `v646` 구현·검증 중. 현재 운영은 App `8.7.9` / `v645` (`b831b932`), 다른 Worker5종 `ff7766cc`. 정식 PR·exact-main CI·all Release 필요. [범위·복구·검증](design/pro-optional-entry-password-2026-10-10.md) |
+| Status | PRO 선택형 입장 암호 `8.8.0` / `v646` 배포 완료. PR281/main `6e59d96c`·exact-main CI38044634408·all/D1 false Release38045004901 성공. Worker6종 동일 SHA/100%·smoke10·최종 소유권·PRO ready·coherent marker 확인, 복구 불필요. [범위·복구·검증](design/pro-optional-entry-password-2026-10-10.md) |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
 | Last source review | 2026-10-10 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
 
-**후속 구현·검증 중 — 2026-10-10:** 소유자 승인으로 PRO 입장 암호를 선택형으로 변경한다. 신규 활성화는 계정 확인 후 공개방을 만들며, 기존 방은 암호를 유지하고 소유자가 설정에서 직접 해제·지정할 수 있다. 일반방 정책은 유지한다. DO 명시 플래그·구버전 응답 협상·PRO/App 복구 호환 경계를 추가하며 D1·비밀·바인딩·의존성 변경은 없다. 현재 미배포이며 [상세 기록](design/pro-optional-entry-password-2026-10-10.md)의 검증·배포 대기를 따른다.
+**최신 배포 완료 — 2026-10-10:** 소유자 승인한 PRO 선택형 입장 암호를
+`8.8.0` / `v646`으로 배포했다. 신규 활성화는 계정 확인 후 공개방을 만들며,
+기존 방은 암호를 유지하고 소유자가 직접 해제·지정한다. 일반방 정책은 유지한다.
+[PR #281](https://github.com/hiefny/MUSIXQUARE/pull/281) 병합 main
+`6e59d96c14ff78de8cff476b074250428007265e`의 성공
+[CI38044634408](https://github.com/hiefny/MUSIXQUARE/actions/runs/38044634408)를
+[Release38045004901](https://github.com/hiefny/MUSIXQUARE/actions/runs/38045004901)의
+`all` / Developer API D1 false 후보로 사용해 attempt1을 19:33:22 KST에 완료했다.
+Worker6종 동일 SHA/100% version·운영 smoke10·최종 소유권·PRO ready·coherent
+marker 확인, 복구 불필요. DO 명시 플래그와 PRO/App 복구 호환 경계를 추가하고
+D1 schema·비밀·바인딩·의존성 변경은 없다. 운영 기존 보호방 `000001`의 구버전
+응답 형태와 새 클라이언트용 `passwordRequired: true`도 읽기 전용 확인했다.
+[상세 검증·복구 기록](design/pro-optional-entry-password-2026-10-10.md).
 
-**최신 배포 완료 — 2026-10-09:** 사용자가 운영 8.7.8의 iPhone
+**이전 배포 완료 — 2026-10-09:** 사용자가 운영 8.7.8의 iPhone
 깜빡임 해결을 확인한 뒤 로딩·시크 중에도 크로스페이드를 유지하도록 수정·배포를
 승인했다. App `8.7.9` / `v645`에서 1.2초 전역 차단을 제거하고 일반 탭 전환의
 헤더만 live 그룹으로 분리했다. 헤더 위를 가리는 창과 setup/media 전환은 기존
@@ -93,7 +105,7 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
-| PRO 선택형 암호 — 2026-10-10 | 8.8.0/v646 구현·검증 중; 신규 공개 활성화, 기존 방 보호 유지, 소유자 수동 PIN 토글, 구버전 호환·복구 floor. PR·exact-main CI·all 배포 전. [검증 기록](design/pro-optional-entry-password-2026-10-10.md) |
+| PRO 선택형 암호 — 2026-10-10 | PR281 병합 main `6e59d96c`·최종 PR CI38044325582 및 exact-main CI38044634408 성공. 원격531파일11,074pass/기존CLI1skip/fail0·coverage4종·candidate17/critical22. 로컬 최종 치환 집계531파일11,075pass/fail·skip0·Chromium26/WebKit19·committed build/candidate17 통과. 782파일 exact-main 후보로 8.8.0/v646·all/D1 false Release38045004901 attempt1 성공. Worker6종 동일 SHA/100%·smoke10·최종 소유권·PRO ready·coherent marker 확인, 복구 불필요. 기존 보호방의 legacy/optional bootstrap 읽기 확인. 신규 공개 활성화·기존 방 보호·소유자 수동 PIN·PRO/App forward-repair floor. [검증 기록](design/pro-optional-entry-password-2026-10-10.md) |
 | 8.7.9 헤더 독립 크로스페이드 배포 — 2026-10-09 | PR279 초기 자동리뷰 P1 커튼 조건 수정·회귀 보강·해결, 최종 독립 검토 차단0·PR CI37929168928 성공. main `b831b932` CI37929745403 attempt1 전체531파일11,017pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과, candidate782파일 hash/version 일치. Release37930447317 attempt1·app/D1 false 성공, App8.7.9/v645·100% version·smoke4·최종 소유권/coherent marker 확인. 다른 Worker5종ff7766cc 유지·호환, 복구 불필요. 제품65229795의 로컬 정적7/build·실제 DOM Chromium50 근거와 새 헤더 실기 대기 유지. [기록](design/header-crossfade-2026-10-09.md) |
 | 8.7.8 iPhone YouTube 전환 수정 배포 — 2026-10-09 | PR277·자동 리뷰 완료/inline0·독립 검토 새 확정0. main `12ecbf71` CI37907874855 attempt1 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과. 782파일 hash/version 일치. Release37908451698 attempt1·app/D1 false 성공, App8.7.8/v643·100% version·smoke4·최종 소유권/coherent marker 확인. 다른 Worker5종ff7766cc 호환·유지, rollback 불필요. 사용자가 깜빡임 해결 확인. 기존 숨은 fullscreen 키보드 포커스는 별도 후속 |
 | R26 보완 원본 최종 판정 — 2026-10-09 | 검토 HEAD `7dd457c2b3c5b63186dd3a20b31fa7601a6ec831`, 배포 제품18246271과 문서2파일 차이. Vitest47(39+8)/Chromium8의 최신55pass·fail/skip0 채택. 요청24개 같은 origin·기발급 flow 성공2·PKCE 대응·세션 후속 인증 확인, 합의한 로컬 범위 보류 해제. 현재clean·추적1,977/비Markdown1,830과 제공manifest 전수hash 일치·누락/추가/불일치0. 제출HEAD 전체값 불일치는 실제Git값으로 정정. Node24.13.1/핀24.20.0·live/운영쿠키/실기 제외 범위 유지, 부모실행0·새제품결함0·재배포 불필요. [최종 판정](design/beta-qa3-repair-2026-10-09.md#r26-보완-원본-최종-판정--2026-10-09) |
@@ -563,6 +575,19 @@ partial-release gate는 선택하지 않은 Worker에 남는 runtime 차이도 �
   방 재생 명령·권한 완화·파일 공유 종료 정책 변경은 없다.
 
 ## 3. 현재 검증과 남은 확인
+
+**PRO 선택형 입장 암호 — 2026-10-10, 8.8.0/v646 정식 배포 완료:**
+
+- [x] 사용자 구현·배포 승인. 신규 활성화는 계정 확인 후 암호 없이 완료하고 기존 방의 암호는 보존한다. 소유자는 설정에서 직접 8자리 암호를 지정·변경·해제하며 일반방 자동 생성 정책은 유지한다.
+- [x] 검증한 소유자 계정은 암호를 잊어도 입장 가능. 일반 회원·관리자는 보호방 PIN을 우회하지 못하고, 입장 요청 재시도는 현재 계정 또는 기존 소유자 자격 증명을 재검증한다. 계정 UI 로딩·구버전 pending ID·응답 유실·PIN 설정 취소·방 전환 경계 회귀 확인.
+- [x] 코드 `835be57c`와 최종 영향 범위 재검증: Windows/Node24.20.0/npm12.0.2, 전체 후 치환 집계531파일11,075pass/fail·skip0. 마지막 localized-sitemap fixture15건도 통과. 기존 jq 실행 파일을 사용해 로컬 CLI 검사도 실행했다. 초기 실패와 수정 근거는 [상세 기록](design/pro-optional-entry-password-2026-10-10.md)에 보존한다.
+- [x] 전체 정적 검사·committed `735bc8cc` production build·candidate17 통과. 로컬 Chromium 고유26건·iPhone WebKit19건 통과. API fixture 기반이며 실제 고객방 변경·물리 기기 검증으로 표현하지 않는다.
+- [x] PR281 자동 검토 inline0·독립 검토 후 확정 차단0. 최초 PR CI38043975233의 오래된 문서 날짜 fixture1건을 고친 뒤 최종 PR CI38044325582 성공. exact-main `6e59d96c14ff78de8cff476b074250428007265e` CI38044634408에서531파일11,074pass/기존 pro-grant-campaign CLI1skip/fail0·coverage4종·candidate17/critical22 통과.
+- [x] `pro-room-entry-policy-contract-version.txt`의 PRO/App forward-repair floor를 정식 release와 recovery 양쪽에 반영. 이전 기준 버전이 그대로 운영 중인 경우와 일부 새 배포·불완전 checkpoint·이후 호환 rollback을 구분하는 회귀 검증. D1·secret·binding·dependency 추가 없음.
+- [x] 782파일 exact-main candidate 검증 후 Release38045004901 attempt1 `all` / Developer API D1 false 성공, 2026-10-10 19:33:22 KST 완료. Worker6종 같은 SHA/100% version·운영 smoke10·최종 소유권·PRO ready·coherent marker 확인. recovery는 실행 불필요로 skip.
+- [x] 운영 기존 보호방 `000001` bootstrap을 읽기 전용 대조: legacy는 기존 두 필드, optional-v1은 `passwordRequired: true` 추가·각 HTTP200. 고객방 활성화·암호 변경은 하지 않았다.
+- [x] Release의 generation smoke에서 같은 main 자산3연속 조회·후보 자산25개 hash 검증·converged true. 후속 공개 GET에서 `/service-worker.js`200·cache v646, 실제 `/assets/main-BUAdw9y5.js`200·437,889바이트 확인. 최초 임의 `/sw.js`404와 bootstrap의 잘못된 cache 기대는 조회기 오류로 보존하고 실제 소스 경로로 교정했다.
+- 검증 한계: 로컬 브라우저는 합성 API fixture, 실기는 미실행이다. 실제 고객방의 소유권·암호 변경, 기존 운영 탭·설치 PWA의 새 코드 적용을 위 검사로 보장하지 않는다. 이전 QA의 실기·R2 원인 미확정 사항도 그대로 유지한다.
 
 **헤더 독립 크로스페이드 — 2026-10-09, 8.7.9/v645 배포 완료·실기 확인 대기:**
 
@@ -1497,6 +1522,13 @@ main 병합만으로 Cloudflare가 바뀌지 않는다. 문서·감사 도구만
 - 정식 release/recovery workflow의 checkpoint, 실제 Worker 버전·메시지,
   D1/DO/R2 compatibility floor를 우선한다. 체크포인트는 사용자 데이터 전체의
   백업이 아니며, 이미 존재하는 세대·권한 경계나 tombstone을 지우지 않는다.
+- **PRO 선택형 입장 암호:** 새 계약의 `passwordRequired: false` / `pin: null`이
+  저장될 수 있는 배포 이후에는 구 PRO/App 조합으로 자동 복구하지 않는다.
+  구 Worker는 공개방 입장을 막거나, PIN 변경 뒤에도 모르는 false 플래그를
+  남겨 재업그레이드 시 다시 공개할 수 있다. 양쪽 복구 워크플로의
+  `pro-room-entry-policy-contract-version.txt` 기준점을 유지하고 forward repair
+  또는 검증된 동일 시점 코드·데이터 복구를 사용한다. 임의 PIN 주입이나 플래그
+  삭제로 우회하지 않는다. [계약·검증](design/pro-optional-entry-password-2026-10-10.md).
 - **쿠키 reader 호환:** 새 세션별 쿠키를 발급한 뒤 이전 App Worker로만 되돌리면
   이전 코드는 새 이름을 읽지 못해 해당 사용자가 익명으로 보일 수 있다. 이 경계는
   현재 별도 자동 rollback marker로 보호되지 않는다. 가능하면 새 cookie reader를
@@ -1527,6 +1559,38 @@ QA 시작 시 이 문서와 현재 diff를 읽고, 완료 시 다음 중 하나�
 세션 쿠키나 개인정보는 이 문서에 넣지 않는다.
 
 ### 누적 변경 이력
+
+2026-10-10 PRO 선택형 입장 암호 정식 배포 완료: 사용자 승인한 신규 공개
+활성화·기존 방 보호 유지·소유자 수동 PIN 토글·계정 기반 암호 복구를 구현했다.
+제품 `835be57ca6281f0106e13d67c756183b48328889`, 로컬 전체 후 최종 영향 범위
+치환 집계531파일11,075pass/fail·skip0와 Chromium26/WebKit19를 확인했다.
+committed `735bc8cc`의 production build·candidate17도 통과했다. 초기 계약
+fixture4건과 PR CI38043975233의 별도 오래된 문서 날짜 fixture1건을 수정했고,
+이 실패 기록을 최종 통과로 지우지 않는다. PR #281 자동 검토 inline0·독립
+검토 후 차단0, 최종 PR CI38044325582 성공 뒤 main
+`6e59d96c14ff78de8cff476b074250428007265e`에 병합했다. exact-main
+CI38044634408에서531파일11,074pass/기존 Windows 전용 pro-grant-campaign
+CLI1skip/fail0·coverage4종·candidate17/critical22 통과. 해당 CI의782파일
+후보를 검증해 Release38045004901 attempt1 `all` / Developer API D1 false를
+19:33:22 KST에 완료했다. Worker6종 동일SHA/100% version·운영 smoke10·최종
+소유권·PRO ready·coherent marker 확인, recovery 불필요. App deployment
+`a30027a5-30f9-4720-b32c-4229d69f5e30`/version
+`b79c8cb5-2f5a-4ce5-83b1-e9c971d4b520`, PRO deployment
+`5ff9c162-c4c0-4a6f-b036-4a3d550417cb`/version
+`02315da2-e600-411c-8208-2b24484da51e`와 다른 Worker 식별자는 상세 기록에
+보존한다. 운영 기존 보호방000001은 legacy/optional-v1 bootstrap 모두200,
+기존 형태 유지 및 새 `passwordRequired: true` 확인. 실제 고객방 상태 변경은
+하지 않았다. PRO/App의 새 persisted-entry-policy floor·구버전 응답 협상을
+포함하고 D1 schema·비밀·바인딩·의존성 추가는 없다. 복구 checkpoint·최종
+Worker 원본·live-after.json·release-commit은
+`scratch/pro-optional-password/`에 보존했다. 물리 기기·기존 탭/PWA 적용과
+기존 미확정 이슈의 한계는 유지하며 배포 기록만 올리는 후속 문서는 App
+재배포 대상이 아니다. Release의 generation smoke는 실제 main3연속 조회·
+25자산 후보 hash 검증·converged true이며, 후속 공개 GET에서 service-worker
+200/v646·main200/437,889바이트를 확인했다. 첫 조회기의 임의 `/sw.js`404와
+bootstrap에 cache 문자열을 기대한 오류는 제품 실패와 구분해 보존하고,
+소스 기반 실제 경로의 결과를 `live-assets-corrected.json`에 기록했다.
+[현재 판정·상세 근거](design/pro-optional-entry-password-2026-10-10.md).
 
 2026-10-09 8.7.9 헤더 독립 크로스페이드 정식 배포: PR
 [#279](https://github.com/hiefny/MUSIXQUARE/pull/279)의 초기 자동리뷰 P1 커튼 조건을

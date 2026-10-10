@@ -94,6 +94,7 @@ import type {
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import { applyProRoomSnapshotMonotonically } from './revision.ts';
 import { RoomSettingsIntentTracker } from './effects-reconciliation.ts';
+import { PersistedResourceLane } from './persisted-resource-lane.ts';
 import {
   isTransientSettingsSyncFailure,
   SettingsSyncCheckpointState,
@@ -227,16 +228,21 @@ let playlistRoomCode: string | null = null;
 let playlistSignature = '';
 let playlistRuntimeAbort: AbortController | null = null;
 type PlaylistRuntimeLease = ProRoomPlaybackPlaylistLease;
-interface PersistedStateRefreshFlight {
-  generation: number;
-  roomCode: string;
-  pendingSnapshot: ProRoomSnapshot | null;
-  promise: Promise<boolean>;
-}
 let playlistRuntimeGeneration = 0;
 let playlistRuntimeLease: PlaylistRuntimeLease | null = null;
-let effectsMutationTail: Promise<void> = Promise.resolve();
-let effectsRefreshInFlight: PersistedStateRefreshFlight | null = null;
+// Each persisted resource owns one serial mutation lock and one coalescing
+// refresh flight. Its domain predicates stay in this module, next to the
+// checkpoint algorithms that deliberately differ between the two resources.
+const effectsLane = new PersistedResourceLane<ProRoomSnapshot>({
+  runtimeGeneration: () => playlistRuntimeGeneration,
+  refreshStillRequired: effectsRefreshStillRequired,
+  newerRefreshSnapshot: newerEffectsRefreshSnapshot,
+});
+const queueModeLane = new PersistedResourceLane<ProRoomSnapshot>({
+  runtimeGeneration: () => playlistRuntimeGeneration,
+  refreshStillRequired: queueModeRefreshStillRequired,
+  newerRefreshSnapshot: newerQueueModeRefreshSnapshot,
+});
 let acceptedEffects: ProRoomSettingsSyncSnapshot | null = null;
 let effectsNotificationGeneration = 0;
 let effectsSilentThroughRevision = -1;
@@ -245,8 +251,6 @@ let effectsSilentRefreshPending = false;
 let suppressEffectsCheckpoint = false;
 const effectsIntent = new RoomSettingsIntentTracker();
 const effectsCheckpointState = new SettingsSyncCheckpointState();
-let queueModeMutationTail: Promise<void> = Promise.resolve();
-let queueModeRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
 let suppressQueueModeCheckpoint = false;
 let queueModeCheckpointDirty = false;
@@ -1513,8 +1517,7 @@ function resetPlaylistRuntime(): void {
   pendingQueueAdditions.clear();
   lastAnnouncedQueueAdditionOrder = 0;
   clearManagedTimer(QUEUE_ADDITION_FLUSH_TIMER);
-  effectsMutationTail = Promise.resolve();
-  effectsRefreshInFlight = null;
+  effectsLane.reset();
   acceptedEffects = null;
   effectsNotificationGeneration += 1;
   effectsSilentThroughRevision = -1;
@@ -1525,8 +1528,7 @@ function resetPlaylistRuntime(): void {
   effectsIntent.reset(captureRoomSettingsSyncState());
   effectsCheckpointState.cancel();
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
-  queueModeMutationTail = Promise.resolve();
-  queueModeRefreshInFlight = null;
+  queueModeLane.reset();
   acceptedQueueMode = null;
   suppressQueueModeCheckpoint = false;
   queueModeCheckpointDirty = false;
@@ -1654,15 +1656,6 @@ function scheduleAcceptedQueueAdditionFlush(): void {
     },
     QUEUE_ADDITION_REORDER_WINDOW_MS,
   );
-}
-
-function enqueueEffectsMutation<T>(operation: () => Promise<T>): Promise<T> {
-  const result = effectsMutationTail.then(operation, operation);
-  effectsMutationTail = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
 }
 
 function effectsRuntimeSnapshot(): ProRoomSnapshot | null {
@@ -1833,7 +1826,7 @@ async function persistRoomEffects(): Promise<void> {
   const token = effectsCheckpointState.begin();
   if (!token) return;
   const notificationGeneration = effectsNotificationGeneration;
-  await enqueueEffectsMutation(async () => {
+  await effectsLane.enqueue(async () => {
     if (!effectsCheckpointState.isLive(token)) return;
     const snapshot = effectsRuntimeSnapshot();
     if (
@@ -2092,71 +2085,12 @@ function newerEffectsRefreshSnapshot(
 }
 
 async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boolean> {
-  const generation = playlistRuntimeGeneration;
+  // A caller that joins an in-flight refresh does not pass its own
+  // notification generation; the creator's value applies to every pass.
   const notificationGeneration = effectsNotificationGeneration;
-  const existing = effectsRefreshInFlight;
-  if (existing && existing.generation === generation && existing.roomCode === snapshot.roomCode) {
-    existing.pendingSnapshot = existing.pendingSnapshot
-      ? newerEffectsRefreshSnapshot(existing.pendingSnapshot, snapshot)
-      : snapshot;
-    return existing.promise;
-  }
-
-  const flight: PersistedStateRefreshFlight = {
-    generation,
-    roomCode: snapshot.roomCode,
-    pendingSnapshot: null,
-    promise: Promise.resolve(false),
-  };
-  flight.promise = (async () => {
-    let target = snapshot;
-    let applied = false;
-    try {
-      for (;;) {
-        let failure: unknown = null;
-        try {
-          applied =
-            (await enqueueEffectsMutation(() =>
-              flight.generation === playlistRuntimeGeneration
-                ? refreshPersistedEffectsUnlocked(target, notificationGeneration)
-                : Promise.resolve(false),
-            )) || applied;
-        } catch (error) {
-          failure = error;
-        }
-
-        if (flight.generation !== playlistRuntimeGeneration) {
-          if (failure) throw failure;
-          return applied;
-        }
-        const pending = flight.pendingSnapshot;
-        flight.pendingSnapshot = null;
-        if (
-          pending &&
-          pending.roomCode === flight.roomCode &&
-          effectsRefreshStillRequired(pending)
-        ) {
-          target = newerEffectsRefreshSnapshot(target, pending);
-          continue;
-        }
-        if (failure) throw failure;
-        return applied;
-      }
-    } finally {
-      if (effectsRefreshInFlight === flight) effectsRefreshInFlight = null;
-    }
-  })();
-  effectsRefreshInFlight = flight;
-  return flight.promise;
-}
-
-function enqueueQueueModeMutation<T>(operation: () => Promise<T>): Promise<T> {
-  const result = queueModeMutationTail.then(operation, operation);
-  queueModeMutationTail = result.then(
-    () => undefined,
-    () => undefined,
+  return effectsLane.refresh(snapshot, (target) =>
+    refreshPersistedEffectsUnlocked(target, notificationGeneration),
   );
-  return result;
 }
 
 function hasQueueModeCheckpointAuthority(lease: PlaylistRuntimeLease | null): boolean {
@@ -2247,7 +2181,7 @@ async function persistQueueModeCheckpoint(): Promise<void> {
       delay,
     );
   };
-  await enqueueQueueModeMutation(async () => {
+  await queueModeLane.enqueue(async () => {
     if (!isCurrent() || suppressQueueModeCheckpoint || !queueModeCheckpointDirty) {
       return;
     }
@@ -2469,61 +2403,10 @@ async function refreshPersistedQueueMode(
   snapshot: ProRoomSnapshot,
   options: { broadcast?: boolean } = {},
 ): Promise<boolean> {
-  const generation = playlistRuntimeGeneration;
-  const existing = queueModeRefreshInFlight;
-  if (existing && existing.generation === generation && existing.roomCode === snapshot.roomCode) {
-    existing.pendingSnapshot = existing.pendingSnapshot
-      ? newerQueueModeRefreshSnapshot(existing.pendingSnapshot, snapshot)
-      : snapshot;
-    return existing.promise;
-  }
-
-  const flight: PersistedStateRefreshFlight = {
-    generation,
-    roomCode: snapshot.roomCode,
-    pendingSnapshot: null,
-    promise: Promise.resolve(false),
-  };
-  flight.promise = (async () => {
-    let target = snapshot;
-    let applied = false;
-    try {
-      for (;;) {
-        let failure: unknown = null;
-        try {
-          applied =
-            (await enqueueQueueModeMutation(() =>
-              flight.generation === playlistRuntimeGeneration
-                ? refreshPersistedQueueModeUnlocked(target, options)
-                : Promise.resolve(false),
-            )) || applied;
-        } catch (error) {
-          failure = error;
-        }
-
-        if (flight.generation !== playlistRuntimeGeneration) {
-          if (failure) throw failure;
-          return applied;
-        }
-        const pending = flight.pendingSnapshot;
-        flight.pendingSnapshot = null;
-        if (
-          pending &&
-          pending.roomCode === flight.roomCode &&
-          queueModeRefreshStillRequired(pending)
-        ) {
-          target = newerQueueModeRefreshSnapshot(target, pending);
-          continue;
-        }
-        if (failure) throw failure;
-        return applied;
-      }
-    } finally {
-      if (queueModeRefreshInFlight === flight) queueModeRefreshInFlight = null;
-    }
-  })();
-  queueModeRefreshInFlight = flight;
-  return flight.promise;
+  // As with effects, only the flight creator's options reach coalesced passes.
+  return queueModeLane.refresh(snapshot, (target) =>
+    refreshPersistedQueueModeUnlocked(target, options),
+  );
 }
 
 /** @internal Exact first-append command seam for coordinator-free regressions. */
@@ -3034,23 +2917,14 @@ function refreshHeartbeatAdjunctState(
   snapshot: ProRoomSnapshot,
   playbackIsCurrent?: () => boolean,
 ): void {
-  if (
-    !acceptedEffects ||
-    acceptedEffects.roomCode !== snapshot.roomCode ||
-    snapshot.effectsRevision > acceptedEffects.revision
-  ) {
+  if (effectsRefreshStillRequired(snapshot)) {
     void refreshPersistedEffects(snapshot).catch((error) => {
       // Effects are a dedicated rolling-deploy resource. A transient read
       // failure must not tear down presence or media playback.
       log.warn('[PRO] Room effects refresh failed', error);
     });
   }
-  if (
-    !acceptedQueueMode ||
-    acceptedQueueMode.roomCode !== snapshot.roomCode ||
-    snapshot.queueModeRevision > acceptedQueueMode.revision ||
-    !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
-  ) {
+  if (queueModeRefreshStillRequired(snapshot)) {
     void refreshPersistedQueueMode(snapshot).catch((error) => {
       log.warn('[PRO] Queue mode refresh failed', error);
     });

@@ -762,8 +762,28 @@ const ar: Record<I18nKey, string> = {
   'pro.pin_message': 'أدخل كلمة المرور المؤلفة من 8 أرقام لغرفة PRO هذه.',
   'pro.pin_retry_message': 'كلمة المرور غير صحيحة. حاول مجددًا.',
   'pro.pin_change_title': 'تغيير كلمة مرور الغرفة',
-  'pro.pin_change_message': 'عيّن كلمة مرور جديدة من 8 أرقام. سيتعين على الجميع الانضمام مجددًا.',
+  'pro.pin_change_message': 'عيّن كلمة مرور جديدة من 8 أرقام.',
   'pro.pin_changed': 'تم تغيير كلمة مرور الغرفة.',
+  'pro.pin_enable_title': 'تعيين كلمة مرور الغرفة',
+  'pro.pin_enabled': 'تم تعيين كلمة مرور الغرفة.',
+  'pro.pin_members_legend': 'الموجودون في الغرفة الآن',
+  'pro.pin_members_keep': 'إبقاؤهم',
+  'pro.pin_members_keep_detail':
+    'يمكن للمتصلين الآن البقاء. أما غيرهم فسيحتاجون إلى كلمة المرور للانضمام.',
+  'pro.pin_members_reenter': 'مطالبة الجميع بالانضمام مجددًا',
+  'pro.pin_members_reenter_detail':
+    'سيتعين على جميع الآخرين، بما في ذلك أجهزتك الأخرى، الانضمام مجددًا. اختر هذا لإزالة أشخاص لا تعرفهم.',
+  'pro.pin_keep_unavailable':
+    'لم يتم تغيير كلمة المرور. لا يمكن حاليًا إبقاء الأشخاص في الغرفة. حاول مجددًا لاحقًا أو اطلب من الجميع الانضمام مجددًا.',
+  'pro.pin_enabled_removed_title': 'أصبحت للغرفة كلمة مرور',
+  'pro.pin_enabled_removed_message':
+    'عيّن مالك الغرفة كلمة مرور لهذه الغرفة. أدخلها للانضمام مجددًا.',
+  'pro.pin_changed_removed_title': 'تغيّرت كلمة مرور الغرفة',
+  'pro.pin_changed_removed_message':
+    'غيّر مالك الغرفة كلمة مرور الغرفة. أدخل كلمة المرور الجديدة للانضمام مجددًا.',
+  'pro.removed_title': 'تمت إزالتك من الغرفة',
+  'pro.removed_message': 'أزالك مالك الغرفة أو أحد المسؤولين من هذه الغرفة.',
+  'pro.device_removed_message': 'قطع جهاز آخر مسجّل الدخول إلى حسابك اتصال هذا الجهاز بالغرفة.',
   'pro.owner_only': 'لا يستطيع تنفيذ ذلك إلا مالك الغرفة.',
   'pro.connect_failed': 'تعذّر الاتصال بغرفة PRO.',
   'pro.active_tab_title': 'غرفة PRO هذه مفتوحة بالفعل في تبويب آخر',

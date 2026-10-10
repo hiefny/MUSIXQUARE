@@ -711,9 +711,30 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_message': 'Saisissez le mot de passe à 8 chiffres de ce salon PRO.',
   'pro.pin_retry_message': 'Mot de passe incorrect. Réessayez.',
   'pro.pin_change_title': 'Modifier le mot de passe du salon',
-  'pro.pin_change_message':
-    'Définissez un nouveau mot de passe à 8 chiffres. Tout le monde devra rejoindre de nouveau le salon.',
+  'pro.pin_change_message': 'Définissez un nouveau mot de passe à 8 chiffres.',
   'pro.pin_changed': 'Mot de passe du salon modifié.',
+  'pro.pin_enable_title': 'Définir le mot de passe du salon',
+  'pro.pin_enabled': 'Mot de passe du salon défini.',
+  'pro.pin_members_legend': 'Personnes actuellement dans le salon',
+  'pro.pin_members_keep': 'Les laisser rester',
+  'pro.pin_members_keep_detail':
+    'Les personnes connectées peuvent rester. Les autres devront saisir le mot de passe pour rejoindre le salon.',
+  'pro.pin_members_reenter': 'Faire revenir tout le monde',
+  'pro.pin_members_reenter_detail':
+    'Tous les autres, y compris vos autres appareils, devront rejoindre de nouveau le salon. Choisissez cette option pour retirer des inconnus.',
+  'pro.pin_keep_unavailable':
+    'Le mot de passe n’a pas été modifié. Impossible pour l’instant de laisser les personnes dans le salon. Réessayez plus tard ou faites revenir tout le monde.',
+  'pro.pin_enabled_removed_title': 'Mot de passe du salon défini',
+  'pro.pin_enabled_removed_message':
+    'Le propriétaire du salon a défini un mot de passe. Saisissez-le pour rejoindre de nouveau le salon.',
+  'pro.pin_changed_removed_title': 'Mot de passe du salon modifié',
+  'pro.pin_changed_removed_message':
+    'Le propriétaire du salon a modifié le mot de passe. Saisissez le nouveau mot de passe pour rejoindre de nouveau le salon.',
+  'pro.removed_title': 'Accès au salon retiré',
+  'pro.removed_message':
+    'Le propriétaire du salon ou un administrateur a mis fin à votre accès à ce salon.',
+  'pro.device_removed_message':
+    'Un autre appareil connecté à votre compte a déconnecté cet appareil du salon.',
   'pro.owner_only': 'Seul le propriétaire du salon peut le faire.',
   'pro.connect_failed': 'Connexion au salon PRO impossible.',
   'pro.active_tab_title': 'Ce salon PRO est déjà ouvert dans un autre onglet',

@@ -796,9 +796,30 @@ const ro: Record<I18nKey, string> = {
   'pro.pin_message': 'Introdu parola din 8 cifre a acestei camere PRO.',
   'pro.pin_retry_message': 'Parola nu este corectă. Încearcă din nou.',
   'pro.pin_change_title': 'Schimbă parola camerei',
-  'pro.pin_change_message':
-    'Setează o parolă nouă din 8 cifre. Toți participanții vor trebui să intre din nou.',
+  'pro.pin_change_message': 'Setează o parolă nouă din 8 cifre.',
   'pro.pin_changed': 'Parola camerei a fost schimbată.',
+  'pro.pin_enable_title': 'Setează parola camerei',
+  'pro.pin_enabled': 'Parola camerei a fost setată.',
+  'pro.pin_members_legend': 'Cine este acum în cameră',
+  'pro.pin_members_keep': 'Lasă-i să rămână',
+  'pro.pin_members_keep_detail':
+    'Cei conectați acum pot rămâne. Ceilalți vor avea nevoie de parolă pentru a intra.',
+  'pro.pin_members_reenter': 'Cere tuturor să intre din nou',
+  'pro.pin_members_reenter_detail':
+    'Toți ceilalți, inclusiv celelalte dispozitive ale tale, vor trebui să intre din nou. Alege această opțiune ca să elimini persoanele pe care nu le cunoști.',
+  'pro.pin_keep_unavailable':
+    'Parola nu a fost schimbată. Momentan nu poți păstra persoanele în cameră. Încearcă mai târziu sau cere tuturor să intre din nou.',
+  'pro.pin_enabled_removed_title': 'Camera are acum parolă',
+  'pro.pin_enabled_removed_message':
+    'Proprietarul camerei a setat o parolă pentru această cameră. Introdu-o ca să intri din nou.',
+  'pro.pin_changed_removed_title': 'Parola camerei s-a schimbat',
+  'pro.pin_changed_removed_message':
+    'Proprietarul camerei a schimbat parola camerei. Introdu parola nouă ca să intri din nou.',
+  'pro.removed_title': 'Eliminare din cameră',
+  'pro.removed_message':
+    'Proprietarul camerei sau un administrator te-a eliminat din această cameră.',
+  'pro.device_removed_message':
+    'Un alt dispozitiv conectat la contul tău a deconectat acest dispozitiv de la cameră.',
   'pro.owner_only': 'Numai proprietarul camerei poate face acest lucru.',
   'pro.connect_failed': 'Conectarea la camera PRO a eșuat.',
   'pro.active_tab_title': 'Această cameră PRO este deja deschisă în altă filă',

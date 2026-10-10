@@ -712,9 +712,29 @@ const ptBr: Record<I18nKey, string> = {
   'pro.pin_message': 'Digite a senha de 8 dígitos desta sala PRO.',
   'pro.pin_retry_message': 'A senha está incorreta. Tente novamente.',
   'pro.pin_change_title': 'Alterar senha',
-  'pro.pin_change_message':
-    'Defina uma nova senha de 8 dígitos. Todos precisarão entrar novamente.',
+  'pro.pin_change_message': 'Defina uma nova senha de 8 dígitos.',
   'pro.pin_changed': 'Senha da sala alterada.',
+  'pro.pin_enable_title': 'Definir senha',
+  'pro.pin_enabled': 'Senha da sala definida.',
+  'pro.pin_members_legend': 'Pessoas na sala agora',
+  'pro.pin_members_keep': 'Deixar ficar',
+  'pro.pin_members_keep_detail':
+    'Quem está conectado agora pode ficar. As demais pessoas vão precisar da senha para entrar.',
+  'pro.pin_members_reenter': 'Fazer todos entrarem novamente',
+  'pro.pin_members_reenter_detail':
+    'Todos os outros, incluindo seus outros dispositivos, vão precisar entrar novamente. Escolha esta opção para remover pessoas que você não conhece.',
+  'pro.pin_keep_unavailable':
+    'A senha não foi alterada. No momento, não é possível manter as pessoas na sala. Tente novamente mais tarde ou faça todos entrarem novamente.',
+  'pro.pin_enabled_removed_title': 'A sala agora tem senha',
+  'pro.pin_enabled_removed_message':
+    'O proprietário da sala definiu uma senha para esta sala. Digite a senha para entrar novamente.',
+  'pro.pin_changed_removed_title': 'A senha da sala mudou',
+  'pro.pin_changed_removed_message':
+    'O proprietário da sala alterou a senha. Digite a nova senha para entrar novamente.',
+  'pro.removed_title': 'Você foi removido desta sala',
+  'pro.removed_message': 'O proprietário da sala ou um administrador removeu você desta sala.',
+  'pro.device_removed_message':
+    'Outro dispositivo conectado à sua conta desconectou este dispositivo da sala.',
   'pro.owner_only': 'Só o proprietário pode fazer isso.',
   'pro.connect_failed': 'Não foi possível conectar à sala PRO.',
   'pro.active_tab_title': 'Esta sala PRO já está aberta em outra aba',

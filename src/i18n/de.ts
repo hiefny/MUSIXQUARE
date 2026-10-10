@@ -714,9 +714,30 @@ const de: Record<I18nKey, string> = {
   'pro.pin_message': 'Gib das 8-stellige Passwort für diesen PRO-Raum ein.',
   'pro.pin_retry_message': 'Das Passwort ist falsch. Versuche es erneut.',
   'pro.pin_change_title': 'Raumpasswort ändern',
-  'pro.pin_change_message':
-    'Lege ein neues 8-stelliges Passwort fest. Alle müssen dem Raum erneut beitreten.',
+  'pro.pin_change_message': 'Lege ein neues 8-stelliges Passwort fest.',
   'pro.pin_changed': 'Raumpasswort wurde geändert.',
+  'pro.pin_enable_title': 'Raumpasswort festlegen',
+  'pro.pin_enabled': 'Raumpasswort wurde festgelegt.',
+  'pro.pin_members_legend': 'Wer gerade im Raum ist',
+  'pro.pin_members_keep': 'Im Raum lassen',
+  'pro.pin_members_keep_detail':
+    'Wer gerade verbunden ist, kann bleiben. Alle anderen brauchen das Passwort, um beizutreten.',
+  'pro.pin_members_reenter': 'Alle neu beitreten lassen',
+  'pro.pin_members_reenter_detail':
+    'Alle anderen, auch deine anderen Geräte, müssen erneut beitreten. Wähle das, um Unbekannte zu entfernen.',
+  'pro.pin_keep_unavailable':
+    'Das Passwort wurde nicht geändert. Personen im Raum zu lassen ist gerade nicht möglich. Versuche es später erneut oder lass alle neu beitreten.',
+  'pro.pin_enabled_removed_title': 'Raumpasswort festgelegt',
+  'pro.pin_enabled_removed_message':
+    'Der Raumbesitzer hat ein Passwort für diesen Raum festgelegt. Gib es ein, um erneut beizutreten.',
+  'pro.pin_changed_removed_title': 'Raumpasswort geändert',
+  'pro.pin_changed_removed_message':
+    'Der Raumbesitzer hat das Raumpasswort geändert. Gib das neue Passwort ein, um erneut beizutreten.',
+  'pro.removed_title': 'Aus diesem Raum entfernt',
+  'pro.removed_message':
+    'Der Raumbesitzer oder ein Administrator hat dich aus diesem Raum entfernt.',
+  'pro.device_removed_message':
+    'Ein anderes Gerät, das mit deinem Konto angemeldet ist, hat dieses Gerät vom Raum getrennt.',
   'pro.owner_only': 'Nur der Raumbesitzer kann das tun.',
   'pro.connect_failed': 'Verbindung zum PRO-Raum fehlgeschlagen.',
   'pro.active_tab_title': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',

@@ -782,8 +782,29 @@ const nb: Record<I18nKey, string> = {
   'pro.pin_message': 'Skriv inn det 8-sifrede passordet for dette PRO-rommet.',
   'pro.pin_retry_message': 'Passordet er ikke riktig. Prøv igjen.',
   'pro.pin_change_title': 'Endre rompassord',
-  'pro.pin_change_message': 'Angi et nytt 8-sifret passord. Alle må bli med i rommet på nytt.',
+  'pro.pin_change_message': 'Angi et nytt 8-sifret passord.',
   'pro.pin_changed': 'Rompassordet er endret.',
+  'pro.pin_enable_title': 'Angi rompassord',
+  'pro.pin_enabled': 'Rompassordet er angitt.',
+  'pro.pin_members_legend': 'Folk i rommet nå',
+  'pro.pin_members_keep': 'La dem bli',
+  'pro.pin_members_keep_detail':
+    'De som er tilkoblet nå, kan bli. Alle andre trenger passordet for å bli med.',
+  'pro.pin_members_reenter': 'Få alle til å bli med på nytt',
+  'pro.pin_members_reenter_detail':
+    'Alle andre, også de andre enhetene dine, må bli med på nytt. Velg dette for å fjerne folk du ikke kjenner.',
+  'pro.pin_keep_unavailable':
+    'Passordet ble ikke endret. Det går ikke an å la folk bli i rommet akkurat nå. Prøv igjen senere, eller få alle til å bli med på nytt.',
+  'pro.pin_enabled_removed_title': 'Rommet har fått passord',
+  'pro.pin_enabled_removed_message':
+    'Rommets eier har angitt et passord for rommet. Skriv det inn for å bli med igjen.',
+  'pro.pin_changed_removed_title': 'Rompassordet ble endret',
+  'pro.pin_changed_removed_message':
+    'Rommets eier har endret rompassordet. Skriv inn det nye passordet for å bli med igjen.',
+  'pro.removed_title': 'Fjernet fra rommet',
+  'pro.removed_message': 'Rommets eier eller en administrator har fjernet deg fra rommet.',
+  'pro.device_removed_message':
+    'En annen enhet som er logget på kontoen din, har koblet denne enheten fra rommet.',
   'pro.owner_only': 'Bare rommets eier kan gjøre dette.',
   'pro.connect_failed': 'Kunne ikke koble til PRO-rommet.',
   'pro.active_tab_title': 'Dette PRO-rommet er allerede åpent i en annen fane',

@@ -800,9 +800,29 @@ const fil: Record<I18nKey, string> = {
   'pro.pin_message': 'Ilagay ang 8-digit na password para sa PRO room na ito.',
   'pro.pin_retry_message': 'Hindi tama ang password. Subukan muli.',
   'pro.pin_change_title': 'Palitan ang password ng kuwarto',
-  'pro.pin_change_message':
-    'Magtakda ng bagong 8-digit na password. Kakailanganing sumali muli ng lahat.',
+  'pro.pin_change_message': 'Magtakda ng bagong 8-digit na password.',
   'pro.pin_changed': 'Pinalitan ang password ng kuwarto.',
+  'pro.pin_enable_title': 'Magtakda ng password ng kuwarto',
+  'pro.pin_enabled': 'Naitakda na ang password ng kuwarto.',
+  'pro.pin_members_legend': 'Mga nasa kuwarto ngayon',
+  'pro.pin_members_keep': 'Hayaan silang manatili',
+  'pro.pin_members_keep_detail':
+    'Puwedeng manatili ang mga nakakonekta ngayon. Kakailanganin ng iba ang password para makasali.',
+  'pro.pin_members_reenter': 'Pasalihin muli ang lahat',
+  'pro.pin_members_reenter_detail':
+    'Kailangang sumali muli ng lahat ng iba, kasama ang iba mo pang device. Piliin ito para alisin ang mga taong hindi mo kilala.',
+  'pro.pin_keep_unavailable':
+    'Hindi napalitan ang password. Hindi pa puwedeng panatilihin ang mga tao sa kuwarto ngayon. Subukan muli mamaya, o pasalihin muli ang lahat.',
+  'pro.pin_enabled_removed_title': 'May password na ang kuwarto',
+  'pro.pin_enabled_removed_message':
+    'Nagtakda ng password ang may-ari ng kuwarto para sa kuwartong ito. Ilagay ito para makasali muli.',
+  'pro.pin_changed_removed_title': 'Napalitan ang password ng kuwarto',
+  'pro.pin_changed_removed_message':
+    'Pinalitan ng may-ari ng kuwarto ang password nito. Ilagay ang bagong password para makasali muli.',
+  'pro.removed_title': 'Inalis ka sa kuwartong ito',
+  'pro.removed_message': 'Inalis ka sa kuwartong ito ng may-ari ng kuwarto o ng isang admin.',
+  'pro.device_removed_message':
+    'Dinisconnect ng isa pang device na naka-sign in sa account mo ang device na ito mula sa kuwarto.',
   'pro.owner_only': 'May-ari lang ng kuwarto ang makakagawa nito.',
   'pro.connect_failed': 'Hindi makakonekta sa PRO room.',
   'pro.active_tab_title': 'Bukas na sa ibang tab ang PRO room na ito',

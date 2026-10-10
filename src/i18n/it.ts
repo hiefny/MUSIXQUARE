@@ -799,9 +799,30 @@ const it: Record<I18nKey, string> = {
   'pro.pin_message': 'Inserisci la password di 8 cifre di questa stanza PRO.',
   'pro.pin_retry_message': 'La password non è corretta. Riprova.',
   'pro.pin_change_title': 'Cambia password',
-  'pro.pin_change_message':
-    'Imposta una nuova password di 8 cifre. Tutti dovranno accedere di nuovo.',
+  'pro.pin_change_message': 'Imposta una nuova password di 8 cifre.',
   'pro.pin_changed': 'Password della stanza modificata.',
+  'pro.pin_enable_title': 'Imposta password',
+  'pro.pin_enabled': 'Password della stanza impostata.',
+  'pro.pin_members_legend': 'Chi è nella stanza ora',
+  'pro.pin_members_keep': 'Lasciali restare',
+  'pro.pin_members_keep_detail':
+    'Chi è connesso ora può restare. Tutti gli altri avranno bisogno della password per entrare.',
+  'pro.pin_members_reenter': 'Fai rientrare tutti',
+  'pro.pin_members_reenter_detail':
+    'Tutti gli altri, compresi i tuoi altri dispositivi, dovranno rientrare. Scegli questa opzione per rimuovere chi non conosci.',
+  'pro.pin_keep_unavailable':
+    'La password non è stata cambiata. Al momento non è possibile lasciare le persone nella stanza. Riprova più tardi o fai rientrare tutti.',
+  'pro.pin_enabled_removed_title': 'La stanza ora ha una password',
+  'pro.pin_enabled_removed_message':
+    'Il proprietario della stanza ha impostato una password. Inseriscila per rientrare.',
+  'pro.pin_changed_removed_title': 'La password della stanza è cambiata',
+  'pro.pin_changed_removed_message':
+    'Il proprietario della stanza ha cambiato la password. Inserisci la nuova password per rientrare.',
+  'pro.removed_title': 'Non sei più in questa stanza',
+  'pro.removed_message':
+    'Il proprietario della stanza o un amministratore ti ha rimosso da questa stanza.',
+  'pro.device_removed_message':
+    'Un altro dispositivo connesso al tuo account ha disconnesso questo dispositivo dalla stanza.',
   'pro.owner_only': 'Solo il proprietario della stanza può farlo.',
   'pro.connect_failed': 'Impossibile connettersi alla stanza PRO.',
   'pro.active_tab_title': 'Questa stanza PRO è già aperta in un’altra scheda',

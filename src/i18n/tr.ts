@@ -775,9 +775,29 @@ const tr: Record<I18nKey, string> = {
   'pro.pin_message': 'Bu PRO odasının 8 haneli parolasını gir.',
   'pro.pin_retry_message': 'Parola yanlış. Tekrar dene.',
   'pro.pin_change_title': 'Oda parolasını değiştir',
-  'pro.pin_change_message':
-    '8 haneli yeni bir parola belirle. Herkesin yeniden katılması gerekecek.',
+  'pro.pin_change_message': '8 haneli yeni bir parola belirle.',
   'pro.pin_changed': 'Oda parolası değiştirildi.',
+  'pro.pin_enable_title': 'Oda parolası belirle',
+  'pro.pin_enabled': 'Oda parolası belirlendi.',
+  'pro.pin_members_legend': 'Şu anda odadakiler',
+  'pro.pin_members_keep': 'Kalsınlar',
+  'pro.pin_members_keep_detail':
+    'Şu anda bağlı olanlar kalabilir. Diğer herkesin katılmak için parolaya ihtiyacı olacak.',
+  'pro.pin_members_reenter': 'Herkes yeniden katılsın',
+  'pro.pin_members_reenter_detail':
+    'Diğer cihazların da dahil olmak üzere herkesin yeniden katılması gerekecek. Tanımadığın kişileri çıkarmak için bunu seç.',
+  'pro.pin_keep_unavailable':
+    'Parola değiştirilmedi. Şu anda kişileri odada tutmak mümkün değil. Daha sonra tekrar dene veya herkesin yeniden katılmasını sağla.',
+  'pro.pin_enabled_removed_title': 'Odaya parola belirlendi',
+  'pro.pin_enabled_removed_message':
+    'Oda sahibi bu oda için bir parola belirledi. Yeniden katılmak için parolayı gir.',
+  'pro.pin_changed_removed_title': 'Oda parolası değişti',
+  'pro.pin_changed_removed_message':
+    'Oda sahibi oda parolasını değiştirdi. Yeniden katılmak için yeni parolayı gir.',
+  'pro.removed_title': 'Odadan çıkarıldın',
+  'pro.removed_message': 'Oda sahibi veya bir yönetici seni bu odadan çıkardı.',
+  'pro.device_removed_message':
+    'Hesabınla oturum açmış başka bir cihaz, bu cihazın odayla bağlantısını kesti.',
   'pro.owner_only': 'Bunu yalnızca oda sahibi yapabilir.',
   'pro.connect_failed': 'PRO odasına bağlanılamadı.',
   'pro.active_tab_title': 'Bu PRO odası başka bir sekmede zaten açık',

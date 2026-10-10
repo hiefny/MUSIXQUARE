@@ -783,8 +783,29 @@ const da: Record<I18nKey, string> = {
   'pro.pin_message': 'Indtast den 8-cifrede adgangskode til dette PRO-rum.',
   'pro.pin_retry_message': 'Adgangskoden er ikke korrekt. Prøv igen.',
   'pro.pin_change_title': 'Skift adgangskoden til rummet',
-  'pro.pin_change_message': 'Angiv en ny 8-cifret adgangskode. Alle skal deltage i rummet igen.',
+  'pro.pin_change_message': 'Angiv en ny 8-cifret adgangskode.',
   'pro.pin_changed': 'Adgangskoden til rummet er ændret.',
+  'pro.pin_enable_title': 'Angiv adgangskode til rummet',
+  'pro.pin_enabled': 'Adgangskoden til rummet er angivet.',
+  'pro.pin_members_legend': 'Personer i rummet lige nu',
+  'pro.pin_members_keep': 'Lad dem blive',
+  'pro.pin_members_keep_detail':
+    'De, der er forbundet nu, kan blive. Alle andre skal bruge adgangskoden for at deltage.',
+  'pro.pin_members_reenter': 'Få alle til at deltage igen',
+  'pro.pin_members_reenter_detail':
+    'Alle andre, også dine andre enheder, skal deltage igen. Vælg dette for at fjerne personer, du ikke kender.',
+  'pro.pin_keep_unavailable':
+    'Adgangskoden blev ikke ændret. Det er ikke muligt at lade folk blive i rummet lige nu. Prøv igen senere, eller få alle til at deltage igen.',
+  'pro.pin_enabled_removed_title': 'Rummet har fået en adgangskode',
+  'pro.pin_enabled_removed_message':
+    'Rummets ejer har angivet en adgangskode til rummet. Indtast den for at deltage igen.',
+  'pro.pin_changed_removed_title': 'Rummets adgangskode er ændret',
+  'pro.pin_changed_removed_message':
+    'Rummets ejer har ændret adgangskoden til rummet. Indtast den nye adgangskode for at deltage igen.',
+  'pro.removed_title': 'Fjernet fra rummet',
+  'pro.removed_message': 'Rummets ejer eller en administrator har fjernet dig fra rummet.',
+  'pro.device_removed_message':
+    'En anden enhed, der er logget ind med din konto, har afbrudt denne enheds forbindelse til rummet.',
   'pro.owner_only': 'Kun rummets ejer kan gøre dette.',
   'pro.connect_failed': 'Kunne ikke oprette forbindelse til PRO-rummet.',
   'pro.active_tab_title': 'Dette PRO-rum er allerede åbent i en anden fane',

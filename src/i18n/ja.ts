@@ -700,9 +700,29 @@ const ja: Record<I18nKey, string> = {
   'pro.pin_message': 'このPROルームの8桁のパスワードを入力してください。',
   'pro.pin_retry_message': 'パスワードが正しくありません。もう一度お試しください。',
   'pro.pin_change_title': 'ルームのパスワードを変更',
-  'pro.pin_change_message':
-    '新しい8桁のパスワードを設定してください。全員が再入室する必要があります。',
+  'pro.pin_change_message': '新しい8桁のパスワードを設定してください。',
   'pro.pin_changed': 'ルームのパスワードを変更しました。',
+  'pro.pin_enable_title': 'ルームのパスワードを設定',
+  'pro.pin_enabled': 'ルームのパスワードを設定しました。',
+  'pro.pin_members_legend': '今ルームにいる人',
+  'pro.pin_members_keep': 'そのまま残す',
+  'pro.pin_members_keep_detail':
+    '今つながっている人はそのまま残れます。それ以外の人は、パスワードを入力しないと入室できません。',
+  'pro.pin_members_reenter': '全員に再入室してもらう',
+  'pro.pin_members_reenter_detail':
+    '自分のほかのデバイスも含めて、全員が入り直す必要があります。知らない人を退出させたいときはこちらを選んでください。',
+  'pro.pin_keep_unavailable':
+    'パスワードは変更されていません。今は参加者を残したまま変更できません。しばらくしてからもう一度お試しいただくか、全員に再入室してもらってください。',
+  'pro.pin_enabled_removed_title': 'ルームのパスワードが設定されました',
+  'pro.pin_enabled_removed_message':
+    'ルームのオーナーがこのルームにパスワードを設定しました。パスワードを入力すると再入室できます。',
+  'pro.pin_changed_removed_title': 'ルームのパスワードが変更されました',
+  'pro.pin_changed_removed_message':
+    'ルームのオーナーがルームのパスワードを変更しました。新しいパスワードを入力すると再入室できます。',
+  'pro.removed_title': 'ルームから退出させられました',
+  'pro.removed_message': 'ルームのオーナーまたは管理者が、このルームからあなたを退出させました。',
+  'pro.device_removed_message':
+    'あなたのアカウントでログインしている別のデバイスが、このデバイスをルームから切断しました。',
   'pro.owner_only': 'この操作はルームのオーナーのみ行えます。',
   'pro.connect_failed': 'PROルームに接続できませんでした。',
   'pro.active_tab_title': 'このPROルームは別のタブで開いています',

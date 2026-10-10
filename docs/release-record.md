@@ -37,7 +37,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 | 검증 범위 | 로컬 unit 531파일 11,075 pass(전체 실행 뒤 영향 파일 결과를 치환한 집계). exact-main CI 11,074 pass / 기존 1 skip, coverage 4종, candidate 17, critical 22. 로컬 Chromium 26, iPhone WebKit 19. 브라우저 검증은 합성 API fixture로만 했고, 운영 보호방 `000001` bootstrap은 읽기 전용으로만 대조했다. 실제 고객방 변경과 실기는 §2에 남아 있다. [상세](design/pro-optional-entry-password-2026-10-10.md) |
 | Operations Drift Audit | active, 매일 03:37 UTC. 최근 [38043680696](https://github.com/hiefny/MUSIXQUARE/actions/runs/38043680696) (2026-10-10, 8.8.0 배포 전 `6ec501c1`) 31 pass / 0 fail / 5 manual |
 | Full E2E | 매주 월 18:17 UTC. main ref 마지막 실행 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 그 뒤의 37602041553은 `agent/full-verification-8.7.2` 브랜치 실행(`716c37af`, PR #251로 main 병합)이다. 8.7.3 이후 배포 SHA로 돈 Full E2E는 없다 |
-| 의존성 | 2026-10-10 기준 `npm audit` 0건, Dependabot alert 0건, sharp 0.35.5. Dependabot [PR #201](https://github.com/hiefny/MUSIXQUARE/pull/201)이 2026-09-13부터 열려 있다 (TypeScript 7, @types/node 26, vite 8.3, wrangler 4.131). TypeScript 7.0.2가 typescript-eslint 8.70.0의 peer 범위(`<6.1.0`) 밖이라 `npm ci`가 ERESOLVE로 실패하고, 그래서 필수 체크가 전부 실패한다. rebase로는 해결되지 않는다 |
+| 의존성 | 2026-10-11 기준 `npm audit`(전체·`--omit=dev`) 0건, Dependabot alert 0건, sharp 0.35.5(Miniflare가 아직 0.35.4를 고정해 override 유지). 그룹 업데이트 [PR #288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등)은 main에 있고 아직 배포되지 않았다(§2). TypeScript 6.1 이상과 @types/node 25 이상은 Dependabot ignore 규칙으로 제외한다(PR #285). 이 둘 때문에 실패하던 PR #201은 2026-10-10에 병합 없이 닫혔다. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -94,10 +94,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 운영·보안
 
-- [ ] 미배포 App 변경: PRO persisted-resource lane 리팩터링(동작 변화 없음,
-  App `8.8.0` 유지, SW 캐시 `v647`)이 main에 있고 다음 `target=app` 릴리스를
-  기다린다. Worker, D1, R2, 프로토콜은 바뀌지 않았다. 배포한 뒤 §1을 덮어쓰고
-  이 항목을 지운다. [상세](design/persisted-resource-lane-2026-10-11.md)
+- [ ] 미배포 App 변경: PRO persisted-resource lane 리팩터링(동작 변화 없음)과
+  그룹 의존성 업데이트(PR #288: Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0
+  등, large-audio 컨테이너 목록에서 HLS 제외)가 main에 있다. App `8.8.0` 유지,
+  SW 캐시 `v648`. 두 변경 모두 Worker 소스, D1, R2, 프로토콜을 바꾸지 않는다.
+  아래 PRO 공개방 입장 보호(`pro-room`)도 미배포라서, 둘 다 남아 있는 동안
+  partial-release gate는 `app`과 `pro-room` 단독 배포를 모두 거부한다(선택하지
+  않은 Worker의 runtime 차이). 대상은 배포 직전에 다시 판정한다(§3). 배포한 뒤
+  §1을 덮어쓰고 이 항목을 지운다.
+  [lane](design/persisted-resource-lane-2026-10-11.md),
+  [의존성](design/dependency-update-2026-10-11.md)
 - [ ] Drift Audit 수동 5항목: Worker zone routes, `/admin` Access+MFA, WAF rate
   limit과 Worker/R2/D1 비용 알림, 두 번째 Git 배포 경로가 없음, main review·필수
   체크 정책. 자동 감사가 통과해도 이 항목은 완료가 아니다.
@@ -114,8 +120,6 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   카운터는 Durable Object 메모리에만 있어 운영에서 직접 볼 수 없고, 주소별 키
   파생(IPv4, IPv6 /64)은 front door 단위 테스트로만 검증했다.
   [상세](design/pro-room-admission-protection-2026-10-11.md)
-- [ ] Dependabot PR #201 검토. 메이저 업그레이드이고 typescript-eslint 호환이
-  막혀 있으므로 별도 작업으로 한다.
 
 ### 후속 작업과 유지 결정
 

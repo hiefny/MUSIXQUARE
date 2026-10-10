@@ -3034,23 +3034,14 @@ function refreshHeartbeatAdjunctState(
   snapshot: ProRoomSnapshot,
   playbackIsCurrent?: () => boolean,
 ): void {
-  if (
-    !acceptedEffects ||
-    acceptedEffects.roomCode !== snapshot.roomCode ||
-    snapshot.effectsRevision > acceptedEffects.revision
-  ) {
+  if (effectsRefreshStillRequired(snapshot)) {
     void refreshPersistedEffects(snapshot).catch((error) => {
       // Effects are a dedicated rolling-deploy resource. A transient read
       // failure must not tear down presence or media playback.
       log.warn('[PRO] Room effects refresh failed', error);
     });
   }
-  if (
-    !acceptedQueueMode ||
-    acceptedQueueMode.roomCode !== snapshot.roomCode ||
-    snapshot.queueModeRevision > acceptedQueueMode.revision ||
-    !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
-  ) {
+  if (queueModeRefreshStillRequired(snapshot)) {
     void refreshPersistedQueueMode(snapshot).catch((error) => {
       log.warn('[PRO] Queue mode refresh failed', error);
     });

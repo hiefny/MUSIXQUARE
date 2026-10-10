@@ -264,6 +264,29 @@ matched provider data/code checkpoint.
   controller cannot bypass it. Public rooms still create authenticated,
   capacity-bounded member sessions and require live presence for media access.
   Standard-room random password behavior is unchanged.
+- One of the 100 presence places is reserved for the owner: at most 99
+  non-owner presences (members and delegated controllers alike) can be live.
+  The rule applies wherever a session enters presence (create, cookie resume,
+  replay, recovery, transfer), and session creation decides it before touching
+  any receipt, account member, owner link, display number, or session record,
+  so `ROOM_FULL` has no side effects. An absent owner can therefore find a
+  place in a room that others have filled and enable or rotate the PIN, which
+  revokes every other session, releases every session-create receipt, and
+  resets the admission throttle. The rule is checked only on entry: an owner
+  whose live session was demoted in place (for example by an account detach)
+  can still meet `ROOM_FULL` until somebody leaves
+  ([accepted risk](../known-accepted.md#11-public-pro-room-seat-holding-and-join-floods)).
+  The reservation covers places and receipt slots, not the shared core byte
+  budget ([persistent state](#persistent-state-and-sleep)).
+- Successful non-owner session creation is soft-throttled to 200 per 10
+  minutes per room and per client IPv4 address or IPv6 /64 (`RATE_LIMITED`
+  429 with `Retry-After`). The PRO front door derives the key with an HMAC and
+  never forwards a caller-supplied value. Counters live only in Durable Object
+  memory, reset on every authentication-epoch change, and fail open when their
+  1,024-entry map is full. Proven owner admissions, replays, deterministic
+  recovery, presence resume, and heartbeats are never throttled, and refusals
+  are not counted. The throttle bounds churn; it cannot stop one network from
+  holding 99 places with heartbeats ([accepted risk](../known-accepted.md)).
 - Opt-in clients receive flat `snapshot.passwordRequired`; legacy snapshots
   keep their exact field set. A legacy client may still ask for a PIN in a
   public room; its structurally valid eight-digit entry is ignored only when
@@ -489,6 +512,71 @@ receipt. A new mutation instead fails closed with
 retries of already accepted add, clear, media, and queue-mode operations remain
 replayable. This deliberately favors exactly-once behavior over accepting more
 than 256 distinct Developer API mutations inside one live window.
+Presence-close receipts follow different rules (below): they have their own
+ledger, a session keeps only its latest one and loses it when the session goes,
+and a close never fails closed on a full ledger; it commits without a receipt.
+
+Session-create (admission) receipts have a third 256-entry ledger, kept for
+ten minutes each. Non-owner admissions fail closed at 240 entries; the last 16
+slots are reserved for proven owner admissions. Unauthenticated join traffic
+therefore cannot saturate the participant ledger that protects playback,
+queue, and media mutations, and cannot take the owner's receipt slots.
+Receipts written to the shared ledger by an earlier Worker are still read until
+they expire; they are not migrated. Enabling or rotating a PIN purges every
+session-create receipt, because each one then names a revoked session (the
+owner's own retry converges through deterministic recovery). A revoked
+client's replay of its admission therefore reaches the PIN check: after a PIN
+is first enabled it carries no PIN and gets `PIN_REQUIRED`; after a rotation it
+carries the old PIN and gets `PIN_INVALID`, which records one PIN-failure hit.
+
+Presence-close receipts have a fourth ledger. The App sends
+`POST /presence/close` once per leave: as a keepalive on a non-persisted
+`pagehide`, and at the start of an explicit leave. It never retries the
+request and ignores a 409 on both paths. Apart from its admission receipt,
+which has its own ledger and throttle, presence close is the only receipt an
+ordinary member writes, and presence resume is not throttled, so these
+receipts stay out of the participant ledger that protects owner playback,
+queue, and media control. A close keeps only its session's latest receipt: an
+earlier close named an incarnation that has already ended, so its late retry
+gets `PRESENCE_IDENTITY_MISMATCH` 409 without a state change. Prune, which runs
+before every close, releases a receipt after 24 hours or once its session no
+longer exists. The ledger therefore holds at most one receipt per stored
+session (128) and always has room; if it were somehow full, the close would
+commit without a receipt rather than fail. Receipts that an earlier Worker
+wrote to the participant ledger are released when the room loads, not
+migrated; losing one only turns its retry into the same state-free 409.
+
+These reservations count places and receipts, not bytes. Every ledger, and
+every session and presence record, shares the 1.2 MiB core budget with media
+metadata and the rest of the room. Measured at the longest accepted keys,
+public traffic can occupy about:
+
+- 101 KiB of session-create receipts (240 non-owner receipts), each for ten
+  minutes;
+- 52 KiB of presence-close receipts (one per stored session, 128), each until
+  its session closes again or is removed, and at most 24 hours;
+- the session and presence records of a full room (128 sessions, 100
+  presences): about 94 KiB for anonymous members, or about 153 KiB with
+  account-linked members. That is 68 KiB of sessions, 52 KiB of presence, and
+  34 KiB of account member records. The 100-member limit counts accounts, not
+  sessions; one account can hold several sessions, so an account-linked room
+  still reaches 128. A session stays until it leaves, is removed, or is
+  evicted for a newer one; a presence until its heartbeats stop;
+- 50 KiB of security rate-limit records (the 512-entry ledger), each for
+  about an hour. Owner-recovery and owner-transfer attempts record a hit before
+  their claim is checked, and a wrong PIN records one too, so unauthenticated
+  requests fill it. Its key is the exact client address, not a /64, so one
+  IPv6 prefix can fill it and refill it each hour.
+
+That is roughly 300 KiB in all with anonymous members, and 355 KiB with
+account-linked members. In a room whose legitimate core is already within that
+distance of the budget, owner admission and owner writes can fail closed with
+`ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release most of it by
+enabling or rotating the PIN, which revokes every other session and presence
+and purges the admission receipts (the close receipts follow at the next
+prune); the rate-limit records are not cleared and expire within the hour. An
+absent owner has to wait for receipts and records to expire and sessions to
+leave.
 
 The v2 core and per-item playlist records are the only authoritative storage
 layout. A missing v2 core represents a fresh room incarnation; the Worker does

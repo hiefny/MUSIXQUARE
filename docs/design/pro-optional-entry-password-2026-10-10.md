@@ -53,8 +53,9 @@ contract floor. Use forward repair or a proven matched code/data recovery.
 
 ## Verification
 
-Implementation is on `agent/pro-optional-entry-password`, based on main
-`6ec501c1`. Windows local verification uses Node 24.20.0 / npm 12.0.2 and the
+Implementation code is `835be57ca6281f0106e13d67c756183b48328889` on
+`agent/pro-optional-entry-password`, based on main `6ec501c1`.
+Windows local verification uses Node 24.20.0 / npm 12.0.2 and the
 existing jq executable for the real shell-plan contract test.
 
 - Full unit run followed by replacement of affected-file results: 531 files,
@@ -78,6 +79,19 @@ existing jq executable for the real shell-plan contract test.
   tests cover an untouched baseline, partially deployed candidate, missing or
   truncated checkpoints, and later compatible rollback.
 
-Browser verification, committed production build, PR review, exact-main CI,
-and production release remain pending. Browser routes are local synthetic API
-fixtures; they do not consume customer claims or change customer room settings.
+- Chromium: 26 unique cases passed after correcting an activation fixture that
+  confused the device label with the account nickname. The four new entry and
+  owner-settings cases passed on their first run; the corrected activation
+  suite passed all 12 cases. Account scope and exact no-PIN body checks remain.
+- Current-tree iPhone WebKit: 19 passed, zero failed/skipped. Covers account
+  confirmation in Korean/English at 320–1180 px, public/protected admission,
+  manual password dialogs, owner toggles, cancellation, and error restoration
+  at 390/1280 px. This is browser-engine simulation, not physical iPhone or
+  live Cloudflare room verification.
+- Final setup-flow suite: 63 passed, including the pre-upgrade pending request
+  ID with no admission-mode field. Whole affected-file counts above are not
+  added a second time for overlapping runs.
+
+Committed production build, PR review, exact-main CI, and production release
+remain pending. Browser routes are local synthetic API fixtures; they do not
+consume customer claims or change customer room settings.

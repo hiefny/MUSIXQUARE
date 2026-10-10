@@ -379,18 +379,54 @@ export interface CompleteProRoomMediaInput {
 
 export type DeleteProRoomMediaInput = CompleteProRoomMediaInput;
 
+/**
+ * Why the room owner, an administrator, or a sibling device ended this
+ * browser's session. The server adds it only to its ordinary terminal
+ * `SESSION_REQUIRED` 401, so older Apps keep treating the response as terminal.
+ */
+export type ProRoomSessionEndReason = 'PIN_ENABLED' | 'PIN_CHANGED' | 'REMOVED' | 'DEVICE_REMOVED';
+
+const SESSION_END_REASONS: ReadonlySet<string> = new Set<ProRoomSessionEndReason>([
+  'PIN_ENABLED',
+  'PIN_CHANGED',
+  'REMOVED',
+  'DEVICE_REMOVED',
+]);
+
+/** The only membership choice the App sends; "everyone re-enters" keeps the legacy body. */
+export type ProRoomPinMembershipChoice = 'keep_present';
+
 export class ProRoomApiError extends Error {
   readonly code: string;
   readonly status: number;
   readonly retryAfterSeconds: number | null;
+  readonly sessionEndReason: ProRoomSessionEndReason | null;
 
-  constructor(code: string, status = 0, retryAfterSeconds: number | null = null) {
+  constructor(
+    code: string,
+    status = 0,
+    retryAfterSeconds: number | null = null,
+    sessionEndReason: ProRoomSessionEndReason | null = null,
+  ) {
     super(`PRO_ROOM_API_${code}`);
     this.name = 'ProRoomApiError';
     this.code = code;
     this.status = status;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.sessionEndReason = sessionEndReason;
   }
+}
+
+function parseSessionEndReason(
+  status: number,
+  code: string,
+  payload: unknown,
+): ProRoomSessionEndReason | null {
+  if (status !== 401 || code !== 'SESSION_REQUIRED' || !isRecord(payload)) return null;
+  const reason = payload.reason;
+  return typeof reason === 'string' && SESSION_END_REASONS.has(reason)
+    ? (reason as ProRoomSessionEndReason)
+    : null;
 }
 
 class BodyLimitError extends Error {}
@@ -738,7 +774,12 @@ async function throwResponseError(response: Response, signal?: AbortSignal): Pro
   const serverCode = isRecord(payload) && typeof payload.error === 'string' ? payload.error : null;
   const code =
     serverCode && ERROR_CODE_RE.test(serverCode) ? serverCode : `HTTP_${response.status}`;
-  throw new ProRoomApiError(code, response.status, parseRetryAfter(response, payload));
+  throw new ProRoomApiError(
+    code,
+    response.status,
+    parseRetryAfter(response, payload),
+    parseSessionEndReason(response.status, code, payload),
+  );
 }
 
 function parseSnapshotEnvelope(value: unknown, expectedCode: string): ProRoomSnapshot | null {
@@ -1708,14 +1749,47 @@ export class ProRoomApiClient {
     });
   }
 
-  async changePin(code: string, pin: string | null, signal?: AbortSignal): Promise<void> {
+  /**
+   * Enable, rotate, or disable the entry PIN. Without a choice the server
+   * revokes every other session, exactly as every earlier Worker does, so
+   * "make everyone re-enter" keeps working against a rolled-back Worker.
+   * `keep_present` needs a Worker that understands it: it must echo the
+   * choice, and an older Worker refuses the unknown field with 400.
+   */
+  async changePin(
+    code: string,
+    pin: string | null,
+    signal?: AbortSignal,
+    existingParticipants?: ProRoomPinMembershipChoice,
+  ): Promise<void> {
+    if (existingParticipants !== undefined && existingParticipants !== 'keep_present') {
+      throw new ProRoomApiError('INVALID_REQUEST');
+    }
+    if (existingParticipants !== undefined && pin === null) {
+      throw new ProRoomApiError('INVALID_PIN');
+    }
     const path = roomPath(code);
+    const wirePin = pin === null ? null : validatePin(pin);
     await this.#request(`${path}/pin`, {
       method: 'POST',
-      body: { pin: pin === null ? null : validatePin(pin) },
+      body:
+        existingParticipants === undefined
+          ? { pin: wirePin }
+          : { pin: wirePin, existingParticipants },
       signal,
       activeRoomCode: code,
       parser: (value) => {
+        if (existingParticipants !== undefined) {
+          if (
+            !isRecord(value) ||
+            !hasExactKeys(value, ['ok', 'passwordRequired', 'existingParticipants']) ||
+            value.ok !== true ||
+            value.passwordRequired !== true ||
+            value.existingParticipants !== existingParticipants
+          )
+            return null;
+          return true;
+        }
         if (
           !isRecord(value) ||
           !hasExactKeys(value, ['ok', 'passwordRequired']) ||

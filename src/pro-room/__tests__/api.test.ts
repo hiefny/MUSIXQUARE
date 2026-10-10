@@ -688,6 +688,100 @@ describe('PRO room cookie session API', () => {
     });
   });
 
+  it('sends the keep choice only with a PIN and requires the exact echo', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true, passwordRequired: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({ ok: true, passwordRequired: true, existingParticipants: 'keep_present' }),
+      );
+    // "Make everyone re-enter" is the legacy body every Worker understands.
+    await expect(client.changePin(ROOM_CODE, '87654321')).resolves.toBeUndefined();
+    await expect(
+      client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
+    ).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { pin: '87654321' },
+      { pin: '11223344', existingParticipants: 'keep_present' },
+    ]);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get('x-mxqr-pro-entry-policy')).toBe('optional-v1');
+    }
+
+    // A keep request never succeeds on the legacy acknowledgement or a wrong echo.
+    for (const body of [
+      { ok: true, passwordRequired: true },
+      { ok: true, passwordRequired: true, existingParticipants: 'revoke_all' },
+      { ok: true, passwordRequired: false, existingParticipants: 'keep_present' },
+      { ok: true, passwordRequired: true, existingParticipants: 'keep_present', extra: 1 },
+    ]) {
+      fetchMock.mockResolvedValueOnce(jsonResponse(body));
+      await expect(
+        client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
+      ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+    // An older Worker refuses the unknown field; the caller sees that 400.
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }));
+    await expect(
+      client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400, sessionEndReason: null });
+    // The legacy body still rejects an echo it did not ask for.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ ok: true, passwordRequired: true, existingParticipants: 'keep_present' }),
+    );
+    await expect(client.changePin(ROOM_CODE, '87654321')).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+
+    const sentBefore = fetchMock.mock.calls.length;
+    await expect(
+      client.changePin(ROOM_CODE, null, undefined, 'keep_present'),
+    ).rejects.toMatchObject({ code: 'INVALID_PIN' });
+    await expect(
+      client.changePin(ROOM_CODE, '11223344', undefined, 'revoke_all' as never),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(fetchMock.mock.calls).toHaveLength(sentBefore);
+  });
+
+  it.each(['PIN_ENABLED', 'PIN_CHANGED', 'REMOVED', 'DEVICE_REMOVED'] as const)(
+    'exposes the %s session-end reason only on a 401 SESSION_REQUIRED',
+    async (reason) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ error: 'SESSION_REQUIRED', reason }, { status: 401 }),
+      );
+      const ended = await client.heartbeat(ROOM_CODE).catch((error: unknown) => error);
+      expect(ended).toBeInstanceOf(ProRoomApiError);
+      expect(ended).toMatchObject({
+        code: 'SESSION_REQUIRED',
+        status: 401,
+        sessionEndReason: reason,
+      });
+
+      for (const [body, status] of [
+        [{ error: 'SESSION_REQUIRED', reason }, 409],
+        [{ error: 'PRESENCE_EXPIRED', reason }, 401],
+        [{ error: 'PRESENCE_EXPIRED', reason }, 409],
+        [{ error: 'SESSION_REQUIRED', reason: reason.toLowerCase() }, 401],
+        [{ error: 'SESSION_REQUIRED', reason: 'BANNED' }, 401],
+        [{ error: 'SESSION_REQUIRED', reason: ['REMOVED'] }, 401],
+        [{ error: 'SESSION_REQUIRED' }, 401],
+      ] as const) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(body, { status }));
+        const other = await client.heartbeat(ROOM_CODE).catch((error: unknown) => error);
+        expect(other).toBeInstanceOf(ProRoomApiError);
+        expect((other as ProRoomApiError).sessionEndReason).toBeNull();
+      }
+      // Every case reached the network; none was refused locally.
+      expect(fetchMock).toHaveBeenCalledTimes(8);
+    },
+  );
+
   it('parses snapshot-returning methods and strict ok-only mutations', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });

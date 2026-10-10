@@ -97,6 +97,9 @@ labeled portion still supports a current guard or operating interpretation:
   owner seat, dedicated admission and presence-close receipt ledgers, and soft
   join throttle (PRO Worker only, code `95fa7a88`). Local Worker tests only; not yet
   deployed. The App error-message follow-up and a post-deploy check remain open.
+- [PRO persisted-resource lane — 2026-10-11](design/persisted-resource-lane-2026-10-11.md) —
+  unreleased behaviour-neutral refactor (8.8.0/v647): shared lock and refresh flight,
+  differential and mutant evidence, and the effects/queue-mode asymmetries kept on purpose.
 - [PRO optional entry password — 2026-10-10](design/pro-optional-entry-password-2026-10-10.md) —
   8.8.0/v646 contract, verification, and the PRO/App forward-repair floor. Browser
   checks used synthetic API fixtures; real customer rooms and devices remain open.

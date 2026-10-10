@@ -94,6 +94,10 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 운영·보안
 
+- [ ] 미배포 App 변경: PRO persisted-resource lane 리팩터링(동작 변화 없음,
+  App `8.8.0` 유지, SW 캐시 `v647`)이 main에 있고 다음 `target=app` 릴리스를
+  기다린다. Worker, D1, R2, 프로토콜은 바뀌지 않았다. 배포한 뒤 §1을 덮어쓰고
+  이 항목을 지운다. [상세](design/persisted-resource-lane-2026-10-11.md)
 - [ ] Drift Audit 수동 5항목: Worker zone routes, `/admin` Access+MFA, WAF rate
   limit과 Worker/R2/D1 비용 알림, 두 번째 Git 배포 경로가 없음, main review·필수
   체크 정책. 자동 감사가 통과해도 이 항목은 완료가 아니다.

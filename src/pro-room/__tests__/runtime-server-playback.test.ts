@@ -1944,6 +1944,52 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     await vi.waitFor(() => expect(notifications()).toHaveLength(1));
   });
 
+  it('keeps a coalesced pass of a refresh started before OFF and ON on its creator notification generation', async () => {
+    // The OFF/ON toggle bumps only the notification generation, so the held
+    // refresh flight stays live and a newer head joins it. Its second pass
+    // starts after the toggle; it must still use the generation captured
+    // when the flight was created, not one read when the pass takes the lock.
+    const notifications = await observeSettingsNotifications();
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+    const before = getSettingsSync.mock.calls.length;
+    let resolveRead!: (value: ReturnType<typeof canonicalSettings>) => void;
+    getSettingsSync.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    heartbeat.mockResolvedValue(settingsHead(1));
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
+    );
+    await vi.waitFor(() => expect(getSettingsSync.mock.calls.length).toBe(before + 1));
+    setSettingsSyncEnabled(false);
+    setState('room.context', { ...getState('room.context'), capabilities: [] });
+    setSettingsSyncEnabled(true);
+    await refreshUnchangedSettingsHead();
+
+    getSettingsSync.mockResolvedValue(canonicalSettings(2, 0.6, 29));
+    heartbeat.mockResolvedValue(settingsHead(2));
+    const heartbeatsBefore = heartbeat.mock.calls.length;
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-room-invalidated', roomRevision: 3, effectsRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(heartbeatsBefore));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The newer head joined the held flight instead of starting its own read.
+    expect(getSettingsSync.mock.calls.length).toBe(before + 1);
+
+    resolveRead(canonicalSettings(1, 0.35, 29));
+    await vi.waitFor(() => expect(getSettingsSync.mock.calls.length).toBe(before + 2));
+    await vi.waitFor(() => expect(getState('audio.masterVolume')).toBe(0.6));
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(notifications()).toHaveLength(0);
+    await receiveSettings(3, 0.45, 29);
+    await vi.waitFor(() => expect(notifications()).toHaveLength(1));
+  });
+
   it('preserves a newer settings edit when an older PUT repairs an epoch mismatch', async () => {
     const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
     await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalled());

@@ -189,13 +189,19 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 - **리버브 상한 일치:** App, PRO, API 중 일부만 복구해 서로 다른 리버브 상한이
   남지 않게 한다. 대상별 복구 순서를 새로 만들지 않고 정식 절차를 따른다.
 - **PRO 공개방 입장 보호(배포되면 적용):** 이 변경 이전 PRO Worker로 되돌려도
-  core의 `sessionCreateIdempotency` 필드는 그대로 보존되지만, 이전 Worker는 그
-  안의 입장 영수증을 읽지도 정리하지도 alarm 대상으로 삼지도 않는다(최대
-  256개, 약 108 KiB). 다시 앞으로 배포하면 만료된 영수증이 정리된다. 그 사이
-  10분 안의 입장 재시도는 세션이 남아 있으면 deterministic recovery로 같은
-  세션에 수렴하고, 이미 닫힌 세션이면 새 입장으로 처리된다.
-  방장 좌석 예약, 입장 throttle, presence-close 영수증 상한도 함께 사라진다.
-  계약 marker는 없고 rollback floor도 바뀌지 않는다.
+  core의 `sessionCreateIdempotency`(입장 영수증 최대 256개, 약 108 KiB)와
+  `presenceCloseIdempotency`(presence-close 영수증 최대 128개, 약 52 KiB)
+  필드는 그대로 보존되지만, 이전 Worker는 둘 다 읽지도 정리하지도 alarm
+  대상으로 삼지도 않는다. 되돌린 동안에는 방장 좌석 예약, 입장 throttle, 두
+  전용 원장이 모두 적용되지 않는다. 8.8.0은 presence-close 영수증을 다시 공유
+  participant 원장에 쓰므로, 그 원장이 차서 방장 큐·재생·미디어 제어가 막히는
+  문제도 그동안은 다시 생길 수 있다. 다시 앞으로 배포하면 공유 원장의
+  presence-close 영수증은 로드할 때 해제되고, 전용 원장의 만료됐거나 세션이
+  사라진 영수증은 정리된다. 그 사이 10분 안의 입장 재시도는 세션이 남아 있으면
+  deterministic recovery로 같은 세션에 수렴하고, 이미 닫힌 세션이면 새 입장으로
+  처리된다. 상대 Worker가 읽지 않는 원장에 영수증이 있는 presence close 재시도는
+  상태 변화 없는 409를 받고, App은 이를 무시한다. 계약 marker는 없고 rollback
+  floor도 바뀌지 않는다.
   [상세](design/pro-room-admission-protection-2026-10-11.md)
 
 ## 5. 갱신 방법

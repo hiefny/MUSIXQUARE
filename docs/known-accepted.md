@@ -92,9 +92,9 @@ PRO room participants may display the title returned by their own localized YouT
 Accepted 2026-10-11. A public PRO room (no entry PIN) admits anyone who has
 the room code. The room Durable Object reserves one of its 100 presence places
 for the owner, keeps session-create receipts in their own ledger with 16 slots
-of owner headroom, keeps at most one presence-close receipt per live session in
-the shared participant ledger, and soft-throttles successful non-owner joins to
-200 per 10 minutes per client IPv4 address or IPv6 /64. These measures reserve
+of owner headroom, keeps presence-close receipts in another ledger (one per
+stored session), and soft-throttles successful non-owner joins to 200 per 10
+minutes per client IPv4 address or IPv6 /64. These measures reserve
 the owner's place and receipt slots, so the owner can get in and act unless the
 room's byte budget is also exhausted (below); they do not keep strangers out.
 What remains accepted:
@@ -109,24 +109,30 @@ What remains accepted:
   `ROOM_STATE_CAPACITY_EXCEEDED` for up to the 10-minute receipt lifetime.
   Owner entry and owner playback, queue, and media control keep their reserved
   place and receipt slots throughout.
-- Members can hold up to 128 of the shared participant ledger's 256 slots with
-  presence-close receipts (one per live session, however often they leave and
-  resume). The remaining slots serve owner and delegated-controller receipts.
-- The reservations count places and receipts, not bytes. Every ledger shares
-  the room's 1.2 MiB core budget with media metadata and the rest of the room.
-  A join flood's session-create receipts take up to about 101 KiB (240 at the
-  maximum request-ID length) for up to 10 minutes. In a room whose legitimate
-  core is already within that distance of the budget, owner admission and
-  owner writes, including media reservations, can fail closed with
-  `ROOM_STATE_CAPACITY_EXCEEDED` until those receipts expire. A present owner
-  can clear them at once by enabling or rotating the PIN; an absent owner has
-  to wait them out, and a sustained distributed flood can repeat this. No byte
-  headroom is reserved for the owner.
+- Ordinary members write no receipts to the participant ledger that protects
+  playback, queue, and media control; only the owner and delegated
+  controllers share its 256 slots.
+- The reservations count places and receipts, not bytes. Every ledger, and
+  every session and presence record, shares the room's 1.2 MiB core budget
+  with media metadata and the rest of the room. At the longest accepted keys,
+  public traffic can occupy about 101 KiB of session-create receipts (240,
+  each for 10 minutes), 52 KiB of presence-close receipts (one per stored
+  session, each until that session closes again or is removed, at most 24
+  hours), and the session and presence records of a full room: about 94 KiB
+  for anonymous members, or about 150 KiB with account-linked members and
+  their account member records, kept while the sessions exist. That is
+  roughly 250 to 300 KiB in all. In a room whose legitimate core is already
+  within that distance of the budget, owner admission and owner writes,
+  including media reservations, can fail closed with
+  `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release it by enabling
+  or rotating the PIN; an absent owner has to wait for receipts to expire and
+  sessions to leave, and a sustained distributed flood can repeat this. No
+  byte headroom is reserved for the owner.
 - The remedy is the owner's: enter through the reserved place and enable or
-  rotate the PIN. That revokes every other session, purges all session-create
-  receipts and the revoked sessions' presence-close receipts, and resets the
-  throttle. A kick deletes the member's sessions, so coming back needs a new,
-  throttled join; there is no ban list.
+  rotate the PIN. That revokes every other session and presence, purges all
+  session-create receipts, and resets the throttle; the revoked sessions'
+  presence-close receipts go at the next prune. A kick deletes the member's
+  sessions, so coming back needs a new, throttled join; there is no ban list.
 - The throttle counters live only in Durable Object memory and are kept per
   room. A restart forgets them, and different rooms behind the same carrier NAT
   do not share a budget.
@@ -135,7 +141,8 @@ What remains accepted:
   consult it.
 - The reservation applies only when a session enters presence. If the owner's
   live session is demoted in place (for example by detaching its account),
-  100 non-owner presences can remain until somebody leaves. Signaling's
+  100 non-owner presences can remain, and the owner meets `ROOM_FULL` until
+  somebody leaves. Signaling's
   100-socket cap has no owner preference, so the owner's control socket can be
   refused briefly until the next presence snapshot prunes a stale socket.
 - The current App shows its generic PRO connection failure for both

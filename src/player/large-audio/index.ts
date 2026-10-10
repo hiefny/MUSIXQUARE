@@ -1,6 +1,15 @@
 import {
-  ALL_FORMATS,
+  ADTS,
+  FLAC,
+  MATROSKA,
+  MP3,
+  MP4,
+  MPEG_TS,
+  OGG,
   PCM_AUDIO_CODECS,
+  QTFF,
+  WAVE,
+  WEBM,
   AdtsInputFormat,
   AudioBufferSink,
   BlobSource,
@@ -18,6 +27,11 @@ import { readAacContainerTiming } from './aac-container-timing.ts';
 import { guardPcmChunkBoundaries, PCM_INTERPOLATION_GUARD_FRAMES } from './pcm-chunk-guards.ts';
 
 const ENCODED_READ_CACHE_BYTES = 2 * 1024 * 1024;
+// Mediabunny's ALL_FORMATS in its own detection order, minus HLS. A local file
+// is a media container, never a playlist whose demuxer fetches segments, and
+// leaving the HLS demuxer unreferenced keeps its ES2021 String#replaceAll
+// (Mediabunny 1.61+) out of the Chromium 79 build (guard:legacy-tv-build).
+const LOCAL_AUDIO_INPUT_FORMATS = [MP4, QTFF, MATROSKA, WEBM, WAVE, OGG, FLAC, MP3, ADTS, MPEG_TS];
 const COMPRESSED_SEEK_PREROLL_SECONDS = 0.5;
 const AAC_SEEK_PREROLL_SECONDS = 1;
 
@@ -34,7 +48,7 @@ export async function openLargeAudioTrack(
 ): Promise<LargeAudioTrack> {
   registerIncrementalAudioDecoders();
   const input = new Input({
-    formats: ALL_FORMATS,
+    formats: LOCAL_AUDIO_INPUT_FORMATS,
     source: new BlobSource(blob, { maxCacheSize: ENCODED_READ_CACHE_BYTES }),
   });
   const timerName = `large-audio-open-${++openSequence}`;

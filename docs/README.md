@@ -93,6 +93,9 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO persisted-resource lane — 2026-10-11](design/persisted-resource-lane-2026-10-11.md) —
+  unreleased behaviour-neutral refactor (8.8.0/v647): shared lock and refresh flight,
+  differential and mutant evidence, and the effects/queue-mode asymmetries kept on purpose.
 - [PRO optional entry password — 2026-10-10](design/pro-optional-entry-password-2026-10-10.md) —
   8.8.0/v646 contract, verification, and the PRO/App forward-repair floor. Browser
   checks used synthetic API fixtures; real customer rooms and devices remain open.

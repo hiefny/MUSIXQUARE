@@ -568,13 +568,21 @@ describe('PersistedResourceLane seeded interleavings', () => {
 });
 
 describe('PRO runtime persisted-resource lane wiring', () => {
-  it('keeps both refresh wrappers async and wires each lane to its own predicates', () => {
+  it('keeps both refresh wrappers async, captures the effects notification generation at call time, and wires each lane to its own predicates', () => {
     // The async wrappers adopt the flight promise, which fixes when each
     // caller observes settlement relative to other lock users.
     expect(runtimeSource).toContain(
       'async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boolean> {',
     );
     expect(runtimeSource).toContain('async function refreshPersistedQueueMode(');
+    // The effects wrapper captures the notification generation when it is
+    // called; every pass of the flight it creates uses that value. A read at
+    // pass time would let a refresh started before a control-channel recovery
+    // or a settings-sync toggle toast (see runtime-server-playback.test.ts,
+    // "keeps a coalesced pass ... on its creator notification generation").
+    expect(runtimeSource).toMatch(
+      /async function refreshPersistedEffects\(snapshot: ProRoomSnapshot\): Promise<boolean> \{[^}]*?const notificationGeneration = effectsNotificationGeneration;\s*return effectsLane\.refresh\(snapshot, \(target\) =>\s*refreshPersistedEffectsUnlocked\(target, notificationGeneration\),\s*\);\s*\}/,
+    );
     expect(runtimeSource).toMatch(
       /const effectsLane = new PersistedResourceLane<ProRoomSnapshot>\(\{\s*runtimeGeneration: \(\) => playlistRuntimeGeneration,\s*refreshStillRequired: effectsRefreshStillRequired,\s*newerRefreshSnapshot: newerEffectsRefreshSnapshot,\s*\}\);/,
     );

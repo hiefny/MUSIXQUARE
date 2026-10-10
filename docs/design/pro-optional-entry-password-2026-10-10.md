@@ -92,6 +92,11 @@ existing jq executable for the real shell-plan contract test.
   ID with no admission-mode field. Whole affected-file counts above are not
   added a second time for overlapping runs.
 
-Committed production build, PR review, exact-main CI, and production release
-remain pending. Browser routes are local synthetic API fixtures; they do not
-consume customer claims or change customer room settings.
+Committed production build at `735bc8cc` and its production-browser candidate
+suite (17 passed) completed. PR #281 automatic review completed with no inline
+findings. The first PR CI (`38043975233`) found one additional stale date in the
+independent localized-sitemap fixture; update its two expected document dates
+without changing production code or weakening assertions. Its other lanes
+passed. Final PR CI, exact-main CI, and production release remain pending.
+Browser routes are local synthetic API fixtures; they do not consume customer
+claims or change customer room settings.

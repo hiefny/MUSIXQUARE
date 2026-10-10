@@ -83,7 +83,7 @@ const releaseWorkflowSource = await readFile(
   'utf8',
 );
 const productionSecurityGuardSource = await readFile(
-  new URL('../../../scripts/assert-production-security-config.mts', import.meta.url),
+  new URL('../../../scripts/production-security-guard-lib.mts', import.meta.url),
   'utf8',
 );
 const remoteShareContractVersion = (

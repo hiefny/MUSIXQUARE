@@ -1,8 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { experimental_readRawConfig } from 'wrangler';
+import {
+  collectProductionSecurityFindings,
+  formatProductionSecurityFailure,
+  type ProductionSecurityFindings,
+} from '../../../scripts/production-security-guard-lib.mts';
 import {
   readConfigurationAssignment,
   validateAccountRolloutConfig,
@@ -36,8 +42,169 @@ const SIGNALING_ASSERTION_SECRET = `
 # npm run wrangler -- secret put MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET
 `;
 
-describe('configuration assignment comments', () => {
-  it('enforces the file values through the real guard while preserving environment literals', () => {
+const REMOTE_SHARE_CONFIG = 'cloudflare/wrangler.remote-share.toml';
+const PRO_ROOM_CONFIG = 'cloudflare/wrangler.pro-room.toml';
+const REMOTE_SHARE_FLAG = 'MXQR_ALLOW_UNGUARDED_REMOTE_SHARE';
+const RETIRED_PROJECTION_FLAG = 'PRO_ROOM_MEMBER_AUTHORITY_PROJECTION';
+const RETIRED_PROJECTION_ASSIGNMENT = `"${RETIRED_PROJECTION_FLAG}" = false`;
+const UNREADABLE_CONFIG = '[vars]\nsecret = "sensitive-parser-excerpt\n';
+const GUARD_CONFIG_FILES = [
+  PRO_ROOM_CONFIG,
+  'cloudflare/wrangler.app.toml',
+  REMOTE_SHARE_CONFIG,
+  'cloudflare/wrangler.signaling.toml',
+  'cloudflare/signaling-worker.ts',
+] as const;
+const GUARD_CLI = 'scripts/assert-production-security-config.mts';
+const GUARD_SCRIPT_FILES = [
+  GUARD_CLI,
+  'scripts/production-security-guard-lib.mts',
+  'scripts/production-security-rollout.mts',
+  'scripts/pro-signaling-credential-boundary.mts',
+  'scripts/standard-room-pin-storage-boundary.mts',
+] as const;
+const CLEAN_FINDINGS: ProductionSecurityFindings = {
+  hits: [],
+  rolloutErrors: [],
+  remoteShareRolloutErrors: [],
+  proSignalingCredentialErrors: [],
+  standardRoomPinStorageErrors: [],
+};
+
+function copyGuardFixture(root: string, files: readonly string[]): void {
+  for (const file of files) {
+    const target = resolve(root, file);
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(file, target);
+  }
+}
+
+function onlyHit(source: string, flag: string): ProductionSecurityFindings {
+  return { ...CLEAN_FINDINGS, hits: [{ source, flag }] };
+}
+
+describe('production security guard findings', () => {
+  // The guard library runs from this checkout; only its repository root points
+  // at a disposable copy of the production configuration it inspects.
+  let root = '';
+  let remoteShareSource = '';
+  let proRoomSource = '';
+
+  // Pass only the flag under test so a developer shell exporting another
+  // bypass flag can never change these results.
+  const collect = (environmentValue = '') =>
+    collectProductionSecurityFindings({
+      repoRoot: root,
+      env: { [REMOTE_SHARE_FLAG]: environmentValue },
+    });
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'mxqr-security-guard-'));
+    copyGuardFixture(root, GUARD_CONFIG_FILES);
+    remoteShareSource = readFileSync(resolve(root, REMOTE_SHARE_CONFIG), 'utf8');
+    proRoomSource = readFileSync(resolve(root, PRO_ROOM_CONFIG), 'utf8');
+  });
+
+  afterEach(() => {
+    writeFileSync(resolve(root, REMOTE_SHARE_CONFIG), remoteShareSource);
+    writeFileSync(resolve(root, PRO_ROOM_CONFIG), proRoomSource);
+  });
+
+  afterAll(() => {
+    if (root) rmSync(root, { recursive: true, force: true });
+  });
+
+  it('finds nothing in the unmodified production configuration', async () => {
+    const findings = await collect();
+    expect(findings).toEqual(CLEAN_FINDINGS);
+    expect(formatProductionSecurityFailure(findings)).toBeNull();
+  });
+
+  it.each([
+    ['"true" # operator note', '', REMOTE_SHARE_CONFIG],
+    ["'true' # operator note", '', REMOTE_SHARE_CONFIG],
+    ['false # operator note', '', null],
+    ['"true#value" # operator note', '', null],
+    ['"false" # operator note', 'true # literal environment value', null],
+    ['"false" # operator note', 'true', 'environment'],
+  ] as const)(
+    'enforces file value %s with environment value %j',
+    async (fileValue, environmentValue, expectedSource) => {
+      writeFileSync(
+        resolve(root, REMOTE_SHARE_CONFIG),
+        remoteShareSource.replace('[vars]', `[vars]\n${REMOTE_SHARE_FLAG} = ${fileValue}`),
+      );
+      const findings = await collect(environmentValue);
+      if (expectedSource === null) {
+        expect(findings).toEqual(CLEAN_FINDINGS);
+        expect(formatProductionSecurityFailure(findings)).toBeNull();
+      } else {
+        expect(findings).toEqual(onlyHit(expectedSource, REMOTE_SHARE_FLAG));
+        expect(formatProductionSecurityFailure(findings)).not.toBeNull();
+      }
+    },
+  );
+
+  it.each([
+    ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = "true"', 'true', true],
+    ["'MXQR_ALLOW_UNGUARDED_REMOTE_SHARE' = true", 'true', true],
+    ['"MXQR_ALLOW_UNGUARDED_REMOTE_SH\\u0041RE" = "true"', 'true', true],
+    ['MXQR_ALLOW_UNGUARDED_REMOTE_SHARE = "tr\\u0075e"', 'true', true],
+    ['MXQR_ALLOW_UNGUARDED_REMOTE_SHARE = """true"""', 'true', true],
+    ['MXQR_ALLOW_UNGUARDED_REMOTE_SHARE = """\ntrue"""', 'true', true],
+    ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = false # safe', 'false', false],
+    ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = "true#literal"', 'true#literal', false],
+    ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = \'"true"\'', '"true"', false],
+  ] as const)(
+    'applies deployment TOML semantics to %s',
+    async (assignment, parsedValue, unsafe) => {
+      const configPath = resolve(root, REMOTE_SHARE_CONFIG);
+      writeFileSync(configPath, remoteShareSource.replace('[vars]', `['vars']\n${assignment}`));
+      const parsed = experimental_readRawConfig({ config: configPath }).rawConfig;
+      expect(String(parsed.vars?.[REMOTE_SHARE_FLAG])).toBe(parsedValue);
+      const findings = await collect();
+      if (unsafe) {
+        expect(findings).toEqual(onlyHit(REMOTE_SHARE_CONFIG, REMOTE_SHARE_FLAG));
+        expect(formatProductionSecurityFailure(findings)).not.toBeNull();
+      } else {
+        expect(findings).toEqual(CLEAN_FINDINGS);
+        expect(formatProductionSecurityFailure(findings)).toBeNull();
+      }
+    },
+  );
+
+  it('rejects a retired PRO projection flag even when it is disabled', async () => {
+    writeFileSync(
+      resolve(root, PRO_ROOM_CONFIG),
+      proRoomSource.replace('[vars]', `[vars]\n${RETIRED_PROJECTION_ASSIGNMENT}`),
+    );
+    const findings = await collect();
+    expect(findings).toEqual(onlyHit(PRO_ROOM_CONFIG, RETIRED_PROJECTION_FLAG));
+    expect(formatProductionSecurityFailure(findings)).toEqual([
+      '[prod-security-guard] Unsafe production configuration detected:',
+      `  - ${PRO_ROOM_CONFIG}: ${RETIRED_PROJECTION_FLAG}`,
+      '[prod-security-guard] Fix the production security/rollout configuration before deploying.',
+    ]);
+  });
+
+  it('fails closed on unreadable TOML without echoing parser excerpts', async () => {
+    writeFileSync(resolve(root, REMOTE_SHARE_CONFIG), UNREADABLE_CONFIG);
+    const error: unknown = await collect().then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+    expect(error).toBeInstanceOf(Error);
+    const failure = error as Error;
+    expect(failure.message).toBe(
+      `Production security configuration is unreadable: ${REMOTE_SHARE_CONFIG}`,
+    );
+    expect(failure.stack ?? '').not.toContain('sensitive-parser-excerpt');
+    expect(failure.cause).toBeUndefined();
+  });
+});
+
+describe('production security guard CLI', () => {
+  it('reads the deploy environment and fails closed through the real release-gate command', () => {
     // Keep the fixture inside the ignored scratch tree so its unchanged
     // TypeScript helper imports resolve from this checkout's dependencies.
     const cache = resolve('scratch/security-guard-fixtures');
@@ -48,93 +215,49 @@ describe('configuration assignment comments', () => {
       rmSync(root, { recursive: true, force: true });
     };
     try {
-      const files = [
-        'scripts/assert-production-security-config.mts',
-        'scripts/production-security-rollout.mts',
-        'scripts/pro-signaling-credential-boundary.mts',
-        'scripts/standard-room-pin-storage-boundary.mts',
-        'cloudflare/wrangler.pro-room.toml',
-        'cloudflare/wrangler.app.toml',
-        'cloudflare/wrangler.remote-share.toml',
-        'cloudflare/wrangler.signaling.toml',
-        'cloudflare/signaling-worker.ts',
-      ];
-      for (const file of files) {
-        const target = resolve(root, file);
-        mkdirSync(dirname(target), { recursive: true });
-        copyFileSync(file, target);
-      }
-      const configPath = resolve(root, 'cloudflare/wrangler.remote-share.toml');
-      const source = readFileSync(configPath, 'utf8');
-      for (const [fileValue, environmentValue, expectedExit] of [
-        ['"true" # operator note', '', 1],
-        ["'true' # operator note", '', 1],
-        ['false # operator note', '', 0],
-        ['"true#value" # operator note', '', 0],
-        ['"false" # operator note', 'true # literal environment value', 0],
-        ['"false" # operator note', 'true', 1],
-      ] as const) {
-        writeFileSync(
-          configPath,
-          source.replace('[vars]', `[vars]\nMXQR_ALLOW_UNGUARDED_REMOTE_SHARE = ${fileValue}`),
-        );
-        const result = spawnSync(process.execPath, [resolve(root, files[0]!)], {
+      copyGuardFixture(root, [...GUARD_SCRIPT_FILES, ...GUARD_CONFIG_FILES]);
+      const runGuard = (environmentValue: string) =>
+        spawnSync(process.execPath, [resolve(root, GUARD_CLI)], {
           encoding: 'utf8',
           timeout: 30_000,
-          env: { ...process.env, MXQR_ALLOW_UNGUARDED_REMOTE_SHARE: environmentValue },
+          env: { ...process.env, [REMOTE_SHARE_FLAG]: environmentValue },
         });
-        expect(result.status, result.stdout + result.stderr).toBe(expectedExit);
-      }
-      for (const [assignment, value, expectedExit] of [
-        ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = "true"', 'true', 1],
-        ["'MXQR_ALLOW_UNGUARDED_REMOTE_SHARE' = true", 'true', 1],
-        ['"MXQR_ALLOW_UNGUARDED_REMOTE_SH\\u0041RE" = "true"', 'true', 1],
-        ['MXQR_ALLOW_UNGUARDED_REMOTE_SHARE = "tr\\u0075e"', 'true', 1],
-        ['MXQR_ALLOW_UNGUARDED_REMOTE_SHARE = """true"""', 'true', 1],
-        ['MXQR_ALLOW_UNGUARDED_REMOTE_SHARE = """\ntrue"""', 'true', 1],
-        ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = false # safe', 'false', 0],
-        ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = "true#literal"', 'true#literal', 0],
-        ['"MXQR_ALLOW_UNGUARDED_REMOTE_SHARE" = \'"true"\'', '"true"', 0],
-      ] as const) {
-        writeFileSync(configPath, source.replace('[vars]', `['vars']\n${assignment}`));
-        const parsed = experimental_readRawConfig({ config: configPath }).rawConfig;
-        expect(String(parsed.vars?.MXQR_ALLOW_UNGUARDED_REMOTE_SHARE)).toBe(value);
-        const result = spawnSync(process.execPath, [resolve(root, files[0]!)], {
-          encoding: 'utf8',
-          timeout: 30_000,
-          env: { ...process.env, MXQR_ALLOW_UNGUARDED_REMOTE_SHARE: '' },
-        });
-        expect(result.status, result.stdout + result.stderr).toBe(expectedExit);
-      }
-      writeFileSync(configPath, source);
-      const proPath = resolve(root, 'cloudflare/wrangler.pro-room.toml');
+
+      // One spawn proves the CLI wires process.env, its own repository root
+      // and the shared formatter together.
+      const proPath = resolve(root, PRO_ROOM_CONFIG);
       const proSource = readFileSync(proPath, 'utf8');
       writeFileSync(
         proPath,
-        proSource.replace('[vars]', '[vars]\n"PRO_ROOM_MEMBER_AUTHORITY_PROJECTION" = false'),
+        proSource.replace('[vars]', `[vars]\n${RETIRED_PROJECTION_ASSIGNMENT}`),
       );
-      const retired = spawnSync(process.execPath, [resolve(root, files[0]!)], {
-        encoding: 'utf8',
-        timeout: 30_000,
-        env: { ...process.env, MXQR_ALLOW_UNGUARDED_REMOTE_SHARE: '' },
-      });
-      expect(retired.status, retired.stdout + retired.stderr).toBe(1);
-      expect(retired.stderr).toContain('PRO_ROOM_MEMBER_AUTHORITY_PROJECTION');
+      const unsafe = runGuard('true');
+      expect(unsafe.error).toBeUndefined();
+      expect(unsafe.status, unsafe.stdout + unsafe.stderr).toBe(1);
+      expect(unsafe.stdout).not.toContain('[prod-security-guard] OK');
+      expect(unsafe.stderr).toContain(
+        '[prod-security-guard] Unsafe production configuration detected:\n',
+      );
+      expect(unsafe.stderr).toContain(`\n  - environment: ${REMOTE_SHARE_FLAG}\n`);
+      expect(unsafe.stderr).toContain(`\n  - ${PRO_ROOM_CONFIG}: ${RETIRED_PROJECTION_FLAG}\n`);
+      expect(unsafe.stderr).toContain(
+        '\n[prod-security-guard] Fix the production security/rollout configuration before deploying.\n',
+      );
       writeFileSync(proPath, proSource);
-      writeFileSync(configPath, '[vars]\nsecret = "sensitive-parser-excerpt\n');
-      const invalid = spawnSync(process.execPath, [resolve(root, files[0]!)], {
-        encoding: 'utf8',
-        timeout: 30_000,
-        env: { ...process.env, MXQR_ALLOW_UNGUARDED_REMOTE_SHARE: '' },
-      });
-      expect(invalid.status).toBe(1);
+
+      writeFileSync(resolve(root, REMOTE_SHARE_CONFIG), UNREADABLE_CONFIG);
+      const invalid = runGuard('');
+      expect(invalid.error).toBeUndefined();
+      expect(invalid.status, invalid.stdout + invalid.stderr).toBe(1);
       expect(invalid.stderr).toContain('Production security configuration is unreadable');
       expect(invalid.stdout + invalid.stderr).not.toContain('sensitive-parser-excerpt');
     } finally {
       cleanup();
     }
   }, 60_000);
+});
 
+describe('configuration assignment comments', () => {
   it.each([
     ['true # operator note', 'true'],
     ['"true" # operator note', '"true"'],

@@ -8,7 +8,7 @@
 | Frozen main       | `35759e8b07f1ee0b272afbd0af03c770a858889e`                                                                                   |
 | Date / execution  | 2026-10-07, 에이전트 3개씩 10세트, `gpt-6-astra` / `ultra`                                                                   |
 | Environment       | Windows, Node 24.20.0, npm 12.0.2, Vitest, Chromium, 일부 Windows WebKit, 로컬 PeerJS·Worker·SQLite                          |
-| Related documents | [QA 도메인](../beta-qa-domains.md), [현재 배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md), [허용된 경계](../known-accepted.md) |
+| Related documents | [QA 도메인](../qa-domains.md), [현재 배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md), [허용된 경계](../known-accepted.md) |
 
 ## 결과와 판정 원칙
 

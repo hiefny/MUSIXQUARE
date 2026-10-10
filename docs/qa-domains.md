@@ -1,17 +1,17 @@
-# 베타 전체 프로젝트 QA 도메인
+# 전체 프로젝트 QA 도메인
 
 | Field | Value |
 | --- | --- |
 | Status | Guide — QA 범위 설계, 실행 결과 아님 |
 | Applies to | main 전체 제품·브라우저·서버·데이터·QA 환경 |
-| Last source review | 2026-10-11 — 대회 종료 후 main 기준으로 적용 범위·기록 위치 정리 (2026-10-07 QA082 현행 제한 재확인 포함) |
+| Last source review | 2026-10-11 — main 기준으로 적용 범위·기록 위치를 정리하고 파일 이름을 `qa-domains.md`로 변경 (2026-10-07 QA082 현행 제한 재확인 포함) |
 | Executable sources | [제품 소스](../src/), [브라우저 자산](../browser/), [Workers](../cloudflare/), [E2E](../e2e/), [도구/빌드](../package.json) |
 | Related documents | [현재 릴리스 기록](release-record.md), [허용한 설계·제약](known-accepted.md), [모바일 확대 정책](mobile-app-zoom-policy.md), [문서 허브](README.md) |
 
 초기 소스 검토 기준은 239bfe595aa8d9337a9e10b4165907182eeb386b이다.
 2026-10-07의 30라운드 QA(`9afc36b4d8bccc575a923b0dfaadd103145ba09f`)에서
 QA082의 폐기된 일일 BOT 제한 문구를 현행 분/시간 제한으로 바로잡았다.
-**main(대회 종료 후 승격된 베타 포함)을 하나의 제품으로 보고 30개 대분류·122개 세부 QA 범위를 정리했다.**
+**main을 하나의 제품으로 보고 30개 대분류·122개 세부 QA 범위를 정리했다.**
 main과의 차이 여부와 관계없이 사용자 기능, 권한, 데이터, 실패·복구 경계를 포함한다.
 
 이 문서는 새 결함 발견이나 새 테스트 통과를 보고하지 않는다. 연결한 기존 검사는

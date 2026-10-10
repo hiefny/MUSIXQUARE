@@ -6,7 +6,7 @@
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
 | Last source review | 2026-10-11 (main `1748588e`, 배포 SHA `6e59d96c`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
-| Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](beta-qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
+| Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
 QA를 시작하기 전과 main 병합·프로덕션 릴리스를 준비하기 전에 이 문서를 읽는다.
 아래 값은 표에 적힌 커밋과 확인일 기준이다. 배포 직전에는 실제 Git·CI·Cloudflare
@@ -124,7 +124,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ## 3. 릴리스·QA 기준
 
-- QA 범위, 우선순위, 결과에 남길 최소 증거는 [QA 범위 설계](beta-qa-domains.md)를
+- QA 범위, 우선순위, 결과에 남길 최소 증거는 [QA 범위 설계](qa-domains.md)를
   따른다.
 - 배포 대상은 매번 live SHA와 서버 의존성으로 다시 판정한다
   ([release-deployment-state.mts](../scripts/release-deployment-state.mts)).

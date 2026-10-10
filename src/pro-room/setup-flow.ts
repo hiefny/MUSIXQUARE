@@ -5,6 +5,8 @@ import {
   isLazyFeatureLoadError,
 } from '../core/lazy-feature-failure.ts';
 import { capturePendingClaimReloadGuard } from '../core/document-reload.ts';
+import { navigateToAppHome } from '../core/navigation.ts';
+import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api.ts';
@@ -16,6 +18,15 @@ import {
 } from './activation-account.ts';
 import { isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 import { announceProRoomTabTakeover } from './tab-handoff.ts';
+import {
+  acknowledgeProRoomRemoval,
+  clearProRoomRemovalAcknowledgement,
+  hasProRoomRemovalAcknowledgement,
+  isProRoomPinRemovalReason,
+  isProRoomRemovalReason,
+  proRoomPinRemovalPromptMessageKey,
+  showProRoomRemovalNotice,
+} from './session-end-notice.ts';
 import { consumeAccountLoginReturnForRoom } from '../account/login-return.ts';
 import {
   requestAccountLoginPopup,
@@ -519,6 +530,7 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
       // remains outcome-unknown. Retaining its request id would let a later,
       // unrelated PIN entry replay stale admission state after the cookie expires.
       clearPendingSessionRequestId(code);
+      clearProRoomRemovalAcknowledgement(code);
       return result;
     };
     // Consume this one-time route hint before any network turn. Only a marker
@@ -740,6 +752,24 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
     }
     if (!isMissingCookieSession(resumeError)) throw resumeError;
 
+    // The owner, an administrator, or a sibling device removed this cookie.
+    // Explain it once per tab and go home instead of silently re-admitting
+    // this browser to a public room. After that acknowledgement a deliberate
+    // second open is an ordinary admission: the notice is never a ban.
+    const sessionEndReason =
+      resumeError instanceof ProRoomApiError ? resumeError.sessionEndReason : null;
+    if (isProRoomRemovalReason(sessionEndReason) && !hasProRoomRemovalAcknowledgement(code)) {
+      await showProRoomRemovalNotice(sessionEndReason);
+      acknowledgeProRoomRemoval(code);
+      clearPendingSessionRequestId(code);
+      scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
+      return false;
+    }
+    // After a "make everyone rejoin" PIN change, the first prompt says why.
+    let firstPinMessageKey: Parameters<typeof t>[0] = isProRoomPinRemovalReason(sessionEndReason)
+      ? proRoomPinRemovalPromptMessageKey(sessionEndReason)
+      : 'pro.pin_message';
+
     let retry = false;
     // Probe server-verified ownership even if the independent account UI read
     // is still loading. Never replace an outcome-unknown PIN admission with
@@ -751,13 +781,17 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
     // pending admission. A definitive PIN result or successful cookie response
     // clears it below.
     while (true) {
-      const pin = attemptWithoutPin
-        ? undefined
-        : await promptPin({
-            title: t('pro.pin_title'),
-            message: t(retry ? 'pro.pin_retry_message' : 'pro.pin_message'),
-            autocomplete: 'current-password',
-          });
+      let pin: string | null | undefined;
+      if (attemptWithoutPin) {
+        pin = undefined;
+      } else {
+        pin = await promptPin({
+          title: t('pro.pin_title'),
+          message: t(retry ? 'pro.pin_retry_message' : firstPinMessageKey),
+          autocomplete: 'current-password',
+        });
+        firstPinMessageKey = 'pro.pin_message';
+      }
       if (pin === null) {
         clearPendingSessionRequestId(code);
         return false;
@@ -775,6 +809,7 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
           ),
         );
         clearPendingSessionRequestId(code);
+        clearProRoomRemovalAcknowledgement(code);
         return true;
       } catch (error) {
         if (

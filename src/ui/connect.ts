@@ -682,8 +682,15 @@ function syncHostOwnedConnectSections(): void {
   });
 }
 
+// The runtime's sentinel for a Worker that cannot keep people in the room.
+// connect.ts compares the message instead of importing the PRO API module.
+const PRO_ROOM_PIN_KEEP_UNSUPPORTED = 'PRO_ROOM_PIN_KEEP_UNSUPPORTED';
+
 async function changeProRoomPin(disable = false): Promise<void> {
   if (_proPinChangeInFlight || _guardRoomPasswordCtrl()) return;
+  // Captured before the dialog: a public room gains a PIN, a protected one changes it.
+  const enabling = !disable && !getState('network.roomPasswordRequired');
+  const titleKey = enabling ? 'pro.pin_enable_title' : 'pro.pin_change_title';
   const initialRoom = getRoomContext();
   const initialDeviceId = getState('network.myId');
   const abort = new AbortController();
@@ -706,10 +713,11 @@ async function changeProRoomPin(disable = false): Promise<void> {
   syncRoomPasswordControls();
   try {
     let pin: string | null = null;
+    let keepPresent = false;
     if (!disable) {
       const result = await showDialog({
-        title: t('pro.pin_change_title'),
-        message: t('pro.pin_change_message'),
+        title: () => t(titleKey),
+        message: () => t('pro.pin_change_message'),
         inputField: {
           placeholder: t('dialog.room_password_placeholder'),
           maxLength: 8,
@@ -721,25 +729,68 @@ async function changeProRoomPin(disable = false): Promise<void> {
           validator: (value) =>
             normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
         },
-        buttonText: t('common.ok'),
-        secondaryText: t('common.cancel'),
+        // Who stays when the PIN takes effect. Keeping them is the default;
+        // making everyone rejoin is the remedy for strangers in the room.
+        choiceField: {
+          legend: () => t('pro.pin_members_legend'),
+          name: 'pro-pin-existing-participants',
+          defaultValue: 'keep_present',
+          options: [
+            {
+              value: 'keep_present',
+              label: () => t('pro.pin_members_keep'),
+              detail: () => t('pro.pin_members_keep_detail'),
+            },
+            {
+              value: 'revoke_all',
+              label: () => t('pro.pin_members_reenter'),
+              detail: () => t('pro.pin_members_reenter_detail'),
+            },
+          ],
+        },
+        buttonText: () => t('common.ok'),
+        secondaryText: () => t('common.cancel'),
         defaultFocus: 'primary',
         signal: abort.signal,
       });
       pin = result.action === 'ok' ? normalizeProRoomPin(result.inputValue) : null;
       if (!pin) return;
+      // Only an explicit "make everyone rejoin" revokes present people.
+      keepPresent = result.choiceValue !== 'revoke_all';
     }
     if (!isCurrent()) return;
     // Lazy-load the PRO runtime without pulling it into the standard-room graph.
     const { changeActiveProRoomPin } = await import('../pro-room/runtime.ts');
     if (!isCurrent()) return;
-    await changeActiveProRoomPin(pin, abort.signal);
-    if (isCurrent()) showToast(t(disable ? 'connect.room_password_disabled' : 'pro.pin_changed'));
-  } catch (error) {
+    // "Make everyone rejoin" keeps the legacy request, which every Worker
+    // understands; only keeping people sends the choice.
+    if (keepPresent) await changeActiveProRoomPin(pin, abort.signal, 'keep_present');
+    else await changeActiveProRoomPin(pin, abort.signal);
     if (isCurrent()) {
-      log.warn('[Connect] PRO room password change failed', error);
-      showToast(t('error.network_generic'));
+      showToast(
+        t(
+          disable
+            ? 'connect.room_password_disabled'
+            : enabling
+              ? 'pro.pin_enabled'
+              : 'pro.pin_changed',
+        ),
+      );
     }
+  } catch (error) {
+    if (!isCurrent()) return;
+    log.warn('[Connect] PRO room password change failed', error);
+    if (error instanceof Error && error.message === PRO_ROOM_PIN_KEEP_UNSUPPORTED) {
+      // Nothing changed on the server, so the toggle and PIN stay as they were.
+      await showDialog({
+        title: () => t(titleKey),
+        message: () => t('pro.pin_keep_unavailable'),
+        buttonText: () => t('common.ok'),
+        signal: abort.signal,
+      });
+      return;
+    }
+    showToast(t('error.network_generic'));
   } finally {
     offRoom();
     offDevice();

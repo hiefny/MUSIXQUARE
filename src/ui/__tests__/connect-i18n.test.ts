@@ -73,6 +73,17 @@ const mockedKickActiveProRoomMember = vi.mocked(kickActiveProRoomMember);
 const mockedKickActiveProRoomPresence = vi.mocked(kickActiveProRoomPresence);
 const mockedRevokeActiveProRoomAdministrator = vi.mocked(revokeActiveProRoomAdministrator);
 const mockedUpdateActiveProRoomAdministrator = vi.mocked(updateActiveProRoomAdministrator);
+/** Resolve literal or locale-refreshing dialog copy as the dialog renders it. */
+function renderedDialogText(text: unknown): unknown {
+  return typeof text === 'function' ? (text as () => string)() : text;
+}
+
+function lastDialogOptions() {
+  const options = mockedShowDialog.mock.calls.at(-1)?.[0];
+  if (!options || typeof options === 'string') throw new Error('expected dialog options');
+  return options;
+}
+
 const FULL_ADMIN_PERMISSIONS_FOR_TEST = {
   'media.add': true,
   'playback.control': true,
@@ -3028,16 +3039,16 @@ describe('connect host-owned room password controls', () => {
       expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
         '12345678',
         expect.any(AbortSignal),
+        'keep_present',
       ),
     );
-    expect(mockedShowDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: '방 암호 변경',
-        message: '새 8자리 암호를 설정해 주세요. 모든 참여자가 다시 입장해야 해요.',
-        inputField: expect.objectContaining({ maxLength: 8, inputMode: 'numeric' }),
-      }),
+    const options = lastDialogOptions();
+    expect(renderedDialogText(options.title)).toBe('방 암호 변경');
+    expect(renderedDialogText(options.message)).toBe('새 8자리 암호를 설정해 주세요.');
+    expect(options.inputField).toEqual(
+      expect.objectContaining({ maxLength: 8, inputMode: 'numeric' }),
     );
-    expect(showToast).toHaveBeenCalledWith('방 암호를 변경했어요.');
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('방 암호를 변경했어요.'));
   });
 });
 
@@ -3091,6 +3102,7 @@ describe('PRO optional entry password controls', () => {
       expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
         '00000034',
         expect.any(AbortSignal),
+        'keep_present',
       ),
     );
     expect(getState('network.roomPasswordRequired')).toBe(false);
@@ -3108,6 +3120,94 @@ describe('PRO optional entry password controls', () => {
       'true',
     );
     expect(document.getElementById('room-password-code')?.textContent).toBe('••••-••••');
+    expect(showToast).toHaveBeenCalledWith(t('pro.pin_enabled'));
+  });
+
+  it.each([
+    { required: false, title: 'pro.pin_enable_title', toast: 'pro.pin_enabled' },
+    { required: true, title: 'pro.pin_change_title', toast: 'pro.pin_changed' },
+  ] as const)(
+    'offers who stays when the PIN takes effect, keeping people by default (protected: $required)',
+    async ({ required, title, toast }) => {
+      openOwnerSettings(required);
+      mockedShowDialog.mockResolvedValueOnce({
+        action: 'ok',
+        inputValue: '11223344',
+        choiceValue: 'keep_present',
+      });
+      mockedChangeActiveProRoomPin.mockResolvedValueOnce();
+      document.getElementById(required ? 'room-password-refresh' : 'room-password-toggle')?.click();
+      await vi.waitFor(() =>
+        expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
+          '11223344',
+          expect.any(AbortSignal),
+          'keep_present',
+        ),
+      );
+      const options = lastDialogOptions();
+      expect(renderedDialogText(options.title)).toBe(t(title));
+      expect(renderedDialogText(options.message)).toBe(t('pro.pin_change_message'));
+      const choice = options.choiceField!;
+      expect(choice.defaultValue).toBe('keep_present');
+      expect(renderedDialogText(choice.legend)).toBe(t('pro.pin_members_legend'));
+      expect(
+        choice.options.map((option) => [
+          option.value,
+          renderedDialogText(option.label),
+          renderedDialogText(option.detail),
+        ]),
+      ).toEqual([
+        ['keep_present', t('pro.pin_members_keep'), t('pro.pin_members_keep_detail')],
+        ['revoke_all', t('pro.pin_members_reenter'), t('pro.pin_members_reenter_detail')],
+      ]);
+      await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t(toast)));
+    },
+  );
+
+  it('sends "make everyone rejoin" as the legacy request every Worker understands', async () => {
+    openOwnerSettings(true);
+    mockedShowDialog.mockResolvedValueOnce({
+      action: 'ok',
+      inputValue: '11223344',
+      choiceValue: 'revoke_all',
+    });
+    mockedChangeActiveProRoomPin.mockResolvedValueOnce();
+    document.getElementById('room-password-refresh')?.click();
+    await vi.waitFor(() => expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce());
+    expect(mockedChangeActiveProRoomPin.mock.calls[0]).toEqual([
+      '11223344',
+      expect.any(AbortSignal),
+    ]);
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_changed')));
+  });
+
+  it('explains a Worker that cannot keep people and leaves the room protection unchanged', async () => {
+    openOwnerSettings(false);
+    mockedShowDialog
+      .mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' })
+      .mockResolvedValueOnce({ action: 'ok' });
+    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new Error('PRO_ROOM_PIN_KEEP_UNSUPPORTED'));
+    document.getElementById('room-password-toggle')?.click();
+    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledTimes(2));
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledTimes(1);
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
+      '11223344',
+      expect.any(AbortSignal),
+      'keep_present',
+    );
+    const unavailable = lastDialogOptions();
+    expect(renderedDialogText(unavailable.title)).toBe(t('pro.pin_enable_title'));
+    expect(renderedDialogText(unavailable.message)).toBe(t('pro.pin_keep_unavailable'));
+    await vi.waitFor(() =>
+      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(showToast).not.toHaveBeenCalled();
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
   });
 
   it('disables protection through the server without revealing or replacing the saved PIN', async () => {

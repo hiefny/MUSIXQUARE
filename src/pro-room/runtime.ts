@@ -8,6 +8,7 @@ import {
   scheduleSessionReset,
 } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
+import { navigateToAppHome } from '../core/navigation.ts';
 import { getAccountSnapshot, getAccountStatsScope, subscribeAccount } from '../account/state.ts';
 import { ProRoomAccountReconciler } from './account-reconciliation.ts';
 import {
@@ -80,9 +81,17 @@ import {
   type EnterProRoomPresenceOptions,
   type ProRoomBotCommandResult,
   type ProRoomBootstrap,
+  type ProRoomPinMembershipChoice,
   type RecoverProRoomOwnerInput,
   type TransferProRoomOwnerInput,
 } from './api.ts';
+import {
+  acknowledgeProRoomRemoval,
+  isProRoomPinRemovalReason,
+  isProRoomRemovalReason,
+  showProRoomPinRemovalNotice,
+  showProRoomRemovalNotice,
+} from './session-end-notice.ts';
 import type {
   ProRoomAdministrator,
   ProRoomPermissionSet,
@@ -263,6 +272,8 @@ let queueModeFieldIntentRevision: Record<QueueModeIntentField, number> = {
 };
 let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryOwner: symbol | null = null;
+/** Cancels a session-end explanation once another open or leave owns the tab. */
+let terminalRecoveryDialogAbort: AbortController | null = null;
 let presenceRecoveryAbort: AbortController | null = null;
 let controlChannelRecoveryAttempt = 0;
 let controlChannelRecoveryGeneration: number | null = null;
@@ -2779,6 +2790,15 @@ onProRoomTabTakeover((roomCode) => {
   observeProRoomRuntimeTask(runHeartbeat(true), 'tab takeover validation');
 });
 
+function releaseTerminalRecovery(): void {
+  terminalRecoveryOwner = null;
+  terminalRecoveryDialogAbort?.abort();
+  terminalRecoveryDialogAbort = null;
+}
+
+/** Thrown when a Worker without the keep-present PIN choice refuses it. */
+const PRO_ROOM_PIN_KEEP_UNSUPPORTED = 'PRO_ROOM_PIN_KEEP_UNSUPPORTED';
+
 function isTerminalSessionError(error: unknown): error is ProRoomApiError {
   return (
     error instanceof ProRoomApiError &&
@@ -2794,6 +2814,10 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   if (terminalRecoveryOwner) return;
   const recoveryOwner = Symbol();
   terminalRecoveryOwner = recoveryOwner;
+  // Capture who this tab was before teardown clears the snapshot.
+  const endedSnapshot = controller.snapshot;
+  const endedRoomCode = endedSnapshot?.roomCode ?? null;
+  const endedAsOwner = endedSnapshot?.viewer?.role === 'owner';
   stopLifecycle();
   if (error.code === 'PRESENCE_EXPIRED') {
     const recoveryAbort = new AbortController();
@@ -2826,7 +2850,10 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
         (recoveryError.code === 'PRESENCE_ACTIVE_ELSEWHERE' ||
           recoveryError.code === 'PRESENCE_SUPERSEDED')
           ? new ProRoomApiError('PRESENCE_SUPERSEDED', 409)
-          : new ProRoomApiError('SESSION_REQUIRED', 401);
+          : recoveryError instanceof ProRoomApiError && recoveryError.code === 'SESSION_REQUIRED'
+            ? // Keep the server's reason: the session ended while presence lapsed.
+              recoveryError
+            : new ProRoomApiError('SESSION_REQUIRED', 401);
     } finally {
       if (presenceRecoveryAbort === recoveryAbort) presenceRecoveryAbort = null;
     }
@@ -2853,6 +2880,38 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
       });
     }
     return;
+  }
+  const endReason = error.sessionEndReason;
+  if (typeof window !== 'undefined' && isProRoomRemovalReason(endReason)) {
+    // Removed by the owner/an administrator or by a sibling device. Never
+    // reload /CODE: that would rejoin a public room with one Start tap.
+    // Leave the room URL first so a refresh during the dialog lands home.
+    try {
+      history.replaceState(null, '', '/');
+    } catch {
+      // The navigation below still replaces the room URL.
+    }
+    const dialogAbort = new AbortController();
+    terminalRecoveryDialogAbort = dialogAbort;
+    const result = await showProRoomRemovalNotice(endReason, dialogAbort.signal);
+    if (terminalRecoveryDialogAbort === dialogAbort) terminalRecoveryDialogAbort = null;
+    if (terminalRecoveryOwner !== recoveryOwner || result.action === 'superseded') return;
+    if (endedRoomCode) acknowledgeProRoomRemoval(endedRoomCode);
+    scheduleSessionReset(t('dialog.leaving_session'), () => {
+      if (terminalRecoveryOwner !== recoveryOwner) {
+        restoreSessionReset();
+        return;
+      }
+      navigateToAppHome();
+    });
+    return;
+  }
+  if (typeof window !== 'undefined' && isProRoomPinRemovalReason(endReason) && !endedAsOwner) {
+    const dialogAbort = new AbortController();
+    terminalRecoveryDialogAbort = dialogAbort;
+    const result = await showProRoomPinRemovalNotice(endReason, dialogAbort.signal);
+    if (terminalRecoveryDialogAbort === dialogAbort) terminalRecoveryDialogAbort = null;
+    if (terminalRecoveryOwner !== recoveryOwner || result.action === 'superseded') return;
   }
   if (typeof window !== 'undefined') {
     scheduleDocumentReload(t('dialog.refreshing_session'));
@@ -3360,7 +3419,7 @@ function startLifecycle(): void {
   visibilityPlaybackRecoveryAttempt = 0;
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   playbackController.startLifecycle();
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   bindVisibilityRefresh();
   clearManagedTimer(HEARTBEAT_TIMER);
   setManagedTimer(HEARTBEAT_TIMER, () => runHeartbeat(), HEARTBEAT_INTERVAL_MS);
@@ -3530,7 +3589,7 @@ export async function resumeProRoom(
   code: string,
   options: EnterProRoomPresenceOptions = {},
 ): Promise<ProRoomSnapshot> {
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   await prepareRoomSessionFeatures(options.signal);
   const snapshot = await controller.resume(code, options);
   return finalizeOpenedRoom(snapshot);
@@ -3540,7 +3599,7 @@ export async function joinProRoom(
   input: CreateProRoomSessionInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.join(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3550,7 +3609,7 @@ export async function activateProRoom(
   input: ActivateProRoomInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.activate(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3560,7 +3619,7 @@ export async function recoverProRoomOwner(
   input: RecoverProRoomOwnerInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.recoverOwner(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3570,7 +3629,7 @@ export async function transferProRoomOwner(
   input: TransferProRoomOwnerInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.transferOwner(input, signal);
   return finalizeOpenedRoom(snapshot);
@@ -3579,19 +3638,36 @@ export async function transferProRoomOwner(
 export async function changeActiveProRoomPin(
   pin: string | null,
   signal?: AbortSignal,
+  existingParticipants?: ProRoomPinMembershipChoice,
 ): Promise<void> {
   const code = controller.snapshot?.roomCode;
   if (!code) throw new Error('PRO_ROOM_SESSION_INACTIVE');
   const lease = controller.captureSessionLease();
   let pinMutationCompleted = false;
   try {
-    // PIN rotation revokes every other cookie session. Pull the resulting
-    // presence snapshot through the authority-aware heartbeat path. Do not
-    // report success until a new-incarnation member ticket has rebuilt the
-    // server control channel and closed every revoked old-incarnation socket.
+    // Without a choice, enabling or rotating the PIN revokes every other
+    // cookie session and advances the room incarnation; `keep_present` keeps
+    // the people present and revokes only dormant cookies, with no new
+    // incarnation. Either way, pull the resulting presence snapshot through
+    // the authority-aware heartbeat path, and do not report success until
+    // that read (and any transport rebuild it requires) has completed.
     const completed = await completeProRoomPinRotation({
       changePin: async () => {
-        await api.changePin(code, pin, signal);
+        try {
+          await api.changePin(code, pin, signal, existingParticipants);
+        } catch (error) {
+          // An older Worker refuses the unknown field. Never retry as
+          // "everyone rejoins": the owner chose to keep people in the room.
+          if (
+            existingParticipants === 'keep_present' &&
+            error instanceof ProRoomApiError &&
+            error.code === 'INVALID_REQUEST' &&
+            error.status === 400
+          ) {
+            throw new Error(PRO_ROOM_PIN_KEEP_UNSUPPORTED);
+          }
+          throw error;
+        }
         pinMutationCompleted = true;
       },
       isSessionCurrent: () => controller.isSessionLeaseCurrent(lease, code),
@@ -3614,7 +3690,7 @@ export async function changeActiveProRoomPin(
 }
 
 function leaveActiveProRoom(signal?: AbortSignal): Promise<void> {
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   // `leave()` also supersedes an authentication/transport open that has not
   // published a snapshot yet. Skipping it when snapshot is null can let a
   // cancelled setup request finish later and silently re-enter the room.
@@ -3671,7 +3747,7 @@ function startAtomicPresenceClose(snapshot: ProRoomSnapshot): Promise<void> | nu
 function hardCloseActiveProRoom(): boolean {
   const snapshot = playlistManager?.snapshot ?? controller.snapshot;
   if (!active || !snapshot) return false;
-  terminalRecoveryOwner = null;
+  releaseTerminalRecovery();
   // Calling the async API method synchronously reaches fetch() before it
   // yields. Only after the keepalive request has started may local teardown
   // abort managers, timers, and the server control channel.

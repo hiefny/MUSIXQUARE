@@ -13,6 +13,7 @@ const BASE_ENV = {
   MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'false',
   MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'false',
   MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'false',
+  MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR: 'false',
   MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'false',
   MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR: 'false',
 };
@@ -60,6 +61,7 @@ describe('release recovery target plan', () => {
       MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'true',
       MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'true',
       MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'true',
+      MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR: 'true',
       MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'true',
     });
     expect(result.status, result.stderr).toBe(0);
@@ -72,6 +74,7 @@ describe('release recovery target plan', () => {
     ['service-control', 'MXQR_SERVICE_CONTROL_FORWARD_FLOOR', ['pro-room', 'app']],
     ['remote-share', 'MXQR_REMOTE_SHARE_FORWARD_FLOOR', ['remote-share', 'app']],
     ['PRO system-audio', 'MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR', ['pro-room', 'signaling', 'app']],
+    ['PRO entry password', 'MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR', ['pro-room', 'app']],
     ['Standard room PIN storage', 'MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR', ['signaling']],
     ['Soro article visibility', 'MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR', ['app']],
   ] as const)('retains the exact %s candidate boundary', (_label, floorVariable, expected) => {
@@ -102,6 +105,7 @@ describe('release recovery target plan', () => {
     expect(plan({ MXQR_R2_POLICY_OUTCOME: 'unknown' }).status).toBe(1);
     expect(plan({ MXQR_APPLY_DEVELOPER_API_D1: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'yes' }).status).toBe(1);
+    expect(plan({ MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME: 'unknown' }).status).toBe(1);

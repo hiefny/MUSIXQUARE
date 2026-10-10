@@ -399,6 +399,18 @@ describe('PRO room snapshot validation', () => {
     expect(parsed?.playback).not.toBe(raw.playback);
   });
 
+  it('parses optional entry protection while preserving legacy fail-closed absence', () => {
+    expect(parseProRoomSnapshot(activeSnapshot())?.passwordRequired).toBeUndefined();
+    for (const passwordRequired of [true, false]) {
+      expect(
+        parseProRoomSnapshot({ ...activeSnapshot(), passwordRequired })?.passwordRequired,
+      ).toBe(passwordRequired);
+    }
+    for (const passwordRequired of [null, 0, 'false', {}]) {
+      expect(parseProRoomSnapshot({ ...activeSnapshot(), passwordRequired })).toBeNull();
+    }
+  });
+
   it('accepts only coarse device-platform categories in presence snapshots', () => {
     const known = activeSnapshot();
     known.presence.participants[0]!.devicePlatform = 'ios';

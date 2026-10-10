@@ -3,7 +3,7 @@
 - **Status:** Accepted operations baseline, amended by
   `pro-room-server-authority.md`
 - **Decision date:** 2026-07-16
-- **Last repository contract review:** 2026-08-19
+- **Last repository contract review:** 2026-10-10
 - **Applies to:** the reserved `0xxxxx` namespace, the built-in `000000` launch
   canary, the PRO control plane, dedicated PRO signaling, and persistent PRO
   media
@@ -38,7 +38,7 @@ code advances to a fresh generation and never revives the deleted incarnation.
 
 | Component                                | Responsibility                                                                                           |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback                            |
+| App route                                | Detect a leading-zero PRO code, confirm activation account, collect an optional entry PIN, render playback |
 | PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2                              |
 | One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state                               |
 | Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock/chat/event fan-out, and targeted system-audio SDP/ICE relay |
@@ -194,8 +194,10 @@ matched provider data/code checkpoint.
 
 ### Authorization model
 
-- Public bootstrap returns only `activation_required`, `pin_required`, or
-  `suspended`. It never issues or returns an activation claim.
+- Public bootstrap returns `activation_required`, `pin_required`, `open`, or
+  `suspended`. `open` is negotiated with `X-MXQR-Pro-Entry-Policy: optional-v1`;
+  cached clients without that header retain the legacy `pin_required` shape.
+  Bootstrap never issues or returns an activation claim.
 - An owner activation claim is issued either from the Access-protected admin
   screen, from the generation-`0` emergency offline CLI, or as an account-bound
   setup handoff after a verified account redeems an operator-run voucher. It is
@@ -212,7 +214,7 @@ matched provider data/code checkpoint.
   bearer claim alone cannot create an anonymous owner. Recovery revokes the
   previous owner credential without changing the room's controller sessions or
   data.
-- First activation refreshes the account session before collecting a PIN. An
+- First activation refreshes the account session before registering the room. An
   anonymous user signs in through the isolated popup; an authenticated user
   explicitly confirms the displayed account or chooses another account. Popup
   completion returns to account confirmation rather than registering the room.
@@ -221,20 +223,23 @@ matched provider data/code checkpoint.
   If the same session already has a nickname prompt open, the claim flow awaits
   that prompt's result; deferring it also stops activation.
   The two full-width actions are stacked, with registration above account
-  switching (English: `Continue` / `Another account`). Only the subsequent PIN
-  confirmation submits activation.
+  switching (English: `Continue` / `Another account`). Account confirmation
+  submits activation without a PIN step; the new room starts without an entry
+  password. An owner can require a manually chosen eight-digit password later
+  in room settings.
   The client carries the confirmed opaque session scope in
   `X-MXQR-Account-Expected-Scope`; the App compares it with the actual HttpOnly
   account session before grant admission, reverse-link writes, or forwarding.
   This scope conveys intent, never authority. Missing or changed scopes return
-  `ACCOUNT_SESSION_CHANGED` (409); the new UI reconfirms the account and PIN.
+  `ACCOUNT_SESSION_CHANGED` (409); the new UI reconfirms the account.
   Cached older clients without the scope must load the updated UI. Logout or
-  account replacement also invalidates an open confirmation/PIN dialog locally.
+  account replacement also invalidates an open confirmation dialog locally.
   Existing claim account bindings and recovery/transfer rules still apply.
-- Activation requires the claim and a new eight-digit PIN. The client derives
-  the historical bootstrap value from the room code and supplies it
-  automatically; the user does not type it and operators must not describe it
-  as an independent second factor. The activation URL is the sensitive owner
+- Activation requires the claim and a verified, confirmed account. The updated
+  client opts into `optional-v1` and omits both PIN fields. Legacy clients can
+  still submit the historical derived bootstrap value and a new eight-digit
+  PIN, producing a password-protected room. The derived value is not an
+  independent second factor. The activation URL is the sensitive owner
   bearer until it expires or is superseded. The first synchronous same-origin
   bootstrap scrubs the fragment before any
   third-party analytics can run. It retains the value only in a non-enumerable,
@@ -249,13 +254,29 @@ matched provider data/code checkpoint.
   room-gate failure, which occurs before the mutation, re-enables restoration;
   success, a definitive refusal, or user exit discards the guard before any
   queued reload continues.
+- Room admission uses an explicit persisted `passwordRequired` flag. Missing
+  flags on existing rooms default to `true`; a missing PIN never makes a room
+  public. Owner-only `POST /pin` accepts `{pin: null}` to disable entry protection
+  and `{pin: "12345678"}` to enable or change it. Disabling preserves current
+  members and playback; enabling or rotating keeps the existing session
+  revocation policy. Protected-room owners can enter using their verified owner
+  account without knowing the PIN; a signed-in ordinary member or delegated
+  controller cannot bypass it. Public rooms still create authenticated,
+  capacity-bounded member sessions and require live presence for media access.
+  Standard-room random password behavior is unchanged.
+- Opt-in clients receive flat `snapshot.passwordRequired`; legacy snapshots
+  keep their exact field set. A legacy client may still ask for a PIN in a
+  public room; its structurally valid eight-digit entry is ignored only when
+  that room is explicitly public, and grants no additional authority. Updated
+  clients omit the PIN in public admissions and retain the stable `requestId`
+  receipt and same-origin session actor contract.
 - The owner credential manages PIN/recovery security and owner-visible room
   configuration. Access-protected operators manage suspension and permanent
   deletion. A separate member session controls live-room actions. Linking the
   verified owner account lets another physical session of that account recover
   owner authority, but a room code, PIN, or first-arrival position never creates
   ownership.
-- A PIN-admitted ordinary PRO member has
+- An admitted ordinary PRO member has
   no playback or mutation capability. The owner always retains playback
   control. A delegated administrator receives playback, media management,
   member removal, and chat-announcement capabilities only through their
@@ -912,8 +933,9 @@ https://musixquare.com/000000#pro-claim=<opaque-claim>
 The claim itself is sensitive. Deliver it out of band to the intended owner;
 do not paste it into a query string, analytics tool, chat transcript, issue, or
 support log. Confirm that opening the URL removes the fragment immediately.
-The client supplies the derived bootstrap value automatically; the owner only
-chooses a different eight-digit room PIN. Complete a health/bootstrap smoke for
+The owner confirms the signed-in account to activate an initially public room.
+An entry password can be enabled later in settings; PRO owners choose it
+manually rather than receiving a generated password. Complete a health/bootstrap smoke for
 that exact room before sharing its invite.
 
 ## Owner Recovery After Browser Data Loss

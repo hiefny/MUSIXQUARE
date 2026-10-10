@@ -6,7 +6,7 @@ import ko from '../src/i18n/ko.ts';
 // service worker can bypass route interception; SW behavior has separate tests.
 test.use({ serviceWorkers: 'block' });
 
-async function localAccount(page: Page, incomplete: boolean) {
+async function localAccount(page: Page, incomplete: boolean, protectedRoom = false) {
   await page.context().route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/api/auth/session')
@@ -19,7 +19,15 @@ async function localAccount(page: Page, incomplete: boolean) {
         },
       });
     if (url.pathname.endsWith('/v1/rooms/000001/bootstrap'))
-      return route.fulfill({ json: { roomCode: '000001', status: 'activation_required' } });
+      return route.fulfill({
+        json: protectedRoom
+          ? { roomCode: '000001', status: 'pin_required', passwordRequired: true }
+          : { roomCode: '000001', status: 'activation_required' },
+      });
+    if (protectedRoom && url.pathname.endsWith('/v1/rooms/000001/presence/enter'))
+      return route.fulfill({ status: 401, json: { error: 'SESSION_REQUIRED' } });
+    if (protectedRoom && url.pathname.endsWith('/v1/rooms/000001/sessions'))
+      return route.fulfill({ status: 401, json: { error: 'PIN_REQUIRED' } });
     if (url.pathname.startsWith('/api/'))
       return route.fulfill({ status: 503, json: { error: 'LOCAL_FIXTURE_UNAVAILABLE' } });
     if (!['127.0.0.1', 'localhost'].includes(url.hostname)) return route.abort();
@@ -39,11 +47,9 @@ for (const height of [280, 220]) {
     page,
   }, info) => {
     await page.setViewportSize({ width: 320, height: 568 });
-    await localAccount(page, false);
-    await page.goto(`/000001#pro-claim=${'a'.repeat(32)}.${'b'.repeat(43)}`);
+    await localAccount(page, false, true);
+    await page.goto('/000001');
     await page.locator('#btn-setup-confirm:not([disabled])').click();
-    await expect(page.locator('#dialog-title')).toHaveText('Choose an account for this PRO room');
-    await page.locator('#btn-dialog-ok').click();
     const segments = page.locator('.dialog-input-segment');
     await expect(segments).toHaveCount(2);
     await segments.first().press('Enter');

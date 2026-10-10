@@ -661,8 +661,63 @@ describe('release deployment rollback state', () => {
     expect(failClosedCli.stdout).toBe('true');
   });
 
+  it('keeps optional PRO entry passwords on a PRO/App forward-repair boundary', () => {
+    const marker = 'cloudflare/pro-room-entry-policy-contract-version.txt';
+    const markerContent = 'pro-room-optional-entry-password-v1\n';
+    expect(readFileSync(resolve(marker), 'utf8')).toBe(markerContent);
+    expect(EMERGENCY_EXTERNAL_STATE_PATHS).toContain(marker);
+    for (const target of ['pro-room', 'app']) {
+      expect(runtimePathsForWorker(target)).toContain(marker);
+    }
+    for (const target of ['signaling', 'remote-share', 'developer-api', 'developer-api-facade']) {
+      expect(runtimePathsForWorker(target)).not.toContain(marker);
+    }
+    for (const file of [
+      '.github/workflows/release.yml',
+      '.github/workflows/release-recovery.yml',
+    ]) {
+      const workflow = readFileSync(resolve(file), 'utf8');
+      expect(workflow).toContain(
+        'pro-room-entry-policy-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
+      );
+      expect(workflow).toContain(
+        'MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR="$pro_room_entry_policy_forward_floor"',
+      );
+    }
+    const checkpoint = createDirectory();
+    for (const content of [null, '', 'wrong-contract\n']) {
+      expect(
+        contractCutoverRequiresForwardRepair(
+          'd'.repeat(40),
+          marker,
+          ['pro-room', 'app'],
+          checkpoint,
+          {
+            requiredMarkerContent: markerContent,
+            runner: () => {
+              if (content === null) throw new Error('release marker unavailable');
+              return content;
+            },
+          },
+        ),
+      ).toBe(true);
+    }
+    const failClosedCli = runScript([
+      'pro-room-entry-policy-forward-floor',
+      'd'.repeat(40),
+      checkpoint,
+    ]);
+    expect(failClosedCli.status, String(failClosedCli.stderr)).toBe(0);
+    expect(failClosedCli.stdout).toBe('true');
+  });
+
   it.each([
     ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
+    [
+      'PRO entry password',
+      'cloudflare/pro-room-entry-policy-contract-version.txt',
+      ['pro-room', 'app'],
+    ],
     ['Soro article visibility', 'cloudflare/soro-article-visibility-contract-version.txt', ['app']],
     [
       'PRO system-audio',
@@ -762,6 +817,11 @@ describe('release deployment rollback state', () => {
 
   it.each([
     ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
+    [
+      'PRO entry password',
+      'cloudflare/pro-room-entry-policy-contract-version.txt',
+      ['pro-room', 'app'],
+    ],
     ['remote-share', 'cloudflare/remote-share-contract-version.txt', ['remote-share', 'app']],
     ['Soro article visibility', 'cloudflare/soro-article-visibility-contract-version.txt', ['app']],
     [

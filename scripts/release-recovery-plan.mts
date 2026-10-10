@@ -118,6 +118,10 @@ export function releaseRecoverySkipTargets(
     environment.MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR,
     'MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR',
   );
+  const proRoomEntryPolicyForwardFloor = exactBoolean(
+    environment.MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR,
+    'MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR',
+  );
   const soroArticleVisibilityForwardFloor = exactBoolean(
     environment.MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR,
     'MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR',
@@ -159,6 +163,14 @@ export function releaseRecoverySkipTargets(
   }
   if (standardRoomPinForwardFloor) {
     skip.add('signaling');
+  }
+  if (proRoomEntryPolicyForwardFloor) {
+    // Older PRO code cannot admit a room whose PIN was intentionally cleared.
+    // It also preserves an unknown passwordRequired=false during PIN changes,
+    // which would reopen that room when the new code returns. Keep the matching
+    // App UI/facade with the server instead of crossing that persisted boundary.
+    skip.add('pro-room');
+    skip.add('app');
   }
   if (soroArticleVisibilityForwardFloor) {
     skip.add('app');

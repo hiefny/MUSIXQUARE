@@ -10,16 +10,6 @@ export function isProRoomCode(value: unknown): value is string {
   return typeof value === 'string' && PRO_ROOM_CODE_RE.test(value);
 }
 
-/**
- * Temporary bootstrap PIN required by the product contract. It is never a
- * standalone room credential: activation also requires the owner-only,
- * one-time claim token issued by the PRO room backend.
- */
-export function deriveTemporaryProRoomPin(roomCode: string): string {
-  if (!isProRoomCode(roomCode)) throw new Error('Invalid PRO room code');
-  return roomCode.padStart(8, '0');
-}
-
 export function normalizeProRoomPin(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const digits = value.replace(/\D+/g, '').slice(0, 8);

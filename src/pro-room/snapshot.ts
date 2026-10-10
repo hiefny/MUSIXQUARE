@@ -752,28 +752,34 @@ function sameCapabilities(left: readonly ProRoomCapability[], right: readonly Pr
 export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   if (!isRecord(value)) return null;
   if (
-    !hasExactKeys(value, [
-      'schemaVersion',
-      'roomCode',
-      'status',
-      'runtime',
-      'revision',
-      'playlistRevision',
-      'effectsRevision',
-      'queueModeRevision',
-      'playlist',
-      'currentQueueItemId',
-      'playback',
-      'presence',
-      'quota',
-      'viewer',
-      'memberIdentityVersion',
-      'authorityVersion',
-      'administrators',
-    ])
+    !hasExactKeysWithOptionals(
+      value,
+      [
+        'schemaVersion',
+        'roomCode',
+        'status',
+        'runtime',
+        'revision',
+        'playlistRevision',
+        'effectsRevision',
+        'queueModeRevision',
+        'playlist',
+        'currentQueueItemId',
+        'playback',
+        'presence',
+        'quota',
+        'viewer',
+        'memberIdentityVersion',
+        'authorityVersion',
+        'administrators',
+      ],
+      ['passwordRequired'],
+    )
   ) {
     return null;
   }
+  if (value.passwordRequired !== undefined && typeof value.passwordRequired !== 'boolean')
+    return null;
   if (value.schemaVersion !== PRO_ROOM_SNAPSHOT_SCHEMA_VERSION) return null;
   if (value.memberIdentityVersion !== 1 || value.authorityVersion !== 1) return null;
   if (
@@ -973,6 +979,7 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     schemaVersion: PRO_ROOM_SNAPSHOT_SCHEMA_VERSION,
     roomCode: value.roomCode,
     status: value.status,
+    ...(value.passwordRequired === undefined ? {} : { passwordRequired: value.passwordRequired }),
     runtime: value.runtime,
     revision: value.revision,
     playlistRevision: value.playlistRevision,

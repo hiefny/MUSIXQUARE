@@ -168,6 +168,18 @@ both candidates. This prevents an
 authority-aware retained PRO Worker from being paired with a Developer API
 stack that omits the epoch and would reject valid active keys as stale.
 
+Optional PRO entry passwords add a PRO/App recovery floor recorded in
+`cloudflare/pro-room-entry-policy-contract-version.txt`. The first release must
+deploy both Workers (`all`). Once the candidate PRO or App version has replaced
+its captured baseline, recovery must not reinstall a baseline that predates the
+optional-entry contract: public-room state may already have been written. An
+older PRO Worker could reject those rooms or preserve a false policy flag while
+changing their PIN. The release and independent recovery paths retain the
+compatible candidate for forward repair. Untouched pre-deployment baselines
+remain safe; subsequent rollback to a proven contract-aware baseline remains
+available. Never repair admission by deleting the policy flag or inventing a
+PIN. See [the contract and verification record](design/pro-optional-entry-password-2026-10-10.md).
+
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
 smoke every Tuesday at 03:17 KST and remains manually dispatchable when a change

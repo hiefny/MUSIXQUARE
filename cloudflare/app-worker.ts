@@ -347,7 +347,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.7.9';
+const ADMIN_ASSET_VERSION = '8.8.0';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -584,8 +584,8 @@ function parseProRoomSessionCreateBody(
 async function proRoomSessionActorHint(env: AppEnv, roomCode: string, body: JsonObject | null) {
   if (
     !body ||
-    Object.keys(body).length !== 2 ||
-    typeof body.pin !== 'string' ||
+    Object.keys(body).some((key) => key !== 'pin' && key !== 'requestId') ||
+    ('pin' in body && typeof body.pin !== 'string') ||
     typeof body.requestId !== 'string' ||
     !PRO_ROOM_SESSION_CREATE_REQUEST_ID_RE.test(body.requestId)
   ) {

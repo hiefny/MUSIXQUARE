@@ -14,7 +14,7 @@ import {
   captureActivationAccountIntent,
   confirmProRoomActivationAccount,
 } from './activation-account.ts';
-import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
+import { isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 import { announceProRoomTabTakeover } from './tab-handoff.ts';
 import { consumeAccountLoginReturnForRoom } from '../account/login-return.ts';
 import {
@@ -26,6 +26,7 @@ import {
 const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
 const PENDING_SESSION_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const pendingSessionRequestIds = new Map<string, string>();
+const pendingPinAdmissions = new Set<string>();
 // A reload starts its keepalive presence-close request before the replacement
 // document enters, but the two requests can still reach the server out of
 // order. Give that close a short grace window and retry without takeover once
@@ -82,7 +83,21 @@ function pendingSessionRequestStorageKey(code: string): string {
   return `mxqr-pro-session-request:${code}`;
 }
 
-function getOrCreatePendingSessionRequestId(code: string): string {
+function hasPendingPinAdmission(code: string): boolean {
+  if (pendingSessionRequestIds.has(code)) return pendingPinAdmissions.has(code);
+  try {
+    const key = pendingSessionRequestStorageKey(code);
+    const requestId = sessionStorage.getItem(key) || '';
+    return (
+      PENDING_SESSION_REQUEST_ID_RE.test(requestId) &&
+      sessionStorage.getItem(`${key}:mode`) !== `${requestId}:no-pin`
+    );
+  } catch {
+    return false;
+  }
+}
+
+function getOrCreatePendingSessionRequestId(code: string, requiresPin: boolean): string {
   const memoryValue = pendingSessionRequestIds.get(code);
   if (memoryValue) return memoryValue;
   const storageKey = pendingSessionRequestStorageKey(code);
@@ -90,6 +105,8 @@ function getOrCreatePendingSessionRequestId(code: string): string {
     const stored = sessionStorage.getItem(storageKey) || '';
     if (PENDING_SESSION_REQUEST_ID_RE.test(stored)) {
       pendingSessionRequestIds.set(code, stored);
+      if (sessionStorage.getItem(`${storageKey}:mode`) !== `${stored}:no-pin`)
+        pendingPinAdmissions.add(code);
       return stored;
     }
     if (stored) sessionStorage.removeItem(storageKey);
@@ -98,7 +115,12 @@ function getOrCreatePendingSessionRequestId(code: string): string {
   }
   const created = createProRoomIdempotencyKey();
   pendingSessionRequestIds.set(code, created);
+  if (requiresPin) pendingPinAdmissions.add(code);
+  else pendingPinAdmissions.delete(code);
   try {
+    // Persist the mode first, tied to this exact ID. A quota failure must not
+    // leave a new no-PIN admission looking like an old protected admission.
+    sessionStorage.setItem(`${storageKey}:mode`, `${created}:${requiresPin ? 'pin' : 'no-pin'}`);
     sessionStorage.setItem(storageKey, created);
   } catch {
     // The module-scoped value still protects explicit retries in this tab.
@@ -108,8 +130,10 @@ function getOrCreatePendingSessionRequestId(code: string): string {
 
 function clearPendingSessionRequestId(code: string): void {
   pendingSessionRequestIds.delete(code);
+  pendingPinAdmissions.delete(code);
   try {
     sessionStorage.removeItem(pendingSessionRequestStorageKey(code));
+    sessionStorage.removeItem(`${pendingSessionRequestStorageKey(code)}:mode`);
   } catch {
     // Storage is best-effort; memory was already cleared.
   }
@@ -128,6 +152,7 @@ function isDefinitiveSessionAdmissionError(error: unknown): boolean {
 
 export function clearPendingSessionRequestIdsForTests(): void {
   pendingSessionRequestIds.clear();
+  pendingPinAdmissions.clear();
 }
 
 /**
@@ -314,7 +339,7 @@ async function runClaimProtectedOperation<T>(
         error instanceof ProRoomApiError &&
         (error.code === 'ACCOUNT_SESSION_CHANGED' || error.code === 'ACCOUNT_SESSION_REQUIRED')
       ) {
-        // First activation must reconfirm identity before another PIN/claim attempt.
+        // First activation must reconfirm identity before another claim attempt.
         throw error;
       }
       // The document-scoped ESM flight cannot be retried reliably. Its catch
@@ -551,7 +576,7 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
       // Recovery is meaningful only for the active incarnation that issued it.
       // Resolve recycled, suspended, or otherwise stale links locally instead
       // of turning a registry/account-assertion refusal into a retryable outage.
-      if (bootstrap.status !== 'pin_required') {
+      if (bootstrap.status !== 'pin_required' && bootstrap.status !== 'open') {
         await showNewClaimLinkGuidance();
         return false;
       }
@@ -610,22 +635,11 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
         else await showUnavailable(t('pro.not_ready_title'), t('pro.not_ready_message'));
         return false;
       }
-      const temporaryPin = deriveTemporaryProRoomPin(code);
       while (true) {
         const expectedAccountScope = await confirmProRoomActivationAccount();
         if (!expectedAccountScope) return false;
         const accountIntent = captureActivationAccountIntent(expectedAccountScope);
         try {
-          const newPin = await promptPin({
-            title: t('pro.activation_title'),
-            message: t('pro.activation_message'),
-            autocomplete: 'new-password',
-            temporaryPin,
-            signal: accountIntent.signal,
-            buttonText: t('pro.activation_complete'),
-          });
-          if (!accountIntent.isCurrent()) continue;
-          if (!newPin) return false;
           let activationAttempts = 0;
           const activation = await runClaimProtectedOperation(
             async () => {
@@ -635,7 +649,7 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
                 const freshBootstrap = await runEntryOperation((signal) =>
                   runtime.getProRoomBootstrap(code, signal),
                 );
-                if (freshBootstrap.status === 'pin_required') {
+                if (freshBootstrap.status === 'pin_required' || freshBootstrap.status === 'open') {
                   try {
                     return await resumeExistingSession();
                   } catch (error) {
@@ -655,8 +669,6 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
                   {
                     code,
                     claimToken: activationClaimToken,
-                    temporaryPin,
-                    newPin,
                     expectedAccountScope,
                     ownerName: getState('network.myDeviceLabel') || 'Owner',
                   },
@@ -729,28 +741,34 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
     if (!isMissingCookieSession(resumeError)) throw resumeError;
 
     let retry = false;
+    // Probe server-verified ownership even if the independent account UI read
+    // is still loading. Never replace an outcome-unknown PIN admission with
+    // a different no-PIN request: retain its mode alongside its replay ID.
+    let attemptWithoutPin = !hasPendingPinAdmission(code);
     // Keep one logical admission ID across an uncertain App/DO response. The
     // value is not a credential and sessionStorage is deliberately tab-scoped;
     // it survives a reload without letting another tab silently inherit the
     // pending admission. A definitive PIN result or successful cookie response
     // clears it below.
     while (true) {
-      const pin = await promptPin({
-        title: t('pro.pin_title'),
-        message: t(retry ? 'pro.pin_retry_message' : 'pro.pin_message'),
-        autocomplete: 'current-password',
-      });
-      if (!pin) {
+      const pin = attemptWithoutPin
+        ? undefined
+        : await promptPin({
+            title: t('pro.pin_title'),
+            message: t(retry ? 'pro.pin_retry_message' : 'pro.pin_message'),
+            autocomplete: 'current-password',
+          });
+      if (pin === null) {
         clearPendingSessionRequestId(code);
         return false;
       }
-      const requestId = getOrCreatePendingSessionRequestId(code);
+      const requestId = getOrCreatePendingSessionRequestId(code, pin !== undefined);
       try {
         await runEntryOperation((signal) =>
           runtime.joinProRoom(
             {
               code,
-              pin,
+              ...(pin === undefined ? {} : { pin }),
               requestId,
             },
             signal,
@@ -759,9 +777,13 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
         clearPendingSessionRequestId(code);
         return true;
       } catch (error) {
-        if (error instanceof ProRoomApiError && error.code === 'PIN_INVALID') {
+        if (
+          error instanceof ProRoomApiError &&
+          (error.code === 'PIN_INVALID' || error.code === 'PIN_REQUIRED')
+        ) {
+          attemptWithoutPin = false;
           clearPendingSessionRequestId(code);
-          retry = true;
+          retry = error.code === 'PIN_INVALID';
           continue;
         }
         // A canonical 4xx proves that this logical admission did not produce a

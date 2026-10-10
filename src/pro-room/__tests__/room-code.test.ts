@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  deriveTemporaryProRoomPin,
   formatProRoomPinForTests as formatProRoomPin,
   isProRoomCode,
   normalizeProRoomPin,
@@ -15,12 +14,6 @@ describe('PRO room code namespace', () => {
     expect(isProRoomCode('100000')).toBe(false);
     expect(isProRoomCode('999999')).toBe(false);
     expect(isProRoomCode('00000')).toBe(false);
-  });
-
-  it('derives the requested temporary bootstrap PIN from the room code', () => {
-    expect(deriveTemporaryProRoomPin('000000')).toBe('00000000');
-    expect(deriveTemporaryProRoomPin('000001')).toBe('00000001');
-    expect(() => deriveTemporaryProRoomPin('100000')).toThrow('Invalid PRO room code');
   });
 });
 

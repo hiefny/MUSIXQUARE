@@ -1136,6 +1136,8 @@ function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
   }
   if (result.outcome !== 'applied' || !result.snapshot) return;
   publishedProMembershipSnapshot = result.snapshot;
+  setState('network.roomPasswordRequired', result.snapshot.passwordRequired !== false);
+  setState('network.roomPassword', '');
   reconcileAuthoritativePeers(result.snapshot);
   const administrators =
     result.snapshot.authorityVersion === 1 && result.snapshot.administrators
@@ -2616,6 +2618,8 @@ const observer: ProRoomSessionObserver = {
     acceptedProPresence = null;
     acceptedProAdministrators = [];
     publishedProMembershipSnapshot = null;
+    setState('network.roomPasswordRequired', false);
+    setState('network.roomPassword', '');
     bus.emit('pro-room:administrators-updated', []);
     stopLifecycle();
     resetProSystemAudioService();
@@ -3698,7 +3702,10 @@ export async function transferProRoomOwner(
   return finalizeOpenedRoom(snapshot);
 }
 
-export async function changeActiveProRoomPin(pin: string, signal?: AbortSignal): Promise<void> {
+export async function changeActiveProRoomPin(
+  pin: string | null,
+  signal?: AbortSignal,
+): Promise<void> {
   const code = controller.snapshot?.roomCode;
   if (!code) throw new Error('PRO_ROOM_SESSION_INACTIVE');
   const lease = controller.captureSessionLease();

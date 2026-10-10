@@ -2,6 +2,8 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+test.use({ serviceWorkers: 'block' });
+
 const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 const FIRST_SCOPE = 'a'.repeat(43);
@@ -183,7 +185,7 @@ async function assertStackedActions(page: Page, locale: keyof typeof COPY): Prom
 test.describe('PRO activation account confirmation', () => {
   for (const locale of ['ko', 'en'] as const) {
     for (const width of [320, 360, 390, 1180]) {
-      test(`${locale} ${width}px: confirms the account before showing the PIN and stacks two actions`, async ({
+      test(`${locale} ${width}px: confirms the account and activates directly without a PIN`, async ({
         page,
       }) => {
         await page.setViewportSize({ width, height: 820 });
@@ -198,16 +200,24 @@ test.describe('PRO activation account confirmation', () => {
           });
         }
         await page.locator('#btn-dialog-ok').click();
-        await expect(page.locator('.dialog-input-segment')).toHaveCount(2);
-        expect(state.mutations).toEqual([]);
-        await page.locator('#btn-dialog-secondary').click();
+        await expect.poll(() => state.mutations.length).toBe(1);
+        expect(state.mutations[0]!.body).toEqual({
+          claimToken: CLAIM,
+          ownerName: expect.any(String),
+        });
+        expect(state.mutations[0]!.scope).toBe(FIRST_SCOPE);
+        await expect(page.locator('#dialog-title')).toHaveText(COPY[locale].title);
+        await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
+        await page.keyboard.press('Escape');
         await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/u);
-        expect(state.mutations).toEqual([]);
+        expect(state.mutations).toHaveLength(1);
       });
     }
   }
 
-  test('anonymous sign-in returns to account confirmation before PIN entry', async ({ page }) => {
+  test('anonymous sign-in returns to explicit account confirmation before activation', async ({
+    page,
+  }) => {
     const state = await openClaim(page, 'en', { anonymous: true });
     await expect(page.locator('#dialog-message')).not.toContainText('Minsu');
     const popupPromise = page.waitForEvent('popup');
@@ -221,8 +231,9 @@ test.describe('PRO activation account confirmation', () => {
     await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
     await assertStackedActions(page, 'en');
     await page.locator('#btn-dialog-ok').click();
-    await expect(page.locator('.dialog-input-segment')).toHaveCount(2);
-    expect(state.mutations).toEqual([]);
+    await expect.poll(() => state.mutations.length).toBe(1);
+    expect(state.mutations[0]!.body).toEqual({ claimToken: CLAIM, ownerName: expect.any(String) });
+    await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
   });
 
   test('an already signed-in account completes its nickname before consent without another Google login', async ({
@@ -242,8 +253,9 @@ test.describe('PRO activation account confirmation', () => {
     expect(state.googleStarts).toEqual([]);
     expect(state.mutations).toEqual([]);
     await page.locator('#btn-dialog-ok').click();
-    await expect(page.locator('.dialog-input-segment')).toHaveCount(2);
-    expect(state.mutations).toEqual([]);
+    await expect.poll(() => state.mutations.length).toBe(1);
+    expect(state.mutations[0]!.body).toEqual({ claimToken: CLAIM, ownerName: expect.any(String) });
+    await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
   });
 
   test('switching accounts opens a popup from Enter and requires fresh confirmation', async ({
@@ -266,33 +278,21 @@ test.describe('PRO activation account confirmation', () => {
     expect(state.mutations).toEqual([]);
   });
 
-  test('an account change during PIN entry resets consent and binds the next request to the new scope', async ({
+  test('a server account change before activation reconfirms identity without a PIN', async ({
     page,
   }) => {
     const state = await openClaim(page, 'en');
-    await page.locator('#btn-dialog-ok').click();
-    await expect(page.locator('.dialog-input-segment')).toHaveCount(2);
-    await page.locator('.dialog-input-segment').first().fill('1234');
     state.setAccount('Jisoo');
-    await page.evaluate(() => {
-      const channel = new BroadcastChannel('mxqr-account-v1');
-      channel.postMessage({ type: 'refresh', id: 'account-change-during-pin' });
-      channel.close();
-    });
-    await expect(page.locator('#dialog-message')).toContainText('Jisoo');
-    await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
-    expect(state.mutations).toEqual([]);
-    await page.locator('#btn-dialog-ok').click();
-    const pin = page.locator('.dialog-input-segment');
-    await expect(pin).toHaveCount(2);
-    await expect(pin.first()).toHaveValue('');
-    await pin.first().fill('8765');
-    await pin.last().fill('4321');
     await page.locator('#btn-dialog-ok').click();
     await expect.poll(() => state.mutations.length).toBe(1);
-    expect(state.mutations[0]!.scope).toBe(SECOND_SCOPE);
-    expect(state.mutations[0]!.body).toMatchObject({ claimToken: CLAIM, newPin: '87654321' });
+    expect(state.mutations[0]!.scope).toBe(FIRST_SCOPE);
+    expect(state.mutations[0]!.body).not.toHaveProperty('newPin');
     await expect(page.locator('#dialog-message')).toContainText('Jisoo');
+    await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
+    await page.locator('#btn-dialog-ok').click();
+    await expect.poll(() => state.mutations.length).toBe(2);
+    expect(state.mutations[1]!.scope).toBe(SECOND_SCOPE);
+    expect(state.mutations[1]!.body).toEqual({ claimToken: CLAIM, ownerName: expect.any(String) });
     await expect(page.locator('.dialog-input-segment')).toHaveCount(0);
   });
 });

@@ -107,11 +107,12 @@ const DEVELOPER_COMMAND_RESULT_CODES = new Set<DeveloperCommandResultCode>([
   'execution_failed',
 ]);
 
-type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'suspended';
+type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'open' | 'suspended';
 
 export interface ProRoomBootstrap {
   roomCode: string;
   status: ProRoomBootstrapStatus;
+  passwordRequired?: boolean;
 }
 
 interface ProRoomAccountLease {
@@ -273,16 +274,14 @@ export interface EnterProRoomPresenceOptions {
 export interface ActivateProRoomInput {
   code: string;
   claimToken: string;
-  /** Opaque session scope explicitly confirmed before the room PIN was chosen. */
+  /** Opaque session scope explicitly confirmed before activating the room. */
   expectedAccountScope: string;
-  temporaryPin: string;
-  newPin: string;
   ownerName?: string;
 }
 
 export interface CreateProRoomSessionInput {
   code: string;
-  pin: string;
+  pin?: string;
   /** Reuse this value after an uncertain transport result to replay one admission. */
   requestId?: string;
 }
@@ -1029,16 +1028,33 @@ function parseUploadHeaders(value: unknown): Record<string, string> | null {
 }
 
 function parseBootstrap(value: unknown, expectedCode: string): ProRoomBootstrap | null {
-  if (!isRecord(value) || !hasExactKeys(value, ['roomCode', 'status'])) return null;
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      'roomCode',
+      'status',
+      ...('passwordRequired' in value ? ['passwordRequired'] : []),
+    ])
+  )
+    return null;
+  if (value.passwordRequired !== undefined && typeof value.passwordRequired !== 'boolean')
+    return null;
   if (value.roomCode !== expectedCode) return null;
   if (
     value.status !== 'activation_required' &&
     value.status !== 'pin_required' &&
+    value.status !== 'open' &&
     value.status !== 'suspended'
   ) {
     return null;
   }
-  return { roomCode: expectedCode, status: value.status };
+  if (value.status === 'open' && value.passwordRequired !== false) return null;
+  if (value.status === 'pin_required' && value.passwordRequired === false) return null;
+  return {
+    roomCode: expectedCode,
+    status: value.status,
+    ...(value.passwordRequired === undefined ? {} : { passwordRequired: value.passwordRequired }),
+  };
 }
 
 function parseSessionEnvelope(value: unknown, expectedCode: string): ProRoomSnapshot | null {
@@ -1269,6 +1285,8 @@ export class ProRoomApiClient {
     }
 
     const headers = new Headers(options.headers);
+    // Opt in to additive entry policy fields; cached strict v1 clients retain their wire shape.
+    headers.set('X-MXQR-Pro-Entry-Policy', 'optional-v1');
     let body: string | undefined;
     if (options.body !== undefined) {
       body = encodeRequestBody(options.body);
@@ -1405,8 +1423,6 @@ export class ProRoomApiClient {
       headers: { 'X-MXQR-Account-Expected-Scope': input.expectedAccountScope },
       body: {
         claimToken: input.claimToken,
-        temporaryPin: validatePin(input.temporaryPin),
-        newPin: validatePin(input.newPin),
         ...(ownerName === undefined ? {} : { ownerName }),
       },
       signal,
@@ -1449,7 +1465,7 @@ export class ProRoomApiClient {
     const requestId = validateIdempotencyKey(input.requestId ?? createProRoomIdempotencyKey());
     return this.#request(`${path}/sessions`, {
       method: 'POST',
-      body: { pin: validatePin(input.pin), requestId },
+      body: { ...(input.pin === undefined ? {} : { pin: validatePin(input.pin) }), requestId },
       signal,
       parser: (value) => parseSessionEnvelope(value, input.code),
     }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));
@@ -1692,14 +1708,23 @@ export class ProRoomApiClient {
     });
   }
 
-  async changePin(code: string, pin: string, signal?: AbortSignal): Promise<void> {
+  async changePin(code: string, pin: string | null, signal?: AbortSignal): Promise<void> {
     const path = roomPath(code);
     await this.#request(`${path}/pin`, {
       method: 'POST',
-      body: { pin: validatePin(pin) },
+      body: { pin: pin === null ? null : validatePin(pin) },
       signal,
       activeRoomCode: code,
-      parser: parseOk,
+      parser: (value) => {
+        if (
+          !isRecord(value) ||
+          !hasExactKeys(value, ['ok', 'passwordRequired']) ||
+          value.ok !== true ||
+          value.passwordRequired !== (pin !== null)
+        )
+          return null;
+        return true;
+      },
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
     });
   }

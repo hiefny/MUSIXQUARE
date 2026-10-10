@@ -256,6 +256,7 @@ const EMERGENCY_EXTERNAL_STATE_PATHS = Object.freeze([
     'cloudflare/r2-lifecycle.remote-share.json',
     'cloudflare/r2-cors.pro-media.json',
     'cloudflare/pro-system-audio-contract-version.txt',
+    'cloudflare/pro-room-entry-policy-contract-version.txt',
     'cloudflare/remote-share-contract-version.txt',
     'cloudflare/service-control-contract-version.txt',
     'cloudflare/standard-room-pin-storage-contract-version.txt',
@@ -350,6 +351,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   ],
   'pro-room': [
     'cloudflare/pro-system-audio-contract-version.txt',
+    'cloudflare/pro-room-entry-policy-contract-version.txt',
     'cloudflare/service-control-contract-version.txt',
     'cloudflare/pro-room-worker.ts',
     'cloudflare/pro-room-body.ts',
@@ -386,6 +388,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/wrangler.developer-api.toml',
   ],
   app: [
+    'cloudflare/pro-room-entry-policy-contract-version.txt',
     'cloudflare/soro-article-visibility-contract-version.txt',
     'cloudflare/pro-system-audio-contract-version.txt',
     'cloudflare/remote-share-contract-version.txt',
@@ -2025,6 +2028,7 @@ function main(): void {
       : mode === 'service-control-forward-floor' ||
           mode === 'remote-share-forward-floor' ||
           mode === 'pro-system-audio-forward-floor' ||
+          mode === 'pro-room-entry-policy-forward-floor' ||
           mode === 'standard-room-pin-forward-floor' ||
           mode === 'soro-article-visibility-forward-floor'
         ? valueArgument || DEFAULT_DIRECTORY
@@ -2087,6 +2091,21 @@ function main(): void {
         ? 'true'
         : 'false',
     );
+  } else if (mode === 'pro-room-entry-policy-forward-floor') {
+    process.stdout.write(
+      contractCutoverRequiresForwardRepair(
+        target,
+        'cloudflare/pro-room-entry-policy-contract-version.txt',
+        ['pro-room', 'app'],
+        directory,
+        {
+          requireCheckpointInventory: Boolean(valueArgument),
+          requiredMarkerContent: 'pro-room-optional-entry-password-v1\n',
+        },
+      )
+        ? 'true'
+        : 'false',
+    );
   } else if (mode === 'standard-room-pin-forward-floor') {
     process.stdout.write(
       contractCutoverRequiresForwardRepair(
@@ -2122,7 +2141,7 @@ function main(): void {
   } else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mts <prepare|preflight|attempt|record|version> <target> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor|pro-system-audio-forward-floor|standard-room-pin-forward-floor|soro-article-visibility-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mts <prepare|preflight|attempt|record|version> <target> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor|pro-system-audio-forward-floor|pro-room-entry-policy-forward-floor|standard-room-pin-forward-floor|soro-article-visibility-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
     );
   }
 }

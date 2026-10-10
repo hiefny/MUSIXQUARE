@@ -1,127 +1,18 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { E2E_APP_ORIGIN } from './config.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
 import { openChatDrawer, sendChat, waitForState } from './helpers/wait.ts';
 
-const PRO_ROOM_CODE = '000001';
-const OWNER_RECOVERY_CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
-const PARTICIPANT_ID = 'participant_00001';
-const PRESENCE_INCARNATION_ID = 'presence_0000000001';
-const MEMBER_ID = 'member_0000000001';
-const PRO_SIGNALING_ORIGIN = E2E_APP_ORIGIN.replace(/^http/u, 'ws');
-
-function ownerSnapshot(): Record<string, unknown> {
-  const capabilities = [
-    'queue.mutate',
-    'playback.control',
-    'effects.control',
-    'asset.upload',
-    'members.manage',
-    'room.configure',
-  ];
-  const permissions = {
-    'media.add': true,
-    'playback.control': true,
-    'members.kick': true,
-    'chat.notice': true,
-  };
-  return {
-    schemaVersion: 1,
-    roomCode: PRO_ROOM_CODE,
-    status: 'active',
-    runtime: 'awake',
-    revision: 4,
-    playlistRevision: 0,
-    effectsRevision: 0,
-    queueModeRevision: 0,
-    playlist: [],
-    currentQueueItemId: null,
-    playback: {
-      coordinatorEpoch: 2,
-      revision: 0,
-      state: 'idle',
-      queueItemId: null,
-      positionSeconds: 0,
-      youtubeVideoId: null,
-      youtubeSubIndex: null,
-      updatedAtMs: Date.now(),
-    },
-    presence: {
-      coordinatorEpoch: 2,
-      revision: 3,
-      coordinatorParticipantId: null,
-      participants: [
-        {
-          participantId: PARTICIPANT_ID,
-          memberId: MEMBER_ID,
-          memberDisplayNumber: 0,
-          isAuthenticated: true,
-          displayName: 'Recovered owner',
-          devicePlatform: 'other',
-          role: 'owner',
-          capabilities,
-          joinedAtMs: Date.now(),
-        },
-      ],
-    },
-    quota: {
-      limitBytes: 1024 * 1024 * 1024,
-      perAssetLimitBytes: 200 * 1024 * 1024,
-      usedBytes: 0,
-      reservedBytes: 0,
-    },
-    viewer: {
-      memberId: MEMBER_ID,
-      memberDisplayNumber: 0,
-      isAuthenticated: true,
-      participantId: PARTICIPANT_ID,
-      presenceIncarnationId: PRESENCE_INCARNATION_ID,
-      displayName: 'Recovered owner',
-      role: 'owner',
-      capabilities,
-      coordinatorEligible: false,
-    },
-    memberIdentityVersion: 1,
-    authorityVersion: 1,
-    administrators: [
-      {
-        memberId: MEMBER_ID,
-        memberDisplayNumber: 0,
-        isAuthenticated: true,
-        displayName: 'Recovered owner',
-        role: 'owner',
-        permissions,
-        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
-        onlineDeviceCount: 1,
-      },
-    ],
-  };
-}
-
-function proCorsHeaders(page: Page): Record<string, string> {
-  return {
-    'access-control-allow-origin': new URL(page.url()).origin,
-    'access-control-allow-credentials': 'true',
-    'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'access-control-allow-headers':
-      'content-type,idempotency-key,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
-    'content-type': 'application/json; charset=utf-8',
-  };
-}
-
-async function fulfillProJson(
-  page: Page,
-  route: Route,
-  body: unknown,
-  status = 200,
-): Promise<void> {
-  await route.fulfill({
-    status,
-    headers: proCorsHeaders(page),
-    body: JSON.stringify(body),
-  });
-}
+import {
+  PRO_ROOM_CODE,
+  OWNER_RECOVERY_CLAIM,
+  PRESENCE_INCARNATION_ID,
+  PRO_SIGNALING_ORIGIN,
+  ownerSnapshot,
+  proCorsHeaders,
+  fulfillProJson,
+} from './helpers/pro-room-fixture.ts';
 
 test.describe('Critical browser release gate', () => {
   test('opens the native file picker from the active media-source dialog', async ({ page }) => {

@@ -272,6 +272,8 @@ interface ProRoomSnapshotV1 {
   schemaVersion: typeof PRO_ROOM_SNAPSHOT_SCHEMA_VERSION;
   roomCode: string;
   status: ProRoomStatus;
+  /** Missing on legacy v1 responses: consumers must treat it as protected. */
+  passwordRequired?: boolean;
   runtime: ProRoomRuntimeStatus;
   revision: number;
   playlistRevision: number;

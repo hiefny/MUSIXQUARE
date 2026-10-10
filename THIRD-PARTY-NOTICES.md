@@ -36,11 +36,11 @@ the licensing and copyright information distributed with those components.
 
 ## 6. Mediabunny (Large-Track Container Parsing And Incremental Audio)
 
-- **Version**: 1.59.0
+- **Version**: 1.61.3
 - **License**: Mozilla Public License 2.0
 - **Copyright**: Copyright (c) 2026-present, Vanilagy and contributors
 - **Corresponding source**:
-  [Mediabunny at the package's source revision](https://github.com/Vanilagy/mediabunny/tree/2e9f24085d2d1c37e41a254dac745657db98ac3e)
+  [Mediabunny at the package's source revision](https://github.com/Vanilagy/mediabunny/tree/9d36fc5779b254904bc609e66f2cd80ed8390b4b)
 - **License text**:
   [Mozilla Public License 2.0](public/licenses/mediabunny-mpl-2.0.txt)
 

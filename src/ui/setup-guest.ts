@@ -44,7 +44,7 @@ import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
 import { gateSetupYouTubeGesture } from './setup-youtube-gate.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
-import { enterProRoomFromSetup } from '../pro-room/setup-flow.ts';
+import { describeProRoomJoinFailure, enterProRoomFromSetup } from '../pro-room/setup-flow.ts';
 import { initGuestQrScanner, stopGuestQrScanner } from './setup-qr-scanner.ts';
 import { isStandardRoomRole } from '../rooms/authority.ts';
 
@@ -293,7 +293,7 @@ async function _handleProRoomJoin(code: string): Promise<void> {
     log.error('[Setup] PRO room join failed', error);
     bus.emit('setup:guest-join-failure', {
       error,
-      userMessage: t('pro.connect_failed'),
+      userMessage: describeProRoomJoinFailure(error),
     });
   }
 }

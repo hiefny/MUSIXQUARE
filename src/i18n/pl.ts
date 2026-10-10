@@ -797,6 +797,11 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_changed': 'Hasło pokoju zostało zmienione.',
   'pro.owner_only': 'Tylko właściciel pokoju może to zrobić.',
   'pro.connect_failed': 'Nie udało się połączyć z pokojem PRO.',
+  'pro.room_full': 'Ten pokój PRO jest pełny',
+  'pro.room_full_detail':
+    'Pokój PRO mieści do 100 urządzeń, wliczając urządzenie właściciela. Jedno miejsce jest zawsze zarezerwowane dla właściciela.',
+  'pro.join_rate_limited': 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} min.',
+  'pro.join_rate_limited_later': 'Zbyt wiele prób dołączenia. Spróbuj ponownie za chwilę.',
   'pro.active_tab_title': 'Ten pokój PRO jest już otwarty w innej karcie',
   'pro.active_tab_message':
     'Jeśli będziesz kontynuować tutaj, dotychczasowa karta zostanie rozłączona.',
@@ -950,5 +955,10 @@ export const pluralMessages = {
     one: '{{count}} nieobsługiwany plik nie zostanie dodany.',
     few: '{{count}} nieobsługiwane pliki nie zostaną dodane.',
     many: '{{count}} nieobsługiwanych plików nie zostanie dodanych.',
+  },
+  'pro.join_rate_limited': {
+    one: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minutę.',
+    few: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minuty.',
+    many: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

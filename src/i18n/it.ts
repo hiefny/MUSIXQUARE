@@ -804,6 +804,11 @@ const it: Record<I18nKey, string> = {
   'pro.pin_changed': 'Password della stanza modificata.',
   'pro.owner_only': 'Solo il proprietario della stanza può farlo.',
   'pro.connect_failed': 'Impossibile connettersi alla stanza PRO.',
+  'pro.room_full': 'Questa stanza PRO è piena',
+  'pro.room_full_detail':
+    'Una stanza PRO accoglie fino a 100 dispositivi, incluso quello del proprietario. Un posto resta sempre riservato al proprietario.',
+  'pro.join_rate_limited': 'Troppi tentativi di accesso. Riprova tra {{count}} minuti.',
+  'pro.join_rate_limited_later': 'Troppi tentativi di accesso. Riprova tra poco.',
   'pro.active_tab_title': 'Questa stanza PRO è già aperta in un’altra scheda',
   'pro.active_tab_message':
     'Continuando qui, la connessione nella scheda già aperta verrà interrotta.',
@@ -919,5 +924,8 @@ export const pluralMessages = {
   'dialog.file_drop.message': { one: 'Aggiungere {{count}} file?' },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} file non supportato non verrà aggiunto.',
+  },
+  'pro.join_rate_limited': {
+    one: 'Troppi tentativi di accesso. Riprova tra {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

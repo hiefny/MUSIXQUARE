@@ -720,6 +720,12 @@ const es: Record<I18nKey, string> = {
   'pro.pin_changed': 'Contraseña de la sala actualizada.',
   'pro.owner_only': 'Solo el propietario puede hacer eso.',
   'pro.connect_failed': 'No se pudo conectar con la sala PRO.',
+  'pro.room_full': 'Esta sala PRO está llena',
+  'pro.room_full_detail':
+    'Una sala PRO admite hasta 100 dispositivos, incluido el del propietario. Siempre se reserva un lugar para el propietario.',
+  'pro.join_rate_limited':
+    'Demasiados intentos de entrar. Vuelve a intentarlo en {{count}} minutos.',
+  'pro.join_rate_limited_later': 'Demasiados intentos de entrar. Vuelve a intentarlo en un rato.',
   'pro.active_tab_title': 'Esta sala PRO ya está abierta en otra pestaña',
   'pro.active_tab_message': 'Si continúas aquí, se desconectará la pestaña existente.',
   'pro.use_this_tab': 'Usar esta pestaña',
@@ -896,5 +902,8 @@ export const pluralMessages = {
   'dialog.file_drop.message': { one: '¿Añadir {{count}} archivo?' },
   'dialog.file_drop.unsupported_notice': {
     one: 'No se añadirá {{count}} archivo no compatible.',
+  },
+  'pro.join_rate_limited': {
+    one: 'Demasiados intentos de entrar. Vuelve a intentarlo en {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

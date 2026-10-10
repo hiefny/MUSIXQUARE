@@ -791,6 +791,11 @@ const cs: Record<I18nKey, string> = {
   'pro.pin_changed': 'Heslo místnosti bylo změněno.',
   'pro.owner_only': 'Tuto akci může provést pouze vlastník místnosti.',
   'pro.connect_failed': 'K místnosti PRO se nepodařilo připojit.',
+  'pro.room_full': 'Tato místnost PRO je plná',
+  'pro.room_full_detail':
+    'Místnost PRO pojme až 100 zařízení včetně zařízení vlastníka. Jedno místo je vždy vyhrazeno pro vlastníka.',
+  'pro.join_rate_limited': 'Příliš mnoho pokusů o připojení. Zkuste to znovu za {{count}} min.',
+  'pro.join_rate_limited_later': 'Příliš mnoho pokusů o připojení. Zkuste to znovu za chvíli.',
   'pro.active_tab_title': 'Tato místnost PRO už je otevřená na jiné kartě',
   'pro.active_tab_message': 'Pokračováním zde odpojíte existující kartu.',
   'pro.use_this_tab': 'Použít tuto kartu',

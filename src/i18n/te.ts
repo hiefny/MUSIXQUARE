@@ -787,6 +787,13 @@ const te: Record<I18nKey, string> = {
   'pro.pin_changed': 'గది పాస్‌వర్డ్ మార్చబడింది.',
   'pro.owner_only': 'గది యజమాని మాత్రమే దీన్ని చేయగలరు.',
   'pro.connect_failed': 'PRO గదికి కనెక్ట్ కాలేకపోయాం.',
+  'pro.room_full': 'ఈ PRO గది నిండిపోయింది',
+  'pro.room_full_detail':
+    'ఒక PRO గదిలో యజమానితో కలిపి గరిష్ఠంగా 100 పరికరాలు ఉండవచ్చు. యజమాని కోసం ఎల్లప్పుడూ ఒక స్థానం ప్రత్యేకంగా ఉంచబడుతుంది.',
+  'pro.join_rate_limited':
+    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. {{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి.',
+  'pro.join_rate_limited_later':
+    'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
   'pro.active_tab_title': 'ఈ PRO గది ఇప్పటికే మరో ట్యాబ్‌లో తెరిచి ఉంది',
   'pro.active_tab_message': 'ఇక్కడ కొనసాగితే ఇప్పటికే ఉన్న ట్యాబ్ డిస్‌కనెక్ట్ అవుతుంది.',
   'pro.use_this_tab': 'ఈ ట్యాబ్‌ను ఉపయోగించు',
@@ -913,5 +920,8 @@ export const pluralMessages = {
   },
   'dialog.file_drop.unsupported_notice': {
     one: 'మద్దతు లేని {{count}} ఫైల్ జోడించబడదు.',
+  },
+  'pro.join_rate_limited': {
+    one: 'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. {{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.',
   },
 } satisfies LocalePluralMessages;

@@ -150,6 +150,44 @@ describe('completed translation factual contracts', () => {
     }
   });
 
+  it('keeps PRO join refusal copy translated and factual in every locale', () => {
+    const english = APP_DICTIONARIES.en;
+    const keys = [
+      'pro.room_full',
+      'pro.room_full_detail',
+      'pro.join_rate_limited',
+      'pro.join_rate_limited_later',
+    ] as const;
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      // A PRO room seats 100 devices in total and keeps one of them for the
+      // owner. No other number belongs in the capacity explanation.
+      expect(dictionary['pro.room_full_detail'].match(/[0-9]+/gu), language).toEqual(['100']);
+      expect(dictionary['pro.room_full'], language).toContain('PRO');
+      expect(dictionary['pro.room_full_detail'], language).toContain('PRO');
+      // The wait is the server Retry-After in whole minutes; the fallback
+      // has no number because the server did not provide one.
+      expect(dictionary['pro.join_rate_limited'].match(/\{\{\w+\}\}/gu), language).toEqual([
+        '{{count}}',
+      ]);
+      expect(dictionary['pro.join_rate_limited_later'], language).not.toMatch(/\{\{|[0-9]/u);
+      if (language === 'en') continue;
+      for (const key of keys) {
+        expect(dictionary[key], `${language}.${key} English copy`).not.toBe(english[key]);
+      }
+    }
+
+    expect(APP_DICTIONARIES.ko['pro.room_full']).toBe('PRO 방이 가득 찼어요');
+    expect(APP_DICTIONARIES.ko['pro.join_rate_limited_later']).toBe(
+      '입장 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.',
+    );
+    // Standard rooms keep their own host-inclusive capacity copy.
+    expect(APP_DICTIONARIES.en['network.session_full_detail']).toBe(
+      'This room already has the maximum of 100 connected devices, including the host.',
+    );
+  });
+
   it('keeps supported-browser, synchronization, and system-audio claims factual', async () => {
     const dictionaries = await loadLandingDictionary();
     expect(Object.keys(dictionaries).sort()).toEqual(

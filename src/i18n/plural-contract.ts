@@ -15,6 +15,7 @@ export const PLURAL_PARAM_BY_KEY = {
   'toast.unsupported_files_excluded': 'count',
   'dialog.file_drop.message': 'count',
   'dialog.file_drop.unsupported_notice': 'count',
+  'pro.join_rate_limited': 'count',
 } as const satisfies Partial<Record<I18nKey, string>>;
 
 export type PluralI18nKey = keyof typeof PLURAL_PARAM_BY_KEY;

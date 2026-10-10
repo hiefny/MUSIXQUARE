@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   activate: vi.fn(),
   bootstrap: vi.fn(),
   getState: vi.fn(),
+  probeJoin: vi.fn(),
   join: vi.fn(),
   recoverOwner: vi.fn(),
   resume: vi.fn(),
@@ -46,7 +47,8 @@ vi.mock('../tab-handoff.ts', () => ({
 vi.mock('../runtime.ts', () => ({
   activateProRoom: mocks.activate,
   getProRoomBootstrap: mocks.bootstrap,
-  joinProRoom: mocks.join,
+  joinProRoom: (input: { pin?: string }, signal: AbortSignal) =>
+    input.pin === undefined ? mocks.probeJoin(input, signal) : mocks.join(input, signal),
   recoverProRoomOwner: mocks.recoverOwner,
   resumeProRoom: mocks.resume,
   transferProRoomOwner: mocks.transferOwner,
@@ -61,7 +63,9 @@ type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.showDialog.mockReset();
   mocks.getState.mockReturnValue('Peer 1');
+  mocks.probeJoin.mockReset().mockRejectedValue(new ProRoomApiError('PIN_REQUIRED', 401));
   mocks.takeClaims.mockReturnValue({
     activationClaimToken: null,
     activationClaimPresent: false,
@@ -96,7 +100,7 @@ afterEach(() => {
 });
 
 describe('PRO room setup flow', () => {
-  it('requires account consent before requesting a new PIN and sends the confirmed scope', async () => {
+  it('requires explicit account consent and activates without requesting or sending a PIN', async () => {
     mocks.takeClaims.mockReturnValue({ activationClaimToken: CLAIM });
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
     let confirm: (scope: string | null) => void = () => undefined;
@@ -117,9 +121,9 @@ describe('PRO room setup flow', () => {
       expect.objectContaining({ expectedAccountScope: ACCOUNT_SCOPE }),
       expect.any(AbortSignal),
     );
-    expect(mocks.showDialog).toHaveBeenCalledWith(
-      expect.objectContaining({ buttonText: 'pro.activation_complete' }),
-    );
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.activate.mock.calls[0]?.[0]).not.toHaveProperty('newPin');
+    expect(mocks.activate.mock.calls[0]?.[0]).not.toHaveProperty('temporaryPin');
   });
 
   it('never asks for a PIN or consumes the claim when account confirmation is cancelled', async () => {
@@ -131,29 +135,22 @@ describe('PRO room setup flow', () => {
     expect(mocks.activate).not.toHaveBeenCalled();
   });
 
-  it('discards the old PIN and reconfirms when the account changes during PIN entry', async () => {
+  it('reconfirms when the account changes immediately before activation', async () => {
     mocks.takeClaims.mockReturnValue({ activationClaimToken: CLAIM });
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
     mocks.confirmActivationAccount
       .mockResolvedValueOnce(ACCOUNT_SCOPE)
       .mockResolvedValueOnce('b'.repeat(43));
-    let current = true;
     mocks.captureActivationAccountIntent.mockImplementationOnce(() => ({
       signal: new AbortController().signal,
-      isCurrent: () => current,
+      isCurrent: () => false,
       dispose: vi.fn(),
     }));
-    mocks.showDialog
-      .mockImplementationOnce(async () => {
-        current = false;
-        return { action: 'ok', inputValue: '11111111' };
-      })
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '22222222' });
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
     expect(mocks.confirmActivationAccount).toHaveBeenCalledTimes(2);
     expect(mocks.activate).toHaveBeenCalledOnce();
     expect(mocks.activate).toHaveBeenCalledWith(
-      expect.objectContaining({ newPin: '22222222', expectedAccountScope: 'b'.repeat(43) }),
+      expect.objectContaining({ expectedAccountScope: 'b'.repeat(43) }),
       expect.any(AbortSignal),
     );
   });
@@ -224,6 +221,70 @@ describe('PRO room setup flow', () => {
         expect.objectContaining({ title: 'pro.claim_retry_title' }),
       );
       reloadAttempt!.recover();
+    },
+  );
+
+  it.each(['open', 'pin_required'])(
+    'admits a public guest or server-verified owner without waiting for account UI (%s)',
+    async (status) => {
+      mocks.bootstrap.mockResolvedValue({
+        roomCode: ROOM_CODE,
+        status,
+        passwordRequired: status !== 'open',
+      });
+      mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+      mocks.probeJoin.mockResolvedValueOnce({});
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+      expect(mocks.showDialog).not.toHaveBeenCalled();
+      expect(mocks.probeJoin).toHaveBeenCalledWith(
+        { code: ROOM_CODE, requestId: expect.any(String) },
+        expect.any(AbortSignal),
+      );
+      expect(mocks.join).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['open', 'pin_required'])(
+    'prompts when the server requires a PIN after %s bootstrap',
+    async (status) => {
+      mocks.bootstrap.mockResolvedValue({
+        roomCode: ROOM_CODE,
+        status,
+        passwordRequired: status !== 'open',
+      });
+      mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+      mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '87654321' });
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+      expect(mocks.probeJoin.mock.calls[0]?.[0]).not.toHaveProperty('pin');
+      expect(mocks.join.mock.calls[0]?.[0]).toMatchObject({ pin: '87654321' });
+      expect(mocks.probeJoin.mock.calls[0]?.[0].requestId).not.toBe(
+        mocks.join.mock.calls[0]?.[0].requestId,
+      );
+      expect(mocks.showDialog).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'pro.pin_message' }),
+      );
+    },
+  );
+
+  it.each(['open', 'pin_required'])(
+    'replays an uncertain no-PIN admission without prompting after re-entry (%s)',
+    async (status) => {
+      mocks.bootstrap.mockResolvedValue({
+        roomCode: ROOM_CODE,
+        status,
+        passwordRequired: status !== 'open',
+      });
+      mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+      mocks.probeJoin
+        .mockRejectedValueOnce(new ProRoomApiError('HTTP_503', 503))
+        .mockResolvedValueOnce({});
+      await expect(enterProRoomFromSetup(ROOM_CODE)).rejects.toMatchObject({ code: 'HTTP_503' });
+      clearPendingSessionRequestIdsForTests();
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+      expect(mocks.probeJoin.mock.calls[0]?.[0].requestId).toBe(
+        mocks.probeJoin.mock.calls[1]?.[0].requestId,
+      );
+      expect(mocks.showDialog).not.toHaveBeenCalled();
     },
   );
 
@@ -497,6 +558,20 @@ describe('PRO room setup flow', () => {
     expect(sessionStorage.getItem(`mxqr-pro-session-request:${ROOM_CODE}`)).toBeNull();
   });
 
+  it('retains a pre-upgrade unknown PIN admission that has no stored mode', async () => {
+    const previous = 'mxqr-pro-' + 'a'.repeat(48);
+    sessionStorage.setItem(`mxqr-pro-session-request:${ROOM_CODE}`, previous);
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '12345678' });
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.probeJoin).not.toHaveBeenCalled();
+    expect(mocks.join).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: previous, pin: '12345678' }),
+      expect.any(AbortSignal),
+    );
+  });
+
   it('clears an outcome-unknown admission id when its cookie session resumes', async () => {
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
     mocks.resume.mockRejectedValueOnce(new ProRoomApiError('SESSION_REQUIRED', 401));
@@ -555,7 +630,7 @@ describe('PRO room setup flow', () => {
     expect(mocks.join.mock.calls[1]?.[0].requestId).not.toBe(fencedRequestId);
   });
 
-  it('activates a claimed room with its derived temporary PIN and chosen owner PIN', async () => {
+  it('activates a claimed room without an entry PIN', async () => {
     mocks.takeClaims.mockReturnValue({
       activationClaimToken: CLAIM,
       ownerRecoveryClaimToken: null,
@@ -573,8 +648,6 @@ describe('PRO room setup flow', () => {
       {
         code: ROOM_CODE,
         claimToken: CLAIM,
-        temporaryPin: '00000001',
-        newPin: '87654321',
         expectedAccountScope: ACCOUNT_SCOPE,
         ownerName: 'Peer 1',
       },
@@ -582,7 +655,7 @@ describe('PRO room setup flow', () => {
     );
   });
 
-  it('reconfirms the account and PIN after activation reports a missing account', async () => {
+  it('reconfirms the account after activation reports a missing account', async () => {
     mocks.takeClaims.mockReturnValue({
       activationClaimToken: CLAIM,
       ownerRecoveryClaimToken: null,
@@ -677,7 +750,7 @@ describe('PRO room setup flow', () => {
     const pinDialogs = mocks.showDialog.mock.calls
       .map(([options]) => options)
       .filter((options) => options.title === 'pro.activation_title');
-    expect(pinDialogs).toHaveLength(2);
+    expect(pinDialogs).toHaveLength(0);
     expect(mocks.activate.mock.calls.map(([input]) => input.expectedAccountScope)).toEqual([
       ACCOUNT_SCOPE,
       'b'.repeat(43),
@@ -1281,9 +1354,7 @@ describe('PRO room setup flow', () => {
       roomCode: ROOM_CODE,
       status: 'activation_required',
     });
-    mocks.showDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-      .mockResolvedValueOnce({ action: 'ok' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
     mocks.activate
       .mockRejectedValueOnce(new ProRoomApiError('HTTP_503', 503))
       .mockResolvedValueOnce({});
@@ -1293,7 +1364,7 @@ describe('PRO room setup flow', () => {
     expect(mocks.takeClaims).toHaveBeenCalledOnce();
     expect(mocks.activate).toHaveBeenCalledTimes(2);
     expect(mocks.activate.mock.calls.map(([input]) => input.claimToken)).toEqual([CLAIM, CLAIM]);
-    expect(mocks.showDialog.mock.calls[1]?.[0]).toMatchObject({
+    expect(mocks.showDialog.mock.calls[0]?.[0]).toMatchObject({
       title: 'pro.claim_retry_title',
       message: 'pro.claim_retry_message',
       buttonText: 'common.retry',
@@ -1336,9 +1407,7 @@ describe('PRO room setup flow', () => {
     mocks.bootstrap
       .mockResolvedValueOnce({ roomCode: ROOM_CODE, status: 'activation_required' })
       .mockResolvedValueOnce({ roomCode: ROOM_CODE, status: 'pin_required' });
-    mocks.showDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-      .mockResolvedValueOnce({ action: 'ok' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
     mocks.activate.mockRejectedValueOnce(new ProRoomApiError('PRO_ROOM_ENTRY_TIMEOUT', 408));
     mocks.resume.mockResolvedValueOnce({});
 
@@ -1382,16 +1451,14 @@ describe('PRO room setup flow', () => {
       roomCode: ROOM_CODE,
       status: 'activation_required',
     });
-    mocks.showDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-      .mockResolvedValueOnce({ action: 'secondary' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
     mocks.activate.mockRejectedValueOnce(new ProRoomApiError('HTTP_503', 503));
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
 
     expect(mocks.activate).toHaveBeenCalledOnce();
-    expect(mocks.showDialog).toHaveBeenCalledTimes(2);
-    expect(mocks.showDialog.mock.calls[1]?.[0]).toMatchObject({
+    expect(mocks.showDialog).toHaveBeenCalledTimes(1);
+    expect(mocks.showDialog.mock.calls[0]?.[0]).toMatchObject({
       title: 'pro.claim_retry_title',
       secondaryText: 'common.close',
     });

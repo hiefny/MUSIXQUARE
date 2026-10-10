@@ -355,6 +355,42 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     resetState();
   });
 
+  it('projects optional entry protection from canonical snapshots and ignores older policy', async () => {
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    expect(getState('network.roomPasswordRequired')).toBe(true);
+    const open = {
+      ...snapshot(),
+      passwordRequired: false,
+      revision: 2,
+      presence: { ...snapshot().presence, revision: 2 },
+    };
+    heartbeat.mockResolvedValue(open);
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
+    );
+    await vi.waitFor(() => expect(getState('network.roomPasswordRequired')).toBe(false));
+    heartbeat.mockResolvedValue(snapshot());
+    const callCount = heartbeat.mock.calls.length;
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
+    );
+    await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(callCount));
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    heartbeat.mockResolvedValue({
+      ...open,
+      passwordRequired: true,
+      revision: 3,
+      presence: { ...open.presence, revision: 3 },
+    });
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
+    );
+    await vi.waitFor(() => expect(getState('network.roomPasswordRequired')).toBe(true));
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+  });
+
   async function establishCurrentPlayingCheckpoint(): Promise<ProRoomSnapshot> {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     heartbeat.mockClear();

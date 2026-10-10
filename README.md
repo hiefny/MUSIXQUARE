@@ -105,7 +105,7 @@ Thank you to everyone who helps translate MUSIXQUARE. Your time and care mean a 
 | :------------------ | :-------------------------------------------------- | :------------------------------------------------------------------ |
 | **Code Range**      | `100000` - `999999`                                 | `000000` - `099999`                                                 |
 | **Lifecycle**       | Temporary; terminates when browser host departs     | Persistent across empty-room sleep/wake cycles                      |
-| **Password**        | Optional 8-digit access PIN                         | Required 8-digit room password                                      |
+| **Password**        | Optional 8-digit access PIN                         | Optional, owner-chosen 8-digit room password                         |
 | **Authority Model** | Browser host authoritative over WebRTC P2P          | Cloudflare Durable Object server-authoritative state                |
 | **Storage Backend** | Browser RAM, direct WebRTC, or temporary private R2 | Private Cloudflare R2 object storage (1 GiB / room, 200 MiB / file) |
 | **Presence Model**  | Host-managed peer roster                            | Server-tracked heartbeats and participant session recovery          |

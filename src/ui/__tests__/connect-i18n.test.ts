@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { setLanguageMode } from '../../i18n/index.ts';
+import { setLanguageMode, t } from '../../i18n/index.ts';
 import type { DataConnection, RoomContext } from '../../types/index.ts';
 import {
   changeActiveProRoomPin,
@@ -2960,7 +2960,8 @@ describe('connect host-owned room password controls', () => {
     random.mockRestore();
   });
 
-  it('shows masked PIN editing to a PRO owner', () => {
+  it('shows the protected toggle and masked PIN editing to a PRO owner', () => {
+    setState('network.roomPasswordRequired', true);
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection('coordinator'));
     setState('room.context', {
@@ -2976,7 +2977,7 @@ describe('connect host-owned room password controls', () => {
     initConnect();
 
     expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(false);
-    expect(document.getElementById('room-password-toggle')?.hidden).toBe(true);
+    expect(document.getElementById('room-password-toggle')?.hidden).toBe(false);
     expect(document.getElementById('room-password-code')?.textContent).toBe('••••-••••');
     expect(document.getElementById('room-password-refresh')?.getAttribute('aria-label')).toBe(
       '방 암호 변경',
@@ -3005,6 +3006,7 @@ describe('connect host-owned room password controls', () => {
   });
 
   it('changes the active PRO PIN through the owner-only pencil action', async () => {
+    setState('network.roomPasswordRequired', true);
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection('coordinator'));
     setState('room.context', {
@@ -3022,7 +3024,12 @@ describe('connect host-owned room password controls', () => {
 
     document.getElementById('room-password-refresh')?.click();
 
-    await vi.waitFor(() => expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith('12345678'));
+    await vi.waitFor(() =>
+      expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
+        '12345678',
+        expect.any(AbortSignal),
+      ),
+    );
     expect(mockedShowDialog).toHaveBeenCalledWith(
       expect.objectContaining({
         title: '방 암호 변경',
@@ -3031,6 +3038,127 @@ describe('connect host-owned room password controls', () => {
       }),
     );
     expect(showToast).toHaveBeenCalledWith('방 암호를 변경했어요.');
+  });
+});
+
+describe('PRO optional entry password controls', () => {
+  const ownerContext: RoomContext = {
+    kind: 'pro',
+    roomId: '000001',
+    role: 'member',
+    coordinatorId: null,
+    epoch: 1,
+    snapshotRevision: 1,
+    capabilities: ['room.configure'],
+  };
+  function openOwnerSettings(required: boolean) {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', { ...ownerContext });
+    setState('network.roomPasswordRequired', required);
+    initConnect();
+  }
+
+  it('keeps the toggle off while prompting and after cancellation without generating a random PIN', async () => {
+    openOwnerSettings(false);
+    const random = vi.spyOn(crypto, 'getRandomValues');
+    mockedShowDialog.mockResolvedValueOnce({ action: 'secondary' });
+    document.getElementById('room-password-toggle')?.click();
+    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(mockedChangeActiveProRoomPin).not.toHaveBeenCalled();
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    expect(random).not.toHaveBeenCalled();
+    random.mockRestore();
+  });
+
+  it('enables protection only after a manual PIN and an authoritative state update', async () => {
+    openOwnerSettings(false);
+    let complete: () => void = () => undefined;
+    mockedShowDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '0000-0034' });
+    mockedChangeActiveProRoomPin.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    document.getElementById('room-password-toggle')?.click();
+    await vi.waitFor(() =>
+      expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
+        '00000034',
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+    setState('network.roomPasswordRequired', true);
+    complete();
+    await vi.waitFor(() =>
+      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(document.getElementById('room-password-code')?.textContent).toBe('••••-••••');
+  });
+
+  it('disables protection through the server without revealing or replacing the saved PIN', async () => {
+    openOwnerSettings(true);
+    mockedChangeActiveProRoomPin.mockImplementationOnce(async () => {
+      setState('network.roomPasswordRequired', false);
+    });
+    document.getElementById('room-password-toggle')?.click();
+    await vi.waitFor(() =>
+      expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(null, expect.any(AbortSignal)),
+    );
+    await vi.waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(t('connect.room_password_disabled')),
+    );
+    expect(mockedShowDialog).not.toHaveBeenCalled();
+    expect(getState('network.roomPassword')).toBe('');
+    expect(document.getElementById('room-password-code')?.textContent).toBe('- - - - - - - -');
+  });
+
+  it('keeps a protected room protected in the UI when disabling fails', async () => {
+    openOwnerSettings(true);
+    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new Error('request failed'));
+    document.getElementById('room-password-toggle')?.click();
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalled());
+    expect(getState('network.roomPasswordRequired')).toBe(true);
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+  });
+
+  it('does not apply a pending PIN to a different room after navigation', async () => {
+    openOwnerSettings(false);
+    let answer: (value: DialogResult) => void = () => undefined;
+    mockedShowDialog.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    document.getElementById('room-password-toggle')?.click();
+    setState('room.context', { ...ownerContext, roomId: '000002' });
+    answer({ action: 'ok', inputValue: '12345678' });
+    await vi.waitFor(() =>
+      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(mockedChangeActiveProRoomPin).not.toHaveBeenCalled();
+    expect(mockedShowDialog.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ signal: expect.objectContaining({ aborted: true }) }),
+    );
   });
 });
 

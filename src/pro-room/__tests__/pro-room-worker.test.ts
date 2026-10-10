@@ -25,7 +25,11 @@ import developerApiWorker, {
   developerApiScopes,
 } from '../../../cloudflare/developer-api-worker.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
-import { ProRoomApiError, type UpdateProRoomCompactSnapshotInput } from '../api.ts';
+import {
+  ProRoomApiClient,
+  ProRoomApiError,
+  type UpdateProRoomCompactSnapshotInput,
+} from '../api.ts';
 import type { ProRoomR2Source, ProRoomSnapshot } from '../contracts.ts';
 import {
   ProRoomPlaylistStateManager,
@@ -3183,7 +3187,12 @@ function bindCookiePresence(cookie: string, envelope: Record<string, any>): void
   });
 }
 
-async function activatedRoom(roomCode = ROOM_CODE) {
+function optionalEntryPolicy(request: Request): Request {
+  request.headers.set('x-mxqr-pro-entry-policy', 'optional-v1');
+  return request;
+}
+
+async function activatedRoom(roomCode = ROOM_CODE, publicAdmission = false) {
   const state = new FakeState();
   const bucket = new FakeR2Bucket();
   const worker = new MusixquareProRoom(state as never, environment(bucket) as never);
@@ -3206,18 +3215,19 @@ async function activatedRoom(roomCode = ROOM_CODE) {
     expiresAtMs: Date.now() + 60_000,
     nonce: 'fixed-activation-nonce',
   });
+  const activationRequest = jsonRequestForRoom(roomCode, '/activation', 'POST', {
+    claimToken,
+    ...(publicAdmission
+      ? {}
+      : {
+          temporaryPin: roomCode.padStart(8, '0'),
+          newPin: '12345678',
+        }),
+    ownerName: 'Owner',
+  });
+  if (publicAdmission) optionalEntryPolicy(activationRequest);
   const activation = await worker.fetch(
-    await withAccountAssertion(
-      jsonRequestForRoom(roomCode, '/activation', 'POST', {
-        claimToken,
-        temporaryPin: roomCode.padStart(8, '0'),
-        newPin: '12345678',
-        ownerName: 'Owner',
-      }),
-      ACTIVATION_OWNER_ACCOUNT_ID,
-      'Owner',
-      roomCode,
-    ),
+    await withAccountAssertion(activationRequest, ACTIVATION_OWNER_ACCOUNT_ID, 'Owner', roomCode),
   );
   expect(activation.status).toBe(200);
   const ownerCookie = cookieFrom(activation);
@@ -8025,6 +8035,509 @@ describe('PRO room private Developer API projections', () => {
   });
 });
 
+describe('optional PRO entry password', () => {
+  const publicRequest = (path: string, body: unknown, cookie?: string) =>
+    optionalEntryPolicy(jsonRequest(path, 'POST', body, cookie));
+  const publicBootstrap = () => optionalEntryPolicy(request('/bootstrap'));
+  const internalRequest = (path: string, body?: unknown) =>
+    new Request(`https://pro-room.internal/internal/admin/${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  it('activates without a PIN only for opted-in clients and preserves both owner cookies', async () => {
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'optional-entry-activation',
+    });
+    expect(
+      (
+        await worker.fetch(
+          await withAccountAssertion(
+            jsonRequest('/activation', 'POST', { claimToken }),
+            ACTIVATION_OWNER_ACCOUNT_ID,
+            'Owner',
+          ),
+        )
+      ).status,
+    ).toBe(400);
+    expect((await worker.fetch(publicRequest('/activation', { claimToken }))).status).toBe(401);
+    const activated = await worker.fetch(
+      await withAccountAssertion(
+        publicRequest('/activation', { claimToken }),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+      ),
+    );
+    expect(activated.status).toBe(200);
+    expect(activated.headers.getSetCookie()).toHaveLength(2);
+    const body = await responseJson(activated);
+    expect(body.snapshot.passwordRequired).toBe(false);
+    expect(body.snapshot.viewer.role).toBe('owner');
+    expect(await responseJson(await worker.fetch(publicBootstrap()))).toEqual({
+      roomCode: ROOM_CODE,
+      status: 'open',
+      passwordRequired: false,
+    });
+  });
+
+  it('round-trips actual browser API bootstrap, activation, admission and password mutations through the Worker', async () => {
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const apiFor = (accountId?: string) => {
+      let cookie = '';
+      const fetchImplementation: typeof fetch = async (input, init) => {
+        const incoming = new Request(input, init);
+        const url = new URL(incoming.url);
+        url.pathname = url.pathname.replace('/api/pro-room', '');
+        let forwarded = new Request(url, incoming);
+        forwarded.headers.set('x-mxqr-pro-room-code', ROOM_CODE);
+        forwarded.headers.set('x-mxqr-pro-room-generation', '0');
+        forwarded.headers.set('x-mxqr-pro-ip-hash', accountId || 'public-api-member');
+        if (cookie) forwarded.headers.set('cookie', cookie);
+        if (accountId) forwarded = await withAccountAssertion(forwarded, accountId, 'Owner');
+        const response = await worker.fetch(forwarded);
+        const sessionCookie = response.headers
+          .getSetCookie()
+          .find((entry) => entry.startsWith('__Host-mxqr_pro_session_'));
+        if (sessionCookie) cookie = sessionCookie.split(';')[0]!;
+        return response;
+      };
+      return new ProRoomApiClient({ fetch: fetchImplementation });
+    };
+    const owner = apiFor(ACTIVATION_OWNER_ACCOUNT_ID);
+    const member = apiFor();
+    expect((await member.getBootstrap(ROOM_CODE)).status).toBe('activation_required');
+    const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'browser-api-public-activation',
+    });
+    const activated = await owner.activate({
+      code: ROOM_CODE,
+      claimToken,
+      expectedAccountScope: 'a'.repeat(43),
+    });
+    expect(activated.passwordRequired).toBe(false);
+    expect(activated.viewer?.role).toBe('owner');
+    expect(await member.getBootstrap(ROOM_CODE)).toMatchObject({
+      status: 'open',
+      passwordRequired: false,
+    });
+    expect((await member.createSession({ code: ROOM_CODE })).passwordRequired).toBe(false);
+    expect((await member.getSnapshot(ROOM_CODE)).viewer?.role).toBe('member');
+    await owner.changePin(ROOM_CODE, '87654321');
+    expect(await member.getBootstrap(ROOM_CODE)).toMatchObject({
+      status: 'pin_required',
+      passwordRequired: true,
+    });
+    await expect(member.createSession({ code: ROOM_CODE })).rejects.toMatchObject({
+      code: 'PIN_REQUIRED',
+    });
+    expect(
+      (await member.createSession({ code: ROOM_CODE, pin: '87654321' })).passwordRequired,
+    ).toBe(true);
+    await owner.changePin(ROOM_CODE, null);
+    expect((await member.getSnapshot(ROOM_CODE)).passwordRequired).toBe(false);
+  });
+
+  it.each([
+    { publicAdmission: false, pruneReceipt: false, pin: undefined },
+    { publicAdmission: false, pruneReceipt: true, pin: undefined },
+    { publicAdmission: true, pruneReceipt: false, pin: undefined },
+    { publicAdmission: true, pruneReceipt: true, pin: undefined },
+    { publicAdmission: false, pruneReceipt: false, pin: '99999999' },
+    { publicAdmission: false, pruneReceipt: true, pin: '99999999' },
+    { publicAdmission: true, pruneReceipt: false, pin: '99999999' },
+    { publicAdmission: true, pruneReceipt: true, pin: '99999999' },
+  ])(
+    'requires the original account proof when replaying owner admission ($publicAdmission/$pruneReceipt/$pin)',
+    async ({ publicAdmission, pruneReceipt, pin }) => {
+      const context = await activatedRoom(ROOM_CODE, publicAdmission);
+      const requestId = 'owner-admission-proof-request-00001';
+      const makeRequest = () =>
+        publicRequest('/sessions', { requestId, ...(pin === undefined ? {} : { pin }) });
+      const joined = await context.worker.fetch(
+        await withAccountAssertion(makeRequest(), ACTIVATION_OWNER_ACCOUNT_ID, 'Owner'),
+      );
+      expect(joined.status).toBe(200);
+      const originalCookie = cookieFrom(joined);
+      if (pruneReceipt) {
+        const internal = context.worker as unknown as { room: Record<string, any> };
+        internal.room.idempotency = {};
+      }
+      const anonymous = await context.worker.fetch(makeRequest());
+      const switched = await context.worker.fetch(
+        await withAccountAssertion(makeRequest(), 'acct_abcdefghijkl0123456789', 'Other account'),
+      );
+      for (const denied of [anonymous, switched]) {
+        expect(denied.status).toBe(409);
+        expect(denied.headers.getSetCookie()).toEqual([]);
+        expect(await responseJson(denied)).toEqual({ error: 'SESSION_REPLAY_UNAVAILABLE' });
+      }
+      const ownerReplay = await context.worker.fetch(
+        await withAccountAssertion(makeRequest(), ACTIVATION_OWNER_ACCOUNT_ID, 'Owner'),
+      );
+      expect(ownerReplay.status).toBe(200);
+      expect(cookieFrom(ownerReplay)).toBe(originalCookie);
+      expect((await responseJson(ownerReplay)).snapshot.presence.participants).toHaveLength(2);
+    },
+  );
+
+  it.each([
+    { publicAdmission: false, pruneReceipt: false },
+    { publicAdmission: false, pruneReceipt: true },
+    { publicAdmission: true, pruneReceipt: false },
+    { publicAdmission: true, pruneReceipt: true },
+  ])(
+    'requires the legacy owner credential for replay after response loss ($publicAdmission/$pruneReceipt)',
+    async ({ publicAdmission, pruneReceipt }) => {
+      const context = await activatedRoom(ROOM_CODE, publicAdmission);
+      const room = context.worker.room!;
+      room.ownerAccountId = null;
+      room.accountMembers = {};
+      for (const session of Object.values(room.sessions)) {
+        if (session.role === 'owner') delete session.accountId;
+      }
+      const body = {
+        pin: publicAdmission ? '99999999' : '12345678',
+        requestId: 'legacy-owner-proof-request-00001',
+      };
+      const original = await context.worker.fetch(
+        publicRequest('/sessions', body, context.ownerRecoveryCookie),
+      );
+      expect(original.status).toBe(200);
+      const originalCookie = cookieFrom(original);
+      expect((await responseJson(original)).snapshot.viewer).toMatchObject({
+        role: 'owner',
+        isAuthenticated: false,
+      });
+      if (pruneReceipt) room.idempotency = {};
+      const denied = await context.worker.fetch(publicRequest('/sessions', body));
+      expect(denied.status).toBe(409);
+      expect(denied.headers.getSetCookie()).toEqual([]);
+      expect(await responseJson(denied)).toEqual({ error: 'SESSION_REPLAY_UNAVAILABLE' });
+      const replay = await context.worker.fetch(
+        publicRequest('/sessions', body, context.ownerRecoveryCookie),
+      );
+      expect(replay.status).toBe(200);
+      expect(cookieFrom(replay)).toBe(originalCookie);
+      expect((await responseJson(replay)).snapshot.presence.participants).toHaveLength(2);
+    },
+  );
+
+  it('persists open admission through reload and gives public entrants normal member sessions', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const state = storedCanonicalRoom(context.state);
+    expect(state.passwordRequired).toBe(false);
+    expect(state.pin).toBeNull();
+    const worker = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const joined = await worker.fetch(
+      publicRequest('/sessions', { requestId: 'public-entry-request-000001' }),
+    );
+    expect(joined.status).toBe(200);
+    const memberCookie = cookieFrom(joined);
+    const envelope = await responseJson(joined);
+    bindCookiePresence(memberCookie, envelope);
+    expect(envelope.snapshot.passwordRequired).toBe(false);
+    expect(envelope.snapshot.viewer).toMatchObject({ role: 'member', capabilities: [] });
+    expect(
+      (await worker.fetch(publicRequest('/pin', { pin: '87654321' }, memberCookie))).status,
+    ).toBe(403);
+    expect((await worker.fetch(publicRequest('/pin', { pin: null }, memberCookie))).status).toBe(
+      403,
+    );
+    expect((await worker.fetch(request('/snapshot'))).status).toBe(401);
+    const replay = await worker.fetch(
+      publicRequest('/sessions', { requestId: 'public-entry-request-000001' }),
+    );
+    expect(cookieFrom(replay)).toBe(memberCookie);
+    expect((await responseJson(replay)).snapshot.presence.participants).toHaveLength(2);
+  });
+
+  it('keeps legacy response shapes and accepts their valid PIN form after opening a room', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    expect(await responseJson(await context.worker.fetch(request('/bootstrap')))).toEqual({
+      roomCode: ROOM_CODE,
+      status: 'pin_required',
+    });
+    const legacy = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '77777777' }),
+    );
+    expect(legacy.status).toBe(200);
+    const legacySnapshot = (await responseJson(legacy)).snapshot;
+    expect(legacySnapshot).not.toHaveProperty('passwordRequired');
+    expect(parseProRoomSnapshot(legacySnapshot)).not.toBeNull();
+    expect((await context.worker.fetch(jsonRequest('/sessions', 'POST', {}))).status).toBe(400);
+    expect(
+      (await context.worker.fetch(jsonRequest('/pin', 'POST', { pin: null }, context.ownerCookie)))
+        .status,
+    ).toBe(400);
+  });
+
+  it.each([undefined, null, 'false', 0])(
+    'fails closed for legacy or invalid stored admission flag %s',
+    async (flag) => {
+      const context = await activatedRoom();
+      const stored = context.state.storage.data.get('pro-room:v2:core') as {
+        core: Record<string, unknown>;
+      };
+      if (flag === undefined) delete stored.core.passwordRequired;
+      else stored.core.passwordRequired = flag;
+      const worker = new MusixquareProRoom(
+        context.state as never,
+        environment(context.bucket) as never,
+      );
+      expect((await responseJson(await worker.fetch(publicBootstrap()))).status).toBe(
+        'pin_required',
+      );
+      const rejected = await worker.fetch(publicRequest('/sessions', {}));
+      expect(rejected.status).toBe(401);
+      expect(await responseJson(rejected)).toEqual({ error: 'PIN_REQUIRED' });
+      expect((await worker.fetch(publicRequest('/sessions', { pin: '12345678' }))).status).toBe(
+        200,
+      );
+    },
+  );
+
+  it('never interprets a missing historical PIN as public admission', async () => {
+    const context = await activatedRoom();
+    const stored = context.state.storage.data.get('pro-room:v2:core') as {
+      core: Record<string, unknown>;
+    };
+    delete stored.core.passwordRequired;
+    stored.core.pin = null;
+    const worker = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    expect((await responseJson(await worker.fetch(publicBootstrap()))).status).toBe('pin_required');
+    expect((await worker.fetch(publicRequest('/sessions', {}))).status).toBe(401);
+    expect((await worker.fetch(publicRequest('/sessions', { pin: '12345678' }))).status).toBe(401);
+  });
+
+  it('allows only the verified current owner account to enter without a forgotten PIN', async () => {
+    const context = await activatedRoom();
+    const wrongAccount = await context.worker.fetch(
+      await withAccountAssertion(
+        publicRequest('/sessions', {}),
+        'acct_abcdefghijkl0123456789',
+        'Another account',
+      ),
+    );
+    expect(await responseJson(wrongAccount)).toEqual({ error: 'PIN_REQUIRED' });
+    expect(
+      (await context.worker.fetch(publicRequest('/sessions', {}, context.ownerRecoveryCookie)))
+        .status,
+    ).toBe(401);
+    const joined = await context.worker.fetch(
+      await withAccountAssertion(
+        publicRequest('/sessions', {}),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+      ),
+    );
+    expect(joined.status).toBe(200);
+    const ownerCookie = cookieFrom(joined);
+    const body = await responseJson(joined);
+    bindCookiePresence(ownerCookie, body);
+    expect(body.snapshot.viewer.role).toBe('owner');
+    expect(
+      (await context.worker.fetch(publicRequest('/pin', { pin: '87654321' }, ownerCookie))).status,
+    ).toBe(200);
+    expect(
+      (await context.worker.fetch(publicRequest('/sessions', { pin: '12345678' }))).status,
+    ).toBe(401);
+    expect(
+      (await context.worker.fetch(publicRequest('/sessions', { pin: '87654321' }))).status,
+    ).toBe(200);
+  });
+
+  it('does not treat a delegated administrator account or existing member cookie as owner admission', async () => {
+    const context = await activatedRoom();
+    const administratorAccountId = 'acct_abcdefghijkl0123456789';
+    const joined = await context.worker.fetch(
+      await withAccountAssertion(
+        publicRequest('/sessions', { pin: '12345678' }),
+        administratorAccountId,
+        'Administrator',
+      ),
+    );
+    const memberCookie = cookieFrom(joined);
+    const envelope = await responseJson(joined);
+    bindCookiePresence(memberCookie, envelope);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${envelope.snapshot.viewer.memberId}`,
+            'PUT',
+            {
+              permissions: {
+                'media.add': true,
+                'playback.control': true,
+                'members.kick': true,
+                'chat.notice': true,
+              },
+            },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const denied = await context.worker.fetch(
+      await withAccountAssertion(
+        publicRequest('/sessions', {}, memberCookie),
+        administratorAccountId,
+        'Administrator',
+      ),
+    );
+    expect(await responseJson(denied)).toEqual({ error: 'PIN_REQUIRED' });
+    expect(
+      (await context.worker.fetch(publicRequest('/pin', { pin: null }, memberCookie))).status,
+    ).toBe(403);
+    expect(
+      (await context.worker.fetch(publicRequest('/pin', { pin: '87654321' }, memberCookie))).status,
+    ).toBe(403);
+  });
+
+  it('preserves live members on disable but fences public receipts when protection is enabled', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const originalEpoch = internal.room.authEpoch;
+    const joined = await context.worker.fetch(publicRequest('/sessions', { pin: '12345678' }));
+    const memberCookie = cookieFrom(joined);
+    bindCookiePresence(memberCookie, await responseJson(joined));
+    const playbackBefore = structuredClone(internal.room.playback);
+    const [disabled, publicJoin] = await Promise.all([
+      context.worker.fetch(publicRequest('/pin', { pin: null }, context.ownerCookie)),
+      context.worker.fetch(publicRequest('/sessions', { requestId: 'open-race-request-000001' })),
+    ]);
+    expect(await responseJson(disabled)).toEqual({ ok: true, passwordRequired: false });
+    expect(publicJoin.status).toBe(200);
+    expect(internal.room.authEpoch).toBe(originalEpoch);
+    expect(internal.room.playback).toEqual(playbackBefore);
+    expect((await context.worker.fetch(request('/snapshot', {}, memberCookie))).status).toBe(200);
+    const beforeEnableEpoch = internal.room.presence.coordinatorEpoch;
+    const [enabled, lateReplay] = await Promise.all([
+      context.worker.fetch(publicRequest('/pin', { pin: '87654321' }, context.ownerCookie)),
+      context.worker.fetch(publicRequest('/sessions', { requestId: 'open-race-request-000001' })),
+    ]);
+    expect(await responseJson(enabled)).toEqual({ ok: true, passwordRequired: true });
+    expect(lateReplay.status).toBe(409);
+    expect(await responseJson(lateReplay)).toEqual({ error: 'SESSION_REPLAY_UNAVAILABLE' });
+    expect(internal.room.authEpoch).toBe(originalEpoch + 1);
+    expect(internal.room.presence.coordinatorEpoch).toBe(beforeEnableEpoch + 1);
+    expect((await context.worker.fetch(request('/snapshot', {}, memberCookie))).status).toBe(401);
+    expect((await context.worker.fetch(publicRequest('/sessions', {}))).status).toBe(401);
+    expect(
+      (await context.worker.fetch(publicRequest('/sessions', { pin: '87654321' }))).status,
+    ).toBe(200);
+  });
+
+  it('rolls back a failed disable commit without exposing public admission', async () => {
+    const context = await activatedRoom();
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('admission storage failure'),
+    );
+    await expect(
+      context.worker.fetch(publicRequest('/pin', { pin: null }, context.ownerCookie)),
+    ).rejects.toThrow('admission storage failure');
+    expect((await responseJson(await context.worker.fetch(publicBootstrap()))).status).toBe(
+      'pin_required',
+    );
+    expect(storedCanonicalRoom(context.state).passwordRequired).toBe(true);
+    expect((await context.worker.fetch(publicRequest('/sessions', {}))).status).toBe(401);
+  });
+
+  it('rolls back a failed enable commit without revoking existing public sessions', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const joined = await context.worker.fetch(publicRequest('/sessions', {}));
+    const cookie = cookieFrom(joined);
+    bindCookiePresence(cookie, await responseJson(joined));
+    const before = storedCanonicalRoom(context.state);
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('admission storage failure'),
+    );
+    await expect(
+      context.worker.fetch(publicRequest('/pin', { pin: '87654321' }, context.ownerCookie)),
+    ).rejects.toThrow('admission storage failure');
+    expect((await responseJson(await context.worker.fetch(publicBootstrap()))).status).toBe('open');
+    expect(storedCanonicalRoom(context.state).authEpoch).toBe(before.authEpoch);
+    expect(storedCanonicalRoom(context.state).passwordRequired).toBe(false);
+    expect((await context.worker.fetch(request('/snapshot', {}, cookie))).status).toBe(200);
+  });
+
+  it('preserves public policy through operator suspension and owner recovery', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    expect((await context.worker.fetch(internalRequest('suspend'))).status).toBe(200);
+    expect((await context.worker.fetch(publicRequest('/sessions', {}))).status).toBe(423);
+    expect((await responseJson(await context.worker.fetch(publicBootstrap()))).status).toBe(
+      'suspended',
+    );
+    expect((await context.worker.fetch(internalRequest('resume'))).status).toBe(200);
+    expect((await responseJson(await context.worker.fetch(publicBootstrap()))).status).toBe('open');
+    const current = storedCanonicalRoom(context.state);
+    const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'public-room-owner-recovery',
+      ownerAuthorityEpoch: current.ownerAuthorityEpoch,
+    });
+    const recovered = await context.worker.fetch(
+      await withAccountAssertion(
+        publicRequest('/owner-recovery', { claimToken }),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+      ),
+    );
+    expect(recovered.status).toBe(200);
+    expect((await responseJson(recovered)).snapshot.passwordRequired).toBe(false);
+    expect((await context.worker.fetch(publicRequest('/sessions', {}))).status).toBe(200);
+  });
+
+  it('fails closed after owner deletion even when admission was explicitly public', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    expect(
+      (
+        await context.worker.fetch(
+          internalRequest('account-authority/purge', {
+            accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+          }),
+        )
+      ).status,
+    ).toBe(200);
+    expect(storedCanonicalRoom(context.state).passwordRequired).toBe(true);
+    expect((await context.worker.fetch(publicRequest('/sessions', {}))).status).toBe(423);
+    expect((await responseJson(await context.worker.fetch(publicBootstrap()))).status).toBe(
+      'suspended',
+    );
+  });
+
+  it('continues to require an admitted presence for private media even when the room is public', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const ready = await completeReadyAsset(context, 'open-room-download');
+    expect((await context.worker.fetch(request(`/media/${ready.assetId}/download`))).status).toBe(
+      401,
+    );
+    const joined = await context.worker.fetch(publicRequest('/sessions', {}));
+    const cookie = cookieFrom(joined);
+    bindCookiePresence(cookie, await responseJson(joined));
+    expect(
+      (await context.worker.fetch(request(`/media/${ready.assetId}/download`, {}, cookie))).status,
+    ).toBe(200);
+  });
+});
+
 describe('persistent PRO room bootstrap and activation', () => {
   it('suspends an active room without deleting durable content and resumes only for fresh sessions', async () => {
     vi.useFakeTimers();
@@ -9632,7 +10145,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
@@ -14721,606 +15234,611 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
-  it('transfers ownership only after exact-generation Developer authority revocation', async () => {
-    const context = await activatedRoom();
-    const internal = context.worker as unknown as { room: Record<string, any> };
-    const targetAccountId = 'acct_abcdefghijkl0123456789';
-    const requestId = 'owner_transfer_request_0001';
-    const ownerMemberId = internal.room.ownerMemberId as string;
-    const queueItemId = '11111111-1111-4111-8111-111111111111';
-    const ready = await completeReadyAsset(context, 'owner-transfer-preserved-r2');
-    expect(
-      (
-        await replacePlaylist(
-          context,
-          [playlistItem(queueItemId, ready.asset)],
-          'owner-transfer-r2',
-        )
-      ).status,
-    ).toBe(200);
-    internal.room.queueMode = {
-      revision: internal.room.queueMode.revision + 1,
-      updatedAtMs: Date.now(),
-      repeatMode: 1,
-      shuffleEnabled: true,
-      shuffleOrder: [queueItemId],
-    };
-    internal.room.effects.revision += 1;
-    internal.room.effects.updatedAtMs = Date.now();
-    internal.room.effects.effects.reverb.mixPercent = 37;
-    internal.room.effects.effects.equalizer.bandsDb = [1, 2, 3, 2, 1];
-    const preservedQueueMode = structuredClone(internal.room.queueMode);
-    const preservedEffects = structuredClone(internal.room.effects);
-    const preservedAsset = structuredClone(internal.room.assets[ready.assetId]);
-    expect(context.bucket.objects.has(ready.asset.objectKey)).toBe(true);
+  it.each([false, true])(
+    'transfers ownership only after exact-generation Developer authority revocation (public=%s)',
+    async (publicAdmission) => {
+      const context = await activatedRoom(ROOM_CODE, publicAdmission);
+      const internal = context.worker as unknown as { room: Record<string, any> };
+      const targetAccountId = 'acct_abcdefghijkl0123456789';
+      const requestId = 'owner_transfer_request_0001';
+      const ownerMemberId = internal.room.ownerMemberId as string;
+      const queueItemId = '11111111-1111-4111-8111-111111111111';
+      const ready = await completeReadyAsset(context, 'owner-transfer-preserved-r2');
+      expect(
+        (
+          await replacePlaylist(
+            context,
+            [playlistItem(queueItemId, ready.asset)],
+            'owner-transfer-r2',
+          )
+        ).status,
+      ).toBe(200);
+      internal.room.queueMode = {
+        revision: internal.room.queueMode.revision + 1,
+        updatedAtMs: Date.now(),
+        repeatMode: 1,
+        shuffleEnabled: true,
+        shuffleOrder: [queueItemId],
+      };
+      internal.room.effects.revision += 1;
+      internal.room.effects.updatedAtMs = Date.now();
+      internal.room.effects.effects.reverb.mixPercent = 37;
+      internal.room.effects.effects.equalizer.bandsDb = [1, 2, 3, 2, 1];
+      const preservedQueueMode = structuredClone(internal.room.queueMode);
+      const preservedEffects = structuredClone(internal.room.effects);
+      const preservedAsset = structuredClone(internal.room.assets[ready.assetId]);
+      expect(context.bucket.objects.has(ready.asset.objectKey)).toBe(true);
 
-    const delegated = await addAuthorityMember(context);
-    const delegatedMemberId = delegated.envelope.snapshot.viewer.memberId as string;
-    expect(
-      (
-        await context.worker.fetch(
-          jsonRequest(
-            `/administrators/${delegatedMemberId}`,
-            'PUT',
-            { permissions: fullDelegatedPermissions },
-            context.ownerCookie,
-          ),
-        )
-      ).status,
-    ).toBe(200);
-    expect(internal.room.anonymousAdministrators[delegatedMemberId]).toBeDefined();
-    const oldAuthEpoch = internal.room.authEpoch as number;
-    const oldDeveloperAuthorityEpoch = internal.room.developerAuthorityEpoch as number;
-    expect(
-      (
-        await internalDeveloperRead(
-          context.worker,
-          'queue',
-          DEVELOPER_KEY_ID,
-          oldDeveloperAuthorityEpoch,
-        )
-      ).status,
-    ).toBe(200);
+      const delegated = await addAuthorityMember(context);
+      const delegatedMemberId = delegated.envelope.snapshot.viewer.memberId as string;
+      expect(
+        (
+          await context.worker.fetch(
+            jsonRequest(
+              `/administrators/${delegatedMemberId}`,
+              'PUT',
+              { permissions: fullDelegatedPermissions },
+              context.ownerCookie,
+            ),
+          )
+        ).status,
+      ).toBe(200);
+      expect(internal.room.anonymousAdministrators[delegatedMemberId]).toBeDefined();
+      const oldAuthEpoch = internal.room.authEpoch as number;
+      const oldDeveloperAuthorityEpoch = internal.room.developerAuthorityEpoch as number;
+      expect(
+        (
+          await internalDeveloperRead(
+            context.worker,
+            'queue',
+            DEVELOPER_KEY_ID,
+            oldDeveloperAuthorityEpoch,
+          )
+        ).status,
+      ).toBe(200);
 
-    const oldRecoveryClaim = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
-      nowMs: Date.now() - 1_000,
-      expiresAtMs: Date.now() + 60_000,
-      nonce: 'pre-transfer-recovery-claim',
-      ownerAuthorityEpoch: internal.room.ownerAuthorityEpoch,
-    });
-    const unchangedBeforeTransfer = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({ targetAccountId: ACTIVATION_OWNER_ACCOUNT_ID }),
-      }),
-    );
-    expect(unchangedBeforeTransfer.status).toBe(409);
-    await expect(unchangedBeforeTransfer.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_TARGET_UNCHANGED',
-    });
-    const claimGenerationBeforeIssue = internal.room.ownershipTransferClaimGeneration as number;
-    const mismatchedIssueGeneration = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({ targetAccountId, roomGeneration: 1 }),
-      }),
-    );
-    expect(mismatchedIssueGeneration.status).toBe(400);
-    await expect(mismatchedIssueGeneration.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
-    expect(internal.room.ownershipTransferClaimGeneration).toBe(claimGenerationBeforeIssue);
-    const issued = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({ targetAccountId, roomGeneration: 0 }),
-      }),
-    );
-    expect(issued.status).toBe(200);
-    const issuedPayload = await responseJson(issued);
-    expect(issuedPayload.claimGeneration).toBe(claimGenerationBeforeIssue + 1);
-    expect(issuedPayload.claimGeneration).toBeGreaterThan(0);
-    const encodedClaim = new URL(issuedPayload.transferUrl).hash.match(/^#pro-transfer=(.+)$/)?.[1];
-    expect(encodedClaim).toBeTruthy();
-    const claimToken = decodeURIComponent(encodedClaim!);
-    const prepareRequest = (id = requestId, pin = '87654321') =>
-      withAccountAssertion(
-        jsonRequest('/owner-transfer/prepare', 'POST', {
-          claimToken,
-          newPin: pin,
-          requestId: id,
+      const oldRecoveryClaim = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+        nowMs: Date.now() - 1_000,
+        expiresAtMs: Date.now() + 60_000,
+        nonce: 'pre-transfer-recovery-claim',
+        ownerAuthorityEpoch: internal.room.ownerAuthorityEpoch,
+      });
+      const unchangedBeforeTransfer = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({ targetAccountId: ACTIVATION_OWNER_ACCOUNT_ID }),
         }),
+      );
+      expect(unchangedBeforeTransfer.status).toBe(409);
+      await expect(unchangedBeforeTransfer.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_TARGET_UNCHANGED',
+      });
+      const claimGenerationBeforeIssue = internal.room.ownershipTransferClaimGeneration as number;
+      const mismatchedIssueGeneration = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({ targetAccountId, roomGeneration: 1 }),
+        }),
+      );
+      expect(mismatchedIssueGeneration.status).toBe(400);
+      await expect(mismatchedIssueGeneration.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+      expect(internal.room.ownershipTransferClaimGeneration).toBe(claimGenerationBeforeIssue);
+      const issued = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({ targetAccountId, roomGeneration: 0 }),
+        }),
+      );
+      expect(issued.status).toBe(200);
+      const issuedPayload = await responseJson(issued);
+      expect(issuedPayload.claimGeneration).toBe(claimGenerationBeforeIssue + 1);
+      expect(issuedPayload.claimGeneration).toBeGreaterThan(0);
+      const encodedClaim = new URL(issuedPayload.transferUrl).hash.match(
+        /^#pro-transfer=(.+)$/,
+      )?.[1];
+      expect(encodedClaim).toBeTruthy();
+      const claimToken = decodeURIComponent(encodedClaim!);
+      const prepareRequest = (id = requestId, pin = '87654321') =>
+        withAccountAssertion(
+          jsonRequest('/owner-transfer/prepare', 'POST', {
+            claimToken,
+            newPin: pin,
+            requestId: id,
+          }),
+          targetAccountId,
+          'Transferred owner',
+        );
+
+      const mismatchedTarget = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/owner-transfer/prepare', 'POST', {
+            claimToken,
+            newPin: '87654321',
+            requestId,
+          }),
+          ACTIVATION_OWNER_ACCOUNT_ID,
+          'Old owner',
+        ),
+      );
+      expect(mismatchedTarget.status).toBe(409);
+      await expect(mismatchedTarget.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH',
+      });
+      expect(internal.room.status).toBe('active');
+
+      const preparedResponse = await context.worker.fetch(await prepareRequest());
+      expect(preparedResponse.status).toBe(200);
+      const prepared = await responseJson(preparedResponse);
+      expect(prepared).toMatchObject({
+        ok: true,
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        status: 'suspended',
+        suspensionReason: 'ownership_transfer_pending',
+        requestId,
         targetAccountId,
-        'Transferred owner',
+        claimGeneration: issuedPayload.claimGeneration,
+        previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+        replayed: false,
+      });
+      expect(internal.room).toMatchObject({
+        status: 'suspended',
+        suspensionReason: 'ownership_transfer_pending',
+        authEpoch: oldAuthEpoch + 1,
+        developerAuthorityEpoch: oldDeveloperAuthorityEpoch + 1,
+        ownerMemberId,
+        ownerAccountId: null,
+        pin: null,
+        ownerCredentialHash: null,
+        sessions: {},
+        accountMembers: {},
+        anonymousAdministrators: {},
+        playlist: [{ queueItemId, name: 'Shared asset' }],
+        pendingOwnershipTransfer: {
+          transferId: prepared.transferId,
+          requestId,
+          targetAccountId,
+          preservedOwnerMemberId: ownerMemberId,
+        },
+      });
+      expect(
+        (await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status,
+      ).toBe(401);
+      expect((await context.worker.fetch(request('/snapshot', {}, delegated.cookie))).status).toBe(
+        401,
+      );
+      expect(internal.room.queueMode).toEqual(preservedQueueMode);
+      expect(internal.room.effects).toEqual(preservedEffects);
+      expect(internal.room.assets[ready.assetId]).toMatchObject(preservedAsset);
+      expect(context.bucket.objects.has(ready.asset.objectKey)).toBe(true);
+      const pendingStatus = await responseJson(
+        await context.worker.fetch(
+          new Request('https://pro-room.internal/internal/admin/status', {
+            headers: {
+              'x-mxqr-pro-room-code': ROOM_CODE,
+              'x-mxqr-pro-room-generation': '0',
+            },
+          }),
+        ),
+      );
+      expect(pendingStatus.developerAuthorityEpoch).toBe(oldDeveloperAuthorityEpoch + 1);
+      // Opaque random IDs may contain "Pin"; validate the exact public schema, not value substrings.
+      expect(pendingStatus.ownerTransferReconciliation).toEqual({
+        phase: 'pending',
+        transferId: prepared.transferId,
+        claimGeneration: issuedPayload.claimGeneration,
+        requestId,
+        targetAccountId,
+        previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+        preparedAtMs: prepared.preparedAtMs,
+        expiresAtMs: prepared.expiresAtMs,
+        committedAtMs: null,
+        replayUntilMs: prepared.expiresAtMs,
+      });
+      expect(JSON.stringify(pendingStatus.ownerTransferReconciliation)).not.toContain(
+        prepared.commitProof,
       );
 
-    const mismatchedTarget = await context.worker.fetch(
-      await withAccountAssertion(
-        jsonRequest('/owner-transfer/prepare', 'POST', {
-          claimToken,
-          newPin: '87654321',
-          requestId,
+      const replayedPrepare = await context.worker.fetch(await prepareRequest());
+      const replayedPreparePayload = await responseJson(replayedPrepare);
+      expect({ status: replayedPrepare.status, payload: replayedPreparePayload }).toMatchObject({
+        status: 200,
+        payload: {
+          transferId: prepared.transferId,
+          commitProof: prepared.commitProof,
+          replayed: true,
+        },
+      });
+      const reusedFromAnotherTab = await context.worker.fetch(
+        await prepareRequest('owner_transfer_request_0002'),
+      );
+      expect(reusedFromAnotherTab.status).toBe(409);
+      await expect(reusedFromAnotherTab.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_CLAIM_USED',
+      });
+      const competingClaim = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({ targetAccountId: 'acct_ZYXWVUTSRQPO9876543210' }),
         }),
-        ACTIVATION_OWNER_ACCOUNT_ID,
-        'Old owner',
-      ),
-    );
-    expect(mismatchedTarget.status).toBe(409);
-    await expect(mismatchedTarget.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH',
-    });
-    expect(internal.room.status).toBe('active');
+      );
+      expect(competingClaim.status).toBe(409);
+      await expect(competingClaim.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_RECONCILIATION_REQUIRED',
+      });
 
-    const preparedResponse = await context.worker.fetch(await prepareRequest());
-    expect(preparedResponse.status).toBe(200);
-    const prepared = await responseJson(preparedResponse);
-    expect(prepared).toMatchObject({
-      ok: true,
-      roomCode: ROOM_CODE,
-      roomGeneration: 0,
-      status: 'suspended',
-      suspensionReason: 'ownership_transfer_pending',
-      requestId,
-      targetAccountId,
-      claimGeneration: issuedPayload.claimGeneration,
-      previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
-      replayed: false,
-    });
-    expect(internal.room).toMatchObject({
-      status: 'suspended',
-      suspensionReason: 'ownership_transfer_pending',
-      authEpoch: oldAuthEpoch + 1,
-      developerAuthorityEpoch: oldDeveloperAuthorityEpoch + 1,
-      ownerMemberId,
-      ownerAccountId: null,
-      pin: null,
-      ownerCredentialHash: null,
-      sessions: {},
-      accountMembers: {},
-      anonymousAdministrators: {},
-      playlist: [{ queueItemId, name: 'Shared asset' }],
-      pendingOwnershipTransfer: {
+      const revokedAtMs = Date.now();
+      const revocationReceipt = await ownerTransferRevocationReceipt({
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        transferId: prepared.transferId,
+        targetAccountId,
+        requestId,
+        revokedAtMs,
+        expiresAtMs: revokedAtMs + 15 * 60 * 1000,
+      });
+      const commitBody = {
+        roomGeneration: 0,
+        transferId: prepared.transferId,
+        commitProof: prepared.commitProof,
+        targetAccountId,
+        requestId,
+        revocationReceipt,
+      };
+      const commitRequest = () =>
+        new Request('https://pro-room.internal/internal/admin/owner-transfer/commit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify(commitBody),
+        });
+      const mismatchedCommitGeneration = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer/commit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({ ...commitBody, roomGeneration: 1 }),
+        }),
+      );
+      expect(mismatchedCommitGeneration.status).toBe(400);
+      await expect(mismatchedCommitGeneration.json()).resolves.toEqual({
+        error: 'INVALID_REQUEST',
+      });
+      expect(internal.room.pendingOwnershipTransfer).toMatchObject({
+        transferId: prepared.transferId,
+        requestId,
+      });
+      const prematureRevokedAtMs = prepared.preparedAtMs - 1;
+      const prematureRevocationReceipt = await ownerTransferRevocationReceipt({
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        transferId: prepared.transferId,
+        targetAccountId,
+        requestId,
+        revokedAtMs: prematureRevokedAtMs,
+        expiresAtMs: prematureRevokedAtMs + 15 * 60 * 1000,
+      });
+      const failedCommit = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer/commit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            ...commitBody,
+            revocationReceipt: prematureRevocationReceipt,
+          }),
+        }),
+      );
+      expect(failedCommit.status).toBe(401);
+      await expect(failedCommit.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_REVOCATION_PROOF_INVALID',
+      });
+      expect(internal.room).toMatchObject({
+        status: 'suspended',
+        suspensionReason: 'ownership_transfer_pending',
+        pin: null,
+        pendingOwnershipTransfer: { transferId: prepared.transferId, requestId },
+      });
+
+      const committedResponse = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer/reconcile', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            transferId: prepared.transferId,
+            targetAccountId,
+            requestId,
+            revocationReceipt,
+          }),
+        }),
+      );
+      expect(committedResponse.status).toBe(200);
+      const committed = await responseJson(committedResponse);
+      expect(committed).toMatchObject({
+        ok: true,
+        status: 'active',
+        suspensionReason: null,
         transferId: prepared.transferId,
         requestId,
         targetAccountId,
-        preservedOwnerMemberId: ownerMemberId,
-      },
-    });
-    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
-      401,
-    );
-    expect((await context.worker.fetch(request('/snapshot', {}, delegated.cookie))).status).toBe(
-      401,
-    );
-    expect(internal.room.queueMode).toEqual(preservedQueueMode);
-    expect(internal.room.effects).toEqual(preservedEffects);
-    expect(internal.room.assets[ready.assetId]).toMatchObject(preservedAsset);
-    expect(context.bucket.objects.has(ready.asset.objectKey)).toBe(true);
-    const pendingStatus = await responseJson(
-      await context.worker.fetch(
-        new Request('https://pro-room.internal/internal/admin/status', {
+        replayed: false,
+      });
+      expect(committed).not.toHaveProperty('snapshot');
+      expect(committed).not.toHaveProperty('session');
+      expect(committedResponse.headers.getSetCookie()).toEqual([]);
+      const credentialResponse = await context.worker.fetch(commitRequest());
+      expect(credentialResponse.status).toBe(200);
+      await expect(credentialResponse.json()).resolves.toMatchObject({
+        replayed: true,
+        snapshot: {
+          viewer: {
+            memberId: ownerMemberId,
+            role: 'owner',
+            isAuthenticated: true,
+            displayName: 'Transferred owner',
+          },
+        },
+      });
+      const firstCookies = credentialResponse.headers.getSetCookie();
+      expect(firstCookies).toHaveLength(2);
+      expect(internal.room).toMatchObject({
+        status: 'active',
+        suspensionReason: null,
+        ownerMemberId,
+        ownerAccountId: targetAccountId,
+        pendingOwnershipTransfer: null,
+        completedOwnershipTransfer: {
+          requestId,
+          preservedOwnerMemberId: ownerMemberId,
+        },
+      });
+      expect(internal.room.queueMode).toEqual(preservedQueueMode);
+      expect(internal.room.effects).toEqual(preservedEffects);
+      expect(internal.room.assets[ready.assetId]).toMatchObject(preservedAsset);
+      expect(internal.room.playlist).toEqual([playlistItem(queueItemId, ready.asset)]);
+      expect(context.bucket.objects.has(ready.asset.objectKey)).toBe(true);
+      const missingDeveloperEpochAfterTransfer = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/developer/v1/read', {
+          method: 'POST',
           headers: {
+            'content-type': 'application/json',
             'x-mxqr-pro-room-code': ROOM_CODE,
             'x-mxqr-pro-room-generation': '0',
           },
-        }),
-      ),
-    );
-    expect(pendingStatus.developerAuthorityEpoch).toBe(oldDeveloperAuthorityEpoch + 1);
-    // Opaque random IDs may contain "Pin"; validate the exact public schema, not value substrings.
-    expect(pendingStatus.ownerTransferReconciliation).toEqual({
-      phase: 'pending',
-      transferId: prepared.transferId,
-      claimGeneration: issuedPayload.claimGeneration,
-      requestId,
-      targetAccountId,
-      previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
-      preparedAtMs: prepared.preparedAtMs,
-      expiresAtMs: prepared.expiresAtMs,
-      committedAtMs: null,
-      replayUntilMs: prepared.expiresAtMs,
-    });
-    expect(JSON.stringify(pendingStatus.ownerTransferReconciliation)).not.toContain(
-      prepared.commitProof,
-    );
-
-    const replayedPrepare = await context.worker.fetch(await prepareRequest());
-    const replayedPreparePayload = await responseJson(replayedPrepare);
-    expect({ status: replayedPrepare.status, payload: replayedPreparePayload }).toMatchObject({
-      status: 200,
-      payload: {
-        transferId: prepared.transferId,
-        commitProof: prepared.commitProof,
-        replayed: true,
-      },
-    });
-    const reusedFromAnotherTab = await context.worker.fetch(
-      await prepareRequest('owner_transfer_request_0002'),
-    );
-    expect(reusedFromAnotherTab.status).toBe(409);
-    await expect(reusedFromAnotherTab.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_CLAIM_USED',
-    });
-    const competingClaim = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({ targetAccountId: 'acct_ZYXWVUTSRQPO9876543210' }),
-      }),
-    );
-    expect(competingClaim.status).toBe(409);
-    await expect(competingClaim.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_RECONCILIATION_REQUIRED',
-    });
-
-    const revokedAtMs = Date.now();
-    const revocationReceipt = await ownerTransferRevocationReceipt({
-      roomCode: ROOM_CODE,
-      roomGeneration: 0,
-      transferId: prepared.transferId,
-      targetAccountId,
-      requestId,
-      revokedAtMs,
-      expiresAtMs: revokedAtMs + 15 * 60 * 1000,
-    });
-    const commitBody = {
-      roomGeneration: 0,
-      transferId: prepared.transferId,
-      commitProof: prepared.commitProof,
-      targetAccountId,
-      requestId,
-      revocationReceipt,
-    };
-    const commitRequest = () =>
-      new Request('https://pro-room.internal/internal/admin/owner-transfer/commit', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify(commitBody),
-      });
-    const mismatchedCommitGeneration = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer/commit', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({ ...commitBody, roomGeneration: 1 }),
-      }),
-    );
-    expect(mismatchedCommitGeneration.status).toBe(400);
-    await expect(mismatchedCommitGeneration.json()).resolves.toEqual({
-      error: 'INVALID_REQUEST',
-    });
-    expect(internal.room.pendingOwnershipTransfer).toMatchObject({
-      transferId: prepared.transferId,
-      requestId,
-    });
-    const prematureRevokedAtMs = prepared.preparedAtMs - 1;
-    const prematureRevocationReceipt = await ownerTransferRevocationReceipt({
-      roomCode: ROOM_CODE,
-      roomGeneration: 0,
-      transferId: prepared.transferId,
-      targetAccountId,
-      requestId,
-      revokedAtMs: prematureRevokedAtMs,
-      expiresAtMs: prematureRevokedAtMs + 15 * 60 * 1000,
-    });
-    const failedCommit = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer/commit', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({
-          ...commitBody,
-          revocationReceipt: prematureRevocationReceipt,
-        }),
-      }),
-    );
-    expect(failedCommit.status).toBe(401);
-    await expect(failedCommit.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_REVOCATION_PROOF_INVALID',
-    });
-    expect(internal.room).toMatchObject({
-      status: 'suspended',
-      suspensionReason: 'ownership_transfer_pending',
-      pin: null,
-      pendingOwnershipTransfer: { transferId: prepared.transferId, requestId },
-    });
-
-    const committedResponse = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer/reconcile', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({
-          transferId: prepared.transferId,
-          targetAccountId,
-          requestId,
-          revocationReceipt,
-        }),
-      }),
-    );
-    expect(committedResponse.status).toBe(200);
-    const committed = await responseJson(committedResponse);
-    expect(committed).toMatchObject({
-      ok: true,
-      status: 'active',
-      suspensionReason: null,
-      transferId: prepared.transferId,
-      requestId,
-      targetAccountId,
-      replayed: false,
-    });
-    expect(committed).not.toHaveProperty('snapshot');
-    expect(committed).not.toHaveProperty('session');
-    expect(committedResponse.headers.getSetCookie()).toEqual([]);
-    const credentialResponse = await context.worker.fetch(commitRequest());
-    expect(credentialResponse.status).toBe(200);
-    await expect(credentialResponse.json()).resolves.toMatchObject({
-      replayed: true,
-      snapshot: {
-        viewer: {
-          memberId: ownerMemberId,
-          role: 'owner',
-          isAuthenticated: true,
-          displayName: 'Transferred owner',
-        },
-      },
-    });
-    const firstCookies = credentialResponse.headers.getSetCookie();
-    expect(firstCookies).toHaveLength(2);
-    expect(internal.room).toMatchObject({
-      status: 'active',
-      suspensionReason: null,
-      ownerMemberId,
-      ownerAccountId: targetAccountId,
-      pendingOwnershipTransfer: null,
-      completedOwnershipTransfer: {
-        requestId,
-        preservedOwnerMemberId: ownerMemberId,
-      },
-    });
-    expect(internal.room.queueMode).toEqual(preservedQueueMode);
-    expect(internal.room.effects).toEqual(preservedEffects);
-    expect(internal.room.assets[ready.assetId]).toMatchObject(preservedAsset);
-    expect(internal.room.playlist).toEqual([playlistItem(queueItemId, ready.asset)]);
-    expect(context.bucket.objects.has(ready.asset.objectKey)).toBe(true);
-    const missingDeveloperEpochAfterTransfer = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/developer/v1/read', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({
-          projection: 'queue',
-          keyId: DEVELOPER_KEY_ID,
-          roomGeneration: 0,
-        }),
-      }),
-    );
-    expect(missingDeveloperEpochAfterTransfer.status).toBe(409);
-    await expect(missingDeveloperEpochAfterTransfer.json()).resolves.toEqual({
-      error: 'DEVELOPER_API_AUTHORITY_STALE',
-    });
-    const staleDeveloperMutation = await mutateInternalDeveloperQueue(
-      context.worker,
-      DEVELOPER_KEY_ID,
-      'owner-transfer-stale-developer-mutation',
-      { type: 'clear' },
-      undefined,
-      oldDeveloperAuthorityEpoch,
-    );
-    expect(staleDeveloperMutation.status).toBe(409);
-    await expect(staleDeveloperMutation.json()).resolves.toEqual({
-      error: 'DEVELOPER_API_AUTHORITY_STALE',
-    });
-    expect(internal.room.playlist).toEqual([playlistItem(queueItemId, ready.asset)]);
-    // A key issued under the new owner's epoch is required; changing only
-    // the request's epoch must not revive a previous owner's credential.
-    const currentDeveloperKey = 'N'.repeat(16);
-    (context.worker as unknown as { env: Record<string, unknown> }).env.DEVELOPER_API_DB = {
-      prepare: () => ({
-        bind: () => ({
-          first: async () => ({
-            key_id: currentDeveloperKey,
-            room_code: ROOM_CODE,
-            room_generation: 0,
-            authority_epoch: oldDeveloperAuthorityEpoch + 1,
-            status: 'active',
-            revoked_at: null,
-            expires_at: Number.MAX_SAFE_INTEGER,
-            scope_mask: developerApiScopes['queue:write'],
+          body: JSON.stringify({
+            projection: 'queue',
+            keyId: DEVELOPER_KEY_ID,
+            roomGeneration: 0,
           }),
         }),
-      }),
-    };
-    expect(
-      (
-        await mutateInternalDeveloperQueue(
-          context.worker,
-          currentDeveloperKey,
-          'owner-transfer-current-developer-mutation',
-          { type: 'clear_owned' },
-          undefined,
-          oldDeveloperAuthorityEpoch + 1,
-        )
-      ).status,
-    ).toBe(200);
-    const completedStatus = await responseJson(
-      await context.worker.fetch(
-        new Request('https://pro-room.internal/internal/admin/status', {
+      );
+      expect(missingDeveloperEpochAfterTransfer.status).toBe(409);
+      await expect(missingDeveloperEpochAfterTransfer.json()).resolves.toEqual({
+        error: 'DEVELOPER_API_AUTHORITY_STALE',
+      });
+      const staleDeveloperMutation = await mutateInternalDeveloperQueue(
+        context.worker,
+        DEVELOPER_KEY_ID,
+        'owner-transfer-stale-developer-mutation',
+        { type: 'clear' },
+        undefined,
+        oldDeveloperAuthorityEpoch,
+      );
+      expect(staleDeveloperMutation.status).toBe(409);
+      await expect(staleDeveloperMutation.json()).resolves.toEqual({
+        error: 'DEVELOPER_API_AUTHORITY_STALE',
+      });
+      expect(internal.room.playlist).toEqual([playlistItem(queueItemId, ready.asset)]);
+      // A key issued under the new owner's epoch is required; changing only
+      // the request's epoch must not revive a previous owner's credential.
+      const currentDeveloperKey = 'N'.repeat(16);
+      (context.worker as unknown as { env: Record<string, unknown> }).env.DEVELOPER_API_DB = {
+        prepare: () => ({
+          bind: () => ({
+            first: async () => ({
+              key_id: currentDeveloperKey,
+              room_code: ROOM_CODE,
+              room_generation: 0,
+              authority_epoch: oldDeveloperAuthorityEpoch + 1,
+              status: 'active',
+              revoked_at: null,
+              expires_at: Number.MAX_SAFE_INTEGER,
+              scope_mask: developerApiScopes['queue:write'],
+            }),
+          }),
+        }),
+      };
+      expect(
+        (
+          await mutateInternalDeveloperQueue(
+            context.worker,
+            currentDeveloperKey,
+            'owner-transfer-current-developer-mutation',
+            { type: 'clear_owned' },
+            undefined,
+            oldDeveloperAuthorityEpoch + 1,
+          )
+        ).status,
+      ).toBe(200);
+      const completedStatus = await responseJson(
+        await context.worker.fetch(
+          new Request('https://pro-room.internal/internal/admin/status', {
+            headers: {
+              'x-mxqr-pro-room-code': ROOM_CODE,
+              'x-mxqr-pro-room-generation': '0',
+            },
+          }),
+        ),
+      );
+      expect(completedStatus.ownerTransferReconciliation).toEqual({
+        phase: 'completed',
+        transferId: prepared.transferId,
+        claimGeneration: null,
+        requestId,
+        targetAccountId,
+        previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+        preparedAtMs: prepared.preparedAtMs,
+        expiresAtMs: prepared.expiresAtMs,
+        committedAtMs: expect.any(Number),
+        replayUntilMs: expect.any(Number),
+      });
+      expect(JSON.stringify(completedStatus.ownerTransferReconciliation)).not.toContain(
+        prepared.commitProof,
+      );
+
+      const completedPrepareReplay = await context.worker.fetch(await prepareRequest());
+      expect(completedPrepareReplay.status).toBe(200);
+      await expect(completedPrepareReplay.json()).resolves.toMatchObject({
+        status: 'active',
+        suspensionReason: null,
+        transferId: prepared.transferId,
+        requestId,
+        targetAccountId,
+        committedAtMs: expect.any(Number),
+        replayUntilMs: expect.any(Number),
+        replayed: true,
+      });
+
+      const committedReplayResponse = await context.worker.fetch(commitRequest());
+      expect(committedReplayResponse.status).toBe(200);
+      await expect(committedReplayResponse.json()).resolves.toMatchObject({ replayed: true });
+      expect(committedReplayResponse.headers.getSetCookie()).toEqual(firstCookies);
+      expect(
+        (await context.worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }))).status,
+      ).toBe(401);
+      expect(
+        (await context.worker.fetch(jsonRequest('/sessions', 'POST', { pin: '87654321' }))).status,
+      ).toBe(200);
+
+      const staleRecovery = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/owner-recovery', 'POST', { claimToken: oldRecoveryClaim }),
+          ACTIVATION_OWNER_ACCOUNT_ID,
+          'Old owner',
+        ),
+      );
+      expect(staleRecovery.status).toBe(401);
+      await expect(staleRecovery.json()).resolves.toEqual({ error: 'RECOVERY_INVALID' });
+
+      const completedReceipt = internal.room.completedOwnershipTransfer as Record<string, number>;
+      expect(completedReceipt.replayUntilMs).toBe(completedReceipt.committedAtMs + 10 * 60 * 1000);
+      expect(completedReceipt.replayUntilMs - completedReceipt.committedAtMs).toBeLessThanOrEqual(
+        15 * 60 * 1000,
+      );
+      vi.useFakeTimers();
+      vi.setSystemTime(completedReceipt.expiresAtMs);
+      const afterClaimExpiryPrepare = await context.worker.fetch(await prepareRequest());
+      expect(afterClaimExpiryPrepare.status).toBe(200);
+      await expect(afterClaimExpiryPrepare.json()).resolves.toMatchObject({
+        status: 'active',
+        transferId: prepared.transferId,
+        committedAtMs: completedReceipt.committedAtMs,
+        replayUntilMs: completedReceipt.replayUntilMs,
+        replayed: true,
+      });
+      const afterClaimExpiryCommit = await context.worker.fetch(commitRequest());
+      expect(afterClaimExpiryCommit.status).toBe(200);
+      await expect(afterClaimExpiryCommit.json()).resolves.toMatchObject({
+        status: 'active',
+        replayed: true,
+        snapshot: { viewer: { role: 'owner', isAuthenticated: true } },
+      });
+      expect(afterClaimExpiryCommit.headers.getSetCookie()).toEqual(firstCookies);
+
+      vi.setSystemTime(completedReceipt.replayUntilMs);
+      const expiredCommitReplay = await context.worker.fetch(commitRequest());
+      expect(expiredCommitReplay.status).toBe(410);
+      expect(expiredCommitReplay.headers.getSetCookie()).toEqual([]);
+      await expect(expiredCommitReplay.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_CLAIM_EXPIRED',
+      });
+      const expiredPrepareReplay = await context.worker.fetch(await prepareRequest());
+      expect(expiredPrepareReplay.status).toBe(410);
+      await expect(expiredPrepareReplay.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_CLAIM_EXPIRED',
+      });
+      expect(internal.room.completedOwnershipTransfer).toMatchObject({
+        transferId: prepared.transferId,
+        requestId,
+        replayUntilMs: completedReceipt.replayUntilMs,
+      });
+
+      vi.setSystemTime(completedReceipt.committedAtMs + 24 * 60 * 60 * 1000);
+      await context.worker.alarm();
+      const longLivedStatus = await responseJson(
+        await context.worker.fetch(
+          new Request('https://pro-room.internal/internal/admin/status', {
+            headers: {
+              'x-mxqr-pro-room-code': ROOM_CODE,
+              'x-mxqr-pro-room-generation': '0',
+            },
+          }),
+        ),
+      );
+      expect(longLivedStatus.ownerTransferReconciliation).toMatchObject({
+        phase: 'completed',
+        transferId: prepared.transferId,
+        requestId,
+        targetAccountId,
+        committedAtMs: completedReceipt.committedAtMs,
+        replayUntilMs: completedReceipt.replayUntilMs,
+      });
+      const dayLatePrepareReplay = await context.worker.fetch(await prepareRequest());
+      expect(dayLatePrepareReplay.status).toBe(410);
+      await expect(dayLatePrepareReplay.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_CLAIM_EXPIRED',
+      });
+
+      const unchanged = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
+          method: 'POST',
           headers: {
+            'content-type': 'application/json',
             'x-mxqr-pro-room-code': ROOM_CODE,
             'x-mxqr-pro-room-generation': '0',
           },
+          body: JSON.stringify({ targetAccountId }),
         }),
-      ),
-    );
-    expect(completedStatus.ownerTransferReconciliation).toEqual({
-      phase: 'completed',
-      transferId: prepared.transferId,
-      claimGeneration: null,
-      requestId,
-      targetAccountId,
-      previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
-      preparedAtMs: prepared.preparedAtMs,
-      expiresAtMs: prepared.expiresAtMs,
-      committedAtMs: expect.any(Number),
-      replayUntilMs: expect.any(Number),
-    });
-    expect(JSON.stringify(completedStatus.ownerTransferReconciliation)).not.toContain(
-      prepared.commitProof,
-    );
-
-    const completedPrepareReplay = await context.worker.fetch(await prepareRequest());
-    expect(completedPrepareReplay.status).toBe(200);
-    await expect(completedPrepareReplay.json()).resolves.toMatchObject({
-      status: 'active',
-      suspensionReason: null,
-      transferId: prepared.transferId,
-      requestId,
-      targetAccountId,
-      committedAtMs: expect.any(Number),
-      replayUntilMs: expect.any(Number),
-      replayed: true,
-    });
-
-    const committedReplayResponse = await context.worker.fetch(commitRequest());
-    expect(committedReplayResponse.status).toBe(200);
-    await expect(committedReplayResponse.json()).resolves.toMatchObject({ replayed: true });
-    expect(committedReplayResponse.headers.getSetCookie()).toEqual(firstCookies);
-    expect(
-      (await context.worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }))).status,
-    ).toBe(401);
-    expect(
-      (await context.worker.fetch(jsonRequest('/sessions', 'POST', { pin: '87654321' }))).status,
-    ).toBe(200);
-
-    const staleRecovery = await context.worker.fetch(
-      await withAccountAssertion(
-        jsonRequest('/owner-recovery', 'POST', { claimToken: oldRecoveryClaim }),
-        ACTIVATION_OWNER_ACCOUNT_ID,
-        'Old owner',
-      ),
-    );
-    expect(staleRecovery.status).toBe(401);
-    await expect(staleRecovery.json()).resolves.toEqual({ error: 'RECOVERY_INVALID' });
-
-    const completedReceipt = internal.room.completedOwnershipTransfer as Record<string, number>;
-    expect(completedReceipt.replayUntilMs).toBe(completedReceipt.committedAtMs + 10 * 60 * 1000);
-    expect(completedReceipt.replayUntilMs - completedReceipt.committedAtMs).toBeLessThanOrEqual(
-      15 * 60 * 1000,
-    );
-    vi.useFakeTimers();
-    vi.setSystemTime(completedReceipt.expiresAtMs);
-    const afterClaimExpiryPrepare = await context.worker.fetch(await prepareRequest());
-    expect(afterClaimExpiryPrepare.status).toBe(200);
-    await expect(afterClaimExpiryPrepare.json()).resolves.toMatchObject({
-      status: 'active',
-      transferId: prepared.transferId,
-      committedAtMs: completedReceipt.committedAtMs,
-      replayUntilMs: completedReceipt.replayUntilMs,
-      replayed: true,
-    });
-    const afterClaimExpiryCommit = await context.worker.fetch(commitRequest());
-    expect(afterClaimExpiryCommit.status).toBe(200);
-    await expect(afterClaimExpiryCommit.json()).resolves.toMatchObject({
-      status: 'active',
-      replayed: true,
-      snapshot: { viewer: { role: 'owner', isAuthenticated: true } },
-    });
-    expect(afterClaimExpiryCommit.headers.getSetCookie()).toEqual(firstCookies);
-
-    vi.setSystemTime(completedReceipt.replayUntilMs);
-    const expiredCommitReplay = await context.worker.fetch(commitRequest());
-    expect(expiredCommitReplay.status).toBe(410);
-    expect(expiredCommitReplay.headers.getSetCookie()).toEqual([]);
-    await expect(expiredCommitReplay.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_CLAIM_EXPIRED',
-    });
-    const expiredPrepareReplay = await context.worker.fetch(await prepareRequest());
-    expect(expiredPrepareReplay.status).toBe(410);
-    await expect(expiredPrepareReplay.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_CLAIM_EXPIRED',
-    });
-    expect(internal.room.completedOwnershipTransfer).toMatchObject({
-      transferId: prepared.transferId,
-      requestId,
-      replayUntilMs: completedReceipt.replayUntilMs,
-    });
-
-    vi.setSystemTime(completedReceipt.committedAtMs + 24 * 60 * 60 * 1000);
-    await context.worker.alarm();
-    const longLivedStatus = await responseJson(
-      await context.worker.fetch(
-        new Request('https://pro-room.internal/internal/admin/status', {
-          headers: {
-            'x-mxqr-pro-room-code': ROOM_CODE,
-            'x-mxqr-pro-room-generation': '0',
-          },
-        }),
-      ),
-    );
-    expect(longLivedStatus.ownerTransferReconciliation).toMatchObject({
-      phase: 'completed',
-      transferId: prepared.transferId,
-      requestId,
-      targetAccountId,
-      committedAtMs: completedReceipt.committedAtMs,
-      replayUntilMs: completedReceipt.replayUntilMs,
-    });
-    const dayLatePrepareReplay = await context.worker.fetch(await prepareRequest());
-    expect(dayLatePrepareReplay.status).toBe(410);
-    await expect(dayLatePrepareReplay.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_CLAIM_EXPIRED',
-    });
-
-    const unchanged = await context.worker.fetch(
-      new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': ROOM_CODE,
-          'x-mxqr-pro-room-generation': '0',
-        },
-        body: JSON.stringify({ targetAccountId }),
-      }),
-    );
-    expect(unchanged.status).toBe(409);
-    await expect(unchanged.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_TARGET_UNCHANGED',
-    });
-  });
+      );
+      expect(unchanged.status).toBe(409);
+      await expect(unchanged.json()).resolves.toEqual({
+        error: 'OWNER_TRANSFER_TARGET_UNCHANGED',
+      });
+    },
+  );
 
   it('keeps a prepared transfer fenced for its full lifetime when the target account is deleted', async () => {
     vi.useFakeTimers();

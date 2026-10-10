@@ -610,13 +610,13 @@ function syncRoomPasswordControls(): void {
   const isProRoom = _isProRoom();
   const password = getState('network.roomPassword') || '';
   const active =
-    isProRoom || (getState('network.roomPasswordRequired') && /^\d{8}$/.test(password));
+    getState('network.roomPasswordRequired') && (isProRoom || /^\d{8}$/.test(password));
   const canEdit = _canEditRoomPassword();
 
   document
     .querySelectorAll<HTMLElement>('.room-password-section .section-title')
     .forEach((title) => {
-      const key = isProRoom ? 'pro.pin_change_title' : 'connect.room_password_title';
+      const key = 'connect.room_password_title';
       title.setAttribute('data-i18n', key);
       title.textContent = t(key);
     });
@@ -624,11 +624,11 @@ function syncRoomPasswordControls(): void {
   ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
     const toggle = getUiElement(id) as HTMLButtonElement | null;
     if (!toggle) return;
-    toggle.hidden = isProRoom;
+    toggle.hidden = false;
     toggle.classList.toggle('active', active);
     toggle.setAttribute('aria-pressed', active ? 'true' : 'false');
-    toggle.disabled = false;
-    toggle.setAttribute('aria-disabled', canEdit ? 'false' : 'true');
+    toggle.disabled = isProRoom && _proPinChangeInFlight;
+    toggle.setAttribute('aria-disabled', canEdit && !toggle.disabled ? 'false' : 'true');
     toggle.style.background = active ? 'rgba(var(--primary-rgb), 0.18)' : '';
     const knob = toggle.querySelector('.room-password-toggle-knob') as HTMLElement | null;
     if (knob) {
@@ -645,11 +645,11 @@ function syncRoomPasswordControls(): void {
   ROOM_PASSWORD_CODE_IDS.forEach((id) => {
     const code = getUiElement(id);
     if (!code) return;
-    code.textContent = isProRoom
-      ? PRO_ROOM_PASSWORD_MASKED_TEXT
-      : active
-        ? _formatRoomPassword(password)
-        : ROOM_PASSWORD_OFF_TEXT;
+    code.textContent = active
+      ? isProRoom
+        ? PRO_ROOM_PASSWORD_MASKED_TEXT
+        : _formatRoomPassword(password)
+      : ROOM_PASSWORD_OFF_TEXT;
     code.classList.toggle('is-placeholder', !active);
   });
 
@@ -682,46 +682,67 @@ function syncHostOwnedConnectSections(): void {
   });
 }
 
-async function changeProRoomPin(): Promise<void> {
+async function changeProRoomPin(disable = false): Promise<void> {
   if (_proPinChangeInFlight || _guardRoomPasswordCtrl()) return;
-
-  const result = await showDialog({
-    title: t('pro.pin_change_title'),
-    message: t('pro.pin_change_message'),
-    inputField: {
-      placeholder: t('dialog.room_password_placeholder'),
-      maxLength: 8,
-      inputMode: 'numeric',
-      pattern: '[0-9]*',
-      autocomplete: 'new-password',
-      splitEvery: 4,
-      separator: '-',
-      validator: (value) =>
-        normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
-    },
-    buttonText: t('common.ok'),
-    secondaryText: t('common.cancel'),
-    defaultFocus: 'primary',
-  });
-  const pin = result.action === 'ok' ? normalizeProRoomPin(result.inputValue) : null;
-  if (!pin) return;
-  if (!_isProRoom() || !hasRoomCapability('room.configure')) {
-    showToast(t('pro.owner_only'));
-    return;
-  }
-
+  const initialRoom = getRoomContext();
+  const initialDeviceId = getState('network.myId');
+  const abort = new AbortController();
+  const isCurrent = () => {
+    const room = getRoomContext();
+    return (
+      !abort.signal.aborted &&
+      room.kind === 'pro' &&
+      room.roomId === initialRoom.roomId &&
+      getState('network.myId') === initialDeviceId &&
+      hasRoomCapability('room.configure')
+    );
+  };
+  const invalidate = () => {
+    if (!isCurrent()) abort.abort();
+  };
+  const offRoom = bus.on('state:room.context', invalidate);
+  const offDevice = bus.on('state:network.myId', invalidate);
   _proPinChangeInFlight = true;
   syncRoomPasswordControls();
   try {
-    // Lazy-load the PRO runtime so the standard-room connect UI does not pull
-    // the persistent-room/network bridge into its eager module graph.
+    let pin: string | null = null;
+    if (!disable) {
+      const result = await showDialog({
+        title: t('pro.pin_change_title'),
+        message: t('pro.pin_change_message'),
+        inputField: {
+          placeholder: t('dialog.room_password_placeholder'),
+          maxLength: 8,
+          inputMode: 'numeric',
+          pattern: '[0-9]*',
+          autocomplete: 'new-password',
+          splitEvery: 4,
+          separator: '-',
+          validator: (value) =>
+            normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
+        },
+        buttonText: t('common.ok'),
+        secondaryText: t('common.cancel'),
+        defaultFocus: 'primary',
+        signal: abort.signal,
+      });
+      pin = result.action === 'ok' ? normalizeProRoomPin(result.inputValue) : null;
+      if (!pin) return;
+    }
+    if (!isCurrent()) return;
+    // Lazy-load the PRO runtime without pulling it into the standard-room graph.
     const { changeActiveProRoomPin } = await import('../pro-room/runtime.ts');
-    await changeActiveProRoomPin(pin);
-    showToast(t('pro.pin_changed'));
+    if (!isCurrent()) return;
+    await changeActiveProRoomPin(pin, abort.signal);
+    if (isCurrent()) showToast(t(disable ? 'connect.room_password_disabled' : 'pro.pin_changed'));
   } catch (error) {
-    log.warn('[Connect] PRO room password change failed', error);
-    showToast(t('error.network_generic'));
+    if (isCurrent()) {
+      log.warn('[Connect] PRO room password change failed', error);
+      showToast(t('error.network_generic'));
+    }
   } finally {
+    offRoom();
+    offDevice();
     _proPinChangeInFlight = false;
     syncRoomPasswordControls();
   }
@@ -732,6 +753,12 @@ function initRoomPasswordControls(): void {
     const toggle = getUiElement(id);
     if (!toggle) return;
     toggle.addEventListener('click', () => {
+      if (_isProRoom()) {
+        changeProRoomPin(getState('network.roomPasswordRequired')).catch((error) => {
+          log.warn('[Connect] PRO room password toggle failed', error);
+        });
+        return;
+      }
       if (_guardRoomPasswordCtrl()) return;
 
       if (getState('network.roomPasswordRequired')) {

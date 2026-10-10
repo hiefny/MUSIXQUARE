@@ -1065,6 +1065,9 @@ describe('Worker compatibility-floor recovery', () => {
         'pro-system-audio-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
       );
       expect(step).toContain(
+        'pro-room-entry-policy-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
+      );
+      expect(step).toContain(
         'standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
       );
       expect(step).toContain(

@@ -1539,6 +1539,10 @@ jobs:
             node scripts/release-deployment-state.mts \
               pro-system-audio-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
+          pro_room_entry_policy_forward_floor="$(
+            node scripts/release-deployment-state.mts \
+              pro-room-entry-policy-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
           standard_room_pin_forward_floor="$(
             node scripts/release-deployment-state.mts \
               standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
@@ -1565,6 +1569,7 @@ jobs:
             MXQR_SERVICE_CONTROL_FORWARD_FLOOR="$service_control_forward_floor" \
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
             MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR="$pro_system_audio_forward_floor" \
+            MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR="$pro_room_entry_policy_forward_floor" \
             MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR="$standard_room_pin_forward_floor" \
             MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR="$soro_article_visibility_forward_floor" \
             node scripts/release-recovery-plan.mts

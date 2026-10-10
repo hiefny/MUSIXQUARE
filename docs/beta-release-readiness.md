@@ -2,11 +2,13 @@
 
 | Field              | Value                                                                                                                                                                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status             | Runbook — 운영 App `8.7.9` / `v645`, App SHA `b831b932` 배포 완료. 헤더 독립 크로스페이드·로딩/시크 1.2초 차단 제거, PR #279·exact-main CI `37929745403`·Release `37930447317` 성공. App 100% version·운영 smoke4·소유권·coherent marker 확인, 다른 Worker5종 `ff7766cc` 유지. 새 헤더 변경의 iPhone Safari/PWA 실기는 사용자 후속 확인 대기. 기존 R26 범위 완료와 provider/실기 관측 한계 유지 |
+| Status | PRO 선택형 입장 암호 `8.8.0` / `v646` 구현·검증 중. 현재 운영은 App `8.7.9` / `v645` (`b831b932`), 다른 Worker5종 `ff7766cc`. 정식 PR·exact-main CI·all Release 필요. [범위·복구·검증](design/pro-optional-entry-password-2026-10-10.md) |
 | Applies to         | `mxqr_beta` 누적 승격과 후속 App·시그널링 패치의 프로덕션 배포 결과·현재 상태·남은 확인 |
-| Last source review | 2026-10-09 |
+| Last source review | 2026-10-10 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [작업 지침](../AGENTS.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [문서 관리 규칙](documentation-governance.md)                                                        |
+
+**후속 구현·검증 중 — 2026-10-10:** 소유자 승인으로 PRO 입장 암호를 선택형으로 변경한다. 신규 활성화는 계정 확인 후 공개방을 만들며, 기존 방은 암호를 유지하고 소유자가 설정에서 직접 해제·지정할 수 있다. 일반방 정책은 유지한다. DO 명시 플래그·구버전 응답 협상·PRO/App 복구 호환 경계를 추가하며 D1·비밀·바인딩·의존성 변경은 없다. 현재 미배포이며 [상세 기록](design/pro-optional-entry-password-2026-10-10.md)의 검증·배포 대기를 따른다.
 
 **최신 배포 완료 — 2026-10-09:** 사용자가 운영 8.7.8의 iPhone
 깜빡임 해결을 확인한 뒤 로딩·시크 중에도 크로스페이드를 유지하도록 수정·배포를
@@ -91,6 +93,7 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 
 | 항목                                | 확인된 상태                                                                  |
 | ----------------------------------- | ---------------------------------------------------------------------------- |
+| PRO 선택형 암호 — 2026-10-10 | 8.8.0/v646 구현·검증 중; 신규 공개 활성화, 기존 방 보호 유지, 소유자 수동 PIN 토글, 구버전 호환·복구 floor. PR·exact-main CI·all 배포 전. [검증 기록](design/pro-optional-entry-password-2026-10-10.md) |
 | 8.7.9 헤더 독립 크로스페이드 배포 — 2026-10-09 | PR279 초기 자동리뷰 P1 커튼 조건 수정·회귀 보강·해결, 최종 독립 검토 차단0·PR CI37929168928 성공. main `b831b932` CI37929745403 attempt1 전체531파일11,017pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과, candidate782파일 hash/version 일치. Release37930447317 attempt1·app/D1 false 성공, App8.7.9/v645·100% version·smoke4·최종 소유권/coherent marker 확인. 다른 Worker5종ff7766cc 유지·호환, 복구 불필요. 제품65229795의 로컬 정적7/build·실제 DOM Chromium50 근거와 새 헤더 실기 대기 유지. [기록](design/header-crossfade-2026-10-09.md) |
 | 8.7.8 iPhone YouTube 전환 수정 배포 — 2026-10-09 | PR277·자동 리뷰 완료/inline0·독립 검토 새 확정0. main `12ecbf71` CI37907874855 attempt1 전체530파일10,990pass/기존1skip/fail0·4종coverage·candidate17/critical22 통과. 782파일 hash/version 일치. Release37908451698 attempt1·app/D1 false 성공, App8.7.8/v643·100% version·smoke4·최종 소유권/coherent marker 확인. 다른 Worker5종ff7766cc 호환·유지, rollback 불필요. 사용자가 깜빡임 해결 확인. 기존 숨은 fullscreen 키보드 포커스는 별도 후속 |
 | R26 보완 원본 최종 판정 — 2026-10-09 | 검토 HEAD `7dd457c2b3c5b63186dd3a20b31fa7601a6ec831`, 배포 제품18246271과 문서2파일 차이. Vitest47(39+8)/Chromium8의 최신55pass·fail/skip0 채택. 요청24개 같은 origin·기발급 flow 성공2·PKCE 대응·세션 후속 인증 확인, 합의한 로컬 범위 보류 해제. 현재clean·추적1,977/비Markdown1,830과 제공manifest 전수hash 일치·누락/추가/불일치0. 제출HEAD 전체값 불일치는 실제Git값으로 정정. Node24.13.1/핀24.20.0·live/운영쿠키/실기 제외 범위 유지, 부모실행0·새제품결함0·재배포 불필요. [최종 판정](design/beta-qa3-repair-2026-10-09.md#r26-보완-원본-최종-판정--2026-10-09) |

@@ -269,8 +269,11 @@ describe('policy-page accordions', () => {
     );
 
     expect(privacyText).toContain('Effective date: September 8, 2026');
-    expect(termsText).toContain('Effective date: September 8, 2026');
-    expect(faqText).toContain('Last updated: August 17, 2026');
+    expect(termsText).toContain('Effective date: October 10, 2026');
+    expect(faqText).toContain('Last updated: October 10, 2026');
+    expect(faqText).toContain('New PRO rooms start without an entry password');
+    expect(faqText).not.toContain('An active PRO room always requires');
+    expect(termsText).toContain('A room without an entry password can be joined');
 
     for (const phrase of [
       'Cloudflare D1 databases',

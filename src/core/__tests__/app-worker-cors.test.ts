@@ -12411,86 +12411,130 @@ describe('Cloudflare app worker PRO room facade', () => {
     expect((v1Signal as AbortSignal | null)?.aborted).toBe(true);
   });
 
-  it('keeps the session actor stable while optional account assertion recovers', async () => {
-    const accountId = `acct_${'A'.repeat(22)}`;
-    const accountToken = 'S'.repeat(43);
-    let accountSessionReads = 0;
-    const authDb = {
-      prepare: vi.fn((sql: string) => ({
-        bind: vi.fn((..._values: unknown[]) => ({
-          first: vi.fn(async () => {
-            if (/FROM mxqr_account_sessions s/i.test(sql)) {
-              accountSessionReads += 1;
-              if (accountSessionReads === 1) throw new Error('temporary account store outage');
-              return {
-                session_hash: 'session-hash',
-                account_id: accountId,
-                last_seen_at: Date.now(),
-                expires_at: Date.now() + 60_000,
-                nickname: 'Stable actor',
-                profile_complete: 1,
-                status: 'active',
-              };
-            }
-            return null;
-          }),
-          run: vi.fn(async () => ({ meta: { changes: 1 } })),
-          all: vi.fn(async () => ({ results: [] })),
-        })),
-      })),
-    };
-    const adminDb = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({
-          first: vi.fn(async () => ({ status: 'registered', room_generation: 0 })),
-          all: vi.fn(async () => ({
-            results: [{ status: 'registered', room_generation: 0 }],
+  it.each([true, false])(
+    'keeps the session actor stable while optional account assertion recovers (PIN: %s)',
+    async (withPin) => {
+      const accountId = `acct_${'A'.repeat(22)}`;
+      const accountToken = 'S'.repeat(43);
+      let accountSessionReads = 0;
+      const authDb = {
+        prepare: vi.fn((sql: string) => ({
+          bind: vi.fn((..._values: unknown[]) => ({
+            first: vi.fn(async () => {
+              if (/FROM mxqr_account_sessions s/i.test(sql)) {
+                accountSessionReads += 1;
+                if (accountSessionReads === 1) throw new Error('temporary account store outage');
+                return {
+                  session_hash: 'session-hash',
+                  account_id: accountId,
+                  last_seen_at: Date.now(),
+                  expires_at: Date.now() + 60_000,
+                  nickname: 'Stable actor',
+                  profile_complete: 1,
+                  status: 'active',
+                };
+              }
+              return null;
+            }),
+            run: vi.fn(async () => ({ meta: { changes: 1 } })),
+            all: vi.fn(async () => ({ results: [] })),
           })),
         })),
-      })),
-    };
-    const forwarded: Request[] = [];
-    const env = {
-      GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
-      GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
-      MXQR_AUTH_SESSION_PEPPER: 'session-pepper-for-tests-at-least-32-bytes',
-      MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
-      MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
-      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
-      MUSIXQUARE_AUTH_DB: authDb,
-      MUSIXQUARE_ADMIN_DB: adminDb,
-      PRO_ROOM_PUBLIC_API: {
-        fetch: vi.fn(async (request: Request) => {
-          forwarded.push(request);
-          return Response.json({ ok: true });
-        }),
-      },
-    };
-    const admission = (ip: string) =>
+      };
+      const adminDb = {
+        prepare: vi.fn(() => ({
+          bind: vi.fn(() => ({
+            first: vi.fn(async () => ({ status: 'registered', room_generation: 0 })),
+            all: vi.fn(async () => ({
+              results: [{ status: 'registered', room_generation: 0 }],
+            })),
+          })),
+        })),
+      };
+      const forwarded: Request[] = [];
+      const env = {
+        GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
+        GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+        MXQR_AUTH_SESSION_PEPPER: 'session-pepper-for-tests-at-least-32-bytes',
+        MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
+        MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
+        MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+        MUSIXQUARE_AUTH_DB: authDb,
+        MUSIXQUARE_ADMIN_DB: adminDb,
+        PRO_ROOM_PUBLIC_API: {
+          fetch: vi.fn(async (request: Request) => {
+            forwarded.push(request);
+            return Response.json({ ok: true });
+          }),
+        },
+      };
+      const admission = (ip: string) =>
+        new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            Cookie: `__Host-mxqr_account=${accountToken}`,
+            'CF-Connecting-IP': ip,
+            'X-MXQR-Pro-Session-Actor': 'spoofed-browser-value',
+            'X-MXQR-Pro-Entry-Policy': 'optional-v1',
+          },
+          body: JSON.stringify({
+            ...(withPin ? { pin: '12345678' } : {}),
+            requestId: 'session-actor-recovery-0001',
+          }),
+        });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      expect((await appWorker.fetch(admission('203.0.113.1'), env)).status).toBe(200);
+      expect((await appWorker.fetch(admission('203.0.113.2'), env)).status).toBe(200);
+
+      expect(forwarded).toHaveLength(2);
+      const actorHints = forwarded.map((request) =>
+        request.headers.get('X-MXQR-Pro-Session-Actor'),
+      );
+      expect(actorHints[0]).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+      expect(actorHints[1]).toBe(actorHints[0]);
+      expect(actorHints).not.toContain('spoofed-browser-value');
+      expect(forwarded[0]!.headers.get('X-MXQR-Account-Assertion')).toBeNull();
+      expect(forwarded[1]!.headers.get('X-MXQR-Account-Assertion')).not.toBeNull();
+      expect(
+        forwarded.every(
+          (request) => request.headers.get('X-MXQR-Pro-Entry-Policy') === 'optional-v1',
+        ),
+      ).toBe(true);
+      warn.mockRestore();
+    },
+  );
+
+  it.each([
+    { requestId: 'optional-admission-invalid-0001', pin: null },
+    { requestId: 'optional-admission-invalid-0001', owner: true },
+    { requestId: 'short' },
+  ])('does not mint a session actor for malformed admission %j', async (body) => {
+    const upstreamFetch = vi.fn(async (request: Request) => {
+      expect(request.headers.get('X-MXQR-Pro-Session-Actor')).toBeNull();
+      return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
+    });
+    const response = await appWorker.fetch(
       new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
         method: 'POST',
         headers: {
           Origin: 'https://musixquare.com',
           'Content-Type': 'application/json',
-          Cookie: `__Host-mxqr_account=${accountToken}`,
-          'CF-Connecting-IP': ip,
+          'CF-Connecting-IP': '203.0.113.10',
           'X-MXQR-Pro-Session-Actor': 'spoofed-browser-value',
+          'X-MXQR-Pro-Entry-Policy': 'optional-v1',
         },
-        body: JSON.stringify({ pin: '12345678', requestId: 'session-actor-recovery-0001' }),
-      });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-    expect((await appWorker.fetch(admission('203.0.113.1'), env)).status).toBe(200);
-    expect((await appWorker.fetch(admission('203.0.113.2'), env)).status).toBe(200);
-
-    expect(forwarded).toHaveLength(2);
-    const actorHints = forwarded.map((request) => request.headers.get('X-MXQR-Pro-Session-Actor'));
-    expect(actorHints[0]).toMatch(/^[A-Za-z0-9_-]{43}$/u);
-    expect(actorHints[1]).toBe(actorHints[0]);
-    expect(actorHints).not.toContain('spoofed-browser-value');
-    expect(forwarded[0]!.headers.get('X-MXQR-Account-Assertion')).toBeNull();
-    expect(forwarded[1]!.headers.get('X-MXQR-Account-Assertion')).not.toBeNull();
-    warn.mockRestore();
+        body: JSON.stringify(body),
+      }),
+      {
+        MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
+        PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch },
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
   });
 
   it('forwards the public route through the PRO Worker and scopes its cookies to one room', async () => {

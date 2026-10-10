@@ -715,6 +715,7 @@ interface ProRoomState {
   effects: RoomEffectsState;
   quota: RoomQuota;
   pin: PinRecord | null;
+  passwordRequired: boolean;
   authEpoch: number;
   ownerAuthorityEpoch: number;
   developerAuthorityEpoch: number;
@@ -1367,7 +1368,7 @@ function corsHeaders(origin: string): HeaderRecord {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -1674,6 +1675,7 @@ function initialRoomState(
       reservedBytes: 0,
     },
     pin: null,
+    passwordRequired: true,
     authEpoch: 0,
     ownerAuthorityEpoch: 0,
     developerAuthorityEpoch: 0,
@@ -3910,6 +3912,11 @@ export class MusixquareProRoom {
       );
     }
     if (!isProRoomGeneration(this.activeRoom.roomGeneration)) return false;
+    // Only an explicit, durable opt-out opens admission. Historical null PINs
+    // also represent unactivated, detached, or transferring owner authority.
+    if (typeof this.activeRoom.passwordRequired !== 'boolean') {
+      this.activeRoom.passwordRequired = true;
+    }
     if (!Number.isSafeInteger(this.activeRoom.activationClaimGeneration)) {
       this.activeRoom.activationClaimGeneration = 0;
     }
@@ -5791,143 +5798,180 @@ export class MusixquareProRoom {
         if (accountDeletionResponse && accountDeletionResponse.status !== 423) {
           return accountDeletionResponse;
         }
-        return this.handleBootstrap();
+        return this.handleBootstrap(request);
       });
     }
-    return this.withMutation(async () => {
-      const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
-      if (accountDeletionResponse) return accountDeletionResponse;
-      await this.prune(Date.now());
-      if (request.method === 'GET') {
-        if (url.pathname === `${prefix}/snapshot`) return this.handleGetSnapshot(request);
-        if (url.pathname === `${prefix}/administrators`)
-          return this.handleGetAdministrators(request);
-        if (url.pathname === `${prefix}/effects`) return this.handleGetEffects(request);
-        if (url.pathname === `${prefix}/settings-sync`) return this.handleGetSettingsSync(request);
-        if (url.pathname === `${prefix}/queue-mode`) return this.handleGetQueueMode(request);
-        if (url.pathname === `${prefix}/system-audio`) return this.handleGetSystemAudio(request);
-        const readDownload = url.pathname.match(
-          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/download$`),
+    return this.withMutation(() =>
+      this.withEntryPolicyResponse(request, async () => {
+        const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+        if (accountDeletionResponse) return accountDeletionResponse;
+        await this.prune(Date.now());
+        if (request.method === 'GET') {
+          if (url.pathname === `${prefix}/snapshot`) return this.handleGetSnapshot(request);
+          if (url.pathname === `${prefix}/administrators`)
+            return this.handleGetAdministrators(request);
+          if (url.pathname === `${prefix}/effects`) return this.handleGetEffects(request);
+          if (url.pathname === `${prefix}/settings-sync`)
+            return this.handleGetSettingsSync(request);
+          if (url.pathname === `${prefix}/queue-mode`) return this.handleGetQueueMode(request);
+          if (url.pathname === `${prefix}/system-audio`) return this.handleGetSystemAudio(request);
+          const readDownload = url.pathname.match(
+            new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/download$`),
+          );
+          const readDownloadAssetId = readDownload?.[1];
+          if (readDownloadAssetId) return this.handleDownloadMedia(request, readDownloadAssetId);
+        }
+        const completeMediaMatch = url.pathname.match(
+          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/complete$`),
         );
-        const readDownloadAssetId = readDownload?.[1];
-        if (readDownloadAssetId) return this.handleDownloadMedia(request, readDownloadAssetId);
-      }
-      const completeMediaMatch = url.pathname.match(
-        new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/complete$`),
-      );
-      const deleteMediaMatch = url.pathname.match(
-        new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`),
-      );
-      const completedAssetId = completeMediaMatch?.[1];
-      const deletedAssetId = deleteMediaMatch?.[1];
-      // Completion may leave a verified immutable final object in R2 before
-      // the room-state commit. Its retry path now treats that object as the
-      // recovery source, so rewinding the in-memory reservation on a storage
-      // commit failure is both safe and required. Deletion is different: its
-      // helper restores the already-durable pending marker after a post-R2
-      // commit failure, and the outer checkpoint must not rewind past that
-      // intent into the pre-deletion state.
-      const hasIrreversibleMediaDelete = request.method === 'DELETE' && deleteMediaMatch !== null;
-      return this.withStateCapacityRollback(
-        async () => {
-          const administratorMatch = url.pathname.match(
-            new RegExp(`^${prefix}/administrators/([A-Za-z0-9][A-Za-z0-9_-]{15,127})$`),
-          );
-          const administratorMemberId = administratorMatch?.[1];
-          if (request.method === 'POST' && url.pathname === `${prefix}/activation`)
-            return this.handleActivation(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/owner-recovery`)
-            return this.handleOwnerRecovery(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/owner-transfer/prepare`)
-            return this.handleOwnerTransferPrepare(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
-            return this.handleCreateSession(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/account`)
-            return this.handleAttachCurrentAccount(request);
-          if (
-            request.method === 'POST' &&
-            url.pathname === `${prefix}/sessions/current/account/lease`
-          )
-            return this.handleRenewCurrentAccountLease(request);
-          if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current/account`)
-            return this.handleDetachCurrentAccount(request);
-          if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
-            return this.handleCloseSession(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/close`)
-            return this.handleCloseSessionFenced(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/pin`)
-            return this.handleChangePin(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/presence/heartbeat`)
-            return this.handleHeartbeat(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/presence/enter`)
-            return this.handleEnterPresence(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/presence/close`)
-            return this.handleClosePresence(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/presence/kick-device`)
-            return this.handleKickPhysicalPresence(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/presence/kick`)
-            return this.handleKickPresence(request);
-          if (request.method === 'PUT' && administratorMemberId)
-            return this.handlePutAdministrator(request, administratorMemberId);
-          if (request.method === 'DELETE' && administratorMemberId)
-            return this.handleDeleteAdministrator(request, administratorMemberId);
-          if (request.method === 'DELETE' && url.pathname === `${prefix}/presence/current`)
-            return this.handleLeavePresence(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
-            return this.handleSignalingTicket(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/playback/commands`)
-            return this.handlePlaybackCommand(request);
-          const playbackReady = url.pathname.match(
-            new RegExp(`^${prefix}/playback/transitions/(transition_[A-Za-z0-9_-]{22})/ready$`),
-          );
-          const playbackTransitionId = playbackReady?.[1];
-          if (request.method === 'POST' && playbackTransitionId) {
-            return this.handlePlaybackTransitionReady(request, playbackTransitionId);
-          }
-          const developerCommandAck = url.pathname.match(
-            new RegExp(`^${prefix}/developer-commands/(cmd_[A-Za-z0-9_-]{22})/ack$`),
-          );
-          const developerCommandId = developerCommandAck?.[1];
-          if (request.method === 'POST' && developerCommandId) {
-            return this.handleDeveloperCommandAck(request, developerCommandId);
-          }
-          if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
-            return this.handleUpdateEffects(request);
-          if (request.method === 'PUT' && url.pathname === `${prefix}/settings-sync`)
-            return this.handleUpdateSettingsSync(request);
-          if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
-            return this.handleUpdateQueueMode(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
-            return this.handleAcquireSystemAudio(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/commit`)
-            return this.handleCommitSystemAudio(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/heartbeat`)
-            return this.handleHeartbeatSystemAudio(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/release`)
-            return this.handleReleaseSystemAudio(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/snapshot/compact`)
-            return this.handleCompactSnapshotMutation(request);
-          if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
-            return this.handleCreateReservation(request);
-          if (request.method === 'POST' && completedAssetId)
-            return this.handleCompleteMedia(request, completedAssetId);
-          if (request.method === 'DELETE' && deletedAssetId)
-            return this.handleDeleteMedia(request, deletedAssetId);
-          return errorResponse('NOT_FOUND', 404);
-        },
-        { rollbackStorageFailure: !hasIrreversibleMediaDelete },
-      );
+        const deleteMediaMatch = url.pathname.match(
+          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`),
+        );
+        const completedAssetId = completeMediaMatch?.[1];
+        const deletedAssetId = deleteMediaMatch?.[1];
+        // Completion may leave a verified immutable final object in R2 before
+        // the room-state commit. Its retry path now treats that object as the
+        // recovery source, so rewinding the in-memory reservation on a storage
+        // commit failure is both safe and required. Deletion is different: its
+        // helper restores the already-durable pending marker after a post-R2
+        // commit failure, and the outer checkpoint must not rewind past that
+        // intent into the pre-deletion state.
+        const hasIrreversibleMediaDelete = request.method === 'DELETE' && deleteMediaMatch !== null;
+        return this.withStateCapacityRollback(
+          async () => {
+            const administratorMatch = url.pathname.match(
+              new RegExp(`^${prefix}/administrators/([A-Za-z0-9][A-Za-z0-9_-]{15,127})$`),
+            );
+            const administratorMemberId = administratorMatch?.[1];
+            if (request.method === 'POST' && url.pathname === `${prefix}/activation`)
+              return this.handleActivation(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/owner-recovery`)
+              return this.handleOwnerRecovery(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/owner-transfer/prepare`)
+              return this.handleOwnerTransferPrepare(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
+              return this.handleCreateSession(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/account`)
+              return this.handleAttachCurrentAccount(request);
+            if (
+              request.method === 'POST' &&
+              url.pathname === `${prefix}/sessions/current/account/lease`
+            )
+              return this.handleRenewCurrentAccountLease(request);
+            if (
+              request.method === 'DELETE' &&
+              url.pathname === `${prefix}/sessions/current/account`
+            )
+              return this.handleDetachCurrentAccount(request);
+            if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
+              return this.handleCloseSession(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/close`)
+              return this.handleCloseSessionFenced(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/pin`)
+              return this.handleChangePin(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/presence/heartbeat`)
+              return this.handleHeartbeat(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/presence/enter`)
+              return this.handleEnterPresence(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/presence/close`)
+              return this.handleClosePresence(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/presence/kick-device`)
+              return this.handleKickPhysicalPresence(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/presence/kick`)
+              return this.handleKickPresence(request);
+            if (request.method === 'PUT' && administratorMemberId)
+              return this.handlePutAdministrator(request, administratorMemberId);
+            if (request.method === 'DELETE' && administratorMemberId)
+              return this.handleDeleteAdministrator(request, administratorMemberId);
+            if (request.method === 'DELETE' && url.pathname === `${prefix}/presence/current`)
+              return this.handleLeavePresence(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/signaling-tickets`)
+              return this.handleSignalingTicket(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/playback/commands`)
+              return this.handlePlaybackCommand(request);
+            const playbackReady = url.pathname.match(
+              new RegExp(`^${prefix}/playback/transitions/(transition_[A-Za-z0-9_-]{22})/ready$`),
+            );
+            const playbackTransitionId = playbackReady?.[1];
+            if (request.method === 'POST' && playbackTransitionId) {
+              return this.handlePlaybackTransitionReady(request, playbackTransitionId);
+            }
+            const developerCommandAck = url.pathname.match(
+              new RegExp(`^${prefix}/developer-commands/(cmd_[A-Za-z0-9_-]{22})/ack$`),
+            );
+            const developerCommandId = developerCommandAck?.[1];
+            if (request.method === 'POST' && developerCommandId) {
+              return this.handleDeveloperCommandAck(request, developerCommandId);
+            }
+            if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
+              return this.handleUpdateEffects(request);
+            if (request.method === 'PUT' && url.pathname === `${prefix}/settings-sync`)
+              return this.handleUpdateSettingsSync(request);
+            if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
+              return this.handleUpdateQueueMode(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
+              return this.handleAcquireSystemAudio(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/commit`)
+              return this.handleCommitSystemAudio(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/heartbeat`)
+              return this.handleHeartbeatSystemAudio(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/release`)
+              return this.handleReleaseSystemAudio(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/snapshot/compact`)
+              return this.handleCompactSnapshotMutation(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
+              return this.handleCreateReservation(request);
+            if (request.method === 'POST' && completedAssetId)
+              return this.handleCompleteMedia(request, completedAssetId);
+            if (request.method === 'DELETE' && deletedAssetId)
+              return this.handleDeleteMedia(request, deletedAssetId);
+            return errorResponse('NOT_FOUND', 404);
+          },
+          { rollbackStorageFailure: !hasIrreversibleMediaDelete },
+        );
+      }),
+    );
+  }
+
+  supportsOptionalEntryPassword(request: Request) {
+    return request.headers.get('x-mxqr-pro-entry-policy') === 'optional-v1';
+  }
+
+  async withEntryPolicyResponse(request: Request, task: () => Promise<Response>) {
+    const response = await task();
+    if (
+      !this.supportsOptionalEntryPassword(request) ||
+      !response.ok ||
+      !response.headers.get('content-type')?.startsWith('application/json')
+    )
+      return response;
+    // Keep the exact v1 snapshot shape for cached clients. This runs inside
+    // the room mutation lock, so admission policy and snapshot are atomic.
+    const body: unknown = await response.clone().json();
+    if (!isRecord(body) || !isRecord(body.snapshot)) return response;
+    body.snapshot.passwordRequired = this.activeRoom.passwordRequired;
+    return new Response(JSON.stringify(body), {
+      status: response.status,
+      headers: response.headers,
     });
   }
 
-  handleBootstrap() {
+  handleBootstrap(request: Request) {
     const status =
       this.activeRoom.status === 'unactivated'
         ? 'activation_required'
         : this.activeRoom.status === 'suspended'
           ? 'suspended'
-          : 'pin_required';
-    return jsonResponse({ roomCode: this.activeRoom.roomCode, status });
+          : !this.activeRoom.passwordRequired && this.supportsOptionalEntryPassword(request)
+            ? 'open'
+            : 'pin_required';
+    return jsonResponse({
+      roomCode: this.activeRoom.roomCode,
+      status,
+      ...(this.supportsOptionalEntryPassword(request)
+        ? { passwordRequired: this.activeRoom.passwordRequired }
+        : {}),
+    });
   }
 
   botRateLimitResponse(key: string, limit: number, nowMs: number) {
@@ -9060,6 +9104,7 @@ export class MusixquareProRoom {
       this.activeRoom.accountMembers = {};
       this.activeRoom.anonymousAdministrators = {};
       this.activeRoom.pin = null;
+      this.activeRoom.passwordRequired = true;
       this.activeRoom.ownerCredentialHash = null;
       this.activeRoom.ownerAccountId = null;
       this.activeRoom.ownerDisplayName = null;
@@ -11937,7 +11982,9 @@ export class MusixquareProRoom {
     if (this.activeRoom.suspensionReason !== 'operator_suspended') {
       return errorResponse('ROOM_OWNER_TRANSFER_REQUIRED', 409);
     }
-    if (!this.activeRoom.pin) return errorResponse('ROOM_OWNER_TRANSFER_REQUIRED', 409);
+    if (this.activeRoom.passwordRequired && !this.activeRoom.pin) {
+      return errorResponse('ROOM_OWNER_TRANSFER_REQUIRED', 409);
+    }
     if (this.activeRoom.revision >= Number.MAX_SAFE_INTEGER) {
       return errorResponse('REVISION_EXHAUSTED', 409);
     }
@@ -12327,6 +12374,7 @@ export class MusixquareProRoom {
     this.activeRoom.accountMembers = {};
     this.activeRoom.anonymousAdministrators = {};
     this.activeRoom.pin = null;
+    this.activeRoom.passwordRequired = true;
     this.activeRoom.ownerCredentialHash = null;
     this.activeRoom.ownerAccountId = null;
     this.activeRoom.ownerDisplayName = null;
@@ -12626,6 +12674,7 @@ export class MusixquareProRoom {
       expiresAtMs: nowMs + this.sessionTtlSeconds() * 1000,
     };
     this.activeRoom.pin = pending.pin;
+    this.activeRoom.passwordRequired = true;
     this.activeRoom.ownerMemberId = pending.preservedOwnerMemberId;
     this.activeRoom.ownerAccountId = pending.targetAccountId;
     this.activeRoom.ownerDisplayName = pending.targetDisplayName;
@@ -12690,7 +12739,15 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     const body = parsed.value;
-    if (!hasExactKeys(body, ['claimToken', 'temporaryPin', 'newPin'], ['ownerName'])) {
+    const legacyActivation = hasExactKeys(
+      body,
+      ['claimToken', 'temporaryPin', 'newPin'],
+      ['ownerName'],
+    );
+    const openActivation =
+      this.supportsOptionalEntryPassword(request) &&
+      hasExactKeys(body, ['claimToken'], ['ownerName']);
+    if (!legacyActivation && !openActivation) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const claimToken = body.claimToken;
@@ -12702,12 +12759,13 @@ export class MusixquareProRoom {
         : boundedString(body.ownerName, MAX_DISPLAY_NAME_LENGTH);
     if (
       typeof claimToken !== 'string' ||
-      typeof temporaryPin !== 'string' ||
-      typeof newPin !== 'string' ||
       !ownerName ||
       !isSafeVisibleDisplayName(ownerName) ||
-      !PIN_RE.test(newPin) ||
-      newPin === temporaryPin
+      (legacyActivation &&
+        (typeof temporaryPin !== 'string' ||
+          typeof newPin !== 'string' ||
+          !PIN_RE.test(newPin) ||
+          newPin === temporaryPin))
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
@@ -12725,11 +12783,14 @@ export class MusixquareProRoom {
       verifyActivationClaim(claimToken, this.activeRoom.roomCode, activationSecret, nowMs),
       // Always perform a digest for the temporary PIN branch so invalid claim
       // and invalid temporary PIN share one externally uniform failure path.
-      sha256Bytes(temporaryPin),
+      sha256Bytes(typeof temporaryPin === 'string' ? temporaryPin : ''),
     ]);
     const expectedTemporaryPin = this.activeRoom.roomCode.padStart(8, '0');
     const temporaryPinValid =
-      PIN_RE.test(temporaryPin) && constantTimeEqual(temporaryPin, expectedTemporaryPin);
+      openActivation ||
+      (typeof temporaryPin === 'string' &&
+        PIN_RE.test(temporaryPin) &&
+        constantTimeEqual(temporaryPin, expectedTemporaryPin));
     if (
       !claimValid ||
       claimValid.generation !== this.activeRoom.activationClaimGeneration ||
@@ -12748,7 +12809,7 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('OWNER_ACCOUNT_LINK_CONFLICT', 409);
     }
-    const pin = await createPinRecord(newPin, pepper);
+    const pin = typeof newPin === 'string' ? await createPinRecord(newPin, pepper) : null;
     if (
       !(await reserveProRoomActivationEntitlement(this.env, {
         accountId: asserted.account.accountId,
@@ -12764,6 +12825,7 @@ export class MusixquareProRoom {
     this.activeRoom.authEpoch = 1;
     this.activeRoom.ownerAuthorityEpoch = 1;
     this.activeRoom.pin = pin;
+    this.activeRoom.passwordRequired = !openActivation;
     const ownerCredential = await this.createOwnerCredential();
     this.activeRoom.ownerMemberId = this.activeRoom.ownerMemberId || `owner_${randomToken(18)}`;
     const accountMember = this.resolveAccountMember(asserted.account, 'owner', nowMs);
@@ -12942,18 +13004,21 @@ export class MusixquareProRoom {
   async handleCreateSession(request: Request) {
     if (this.activeRoom.status === 'unactivated') return errorResponse('ACTIVATION_REQUIRED', 409);
     if (this.activeRoom.status === 'suspended') return errorResponse('ROOM_SUSPENDED', 423);
+    if (this.activeRoom.status !== 'active') return errorResponse('ROOM_NOT_FOUND', 404);
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     const body = parsed.value;
     if (!isRecord(body)) return errorResponse('INVALID_REQUEST', 400);
-    const legacyBody = hasExactKeys(body, ['pin']);
-    const idempotentBody = hasExactKeys(body, ['pin', 'requestId']);
+    const optionalPassword = this.supportsOptionalEntryPassword(request);
+    const legacyBody = hasExactKeys(body, ['pin']) || (optionalPassword && hasExactKeys(body, []));
+    const idempotentBody =
+      hasExactKeys(body, ['pin', 'requestId']) ||
+      (optionalPassword && hasExactKeys(body, ['requestId']));
     const pin = typeof body.pin === 'string' ? body.pin : null;
     const requestId = idempotentBody && typeof body.requestId === 'string' ? body.requestId : null;
     if (
       (!legacyBody && !idempotentBody) ||
-      pin === null ||
-      !PIN_RE.test(pin) ||
+      (body.pin !== undefined && (pin === null || !PIN_RE.test(pin))) ||
       (idempotentBody && (requestId === null || !IDEMPOTENCY_KEY_RE.test(requestId)))
     ) {
       return errorResponse('INVALID_REQUEST', 400);
@@ -12967,6 +13032,9 @@ export class MusixquareProRoom {
     const asserted = await this.accountAssertion(request);
     if (asserted.response) return asserted.response;
     const ownerCredential = await this.hasOwnerCredential(request);
+    const verifiedOwnerAccount = Boolean(
+      asserted.account && this.activeRoom.ownerAccountId === asserted.account.accountId,
+    );
     let scope = null;
     let fingerprint = null;
     let credentialContext = null;
@@ -13020,6 +13088,18 @@ export class MusixquareProRoom {
           return errorResponse('ROOM_STATE_INVALID', 503);
         }
         const replaySession = this.activeRoom.sessions[receiptTokenHash];
+        if (
+          (replaySession?.accountId && replaySession.accountId !== asserted.account?.accountId) ||
+          (replaySession?.role === 'owner' && !replaySession.accountId && !ownerCredential)
+        ) {
+          // A pending request ID survives response loss, logout and account
+          // switches. It is not a replacement for the account proof that
+          // admitted an owner or linked member. A syntactic PIN may have been
+          // ignored by public admission or the verified-owner bypass too.
+          // Legacy unlinked owners also retain their credential requirement;
+          // an outcome-unknown request ID must never replace ownership proof.
+          return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
+        }
         if (
           !constantTimeEqual(deterministicTokenHash, receiptTokenHash) ||
           !replaySession ||
@@ -13081,6 +13161,13 @@ export class MusixquareProRoom {
       const recoveredSession = this.activeRoom.sessions[deterministicTokenHash];
       if (recoveredSession) {
         if (
+          (recoveredSession.accountId &&
+            recoveredSession.accountId !== asserted.account?.accountId) ||
+          (recoveredSession.role === 'owner' && !recoveredSession.accountId && !ownerCredential)
+        ) {
+          return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
+        }
+        if (
           !OPAQUE_ID_RE.test(recoveredSession.participantId || '') ||
           recoveredSession.expiresAtMs <= nowMs ||
           recoveredSession.authEpoch !== this.activeRoom.authEpoch ||
@@ -13138,12 +13225,15 @@ export class MusixquareProRoom {
     // rollout. It cannot be safely collapsed by IP/PIN/User-Agent without
     // merging distinct devices behind the same NAT, so only v1 clients that
     // supply an opaque requestId receive exactly-once replay semantics.
-    const rateError = this.readRateLimit(request, 'pin-failure', 10);
-    if (rateError) return rateError;
-    if (!(await verifyPin(pin, this.activeRoom.pin, pepper))) {
-      this.recordRateLimitHit(request, 'pin-failure', 60 * 60 * 1000);
-      await this.persist();
-      return errorResponse('PIN_INVALID', 401);
+    if (this.activeRoom.passwordRequired && !verifiedOwnerAccount) {
+      if (pin === null) return errorResponse('PIN_REQUIRED', 401);
+      const rateError = this.readRateLimit(request, 'pin-failure', 10);
+      if (rateError) return rateError;
+      if (!(await verifyPin(pin, this.activeRoom.pin, pepper))) {
+        this.recordRateLimitHit(request, 'pin-failure', 60 * 60 * 1000);
+        await this.persist();
+        return errorResponse('PIN_INVALID', 401);
+      }
     }
     if (requestId !== null && scope) {
       // Capacity is reserved before account/session state is touched, so a
@@ -13151,8 +13241,7 @@ export class MusixquareProRoom {
       idempotencyRecords = this.reserveIdempotencySlot(scope, requestId, nowMs);
     }
     const role =
-      (ownerCredential && this.activeRoom.ownerAccountId === null) ||
-      (asserted.account && this.activeRoom.ownerAccountId === asserted.account.accountId)
+      (ownerCredential && this.activeRoom.ownerAccountId === null) || verifiedOwnerAccount
         ? 'owner'
         : 'member';
     const accountMember = asserted.account
@@ -13494,14 +13583,50 @@ export class MusixquareProRoom {
     if (auth.response) return auth.response;
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
-    if (!hasExactKeys(parsed.value, ['pin']) || !matchesPattern(parsed.value.pin, PIN_RE)) {
+    if (!hasExactKeys(parsed.value, ['pin'])) return errorResponse('INVALID_REQUEST', 400);
+    const requestedPin = parsed.value.pin;
+    const disabling = requestedPin === null && this.supportsOptionalEntryPassword(request);
+    if (!disabling && !matchesPattern(requestedPin, PIN_RE)) {
       return errorResponse('INVALID_REQUEST', 400);
+    }
+    const result = () =>
+      jsonResponse({
+        ok: true,
+        ...(this.supportsOptionalEntryPassword(request)
+          ? { passwordRequired: this.activeRoom.passwordRequired }
+          : {}),
+      });
+    if (disabling) {
+      if (!this.activeRoom.passwordRequired) return result();
+      if (this.activeRoom.revision >= Number.MAX_SAFE_INTEGER) {
+        return errorResponse('REVISION_EXHAUSTED', 409);
+      }
+      // Opening admission grants no new authority to existing participants.
+      // Preserve their playback/presence; subsequent enabling or rotation
+      // retains the existing authentication-epoch revocation fence below.
+      this.activeRoom.passwordRequired = false;
+      this.activeRoom.pin = null;
+      this.activeRoom.revision += 1;
+      await this.persist();
+      this.scheduleServerEvent(this.presenceEvent());
+      return result();
+    }
+    if (
+      this.activeRoom.authEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.activeRoom.revision >= Number.MAX_SAFE_INTEGER ||
+      this.activeRoom.presence.revision >= Number.MAX_SAFE_INTEGER ||
+      this.activeRoom.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.activeRoom.playback.revision >= Number.MAX_SAFE_INTEGER
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
     }
     const pepper = String(this.env.PRO_ROOM_PIN_PEPPER || '');
     if (pepper.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
-    const nextPin = await createPinRecord(parsed.value.pin, pepper);
+    if (typeof requestedPin !== 'string') return errorResponse('INVALID_REQUEST', 400);
+    const nextPin = await createPinRecord(requestedPin, pepper);
     this.activeRoom.authEpoch += 1;
     this.activeRoom.pin = nextPin;
+    this.activeRoom.passwordRequired = true;
     const ownerSession = auth.session;
     ownerSession.authEpoch = this.activeRoom.authEpoch;
     const nowMs = Date.now();
@@ -13524,7 +13649,7 @@ export class MusixquareProRoom {
     this.activeRoom.revision += 1;
     await this.persist();
     this.scheduleServerEvent(this.presenceEvent());
-    return jsonResponse({ ok: true });
+    return result();
   }
 
   async handleHeartbeat(request: Request) {

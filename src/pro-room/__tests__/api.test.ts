@@ -432,8 +432,6 @@ describe('PRO room cookie session API', () => {
         code: ROOM_CODE,
         claimToken: CLAIM_TOKEN,
         expectedAccountScope: ACCOUNT_SCOPE,
-        temporaryPin: '00000001',
-        newPin: '12345678',
         ownerName: ' Owner ',
       }),
     ).resolves.toEqual(activeSnapshot());
@@ -446,8 +444,6 @@ describe('PRO room cookie session API', () => {
     expect(new Headers(init.headers).get('X-MXQR-Account-Expected-Scope')).toBe(ACCOUNT_SCOPE);
     expect(JSON.parse(String(init.body))).toEqual({
       claimToken: CLAIM_TOKEN,
-      temporaryPin: '00000001',
-      newPin: '12345678',
       ownerName: 'Owner',
     });
   });
@@ -463,8 +459,6 @@ describe('PRO room cookie session API', () => {
           code: ROOM_CODE,
           claimToken: CLAIM_TOKEN,
           expectedAccountScope: expectedAccountScope as string,
-          temporaryPin: '00000001',
-          newPin: '12345678',
         }),
       ).toThrowError(expect.objectContaining({ code: 'ACCOUNT_SESSION_CHANGED', status: 409 }));
       expect(fetchMock).not.toHaveBeenCalled();
@@ -481,8 +475,6 @@ describe('PRO room cookie session API', () => {
           code: ROOM_CODE,
           claimToken: CLAIM_TOKEN,
           expectedAccountScope: ACCOUNT_SCOPE,
-          temporaryPin: '00000001',
-          newPin: '12345678',
           ownerName,
         }),
       ).toThrowError(expect.objectContaining({ code: 'INVALID_DISPLAY_NAME' }));
@@ -641,6 +633,61 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it('opts in to optional entry policy and joins a public room without fabricating a PIN', async () => {
+    const snapshot = { ...activeSnapshot(), passwordRequired: false };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ roomCode: ROOM_CODE, status: 'open', passwordRequired: false }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ snapshot, session: { expiresAtMs: 1_800_000_000_000 } }),
+      );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await expect(client.getBootstrap(ROOM_CODE)).resolves.toMatchObject({
+      status: 'open',
+      passwordRequired: false,
+    });
+    await expect(
+      client.createSession({ code: ROOM_CODE, requestId: IDEMPOTENCY_KEY }),
+    ).resolves.toEqual(snapshot);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get('x-mxqr-pro-entry-policy')).toBe('optional-v1');
+    }
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      requestId: IDEMPOTENCY_KEY,
+    });
+  });
+
+  it.each([
+    { status: 'open' },
+    { status: 'open', passwordRequired: true },
+    { status: 'pin_required', passwordRequired: false },
+    { status: 'pin_required', passwordRequired: 'false' },
+  ])('rejects an inconsistent optional entry policy %j', async (policy) => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ roomCode: ROOM_CODE, ...policy }));
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
+  it('disables a PIN with an explicit null and rejects a contradictory acknowledgement', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ ok: true, passwordRequired: false }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, passwordRequired: true }));
+    await expect(client.changePin(ROOM_CODE, null)).resolves.toBeUndefined();
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ pin: null });
+    await expect(client.changePin(ROOM_CODE, null)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
   it('parses snapshot-returning methods and strict ok-only mutations', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -648,7 +695,7 @@ describe('PRO room cookie session API', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
       .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, passwordRequired: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }));
 
     await expect(client.getSnapshot(ROOM_CODE)).resolves.toEqual(activeSnapshot());

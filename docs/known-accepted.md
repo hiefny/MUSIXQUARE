@@ -99,6 +99,80 @@ those ports can use this, and every request still passes the Worker's normal
 session, PIN, and rate-limit checks. Revisit if a production Worker gains a
 privileged browser API that should be reachable only from public origins.
 
+### 11. Public PRO Room Seat Holding and Join Floods
+
+Accepted 2026-10-11. A public PRO room (no entry PIN) admits anyone who has
+the room code. The room Durable Object reserves one of its 100 presence places
+for the owner, keeps session-create receipts in their own ledger with 16 slots
+of owner headroom, keeps presence-close receipts in another ledger (one per
+stored session), and soft-throttles successful non-owner joins to 200 per 10
+minutes per client IPv4 address or IPv6 /64. These measures reserve
+the owner's place and receipt slots, so the owner can get in and act unless the
+room's byte budget is also exhausted (below); they do not keep strangers out.
+What remains accepted:
+
+- One network, such as a venue NAT or a single attacker, can hold all 99
+  non-owner places by keeping its sessions alive with heartbeats. A lower
+  per-address limit would break a legitimate 99-device same-NAT venue, so the
+  throttle bounds churn and refill, not occupancy.
+- Join traffic spread across many addresses or /64 prefixes is not limited by
+  the throttle. It can fill the 99 places, or fill the 240 non-owner receipt
+  slots so that new non-owner joins fail closed with
+  `ROOM_STATE_CAPACITY_EXCEEDED` for up to the 10-minute receipt lifetime.
+  Owner entry and owner playback, queue, and media control keep their reserved
+  place and receipt slots throughout.
+- Ordinary members write no receipts to the participant ledger that protects
+  playback, queue, and media control; only the owner and delegated
+  controllers share its 256 slots.
+- The reservations count places and receipts, not bytes. Every ledger, and
+  every session and presence record, shares the room's 1.2 MiB core budget
+  with media metadata and the rest of the room. At the longest accepted keys,
+  public traffic can occupy about 101 KiB of session-create receipts (240,
+  each for 10 minutes), 52 KiB of presence-close receipts (one per stored
+  session, each until that session closes again or is removed, at most 24
+  hours), the session and presence records of a full room, and about 50 KiB
+  of security rate-limit records. A full room of 128 sessions and 100
+  presences takes about 94 KiB with anonymous members, or about 153 KiB with
+  account-linked members and their account member records (the 100-member
+  limit counts accounts, and one account can hold several sessions), kept
+  while the sessions exist. The 512 rate-limit records each last about an
+  hour. Owner-recovery and owner-transfer attempts write one before their
+  claim is checked, and a wrong PIN writes one too; each is keyed by the exact
+  client address rather than a /64. That is roughly 300 KiB in all with
+  anonymous members and 355 KiB with account-linked ones. In a room whose
+  legitimate core is already within that distance of the budget, owner
+  admission and owner writes, including media reservations, can fail closed
+  with `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release most of it
+  by enabling or rotating the PIN, which does not clear the rate-limit
+  records; an absent owner has to wait for receipts and records to expire and
+  sessions to leave, and a sustained distributed flood can repeat this. No
+  byte headroom is reserved for the owner.
+- The remedy is the owner's: enter through the reserved place and enable or
+  rotate the PIN. That revokes every other session and presence, purges all
+  session-create receipts, and resets the throttle; the revoked sessions'
+  presence-close receipts go at the next prune. A kick deletes the member's
+  sessions, so coming back needs a new, throttled join; there is no ban list.
+- The throttle counters live only in Durable Object memory and are kept per
+  room. A restart forgets them, and different rooms behind the same carrier NAT
+  do not share a budget.
+- The security ledger is unchanged: PIN-failure, activation, and recovery
+  limits still fail closed when that ledger is full. Public admission does not
+  consult it. Its 512 records take about 50 KiB of the core, counted above.
+- The reservation applies only when a session enters presence. If the owner's
+  live session is demoted in place (for example by detaching its account),
+  100 non-owner presences can remain, and the owner meets `ROOM_FULL` until
+  somebody leaves. Signaling's
+  100-socket cap has no owner preference, so the owner's control socket can be
+  refused briefly until the next presence snapshot prunes a stale socket.
+- The current App shows its generic PRO connection failure for both
+  `ROOM_FULL` and `RATE_LIMITED`, without the `Retry-After` time.
+
+Reopen this item if public rooms become discoverable or listed, if abuse is
+observed in production, or before relying on public admission for paid events.
+The next mitigations would be a WAF rule for
+`/api/pro-room/v1/rooms/*/sessions`, or sign-in or proof of work for public
+admission.
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

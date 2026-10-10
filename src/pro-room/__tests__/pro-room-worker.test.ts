@@ -8170,7 +8170,8 @@ describe('optional PRO entry password', () => {
       const originalCookie = cookieFrom(joined);
       if (pruneReceipt) {
         const internal = context.worker as unknown as { room: Record<string, any> };
-        internal.room.idempotency = {};
+        expect(Object.keys(internal.room.sessionCreateIdempotency)).toHaveLength(1);
+        internal.room.sessionCreateIdempotency = {};
       }
       const anonymous = await context.worker.fetch(makeRequest());
       const switched = await context.worker.fetch(
@@ -8218,7 +8219,10 @@ describe('optional PRO entry password', () => {
         role: 'owner',
         isAuthenticated: false,
       });
-      if (pruneReceipt) room.idempotency = {};
+      if (pruneReceipt) {
+        expect(Object.keys(room.sessionCreateIdempotency)).toHaveLength(1);
+        room.sessionCreateIdempotency = {};
+      }
       const denied = await context.worker.fetch(publicRequest('/sessions', body));
       expect(denied.status).toBe(409);
       expect(denied.headers.getSetCookie()).toEqual([]);
@@ -8433,8 +8437,16 @@ describe('optional PRO entry password', () => {
       context.worker.fetch(publicRequest('/sessions', { requestId: 'open-race-request-000001' })),
     ]);
     expect(await responseJson(enabled)).toEqual({ ok: true, passwordRequired: true });
-    expect(lateReplay.status).toBe(409);
-    expect(await responseJson(lateReplay)).toEqual({ error: 'SESSION_REPLAY_UNAVAILABLE' });
+    // Enabling protection releases every session-create receipt (they name
+    // revoked sessions). The revoked public request therefore cannot replay
+    // its old cookie and is asked for the new PIN instead of being fenced.
+    expect(lateReplay.status).toBe(401);
+    expect(await responseJson(lateReplay)).toEqual({ error: 'PIN_REQUIRED' });
+    expect(lateReplay.headers.getSetCookie()).toEqual([]);
+    expect(internal.room.sessionCreateIdempotency).toEqual({});
+    expect(
+      Object.keys(internal.room.idempotency).filter((key) => key.startsWith('session-create:')),
+    ).toEqual([]);
     expect(internal.room.authEpoch).toBe(originalEpoch + 1);
     expect(internal.room.presence.coordinatorEpoch).toBe(beforeEnableEpoch + 1);
     expect((await context.worker.fetch(request('/snapshot', {}, memberCookie))).status).toBe(401);
@@ -8535,6 +8547,1453 @@ describe('optional PRO entry password', () => {
     expect(
       (await context.worker.fetch(request(`/media/${ready.assetId}/download`, {}, cookie))).status,
     ).toBe(200);
+  });
+});
+
+describe('PRO admission capacity and throttle', () => {
+  const ADMISSION_WINDOW_MS = 10 * 60 * 1000;
+  const OTHER_ACCOUNT_ID = 'acct_abcdefghijkl0123456789';
+  const CORE_KEY = 'pro-room:v2:core';
+  let admissionSequence = 0;
+  const nextRequestId = () =>
+    `admission-capacity-request-${String(++admissionSequence).padStart(8, '0')}`;
+  // Public-room admission as an updated browser sends it. The admission key is
+  // what the PRO front door derives from the client's IPv4 address or IPv6 /64.
+  const admission = (
+    options: { key?: string; requestId?: string; pin?: string; cookie?: string } = {},
+  ) => {
+    const incoming = optionalEntryPolicy(
+      jsonRequest(
+        '/sessions',
+        'POST',
+        {
+          ...(options.pin === undefined ? {} : { pin: options.pin }),
+          requestId: options.requestId ?? nextRequestId(),
+        },
+        options.cookie,
+      ),
+    );
+    incoming.headers.set('x-mxqr-pro-admission-key', options.key ?? 'venue-nat');
+    return incoming;
+  };
+  const internalRequest = (path: string) =>
+    new Request(`https://pro-room.internal/internal/admin/${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
+      },
+    });
+  const leavePresence = async (worker: MusixquareProRoom, cookie: string) =>
+    expect(
+      (await worker.fetch(request('/presence/current', { method: 'DELETE' }, cookie))).status,
+    ).toBe(200);
+  const enterPresence = (worker: MusixquareProRoom, cookie: string) =>
+    worker.fetch(request('/presence/enter', { method: 'POST' }, cookie));
+  const coreWrites = (put: { mock: { calls: unknown[][] } }) =>
+    put.mock.calls.filter(([key]) => key === CORE_KEY);
+
+  async function admitMembers(
+    worker: MusixquareProRoom,
+    count: number,
+    keyFor: (index: number) => string = () => 'venue-nat',
+  ) {
+    const cookies: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const joined = await worker.fetch(admission({ key: keyFor(index) }));
+      expect(joined.status).toBe(200);
+      const cookie = cookieFrom(joined);
+      bindCookiePresence(cookie, await responseJson(joined));
+      cookies.push(cookie);
+    }
+    return cookies;
+  }
+
+  function seedAdmissions(worker: MusixquareProRoom, key: string, count: number) {
+    const room = worker.room!;
+    worker.sessionAdmissionThrottle = {
+      authEpoch: room.authEpoch,
+      roomGeneration: room.roomGeneration,
+      entries: new Map([[key, { count, resetAtMs: Date.now() + ADMISSION_WINDOW_MS }]]),
+    };
+  }
+
+  function admissionCount(worker: MusixquareProRoom, key: string) {
+    return worker.sessionAdmissionThrottle?.entries.get(key)?.count ?? 0;
+  }
+
+  function nonOwnerPresenceCount(worker: MusixquareProRoom) {
+    const room = worker.room!;
+    return Object.values(room.presence.participants).filter(
+      (participant) => room.sessions[participant.sessionHash]?.role !== 'owner',
+    ).length;
+  }
+
+  function useLegacyOwnerCredential(worker: MusixquareProRoom) {
+    const room = worker.room!;
+    room.ownerAccountId = null;
+    room.accountMembers = {};
+    for (const session of Object.values(room.sessions)) {
+      if (session.role === 'owner') delete session.accountId;
+    }
+  }
+
+  function sessionCreateReceipt(index: number, expiresAtMs: number) {
+    return {
+      kind: 'session-create',
+      fingerprint: 'F'.repeat(43),
+      status: 200,
+      tokenHash: `T${String(index).padStart(4, '0')}`.padEnd(43, 'T'),
+      participantId: `participant_${String(index).padStart(24, '0')}`,
+      expiresAtMs,
+    };
+  }
+
+  it('reserves one presence place for an absent owner in a public room', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+    const { worker, state, ownerCookie } = await activatedRoom(ROOM_CODE, true);
+    await leavePresence(worker, ownerCookie);
+    const memberCookies = await admitMembers(worker, 99);
+    expect(nonOwnerPresenceCount(worker)).toBe(99);
+    const capture = () => {
+      const room = worker.room!;
+      return structuredClone({
+        sessions: room.sessions,
+        presence: room.presence,
+        anonymousAdministrators: room.anonymousAdministrators,
+        accountMembers: room.accountMembers,
+        sessionCreateIdempotency: room.sessionCreateIdempotency,
+        nextMemberDisplayNumber: room.nextMemberDisplayNumber,
+      });
+    };
+    const before = capture();
+    const put = vi.spyOn(state.storage, 'put');
+    const refused = await worker.fetch(admission());
+    expect(refused.status).toBe(409);
+    expect(await responseJson(refused)).toEqual({ error: 'ROOM_FULL' });
+    expect(refused.headers.getSetCookie()).toEqual([]);
+    expect(coreWrites(put)).toEqual([]);
+    put.mockRestore();
+    expect(capture()).toEqual(before);
+
+    const resumed = await enterPresence(worker, ownerCookie);
+    expect(resumed.status).toBe(200);
+    const resumedEnvelope = await responseJson(resumed);
+    bindCookiePresence(ownerCookie, resumedEnvelope);
+    expect(resumedEnvelope.snapshot.viewer.role).toBe('owner');
+    expect(resumedEnvelope.snapshot.presence.participants).toHaveLength(100);
+
+    // Enabling a PIN is the owner's bulk eviction switch.
+    const enabled = await worker.fetch(
+      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie)),
+    );
+    expect(await responseJson(enabled)).toEqual({ ok: true, passwordRequired: true });
+    expect(Object.keys(worker.room!.presence.participants)).toHaveLength(1);
+    for (const cookie of [memberCookies[0]!, memberCookies[49]!, memberCookies[98]!]) {
+      expect((await worker.fetch(request('/snapshot', {}, cookie))).status).toBe(401);
+    }
+    expect((await worker.fetch(admission({ pin: '87654321' }))).status).toBe(200);
+  }, 60_000);
+
+  it.each(['verified-account', 'legacy-credential'] as const)(
+    'admits a cookie-less %s owner into a room held by 99 non-owners',
+    async (proof) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+      const context = await activatedRoom(ROOM_CODE, true);
+      const { worker } = context;
+      if (proof === 'legacy-credential') useLegacyOwnerCredential(worker);
+      await leavePresence(worker, context.ownerCookie);
+      await admitMembers(worker, 99);
+      expect(await responseJson(await worker.fetch(admission()))).toEqual({
+        error: 'ROOM_FULL',
+      });
+      const joined = await worker.fetch(
+        proof === 'verified-account'
+          ? await withAccountAssertion(admission(), ACTIVATION_OWNER_ACCOUNT_ID, 'Owner')
+          : admission({ cookie: context.ownerRecoveryCookie }),
+      );
+      expect(joined.status).toBe(200);
+      const envelope = await responseJson(joined);
+      expect(envelope.snapshot.viewer.role).toBe('owner');
+      expect(envelope.snapshot.presence.participants).toHaveLength(100);
+    },
+    60_000,
+  );
+
+  it('applies the owner reservation to a dormant non-owner cookie resume', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+    const { worker, ownerCookie } = await activatedRoom(ROOM_CODE, true);
+    await leavePresence(worker, ownerCookie);
+    const memberCookies = await admitMembers(worker, 99);
+    const dormant = memberCookies[0]!;
+    await leavePresence(worker, dormant);
+    await admitMembers(worker, 1);
+    expect(nonOwnerPresenceCount(worker)).toBe(99);
+
+    const refused = await enterPresence(worker, dormant);
+    expect(refused.status).toBe(409);
+    expect(await responseJson(refused)).toEqual({ error: 'ROOM_FULL' });
+
+    const ownerEntered = await enterPresence(worker, ownerCookie);
+    expect(ownerEntered.status).toBe(200);
+    bindCookiePresence(ownerCookie, await responseJson(ownerEntered));
+    expect(Object.keys(worker.room!.presence.participants)).toHaveLength(100);
+    expect(await responseJson(await enterPresence(worker, dormant))).toEqual({
+      error: 'ROOM_FULL',
+    });
+
+    await leavePresence(worker, memberCookies[1]!);
+    const resumed = await enterPresence(worker, dormant);
+    expect(resumed.status).toBe(200);
+    expect((await responseJson(resumed)).snapshot.presence.participants).toHaveLength(100);
+    expect(nonOwnerPresenceCount(worker)).toBe(99);
+  }, 60_000);
+
+  it('keeps the host-inclusive 100-device ceiling while the owner is present', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+    const { worker } = await activatedRoom(ROOM_CODE, true);
+    await admitMembers(worker, 99);
+    const member = await worker.fetch(admission());
+    expect(member.status).toBe(409);
+    expect(await responseJson(member)).toEqual({ error: 'ROOM_FULL' });
+    const ownerDevice = await worker.fetch(
+      await withAccountAssertion(admission(), ACTIVATION_OWNER_ACCOUNT_ID, 'Owner'),
+    );
+    expect(ownerDevice.status).toBe(409);
+    expect(await responseJson(ownerDevice)).toEqual({ error: 'ROOM_FULL' });
+    expect(ownerDevice.headers.getSetCookie()).toEqual([]);
+    expect(Object.keys(worker.room!.presence.participants)).toHaveLength(100);
+  }, 60_000);
+
+  it('gives a delegated controller no reserved place', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+    const { worker, ownerCookie } = await activatedRoom(ROOM_CODE, true);
+    const controllerAdmission = () =>
+      withAccountAssertion(admission({ key: 'controller-home' }), OTHER_ACCOUNT_ID, 'Controller');
+    const joined = await worker.fetch(await controllerAdmission());
+    expect(joined.status).toBe(200);
+    const controllerCookie = cookieFrom(joined);
+    const envelope = await responseJson(joined);
+    bindCookiePresence(controllerCookie, envelope);
+    expect(
+      (
+        await worker.fetch(
+          jsonRequest(
+            `/administrators/${envelope.snapshot.viewer.memberId}`,
+            'PUT',
+            {
+              permissions: {
+                'media.add': true,
+                'playback.control': true,
+                'members.kick': true,
+                'chat.notice': true,
+              },
+            },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      Object.values(worker.room!.sessions).find(
+        (session) => session.participantId === envelope.snapshot.viewer.participantId,
+      )?.role,
+    ).toBe('controller');
+    await leavePresence(worker, controllerCookie);
+    await leavePresence(worker, ownerCookie);
+    await admitMembers(worker, 99);
+
+    expect(await responseJson(await enterPresence(worker, controllerCookie))).toEqual({
+      error: 'ROOM_FULL',
+    });
+    expect(await responseJson(await worker.fetch(await controllerAdmission()))).toEqual({
+      error: 'ROOM_FULL',
+    });
+    const owner = await worker.fetch(
+      await withAccountAssertion(admission(), ACTIVATION_OWNER_ACCOUNT_ID, 'Owner'),
+    );
+    expect(owner.status).toBe(200);
+  }, 60_000);
+
+  it.each(['anonymous', 'account', 'legacy-owner-link'] as const)(
+    'refuses a full-room %s join before touching sessions, receipts, accounts or ownership',
+    async (joiner) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+      const context = await activatedRoom(ROOM_CODE, true);
+      const { worker, state } = context;
+      if (joiner === 'legacy-owner-link') {
+        // The owner stays present: owner + 99 members is the device ceiling.
+        useLegacyOwnerCredential(worker);
+      } else {
+        await leavePresence(worker, context.ownerCookie);
+      }
+      const memberCookies = await admitMembers(worker, 99);
+      // A full session table means any successful create would first evict a
+      // dormant session.
+      const template = Object.values(worker.room!.sessions).find(
+        (session) => session.role === 'member',
+      )!;
+      for (let index = 0; Object.keys(worker.room!.sessions).length < 128; index += 1) {
+        worker.room!.sessions[`dormant_${String(index).padStart(35, '0')}`] = {
+          ...structuredClone(template),
+          participantId: `participant_dormant_${String(index).padStart(16, '0')}`,
+          memberId: `member_dormant_${String(index).padStart(16, '0')}`,
+          presenceIncarnationId: null,
+          createdAtMs: template.createdAtMs - 1 - index,
+        };
+      }
+      // Let one ordinary request durably settle the injected records first.
+      expect((await worker.fetch(request('/snapshot', {}, memberCookies[0]))).status).toBe(200);
+      const capture = () => {
+        const room = worker.room!;
+        return structuredClone({
+          sessions: room.sessions,
+          presence: room.presence,
+          accountMembers: room.accountMembers,
+          anonymousAdministrators: room.anonymousAdministrators,
+          ownerAccountId: room.ownerAccountId,
+          ownerDisplayName: room.ownerDisplayName,
+          nextMemberDisplayNumber: room.nextMemberDisplayNumber,
+          sessionCreateIdempotency: room.sessionCreateIdempotency,
+          idempotency: room.idempotency,
+        });
+      };
+      const before = capture();
+      expect(Object.keys(before.sessions)).toHaveLength(128);
+      const put = vi.spyOn(state.storage, 'put');
+      const refused = await worker.fetch(
+        joiner === 'anonymous'
+          ? admission()
+          : joiner === 'account'
+            ? await withAccountAssertion(admission(), OTHER_ACCOUNT_ID, 'Listener')
+            : await withAccountAssertion(
+                admission({ cookie: context.ownerRecoveryCookie }),
+                ACTIVATION_OWNER_ACCOUNT_ID,
+                'Owner',
+              ),
+      );
+      expect(refused.status).toBe(409);
+      expect(await responseJson(refused)).toEqual({ error: 'ROOM_FULL' });
+      expect(refused.headers.getSetCookie()).toEqual([]);
+      expect(coreWrites(put)).toEqual([]);
+      expect(capture()).toEqual(before);
+      if (joiner === 'legacy-owner-link') expect(worker.room!.ownerAccountId).toBeNull();
+    },
+    60_000,
+  );
+
+  it('reports ROOM_FULL ahead of account-member and receipt capacity in a full room', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+    const { worker, ownerCookie } = await activatedRoom(ROOM_CODE, true);
+    await leavePresence(worker, ownerCookie);
+    const listenerAccountId = 'acct_AAAAAAAAAAAAAAAAAAAAAA';
+    const listener = await worker.fetch(
+      await withAccountAssertion(admission(), listenerAccountId, 'Listener'),
+    );
+    expect(listener.status).toBe(200);
+    bindCookiePresence(cookieFrom(listener), await responseJson(listener));
+    const memberCookies = await admitMembers(worker, 98);
+    const room = worker.room!;
+    const template = room.accountMembers[listenerAccountId]!;
+    for (let index = 0; Object.keys(room.accountMembers).length < 100; index += 1) {
+      room.accountMembers[`acct_${String(index).padStart(22, '0')}`] = {
+        ...template,
+        memberId: `admin_${String(index).padStart(24, '0')}`,
+        role: 'controller',
+      };
+    }
+    const newcomer = () =>
+      withAccountAssertion(admission(), 'acct_BBBBBBBBBBBBBBBBBBBBBB', 'NewListener');
+    expect(await responseJson(await worker.fetch(await newcomer()))).toEqual({
+      error: 'ROOM_FULL',
+    });
+    const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
+    const fillers: string[] = [];
+    for (let index = 0; Object.keys(room.sessionCreateIdempotency).length < 240; index += 1) {
+      const key = `session-create:filler-${String(index).padStart(4, '0')}:request`;
+      room.sessionCreateIdempotency[key] = sessionCreateReceipt(index, expiresAtMs);
+      fillers.push(key);
+    }
+    expect(await responseJson(await worker.fetch(admission()))).toEqual({ error: 'ROOM_FULL' });
+    expect(await responseJson(await worker.fetch(await newcomer()))).toEqual({
+      error: 'ROOM_FULL',
+    });
+
+    // Once a place frees up, each underlying capacity limit surfaces again.
+    await leavePresence(worker, memberCookies[0]!);
+    expect(await responseJson(await worker.fetch(admission()))).toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
+    for (const key of fillers) delete worker.room!.sessionCreateIdempotency[key];
+    expect(await responseJson(await worker.fetch(await newcomer()))).toEqual({
+      error: 'ACCOUNT_MEMBER_CAPACITY_EXCEEDED',
+    });
+  }, 60_000);
+
+  it('keeps owner control and owner entry available through a session-create receipt flood', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    for (let index = 0; index < 240; index += 1) {
+      const joined = await worker.fetch(admission({ key: `flood-${index}` }));
+      expect(joined.status).toBe(200);
+      const cookie = cookieFrom(joined);
+      bindCookiePresence(cookie, await responseJson(joined));
+      expect(
+        (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
+      ).toBe(200);
+    }
+    expect(Object.keys(worker.room!.sessionCreateIdempotency)).toHaveLength(240);
+    expect(
+      Object.keys(worker.room!.idempotency).filter((key) => key.startsWith('session-create:')),
+    ).toEqual([]);
+    const refused = await worker.fetch(admission({ key: 'flood-next' }));
+    expect(refused.status).toBe(409);
+    expect(await responseJson(refused)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+
+    // Queue and playback receipts live in the separate browser ledger.
+    const queueItemId = '11111111-1111-4111-8111-111111111111';
+    const queued = await replacePlaylist(
+      context,
+      [
+        {
+          queueItemId,
+          name: 'Flood survivor',
+          source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+        },
+      ],
+      'receipt-flood',
+    );
+    expect(queued.status).toBe(200);
+    const played = await worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: worker.room!.playback.revision,
+          queueItemId,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        context.ownerCookie,
+        'receipt-flood-playback-command',
+      ),
+    );
+    expect(played.status).toBe(202);
+
+    // A cookie-less verified owner uses the reserved receipt headroom, both on
+    // a fresh admission and on deterministic recovery of the same request.
+    const ownerRequestId = nextRequestId();
+    const ownerEntry = () =>
+      withAccountAssertion(
+        admission({ key: 'flood-next', requestId: ownerRequestId }),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+      );
+    const fresh = await worker.fetch(await ownerEntry());
+    expect(fresh.status).toBe(200);
+    expect((await responseJson(fresh)).snapshot.viewer.role).toBe('owner');
+    const ownerReceiptKey = Object.keys(worker.room!.sessionCreateIdempotency).find((key) =>
+      key.endsWith(`:${ownerRequestId}`),
+    )!;
+    expect(Object.keys(worker.room!.sessionCreateIdempotency)).toHaveLength(241);
+    delete worker.room!.sessionCreateIdempotency[ownerReceiptKey];
+    const recovered = await worker.fetch(await ownerEntry());
+    expect(recovered.status).toBe(200);
+    expect(cookieFrom(recovered)).toBe(cookieFrom(fresh));
+    expect(worker.room!.sessionCreateIdempotency[ownerReceiptKey]).toMatchObject({
+      kind: 'session-create',
+    });
+
+    // Enabling a PIN releases every join receipt so a venue can re-enter.
+    const enabled = await worker.fetch(
+      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie)),
+    );
+    expect(enabled.status).toBe(200);
+    expect(worker.room!.sessionCreateIdempotency).toEqual({});
+    expect((await worker.fetch(admission({ key: 'flood-next', pin: '87654321' }))).status).toBe(
+      200,
+    );
+  }, 60_000);
+
+  // The body the App sends once per leave: as a keepalive on a non-persisted
+  // pagehide, or at the start of an explicit leave.
+  const closeBodyFor = (envelope: Record<string, any>) => ({
+    expectedParticipantId: envelope.snapshot.viewer.participantId,
+    expectedPresenceIncarnationId: envelope.snapshot.viewer.presenceIncarnationId,
+    baseRevision: envelope.snapshot.revision,
+    currentQueueItemId: null,
+    playback: null,
+  });
+  const presenceCloseKeys = (ledger: Record<string, unknown>) =>
+    Object.keys(ledger).filter((key) => key.includes(':presence-close:'));
+  const presenceCloseReceipt = (expiresAtMs: number) => ({
+    fingerprint: 'F'.repeat(43),
+    body: { ok: true },
+    status: 200,
+    expiresAtMs,
+  });
+  const ownerSelect = (worker: MusixquareProRoom, ownerCookie: string, queueItemId: string) =>
+    worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: worker.room!.playback.revision,
+          queueItemId,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        ownerCookie,
+        `owner-select-${queueItemId}`,
+      ),
+    );
+  const youtubeItem = (queueItemId: string, name: string) => ({
+    queueItemId,
+    name,
+    source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+  });
+
+  it('keeps member presence-close receipts out of the receipt ledger that owner control uses', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    // One network churns public sessions: join, then close on pagehide. 199
+    // cycles stay under the admission throttle, and past 128 sessions each
+    // join evicts a dormant session, whose receipt is then released.
+    for (let index = 0; index < 199; index += 1) {
+      const joined = await worker.fetch(admission({ key: 'close-churn-nat' }));
+      expect(joined.status).toBe(200);
+      const closed = await worker.fetch(
+        unloadCloseRequest(
+          closeBodyFor(await responseJson(joined)),
+          cookieFrom(joined),
+          `close-churn-${String(index).padStart(8, '0')}`,
+        ),
+      );
+      expect(closed.status).toBe(200);
+    }
+    expect((await worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+    const room = worker.room!;
+    const memberSessions = Object.values(room.sessions).filter(
+      (session) => session.role !== 'owner',
+    );
+    expect(memberSessions).toHaveLength(127);
+    expect(Object.keys(room.presenceCloseIdempotency)).toHaveLength(127);
+    expect(presenceCloseKeys(room.idempotency)).toEqual([]);
+
+    // Members hold none of the 256 participant receipts: the owner can spend
+    // every slot it has not used itself.
+    const ownerBudget = 256 - Object.keys(room.idempotency).length;
+    expect(ownerBudget).toBeGreaterThanOrEqual(250);
+    for (let index = 0; index < ownerBudget - 1; index += 1) {
+      const queueItemId = `55555555-5555-4555-8555-${String(index).padStart(12, '0')}`;
+      const queued = await replacePlaylist(
+        context,
+        [youtubeItem(queueItemId, `Owner ${index}`)],
+        `owner-budget-${String(index).padStart(4, '0')}`,
+      );
+      expect(queued.status).toBe(200);
+    }
+    const lastItemId = `55555555-5555-4555-8555-${String(ownerBudget - 2).padStart(12, '0')}`;
+    expect((await ownerSelect(worker, context.ownerCookie, lastItemId)).status).toBe(202);
+    expect(Object.keys(worker.room!.idempotency)).toHaveLength(256);
+    const overBudget = await replacePlaylist(
+      context,
+      [youtubeItem('66666666-6666-4666-8666-666666666666', 'Over budget')],
+      'owner-budget-over',
+    );
+    expect(overBudget.status).toBe(409);
+    expect(await responseJson(overBudget)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+
+    // A full owner ledger does not refuse a member's close either.
+    const joined = await worker.fetch(admission({ key: 'close-after-full-nat' }));
+    expect(joined.status).toBe(200);
+    const closed = await worker.fetch(
+      unloadCloseRequest(
+        closeBodyFor(await responseJson(joined)),
+        cookieFrom(joined),
+        'close-after-full-00000001',
+      ),
+    );
+    expect(closed.status).toBe(200);
+    expect(presenceCloseKeys(worker.room!.idempotency)).toEqual([]);
+  }, 120_000);
+
+  it('keeps one presence-close receipt per session through leave/resume loops', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const joined = await worker.fetch(admission({ key: 'loop-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    let envelope = await responseJson(joined);
+    bindCookiePresence(cookie, envelope);
+    const closeKey = (index: number) => `presence-loop-close-${String(index).padStart(6, '0')}`;
+    const closeBodies: Record<string, unknown>[] = [];
+    // Presence resume is never throttled, so one public session can repeat
+    // pagehide-close and resume indefinitely without accumulating receipts.
+    for (let index = 0; index < 260; index += 1) {
+      const body = closeBodyFor(envelope);
+      closeBodies.push(body);
+      expect((await worker.fetch(unloadCloseRequest(body, cookie, closeKey(index)))).status).toBe(
+        200,
+      );
+      const entered = await enterPresence(worker, cookie);
+      expect(entered.status).toBe(200);
+      envelope = await responseJson(entered);
+      bindCookiePresence(cookie, envelope);
+    }
+    expect(presenceCloseKeys(worker.room!.presenceCloseIdempotency)).toHaveLength(1);
+    expect(presenceCloseKeys(worker.room!.idempotency)).toEqual([]);
+
+    // The latest close still replays. An earlier close named an incarnation
+    // that has ended, so its late retry is refused without closing the
+    // current one or changing any state.
+    const latest = await worker.fetch(unloadCloseRequest(closeBodies[259]!, cookie, closeKey(259)));
+    expect(latest.status).toBe(200);
+    expect(await responseJson(latest)).toEqual({ ok: true });
+    const before = structuredClone(worker.room);
+    const put = vi.spyOn(context.state.storage, 'put');
+    const stale = await worker.fetch(unloadCloseRequest(closeBodies[0]!, cookie, closeKey(0)));
+    expect(stale.status).toBe(409);
+    expect(await responseJson(stale)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
+    expect(coreWrites(put)).toEqual([]);
+    put.mockRestore();
+    expect(worker.room).toEqual(before);
+
+    // Once the session is gone its receipt can never replay, so the next
+    // request releases it.
+    expect(
+      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
+    ).toBe(200);
+    expect(presenceCloseKeys(worker.room!.presenceCloseIdempotency)).toHaveLength(1);
+    expect((await worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+    expect(worker.room!.presenceCloseIdempotency).toEqual({});
+    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
+  }, 60_000);
+
+  it('releases presence-close receipts that an earlier Worker left in the shared ledger', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const joined = await context.worker.fetch(admission({ key: 'legacy-close-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    const closeBody = closeBodyFor(await responseJson(joined));
+    const closeKey = 'legacy-close-key-00000001';
+    expect(
+      (await context.worker.fetch(unloadCloseRequest(closeBody, cookie, closeKey))).status,
+    ).toBe(200);
+    // Model the core an earlier Worker wrote: close receipts in the shared
+    // participant ledger fill it, and the dedicated ledger does not exist.
+    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
+    const [receiptKey, receipt] = Object.entries(stored.core.presenceCloseIdempotency)[0]!;
+    stored.core.idempotency[receiptKey] = receipt;
+    delete stored.core.presenceCloseIdempotency;
+    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
+      const id = String(index).padStart(24, '0');
+      const sessionHash = `S${id}`.padEnd(43, 'S');
+      stored.core.idempotency[
+        `participant:participant_${id}:incarnation:presence_${id}:session:${sessionHash}:presence-close:legacy-close-${id}`
+      ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
+    }
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const restartedContext = { ...context, worker: restarted };
+
+    // Owner queue and playback control work at once after the restart.
+    const queueItemId = '77777777-7777-4777-8777-777777777777';
+    const queued = await replacePlaylist(
+      restartedContext,
+      [youtubeItem(queueItemId, 'Legacy close survivor')],
+      'legacy-close-released',
+    );
+    expect(queued.status).toBe(200);
+    expect((await ownerSelect(restarted, context.ownerCookie, queueItemId)).status).toBe(202);
+    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
+    expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
+    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
+
+    // Losing a legacy receipt is harmless: its close already removed the
+    // presence incarnation, so the retry is refused without changing state.
+    const before = structuredClone(restarted.room);
+    const put = vi.spyOn(context.state.storage, 'put');
+    const retried = await restarted.fetch(unloadCloseRequest(closeBody, cookie, closeKey));
+    expect(retried.status).toBe(409);
+    expect(await responseJson(retried)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
+    expect(coreWrites(put)).toEqual([]);
+    put.mockRestore();
+    expect(restarted.room).toEqual(before);
+  });
+
+  it('rolls forward over a Worker rollback that kept but ignored the close ledger', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const closeOnce = async (key: string) => {
+      const joined = await worker.fetch(admission({ key }));
+      expect(joined.status).toBe(200);
+      const cookie = cookieFrom(joined);
+      const envelope = await responseJson(joined);
+      const body = closeBodyFor(envelope);
+      const closeKey = `${key}-close-0000001`;
+      expect((await worker.fetch(unloadCloseRequest(body, cookie, closeKey))).status).toBe(200);
+      return { cookie, body, closeKey };
+    };
+    const kept = await closeOnce('rollback-kept');
+    const left = await closeOnce('rollback-left');
+    const entered = await enterPresence(worker, left.cookie);
+    expect(entered.status).toBe(200);
+    bindCookiePresence(left.cookie, await responseJson(entered));
+    expect(
+      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, left.cookie))).status,
+    ).toBe(200);
+    // The stored core still holds the departed session's receipt; the next
+    // prune would release it. An older Worker loads the core as `{...core}`,
+    // so it keeps this field untouched, and writes its own close receipts to
+    // the shared ledger instead.
+    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
+    expect(Object.keys(stored.core.presenceCloseIdempotency)).toHaveLength(2);
+    const keptKey = Object.keys(stored.core.presenceCloseIdempotency).find((key) =>
+      key.endsWith(`:${kept.closeKey}`),
+    )!;
+    const sessionHash = /:session:([^:]+):presence-close:/.exec(keptKey)![1];
+    stored.core.idempotency[
+      `participant:${kept.body.expectedParticipantId}:incarnation:presence_${'O'.repeat(24)}:session:${sessionHash}:presence-close:older-worker-close-01`
+    ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const replay = await restarted.fetch(unloadCloseRequest(kept.body, kept.cookie, kept.closeKey));
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual({ ok: true });
+    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
+    expect(Object.keys(restarted.room!.presenceCloseIdempotency)).toEqual([keptKey]);
+    const persisted = storedCanonicalRoom(context.state);
+    expect(presenceCloseKeys(persisted.idempotency)).toEqual([]);
+    expect(Object.keys(persisted.presenceCloseIdempotency)).toEqual([keptKey]);
+  });
+
+  it('never refuses a close or owner control when the close ledger is somehow full', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const room = worker.room!;
+    const [ownerHash, ownerSession] = Object.entries(room.sessions).find(
+      ([, session]) => session.role === 'owner',
+    )!;
+    // A session never holds more than one receipt. Model a full ledger that
+    // the per-session and orphan releases cannot shrink.
+    const expiresAtMs = Date.now() + 24 * 60 * 60 * 1000;
+    for (let index = 0; index < 128; index += 1) {
+      const id = String(index).padStart(24, '0');
+      room.presenceCloseIdempotency[
+        `participant:${ownerSession.participantId}:incarnation:presence_${id}:session:${ownerHash}:presence-close:full-ledger-${id}`
+      ] = presenceCloseReceipt(expiresAtMs);
+    }
+    const joined = await worker.fetch(admission({ key: 'full-ledger-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    const body = closeBodyFor(await responseJson(joined));
+    const closed = await worker.fetch(unloadCloseRequest(body, cookie, 'full-ledger-close-0001'));
+    expect(closed.status).toBe(200);
+    expect(await responseJson(closed)).toEqual({ ok: true });
+    expect(worker.room!.presence.participants[body.expectedParticipantId]).toBeUndefined();
+    // The close committed without a receipt, so its retry is refused.
+    expect(Object.keys(worker.room!.presenceCloseIdempotency)).toHaveLength(128);
+    expect(Object.keys(storedCanonicalRoom(context.state).presenceCloseIdempotency)).toHaveLength(
+      128,
+    );
+    const retried = await worker.fetch(unloadCloseRequest(body, cookie, 'full-ledger-close-0001'));
+    expect(retried.status).toBe(409);
+    expect(await responseJson(retried)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
+    const queued = await replacePlaylist(
+      context,
+      [youtubeItem('88888888-8888-4888-8888-888888888888', 'Full close ledger')],
+      'full-close-ledger',
+    );
+    expect(queued.status).toBe(200);
+  });
+
+  it('releases a presence-close receipt after 24 hours while its session lives', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T01:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const joined = await worker.fetch(admission({ key: 'expiry-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    const body = closeBodyFor(await responseJson(joined));
+    expect(
+      (await worker.fetch(unloadCloseRequest(body, cookie, 'expiry-close-key-00000001'))).status,
+    ).toBe(200);
+    const receipts = Object.values(worker.room!.presenceCloseIdempotency);
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      body: { ok: true },
+      status: 200,
+      expiresAtMs: startedAtMs + 24 * 60 * 60 * 1000,
+    });
+    vi.setSystemTime(startedAtMs + 24 * 60 * 60 * 1000 - 1);
+    await worker.alarm();
+    expect(Object.keys(worker.room!.presenceCloseIdempotency)).toHaveLength(1);
+    vi.setSystemTime(startedAtMs + 24 * 60 * 60 * 1000);
+    await worker.alarm();
+    expect(worker.room!.presenceCloseIdempotency).toEqual({});
+    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
+    // The 30-day cookie session itself is still there.
+    expect(
+      Object.values(worker.room!.sessions).some(
+        (session) => session.participantId === body.expectedParticipantId,
+      ),
+    ).toBe(true);
+  });
+
+  it('alarms and durably prunes idle presence-close receipts at their deadline', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T01:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, environment() as never);
+    const internal = worker as unknown as {
+      ensureReady(request: Request): Promise<boolean>;
+      persist(): Promise<void>;
+      scheduleAlarm(): Promise<void>;
+      scheduledAlarmMs: number | null | undefined;
+    };
+    expect(
+      await internal.ensureReady(
+        new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+          headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+        }),
+      ),
+    ).toBe(true);
+    const expiresAtMs = startedAtMs + 24 * 60 * 60 * 1000;
+    worker.room!.presenceCloseIdempotency[
+      `participant:participant_${'0'.repeat(24)}:incarnation:presence_${'0'.repeat(24)}:session:${'S'.repeat(43)}:presence-close:idle-probe-close-01`
+    ] = presenceCloseReceipt(expiresAtMs);
+    await internal.persist();
+    internal.scheduledAlarmMs = null;
+    state.storage.alarm = null;
+    await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(expiresAtMs);
+
+    vi.setSystemTime(expiresAtMs + 1);
+    state.storage.alarm = null;
+    await worker.alarm();
+    expect(worker.room!.presenceCloseIdempotency).toEqual({});
+    expect(storedCanonicalRoom(state).presenceCloseIdempotency).toEqual({});
+    expect(state.storage.alarm).toBeNull();
+  });
+
+  it('refuses a revoked admission replay that carries the PIN a rotation replaced', async () => {
+    const context = await activatedRoom();
+    const { worker } = context;
+    const pinFailureKey = 'pin-failure:hashed-client-address';
+    const requestId = nextRequestId();
+    const joined = await worker.fetch(
+      admission({ key: 'rotation-nat', requestId, pin: '12345678' }),
+    );
+    expect(joined.status).toBe(200);
+    const rotated = await worker.fetch(
+      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie)),
+    );
+    expect(rotated.status).toBe(200);
+    expect(worker.room!.sessionCreateIdempotency).toEqual({});
+    const failuresBefore = worker.room!.rateLimits[pinFailureKey]?.count ?? 0;
+    const sessionsBefore = Object.keys(worker.room!.sessions);
+    // The rotation purged the receipt and revoked the session, so the replay
+    // reaches PIN verification with the old PIN. Unlike a replay after a PIN
+    // is first enabled (PIN_REQUIRED, no PIN sent), this one is PIN_INVALID
+    // and records one PIN failure.
+    const replay = await worker.fetch(
+      admission({ key: 'rotation-nat', requestId, pin: '12345678' }),
+    );
+    expect(replay.status).toBe(401);
+    expect(await responseJson(replay)).toEqual({ error: 'PIN_INVALID' });
+    expect(replay.headers.getSetCookie()).toEqual([]);
+    expect(worker.room!.rateLimits[pinFailureKey]?.count).toBe(failuresBefore + 1);
+    expect(storedCanonicalRoom(context.state).rateLimits[pinFailureKey]?.count).toBe(
+      failuresBefore + 1,
+    );
+    expect(Object.keys(worker.room!.sessions)).toEqual(sessionsBefore);
+    expect((await worker.fetch(admission({ key: 'rotation-nat', pin: '87654321' }))).status).toBe(
+      200,
+    );
+  });
+
+  it('replays a session-create receipt that an earlier Worker left in the shared ledger', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const requestId = nextRequestId();
+    const first = await context.worker.fetch(admission({ requestId }));
+    expect(first.status).toBe(200);
+    const firstCookie = cookieFrom(first);
+    const sessionCount = Object.keys(context.worker.room!.sessions).length;
+    // Model the core written by the previous Worker: the receipt sits in the
+    // shared browser ledger and the dedicated ledger does not exist yet.
+    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
+    const [storageKey, receipt] = Object.entries(stored.core.sessionCreateIdempotency)[0]!;
+    stored.core.idempotency[storageKey] = receipt;
+    delete stored.core.sessionCreateIdempotency;
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const replay = await restarted.fetch(admission({ requestId }));
+    expect(replay.status).toBe(200);
+    expect(cookieFrom(replay)).toBe(firstCookie);
+    expect(Object.keys(restarted.room!.sessions)).toHaveLength(sessionCount);
+    // The short-lived legacy receipt is read in place rather than migrated.
+    expect(restarted.room!.sessionCreateIdempotency).toEqual({});
+    expect(restarted.room!.idempotency[storageKey]).toMatchObject({ kind: 'session-create' });
+    expect(storedCanonicalRoom(context.state).sessionCreateIdempotency).toEqual({});
+    const conflict = await restarted.fetch(admission({ requestId, pin: '12345678' }));
+    expect(conflict.status).toBe(409);
+    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+  });
+
+  it('releases legacy shared-ledger session-create receipts when the owner enables a PIN', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    // Model a flood that an earlier Worker recorded in the shared browser
+    // ledger: its session-create receipts fill every remaining shared slot.
+    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
+    const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
+    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
+      const actorHash = `L${String(index).padStart(4, '0')}`.padEnd(43, 'L');
+      stored.core.idempotency[`session-create:${actorHash}:legacy-flood-${index}`] =
+        sessionCreateReceipt(index, expiresAtMs);
+    }
+    delete stored.core.sessionCreateIdempotency;
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const restartedContext = { ...context, worker: restarted };
+    const queueItemId = '44444444-4444-4444-8444-444444444444';
+    const playlist = [
+      {
+        queueItemId,
+        name: 'Legacy flood survivor',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ];
+    const frozen = await replacePlaylist(restartedContext, playlist, 'legacy-flood-frozen');
+    expect(frozen.status).toBe(409);
+    expect(await responseJson(frozen)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+
+    const enabled = await restarted.fetch(
+      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie)),
+    );
+    expect(enabled.status).toBe(200);
+    const sharedSessionCreateKeys = (ledger: Record<string, unknown>) =>
+      Object.keys(ledger).filter((key) => key.startsWith('session-create:'));
+    expect(sharedSessionCreateKeys(restarted.room!.idempotency)).toEqual([]);
+    expect(sharedSessionCreateKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
+
+    // Owner queue and playback control work again at once.
+    const queued = await replacePlaylist(restartedContext, playlist, 'legacy-flood-released');
+    expect(queued.status).toBe(200);
+    const played = await restarted.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: restarted.room!.playback.revision,
+          queueItemId,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        context.ownerCookie,
+        'legacy-flood-playback-command',
+      ),
+    );
+    expect(played.status).toBe(202);
+  });
+
+  it('keeps saturated session-create and presence-close ledgers inside the room core budget', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const room = context.worker.room!;
+    const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
+    for (let index = 0; index < 256; index += 1) {
+      // The longest actor scope and request ID the Worker accepts.
+      const actorHash = `A${String(index).padStart(4, '0')}`.padEnd(43, 'A');
+      const requestId = `R${String(index).padStart(4, '0')}`.padEnd(128, 'r');
+      room.sessionCreateIdempotency[`session-create:${actorHash}:${requestId}`] =
+        sessionCreateReceipt(index, expiresAtMs);
+    }
+    const ledgerBytes = new TextEncoder().encode(
+      JSON.stringify(room.sessionCreateIdempotency),
+    ).byteLength;
+    expect(ledgerBytes).toBeLessThanOrEqual(112 * 1024);
+    // At most one close receipt per stored session (128), each with the
+    // server-generated identifiers and the longest idempotency key accepted.
+    const [ownerHash, ownerSession] = Object.entries(room.sessions).find(
+      ([, session]) => session.role === 'owner',
+    )!;
+    for (let index = 0; index < 128; index += 1) {
+      const id = String(index).padStart(24, '0');
+      const closeKey = `K${id}`.padEnd(128, 'k');
+      room.presenceCloseIdempotency[
+        `participant:${ownerSession.participantId}:incarnation:presence_${id}:session:${ownerHash}:presence-close:${closeKey}`
+      ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
+    }
+    const closeLedgerBytes = new TextEncoder().encode(
+      JSON.stringify(room.presenceCloseIdempotency),
+    ).byteLength;
+    expect(closeLedgerBytes).toBeLessThanOrEqual(54 * 1024);
+    const queued = await replacePlaylist(
+      context,
+      [
+        {
+          queueItemId: '22222222-2222-4222-8222-222222222222',
+          name: 'Budget check',
+          source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+        },
+      ],
+      'receipt-budget',
+    );
+    expect(queued.status).toBe(200);
+    // Both saturated ledgers (about 108 and 52 KiB) together cost under a
+    // seventh of the 1.2 MiB core budget.
+    const coreBytes = new TextEncoder().encode(
+      JSON.stringify(context.state.storage.data.get(CORE_KEY)),
+    ).byteLength;
+    expect(coreBytes).toBeLessThan(ledgerBytes + closeLedgerBytes + 64 * 1024);
+    expect(coreBytes).toBeLessThan(1200 * 1024);
+    const stored = storedCanonicalRoom(context.state);
+    expect(Object.keys(stored.sessionCreateIdempotency)).toHaveLength(256);
+    expect(Object.keys(stored.presenceCloseIdempotency)).toHaveLength(128);
+  });
+
+  it('alarms and durably prunes idle session-create receipts at their deadline', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T01:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, environment() as never);
+    const internal = worker as unknown as {
+      ensureReady(request: Request): Promise<boolean>;
+      persist(): Promise<void>;
+      scheduleAlarm(): Promise<void>;
+      scheduledAlarmMs: number | null | undefined;
+    };
+    expect(
+      await internal.ensureReady(
+        new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+          headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+        }),
+      ),
+    ).toBe(true);
+    const expiresAtMs = startedAtMs + ADMISSION_WINDOW_MS;
+    worker.room!.sessionCreateIdempotency['session-create:idle-probe:request'] =
+      sessionCreateReceipt(0, expiresAtMs);
+    await internal.persist();
+    internal.scheduledAlarmMs = null;
+    state.storage.alarm = null;
+    await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(expiresAtMs);
+
+    vi.setSystemTime(expiresAtMs + 1);
+    state.storage.alarm = null;
+    await worker.alarm();
+    expect(worker.room!.sessionCreateIdempotency).toEqual({});
+    expect(storedCanonicalRoom(state).sessionCreateIdempotency).toEqual({});
+    expect(state.storage.alarm).toBeNull();
+  });
+
+  it('limits successful non-owner session creation per address prefix with Retry-After', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T01:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const { worker } = await activatedRoom(ROOM_CODE, true);
+    const cycle = async (key: string) => {
+      const joined = await worker.fetch(admission({ key }));
+      if (joined.status !== 200) return joined;
+      const cookie = cookieFrom(joined);
+      bindCookiePresence(cookie, await responseJson(joined));
+      expect(
+        (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
+      ).toBe(200);
+      return joined;
+    };
+    for (let index = 0; index < 200; index += 1) {
+      expect((await cycle('throttled-nat')).status).toBe(200);
+    }
+    expect(admissionCount(worker, 'throttled-nat')).toBe(200);
+    vi.setSystemTime(startedAtMs + 60_000);
+    const sessionsBefore = Object.keys(worker.room!.sessions);
+    const receiptsBefore = Object.keys(worker.room!.sessionCreateIdempotency);
+    const limited = await worker.fetch(admission({ key: 'throttled-nat' }));
+    expect(limited.status).toBe(429);
+    expect(await responseJson(limited)).toEqual({ error: 'RATE_LIMITED' });
+    expect(limited.headers.get('retry-after')).toBe('540');
+    expect(limited.headers.getSetCookie()).toEqual([]);
+    expect(Object.keys(worker.room!.sessions)).toEqual(sessionsBefore);
+    expect(Object.keys(worker.room!.sessionCreateIdempotency)).toEqual(receiptsBefore);
+    expect(admissionCount(worker, 'throttled-nat')).toBe(200);
+
+    expect((await cycle('other-nat')).status).toBe(200);
+    vi.setSystemTime(startedAtMs + ADMISSION_WINDOW_MS);
+    expect((await cycle('throttled-nat')).status).toBe(200);
+    expect(admissionCount(worker, 'throttled-nat')).toBe(1);
+  }, 60_000);
+
+  it('never throttles or counts idempotent replays and deterministic recovery', async () => {
+    const { worker } = await activatedRoom(ROOM_CODE, true);
+    seedAdmissions(worker, 'replay-nat', 199);
+    const requestId = nextRequestId();
+    const original = await worker.fetch(admission({ key: 'replay-nat', requestId }));
+    expect(original.status).toBe(200);
+    const originalCookie = cookieFrom(original);
+    expect(admissionCount(worker, 'replay-nat')).toBe(200);
+
+    const replay = await worker.fetch(admission({ key: 'replay-nat', requestId }));
+    expect(replay.status).toBe(200);
+    expect(cookieFrom(replay)).toBe(originalCookie);
+    worker.room!.sessionCreateIdempotency = {};
+    const recovered = await worker.fetch(admission({ key: 'replay-nat', requestId }));
+    expect(recovered.status).toBe(200);
+    expect(cookieFrom(recovered)).toBe(originalCookie);
+    expect(Object.keys(worker.room!.sessionCreateIdempotency)).toHaveLength(1);
+    expect(admissionCount(worker, 'replay-nat')).toBe(200);
+
+    const limited = await worker.fetch(admission({ key: 'replay-nat' }));
+    expect(limited.status).toBe(429);
+  });
+
+  it('does not count PIN failures or idempotency conflicts', async () => {
+    const { worker } = await activatedRoom();
+    const key = 'rejected-nat';
+    const wrong = await worker.fetch(admission({ key, pin: '00000000' }));
+    expect(await responseJson(wrong)).toEqual({ error: 'PIN_INVALID' });
+    expect(admissionCount(worker, key)).toBe(0);
+    const requestId = nextRequestId();
+    expect((await worker.fetch(admission({ key, requestId, pin: '12345678' }))).status).toBe(200);
+    expect(admissionCount(worker, key)).toBe(1);
+    const conflict = await worker.fetch(admission({ key, requestId, pin: '87654321' }));
+    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(admissionCount(worker, key)).toBe(1);
+  });
+
+  it('does not count account-capacity or full-room refusals', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T01:00:00.000Z'));
+    const { worker } = await activatedRoom(ROOM_CODE, true);
+    const key = 'rejected-nat';
+    const listenerAccountId = 'acct_AAAAAAAAAAAAAAAAAAAAAA';
+    const listener = await worker.fetch(
+      await withAccountAssertion(admission({ key: 'template-nat' }), listenerAccountId, 'Listener'),
+    );
+    expect(listener.status).toBe(200);
+    bindCookiePresence(cookieFrom(listener), await responseJson(listener));
+    const room = worker.room!;
+    const template = room.accountMembers[listenerAccountId]!;
+    const fillers: string[] = [];
+    for (let index = 0; Object.keys(room.accountMembers).length < 100; index += 1) {
+      const accountId = `acct_${String(index).padStart(22, '0')}`;
+      room.accountMembers[accountId] = {
+        ...template,
+        memberId: `admin_${String(index).padStart(24, '0')}`,
+        role: 'controller',
+      };
+      fillers.push(accountId);
+    }
+    const capacity = await worker.fetch(
+      await withAccountAssertion(admission({ key }), 'acct_BBBBBBBBBBBBBBBBBBBBBB', 'Listener'),
+    );
+    expect(await responseJson(capacity)).toEqual({ error: 'ACCOUNT_MEMBER_CAPACITY_EXCEEDED' });
+    expect(admissionCount(worker, key)).toBe(0);
+    for (const accountId of fillers) delete worker.room!.accountMembers[accountId];
+
+    // Owner + listener + 98 = the 100-device ceiling.
+    const cookies = await admitMembers(worker, 98, (index) => `fill-${index}`);
+    const full = await worker.fetch(admission({ key }));
+    expect(await responseJson(full)).toEqual({ error: 'ROOM_FULL' });
+    expect(admissionCount(worker, key)).toBe(0);
+    await leavePresence(worker, cookies[0]!);
+    expect((await worker.fetch(admission({ key }))).status).toBe(200);
+    expect(admissionCount(worker, key)).toBe(1);
+  }, 60_000);
+
+  it('counts an admission only after its storage commit succeeds', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const key = 'commit-nat';
+    const requestId = nextRequestId();
+    const storedSessions = Object.keys(storedCanonicalRoom(context.state).sessions);
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('admission commit failure'),
+    );
+    await expect(worker.fetch(admission({ key, requestId }))).rejects.toThrow(
+      'admission commit failure',
+    );
+    // The failed commit rolled the admission back, so it consumed no budget.
+    expect(admissionCount(worker, key)).toBe(0);
+    expect(Object.keys(storedCanonicalRoom(context.state).sessions)).toEqual(storedSessions);
+    expect(storedCanonicalRoom(context.state).sessionCreateIdempotency).toEqual({});
+
+    // The retry is a fresh admission that commits, and only then counts.
+    const retried = await worker.fetch(admission({ key, requestId }));
+    expect(retried.status).toBe(200);
+    expect(admissionCount(worker, key)).toBe(1);
+    expect(Object.keys(storedCanonicalRoom(context.state).sessions)).toHaveLength(
+      storedSessions.length + 1,
+    );
+  });
+
+  it.each(['verified-account', 'legacy-credential'] as const)(
+    'exempts a proven %s owner admission from the address throttle',
+    async (proof) => {
+      const context = await activatedRoom(ROOM_CODE, true);
+      const { worker } = context;
+      if (proof === 'legacy-credential') useLegacyOwnerCredential(worker);
+      seedAdmissions(worker, 'shared-nat', 200);
+      expect((await worker.fetch(admission({ key: 'shared-nat' }))).status).toBe(429);
+      const owner = await worker.fetch(
+        proof === 'verified-account'
+          ? await withAccountAssertion(
+              admission({ key: 'shared-nat' }),
+              ACTIVATION_OWNER_ACCOUNT_ID,
+              'Owner',
+            )
+          : admission({ key: 'shared-nat', cookie: context.ownerRecoveryCookie }),
+      );
+      expect(owner.status).toBe(200);
+      expect((await responseJson(owner)).snapshot.viewer.role).toBe('owner');
+      expect(admissionCount(worker, 'shared-nat')).toBe(200);
+    },
+  );
+
+  it('throttles protected-room admission before PIN verification without spending the PIN budget', async () => {
+    const { worker } = await activatedRoom();
+    const pinFailureKey = 'pin-failure:hashed-client-address';
+    const pinFailure = { count: 3, resetAtMs: Date.now() + 60 * 60 * 1000 };
+    worker.room!.rateLimits[pinFailureKey] = { ...pinFailure };
+    seedAdmissions(worker, 'protected-nat', 200);
+    for (const pin of ['12345678', '00000000']) {
+      const limited = await worker.fetch(admission({ key: 'protected-nat', pin }));
+      expect(limited.status).toBe(429);
+      expect(await responseJson(limited)).toEqual({ error: 'RATE_LIMITED' });
+    }
+    expect(worker.room!.rateLimits[pinFailureKey]).toEqual(pinFailure);
+    expect((await worker.fetch(admission({ key: 'other-nat', pin: '12345678' }))).status).toBe(200);
+  });
+
+  it('resets counters on every authentication-epoch change but not when protection is disabled', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    seedAdmissions(worker, 'venue-nat', 200);
+    expect((await worker.fetch(admission())).status).toBe(429);
+    expect((await worker.fetch(internalRequest('suspend'))).status).toBe(200);
+    expect((await worker.fetch(internalRequest('resume'))).status).toBe(200);
+    expect((await worker.fetch(admission())).status).toBe(200);
+    expect(admissionCount(worker, 'venue-nat')).toBe(1);
+
+    // Suspension revoked the owner too; re-enter with the verified account.
+    const owner = await worker.fetch(
+      await withAccountAssertion(
+        admission({ key: 'owner-home' }),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+      ),
+    );
+    expect(owner.status).toBe(200);
+    const ownerCookie = cookieFrom(owner);
+    bindCookiePresence(ownerCookie, await responseJson(owner));
+    seedAdmissions(worker, 'venue-nat', 200);
+    expect((await worker.fetch(admission())).status).toBe(429);
+    expect(
+      (
+        await worker.fetch(
+          optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie)),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await worker.fetch(admission({ pin: '87654321' }))).status).toBe(200);
+
+    // Opening the room revokes nobody, so the current window continues.
+    seedAdmissions(worker, 'venue-nat', 200);
+    expect(
+      (
+        await worker.fetch(
+          optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: null }, ownerCookie)),
+        )
+      ).status,
+    ).toBe(200);
+    expect((await worker.fetch(admission())).status).toBe(429);
+
+    // The soft counters live in instance memory only.
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    expect((await restarted.fetch(admission())).status).toBe(200);
+  });
+
+  it('fails open when the counter map is full and ignores a full security ledger', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T01:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const { worker } = await activatedRoom(ROOM_CODE, true);
+    const entries = new Map<string, { count: number; resetAtMs: number }>();
+    for (let index = 0; index < 1024; index += 1) {
+      entries.set(`bulk-${String(index).padStart(4, '0')}`, {
+        count: 200,
+        resetAtMs: startedAtMs + 60_000 + index,
+      });
+    }
+    worker.sessionAdmissionThrottle = {
+      authEpoch: worker.room!.authEpoch,
+      roomGeneration: worker.room!.roomGeneration,
+      entries,
+    };
+    expect((await worker.fetch(admission({ key: 'fresh-nat' }))).status).toBe(200);
+    expect(entries.size).toBe(1024);
+    expect(entries.has('bulk-0000')).toBe(false);
+    expect(entries.get('fresh-nat')).toEqual({
+      count: 1,
+      resetAtMs: startedAtMs + ADMISSION_WINDOW_MS,
+    });
+    expect((await worker.fetch(admission({ key: 'bulk-0001' }))).status).toBe(429);
+
+    // An expired bucket is dropped before any live bucket is forgotten.
+    entries.get('bulk-0500')!.resetAtMs = startedAtMs;
+    expect((await worker.fetch(admission({ key: 'fresh-nat-2' }))).status).toBe(200);
+    expect(entries.has('bulk-0500')).toBe(false);
+    expect(entries.has('bulk-0001')).toBe(true);
+    expect(entries.size).toBe(1024);
+
+    // Public admission never consults the fail-closed security ledger.
+    for (let index = 0; Object.keys(worker.room!.rateLimits).length < 512; index += 1) {
+      worker.room!.rateLimits[`pin-failure:public-${index}`] = {
+        count: 1,
+        resetAtMs: startedAtMs + 60 * 60 * 1000,
+      };
+    }
+    expect((await worker.fetch(admission({ key: 'fresh-nat-3' }))).status).toBe(200);
+  });
+
+  it('derives the admission key from the IPv4 address or IPv6 /64 and ignores a caller value', async () => {
+    const forwarded: Request[] = [];
+    const env = {
+      ...environment(),
+      PRO_ROOM_RATE_LIMIT_SECRET: 'rate-limit-secret-'.padEnd(48, 'r'),
+      PRO_ROOMS: {
+        idFromName: (value: string) => value,
+        get: () => ({
+          fetch: async (incoming: Request) => {
+            forwarded.push(incoming);
+            return Response.json({ ok: true });
+          },
+        }),
+      },
+    };
+    const send = async (address: string | null, path = '/sessions', forged?: string) => {
+      const headers = new Headers({
+        origin: 'https://musixquare.com',
+        'content-type': 'application/json',
+      });
+      if (address !== null) headers.set('cf-connecting-ip', address);
+      if (forged) headers.set('x-mxqr-pro-admission-key', forged);
+      const response = await proRoomWorker.fetch(
+        new Request(`${BASE_URL}${path}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ requestId: 'front-admission-key-request-0001' }),
+        }),
+        env as never,
+      );
+      expect(response.status).toBe(200);
+      return forwarded.at(-1)!.headers;
+    };
+    const keyFor = async (address: string | null, path?: string, forged?: string) =>
+      (await send(address, path, forged)).get('x-mxqr-pro-admission-key');
+
+    const firstHeaders = await send('2001:db8:1:2::1');
+    const ipv6 = firstHeaders.get('x-mxqr-pro-admission-key');
+    expect(ipv6).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const sameBlockHeaders = await send('2001:0DB8:0001:0002:ffff:ffff:ffff:fffe');
+    expect(sameBlockHeaders.get('x-mxqr-pro-admission-key')).toBe(ipv6);
+    // The exact-address hash used by PIN-failure limits stays per address.
+    expect(sameBlockHeaders.get('x-mxqr-pro-ip-hash')).not.toBe(
+      firstHeaders.get('x-mxqr-pro-ip-hash'),
+    );
+    expect(await keyFor('[2001:db8:1:2:0:0:0:abcd]')).toBe(ipv6);
+    expect(await keyFor('2001:db8:1:2::7%eth0')).toBe(ipv6);
+    expect(await keyFor('2001:db8:1:3::1')).not.toBe(ipv6);
+
+    const ipv4 = await keyFor('192.0.2.7');
+    expect(ipv4).not.toBe(ipv6);
+    expect(await keyFor('::ffff:192.0.2.7')).toBe(ipv4);
+    expect(await keyFor('::FFFF:c000:207')).toBe(ipv4);
+    expect(await keyFor('192.0.2.8')).not.toBe(ipv4);
+    expect(await keyFor('::1')).not.toBe(ipv4);
+
+    // Only the front door assigns the key.
+    expect(await keyFor('192.0.2.7', '/sessions', 'forged-admission-key')).toBe(ipv4);
+    expect(await keyFor('192.0.2.7', '/presence/heartbeat', 'forged-admission-key')).toBeNull();
+
+    // A value that is not an address keeps its own exact bucket.
+    const malformed = await keyFor('2001:db8::1::2');
+    expect(malformed).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(malformed).not.toBe(ipv6);
+    expect(await keyFor('2001:db8::1::2')).toBe(malformed);
+    for (const invalid of ['1:2:3:4:5:6:7:8:9', '2001:db8::1.2.3.999', 'gggg::1', ':1:2::3']) {
+      expect(await keyFor(invalid)).not.toBe(ipv6);
+    }
+    expect(await keyFor(null)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it('shares one throttle bucket across an IPv6 /64 through the public front door', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const env = {
+      ...environment(context.bucket),
+      PRO_ROOM_RATE_LIMIT_SECRET: 'rate-limit-secret-'.padEnd(48, 'r'),
+      PRO_ROOMS: {
+        idFromName: (value: string) => value,
+        get: () => ({ fetch: (incoming: Request) => context.worker.fetch(incoming) }),
+      },
+    };
+    const join = (address: string) =>
+      proRoomWorker.fetch(
+        new Request(`${BASE_URL}/sessions`, {
+          method: 'POST',
+          headers: {
+            origin: 'https://musixquare.com',
+            'content-type': 'application/json',
+            'cf-connecting-ip': address,
+            'x-mxqr-pro-entry-policy': 'optional-v1',
+          },
+          body: JSON.stringify({ requestId: nextRequestId() }),
+        }),
+        env as never,
+      );
+    expect((await join('2001:db8:9:1::10')).status).toBe(200);
+    expect((await join('2001:db8:9:1:aaaa::20')).status).toBe(200);
+    expect((await join('2001:db8:9:2::10')).status).toBe(200);
+    const entries = context.worker.sessionAdmissionThrottle!.entries;
+    expect([...entries.values()].map((entry) => entry.count).sort()).toEqual([1, 2]);
+
+    const [sharedKey] = [...entries].find(([, entry]) => entry.count === 2)!;
+    entries.get(sharedKey)!.count = 200;
+    const limited = await join('2001:db8:9:1:bbbb::30');
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+    expect(Number(limited.headers.get('retry-after'))).toBeLessThanOrEqual(600);
+    expect((await join('2001:db8:9:2::99')).status).toBe(200);
   });
 });
 
@@ -10446,9 +11905,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const sessionsAfterFirst = Object.keys(
       (context.worker as unknown as { room: Record<string, any> }).room.sessions,
     ).length;
-    expect(
-      JSON.stringify((context.worker as unknown as { room: Record<string, any> }).room.idempotency),
-    ).not.toContain('12345678');
+    const receipts = (context.worker as unknown as { room: Record<string, any> }).room
+      .sessionCreateIdempotency;
+    expect(Object.keys(receipts)).toHaveLength(1);
+    expect(JSON.stringify(receipts)).not.toContain('12345678');
 
     const resident = (context.worker as unknown as { room: Record<string, any> }).room;
     delete resident.presence.participants[first.snapshot.viewer.participantId];
@@ -10516,14 +11976,23 @@ describe('persistent PRO room authentication, presence, and state', () => {
       name: 'RoomStateStorageCommitError',
     });
     expect(
-      Object.values(internal.room.idempotency).some(
+      Object.values(internal.room.sessionCreateIdempotency).some(
         (record: any) => record?.kind === 'session-create',
       ),
     ).toBe(true);
+    // The admission throttle counts only a committed admission. Without an
+    // admission-key header the throttle falls back to the IP hash.
+    const admissionCount = () =>
+      context.worker.sessionAdmissionThrottle?.entries.get('session-storage-recovery-actor')
+        ?.count ?? 0;
+    expect(admissionCount()).toBe(0);
 
     context.state.storage.put = originalPut;
     const recovered = await context.worker.fetch(admission());
     expect(recovered.status).toBe(200);
+    // The retry converged the resident receipt through the replay branch,
+    // which never counts toward the throttle.
+    expect(admissionCount()).toBe(0);
     const recoveredCookie = cookieFrom(recovered);
     const recoveredEnvelope = await responseJson(recovered);
 
@@ -10595,12 +12064,16 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const sessionCount = Object.keys(internal.room.sessions).length;
     const participantCount = Object.keys(internal.room.presence.participants).length;
     const admittedParticipantId = admittedEnvelope.snapshot.viewer.participantId;
-    const receiptKey = Object.keys(internal.room.idempotency).find(
+    const receiptKey = Object.keys(internal.room.sessionCreateIdempotency).find(
       (key) =>
-        key.endsWith(`:${requestId}`) && internal.room.idempotency[key]?.kind === 'session-create',
+        key.endsWith(`:${requestId}`) &&
+        internal.room.sessionCreateIdempotency[key]?.kind === 'session-create',
     );
     expect(receiptKey).toBeTruthy();
-    expect(internal.room.idempotency[receiptKey!].expiresAtMs).toBe(startedAtMs + 10 * 60 * 1000);
+    expect(internal.room.sessionCreateIdempotency[receiptKey!].expiresAtMs).toBe(
+      startedAtMs + 10 * 60 * 1000,
+    );
+    expect(internal.room.idempotency[receiptKey!]).toBeUndefined();
 
     // Keep every presence fresh so receipt expiry is isolated from the much
     // shorter presence TTL. The retry must not overwrite the still-live
@@ -10613,7 +12086,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     }
     vi.setSystemTime(startedAtMs + 10 * 60 * 1000 + 1);
     await context.worker.alarm();
-    expect(internal.room.idempotency[receiptKey!]).toBeUndefined();
+    expect(internal.room.sessionCreateIdempotency[receiptKey!]).toBeUndefined();
 
     const recovered = await context.worker.fetch(admission());
     expect(recovered.status).toBe(200);
@@ -10624,7 +12097,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(Object.keys(internal.room.sessions)).toHaveLength(sessionCount);
     expect(Object.keys(internal.room.presence.participants)).toHaveLength(participantCount);
     expect(internal.room.presence.participants[admittedParticipantId]).toBeDefined();
-    expect(internal.room.idempotency[receiptKey!]).toMatchObject({
+    expect(internal.room.sessionCreateIdempotency[receiptKey!]).toMatchObject({
       kind: 'session-create',
       participantId: admittedParticipantId,
       expiresAtMs: startedAtMs + 20 * 60 * 1000 + 1,
@@ -14962,8 +16435,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(internal.room.presence.revision).toBe(Number.MAX_SAFE_INTEGER);
   });
 
+  // Owner-approved contract change (2026-10-11): one presence place is reserved
+  // for the owner, so with the owner absent a full room holds 99 non-owner
+  // presences and owner recovery succeeds instead of returning ROOM_FULL. The
+  // ROOM_FULL recovery branch is still pinned by the detached-owner test below.
   it.each(['absent', 'owner', 'member'] as const)(
-    'preserves full-room recovery capacity and slot reuse for an %s caller',
+    'preserves full-room owner recovery through the reserved seat for an %s caller',
     async (caller) => {
       const { worker, ownerCookie } = await activatedRoom();
       if (caller !== 'owner') {
@@ -14973,13 +16450,16 @@ describe('persistent PRO room authentication, presence, and state', () => {
         ).toBe(200);
       }
       const memberCookies: string[] = [];
-      for (let index = 0; index < (caller === 'owner' ? 99 : 100); index += 1) {
+      for (let index = 0; index < 99; index += 1) {
         const joined = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
         expect(joined.status).toBe(200);
         const cookie = cookieFrom(joined);
         bindCookiePresence(cookie, await responseJson(joined));
         memberCookies.push(cookie);
       }
+      const refused = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
+      expect(refused.status).toBe(409);
+      expect(await responseJson(refused)).toEqual({ error: 'ROOM_FULL' });
       const issued = await worker.fetch(
         new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
           method: 'POST',
@@ -15006,39 +16486,82 @@ describe('persistent PRO room authentication, presence, and state', () => {
         ).then((incoming) => worker.fetch(incoming));
 
       const full = await recover();
-      if (caller !== 'absent') {
-        expect(full.status).toBe(200);
-        const snapshot = parseProRoomSnapshot((await responseJson(full)).snapshot);
-        expect(snapshot?.presence.participants).toHaveLength(100);
-        expect(snapshot?.viewer).toMatchObject({ role: 'owner', isAuthenticated: true });
-        expect(internal.room.ownerCredentialHash).not.toBe(originalCredential);
-        expect(internal.room.ownerAuthorityEpoch).toBe(originalEpoch + 1);
-        expect(Object.keys(internal.room.consumedRecoveryNonces)).toHaveLength(1);
-        expect((await worker.fetch(request('/snapshot', {}, recoveringCookie))).status).toBe(401);
-        return;
-      }
-      expect.soft(full.status).toBe(409);
-      expect.soft(await responseJson(full)).toEqual({ error: 'ROOM_FULL' });
-      expect.soft(full.headers.getSetCookie()).toEqual([]);
-      expect.soft(internal.room.ownerCredentialHash).toBe(originalCredential);
-      expect.soft(internal.room.ownerAuthorityEpoch).toBe(originalEpoch);
-      expect.soft(internal.room.consumedRecoveryNonces).toEqual({});
-      expect(Object.keys(internal.room.presence.participants)).toHaveLength(100);
-
-      expect(
-        (await worker.fetch(request('/presence/current', { method: 'DELETE' }, memberCookies[0])))
-          .status,
-      ).toBe(200);
-      const recovered = await recover();
-      expect(recovered.status).toBe(200);
-      const recoveredSnapshot = parseProRoomSnapshot((await responseJson(recovered)).snapshot);
-      expect(recoveredSnapshot?.presence.participants).toHaveLength(100);
-      expect(recoveredSnapshot?.viewer).toMatchObject({
-        role: 'owner',
-        isAuthenticated: true,
-      });
+      expect(full.status).toBe(200);
+      const snapshot = parseProRoomSnapshot((await responseJson(full)).snapshot);
+      // A recovering member replaces its own presence with the owner session.
+      expect(snapshot?.presence.participants).toHaveLength(caller === 'member' ? 99 : 100);
+      expect(snapshot?.viewer).toMatchObject({ role: 'owner', isAuthenticated: true });
+      expect(internal.room.ownerCredentialHash).not.toBe(originalCredential);
+      expect(internal.room.ownerAuthorityEpoch).toBe(originalEpoch + 1);
+      expect(Object.keys(internal.room.consumedRecoveryNonces)).toHaveLength(1);
+      expect((await worker.fetch(request('/snapshot', {}, recoveringCookie))).status).toBe(401);
     },
   );
+
+  it('keeps owner recovery side-effect free when 100 non-owner presences remain after an owner detach', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const memberCookies: string[] = [];
+    for (let index = 0; index < 99; index += 1) {
+      const joined = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
+      expect(joined.status).toBe(200);
+      const cookie = cookieFrom(joined);
+      bindCookiePresence(cookie, await responseJson(joined));
+      memberCookies.push(cookie);
+    }
+    // Detaching the owner's account demotes its live session to an ordinary
+    // member in place. The reservation applies only at admission, so the room
+    // can then hold 100 non-owner presences until somebody leaves.
+    expect((await worker.fetch(detachRequest(ownerCookie))).status).toBe(200);
+    const internal = worker as unknown as { room: Record<string, any> };
+    expect(
+      Object.values(internal.room.presence.participants).filter(
+        (participant: any) => internal.room.sessions[participant.sessionHash]?.role !== 'owner',
+      ),
+    ).toHaveLength(100);
+    const issued = await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
+        method: 'POST',
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+      }),
+    );
+    expect(issued.status).toBe(200);
+    const claimToken = decodeURIComponent(
+      new URL((await responseJson(issued)).recoveryUrl).hash.slice('#pro-recovery='.length),
+    );
+    const originalCredential = internal.room.ownerCredentialHash;
+    const originalEpoch = internal.room.ownerAuthorityEpoch;
+    const recover = () =>
+      withAccountAssertion(
+        jsonRequest('/owner-recovery', 'POST', { claimToken }),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Recovered owner',
+      ).then((incoming) => worker.fetch(incoming));
+
+    const full = await recover();
+    expect(full.status).toBe(409);
+    expect(await responseJson(full)).toEqual({ error: 'ROOM_FULL' });
+    expect(full.headers.getSetCookie()).toEqual([]);
+    expect(internal.room.ownerCredentialHash).toBe(originalCredential);
+    expect(internal.room.ownerAuthorityEpoch).toBe(originalEpoch);
+    expect(internal.room.consumedRecoveryNonces).toEqual({});
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(100);
+
+    expect(
+      (await worker.fetch(request('/presence/current', { method: 'DELETE' }, memberCookies[0])))
+        .status,
+    ).toBe(200);
+    const recovered = await recover();
+    expect(recovered.status).toBe(200);
+    const recoveredSnapshot = parseProRoomSnapshot((await responseJson(recovered)).snapshot);
+    expect(recoveredSnapshot?.presence.participants).toHaveLength(100);
+    expect(recoveredSnapshot?.viewer).toMatchObject({
+      role: 'owner',
+      isAuthenticated: true,
+    });
+  });
 
   it('redeems a short-lived owner recovery claim once and revokes prior owner credentials', async () => {
     const context = await activatedRoom();
@@ -17936,6 +19459,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
   });
 
   it('allows 100 total same-NAT devices and evicts only inactive sessions during long churn', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T00:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
     const { worker } = await activatedRoom();
     const activeCookies: string[] = [];
     // activatedRoom() already enters the owner/coordinator, leaving 99 member
@@ -17965,6 +19491,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie));
     }
     for (let index = 0; index < 140; index += 1) {
+      // One address may create 200 non-owner sessions per 10-minute window
+      // (99 above + 70 here first). Cross the window mid-churn so the 239
+      // total admissions stay within the per-address budget.
+      if (index === 70) vi.setSystemTime(startedAtMs + 10 * 60 * 1000 + 1);
       const joined = await worker.fetch(
         jsonRequest('/sessions', 'POST', {
           pin: '12345678',

@@ -108,6 +108,12 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   (434 pass; binary codec, 실제 WebRTC, live는 범위 밖).
   [상세](design/beta-30-round-repair-2026-10-09.md#daybreak-보안-심화-재시도--2026-10-09)
 - [ ] 8.8.0 배포 뒤 첫 Drift Audit 결과 확인.
+- [ ] PRO 공개방 입장 보호(`pro-room` 대상, 미배포) 배포 뒤: 실제 공개방에서
+  일반 입장·재입장·탭 닫기 후 복귀가 `RATE_LIMITED`나 `ROOM_FULL` 없이 되는지,
+  PRO Worker 로그에서 두 응답이 평소보다 늘지 않는지 확인한다. 입장 throttle
+  카운터는 Durable Object 메모리에만 있어 운영에서 직접 볼 수 없고, 주소별 키
+  파생(IPv4, IPv6 /64)은 front door 단위 테스트로만 검증했다.
+  [상세](design/pro-room-admission-protection-2026-10-11.md)
 - [ ] Dependabot PR #201 검토. 메이저 업그레이드이고 typescript-eslint 호환이
   막혀 있으므로 별도 작업으로 한다.
 
@@ -115,6 +121,13 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
   포커스를 받는다. 8.7.8 이전부터 있던 문제다.
+- [ ] PRO 입장 오류 문구(App 후속): App은 입장 거절 `ROOM_FULL`과 새
+  `RATE_LIMITED`(429, `Retry-After`)를 모두 일반 `pro.connect_failed`로
+  보여 준다. `RATE_LIMITED`에는 새 문구와 대기 시간 표시가 필요하다.
+  `ROOM_FULL`에 기존 `network.session_full_detail`("방장 포함 최대 100대")을
+  그대로 쓰면, 방장이 없을 때 방장 외 99대에서 거절하는 PRO 좌석 예약과 맞지
+  않는다. App 변경이므로 target `all`, SemVer patch, SW 캐시 번호 증가가 따른다.
+  [상세](design/pro-room-admission-protection-2026-10-11.md)
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전
   30초 상한 때 Developer API로 저장된 10초 초과 값이 PRO 저장소에 남아 있으면,
   재로드 검증이 effects 전체를 기본값으로 돌린다. 오너가 실제 API 사용자를 확인한
@@ -179,6 +192,21 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   않는다. 이 문제를 D1 세션 데이터 유실과 혼동하지 않는다.
 - **리버브 상한 일치:** App, PRO, API 중 일부만 복구해 서로 다른 리버브 상한이
   남지 않게 한다. 대상별 복구 순서를 새로 만들지 않고 정식 절차를 따른다.
+- **PRO 공개방 입장 보호(배포되면 적용):** 이 변경 이전 PRO Worker로 되돌려도
+  core의 `sessionCreateIdempotency`(입장 영수증 최대 256개, 약 108 KiB)와
+  `presenceCloseIdempotency`(presence-close 영수증 최대 128개, 약 52 KiB)
+  필드는 그대로 보존되지만, 이전 Worker는 둘 다 읽지도 정리하지도 alarm
+  대상으로 삼지도 않는다. 되돌린 동안에는 방장 좌석 예약, 입장 throttle, 두
+  전용 원장이 모두 적용되지 않는다. 8.8.0은 presence-close 영수증을 다시 공유
+  participant 원장에 쓰므로, 그 원장이 차서 방장 큐·재생·미디어 제어가 막히는
+  문제도 그동안은 다시 생길 수 있다. 다시 앞으로 배포하면 공유 원장의
+  presence-close 영수증은 로드할 때 해제되고, 전용 원장의 만료됐거나 세션이
+  사라진 영수증은 정리된다. 그 사이 10분 안의 입장 재시도는 세션이 남아 있으면
+  deterministic recovery로 같은 세션에 수렴하고, 이미 닫힌 세션이면 새 입장으로
+  처리된다. 상대 Worker가 읽지 않는 원장에 영수증이 있는 presence close 재시도는
+  상태 변화 없는 409를 받고, App은 이를 무시한다. 계약 marker는 없고 rollback
+  floor도 바뀌지 않는다.
+  [상세](design/pro-room-admission-protection-2026-10-11.md)
 
 ## 5. 갱신 방법
 

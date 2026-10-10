@@ -129,7 +129,7 @@ describe('CI quality and supply-chain gates', () => {
     expect(packageJson.engines.node).toBe('24.20.0');
     expect(readFileSync(resolve('.node-version'), 'utf8').trim()).toBe(packageJson.engines.node);
     expect(packageJson.packageManager).toBe('npm@12.0.2');
-    expect(packageJson.devDependencies.eslint).toBe('^10.10.0');
+    expect(packageJson.devDependencies.eslint).toBe('^10.12.0');
     expect(packageJson.devDependencies.jiti).toBe('2.7.0');
     expect(toolingTsconfig.include).toEqual(
       expect.arrayContaining([

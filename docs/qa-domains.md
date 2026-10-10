@@ -1058,7 +1058,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **방법:** 자동 / 로컬서비스 / 운영확인
 
-**대표 구현:** [cloudflare/app-worker.ts](../cloudflare/app-worker.ts), [scripts/assert-production-security-config.mts](../scripts/assert-production-security-config.mts)
+**대표 구현:** [cloudflare/app-worker.ts](../cloudflare/app-worker.ts), [scripts/production-security-guard-lib.mts](../scripts/production-security-guard-lib.mts)
 
 **기존 검사 진입점:** [src/core/__tests__/app-worker-cors.test.ts](../src/core/__tests__/app-worker-cors.test.ts), [src/core/__tests__/capability-pow.test.ts](../src/core/__tests__/capability-pow.test.ts)
 

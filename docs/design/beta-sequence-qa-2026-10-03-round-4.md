@@ -7,7 +7,7 @@
 | Product/test code | `d4dd4bbb94c58624f50887d12dc5dd017fb95f7a` — includes SQ05–SQ06 repairs |
 | Main reference | `35759e8b07f1ee0b272afbd0af03c770a858889e` |
 | Environment | Windows, pinned Node 24.20.0, Vitest/jsdom, local Chromium and PeerJS; controlled external service/media boundaries |
-| Related records | [Living release record](../beta-release-readiness.md), [previous discovery and repairs](beta-sequence-qa-2026-10-03-round-3.md) |
+| Related records | [Living release record](../beta-release-readiness-archive-2026-10-10.md), [previous discovery and repairs](beta-sequence-qa-2026-10-03-round-3.md) |
 
 ## Result and scope
 

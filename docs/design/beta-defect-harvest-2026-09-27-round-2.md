@@ -7,7 +7,7 @@
 | Tested checkout | `63516859147008282104c5bd52d237fe9273e51b` |
 | Runtime source baseline | `b833e2a62bd7eceaa1c9a074d463a36477b514e4` — 이후 차이는 문서 |
 | Environment | Windows, Node 24.20.0, Vitest 5, jsdom·SQLite·가상 타이머 |
-| Related documents | [배포 준비 기록](../beta-release-readiness.md), [1차 발굴](beta-defect-harvest-2026-09-27.md), [B01–B04 수정](beta-defect-repair-2026-09-27.md) |
+| Related documents | [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md), [1차 발굴](beta-defect-harvest-2026-09-27.md), [B01–B04 수정](beta-defect-repair-2026-09-27.md) |
 
 후속 상태: 사용자 승인으로 C01–C03을 베타에서 수정했다.
 [수정·회귀 기록](beta-defect-repair-2026-09-27-round-2.md)을 참조한다.
@@ -198,4 +198,4 @@ node node_modules/vitest/vitest.mjs run --config scratch/qa-harvest2-2026-09-27/
 
 문서만 beta에 기록하며 main·프로덕션·버전·캐시·스키마·워크플로 상태는
 변경하지 않는다. 다음 수정 또는 승격 전에 C01–C03의 처리 결과를
-[배포 준비 기록](../beta-release-readiness.md)에 갱신한다.
+[배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md)에 갱신한다.

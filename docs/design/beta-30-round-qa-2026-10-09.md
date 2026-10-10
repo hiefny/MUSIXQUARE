@@ -7,7 +7,7 @@
 | Tested SHA | `e7c5529a3273c7132880dd0ad4572b2463405c87` |
 | Execution | 2026-10-08~09 KST, `gpt-6-astra` / `ultra`, 3개 에이전트씩 10세트 |
 | Environment | Windows x64, Node 24.20.0, npm 12.0.2, Vitest 5.0.0, Playwright 1.63.0, 로컬 Chromium·WebKit·PeerJS·Worker·SQLite |
-| Related documents | [QA 범위](../beta-qa-domains.md), [현재 배포 기록](../beta-release-readiness.md), [이전 발견](beta-30-round-qa-2026-10-07.md), [이전 수정](beta-30-round-repair-2026-10-07.md) |
+| Related documents | [QA 범위](../beta-qa-domains.md), [현재 배포 기록](../beta-release-readiness-archive-2026-10-10.md), [이전 발견](beta-30-round-qa-2026-10-07.md), [이전 수정](beta-30-round-repair-2026-10-07.md) |
 
 ## 결과와 판정 기준
 

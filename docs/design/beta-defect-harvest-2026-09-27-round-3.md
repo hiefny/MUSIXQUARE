@@ -7,7 +7,7 @@
 | Tested checkout | `ab4220b75ba58cfec1939f8eec4169bb7f86feb7` |
 | Runtime source baseline | `3dd9086cdced0fc25426da82239977b6da004074` — 이후 차이는 문서 |
 | Environment | Windows, Node 24.20.0, Vitest 5, Node/jsdom·SQLite·가상 타이머 |
-| Related documents | [배포 준비 기록](../beta-release-readiness.md), [2차 발굴](beta-defect-harvest-2026-09-27-round-2.md), [C01–C03 수정](beta-defect-repair-2026-09-27-round-2.md) |
+| Related documents | [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md), [2차 발굴](beta-defect-harvest-2026-09-27-round-2.md), [C01–C03 수정](beta-defect-repair-2026-09-27-round-2.md) |
 
 후속 상태: 추가 발굴에서 새 결함이 확정되지 않아, 사용자 지시에 따라
 D01을 베타에서 수정했다. [4차 발굴·D01 수정 기록](beta-defect-harvest-2026-09-27-round-4.md)을 참조한다.

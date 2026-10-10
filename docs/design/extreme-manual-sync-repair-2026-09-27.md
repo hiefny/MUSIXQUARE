@@ -5,7 +5,7 @@
 | Status      | Verified repair on `mxqr_beta`; no production deployment                                                                  |
 | Baseline    | `f0f534b2074b8b97426398962045acf599cf04ae`; product sources `c3eae88c`                                                    |
 | Environment | Windows, Node 24.20.0, Vitest 5, Chromium, local PeerJS                                                                   |
-| Related     | [Original discovery evidence](extreme-manual-sync-audit-2026-09-27.md), [release readiness](../beta-release-readiness.md) |
+| Related     | [Original discovery evidence](extreme-manual-sync-audit-2026-09-27.md), [release readiness](../beta-release-readiness-archive-2026-10-10.md) |
 
 The original audit remains dated discovery evidence. Its 40 failing module
 combinations represent four causes, not 40 independent defects. This repair

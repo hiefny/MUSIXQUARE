@@ -7,7 +7,7 @@
 | Code commit | `3dd9086cdced0fc25426da82239977b6da004074` |
 | Starting checkout | `3f21dee975ff8ab0b578fd7e861b60256079527b` |
 | Environment | Windows, Node 24.20.0, Vitest 5, jsdom·SQLite, Playwright Chromium |
-| Related documents | [발견 당시 근거](beta-defect-harvest-2026-09-27-round-2.md), [배포 준비 기록](../beta-release-readiness.md) |
+| Related documents | [발견 당시 근거](beta-defect-harvest-2026-09-27-round-2.md), [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md) |
 
 사용자 승인에 따라 확정 3건과 같은 원인의 주변 경계를 수정했다. main 병합,
 프로덕션 배포, Operations Drift Audit 재활성화는 실행하지 않는다.

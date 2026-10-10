@@ -9,10 +9,11 @@ copying a number from this procedure.
 This document is the canonical production hotfix note. Untracked workshop
 drafts are not release instructions.
 
-For the accumulated `mxqr_beta` promotion, first read the maintained
-[beta release record](beta-release-readiness.md). Reconcile its scope and
-outstanding work against the final diff, then follow this procedure. The record
-does not lift the owner's competition freeze or authorize a deployment.
+Before preparing a production release, first read the maintained
+[release record](release-record.md). Reconcile its current state and open items
+against the final diff, then follow this procedure. After the release, update
+the record and append the run to the [release history](release-history.md). The
+record does not authorize a deployment.
 
 ## Normal Hotfix
 
@@ -678,5 +679,9 @@ Treat these separately from app hotfixes unless the app has a confirmed code-lev
 - Run the live smoke that covers every deployed Worker.
 - Record the root cause and the exact user symptom.
 - Add or update a regression test when the issue is representable in unit/jsdom tests.
-- Add a manual verification note when the issue is browser/device-specific.
+- Add a manual verification note when the issue is browser/device-specific, as
+  an open item under 실기기 확인 in [release-record.md](release-record.md) §2.
+- Overwrite [release-record.md](release-record.md) §1 and its review line, and
+  append one row to [release-history.md](release-history.md). This also applies
+  to a local emergency deployment or a CLI rollback.
 - If the fix changes a cross-domain contract, update the relevant file under `docs/`.

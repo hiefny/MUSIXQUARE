@@ -11,19 +11,29 @@
 - Reactivate only Operations Drift Audit; this authorization does not restore
   unrelated disabled workflows. Audit-tooling-only changes need no App release.
 
-## Living beta release record
+## Release record
 
-- Read `docs/beta-release-readiness.md` before each beta QA round and before
-  preparing a main merge or production release.
-- At the end of each QA/change, update that document in the same change when
-  release scope, dependencies, schema/secrets/bindings, compatibility, version
-  requirements, verification evidence, unresolved issues, or recovery steps
-  change. If none changed, do not add a repetitive log entry.
-- Keep its current-state checklist and dated change log aligned. Record the
-  tested code SHA, environment, pass/fail/skip limits, and remaining actions;
-  preserve old QA reports as dated evidence. Never treat beta tests as the
-  successful exact-main-SHA release candidate.
-- This record tracks evidence; owner authorization and the release procedure
+- Read `docs/release-record.md` before each QA round and before preparing a
+  main merge or production release.
+- `docs/release-record.md` holds only the current state. After each production
+  deployment or rollback (a Production Release run, a local emergency deploy,
+  or a CLI rollback), overwrite all of its §1 and its `Last source review` line,
+  and append exactly one row to the bottom of `docs/release-history.md`. Do not
+  keep superseded values in the record.
+- At the end of each QA round or product/runtime change, write the tested code
+  SHA, environment, and pass/fail/skip limits in a dated report under
+  `docs/design/` and list it in the `docs/README.md` evidence section;
+  documentation- or audit-tooling-only changes need no report. For any change,
+  update the record in the same change only when release scope, dependencies,
+  schema/secrets/bindings, compatibility, version requirements, open items,
+  recovery steps, or owner decisions change, and link the report from any open
+  item it adds or changes. If none changed, leave the record alone.
+- Remove an open item only with evidence, cited in the pull request. Never
+  treat local or branch tests as the successful exact-main-SHA release
+  candidate.
+- `docs/beta-release-readiness-archive-2026-10-10.md` is the frozen beta-era
+  record. Do not edit it except to keep links working.
+- The record tracks evidence; owner authorization and the release procedure
   remain authoritative. The 2026-10-07 promotion authorization is recorded above.
 
 ## Normal workflow

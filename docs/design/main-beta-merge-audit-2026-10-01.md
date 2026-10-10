@@ -8,7 +8,7 @@
 | Environment | Windows, Node 24.20.0, npm 12.0.2, 로컬 Chromium / Windows WebKit |
 | Scope | `main...mxqr_beta`: 73 commits, 364 files, +47,155 / −2,540 lines |
 | Executable sources | [CI](../../.github/workflows/ci.yml), [release](../../.github/workflows/release.yml), [package](../../package.json), 변경된 런타임과 회귀 검사 |
-| Related documents | [현재 승격 기록](../beta-release-readiness.md), [정식 절차](../hotfix-procedure.md), [이전 전체 QA](beta-full-qa-repair-2026-09-27.md) |
+| Related documents | [현재 승격 기록](../beta-release-readiness-archive-2026-10-10.md), [정식 절차](../hotfix-procedure.md), [이전 전체 QA](beta-full-qa-repair-2026-09-27.md) |
 
 ## 판정
 

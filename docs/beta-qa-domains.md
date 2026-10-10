@@ -3,20 +3,20 @@
 | Field | Value |
 | --- | --- |
 | Status | Guide — QA 범위 설계, 실행 결과 아님 |
-| Applies to | mxqr_beta 전체 제품·브라우저·서버·데이터·QA 환경 |
-| Last source review | 2026-10-07 — QA082의 현행 제한 재확인 |
+| Applies to | main 전체 제품·브라우저·서버·데이터·QA 환경 |
+| Last source review | 2026-10-11 — 대회 종료 후 main 기준으로 적용 범위·기록 위치 정리 (2026-10-07 QA082 현행 제한 재확인 포함) |
 | Executable sources | [제품 소스](../src/), [브라우저 자산](../browser/), [Workers](../cloudflare/), [E2E](../e2e/), [도구/빌드](../package.json) |
-| Related documents | [베타 현재 상태](beta-release-readiness.md), [허용한 설계·제약](known-accepted.md), [모바일 확대 정책](mobile-app-zoom-policy.md), [문서 허브](README.md) |
+| Related documents | [현재 릴리스 기록](release-record.md), [허용한 설계·제약](known-accepted.md), [모바일 확대 정책](mobile-app-zoom-policy.md), [문서 허브](README.md) |
 
 초기 소스 검토 기준은 239bfe595aa8d9337a9e10b4165907182eeb386b이다.
 2026-10-07의 30라운드 QA(`9afc36b4d8bccc575a923b0dfaadd103145ba09f`)에서
 QA082의 폐기된 일일 BOT 제한 문구를 현행 분/시간 제한으로 바로잡았다.
-**현재 베타를 하나의 제품으로 보고 30개 대분류·122개 세부 QA 범위를 정리했다.**
+**main(대회 종료 후 승격된 베타 포함)을 하나의 제품으로 보고 30개 대분류·122개 세부 QA 범위를 정리했다.**
 main과의 차이 여부와 관계없이 사용자 기능, 권한, 데이터, 실패·복구 경계를 포함한다.
 
 이 문서는 새 결함 발견이나 새 테스트 통과를 보고하지 않는다. 연결한 기존 검사는
 검증을 시작할 위치이며, 해당 도메인의 모든 조건을 이미 검증했다는 뜻은 아니다.
-기존 결과·미확정 관측·실기 한계는 베타 현재 상태와 각 날짜의 보고서에서 확인한다.
+기존 결과·미확정 관측·실기 한계는 [현재 릴리스 기록](release-record.md)과 각 날짜의 보고서에서 확인한다.
 후속 변경 시 기존 QA 식별자를 유지하고 범위를 분할·추가한 관계를 기록한다.
 
 ## 우선순위와 검증 방법
@@ -37,8 +37,8 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 | 실기 | 실제 iOS/Android/데스크탑·설치 PWA·출력 장치·마이크/캡처·네트워크. 모바일 viewport나 headless WebKit으로 대체할 수 없다. |
 | 운영확인 | 설정·binding·schema·자산·버전·복구 요건의 계약 대조. 필요한 실제 외부 상태는 별도 read-only 증거로 구분한다. |
 
-대회 동결 중에는 mxqr_beta의 격리한 로컬 QA를 진행한다. 아래 운영 계약 항목은
-main 변경·프로덕션 쓰기/배포·Operations Drift Audit 재활성화의 허가가 아니다.
+아래 운영 계약 항목은 main 변경이나 프로덕션 쓰기·배포의 허가가 아니다. 승인은
+오너가 하고, 절차는 [hotfix-procedure.md](hotfix-procedure.md)를 따른다.
 
 ## 대분류 지도
 
@@ -1352,11 +1352,11 @@ main 변경·프로덕션 쓰기/배포·Operations Drift Audit 재활성화의 
 
 ### QA122. 운영 binding·secret·배포·복구 계약 검토 — P0
 
-**판정:** 운영 계약 검토 영역으로서 실제 Worker/DO/D1/R2/CORS/key rotation·계약 floor와 소스를 맞춘다. exact candidate SHA·버전/cache·범위·checkpoint/rollback의 증거 요건과 competition freeze의 main/production/audit workflow 동결을 검토한다. 이 항목은 배포 실행을 뜻하지 않는다.
+**판정:** 운영 계약 검토 영역으로서 실제 Worker/DO/D1/R2/CORS/key rotation·계약 floor와 소스를 맞춘다. exact candidate SHA·버전/cache·범위·checkpoint/rollback의 증거 요건과 오너 승인·정식 릴리스 절차(exact-main CI 후보)를 검토한다. 이 항목은 배포 실행을 뜻하지 않는다.
 
 **방법:** 자동 / 운영확인
 
-**대표 구현:** [scripts/release-deployment-state.mts](../scripts/release-deployment-state.mts), [docs/beta-release-readiness.md](../docs/beta-release-readiness.md)
+**대표 구현:** [scripts/release-deployment-state.mts](../scripts/release-deployment-state.mts), [docs/release-record.md](release-record.md)
 
 **기존 검사 진입점:** [src/core/__tests__/release-deployment-state.test.ts](../src/core/__tests__/release-deployment-state.test.ts), [src/core/__tests__/ops-drift-audit.test.ts](../src/core/__tests__/ops-drift-audit.test.ts)
 
@@ -1410,7 +1410,7 @@ P1/P2는 대표 조합과 pairwise로 넓힌다. 지원 계약 밖의 조건은 
 특히 실제 음향 QA는 병행할 가치가 크다. 이전 QA에 탐색 직후 일시적인 native PCM 차이와
 자동 복구 관측이 남아 있어, 재현 환경과 원인을 추가 분리해야 한다.
 이는 새 확정 결함이라는 판정이 아니며, 정확한 기존 증거는
-[마지막 QA 기록](design/beta-final-qa-2026-10-04.md)과 [현재 상태](beta-release-readiness.md)를 따른다.
+[마지막 QA 기록](design/beta-final-qa-2026-10-04.md)과 [현재 상태](release-record.md)를 따른다.
 
 ## 결함·관측·제약을 구분하는 기준
 
@@ -1432,8 +1432,10 @@ P1/P2는 대표 조합과 pairwise로 넓힌다. 지원 계약 밖의 조건은 
 | 절차 | 전제·입력/순서·실패 주입 위치·예상 최종 상태·관측 시계와 대기 종료 조건 |
 | 결과 | pass/fail/skip·retry/flaky·원본 실패와 재검증·타임라인/네트워크/자원/음향 증거 |
 | 판정 | 확정 제품 결함 / 검사 판정 오류 / 미확정 후보 / 허용한 제한 / 외부 환경 제약 |
-| 후속 | 영향·원인·beta 수정/회귀·미실행 범위·남은 실기/운영 확인 |
+| 후속 | 영향·원인·수정/회귀·미실행 범위·남은 실기/운영 확인 |
 
-새 QA 실행으로 증거·미해결 항목·호환성·복구 요건 등이 달라지면
-[베타 현재 상태](beta-release-readiness.md)에 같은 변경으로 반영한다.
+QA 결과(코드 SHA·환경·pass/fail/skip·한계)는 `docs/design/<주제>-<날짜>.md`
+보고서에 쓰고 [문서 허브](README.md)의 evidence 목록에 추가한다. 배포 대상·의존성·
+데이터/secret/binding·호환성·버전/캐시·열린 항목·복구 조건·오너 결정이 바뀐
+경우에만 [현재 릴리스 기록](release-record.md) §5에 따라 같은 변경에서 고친다.
 이 범위 설계만으로 기존 검사 결과나 릴리스 준비 상태는 변경하지 않는다.

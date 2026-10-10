@@ -7,7 +7,7 @@
 | Product/test code | `45c7ef7a4e0fef5b788efe11cb72d54c9b221929` — includes SQ14–SQ15 repairs                                                         |
 | Main reference    | `35759e8b07f1ee0b272afbd0af03c770a858889e`                                                                                      |
 | Environment       | Windows, pinned Node 24.20.0, Vitest 5/jsdom/local Worker fixtures, Playwright 1.63 Chromium and local PeerJS                   |
-| Related records   | [Living release record](../beta-release-readiness.md), [previous discovery and repairs](beta-sequence-qa-2026-10-03-round-6.md) |
+| Related records   | [Living release record](../beta-release-readiness-archive-2026-10-10.md), [previous discovery and repairs](beta-sequence-qa-2026-10-03-round-6.md) |
 
 ## Result
 

@@ -9,7 +9,7 @@
 | Main | `35759e8b07f1ee0b272afbd0af03c770a858889e`, 변경·병합·배포 없음 |
 | Environment | Windows, pinned Node 24.20.0/npm 12.0.2, Vitest 5, Playwright 1.63 Chromium, local PeerJS/Miniflare, jq 1.8.2 |
 | Executable sources | [package/overrides](../../package.json), [lock](../../package-lock.json), [CI audit/signatures](../../.github/workflows/ci.yml), [Worker dry-run](../../scripts/check-worker-bundles.mts) |
-| Related documents | [현재 베타 승격 기록](../beta-release-readiness.md), [수정 전 main/beta 비교](main-beta-comparison-2026-10-06.md) |
+| Related documents | [현재 베타 승격 기록](../beta-release-readiness-archive-2026-10-10.md), [수정 전 main/beta 비교](main-beta-comparison-2026-10-06.md) |
 
 사용자의 대회 동결 지시에 따라 **베타에만 수정**했다. 수정 전 main/beta의 공통
 개발 의존성 감사 13패키지(critical 1/high 7/moderate 5)는 이번 베타의 재감사에서

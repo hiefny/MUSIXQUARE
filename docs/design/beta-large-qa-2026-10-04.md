@@ -7,7 +7,7 @@
 | Product code    | `45c7ef7a4e0fef5b788efe11cb72d54c9b221929`, unchanged during this QA                                                                                                                               |
 | Main reference  | `35759e8b07f1ee0b272afbd0af03c770a858889e`                                                                                                                                                         |
 | Environment     | Windows; pinned Node 24.20.0/npm 12.0.2; Vitest 5; Playwright 1.63 Chromium/WebKit; local PeerJS; jq 1.8.2                                                                                         |
-| Related records | [Living beta release record](../beta-release-readiness.md), [previous full verification](beta-full-local-verification-2026-10-03.md), [latest sequence QA](beta-sequence-qa-2026-10-03-round-7.md) |
+| Related records | [Living beta release record](../beta-release-readiness-archive-2026-10-10.md), [previous full verification](beta-full-local-verification-2026-10-03.md), [latest sequence QA](beta-sequence-qa-2026-10-03-round-7.md) |
 
 ## Result and remaining work
 

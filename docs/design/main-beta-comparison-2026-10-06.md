@@ -8,7 +8,7 @@
 | Product source | `45c7ef7a4e0fef5b788efe11cb72d54c9b221929` 이후 제품 변경 없음. 그 이후 변경은 문서·QA 검사만 |
 | Environment | Windows, pinned Node 24.20.0/npm 12.0.2, Vitest 5, Playwright 1.63 Chromium, local PeerJS, jq 1.8.2 |
 | Executable sources | [package](../../package.json), [CI](../../.github/workflows/ci.yml), [캐시 검사](../../scripts/check-sw-cache-version.mts), 아래 변경 소스와 회귀 검사 |
-| Related documents | [현재 베타 승격 기록](../beta-release-readiness.md), [앞선 전체 비교](main-beta-merge-audit-2026-10-01.md), [10월 4일 최종 QA](beta-final-qa-2026-10-04.md) |
+| Related documents | [현재 베타 승격 기록](../beta-release-readiness-archive-2026-10-10.md), [앞선 전체 비교](main-beta-merge-audit-2026-10-01.md), [10월 4일 최종 QA](beta-final-qa-2026-10-04.md) |
 
 이번 비교에서 **새로 확정한 베타 런타임 결함은 0건**이다. 베타에는 대용량
 오디오 엔진과 여러 전송·재생·권한 복구 수정이 포함된다. 다만 양쪽에 공통으로
@@ -98,7 +98,7 @@ iPhone Safari/PWA·Android·Bluetooth 첫 음 정렬과 장시간 재생은 잔�
 새 D1/DO migration, secret, Wrangler binding, 프로토콜 marker 변경은 없다.
 누적 공개 배포 범위는 기존 `target=all`, Developer API D1 입력 false다. 쿠키
 reader가 바뀐 뒤 구 App Worker로 전체 rollback하면 새 이름을 읽지 못하는
-호환성 경계도 [기존 복구 기록](../beta-release-readiness.md#5-실패복구-시-주의점)을 유지한다.
+호환성 경계도 [기존 복구 기록](../beta-release-readiness-archive-2026-10-10.md#5-실패복구-시-주의점)을 유지한다.
 
 ## 이번 검증 결과
 

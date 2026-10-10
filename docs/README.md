@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-10-09 |
+| Last source review | 2026-10-11 |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -20,7 +20,7 @@ live provider dashboard matches it.
 | Run or contribute locally                 | [Contributor guide](../CONTRIBUTING.md)                         | [Configuration reference](configuration-reference.md), [Local Worker integration](local-worker-integration.md)                              |
 | Understand the product architecture       | [Root overview](../README.md)                                   | [Account/room authority](design/account-identity-and-room-authority.md), [PRO architecture](design/pro-room-architecture-and-operations.md) |
 | Prepare or recover a production change    | [Production hotfix and rollback](hotfix-procedure.md)           | [Release versioning](release-versioning.md), [Runtime verification](runtime-scenario-verification-2026-05-31.md)                            |
-| Promote the current beta to production    | [Living beta release record](beta-release-readiness.md)         | [Production hotfix and rollback](hotfix-procedure.md), [release versioning](release-versioning.md)                                          |
+| Check current production state            | [Release record](release-record.md)                             | [Release history](release-history.md), [production hotfix and rollback](hotfix-procedure.md)                                                |
 | Operate Cloudflare services               | [Configuration drift checks](../cloudflare/config-drift-ops.md) | Owning Worker runbook below                                                                                                                 |
 | Review intentional tradeoffs              | [Known and accepted risks](known-accepted.md)                   | Owning ADR and [security/performance policy](security-performance-tier-policy.md)                                                           |
 | Decide whether an old document is current | [Documentation governance](documentation-governance.md)         | [Latest documentation audit](documentation-audit-2026-08-30.md)                                                                             |
@@ -47,10 +47,13 @@ supersede them explicitly when the product boundary changes.
 
 ## Maintained operations and release runbooks
 
-For the next `mxqr_beta` promotion, start with the
-[living beta release record](beta-release-readiness.md). It tracks the current
-release scope, remaining checks and dated QA updates without replacing the
-canonical release procedure.
+Before QA or a production release, start with the
+[release record](release-record.md). It holds the current deployed state, open
+checks, and release rules; the append-only [release history](release-history.md)
+lists every production release since 8.6.61 (2026-09-20); earlier runs are
+queried from GitHub Actions. Plan QA scope with the
+[QA domains guide](beta-qa-domains.md). Neither record replaces the canonical
+release procedure.
 
 | Boundary                        | Current runbooks                                                                                                                                                             |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -90,6 +93,16 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO optional entry password — 2026-10-10](design/pro-optional-entry-password-2026-10-10.md) —
+  8.8.0/v646 contract, verification, and the PRO/App forward-repair floor. Browser
+  checks used synthetic API fixtures; real customer rooms and devices remain open.
+- [Header-independent tab crossfades — 2026-10-09](design/header-crossfade-2026-10-09.md) —
+  8.7.9/v645 change and verification; the physical iPhone Safari/PWA check is pending.
+- [App 8.7.2 전체 검증 — 2026-10-07](design/full-verification-8.7.2-2026-10-07.md) —
+  full unit/Chromium/WebKit verification and the closed production R2 delay
+  investigation (cause undetermined; no policy relaxation).
+- [8.7.0 production release — 2026-10-07](design/release-8.7.0-2026-10-07.md) —
+  the post-competition promotion of the accumulated beta to all six Workers.
 - [3차 QA 후속 수정·예방 보강 — 2026-10-09](design/beta-qa3-repair-2026-10-09.md):
   확정 9건과 승인된 예방 보강 3건의 재검증·수정·릴리스 근거. 기존 감사 판정과 provider/실기 한계를 보존한다.
 - [8.7.6 follow-up third 30-round QA — 2026-10-09](design/beta-30-round-qa3-2026-10-09.md) —
@@ -193,12 +206,13 @@ labeled portion still supports a current guard or operating interpretation:
   audit blockers and remaining device/exact-main release gates recorded separately.
 - [Beta defect harvest — 2026-09-27](design/beta-defect-harvest-2026-09-27.md) —
   discovery-only evidence, four defects confirmed at that checkout. The
-  [living release record](beta-release-readiness.md) tracks their disposition.
+  [beta release record archive](beta-release-readiness-archive-2026-10-10.md) tracks their disposition.
 - [Beta defect repair — 2026-09-27](design/beta-defect-repair-2026-09-27.md) —
   follow-up repairs and regression evidence for those four defects on beta.
 - [Beta defect harvest, round 2 — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-2.md) —
   discovery-only evidence for three additional defects after those repairs;
-  the release record tracks their resolution and verification limits.
+  the [beta release record archive](beta-release-readiness-archive-2026-10-10.md)
+  tracks their resolution and verification limits.
 - [Beta defect repair, round 2 — 2026-09-27](design/beta-defect-repair-2026-09-27-round-2.md) —
   PRO playback restoration, ordered preload completion, and translation author deletion fences.
 - [Beta defect harvest, round 3 — 2026-09-27](design/beta-defect-harvest-2026-09-27-round-3.md) —
@@ -229,6 +243,10 @@ The following files preserve a dated baseline. Their “current” wording, coun
 line numbers, proposed phases, and test totals describe that baseline unless a
 clearly labeled maintained addendum says otherwise:
 
+- [Beta release record archive — 2026-10-10](beta-release-readiness-archive-2026-10-10.md) —
+  the full beta-era promotion, QA, and release record (2026-09-27 to 2026-10-10),
+  superseded by the [release record](release-record.md) and
+  [release history](release-history.md)
 - [Documentation truth audit — 2026-08-17](documentation-truth-audit-2026-08-17.md)
 - [Project analysis — 2026-05-24](project-analysis/2026-05-24/00-index.md)
 - [CSS cleanup — 2026-05-30](css-cleanup-2026-05-30.md)

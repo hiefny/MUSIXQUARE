@@ -87,6 +87,49 @@ conditions in `docs/mobile-app-zoom-policy.md`.
 Standard rooms use the host-resolved YouTube title as the room-wide display title.
 PRO room participants may display the title returned by their own localized YouTube iframe. Differences in localized display titles between PRO participants are intentional and are not treated as playback divergence. Queue identity and playback timing remain server-authoritative. See [Queue Item Identity and Reorder](design/queue-item-identity-and-reorder.md).
 
+### 11. Public PRO Room Seat Holding and Join Floods
+
+Accepted 2026-10-11. A public PRO room (no entry PIN) admits anyone who has
+the room code. The room Durable Object reserves one of its 100 presence places
+for the owner, keeps session-create receipts in their own ledger with 16 slots
+of owner headroom, and soft-throttles successful non-owner joins to 200 per 10
+minutes per client IPv4 address or IPv6 /64. These measures keep the owner able
+to get in and act; they do not keep strangers out. What remains accepted:
+
+- One network, such as a venue NAT or a single attacker, can hold all 99
+  non-owner places by keeping its sessions alive with heartbeats. A lower
+  per-address limit would break a legitimate 99-device same-NAT venue, so the
+  throttle bounds churn and refill, not occupancy.
+- Join traffic spread across many addresses or /64 prefixes is not limited by
+  the throttle. It can fill the 99 places, or fill the 240 non-owner receipt
+  slots so that new non-owner joins fail closed with
+  `ROOM_STATE_CAPACITY_EXCEEDED` for up to the 10-minute receipt lifetime.
+  Owner entry and owner playback, queue, and media control keep working
+  throughout.
+- The remedy is the owner's: enter through the reserved place and enable or
+  rotate the PIN. That revokes every other session, purges all session-create
+  receipts, and resets the throttle. A kick deletes the member's sessions, so
+  coming back needs a new, throttled join; there is no ban list.
+- The throttle counters live only in Durable Object memory and are kept per
+  room. A restart forgets them, and different rooms behind the same carrier NAT
+  do not share a budget.
+- The security ledger is unchanged: PIN-failure, activation, and recovery
+  limits still fail closed when that ledger is full. Public admission does not
+  consult it.
+- The reservation applies only when a session enters presence. If the owner's
+  live session is demoted in place (for example by detaching its account),
+  100 non-owner presences can remain until somebody leaves. Signaling's
+  100-socket cap has no owner preference, so the owner's control socket can be
+  refused briefly until the next presence snapshot prunes a stale socket.
+- The current App shows its generic PRO connection failure for both
+  `ROOM_FULL` and `RATE_LIMITED`, without the `Retry-After` time.
+
+Reopen this item if public rooms become discoverable or listed, if abuse is
+observed in production, or before relying on public admission for paid events.
+The next mitigations would be a WAF rule for
+`/api/pro-room/v1/rooms/*/sessions`, or sign-in or proof of work for public
+admission.
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

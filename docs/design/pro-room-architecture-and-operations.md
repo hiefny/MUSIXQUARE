@@ -270,9 +270,11 @@ matched provider data/code checkpoint.
   replay, recovery, transfer), and session creation decides it before touching
   any receipt, account member, owner link, display number, or session record,
   so `ROOM_FULL` has no side effects. An absent owner can therefore always
-  re-enter a room that others have filled and enable or rotate the PIN, which
-  revokes every other session, releases every session-create receipt, and
-  resets the admission throttle.
+  find a place in a room that others have filled and enable or rotate the PIN,
+  which revokes every other session, releases every session-create receipt and
+  the revoked sessions' presence-close receipts, and resets the admission
+  throttle. The reservation covers places and receipt slots, not the shared
+  core byte budget ([persistent state](#persistent-state-and-sleep)).
 - Successful non-owner session creation is soft-throttled to 200 per 10
   minutes per room and per client IPv4 address or IPv6 /64 (`RATE_LIMITED`
   429 with `Retry-After`). The PRO front door derives the key with an HMAC and
@@ -512,11 +514,27 @@ Session-create (admission) receipts have a third 256-entry ledger, kept for
 ten minutes each. Non-owner admissions fail closed at 240 entries; the last 16
 slots are reserved for proven owner admissions. Unauthenticated join traffic
 therefore cannot saturate the participant ledger that protects playback,
-queue, and media mutations, and cannot keep the owner out. Receipts written to
-the shared ledger by an earlier Worker are still read until they expire; they
-are not migrated. Enabling or rotating a PIN purges every session-create
-receipt, because each one then names a revoked session (the owner's own retry
-converges through deterministic recovery).
+queue, and media mutations, and cannot take the owner's receipt slots.
+Receipts written to the shared ledger by an earlier Worker are still read until
+they expire; they are not migrated. Enabling or rotating a PIN purges every
+session-create receipt, because each one then names a revoked session (the
+owner's own retry converges through deterministic recovery).
+
+The only participant-ledger receipt an ordinary member can write is the
+pagehide presence close, and presence resume is not throttled. Each session
+keeps only its latest close receipt (an earlier close named an incarnation that
+has already ended, so its late retry is refused without a state change), and
+the next prune releases the receipt of any session that no longer exists.
+Members therefore hold at most one participant-ledger slot per live session,
+at most 128 in all, however often they leave and resume.
+
+These reservations count places and receipts, not bytes. Every ledger shares
+the 1.2 MiB core budget with media metadata and the rest of the room. A join
+flood's session-create receipts take up to about 101 KiB (240 at the maximum
+request-ID length) for up to ten minutes. In a room whose legitimate core is
+already within that distance of the budget, owner admission and owner writes
+can fail closed with `ROOM_STATE_CAPACITY_EXCEEDED` until those receipts expire
+or a present owner enables or rotates the PIN.
 
 The v2 core and per-item playlist records are the only authoritative storage
 layout. A missing v2 core represents a fresh room incarnation; the Worker does

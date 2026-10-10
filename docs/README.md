@@ -93,6 +93,10 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO public-room admission protection — 2026-10-11](design/pro-room-admission-protection-2026-10-11.md) —
+  owner seat, dedicated admission receipts, presence-close receipt bound, and soft
+  join throttle (PRO Worker only, code `ec850bec`). Local Worker tests only; not yet
+  deployed. The App error-message follow-up and a post-deploy check remain open.
 - [PRO optional entry password — 2026-10-10](design/pro-optional-entry-password-2026-10-10.md) —
   8.8.0/v646 contract, verification, and the PRO/App forward-repair floor. Browser
   checks used synthetic API fixtures; real customer rooms and devices remain open.

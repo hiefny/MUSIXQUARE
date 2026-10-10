@@ -92,9 +92,12 @@ PRO room participants may display the title returned by their own localized YouT
 Accepted 2026-10-11. A public PRO room (no entry PIN) admits anyone who has
 the room code. The room Durable Object reserves one of its 100 presence places
 for the owner, keeps session-create receipts in their own ledger with 16 slots
-of owner headroom, and soft-throttles successful non-owner joins to 200 per 10
-minutes per client IPv4 address or IPv6 /64. These measures keep the owner able
-to get in and act; they do not keep strangers out. What remains accepted:
+of owner headroom, keeps at most one presence-close receipt per live session in
+the shared participant ledger, and soft-throttles successful non-owner joins to
+200 per 10 minutes per client IPv4 address or IPv6 /64. These measures reserve
+the owner's place and receipt slots, so the owner can get in and act unless the
+room's byte budget is also exhausted (below); they do not keep strangers out.
+What remains accepted:
 
 - One network, such as a venue NAT or a single attacker, can hold all 99
   non-owner places by keeping its sessions alive with heartbeats. A lower
@@ -104,12 +107,26 @@ to get in and act; they do not keep strangers out. What remains accepted:
   the throttle. It can fill the 99 places, or fill the 240 non-owner receipt
   slots so that new non-owner joins fail closed with
   `ROOM_STATE_CAPACITY_EXCEEDED` for up to the 10-minute receipt lifetime.
-  Owner entry and owner playback, queue, and media control keep working
-  throughout.
+  Owner entry and owner playback, queue, and media control keep their reserved
+  place and receipt slots throughout.
+- Members can hold up to 128 of the shared participant ledger's 256 slots with
+  presence-close receipts (one per live session, however often they leave and
+  resume). The remaining slots serve owner and delegated-controller receipts.
+- The reservations count places and receipts, not bytes. Every ledger shares
+  the room's 1.2 MiB core budget with media metadata and the rest of the room.
+  A join flood's session-create receipts take up to about 101 KiB (240 at the
+  maximum request-ID length) for up to 10 minutes. In a room whose legitimate
+  core is already within that distance of the budget, owner admission and
+  owner writes, including media reservations, can fail closed with
+  `ROOM_STATE_CAPACITY_EXCEEDED` until those receipts expire. A present owner
+  can clear them at once by enabling or rotating the PIN; an absent owner has
+  to wait them out, and a sustained distributed flood can repeat this. No byte
+  headroom is reserved for the owner.
 - The remedy is the owner's: enter through the reserved place and enable or
   rotate the PIN. That revokes every other session, purges all session-create
-  receipts, and resets the throttle. A kick deletes the member's sessions, so
-  coming back needs a new, throttled join; there is no ban list.
+  receipts and the revoked sessions' presence-close receipts, and resets the
+  throttle. A kick deletes the member's sessions, so coming back needs a new,
+  throttled join; there is no ban list.
 - The throttle counters live only in Durable Object memory and are kept per
   room. A restart forgets them, and different rooms behind the same carrier NAT
   do not share a budget.

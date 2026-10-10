@@ -1127,7 +1127,8 @@ const PRO_ROOM_ADMISSION_KEY_HEADER = 'x-mxqr-pro-admission-key';
 // media, account, and other destructive browser mutations.
 const PLAYBACK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const PLAYBACK_IDEMPOTENCY_SCOPE_SEGMENT = ':playback-authority:';
-// Presence close is the one browser receipt an ordinary member can write, and
+// Apart from its admission receipt, which has its own throttled ledger,
+// presence close is the only browser receipt an ordinary member writes, and
 // resuming presence is never throttled. Its receipts therefore live in their
 // own ledger rather than the participant ledger that protects owner playback,
 // queue, and media control. Each session keeps only its latest close, and a

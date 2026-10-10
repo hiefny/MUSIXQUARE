@@ -735,6 +735,7 @@ interface ProRoomState {
   idempotency: Record<string, IdempotencyRecord>;
   developerMutationIdempotency: Record<string, IdempotencyRecord>;
   sessionCreateIdempotency: Record<string, IdempotencyRecord>;
+  presenceCloseIdempotency: Record<string, IdempotencyRecord>;
   rateLimits: Record<string, RateLimitRecord>;
   botRateLimits: Record<string, RateLimitRecord>;
   consumedRecoveryNonces: Record<string, number>;
@@ -993,8 +994,9 @@ const BOT_REQUEST_LEASE_MS = 45 * 1000;
 // Active PRO participants share one host-inclusive 100-device ceiling, and
 // signaling applies the same limit to their authenticated control sockets.
 // Admission reserves one of those places for the room owner: at most 99
-// non-owner presences may be live, so an absent owner can always re-enter a
-// filled public room and enable a PIN, which revokes every other session.
+// non-owner presences may be live, so an absent owner can re-enter a filled
+// public room and enable a PIN, which revokes every other session (unless its
+// own live session was demoted in place; see presenceAdmissionAvailable).
 // Delegated controllers are ordinary non-owner presences for this purpose.
 const PRESENCE_MAX_ITEMS = 100;
 const OWNER_RESERVED_PRESENCE_SLOTS = 1;
@@ -1125,11 +1127,15 @@ const PRO_ROOM_ADMISSION_KEY_HEADER = 'x-mxqr-pro-admission-key';
 // media, account, and other destructive browser mutations.
 const PLAYBACK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const PLAYBACK_IDEMPOTENCY_SCOPE_SEGMENT = ':playback-authority:';
-// Presence-close receipts are the only shared-ledger receipts an ordinary
-// member can write, and resuming presence is never throttled. A session keeps
-// only its latest one, and a receipt is released once its session is gone, so
-// leave/resume loops can hold at most one shared slot per live session rather
-// than freezing owner playback, queue, and media control for the 24-hour TTL.
+// Presence close is the one browser receipt an ordinary member can write, and
+// resuming presence is never throttled. Its receipts therefore live in their
+// own ledger rather than the participant ledger that protects owner playback,
+// queue, and media control. Each session keeps only its latest close, and a
+// receipt is released once its session is gone, so the ledger holds at most
+// one receipt per stored session. Receipts written to the shared ledger by an
+// earlier Worker are released on load (see normalizeLoadedSecurityLedgers).
+const PRESENCE_CLOSE_IDEMPOTENCY_SCOPE_SUFFIX = ':presence-close';
+const PRESENCE_CLOSE_IDEMPOTENCY_MAX_ITEMS = SESSION_MAX_ITEMS;
 const PRESENCE_CLOSE_RECEIPT_SESSION_RE =
   /^participant:[^:]+:incarnation:[^:]+:session:([^:]+):presence-close:[^:]+$/;
 // workerd rejects PBKDF2 counts above 100,000. Keep the stored record at the
@@ -1737,6 +1743,7 @@ function initialRoomState(
     idempotency: {},
     developerMutationIdempotency: {},
     sessionCreateIdempotency: {},
+    presenceCloseIdempotency: {},
     rateLimits: {},
     botRateLimits: {},
     consumedRecoveryNonces: {},
@@ -3796,6 +3803,8 @@ function assertBoundedRoomState(room: ProRoomState) {
       DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS ||
     Object.keys(room.sessionCreateIdempotency || {}).length >
       SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS ||
+    Object.keys(room.presenceCloseIdempotency || {}).length >
+      PRESENCE_CLOSE_IDEMPOTENCY_MAX_ITEMS ||
     Object.keys(room.rateLimits).length > RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.botRateLimits || {}).length > BOT_RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.consumedRecoveryNonces || {}).length > RECOVERY_NONCE_MAX_ITEMS ||
@@ -4674,6 +4683,25 @@ export class MusixquareProRoom {
       this.activeRoom.sessionCreateIdempotency = {};
       this.developerCommandMigrationPending = true;
     }
+    if (
+      !this.activeRoom.presenceCloseIdempotency ||
+      typeof this.activeRoom.presenceCloseIdempotency !== 'object' ||
+      Array.isArray(this.activeRoom.presenceCloseIdempotency)
+    ) {
+      this.activeRoom.presenceCloseIdempotency = {};
+      this.developerCommandMigrationPending = true;
+    }
+    // Earlier Workers kept presence-close receipts in the shared participant
+    // ledger, where enough of them froze owner playback, queue, and media
+    // control. Release them instead of migrating them. A receipt exists only
+    // for a close that removed its presence incarnation, and every new
+    // incarnation gets a fresh id, so a retry that finds no receipt is refused
+    // by the incarnation check (409) without changing any state.
+    for (const storageKey of Object.keys(this.activeRoom.idempotency || {})) {
+      if (!PRESENCE_CLOSE_RECEIPT_SESSION_RE.test(storageKey)) continue;
+      delete this.activeRoom.idempotency[storageKey];
+      this.developerCommandMigrationPending = true;
+    }
 
     // Move legacy Developer API receipts out of the participant/browser
     // ledger without dropping any live record. If a mixed rolling-deploy
@@ -5368,6 +5396,9 @@ export class MusixquareProRoom {
       candidates.push(record.expiresAtMs);
     }
     for (const record of Object.values(this.activeRoom.sessionCreateIdempotency || {})) {
+      candidates.push(record.expiresAtMs);
+    }
+    for (const record of Object.values(this.activeRoom.presenceCloseIdempotency || {})) {
       candidates.push(record.expiresAtMs);
     }
     for (const record of Object.values(this.activeRoom.rateLimits || {})) {
@@ -10430,7 +10461,10 @@ export class MusixquareProRoom {
    * The room keeps its host-inclusive 100-device ceiling, but at most 99 of
    * those places can hold non-owner sessions. Every route into presence
    * (create, resume, replay, recovery, transfer) passes through joinPresence,
-   * so the owner can always re-enter a room that strangers have filled.
+   * so the owner can re-enter a room that strangers have filled. The check
+   * runs only on entry: an owner session demoted in place while present (for
+   * example by an account detach) leaves up to 100 non-owner presences, and
+   * the owner can then meet ROOM_FULL until somebody leaves.
    */
   presenceAdmissionAvailable(role: ProRoomRole) {
     const participants = Object.values(this.activeRoom.presence.participants);
@@ -14076,9 +14110,10 @@ export class MusixquareProRoom {
       playback: body.playback,
     };
     // Scope replay to the captured presence incarnation and exact cookie
-    // session. A processed old request may replay harmlessly after resume,
-    // while a never-processed old request cannot target the new incarnation.
-    const scope = `participant:${body.expectedParticipantId}:incarnation:${body.expectedPresenceIncarnationId}:session:${auth.tokenHash}:presence-close`;
+    // session. Only the session's latest processed close keeps a receipt and
+    // replays; an earlier processed close, like a never-processed old request,
+    // names an ended incarnation and is refused below without a state change.
+    const scope = `participant:${body.expectedParticipantId}:incarnation:${body.expectedPresenceIncarnationId}:session:${auth.tokenHash}${PRESENCE_CLOSE_IDEMPOTENCY_SCOPE_SUFFIX}`;
     const fingerprint = await this.idempotencyFingerprint(scope, mutation);
     const replay = this.replayIdempotency(scope, key, fingerprint, auth.session, null);
     if (replay) return replay;
@@ -14109,13 +14144,16 @@ export class MusixquareProRoom {
     if (body.playback !== null && typeof body.playback !== 'object') {
       return errorResponse('INVALID_PLAYBACK', 400);
     }
-    this.removePresence(body.expectedParticipantId, Date.now());
+    const nowMs = Date.now();
+    this.removePresence(body.expectedParticipantId, nowMs);
     const responseBody = { ok: true };
-    // Only this session's latest close needs a replay fence. Each earlier one
-    // named an incarnation that has already ended, so its late retry is refused
-    // by the incarnation check above without changing any state.
-    this.releasePresenceCloseReceipts(auth.tokenHash);
-    this.storeIdempotency(scope, key, fingerprint, responseBody);
+    this.storePresenceCloseReceipt(
+      auth.tokenHash,
+      `${scope}:${key}`,
+      fingerprint,
+      responseBody,
+      nowMs,
+    );
     await this.persist();
     return jsonResponse(responseBody);
   }
@@ -14444,6 +14482,12 @@ export class MusixquareProRoom {
         maxItems: SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS,
       };
     }
+    if (scope.endsWith(PRESENCE_CLOSE_IDEMPOTENCY_SCOPE_SUFFIX)) {
+      return {
+        records: this.activeRoom.presenceCloseIdempotency,
+        maxItems: PRESENCE_CLOSE_IDEMPOTENCY_MAX_ITEMS,
+      };
+    }
     return scope.startsWith('developer:')
       ? {
           records: this.activeRoom.developerMutationIdempotency,
@@ -14467,26 +14511,39 @@ export class MusixquareProRoom {
     }
   }
 
-  presenceCloseReceiptSessionHash(storageKey: string) {
-    return PRESENCE_CLOSE_RECEIPT_SESSION_RE.exec(storageKey)?.[1] ?? null;
-  }
-
-  releasePresenceCloseReceipts(tokenHash: string) {
-    for (const storageKey of Object.keys(this.activeRoom.idempotency)) {
-      if (this.presenceCloseReceiptSessionHash(storageKey) === tokenHash) {
-        delete this.activeRoom.idempotency[storageKey];
+  /**
+   * Keep only this session's latest close. Each earlier one named an
+   * incarnation that has already ended, so its late retry is refused by the
+   * incarnation check without changing any state.
+   *
+   * prune() ran at the start of this request and released expired receipts
+   * and those of removed sessions, so the others belong to at most 127 other
+   * stored sessions and the ledger has room. The receipt only lets a retry of
+   * a committed close replay its 200; the incarnation check is what keeps a
+   * close from applying twice. So if the ledger is somehow full anyway, skip
+   * the receipt rather than fail the close: the retry then gets a state-free
+   * 409, which the App ignores, and no close can refuse an owner mutation.
+   */
+  storePresenceCloseReceipt(
+    tokenHash: string,
+    storageKey: string,
+    fingerprint: string,
+    body: JsonRecord,
+    nowMs: number,
+  ) {
+    const records = this.activeRoom.presenceCloseIdempotency;
+    for (const recordKey of Object.keys(records)) {
+      if (PRESENCE_CLOSE_RECEIPT_SESSION_RE.exec(recordKey)?.[1] === tokenHash) {
+        delete records[recordKey];
       }
     }
-  }
-
-  /**
-   * A removed session never authenticates again, and a session recreated
-   * under the same deterministic token receives a new participant, so a
-   * presence-close receipt whose session is gone can never be replayed.
-   */
-  presenceCloseReceiptIsOrphaned(storageKey: string) {
-    const tokenHash = this.presenceCloseReceiptSessionHash(storageKey);
-    return tokenHash !== null && this.activeRoom.sessions[tokenHash] === undefined;
+    if (Object.keys(records).length >= PRESENCE_CLOSE_IDEMPOTENCY_MAX_ITEMS) return;
+    records[storageKey] = {
+      fingerprint,
+      body: structuredClone(body),
+      status: 200,
+      expiresAtMs: nowMs + IDEMPOTENCY_TTL_MS,
+    };
   }
 
   idempotencyExpiresAt(storageKey: string, record: IdempotencyRecord) {
@@ -15360,13 +15417,25 @@ export class MusixquareProRoom {
       }
     }
     for (const [key, record] of Object.entries(this.activeRoom.idempotency)) {
-      // Sessions were pruned above; release the receipts they leave behind,
-      // including after kicks, PIN changes, suspension, and transfer.
-      if (
-        this.idempotencyRecordIsExpired(key, record, nowMs) ||
-        this.presenceCloseReceiptIsOrphaned(key)
-      ) {
+      if (this.idempotencyRecordIsExpired(key, record, nowMs)) {
         delete this.activeRoom.idempotency[key];
+        changed = true;
+      }
+    }
+    for (const [key, record] of Object.entries(this.activeRoom.presenceCloseIdempotency)) {
+      // Sessions were pruned above; release the receipts they leave behind,
+      // including after leave, kicks, PIN changes, suspension, and transfer.
+      // A removed session never authenticates again, and a session recreated
+      // under the same deterministic token gets a new participant, so such a
+      // receipt can never replay. The close handler never writes a key that
+      // names no session.
+      const sessionHash = PRESENCE_CLOSE_RECEIPT_SESSION_RE.exec(key)?.[1];
+      if (
+        record.expiresAtMs <= nowMs ||
+        sessionHash === undefined ||
+        this.activeRoom.sessions[sessionHash] === undefined
+      ) {
+        delete this.activeRoom.presenceCloseIdempotency[key];
         changed = true;
       }
     }

@@ -9026,7 +9026,111 @@ describe('PRO admission capacity and throttle', () => {
     );
   }, 60_000);
 
-  it('keeps one presence-close receipt per live session so leave/resume loops cannot freeze owner control', async () => {
+  // The body the App sends once per leave: as a keepalive on a non-persisted
+  // pagehide, or at the start of an explicit leave.
+  const closeBodyFor = (envelope: Record<string, any>) => ({
+    expectedParticipantId: envelope.snapshot.viewer.participantId,
+    expectedPresenceIncarnationId: envelope.snapshot.viewer.presenceIncarnationId,
+    baseRevision: envelope.snapshot.revision,
+    currentQueueItemId: null,
+    playback: null,
+  });
+  const presenceCloseKeys = (ledger: Record<string, unknown>) =>
+    Object.keys(ledger).filter((key) => key.includes(':presence-close:'));
+  const presenceCloseReceipt = (expiresAtMs: number) => ({
+    fingerprint: 'F'.repeat(43),
+    body: { ok: true },
+    status: 200,
+    expiresAtMs,
+  });
+  const ownerSelect = (worker: MusixquareProRoom, ownerCookie: string, queueItemId: string) =>
+    worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: worker.room!.playback.revision,
+          queueItemId,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        ownerCookie,
+        `owner-select-${queueItemId}`,
+      ),
+    );
+  const youtubeItem = (queueItemId: string, name: string) => ({
+    queueItemId,
+    name,
+    source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+  });
+
+  it('keeps member presence-close receipts out of the receipt ledger that owner control uses', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    // One network churns public sessions: join, then close on pagehide. 199
+    // cycles stay under the admission throttle, and past 128 sessions each
+    // join evicts a dormant session, whose receipt is then released.
+    for (let index = 0; index < 199; index += 1) {
+      const joined = await worker.fetch(admission({ key: 'close-churn-nat' }));
+      expect(joined.status).toBe(200);
+      const closed = await worker.fetch(
+        unloadCloseRequest(
+          closeBodyFor(await responseJson(joined)),
+          cookieFrom(joined),
+          `close-churn-${String(index).padStart(8, '0')}`,
+        ),
+      );
+      expect(closed.status).toBe(200);
+    }
+    expect((await worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+    const room = worker.room!;
+    const memberSessions = Object.values(room.sessions).filter(
+      (session) => session.role !== 'owner',
+    );
+    expect(memberSessions).toHaveLength(127);
+    expect(Object.keys(room.presenceCloseIdempotency)).toHaveLength(127);
+    expect(presenceCloseKeys(room.idempotency)).toEqual([]);
+
+    // Members hold none of the 256 participant receipts: the owner can spend
+    // every slot it has not used itself.
+    const ownerBudget = 256 - Object.keys(room.idempotency).length;
+    expect(ownerBudget).toBeGreaterThanOrEqual(250);
+    for (let index = 0; index < ownerBudget - 1; index += 1) {
+      const queueItemId = `55555555-5555-4555-8555-${String(index).padStart(12, '0')}`;
+      const queued = await replacePlaylist(
+        context,
+        [youtubeItem(queueItemId, `Owner ${index}`)],
+        `owner-budget-${String(index).padStart(4, '0')}`,
+      );
+      expect(queued.status).toBe(200);
+    }
+    const lastItemId = `55555555-5555-4555-8555-${String(ownerBudget - 2).padStart(12, '0')}`;
+    expect((await ownerSelect(worker, context.ownerCookie, lastItemId)).status).toBe(202);
+    expect(Object.keys(worker.room!.idempotency)).toHaveLength(256);
+    const overBudget = await replacePlaylist(
+      context,
+      [youtubeItem('66666666-6666-4666-8666-666666666666', 'Over budget')],
+      'owner-budget-over',
+    );
+    expect(overBudget.status).toBe(409);
+    expect(await responseJson(overBudget)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+
+    // A full owner ledger does not refuse a member's close either.
+    const joined = await worker.fetch(admission({ key: 'close-after-full-nat' }));
+    expect(joined.status).toBe(200);
+    const closed = await worker.fetch(
+      unloadCloseRequest(
+        closeBodyFor(await responseJson(joined)),
+        cookieFrom(joined),
+        'close-after-full-00000001',
+      ),
+    );
+    expect(closed.status).toBe(200);
+    expect(presenceCloseKeys(worker.room!.idempotency)).toEqual([]);
+  }, 120_000);
+
+  it('keeps one presence-close receipt per session through leave/resume loops', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const { worker } = context;
     const joined = await worker.fetch(admission({ key: 'loop-nat' }));
@@ -9034,21 +9138,12 @@ describe('PRO admission capacity and throttle', () => {
     const cookie = cookieFrom(joined);
     let envelope = await responseJson(joined);
     bindCookiePresence(cookie, envelope);
-    const presenceCloseKeys = (ledger: Record<string, unknown>) =>
-      Object.keys(ledger).filter((key) => key.includes(':presence-close:'));
     const closeKey = (index: number) => `presence-loop-close-${String(index).padStart(6, '0')}`;
     const closeBodies: Record<string, unknown>[] = [];
     // Presence resume is never throttled, so one public session can repeat
-    // pagehide-close and resume indefinitely. More cycles than the 256-entry
-    // shared ledger holds must neither fail nor accumulate receipts.
+    // pagehide-close and resume indefinitely without accumulating receipts.
     for (let index = 0; index < 260; index += 1) {
-      const body = {
-        expectedParticipantId: envelope.snapshot.viewer.participantId,
-        expectedPresenceIncarnationId: envelope.snapshot.viewer.presenceIncarnationId,
-        baseRevision: envelope.snapshot.revision,
-        currentQueueItemId: null,
-        playback: null,
-      };
+      const body = closeBodyFor(envelope);
       closeBodies.push(body);
       expect((await worker.fetch(unloadCloseRequest(body, cookie, closeKey(index)))).status).toBe(
         200,
@@ -9058,43 +9153,285 @@ describe('PRO admission capacity and throttle', () => {
       envelope = await responseJson(entered);
       bindCookiePresence(cookie, envelope);
     }
-    expect(presenceCloseKeys(worker.room!.idempotency)).toHaveLength(1);
-    const queued = await replacePlaylist(
-      context,
-      [
-        {
-          queueItemId: '55555555-5555-4555-8555-555555555555',
-          name: 'Close loop survivor',
-          source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
-        },
-      ],
-      'presence-close-loop',
-    );
-    expect(queued.status).toBe(200);
+    expect(presenceCloseKeys(worker.room!.presenceCloseIdempotency)).toHaveLength(1);
+    expect(presenceCloseKeys(worker.room!.idempotency)).toEqual([]);
 
     // The latest close still replays. An earlier close named an incarnation
     // that has ended, so its late retry is refused without closing the
-    // current one.
+    // current one or changing any state.
     const latest = await worker.fetch(unloadCloseRequest(closeBodies[259]!, cookie, closeKey(259)));
     expect(latest.status).toBe(200);
     expect(await responseJson(latest)).toEqual({ ok: true });
+    const before = structuredClone(worker.room);
+    const put = vi.spyOn(context.state.storage, 'put');
     const stale = await worker.fetch(unloadCloseRequest(closeBodies[0]!, cookie, closeKey(0)));
     expect(stale.status).toBe(409);
     expect(await responseJson(stale)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
-    expect(
-      worker.room!.presence.participants[envelope.snapshot.viewer.participantId]
-        ?.presenceIncarnationId,
-    ).toBe(envelope.snapshot.viewer.presenceIncarnationId);
+    expect(coreWrites(put)).toEqual([]);
+    put.mockRestore();
+    expect(worker.room).toEqual(before);
 
     // Once the session is gone its receipt can never replay, so the next
     // request releases it.
     expect(
       (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, cookie))).status,
     ).toBe(200);
+    expect(presenceCloseKeys(worker.room!.presenceCloseIdempotency)).toHaveLength(1);
     expect((await worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
-    expect(presenceCloseKeys(worker.room!.idempotency)).toEqual([]);
-    expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
+    expect(worker.room!.presenceCloseIdempotency).toEqual({});
+    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
   }, 60_000);
+
+  it('releases presence-close receipts that an earlier Worker left in the shared ledger', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const joined = await context.worker.fetch(admission({ key: 'legacy-close-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    const closeBody = closeBodyFor(await responseJson(joined));
+    const closeKey = 'legacy-close-key-00000001';
+    expect(
+      (await context.worker.fetch(unloadCloseRequest(closeBody, cookie, closeKey))).status,
+    ).toBe(200);
+    // Model the core an earlier Worker wrote: close receipts in the shared
+    // participant ledger fill it, and the dedicated ledger does not exist.
+    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
+    const [receiptKey, receipt] = Object.entries(stored.core.presenceCloseIdempotency)[0]!;
+    stored.core.idempotency[receiptKey] = receipt;
+    delete stored.core.presenceCloseIdempotency;
+    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
+      const id = String(index).padStart(24, '0');
+      const sessionHash = `S${id}`.padEnd(43, 'S');
+      stored.core.idempotency[
+        `participant:participant_${id}:incarnation:presence_${id}:session:${sessionHash}:presence-close:legacy-close-${id}`
+      ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
+    }
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const restartedContext = { ...context, worker: restarted };
+
+    // Owner queue and playback control work at once after the restart.
+    const queueItemId = '77777777-7777-4777-8777-777777777777';
+    const queued = await replacePlaylist(
+      restartedContext,
+      [youtubeItem(queueItemId, 'Legacy close survivor')],
+      'legacy-close-released',
+    );
+    expect(queued.status).toBe(200);
+    expect((await ownerSelect(restarted, context.ownerCookie, queueItemId)).status).toBe(202);
+    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
+    expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
+    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
+
+    // Losing a legacy receipt is harmless: its close already removed the
+    // presence incarnation, so the retry is refused without changing state.
+    const before = structuredClone(restarted.room);
+    const put = vi.spyOn(context.state.storage, 'put');
+    const retried = await restarted.fetch(unloadCloseRequest(closeBody, cookie, closeKey));
+    expect(retried.status).toBe(409);
+    expect(await responseJson(retried)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
+    expect(coreWrites(put)).toEqual([]);
+    put.mockRestore();
+    expect(restarted.room).toEqual(before);
+  });
+
+  it('rolls forward over a Worker rollback that kept but ignored the close ledger', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const closeOnce = async (key: string) => {
+      const joined = await worker.fetch(admission({ key }));
+      expect(joined.status).toBe(200);
+      const cookie = cookieFrom(joined);
+      const envelope = await responseJson(joined);
+      const body = closeBodyFor(envelope);
+      const closeKey = `${key}-close-0000001`;
+      expect((await worker.fetch(unloadCloseRequest(body, cookie, closeKey))).status).toBe(200);
+      return { cookie, body, closeKey };
+    };
+    const kept = await closeOnce('rollback-kept');
+    const left = await closeOnce('rollback-left');
+    const entered = await enterPresence(worker, left.cookie);
+    expect(entered.status).toBe(200);
+    bindCookiePresence(left.cookie, await responseJson(entered));
+    expect(
+      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, left.cookie))).status,
+    ).toBe(200);
+    // The stored core still holds the departed session's receipt; the next
+    // prune would release it. An older Worker loads the core as `{...core}`,
+    // so it keeps this field untouched, and writes its own close receipts to
+    // the shared ledger instead.
+    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
+    expect(Object.keys(stored.core.presenceCloseIdempotency)).toHaveLength(2);
+    const keptKey = Object.keys(stored.core.presenceCloseIdempotency).find((key) =>
+      key.endsWith(`:${kept.closeKey}`),
+    )!;
+    const sessionHash = /:session:([^:]+):presence-close:/.exec(keptKey)![1];
+    stored.core.idempotency[
+      `participant:${kept.body.expectedParticipantId}:incarnation:presence_${'O'.repeat(24)}:session:${sessionHash}:presence-close:older-worker-close-01`
+    ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const replay = await restarted.fetch(unloadCloseRequest(kept.body, kept.cookie, kept.closeKey));
+    expect(replay.status).toBe(200);
+    expect(await responseJson(replay)).toEqual({ ok: true });
+    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
+    expect(Object.keys(restarted.room!.presenceCloseIdempotency)).toEqual([keptKey]);
+    const persisted = storedCanonicalRoom(context.state);
+    expect(presenceCloseKeys(persisted.idempotency)).toEqual([]);
+    expect(Object.keys(persisted.presenceCloseIdempotency)).toEqual([keptKey]);
+  });
+
+  it('never refuses a close or owner control when the close ledger is somehow full', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const room = worker.room!;
+    const [ownerHash, ownerSession] = Object.entries(room.sessions).find(
+      ([, session]) => session.role === 'owner',
+    )!;
+    // A session never holds more than one receipt. Model a full ledger that
+    // the per-session and orphan releases cannot shrink.
+    const expiresAtMs = Date.now() + 24 * 60 * 60 * 1000;
+    for (let index = 0; index < 128; index += 1) {
+      const id = String(index).padStart(24, '0');
+      room.presenceCloseIdempotency[
+        `participant:${ownerSession.participantId}:incarnation:presence_${id}:session:${ownerHash}:presence-close:full-ledger-${id}`
+      ] = presenceCloseReceipt(expiresAtMs);
+    }
+    const joined = await worker.fetch(admission({ key: 'full-ledger-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    const body = closeBodyFor(await responseJson(joined));
+    const closed = await worker.fetch(unloadCloseRequest(body, cookie, 'full-ledger-close-0001'));
+    expect(closed.status).toBe(200);
+    expect(await responseJson(closed)).toEqual({ ok: true });
+    expect(worker.room!.presence.participants[body.expectedParticipantId]).toBeUndefined();
+    // The close committed without a receipt, so its retry is refused.
+    expect(Object.keys(worker.room!.presenceCloseIdempotency)).toHaveLength(128);
+    expect(Object.keys(storedCanonicalRoom(context.state).presenceCloseIdempotency)).toHaveLength(
+      128,
+    );
+    const retried = await worker.fetch(unloadCloseRequest(body, cookie, 'full-ledger-close-0001'));
+    expect(retried.status).toBe(409);
+    expect(await responseJson(retried)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
+    const queued = await replacePlaylist(
+      context,
+      [youtubeItem('88888888-8888-4888-8888-888888888888', 'Full close ledger')],
+      'full-close-ledger',
+    );
+    expect(queued.status).toBe(200);
+  });
+
+  it('releases a presence-close receipt after 24 hours while its session lives', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T01:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const joined = await worker.fetch(admission({ key: 'expiry-nat' }));
+    expect(joined.status).toBe(200);
+    const cookie = cookieFrom(joined);
+    const body = closeBodyFor(await responseJson(joined));
+    expect(
+      (await worker.fetch(unloadCloseRequest(body, cookie, 'expiry-close-key-00000001'))).status,
+    ).toBe(200);
+    const receipts = Object.values(worker.room!.presenceCloseIdempotency);
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      body: { ok: true },
+      status: 200,
+      expiresAtMs: startedAtMs + 24 * 60 * 60 * 1000,
+    });
+    vi.setSystemTime(startedAtMs + 24 * 60 * 60 * 1000 - 1);
+    await worker.alarm();
+    expect(Object.keys(worker.room!.presenceCloseIdempotency)).toHaveLength(1);
+    vi.setSystemTime(startedAtMs + 24 * 60 * 60 * 1000);
+    await worker.alarm();
+    expect(worker.room!.presenceCloseIdempotency).toEqual({});
+    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
+    // The 30-day cookie session itself is still there.
+    expect(
+      Object.values(worker.room!.sessions).some(
+        (session) => session.participantId === body.expectedParticipantId,
+      ),
+    ).toBe(true);
+  });
+
+  it('alarms and durably prunes idle presence-close receipts at their deadline', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T01:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, environment() as never);
+    const internal = worker as unknown as {
+      ensureReady(request: Request): Promise<boolean>;
+      persist(): Promise<void>;
+      scheduleAlarm(): Promise<void>;
+      scheduledAlarmMs: number | null | undefined;
+    };
+    expect(
+      await internal.ensureReady(
+        new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+          headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+        }),
+      ),
+    ).toBe(true);
+    const expiresAtMs = startedAtMs + 24 * 60 * 60 * 1000;
+    worker.room!.presenceCloseIdempotency[
+      `participant:participant_${'0'.repeat(24)}:incarnation:presence_${'0'.repeat(24)}:session:${'S'.repeat(43)}:presence-close:idle-probe-close-01`
+    ] = presenceCloseReceipt(expiresAtMs);
+    await internal.persist();
+    internal.scheduledAlarmMs = null;
+    state.storage.alarm = null;
+    await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(expiresAtMs);
+
+    vi.setSystemTime(expiresAtMs + 1);
+    state.storage.alarm = null;
+    await worker.alarm();
+    expect(worker.room!.presenceCloseIdempotency).toEqual({});
+    expect(storedCanonicalRoom(state).presenceCloseIdempotency).toEqual({});
+    expect(state.storage.alarm).toBeNull();
+  });
+
+  it('refuses a revoked admission replay that carries the PIN a rotation replaced', async () => {
+    const context = await activatedRoom();
+    const { worker } = context;
+    const pinFailureKey = 'pin-failure:hashed-client-address';
+    const requestId = nextRequestId();
+    const joined = await worker.fetch(
+      admission({ key: 'rotation-nat', requestId, pin: '12345678' }),
+    );
+    expect(joined.status).toBe(200);
+    const rotated = await worker.fetch(
+      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie)),
+    );
+    expect(rotated.status).toBe(200);
+    expect(worker.room!.sessionCreateIdempotency).toEqual({});
+    const failuresBefore = worker.room!.rateLimits[pinFailureKey]?.count ?? 0;
+    const sessionsBefore = Object.keys(worker.room!.sessions);
+    // The rotation purged the receipt and revoked the session, so the replay
+    // reaches PIN verification with the old PIN. Unlike a replay after a PIN
+    // is first enabled (PIN_REQUIRED, no PIN sent), this one is PIN_INVALID
+    // and records one PIN failure.
+    const replay = await worker.fetch(
+      admission({ key: 'rotation-nat', requestId, pin: '12345678' }),
+    );
+    expect(replay.status).toBe(401);
+    expect(await responseJson(replay)).toEqual({ error: 'PIN_INVALID' });
+    expect(replay.headers.getSetCookie()).toEqual([]);
+    expect(worker.room!.rateLimits[pinFailureKey]?.count).toBe(failuresBefore + 1);
+    expect(storedCanonicalRoom(context.state).rateLimits[pinFailureKey]?.count).toBe(
+      failuresBefore + 1,
+    );
+    expect(Object.keys(worker.room!.sessions)).toEqual(sessionsBefore);
+    expect((await worker.fetch(admission({ key: 'rotation-nat', pin: '87654321' }))).status).toBe(
+      200,
+    );
+  });
 
   it('replays a session-create receipt that an earlier Worker left in the shared ledger', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
@@ -9186,7 +9523,7 @@ describe('PRO admission capacity and throttle', () => {
     expect(played.status).toBe(202);
   });
 
-  it('keeps a saturated session-create ledger inside the room core budget', async () => {
+  it('keeps saturated session-create and presence-close ledgers inside the room core budget', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const room = context.worker.room!;
     const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
@@ -9201,6 +9538,22 @@ describe('PRO admission capacity and throttle', () => {
       JSON.stringify(room.sessionCreateIdempotency),
     ).byteLength;
     expect(ledgerBytes).toBeLessThanOrEqual(112 * 1024);
+    // At most one close receipt per stored session (128), each with the
+    // server-generated identifiers and the longest idempotency key accepted.
+    const [ownerHash, ownerSession] = Object.entries(room.sessions).find(
+      ([, session]) => session.role === 'owner',
+    )!;
+    for (let index = 0; index < 128; index += 1) {
+      const id = String(index).padStart(24, '0');
+      const closeKey = `K${id}`.padEnd(128, 'k');
+      room.presenceCloseIdempotency[
+        `participant:${ownerSession.participantId}:incarnation:presence_${id}:session:${ownerHash}:presence-close:${closeKey}`
+      ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
+    }
+    const closeLedgerBytes = new TextEncoder().encode(
+      JSON.stringify(room.presenceCloseIdempotency),
+    ).byteLength;
+    expect(closeLedgerBytes).toBeLessThanOrEqual(54 * 1024);
     const queued = await replacePlaylist(
       context,
       [
@@ -9213,15 +9566,16 @@ describe('PRO admission capacity and throttle', () => {
       'receipt-budget',
     );
     expect(queued.status).toBe(200);
-    // The saturated ledger costs under a tenth of the 1.2 MiB core budget.
+    // Both saturated ledgers (about 108 and 52 KiB) together cost under a
+    // seventh of the 1.2 MiB core budget.
     const coreBytes = new TextEncoder().encode(
       JSON.stringify(context.state.storage.data.get(CORE_KEY)),
     ).byteLength;
-    expect(coreBytes).toBeLessThan(ledgerBytes + 64 * 1024);
+    expect(coreBytes).toBeLessThan(ledgerBytes + closeLedgerBytes + 64 * 1024);
     expect(coreBytes).toBeLessThan(1200 * 1024);
-    expect(Object.keys(storedCanonicalRoom(context.state).sessionCreateIdempotency)).toHaveLength(
-      256,
-    );
+    const stored = storedCanonicalRoom(context.state);
+    expect(Object.keys(stored.sessionCreateIdempotency)).toHaveLength(256);
+    expect(Object.keys(stored.presenceCloseIdempotency)).toHaveLength(128);
   });
 
   it('alarms and durably prunes idle session-create receipts at their deadline', async () => {

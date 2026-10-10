@@ -734,6 +734,7 @@ interface ProRoomState {
   assets: Record<string, RoomAsset>;
   idempotency: Record<string, IdempotencyRecord>;
   developerMutationIdempotency: Record<string, IdempotencyRecord>;
+  sessionCreateIdempotency: Record<string, IdempotencyRecord>;
   rateLimits: Record<string, RateLimitRecord>;
   botRateLimits: Record<string, RateLimitRecord>;
   consumedRecoveryNonces: Record<string, number>;
@@ -765,6 +766,17 @@ interface InMemoryCheckpoint {
   alarmMaintenanceDirty: boolean;
   alarmMaintenanceRetryAttempt: number;
   alarmMaintenanceRetryTimer: ReturnType<typeof setTimeout> | null;
+}
+
+// Deliberately instance memory, not room state: the soft admission throttle
+// needs no schema field, migration, alarm, or rollback marker. A Durable
+// Object restart forgets it, and any authentication-epoch change (PIN
+// enable/rotate, suspension, ownership transfer, owner removal) resets it so a
+// revoked venue can rejoin at once.
+interface SessionAdmissionThrottle {
+  authEpoch: number;
+  roomGeneration: number;
+  entries: Map<string, RateLimitRecord>;
 }
 
 interface StoredV2Envelope {
@@ -978,9 +990,14 @@ const BOT_ROOM_HOUR_LIMIT = 100;
 const BOT_MEMBER_MINUTE_MS = 60 * 1000;
 const BOT_ROOM_HOUR_MS = 60 * 60 * 1000;
 const BOT_REQUEST_LEASE_MS = 45 * 1000;
-// Every active PRO participant is an equal room member. Signaling applies the
-// same 100-device ceiling to the corresponding authenticated control sockets.
+// Active PRO participants share one host-inclusive 100-device ceiling, and
+// signaling applies the same limit to their authenticated control sockets.
+// Admission reserves one of those places for the room owner: at most 99
+// non-owner presences may be live, so an absent owner can always re-enter a
+// filled public room and enable a PIN, which revokes every other session.
+// Delegated controllers are ordinary non-owner presences for this purpose.
 const PRESENCE_MAX_ITEMS = 100;
+const OWNER_RESERVED_PRESENCE_SLOTS = 1;
 const SESSION_MAX_ITEMS = 128;
 const DEFAULT_PEER_DISPLAY_NAME = 'Peer';
 const ASSET_MAX_ITEMS = 1024;
@@ -1079,9 +1096,25 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const ASSET_DELETE_PENDING_EXPIRES_AT_MS = Number.MAX_SAFE_INTEGER;
 // Session admission sits behind the App facade's bounded response window. A
 // room mutation can therefore commit after the browser receives a gateway
-// timeout. Retain a compact receipt long enough for an explicit retry while
-// avoiding permanent pressure on the room-wide 256-item browser ledger.
+// timeout. Retain a compact receipt long enough for an explicit retry.
 const SESSION_CREATE_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+// Unauthenticated public admissions must not be able to exhaust the receipt
+// ledger that protects playback, queue, and media mutations. Session-create
+// receipts therefore use their own fail-closed ledger. Its final slots are
+// reserved for proven owner admissions, so a join flood can delay new
+// non-owner entrants for one receipt TTL but never keep the owner out.
+const SESSION_CREATE_IDEMPOTENCY_SCOPE_PREFIX = 'session-create:';
+const SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS = 256;
+const SESSION_CREATE_OWNER_IDEMPOTENCY_HEADROOM = 16;
+// A soft, in-memory throttle on successful non-owner session creation per
+// room and per client address prefix (IPv4 address or IPv6 /64). It admits a
+// full 99-device same-NAT venue plus generous re-entry, stays below the 240
+// non-owner receipt slots, and resets whenever the authentication epoch
+// changes. It never limits replays, recovery, presence resume, or heartbeats.
+const SESSION_ADMISSION_LIMIT = 200;
+const SESSION_ADMISSION_WINDOW_MS = 10 * 60 * 1000;
+const SESSION_ADMISSION_THROTTLE_MAX_ITEMS = 1024;
+const PRO_ROOM_ADMISSION_KEY_HEADER = 'x-mxqr-pro-admission-key';
 // Playback controls are high-frequency, short-retry mutations. The browser
 // retries one command for at most a few seconds, so retaining every full
 // command response for 24 hours can saturate the shared 256-item browser
@@ -1694,6 +1727,7 @@ function initialRoomState(
     assets: {},
     idempotency: {},
     developerMutationIdempotency: {},
+    sessionCreateIdempotency: {},
     rateLimits: {},
     botRateLimits: {},
     consumedRecoveryNonces: {},
@@ -3684,6 +3718,59 @@ async function deleteStorageKeys(storage: DurableObjectStoragePort, keys: string
   }
 }
 
+const IPV4_ADDRESS_RE =
+  /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+const IPV6_HEXTET_RE = /^[0-9a-f]{1,4}$/;
+
+function ipv4AsHextets(value: string): string[] | null {
+  if (!IPV4_ADDRESS_RE.test(value)) return null;
+  const [a = 0, b = 0, c = 0, d = 0] = value.split('.').map(Number);
+  return [((a << 8) | b).toString(16), ((c << 8) | d).toString(16)];
+}
+
+/**
+ * Admission throttling groups the address block one client controls: one IPv4
+ * address, or one IPv6 /64 (the smallest prefix routinely delegated to a
+ * subscriber, inside which a client can rotate addresses freely). An
+ * IPv4-mapped IPv6 address is its IPv4 address. A value that cannot be parsed
+ * keeps its own exact bucket.
+ */
+function proRoomAdmissionAddressPrefix(rawIp: string): string {
+  const raw = `raw:${rawIp}`;
+  const value = rawIp.trim().toLowerCase();
+  if (IPV4_ADDRESS_RE.test(value)) return `ipv4:${value}`;
+  const address = value.replace(/^\[(.*)\]$/, '$1').replace(/%.*$/, '');
+  if (!address.includes(':')) return raw;
+  const halves = address.split('::');
+  if (halves.length > 2) return raw;
+  const groups = (part: string | undefined) => (part ? part.split(':') : []);
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  const last = halves.length === 2 ? tail : head;
+  const embedded = last[last.length - 1];
+  if (embedded?.includes('.')) {
+    const hextets = ipv4AsHextets(embedded);
+    if (!hextets) return raw;
+    last.splice(last.length - 1, 1, ...hextets);
+  }
+  const elided = 8 - head.length - tail.length;
+  if (halves.length === 2 ? elided < 1 : elided !== 0) return raw;
+  const hextets = [...head, ...Array<string>(Math.max(0, elided)).fill('0'), ...tail];
+  if (hextets.length !== 8 || !hextets.every((hextet) => IPV6_HEXTET_RE.test(hextet))) {
+    return raw;
+  }
+  const numbers = hextets.map((hextet) => Number.parseInt(hextet, 16));
+  if (numbers.slice(0, 5).every((number) => number === 0) && numbers[5] === 0xffff) {
+    const high = numbers[6] ?? 0;
+    const low = numbers[7] ?? 0;
+    return `ipv4:${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+  }
+  return `ipv6:${numbers
+    .slice(0, 4)
+    .map((number) => number.toString(16))
+    .join(':')}::/64`;
+}
+
 function assertBoundedRoomState(room: ProRoomState) {
   if (
     Object.keys(room.presence.participants).length > PRESENCE_MAX_ITEMS ||
@@ -3698,6 +3785,8 @@ function assertBoundedRoomState(room: ProRoomState) {
     Object.keys(room.idempotency).length > IDEMPOTENCY_MAX_ITEMS ||
     Object.keys(room.developerMutationIdempotency || {}).length >
       DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS ||
+    Object.keys(room.sessionCreateIdempotency || {}).length >
+      SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS ||
     Object.keys(room.rateLimits).length > RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.botRateLimits || {}).length > BOT_RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.consumedRecoveryNonces || {}).length > RECOVERY_NONCE_MAX_ITEMS ||
@@ -3787,6 +3876,19 @@ export default {
     headers.set('x-mxqr-pro-room-code', match[1]);
     headers.set(PRO_ROOM_GENERATION_HEADER, proRoomGenerationHeaderValue(roomGeneration));
     headers.set('x-mxqr-pro-ip-hash', ipHash);
+    // Only this front door assigns the admission throttle key. Never forward a
+    // caller-supplied value; session creation receives a keyed digest of the
+    // client's IPv4 address or IPv6 /64 rather than of the exact address.
+    headers.delete(PRO_ROOM_ADMISSION_KEY_HEADER);
+    if (request.method === 'POST' && url.pathname === `/v1/rooms/${match[1]}/sessions`) {
+      headers.set(
+        PRO_ROOM_ADMISSION_KEY_HEADER,
+        await hmacBase64Url(
+          rateSecret,
+          `pro-room-admission:${proRoomAdmissionAddressPrefix(rawIp)}`,
+        ),
+      );
+    }
     headers.delete('cf-connecting-ip');
     headers.delete('x-forwarded-for');
     let body = null;
@@ -3839,6 +3941,7 @@ export class MusixquareProRoom {
   alarmMaintenanceRetryAttempt: number;
   alarmMaintenanceRetryTimer: ReturnType<typeof setTimeout> | null;
   scheduledAlarmMs: number | null | undefined;
+  sessionAdmissionThrottle: SessionAdmissionThrottle | null;
   ready: Promise<void> | undefined;
 
   private get activeRoom(): ProRoomState {
@@ -3874,6 +3977,7 @@ export class MusixquareProRoom {
     // `undefined` means a restarted instance has not yet reconciled the
     // storage alarm; `null` means it has authoritatively removed one.
     this.scheduledAlarmMs = undefined;
+    this.sessionAdmissionThrottle = null;
     const load = async () => {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
@@ -4548,6 +4652,17 @@ export class MusixquareProRoom {
       Array.isArray(this.activeRoom.botRateLimits)
     ) {
       this.activeRoom.botRateLimits = {};
+      this.developerCommandMigrationPending = true;
+    }
+    // Session-create receipts live for only ten minutes, so the shared map is
+    // not migrated: new receipts go to their own ledger and replay reads the
+    // shared map for that scope until the earlier receipts expire.
+    if (
+      !this.activeRoom.sessionCreateIdempotency ||
+      typeof this.activeRoom.sessionCreateIdempotency !== 'object' ||
+      Array.isArray(this.activeRoom.sessionCreateIdempotency)
+    ) {
+      this.activeRoom.sessionCreateIdempotency = {};
       this.developerCommandMigrationPending = true;
     }
 
@@ -5241,6 +5356,9 @@ export class MusixquareProRoom {
       candidates.push(this.idempotencyExpiresAt(storageKey, record));
     }
     for (const record of Object.values(this.activeRoom.developerMutationIdempotency || {})) {
+      candidates.push(record.expiresAtMs);
+    }
+    for (const record of Object.values(this.activeRoom.sessionCreateIdempotency || {})) {
       candidates.push(record.expiresAtMs);
     }
     for (const record of Object.values(this.activeRoom.rateLimits || {})) {
@@ -7998,6 +8116,71 @@ export class MusixquareProRoom {
     current.count += 1;
   }
 
+  sessionAdmissionKey(request: Request) {
+    return (
+      request.headers.get(PRO_ROOM_ADMISSION_KEY_HEADER) ||
+      request.headers.get('x-mxqr-pro-ip-hash') ||
+      'internal-test'
+    );
+  }
+
+  sessionAdmissionEntries() {
+    const current = this.sessionAdmissionThrottle;
+    if (
+      current &&
+      current.authEpoch === this.activeRoom.authEpoch &&
+      current.roomGeneration === this.activeRoom.roomGeneration
+    ) {
+      return current.entries;
+    }
+    const entries = new Map<string, RateLimitRecord>();
+    this.sessionAdmissionThrottle = {
+      authEpoch: this.activeRoom.authEpoch,
+      roomGeneration: this.activeRoom.roomGeneration,
+      entries,
+    };
+    return entries;
+  }
+
+  readSessionAdmissionLimit(request: Request, nowMs: number) {
+    const current = this.sessionAdmissionEntries().get(this.sessionAdmissionKey(request));
+    if (!current || current.resetAtMs <= nowMs || current.count < SESSION_ADMISSION_LIMIT) {
+      return null;
+    }
+    return errorResponse('RATE_LIMITED', 429, {
+      'retry-after': String(Math.max(1, Math.ceil((current.resetAtMs - nowMs) / 1000))),
+    });
+  }
+
+  recordSessionAdmission(request: Request, nowMs: number) {
+    const entries = this.sessionAdmissionEntries();
+    const key = this.sessionAdmissionKey(request);
+    const current = entries.get(key);
+    if (current && current.resetAtMs > nowMs) {
+      current.count += 1;
+      return;
+    }
+    entries.delete(key);
+    if (entries.size >= SESSION_ADMISSION_THROTTLE_MAX_ITEMS) {
+      for (const [entryKey, entry] of entries) {
+        if (entry.resetAtMs <= nowMs) entries.delete(entryKey);
+      }
+    }
+    if (entries.size >= SESSION_ADMISSION_THROTTLE_MAX_ITEMS) {
+      // A soft throttle fails open: forget the bucket closest to its reset
+      // rather than refusing a client merely because many others joined.
+      let soonestKey: string | null = null;
+      let soonestResetAtMs = Number.POSITIVE_INFINITY;
+      for (const [entryKey, entry] of entries) {
+        if (entry.resetAtMs >= soonestResetAtMs) continue;
+        soonestKey = entryKey;
+        soonestResetAtMs = entry.resetAtMs;
+      }
+      if (soonestKey !== null) entries.delete(soonestKey);
+    }
+    entries.set(key, { count: 1, resetAtMs: nowMs + SESSION_ADMISSION_WINDOW_MS });
+  }
+
   async applyRateLimit(request: Request, kind: string, limit: number, windowMs: number) {
     const rateError = this.readRateLimit(request, kind, limit);
     if (rateError) return rateError;
@@ -10233,6 +10416,23 @@ export class MusixquareProRoom {
     return this.systemAudioResponse();
   }
 
+  /**
+   * Whether one more participant with this session role may enter presence.
+   * The room keeps its host-inclusive 100-device ceiling, but at most 99 of
+   * those places can hold non-owner sessions. Every route into presence
+   * (create, resume, replay, recovery, transfer) passes through joinPresence,
+   * so the owner can always re-enter a room that strangers have filled.
+   */
+  presenceAdmissionAvailable(role: ProRoomRole) {
+    const participants = Object.values(this.activeRoom.presence.participants);
+    if (participants.length >= PRESENCE_MAX_ITEMS) return false;
+    if (role === 'owner') return true;
+    const nonOwnerPresences = participants.filter(
+      (participant) => this.activeRoom.sessions[participant.sessionHash]?.role !== 'owner',
+    ).length;
+    return nonOwnerPresences < PRESENCE_MAX_ITEMS - OWNER_RESERVED_PRESENCE_SLOTS;
+  }
+
   joinPresence(session: RoomSession, tokenHash: string, nowMs: number, devicePlatform = 'other') {
     const existing = this.activeRoom.presence.participants[session.participantId];
     if (existing) {
@@ -10241,8 +10441,7 @@ export class MusixquareProRoom {
       session.presenceIncarnationId = existing.presenceIncarnationId;
       return false;
     }
-    if (Object.keys(this.activeRoom.presence.participants).length >= PRESENCE_MAX_ITEMS)
-      return null;
+    if (!this.presenceAdmissionAvailable(session.role)) return null;
     if (!this.assignSessionPresenceIdentity(session)) return null;
     const wasSleeping = this.activeRoom.runtime === 'sleeping';
     const presenceIncarnationId = `presence_${randomToken(18)}`;
@@ -13187,7 +13386,12 @@ export class MusixquareProRoom {
             return errorResponse('ROOM_FULL', 409);
           }
         }
-        const recoveredRecords = this.reserveIdempotencySlot(scope, requestId, nowMs);
+        const recoveredRecords = this.reserveIdempotencySlot(
+          scope,
+          requestId,
+          nowMs,
+          this.sessionCreateReceiptCapacity(recoveredSession.role),
+        );
         recoveredRecords[`${scope}:${requestId}`] = {
           kind: 'session-create',
           fingerprint,
@@ -13221,6 +13425,18 @@ export class MusixquareProRoom {
         );
       }
     }
+    const role: ProRoomRole =
+      (ownerCredential && this.activeRoom.ownerAccountId === null) || verifiedOwnerAccount
+        ? 'owner'
+        : 'member';
+    // Throttle only fresh non-owner admissions. Replays and deterministic
+    // recovery returned above, so an outcome-unknown retry never sees a 429
+    // (which the browser treats as definitive). Checking before the PIN also
+    // keeps a throttled client from spending its PIN-failure budget.
+    if (role !== 'owner') {
+      const admissionLimited = this.readSessionAdmissionLimit(request, nowMs);
+      if (admissionLimited) return admissionLimited;
+    }
     // The one-field legacy body remains accepted during the cached-client
     // rollout. It cannot be safely collapsed by IP/PIN/User-Agent without
     // merging distinct devices behind the same NAT, so only v1 clients that
@@ -13235,15 +13451,21 @@ export class MusixquareProRoom {
         return errorResponse('PIN_INVALID', 401);
       }
     }
+    // Decide capacity before any receipt, account member, owner link, display
+    // number, or session record is touched, so a full room refuses without
+    // side effects (including session-capacity eviction).
+    if (!this.presenceAdmissionAvailable(role)) return errorResponse('ROOM_FULL', 409);
     if (requestId !== null && scope) {
       // Capacity is reserved before account/session state is touched, so a
       // full receipt ledger fails closed without a partially admitted identity.
-      idempotencyRecords = this.reserveIdempotencySlot(scope, requestId, nowMs);
+      // Proven owners may use the reserved tail of the session-create ledger.
+      idempotencyRecords = this.reserveIdempotencySlot(
+        scope,
+        requestId,
+        nowMs,
+        this.sessionCreateReceiptCapacity(role),
+      );
     }
-    const role =
-      (ownerCredential && this.activeRoom.ownerAccountId === null) || verifiedOwnerAccount
-        ? 'owner'
-        : 'member';
     const accountMember = asserted.account
       ? this.resolveAccountMember(asserted.account, role, nowMs)
       : null;
@@ -13291,6 +13513,9 @@ export class MusixquareProRoom {
       };
     }
     await this.persist();
+    // Count only a committed admission; a capacity or storage rollback above
+    // must not consume the client's budget.
+    if (role !== 'owner') this.recordSessionAdmission(request, nowMs);
     return jsonResponse(
       {
         snapshot: publicSnapshot(this.activeRoom, created.session),
@@ -13634,6 +13859,13 @@ export class MusixquareProRoom {
       if (tokenHash === auth.tokenHash) continue;
       this.removeSessionRecord(tokenHash);
     }
+    // Every session-create receipt now names a revoked session, except the
+    // owner's own, whose retry still converges through deterministic recovery
+    // at the new epoch. Releasing them lets a venue rejoin with the new PIN
+    // immediately instead of waiting out a join flood's receipt TTL; a revoked
+    // client's retry falls through to the PIN check. The admission throttle is
+    // keyed by authEpoch and resets with this rotation.
+    this.purgeSessionCreateReceipts();
     // Revoke every other participant atomically. A PIN rotation advances the
     // room-incarnation fence exactly once; no browser gains server authority.
     const ownerParticipant = auth.participant;
@@ -14193,12 +14425,33 @@ export class MusixquareProRoom {
   }
 
   idempotencyLedger(scope: string) {
+    if (scope.startsWith(SESSION_CREATE_IDEMPOTENCY_SCOPE_PREFIX)) {
+      return {
+        records: this.activeRoom.sessionCreateIdempotency,
+        maxItems: SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS,
+      };
+    }
     return scope.startsWith('developer:')
       ? {
           records: this.activeRoom.developerMutationIdempotency,
           maxItems: DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS,
         }
       : { records: this.activeRoom.idempotency, maxItems: IDEMPOTENCY_MAX_ITEMS };
+  }
+
+  sessionCreateReceiptCapacity(role: ProRoomRole) {
+    return role === 'owner'
+      ? SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS
+      : SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS - SESSION_CREATE_OWNER_IDEMPOTENCY_HEADROOM;
+  }
+
+  purgeSessionCreateReceipts() {
+    this.activeRoom.sessionCreateIdempotency = {};
+    for (const storageKey of Object.keys(this.activeRoom.idempotency)) {
+      if (storageKey.startsWith(SESSION_CREATE_IDEMPOTENCY_SCOPE_PREFIX)) {
+        delete this.activeRoom.idempotency[storageKey];
+      }
+    }
   }
 
   idempotencyExpiresAt(storageKey: string, record: IdempotencyRecord) {
@@ -14234,23 +14487,29 @@ export class MusixquareProRoom {
       if (!this.idempotencyRecordIsExpired(storageKey, primary)) return primary;
       delete records[storageKey];
     }
-    const legacyDeveloper = scope.startsWith('developer:')
-      ? this.activeRoom.idempotency[storageKey]
-      : undefined;
-    if (!legacyDeveloper) return undefined;
-    if (!this.idempotencyRecordIsExpired(storageKey, legacyDeveloper)) return legacyDeveloper;
+    const legacyShared =
+      scope.startsWith('developer:') || scope.startsWith(SESSION_CREATE_IDEMPOTENCY_SCOPE_PREFIX)
+        ? this.activeRoom.idempotency[storageKey]
+        : undefined;
+    if (!legacyShared) return undefined;
+    if (!this.idempotencyRecordIsExpired(storageKey, legacyShared)) return legacyShared;
     delete this.activeRoom.idempotency[storageKey];
     return undefined;
   }
 
-  reserveIdempotencySlot(scope: string, key: string, nowMs = Date.now()) {
+  reserveIdempotencySlot(
+    scope: string,
+    key: string,
+    nowMs = Date.now(),
+    capacity: number | null = null,
+  ) {
     const storageKey = `${scope}:${key}`;
     const { records, maxItems } = this.idempotencyLedger(scope);
     for (const [recordKey, record] of Object.entries(records)) {
       if (this.idempotencyRecordIsExpired(recordKey, record, nowMs)) delete records[recordKey];
     }
     if (records[storageKey] !== undefined) return records;
-    if (Object.keys(records).length >= maxItems) {
+    if (Object.keys(records).length >= Math.min(maxItems, capacity ?? maxItems)) {
       // An unexpired receipt is a durable exactly-once fence. Never trade it
       // for availability: the outer mutation checkpoint rolls back the new
       // action and returns a bounded capacity response.
@@ -15074,6 +15333,12 @@ export class MusixquareProRoom {
     for (const [key, record] of Object.entries(this.activeRoom.developerMutationIdempotency)) {
       if (record.expiresAtMs <= nowMs) {
         delete this.activeRoom.developerMutationIdempotency[key];
+        changed = true;
+      }
+    }
+    for (const [key, record] of Object.entries(this.activeRoom.sessionCreateIdempotency)) {
+      if (record.expiresAtMs <= nowMs) {
+        delete this.activeRoom.sessionCreateIdempotency[key];
         changed = true;
       }
     }

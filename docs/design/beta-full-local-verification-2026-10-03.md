@@ -8,7 +8,7 @@
 | Main reference                       | `35759e8b07f1ee0b272afbd0af03c770a858889e`                                                                            |
 | Environment                          | Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.0, Playwright 1.63.0                                                    |
 | Browser builds                       | Chromium 153.0.8010.12 / revision 1243; WebKit 26.6 / revision 2359                                                   |
-| Related                              | [Living release record](../beta-release-readiness.md), [last discovery round](beta-sequence-qa-2026-10-03-round-7.md) |
+| Related                              | [Living release record](../beta-release-readiness-archive-2026-10-10.md), [last discovery round](beta-sequence-qa-2026-10-03-round-7.md) |
 
 The owner requested an end to exploratory QA and execution of every maintained
 verification suite feasible on this local machine. This is a test execution

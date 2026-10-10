@@ -7,7 +7,7 @@
 | Product code    | Unchanged from `45c7ef7a4e0fef5b788efe11cb72d54c9b221929`                                                                                                                        |
 | Main reference  | `35759e8b07f1ee0b272afbd0af03c770a858889e`, unchanged                                                                                                                            |
 | Environment     | Windows; pinned Node 24.20.0/npm 12.0.2; Vitest 5/jsdom/local Worker; Playwright 1.63 Chromium and Windows WebKit; local PeerJS                                                  |
-| Related records | [Living beta release record](../beta-release-readiness.md), [preceding complete QA](beta-large-qa-2026-10-04.md), [preceding focused QA](beta-sequence-qa-2026-10-04-round-2.md) |
+| Related records | [Living beta release record](../beta-release-readiness-archive-2026-10-10.md), [preceding complete QA](beta-large-qa-2026-10-04.md), [preceding focused QA](beta-sequence-qa-2026-10-04-round-2.md) |
 
 ## Decision and executed scope
 

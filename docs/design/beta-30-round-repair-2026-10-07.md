@@ -7,7 +7,7 @@
 | Last source review | 2026-10-07 |
 | Baseline | `f98892cd1218defb80cc2ec99cd87024523da684` |
 | Tested code | `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋 — 아래 소스 digest와 불변 빌드 기록 참조 |
-| Related documents | [발견·재판정 원본](beta-30-round-qa-2026-10-07.md), [배포 준비 기록](../beta-release-readiness.md) |
+| Related documents | [발견·재판정 원본](beta-30-round-qa-2026-10-07.md), [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md) |
 
 사용자의 전체 진행 승인으로 이전 읽기 전용 QA에서 수집한 항목을 수정했다.
 당시 판정 **확정 12건·미확정 2건·제외 2건**은 역사적 결과로 보존한다.
@@ -158,7 +158,7 @@ Web Locks와 공유 저장소를 모두 쓸 수 없는 환경에서는 다른 �
 같은 빌드의 사전·CSS·폰트 원본까지 계속 접근할 수 없으면 English/system-font fallback을
 유지한다. 임의의 새 빌드 자료나 강제 페이지 재로드로 활성 방을 바꾸지 않는다.
 승격 시 App 산출물의 새 JSON 파일도 함께 배포해야 한다. 기존 누적 서버 변경의
-`target=all`과 다른 공개 승격 조건은 [준비 기록](../beta-release-readiness.md)을 따른다.
+`target=all`과 다른 공개 승격 조건은 [준비 기록](../beta-release-readiness-archive-2026-10-10.md)을 따른다.
 베타 통과는 최종 main SHA의 CI·릴리스 후보·운영 배포 성공을 대신하지 않는다.
 
 ## 5. 현재 판정

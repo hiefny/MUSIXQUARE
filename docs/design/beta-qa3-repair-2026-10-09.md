@@ -6,7 +6,7 @@
 | Applies to | QA3 확정 9건과 사용자 승인 예방 보강 3건 |
 | Last source review | 2026-10-09 |
 | Executable sources | `src/player`, `src/youtube`, `src/pro-room`, `src/ui`, `src/i18n`, `browser/service-worker.ts`, `cloudflare/account-auth.ts`와 유지 회귀 검사 |
-| Related documents | [발견 당시 감사](beta-30-round-qa3-2026-10-09.md), [현재 배포 기록](../beta-release-readiness.md), [정식 릴리스 절차](../hotfix-procedure.md) |
+| Related documents | [발견 당시 감사](beta-30-round-qa3-2026-10-09.md), [현재 배포 기록](../beta-release-readiness-archive-2026-10-10.md), [정식 릴리스 절차](../hotfix-procedure.md) |
 
 ## 범위와 판정
 

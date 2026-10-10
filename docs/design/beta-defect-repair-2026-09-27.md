@@ -7,7 +7,7 @@
 | Code commit | `b833e2a62bd7eceaa1c9a074d463a36477b514e4` |
 | Starting checkout | `49d52e4d219df958ad8151234f37ba1021f13066` |
 | Environment | Windows, Node 24.20.0, Vitest 5, jsdom·SQLite, Playwright Chromium 153 |
-| Related documents | [발견 당시 근거](beta-defect-harvest-2026-09-27.md), [배포 준비 기록](../beta-release-readiness.md) |
+| Related documents | [발견 당시 근거](beta-defect-harvest-2026-09-27.md), [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md) |
 
 사용자가 확정 결함의 수정과 베타 푸시를 승인했다. 발견 당시 실패를 먼저
 추적 회귀 테스트로 옮기고, 같은 원인의 주변 경로를 확인한 뒤 수정했다.

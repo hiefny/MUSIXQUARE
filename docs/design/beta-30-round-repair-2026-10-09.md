@@ -10,7 +10,7 @@
 | Tested tree | 비Markdown 1,818파일 SHA-256 `8b293841da5681d70817153a1f24fa0141ecf78736cac49c72edb8a8eb5270ec`; 전체 unit·최종 browser 중 변경 0 |
 | QA-only follow-up | 아래 캐시 관측 helper·회귀 검사 2파일만 추가 변경. 최종 비Markdown 1,819파일 SHA-256 `eab49a13052b8febd71cd106344862f1d70dde425fc4c6875b405983e0a8578a`; 제품 입력·production artifact 변경 0 |
 | Product / cache | 준비 버전 `8.7.5` / `v636`; 운영은 `8.7.4` / `v635` 유지 |
-| Related documents | [발견 보고서](beta-30-round-qa-2026-10-09.md), [현재 배포 기록](../beta-release-readiness.md), [권한 계약](account-identity-and-room-authority.md), [릴리스 절차](../hotfix-procedure.md) |
+| Related documents | [발견 보고서](beta-30-round-qa-2026-10-09.md), [현재 배포 기록](../beta-release-readiness-archive-2026-10-10.md), [권한 계약](account-identity-and-room-authority.md), [릴리스 절차](../hotfix-procedure.md) |
 
 사용자는 미확정 두 건에 대해 제안한 동작을 채택하고, 나머지 확정 항목까지 모두 수정하되
 수정 필요성을 항목별 한 번씩 더 확인하도록 승인했다. 14건은 수정 전 새 실행에서 현상을

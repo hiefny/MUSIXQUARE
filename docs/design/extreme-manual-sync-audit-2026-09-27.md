@@ -7,7 +7,7 @@
 | Product code | `c3eae88c` — previous S01/S02 repair included |
 | Environment | Windows, Node 24.20.0, Vitest 5, pinned Chromium, local PeerJS |
 | Scope | YouTube Standard/PRO; ordinary and large local-file playback, including shared demo transport; extreme signed offsets and lifecycle boundaries |
-| Related | [Previous discovery and repair](youtube-manual-zero-start-audit-2026-09-27.md), [current release record](../beta-release-readiness.md) |
+| Related | [Previous discovery and repair](youtube-manual-zero-start-audit-2026-09-27.md), [current release record](../beta-release-readiness-archive-2026-10-10.md) |
 
 The owner requested discovery and simulation, not another implementation pass.
 No runtime source, tracked test, main branch or production deployment was changed.

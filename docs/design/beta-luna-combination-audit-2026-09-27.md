@@ -7,7 +7,7 @@
 | Tested checkout | `1439e338aa83ac1065b0a335bdfcba12e63c7012` |
 | Tested runtime | `2347760c5e5b902327a05ca216c8b72409ee72d3` |
 | Environment | Windows, Node 24.20.0, Vitest 5, jsdom 및 제어 가능한 네트워크·미디어 경계 |
-| Related documents | [배포 준비 기록](../beta-release-readiness.md), [직전 발굴·D01 수정](beta-defect-harvest-2026-09-27-round-4.md) |
+| Related documents | [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md), [직전 발굴·D01 수정](beta-defect-harvest-2026-09-27-round-4.md) |
 
 사용자의 요청에 따라 GPT-6 Luna 에이전트 3개가 서로 다른 영역에서
 순서 조합을 만들었다. 짧은 작업 시간 제한을 주지 않았으며 제품 수정은

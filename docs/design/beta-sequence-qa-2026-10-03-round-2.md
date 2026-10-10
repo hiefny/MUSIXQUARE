@@ -7,7 +7,7 @@
 | Product code | `53cbf60fd5f475a9beef2cfaa1d7023c9b456eea` — includes the SQ01 repair |
 | Main reference | `35759e8b07f1ee0b272afbd0af03c770a858889e` |
 | Environment | Windows, Node 24.20.0, Vitest, Chromium, local PeerJS, controlled external media boundaries |
-| Related records | [Living release record](../beta-release-readiness.md), [previous sequence QA and SQ01 repair](beta-sequence-qa-2026-10-03.md) |
+| Related records | [Living release record](../beta-release-readiness-archive-2026-10-10.md), [previous sequence QA and SQ01 repair](beta-sequence-qa-2026-10-03.md) |
 
 ## Result and scope
 
@@ -322,6 +322,6 @@ were not rerun in this repair round.
 
 SQ02–SQ04 are resolved within the tested scope. The pre-existing dependency
 security, version/cache, physical-device and final-main-SHA release gates in the
-[living release record](../beta-release-readiness.md) still apply. There is no
+[living release record](../beta-release-readiness-archive-2026-10-10.md) still apply. There is no
 new migration or special recovery step; use the existing release checkpoint and
 rollback procedure when publication is eventually authorized.

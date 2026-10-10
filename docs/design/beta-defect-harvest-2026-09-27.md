@@ -7,7 +7,7 @@
 | Tested checkout | `7538e9d75e197dd4eb903e83051433de81903911` |
 | Runtime source baseline | `c663f89f29d65fcf92c15df4d66dc3d27ced4338` — 이후 차이는 문서 |
 | Environment | Windows, Node 24.20.0, Vitest 5, jsdom·SQLite·설치된 Playwright Chromium |
-| Related documents | [배포 준비 기록](../beta-release-readiness.md), [QA21](beta-qa-2026-09-27-round-21.md) |
+| Related documents | [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md), [QA21](beta-qa-2026-09-27-round-21.md) |
 
 사용자 요청에 따라 하나를 찾자마자 고치는 작업을 중단하고, 여러 영역을
 병렬로 조사한 뒤 다른 검토자가 근거와 대조군을 확인했다. 이번 결과는

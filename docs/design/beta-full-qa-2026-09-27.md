@@ -6,7 +6,7 @@
 | Tested checkout | `dd55d3bc51c98ca4837038a53616c4e7f80ba9e4`, `mxqr_beta`                                                              |
 | Product source  | `c242bfd17f652f1480a6e79731d5130b5b6f6c19`; no product changes during this QA                                        |
 | Environment     | Windows, Node 24.20.0, Vitest 5, Playwright 1.63.0; bundled revisions `chromium-1243` and `webkit-2359`              |
-| Related record  | [Beta release readiness](../beta-release-readiness.md), [XS01–XS04 repair](extreme-manual-sync-repair-2026-09-27.md) |
+| Related record  | [Beta release readiness](../beta-release-readiness-archive-2026-10-10.md), [XS01–XS04 repair](extreme-manual-sync-repair-2026-09-27.md) |
 
 This round runs the existing complete test suites and independently reviews the
 recent synchronization changes. It does not modify product code, tracked tests,

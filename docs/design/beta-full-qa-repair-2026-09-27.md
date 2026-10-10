@@ -5,7 +5,7 @@
 | Status      | Repair complete; final local verification passed; production freeze active                              |
 | Baseline    | `8c78a598121e2226f4ecfc4ed176e8e0704bed3d`, `mxqr_beta`                                                 |
 | Environment | Windows; pinned Node 24.20.0, Vitest 5, Playwright 1.63.0, Chromium revision 1243, WebKit revision 2359 |
-| Related     | [Discovery evidence](beta-full-qa-2026-09-27.md), [release readiness](../beta-release-readiness.md)     |
+| Related     | [Discovery evidence](beta-full-qa-2026-09-27.md), [release readiness](../beta-release-readiness-archive-2026-10-10.md)     |
 
 The verified source tree was committed as
 `d3ef74ab4e196abbc2b2f3ea97988e3a91e379ac`. Tests ran against the matching worktree

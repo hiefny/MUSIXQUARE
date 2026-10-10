@@ -8,7 +8,7 @@
 | Discovery runtime | `3dd9086cdced0fc25426da82239977b6da004074` |
 | Repair source | `2347760c5e5b902327a05ca216c8b72409ee72d3` |
 | Environment | Windows, Node 24.20.0, Vitest 5, jsdom·모사한 미디어/네트워크, 로컬 Chromium |
-| Related documents | [배포 준비 기록](../beta-release-readiness.md), [D01 발굴](beta-defect-harvest-2026-09-27-round-3.md) |
+| Related documents | [배포 준비 기록](../beta-release-readiness-archive-2026-10-10.md), [D01 발굴](beta-defect-harvest-2026-09-27-round-3.md) |
 
 사용자는 추가 발굴에서 새 결함이 더 없으면 기존 미해결 항목을 수정하고
 마무리하도록 요청했다. 범위를 나누어 추가 조사했으나 **새 독립 확정

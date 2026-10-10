@@ -7,7 +7,7 @@
 | Product baseline | `79f3a687a7222a69ff865846e0c715aa197d0f10`; subsequent commits only changed documentation                           |
 | Main comparison  | `35759e8b07f1ee0b272afbd0af03c770a858889e`                                                                          |
 | Environment      | Windows, Node 24.20.0, Vitest, local Chromium + PeerJS                                                              |
-| Related records  | [Living release record](../beta-release-readiness.md), [2026-10-01 full audit](main-beta-merge-audit-2026-10-01.md) |
+| Related records  | [Living release record](../beta-release-readiness-archive-2026-10-10.md), [2026-10-01 full audit](main-beta-merge-audit-2026-10-01.md) |
 
 **Amended by the [repair addendum](#repair-addendum--2026-10-03) below.**
 The discovery body preserves the original unfixed observations; SQ01 has since

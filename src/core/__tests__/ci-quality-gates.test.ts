@@ -314,7 +314,14 @@ describe('CI quality and supply-chain gates', () => {
     };
 
     expect(coverage.include).toContain('src/pro-room/playback-controller.ts');
-    expect(coverage.thresholds?.['src/pro-room/{runtime,playback-controller}.ts']).toEqual({
+    expect(coverage.include).toContain('src/pro-room/persisted-resource-lane.ts');
+    // Code extracted from runtime.ts stays inside the pre-extraction
+    // logical-unit floor and also keeps its own independent floor.
+    expect(
+      coverage.thresholds?.[
+        'src/pro-room/{runtime,playback-controller,persisted-resource-lane}.ts'
+      ],
+    ).toEqual({
       statements: 66,
       branches: 58,
       functions: 69,
@@ -325,6 +332,12 @@ describe('CI quality and supply-chain gates', () => {
       branches: 72,
       functions: 87,
       lines: 85,
+    });
+    expect(coverage.thresholds?.['src/pro-room/persisted-resource-lane.ts']).toEqual({
+      statements: 99,
+      branches: 99,
+      functions: 99,
+      lines: 99,
     });
   });
 

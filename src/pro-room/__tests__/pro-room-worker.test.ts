@@ -9057,6 +9057,65 @@ describe('PRO admission capacity and throttle', () => {
     expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
   });
 
+  it('releases legacy shared-ledger session-create receipts when the owner enables a PIN', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    // Model a flood that an earlier Worker recorded in the shared browser
+    // ledger: its session-create receipts fill every remaining shared slot.
+    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
+    const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
+    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
+      const actorHash = `L${String(index).padStart(4, '0')}`.padEnd(43, 'L');
+      stored.core.idempotency[`session-create:${actorHash}:legacy-flood-${index}`] =
+        sessionCreateReceipt(index, expiresAtMs);
+    }
+    delete stored.core.sessionCreateIdempotency;
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const restartedContext = { ...context, worker: restarted };
+    const queueItemId = '44444444-4444-4444-8444-444444444444';
+    const playlist = [
+      {
+        queueItemId,
+        name: 'Legacy flood survivor',
+        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+      },
+    ];
+    const frozen = await replacePlaylist(restartedContext, playlist, 'legacy-flood-frozen');
+    expect(frozen.status).toBe(409);
+    expect(await responseJson(frozen)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+
+    const enabled = await restarted.fetch(
+      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie)),
+    );
+    expect(enabled.status).toBe(200);
+    const sharedSessionCreateKeys = (ledger: Record<string, unknown>) =>
+      Object.keys(ledger).filter((key) => key.startsWith('session-create:'));
+    expect(sharedSessionCreateKeys(restarted.room!.idempotency)).toEqual([]);
+    expect(sharedSessionCreateKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
+
+    // Owner queue and playback control work again at once.
+    const queued = await replacePlaylist(restartedContext, playlist, 'legacy-flood-released');
+    expect(queued.status).toBe(200);
+    const played = await restarted.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: restarted.room!.playback.revision,
+          queueItemId,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        context.ownerCookie,
+        'legacy-flood-playback-command',
+      ),
+    );
+    expect(played.status).toBe(202);
+  });
+
   it('keeps a saturated session-create ledger inside the room core budget', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const room = context.worker.room!;
@@ -9244,6 +9303,32 @@ describe('PRO admission capacity and throttle', () => {
     expect((await worker.fetch(admission({ key }))).status).toBe(200);
     expect(admissionCount(worker, key)).toBe(1);
   }, 60_000);
+
+  it('counts an admission only after its storage commit succeeds', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker } = context;
+    const key = 'commit-nat';
+    const requestId = nextRequestId();
+    const storedSessions = Object.keys(storedCanonicalRoom(context.state).sessions);
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('admission commit failure'),
+    );
+    await expect(worker.fetch(admission({ key, requestId }))).rejects.toThrow(
+      'admission commit failure',
+    );
+    // The failed commit rolled the admission back, so it consumed no budget.
+    expect(admissionCount(worker, key)).toBe(0);
+    expect(Object.keys(storedCanonicalRoom(context.state).sessions)).toEqual(storedSessions);
+    expect(storedCanonicalRoom(context.state).sessionCreateIdempotency).toEqual({});
+
+    // The retry is a fresh admission that commits, and only then counts.
+    const retried = await worker.fetch(admission({ key, requestId }));
+    expect(retried.status).toBe(200);
+    expect(admissionCount(worker, key)).toBe(1);
+    expect(Object.keys(storedCanonicalRoom(context.state).sessions)).toHaveLength(
+      storedSessions.length + 1,
+    );
+  });
 
   it.each(['verified-account', 'legacy-credential'] as const)(
     'exempts a proven %s owner admission from the address throttle',
@@ -11471,10 +11556,19 @@ describe('persistent PRO room authentication, presence, and state', () => {
         (record: any) => record?.kind === 'session-create',
       ),
     ).toBe(true);
+    // The admission throttle counts only a committed admission. Without an
+    // admission-key header the throttle falls back to the IP hash.
+    const admissionCount = () =>
+      context.worker.sessionAdmissionThrottle?.entries.get('session-storage-recovery-actor')
+        ?.count ?? 0;
+    expect(admissionCount()).toBe(0);
 
     context.state.storage.put = originalPut;
     const recovered = await context.worker.fetch(admission());
     expect(recovered.status).toBe(200);
+    // The retry converged the resident receipt through the replay branch,
+    // which never counts toward the throttle.
+    expect(admissionCount()).toBe(0);
     const recoveredCookie = cookieFrom(recovered);
     const recoveredEnvelope = await responseJson(recovered);
 

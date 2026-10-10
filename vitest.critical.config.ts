@@ -43,6 +43,7 @@ export default defineConfig({
         'src/pro-room/media-transfer.ts',
         'src/pro-room/playback-controller.ts',
         'src/pro-room/runtime.ts',
+        'src/pro-room/persisted-resource-lane.ts',
         'src/pro-room/playlist-state-manager.ts',
         'src/player/transport.ts',
         'src/player/local-output-rejoin.ts',
@@ -157,14 +158,23 @@ export default defineConfig({
           functions: 97,
           lines: 89,
         },
-        // Playback authority moved out of runtime.ts on 2026-08-17. Preserve
-        // the pre-extraction logical-unit floor, then keep both files on
-        // independent floors so neither can hide a regression in the other.
-        'src/pro-room/{runtime,playback-controller}.ts': {
+        // Playback authority moved out of runtime.ts on 2026-08-17, and the
+        // persisted-resource lock/refresh lane on 2026-10-11. Preserve the
+        // pre-extraction logical-unit floor, then keep every file on an
+        // independent floor so none can hide a regression in another.
+        'src/pro-room/{runtime,playback-controller,persisted-resource-lane}.ts': {
           statements: 66,
           branches: 58,
           functions: 69,
           lines: 70,
+        },
+        // Fully covered by runtime-persisted-resource-lane.test.ts on
+        // 2026-10-11 (Node 24: 100 statements, branches, functions, lines).
+        'src/pro-room/persisted-resource-lane.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
         },
         'src/pro-room/playback-controller.ts': {
           statements: 80,

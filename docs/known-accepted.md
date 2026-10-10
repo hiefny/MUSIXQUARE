@@ -118,14 +118,21 @@ What remains accepted:
   public traffic can occupy about 101 KiB of session-create receipts (240,
   each for 10 minutes), 52 KiB of presence-close receipts (one per stored
   session, each until that session closes again or is removed, at most 24
-  hours), and the session and presence records of a full room: about 94 KiB
-  for anonymous members, or about 150 KiB with account-linked members and
-  their account member records, kept while the sessions exist. That is
-  roughly 250 to 300 KiB in all. In a room whose legitimate core is already
-  within that distance of the budget, owner admission and owner writes,
-  including media reservations, can fail closed with
-  `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release it by enabling
-  or rotating the PIN; an absent owner has to wait for receipts to expire and
+  hours), the session and presence records of a full room, and about 50 KiB
+  of security rate-limit records. A full room of 128 sessions and 100
+  presences takes about 94 KiB with anonymous members, or about 153 KiB with
+  account-linked members and their account member records (the 100-member
+  limit counts accounts, and one account can hold several sessions), kept
+  while the sessions exist. The 512 rate-limit records each last about an
+  hour. Owner-recovery and owner-transfer attempts write one before their
+  claim is checked, and a wrong PIN writes one too; each is keyed by the exact
+  client address rather than a /64. That is roughly 300 KiB in all with
+  anonymous members and 355 KiB with account-linked ones. In a room whose
+  legitimate core is already within that distance of the budget, owner
+  admission and owner writes, including media reservations, can fail closed
+  with `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release most of it
+  by enabling or rotating the PIN, which does not clear the rate-limit
+  records; an absent owner has to wait for receipts and records to expire and
   sessions to leave, and a sustained distributed flood can repeat this. No
   byte headroom is reserved for the owner.
 - The remedy is the owner's: enter through the reserved place and enable or
@@ -138,7 +145,7 @@ What remains accepted:
   do not share a budget.
 - The security ledger is unchanged: PIN-failure, activation, and recovery
   limits still fail closed when that ledger is full. Public admission does not
-  consult it.
+  consult it. Its 512 records take about 50 KiB of the core, counted above.
 - The reservation applies only when a session enters presence. If the owner's
   live session is demoted in place (for example by detaching its account),
   100 non-owner presences can remain, and the owner meets `ROOM_FULL` until

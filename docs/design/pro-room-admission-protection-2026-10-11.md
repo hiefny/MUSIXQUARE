@@ -112,23 +112,24 @@ unchanged.
 
 ## Verification
 
-Tested code: `51e880c793d49046137216d5bc87d02c565ca6ef` on
+Tested code: `95fa7a88b69ccf13a563cb6f90d2c66bf45e8fc7` on
 `agent/pro-room-admission-protection`, based on main `933c6f54`. Code commits:
 `baf33de9` (implementation), `5cb73bc2` (tests from the first review),
 `ec850bec` (presence-close bound), `51e880c7` (dedicated presence-close
-ledger, from the second review). Windows 11 local run, Node 24.13.1 /
-npm 11.8.0, with the working tree equal to that commit. All runs are local;
-none is an exact-main CI candidate.
+ledger, from the second review), `95fa7a88` (one comment corrected, from the
+third review). Windows 11 local run, Node 24.13.1 / npm 11.8.0, with the code
+equal to that commit; only documentation differed. All runs are local; none
+is an exact-main CI candidate.
 
 | Command | Result | Time |
 | ------- | ------ | ---- |
 | `npm run check:pro-room-worker` | pass (module check and production-security guard) | 4 s |
 | `npx vitest run src/pro-room/__tests__/pro-room-worker.test.ts src/core/__tests__/app-worker-cors.test.ts` | 2 files, 653 passed, 0 failed, 0 skipped | 30 s |
-| `npx vitest run` on the six other test files that load the PRO Worker source¹ | 6 files, 190 passed, 0 failed, 1 skipped² | 19 s |
-| `npm run typecheck` | pass | 52 s |
-| `npm run guard:source-complexity` | pass; `pro-room-worker.ts` 15,637 of 20,000 lines | 1 s |
+| `npx vitest run` on the six other test files that load the PRO Worker source¹ | 6 files, 190 passed, 0 failed, 1 skipped² | 18 s |
+| `npm run typecheck` | pass | 51 s |
+| `npm run guard:source-complexity` | pass; `pro-room-worker.ts` 15,638 of 20,000 lines | 1 s |
 | `npm run guard:room-authority-boundaries` | pass | 2 s |
-| `npm run lint` | pass, zero warnings | 59 s |
+| `npm run lint` | pass, zero warnings | 62 s |
 | `npm run format:check` | pass | 24 s |
 | `npm run test:coverage:workers` | 28 files, 1,857 passed; all thresholds met | 34 s |
 
@@ -144,8 +145,9 @@ Worker coverage for `cloudflare/pro-room-worker.ts` is 85.46% statements,
 
 Test counts per round, in the same two-file run and the coverage run:
 `baf33de9` 643 and 1,847; `ec850bec` 646 and 1,850; `51e880c7` 653 and 1,857
-(seven new tests, one rewritten, and one extended). Times are wall-clock
-seconds per command.
+(seven new tests, one rewritten, and one extended); `95fa7a88` unchanged at
+653 and 1,857, with the same coverage. Times are wall-clock seconds per
+command.
 
 The first review of `baf33de9` (4 findings) led to these changes:
 
@@ -201,14 +203,10 @@ and this revision:
   and served an owner queue change.
 - The byte statements counted only session-create receipts. A temporary probe
   filled public rooms to 100 presences. With anonymous members (128 sessions),
-  session records took about 51 KiB and presence records about 43 KiB. With
-  account-linked members using 20-character Hangul nicknames, the
-  account-member limit kept the room at 100 sessions, which took about 53 KiB,
-  beside 52 KiB of presence and 34 KiB of account member records. With
-  session-create receipts (about 101 KiB at 240) and a full close ledger
-  (about 52 KiB), both at the longest accepted keys, public traffic can
-  occupy roughly 250 to 300 KiB of the 1.2 MiB core. The architecture
-  document and known-accepted #11 now give this breakdown.
+  session records took about 51 KiB and presence records about 43 KiB. The
+  architecture document and known-accepted #11 then gave a breakdown of
+  receipts and full-room records; the third review corrected its
+  account-linked figure and added a missing ledger (below).
 - The presence-close description now says the App sends the close once per
   leave on both the `pagehide` and the explicit-leave path, and ignores a 409
   on both.
@@ -217,6 +215,38 @@ and this revision:
 - The ledger-retention paragraph and the handler comment now note that only a
   session's latest close receipt is kept, and "always" is qualified for an
   owner session demoted in place.
+
+The third review of `51e880c7` and `7abcdd96` (3 findings) led to `95fa7a88`
+and this revision. No behavior changed.
+
+- The byte budget left out the security rate-limit ledger (512 entries).
+  Owner-recovery and owner-transfer requests record a hit before their claim
+  is checked, and a wrong PIN records one too, keyed by the exact client
+  address rather than a /64. A temporary probe sent 520 owner-recovery
+  requests with a bogus claim from distinct 43-character address hashes: 511
+  were refused with 401 and recorded, the last 9 with 429, and the ledger held
+  512 records (with the owner's activation record) in 50,663 bytes, about
+  49.5 KiB. A PIN change does not clear these records; they expire after an
+  hour.
+- The account-linked figure was wrong. The 100-member limit counts accounts,
+  not sessions, and one account can hold several sessions. A probe made
+  127 account-linked admissions over 99 accounts with 20-character Hangul
+  nicknames, 28 of them leaving presence again: the room held 128 sessions
+  (69,302 bytes), 100 presences (53,019 bytes), and 100 account members
+  (34,430 bytes), about 153 KiB.
+- The totals are now about 300 KiB with anonymous members and 355 KiB with
+  account-linked members: 101 KiB of session-create receipts, 52 KiB of
+  presence-close receipts, 94 or 153 KiB of full-room records, and 50 KiB of
+  rate-limit records. The architecture document and known-accepted #11 give
+  this breakdown, and say the PIN remedy does not release the rate-limit
+  records.
+- In the architecture document, the presence-close exception had been placed
+  before "A new mutation instead fails closed", which then read as if it
+  applied to close receipts. It now follows that sentence and says a close
+  commits without a receipt rather than failing. The presence-close ledger
+  paragraph and the Worker constant comment no longer call presence close
+  the only receipt an ordinary member writes; every admission also writes a
+  session-create receipt.
 
 Each new test was checked against a temporary mutation of the Worker, restored
 before the runs above. First round: removing the legacy purge loop, recording

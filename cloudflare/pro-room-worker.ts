@@ -538,6 +538,20 @@ interface IdempotencyRecord {
   expiresAtMs: number;
 }
 
+type SessionRevocationReason = 'PIN_ENABLED' | 'PIN_CHANGED' | 'REMOVED' | 'DEVICE_REMOVED';
+
+/**
+ * Why the owner or an administrator removed one exact session cookie. It is
+ * never authority: it only adds a machine-readable `reason` to the ordinary
+ * SESSION_REQUIRED 401 that the same revoked cookie already receives.
+ */
+interface SessionRevocationNotice {
+  reason: SessionRevocationReason;
+  authEpoch: number;
+  roomGeneration: number;
+  expiresAtMs: number;
+}
+
 interface DeveloperCommandRecord {
   roomCode: string;
   commandId: string;
@@ -736,6 +750,7 @@ interface ProRoomState {
   developerMutationIdempotency: Record<string, IdempotencyRecord>;
   sessionCreateIdempotency: Record<string, IdempotencyRecord>;
   presenceCloseIdempotency: Record<string, IdempotencyRecord>;
+  sessionRevocationNotices: Record<string, SessionRevocationNotice>;
   rateLimits: Record<string, RateLimitRecord>;
   botRateLimits: Record<string, RateLimitRecord>;
   consumedRecoveryNonces: Record<string, number>;
@@ -771,9 +786,11 @@ interface InMemoryCheckpoint {
 
 // Deliberately instance memory, not room state: the soft admission throttle
 // needs no schema field, migration, alarm, or rollback marker. A Durable
-// Object restart forgets it, and any authentication-epoch change (PIN
-// enable/rotate, suspension, ownership transfer, owner removal) resets it so a
-// revoked venue can rejoin at once.
+// Object restart forgets it, and any authentication-epoch change (a PIN
+// enable/rotate that makes everyone re-enter, suspension, ownership transfer,
+// owner removal) resets it so a revoked venue can rejoin at once. A PIN
+// enable/rotate that keeps present people leaves the epoch unchanged, so it
+// clears the throttle explicitly once its commit has succeeded.
 interface SessionAdmissionThrottle {
   authEpoch: number;
   roomGeneration: number;
@@ -995,9 +1012,11 @@ const BOT_REQUEST_LEASE_MS = 45 * 1000;
 // signaling applies the same limit to their authenticated control sockets.
 // Admission reserves one of those places for the room owner: at most 99
 // non-owner presences may be live, so an absent owner can re-enter a filled
-// public room and enable a PIN, which revokes every other session (unless its
-// own live session was demoted in place; see presenceAdmissionAvailable).
-// Delegated controllers are ordinary non-owner presences for this purpose.
+// public room and enable a PIN with "make everyone re-enter", which revokes
+// every other session (unless its own live session was demoted in place; see
+// presenceAdmissionAvailable). Keeping the people present revokes only
+// dormant sessions, so it is not the flood remedy. Delegated controllers are
+// ordinary non-owner presences for this purpose.
 const PRESENCE_MAX_ITEMS = 100;
 const OWNER_RESERVED_PRESENCE_SLOTS = 1;
 const SESSION_MAX_ITEMS = 128;
@@ -1139,6 +1158,23 @@ const PRESENCE_CLOSE_IDEMPOTENCY_SCOPE_SUFFIX = ':presence-close';
 const PRESENCE_CLOSE_IDEMPOTENCY_MAX_ITEMS = SESSION_MAX_ITEMS;
 const PRESENCE_CLOSE_RECEIPT_SESSION_RE =
   /^participant:[^:]+:incarnation:[^:]+:session:([^:]+):presence-close:[^:]+$/;
+// A cookie the owner or an administrator removed on purpose (a kick, or a PIN
+// enable/rotate that made everyone re-enter) still gets SESSION_REQUIRED, the
+// code every App release treats as terminal. A compact notice adds the reason
+// for that exact verified cookie. Only owner/administrator actions write
+// notices, never public admission traffic, and each one is written while a
+// far larger session record (about 530 bytes) is deleted. A notice is scoped
+// to the authentication epoch and room generation that wrote it, never
+// outlives its session, and is ignored while a live session holds the hash.
+// 256 notices of about 140 bytes cost at most about 36 KiB of the core budget.
+const SESSION_REVOCATION_NOTICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_REVOCATION_NOTICE_MAX_ITEMS = 256;
+const SESSION_REVOCATION_REASONS: ReadonlySet<string> = new Set<SessionRevocationReason>([
+  'PIN_ENABLED',
+  'PIN_CHANGED',
+  'REMOVED',
+  'DEVICE_REMOVED',
+]);
 // workerd rejects PBKDF2 counts above 100,000. Keep the stored record at the
 // runtime ceiling so activation and PIN verification use the strongest value
 // Cloudflare can execute instead of surfacing an unhandled NotSupportedError.
@@ -1745,6 +1781,7 @@ function initialRoomState(
     developerMutationIdempotency: {},
     sessionCreateIdempotency: {},
     presenceCloseIdempotency: {},
+    sessionRevocationNotices: {},
     rateLimits: {},
     botRateLimits: {},
     consumedRecoveryNonces: {},
@@ -3806,6 +3843,7 @@ function assertBoundedRoomState(room: ProRoomState) {
       SESSION_CREATE_IDEMPOTENCY_MAX_ITEMS ||
     Object.keys(room.presenceCloseIdempotency || {}).length >
       PRESENCE_CLOSE_IDEMPOTENCY_MAX_ITEMS ||
+    Object.keys(room.sessionRevocationNotices || {}).length > SESSION_REVOCATION_NOTICE_MAX_ITEMS ||
     Object.keys(room.rateLimits).length > RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.botRateLimits || {}).length > BOT_RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.consumedRecoveryNonces || {}).length > RECOVERY_NONCE_MAX_ITEMS ||
@@ -4692,6 +4730,14 @@ export class MusixquareProRoom {
       this.activeRoom.presenceCloseIdempotency = {};
       this.developerCommandMigrationPending = true;
     }
+    if (
+      !this.activeRoom.sessionRevocationNotices ||
+      typeof this.activeRoom.sessionRevocationNotices !== 'object' ||
+      Array.isArray(this.activeRoom.sessionRevocationNotices)
+    ) {
+      this.activeRoom.sessionRevocationNotices = {};
+      this.developerCommandMigrationPending = true;
+    }
     // Earlier Workers kept presence-close receipts in the shared participant
     // ledger, where enough of them froze owner playback, queue, and media
     // control. Release them instead of migrating them. A receipt exists only
@@ -5401,6 +5447,9 @@ export class MusixquareProRoom {
     }
     for (const record of Object.values(this.activeRoom.presenceCloseIdempotency || {})) {
       candidates.push(record.expiresAtMs);
+    }
+    for (const notice of Object.values(this.activeRoom.sessionRevocationNotices || {})) {
+      candidates.push(notice?.expiresAtMs);
     }
     for (const record of Object.values(this.activeRoom.rateLimits || {})) {
       candidates.push(record.resetAtMs);
@@ -9891,7 +9940,14 @@ export class MusixquareProRoom {
     return constantTimeEqual(hash, this.activeRoom.ownerCredentialHash || '');
   }
 
-  async authenticate(request: Request): Promise<AuthenticatedSession | null> {
+  /**
+   * Verify the room cookie's HMAC before hashing it. A verified credential
+   * whose session is gone still yields its hash (with `session: null`) so the
+   * SESSION_REQUIRED response can carry that exact cookie's removal notice.
+   */
+  async authenticateCredential(
+    request: Request,
+  ): Promise<{ tokenHash: string; session: RoomSession | null } | null> {
     const token = requestSessionToken(request, this.activeRoom.roomCode);
     const secret = String(this.env.PRO_ROOM_SESSION_SECRET || '');
     if (!token || secret.length < 32) return null;
@@ -9905,9 +9961,102 @@ export class MusixquareProRoom {
       session.roomGeneration !== this.activeRoom.roomGeneration
     ) {
       if (session) this.removeSessionRecord(tokenHash);
-      return null;
+      return { tokenHash, session: null };
     }
     return { tokenHash, session };
+  }
+
+  async authenticate(request: Request): Promise<AuthenticatedSession | null> {
+    const credential = await this.authenticateCredential(request);
+    if (!credential?.session) return null;
+    return { tokenHash: credential.tokenHash, session: credential.session };
+  }
+
+  sessionRevocationNoticeIsCurrent(tokenHash: string, notice: unknown, nowMs: number) {
+    return (
+      SHA256_RE.test(tokenHash) &&
+      isRecord(notice) &&
+      typeof notice.reason === 'string' &&
+      SESSION_REVOCATION_REASONS.has(notice.reason) &&
+      notice.authEpoch === this.activeRoom.authEpoch &&
+      notice.roomGeneration === this.activeRoom.roomGeneration &&
+      isSafeInteger(notice.expiresAtMs) &&
+      notice.expiresAtMs > nowMs &&
+      this.activeRoom.status === 'active' &&
+      // A live session always wins over an older notice for the same hash.
+      this.activeRoom.sessions[tokenHash] === undefined
+    );
+  }
+
+  /**
+   * Keep the exact code every App release treats as terminal and add the
+   * removal reason only for a current notice of this verified cookie.
+   */
+  sessionRequiredResponse(tokenHash: string | null) {
+    const notice =
+      tokenHash === null ? undefined : this.activeRoom.sessionRevocationNotices?.[tokenHash];
+    if (
+      tokenHash !== null &&
+      notice &&
+      this.sessionRevocationNoticeIsCurrent(tokenHash, notice, Date.now())
+    ) {
+      return jsonResponse({ error: 'SESSION_REQUIRED', reason: notice.reason }, 401);
+    }
+    return errorResponse('SESSION_REQUIRED', 401);
+  }
+
+  /**
+   * Record why the owner or an administrator removed this session. Call it
+   * before removing the session record, at the authentication epoch the
+   * removal leaves in force. It never throws and never refuses the removal:
+   * a full ledger evicts stale notices, then the one that expires first.
+   */
+  noteSessionRevocation(
+    tokenHash: string,
+    session: RoomSession,
+    reason: SessionRevocationReason,
+    nowMs: number,
+  ) {
+    try {
+      // Owner devices re-enter through the verified owner account, and a PIN
+      // change never applies to the owner. Only a device disconnect from a
+      // sibling of the same account is worth explaining to an owner device.
+      if (session.role === 'owner' && (reason === 'PIN_ENABLED' || reason === 'PIN_CHANGED')) {
+        return;
+      }
+      const expiresAtMs = Math.min(session.expiresAtMs, nowMs + SESSION_REVOCATION_NOTICE_TTL_MS);
+      if (!isSafeInteger(expiresAtMs) || expiresAtMs <= nowMs) return;
+      const notices = this.activeRoom.sessionRevocationNotices;
+      delete notices[tokenHash];
+      if (Object.keys(notices).length >= SESSION_REVOCATION_NOTICE_MAX_ITEMS) {
+        // Callers note and remove one session at a time, so no other notice
+        // names a session that this same removal is about to delete.
+        for (const [candidateHash, candidate] of Object.entries(notices)) {
+          if (!this.sessionRevocationNoticeIsCurrent(candidateHash, candidate, nowMs)) {
+            delete notices[candidateHash];
+          }
+        }
+      }
+      while (Object.keys(notices).length >= SESSION_REVOCATION_NOTICE_MAX_ITEMS) {
+        let earliestHash: string | null = null;
+        let earliestExpiresAtMs = Number.POSITIVE_INFINITY;
+        for (const [candidateHash, candidate] of Object.entries(notices)) {
+          if (candidate.expiresAtMs >= earliestExpiresAtMs) continue;
+          earliestHash = candidateHash;
+          earliestExpiresAtMs = candidate.expiresAtMs;
+        }
+        if (earliestHash === null) break;
+        delete notices[earliestHash];
+      }
+      notices[tokenHash] = {
+        reason,
+        authEpoch: this.activeRoom.authEpoch,
+        roomGeneration: this.activeRoom.roomGeneration,
+        expiresAtMs,
+      };
+    } catch {
+      // A missing explanation is acceptable; a failed removal is not.
+    }
   }
 
   async requireSession(
@@ -9922,8 +10071,17 @@ export class MusixquareProRoom {
     request: Request,
     options: RequireSessionOptions = {},
   ): Promise<SessionRequirementResult> {
-    const auth = await this.authenticate(request);
-    if (!auth) return { response: errorResponse('SESSION_REQUIRED', 401) };
+    const credential = await this.authenticateCredential(request);
+    if (!credential?.session) {
+      // The only SESSION_REQUIRED that may explain itself: this verified
+      // cookie's session is gone. The alive-session/no-presence branch below
+      // never carries a reason.
+      return { response: this.sessionRequiredResponse(credential?.tokenHash ?? null) };
+    }
+    const auth: AuthenticatedSession = {
+      tokenHash: credential.tokenHash,
+      session: credential.session,
+    };
     if (this.activeRoom.status === 'suspended')
       return { response: errorResponse('ROOM_SUSPENDED', 423) };
     if (options.owner && auth.session.role !== 'owner')
@@ -13066,6 +13224,9 @@ export class MusixquareProRoom {
     this.activeRoom.status = 'active';
     this.activeRoom.suspensionReason = null;
     this.activeRoom.authEpoch = 1;
+    // Activation restarts the authentication epoch, so a notice an earlier
+    // incarnation stamped with epoch 1 must never describe this room's cookies.
+    this.activeRoom.sessionRevocationNotices = {};
     this.activeRoom.ownerAuthorityEpoch = 1;
     this.activeRoom.pin = pin;
     this.activeRoom.passwordRequired = !openActivation;
@@ -13852,18 +14013,36 @@ export class MusixquareProRoom {
     if (auth.response) return auth.response;
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
-    if (!hasExactKeys(parsed.value, ['pin'])) return errorResponse('INVALID_REQUEST', 400);
-    const requestedPin = parsed.value.pin;
-    const disabling = requestedPin === null && this.supportsOptionalEntryPassword(request);
+    const body = parsed.value;
+    if (!hasExactKeys(body, ['pin'], ['existingParticipants'])) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const requestedPin = body.pin;
+    const optionalEntryPolicy = this.supportsOptionalEntryPassword(request);
+    // `existingParticipants` is an optional-v1 choice for setting a PIN only.
+    // Without it, enabling or rotating keeps the original revoke-all contract
+    // and response shape byte for byte, so cached Apps and rolled-back Apps
+    // see no difference.
+    const membershipChoice = Object.prototype.hasOwnProperty.call(body, 'existingParticipants')
+      ? body.existingParticipants
+      : undefined;
+    if (
+      membershipChoice !== undefined &&
+      (!optionalEntryPolicy ||
+        requestedPin === null ||
+        (membershipChoice !== 'keep_present' && membershipChoice !== 'revoke_all'))
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const disabling = requestedPin === null && optionalEntryPolicy;
     if (!disabling && !matchesPattern(requestedPin, PIN_RE)) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const result = () =>
       jsonResponse({
         ok: true,
-        ...(this.supportsOptionalEntryPassword(request)
-          ? { passwordRequired: this.activeRoom.passwordRequired }
-          : {}),
+        ...(optionalEntryPolicy ? { passwordRequired: this.activeRoom.passwordRequired } : {}),
+        ...(membershipChoice === undefined ? {} : { existingParticipants: membershipChoice }),
       });
     if (disabling) {
       if (!this.activeRoom.passwordRequired) return result();
@@ -13872,7 +14051,7 @@ export class MusixquareProRoom {
       }
       // Opening admission grants no new authority to existing participants.
       // Preserve their playback/presence; subsequent enabling or rotation
-      // retains the existing authentication-epoch revocation fence below.
+      // revokes dormant sessions, or every other session, below.
       this.activeRoom.passwordRequired = false;
       this.activeRoom.pin = null;
       this.activeRoom.revision += 1;
@@ -13880,12 +14059,14 @@ export class MusixquareProRoom {
       this.scheduleServerEvent(this.presenceEvent());
       return result();
     }
+    const keepPresent = membershipChoice === 'keep_present';
     if (
-      this.activeRoom.authEpoch >= Number.MAX_SAFE_INTEGER ||
       this.activeRoom.revision >= Number.MAX_SAFE_INTEGER ||
-      this.activeRoom.presence.revision >= Number.MAX_SAFE_INTEGER ||
-      this.activeRoom.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
-      this.activeRoom.playback.revision >= Number.MAX_SAFE_INTEGER
+      (!keepPresent &&
+        (this.activeRoom.authEpoch >= Number.MAX_SAFE_INTEGER ||
+          this.activeRoom.presence.revision >= Number.MAX_SAFE_INTEGER ||
+          this.activeRoom.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
+          this.activeRoom.playback.revision >= Number.MAX_SAFE_INTEGER))
     ) {
       return errorResponse('REVISION_EXHAUSTED', 409);
     }
@@ -13893,14 +14074,26 @@ export class MusixquareProRoom {
     if (pepper.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     if (typeof requestedPin !== 'string') return errorResponse('INVALID_REQUEST', 400);
     const nextPin = await createPinRecord(requestedPin, pepper);
+    // No await may separate this point from the commit below: the kept set
+    // and every revocation must describe the same room state. withMutation
+    // already serializes room requests across the PBKDF2 await above.
+    const nowMs = Date.now();
+    const revocationReason: SessionRevocationReason = this.activeRoom.passwordRequired
+      ? 'PIN_CHANGED'
+      : 'PIN_ENABLED';
+    if (keepPresent) {
+      return this.commitPinKeepingPresentSessions(auth, nextPin, revocationReason, nowMs, result);
+    }
     this.activeRoom.authEpoch += 1;
     this.activeRoom.pin = nextPin;
     this.activeRoom.passwordRequired = true;
     const ownerSession = auth.session;
     ownerSession.authEpoch = this.activeRoom.authEpoch;
-    const nowMs = Date.now();
-    for (const tokenHash of Object.keys(this.activeRoom.sessions)) {
+    for (const [tokenHash, session] of Object.entries(this.activeRoom.sessions)) {
       if (tokenHash === auth.tokenHash) continue;
+      // Stamped with the new epoch, so the notice stays current for exactly
+      // the cookies this rotation revoked. Owner devices get no PIN notice.
+      this.noteSessionRevocation(tokenHash, session, revocationReason, nowMs);
       this.removeSessionRecord(tokenHash);
     }
     // Every session-create receipt now names a revoked session, except the
@@ -13908,7 +14101,8 @@ export class MusixquareProRoom {
     // at the new epoch. Releasing them lets a venue rejoin with the new PIN
     // immediately instead of waiting out a join flood's receipt TTL; a revoked
     // client's retry falls through to the PIN check. The admission throttle is
-    // keyed by authEpoch and resets with this rotation.
+    // keyed by authEpoch and resets with this epoch advance; the keep-present
+    // choice, which leaves the epoch alone, clears it after its commit.
     this.purgeSessionCreateReceipts();
     // Revoke every other participant atomically. A PIN rotation advances the
     // room-incarnation fence exactly once; no browser gains server authority.
@@ -13924,6 +14118,65 @@ export class MusixquareProRoom {
     this.bumpRoomEpoch(nowMs);
     this.activeRoom.revision += 1;
     await this.persist();
+    this.scheduleServerEvent(this.presenceEvent());
+    return result();
+  }
+
+  /**
+   * Enable or rotate the PIN while the people connected now stay. Only a
+   * session bound to a presence entry that is live after this request's prune
+   * survives; every other cookie (dormant devices of a kept account, dormant
+   * controllers and anonymous administrators, the owner's dormant devices,
+   * people who left) is revoked and needs the new PIN or verified owner
+   * account to come back. The authentication epoch, presence, coordinator,
+   * playback, and pending transition are unchanged, so no socket is closed.
+   * Revoked member records are cleaned exactly as on any session removal:
+   * delegated grants and the identities of kept devices remain.
+   */
+  async commitPinKeepingPresentSessions(
+    auth: ActivePresenceSession,
+    nextPin: PinRecord,
+    revocationReason: SessionRevocationReason,
+    nowMs: number,
+    result: () => Response,
+  ) {
+    const keptSessions = new Set<string>([auth.tokenHash]);
+    const keptParticipants = new Set<string>([auth.participant.participantId]);
+    for (const participant of Object.values(this.activeRoom.presence.participants)) {
+      const session = this.activeRoom.sessions[participant.sessionHash];
+      if (
+        session &&
+        session.participantId === participant.participantId &&
+        session.presenceIncarnationId === participant.presenceIncarnationId
+      ) {
+        keptSessions.add(participant.sessionHash);
+        keptParticipants.add(participant.participantId);
+      }
+    }
+    for (const [tokenHash, session] of Object.entries(this.activeRoom.sessions)) {
+      if (keptSessions.has(tokenHash)) continue;
+      this.noteSessionRevocation(tokenHash, session, revocationReason, nowMs);
+      this.removeSessionRecord(tokenHash);
+    }
+    // A presence entry whose session no longer matches it cannot heartbeat or
+    // obtain a ticket. Do not leave it naming a revoked session.
+    for (const participant of Object.values(this.activeRoom.presence.participants)) {
+      if (!keptParticipants.has(participant.participantId)) {
+        this.removePresence(participant.participantId, nowMs);
+      }
+    }
+    this.activeRoom.pin = nextPin;
+    this.activeRoom.passwordRequired = true;
+    this.activeRoom.revision += 1;
+    // Receipts of revoked sessions must fall through to the PIN check. A kept
+    // device's retry converges through deterministic recovery, because its
+    // session still exists at the unchanged authentication epoch.
+    this.purgeSessionCreateReceipts();
+    await this.persist();
+    // The throttle is keyed by authEpoch, which this choice leaves unchanged.
+    // Reset it only after the commit: a rolled-back change must not have
+    // cleared the venue's counters.
+    this.sessionAdmissionThrottle = null;
     this.scheduleServerEvent(this.presenceEvent());
     return result();
   }
@@ -14214,6 +14467,9 @@ export class MusixquareProRoom {
     const memberSessions = this.memberSessionRecords(targetSession.memberId);
     const nowMs = Date.now();
     for (const [tokenHash, session] of memberSessions) {
+      // Every device of the member, dormant ones included, learns why on its
+      // next request or entry instead of silently rejoining a public room.
+      this.noteSessionRevocation(tokenHash, session, 'REMOVED', nowMs);
       this.removePresence(session.participantId, nowMs);
       this.removeSessionRecord(tokenHash);
     }
@@ -14270,8 +14526,17 @@ export class MusixquareProRoom {
 
     // This endpoint is intentionally exact and transport-scoped. Sibling
     // sessions, the member directory, and delegated authority stay intact.
+    // A device the same account disconnected is told so, not that the room
+    // owner or an administrator removed it.
+    const nowMs = Date.now();
+    this.noteSessionRevocation(
+      target.sessionHash,
+      targetSession,
+      isVerifiedAccountSibling ? 'DEVICE_REMOVED' : 'REMOVED',
+      nowMs,
+    );
     this.removeSessionRecord(target.sessionHash);
-    this.removePresence(target.participantId, Date.now());
+    this.removePresence(target.participantId, nowMs);
     await this.persist();
     return jsonResponse({
       snapshot: publicSnapshot(this.activeRoom, auth.session),
@@ -15449,6 +15714,14 @@ export class MusixquareProRoom {
     for (const [key, record] of Object.entries(this.activeRoom.sessionCreateIdempotency)) {
       if (record.expiresAtMs <= nowMs) {
         delete this.activeRoom.sessionCreateIdempotency[key];
+        changed = true;
+      }
+    }
+    // Sessions were pruned above. A notice whose hash is live again (the same
+    // deterministic credential admitted anew) is released with stale ones.
+    for (const [tokenHash, notice] of Object.entries(this.activeRoom.sessionRevocationNotices)) {
+      if (!this.sessionRevocationNoticeIsCurrent(tokenHash, notice, nowMs)) {
+        delete this.activeRoom.sessionRevocationNotices[tokenHash];
         changed = true;
       }
     }

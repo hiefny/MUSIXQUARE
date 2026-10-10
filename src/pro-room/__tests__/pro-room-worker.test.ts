@@ -3172,6 +3172,23 @@ async function responseJson(response: Response): Promise<Record<string, any>> {
   return (await response.json()) as Record<string, any>;
 }
 
+/**
+ * A revoked cookie always gets the code every App release treats as terminal.
+ * Only an owner/administrator removal adds a reason, and no response for a
+ * revoked cookie sets a cookie.
+ */
+async function expectSessionRequired(
+  response: Response | Promise<Response>,
+  reason?: 'PIN_ENABLED' | 'PIN_CHANGED' | 'REMOVED' | 'DEVICE_REMOVED',
+): Promise<void> {
+  const settled = await response;
+  expect(settled.status).toBe(401);
+  expect(settled.headers.getSetCookie()).toEqual([]);
+  expect(await responseJson(settled)).toEqual(
+    reason === undefined ? { error: 'SESSION_REQUIRED' } : { error: 'SESSION_REQUIRED', reason },
+  );
+}
+
 function cookieFrom(response: Response): string {
   const setCookie = response.headers.get('set-cookie');
   if (!setCookie) throw new Error('missing session cookie');
@@ -8449,7 +8466,10 @@ describe('optional PRO entry password', () => {
     ).toEqual([]);
     expect(internal.room.authEpoch).toBe(originalEpoch + 1);
     expect(internal.room.presence.coordinatorEpoch).toBe(beforeEnableEpoch + 1);
-    expect((await context.worker.fetch(request('/snapshot', {}, memberCookie))).status).toBe(401);
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, memberCookie)),
+      'PIN_ENABLED',
+    );
     expect((await context.worker.fetch(publicRequest('/sessions', {}))).status).toBe(401);
     expect(
       (await context.worker.fetch(publicRequest('/sessions', { pin: '87654321' }))).status,
@@ -9523,7 +9543,7 @@ describe('PRO admission capacity and throttle', () => {
     expect(played.status).toBe(202);
   });
 
-  it('keeps saturated session-create and presence-close ledgers inside the room core budget', async () => {
+  it('keeps saturated session-create, presence-close, and removal-notice ledgers inside the room core budget', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const room = context.worker.room!;
     const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
@@ -9554,6 +9574,19 @@ describe('PRO admission capacity and throttle', () => {
       JSON.stringify(room.presenceCloseIdempotency),
     ).byteLength;
     expect(closeLedgerBytes).toBeLessThanOrEqual(54 * 1024);
+    // A full removal-notice ledger: 256 current notices for revoked hashes.
+    for (let index = 0; index < 256; index += 1) {
+      room.sessionRevocationNotices[`N${String(index).padStart(4, '0')}`.padEnd(43, 'N')] = {
+        reason: 'DEVICE_REMOVED',
+        authEpoch: room.authEpoch,
+        roomGeneration: room.roomGeneration,
+        expiresAtMs: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      };
+    }
+    const noticeLedgerBytes = new TextEncoder().encode(
+      JSON.stringify(room.sessionRevocationNotices),
+    ).byteLength;
+    expect(noticeLedgerBytes).toBeLessThanOrEqual(36 * 1024);
     const queued = await replacePlaylist(
       context,
       [
@@ -9566,16 +9599,17 @@ describe('PRO admission capacity and throttle', () => {
       'receipt-budget',
     );
     expect(queued.status).toBe(200);
-    // Both saturated ledgers (about 108 and 52 KiB) together cost under a
-    // seventh of the 1.2 MiB core budget.
+    // The three saturated ledgers (about 108, 52, and 32 KiB) together cost
+    // under a sixth of the 1.2 MiB core budget.
     const coreBytes = new TextEncoder().encode(
       JSON.stringify(context.state.storage.data.get(CORE_KEY)),
     ).byteLength;
-    expect(coreBytes).toBeLessThan(ledgerBytes + closeLedgerBytes + 64 * 1024);
-    expect(coreBytes).toBeLessThan(1200 * 1024);
+    expect(coreBytes).toBeLessThan(ledgerBytes + closeLedgerBytes + noticeLedgerBytes + 64 * 1024);
+    expect(coreBytes).toBeLessThan((1200 * 1024) / 6);
     const stored = storedCanonicalRoom(context.state);
     expect(Object.keys(stored.sessionCreateIdempotency)).toHaveLength(256);
     expect(Object.keys(stored.presenceCloseIdempotency)).toHaveLength(128);
+    expect(Object.keys(stored.sessionRevocationNotices)).toHaveLength(256);
   });
 
   it('alarms and durably prunes idle session-create receipts at their deadline', async () => {
@@ -9835,12 +9869,44 @@ describe('PRO admission capacity and throttle', () => {
     ).toBe(200);
     expect((await worker.fetch(admission())).status).toBe(429);
 
+    // Keeping present people leaves authEpoch unchanged, so the counters are
+    // cleared explicitly, and only once that change has committed.
+    const epochBeforeKeep = worker.room!.authEpoch;
+    const keepPin = () =>
+      worker.fetch(
+        optionalEntryPolicy(
+          jsonRequest(
+            '/pin',
+            'POST',
+            { pin: '11223344', existingParticipants: 'keep_present' },
+            ownerCookie,
+          ),
+        ),
+      );
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('keep storage failure'),
+    );
+    await expect(keepPin()).rejects.toThrow('keep storage failure');
+    expect(admissionCount(worker, 'venue-nat')).toBe(200);
+    expect((await worker.fetch(admission())).status).toBe(429);
+    expect(await responseJson(await keepPin())).toEqual({
+      ok: true,
+      passwordRequired: true,
+      existingParticipants: 'keep_present',
+    });
+    expect(worker.room!.authEpoch).toBe(epochBeforeKeep);
+    expect(worker.sessionAdmissionThrottle).toBeNull();
+    expect((await worker.fetch(admission({ pin: '11223344' }))).status).toBe(200);
+    expect(admissionCount(worker, 'venue-nat')).toBe(1);
+
     // The soft counters live in instance memory only.
+    seedAdmissions(worker, 'venue-nat', 200);
+    expect((await worker.fetch(admission({ pin: '11223344' }))).status).toBe(429);
     const restarted = new MusixquareProRoom(
       context.state as never,
       environment(context.bucket) as never,
     );
-    expect((await restarted.fetch(admission())).status).toBe(200);
+    expect((await restarted.fetch(admission({ pin: '11223344' }))).status).toBe(200);
   });
 
   it('fails open when the counter map is full and ignores a full security ledger', async () => {
@@ -9994,6 +10060,1111 @@ describe('PRO admission capacity and throttle', () => {
     expect(Number(limited.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
     expect(Number(limited.headers.get('retry-after'))).toBeLessThanOrEqual(600);
     expect((await join('2001:db8:9:2::99')).status).toBe(200);
+  });
+});
+
+describe('PRO PIN membership choice and removal reasons', () => {
+  const NEW_PIN = '11223344';
+  const NOTICE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const fullPermissions = {
+    'media.add': true,
+    'playback.control': true,
+    'members.kick': true,
+    'chat.notice': true,
+  };
+  let membershipRequestSequence = 0;
+  const nextRequestId = () =>
+    `membership-choice-request-${String(++membershipRequestSequence).padStart(8, '0')}`;
+  type JoinOptions = { pin?: string; accountId?: string; nickname?: string; requestId?: string };
+  const admit = async (worker: MusixquareProRoom, options: JoinOptions = {}) => {
+    const incoming = optionalEntryPolicy(
+      jsonRequest('/sessions', 'POST', {
+        ...(options.pin === undefined ? {} : { pin: options.pin }),
+        requestId: options.requestId ?? nextRequestId(),
+      }),
+    );
+    return worker.fetch(
+      options.accountId
+        ? await withAccountAssertion(incoming, options.accountId, options.nickname ?? 'Listener')
+        : incoming,
+    );
+  };
+  const join = async (worker: MusixquareProRoom, options: JoinOptions = {}) => {
+    const response = await admit(worker, options);
+    expect(response.status).toBe(200);
+    const envelope = await responseJson(response);
+    const cookie = cookieFrom(response);
+    bindCookiePresence(cookie, envelope);
+    return { cookie, envelope, viewer: envelope.snapshot.viewer as Record<string, any> };
+  };
+  const setPin = (
+    worker: MusixquareProRoom,
+    cookie: string,
+    pin: string | null,
+    existingParticipants?: unknown,
+  ) =>
+    worker.fetch(
+      optionalEntryPolicy(
+        jsonRequest(
+          '/pin',
+          'POST',
+          existingParticipants === undefined ? { pin } : { pin, existingParticipants },
+          cookie,
+        ),
+      ),
+    );
+  const leavePresence = async (worker: MusixquareProRoom, cookie: string) =>
+    expect(
+      (await worker.fetch(request('/presence/current', { method: 'DELETE' }, cookie))).status,
+    ).toBe(200);
+  const enter = (worker: MusixquareProRoom, cookie: string) =>
+    worker.fetch(request('/presence/enter', { method: 'POST' }, cookie));
+  const heartbeat = (worker: MusixquareProRoom, cookie: string) =>
+    worker.fetch(request('/presence/heartbeat', { method: 'POST' }, cookie));
+  const grant = async (worker: MusixquareProRoom, ownerCookie: string, memberId: string) =>
+    expect(
+      (
+        await worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullPermissions },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+  const sessionHashOf = (worker: MusixquareProRoom, participantId: string) =>
+    Object.entries(worker.room!.sessions).find(
+      ([, session]) => session.participantId === participantId,
+    )?.[0];
+  const internalAdmin = (path: string, body?: unknown) =>
+    new Request(`https://pro-room.internal/internal/admin/${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  it('validates the membership choice and keeps every response shape exact', async () => {
+    const context = await activatedRoom();
+    const { worker, ownerCookie } = context;
+    const member = await join(worker, { pin: '12345678' });
+    const coreBefore = structuredClone(storedCanonicalRoom(context.state));
+    const invalidBodies: unknown[] = [
+      { pin: null, existingParticipants: 'keep_present' },
+      { pin: null, existingParticipants: 'revoke_all' },
+      ...['keep', 'KEEP_PRESENT', 'keep-present', 'revoke-all', '', true, null, 0, [], {}].map(
+        (existingParticipants) => ({ pin: NEW_PIN, existingParticipants }),
+      ),
+      { pin: NEW_PIN, existingParticipants: 'keep_present', extra: true },
+      { existingParticipants: 'keep_present' },
+      { pin: '1234567', existingParticipants: 'keep_present' },
+    ];
+    for (const body of invalidBodies) {
+      const refused = await worker.fetch(
+        optionalEntryPolicy(jsonRequest('/pin', 'POST', body, ownerCookie)),
+      );
+      expect(refused.status).toBe(400);
+      expect(await responseJson(refused)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+    // The choice is an optional-v1 contract: without the header it is refused.
+    for (const existingParticipants of ['keep_present', 'revoke_all']) {
+      const refused = await worker.fetch(
+        jsonRequest('/pin', 'POST', { pin: NEW_PIN, existingParticipants }, ownerCookie),
+      );
+      expect(refused.status).toBe(400);
+      expect(await responseJson(refused)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+    // The owner check stays first, whatever the body says.
+    for (const body of [
+      { pin: NEW_PIN, existingParticipants: 'keep_present' },
+      { pin: NEW_PIN, existingParticipants: 'bogus' },
+    ]) {
+      const refused = await worker.fetch(
+        optionalEntryPolicy(jsonRequest('/pin', 'POST', body, member.cookie)),
+      );
+      expect(refused.status).toBe(403);
+      expect(await responseJson(refused)).toEqual({ error: 'OWNER_REQUIRED' });
+    }
+    const coreAfter = storedCanonicalRoom(context.state);
+    expect(coreAfter.pin).toEqual(coreBefore.pin);
+    expect(coreAfter.authEpoch).toBe(coreBefore.authEpoch);
+    expect(coreAfter.sessions).toEqual(coreBefore.sessions);
+    expect((await worker.fetch(request('/snapshot', {}, member.cookie))).status).toBe(200);
+
+    // Legacy bodies keep their exact bytes; only an explicit choice is echoed.
+    const strictV1 = await worker.fetch(
+      jsonRequest('/pin', 'POST', { pin: '22334455' }, ownerCookie),
+    );
+    expect(await strictV1.text()).toBe('{"ok":true}');
+    const optionalV1 = await setPin(worker, ownerCookie, '33445566');
+    expect(await optionalV1.text()).toBe('{"ok":true,"passwordRequired":true}');
+    const keep = await setPin(worker, ownerCookie, '44556677', 'keep_present');
+    expect(await keep.text()).toBe(
+      '{"ok":true,"passwordRequired":true,"existingParticipants":"keep_present"}',
+    );
+    const revoke = await setPin(worker, ownerCookie, '55667788', 'revoke_all');
+    expect(await revoke.text()).toBe(
+      '{"ok":true,"passwordRequired":true,"existingParticipants":"revoke_all"}',
+    );
+    const disabled = await setPin(worker, ownerCookie, null);
+    expect(await disabled.text()).toBe('{"ok":true,"passwordRequired":false}');
+  });
+
+  it('keeps every present person, device, authority, and rendezvous when a public room gains a PIN', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const anonymousMember = await join(worker);
+    const accountMember = await join(worker, {
+      accountId: 'acct_keepmember0123456789ab',
+      nickname: 'Account member',
+    });
+    const anonymousAdministrator = await join(worker);
+    await grant(worker, ownerCookie, anonymousAdministrator.viewer.memberId);
+    const accountController = await join(worker, {
+      accountId: 'acct_keepcontroller01234567',
+      nickname: 'Controller',
+    });
+    await grant(worker, ownerCookie, accountController.viewer.memberId);
+    const ownerSibling = await join(worker, {
+      accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      nickname: 'Owner',
+    });
+    expect(ownerSibling.viewer.role).toBe('owner');
+    // A playback rendezvous is pending across every present device.
+    const queueItemId = '77777777-7777-4777-8777-777777777777';
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [{ queueItemId, name: 'Kept', source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' } }],
+          'membership-keep-playlist',
+        )
+      ).status,
+    ).toBe(200);
+    const played = await worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: worker.room!.playback.revision,
+          queueItemId,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        ownerCookie,
+        'membership-keep-playback-command',
+      ),
+    );
+    expect(played.status).toBe(202);
+    const room = worker.room!;
+    expect(room.pendingPlaybackTransition).not.toBeNull();
+    const people = [
+      anonymousMember,
+      accountMember,
+      anonymousAdministrator,
+      accountController,
+      ownerSibling,
+    ];
+    const before = structuredClone({
+      authEpoch: room.authEpoch,
+      roomGeneration: room.roomGeneration,
+      presence: room.presence,
+      playback: room.playback,
+      pendingPlaybackTransition: room.pendingPlaybackTransition,
+      sessions: room.sessions,
+      accountMembers: room.accountMembers,
+      anonymousAdministrators: room.anonymousAdministrators,
+    });
+    const events = vi.spyOn(worker, 'scheduleServerEvent');
+
+    const kept = await setPin(worker, ownerCookie, NEW_PIN, 'keep_present');
+    expect(await responseJson(kept)).toEqual({
+      ok: true,
+      passwordRequired: true,
+      existingParticipants: 'keep_present',
+    });
+    const after = worker.room!;
+    expect(after.passwordRequired).toBe(true);
+    expect(after.authEpoch).toBe(before.authEpoch);
+    // Presence (coordinator fence, coordinatorEpoch, revision, incarnations),
+    // playback, and the rendezvous are untouched, so signaling closes no
+    // socket and the pending start still waits for the same cohort.
+    expect(after.presence).toEqual(before.presence);
+    expect(after.playback).toEqual(before.playback);
+    expect(after.pendingPlaybackTransition).toEqual(before.pendingPlaybackTransition);
+    expect(after.sessions).toEqual(before.sessions);
+    expect(after.accountMembers).toEqual(before.accountMembers);
+    expect(after.anonymousAdministrators).toEqual(before.anonymousAdministrators);
+    expect(after.sessionRevocationNotices).toEqual({});
+    expect(events.mock.calls).toEqual([
+      [
+        {
+          type: 'pro-presence-snapshot',
+          presenceRevision: before.presence.revision,
+          roomRevision: after.revision,
+        },
+      ],
+    ]);
+    events.mockRestore();
+    expect(storedCanonicalRoom(context.state).passwordRequired).toBe(true);
+
+    for (const person of people) {
+      const snapshot = await worker.fetch(request('/snapshot', {}, person.cookie));
+      expect(snapshot.status).toBe(200);
+      expect(snapshot.headers.getSetCookie()).toEqual([]);
+      const viewer = (await responseJson(snapshot)).snapshot.viewer;
+      expect(viewer).toMatchObject({
+        participantId: person.viewer.participantId,
+        presenceIncarnationId: person.viewer.presenceIncarnationId,
+        memberId: person.viewer.memberId,
+      });
+      expect((await heartbeat(worker, person.cookie)).status).toBe(200);
+    }
+    const administratorView = await responseJson(
+      await worker.fetch(request('/snapshot', {}, anonymousAdministrator.cookie)),
+    );
+    expect(administratorView.snapshot.viewer).toMatchObject({ role: 'controller' });
+    expect(administratorView.snapshot.viewer.capabilities).toContain('members.manage');
+    expect(
+      await responseJson(await worker.fetch(optionalEntryPolicy(request('/bootstrap')))),
+    ).toEqual({ roomCode: ROOM_CODE, status: 'pin_required', passwordRequired: true });
+    expect(await responseJson(await admit(worker))).toEqual({ error: 'PIN_REQUIRED' });
+    expect((await admit(worker, { pin: NEW_PIN })).status).toBe(200);
+  });
+
+  it("keeps a live system-audio publication from the owner's other device", async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const listener = await join(worker);
+    const dormant = await join(worker);
+    await leavePresence(worker, dormant.cookie);
+    const ownerSibling = await join(worker, {
+      accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      nickname: 'Owner',
+    });
+    const acquired = await responseJson(
+      await worker.fetch(jsonRequest('/system-audio/acquire', 'POST', {}, ownerSibling.cookie)),
+    );
+    const committed = await worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        {
+          generation: acquired.systemAudio.generation,
+          leaseId: acquired.leaseId,
+          publication: {
+            publicationId: 'publication_018f977e5df57c8f',
+            transport: 'lan-direct',
+            protocolVersion: 2,
+          },
+        },
+        ownerSibling.cookie,
+      ),
+    );
+    expect(committed.status).toBe(200);
+    const systemAudioBefore = structuredClone(worker.room!.systemAudio);
+    expect(systemAudioBefore).toMatchObject({
+      status: 'live',
+      ownerParticipantId: ownerSibling.viewer.participantId,
+    });
+    const presenceBefore = structuredClone(worker.room!.presence);
+
+    expect((await setPin(worker, ownerCookie, NEW_PIN, 'keep_present')).status).toBe(200);
+    expect(worker.room!.systemAudio).toEqual(systemAudioBefore);
+    expect(worker.room!.presence).toEqual(presenceBefore);
+    expect((await worker.fetch(request('/system-audio', {}, ownerSibling.cookie))).status).toBe(
+      200,
+    );
+    expect((await worker.fetch(request('/snapshot', {}, listener.cookie))).status).toBe(200);
+    await expectSessionRequired(enter(worker, dormant.cookie), 'PIN_ENABLED');
+  });
+
+  it('revokes every dormant cookie under keep, including other devices of kept people', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T03:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const expiring = await join(worker);
+    const closed = await join(worker);
+    const keptAccountId = 'acct_keptaccountdevices0123';
+    const keptDevice = await join(worker, { accountId: keptAccountId, nickname: 'Two devices' });
+    const dormantDevice = await join(worker, { accountId: keptAccountId, nickname: 'Two devices' });
+    expect(dormantDevice.viewer.memberId).toBe(keptDevice.viewer.memberId);
+    const controllerAccountId = 'acct_dormantcontroller01234';
+    const controller = await join(worker, {
+      accountId: controllerAccountId,
+      nickname: 'Dormant controller',
+    });
+    await grant(worker, ownerCookie, controller.viewer.memberId);
+    const ownerDevice = await join(worker, {
+      accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      nickname: 'Owner',
+    });
+    const stale = await join(worker);
+    for (const person of [closed, dormantDevice, controller, ownerDevice]) {
+      await leavePresence(worker, person.cookie);
+    }
+    // `expiring` stops heartbeating while the others stay live.
+    vi.setSystemTime(startedAtMs + 30_000);
+    for (const cookie of [ownerCookie, keptDevice.cookie, stale.cookie]) {
+      expect((await heartbeat(worker, cookie)).status).toBe(200);
+    }
+    vi.setSystemTime(startedAtMs + 46_000);
+    await worker.alarm();
+    const expiringHash = sessionHashOf(worker, expiring.viewer.participantId)!;
+    expect(worker.room!.sessions[expiringHash]).toBeDefined();
+    expect(worker.room!.presence.participants[expiring.viewer.participantId]).toBeUndefined();
+    // A presence entry whose session names another incarnation is not kept.
+    const staleHash = sessionHashOf(worker, stale.viewer.participantId)!;
+    worker.room!.sessions[staleHash]!.presenceIncarnationId = `presence_${'s'.repeat(24)}`;
+
+    const kept = await setPin(worker, ownerCookie, NEW_PIN, 'keep_present');
+    expect(kept.status).toBe(200);
+    const room = worker.room!;
+    expect(Object.keys(room.sessions).sort()).toEqual(
+      [
+        sessionHashOf(worker, context.activationEnvelope.snapshot.viewer.participantId)!,
+        sessionHashOf(worker, keptDevice.viewer.participantId)!,
+      ].sort(),
+    );
+    expect(Object.keys(room.presence.participants).sort()).toEqual(
+      [
+        context.activationEnvelope.snapshot.viewer.participantId,
+        keptDevice.viewer.participantId,
+      ].sort(),
+    );
+    for (const person of [expiring, closed, dormantDevice, controller, stale]) {
+      await expectSessionRequired(enter(worker, person.cookie), 'PIN_ENABLED');
+      await expectSessionRequired(
+        worker.fetch(request('/snapshot', {}, person.cookie)),
+        'PIN_ENABLED',
+      );
+    }
+    // The owner's dormant device re-enters through the verified owner account.
+    await expectSessionRequired(enter(worker, ownerDevice.cookie));
+    const ownerBack = await join(worker, {
+      accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      nickname: 'Owner',
+    });
+    expect(ownerBack.viewer.role).toBe('owner');
+
+    // The kept account's identity survives, but its dormant device needs the PIN.
+    expect((await worker.fetch(request('/snapshot', {}, keptDevice.cookie))).status).toBe(200);
+    expect(
+      await responseJson(
+        await admit(worker, { accountId: keptAccountId, nickname: 'Two devices' }),
+      ),
+    ).toEqual({ error: 'PIN_REQUIRED' });
+    expect(
+      await responseJson(
+        await admit(worker, { accountId: keptAccountId, nickname: 'Two devices', pin: '12345678' }),
+      ),
+    ).toEqual({ error: 'PIN_INVALID' });
+    const rejoined = await join(worker, {
+      accountId: keptAccountId,
+      nickname: 'Two devices',
+      pin: NEW_PIN,
+    });
+    expect(rejoined.viewer.memberId).toBe(keptDevice.viewer.memberId);
+
+    // A dormant controller keeps its grant but needs the PIN like anyone else.
+    expect(worker.room!.accountMembers[controllerAccountId]).toMatchObject({
+      memberId: controller.viewer.memberId,
+      role: 'controller',
+    });
+    expect(
+      await responseJson(
+        await admit(worker, { accountId: controllerAccountId, nickname: 'Dormant controller' }),
+      ),
+    ).toEqual({ error: 'PIN_REQUIRED' });
+    const controllerBack = await join(worker, {
+      accountId: controllerAccountId,
+      nickname: 'Dormant controller',
+      pin: NEW_PIN,
+    });
+    expect(controllerBack.viewer).toMatchObject({
+      memberId: controller.viewer.memberId,
+      role: 'controller',
+    });
+  });
+
+  it('keeps present people on rotation and explains the change to everyone revoked', async () => {
+    const context = await activatedRoom();
+    const { worker, ownerCookie } = context;
+    const present = await join(worker, { pin: '12345678' });
+    const dormant = await join(worker, { pin: '12345678' });
+    await leavePresence(worker, dormant.cookie);
+    const ownerDevice = await join(worker, {
+      accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      nickname: 'Owner',
+    });
+    await leavePresence(worker, ownerDevice.cookie);
+    const epochBefore = worker.room!.authEpoch;
+    const coordinatorEpochBefore = worker.room!.presence.coordinatorEpoch;
+
+    const kept = await setPin(worker, ownerCookie, NEW_PIN, 'keep_present');
+    expect(await responseJson(kept)).toEqual({
+      ok: true,
+      passwordRequired: true,
+      existingParticipants: 'keep_present',
+    });
+    expect(worker.room!.authEpoch).toBe(epochBefore);
+    expect(worker.room!.presence.coordinatorEpoch).toBe(coordinatorEpochBefore);
+    expect((await worker.fetch(request('/snapshot', {}, present.cookie))).status).toBe(200);
+    await expectSessionRequired(enter(worker, dormant.cookie), 'PIN_CHANGED');
+    await expectSessionRequired(enter(worker, ownerDevice.cookie));
+    expect(await responseJson(await admit(worker, { pin: '12345678' }))).toEqual({
+      error: 'PIN_INVALID',
+    });
+    expect((await admit(worker, { pin: NEW_PIN })).status).toBe(200);
+  });
+
+  it.each([
+    { publicAdmission: true, legacySharedLedger: false },
+    { publicAdmission: true, legacySharedLedger: true },
+    { publicAdmission: false, legacySharedLedger: false },
+  ])(
+    'purges receipts on keep so only a kept retry recovers ($publicAdmission public, $legacySharedLedger legacy)',
+    async ({ publicAdmission, legacySharedLedger }) => {
+      const context = await activatedRoom(ROOM_CODE, publicAdmission);
+      const { worker, ownerCookie } = context;
+      const pin = publicAdmission ? undefined : '12345678';
+      const keptRequestId = nextRequestId();
+      const revokedRequestId = nextRequestId();
+      const kept = await join(worker, { pin, requestId: keptRequestId });
+      const revoked = await join(worker, { pin, requestId: revokedRequestId });
+      await leavePresence(worker, revoked.cookie);
+      const room = worker.room!;
+      if (legacySharedLedger) {
+        // Receipts an earlier Worker wrote to the shared participant ledger.
+        for (const [key, receipt] of Object.entries(room.sessionCreateIdempotency)) {
+          room.idempotency[key] = receipt;
+        }
+        room.sessionCreateIdempotency = {};
+      }
+      expect((await setPin(worker, ownerCookie, NEW_PIN, 'keep_present')).status).toBe(200);
+      expect(worker.room!.sessionCreateIdempotency).toEqual({});
+      expect(
+        Object.keys(worker.room!.idempotency).filter((key) => key.startsWith('session-create:')),
+      ).toEqual([]);
+
+      const keptRetry = await admit(worker, { pin, requestId: keptRequestId });
+      expect(keptRetry.status).toBe(200);
+      expect(cookieFrom(keptRetry)).toBe(kept.cookie);
+      expect((await responseJson(keptRetry)).snapshot.viewer.participantId).toBe(
+        kept.viewer.participantId,
+      );
+      const revokedRetry = await admit(worker, { pin, requestId: revokedRequestId });
+      expect(revokedRetry.status).toBe(401);
+      expect(revokedRetry.headers.getSetCookie()).toEqual([]);
+      expect(await responseJson(revokedRetry)).toEqual({
+        error: publicAdmission ? 'PIN_REQUIRED' : 'PIN_INVALID',
+      });
+    },
+  );
+
+  it('lets a kept person reload and recover without the PIN until they leave', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T04:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const member = await join(worker);
+    expect((await setPin(worker, ownerCookie, NEW_PIN, 'keep_present')).status).toBe(200);
+
+    // A reload: the pagehide close, then the replacement document resumes.
+    const closed = await worker.fetch(
+      unloadCloseRequest(
+        {
+          expectedParticipantId: member.viewer.participantId,
+          expectedPresenceIncarnationId: member.viewer.presenceIncarnationId,
+          baseRevision: worker.room!.revision,
+          currentQueueItemId: null,
+          playback: null,
+        },
+        member.cookie,
+        'membership-kept-reload-close',
+      ),
+    );
+    expect(closed.status).toBe(200);
+    const resumed = await enter(worker, member.cookie);
+    expect(resumed.status).toBe(200);
+    bindCookiePresence(member.cookie, await responseJson(resumed));
+
+    // PRESENCE_EXPIRED recovery while the owner stays live.
+    vi.setSystemTime(startedAtMs + 30_000);
+    expect((await heartbeat(worker, ownerCookie)).status).toBe(200);
+    vi.setSystemTime(startedAtMs + 46_000);
+    await worker.alarm();
+    const expired = await heartbeat(worker, member.cookie);
+    expect(expired.status).toBe(409);
+    expect(await responseJson(expired)).toEqual({ error: 'PRESENCE_EXPIRED' });
+    const recovered = await enter(worker, member.cookie);
+    expect(recovered.status).toBe(200);
+    bindCookiePresence(member.cookie, await responseJson(recovered));
+
+    // An explicit leave ends the kept login; coming back needs the PIN.
+    expect(
+      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, member.cookie)))
+        .status,
+    ).toBe(200);
+    await expectSessionRequired(enter(worker, member.cookie));
+    expect(await responseJson(await admit(worker))).toEqual({ error: 'PIN_REQUIRED' });
+  });
+
+  it('rolls back a failed keep commit without revoking anyone or clearing the throttle', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const present = await join(worker);
+    const dormant = await join(worker);
+    await leavePresence(worker, dormant.cookie);
+    const memoryBefore = structuredClone(worker.room!);
+    const storedBefore = storedCanonicalRoom(context.state);
+    const throttle = worker.sessionAdmissionThrottle;
+    expect(throttle?.entries.size).toBeGreaterThan(0);
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('keep storage failure'),
+    );
+    await expect(setPin(worker, ownerCookie, NEW_PIN, 'keep_present')).rejects.toThrow(
+      'keep storage failure',
+    );
+    expect(worker.room).toEqual(memoryBefore);
+    expect(storedCanonicalRoom(context.state)).toEqual(storedBefore);
+    expect(worker.sessionAdmissionThrottle).toBe(throttle);
+    expect(
+      (await responseJson(await worker.fetch(optionalEntryPolicy(request('/bootstrap'))))).status,
+    ).toBe('open');
+    expect((await worker.fetch(request('/snapshot', {}, present.cookie))).status).toBe(200);
+    const resumed = await enter(worker, dormant.cookie);
+    expect(resumed.status).toBe(200);
+  });
+
+  it('writes notices for revoke-all, and an explicit revoke-all changes state exactly like the legacy body', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T05:00:00.000Z'));
+    const context = await activatedRoom();
+    const present = await join(context.worker, { pin: '12345678' });
+    const dormant = await join(context.worker, { pin: '12345678' });
+    await leavePresence(context.worker, dormant.cookie);
+    const twin = new FakeState();
+    for (const [key, value] of context.state.storage.data) {
+      twin.storage.data.set(key, structuredClone(value));
+    }
+    const legacyWorker = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const explicitWorker = new MusixquareProRoom(
+      twin as never,
+      environment(context.bucket) as never,
+    );
+
+    const legacy = await setPin(legacyWorker, context.ownerCookie, NEW_PIN);
+    expect(await legacy.text()).toBe('{"ok":true,"passwordRequired":true}');
+    const explicit = await setPin(explicitWorker, context.ownerCookie, NEW_PIN, 'revoke_all');
+    expect(await explicit.text()).toBe(
+      '{"ok":true,"passwordRequired":true,"existingParticipants":"revoke_all"}',
+    );
+    const legacyRoom = storedCanonicalRoom(context.state);
+    const explicitRoom = storedCanonicalRoom(twin);
+    // PBKDF2 salts are random; every other byte of the committed core matches.
+    expect(legacyRoom.pin).not.toBeNull();
+    expect(explicitRoom.pin).not.toBeNull();
+    expect({ ...explicitRoom, pin: null }).toEqual({ ...legacyRoom, pin: null });
+    expect(twin.storage.alarm).toBe(context.state.storage.alarm);
+    expect(Object.keys(legacyRoom.sessions)).toHaveLength(1);
+    expect(Object.values(legacyRoom.sessionRevocationNotices)).toEqual([
+      expect.objectContaining({ reason: 'PIN_CHANGED', authEpoch: legacyRoom.authEpoch }),
+      expect.objectContaining({ reason: 'PIN_CHANGED', authEpoch: legacyRoom.authEpoch }),
+    ]);
+    for (const worker of [legacyWorker, explicitWorker]) {
+      await expectSessionRequired(
+        worker.fetch(request('/snapshot', {}, present.cookie)),
+        'PIN_CHANGED',
+      );
+      await expectSessionRequired(enter(worker, dormant.cookie), 'PIN_CHANGED');
+    }
+  });
+
+  it('adds no reason when a session ends any other way', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T06:00:00.000Z'));
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+
+    // Session capacity evicts the oldest absent cookie.
+    const evicted = await join(worker);
+    await leavePresence(worker, evicted.cookie);
+    const evictedHash = sessionHashOf(worker, evicted.viewer.participantId)!;
+    const template = worker.room!.sessions[evictedHash]!;
+    for (let index = 0; Object.keys(worker.room!.sessions).length < 128; index += 1) {
+      const id = String(index).padStart(24, '0');
+      worker.room!.sessions[`F${id}`.padEnd(43, 'F')] = {
+        ...structuredClone(template),
+        participantId: `participant_${id}`,
+        memberId: `member_${id}`,
+        presenceIncarnationId: null,
+        createdAtMs: template.createdAtMs + 1 + index,
+      };
+    }
+    expect((await admit(worker)).status).toBe(200);
+    expect(worker.room!.sessions[evictedHash]).toBeUndefined();
+    await expectSessionRequired(enter(worker, evicted.cookie));
+    for (const tokenHash of Object.keys(worker.room!.sessions)) {
+      if (tokenHash.startsWith('F')) delete worker.room!.sessions[tokenHash];
+    }
+
+    // An explicit leave and a fenced close.
+    const leaving = await join(worker);
+    expect(
+      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, leaving.cookie)))
+        .status,
+    ).toBe(200);
+    await expectSessionRequired(enter(worker, leaving.cookie));
+    const fenced = await join(worker);
+    expect(
+      (
+        await worker.fetch(
+          fencedSessionCloseRequest(
+            {
+              expectedParticipantId: fenced.viewer.participantId,
+              expectedPresenceIncarnationId: fenced.viewer.presenceIncarnationId,
+            },
+            fenced.cookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    await expectSessionRequired(enter(worker, fenced.cookie));
+
+    // The alive-session/no-presence branch never carries a reason either.
+    const absent = await join(worker);
+    await leavePresence(worker, absent.cookie);
+    const legacyHeartbeat = request('/presence/heartbeat', { method: 'POST' }, absent.cookie);
+    legacyHeartbeat.headers.delete('x-mxqr-pro-presence-recovery');
+    await expectSessionRequired(worker.fetch(legacyHeartbeat));
+
+    // Natural session expiry.
+    const expiring = await join(worker);
+    const expiringHash = sessionHashOf(worker, expiring.viewer.participantId)!;
+    worker.room!.sessions[expiringHash]!.expiresAtMs = Date.now() + 1_000;
+    vi.setSystemTime(Date.now() + 2_000);
+    expect((await heartbeat(worker, ownerCookie)).status).toBe(200);
+    await expectSessionRequired(enter(worker, expiring.cookie));
+
+    // Account authority purge.
+    const purgedAccountId = 'acct_purgednoreason01234567';
+    const purged = await join(worker, { accountId: purgedAccountId, nickname: 'Purged' });
+    expect(
+      (await worker.fetch(internalAdmin('account-authority/purge', { accountId: purgedAccountId })))
+        .status,
+    ).toBe(200);
+    await expectSessionRequired(enter(worker, purged.cookie));
+
+    // Operator suspension and resume revoke everyone, the owner included.
+    const suspended = await join(worker);
+    expect((await worker.fetch(internalAdmin('suspend'))).status).toBe(200);
+    expect((await worker.fetch(internalAdmin('resume'))).status).toBe(200);
+    await expectSessionRequired(enter(worker, suspended.cookie));
+    await expectSessionRequired(enter(worker, ownerCookie));
+
+    // Owner recovery replaces every previous owner device.
+    const ownerDevice = await join(worker, {
+      accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+      nickname: 'Owner',
+    });
+    const claimToken = await issueProRoomOwnerRecoveryClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'membership-no-reason-recovery',
+      ownerAuthorityEpoch: worker.room!.ownerAuthorityEpoch,
+    });
+    const recovered = await worker.fetch(
+      await withAccountAssertion(
+        optionalEntryPolicy(jsonRequest('/owner-recovery', 'POST', { claimToken })),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+      ),
+    );
+    expect(recovered.status).toBe(200);
+    await expectSessionRequired(enter(worker, ownerDevice.cookie));
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+  });
+
+  it('bounds a notice by its session and prunes it durably at its deadline', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T07:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const longLived = await join(worker);
+    const longLivedHash = sessionHashOf(worker, longLived.viewer.participantId)!;
+    const shortLived = await join(worker);
+    const shortLivedHash = sessionHashOf(worker, shortLived.viewer.participantId)!;
+    const shortExpiresAtMs = startedAtMs + 60 * 60 * 1000;
+    worker.room!.sessions[shortLivedHash]!.expiresAtMs = shortExpiresAtMs;
+    for (const person of [longLived, shortLived]) {
+      expect(
+        (
+          await worker.fetch(
+            jsonRequest(
+              '/presence/kick',
+              'POST',
+              { targetParticipantId: person.viewer.participantId },
+              ownerCookie,
+            ),
+          )
+        ).status,
+      ).toBe(200);
+    }
+    const scope = {
+      reason: 'REMOVED',
+      authEpoch: worker.room!.authEpoch,
+      roomGeneration: worker.room!.roomGeneration,
+    };
+    expect(worker.room!.sessionRevocationNotices).toEqual({
+      [longLivedHash]: { ...scope, expiresAtMs: startedAtMs + NOTICE_TTL_MS },
+      [shortLivedHash]: { ...scope, expiresAtMs: shortExpiresAtMs },
+    });
+    expect(storedCanonicalRoom(context.state).sessionRevocationNotices).toEqual(
+      worker.room!.sessionRevocationNotices,
+    );
+    // Not one-shot: every request with the revoked cookie sees the reason.
+    await expectSessionRequired(enter(worker, shortLived.cookie), 'REMOVED');
+    await expectSessionRequired(enter(worker, shortLived.cookie), 'REMOVED');
+
+    vi.setSystemTime(shortExpiresAtMs + 1);
+    await worker.alarm();
+    expect(Object.keys(worker.room!.sessionRevocationNotices)).toEqual([longLivedHash]);
+    expect(Object.keys(storedCanonicalRoom(context.state).sessionRevocationNotices)).toEqual([
+      longLivedHash,
+    ]);
+    await expectSessionRequired(enter(worker, shortLived.cookie));
+    await expectSessionRequired(enter(worker, longLived.cookie), 'REMOVED');
+
+    vi.setSystemTime(startedAtMs + NOTICE_TTL_MS + 1);
+    await worker.alarm();
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+    expect(storedCanonicalRoom(context.state).sessionRevocationNotices).toEqual({});
+    await expectSessionRequired(enter(worker, longLived.cookie));
+  });
+
+  it('drops a notice on any authentication-epoch or room-generation change', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const kick = async (participantId: string) =>
+      expect(
+        (
+          await worker.fetch(
+            jsonRequest(
+              '/presence/kick',
+              'POST',
+              { targetParticipantId: participantId },
+              ownerCookie,
+            ),
+          )
+        ).status,
+      ).toBe(200);
+    const generationMember = await join(worker);
+    const generationHash = sessionHashOf(worker, generationMember.viewer.participantId)!;
+    const rotationMember = await join(worker);
+    await kick(generationMember.viewer.participantId);
+    await kick(rotationMember.viewer.participantId);
+
+    worker.room!.sessionRevocationNotices[generationHash]!.roomGeneration += 1;
+    await expectSessionRequired(enter(worker, generationMember.cookie));
+    expect(worker.room!.sessionRevocationNotices[generationHash]).toBeUndefined();
+
+    // A make-everyone-re-enter PIN change advances the epoch; the kick notice
+    // it leaves behind no longer applies.
+    await expectSessionRequired(enter(worker, rotationMember.cookie), 'REMOVED');
+    expect((await setPin(worker, ownerCookie, NEW_PIN)).status).toBe(200);
+    await expectSessionRequired(enter(worker, rotationMember.cookie));
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+
+    // Suspension does the same.
+    const suspendedMember = await join(worker, { pin: NEW_PIN });
+    await kick(suspendedMember.viewer.participantId);
+    await expectSessionRequired(enter(worker, suspendedMember.cookie), 'REMOVED');
+    expect((await worker.fetch(internalAdmin('suspend'))).status).toBe(200);
+    expect((await worker.fetch(internalAdmin('resume'))).status).toBe(200);
+    await expectSessionRequired(enter(worker, suspendedMember.cookie));
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+  });
+
+  it('ignores and prunes a notice whose credential is live again', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const { worker, ownerCookie } = context;
+    const requestId = nextRequestId();
+    const member = await join(worker, { requestId });
+    const memberHash = sessionHashOf(worker, member.viewer.participantId)!;
+    expect(
+      (
+        await worker.fetch(
+          jsonRequest(
+            '/presence/kick',
+            'POST',
+            { targetParticipantId: member.viewer.participantId },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(worker.room!.sessionRevocationNotices[memberHash]).toBeDefined();
+    // After its receipt is gone, the same logical admission is admitted anew
+    // under the same deterministic credential.
+    worker.room!.sessionCreateIdempotency = {};
+    const readmitted = await join(worker, { requestId });
+    expect(readmitted.cookie).toBe(member.cookie);
+    expect(sessionHashOf(worker, readmitted.viewer.participantId)).toBe(memberHash);
+    expect((await worker.fetch(request('/snapshot', {}, member.cookie))).status).toBe(200);
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+    expect(
+      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, member.cookie)))
+        .status,
+    ).toBe(200);
+    await expectSessionRequired(enter(worker, member.cookie));
+  });
+
+  it('starts an activated room with an empty notice ledger', async () => {
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, environment() as never);
+    const internal = worker as unknown as { ensureReady(request: Request): Promise<boolean> };
+    expect(
+      await internal.ensureReady(
+        new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+          headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+        }),
+      ),
+    ).toBe(true);
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+    // A notice an earlier incarnation stamped with epoch 1 must not survive.
+    worker.room!.sessionRevocationNotices[`A${'a'.repeat(42)}`] = {
+      reason: 'REMOVED',
+      authEpoch: 1,
+      roomGeneration: 0,
+      expiresAtMs: Date.now() + NOTICE_TTL_MS,
+    };
+    const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1_000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'membership-activation-ledger',
+    });
+    const activation = await worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/activation', 'POST', {
+          claimToken,
+          temporaryPin: ROOM_CODE.padStart(8, '0'),
+          newPin: '12345678',
+          ownerName: 'Owner',
+        }),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+      ),
+    );
+    expect(activation.status).toBe(200);
+    expect(worker.room!.authEpoch).toBe(1);
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+    expect(storedCanonicalRoom(state).sessionRevocationNotices).toEqual({});
+  });
+
+  it('alarms at the earliest notice deadline', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T08:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, environment() as never);
+    const internal = worker as unknown as {
+      ensureReady(request: Request): Promise<boolean>;
+      persist(): Promise<void>;
+      scheduleAlarm(): Promise<void>;
+      scheduledAlarmMs: number | null | undefined;
+    };
+    expect(
+      await internal.ensureReady(
+        new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+          headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+        }),
+      ),
+    ).toBe(true);
+    const expiresAtMs = startedAtMs + NOTICE_TTL_MS;
+    worker.room!.sessionRevocationNotices[`B${'b'.repeat(42)}`] = {
+      reason: 'DEVICE_REMOVED',
+      authEpoch: worker.room!.authEpoch,
+      roomGeneration: worker.room!.roomGeneration,
+      expiresAtMs,
+    };
+    await internal.persist();
+    internal.scheduledAlarmMs = null;
+    state.storage.alarm = null;
+    await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(expiresAtMs);
+    vi.setSystemTime(expiresAtMs + 1);
+    state.storage.alarm = null;
+    await worker.alarm();
+    expect(worker.room!.sessionRevocationNotices).toEqual({});
+    expect(storedCanonicalRoom(state).sessionRevocationNotices).toEqual({});
+  });
+
+  // 127 stored member cookies besides the owner's, none of them present.
+  const fillDormantMemberSessions = (worker: MusixquareProRoom, nowMs: number) => {
+    const room = worker.room!;
+    const template = Object.values(room.sessions)[0]!;
+    for (let index = 0; index < 127; index += 1) {
+      const id = String(index).padStart(24, '0');
+      room.sessions[`M${id}`.padEnd(43, 'M')] = {
+        participantId: `participant_${id}`,
+        memberId: `member_${id}`,
+        displayName: 'Peer',
+        role: 'member',
+        authEpoch: room.authEpoch,
+        roomGeneration: room.roomGeneration,
+        createdAtMs: nowMs,
+        expiresAtMs: nowMs + 30 * 24 * 60 * 60 * 1000,
+        signalingTicketSequence: 0,
+        presenceIncarnationId: null,
+      };
+    }
+    expect(template.role).toBe('owner');
+    expect(Object.keys(room.sessions)).toHaveLength(128);
+  };
+  const noticeKey = (prefix: string, index: number) =>
+    `${prefix}${String(index).padStart(4, '0')}`.padEnd(43, prefix);
+
+  it('commits a 127-member revoke-all against a full ledger by evicting the notices it made stale', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T09:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const { worker, ownerCookie } = context;
+    fillDormantMemberSessions(worker, startedAtMs);
+    const room = worker.room!;
+    for (let index = 0; index < 256; index += 1) {
+      room.sessionRevocationNotices[noticeKey('N', index)] = {
+        reason: 'REMOVED',
+        authEpoch: room.authEpoch,
+        roomGeneration: room.roomGeneration,
+        expiresAtMs: startedAtMs + NOTICE_TTL_MS + index,
+      };
+    }
+    expect((await setPin(worker, ownerCookie, NEW_PIN)).status).toBe(200);
+    const notices = worker.room!.sessionRevocationNotices;
+    expect(Object.keys(notices)).toHaveLength(127);
+    expect(Object.keys(notices).every((key) => key.startsWith('M'))).toBe(true);
+    expect(Object.values(notices)).toEqual(
+      Array.from({ length: 127 }, () => ({
+        reason: 'PIN_CHANGED',
+        authEpoch: worker.room!.authEpoch,
+        roomGeneration: worker.room!.roomGeneration,
+        expiresAtMs: startedAtMs + NOTICE_TTL_MS,
+      })),
+    );
+    expect(Object.keys(storedCanonicalRoom(context.state).sessionRevocationNotices)).toHaveLength(
+      127,
+    );
+  });
+
+  it('commits a keep change against a full ledger of current notices by evicting the earliest', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T09:30:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+    const { worker, ownerCookie } = context;
+    fillDormantMemberSessions(worker, startedAtMs);
+    const room = worker.room!;
+    for (let index = 0; index < 256; index += 1) {
+      room.sessionRevocationNotices[noticeKey('N', index)] = {
+        reason: 'REMOVED',
+        authEpoch: room.authEpoch,
+        roomGeneration: room.roomGeneration,
+        expiresAtMs: startedAtMs + 60_000 + index,
+      };
+    }
+    expect((await setPin(worker, ownerCookie, NEW_PIN, 'keep_present')).status).toBe(200);
+    const notices = worker.room!.sessionRevocationNotices;
+    expect(Object.keys(notices)).toHaveLength(256);
+    expect(Object.keys(notices).filter((key) => key.startsWith('M'))).toHaveLength(127);
+    // The 127 notices that expire first made room; the later 129 remain.
+    const survivors = Object.keys(notices)
+      .filter((key) => key.startsWith('N'))
+      .sort();
+    expect(survivors).toHaveLength(129);
+    expect(survivors[0]).toBe(noticeKey('N', 127));
+    expect(Object.keys(storedCanonicalRoom(context.state).sessionRevocationNotices)).toHaveLength(
+      256,
+    );
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['an array', []],
+    ['a string', 'notices'],
+  ] as const)('normalizes a %s stored notice ledger on load', async (_label, value) => {
+    const context = await activatedRoom();
+    const stored = context.state.storage.data.get('pro-room:v2:core') as {
+      core: Record<string, unknown>;
+    };
+    if (value === undefined) delete stored.core.sessionRevocationNotices;
+    else stored.core.sessionRevocationNotices = value;
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    expect((await restarted.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+    expect(restarted.room!.sessionRevocationNotices).toEqual({});
+    expect(storedCanonicalRoom(context.state).sessionRevocationNotices).toEqual({});
+  });
+
+  it('keeps notices across a restart and releases what an older Worker left unpruned', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-10-11T10:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom(ROOM_CODE, true);
+    const kicked = await join(context.worker);
+    const kickedHash = sessionHashOf(context.worker, kicked.viewer.participantId)!;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            '/presence/kick',
+            'POST',
+            { targetParticipantId: kicked.viewer.participantId },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    // An older Worker keeps the core field verbatim but neither reads, prunes,
+    // nor alarms it. Model what it may leave behind.
+    const stored = context.state.storage.data.get('pro-room:v2:core') as {
+      core: Record<string, any>;
+    };
+    const current = stored.core.sessionRevocationNotices[kickedHash];
+    stored.core.sessionRevocationNotices = {
+      [kickedHash]: current,
+      [`E${'e'.repeat(42)}`]: { ...current, expiresAtMs: startedAtMs - 1 },
+      [`P${'p'.repeat(42)}`]: { ...current, authEpoch: current.authEpoch - 1 },
+      [`U${'u'.repeat(42)}`]: { ...current, reason: 'BANNED' },
+      'not-a-token-hash': current,
+      [`X${'x'.repeat(42)}`]: { reason: 'REMOVED' },
+    };
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    await expectSessionRequired(enter(restarted, kicked.cookie), 'REMOVED');
+    expect(Object.keys(restarted.room!.sessionRevocationNotices)).toEqual([kickedHash]);
+    expect(Object.keys(storedCanonicalRoom(context.state).sessionRevocationNotices)).toEqual([
+      kickedHash,
+    ]);
   });
 });
 
@@ -14248,6 +15419,15 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const first = await createAccountDevice();
     const second = await createAccountDevice();
     expect(second.envelope.snapshot.viewer.memberId).toBe(first.envelope.snapshot.viewer.memberId);
+    // A third device of the same account left presence but kept its cookie.
+    const dormant = await createAccountDevice();
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, dormant.cookie),
+        )
+      ).status,
+    ).toBe(200);
 
     const delegated = await addAuthorityMember(context);
     const delegatedMemberId = delegated.envelope.snapshot.viewer.memberId as string;
@@ -14315,8 +15495,19 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(kicked.status).toBe(200);
-    expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
-    expect((await context.worker.fetch(request('/snapshot', {}, second.cookie))).status).toBe(401);
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, first.cookie)),
+      'REMOVED',
+    );
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, second.cookie)),
+      'REMOVED',
+    );
+    // The dormant device learns the same reason when it tries to resume.
+    await expectSessionRequired(
+      context.worker.fetch(request('/presence/enter', { method: 'POST' }, dormant.cookie)),
+      'REMOVED',
+    );
   });
 
   it('lets a delegated controller disconnect its sibling device while preserving its current session and authority', async () => {
@@ -14387,7 +15578,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(kicked.status).toBe(200);
-    expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, first.cookie)),
+      'DEVICE_REMOVED',
+    );
 
     const siblingSnapshot = await context.worker.fetch(request('/snapshot', {}, second.cookie));
     expect(siblingSnapshot.status).toBe(200);
@@ -14482,7 +15676,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     );
     expect(kicked.status).toBe(200);
-    expect((await context.worker.fetch(request('/snapshot', {}, siblingCookie))).status).toBe(401);
+    // The owner disconnected its own other device: that device is told so,
+    // not that an owner or administrator removed it.
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, siblingCookie)),
+      'DEVICE_REMOVED',
+    );
 
     const ownerSnapshotResponse = await context.worker.fetch(
       request('/snapshot', {}, context.ownerCookie),
@@ -14567,8 +15766,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest('/presence/kick', 'POST', { targetMemberId: memberId }, context.ownerCookie),
     );
     expect(kicked.status).toBe(200);
-    expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
-    expect((await context.worker.fetch(request('/snapshot', {}, second.cookie))).status).toBe(401);
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, first.cookie)),
+      'REMOVED',
+    );
+    await expectSessionRequired(
+      context.worker.fetch(request('/snapshot', {}, second.cookie)),
+      'REMOVED',
+    );
     expect(internal.room.accountMembers[accountId]).toBeUndefined();
     expect(
       (await responseJson(kicked)).snapshot.administrators.some(
@@ -17645,7 +18850,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const ownerAfterRotation = await responseJson(ownerAfterRotationResponse);
     expect(ownerAfterRotation.snapshot.presence.coordinatorEpoch).toBe(epochBeforeRotation + 1);
     expect(ownerAfterRotation.snapshot.presence.coordinatorParticipantId).toBeNull();
-    expect((await worker.fetch(request('/snapshot', {}, controllerCookie))).status).toBe(401);
+    await expectSessionRequired(
+      worker.fetch(request('/snapshot', {}, controllerCookie)),
+      'PIN_CHANGED',
+    );
 
     const oldPin = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
     const newPin = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '87654321' }));
@@ -17705,8 +18913,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
       revision: playbackRevisionBeforeRotation + 1,
     });
     expect(ownerAfterRotation.snapshot.runtime).toBe('awake');
-    expect((await worker.fetch(request('/snapshot', {}, firstMemberCookie))).status).toBe(401);
-    expect((await worker.fetch(request('/snapshot', {}, secondMemberCookie))).status).toBe(401);
+    await expectSessionRequired(
+      worker.fetch(request('/snapshot', {}, firstMemberCookie)),
+      'PIN_CHANGED',
+    );
+    await expectSessionRequired(
+      worker.fetch(request('/snapshot', {}, secondMemberCookie)),
+      'PIN_CHANGED',
+    );
   });
 
   it('charges the IP limiter only for failed PIN verification', async () => {
@@ -18854,7 +20068,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest('/pin', 'POST', { pin: '87654321' }, ownerCookie),
     );
     expect(rotated.status).toBe(200);
-    expect((await worker.fetch(request('/snapshot', {}, memberCookie))).status).toBe(401);
+    await expectSessionRequired(
+      worker.fetch(request('/snapshot', {}, memberCookie)),
+      'PIN_CHANGED',
+    );
     expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
     expect(internal.pendingHeartbeatFlushGeneration).toBeNull();
     expect(vi.getTimerCount()).toBe(0);

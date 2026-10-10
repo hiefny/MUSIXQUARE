@@ -252,7 +252,7 @@ describe('CI quality and supply-chain gates', () => {
     );
   });
 
-  it('runs every suite that loads Worker runtime code inside the Worker coverage ratchet', () => {
+  it('runs every suite that directly references Worker runtime code inside the Worker coverage ratchet', () => {
     const include = workerCoverageConfig.test?.include ?? [];
     expect(include.length).toBeGreaterThan(0);
     // fs.globSync returns backslash paths on Windows; the include globs use '/'.
@@ -260,10 +260,17 @@ describe('CI quality and supply-chain gates', () => {
       .map((file) => file.split(sep).join('/'))
       .filter((file) => !file.includes('/fixtures/'))
       .sort();
-    // Any relative cloudflare/*.ts literal counts: static imports, import()
-    // calls, variable import paths and vi.mock targets all load Worker code.
-    // Type-only imports are erased, and SQL schema or repo-relative source
-    // reads never execute it.
+    // Any relative cloudflare/*.ts literal in the suite itself counts: static
+    // imports, import() calls, variable import paths and vi.mock targets all
+    // load Worker code. Type-only imports are erased, and SQL schema or
+    // repo-relative source reads never execute it.
+    //
+    // Deliberate blind spot: suites that reach Worker code only through another
+    // module are not detected and do not belong in this profile. Today those are
+    // the in-process CLI suites (scripts/developer-api-key.mts and
+    // scripts/issue-pro-room-activation-claim.mts) and the app suites that load
+    // cloudflare/display-name-policy.ts through src/account/nickname.ts or
+    // src/pro-room/api.ts. The Worker modules they touch keep focused suites here.
     const workerRuntimePath = /['"](?:\.\.\/)+cloudflare\/[\w.-]+\.ts['"]/u;
     const typeOnlyImport = /^\s*import\s+type\s[^;]+;/gmu;
     const workerSuites = testFiles.filter((file) =>
@@ -273,8 +280,27 @@ describe('CI quality and supply-chain gates', () => {
 
     const isListed = (file: string) => include.some((pattern) => matchesGlob(file, pattern));
     expect(workerSuites.filter((file) => !isListed(file))).toEqual([]);
+    // A brace list matches when any one alternative does, so expand every
+    // alternative first: a renamed or deleted suite must not hide in a list.
+    const expandBraces = (pattern: string): string[] => {
+      const group = /\{([^{}]*)\}/u.exec(pattern);
+      if (!group) return [pattern];
+      const before = pattern.slice(0, group.index);
+      const after = pattern.slice(group.index + group[0].length);
+      return group[1]!
+        .split(',')
+        .flatMap((alternative) => expandBraces(`${before}${alternative}${after}`));
+    };
+    expect(expandBraces('a/{b,c}/{d,e}.ts')).toEqual([
+      'a/b/d.ts',
+      'a/b/e.ts',
+      'a/c/d.ts',
+      'a/c/e.ts',
+    ]);
     expect(
-      include.filter((pattern) => !testFiles.some((file) => matchesGlob(file, pattern))),
+      include
+        .flatMap(expandBraces)
+        .filter((pattern) => !testFiles.some((file) => matchesGlob(file, pattern))),
     ).toEqual([]);
   });
 

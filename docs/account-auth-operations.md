@@ -267,7 +267,7 @@ An independently initiated OAuth callback may still complete after sign-out;
 sign-out does not globally cancel pending login attempts.
 
 This cookie transition needs no schema migration, new secret, forced sign-out,
-or waiting period. Publishing it requires an App Worker release; beta commits
+or waiting period. Publishing it requires an App Worker release; unreleased branch commits
 alone do not change production behavior.
 
 An optional one-to-one statistics row keeps only the three nonnegative lifetime

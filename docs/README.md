@@ -52,7 +52,7 @@ Before QA or a production release, start with the
 checks, and release rules; the append-only [release history](release-history.md)
 lists every production release since 8.6.61 (2026-09-20); earlier runs are
 queried from GitHub Actions. Plan QA scope with the
-[QA domains guide](beta-qa-domains.md). Neither record replaces the canonical
+[QA domains guide](qa-domains.md). Neither record replaces the canonical
 release procedure.
 
 | Boundary                        | Current runbooks                                                                                                                                                             |
@@ -74,7 +74,7 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained engineering guides and contracts
 
-- [Whole-project beta QA domains](beta-qa-domains.md) — 30 domains and 122
+- [Whole-project QA domains](qa-domains.md) — 30 domains and 122
   detailed scopes with criteria, source/test entry points, verification methods,
   and cross-feature sequences. This is a QA planning guide, not new pass evidence.
 - [Playback state consumption](state-patterns.md)

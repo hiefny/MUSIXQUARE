@@ -87,6 +87,18 @@ conditions in `docs/mobile-app-zoom-policy.md`.
 Standard rooms use the host-resolved YouTube title as the room-wide display title.
 PRO room participants may display the title returned by their own localized YouTube iframe. Differences in localized display titles between PRO participants are intentional and are not treated as playback divergence. Queue identity and playback timing remain server-authoritative. See [Queue Item Identity and Reorder](design/queue-item-identity-and-reorder.md).
 
+### 10. Local Development Origins in Production CORS Allowlists
+
+Accepted 2026-10-11 by the owner. The production `ALLOWED_ORIGINS` of the PRO
+room and Remote Share Workers (`cloudflare/wrangler.pro-room.toml`,
+`cloudflare/wrangler.remote-share.toml`) include `http://localhost` and
+`http://127.0.0.1` on ports 3000, 5173, and 4173 so local development builds can
+call the production services. The PRO room Worker answers allowed origins with
+credentialed CORS. Only a page served from the visitor's own loopback address on
+those ports can use this, and every request still passes the Worker's normal
+session, PIN, and rate-limit checks. Revisit if a production Worker gains a
+privileged browser API that should be reachable only from public origins.
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

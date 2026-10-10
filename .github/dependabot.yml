@@ -15,6 +15,16 @@ updates:
     directory: /
     patterns: ['*']
     multi-ecosystem-group: dependencies
+    ignore:
+      # typescript-eslint supports TypeScript >=4.8.4 <6.1.0. Keep the 6.0 line
+      # until its peer range covers a newer compiler, so the grouped update
+      # stays installable instead of failing npm ci with ERESOLVE.
+      - dependency-name: typescript
+        versions: ['>= 6.1.0']
+      # @types/node must describe the pinned Node 24 runtime (package.json
+      # engines), not APIs from a newer Node major.
+      - dependency-name: '@types/node'
+        versions: ['>= 25.0.0']
 
   - package-ecosystem: github-actions
     directory: /

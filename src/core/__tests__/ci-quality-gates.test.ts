@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { globSync, readFileSync } from 'node:fs';
+import { matchesGlob, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { selectLatestSuccessfulRun } from '../../../scripts/release-evidence.mts';
 import criticalCoverageConfig from '../../../vitest.critical.config.ts';
 import toolingCoverageConfig from '../../../vitest.tooling.config.ts';
+import workerCoverageConfig from '../../../vitest.workers.config.ts';
 
 const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
   devDependencies: Record<string, string>;
@@ -249,6 +250,32 @@ describe('CI quality and supply-chain gates', () => {
     expect(workerCoverage).toContain(
       "'src/core/__tests__/cloudflare-signaling-http-bridge.test.ts'",
     );
+  });
+
+  it('runs every suite that loads Worker runtime code inside the Worker coverage ratchet', () => {
+    const include = workerCoverageConfig.test?.include ?? [];
+    expect(include.length).toBeGreaterThan(0);
+    // fs.globSync returns backslash paths on Windows; the include globs use '/'.
+    const testFiles = globSync('src/**/__tests__/**/*.test.ts')
+      .map((file) => file.split(sep).join('/'))
+      .filter((file) => !file.includes('/fixtures/'))
+      .sort();
+    // Any relative cloudflare/*.ts literal counts: static imports, import()
+    // calls, variable import paths and vi.mock targets all load Worker code.
+    // Type-only imports are erased, and SQL schema or repo-relative source
+    // reads never execute it.
+    const workerRuntimePath = /['"](?:\.\.\/)+cloudflare\/[\w.-]+\.ts['"]/u;
+    const typeOnlyImport = /^\s*import\s+type\s[^;]+;/gmu;
+    const workerSuites = testFiles.filter((file) =>
+      workerRuntimePath.test(readFileSync(file, 'utf8').replace(typeOnlyImport, '')),
+    );
+    expect(workerSuites.length).toBeGreaterThan(0);
+
+    const isListed = (file: string) => include.some((pattern) => matchesGlob(file, pattern));
+    expect(workerSuites.filter((file) => !isListed(file))).toEqual([]);
+    expect(
+      include.filter((pattern) => !testFiles.some((file) => matchesGlob(file, pattern))),
+    ).toEqual([]);
   });
 
   it('keeps extracted PRO playback authority inside the critical coverage ratchet', () => {

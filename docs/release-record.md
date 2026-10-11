@@ -93,6 +93,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   테마)에서 언어 목록과 선택된 행의 글자, 선택된 탭 아이콘, 켜진 암호 스위치가 보이고
   초대 QR이 휴대폰 카메라로 스캔되는지, 320·360·390px, 가로 모드, RTL 배치를 함께 본다.
   [상세](design/standard-room-owner-pin-2026-10-11.md)
+- [ ] 방·데모 중 업데이트 안내(미배포 8.10.0; 기기가 `v656` 코드를 실행한 뒤 다음
+  캐시 업데이트가 와야 볼 수 있다):
+  iPhone Safari 탭, iPhone 홈 화면 PWA, Android Chrome(탭과 설치 앱), Windows·macOS
+  데스크톱에서 방장·참여자·PRO 방·데모 중 새 버전이 대기하면 대화상자 없이 채팅에
+  안내가 한 번만 뜨는지, 탭은 "페이지를 새로고침하면", 설치 앱은 "앱을 다시 열면"
+  문구인지, 다른 기기 채팅에는 뜨지 않는지, 다른 탭이 업데이트를 수락해도 방 탭이
+  새로고침되지 않고 같은 안내를 다시 띄우지 않는지, 방을 나와 설정 화면으로 돌아오면
+  업데이트 대화상자가 한 번 뜨는지("나중에" 뒤에는 다시 뜨지 않음), 방 밖 설정·만들기·
+  참여 화면의 대화상자는 그대로인지 확인한다.
+  [상세](design/in-room-update-prompt-2026-10-11.md)
 
 ### 원인을 모르는 관찰
 
@@ -129,8 +139,8 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   Release `target=all`이다. release.yml에서 시그널링이 App보다 먼저 배포되고, App도
   peer-open의 기능 플래그를 확인하므로 순서가 바뀌어도 안전하다. 배포 SHA `d76b1432`
   대비 런타임 경로는 signaling 3개(`signaling-protocol.ts`, `signaling-worker.ts`, 새
-  `standard-room-pin-membership.ts`), app 65개, pro-room·remote-share·developer-api
-  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v655`. 새
+  `standard-room-pin-membership.ts`), app 66개, pro-room·remote-share·developer-api
+  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v656`. 새
   Durable Object 키 2개(`standard-room-pin-membership-v1`,
   `standard-room-pin-failures-v1`)만 쓰고
   `cloudflare/standard-room-pin-storage-contract-version.txt`, room meta v2, guest
@@ -153,10 +163,18 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   Turnstile)이나 작업 증명을 검토한다. 주 신호는 Signals 패널의 Password
   failures(`guest_auth_failed`)나 Operations의 Password issues 카드 급증, 또는
   신고다. 표 밖 네트워크의 추측이나 버킷마다 20회 미만으로 나눈 추측은 잠금을
-  남기지 않으므로 Password lockouts는 보조 신호다. main의 캐시가
+  남기지 않으므로 Password lockouts는 보조 신호다. 같은 릴리스에 방·데모 중
+  업데이트 안내(오너 결정 2026-10-11, `v656`)가 들어간다. 방(일반 방장·참여자, PRO)과
+  데모에서는 업데이트 대화상자 대신 기기 로컬 채팅 안내를 세대마다 한 번 띄우고
+  "나중에" 기록을 남기지 않으며, 방을 나와 설정 화면으로 돌아오면 대화상자를 한 번
+  보여 준다. 방 밖 대화상자, 쿨다운·세대 판정·다중 탭 선출·reload 예약은 그대로다.
+  전환기 한계: 이 판단은 새 코드가 하므로, 이 변경을 처음 배포할 때는 아직 이전
+  코드(`v655` 이하)를 실행 중인 기기가 방 안에서도 예전 대화상자를 한 번 본다.
+  그래서 첫 배포는 큰 라이브 이벤트 중이 아닐 때 한다. main의 캐시가
   먼저 올라가면 병합 직전에 번호를 다시 올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을
   지운다.
   [상세](design/standard-room-owner-pin-2026-10-11.md),
+  [업데이트 안내](design/in-room-update-prompt-2026-10-11.md),
   [운영](../cloudflare/standard-room-pin-ops.md),
   [허용 위험](known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)
 - [ ] Drift Audit 수동 5항목: Worker zone routes, `/admin` Access+MFA, WAF rate

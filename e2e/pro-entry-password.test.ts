@@ -106,7 +106,14 @@ async function openRoom(page: Page, owner: boolean, initiallyProtected: boolean)
         }
         snapshot.passwordRequired = body.pin !== null;
         snapshot.revision += 1;
-        return reply({ ok: true, passwordRequired: snapshot.passwordRequired });
+        // An explicit membership choice is echoed; the legacy body is not.
+        return reply({
+          ok: true,
+          passwordRequired: snapshot.passwordRequired,
+          ...(body.existingParticipants === undefined
+            ? {}
+            : { existingParticipants: body.existingParticipants }),
+        });
       }
       if (
         url.pathname.endsWith('/snapshot') ||
@@ -200,7 +207,11 @@ for (const width of [390, 1280]) {
     await page.locator('.dialog-input-segment').last().fill('0034');
     await page.locator('#btn-dialog-ok').click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(state.changes).toEqual([{ pin: null }, { pin: '00000034' }]);
+    // Keeping the people in the room is the default choice.
+    expect(state.changes).toEqual([
+      { pin: null },
+      { pin: '00000034', existingParticipants: 'keep_present' },
+    ]);
     state.failNextChange();
     await toggle.click();
     await expect.poll(() => state.changes.length).toBe(3);
@@ -208,3 +219,37 @@ for (const width of [390, 1280]) {
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   });
 }
+
+test('owner keeps people by default and can make everyone rejoin on a PIN change', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 820 });
+  const state = await openRoom(page, true, false);
+  await waitForState(page, 'room.context.kind', 'pro');
+  const toggle = await showPasswordSettings(page);
+  await toggle.click();
+  await expect(page.locator('#dialog-title')).toHaveText('Set room password');
+  await expect(page.locator('.dialog-choice legend')).toHaveText('People in the room now');
+  const keep = page.locator('input[name="pro-pin-existing-participants"][value="keep_present"]');
+  const rejoin = page.locator('input[name="pro-pin-existing-participants"][value="revoke_all"]');
+  await expect(keep).toBeChecked();
+  await expect(rejoin).not.toBeChecked();
+  await page.locator('.dialog-input-segment').first().fill('0000');
+  await page.locator('.dialog-input-segment').last().fill('0034');
+  await page.locator('#btn-dialog-ok').click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  expect(state.changes).toEqual([{ pin: '00000034', existingParticipants: 'keep_present' }]);
+
+  await page
+    .locator('#room-password-refresh:visible, #desktop-room-password-refresh:visible')
+    .click();
+  await expect(page.locator('#dialog-title')).toHaveText('Change room password');
+  await page.locator('.dialog-choice-option', { hasText: 'Make everyone rejoin' }).click();
+  await expect(rejoin).toBeChecked();
+  await page.locator('.dialog-input-segment').first().fill('1111');
+  await page.locator('.dialog-input-segment').last().fill('2222');
+  await page.locator('#btn-dialog-ok').click();
+  await expect.poll(() => state.changes.length).toBe(2);
+  // "Make everyone rejoin" sends the legacy body every Worker understands.
+  expect(state.changes[1]).toEqual({ pin: '11112222' });
+});

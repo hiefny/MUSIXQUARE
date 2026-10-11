@@ -129,8 +129,8 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   Release `target=all`이다. release.yml에서 시그널링이 App보다 먼저 배포되고, App도
   peer-open의 기능 플래그를 확인하므로 순서가 바뀌어도 안전하다. 배포 SHA `d76b1432`
   대비 런타임 경로는 signaling 3개(`signaling-protocol.ts`, `signaling-worker.ts`, 새
-  `standard-room-pin-membership.ts`), app 63개, pro-room·remote-share·developer-api
-  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v654`. 새
+  `standard-room-pin-membership.ts`), app 65개, pro-room·remote-share·developer-api
+  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v655`. 새
   Durable Object 키 2개(`standard-room-pin-membership-v1`,
   `standard-room-pin-failures-v1`)만 쓰고
   `cloudflare/standard-room-pin-storage-contract-version.txt`, room meta v2, guest

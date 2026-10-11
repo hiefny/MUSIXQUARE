@@ -94,14 +94,16 @@ These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
 - [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
-  unreleased App 8.10.0/v654 with the signaling Worker (target `all`):
+  unreleased App 8.10.0/v655 with the signaling Worker (target `all`):
   Standard-room hosts type the 8-digit PIN in the shared two-step dialog,
   step 2 is skipped when nobody else is in the room (both room types), the PIN
   is masked in both, "모두 재입장" closes guest sockets in the Worker before
   the host's reasoned kick, kept devices reconnect without the new PIN, and the
   Worker limits wrong PINs per room and address block (live buckets are never
   evicted; blocks past 256 share one overflow bucket, and devices already in
-  the room keep their signaling recovery). Also fixes forced colors:
+  the room keep their signaling recovery), and a guest locked out by wrong
+  PINs sees the Standard room's own "암호를 여러 번 틀렸어요" copy instead of
+  the PRO join-limit wording (v655 follow-up). Also fixes forced colors:
   selected-row text, the pressed PIN toggle, selected tab and option icons, and
   the invite QR in light high-contrast themes. Local unit, Worker, coverage,
   build and browser checks; no real-device or native-speaker review.

@@ -1,7 +1,8 @@
 # Standard-room owner PIN — 2026-10-11
 
 Status: implemented and verified locally on branch
-`agent/standard-room-owner-pin` as App `8.10.0` / PWA cache `v654`. It is
+`agent/standard-room-owner-pin` as App `8.10.0` / PWA cache `v654`, then
+`v655` for the lockout copy ([Copy follow-up](#copy-follow-up-7f69b8bd)). It is
 based on `origin/agent/pro-pin-two-step` `32a75a00` (PR #293, App `8.9.1` /
 `v652`, not on main when this was tested), which is based on main `23d2f758`.
 Not merged or deployed; production remains App `8.9.0` / `v651` at `d76b1432`
@@ -135,7 +136,9 @@ consecutive keep changes, and told first-enable revocations apart.
   is open is dropped; its Worker message `ROOM_PASSWORD_ENABLED` selects the
   "설정" notice. `room-password-rate-limited` shows "입장 시도가 너무
   많아요. N분 후에 다시 시도해 주세요." (minutes rounded up) or the "잠시 후"
-  variant. Unknown or missing reasons keep the old 강제퇴장 dialog.
+  variant; the [Copy follow-up](#copy-follow-up-7f69b8bd) replaces this with
+  the Standard room's own wrong-password copy. Unknown or missing reasons keep
+  the old 강제퇴장 dialog.
 - **Masking.** Both room types show `••••-••••` when protected, with the code
   span `aria-hidden` and a new visually hidden status (`connect.room_password_on`,
   "암호 적용됨") for screen readers; the pencil path and the "방 암호 변경" label
@@ -447,3 +450,66 @@ on its black square in both palettes.
   host and the PRO room owner, so their notices differ from PRO only in
   wording.
 - Local Node 24.13.1, not the pinned 24.20.0; PR CI remains the reference.
+
+## Copy follow-up (`7f69b8bd`)
+
+Owner decision (2026-10-11): the Standard-room wrong-PIN lockout must not
+borrow the PRO join-throttle copy "입장 시도가 너무 많아요", which talks about
+join attempts rather than a wrong password. `src/ui/setup.ts` (the
+`room-password-rate-limited` branch of the guest join error) now uses two new
+keys; the minute rounding, the `retryAfterSeconds` check and the inline join
+error are unchanged.
+
+| Case | Key | Korean (owner's text) | English |
+| --- | --- | --- | --- |
+| `retryAfterSeconds` above 0 | `dialog.room_password_rate_limited`, `count` = `ceil(seconds / 60)` | 암호를 여러 번 틀렸어요. {{count}}분 후에 다시 시도해 주세요. | You entered the wrong password too many times. Try again in {{count}} minutes. (`one`: minute) |
+| no wait, or 0 | `dialog.room_password_rate_limited_later` | 암호를 여러 번 틀렸어요. 잠시 후 다시 시도해 주세요. | You entered the wrong password too many times. Try again in a little while. |
+
+- All 42 locales have both keys. Each keeps the locale's existing wait
+  sentence from `pro.join_rate_limited` / `_later` and replaces only the lead
+  with "you entered the wrong password too many times", using the locale's
+  room-password word and register from `dialog.room_password_*`.
+- `dialog.room_password_rate_limited` is registered in `PLURAL_PARAM_BY_KEY`
+  on `count` (14 keys), with the same plural forms as `pro.join_rate_limited`
+  in each catalog: `one` in da, de, en, es, fr, he, it, kn, mr, nb, nl, pt-br,
+  sv, ta and te; `one`/`few`/`many` in pl and ru; `one`/`other` in ro;
+  `two`/`few` in ar. The other locales use one form for every count.
+- PRO join throttling, including the PRO PIN-failure lockout, keeps
+  `pro.join_rate_limited` / `_later` unchanged. No key became unused.
+- Tests: `setup-network-error.test.ts` (600 s, 61 s, 0 s and no wait, the
+  rounded-up count, and the PRO keys never used for this error);
+  `plural.test.ts` (registry of 14, English singular and plural, and
+  ko/de/ru/pl/ro/ar/cs counts); `factual-translation-contracts.test.ts`
+  (one `{{count}}` and no number in the fallback in every locale, a lead that
+  differs from the PRO copy, no English fallback, the Korean and English text,
+  and the PRO Korean copy kept).
+- PWA cache `v654` to `v655` with the `index.html` bootstrap query; the App
+  stays `8.10.0`. Against the deployed SHA `d76b1432`, `changedRuntimePaths()`
+  now finds 65 App paths (adds `src/i18n/plural-contract.ts` and
+  `src/i18n/plural-en.ts`), the same 3 signaling paths and none for the other
+  Workers; `changedAppRuntimeDependencies()` is still empty. Release target
+  `all` and the recovery steps are unchanged.
+
+Verification at `7f69b8bd` (same machine and dependencies as above; local,
+not an exact-main CI candidate):
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck`, `npm run lint`, `npm run format:check` | pass |
+| `npx vitest run src/ui src/i18n src/network src/core/__tests__/claim-bootstrap.test.ts` | 146 files, 3,262 passed |
+| `npm test` | 538 files, 11,473 passed, 0 failed, 1 skipped (the `jq` contract test, as above) |
+| `guard:release-identity` | pass; `8.10.0` / `v655` |
+| `guard:sw-cache-version` | pass; `v655` (`7f69b8bd`) covers every committed PWA runtime change |
+| `guard:dead-exports` | pass (self-only 79, test-only 21: unchanged baselines) |
+| `npm run build:checked` | pass |
+
+The lockout screenshots `std-ko-390x844-light-06-guest-rate-limited.png` and
+`std-ko-320x568-light-06-guest-rate-limited.png` in
+`scratch/standard-pin-screens/` were re-captured from an e2e build of
+`7f69b8bd` with the same page-level Worker stand-in
+(`retryAfterSeconds: 540`). Both show "암호를 여러 번 틀렸어요. 9분 후에 다시
+시도해 주세요." in the inline join error (one line at 390 px, two at 320 px),
+with no page or error-box overflow. The dark and landscape lockout images in
+that folder are from `6f0c65a7` and still show the replaced copy. The new
+translations have no native-speaker review, and the other locales' lockout
+copy was not captured.

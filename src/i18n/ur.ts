@@ -419,9 +419,9 @@ const ur: Record<I18nKey, string> = {
     'اس ٹریک کی فائل بہت بڑی ہے اور شاید کچھ آلات پر نہ چلے۔',
   'chat.device_track_unavailable_system_message': 'یہ آلہ موجودہ ٹریک نہیں چلا سکتا۔',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے صفحہ ریفریش کریں۔',
+    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے صفحہ ریفریش کریں۔',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے ایپ دوبارہ کھولیں۔',
+    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے ایپ دوبارہ کھولیں۔',
   'chat.system_audio_started_system_message':
     'سسٹم آڈیو شیئر ہونا شروع ہو گیا ہے۔ میزبان اور مہمان آلات کے درمیان معمولی تاخیر عام ہے۔ بازگشت سے بچنے کے لیے میزبان آلے کی آواز کم رکھنے کا مشورہ ہے۔',
   'chat.system_audio_stopped_system_message':

@@ -7,7 +7,7 @@ import {
 } from '../../../scripts/classic-runtime-assets.ts';
 
 import { APP_DICTIONARIES } from '../catalogs.ts';
-import { LANGUAGE_OPTIONS } from '../locales.ts';
+import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
 
 type LandingDictionary = Record<string, Record<string, string>>;
 
@@ -273,6 +273,16 @@ describe('completed translation factual contracts', () => {
       // differ only in how it applies: reload the tab, or reopen the app.
       expect(app, language).not.toBe(tab);
       expect(commonPrefix(tab, app), language).toContain('MUSIXQUARE');
+      // Chat rows render with dir="auto", which takes the line direction from
+      // its first strong character. An RTL notice that opened with the Latin
+      // brand would be laid out left to right.
+      if (languageDirection(language as LanguageCode) === 'rtl') {
+        for (const text of [tab, app]) {
+          expect(text, `${language} opens with RTL script`).toMatch(
+            /^(?:\p{Script=Arabic}|\p{Script=Hebrew}|\u200F)/u,
+          );
+        }
+      }
       if (language === 'en') continue;
       expect(tab, `${language}.${tabKey} English copy`).not.toBe(english[tabKey]);
       expect(app, `${language}.${appKey} English copy`).not.toBe(english[appKey]);

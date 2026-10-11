@@ -1250,4 +1250,25 @@ describe('PRO metadata answers refused by room state capacity', () => {
       expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
     },
   );
+
+  it('drops a memory-only backoff when its probe is replaced by a fresh one', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      0,
+      { attempts: 9 },
+    );
+    expect(context.room.playbackDurationProbe).toEqual(before);
+    // The owner frees space, then pauses and resumes the same occurrence.
+    context.room.assets[`asset_${SECOND}`]!.name = '';
+    await command(context, { type: 'pause' });
+    expect(context.room.playbackDurationProbe).toBeNull();
+    vi.setSystemTime(at + 5_000);
+    await command(context, { type: 'play' });
+    // The new probe starts its own lookup instead of inheriting the backoff.
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+    expect(Object.values(context.room.playbackDurations)).toEqual([
+      expect.objectContaining({ durationSeconds: 5, source: 'server' }),
+    ]);
+    expect(context.room.playbackDurationProbe).toBeNull();
+  });
 });

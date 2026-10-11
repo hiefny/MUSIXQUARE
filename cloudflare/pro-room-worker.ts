@@ -4149,7 +4149,14 @@ export class MusixquareProRoom {
   playbackDurationLookup: { key: string; promise: Promise<void> } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
   naturalAdvanceRetry: { revision: number; updatedAtMs: number; retryAtMs: number } | null;
-  playbackDurationRetry: { key: string; retryAtMs: number } | null;
+  // A backoff the stored probe could not record: the probe it belongs to
+  // (identity key, attempts and stored retry time) and the time it holds.
+  playbackDurationRetry: {
+    key: string;
+    attempts: number;
+    probeRetryAtMs: number;
+    retryAtMs: number;
+  } | null;
   ready: Promise<void> | undefined;
 
   private get activeRoom(): ProRoomState {
@@ -5363,6 +5370,7 @@ export class MusixquareProRoom {
       playbackDurationIdentityKey(this.activeRoom.playbackDurationProbe.identity) === key
     ) {
       this.activeRoom.playbackDurationProbe = null;
+      this.playbackDurationRetry = null;
     }
   }
 
@@ -5433,13 +5441,18 @@ export class MusixquareProRoom {
     const evidence = key ? this.activeRoom.playbackDurations[key] : null;
     const fresh = evidence && playbackDurationEvidenceExpiresAtMs(evidence) > nowMs;
     if (!identity || fresh) {
-      if (this.activeRoom.playbackDurationProbe) changed = true;
+      if (this.activeRoom.playbackDurationProbe) {
+        changed = true;
+        this.playbackDurationRetry = null;
+      }
       this.activeRoom.playbackDurationProbe = null;
     } else if (
       !this.activeRoom.playbackDurationProbe ||
       playbackDurationIdentityKey(this.activeRoom.playbackDurationProbe.identity) !== key
     ) {
+      // A fresh probe owes nothing to an earlier one's held backoff.
       this.activeRoom.playbackDurationProbe = { identity, attempts: 0, retryAtMs: nowMs };
+      this.playbackDurationRetry = null;
       changed = true;
     }
     return changed;
@@ -5635,11 +5648,17 @@ export class MusixquareProRoom {
     this.state.waitUntil?.(lookup);
   }
 
-  /** The probe's stored retry time, or a later one held after a refused write. */
+  /**
+   * The probe's stored retry time, or a later one held after a refused write.
+   * The held time applies only to the exact stored probe it could not update;
+   * a probe recreated for the same occurrence starts its own schedule.
+   */
   playbackDurationProbeRetryAtMs(probe: PlaybackDurationProbe) {
     const retry = this.playbackDurationRetry;
     return retry &&
       retry.key === playbackDurationIdentityKey(probe.identity) &&
+      retry.attempts === probe.attempts &&
+      retry.probeRetryAtMs === probe.retryAtMs &&
       retry.retryAtMs > probe.retryAtMs
       ? retry.retryAtMs
       : probe.retryAtMs;
@@ -5804,13 +5823,19 @@ export class MusixquareProRoom {
         // core rewrite, on every watchdog. Record the attempt alone: no
         // evidence, and only a not-found answer that was already stored and
         // that this answer did not withdraw (it was "not found" or none).
-        // Instance memory holds the same backoff in case even that is refused.
+        // Instance memory holds the same backoff for the stored probe in case
+        // even that is refused.
         const retryAtMs = Date.now() + retryMs;
-        this.playbackDurationRetry = { key, retryAtMs };
         await this.withStateCapacityRollback(
           async () => {
             const current = this.activeRoom.playbackDurationProbe;
             if (!current || playbackDurationIdentityKey(current.identity) !== key) return;
+            this.playbackDurationRetry = {
+              key,
+              attempts: current.attempts,
+              probeRetryAtMs: current.retryAtMs,
+              retryAtMs,
+            };
             this.activeRoom.playbackDurationProbe = {
               identity: current.identity,
               attempts: Math.min(100, probe.attempts + 1),

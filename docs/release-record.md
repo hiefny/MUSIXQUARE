@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-12 (배포 SHA `972555c3`, Release `38156993930`) |
+| Last source review | 2026-10-12 (배포 SHA `8307f12b`, Release `38161550040`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,15 +28,15 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.9.5` / `v656` |
-| 마지막 프로덕션 변경 | 2026-10-12 01:53 KST, [Release 38156993930](https://github.com/hiefny/MUSIXQUARE/actions/runs/38156993930) attempt 1 성공, `target=all`, Developer API D1 `false` |
-| 배포 main SHA | `972555c307037c8b3a969d330f5857d3f37dd47f` (PR [#298](https://github.com/hiefny/MUSIXQUARE/pull/298)). exact-main [CI 38156513400](https://github.com/hiefny/MUSIXQUARE/actions/runs/38156513400) attempt 1 |
-| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `972555c3` 적용. 운영 smoke 10개, 최종 배포 소유권, PRO ready, coherent production marker 확인. 새 `PRO_YOUTUBE_METADATA` 서비스 바인딩은 `musixquare-app`을 가리킨다 |
-| 복구 | 필요 없음. Release 38156993930의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 Production Release 실행 안의 job이다 |
+| App 버전 / SW 캐시 | `8.9.6` / `v657` |
+| 마지막 프로덕션 변경 | 2026-10-12 02:58 KST, [Release 38161550040](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161550040) attempt 1 성공, `target=all`, Developer API D1 `false` |
+| 배포 main SHA | `8307f12ba05683a0738d6f0e4cb293afa7968070` (PR [#300](https://github.com/hiefny/MUSIXQUARE/pull/300)). exact-main [CI 38161158889](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161158889) attempt 1 |
+| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `8307f12b` 적용. 운영 smoke 10개, 최종 배포 소유권, PRO ready, coherent production marker 확인. 이번 배포에서 새 비밀·바인딩·D1 스키마 변경 없음 |
+| 복구 | 필요 없음. Release 38161550040의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 Production Release 실행 안의 job이다 |
 | 활성 복구 floor | PRO/App 선택형 입장 암호. `cloudflare/pro-room-entry-policy-contract-version.txt` = `pro-room-optional-entry-password-v1`. 이번 배포에서 floor 변경 없음. 이 계약 이전의 PRO/App 기준선으로는 복구하지 않는다. forward repair나 검증된 같은 시점 코드·데이터 복구를 쓰고, 계약을 아는 기준선으로의 일반 rollback은 가능하다 (§4) |
-| 검증 범위 | PR·exact-main CI 각각 11개 job 성공. exact-main unit 540파일 11,506 pass / 0 fail / Windows 전용 1 skip, coverage 4종, Chromium candidate·SW 17 + critical 22 pass. 로컬 고정 소스 전체 unit 11,507 pass / 0 fail / 0 skip, 관련 Chromium 10 pass, 타입·린트·포맷·build:checked·계약 가드·Worker 6종 번들 통과. 전체 로컬 검사 후 바뀐 서명 도메인 표기는 관련 42개 테스트와 최종 원격 전체 검사로 확인했다. 공개 GET에서 첫 화면 `bootstrap.js?cache=v656`, `/service-worker.js`의 `v656`와 HTTP 200 확인. 실기·실제 고객방·대규모 도착은 §2에 남는다. [상세](design/pro-autonomous-playback-2026-10-12.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 8.9.5 배포 뒤 [38157373545](https://github.com/hiefny/MUSIXQUARE/actions/runs/38157373545) (2026-10-12 KST, source `972555c3`) 31 pass / 0 fail / 5 manual. 소스의 64개 바인딩 계약과 실제 제공 중인 모든 Worker 버전의 설정 일치 확인. 수동 5항목은 §2에 남는다 |
-| Full E2E | 매주 월 18:17 UTC. 2026-10-12 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 37602041553은 `agent/full-verification-8.7.2` 브랜치 실행(`716c37af`, PR #251로 병합)이다. 이번 배포의 critical/관련 browser 검사와 별개로, 8.9.5 배포 SHA의 전체 E2E 실행은 없음 |
+| 검증 범위 | PR·exact-main CI 각각 11개 job 성공. exact-main unit 542파일 11,591 pass / 0 fail / Windows 전용 1 skip, coverage 4종, Chromium candidate·SW 17 + critical 22 pass. 로컬 고정 런타임 전체 unit 11,590 pass / 0 fail / 0 skip, critical Chromium 22 pass, 별도 메타데이터 Chromium·WebKit 16 pass. 이후 추가한 테스트 2개와 critical profile은 로컬 coverage 2,038개 및 원격 전체 CI로 확인했다. 타입·린트·포맷·build:checked·계약 가드·Worker 6종 번들 통과. 공개 GET에서 첫 화면 `bootstrap.js?cache=v657`, `/service-worker.js`의 `v657`와 HTTP 200 확인. 실기·실제 고객방·대규모 도착은 §2에 남는다. [상세](design/pro-file-duration-registration-2026-10-12.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 8.9.6 배포 뒤 [38161918085](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161918085) (2026-10-12 KST, source `8307f12b`) 31 pass / 0 fail / 5 manual. 소스의 64개 바인딩 계약과 실제 제공 중인 모든 Worker 버전의 설정 일치 확인. 수동 5항목은 §2에 남는다 |
+| Full E2E | 매주 월 18:17 UTC. 2026-10-12 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 37602041553은 `agent/full-verification-8.7.2` 브랜치 실행(`716c37af`, PR #251로 병합)이다. 이번 배포의 critical/관련 browser 검사와 별개로, 8.9.6 배포 SHA의 전체 E2E 실행은 없음 |
 | 의존성 | 이번 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등) 유지. 2026-10-11 확인한 `npm audit`(전체·`--omit=dev`) 및 Dependabot alert는 0건. sharp 0.35.5 override 유지, TypeScript 6.1 이상·@types/node 25 이상은 Dependabot ignore. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목

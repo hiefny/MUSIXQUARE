@@ -4149,6 +4149,7 @@ export class MusixquareProRoom {
   playbackDurationLookup: { key: string; promise: Promise<void> } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
   naturalAdvanceRetry: { revision: number; updatedAtMs: number; retryAtMs: number } | null;
+  playbackDurationRetry: { key: string; retryAtMs: number } | null;
   ready: Promise<void> | undefined;
 
   private get activeRoom(): ProRoomState {
@@ -4190,6 +4191,8 @@ export class MusixquareProRoom {
     // Instance memory only: eviction costs at most one immediate retry, which
     // records a new backoff if the refusal persists.
     this.naturalAdvanceRetry = null;
+    // Same for a metadata backoff that even a probe-only write could not store.
+    this.playbackDurationRetry = null;
     const load = async () => {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
@@ -5632,9 +5635,24 @@ export class MusixquareProRoom {
     this.state.waitUntil?.(lookup);
   }
 
+  /** The probe's stored retry time, or a later one held after a refused write. */
+  playbackDurationProbeRetryAtMs(probe: PlaybackDurationProbe) {
+    const retry = this.playbackDurationRetry;
+    return retry &&
+      retry.key === playbackDurationIdentityKey(probe.identity) &&
+      retry.retryAtMs > probe.retryAtMs
+      ? retry.retryAtMs
+      : probe.retryAtMs;
+  }
+
   startPlaybackDurationProbe() {
     const probe = this.room?.playbackDurationProbe;
-    if (!probe || probe.retryAtMs > Date.now() || this.playbackDurationLookup) return;
+    if (
+      !probe ||
+      this.playbackDurationProbeRetryAtMs(probe) > Date.now() ||
+      this.playbackDurationLookup
+    )
+      return;
     if (
       probe.identity.mediaKind === 'file' &&
       (this.assetDurationLookup ||
@@ -5723,7 +5741,7 @@ export class MusixquareProRoom {
           durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS;
         if (!appliesToQueue && !appliesToAsset) return;
         if ((await readServiceMaintenance(this.env)).enabled) return;
-        await this.withStateCapacityRollback(
+        const applied = await this.withStateCapacityRollback(
           async () => {
             const nowMs = Date.now();
             if (appliesToAsset && currentAsset && durationSeconds !== null)
@@ -5772,7 +5790,33 @@ export class MusixquareProRoom {
                 reason: diagnostic,
               });
             }
-            return undefined;
+            return true;
+          },
+          { rollbackStorageFailure: true },
+        );
+        if (!appliesToQueue) return;
+        if (applied === true) {
+          this.playbackDurationRetry = null;
+          return;
+        }
+        // Room state capacity refused the answer. The queue still owes its
+        // backoff; otherwise the overdue probe repeats this lookup, and a full
+        // core rewrite, on every watchdog. Record the attempt alone: no
+        // evidence, and only a not-found answer that was already stored.
+        // Instance memory holds the same backoff in case even that is refused.
+        const retryAtMs = Date.now() + retryMs;
+        this.playbackDurationRetry = { key, retryAtMs };
+        await this.withStateCapacityRollback(
+          async () => {
+            const current = this.activeRoom.playbackDurationProbe;
+            if (!current || playbackDurationIdentityKey(current.identity) !== key) return;
+            this.activeRoom.playbackDurationProbe = {
+              identity: current.identity,
+              attempts: Math.min(100, probe.attempts + 1),
+              retryAtMs,
+              ...(current.notFoundAtMs === undefined ? {} : { notFoundAtMs: current.notFoundAtMs }),
+            };
+            await this.persist();
           },
           { rollbackStorageFailure: true },
         );
@@ -6456,13 +6500,11 @@ export class MusixquareProRoom {
           this.activeRoom.pendingAssetDurationProbes?.includes(
             this.activeRoom.playbackDurationProbe.identity.assetId,
           ));
+      const retryAtMs = this.playbackDurationProbeRetryAtMs(this.activeRoom.playbackDurationProbe);
       candidates.push(
         this.playbackDurationLookup || registrationBlocked
-          ? Math.max(
-              this.activeRoom.playbackDurationProbe.retryAtMs,
-              nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS,
-            )
-          : this.activeRoom.playbackDurationProbe.retryAtMs,
+          ? Math.max(retryAtMs, nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS)
+          : retryAtMs,
       );
     }
     if (this.activeRoom.pendingAssetDurationProbes?.length) {

@@ -1090,3 +1090,135 @@ describe('PRO file lengths stored before the current duration reader', () => {
     expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
   });
 });
+
+describe('PRO metadata answers refused by room state capacity', () => {
+  type YouTubeAnswer = Awaited<ReturnType<typeof metadata.youtube>>;
+
+  // Pad the core until `margin` more bytes would exceed the 1.2 MB state limit.
+  function fillCore(context: Context, margin: number) {
+    const asset = context.room.assets[`asset_${SECOND}`]!;
+    asset.name = '';
+    const { playlist, ...core } = context.room;
+    const encoded = Buffer.byteLength(
+      JSON.stringify({
+        schemaVersion: 2,
+        core,
+        playlistOrder: playlist.map((item) => item.queueItemId),
+      }),
+    );
+    asset.name = 'x'.repeat(1200 * 1024 - encoded - margin);
+  }
+
+  async function answerInFullRoom(
+    answer: YouTubeAnswer,
+    margin: number,
+    { attempts = 0, notFoundAgoMs }: { attempts?: number; notFoundAgoMs?: number } = {},
+  ) {
+    let deliver!: (value: YouTubeAnswer) => void;
+    const context = await fixture([youtubeItem(FIRST), fileItem(SECOND)]);
+    await start(context);
+    expect(metadata.youtube).toHaveBeenCalledOnce();
+    // Start the next lookup with the requested attempt count and hold it open.
+    metadata.youtube.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        }),
+    );
+    context.room.playbackDurations = {};
+    context.room.playbackDurationProbe = {
+      identity: {
+        queueItemId: FIRST,
+        mediaKind: 'youtube',
+        youtubeVideoId: VIDEO_A,
+        youtubeSubIndex: 0,
+      },
+      attempts,
+      retryAtMs: Date.now(),
+      ...(notFoundAgoMs === undefined ? {} : { notFoundAtMs: Date.now() - notFoundAgoMs }),
+    };
+    context.worker.startPlaybackDurationProbe();
+    expect(context.worker.playbackDurationLookup).not.toBeNull();
+    fillCore(context, margin);
+    await context.worker.persist();
+    const before = structuredClone(context.room.playbackDurationProbe);
+    const at = Date.now();
+    deliver(answer);
+    await context.settle();
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    return { context, before: before!, at };
+  }
+
+  it('records the backoff alone when a finite answer does not fit', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      40,
+    );
+    expect(context.room.playbackDurations).toEqual({});
+    expect(context.room.playbackDurationProbe).toEqual({
+      ...before,
+      attempts: 1,
+      retryAtMs: at + 60_000,
+    });
+    const stored = context.storage.data.get('pro-room:v2:core') as { core: Room };
+    expect(stored.core.playbackDurationProbe).toEqual(context.room.playbackDurationProbe);
+    expect(context.storage.alarm).toBeGreaterThan(at + 10_000);
+    // The 10 s lookup watchdog no longer repeats the provider call.
+    await alarmAt(context, at + 10_000);
+    await alarmAt(context, at + 30_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+  });
+
+  it('keeps only an already stored not-found answer when the first one does not fit', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'unavailable', reason: 'not-found' },
+      10,
+    );
+    expect(before).not.toHaveProperty('notFoundAtMs');
+    expect(context.room.playbackDurationProbe).toEqual({
+      ...before,
+      attempts: 1,
+      retryAtMs: at + 60_000,
+    });
+    await alarmAt(context, at + 10_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a stored not-found answer when its confirming skip does not fit', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'unavailable', reason: 'not-found' },
+      40,
+      { notFoundAgoMs: 60_000 },
+    );
+    expect(before.notFoundAtMs).toBe(at - 60_000);
+    expect(context.room.playbackDurations).toEqual({});
+    expect(context.room.playbackDurationProbe).toEqual({
+      ...before,
+      attempts: 1,
+      retryAtMs: at + 60_000,
+    });
+    await alarmAt(context, at + 10_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds the backoff in memory when even the attempt count does not fit', async () => {
+    // Attempt 9 -> 10 adds one byte to an otherwise exactly full core.
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      0,
+      { attempts: 9 },
+    );
+    expect(context.room.playbackDurationProbe).toEqual(before);
+    expect(context.room.playbackDurations).toEqual({});
+    // Neither the next watchdog nor a direct start repeats the lookup.
+    await alarmAt(context, at + 10_000);
+    context.worker.startPlaybackDurationProbe();
+    expect(context.worker.playbackDurationLookup).toBeNull();
+    expect(context.storage.alarm).toBeGreaterThan(Date.now() + 1_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    // The full backoff (60 s x 2^4, capped at 15 minutes) then retries once.
+    await alarmAt(context, at + 900_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+  });
+});

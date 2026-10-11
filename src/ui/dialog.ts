@@ -48,30 +48,39 @@ interface DialogOptions {
     preserveWhitespace?: boolean;
   };
   /**
-   * One required single choice, rendered as a native radio group in a
-   * fieldset below any input. The checked value resolves as `choiceValue`.
+   * A second page with one required single choice. The first page's primary
+   * action validates the input and shows this page in place; its secondary
+   * action returns to the first page with the input kept, and its primary
+   * action resolves `ok` with the input value and the checked `choiceValue`.
    */
-  choiceField?: {
-    legend: DialogText;
+  choiceStep?: {
+    /** Replaces the dialog title while the page is shown. */
+    title: DialogText;
     /** Radio group name; unique per document while the dialog is open. */
     name: string;
     defaultValue: string;
     options: ReadonlyArray<{ value: string; label: DialogText; detail?: DialogText }>;
+    buttonText: DialogText;
+    backText: DialogText;
   };
 }
 
 export interface DialogResult {
   action: string;
   inputValue?: string;
-  /** The checked `choiceField` value, read before the dialog is torn down. */
+  /** The checked `choiceStep` value, read before the dialog is torn down. */
   choiceValue?: string;
 }
 
 interface DialogChoiceState {
+  frame: HTMLElement;
+  list: HTMLElement;
   radios: HTMLInputElement[];
   value: () => string | undefined;
   focusTarget: () => HTMLInputElement | null;
   refresh: () => void;
+  updateEdges: () => void;
+  destroy: () => void;
 }
 
 interface DialogActiveState {
@@ -181,20 +190,54 @@ export function closeDialog(action = 'close'): void {
   setManagedTimer('dialog-drain', drainDialogQueue, 0);
 }
 
-function createDialogChoice(
-  host: HTMLElement,
-  config: DialogOptions['choiceField'],
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// A stepped dialog reuses both action buttons in place ("Next" becomes "OK",
+// "Back" sits where "Cancel" was). Ignore action activations this soon after
+// a page swap, so a double click or double tap cannot press both.
+const STEP_SWAP_ACTION_GUARD_MS = 400;
+
+/** The language list's check mark, so both selection lists read the same. */
+function createChoiceCheck(): HTMLSpanElement {
+  const check = document.createElement('span');
+  check.className = 'dialog-choice-check';
+  check.setAttribute('aria-hidden', 'true');
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('focusable', 'false');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', 'M5 12.5l4.2 4.2L19 6.9');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '2.4');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(path);
+  check.appendChild(svg);
+  return check;
+}
+
+/**
+ * Builds the hidden choice page right after the message. Each row is a native
+ * radio (one Tab stop, arrow keys, checked state for assistive technology)
+ * that is visually replaced by a selectable surface with an end-edge check.
+ */
+function createDialogChoiceStep(
+  anchor: HTMLElement,
+  config: NonNullable<DialogOptions['choiceStep']>,
+  titleId: string,
 ): DialogChoiceState | null {
-  if (!config || config.options.length === 0) return null;
-  const fieldset = document.createElement('fieldset');
-  fieldset.className = 'dialog-choice';
-  const legend = document.createElement('legend');
-  legend.className = 'dialog-choice-legend';
-  fieldset.appendChild(legend);
+  if (config.options.length === 0) return null;
+  const frame = document.createElement('div');
+  frame.className = 'dialog-choice-frame';
+  frame.hidden = true;
+  const list = document.createElement('div');
+  list.className = 'dialog-choice-list';
+  list.setAttribute('role', 'radiogroup');
+  // The page title asks the question, so it names the group.
+  if (titleId) list.setAttribute('aria-labelledby', titleId);
   const radios: HTMLInputElement[] = [];
-  const texts: Array<{ node: HTMLElement; text: DialogText }> = [
-    { node: legend, text: config.legend },
-  ];
+  const texts: Array<{ node: HTMLElement; text: DialogText }> = [];
   config.options.forEach((option, index) => {
     const row = document.createElement('label');
     row.className = 'dialog-choice-option';
@@ -204,6 +247,8 @@ function createDialogChoice(
     radio.name = config.name;
     radio.value = option.value;
     radio.checked = option.value === config.defaultValue;
+    const surface = document.createElement('span');
+    surface.className = 'dialog-choice-surface';
     const copy = document.createElement('span');
     copy.className = 'dialog-choice-text';
     const label = document.createElement('span');
@@ -223,11 +268,21 @@ function createDialogChoice(
       copy.appendChild(detail);
       texts.push({ node: detail, text: option.detail });
     }
-    row.append(radio, copy);
-    fieldset.appendChild(row);
+    surface.append(copy, createChoiceCheck());
+    row.append(radio, surface);
+    list.appendChild(row);
     radios.push(radio);
   });
   if (!radios.some((radio) => radio.checked)) radios[0]!.checked = true;
+  const edgeTop = document.createElement('span');
+  edgeTop.className = 'dialog-choice-edge dialog-choice-edge-top';
+  edgeTop.setAttribute('aria-hidden', 'true');
+  const edgeBottom = document.createElement('span');
+  edgeBottom.className = 'dialog-choice-edge dialog-choice-edge-bottom';
+  edgeBottom.setAttribute('aria-hidden', 'true');
+  frame.append(list, edgeTop, edgeBottom);
+  anchor.after(frame);
+
   const refresh = () => {
     for (const { node, text } of texts) {
       node.textContent = dialogText(text);
@@ -235,14 +290,37 @@ function createDialogChoice(
     }
   };
   refresh();
-  host.appendChild(fieldset);
+
+  // Short landscape viewports scroll the list between the fixed title and
+  // actions; fade whichever end has more options, as the language list does.
+  const updateEdges = () => {
+    const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+    const hasOverflow = maxScrollTop > 2;
+    list.classList.toggle('can-scroll-up', hasOverflow && list.scrollTop > 2);
+    list.classList.toggle('can-scroll-down', hasOverflow && list.scrollTop < maxScrollTop - 2);
+  };
+  list.addEventListener('scroll', updateEdges, { passive: true });
+  window.addEventListener('resize', updateEdges);
+  const resizeObserver =
+    typeof ResizeObserver === 'function' ? new ResizeObserver(() => updateEdges()) : null;
+  resizeObserver?.observe(list);
+
   const checked = () => radios.find((radio) => radio.checked) ?? null;
   return {
+    frame,
+    list,
     radios,
     value: () => checked()?.value,
     // A native radio group is one Tab stop: its checked radio.
     focusTarget: () => checked() ?? radios[0] ?? null,
     refresh,
+    updateEdges,
+    destroy: () => {
+      list.removeEventListener('scroll', updateEdges);
+      window.removeEventListener('resize', updateEdges);
+      resizeObserver?.disconnect();
+      frame.remove();
+    },
   };
 }
 
@@ -291,6 +369,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   okBtn.removeAttribute('data-i18n');
   secondaryBtn?.removeAttribute('data-i18n');
   titleEl.textContent = title;
+  msgEl.hidden = false;
   msgEl.textContent = message;
   // Keep the message separate so locale refresh never rebuilds the editor.
   const messageNode = document.createTextNode(message);
@@ -450,25 +529,13 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     _dialogPreserveWhitespace = false;
   }
 
-  _dialogChoice = createDialogChoice(
-    msgEl,
-    typeof opts === 'object' && opts ? opts.choiceField : undefined,
-  );
-  // The dialog is described by #dialog-message, which now also holds the
-  // choice group. Describe it by the message text alone so opening it does
-  // not read every option before focus arrives; the group announces itself.
+  const stepCfg = typeof opts === 'object' && opts ? opts.choiceStep : undefined;
+  const choice = stepCfg ? createDialogChoiceStep(msgEl, stepCfg, titleEl.id) : null;
+  _dialogChoice = choice;
+  let choicePageShown = false;
+  // The choice page has no message, so it drops the description while shown.
   const dialogPanel = msgEl.closest<HTMLElement>('[role="dialog"]');
-  if (dialogPanel) {
-    if (_dialogChoice) {
-      const messageText = document.createElement('span');
-      messageText.id = 'dialog-message-text';
-      msgEl.insertBefore(messageText, messageNode);
-      messageText.appendChild(messageNode);
-      dialogPanel.setAttribute('aria-describedby', messageText.id);
-    } else {
-      dialogPanel.setAttribute('aria-describedby', msgEl.id);
-    }
-  }
+  dialogPanel?.setAttribute('aria-describedby', msgEl.id);
 
   okBtn.textContent = buttonText;
 
@@ -516,25 +583,59 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   };
 
   _dialogActive = { resolve, prevFocus, cleanup };
+  if (choice) {
+    // Both pages share the short-viewport spacing, so the title stays put.
+    overlay.classList.add('dialog-stepped');
+    cleanup.push(() => {
+      overlay.classList.remove('dialog-stepped');
+      choice.destroy();
+      msgEl.hidden = false;
+      dialogPanel?.setAttribute('aria-describedby', msgEl.id);
+    });
+  }
+
+  // The choice page swaps the title and both actions in place; the first
+  // page keeps the caller's copy.
+  const pageTitle = () =>
+    choicePageShown && stepCfg
+      ? dialogText(stepCfg.title)
+      : dialogText(o.title) || t('common.info');
+  const pagePrimaryText = () =>
+    (choicePageShown && stepCfg ? dialogText(stepCfg.buttonText) : dialogText(o.buttonText)) ||
+    t('common.ok');
+  const pageSecondaryText = () =>
+    (choicePageShown && stepCfg
+      ? dialogText(stepCfg.backText)
+      : dialogText(secondaryTextRaw)
+    ).trim();
+  const secondaryShown = () => !!secondaryBtn && !secondaryBtn.hidden;
+  const applyPageCopy = () => {
+    const currentTitle = pageTitle();
+    titleEl.textContent = currentTitle;
+    applyUserTextFontFallback(titleEl, currentTitle);
+    okBtn.textContent = pagePrimaryText();
+    if (secondaryBtn) {
+      const currentSecondary = pageSecondaryText();
+      secondaryBtn.hidden = !currentSecondary;
+      if (currentSecondary) secondaryBtn.textContent = currentSecondary;
+    }
+  };
+
   cleanup.push(
     bus.on('i18n:changed', () => {
-      const currentTitle = dialogText(o.title) || t('common.info');
-      titleEl.textContent = currentTitle;
+      applyPageCopy();
+      const inputTitle = dialogText(o.title) || t('common.info');
       messageNode.textContent = dialogText(o.message);
-      okBtn.textContent = dialogText(o.buttonText) || t('common.ok');
-      if (secondaryBtn && hasSecondary)
-        secondaryBtn.textContent = dialogText(secondaryTextRaw).trim();
-      applyUserTextFontFallback(titleEl, currentTitle);
       applyUserTextFontFallback(msgEl, messageNode.textContent || '');
       if (_dialogInput && inputCfg) {
         const currentPlaceholder = dialogText(inputCfg.placeholder);
-        _dialogInput.setAttribute('aria-label', currentPlaceholder || currentTitle);
+        _dialogInput.setAttribute('aria-label', currentPlaceholder || inputTitle);
         if (_dialogInput.classList.contains('dialog-input')) {
           if (currentPlaceholder) _dialogInput.setAttribute('data-placeholder', currentPlaceholder);
           else _dialogInput.removeAttribute('data-placeholder');
         }
         _dialogInput.querySelectorAll('.dialog-input-segment').forEach((input, index) => {
-          input.setAttribute('aria-label', `${currentPlaceholder || currentTitle} ${index + 1}`);
+          input.setAttribute('aria-label', `${currentPlaceholder || inputTitle} ${index + 1}`);
         });
         _dialogHintDefault = dialogText(inputCfg.hint);
         if (_dialogHint) {
@@ -546,7 +647,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
           applyUserTextFontFallback(_dialogHint, _dialogHint.textContent);
         }
       }
-      _dialogChoice?.refresh();
+      if (choice) {
+        choice.refresh();
+        choice.updateEdges();
+      }
     }),
   );
   if (o.signal) {
@@ -555,35 +659,97 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     });
   }
 
-  const tryValidateAndClose = () => {
-    if (_dialogValidator && _dialogInput) {
-      const rawValue = _dialogInputValueGetter
-        ? _dialogInputValueGetter()
-        : _dialogInput.textContent || '';
-      const val = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
-      const error = _dialogValidator(val);
-      if (error) {
-        // Show inline error
-        if (_dialogHint) {
-          _dialogHint.textContent = error;
-          applyUserTextFontFallback(_dialogHint, error);
-          _dialogHint.classList.add('error');
-        }
-        _dialogInput.classList.add('invalid');
-        setDialogInputInvalid(true);
-        _dialogInput.classList.remove('shake');
-        // Force reflow to restart animation
-        void _dialogInput.offsetWidth;
-        _dialogInput.classList.add('shake');
-        _dialogInput.addEventListener(
-          'animationend',
-          () => {
-            _dialogInput?.classList.remove('shake');
-          },
-          { once: true },
-        );
-        return;
-      }
+  const validateInput = (): boolean => {
+    if (!_dialogValidator || !_dialogInput) return true;
+    const rawValue = _dialogInputValueGetter
+      ? _dialogInputValueGetter()
+      : _dialogInput.textContent || '';
+    const val = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
+    const error = _dialogValidator(val);
+    if (!error) return true;
+    // Show inline error
+    if (_dialogHint) {
+      _dialogHint.textContent = error;
+      applyUserTextFontFallback(_dialogHint, error);
+      _dialogHint.classList.add('error');
+    }
+    _dialogInput.classList.add('invalid');
+    setDialogInputInvalid(true);
+    _dialogInput.classList.remove('shake');
+    // Force reflow to restart animation
+    void _dialogInput.offsetWidth;
+    _dialogInput.classList.add('shake');
+    _dialogInput.addEventListener(
+      'animationend',
+      () => {
+        _dialogInput?.classList.remove('shake');
+      },
+      { once: true },
+    );
+    return false;
+  };
+
+  let pageSwappedAt = Number.NEGATIVE_INFINITY;
+  const justSwappedPage = () =>
+    choice !== null && Date.now() - pageSwappedAt < STEP_SWAP_ACTION_GUARD_MS;
+
+  const resetPageScroll = () => {
+    (dialogPanel ?? overlay).scrollTop = 0;
+    if (choice) choice.list.scrollTop = 0;
+  };
+
+  // A pointer activation must not paint a keyboard ring on the checked row
+  // (iOS keeps focus-visible from the PIN input). The next key, or focus
+  // leaving the group, restores the normal ring.
+  const suppressPointerFocusRing = () => {
+    if (!choice) return;
+    const { list } = choice;
+    list.classList.add('dialog-choice-pointer-focus');
+    const restore = () => {
+      list.classList.remove('dialog-choice-pointer-focus');
+      list.removeEventListener('focusout', restore);
+      overlay.removeEventListener('keydown', restore, true);
+    };
+    list.addEventListener('focusout', restore);
+    overlay.addEventListener('keydown', restore, true);
+    cleanup.push(restore);
+  };
+
+  const showChoicePage = (viaPointer: boolean) => {
+    if (!choice) return;
+    choicePageShown = true;
+    pageSwappedAt = Date.now();
+    msgEl.hidden = true;
+    choice.frame.hidden = false;
+    dialogPanel?.removeAttribute('aria-describedby');
+    applyPageCopy();
+    resetPageScroll();
+    choice.updateEdges();
+    const target = choice.focusTarget();
+    if (!target) return;
+    if (viaPointer) suppressPointerFocusRing();
+    target.focus();
+  };
+
+  const showInputPage = () => {
+    if (!choice) return;
+    choicePageShown = false;
+    pageSwappedAt = Date.now();
+    choice.frame.hidden = true;
+    msgEl.hidden = false;
+    dialogPanel?.setAttribute('aria-describedby', msgEl.id);
+    applyPageCopy();
+    resetPageScroll();
+    const target = (_dialogInputFocusTarget || _dialogInput || okBtn) as HTMLElement;
+    target.focus({ preventScroll: true });
+  };
+
+  const activatePrimary = (viaPointer = false) => {
+    if (justSwappedPage()) return;
+    if (!choicePageShown && !validateInput()) return;
+    if (choice && !choicePageShown) {
+      showChoicePage(viaPointer);
+      return;
     }
     try {
       o.onPrimaryActivation?.();
@@ -612,6 +778,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   const done = (action: string) => closeDialog(action);
   const activateSecondary = () => {
+    if (justSwappedPage()) return;
+    if (choicePageShown) {
+      showInputPage();
+      return;
+    }
     try {
       o.onSecondaryActivation?.();
     } catch (error) {
@@ -625,8 +796,16 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (e.target === overlay) done('overlay');
   });
 
-  on(okBtn, 'click', () => tryValidateAndClose());
-  if (hasSecondary && secondaryBtn) {
+  if (choice) {
+    // The taller choice page re-centres, so the second press of a double
+    // press on Next can land on a row instead of OK. Keep the default then.
+    // Arrow keys fire clicks with no pointer detail; they stay immediate.
+    on(choice.list, 'click', (e) => {
+      if (justSwappedPage() && (e as MouseEvent).detail > 0) e.preventDefault();
+    });
+  }
+  on(okBtn, 'click', (e) => activatePrimary((e as MouseEvent).detail > 0));
+  if ((hasSecondary || choice) && secondaryBtn) {
     on(secondaryBtn, 'click', activateSecondary);
   }
 
@@ -637,7 +816,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       if (ke.isComposing || ke.keyCode === 229) return;
       if (ke.key === 'Enter') {
         ke.preventDefault();
-        tryValidateAndClose();
+        // A held Enter must not run on into the next page's OK.
+        if (choice && ke.repeat) return;
+        activatePrimary();
       }
     });
   }
@@ -647,28 +828,34 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (ke.defaultPrevented || overlay.hasAttribute('inert')) return;
     if (ke.isComposing || ke.keyCode === 229) return;
     if (ke.key === 'Escape') {
-      if (!dismissible) return;
+      // A stepped dialog closes on Escape from either page, like the language
+      // list; nothing is applied until its final primary action.
+      if (!dismissible && !choice) return;
       ke.preventDefault();
       done('escape');
       return;
     }
 
     if (ke.key === 'Enter') {
+      if (choice && ke.repeat) {
+        ke.preventDefault();
+        return;
+      }
       const focused = document.activeElement;
       if (
-        _dialogChoice &&
+        choicePageShown &&
+        choice &&
         focused instanceof HTMLInputElement &&
-        _dialogChoice.radios.includes(focused)
+        choice.radios.includes(focused)
       ) {
-        // A radio has no Enter behavior of its own: confirm the dialog, and
-        // still run the input validator first.
+        // A radio has no Enter behavior of its own: confirm the choice.
         ke.preventDefault();
-        tryValidateAndClose();
+        activatePrimary();
       } else if (focused === okBtn && !okBtn.disabled) {
         ke.preventDefault();
-        tryValidateAndClose();
+        activatePrimary();
       } else if (
-        hasSecondary &&
+        secondaryShown() &&
         secondaryBtn &&
         focused === secondaryBtn &&
         !secondaryBtn.disabled
@@ -680,14 +867,15 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
 
     if (ke.key === 'Tab') {
-      const actionButtons = stackedActions
-        ? [okBtn, hasSecondary ? secondaryBtn : null]
-        : [hasSecondary ? secondaryBtn : null, okBtn];
-      const focusables = [
-        (_dialogInputFocusTarget || _dialogInput) as HTMLElement | null,
-        _dialogChoice?.focusTarget() ?? null,
-        ...actionButtons,
-      ].filter((x): x is HTMLElement => x != null && x.offsetParent !== null);
+      const secondary = secondaryShown() ? secondaryBtn : null;
+      const actionButtons = stackedActions ? [okBtn, secondary] : [secondary, okBtn];
+      const pageTarget =
+        choicePageShown && choice
+          ? choice.focusTarget()
+          : ((_dialogInputFocusTarget || _dialogInput) as HTMLElement | null);
+      const focusables = [pageTarget, ...actionButtons].filter(
+        (x): x is HTMLElement => x != null && x.offsetParent !== null,
+      );
       if (focusables.length === 0) return;
 
       const first = focusables[0]!;

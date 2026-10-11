@@ -11,11 +11,8 @@ import type { ProRoomSessionEndReason } from './api.ts';
  */
 const REMOVAL_ACKNOWLEDGEMENT_KEY = 'mxqr_pro_removed_ack';
 
-export type ProRoomRemovalReason = Extract<ProRoomSessionEndReason, 'REMOVED' | 'DEVICE_REMOVED'>;
-export type ProRoomPinRemovalReason = Extract<
-  ProRoomSessionEndReason,
-  'PIN_ENABLED' | 'PIN_CHANGED'
->;
+type ProRoomRemovalReason = Extract<ProRoomSessionEndReason, 'REMOVED' | 'DEVICE_REMOVED'>;
+type ProRoomPinRemovalReason = Extract<ProRoomSessionEndReason, 'PIN_ENABLED' | 'PIN_CHANGED'>;
 
 export function isProRoomRemovalReason(
   reason: ProRoomSessionEndReason | null | undefined,

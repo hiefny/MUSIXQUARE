@@ -11308,6 +11308,61 @@ describe('Standard-room PIN membership and wrong-PIN limit', () => {
     });
   });
 
+  it('carries a kept device into the next keep change after its binding expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    const first = await membershipRecord(state);
+    // Its signaling socket stays down past the reconnect window while its data
+    // channel lives, so the host still lists it at the next change.
+    await dropSignaling(room, kept);
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+
+    await setPin(room, host, '24681357', keep('kept-guest'));
+    const second = await membershipRecord(state);
+    expect(second.kept).toEqual(first.kept);
+    expect(second.verifierDigest).not.toBe(first.verifierDigest);
+    expect(admitted(await joinGuest(room, 'kept-guest', { password: STALE_PIN }))).toBe(true);
+    const impostor = await joinGuest(room, 'kept-guest', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(closeReason(impostor)).toBe('ROOM_PASSWORD_INVALID');
+  });
+
+  it('carries nothing from a kept set that no longer exempts anyone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    const record = await membershipRecord(state);
+    await dropSignaling(room, kept);
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+
+    for (const stale of [
+      { ...record, roomSecretHash: 'A'.repeat(43) },
+      { ...record, verifierDigest: 'A'.repeat(43) },
+    ]) {
+      await state.storage.put(MEMBERSHIP_KEY, stale);
+      const reopened = reopen(state);
+      const reclaimed = await authenticateHost(
+        reopened,
+        'host-1',
+        'secret-a',
+        undefined,
+        '87654321',
+      );
+      expect(sent(reclaimed)[0]).toMatchObject({ type: 'peer-open' });
+      await state.storage.put(MEMBERSHIP_KEY, stale);
+      await setPin(reopened, reclaimed, '24681357', keep('kept-guest'));
+      expect(await state.storage.get(MEMBERSHIP_KEY)).toBeUndefined();
+      await setPin(reopened, reclaimed, '87654321');
+    }
+  });
+
   it('lets kept guests of an open room reconnect without a PIN after the first enable', async () => {
     const { room, host } = await createHostRoom();
     const guest = await joinGuest(room, 'open-guest');
@@ -11598,6 +11653,19 @@ describe('Standard-room PIN membership and wrong-PIN limit', () => {
     expect(pending.closed).toBe(false);
   });
 
+  it('tells revoked guests whether the PIN was set for the first time', async () => {
+    const { room, host } = await createHostRoom();
+    const guest = await joinGuest(room, 'open-guest');
+    const result = await setPin(room, host, '24681357', { existingParticipants: 'revoke_all' });
+    expect(result).toMatchObject({ applied: true, existingParticipants: 'revoke_all' });
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1008, reason: 'ROOM_PASSWORD_ENABLED' });
+    expect(sent(guest).at(-1)).toEqual({
+      type: 'error',
+      errorType: 'room-password-changed',
+      message: 'ROOM_PASSWORD_ENABLED',
+    });
+  });
+
   it('fences guest admission while a revocation commits and fails closed on storage errors', async () => {
     const { room, state, host } = await createPasswordRoom();
     const guest = await joinGuest(room, 'guest-a', { password: STALE_PIN });
@@ -11759,6 +11827,82 @@ describe('Standard-room PIN membership and wrong-PIN limit', () => {
     expect(
       admitted(await joinFrom(room, 'kept-guest', { password: STALE_PIN, ip: '198.51.100.7' })),
     ).toBe(true);
+  });
+
+  it('lets an admitted device recover its signaling past a bucket others locked', async () => {
+    const { room } = await createPasswordRoom();
+    const admittedGuest = await joinFrom(room, 'admitted', {
+      password: STALE_PIN,
+      ip: '198.51.100.9',
+    });
+    expect(admitted(admittedGuest)).toBe(true);
+    const bridgeGuest = await joinFrom(room, 'bridge-admitted', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(admitted(bridgeGuest)).toBe(true);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `typo-${attempt}`, {
+        password: '00000000',
+        ip: '198.51.100.9',
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      });
+      await joinFrom(room, `bridge-typo-${attempt}`, {
+        password: '00000000',
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      });
+    }
+    expect(
+      closeReason(await joinFrom(room, 'newcomer', { password: STALE_PIN, ip: '198.51.100.9' })),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    expect(closeReason(await joinFrom(room, 'bridge-newcomer', { password: STALE_PIN }))).toBe(
+      'ROOM_PASSWORD_RATE_LIMITED',
+    );
+
+    await dropSignaling(room, admittedGuest);
+    const recovered = await joinFrom(room, 'admitted', { password: STALE_PIN, ip: '198.51.100.9' });
+    expect(admitted(recovered)).toBe(true);
+    await dropSignaling(room, bridgeGuest);
+    const bridgeRecovered = await joinFrom(room, 'bridge-admitted', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(admitted(bridgeRecovered)).toBe(true);
+
+    // Another device's secret does not pass the lock under an admitted peer id.
+    expect(
+      closeReason(
+        await joinFrom(room, 'admitted', {
+          password: STALE_PIN,
+          ip: '198.51.100.9',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    expect(admitted(recovered)).toBe(true);
+  });
+
+  it('lets a reconnect binding carry only one wrong PIN past a locked bucket', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const guest = await joinFrom(room, 'bound', { password: STALE_PIN, ip: '192.0.2.77' });
+    expect(admitted(guest)).toBe(true);
+    await setPin(room, host, '87654321');
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `typo-${attempt}`, {
+        password: '00000000',
+        ip: '192.0.2.77',
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      });
+    }
+    await dropSignaling(room, guest);
+    const stale = await joinFrom(room, 'bound', { password: STALE_PIN, ip: '192.0.2.77' });
+    expect(closeReason(stale)).toBe('ROOM_PASSWORD_INVALID');
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+    for (const password of [STALE_PIN, '87654321']) {
+      expect(closeReason(await joinFrom(room, 'bound', { password, ip: '192.0.2.77' }))).toBe(
+        'ROOM_PASSWORD_RATE_LIMITED',
+      );
+    }
   });
 
   it('persists wrong-PIN windows across Durable Object instances until they expire', async () => {

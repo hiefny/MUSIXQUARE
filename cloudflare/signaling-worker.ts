@@ -4873,6 +4873,14 @@ export class MusixquareRoom {
       const secretHashes = new Map(
         bindings.entries.map((entry) => [entry.peerId, entry.secretHash]),
       );
+      // A device kept at the previous change can still be present on its data
+      // channel after its binding expired (signaling down for over five
+      // minutes). Carry its hash over only from a record that exempts it right
+      // now; a live binding, which holds the current secret, wins.
+      const current = await this.currentStandardPinMembership(meta, roomId);
+      for (const entry of current?.kept ?? []) {
+        if (!secretHashes.has(entry.peerId)) secretHashes.set(entry.peerId, entry.secretHash);
+      }
       const kept: StandardRoomPinKeptPeer[] = [];
       for (const peerId of directive.keptPeerIds) {
         const secretHash = secretHashes.get(peerId);
@@ -4900,14 +4908,44 @@ export class MusixquareRoom {
    * socket admitted under the new PIN. Pending candidates stay: the fence
    * refuses them and they then authenticate against the new verifier.
    */
-  private revokeAdmittedStandardGuestsForPinChange(): void {
+  private revokeAdmittedStandardGuestsForPinChange(firstEnable: boolean): void {
     const admitted = [...this.guests];
+    // One error type for both cases (older Apps treat it as permanent); the
+    // message tells a current App whether the host set or changed the PIN.
+    const reason = firstEnable ? 'ROOM_PASSWORD_ENABLED' : 'ROOM_PASSWORD_CHANGED';
     for (const [peerId, socket] of admitted) {
       this.guests.delete(peerId);
       if (this.host) send(this.host, { type: 'peer-left', peerId });
-      closeWithError(socket, 'room-password-changed', 'ROOM_PASSWORD_CHANGED', 1008);
+      closeWithError(socket, 'room-password-changed', reason, 1008);
     }
     if (admitted.length > 0) this.requestMaintenanceAlarm();
+  }
+
+  /**
+   * The kept-set record only while it exempts anyone: bound to this room
+   * epoch and to the current verifier digest. Anything else means none.
+   */
+  private async currentStandardPinMembership(
+    meta: RoomMeta,
+    roomId: string,
+  ): Promise<StandardRoomPinMembership | null> {
+    if (
+      meta.v !== 2 ||
+      !meta.roomSecret ||
+      meta.roomPasswordVerifier === null ||
+      !isValidStandardRoomPinVerifier(meta.roomPasswordVerifier)
+    ) {
+      return null;
+    }
+    const membership = await this.loadStandardPinMembership();
+    if (
+      !membership ||
+      !constantTimeStringEqual(membership.verifierDigest, meta.roomPasswordVerifier.digest)
+    ) {
+      return null;
+    }
+    const roomSecretHash = await standardRoomPinMembershipRoomSecretHash(roomId, meta.roomSecret);
+    return constantTimeStringEqual(membership.roomSecretHash, roomSecretHash) ? membership : null;
   }
 
   /** A peer the host kept across the current PIN, proven by its reconnect secret. */
@@ -4917,26 +4955,10 @@ export class MusixquareRoom {
     peerId: string,
     reconnectSecret: string,
   ): Promise<boolean> {
-    if (
-      meta.v !== 2 ||
-      !meta.roomSecret ||
-      meta.roomPasswordVerifier === null ||
-      !isValidStandardRoomPinVerifier(meta.roomPasswordVerifier) ||
-      !/^[A-Za-z0-9_-]{43}$/.test(reconnectSecret)
-    ) {
-      return false;
-    }
-    const membership = await this.loadStandardPinMembership();
+    if (!/^[A-Za-z0-9_-]{43}$/.test(reconnectSecret)) return false;
+    const membership = await this.currentStandardPinMembership(meta, roomId);
     const entry = membership?.kept.find((candidate) => candidate.peerId === peerId);
-    if (
-      !membership ||
-      !entry ||
-      !constantTimeStringEqual(membership.verifierDigest, meta.roomPasswordVerifier.digest)
-    ) {
-      return false;
-    }
-    const roomSecretHash = await standardRoomPinMembershipRoomSecretHash(roomId, meta.roomSecret);
-    if (!constantTimeStringEqual(membership.roomSecretHash, roomSecretHash)) return false;
+    if (!entry) return false;
     const presentedHash = await hashGuestReconnectSecret(reconnectSecret);
     return constantTimeStringEqual(presentedHash, entry.secretHash);
   }
@@ -4954,6 +4976,44 @@ export class MusixquareRoom {
       // every legitimate guest.
       this.reportFailure('webSocketMessage', 'handled', error);
       return 0;
+    }
+  }
+
+  /** The presented reconnect secret matches this peer's live reconnect binding. */
+  private async presentsLiveGuestBinding(
+    peerId: string,
+    reconnectSecret: string,
+  ): Promise<boolean> {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(reconnectSecret)) return false;
+    try {
+      const stored = await this.loadGuestBindings();
+      if (this.guestBindingsInvalid) return false;
+      const binding = this.pruneGuestBindings(stored).entries.find(
+        (entry) => entry.peerId === peerId,
+      );
+      if (!binding) return false;
+      const presentedHash = await hashGuestReconnectSecret(reconnectSecret);
+      return constantTimeStringEqual(presentedHash, binding.secretHash);
+    } catch (error) {
+      // Fail closed: without a readable binding the lock applies as usual.
+      this.reportFailure('webSocketMessage', 'handled', error);
+      return false;
+    }
+  }
+
+  private async dropGuestBinding(peerId: string): Promise<void> {
+    try {
+      const bindings = await this.loadGuestBindings();
+      if (this.guestBindingsInvalid) return;
+      if (!bindings.entries.some((entry) => entry.peerId === peerId)) return;
+      await this.saveGuestBindings({
+        ...bindings,
+        entries: bindings.entries.filter((entry) => entry.peerId !== peerId),
+      });
+    } catch (error) {
+      // The wrong PIN is already refused and counted; a failed write only
+      // leaves this binding one more attempt past the lock.
+      this.reportFailure('webSocketMessage', 'handled', error);
     }
   }
 
@@ -7708,7 +7768,15 @@ export class MusixquareRoom {
     }
     if (passwordRequired && !keptByHost) {
       const lockedForMs = await this.standardPinAttemptLockedForMs(attachment.pinAttemptKey);
-      if (lockedForMs > 0) {
+      // A device already admitted to this room (its live reconnect binding
+      // matches) is not refused by a bucket that other people on its network
+      // locked: refusing it would end its signaling recovery. Its PIN is still
+      // checked, and a wrong one also drops that binding, so a binding carries
+      // at most one attempt past a locked bucket.
+      const boundPastLock =
+        lockedForMs > 0 &&
+        (await this.presentsLiveGuestBinding(attachment.peerId, reconnectSecret));
+      if (lockedForMs > 0 && !boundPastLock) {
         this.pendingGuests.delete(ws);
         this.requestMaintenanceAlarm();
         this.recordMetric('guest_auth_rate_limited');
@@ -7719,6 +7787,7 @@ export class MusixquareRoom {
       }
       if (!(await this.verifyStandardRoomPassword(meta, attachment.roomId, password))) {
         await this.recordStandardPinFailure(attachment.pinAttemptKey);
+        if (boundPastLock) await this.dropGuestBinding(attachment.peerId);
         this.pendingGuests.delete(ws);
         this.requestMaintenanceAlarm();
         this.recordMetric('guest_auth_failed');
@@ -7966,7 +8035,9 @@ export class MusixquareRoom {
             await this.saveRoomMeta(currentRoomMeta(meta, verifier));
           } else {
             const revokeAll = directive?.mode === 'revoke_all';
-            if (revokeAll) this.revokeAdmittedStandardGuestsForPinChange();
+            if (revokeAll) {
+              this.revokeAdmittedStandardGuestsForPinChange(!hasStandardRoomPassword(meta));
+            }
             await this.commitStandardRoomPinState(
               currentRoomMeta(meta, verifier),
               membership,

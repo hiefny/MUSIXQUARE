@@ -343,7 +343,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.9.6';
+const ADMIN_SCRIPT_VERSION = '8.10.0';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -5531,6 +5531,7 @@ function renderSignals(summary: AdminMetricsSummary): void {
     ['Password prompts', last24.guest_auth_pending || 0],
     ['Password failures', last24.guest_auth_failed || 0],
     ['Password timeouts', last24.guest_auth_timeout || 0],
+    ['Password lockouts', last24.guest_auth_rate_limited || 0],
     ['Host reconnects', last24.host_reconnected || 0],
   ];
   signalEl.replaceChildren(

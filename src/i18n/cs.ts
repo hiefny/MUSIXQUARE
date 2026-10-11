@@ -285,16 +285,15 @@ const cs: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopírovat zvací odkaz',
   'connect.link_copied': 'Zvací odkaz byl zkopírován',
   'connect.room_password_title': 'Vyžadovat při vstupu heslo',
-  'connect.room_password_set': 'Nastavit',
   'connect.room_password_toggle_aria': 'Přepnout požadavek na heslo místnosti',
-  'connect.room_password_input_aria': 'Zadejte osmimístné heslo místnosti',
-  'connect.room_password_refresh_aria': 'Vygenerovat nové heslo místnosti',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Čeká se na 8 číslic',
   'connect.room_password_on': 'Heslo je nastaveno',
   'connect.room_password_invalid': 'Zadejte 8 číslic',
-  'connect.room_password_enabled': 'Noví účastníci budou potřebovat heslo místnosti',
   'connect.room_password_disabled': 'Účastníci už heslo místnosti nepotřebují',
+  'connect.room_password_apply_pending': 'Nové heslo začne platit, jakmile se obnoví připojení.',
+  'connect.pin_enabled_removed_message':
+    'Hostitel nastavil heslo místnosti. Zadejte ho a připojte se znovu.',
+  'connect.pin_changed_removed_message':
+    'Hostitel změnil heslo místnosti. Zadejte nové heslo a připojte se znovu.',
   'connect.signaling_healthy': 'Server místnosti je online',
   'connect.signaling_recovering': 'Probíhá opětovné připojení…',
   'connect.signaling_failed': 'Připojení k serveru se nezdařilo',
@@ -427,6 +426,10 @@ const cs: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Soubor této skladby je velmi velký a na některých zařízeních se nemusí přehrát.',
   'chat.device_track_unavailable_system_message': 'Toto zařízení nemůže přehrát aktuální skladbu.',
+  'chat.update_available_tab_system_message':
+    'Je k dispozici nová verze MUSIXQUARE. Projeví se po opětovném načtení stránky.',
+  'chat.update_available_app_system_message':
+    'Je k dispozici nová verze MUSIXQUARE. Projeví se po opětovném otevření aplikace.',
   'chat.system_audio_started_system_message':
     'Sdílení systémového zvuku bylo spuštěno. Mírné zpoždění mezi zařízením hostitele a zařízeními účastníků je běžné. Doporučujeme ztlumit zařízení hostitele, aby nevznikala ozvěna.',
   'chat.system_audio_stopped_system_message':
@@ -721,6 +724,9 @@ const cs: Record<I18nKey, string> = {
   'dialog.leave_session': 'Odejít',
   'dialog.sw_update_title': 'Aktualizace',
   'dialog.sw_update_msg': 'Je připravena nová verze. Aktualizujte ji načtením stránky znovu.',
+  'dialog.feature_refresh_title': 'Je potřeba načíst stránku znovu',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE byl aktualizován. Chcete-li ho dál normálně používat, načtěte stránku znovu.',
   'dialog.reconnect_ask': 'Chcete se znovu připojit?',
   'dialog.reconnect': 'Připojit znovu',
   'dialog.go_back': 'Zpět',
@@ -731,6 +737,10 @@ const cs: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Heslo nesouhlasí. Zkuste to znovu.',
   'dialog.room_password_timeout_msg': 'Vypršel časový limit připojení. Zadejte heslo znovu.',
   'dialog.room_password_placeholder': 'Osmimístné heslo',
+  'dialog.room_password_rate_limited':
+    'Příliš mnohokrát jste zadali nesprávné heslo. Zkuste to znovu za {{count}} min.',
+  'dialog.room_password_rate_limited_later':
+    'Příliš mnohokrát jste zadali nesprávné heslo. Zkuste to znovu za chvíli.',
   'dialog.session_lost_msg':
     'Aplikace přešla do režimu spánku nebo ztratila spojení, takže ostatní zařízení už byla odpojena. Restartováním zahájíte novou relaci.',
   'dialog.session_lost_btn': 'Restartovat',
@@ -820,6 +830,7 @@ const cs: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Příliš mnoho pokusů o připojení. Zkuste to znovu za chvíli.',
   'pro.active_tab_title': 'Předchozí připojení stále existuje',
   'pro.active_tab_message': 'Pokračováním zde ukončíte předchozí připojení.',
+  'pro.active_tab_replaced': 'Tato místnost PRO už je otevřená na jiné kartě',
   'pro.use_this_tab': 'Pokračovat zde',
   'pro.upload.batch_progress': 'Nahrávání skladeb {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Některé skladby se nepodařilo nahrát',

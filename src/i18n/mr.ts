@@ -284,16 +284,15 @@ const mr: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'आमंत्रण लिंक कॉपी करा',
   'connect.link_copied': 'आमंत्रण लिंक कॉपी केली',
   'connect.room_password_title': 'सामील होण्यासाठी पासवर्ड आवश्यक करा',
-  'connect.room_password_set': 'सेट करा',
   'connect.room_password_toggle_aria': 'रूमच्या पासवर्डची आवश्यकता चालू/बंद करा',
-  'connect.room_password_input_aria': 'रूमचा 8-अंकी पासवर्ड प्रविष्ट करा',
-  'connect.room_password_refresh_aria': 'रूमसाठी नवीन पासवर्ड तयार करा',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 अंकांची प्रतीक्षा आहे',
   'connect.room_password_on': 'पासवर्ड लागू केला',
   'connect.room_password_invalid': '8 अंक प्रविष्ट करा',
-  'connect.room_password_enabled': 'नवीन सहभागींना रूमचा पासवर्ड द्यावा लागेल',
   'connect.room_password_disabled': 'सहभागींना यापुढे रूमचा पासवर्ड लागणार नाही',
+  'connect.room_password_apply_pending': 'कनेक्शन परत आल्यावर नवीन पासवर्ड लागू होईल.',
+  'connect.pin_enabled_removed_message':
+    'होस्टने रूमचा पासवर्ड सेट केला आहे. पुन्हा सामील होण्यासाठी तो प्रविष्ट करा.',
+  'connect.pin_changed_removed_message':
+    'होस्टने रूमचा पासवर्ड बदलला आहे. पुन्हा सामील होण्यासाठी नवीन पासवर्ड प्रविष्ट करा.',
   'connect.signaling_healthy': 'रूम सर्व्हर ऑनलाइन आहे',
   'connect.signaling_recovering': 'पुन्हा कनेक्ट होत आहे…',
   'connect.signaling_failed': 'सर्व्हर कनेक्शन अयशस्वी',
@@ -423,6 +422,10 @@ const mr: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो कदाचित प्ले होणार नाही.',
   'chat.device_track_unavailable_system_message': 'हे डिव्हाइस सध्याचा ट्रॅक प्ले करू शकत नाही.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे. लागू करण्यासाठी पेज रीफ्रेश करा.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे. लागू करण्यासाठी अ‍ॅप पुन्हा उघडा.',
   'chat.system_audio_started_system_message':
     'सिस्टम ऑडिओ शेअरिंग सुरू झाले आहे. होस्ट आणि अतिथी डिव्हाइसदरम्यान थोडा विलंब होणे सामान्य आहे. प्रतिध्वनी टाळण्यासाठी होस्ट डिव्हाइसचा आवाज कमी ठेवण्याची शिफारस केली जाते.',
   'chat.system_audio_stopped_system_message':
@@ -709,6 +712,9 @@ const mr: Record<I18nKey, string> = {
   'dialog.leave_session': 'बाहेर पडा',
   'dialog.sw_update_title': 'अद्ययावत करा',
   'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे. अद्ययावत करण्यासाठी रीफ्रेश करा.',
+  'dialog.feature_refresh_title': 'रीफ्रेश करणे आवश्यक आहे',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE अद्ययावत झाले आहे. नेहमीप्रमाणे वापरणे सुरू ठेवण्यासाठी रीफ्रेश करा.',
   'dialog.reconnect_ask': 'पुन्हा कनेक्ट करायचे?',
   'dialog.reconnect': 'पुन्हा कनेक्ट करा',
   'dialog.go_back': 'मागे जा',
@@ -720,6 +726,10 @@ const mr: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'कनेक्शनची वेळ संपली. पुन्हा प्रयत्न करण्यासाठी पासवर्ड पुन्हा प्रविष्ट करा.',
   'dialog.room_password_placeholder': '8-अंकी पासवर्ड',
+  'dialog.room_password_rate_limited':
+    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. {{count}} मिनिटांनी पुन्हा प्रयत्न करा.',
+  'dialog.room_password_rate_limited_later':
+    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. थोड्या वेळाने पुन्हा प्रयत्न करा.',
   'dialog.session_lost_msg':
     'अ‍ॅप स्लीप मोडमध्ये गेले किंवा त्याचे कनेक्शन तुटले, त्यामुळे इतर डिव्हाइस आधीच डिस्कनेक्ट झाली आहेत. नवीन सत्र सुरू करण्यासाठी पुन्हा सुरू करा.',
   'dialog.session_lost_btn': 'पुन्हा सुरू करा',
@@ -811,6 +821,7 @@ const mr: Record<I18nKey, string> = {
     'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
   'pro.active_tab_title': 'आधीचे कनेक्शन शिल्लक आहे',
   'pro.active_tab_message': 'इथे पुढे गेल्यास आधीचे कनेक्शन तुटेल.',
+  'pro.active_tab_replaced': 'ही PRO रूम आधीपासून दुसऱ्या टॅबमध्ये उघडी आहे',
   'pro.use_this_tab': 'इथे पुढे जा',
   'pro.upload.batch_progress': 'ट्रॅक अपलोड होत आहेत {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'काही ट्रॅक अपलोड करता आले नाहीत',
@@ -928,5 +939,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. {{count}} मिनिटाने पुन्हा प्रयत्न करा.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. {{count}} मिनिटाने पुन्हा प्रयत्न करा.',
   },
 } satisfies LocalePluralMessages;

@@ -285,17 +285,16 @@ const fi: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopioi kutsulinkki',
   'connect.link_copied': 'Kutsulinkki kopioitu',
   'connect.room_password_title': 'Vaadi liittymiseen salasana',
-  'connect.room_password_set': 'Aseta',
   'connect.room_password_toggle_aria':
     'Ota huoneen salasanavaatimus käyttöön tai poista se käytöstä',
-  'connect.room_password_input_aria': 'Anna huoneen 8-numeroinen salasana',
-  'connect.room_password_refresh_aria': 'Luo uusi huoneen salasana',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Odotetaan 8 numeroa',
   'connect.room_password_on': 'Salasana käytössä',
   'connect.room_password_invalid': 'Anna 8 numeroa',
-  'connect.room_password_enabled': 'Uudet osallistujat tarvitsevat huoneen salasanan',
   'connect.room_password_disabled': 'Osallistujat eivät enää tarvitse huoneen salasanaa',
+  'connect.room_password_apply_pending': 'Uusi salasana tulee voimaan, kun yhteys palautuu.',
+  'connect.pin_enabled_removed_message':
+    'Isäntä asetti huoneelle salasanan. Anna se, niin voit liittyä uudelleen.',
+  'connect.pin_changed_removed_message':
+    'Isäntä vaihtoi huoneen salasanan. Anna uusi salasana, niin voit liittyä uudelleen.',
   'connect.signaling_healthy': 'Huonepalvelin on käytettävissä',
   'connect.signaling_recovering': 'Yhdistetään uudelleen…',
   'connect.signaling_failed': 'Palvelinyhteys epäonnistui',
@@ -427,6 +426,10 @@ const fi: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Tiedosto on erittäin suuri, eikä kappale välttämättä toistu kaikilla laitteilla.',
   'chat.device_track_unavailable_system_message': 'Tämä laite ei voi toistaa nykyistä kappaletta.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUAREsta on saatavilla uusi versio. Päivitä sivu ottaaksesi sen käyttöön.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUAREsta on saatavilla uusi versio. Avaa sovellus uudelleen ottaaksesi sen käyttöön.',
   'chat.system_audio_started_system_message':
     'Järjestelmän äänen jakaminen aloitettiin. Pieni viive isäntä- ja vieraslaitteiden välillä on normaalia. Kaikumisen välttämiseksi isäntälaitteen äänenvoimakkuutta kannattaa pienentää.',
   'chat.system_audio_stopped_system_message':
@@ -717,6 +720,9 @@ const fi: Record<I18nKey, string> = {
   'dialog.leave_session': 'Poistu',
   'dialog.sw_update_title': 'Päivitys',
   'dialog.sw_update_msg': 'Uusi versio on valmis. Päivitä sivu ottaaksesi sen käyttöön.',
+  'dialog.feature_refresh_title': 'Sivu on päivitettävä',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE on päivittynyt. Päivitä sivu, jotta voit jatkaa sen käyttöä normaalisti.',
   'dialog.reconnect_ask': 'Haluatko muodostaa yhteyden uudelleen?',
   'dialog.reconnect': 'Yhdistä uudelleen',
   'dialog.go_back': 'Palaa takaisin',
@@ -727,6 +733,10 @@ const fi: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Salasana ei täsmännyt. Yritä uudelleen.',
   'dialog.room_password_timeout_msg': 'Yhteys aikakatkaistiin. Yritä uudelleen antamalla salasana.',
   'dialog.room_password_placeholder': '8-numeroinen salasana',
+  'dialog.room_password_rate_limited':
+    'Annoit väärän salasanan liian monta kertaa. Yritä uudelleen {{count}} minuutin kuluttua.',
+  'dialog.room_password_rate_limited_later':
+    'Annoit väärän salasanan liian monta kertaa. Yritä hetken kuluttua uudelleen.',
   'dialog.session_lost_msg':
     'Sovellus siirtyi lepotilaan tai menetti yhteyden, joten muiden laitteiden yhteydet ovat jo katkenneet. Aloita uusi istunto käynnistämällä uudelleen.',
   'dialog.session_lost_btn': 'Käynnistä uudelleen',
@@ -817,6 +827,7 @@ const fi: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Liian monta liittymisyritystä. Yritä hetken kuluttua uudelleen.',
   'pro.active_tab_title': 'Aiempi yhteys on yhä jäljellä',
   'pro.active_tab_message': 'Jos jatkat tässä, aiempi yhteys katkaistaan.',
+  'pro.active_tab_replaced': 'Tämä PRO-huone on jo avoinna toisessa välilehdessä',
   'pro.use_this_tab': 'Jatka tässä',
   'pro.upload.batch_progress': 'Lähetetään kappaleita {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Joitakin kappaleita ei voitu lähettää',

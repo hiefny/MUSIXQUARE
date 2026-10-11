@@ -32,6 +32,8 @@ import type {
   StandardRoomIdentityAssertions,
   StandardRoomIdentityClearReason,
   StandardRoomMemberIdentity,
+  StandardRoomPinCommit,
+  StandardRoomPinMembershipRequest,
   RemoteShareUploadAssertionRequest,
 } from './types.ts';
 import {
@@ -50,6 +52,7 @@ type SignalingMessage =
       memberIdentity?: StandardRoomMemberIdentity;
       remoteShareUploadAssertionVersion?: 1;
       remoteShareUploadAssertionKeyringVersion?: 1;
+      standardRoomPinMembershipVersion?: 1;
       roomPasswordMutationId?: string;
       roomPasswordApplied?: true;
     }
@@ -58,8 +61,9 @@ type SignalingMessage =
       mutationId: string;
       applied: boolean;
       errorType?: string;
+      existingParticipants?: StandardRoomPinMembershipRequest['mode'];
     }
-  | { type: 'error'; errorType?: string; message?: string }
+  | { type: 'error'; errorType?: string; message?: string; retryAfterSeconds?: number }
   | {
       type: 'remote-share-upload-assertion';
       correlationId: string;
@@ -129,7 +133,13 @@ type SignalingMessage =
   | ProQueueAdditionFrame;
 
 type OutgoingSignal =
-  | { type: 'room-password-set'; password: string; pinMutationId: string }
+  | {
+      type: 'room-password-set';
+      password: string;
+      pinMutationId: string;
+      existingParticipants?: StandardRoomPinMembershipRequest['mode'];
+      keptPeerIds?: string[];
+    }
   | ({
       type: 'remote-share-upload-assertion-request';
       correlationId: string;
@@ -762,6 +772,48 @@ function createTransportError(type: string, message: string): Error & { type: st
   const err = new Error(message) as Error & { type: string };
   err.type = type;
   return err;
+}
+
+/** A Worker `error` frame as a transport error, keeping a bounded retry hint. */
+function createSignalingFrameError(message: {
+  errorType?: string;
+  message?: string;
+  retryAfterSeconds?: number;
+}): Error & { type: string; retryAfterSeconds?: number } {
+  const error: Error & { type: string; retryAfterSeconds?: number } = createTransportError(
+    message.errorType ?? 'server-error',
+    message.message ?? 'SIGNALING_ERROR',
+  );
+  const retryAfterSeconds = message.retryAfterSeconds;
+  if (
+    typeof retryAfterSeconds === 'number' &&
+    Number.isSafeInteger(retryAfterSeconds) &&
+    retryAfterSeconds > 0 &&
+    retryAfterSeconds <= 24 * 60 * 60
+  ) {
+    error.retryAfterSeconds = retryAfterSeconds;
+  }
+  return error;
+}
+
+const STANDARD_ROOM_PIN_KEPT_PEERS_MAX = 99;
+
+/** Keep only well-formed, unique peer ids; an unknown mode sends nothing. */
+function sanitizeStandardRoomPinMembership(
+  membership: StandardRoomPinMembershipRequest | undefined,
+): StandardRoomPinMembershipRequest | null {
+  if (membership?.mode === 'revoke_all') return { mode: 'revoke_all', keptPeerIds: [] };
+  if (membership?.mode !== 'keep_present') return null;
+  const keptPeerIds: string[] = [];
+  const candidates: readonly unknown[] = Array.isArray(membership.keptPeerIds)
+    ? membership.keptPeerIds
+    : [];
+  for (const peerId of candidates) {
+    if (keptPeerIds.length >= STANDARD_ROOM_PIN_KEPT_PEERS_MAX) break;
+    if (typeof peerId !== 'string' || !/^[A-Za-z0-9_-]{1,96}$/.test(peerId)) continue;
+    if (!keptPeerIds.includes(peerId)) keptPeerIds.push(peerId);
+  }
+  return { mode: 'keep_present', keptPeerIds };
 }
 
 function isPermanentGuestAuthError(errorType: string | undefined): boolean {
@@ -1514,6 +1566,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private roomPasswordMutationId = randomBase64Url(24);
   private acknowledgedRoomPasswordMutationId: string | null = null;
   private acknowledgedRoomPasswordSocket: StandardSignalingSocket | null = null;
+  // One-shot membership directive of the current, unacknowledged mutation.
+  private roomPasswordMembership: StandardRoomPinMembershipRequest | null = null;
+  // The admitted host socket whose peer-open advertised membership support.
+  private standardRoomPinMembershipSocket: StandardSignalingSocket | null = null;
+  private readonly roomPasswordMembershipSent = new WeakMap<
+    StandardSignalingSocket,
+    { mutationId: string; mode: StandardRoomPinMembershipRequest['mode'] | 'legacy' }
+  >();
+  private pendingRoomPasswordCommit: {
+    mutationId: string;
+    resolve: (commit: StandardRoomPinCommit) => void;
+  } | null = null;
   private readonly standardRoomIdentityRefreshTimerKey = 'standard-room-identity-refresh';
   private readonly standardRoomIdentityDeletionReconcileTimerKey =
     'standard-room-identity-deletion-reconcile';
@@ -2284,13 +2348,40 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return refresh;
   }
 
-  setRoomPassword(password: string | null): void {
-    if (!this.hostRoomId) return;
+  setRoomPassword(
+    password: string | null,
+    membership?: StandardRoomPinMembershipRequest,
+  ): Promise<StandardRoomPinCommit> {
+    if (!this.hostRoomId || this.destroyed) return Promise.resolve({ status: 'superseded' });
     const normalized = typeof password === 'string' && /^\d{8}$/.test(password) ? password : '';
     this.roomPassword = normalized || null;
     this.roomPasswordMutationId = randomBase64Url(24);
+    // Turning protection off never carries a membership choice.
+    this.roomPasswordMembership = normalized ? sanitizeStandardRoomPinMembership(membership) : null;
     this.acknowledgedRoomPasswordMutationId = null;
     this.acknowledgedRoomPasswordSocket = null;
+    const commit = this.trackRoomPasswordCommit(this.roomPasswordMutationId);
+    this.applyRoomPasswordToHostSocket();
+    return commit;
+  }
+
+  private trackRoomPasswordCommit(mutationId: string): Promise<StandardRoomPinCommit> {
+    this.settleRoomPasswordCommit({ status: 'superseded' });
+    // PRO coordinators do not use the Standard-room PIN channel; nothing acks.
+    if (this.proSignalingAccess) return Promise.resolve({ status: 'superseded' });
+    return new Promise<StandardRoomPinCommit>((resolve) => {
+      this.pendingRoomPasswordCommit = { mutationId, resolve };
+    });
+  }
+
+  private settleRoomPasswordCommit(commit: StandardRoomPinCommit, mutationId?: string): void {
+    const pending = this.pendingRoomPasswordCommit;
+    if (!pending || (mutationId !== undefined && pending.mutationId !== mutationId)) return;
+    this.pendingRoomPasswordCommit = null;
+    pending.resolve(commit);
+  }
+
+  private applyRoomPasswordToHostSocket(): void {
     const socket = this.hostSocket;
     if (
       !this.proSignalingAccess &&
@@ -2428,6 +2519,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   destroy(): void {
     this.destroyed = true;
+    this.roomPasswordMembership = null;
+    this.standardRoomPinMembershipSocket = null;
+    this.settleRoomPasswordCommit({ status: 'superseded' });
     this.rtcConfigurationController.abort(new Error('PEER_DESTROYED'));
     clearManagedTimer(this.rtcConfigurationTimerKey);
     this.pendingHostPeerOperations.clear();
@@ -3046,11 +3140,26 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (!this.standardRoomIdentityAdmittedHostSockets.has(socket)) return;
+    // An older Worker's exact-key validator silently drops a frame with the
+    // membership fields, so send them only where this socket's peer-open
+    // advertised support. Elsewhere the same mutation applies the PIN alone.
+    const directive =
+      socket === this.standardRoomPinMembershipSocket ? this.roomPasswordMembership : null;
+    const mutationId = this.roomPasswordMutationId;
     try {
       this.send(socket, {
         type: 'room-password-set',
         password: this.roomPassword || '',
-        pinMutationId: this.roomPasswordMutationId,
+        pinMutationId: mutationId,
+        ...(directive?.mode === 'keep_present'
+          ? { existingParticipants: 'keep_present', keptPeerIds: [...directive.keptPeerIds] }
+          : directive?.mode === 'revoke_all'
+            ? { existingParticipants: 'revoke_all' }
+            : {}),
+      });
+      this.roomPasswordMembershipSent.set(socket, {
+        mutationId,
+        mode: directive?.mode ?? 'legacy',
       });
     } catch (error) {
       this.emit('error', error);
@@ -3514,6 +3623,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (message.applied) {
         this.acknowledgedRoomPasswordMutationId = message.mutationId;
         this.acknowledgedRoomPasswordSocket = sourceSocket;
+        const sent = sourceSocket ? this.roomPasswordMembershipSent.get(sourceSocket) : undefined;
+        const membership =
+          sent?.mutationId === message.mutationId &&
+          sent.mode !== 'legacy' &&
+          message.existingParticipants === sent.mode
+            ? sent.mode
+            : 'legacy';
+        // The directive is one-shot. This mutation is re-sent after every host
+        // signaling reconnect; a lasting revoke_all would close every guest who
+        // has since entered with the new PIN, so later echoes are legacy.
+        this.roomPasswordMembership = null;
+        this.settleRoomPasswordCommit({ status: 'applied', membership }, message.mutationId);
       } else {
         if (sourceSocket) this.noteSignalingSocketSemanticFailure(sourceSocket);
         try {
@@ -3612,6 +3733,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           : 'unsupported';
       }
       if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
+      // Capability is per admitted socket: deploys, gradual versions and
+      // rollbacks can route the next reconnect to an older Worker.
+      this.standardRoomPinMembershipSocket =
+        !this.proSignalingAccess && sourceSocket && message.standardRoomPinMembershipVersion === 1
+          ? sourceSocket
+          : null;
       if (this.hostRoomId && this.hostSocket) {
         this.sendPendingStandardRoomDeletion(this.hostRoomId, 'host', this.hostSocket);
         // Room admission and code display must never wait on the account API.
@@ -3840,10 +3967,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'account-member-updated') return;
     if (message.type === 'error') {
       this.noteSignalingSocketSemanticFailure(socket);
-      const error = createTransportError(
-        message.errorType ?? 'server-error',
-        message.message ?? 'SIGNALING_ERROR',
-      );
+      const error = createSignalingFrameError(message);
       if (this.isDataConnectionAlive(conn)) {
         // These rejection frames concern the signaling socket, not necessarily
         // the established data channel. Emitting a connection error would tear

@@ -275,7 +275,6 @@ describe('leaveSession', () => {
     setState('network.myJoinOrder', 3);
     setState('network.lastJoinCode', '123456');
     setState('network.roomPasswordRequired', true);
-    setState('network.roomPassword', '12345678');
     setState('transfer.lastReceivedCountSnapshot', 42);
     setState('preload.isPreloading', true);
     setState('preload.sessionId', 7);
@@ -293,7 +292,6 @@ describe('leaveSession', () => {
     expect(getState('network.myJoinOrder')).toBe(0);
     expect(getState('network.lastJoinCode')).toBe('');
     expect(getState('network.roomPasswordRequired')).toBe(false);
-    expect(getState('network.roomPassword')).toBe('');
     expect(getState('transfer.lastReceivedCountSnapshot')).toBe(0);
     expect(getState('preload.isPreloading')).toBe(false);
     expect(getState('preload.sessionId')).toBe(0);

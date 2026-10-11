@@ -23,4 +23,7 @@ export const EN_PLURAL_MESSAGES = {
   'pro.join_rate_limited': {
     one: 'Too many join attempts. Try again in {{count}} minute.',
   },
+  'dialog.room_password_rate_limited': {
+    one: 'You entered the wrong password too many times. Try again in {{count}} minute.',
+  },
 } satisfies LocalePluralMessages;

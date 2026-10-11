@@ -292,16 +292,16 @@ const fil: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopyahin ang link ng imbitasyon',
   'connect.link_copied': 'Nakopya ang link ng imbitasyon',
   'connect.room_password_title': 'Kailangan ng password para sumali',
-  'connect.room_password_set': 'Itakda',
   'connect.room_password_toggle_aria': 'I-on o i-off ang password ng kuwarto',
-  'connect.room_password_input_aria': 'Ilagay ang 8-digit na password ng kuwarto',
-  'connect.room_password_refresh_aria': 'Gumawa ng bagong password ng kuwarto',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Hinihintay ang 8 digit',
   'connect.room_password_on': 'Nailapat ang password',
   'connect.room_password_invalid': 'Maglagay ng 8 digit',
-  'connect.room_password_enabled': 'Kakailanganin ng mga bagong kalahok ang password ng kuwarto',
   'connect.room_password_disabled': 'Hindi na kailangan ng mga kalahok ang password ng kuwarto',
+  'connect.room_password_apply_pending':
+    'Malalapat ang bagong password kapag bumalik na ang koneksyon.',
+  'connect.pin_enabled_removed_message':
+    'Nagtakda ang host ng password para sa kuwarto. Ilagay ito para makasali ulit.',
+  'connect.pin_changed_removed_message':
+    'Pinalitan ng host ang password ng kuwarto. Ilagay ang bagong password para makasali ulit.',
   'connect.signaling_healthy': 'Online ang server ng kuwarto',
   'connect.signaling_recovering': 'Muling kumokonekta…',
   'connect.signaling_failed': 'Hindi makakonekta sa server',
@@ -437,6 +437,10 @@ const fil: Record<I18nKey, string> = {
     'Napakalaki ng file ng track na ito at maaaring hindi ito ma-play sa ilang device.',
   'chat.device_track_unavailable_system_message':
     'Hindi ma-play ng device na ito ang kasalukuyang track.',
+  'chat.update_available_tab_system_message':
+    'May bagong bersyon ng MUSIXQUARE. I-refresh ang page para magamit ito.',
+  'chat.update_available_app_system_message':
+    'May bagong bersyon ng MUSIXQUARE. Buksan muli ang app para magamit ito.',
   'chat.system_audio_started_system_message':
     'Nagsimula na ang pagbabahagi ng system audio. Normal ang kaunting latency sa pagitan ng host at mga bisitang device. Inirerekomenda naming hinaan ang volume ng host device para maiwasan ang echo.',
   'chat.system_audio_stopped_system_message':
@@ -734,6 +738,9 @@ const fil: Record<I18nKey, string> = {
   'dialog.leave_session': 'Umalis',
   'dialog.sw_update_title': 'I-update',
   'dialog.sw_update_msg': 'Handa na ang bagong bersyon. I-refresh para mag-update.',
+  'dialog.feature_refresh_title': 'Kailangang mag-refresh',
+  'dialog.feature_refresh_msg':
+    'Na-update ang MUSIXQUARE. I-refresh para patuloy itong magamit nang maayos.',
   'dialog.reconnect_ask': 'Gusto mo bang kumonekta muli?',
   'dialog.reconnect': 'Kumonekta muli',
   'dialog.go_back': 'Bumalik',
@@ -745,6 +752,10 @@ const fil: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Nag-timeout ang koneksyon. Ilagay muli ang password para subukan ulit.',
   'dialog.room_password_placeholder': '8-digit na password',
+  'dialog.room_password_rate_limited':
+    'Masyadong maraming beses kang naglagay ng maling password. Subukan ulit pagkalipas ng {{count}} minuto.',
+  'dialog.room_password_rate_limited_later':
+    'Masyadong maraming beses kang naglagay ng maling password. Subukan ulit maya-maya.',
   'dialog.session_lost_msg':
     'Naka-sleep ang app o nawalan ito ng koneksyon, kaya nadiskonekta na ang ibang device. I-restart para magsimula ng bagong session.',
   'dialog.session_lost_btn': 'I-restart',
@@ -835,6 +846,7 @@ const fil: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Masyadong maraming pagtatangkang sumali. Subukan ulit maya-maya.',
   'pro.active_tab_title': 'May natitirang naunang koneksyon',
   'pro.active_tab_message': 'Kapag nagpatuloy ka rito, mapuputol ang naunang koneksyon.',
+  'pro.active_tab_replaced': 'Bukas na sa ibang tab ang PRO room na ito',
   'pro.use_this_tab': 'Magpatuloy rito',
   'pro.upload.batch_progress': 'Ina-upload ang mga track {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Hindi na-upload ang ilang track',

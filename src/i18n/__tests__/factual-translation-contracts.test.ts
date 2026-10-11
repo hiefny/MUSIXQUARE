@@ -7,7 +7,7 @@ import {
 } from '../../../scripts/classic-runtime-assets.ts';
 
 import { APP_DICTIONARIES } from '../catalogs.ts';
-import { LANGUAGE_OPTIONS } from '../locales.ts';
+import { LANGUAGE_OPTIONS, languageDirection, type LanguageCode } from '../locales.ts';
 
 type LandingDictionary = Record<string, Record<string, string>>;
 
@@ -186,6 +186,172 @@ describe('completed translation factual contracts', () => {
     expect(APP_DICTIONARIES.en['network.session_full_detail']).toBe(
       'This room already has the maximum of 100 connected devices, including the host.',
     );
+  });
+
+  it('gives the Standard wrong-password lockout its own copy in every locale', () => {
+    const english = APP_DICTIONARIES.en;
+    const keys = [
+      'dialog.room_password_rate_limited',
+      'dialog.room_password_rate_limited_later',
+    ] as const;
+    const commonPrefix = (left: string, right: string): string => {
+      let index = 0;
+      while (index < left.length && left[index] === right[index]) index += 1;
+      return left.slice(0, index);
+    };
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      // The wait is the Worker's retryAfterSeconds in whole minutes; the
+      // fallback has no number because the Worker did not provide one.
+      expect(
+        dictionary['dialog.room_password_rate_limited'].match(/\{\{\w+\}\}/gu),
+        language,
+      ).toEqual(['{{count}}']);
+      expect(dictionary['dialog.room_password_rate_limited_later'], language).not.toMatch(
+        /\{\{|[0-9]/u,
+      );
+      // The lead says the password was wrong too often, not the PRO join
+      // throttle's "too many join attempts".
+      const standardLead = commonPrefix(
+        dictionary['dialog.room_password_rate_limited'],
+        dictionary['dialog.room_password_rate_limited_later'],
+      );
+      const proLead = commonPrefix(
+        dictionary['pro.join_rate_limited'],
+        dictionary['pro.join_rate_limited_later'],
+      );
+      expect(standardLead.trim().length, language).toBeGreaterThan(0);
+      expect(dictionary['pro.join_rate_limited'], language).not.toContain(standardLead.trim());
+      expect(dictionary['dialog.room_password_rate_limited'], language).not.toContain(
+        proLead.trim(),
+      );
+      if (language === 'en') continue;
+      for (const key of keys) {
+        expect(dictionary[key], `${language}.${key} English copy`).not.toBe(english[key]);
+      }
+    }
+
+    expect(keys.map((key) => APP_DICTIONARIES.ko[key])).toEqual([
+      '암호를 여러 번 틀렸어요. {{count}}분 후에 다시 시도해 주세요.',
+      '암호를 여러 번 틀렸어요. 잠시 후 다시 시도해 주세요.',
+    ]);
+    expect(keys.map((key) => english[key])).toEqual([
+      'You entered the wrong password too many times. Try again in {{count}} minutes.',
+      'You entered the wrong password too many times. Try again in a little while.',
+    ]);
+    // PRO join throttling keeps its own wording.
+    expect(APP_DICTIONARIES.ko['pro.join_rate_limited']).toBe(
+      '입장 시도가 너무 많아요. {{count}}분 후에 다시 시도해 주세요.',
+    );
+  });
+
+  it('gives the in-room update notice a browser-tab and a home-screen form in every locale', () => {
+    const english = APP_DICTIONARIES.en;
+    const tabKey = 'chat.update_available_tab_system_message';
+    const appKey = 'chat.update_available_app_system_message';
+    const commonPrefix = (left: string, right: string): string => {
+      let index = 0;
+      while (index < left.length && left[index] === right[index]) index += 1;
+      return left.slice(0, index);
+    };
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const tab = dictionary[tabKey];
+      const app = dictionary[appKey];
+      for (const [key, text] of [
+        [tabKey, tab],
+        [appKey, app],
+      ] as const) {
+        // The brand stays exact; the notice is plain chat text with no
+        // placeholders, markup, or numbers.
+        expect(text, `${language}.${key}`).toContain('MUSIXQUARE');
+        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
+      }
+      // Both say the same news ("a new MUSIXQUARE version is available") and
+      // differ only in how it applies: reload the tab, or reopen the app.
+      expect(app, language).not.toBe(tab);
+      expect(commonPrefix(tab, app), language).toContain('MUSIXQUARE');
+      // Chat rows render with dir="auto", which takes the line direction from
+      // its first strong character. An RTL notice that opened with the Latin
+      // brand would be laid out left to right.
+      if (languageDirection(language as LanguageCode) === 'rtl') {
+        for (const text of [tab, app]) {
+          expect(text, `${language} opens with RTL script`).toMatch(
+            /^(?:\p{Script=Arabic}|\p{Script=Hebrew}|\u200F)/u,
+          );
+        }
+      }
+      if (language === 'en') continue;
+      expect(tab, `${language}.${tabKey} English copy`).not.toBe(english[tabKey]);
+      expect(app, `${language}.${appKey} English copy`).not.toBe(english[appKey]);
+    }
+
+    expect([APP_DICTIONARIES.ko[tabKey], APP_DICTIONARIES.ko[appKey]]).toEqual([
+      'MUSIXQUARE의 새 버전이 있어요. 페이지를 새로고침하면 적용돼요.',
+      'MUSIXQUARE의 새 버전이 있어요. 앱을 다시 열면 적용돼요.',
+    ]);
+    expect([english[tabKey], english[appKey]]).toEqual([
+      'A new version of MUSIXQUARE is available. Refresh the page to apply it.',
+      'A new version of MUSIXQUARE is available. Reopen the app to apply it.',
+    ]);
+  });
+
+  it('gives the lazy-feature recovery dialog its own refresh copy in every locale', () => {
+    const english = APP_DICTIONARIES.en;
+    const titleKey = 'dialog.feature_refresh_title';
+    const messageKey = 'dialog.feature_refresh_msg';
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const title = dictionary[titleKey];
+      const message = dictionary[messageKey];
+      for (const [key, text] of [
+        [titleKey, title],
+        [messageKey, message],
+      ] as const) {
+        // Plain dialog text: no placeholders, markup, numbers, or line breaks.
+        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]|\n/u);
+        expect(text.trim(), `${language}.${key}`).toBe(text);
+      }
+      // The message names the brand exactly once (it was updated); the short
+      // title does not.
+      expect(message.split('MUSIXQUARE'), `${language}.${messageKey}`).toHaveLength(2);
+      expect(title, `${language}.${titleKey}`).not.toContain('MUSIXQUARE');
+      // Distinct from the waiting-worker update dialog, which the recovery
+      // dialog used to borrow.
+      expect(title, `${language} title`).not.toBe(dictionary['dialog.sw_update_title']);
+      expect(message, `${language} message`).not.toBe(dictionary['dialog.sw_update_msg']);
+      // An RTL message that opened with the Latin brand would be laid out left
+      // to right wherever it is rendered with dir="auto".
+      if (languageDirection(language as LanguageCode) === 'rtl') {
+        for (const text of [title, message]) {
+          expect(text, `${language} opens with RTL script`).toMatch(
+            /^(?:\p{Script=Arabic}|\p{Script=Hebrew}|\u200F)/u,
+          );
+        }
+      }
+      if (language === 'en') continue;
+      expect(title, `${language}.${titleKey} English copy`).not.toBe(english[titleKey]);
+      expect(message, `${language}.${messageKey} English copy`).not.toBe(english[messageKey]);
+    }
+
+    // Owner's copy (2026-10-11). The message says the app was updated and
+    // needs a refresh to keep working normally; it names no single feature.
+    expect([APP_DICTIONARIES.ko[titleKey], APP_DICTIONARIES.ko[messageKey]]).toEqual([
+      '새로고침이 필요해요',
+      'MUSIXQUARE가 업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요.',
+    ]);
+    expect([english[titleKey], english[messageKey]]).toEqual([
+      'Refresh needed',
+      'MUSIXQUARE has been updated. Refresh to keep using it normally.',
+    ]);
+    // The regular update dialog keeps its copy.
+    expect([
+      APP_DICTIONARIES.ko['dialog.sw_update_title'],
+      APP_DICTIONARIES.ko['dialog.sw_update_msg'],
+    ]).toEqual(['업데이트', '새 버전이 준비되었어요. 새로고침하면 업데이트가 적용돼요.']);
   });
 
   it('keeps supported-browser, synchronization, and system-audio claims factual', async () => {

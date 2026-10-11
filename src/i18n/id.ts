@@ -288,16 +288,15 @@ const id: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Salin tautan undangan',
   'connect.link_copied': 'Tautan undangan disalin',
   'connect.room_password_title': 'Wajibkan sandi untuk bergabung',
-  'connect.room_password_set': 'Atur',
   'connect.room_password_toggle_aria': 'Aktifkan atau nonaktifkan kewajiban sandi ruang',
-  'connect.room_password_input_aria': 'Masukkan sandi ruang 8 digit',
-  'connect.room_password_refresh_aria': 'Buat sandi ruang baru',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Menunggu 8 digit',
   'connect.room_password_on': 'Sandi diterapkan',
   'connect.room_password_invalid': 'Masukkan 8 digit',
-  'connect.room_password_enabled': 'Peserta baru akan memerlukan sandi ruang',
   'connect.room_password_disabled': 'Peserta tidak lagi memerlukan sandi ruang',
+  'connect.room_password_apply_pending': 'Sandi baru akan berlaku setelah koneksi pulih.',
+  'connect.pin_enabled_removed_message':
+    'Host telah mengatur sandi ruang. Masukkan sandi untuk bergabung lagi.',
+  'connect.pin_changed_removed_message':
+    'Host telah mengubah sandi ruang. Masukkan sandi baru untuk bergabung lagi.',
   'connect.signaling_healthy': 'Server ruang online',
   'connect.signaling_recovering': 'Menghubungkan ulang…',
   'connect.signaling_failed': 'Koneksi server gagal',
@@ -649,6 +648,9 @@ const id: Record<I18nKey, string> = {
   'dialog.leave_session': 'Keluar',
   'dialog.sw_update_title': 'Pembaruan',
   'dialog.sw_update_msg': 'Versi baru siap. Muat ulang untuk memperbarui.',
+  'dialog.feature_refresh_title': 'Perlu dimuat ulang',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE telah diperbarui. Muat ulang agar tetap bisa digunakan dengan normal.',
   'dialog.reconnect_ask': 'Ingin menyambung ulang?',
   'dialog.reconnect': 'Sambung ulang',
   'dialog.go_back': 'Kembali',
@@ -659,6 +661,10 @@ const id: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Sandi tidak cocok. Coba lagi.',
   'dialog.room_password_timeout_msg': 'Koneksi melewati batas waktu. Masukkan sandi lagi.',
   'dialog.room_password_placeholder': 'Sandi 8 digit',
+  'dialog.room_password_rate_limited':
+    'Anda terlalu sering memasukkan sandi yang salah. Coba lagi dalam {{count}} menit.',
+  'dialog.room_password_rate_limited_later':
+    'Anda terlalu sering memasukkan sandi yang salah. Coba lagi sebentar lagi.',
   'dialog.session_lost_msg':
     'Aplikasi tertidur atau kehilangan koneksi, jadi perangkat lain sudah terputus. Mulai ulang untuk membuat ruang baru.',
   'dialog.session_lost_btn': 'Mulai ulang',
@@ -738,6 +744,7 @@ const id: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Terlalu banyak percobaan bergabung. Coba lagi sebentar lagi.',
   'pro.active_tab_title': 'Koneksi sebelumnya masih tersisa',
   'pro.active_tab_message': 'Melanjutkan di sini akan memutus koneksi sebelumnya.',
+  'pro.active_tab_replaced': 'Ruang PRO ini sudah terbuka di tab lain',
   'pro.use_this_tab': 'Lanjutkan di sini',
   'pro.upload.batch_progress': 'Mengunggah media {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Beberapa media tidak dapat diunggah',
@@ -786,6 +793,10 @@ const id: Record<I18nKey, string> = {
     'Ukuran media ini sangat besar dan mungkin tidak dapat diputar di sebagian perangkat.',
   'chat.device_track_unavailable_system_message':
     'Perangkat ini tidak dapat memutar media saat ini.',
+  'chat.update_available_tab_system_message':
+    'Versi baru MUSIXQUARE tersedia. Muat ulang halaman untuk menerapkannya.',
+  'chat.update_available_app_system_message':
+    'Versi baru MUSIXQUARE tersedia. Buka ulang aplikasi untuk menerapkannya.',
   'chat.system_audio_started_system_message':
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
   'chat.system_audio_stopped_system_message':

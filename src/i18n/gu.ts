@@ -284,16 +284,15 @@ const gu: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'આમંત્રણ લિંક કૉપિ કરો',
   'connect.link_copied': 'આમંત્રણ લિંક કૉપિ થઈ',
   'connect.room_password_title': 'જોડાવા માટે પાસવર્ડ જરૂરી બનાવો',
-  'connect.room_password_set': 'નક્કી કરો',
   'connect.room_password_toggle_aria': 'રૂમ પાસવર્ડની જરૂરિયાત ચાલુ/બંધ કરો',
-  'connect.room_password_input_aria': 'રૂમનો 8-અંકનો પાસવર્ડ દાખલ કરો',
-  'connect.room_password_refresh_aria': 'રૂમ માટે નવો પાસવર્ડ બનાવો',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 અંકોની રાહ જોવાઈ રહી છે',
   'connect.room_password_on': 'પાસવર્ડ લાગુ કર્યો',
   'connect.room_password_invalid': '8 અંકો દાખલ કરો',
-  'connect.room_password_enabled': 'નવા સહભાગીઓએ રૂમનો પાસવર્ડ આપવો પડશે',
   'connect.room_password_disabled': 'સહભાગીઓને હવે રૂમના પાસવર્ડની જરૂર નથી',
+  'connect.room_password_apply_pending': 'કનેક્શન પાછું આવે ત્યારે નવો પાસવર્ડ લાગુ થશે.',
+  'connect.pin_enabled_removed_message':
+    'હોસ્ટે રૂમનો પાસવર્ડ સેટ કર્યો છે. ફરી જોડાવા માટે તે દાખલ કરો.',
+  'connect.pin_changed_removed_message':
+    'હોસ્ટે રૂમનો પાસવર્ડ બદલ્યો છે. ફરી જોડાવા માટે નવો પાસવર્ડ દાખલ કરો.',
   'connect.signaling_healthy': 'રૂમ સર્વર ઑનલાઇન છે',
   'connect.signaling_recovering': 'ફરી જોડાઈ રહ્યું છે…',
   'connect.signaling_failed': 'સર્વર જોડાણ નિષ્ફળ',
@@ -420,6 +419,10 @@ const gu: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'આ ટ્રૅકની ફાઇલ બહુ મોટી છે અને કેટલાક ડિવાઇસ પર કદાચ નહીં ચાલે.',
   'chat.device_track_unavailable_system_message': 'આ ડિવાઇસ હાલનો ટ્રૅક ચલાવી શકતું નથી.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE ની નવી આવૃત્તિ ઉપલબ્ધ છે. લાગુ કરવા પેજ રિફ્રેશ કરો.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE ની નવી આવૃત્તિ ઉપલબ્ધ છે. લાગુ કરવા ઍપ ફરી ખોલો.',
   'chat.system_audio_started_system_message':
     'સિસ્ટમ ઑડિયો શેરિંગ શરૂ થયું છે. હોસ્ટ અને મહેમાન ડિવાઇસ વચ્ચે થોડો વિલંબ સામાન્ય છે. પડઘો ટાળવા હોસ્ટ ડિવાઇસનો અવાજ ઘટાડવાની ભલામણ છે.',
   'chat.system_audio_stopped_system_message':
@@ -702,6 +705,9 @@ const gu: Record<I18nKey, string> = {
   'dialog.leave_session': 'બહાર નીકળો',
   'dialog.sw_update_title': 'અપડેટ',
   'dialog.sw_update_msg': 'નવી આવૃત્તિ તૈયાર છે. અપડેટ કરવા રિફ્રેશ કરો.',
+  'dialog.feature_refresh_title': 'રિફ્રેશ કરવું જરૂરી છે',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE અપડેટ થયું છે. સામાન્ય રીતે વાપરવાનું ચાલુ રાખવા રિફ્રેશ કરો.',
   'dialog.reconnect_ask': 'ફરી જોડાવું છે?',
   'dialog.reconnect': 'ફરી જોડાવો',
   'dialog.go_back': 'પાછા જાઓ',
@@ -712,6 +718,10 @@ const gu: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'એ પાસવર્ડ મેળ ખાતો નથી. ફરી પ્રયાસ કરો.',
   'dialog.room_password_timeout_msg': 'જોડાણનો સમય પૂરો થયો. ફરી પ્રયાસ કરવા પાસવર્ડ ફરી દાખલ કરો.',
   'dialog.room_password_placeholder': '8-અંકનો પાસવર્ડ',
+  'dialog.room_password_rate_limited':
+    'તમે ઘણી વાર ખોટો પાસવર્ડ દાખલ કર્યો છે. {{count}} મિનિટ પછી ફરી પ્રયાસ કરો.',
+  'dialog.room_password_rate_limited_later':
+    'તમે ઘણી વાર ખોટો પાસવર્ડ દાખલ કર્યો છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
   'dialog.session_lost_msg':
     'ઍપ સ્લીપ મોડમાં ગઈ અથવા જોડાણ તૂટ્યું, તેથી અન્ય ડિવાઇસ પહેલેથી છૂટા પડી ગયા છે. નવું સત્ર શરૂ કરવા ફરી શરૂ કરો.',
   'dialog.session_lost_btn': 'ફરી શરૂ કરો',
@@ -801,6 +811,7 @@ const gu: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'જોડાવાના ઘણા વધારે પ્રયાસો થયા છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
   'pro.active_tab_title': 'અગાઉનું જોડાણ બાકી છે',
   'pro.active_tab_message': 'અહીં આગળ વધવાથી અગાઉનું જોડાણ બંધ થઈ જશે.',
+  'pro.active_tab_replaced': 'આ PRO રૂમ પહેલેથી બીજા ટૅબમાં ખુલ્લો છે',
   'pro.use_this_tab': 'અહીં આગળ વધો',
   'pro.upload.batch_progress': 'ટ્રૅક અપલોડ થઈ રહ્યા છે {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'કેટલાક ટ્રૅક અપલોડ થઈ શક્યા નથી',

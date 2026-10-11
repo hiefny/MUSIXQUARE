@@ -14,8 +14,13 @@ import { showToast } from './toast.ts';
 import { copyTextToClipboard, getUiElement, syncOverlayState } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
-import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import {
+  getRoomContext,
+  hasRoomCapability,
+  subscribeRoomAuthorityLifecycle,
+} from '../rooms/authority.ts';
 import { retryPeerSignalingConnection } from '../network/peer.ts';
+import { changeStandardRoomPin } from '../network/standard-room-pin.ts';
 import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 import { restartProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
 import { requestAccountNicknameChange } from './account.ts';
@@ -546,21 +551,19 @@ function renderSignalingRecoveryControls(): void {
 const ROOM_PASSWORD_TOGGLE_IDS = ['room-password-toggle', 'desktop-room-password-toggle'];
 const ROOM_PASSWORD_CODE_ROW_IDS = ['room-password-code-row', 'desktop-room-password-code-row'];
 const ROOM_PASSWORD_CODE_IDS = ['room-password-code', 'desktop-room-password-code'];
-const ROOM_PASSWORD_REFRESH_IDS = ['room-password-refresh', 'desktop-room-password-refresh'];
+const ROOM_PASSWORD_STATUS_IDS = ['room-password-status', 'desktop-room-password-status'];
+const ROOM_PASSWORD_EDIT_IDS = ['room-password-refresh', 'desktop-room-password-refresh'];
 const ROOM_PASSWORD_OFF_TEXT = '- - - - - - - -';
-const PRO_ROOM_PASSWORD_MASKED_TEXT = '••••-••••';
-const ROOM_PASSWORD_REFRESH_PATH =
-  'M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h8V3z';
+// The PIN is never shown again once set, in either room type: the owner
+// re-enters it through the pencil action instead of reading it back.
+const ROOM_PASSWORD_MASKED_TEXT = '••••-••••';
 const ROOM_PASSWORD_EDIT_PATH =
   'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a.996.996 0 0 0 0-1.41l-2.51-2.51a.996.996 0 0 0-1.41 0l-1.96 1.96 3.75 3.75 2.13-1.79z';
-let _proPinChangeInFlight = false;
+/** Locks the toggle and pencil while a PIN dialog or its commit is open. */
+let _roomPinChangeInFlight = false;
 
 function _isProRoom(): boolean {
   return getRoomContext().kind === 'pro';
-}
-
-function _formatRoomPassword(password: string): string {
-  return password.replace(/^(\d{4})(\d{4})$/, '$1-$2');
 }
 
 function _canEditRoomPassword(): boolean {
@@ -577,41 +580,10 @@ function _guardRoomPasswordCtrl(): boolean {
   return _guardHostSettingCtrl();
 }
 
-function _generateRoomPassword(): string | null {
-  try {
-    const values = new Uint32Array(1);
-    crypto.getRandomValues(values);
-    return String(values[0]! % 100_000_000).padStart(8, '0');
-  } catch (error) {
-    log.warn('[Connect] Secure room password generation unavailable', error);
-    return null;
-  }
-}
-
-function _applyFreshRoomPassword(): boolean {
-  const password = _generateRoomPassword();
-  if (!password) {
-    showToast(t('error.network_generic'));
-    return false;
-  }
-  _applyRoomPassword(password);
-  return true;
-}
-
-function _applyRoomPassword(password: string | null): void {
-  const next = password && /^\d{8}$/.test(password) ? password : '';
-  setState('network.roomPasswordRequired', !!next);
-  setState('network.roomPassword', next);
-  bus.emit('network:room-password-changed', next || null);
-  syncRoomPasswordControls();
-}
-
 function syncRoomPasswordControls(): void {
-  const isProRoom = _isProRoom();
-  const password = getState('network.roomPassword') || '';
-  const active =
-    getState('network.roomPasswordRequired') && (isProRoom || /^\d{8}$/.test(password));
+  const active = getState('network.roomPasswordRequired');
   const canEdit = _canEditRoomPassword();
+  const locked = _roomPinChangeInFlight;
 
   document
     .querySelectorAll<HTMLElement>('.room-password-section .section-title')
@@ -627,7 +599,7 @@ function syncRoomPasswordControls(): void {
     toggle.hidden = false;
     toggle.classList.toggle('active', active);
     toggle.setAttribute('aria-pressed', active ? 'true' : 'false');
-    toggle.disabled = isProRoom && _proPinChangeInFlight;
+    toggle.disabled = locked;
     toggle.setAttribute('aria-disabled', canEdit && !toggle.disabled ? 'false' : 'true');
     toggle.style.background = active ? 'rgba(var(--primary-rgb), 0.18)' : '';
     const knob = toggle.querySelector('.room-password-toggle-knob') as HTMLElement | null;
@@ -645,29 +617,29 @@ function syncRoomPasswordControls(): void {
   ROOM_PASSWORD_CODE_IDS.forEach((id) => {
     const code = getUiElement(id);
     if (!code) return;
-    code.textContent = active
-      ? isProRoom
-        ? PRO_ROOM_PASSWORD_MASKED_TEXT
-        : _formatRoomPassword(password)
-      : ROOM_PASSWORD_OFF_TEXT;
+    code.textContent = active ? ROOM_PASSWORD_MASKED_TEXT : ROOM_PASSWORD_OFF_TEXT;
     code.classList.toggle('is-placeholder', !active);
+    // Bullets and dashes are decoration; the status text beside them is what
+    // a screen reader announces.
+    code.setAttribute('aria-hidden', 'true');
   });
 
-  ROOM_PASSWORD_REFRESH_IDS.forEach((id) => {
+  ROOM_PASSWORD_STATUS_IDS.forEach((id) => {
+    const status = getUiElement(id);
+    if (status) status.textContent = active ? t('connect.room_password_on') : '';
+  });
+
+  ROOM_PASSWORD_EDIT_IDS.forEach((id) => {
     const button = getUiElement(id) as HTMLButtonElement | null;
     if (!button) return;
-    const ariaKey = isProRoom ? 'pro.pin_change_title' : 'connect.room_password_refresh_aria';
+    const ariaKey = 'pro.pin_change_title';
     button.setAttribute('data-i18n-aria-label', ariaKey);
     button.setAttribute('aria-label', t(ariaKey));
-    const path = button.querySelector('path');
-    if (path)
-      path.setAttribute('d', isProRoom ? ROOM_PASSWORD_EDIT_PATH : ROOM_PASSWORD_REFRESH_PATH);
-    button.hidden = !active || !canEdit;
-    button.disabled = !active || !canEdit || _proPinChangeInFlight;
-    button.setAttribute(
-      'aria-disabled',
-      !active || !canEdit || _proPinChangeInFlight ? 'true' : 'false',
-    );
+    button.querySelector('path')?.setAttribute('d', ROOM_PASSWORD_EDIT_PATH);
+    const unavailable = !active || !canEdit;
+    button.hidden = unavailable;
+    button.disabled = unavailable || locked;
+    button.setAttribute('aria-disabled', unavailable || locked ? 'true' : 'false');
   });
 }
 
@@ -682,12 +654,94 @@ function syncHostOwnedConnectSections(): void {
   });
 }
 
+/**
+ * Whether anyone besides this device is in the room. With nobody else there,
+ * the PIN dialog skips "What should happen to current participants?".
+ */
+function _hasOtherConnectedDevices(): boolean {
+  if (_isProRoom()) {
+    const myId = getState('network.myId');
+    return _lastDeviceList.some((device) => device.id !== myId && device.status === 'connected');
+  }
+  return getState('network.connectedPeers').some((peer) => peer.status === 'connected');
+}
+
+type RoomPinMembershipChoice = 'keep_present' | 'revoke_all';
+
+/**
+ * The shared two-step PIN dialog for both room types: an 8-digit PIN, then,
+ * only when someone else is in the room, who stays ("Keep everyone" by
+ * default). Resolves null when the owner cancels; nothing is sent before OK.
+ */
+async function _askRoomPin(
+  enabling: boolean,
+  withChoice: boolean,
+  signal: AbortSignal,
+): Promise<{ pin: string; membership: RoomPinMembershipChoice } | null> {
+  const result = await showDialog({
+    title: () => t(enabling ? 'pro.pin_enable_title' : 'pro.pin_change_title'),
+    message: () => t('pro.pin_change_message'),
+    inputField: {
+      placeholder: t('dialog.room_password_placeholder'),
+      maxLength: 8,
+      inputMode: 'numeric',
+      pattern: '[0-9]*',
+      autocomplete: 'new-password',
+      splitEvery: 4,
+      separator: '-',
+      validator: (value) =>
+        normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
+    },
+    secondaryText: () => t('common.cancel'),
+    ...(withChoice
+      ? {
+          // "Next" leads to who stays when the PIN takes effect. Keeping them
+          // is the default; making everyone rejoin is the remedy for strangers.
+          buttonText: () => t('dialog.step_next'),
+          choiceStep: {
+            title: () => t('pro.pin_members_title'),
+            name: 'room-pin-existing-participants',
+            defaultValue: 'keep_present',
+            options: [
+              {
+                value: 'keep_present',
+                label: () => t('pro.pin_members_keep'),
+                detail: () => t('pro.pin_members_keep_detail'),
+              },
+              {
+                value: 'revoke_all',
+                label: () => t('pro.pin_members_reenter'),
+                detail: () => t('pro.pin_members_reenter_detail'),
+              },
+            ],
+            buttonText: () => t('common.ok'),
+            backText: () => t('dialog.step_back'),
+          },
+        }
+      : { buttonText: () => t('common.ok') }),
+    defaultFocus: 'primary',
+    signal,
+  });
+  const pin = result.action === 'ok' ? normalizeProRoomPin(result.inputValue) : null;
+  if (!pin) return null;
+  // Only an explicit "Everyone rejoins" removes present people. The choice is
+  // fixed when the dialog opens, so a device arriving meanwhile is kept.
+  return {
+    pin,
+    membership: withChoice && result.choiceValue === 'revoke_all' ? 'revoke_all' : 'keep_present',
+  };
+}
+
 // The runtime's sentinel for a Worker that cannot keep people in the room.
 // connect.ts compares the message instead of importing the PRO API module.
 const PRO_ROOM_PIN_KEEP_UNSUPPORTED = 'PRO_ROOM_PIN_KEEP_UNSUPPORTED';
 
+function isProRoomPinKeepUnsupported(error: unknown): boolean {
+  return error instanceof Error && error.message === PRO_ROOM_PIN_KEEP_UNSUPPORTED;
+}
+
 async function changeProRoomPin(disable = false): Promise<void> {
-  if (_proPinChangeInFlight || _guardRoomPasswordCtrl()) return;
+  if (_roomPinChangeInFlight || _guardRoomPasswordCtrl()) return;
   // Captured before the dialog: a public room gains a PIN, a protected one changes it.
   const enabling = !disable && !getState('network.roomPasswordRequired');
   const titleKey = enabling ? 'pro.pin_enable_title' : 'pro.pin_change_title';
@@ -709,66 +763,45 @@ async function changeProRoomPin(disable = false): Promise<void> {
   };
   const offRoom = bus.on('state:room.context', invalidate);
   const offDevice = bus.on('state:network.myId', invalidate);
-  _proPinChangeInFlight = true;
+  _roomPinChangeInFlight = true;
   syncRoomPasswordControls();
   try {
     let pin: string | null = null;
     let keepPresent = false;
+    let choiceShown = false;
     if (!disable) {
-      const result = await showDialog({
-        title: () => t(titleKey),
-        message: () => t('pro.pin_change_message'),
-        inputField: {
-          placeholder: t('dialog.room_password_placeholder'),
-          maxLength: 8,
-          inputMode: 'numeric',
-          pattern: '[0-9]*',
-          autocomplete: 'new-password',
-          splitEvery: 4,
-          separator: '-',
-          validator: (value) =>
-            normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
-        },
-        // "Next" leads to who stays when the PIN takes effect. Keeping them is
-        // the default; making everyone rejoin is the remedy for strangers in
-        // the room. Nothing is sent until that page's OK.
-        buttonText: () => t('dialog.step_next'),
-        secondaryText: () => t('common.cancel'),
-        choiceStep: {
-          title: () => t('pro.pin_members_title'),
-          name: 'pro-pin-existing-participants',
-          defaultValue: 'keep_present',
-          options: [
-            {
-              value: 'keep_present',
-              label: () => t('pro.pin_members_keep'),
-              detail: () => t('pro.pin_members_keep_detail'),
-            },
-            {
-              value: 'revoke_all',
-              label: () => t('pro.pin_members_reenter'),
-              detail: () => t('pro.pin_members_reenter_detail'),
-            },
-          ],
-          buttonText: () => t('common.ok'),
-          backText: () => t('dialog.step_back'),
-        },
-        defaultFocus: 'primary',
-        signal: abort.signal,
-      });
-      pin = result.action === 'ok' ? normalizeProRoomPin(result.inputValue) : null;
-      if (!pin) return;
-      // Only an explicit "make everyone rejoin" revokes present people.
-      keepPresent = result.choiceValue !== 'revoke_all';
+      choiceShown = _hasOtherConnectedDevices();
+      const choice = await _askRoomPin(enabling, choiceShown, abort.signal);
+      if (!choice) return;
+      pin = choice.pin;
+      keepPresent = choice.membership === 'keep_present';
     }
     if (!isCurrent()) return;
     // Lazy-load the PRO runtime without pulling it into the standard-room graph.
     const { changeActiveProRoomPin } = await import('../pro-room/runtime.ts');
     if (!isCurrent()) return;
-    // "Make everyone rejoin" keeps the legacy request, which every Worker
+    // "Everyone rejoins" keeps the legacy request, which every Worker
     // understands; only keeping people sends the choice.
-    if (keepPresent) await changeActiveProRoomPin(pin, abort.signal, 'keep_present');
-    else await changeActiveProRoomPin(pin, abort.signal);
+    if (keepPresent) {
+      try {
+        await changeActiveProRoomPin(pin, abort.signal, 'keep_present');
+      } catch (error) {
+        // With nobody else in the room there is no one to keep or remove, so
+        // a Worker without the choice (e.g. after a rollback) takes the plain
+        // change instead of pointing at a row the owner never saw.
+        if (
+          choiceShown ||
+          !isProRoomPinKeepUnsupported(error) ||
+          _hasOtherConnectedDevices() ||
+          !isCurrent()
+        ) {
+          throw error;
+        }
+        await changeActiveProRoomPin(pin, abort.signal);
+      }
+    } else {
+      await changeActiveProRoomPin(pin, abort.signal);
+    }
     if (isCurrent()) {
       showToast(
         t(
@@ -783,7 +816,7 @@ async function changeProRoomPin(disable = false): Promise<void> {
   } catch (error) {
     if (!isCurrent()) return;
     log.warn('[Connect] PRO room password change failed', error);
-    if (error instanceof Error && error.message === PRO_ROOM_PIN_KEEP_UNSUPPORTED) {
+    if (isProRoomPinKeepUnsupported(error)) {
       // Nothing changed on the server, so the toggle and PIN stay as they were.
       await showDialog({
         title: () => t(titleKey),
@@ -797,47 +830,99 @@ async function changeProRoomPin(disable = false): Promise<void> {
   } finally {
     offRoom();
     offDevice();
-    _proPinChangeInFlight = false;
+    _roomPinChangeInFlight = false;
     syncRoomPasswordControls();
   }
 }
 
+/**
+ * Standard rooms: the host types the PIN in the same two-step dialog as PRO.
+ * The PIN stays only in this tab's memory (the transport replays it) and is
+ * never shown again. Turning protection off stays immediate, with no dialog.
+ */
+async function changeStandardRoomPinFromConnect(disable = false): Promise<void> {
+  if (_roomPinChangeInFlight || _guardRoomPasswordCtrl()) return;
+  if (disable) {
+    setState('network.roomPasswordRequired', false);
+    // Also disarms the removal of an older, still-pending "Everyone rejoins".
+    changeStandardRoomPin(null, { enabling: false }).catch((error: unknown) => {
+      log.warn('[Connect] Standard room password removal failed', error);
+    });
+    showToast(t('connect.room_password_disabled'));
+    return;
+  }
+
+  const enabling = !getState('network.roomPasswordRequired');
+  const initialRoom = getRoomContext();
+  const initialDeviceId = getState('network.myId');
+  const initialSessionCode = getState('network.sessionCode');
+  const abort = new AbortController();
+  const isCurrent = () => {
+    const room = getRoomContext();
+    return (
+      !abort.signal.aborted &&
+      room.kind !== 'pro' &&
+      room.roomId === initialRoom.roomId &&
+      getState('network.myId') === initialDeviceId &&
+      getState('network.sessionCode') === initialSessionCode &&
+      _canEditHostOwnedSetting()
+    );
+  };
+  const invalidate = () => {
+    if (!isCurrent()) abort.abort();
+  };
+  const offAuthority = subscribeRoomAuthorityLifecycle(invalidate);
+  const offDevice = bus.on('state:network.myId', invalidate);
+  _roomPinChangeInFlight = true;
+  syncRoomPasswordControls();
+  try {
+    const choice = await _askRoomPin(enabling, _hasOtherConnectedDevices(), abort.signal);
+    if (!choice || !isCurrent()) return;
+    const wasRequired = getState('network.roomPasswordRequired');
+    setState('network.roomPasswordRequired', true);
+    const outcome = await changeStandardRoomPin(choice.pin, {
+      membership: choice.membership,
+      enabling,
+    });
+    if (!isCurrent()) return;
+    if (outcome === 'applied') {
+      showToast(t(enabling ? 'pro.pin_enabled' : 'pro.pin_changed'));
+    } else if (outcome === 'pending') {
+      showToast(t('connect.room_password_apply_pending'));
+    } else {
+      setState('network.roomPasswordRequired', wasRequired);
+      showToast(t('error.network_generic'));
+    }
+  } catch (error) {
+    if (!isCurrent()) return;
+    log.warn('[Connect] Standard room password change failed', error);
+    showToast(t('error.network_generic'));
+  } finally {
+    offAuthority();
+    offDevice();
+    _roomPinChangeInFlight = false;
+    syncRoomPasswordControls();
+  }
+}
+
+function changeRoomPinFromConnect(disable: boolean): void {
+  const change = _isProRoom() ? changeProRoomPin : changeStandardRoomPinFromConnect;
+  change(disable).catch((error: unknown) => {
+    log.warn('[Connect] Room password change failed', error);
+    showToast(t('error.network_generic'));
+  });
+}
+
 function initRoomPasswordControls(): void {
   ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
-    const toggle = getUiElement(id);
-    if (!toggle) return;
-    toggle.addEventListener('click', () => {
-      if (_isProRoom()) {
-        changeProRoomPin(getState('network.roomPasswordRequired')).catch((error) => {
-          log.warn('[Connect] PRO room password toggle failed', error);
-        });
-        return;
-      }
-      if (_guardRoomPasswordCtrl()) return;
-
-      if (getState('network.roomPasswordRequired')) {
-        _applyRoomPassword(null);
-        showToast(t('connect.room_password_disabled'));
-        return;
-      }
-
-      if (_applyFreshRoomPassword()) showToast(t('connect.room_password_enabled'));
+    getUiElement(id)?.addEventListener('click', () => {
+      changeRoomPinFromConnect(getState('network.roomPasswordRequired'));
     });
   });
 
-  ROOM_PASSWORD_REFRESH_IDS.forEach((id) => {
-    const button = getUiElement(id);
-    if (!button) return;
-    button.addEventListener('click', () => {
-      if (_isProRoom()) {
-        changeProRoomPin().catch((error) => {
-          log.warn('[Connect] PRO room PIN change failed', error);
-          showToast(t('error.network_generic'));
-        });
-        return;
-      }
-      if (_guardRoomPasswordCtrl()) return;
-      _applyFreshRoomPassword();
+  ROOM_PASSWORD_EDIT_IDS.forEach((id) => {
+    getUiElement(id)?.addEventListener('click', () => {
+      changeRoomPinFromConnect(false);
     });
   });
 
@@ -2004,7 +2089,6 @@ export function initConnect(): void {
     renderSignalingRecoveryControls();
   });
   _busScope.on('state:network.roomPasswordRequired', () => syncRoomPasswordControls());
-  _busScope.on('state:network.roomPassword', () => syncRoomPasswordControls());
   _busScope.on('state:network.hostConn', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();

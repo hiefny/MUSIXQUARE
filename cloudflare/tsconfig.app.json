@@ -10,7 +10,8 @@
     "pro-room-grants.ts",
     "pro-bot.ts",
     "service-maintenance.ts",
-    "standard-room-account-assertion.ts"
+    "standard-room-account-assertion.ts",
+    "standard-room-pin-membership.ts"
   ],
   "include": ["app-worker.ts", "app-worker.contract.ts"]
 }

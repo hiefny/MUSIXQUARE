@@ -286,17 +286,17 @@ const it: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copia il link d’invito',
   'connect.link_copied': "Link d'invito copiato",
   'connect.room_password_title': 'Richiedi password per accedere alla stanza',
-  'connect.room_password_set': 'Imposta',
   'connect.room_password_toggle_aria': 'Attiva/disattiva richiesta password stanza',
-  'connect.room_password_input_aria': 'Inserisci la password di 8 cifre per la stanza',
-  'connect.room_password_refresh_aria': 'Rigenera password stanza',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'In attesa di una password di 8 cifre',
   'connect.room_password_on': 'Password attiva',
   'connect.room_password_invalid': 'Inserisci una password di 8 cifre',
-  'connect.room_password_enabled': 'Ora è richiesta la password per accedere a questa stanza',
   'connect.room_password_disabled':
     'Ora non è più richiesta la password per accedere a questa stanza',
+  'connect.room_password_apply_pending':
+    'La nuova password verrà applicata quando la connessione sarà ripristinata.',
+  'connect.pin_enabled_removed_message':
+    'L’host ha impostato una password per la stanza. Inseriscila per entrare di nuovo.',
+  'connect.pin_changed_removed_message':
+    'L’host ha cambiato la password della stanza. Inserisci la nuova password per entrare di nuovo.',
   'connect.signaling_healthy': 'Server della stanza online',
   'connect.signaling_recovering': 'Riconnessione…',
   'connect.signaling_failed': 'Connessione al server non riuscita',
@@ -432,6 +432,10 @@ const it: Record<I18nKey, string> = {
     'Il file di questa traccia è molto grande e potrebbe non essere riprodotto su alcuni dispositivi.',
   'chat.device_track_unavailable_system_message':
     'Questo dispositivo non riesce a riprodurre la traccia corrente.',
+  'chat.update_available_tab_system_message':
+    'È disponibile una nuova versione di MUSIXQUARE. Aggiorna la pagina per applicarla.',
+  'chat.update_available_app_system_message':
+    'È disponibile una nuova versione di MUSIXQUARE. Riapri l’app per applicarla.',
   'chat.system_audio_started_system_message':
     "La condivisione dell'audio di sistema è iniziata. Un leggero ritardo tra il dispositivo dell'host e quelli dei partecipanti è normale. Per evitare l'eco, consigliamo all'host di abbassare il volume del proprio dispositivo.",
   'chat.system_audio_stopped_system_message':
@@ -733,6 +737,9 @@ const it: Record<I18nKey, string> = {
   'dialog.leave_session': 'Esci',
   'dialog.sw_update_title': 'Nuovo aggiornamento',
   'dialog.sw_update_msg': 'È disponibile una nuova versione. Aggiorna la pagina per applicarla.',
+  'dialog.feature_refresh_title': 'È necessario aggiornare la pagina',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE è stato aggiornato. Aggiorna la pagina per continuare a usarlo normalmente.',
   'dialog.reconnect_ask': 'Vuoi provare a riconnetterti?',
   'dialog.reconnect': 'Riconnetti',
   'dialog.go_back': 'Indietro',
@@ -744,6 +751,10 @@ const it: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Tempo di connessione scaduto. Inserisci di nuovo la password.',
   'dialog.room_password_placeholder': 'Password di 8 cifre',
+  'dialog.room_password_rate_limited':
+    'Hai inserito una password errata troppe volte. Riprova tra {{count}} minuti.',
+  'dialog.room_password_rate_limited_later':
+    'Hai inserito una password errata troppe volte. Riprova tra poco.',
   'dialog.session_lost_msg':
     'L’app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per aprire una nuova stanza.',
   'dialog.session_lost_btn': 'Riavvia',
@@ -834,6 +845,7 @@ const it: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Troppi tentativi di accesso. Riprova tra poco.',
   'pro.active_tab_title': 'Rimane una connessione precedente',
   'pro.active_tab_message': 'Continuando qui, la connessione precedente verrà interrotta.',
+  'pro.active_tab_replaced': 'Questa stanza PRO è già aperta in un’altra scheda',
   'pro.use_this_tab': 'Continua qui',
   'pro.upload.batch_progress': 'Caricamento tracce {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Impossibile caricare alcune tracce',
@@ -949,5 +961,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Troppi tentativi di accesso. Riprova tra {{count}} minuto.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Hai inserito una password errata troppe volte. Riprova tra {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

@@ -333,6 +333,12 @@ export interface ConnectedPeer {
   roomCapabilities?: RoomCapability[];
 }
 
+/**
+ * KICK_DEVICE reason a Standard-room host sends after the signaling Worker
+ * committed a PIN change with "Everyone rejoins": the first PIN, or a new one.
+ */
+export type StandardRoomPinKickReason = 'room-pin-enabled' | 'room-pin-changed';
+
 // ─── P2P Protocol Messages ────────────────────────────────────────
 
 /** Marker for protocol messages with no additional payload fields beyond `type`. */
@@ -1021,7 +1027,6 @@ export interface StateTree {
     lastKnownDeviceList: DeviceInfo[] | null;
     peerLabels: Record<string, string>;
     roomPasswordRequired: boolean;
-    roomPassword: string;
     peerSlots: (string | null)[];
     peerSlotByPeerId: Map<string, number>;
     activeHostConnByPeerId: Map<string, DataConnection>;
@@ -1508,8 +1513,13 @@ interface BaseEventMap {
   /** PRO-room member removal is enforced by the room server across every account device. */
   'pro-room:kick-member': [memberIdOrLegacyParticipantId: string];
   'pro-room:administrators-updated': [administrators: ProRoomAdministrator[]];
-  'network:kicked-explicitly': [];
-  'network:room-password-changed': [password: string | null];
+  /** The host removed this guest; a known reason names a Standard-room PIN change. */
+  'network:kicked-explicitly': [reason?: StandardRoomPinKickReason];
+  /**
+   * Host-only: the signaling Worker committed a Standard-room PIN change with
+   * "Everyone rejoins", so every other connected device is removed.
+   */
+  'network:room-pin-revoke-present': [reason: StandardRoomPinKickReason];
   'chat:clear-all': [];
 
   // ── Playlist ────────────────────────────────────────────────────

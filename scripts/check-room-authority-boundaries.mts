@@ -406,7 +406,11 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/sw-register.ts',
     [
-      "read:appRole @ callback-variable:handlePassiveControllerChange :: if (getState('network.appRole') !== 'idle')",
+      // One room-presence query shared by the update-reload deferral and the
+      // in-room update notice (2026-10-11 owner policy); not an authority grant.
+      // setup.sessionStarted and the room context cover PRO presence re-entry,
+      // which projects an idle role while the room stays on screen.
+      "read:appRole @ function:isRoomSessionActive :: if (getState('network.appRole') !== 'idle')",
     ],
   ],
   [

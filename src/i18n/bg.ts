@@ -284,16 +284,15 @@ const bg: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Копиране на връзката за покана',
   'connect.link_copied': 'Връзката за покана е копирана',
   'connect.room_password_title': 'Изискване на парола за присъединяване',
-  'connect.room_password_set': 'Задаване',
   'connect.room_password_toggle_aria': 'Включване/изключване на изискването за парола',
-  'connect.room_password_input_aria': 'Въвеждане на 8-цифрена парола за стаята',
-  'connect.room_password_refresh_aria': 'Генериране на нова парола за стаята',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Изчакване за 8 цифри',
   'connect.room_password_on': 'Паролата е приложена',
   'connect.room_password_invalid': 'Въведи 8 цифри',
-  'connect.room_password_enabled': 'Новите участници ще трябва да въведат паролата за стаята',
   'connect.room_password_disabled': 'Участниците вече не се нуждаят от паролата за стаята',
+  'connect.room_password_apply_pending': 'Новата парола ще се приложи, щом връзката се възстанови.',
+  'connect.pin_enabled_removed_message':
+    'Хостът зададе парола за стаята. Въведи я, за да влезеш пак.',
+  'connect.pin_changed_removed_message':
+    'Хостът смени паролата за стаята. Въведи новата парола, за да влезеш пак.',
   'connect.signaling_healthy': 'Сървърът на стаята е онлайн',
   'connect.signaling_recovering': 'Повторно свързване…',
   'connect.signaling_failed': 'Връзката със сървъра е неуспешна',
@@ -429,6 +428,10 @@ const bg: Record<I18nKey, string> = {
     'Файлът на тази песен е много голям и може да не се възпроизведе на някои устройства.',
   'chat.device_track_unavailable_system_message':
     'Това устройство не може да възпроизведе текущата песен.',
+  'chat.update_available_tab_system_message':
+    'Има нова версия на MUSIXQUARE. Влиза в сила, когато опресниш страницата.',
+  'chat.update_available_app_system_message':
+    'Има нова версия на MUSIXQUARE. Влиза в сила, когато отвориш приложението отново.',
   'chat.system_audio_started_system_message':
     'Споделянето на системен звук започна. Леко закъснение между устройствата на хоста и гостите е нормално. Препоръчваме да намалиш звука на устройството на хоста, за да избегнеш ехо.',
   'chat.system_audio_stopped_system_message':
@@ -722,6 +725,9 @@ const bg: Record<I18nKey, string> = {
   'dialog.leave_session': 'Напускане',
   'dialog.sw_update_title': 'Актуализация',
   'dialog.sw_update_msg': 'Нова версия е готова. Опресни, за да актуализираш.',
+  'dialog.feature_refresh_title': 'Нужно е опресняване',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE се обнови. Опресни страницата, за да продължиш да го използваш нормално.',
   'dialog.reconnect_ask': 'Искаш ли да се свържеш отново?',
   'dialog.reconnect': 'Повторно свързване',
   'dialog.go_back': 'Назад',
@@ -733,6 +739,10 @@ const bg: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Времето за свързване изтече. Въведи паролата отново, за да опиташ пак.',
   'dialog.room_password_placeholder': '8-цифрена парола',
+  'dialog.room_password_rate_limited':
+    'Въведе грешна парола твърде много пъти. Опитай отново след {{count}} мин.',
+  'dialog.room_password_rate_limited_later':
+    'Въведе грешна парола твърде много пъти. Опитай отново след малко.',
   'dialog.session_lost_msg':
     'Приложението е заспало или е загубило връзка, затова останалите устройства вече са се изключили. Рестартирай, за да започнеш нова сесия.',
   'dialog.session_lost_btn': 'Рестартиране',
@@ -823,6 +833,7 @@ const bg: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Твърде много опити за присъединяване. Опитай отново след малко.',
   'pro.active_tab_title': 'Останала е предишна връзка',
   'pro.active_tab_message': 'Ако продължиш тук, предишната връзка ще бъде прекъсната.',
+  'pro.active_tab_replaced': 'Тази PRO стая вече е отворена в друг раздел',
   'pro.use_this_tab': 'Продължи тук',
   'pro.upload.batch_progress': 'Качване на песни: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Някои песни не бяха качени',

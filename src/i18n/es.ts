@@ -288,16 +288,16 @@ const es: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copiar enlace',
   'connect.link_copied': 'Enlace de invitación copiado',
   'connect.room_password_title': 'Pedir contraseña',
-  'connect.room_password_set': 'Establecer',
   'connect.room_password_toggle_aria': 'Cambiar requisito de contraseña de la sala',
-  'connect.room_password_input_aria': 'Introduce la contraseña de 8 dígitos de la sala',
-  'connect.room_password_refresh_aria': 'Generar una nueva contraseña de sala',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Esperando 8 dígitos',
   'connect.room_password_on': 'Contraseña aplicada',
   'connect.room_password_invalid': 'Introduce 8 dígitos',
-  'connect.room_password_enabled': 'Los nuevos participantes necesitarán la contraseña de la sala',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
+  'connect.room_password_apply_pending':
+    'La nueva contraseña se aplicará cuando se recupere la conexión.',
+  'connect.pin_enabled_removed_message':
+    'El anfitrión definió una contraseña para la sala. Introdúcela para volver a unirte.',
+  'connect.pin_changed_removed_message':
+    'El anfitrión cambió la contraseña de la sala. Introduce la nueva contraseña para volver a unirte.',
   'connect.signaling_healthy': 'Servidor de la sala disponible',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falló la conexión con el servidor',
@@ -659,6 +659,9 @@ const es: Record<I18nKey, string> = {
   'dialog.leave_session': 'Salir',
   'dialog.sw_update_title': 'Actualización',
   'dialog.sw_update_msg': 'Hay una nueva versión lista. Actualiza para aplicarla.',
+  'dialog.feature_refresh_title': 'Es necesario actualizar la página',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE se ha actualizado. Actualiza la página para seguir usándolo con normalidad.',
   'dialog.reconnect_ask': '¿Quieres reconectar?',
   'dialog.reconnect': 'Reconectar',
   'dialog.go_back': 'Volver',
@@ -670,6 +673,10 @@ const es: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Se agotó el tiempo de conexión. Vuelve a introducir la contraseña.',
   'dialog.room_password_placeholder': 'Contraseña de 8 dígitos',
+  'dialog.room_password_rate_limited':
+    'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en {{count}} minutos.',
+  'dialog.room_password_rate_limited_later':
+    'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en un rato.',
   'dialog.session_lost_msg':
     'La app se suspendió o perdió conexión, así que los demás dispositivos ya se desconectaron. Reinicia para crear una sala nueva.',
   'dialog.session_lost_btn': 'Reiniciar',
@@ -750,6 +757,7 @@ const es: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Demasiados intentos de entrar. Vuelve a intentarlo en un rato.',
   'pro.active_tab_title': 'Queda una conexión anterior',
   'pro.active_tab_message': 'Si continúas aquí, se cerrará la conexión anterior.',
+  'pro.active_tab_replaced': 'Esta sala PRO ya está abierta en otra pestaña',
   'pro.use_this_tab': 'Continuar aquí',
   'pro.upload.batch_progress': 'Subiendo pistas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'No se pudieron subir algunas pistas',
@@ -799,6 +807,10 @@ const es: Record<I18nKey, string> = {
     'El archivo de esta pista es muy grande y puede que no se reproduzca en algunos dispositivos.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo no puede reproducir la pista actual.',
+  'chat.update_available_tab_system_message':
+    'Hay una nueva versión de MUSIXQUARE. Actualiza la página para empezar a usarla.',
+  'chat.update_available_app_system_message':
+    'Hay una nueva versión de MUSIXQUARE. Vuelve a abrir la aplicación para empezar a usarla.',
   'chat.system_audio_started_system_message':
     'Se empezó a compartir el audio del sistema. Es normal que haya una leve latencia entre el anfitrión y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo del anfitrión para evitar ecos.',
   'chat.system_audio_stopped_system_message':
@@ -927,5 +939,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Demasiados intentos de entrar. Vuelve a intentarlo en {{count}} minuto.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

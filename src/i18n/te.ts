@@ -284,16 +284,15 @@ const te: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'ఆహ్వాన లింక్‌ను కాపీ చేయి',
   'connect.link_copied': 'ఆహ్వాన లింక్ కాపీ అయింది',
   'connect.room_password_title': 'చేరడానికి పాస్‌వర్డ్ తప్పనిసరి చేయి',
-  'connect.room_password_set': 'సెట్ చేయి',
   'connect.room_password_toggle_aria': 'గది పాస్‌వర్డ్ అవసరాన్ని మార్చు',
-  'connect.room_password_input_aria': '8 అంకెల గది పాస్‌వర్డ్‌ను నమోదు చేయి',
-  'connect.room_password_refresh_aria': 'కొత్త గది పాస్‌వర్డ్‌ను రూపొందించు',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 అంకెల కోసం వేచి ఉంది',
   'connect.room_password_on': 'పాస్‌వర్డ్ వర్తింపజేయబడింది',
   'connect.room_password_invalid': '8 అంకెలను నమోదు చేయండి',
-  'connect.room_password_enabled': 'కొత్తగా చేరేవారికి గది పాస్‌వర్డ్ అవసరం',
   'connect.room_password_disabled': 'చేరేవారికి ఇక గది పాస్‌వర్డ్ అవసరం లేదు',
+  'connect.room_password_apply_pending': 'కనెక్షన్ తిరిగి వచ్చాక కొత్త పాస్‌వర్డ్ వర్తిస్తుంది.',
+  'connect.pin_enabled_removed_message':
+    'హోస్ట్ గది పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',
+  'connect.pin_changed_removed_message':
+    'హోస్ట్ గది పాస్‌వర్డ్‌ను మార్చారు. మళ్లీ చేరడానికి కొత్త పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'connect.signaling_healthy': 'గది సర్వర్ ఆన్‌లైన్‌లో ఉంది',
   'connect.signaling_recovering': 'మళ్లీ కనెక్ట్ అవుతోంది…',
   'connect.signaling_failed': 'సర్వర్ కనెక్షన్ విఫలమైంది',
@@ -427,6 +426,10 @@ const te: Record<I18nKey, string> = {
     'ఈ ట్రాక్ ఫైల్ చాలా పెద్దది; కొన్ని పరికరాల్లో ప్లే కాకపోవచ్చు.',
   'chat.device_track_unavailable_system_message':
     'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది. దీన్ని వర్తింపజేయడానికి పేజీని రిఫ్రెష్ చేయండి.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది. దీన్ని వర్తింపజేయడానికి యాప్‌ను మళ్లీ తెరవండి.',
   'chat.system_audio_started_system_message':
     'సిస్టమ్ ఆడియో షేరింగ్ ప్రారంభమైంది. హోస్ట్, అతిథి పరికరాల మధ్య కొద్దిపాటి ఆలస్యం సాధారణం. ప్రతిధ్వనిని నివారించడానికి హోస్ట్ పరికరం వాల్యూమ్‌ను తగ్గించాలని సిఫార్సు చేస్తున్నాం.',
   'chat.system_audio_stopped_system_message':
@@ -717,6 +720,9 @@ const te: Record<I18nKey, string> = {
   'dialog.leave_session': 'వెళ్లిపో',
   'dialog.sw_update_title': 'అప్‌డేట్',
   'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది. అప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
+  'dialog.feature_refresh_title': 'రిఫ్రెష్ చేయాలి',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE అప్‌డేట్ అయింది. ఎప్పటిలాగే ఉపయోగించడం కొనసాగించడానికి రిఫ్రెష్ చేయండి.',
   'dialog.reconnect_ask': 'మళ్లీ కనెక్ట్ కావాలా?',
   'dialog.reconnect': 'మళ్లీ కనెక్ట్ చేయి',
   'dialog.go_back': 'వెనక్కి వెళ్లు',
@@ -728,6 +734,10 @@ const te: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'కనెక్షన్ సమయం ముగిసింది. మళ్లీ ప్రయత్నించడానికి పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'dialog.room_password_placeholder': '8 అంకెల పాస్‌వర్డ్',
+  'dialog.room_password_rate_limited':
+    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. {{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి.',
+  'dialog.room_password_rate_limited_later':
+    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
   'dialog.session_lost_msg':
     'యాప్ నిద్రలోకి వెళ్లింది లేదా కనెక్షన్ పోయింది, కాబట్టి ఇతర పరికరాలు ఇప్పటికే డిస్‌కనెక్ట్ అయ్యాయి. కొత్త సెషన్‌ను ప్రారంభించడానికి రీస్టార్ట్ చేయండి.',
   'dialog.session_lost_btn': 'రీస్టార్ట్',
@@ -819,6 +829,7 @@ const te: Record<I18nKey, string> = {
     'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
   'pro.active_tab_title': 'మునుపటి కనెక్షన్ మిగిలి ఉంది',
   'pro.active_tab_message': 'ఇక్కడ కొనసాగితే మునుపటి కనెక్షన్ నిలిపివేయబడుతుంది.',
+  'pro.active_tab_replaced': 'ఈ PRO గది ఇప్పటికే మరో ట్యాబ్‌లో తెరిచి ఉంది',
   'pro.use_this_tab': 'ఇక్కడ కొనసాగించండి',
   'pro.upload.batch_progress': 'ట్రాక్‌లు అప్‌లోడ్ అవుతున్నాయి {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'కొన్ని ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం',
@@ -946,5 +957,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. {{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. {{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.',
   },
 } satisfies LocalePluralMessages;

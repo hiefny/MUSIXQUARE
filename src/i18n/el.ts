@@ -288,16 +288,16 @@ const el: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Αντιγραφή συνδέσμου πρόσκλησης',
   'connect.link_copied': 'Ο σύνδεσμος πρόσκλησης αντιγράφηκε',
   'connect.room_password_title': 'Απαίτηση κωδικού πρόσβασης για είσοδο',
-  'connect.room_password_set': 'Ορισμός',
   'connect.room_password_toggle_aria': 'Εναλλαγή απαίτησης κωδικού πρόσβασης δωματίου',
-  'connect.room_password_input_aria': 'Εισαγάγετε τον οκταψήφιο κωδικό πρόσβασης δωματίου',
-  'connect.room_password_refresh_aria': 'Δημιουργία νέου κωδικού πρόσβασης δωματίου',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Αναμονή για 8 ψηφία',
   'connect.room_password_on': 'Ο κωδικός εφαρμόστηκε',
   'connect.room_password_invalid': 'Εισαγάγετε 8 ψηφία',
-  'connect.room_password_enabled': 'Τα νέα μέλη θα χρειάζονται τον κωδικό πρόσβασης δωματίου',
   'connect.room_password_disabled': 'Τα μέλη δεν χρειάζονται πλέον τον κωδικό πρόσβασης δωματίου',
+  'connect.room_password_apply_pending':
+    'Ο νέος κωδικός πρόσβασης θα ισχύσει μόλις αποκατασταθεί η σύνδεση.',
+  'connect.pin_enabled_removed_message':
+    'Ο οικοδεσπότης όρισε κωδικό πρόσβασης για το δωμάτιο. Εισαγάγετέ τον για να συνδεθείτε ξανά.',
+  'connect.pin_changed_removed_message':
+    'Ο οικοδεσπότης άλλαξε τον κωδικό πρόσβασης του δωματίου. Εισαγάγετε τον νέο κωδικό για να συνδεθείτε ξανά.',
   'connect.signaling_healthy': 'Ο διακομιστής δωματίου είναι online',
   'connect.signaling_recovering': 'Επανασύνδεση…',
   'connect.signaling_failed': 'Η σύνδεση με τον διακομιστή απέτυχε',
@@ -433,6 +433,10 @@ const el: Record<I18nKey, string> = {
     'Το αρχείο αυτού του κομματιού είναι πολύ μεγάλο και ενδέχεται να μην αναπαράγεται σε ορισμένες συσκευές.',
   'chat.device_track_unavailable_system_message':
     'Αυτή η συσκευή δεν μπορεί να αναπαραγάγει το τρέχον κομμάτι.',
+  'chat.update_available_tab_system_message':
+    'Υπάρχει νέα έκδοση του MUSIXQUARE. Ανανεώστε τη σελίδα για να ενεργοποιηθεί.',
+  'chat.update_available_app_system_message':
+    'Υπάρχει νέα έκδοση του MUSIXQUARE. Ανοίξτε ξανά την εφαρμογή για να ενεργοποιηθεί.',
   'chat.system_audio_started_system_message':
     'Η κοινοποίηση ήχου συστήματος ξεκίνησε. Μια μικρή καθυστέρηση μεταξύ της συσκευής του οικοδεσπότη και των συσκευών των μελών είναι φυσιολογική. Συνιστάται να μειώσετε την ένταση της συσκευής του οικοδεσπότη για να αποφύγετε την ηχώ.',
   'chat.system_audio_stopped_system_message':
@@ -734,6 +738,9 @@ const el: Record<I18nKey, string> = {
   'dialog.leave_session': 'Αποχώρηση',
   'dialog.sw_update_title': 'Ενημέρωση',
   'dialog.sw_update_msg': 'Μια νέα έκδοση είναι έτοιμη. Ανανεώστε για ενημέρωση.',
+  'dialog.feature_refresh_title': 'Απαιτείται ανανέωση',
+  'dialog.feature_refresh_msg':
+    'Το MUSIXQUARE ενημερώθηκε. Ανανεώστε τη σελίδα για να συνεχίσετε να το χρησιμοποιείτε κανονικά.',
   'dialog.reconnect_ask': 'Θέλετε να συνδεθείτε ξανά;',
   'dialog.reconnect': 'Επανασύνδεση',
   'dialog.go_back': 'Επιστροφή',
@@ -744,6 +751,10 @@ const el: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Ο κωδικός πρόσβασης δεν ταιριάζει. Δοκιμάστε ξανά.',
   'dialog.room_password_timeout_msg': 'Η σύνδεση έληξε. Εισαγάγετε ξανά τον κωδικό πρόσβασης.',
   'dialog.room_password_placeholder': 'Οκταψήφιος κωδικός πρόσβασης',
+  'dialog.room_password_rate_limited':
+    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές. Δοκιμάστε ξανά σε {{count}} λεπ.',
+  'dialog.room_password_rate_limited_later':
+    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές. Δοκιμάστε ξανά σε λίγο.',
   'dialog.session_lost_msg':
     'Η εφαρμογή τέθηκε σε αναστολή ή έχασε τη σύνδεση, επομένως οι άλλες συσκευές έχουν ήδη αποσυνδεθεί. Κάντε επανεκκίνηση για να ξεκινήσετε νέα συνεδρία.',
   'dialog.session_lost_btn': 'Επανεκκίνηση',
@@ -834,6 +845,7 @@ const el: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Πάρα πολλές προσπάθειες σύνδεσης. Δοκιμάστε ξανά σε λίγο.',
   'pro.active_tab_title': 'Υπάρχει ακόμα προηγούμενη σύνδεση',
   'pro.active_tab_message': 'Αν συνεχίσετε εδώ, η προηγούμενη σύνδεση θα τερματιστεί.',
+  'pro.active_tab_replaced': 'Αυτό το δωμάτιο PRO είναι ήδη ανοιχτό σε άλλη καρτέλα',
   'pro.use_this_tab': 'Συνέχεια εδώ',
   'pro.upload.batch_progress': 'Αποστολή κομματιών {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Δεν ήταν δυνατή η αποστολή ορισμένων κομματιών',

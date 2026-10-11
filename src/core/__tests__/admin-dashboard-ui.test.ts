@@ -233,6 +233,43 @@ describe('admin PRO room claim lifecycle', () => {
     expect(lifetimeChart.getAttribute('aria-label')).toContain('repeat connections included');
   });
 
+  it('shows Standard-room PIN lockouts beside the other password signals', async () => {
+    installAdminDom();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+        if (url.pathname === '/api/admin/session') {
+          return Response.json({ authenticated: true, configured: true });
+        }
+        if (url.pathname === '/api/admin/metrics') {
+          return Response.json({
+            generatedAt: '2026-10-11T00:00:00.000Z',
+            cards: [],
+            summary: {
+              hourly: [],
+              daily: [],
+              daily30: [],
+              last24: { guest_auth_failed: 31, guest_auth_rate_limited: 1_234 },
+            },
+          });
+        }
+        return Response.json({ ok: true });
+      }),
+    );
+
+    window.eval(adminScript);
+    const grid = document.querySelector<HTMLElement>('[data-signal-grid]')!;
+    await vi.waitFor(() => expect(grid.children.length).toBeGreaterThan(0));
+    const signals = [...grid.querySelectorAll('.signal-item')].map((item) => [
+      item.querySelector('span')?.textContent,
+      item.querySelector('strong')?.textContent,
+    ]);
+    expect(signals).toContainEqual(['Password failures', '31']);
+    expect(signals).toContainEqual(['Password lockouts', '1,234']);
+    expect(signals).toContainEqual(['Password timeouts', '0']);
+  });
+
   it('fails closed when an admin response exceeds the bounded body size', async () => {
     installAdminDom();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

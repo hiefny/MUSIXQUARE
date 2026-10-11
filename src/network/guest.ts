@@ -18,7 +18,7 @@ import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getDevicePlatform } from '../core/platform.ts';
-import { registerHandlers } from './protocol.ts';
+import { isStandardRoomPinKickReason, registerHandlers } from './protocol.ts';
 import type { DataConnection, DeviceInfo, RoomCapability } from '../types/index.ts';
 
 import { getPeer, detectConnectionType, safeSend } from './peer-state.ts';
@@ -985,7 +985,7 @@ function handleOperatorRevoke(data: Record<string, unknown>, conn?: DataConnecti
   bus.emit('network:role-badge-update');
 }
 
-function handleKickDeviceMsg(_data: Record<string, unknown>, conn?: DataConnection): void {
+function handleKickDeviceMsg(data: Record<string, unknown>, conn?: DataConnection): void {
   // Drop frames not arriving via hostConn. Without this, a malicious guest
   // can send {type:'kick-device'} to the host — the bus.emit below triggers
   // setup.ts, which schedules a blocking hard reset. A single raw frame from
@@ -993,7 +993,9 @@ function handleKickDeviceMsg(_data: Record<string, unknown>, conn?: DataConnecti
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   setState('network.isIntentionalDisconnect', true);
-  bus.emit('network:kicked-explicitly');
+  // Only a known reason changes the copy; anything else keeps the generic kick.
+  if (isStandardRoomPinKickReason(data.reason)) bus.emit('network:kicked-explicitly', data.reason);
+  else bus.emit('network:kicked-explicitly');
 }
 
 function handleOperatorToast(data: Record<string, unknown>, conn?: DataConnection): void {

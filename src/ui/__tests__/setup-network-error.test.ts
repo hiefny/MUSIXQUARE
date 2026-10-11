@@ -116,6 +116,7 @@ import { showDialog } from '../dialog.ts';
 import { setHostGoBack } from '../setup-host.ts';
 import { restoreGuestJoinControlsAfterFailure } from '../setup-guest.ts';
 import { showToast } from '../toast.ts';
+import { scheduleDocumentReload, scheduleSessionReset } from '../../core/session-reset.ts';
 
 function startJoining(): void {
   setState('network.appRole', 'guest');
@@ -313,5 +314,158 @@ describe('setup network error messages', () => {
     expect(cancelPendingSessionSetup).not.toHaveBeenCalled();
     expect(getState('network.appRole')).toBe('host');
     expect(getState('setup.sessionStarted')).toBe(true);
+  });
+});
+
+describe('Standard-room PIN removal and wrong-PIN limit', () => {
+  function dialogOptions() {
+    const options = vi.mocked(showDialog).mock.calls.at(-1)?.[0];
+    if (!options || typeof options === 'string') throw new Error('expected dialog options');
+    return options;
+  }
+  const text = (value: unknown) =>
+    typeof value === 'function' ? (value as () => string)() : value;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    vi.mocked(scheduleSessionReset).mockClear();
+    vi.mocked(scheduleDocumentReload).mockClear();
+    setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
+    setState('network.lastJoinCode', '123456');
+  });
+
+  it.each([
+    ['room-pin-enabled', 'pro.pin_enabled_removed_title', 'connect.pin_enabled_removed_message'],
+    ['room-pin-changed', 'pro.pin_changed_removed_title', 'connect.pin_changed_removed_message'],
+  ] as const)(
+    'explains a %s removal with the host wording, then reopens the same room',
+    async (reason, title, message) => {
+      bus.emit('network:kicked-explicitly', reason);
+      // The departing session clears the code; the route was captured already.
+      setState('network.lastJoinCode', '');
+
+      expect(showDialog).toHaveBeenCalledOnce();
+      const options = dialogOptions();
+      expect(text(options.title)).toBe(title);
+      expect(text(options.message)).toBe(message);
+      expect(options.dismissible).toBe(false);
+      await flush();
+      expect(scheduleSessionReset).toHaveBeenCalledOnce();
+      expect(scheduleDocumentReload).not.toHaveBeenCalled();
+      const navigate = vi.mocked(scheduleSessionReset).mock.calls[0]?.[1];
+      const location = { href: '' };
+      vi.stubGlobal('location', location);
+      try {
+        navigate?.();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+      expect(location.href).toBe('/123456');
+    },
+  );
+
+  it('reloads instead of navigating when the remembered room code is not a room code', async () => {
+    setState('network.lastJoinCode', '../evil');
+    bus.emit('network:kicked-explicitly', 'room-pin-changed');
+    await flush();
+    expect(scheduleSessionReset).not.toHaveBeenCalled();
+    expect(scheduleDocumentReload).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the generic kick copy for a kick without a known reason', async () => {
+    bus.emit('network:kicked-explicitly');
+    const options = dialogOptions();
+    expect(options.title).toBe('connect.kicked_title');
+    expect(options.message).toBe('connect.kicked_message');
+    await flush();
+    expect(scheduleDocumentReload).toHaveBeenCalledOnce();
+    expect(scheduleSessionReset).not.toHaveBeenCalled();
+  });
+
+  it('shows one notice when the kick frame and the closed signaling socket both report it', async () => {
+    let close: (value: { action: string }) => void = () => undefined;
+    vi.mocked(showDialog).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          close = resolve;
+        }),
+    );
+    bus.emit('network:kicked-explicitly', 'room-pin-changed');
+    bus.emit(
+      'network:error',
+      Object.assign(new Error('ROOM_PASSWORD_CHANGED'), { type: 'room-password-changed' }),
+    );
+    expect(showDialog).toHaveBeenCalledOnce();
+    close({ action: 'ok' });
+    await flush();
+    expect(scheduleSessionReset).toHaveBeenCalledOnce();
+  });
+
+  it('explains a room-password-changed close that arrives without the kick frame', async () => {
+    setState('network.isConnecting', true);
+    bus.emit(
+      'network:error',
+      Object.assign(new Error('ROOM_PASSWORD_CHANGED'), { type: 'room-password-changed' }),
+    );
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(text(dialogOptions().title)).toBe('pro.pin_changed_removed_title');
+    expect(text(dialogOptions().message)).toBe('connect.pin_changed_removed_message');
+    expect(restoreGuestJoinControlsAfterFailure).not.toHaveBeenCalled();
+    await flush();
+    expect(scheduleSessionReset).toHaveBeenCalledOnce();
+  });
+
+  it('uses the first-enable notice when the Worker closes the socket for a new PIN', async () => {
+    setState('network.isConnecting', true);
+    bus.emit(
+      'network:error',
+      Object.assign(new Error('ROOM_PASSWORD_ENABLED'), { type: 'room-password-changed' }),
+    );
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(text(dialogOptions().title)).toBe('pro.pin_enabled_removed_title');
+    expect(text(dialogOptions().message)).toBe('connect.pin_enabled_removed_message');
+    await flush();
+    expect(scheduleSessionReset).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [600, 'dialog.room_password_rate_limited'],
+    [61, 'dialog.room_password_rate_limited'],
+    [0, 'dialog.room_password_rate_limited_later'],
+    [undefined, 'dialog.room_password_rate_limited_later'],
+  ] as const)(
+    'tells a guest locked out for %s seconds when to try again',
+    (retryAfterSeconds, message) => {
+      startJoining();
+      bus.emit(
+        'network:error',
+        Object.assign(new Error('ROOM_PASSWORD_RATE_LIMITED'), {
+          type: 'room-password-rate-limited',
+          ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+        }),
+      );
+      expect(getState('network.isConnecting')).toBe(false);
+      expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith(message);
+      expect(showDialog).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rounds the lockout up to whole minutes', async () => {
+    const { t } = await import('../../i18n/index.ts');
+    vi.mocked(t).mockClear();
+    startJoining();
+    bus.emit(
+      'network:error',
+      Object.assign(new Error('ROOM_PASSWORD_RATE_LIMITED'), {
+        type: 'room-password-rate-limited',
+        retryAfterSeconds: 61,
+      }),
+    );
+    expect(t).toHaveBeenCalledWith('dialog.room_password_rate_limited', { count: 2 });
+    // The Standard wrong-PIN lockout has its own copy; the PRO join throttle
+    // wording ("too many join attempts") is not reused.
+    expect(t).not.toHaveBeenCalledWith('pro.join_rate_limited', expect.anything());
+    expect(t).not.toHaveBeenCalledWith('pro.join_rate_limited_later');
   });
 });

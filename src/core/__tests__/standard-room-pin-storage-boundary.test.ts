@@ -5,12 +5,23 @@ import { validateStandardRoomPinStorageBoundary } from '../../../scripts/standar
 
 const workerSource = readFileSync(resolve('cloudflare/signaling-worker.ts'), 'utf8');
 const signalingConfig = readFileSync(resolve('cloudflare/wrangler.signaling.toml'), 'utf8');
+const membershipSource = readFileSync(
+  resolve('cloudflare/standard-room-pin-membership.ts'),
+  'utf8',
+);
+const PIN_RECORD_STORAGE_ERROR =
+  'Standard room PIN membership and wrong-PIN records must be written only through their normalizers and never carry PIN material';
 
 function validate(
   source = workerSource,
   config = signalingConfig,
+  membership: string | undefined = membershipSource,
 ): ReturnType<typeof validateStandardRoomPinStorageBoundary> {
-  return validateStandardRoomPinStorageBoundary({ workerSource: source, signalingConfig: config });
+  return validateStandardRoomPinStorageBoundary({
+    workerSource: source,
+    signalingConfig: config,
+    ...(membership === undefined ? {} : { membershipSource: membership }),
+  });
 }
 
 describe('Standard room PIN storage boundary', () => {
@@ -106,6 +117,58 @@ describe('Standard room PIN storage boundary', () => {
     ).toContain(
       'Standard room PIN storage is missing required boundary marker: if (!isExactLegacyRoomMeta(value)) return invalidCurrentRoomMeta(base);',
     );
+  });
+
+  it('writes the kept-set and wrong-PIN records only through their normalizers', () => {
+    expect(validate(workerSource, signalingConfig, undefined)).toEqual([]);
+    const bypassed = workerSource.replace(
+      /normalizeStandardRoomPinMembership\(rekeyed\),\s*\);/u,
+      'rekeyed);',
+    );
+    expect(bypassed).not.toBe(workerSource);
+    expect(validate(bypassed)).toContain(PIN_RECORD_STORAGE_ERROR);
+    expect(
+      validate(
+        `${workerSource}
+void storage.put(STANDARD_ROOM_PIN_FAILURES_KEY, normalizeStandardRoomPinFailures({ password }));`,
+      ),
+    ).toContain(PIN_RECORD_STORAGE_ERROR);
+    expect(
+      validate(
+        `${workerSource}
+void storage.put(STANDARD_ROOM_PIN_MEMBERSHIP_KEY, normalizeStandardRoomPinFailures(record));`,
+      ),
+    ).toContain(PIN_RECORD_STORAGE_ERROR);
+    expect(
+      validate(`${workerSource}
+const key = 'standard-room-pin-failures-v1';`),
+    ).toContain(PIN_RECORD_STORAGE_ERROR);
+    expect(
+      validate(workerSource.replaceAll('STANDARD_ROOM_PIN_FAILURES_KEY,', 'OTHER_KEY,')),
+    ).toContain(PIN_RECORD_STORAGE_ERROR);
+  });
+
+  it('keeps the record shapes exact and free of PIN material', () => {
+    expect(
+      validate(
+        workerSource,
+        signalingConfig,
+        membershipSource.replace(
+          "!hasExactKeys(entry, ['key', 'count', 'resetAt'])",
+          '!isRecord(entry)',
+        ),
+      ),
+    ).toContain(
+      "Standard room PIN record storage is missing required boundary marker: !hasExactKeys(entry, ['key', 'count', 'resetAt'])",
+    );
+    expect(
+      validate(
+        workerSource,
+        signalingConfig,
+        `${membershipSource}
+export function keepPassword(password: string) { return { password }; }`,
+      ),
+    ).toContain(PIN_RECORD_STORAGE_ERROR);
   });
 
   it('requires the dedicated secret in signaling deploy configuration', () => {

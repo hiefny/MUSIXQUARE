@@ -329,6 +329,7 @@ class ContractWorkerState {
     put: async (key: string, value: unknown): Promise<void> => {
       this.values.set(key, structuredClone(value));
     },
+    delete: async (key: string): Promise<boolean> => this.values.delete(key),
     getAlarm: async (): Promise<null> => null,
     setAlarm: async (): Promise<void> => {},
     deleteAlarm: async (): Promise<void> => {},
@@ -430,6 +431,11 @@ function createHostPeer(): CloudflareSignalingPeer {
     signalingUrl: PRIMARY_SIGNALING_URL,
     config: { iceServers: [] },
   });
+}
+
+/** Request a PIN whose commit promise most cases never need to observe. */
+function requestRoomPin(peer: CloudflareSignalingPeer, pin: string | null): void {
+  peer.setRoomPassword(pin).catch(() => {});
 }
 
 function clientProTicket(
@@ -3522,7 +3528,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
       const room = await createContractWorkerRoom();
 
       const hostPeer = createHostPeer();
-      hostPeer.setRoomPassword(roomPassword || null);
+      requestRoomPin(hostPeer, roomPassword || null);
       await Promise.resolve();
       const hostClientSocket = FakeWebSocket.instances[0];
       hostClientSocket.dispatch('open');
@@ -3671,7 +3677,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
   it('reconnects and reasserts the exact desired PIN mutation after a negative acknowledgement', async () => {
     installFakeWebSocket();
     const peer = createHostPeer();
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
     await Promise.resolve();
     const first = FakeWebSocket.instances[0];
     first.dispatch('open');
@@ -3705,7 +3711,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
   it('requires a fresh final PIN confirmation on every admitted host socket', async () => {
     installFakeWebSocket();
     const peer = createHostPeer();
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
     await Promise.resolve();
     const first = FakeWebSocket.instances[0];
     first.dispatch('open');
@@ -3752,7 +3758,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
     installFakeWebSocket();
     const room = await createContractWorkerRoom();
     const peer = createHostPeer();
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
     await Promise.resolve();
 
     const admitClientSocket = async (
@@ -3812,7 +3818,7 @@ describe('Cloudflare client/Worker signaling contract', () => {
     const staleAuth = sentOfType(staleSocket, 'host-auth')[0];
     expect(staleAuth).toMatchObject({ desiredRoomPassword: '' });
 
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
 
     expect(staleSocket.closeCount).toBe(1);
     const currentSocket = FakeWebSocket.instances[1];
@@ -3860,7 +3866,7 @@ describe('Standard HTTPS route preference circuit breaker', () => {
 
     const seedPrepare = vi.fn(async () => null);
     const seed = new CloudflareSignalingPeer('123456', fallbackOptions(seedPrepare));
-    seed.setRoomPassword('12345678');
+    requestRoomPin(seed, '12345678');
     await moveHostToHttp(seed);
     expect(seedPrepare).toHaveBeenCalledOnce();
     expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
@@ -3873,7 +3879,7 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     const hostOpenCount = bridge.requestCount('/bridge/open');
     const nextHostPrepare = vi.fn(async () => null);
     const nextHost = new CloudflareSignalingPeer('234567', fallbackOptions(nextHostPrepare));
-    nextHost.setRoomPassword('87654321');
+    requestRoomPin(nextHost, '87654321');
     await vi.waitFor(() => expect(bridge.requestCount('/bridge/open')).toBe(hostOpenCount + 1));
     await vi.waitFor(() => expect(nextHost.open).toBe(true));
     expect(FakeWebSocket.instances).toHaveLength(0);
@@ -3908,7 +3914,7 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
 
     const peer = new CloudflareSignalingPeer('123456', fallbackOptions());
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
     await Promise.resolve();
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(new URL(FakeWebSocket.instances[0].url).origin).toBe('wss://signal.example.test');
@@ -3920,7 +3926,7 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     installFakeWebSocket();
     const bridge = installHttpBridgeHarness({ admit: false });
     const peer = new CloudflareSignalingPeer('123456', fallbackOptions());
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
     await Promise.resolve();
     FakeWebSocket.instances[0].dispatch('open');
     FakeWebSocket.instances[0].dispatch('error');
@@ -4063,7 +4069,7 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     installFakeWebSocket();
     const bridge = installHttpBridgeHarness();
     const wssPeer = new CloudflareSignalingPeer('123456', fallbackOptions());
-    wssPeer.setRoomPassword('12345678');
+    requestRoomPin(wssPeer, '12345678');
     await Promise.resolve();
     __cloudflareSignalingForTests.promoteStandardHttpPreference();
     const wss = FakeWebSocket.instances[0];
@@ -4079,7 +4085,7 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     __cloudflareSignalingForTests.promoteStandardHttpPreference();
     FakeWebSocket.instances = [];
     const httpPeer = new CloudflareSignalingPeer('234567', fallbackOptions());
-    httpPeer.setRoomPassword('12345678');
+    requestRoomPin(httpPeer, '12345678');
     await vi.waitFor(() => expect(httpPeer.open).toBe(true));
     const currentHttp = (httpPeer as unknown as { hostSocket: EventTarget }).hostSocket;
     currentHttp.dispatchEvent(new Event('error'));
@@ -4092,7 +4098,7 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     const closingPeer = new CloudflareSignalingPeer('345678', fallbackOptions());
     const onClosingPeerOpen = vi.fn();
     closingPeer.on('open', onClosingPeerOpen);
-    closingPeer.setRoomPassword('12345678');
+    requestRoomPin(closingPeer, '12345678');
     await vi.waitFor(() => expect(onClosingPeerOpen).toHaveBeenCalledOnce());
     await vi.waitFor(() =>
       expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false),
@@ -5951,7 +5957,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const onOpen = vi.fn();
     peer.on('error', onError);
     peer.on('open', onOpen);
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
     await Promise.resolve();
     const first = FakeWebSocket.instances[0];
     expect(new URL(first.url).origin).toBe('wss://signal.example.test');
@@ -6030,7 +6036,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       config: { iceServers: [] },
       prepareNetworkRouteRetry: async () => null,
     });
-    peer.setRoomPassword('12345678');
+    requestRoomPin(peer, '12345678');
     await Promise.resolve();
     const primary = FakeWebSocket.instances[0];
     primary.dispatch('open');
@@ -7166,4 +7172,343 @@ describe('long-running Standard-room transport ownership', () => {
     expect(internals.peerOfferSequences.size).toBe(0);
     peer.destroy();
   });
+});
+
+describe('Standard-room PIN membership commits', () => {
+  function track<T>(promise: Promise<T>): { settled: T | undefined } {
+    const state: { settled: T | undefined } = { settled: undefined };
+    promise.then(
+      (value) => {
+        state.settled = value;
+      },
+      () => {},
+    );
+    return state;
+  }
+
+  async function admitHost(
+    socketIndex: number,
+    options: { flag?: boolean } = {},
+  ): Promise<{ socket: FakeWebSocket; auth: Record<string, unknown> | undefined }> {
+    const socket = FakeWebSocket.instances[socketIndex];
+    socket.dispatch('open');
+    await flushAsync();
+    const auth = sentOfType(socket, 'host-auth')[0];
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        ...(options.flag === false ? {} : { standardRoomPinMembershipVersion: 1 }),
+      }),
+    );
+    await flushAsync();
+    return { socket, auth };
+  }
+
+  function lastPinFrame(socket: FakeWebSocket): Record<string, unknown> | undefined {
+    return sentOfType(socket, 'room-password-set').at(-1);
+  }
+
+  async function ack(
+    socket: FakeWebSocket,
+    mutationId: unknown,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'room-password-result', mutationId, applied: true, ...extra }),
+    );
+    await flushAsync();
+  }
+
+  it('resolves only on the applied acknowledgement of the exact mutation', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const { socket } = await admitHost(0);
+    await ack(socket, lastPinFrame(socket)?.pinMutationId);
+
+    const commit = track(
+      peer.setRoomPassword('12345678', { mode: 'keep_present', keptPeerIds: ['guest-1'] }),
+    );
+    const frame = lastPinFrame(socket);
+    expect(frame).toEqual({
+      type: 'room-password-set',
+      password: '12345678',
+      pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+      existingParticipants: 'keep_present',
+      keptPeerIds: ['guest-1'],
+    });
+    await ack(socket, 'unrelated-mutation-id-000000000', { existingParticipants: 'keep_present' });
+    expect(commit.settled).toBeUndefined();
+    await ack(socket, frame?.pinMutationId, { existingParticipants: 'keep_present' });
+    expect(commit.settled).toEqual({ status: 'applied', membership: 'keep_present' });
+    peer.destroy();
+  });
+
+  it('replays the directive after a negative acknowledgement and keeps host-auth exact', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const { socket } = await admitHost(0);
+    const commit = track(
+      peer.setRoomPassword('12345678', { mode: 'revoke_all', keptPeerIds: ['ignored'] }),
+    );
+    const frame = lastPinFrame(socket);
+    expect(frame).toEqual({
+      type: 'room-password-set',
+      password: '12345678',
+      pinMutationId: expect.any(String),
+      existingParticipants: 'revoke_all',
+    });
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'room-password-result',
+        mutationId: frame?.pinMutationId,
+        applied: false,
+        errorType: 'ROOM_PASSWORD_STORAGE_UNAVAILABLE',
+      }),
+    );
+    await flushAsync();
+    expect(socket.closeCount).toBe(1);
+    expect(commit.settled).toBeUndefined();
+
+    peer.reconnect();
+    const { socket: reopened, auth } = await admitHost(1);
+    expect(auth).toEqual({
+      type: 'host-auth',
+      secret: expect.any(String),
+      desiredRoomPassword: '12345678',
+      pinMutationId: frame?.pinMutationId,
+    });
+    expect(lastPinFrame(reopened)).toEqual(frame);
+    await ack(reopened, frame?.pinMutationId, { existingParticipants: 'revoke_all' });
+    expect(commit.settled).toEqual({ status: 'applied', membership: 'revoke_all' });
+    peer.destroy();
+  });
+
+  it('sends membership only to a socket whose peer-open advertised it', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const { socket: flagged } = await admitHost(0);
+    const commit = track(
+      peer.setRoomPassword('12345678', { mode: 'keep_present', keptPeerIds: ['guest-1'] }),
+    );
+    expect(lastPinFrame(flagged)).toMatchObject({ existingParticipants: 'keep_present' });
+
+    flagged.close();
+    peer.reconnect();
+    const { socket: unflagged } = await admitHost(1, { flag: false });
+    const legacyFrame = lastPinFrame(unflagged);
+    expect(legacyFrame).toEqual({
+      type: 'room-password-set',
+      password: '12345678',
+      pinMutationId: expect.any(String),
+    });
+    await ack(unflagged, legacyFrame?.pinMutationId);
+    expect(commit.settled).toEqual({ status: 'applied', membership: 'legacy' });
+
+    // An acknowledgement without the matching echo is never reported as a
+    // membership commit, even on an advertising socket.
+    unflagged.close();
+    peer.reconnect();
+    const { socket: reflagged } = await admitHost(2);
+    const next = track(peer.setRoomPassword('87654321', { mode: 'revoke_all', keptPeerIds: [] }));
+    await ack(reflagged, lastPinFrame(reflagged)?.pinMutationId);
+    expect(next.settled).toEqual({ status: 'applied', membership: 'legacy' });
+    peer.destroy();
+  });
+
+  it('clears the one-shot directive after an acknowledgement', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const { socket } = await admitHost(0);
+    const commit = track(peer.setRoomPassword('12345678', { mode: 'revoke_all', keptPeerIds: [] }));
+    const frame = lastPinFrame(socket);
+    await ack(socket, frame?.pinMutationId, { existingParticipants: 'revoke_all' });
+    expect(commit.settled).toEqual({ status: 'applied', membership: 'revoke_all' });
+
+    socket.close();
+    peer.reconnect();
+    const { socket: reopened } = await admitHost(1);
+    expect(lastPinFrame(reopened)).toEqual({
+      type: 'room-password-set',
+      password: '12345678',
+      pinMutationId: frame?.pinMutationId,
+    });
+    peer.destroy();
+  });
+
+  it('settles an older commit as superseded on a newer call or on destroy', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const { socket } = await admitHost(0);
+    const first = track(
+      peer.setRoomPassword('12345678', { mode: 'keep_present', keptPeerIds: [] }),
+    );
+    const firstFrame = lastPinFrame(socket);
+    const second = track(peer.setRoomPassword('87654321'));
+    await flushAsync();
+    expect(first.settled).toEqual({ status: 'superseded' });
+    expect(lastPinFrame(socket)).toEqual({
+      type: 'room-password-set',
+      password: '87654321',
+      pinMutationId: expect.any(String),
+    });
+    await ack(socket, firstFrame?.pinMutationId, { existingParticipants: 'keep_present' });
+    expect(second.settled).toBeUndefined();
+
+    peer.destroy();
+    await flushAsync();
+    expect(second.settled).toEqual({ status: 'superseded' });
+    await expect(peer.setRoomPassword('11112222')).resolves.toEqual({ status: 'superseded' });
+    await expect(createGuestPeer().setRoomPassword('11112222')).resolves.toEqual({
+      status: 'superseded',
+    });
+  });
+
+  it('sanitizes kept peer ids and never sends membership without a PIN', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const { socket } = await admitHost(0);
+    const many = Array.from({ length: 120 }, (_, index) => `peer-${index}`);
+    track(
+      peer.setRoomPassword('12345678', {
+        mode: 'keep_present',
+        keptPeerIds: ['guest-1', 'guest-1', 'bad id', '', 'x'.repeat(97), ...many],
+      }),
+    );
+    expect(lastPinFrame(socket)?.keptPeerIds).toEqual(['guest-1', ...many.slice(0, 98)]);
+
+    track(peer.setRoomPassword(null, { mode: 'revoke_all', keptPeerIds: [] }));
+    expect(lastPinFrame(socket)).toEqual({
+      type: 'room-password-set',
+      password: '',
+      pinMutationId: expect.any(String),
+    });
+    track(
+      peer.setRoomPassword('12345678', {
+        mode: 'kick_everyone',
+        keptPeerIds: [],
+      } as unknown as Parameters<CloudflareSignalingPeer['setRoomPassword']>[1]),
+    );
+    expect(lastPinFrame(socket)).toEqual({
+      type: 'room-password-set',
+      password: '12345678',
+      pinMutationId: expect.any(String),
+    });
+    peer.destroy();
+  });
+
+  it('commits a kept set end to end through the Worker contract', async () => {
+    installFakeWebSocket();
+    const room = await createContractWorkerRoom();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const client = FakeWebSocket.instances[0];
+    const server = new ContractWorkerSocket();
+    client.dispatch('open');
+    await flushAsync();
+    room.acceptPendingHost(server, '123456', new URL(client.url).searchParams.get('peerId') || '');
+    await room.webSocketMessage(server, JSON.stringify(sentOfType(client, 'host-auth')[0]));
+    const opened = workerSentOfType(server, 'peer-open')[0];
+    expect(opened).toMatchObject({ standardRoomPinMembershipVersion: 1 });
+    client.dispatch('message', JSON.stringify(opened));
+    await flushAsync();
+    await room.webSocketMessage(server, JSON.stringify(lastPinFrame(client)));
+    client.dispatch('message', JSON.stringify(workerSentOfType(server, 'room-password-result')[0]));
+    await flushAsync();
+
+    for (const mode of ['keep_present', 'revoke_all'] as const) {
+      const commit = track(peer.setRoomPassword('12345678', { mode, keptPeerIds: [] }));
+      const frame = lastPinFrame(client);
+      expect(frame).toMatchObject({ existingParticipants: mode });
+      await room.webSocketMessage(server, JSON.stringify(frame));
+      client.dispatch(
+        'message',
+        JSON.stringify(workerSentOfType(server, 'room-password-result').at(-1)),
+      );
+      await flushAsync();
+      expect(commit.settled).toEqual({ status: 'applied', membership: mode });
+    }
+    peer.destroy();
+  });
+
+  it('keeps a bounded retry hint on Worker error frames', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    const onError = vi.fn();
+    conn.on('error', onError);
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        errorType: 'room-password-rate-limited',
+        message: 'ROOM_PASSWORD_RATE_LIMITED',
+        retryAfterSeconds: 420,
+      }),
+    );
+    await flushAsync();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'room-password-rate-limited',
+        message: 'ROOM_PASSWORD_RATE_LIMITED',
+        retryAfterSeconds: 420,
+      }),
+    );
+    peer.destroy();
+
+    for (const retryAfterSeconds of [0, -1, 1.5, '60', 90_000]) {
+      installFakeWebSocket();
+      const other = createGuestPeer();
+      const otherConn = other.connect('123456');
+      const otherError = vi.fn();
+      otherConn.on('error', otherError);
+      FakeWebSocket.instances[0].dispatch('open');
+      FakeWebSocket.instances[0].dispatch(
+        'message',
+        JSON.stringify({
+          type: 'error',
+          errorType: 'room-password-rate-limited',
+          message: 'ROOM_PASSWORD_RATE_LIMITED',
+          retryAfterSeconds,
+        }),
+      );
+      await flushAsync();
+      expect(otherError).toHaveBeenCalledOnce();
+      expect(otherError.mock.calls[0]?.[0]).not.toHaveProperty('retryAfterSeconds');
+      other.destroy();
+    }
+  });
+
+  it.each(['room-password-changed', 'room-password-rate-limited'])(
+    'treats %s on a live guest as a permanent signaling auth failure',
+    async (errorType) => {
+      const { peer, conn, socket } = await establishGuest('12345678');
+      const onError = vi.fn();
+      conn.on('error', onError);
+      socket.dispatch(
+        'message',
+        JSON.stringify({ type: 'error', errorType, message: errorType.toUpperCase() }),
+      );
+      await flushAsync();
+
+      expect(onError).not.toHaveBeenCalled();
+      expect(conn.open).toBe(true);
+      expect(privateMaps(peer).guestRooms.get('123456')?.authFailed).toBe(true);
+      peer.reconnect();
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      peer.destroy();
+    },
+  );
 });

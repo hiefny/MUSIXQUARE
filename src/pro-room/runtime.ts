@@ -1152,7 +1152,6 @@ function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
   if (result.outcome !== 'applied' || !result.snapshot) return;
   publishedProMembershipSnapshot = result.snapshot;
   setState('network.roomPasswordRequired', result.snapshot.passwordRequired !== false);
-  setState('network.roomPassword', '');
   reconcileAuthoritativePeers(result.snapshot);
   const administrators =
     result.snapshot.authorityVersion === 1 && result.snapshot.administrators
@@ -2513,7 +2512,6 @@ const observer: ProRoomSessionObserver = {
     acceptedProAdministrators = [];
     publishedProMembershipSnapshot = null;
     setState('network.roomPasswordRequired', false);
-    setState('network.roomPassword', '');
     bus.emit('pro-room:administrators-updated', []);
     stopLifecycle();
     resetProSystemAudioService();
@@ -2872,7 +2870,7 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   // immediately challenge the new tab and recreate the takeover loop.
   if (error.code === 'PRESENCE_SUPERSEDED') {
     if (typeof window !== 'undefined') {
-      scheduleSessionReset(t('pro.active_tab_title'), () => {
+      scheduleSessionReset(t('pro.active_tab_replaced'), () => {
         if (terminalRecoveryOwner !== recoveryOwner) {
           restoreSessionReset();
           return;

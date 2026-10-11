@@ -288,16 +288,16 @@ const de: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Einladungslink kopieren',
   'connect.link_copied': 'Einladungslink kopiert',
   'connect.room_password_title': 'Raumpasswort verlangen',
-  'connect.room_password_set': 'Festlegen',
   'connect.room_password_toggle_aria': 'Raumpasswort-Anforderung umschalten',
-  'connect.room_password_input_aria': '8-stelliges Raumpasswort eingeben',
-  'connect.room_password_refresh_aria': 'Neues Raumpasswort erzeugen',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Warten auf 8 Ziffern',
   'connect.room_password_on': 'Passwort angewendet',
   'connect.room_password_invalid': 'Gib 8 Ziffern ein',
-  'connect.room_password_enabled': 'Neue Teilnehmer benötigen das Raumpasswort',
   'connect.room_password_disabled': 'Teilnehmer benötigen kein Raumpasswort mehr',
+  'connect.room_password_apply_pending':
+    'Das neue Passwort gilt, sobald die Verbindung wiederhergestellt ist.',
+  'connect.pin_enabled_removed_message':
+    'Der Host hat ein Raumpasswort festgelegt. Gib es ein, um wieder beizutreten.',
+  'connect.pin_changed_removed_message':
+    'Der Host hat das Raumpasswort geändert. Gib das neue Passwort ein, um wieder beizutreten.',
   'connect.signaling_healthy': 'Raumserver online',
   'connect.signaling_recovering': 'Wird neu verbunden…',
   'connect.signaling_failed': 'Serververbindung fehlgeschlagen',
@@ -658,6 +658,9 @@ const de: Record<I18nKey, string> = {
   'dialog.leave_session': 'Verlassen',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Eine neue Version ist bereit. Lade die Seite neu, um sie anzuwenden.',
+  'dialog.feature_refresh_title': 'Neu laden erforderlich',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE wurde aktualisiert. Lade die Seite neu, um es wie gewohnt weiter zu nutzen.',
   'dialog.reconnect_ask': 'Möchtest du dich erneut verbinden?',
   'dialog.reconnect': 'Erneut verbinden',
   'dialog.go_back': 'Zurück',
@@ -669,6 +672,10 @@ const de: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Die Verbindung hat zu lange gedauert. Gib das Passwort erneut ein.',
   'dialog.room_password_placeholder': '8-stelliges Passwort',
+  'dialog.room_password_rate_limited':
+    'Du hast das Passwort zu oft falsch eingegeben. Versuche es in {{count}} Minuten erneut.',
+  'dialog.room_password_rate_limited_later':
+    'Du hast das Passwort zu oft falsch eingegeben. Versuche es etwas später erneut.',
   'dialog.session_lost_msg':
     'Die App wurde in den Ruhezustand versetzt oder hat die Verbindung verloren. Die anderen Geräte wurden daher bereits getrennt. Starte neu, um einen neuen Raum zu öffnen.',
   'dialog.session_lost_btn': 'Neu starten',
@@ -749,6 +756,7 @@ const de: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Zu viele Beitrittsversuche. Versuche es etwas später erneut.',
   'pro.active_tab_title': 'Eine vorherige Verbindung besteht noch',
   'pro.active_tab_message': 'Wenn du hier fortfährst, wird die vorherige Verbindung getrennt.',
+  'pro.active_tab_replaced': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
   'pro.use_this_tab': 'Hier fortfahren',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',
@@ -797,6 +805,10 @@ const de: Record<I18nKey, string> = {
     'Die Datei dieses Titels ist sehr groß und lässt sich möglicherweise nicht auf allen Geräten abspielen.',
   'chat.device_track_unavailable_system_message':
     'Dieses Gerät kann den aktuellen Titel nicht abspielen.',
+  'chat.update_available_tab_system_message':
+    'Eine neue Version von MUSIXQUARE ist verfügbar. Lade die Seite neu, um sie anzuwenden.',
+  'chat.update_available_app_system_message':
+    'Eine neue Version von MUSIXQUARE ist verfügbar. Öffne die App erneut, um sie anzuwenden.',
   'chat.system_audio_started_system_message':
     'Systemaudio-Freigabe gestartet. Eine leichte Verzögerung zwischen dem Host-Gerät und den Geräten der Teilnehmer ist normal. Um Echos zu vermeiden, sollte der Host die Lautstärke seines Geräts möglichst weit senken.',
   'chat.system_audio_stopped_system_message':
@@ -921,5 +933,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Zu viele Beitrittsversuche. Versuche es in {{count}} Minute erneut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du hast das Passwort zu oft falsch eingegeben. Versuche es in {{count}} Minute erneut.',
   },
 } satisfies LocalePluralMessages;

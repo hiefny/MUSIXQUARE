@@ -286,17 +286,16 @@ const fr: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copier le lien d’invitation',
   'connect.link_copied': 'Lien d’invitation copié',
   'connect.room_password_title': 'Exiger un mot de passe pour rejoindre le salon',
-  'connect.room_password_set': 'Définir',
   'connect.room_password_toggle_aria': 'Activer/désactiver le mot de passe du salon',
-  'connect.room_password_input_aria': 'Saisir le mot de passe à 8 chiffres du salon',
-  'connect.room_password_refresh_aria': 'Générer un nouveau mot de passe pour le salon',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'En attente de 8 chiffres',
   'connect.room_password_on': 'Mot de passe appliqué',
   'connect.room_password_invalid': 'Saisissez 8 chiffres',
-  'connect.room_password_enabled':
-    'Les nouveaux participants devront saisir le mot de passe du salon',
   'connect.room_password_disabled': 'Les participants n’ont plus besoin du mot de passe du salon',
+  'connect.room_password_apply_pending':
+    'Le nouveau mot de passe s’appliquera dès que la connexion sera rétablie.',
+  'connect.pin_enabled_removed_message':
+    'L’hôte a défini un mot de passe pour le salon. Saisissez-le pour revenir dans le salon.',
+  'connect.pin_changed_removed_message':
+    'L’hôte a modifié le mot de passe du salon. Saisissez le nouveau mot de passe pour revenir dans le salon.',
   'connect.signaling_healthy': 'Serveur du salon en ligne',
   'connect.signaling_recovering': 'Reconnexion…',
   'connect.signaling_failed': 'Échec de la connexion au serveur',
@@ -655,6 +654,9 @@ const fr: Record<I18nKey, string> = {
   'dialog.leave_session': 'Quitter',
   'dialog.sw_update_title': 'Mise à jour',
   'dialog.sw_update_msg': 'Une nouvelle version est prête. Actualisez pour mettre à jour.',
+  'dialog.feature_refresh_title': 'Actualisation nécessaire',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE a été mis à jour. Actualisez la page pour continuer à l’utiliser normalement.',
   'dialog.reconnect_ask': 'Voulez-vous vous reconnecter ?',
   'dialog.reconnect': 'Se reconnecter',
   'dialog.go_back': 'Retour',
@@ -666,6 +668,10 @@ const fr: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'La connexion a expiré. Saisissez de nouveau le mot de passe.',
   'dialog.room_password_placeholder': 'Mot de passe à 8 chiffres',
+  'dialog.room_password_rate_limited':
+    'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans {{count}} minutes.',
+  'dialog.room_password_rate_limited_later':
+    'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans quelques instants.',
   'dialog.session_lost_msg':
     'L’application est passée en veille ou a perdu la connexion. Les autres appareils sont donc déjà déconnectés. Redémarrez pour créer un nouveau salon.',
   'dialog.session_lost_btn': 'Redémarrer',
@@ -748,6 +754,7 @@ const fr: Record<I18nKey, string> = {
     'Trop de tentatives pour rejoindre le salon. Réessayez dans quelques instants.',
   'pro.active_tab_title': 'Il reste une connexion précédente',
   'pro.active_tab_message': 'Continuer ici mettra fin à la connexion précédente.',
+  'pro.active_tab_replaced': 'Ce salon PRO est déjà ouvert dans un autre onglet',
   'pro.use_this_tab': 'Continuer ici',
   'pro.upload.batch_progress': 'Envoi des pistes {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Certaines pistes n’ont pas pu être envoyées',
@@ -796,6 +803,10 @@ const fr: Record<I18nKey, string> = {
     'Cette piste est très volumineuse et risque de ne pas être lue sur certains appareils.',
   'chat.device_track_unavailable_system_message':
     'Cet appareil ne peut pas lire la piste en cours.',
+  'chat.update_available_tab_system_message':
+    'Une nouvelle version de MUSIXQUARE est disponible. Actualisez la page pour l’utiliser.',
+  'chat.update_available_app_system_message':
+    'Une nouvelle version de MUSIXQUARE est disponible. Rouvrez l’application pour l’utiliser.',
   'chat.system_audio_started_system_message':
     'Le partage de l’audio système a démarré. Une légère latence entre l’hôte et les participants est normale. Nous recommandons de baisser le volume de l’appareil de l’hôte pour éviter les échos.',
   'chat.system_audio_stopped_system_message':
@@ -920,5 +931,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Trop de tentatives pour rejoindre le salon. Réessayez dans {{count}} minute.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans {{count}} minute.',
   },
 } satisfies LocalePluralMessages;

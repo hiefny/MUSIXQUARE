@@ -287,16 +287,15 @@ const uk: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Копіювати посилання-запрошення',
   'connect.link_copied': 'Посилання-запрошення скопійовано',
   'connect.room_password_title': 'Вимагати пароль для приєднання',
-  'connect.room_password_set': 'Задати',
   'connect.room_password_toggle_aria': 'Увімкнути або вимкнути пароль кімнати',
-  'connect.room_password_input_aria': 'Ввести 8-значний пароль кімнати',
-  'connect.room_password_refresh_aria': 'Створити новий пароль кімнати',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Очікування 8 цифр',
   'connect.room_password_on': 'Пароль застосовано',
   'connect.room_password_invalid': 'Введіть 8 цифр',
-  'connect.room_password_enabled': 'Новим учасникам знадобиться пароль кімнати',
   'connect.room_password_disabled': 'Учасникам більше не потрібен пароль кімнати',
+  'connect.room_password_apply_pending': 'Новий пароль почне діяти, щойно з’єднання відновиться.',
+  'connect.pin_enabled_removed_message':
+    'Хост задав пароль для кімнати. Введіть його, щоб увійти знову.',
+  'connect.pin_changed_removed_message':
+    'Хост змінив пароль кімнати. Введіть новий пароль, щоб увійти знову.',
   'connect.signaling_healthy': 'Сервер кімнати працює',
   'connect.signaling_recovering': 'Повторне підключення…',
   'connect.signaling_failed': 'Не вдалося підключитися до сервера',
@@ -427,6 +426,10 @@ const uk: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Цей файл дуже великий і може не відтворюватися на деяких пристроях.',
   'chat.device_track_unavailable_system_message': 'Цей пристрій не може відтворити поточний трек.',
+  'chat.update_available_tab_system_message':
+    'Доступна нова версія MUSIXQUARE. Вона почне діяти після оновлення сторінки.',
+  'chat.update_available_app_system_message':
+    'Доступна нова версія MUSIXQUARE. Вона почне діяти після повторного відкриття застосунку.',
   'chat.system_audio_started_system_message':
     'Розпочато трансляцію системного аудіо. Невелика затримка між пристроями хоста й гостей є нормальною. Щоб уникнути відлуння, радимо зменшити гучність пристрою хоста.',
   'chat.system_audio_stopped_system_message':
@@ -722,6 +725,9 @@ const uk: Record<I18nKey, string> = {
   'dialog.leave_session': 'Вийти',
   'dialog.sw_update_title': 'Оновлення',
   'dialog.sw_update_msg': 'Нова версія готова. Оновіть сторінку, щоб застосувати її.',
+  'dialog.feature_refresh_title': 'Потрібно оновити сторінку',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE оновлено. Щоб і далі нормально ним користуватися, оновіть сторінку.',
   'dialog.reconnect_ask': 'Підключитися знову?',
   'dialog.reconnect': 'Підключитися знову',
   'dialog.go_back': 'Назад',
@@ -732,6 +738,10 @@ const uk: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Пароль не збігається. Спробуйте ще раз.',
   'dialog.room_password_timeout_msg': 'Час очікування з’єднання минув. Введіть пароль ще раз.',
   'dialog.room_password_placeholder': '8-значний пароль',
+  'dialog.room_password_rate_limited':
+    'Ви забагато разів ввели неправильний пароль. Спробуйте ще раз через {{count}} хв.',
+  'dialog.room_password_rate_limited_later':
+    'Ви забагато разів ввели неправильний пароль. Спробуйте ще раз трохи згодом.',
   'dialog.session_lost_msg':
     'Застосунок перейшов у режим сну або втратив з’єднання, тому інші пристрої вже відключилися. Перезапустіть його, щоб почати новий сеанс.',
   'dialog.session_lost_btn': 'Перезапустити',
@@ -822,6 +832,7 @@ const uk: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Забагато спроб приєднатися. Спробуйте ще раз трохи згодом.',
   'pro.active_tab_title': 'Залишилося попереднє з’єднання',
   'pro.active_tab_message': 'Якщо продовжити тут, попереднє з’єднання буде завершено.',
+  'pro.active_tab_replaced': 'Цю кімнату PRO вже відкрито в іншій вкладці',
   'pro.use_this_tab': 'Продовжити тут',
   'pro.upload.batch_progress': 'Надсилання треків: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Деякі треки не вдалося надіслати',

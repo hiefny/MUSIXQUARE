@@ -292,16 +292,16 @@ const ta: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'அழைப்பு இணைப்பை நகலெடு',
   'connect.link_copied': 'அழைப்பு இணைப்பு நகலெடுக்கப்பட்டது',
   'connect.room_password_title': 'சேரக் கடவுச்சொல் தேவை',
-  'connect.room_password_set': 'அமை',
   'connect.room_password_toggle_aria': 'அறைக் கடவுச்சொல் தேவையை மாற்று',
-  'connect.room_password_input_aria': '8 இலக்க அறைக் கடவுச்சொல்லை உள்ளிடு',
-  'connect.room_password_refresh_aria': 'புதிய அறைக் கடவுச்சொல்லை உருவாக்கு',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 இலக்கங்களுக்காகக் காத்திருக்கிறது',
   'connect.room_password_on': 'கடவுச்சொல் பயன்படுத்தப்பட்டது',
   'connect.room_password_invalid': '8 இலக்கங்களை உள்ளிடவும்',
-  'connect.room_password_enabled': 'புதிய பங்கேற்பாளர்களுக்கு அறைக் கடவுச்சொல் தேவைப்படும்',
   'connect.room_password_disabled': 'பங்கேற்பாளர்களுக்கு இனி அறைக் கடவுச்சொல் தேவையில்லை',
+  'connect.room_password_apply_pending':
+    'இணைப்பு மீண்டும் கிடைத்ததும் புதிய கடவுச்சொல் நடைமுறைக்கு வரும்.',
+  'connect.pin_enabled_removed_message':
+    'ஹோஸ்ட் அறைக் கடவுச்சொல்லை அமைத்துள்ளார். மீண்டும் சேர அதை உள்ளிடவும்.',
+  'connect.pin_changed_removed_message':
+    'ஹோஸ்ட் அறைக் கடவுச்சொல்லை மாற்றியுள்ளார். மீண்டும் சேர புதிய கடவுச்சொல்லை உள்ளிடவும்.',
   'connect.signaling_healthy': 'அறை சர்வர் ஆன்லைனில் உள்ளது',
   'connect.signaling_recovering': 'மீண்டும் இணைக்கிறது…',
   'connect.signaling_failed': 'சர்வர் இணைப்பு தோல்வியடைந்தது',
@@ -436,6 +436,10 @@ const ta: Record<I18nKey, string> = {
     'இந்த டிராக்கின் கோப்பு மிகப் பெரியது; சில சாதனங்களில் இயங்காமல் போகலாம்.',
   'chat.device_track_unavailable_system_message':
     'இந்தச் சாதனத்தால் தற்போதைய டிராக்கை இயக்க முடியாது.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்த பக்கத்தை மீண்டும் ஏற்றவும்.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்த பயன்பாட்டை மீண்டும் திறக்கவும்.',
   'chat.system_audio_started_system_message':
     'சிஸ்டம் ஆடியோ பகிர்வு தொடங்கியது. ஹோஸ்ட் மற்றும் விருந்தினர் சாதனங்களுக்கு இடையிலான சிறிய தாமதம் இயல்பானது. எதிரொலியைத் தவிர்க்க ஹோஸ்ட் சாதனத்தின் ஒலியளவைக் குறைக்கப் பரிந்துரைக்கிறோம்.',
   'chat.system_audio_stopped_system_message':
@@ -733,6 +737,9 @@ const ta: Record<I18nKey, string> = {
   'dialog.leave_session': 'வெளியேறு',
   'dialog.sw_update_title': 'புதுப்பிப்பு',
   'dialog.sw_update_msg': 'புதிய பதிப்பு தயாராக உள்ளது. புதுப்பிக்க மீண்டும் ஏற்றவும்.',
+  'dialog.feature_refresh_title': 'மீண்டும் ஏற்ற வேண்டும்',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE புதுப்பிக்கப்பட்டுள்ளது. வழக்கம்போல் தொடர்ந்து பயன்படுத்த பக்கத்தை மீண்டும் ஏற்றவும்.',
   'dialog.reconnect_ask': 'மீண்டும் இணைக்க விரும்புகிறீர்களா?',
   'dialog.reconnect': 'மீண்டும் இணை',
   'dialog.go_back': 'திரும்பிச் செல்',
@@ -744,6 +751,10 @@ const ta: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'இணைப்பு நேரம் முடிந்தது. மீண்டும் முயலக் கடவுச்சொல்லை மறுபடியும் உள்ளிடவும்.',
   'dialog.room_password_placeholder': '8 இலக்கக் கடவுச்சொல்',
+  'dialog.room_password_rate_limited':
+    'நீங்கள் பலமுறை தவறான கடவுச்சொல்லை உள்ளிட்டுள்ளீர்கள். {{count}} நிமிடங்களில் மீண்டும் முயலவும்.',
+  'dialog.room_password_rate_limited_later':
+    'நீங்கள் பலமுறை தவறான கடவுச்சொல்லை உள்ளிட்டுள்ளீர்கள். சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
   'dialog.session_lost_msg':
     'பயன்பாடு உறக்கநிலைக்குச் சென்றது அல்லது இணைப்பை இழந்தது; எனவே மற்ற சாதனங்கள் ஏற்கனவே துண்டிக்கப்பட்டுவிட்டன. புதிய அமர்வைத் தொடங்க மறுதொடக்கம் செய்யவும்.',
   'dialog.session_lost_btn': 'மறுதொடக்கம் செய்',
@@ -836,6 +847,7 @@ const ta: Record<I18nKey, string> = {
     'சேருவதற்கான முயற்சிகள் அதிகமாகிவிட்டன. சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
   'pro.active_tab_title': 'முந்தைய இணைப்பு இன்னும் உள்ளது',
   'pro.active_tab_message': 'இங்கே தொடர்ந்தால் முந்தைய இணைப்பு துண்டிக்கப்படும்.',
+  'pro.active_tab_replaced': 'இந்த PRO அறை ஏற்கனவே வேறொரு தாவலில் திறந்துள்ளது',
   'pro.use_this_tab': 'இங்கே தொடரவும்',
   'pro.upload.batch_progress': 'டிராக்குகள் பதிவேற்றப்படுகின்றன {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'சில டிராக்குகளைப் பதிவேற்ற முடியவில்லை',
@@ -964,5 +976,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'சேருவதற்கான முயற்சிகள் அதிகமாகிவிட்டன. {{count}} நிமிடத்தில் மீண்டும் முயலவும்.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'நீங்கள் பலமுறை தவறான கடவுச்சொல்லை உள்ளிட்டுள்ளீர்கள். {{count}} நிமிடத்தில் மீண்டும் முயலவும்.',
   },
 } satisfies LocalePluralMessages;

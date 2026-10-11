@@ -289,16 +289,15 @@ const ml: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'ക്ഷണ ലിങ്ക് പകർത്തുക',
   'connect.link_copied': 'ക്ഷണ ലിങ്ക് പകർത്തി',
   'connect.room_password_title': 'ചേരാൻ പാസ്‌വേഡ് ആവശ്യപ്പെടുക',
-  'connect.room_password_set': 'സജ്ജമാക്കുക',
   'connect.room_password_toggle_aria': 'റൂം പാസ്‌വേഡ് ആവശ്യകത മാറ്റുക',
-  'connect.room_password_input_aria': '8 അക്ക റൂം പാസ്‌വേഡ് നൽകുക',
-  'connect.room_password_refresh_aria': 'പുതിയ റൂം പാസ്‌വേഡ് സൃഷ്ടിക്കുക',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 അക്കങ്ങൾക്കായി കാത്തിരിക്കുന്നു',
   'connect.room_password_on': 'പാസ്‌വേഡ് പ്രയോഗിച്ചു',
   'connect.room_password_invalid': '8 അക്കങ്ങൾ നൽകുക',
-  'connect.room_password_enabled': 'പുതിയ പങ്കാളികൾക്ക് റൂം പാസ്‌വേഡ് ആവശ്യമാണ്',
   'connect.room_password_disabled': 'പങ്കാളികൾക്ക് ഇനി റൂം പാസ്‌വേഡ് ആവശ്യമില്ല',
+  'connect.room_password_apply_pending': 'കണക്ഷൻ തിരികെ വരുമ്പോൾ പുതിയ പാസ്‌വേഡ് ബാധകമാകും.',
+  'connect.pin_enabled_removed_message':
+    'ഹോസ്റ്റ് റൂം പാസ്‌വേഡ് സജ്ജമാക്കി. വീണ്ടും ചേരാൻ അത് നൽകുക.',
+  'connect.pin_changed_removed_message':
+    'ഹോസ്റ്റ് റൂം പാസ്‌വേഡ് മാറ്റി. വീണ്ടും ചേരാൻ പുതിയ പാസ്‌വേഡ് നൽകുക.',
   'connect.signaling_healthy': 'റൂം സർവർ ഓൺലൈനാണ്',
   'connect.signaling_recovering': 'വീണ്ടും ബന്ധിപ്പിക്കുന്നു…',
   'connect.signaling_failed': 'സർവർ ബന്ധം പരാജയപ്പെട്ടു',
@@ -432,6 +431,10 @@ const ml: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'ഈ ട്രാക്കിന്റെ ഫയൽ വലുപ്പം വളരെ കൂടുതലാണ്; ചില ഡിവൈസുകളിൽ ഇത് പ്ലേ ചെയ്തേക്കില്ല.',
   'chat.device_track_unavailable_system_message': 'ഈ ഡിവൈസിന് നിലവിലെ ട്രാക്ക് പ്ലേ ചെയ്യാനാകില്ല.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE-ന്റെ പുതിയ പതിപ്പ് ലഭ്യമാണ്. ഇത് ബാധകമാക്കാൻ പേജ് പുതുക്കുക.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE-ന്റെ പുതിയ പതിപ്പ് ലഭ്യമാണ്. ഇത് ബാധകമാക്കാൻ ആപ്പ് വീണ്ടും തുറക്കുക.',
   'chat.system_audio_started_system_message':
     'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ ആരംഭിച്ചു. ഹോസ്റ്റിന്റെയും അതിഥി ഡിവൈസുകളുടെയും ഇടയിൽ നേരിയ കാലതാമസം സാധാരണമാണ്. എക്കോ ഒഴിവാക്കാൻ ഹോസ്റ്റ് ഡിവൈസിന്റെ ശബ്ദനില കുറയ്ക്കാൻ ശുപാർശ ചെയ്യുന്നു.',
   'chat.system_audio_stopped_system_message':
@@ -728,6 +731,9 @@ const ml: Record<I18nKey, string> = {
   'dialog.leave_session': 'പുറത്തുകടക്കുക',
   'dialog.sw_update_title': 'അപ്‌ഡേറ്റ്',
   'dialog.sw_update_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്. അപ്‌ഡേറ്റ് ചെയ്യാൻ പുതുക്കുക.',
+  'dialog.feature_refresh_title': 'പുതുക്കേണ്ടതുണ്ട്',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE അപ്‌ഡേറ്റ് ചെയ്‌തിട്ടുണ്ട്. സാധാരണ പോലെ ഉപയോഗിക്കുന്നത് തുടരാൻ പേജ് പുതുക്കുക.',
   'dialog.reconnect_ask': 'വീണ്ടും ബന്ധിപ്പിക്കണോ?',
   'dialog.reconnect': 'വീണ്ടും ബന്ധിപ്പിക്കുക',
   'dialog.go_back': 'തിരികെ പോകുക',
@@ -739,6 +745,10 @@ const ml: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'ബന്ധത്തിനുള്ള സമയം കഴിഞ്ഞു. വീണ്ടും ശ്രമിക്കാൻ പാസ്‌വേഡ് വീണ്ടും നൽകുക.',
   'dialog.room_password_placeholder': '8 അക്ക പാസ്‌വേഡ്',
+  'dialog.room_password_rate_limited':
+    'നിങ്ങൾ പലതവണ തെറ്റായ പാസ്‌വേഡ് നൽകി. {{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.',
+  'dialog.room_password_rate_limited_later':
+    'നിങ്ങൾ പലതവണ തെറ്റായ പാസ്‌വേഡ് നൽകി. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.',
   'dialog.session_lost_msg':
     'ആപ്പ് സ്ലീപ് മോഡിലാകുകയോ ബന്ധം നഷ്ടപ്പെടുകയോ ചെയ്തതിനാൽ മറ്റ് ഡിവൈസുകളുടെ ബന്ധം ഇതിനകം വിച്ഛേദിച്ചിട്ടുണ്ട്. പുതിയ സെഷൻ തുടങ്ങാൻ പുനരാരംഭിക്കുക.',
   'dialog.session_lost_btn': 'പുനരാരംഭിക്കുക',
@@ -830,6 +840,7 @@ const ml: Record<I18nKey, string> = {
     'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.',
   'pro.active_tab_title': 'മുമ്പത്തെ കണക്ഷൻ ശേഷിക്കുന്നു',
   'pro.active_tab_message': 'ഇവിടെ തുടർന്നാൽ മുമ്പത്തെ കണക്ഷൻ വിച്ഛേദിക്കപ്പെടും.',
+  'pro.active_tab_replaced': 'ഈ PRO റൂം മറ്റൊരു ടാബിൽ ഇതിനകം തുറന്നിരിക്കുന്നു',
   'pro.use_this_tab': 'ഇവിടെ തുടരുക',
   'pro.upload.batch_progress': 'ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യുന്നു {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ചില ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യാനായില്ല',

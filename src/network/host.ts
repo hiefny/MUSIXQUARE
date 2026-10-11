@@ -29,7 +29,6 @@ import { broadcastSystemMessage, sendLatestPinnedNotice } from '../chat/protocol
 
 import {
   detectConnectionType,
-  getPeer,
   getPeerLabelBySlot,
   getAvailablePeerSlot,
   assignPeerSlot,
@@ -1228,16 +1227,32 @@ bus.on('network:kick-physical-device', (peerId) => {
   showToast(t('toast.device_kicked', { name: target.label || peerId }));
 });
 
-bus.on('network:room-password-changed', (password: string | null) => {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
-
-  const peer = getPeer();
-  try {
-    peer?.setRoomPassword?.(password);
-  } catch (error) {
-    log.warn('[Host] Failed to update room password:', error);
+// Host: the signaling Worker committed a Standard-room PIN change with
+// "Everyone rejoins" (network/standard-room-pin.ts). Remove every other
+// device, including this owner's other devices and administrators. Their
+// account-linked grants stay, so those people regain them when they re-enter
+// with the new PIN; anonymous grants end with the departed connection.
+bus.on('network:room-pin-revoke-present', (reason) => {
+  if (!isStandardRoom() || getState('network.hostConn')) return;
+  let removed = 0;
+  for (const peer of getState('network.connectedPeers')) {
+    const conn = peer.conn as DataConnection | null;
+    if (!conn?.open) continue;
+    safeSend(conn, { type: MSG.KICK_DEVICE, reason });
+    removed += 1;
+    setManagedTimer(
+      'kick-close-' + peer.id,
+      () => {
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+      },
+      300,
+    );
   }
+  log.info(`[Host] Removed ${removed} device(s) after the room PIN changed (${reason})`);
 });
 
 bus.on('network:device-list', (list) => {

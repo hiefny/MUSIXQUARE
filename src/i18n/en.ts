@@ -284,16 +284,15 @@ const en: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copy invite link',
   'connect.link_copied': 'Invite link copied',
   'connect.room_password_title': 'Require password to join',
-  'connect.room_password_set': 'Set',
   'connect.room_password_toggle_aria': 'Toggle room password requirement',
-  'connect.room_password_input_aria': 'Enter 8-digit room password',
-  'connect.room_password_refresh_aria': 'Generate a new room password',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Waiting for 8 digits',
   'connect.room_password_on': 'Password applied',
   'connect.room_password_invalid': 'Enter 8 digits',
-  'connect.room_password_enabled': 'New participants will need the room password',
   'connect.room_password_disabled': 'Participants no longer need the room password',
+  'connect.room_password_apply_pending':
+    'The new password will apply once the connection recovers.',
+  'connect.pin_enabled_removed_message': 'The host set a room password. Enter it to join again.',
+  'connect.pin_changed_removed_message':
+    'The host changed the room password. Enter the new password to join again.',
   'connect.signaling_healthy': 'Room server online',
   'connect.signaling_recovering': 'Reconnecting…',
   'connect.signaling_failed': 'Server connection failed',
@@ -421,6 +420,10 @@ const en: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'This track has a very large file size and may not play on some devices.',
   'chat.device_track_unavailable_system_message': 'This device can’t play the current track.',
+  'chat.update_available_tab_system_message':
+    'A new version of MUSIXQUARE is available. Refresh the page to apply it.',
+  'chat.update_available_app_system_message':
+    'A new version of MUSIXQUARE is available. Reopen the app to apply it.',
   'chat.system_audio_started_system_message':
     'System audio sharing has started. A slight latency between host and guest devices is normal. We recommend lowering the host device volume to avoid echoes.',
   'chat.system_audio_stopped_system_message':
@@ -708,6 +711,8 @@ const en: Record<I18nKey, string> = {
   'dialog.leave_session': 'Leave',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready. Refresh to update.',
+  'dialog.feature_refresh_title': 'Refresh needed',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE has been updated. Refresh to keep using it normally.',
   'dialog.reconnect_ask': 'Would you like to reconnect?',
   'dialog.reconnect': 'Reconnect',
   'dialog.go_back': 'Go back',
@@ -719,6 +724,10 @@ const en: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'The connection timed out. Re-enter the password to try again.',
   'dialog.room_password_placeholder': '8-digit password',
+  'dialog.room_password_rate_limited':
+    'You entered the wrong password too many times. Try again in {{count}} minutes.',
+  'dialog.room_password_rate_limited_later':
+    'You entered the wrong password too many times. Try again in a little while.',
   'dialog.session_lost_msg':
     'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',
   'dialog.session_lost_btn': 'Restart',
@@ -807,6 +816,7 @@ const en: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Too many join attempts. Try again in a little while.',
   'pro.active_tab_title': 'A previous connection remains',
   'pro.active_tab_message': 'Continuing here will disconnect the previous connection.',
+  'pro.active_tab_replaced': 'This PRO room is already open in another tab',
   'pro.use_this_tab': 'Continue here',
   'pro.upload.batch_progress': 'Uploading tracks {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Some tracks couldn’t be uploaded',

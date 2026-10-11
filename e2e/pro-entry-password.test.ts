@@ -10,9 +10,28 @@ import type { ProRoomSnapshot } from '../src/pro-room/contracts.ts';
 
 test.use({ serviceWorkers: 'block' });
 
-async function openRoom(page: Page, owner: boolean, initiallyProtected: boolean) {
+async function openRoom(
+  page: Page,
+  owner: boolean,
+  initiallyProtected: boolean,
+  othersPresent = false,
+) {
   const snapshot = ownerSnapshot() as unknown as ProRoomSnapshot;
   snapshot.passwordRequired = initiallyProtected;
+  if (othersPresent) {
+    // Another device in the room, so the owner is asked who stays.
+    snapshot.presence.participants.push({
+      ...snapshot.presence.participants[0]!,
+      participantId: 'participant_00002',
+      memberId: 'member_guest000002',
+      memberDisplayNumber: 2,
+      displayName: 'Present guest',
+      isAuthenticated: false,
+      role: 'member',
+      capabilities: [],
+      joinedAtMs: Date.now() + 1,
+    });
+  }
   if (!owner) {
     snapshot.viewer = {
       ...snapshot.viewer!,
@@ -195,7 +214,7 @@ for (const width of [390, 1280]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 820 });
-    const state = await openRoom(page, true, true);
+    const state = await openRoom(page, true, true, true);
     await waitForState(page, 'room.context.kind', 'pro');
     expect(state.sessions[0]).not.toHaveProperty('pin');
     const toggle = await showPasswordSettings(page);
@@ -232,17 +251,38 @@ for (const width of [390, 1280]) {
   });
 }
 
-test('owner sets the PIN, then chooses who stays on a second page', async ({ page }) => {
+test('owner alone sets the PIN on one page, with OK and nobody to choose', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 820 });
   const state = await openRoom(page, true, false);
+  await waitForState(page, 'room.context.kind', 'pro');
+  const toggle = await showPasswordSettings(page);
+  await toggle.click();
+  await expect(page.locator('#dialog-title')).toHaveText('Set room password');
+  await expect(page.locator('#btn-dialog-secondary')).toHaveText('Cancel');
+  await expect(page.locator('#btn-dialog-ok')).toHaveText('OK');
+  await page.locator('.dialog-input-segment').first().fill('0000');
+  await page.locator('.dialog-input-segment').last().fill('0000');
+  await page.locator('#btn-dialog-ok').click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.dialog-choice-frame')).toBeHidden();
+  // No weak-PIN refusal, and nobody else to keep or remove.
+  expect(state.changes).toEqual([{ pin: '00000000', existingParticipants: 'keep_present' }]);
+  await expect(
+    page.locator('#room-password-code:visible, #desktop-room-password-code:visible'),
+  ).toHaveText('••••-••••');
+});
+
+test('owner sets the PIN, then chooses who stays on a second page', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 820 });
+  const state = await openRoom(page, true, false, true);
   await waitForState(page, 'room.context.kind', 'pro');
   const toggle = await showPasswordSettings(page);
   const title = page.locator('#dialog-title');
   const next = page.locator('#btn-dialog-ok');
   const secondary = page.locator('#btn-dialog-secondary');
   const segments = page.locator('.dialog-input-segment');
-  const keep = page.locator('input[name="pro-pin-existing-participants"][value="keep_present"]');
-  const rejoin = page.locator('input[name="pro-pin-existing-participants"][value="revoke_all"]');
+  const keep = page.locator('input[name="room-pin-existing-participants"][value="keep_present"]');
+  const rejoin = page.locator('input[name="room-pin-existing-participants"][value="revoke_all"]');
   const checks = page.locator('.dialog-choice-check');
 
   await toggle.click();
@@ -395,7 +435,7 @@ for (const viewport of [
     page,
   }) => {
     await page.setViewportSize(viewport);
-    await openRoom(page, true, true);
+    await openRoom(page, true, true, true);
     await waitForState(page, 'room.context.kind', 'pro');
     await showPasswordSettings(page);
     await page
@@ -427,7 +467,7 @@ for (const viewport of [
     await rejoin.scrollIntoViewIfNeeded();
     await rejoin.click();
     await expect(
-      page.locator('input[name="pro-pin-existing-participants"][value="revoke_all"]'),
+      page.locator('input[name="room-pin-existing-participants"][value="revoke_all"]'),
     ).toBeChecked();
     expect((await measureDialog(page)).okHit).toBe(true);
     // The chosen row was scrolled fully into view and its radio covers it.

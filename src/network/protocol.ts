@@ -29,6 +29,19 @@ import { verifyPeerCapability } from '../rooms/authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
 import { parseRoomEffectsState } from '../core/room-effects.ts';
 import { isJoinBootstrapApplied, isJoinBootstrapHello } from './join-bootstrap.ts';
+import type { StandardRoomPinKickReason } from '../types/index.ts';
+
+// ─── Kick Reasons ───────────────────────────────────────────────────
+
+/**
+ * KICK_DEVICE reasons a Standard-room host sends after the signaling Worker
+ * committed a PIN change with "Everyone rejoins". The validator below accepts
+ * any bounded reason so newer hosts can add one; guests act only on these and
+ * show the generic removal copy for anything else (as older guests always do).
+ */
+export function isStandardRoomPinKickReason(value: unknown): value is StandardRoomPinKickReason {
+  return value === 'room-pin-enabled' || value === 'room-pin-changed';
+}
 
 // ─── Message Validation ─────────────────────────────────────────────
 

@@ -283,16 +283,15 @@ const vi: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Sao chép liên kết mời',
   'connect.link_copied': 'Đã sao chép liên kết mời',
   'connect.room_password_title': 'Yêu cầu mật khẩu phòng',
-  'connect.room_password_set': 'Đặt',
   'connect.room_password_toggle_aria': 'Bật/tắt yêu cầu mật khẩu phòng',
-  'connect.room_password_input_aria': 'Nhập mật khẩu phòng 8 chữ số',
-  'connect.room_password_refresh_aria': 'Tạo mật khẩu phòng mới',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Đang chờ 8 chữ số',
   'connect.room_password_on': 'Đã áp dụng mật khẩu',
   'connect.room_password_invalid': 'Nhập 8 chữ số',
-  'connect.room_password_enabled': 'Người tham gia mới sẽ cần mật khẩu phòng',
   'connect.room_password_disabled': 'Người tham gia không cần mật khẩu phòng nữa',
+  'connect.room_password_apply_pending': 'Mật khẩu mới sẽ có hiệu lực khi kết nối được khôi phục.',
+  'connect.pin_enabled_removed_message':
+    'Chủ phòng đã đặt mật khẩu phòng. Nhập mật khẩu để tham gia lại.',
+  'connect.pin_changed_removed_message':
+    'Chủ phòng đã đổi mật khẩu phòng. Nhập mật khẩu mới để tham gia lại.',
   'connect.signaling_healthy': 'Máy chủ phòng đang hoạt động',
   'connect.signaling_recovering': 'Đang kết nối lại…',
   'connect.signaling_failed': 'Kết nối máy chủ thất bại',
@@ -639,6 +638,9 @@ const vi: Record<I18nKey, string> = {
   'dialog.leave_session': 'Rời đi',
   'dialog.sw_update_title': 'Cập nhật',
   'dialog.sw_update_msg': 'Phiên bản mới đã sẵn sàng. Làm mới để cập nhật.',
+  'dialog.feature_refresh_title': 'Cần làm mới',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE đã được cập nhật. Làm mới để tiếp tục sử dụng bình thường.',
   'dialog.reconnect_ask': 'Bạn muốn kết nối lại?',
   'dialog.reconnect': 'Kết nối lại',
   'dialog.go_back': 'Quay lại',
@@ -649,6 +651,10 @@ const vi: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Mật khẩu không khớp. Hãy thử lại.',
   'dialog.room_password_timeout_msg': 'Kết nối đã hết thời gian chờ. Hãy nhập lại mật khẩu.',
   'dialog.room_password_placeholder': 'Mật khẩu 8 chữ số',
+  'dialog.room_password_rate_limited':
+    'Bạn đã nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau {{count}} phút.',
+  'dialog.room_password_rate_limited_later':
+    'Bạn đã nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau một lát.',
   'dialog.session_lost_msg':
     'Ứng dụng đã ngủ hoặc mất kết nối, nên các thiết bị khác đã rời. Hãy khởi động lại để tạo phòng mới.',
   'dialog.session_lost_btn': 'Khởi động lại',
@@ -728,6 +734,7 @@ const vi: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Có quá nhiều lượt thử tham gia. Hãy thử lại sau một lát.',
   'pro.active_tab_title': 'Kết nối trước vẫn còn',
   'pro.active_tab_message': 'Tiếp tục tại đây sẽ ngắt kết nối trước đó.',
+  'pro.active_tab_replaced': 'Phòng PRO này đã được mở trong thẻ khác',
   'pro.use_this_tab': 'Tiếp tục tại đây',
   'pro.upload.batch_progress': 'Đang tải các bản nhạc lên {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Không thể tải lên một số bản nhạc',
@@ -775,6 +782,10 @@ const vi: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Mục này có dung lượng rất lớn và có thể không phát được trên một số thiết bị.',
   'chat.device_track_unavailable_system_message': 'Thiết bị này không thể phát mục hiện tại.',
+  'chat.update_available_tab_system_message':
+    'Đã có phiên bản mới của MUSIXQUARE. Làm mới trang để áp dụng.',
+  'chat.update_available_app_system_message':
+    'Đã có phiên bản mới của MUSIXQUARE. Mở lại ứng dụng để áp dụng.',
   'chat.system_audio_started_system_message':
     'Chia sẻ âm thanh hệ thống đã bắt đầu. Có một chút độ trễ giữa thiết bị của chủ phòng và thiết bị của người tham gia là bình thường. Nên giảm âm lượng thiết bị của chủ phòng để tránh tiếng vọng.',
   'chat.system_audio_stopped_system_message':

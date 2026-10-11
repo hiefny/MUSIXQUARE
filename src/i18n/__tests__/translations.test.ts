@@ -1083,3 +1083,85 @@ describe('PRO PIN membership and removal copy', () => {
     expect(STEP_KEYS.map((key) => en[key])).toEqual(['Next', 'Back']);
   });
 });
+
+describe('Standard-room owner PIN copy', () => {
+  const STANDARD_KEYS = [
+    'connect.pin_enabled_removed_message',
+    'connect.pin_changed_removed_message',
+    'connect.room_password_apply_pending',
+  ] as const;
+  const REMOVED_KEYS = [
+    'connect.room_password_set',
+    'connect.room_password_input_aria',
+    'connect.room_password_refresh_aria',
+    'connect.room_password_off',
+    'connect.room_password_pending',
+    'connect.room_password_enabled',
+  ];
+  const dictionaries = APP_DICTIONARIES as Readonly<Record<string, Record<string, string>>>;
+
+  it('covers all 42 locales with real, single-line copy distinct from the PRO notices', () => {
+    expect(Object.keys(dictionaries)).toHaveLength(42);
+    for (const [locale, dict] of Object.entries(dictionaries)) {
+      for (const key of STANDARD_KEYS) {
+        const value = dict[key];
+        expect(value, `${locale}.${key}`).toBeTruthy();
+        expect(value!.trim(), `${locale}.${key}`).toBe(value);
+        expect(value, `${locale}.${key}`).not.toMatch(/\n|\{\{|PRO|\p{Nd}|[—–]/u);
+        if (locale !== 'en') {
+          expect(value, `${locale}.${key} must not fall back to English`).not.toBe(en[key]);
+        }
+      }
+      // Standard rooms name the host; PRO keeps the room owner and administrators.
+      expect(dict['connect.pin_enabled_removed_message'], locale).not.toBe(
+        dict['pro.pin_enabled_removed_message'],
+      );
+      expect(dict['connect.pin_changed_removed_message'], locale).not.toBe(
+        dict['pro.pin_changed_removed_message'],
+      );
+      expect(dict['connect.pin_enabled_removed_message'], locale).not.toBe(
+        dict['connect.pin_changed_removed_message'],
+      );
+      for (const key of REMOVED_KEYS)
+        expect(dict, `${locale} drops ${key}`).not.toHaveProperty(key);
+    }
+  });
+
+  it('pins the approved Korean and English copy with the host wording', () => {
+    expect(STANDARD_KEYS.map((key) => ko[key])).toEqual([
+      '방장이 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',
+      '방장이 방 암호를 바꿨어요. 새 암호를 입력하면 다시 들어올 수 있어요.',
+      '연결이 회복되면 새 암호가 적용돼요.',
+    ]);
+    expect(STANDARD_KEYS.map((key) => en[key])).toEqual([
+      'The host set a room password. Enter it to join again.',
+      'The host changed the room password. Enter the new password to join again.',
+      'The new password will apply once the connection recovers.',
+    ]);
+    expect(ko['connect.pin_enabled_removed_message']).not.toMatch(/소유자|강제퇴장/);
+    expect(ko['connect.pin_changed_removed_message']).not.toMatch(/소유자|강제퇴장/);
+  });
+
+  it('names each locale host term from its standard-room kick copy', () => {
+    // Spot-check locales whose host term differs from the PRO room owner.
+    const hostTerms: Record<string, string> = {
+      ko: '방장',
+      en: 'host',
+      de: 'Host',
+      fr: 'hôte',
+      es: 'anfitrión',
+      ja: 'ホスト',
+      ru: 'Хост',
+      'pt-br': 'anfitrião',
+    };
+    for (const [locale, term] of Object.entries(hostTerms)) {
+      expect(dictionaries[locale]!['connect.kicked_message'], locale).toContain(term);
+      for (const key of [
+        'connect.pin_enabled_removed_message',
+        'connect.pin_changed_removed_message',
+      ]) {
+        expect(dictionaries[locale]![key], `${locale}.${key}`).toContain(term);
+      }
+    }
+  });
+});

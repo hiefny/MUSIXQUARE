@@ -831,9 +831,9 @@ const hu: Record<I18nKey, string> = {
     'Egy PRO-szobához legfeljebb 100 eszköz csatlakozhat, a szobatulajdonosé is beleértve. Egy hely mindig a szobatulajdonosnak van fenntartva.',
   'pro.join_rate_limited': 'Túl sok csatlakozási kísérlet. Próbáld újra {{count}} perc múlva.',
   'pro.join_rate_limited_later': 'Túl sok csatlakozási kísérlet. Próbáld újra egy kicsit később.',
-  'pro.active_tab_title': 'Ez a PRO-szoba már meg van nyitva egy másik lapon',
-  'pro.active_tab_message': 'Ha itt folytatod, a meglévő lap kapcsolata megszakad.',
-  'pro.use_this_tab': 'E lap használata',
+  'pro.active_tab_title': 'Még van egy korábbi kapcsolat',
+  'pro.active_tab_message': 'Ha itt folytatod, a korábbi kapcsolat megszakad.',
+  'pro.use_this_tab': 'Folytatás itt',
   'pro.upload.batch_progress': 'Számok feltöltése: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Néhány szám feltöltése sikertelen',
   'pro.upload.batch_failed_message':

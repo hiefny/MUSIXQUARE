@@ -10,6 +10,7 @@ import {
 } from '../../../cloudflare/account-assertion.ts';
 import appWorker from '../../../cloudflare/app-worker.ts';
 import { normalizeStoredEffects } from '../../../cloudflare/pro-room-effects.ts';
+import * as fileDuration from '../../../cloudflare/pro-room-media-duration.ts';
 import {
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
@@ -185,6 +186,8 @@ function expectProMediaUploadContract(upload: {
 
 afterEach(() => {
   vi.useRealTimers();
+  if (vi.isMockFunction(fileDuration.readProRoomFileDuration))
+    vi.mocked(fileDuration.readProRoomFileDuration).mockRestore();
   for (const database of entitlementDatabases) database.close();
   entitlementDatabases.clear();
 });
@@ -391,6 +394,667 @@ describe('PRO room server-authoritative playback', () => {
     await expect(response.json()).resolves.toMatchObject({ status: 'committed' });
     return internal.room.playback as Record<string, any>;
   }
+
+  it('persists authorized registration duration privately with conservative grace and a duration-aware receipt', async () => {
+    const context = await activatedRoom();
+    installRealtimeRecorder(context);
+    const { assetId, asset, completeEnvelope } = await completeReadyAsset(
+      context,
+      'registration-duration',
+      4096,
+      { durationSeconds: 123.5 },
+    );
+    expect(asset.duration).toMatchObject({
+      assetVersion: asset.version,
+      byteLength: 4096,
+      roomGeneration: 0,
+      durationSeconds: 123.5,
+      source: 'upload',
+    });
+    expect(completeEnvelope.asset).not.toHaveProperty('duration');
+    expect(context.worker.room!.pendingAssetDurationProbes ?? []).toEqual([]);
+    const complete = (durationSeconds: number) =>
+      context.worker.fetch(
+        jsonRequest(
+          `/media/${assetId}/complete`,
+          'POST',
+          { durationSeconds },
+          context.ownerCookie,
+          `${IDEMPOTENCY_KEY}-registration-duration-complete`,
+        ),
+      );
+    expect((await complete(123.5)).status).toBe(200);
+    expect((await complete(124)).status).toBe(409);
+    await replacePlaylist(
+      context,
+      [{ queueItemId: firstQueueItemId, name: 'finite', source: completeEnvelope.asset }],
+      'registered-duration',
+    );
+    await selectAndCommit(context, firstQueueItemId);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      context.worker.room!.playback.updatedAtMs + 125_500,
+    );
+  });
+
+  it('keeps registration completion bodyless receipts compatible and rejects malformed or oversized metadata', async () => {
+    const context = await activatedRoom();
+    const { assetId } = await completeReadyAsset(context, 'legacy-duration');
+    await context.worker.assetDurationLookup?.promise;
+    expect(
+      (
+        await context.worker.fetch(
+          request(
+            `/media/${assetId}/complete`,
+            {
+              method: 'POST',
+              headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-legacy-duration-complete` },
+            },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    for (const body of [
+      { durationSeconds: 0 },
+      { durationSeconds: -1 },
+      { durationSeconds: 604801 },
+      { durationSeconds: '120' },
+      { durationSeconds: null },
+      { unexpected: true },
+    ]) {
+      const response = await context.worker.fetch(
+        jsonRequest(
+          `/media/${assetId}/complete`,
+          'POST',
+          body,
+          context.ownerCookie,
+          'invalid-metadata-completion',
+        ),
+      );
+      expect(response.status).toBe(400);
+    }
+    const oversized = await context.worker.fetch(
+      jsonRequest(
+        `/media/${assetId}/complete`,
+        'POST',
+        { durationSeconds: 30, padding: 'x'.repeat(1100) },
+        context.ownerCookie,
+        'oversized-metadata-completion',
+      ),
+    );
+    expect(oversized.status).toBe(413);
+  });
+
+  it('does not grant upload-only members duration or playback authority', async () => {
+    const context = await activatedRoom();
+    const friend = await addMember(context);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${friend.envelope.snapshot.viewer.memberId}`,
+            'PUT',
+            {
+              permissions: {
+                'media.add': true,
+                'playback.control': false,
+                'members.kick': false,
+                'chat.notice': false,
+              },
+            },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const { assetId, asset } = await completeReadyAsset(context, 'upload-only-duration', 4096, {
+      cookie: friend.cookie,
+      durationSeconds: 0.01,
+    });
+    await context.worker.assetDurationLookup?.promise;
+    expect(asset.duration).toBeUndefined();
+    const response = await context.worker.fetch(
+      jsonRequest(
+        `/media/${assetId}/duration`,
+        'POST',
+        { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds: 0.01 },
+        friend.cookie,
+      ),
+    );
+    expect(response.status).toBe(403);
+    expect(asset.duration).toBeUndefined();
+  });
+
+  it('accepts late controller duration without a PREPARE and never downgrades it to upload or server estimates', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'late-controller-duration', 4096, {
+      durationSeconds: 125,
+    });
+    const beforePlayback = structuredClone(context.worker.room!.playback);
+    const update = () =>
+      context.worker.fetch(
+        jsonRequest(
+          `/media/${assetId}/duration`,
+          'POST',
+          { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds: 123.456 },
+          context.ownerCookie,
+        ),
+      );
+    expect((await update()).status).toBe(200);
+    expect(asset.duration).toMatchObject({ source: 'controller', durationSeconds: 123.456 });
+    const firstEvidence = structuredClone(asset.duration);
+    expect((await update()).status).toBe(200);
+    expect(asset.duration).toEqual(firstEvidence);
+    expect(context.worker.room!.playback).toEqual(beforePlayback);
+    expect(context.worker.storeAssetDuration(asset, 126, 'server')).toBe(false);
+    expect(context.worker.storeAssetDuration(asset, 124, 'upload')).toBe(false);
+    expect(asset.duration).toEqual(firstEvidence);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/media/${assetId}/duration`,
+            'POST',
+            { assetVersion: asset.version + 1, byteLength: asset.byteLength, durationSeconds: 123 },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/media/${assetId}/duration`,
+            'POST',
+            { assetVersion: asset.version, byteLength: asset.byteLength + 1, durationSeconds: 123 },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(409);
+    expect(asset.duration).toEqual(firstEvidence);
+  });
+
+  it('reuses private asset duration after queue replacement, cache eviction and cold restart', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset, completeEnvelope } = await completeReadyAsset(
+      context,
+      'durable-duration',
+      4096,
+      { durationSeconds: 120 },
+    );
+    const identity = {
+      queueItemId: firstQueueItemId,
+      mediaKind: 'file' as const,
+      assetId,
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+    };
+    context.worker.storePlaybackDurationEvidence(identity, 119.75, 'controller');
+    // More than 64 unrelated queue occurrences evict only the ephemeral cache.
+    for (let index = 0; index < 70; index++)
+      context.worker.storePlaybackDurationEvidence(
+        {
+          queueItemId: `unrelated-${index}`,
+          mediaKind: 'youtube',
+          youtubeVideoId: 'dQw4w9WgXcQ',
+          youtubeSubIndex: 0,
+        },
+        30,
+        'server',
+      );
+    expect(
+      Object.values(context.worker.room!.playbackDurations).some(
+        (entry) => entry.identity.mediaKind === 'file',
+      ),
+    ).toBe(false);
+    await context.worker.persist();
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const resumed = { ...context, worker: restarted };
+    installRealtimeRecorder(resumed);
+    await replacePlaylist(
+      resumed,
+      [
+        {
+          queueItemId: secondQueueItemId,
+          name: 'same immutable object',
+          source: completeEnvelope.asset,
+        },
+      ],
+      'duration-new-queue',
+    );
+    await selectAndCommit(resumed, secondQueueItemId);
+    expect(Object.values(restarted.room!.playbackDurations)).toEqual([
+      expect.objectContaining({
+        source: 'controller',
+        durationSeconds: 119.75,
+        identity: { ...identity, queueItemId: secondQueueItemId },
+      }),
+    ]);
+    expect(restarted.naturalPlaybackEndAtMs()).toBe(restarted.room!.playback.updatedAtMs + 119_750);
+  });
+
+  it('upgrades existing verified file evidence onto the asset before its queue row disappears', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'old-cache-duration');
+    await context.worker.assetDurationLookup?.promise;
+    const identity = {
+      queueItemId: firstQueueItemId,
+      mediaKind: 'file' as const,
+      assetId,
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+    };
+    const key = `${firstQueueItemId}:file:${assetId}:${asset.version}:${asset.byteLength}`;
+    context.worker.room!.playbackDurations[key] = {
+      identity,
+      durationSeconds: 88.4,
+      checkedAtMs: Date.now(),
+      source: 'controller',
+    };
+    context.worker.normalizeLoadedPlaybackAuthority();
+    expect(asset.duration).toMatchObject({ durationSeconds: 88.4, source: 'controller' });
+    context.worker.reconcilePlaybackDurationProbe();
+    expect(context.worker.room!.playbackDurations).toEqual({});
+    expect(asset.duration).toMatchObject({ durationSeconds: 88.4, source: 'controller' });
+  });
+
+  it('probes newly completed assets outside the mutation lane and preserves a concurrent decoded result', async () => {
+    const context = await activatedRoom();
+    let resolveProbe!: (value: number | null) => void;
+    const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveProbe = resolve;
+        }),
+    );
+    const { assetId, asset } = await completeReadyAsset(context, 'async-registration-duration');
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(context.worker.room!.pendingAssetDurationProbes).toEqual([assetId]);
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
+    const response = await context.worker.fetch(
+      jsonRequest(
+        `/media/${assetId}/duration`,
+        'POST',
+        { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds: 90.25 },
+        context.ownerCookie,
+      ),
+    );
+    expect(response.status).toBe(200);
+    const lookup = context.worker.assetDurationLookup!.promise;
+    resolveProbe(92);
+    await lookup;
+    expect(context.worker.room!.assets[assetId]!.duration).toMatchObject({
+      source: 'controller',
+      durationSeconds: 90.25,
+    });
+    expect(context.worker.room!.pendingAssetDurationProbes).toEqual([]);
+  });
+
+  it('uses the registration watchdog instead of hot-looping an overdue playback probe', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const context = await activatedRoom();
+    installRealtimeRecorder(context);
+    let resolveProbe!: (value: number | null) => void;
+    vi.spyOn(fileDuration, 'readProRoomFileDuration').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveProbe = resolve;
+        }),
+    );
+    const { completeEnvelope } = await completeReadyAsset(context, 'blocked-probe-alarm');
+    await replacePlaylist(
+      context,
+      [{ queueItemId: firstQueueItemId, name: 'probing asset', source: completeEnvelope.asset }],
+      'blocked-probe-alarm',
+    );
+    await selectAndCommit(context, firstQueueItemId);
+    expect(context.worker.room!.playbackDurationProbe).not.toBeNull();
+    expect(context.worker.playbackDurationLookup).toBeNull();
+    await context.worker.alarm();
+    expect(context.worker.scheduledAlarmMs).toBeGreaterThanOrEqual(Date.now() + 10_000);
+    const lookup = context.worker.assetDurationLookup!.promise;
+    resolveProbe(123);
+    await lookup;
+  });
+
+  it('rolls back a controller duration update when its storage commit fails', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(
+      context,
+      'failed-controller-duration',
+      4096,
+      { durationSeconds: 120 },
+    );
+    const before = structuredClone(asset.duration);
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('controller duration commit failure'),
+    );
+    const update = () =>
+      context.worker.fetch(
+        jsonRequest(
+          `/media/${assetId}/duration`,
+          'POST',
+          { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds: 119.5 },
+          context.ownerCookie,
+        ),
+      );
+    await expect(update()).rejects.toThrow('controller duration commit failure');
+    expect(context.worker.room!.assets[assetId]!.duration).toEqual(before);
+    expect((await update()).status).toBe(200);
+    expect(context.worker.room!.assets[assetId]!.duration).toMatchObject({
+      source: 'controller',
+      durationSeconds: 119.5,
+    });
+  });
+
+  it('resumes persisted registration probes after cold restart and does not retry unsupported files in the background', async () => {
+    const context = await activatedRoom();
+    const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(null);
+    const { assetId } = await completeReadyAsset(context, 'restart-registration-duration');
+    await context.worker.assetDurationLookup?.promise;
+    expect(probe).toHaveBeenCalledTimes(1);
+    await context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
+    await context.worker.persist();
+    expect(probe).toHaveBeenCalledTimes(1);
+    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, any>;
+    };
+    stored.core.pendingAssetDurationProbes = [assetId];
+    context.state.storage.data.set('pro-room:v2:core', stored);
+    probe.mockResolvedValue(95.75);
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    await restarted.fetch(request('/snapshot', {}, context.ownerCookie));
+    restarted.startAssetDurationProbe();
+    await restarted.assetDurationLookup?.promise;
+    expect(restarted.room!.assets[assetId]!.duration).toMatchObject({
+      source: 'server',
+      durationSeconds: 95.75,
+    });
+    expect(restarted.room!.pendingAssetDurationProbes).toEqual([]);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('rolls back failed duration persistence and retries the pending registration after restart', async () => {
+    const context = await activatedRoom();
+    let resolveProbe!: (value: number | null) => void;
+    vi.spyOn(fileDuration, 'readProRoomFileDuration')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveProbe = resolve;
+          }),
+      )
+      .mockResolvedValue(45);
+    const { assetId } = await completeReadyAsset(context, 'failed-registration-duration');
+    vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
+      new Error('duration commit failure'),
+    );
+    const lookup = context.worker.assetDurationLookup!.promise;
+    resolveProbe(45);
+    await lookup;
+    expect(context.worker.room!.assets[assetId]!.duration).toBeUndefined();
+    expect(context.worker.room!.pendingAssetDurationProbes).toEqual([assetId]);
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    await restarted.fetch(request('/snapshot', {}, context.ownerCookie));
+    restarted.startAssetDurationProbe();
+    await restarted.assetDurationLookup?.promise;
+    expect(restarted.room!.assets[assetId]!.duration).toMatchObject({
+      source: 'server',
+      durationSeconds: 45,
+    });
+    expect(restarted.room!.pendingAssetDurationProbes).toEqual([]);
+  });
+
+  it.each(['version', 'generation', 'deletion'] as const)(
+    'fences a late registration probe after %s changes',
+    async (change) => {
+      const context = await activatedRoom();
+      let resolveProbe!: (value: number | null) => void;
+      vi.spyOn(fileDuration, 'readProRoomFileDuration').mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveProbe = resolve;
+          }),
+      );
+      const { assetId, asset } = await completeReadyAsset(context, `stale-duration-${change}`);
+      const lookup = context.worker.assetDurationLookup!.promise;
+      if (change === 'version') asset.version += 1;
+      if (change === 'generation') context.worker.room!.roomGeneration += 1;
+      if (change === 'deletion') delete context.worker.room!.assets[assetId];
+      resolveProbe(60);
+      await lookup;
+      expect(context.worker.room!.assets[assetId]?.duration).toBeUndefined();
+    },
+  );
+
+  it('retains a trusted late playback probe on its asset without reviving a stale queue target', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset, completeEnvelope } = await completeReadyAsset(
+      context,
+      'late-asset-probe',
+      4096,
+      { durationSeconds: 30 },
+    );
+    await replacePlaylist(
+      context,
+      [{ queueItemId: firstQueueItemId, name: 'old target', source: completeEnvelope.asset }],
+      'late-asset-probe',
+    );
+    delete asset.duration;
+    let resolveProbe!: (value: number | null) => void;
+    vi.spyOn(fileDuration, 'readProRoomFileDuration').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveProbe = resolve;
+        }),
+    );
+    context.worker.room!.playbackDurationProbe = {
+      identity: {
+        queueItemId: firstQueueItemId,
+        mediaKind: 'file',
+        assetId,
+        assetVersion: asset.version,
+        byteLength: asset.byteLength,
+      },
+      attempts: 0,
+      retryAtMs: Date.now(),
+    };
+    context.worker.startPlaybackDurationProbe();
+    const lookup = context.worker.playbackDurationLookup!.promise;
+    context.worker.room!.playlist = [];
+    context.worker.room!.playbackDurationProbe = null;
+    const playback = structuredClone(context.worker.room!.playback);
+    resolveProbe(31.5);
+    await lookup;
+    expect(context.worker.room!.assets[assetId]!.duration).toMatchObject({
+      source: 'server',
+      durationSeconds: 31.5,
+    });
+    expect(context.worker.room!.playbackDurationProbe).toBeNull();
+    expect(context.worker.room!.playbackDurations).toEqual({});
+    expect(context.worker.room!.playback).toEqual(playback);
+  });
+
+  it('keeps optional duration migration and registration queues from exhausting room state capacity', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'capacity-duration');
+    await context.worker.assetDurationLookup?.promise;
+    const room = context.worker.room!;
+    const identity = {
+      queueItemId: firstQueueItemId,
+      mediaKind: 'file' as const,
+      assetId,
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+    };
+    room.playbackDurations[
+      `${firstQueueItemId}:file:${assetId}:${asset.version}:${asset.byteLength}`
+    ] = { identity, durationSeconds: 40, checkedAtMs: Date.now(), source: 'controller' };
+    const { playlist: _playlist, ...core } = room;
+    const encoded = Buffer.byteLength(
+      JSON.stringify({ schemaVersion: 2, core, playlistOrder: [] }),
+    );
+    asset.name = (asset.name ?? '') + 'x'.repeat(1200 * 1024 - encoded - 128);
+    context.worker.normalizeLoadedPlaybackAuthority();
+    expect(asset.duration).toBeUndefined();
+    context.worker.enqueueAssetDurationProbe(asset);
+    expect(room.pendingAssetDurationProbes ?? []).toEqual([]);
+    await expect(context.worker.persist()).resolves.toBe(true);
+    expect(room.assets[assetId]).toBeDefined();
+    const refused = await context.worker.fetch(
+      jsonRequest(
+        `/media/${assetId}/duration`,
+        'POST',
+        { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds: 42 },
+        context.ownerCookie,
+      ),
+    );
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
+    expect(context.worker.room!.assets[assetId]!.duration).toBeUndefined();
+  });
+
+  it('accepts decoded file duration only from a playback-authorized READY participant', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const friend = await addMember(context);
+    const { assetId, asset } = await completeReadyAsset(context, 'duration-authority');
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [
+            {
+              queueItemId: firstQueueItemId,
+              name: 'Finite file',
+              source: {
+                kind: 'pro-r2',
+                assetId,
+                version: asset.version,
+                byteLength: asset.byteLength,
+                mime: asset.mime,
+              },
+            },
+          ],
+          'duration-authority',
+        )
+      ).status,
+    ).toBe(200);
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'duration-authority-select',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    await context.worker.playbackDurationLookup?.promise;
+    const readyPath = `/playback/transitions/${selected.transition.transitionId}/ready`;
+    const ready = {
+      basePlaybackRevision: selected.transition.basePlaybackRevision,
+      status: 'ready',
+    };
+    const memberReady = await context.worker.fetch(
+      jsonRequest(
+        readyPath,
+        'POST',
+        {
+          ...ready,
+          durationSeconds: 0.01,
+        },
+        friend.cookie,
+      ),
+    );
+    expect(memberReady.status).toBe(200);
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([]);
+    const ownerReady = await context.worker.fetch(
+      jsonRequest(
+        readyPath,
+        'POST',
+        {
+          ...ready,
+          durationSeconds: 123.456,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ownerReady.status).toBe(200);
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([
+      expect.objectContaining({
+        durationSeconds: 123.456,
+        source: 'controller',
+        identity: {
+          queueItemId: firstQueueItemId,
+          mediaKind: 'file',
+          assetId,
+          assetVersion: asset.version,
+          byteLength: asset.byteLength,
+        },
+      }),
+    ]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      realtime.internal.room.playback.updatedAtMs + 123_456,
+    );
+  });
+
+  it('never interprets an owner YouTube READY duration as finite metadata for a live stream', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'youtube-untrusted-duration')).status,
+    ).toBe(200);
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'youtube-untrusted-duration-select',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: selected.transition.basePlaybackRevision,
+          status: 'ready',
+          durationSeconds: 3,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    await context.worker.playbackDurationLookup?.promise;
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+  });
 
   it('reclaims legacy playback receipts immediately without shortening other browser mutations', async () => {
     const context = await activatedRoom();
@@ -2267,6 +2931,9 @@ describe('PRO room server-authoritative playback', () => {
     const pending = internal.room.pendingPlaybackBroadcasts[0] as Record<string, any>;
     expect(pending).toMatchObject({ kind: 'prepare', attempts: 1 });
     expect(pending.retryAtMs).toBe(startedAtMs + 1_000);
+    // Metadata probing has its own earlier alarm until the bounded background
+    // lookup settles. The playback outbox still owns the next retry afterward.
+    await context.worker.playbackDurationLookup?.promise;
     expect(context.state.storage.alarm).toBe(pending.retryAtMs);
 
     const successfulDispatch = vi.fn(async () =>
@@ -3271,21 +3938,24 @@ async function completeReadyAsset(
   context: Awaited<ReturnType<typeof activatedRoom>>,
   suffix: string,
   byteLength = 4096,
+  options: { durationSeconds?: number; cookie?: string } = {},
 ) {
+  const creatorCookie = options.cookie ?? context.ownerCookie;
   const reservationResponse = await context.worker.fetch(
     jsonRequest(
       '/media/reservations',
       'POST',
       { byteLength, name: `${suffix}.flac`, mime: 'audio/flac' },
-      context.ownerCookie,
+      creatorCookie,
       `${IDEMPOTENCY_KEY}-${suffix}-reserve`,
     ),
   );
   expect(reservationResponse.status).toBe(200);
   const reservationEnvelope = await responseJson(reservationResponse);
   const assetId = reservationEnvelope.reservation.assetId as string;
-  const internal = context.worker as unknown as { room: StoredRoom };
-  const asset = internal.room.assets[assetId]!;
+  const asset = context.worker.room!.assets[assetId]! as NonNullable<
+    typeof context.worker.room
+  >['assets'][string] & { stagingObjectKey: string };
   context.bucket.objects.set(asset.stagingObjectKey, {
     size: asset.byteLength,
     httpMetadata: { contentType: asset.mime },
@@ -3300,8 +3970,17 @@ async function completeReadyAsset(
   const completeResponse = await context.worker.fetch(
     request(
       `/media/${assetId}/complete`,
-      { method: 'POST', headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-${suffix}-complete` } },
-      context.ownerCookie,
+      {
+        method: 'POST',
+        headers: {
+          'idempotency-key': `${IDEMPOTENCY_KEY}-${suffix}-complete`,
+          ...(options.durationSeconds === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(options.durationSeconds === undefined
+          ? {}
+          : { body: JSON.stringify({ durationSeconds: options.durationSeconds }) }),
+      },
+      creatorCookie,
     ),
   );
   expect(completeResponse.status).toBe(200);
@@ -7091,6 +7770,9 @@ describe('PRO room private Developer API projections', () => {
 
   it('reserves a sleeping-room direct upload and completes it into one non-autoplaying queue row', async () => {
     const { worker, bucket } = await activatedRoom();
+    const durationProbe = vi
+      .spyOn(fileDuration, 'readProRoomFileDuration')
+      .mockResolvedValue(194.5);
     const internal = worker as unknown as { room: Record<string, any> };
     internal.room.runtime = 'sleeping';
     internal.room.presence.coordinatorParticipantId = null;
@@ -7189,6 +7871,9 @@ describe('PRO room private Developer API projections', () => {
       reservation.assetId,
     );
     expect(completeResponse.status).toBe(201);
+    await worker.assetDurationLookup?.promise;
+    expect(durationProbe).toHaveBeenCalledTimes(1);
+    expect(asset.duration).toMatchObject({ source: 'server', durationSeconds: 194.5 });
     const completed = await responseJson(completeResponse);
     expect(completed).toMatchObject({
       schemaVersion: 1,
@@ -9240,6 +9925,7 @@ describe('PRO admission capacity and throttle', () => {
     );
     expect(queued.status).toBe(200);
     expect((await ownerSelect(restarted, context.ownerCookie, queueItemId)).status).toBe(202);
+    await restarted.playbackDurationLookup?.promise;
     expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
     expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
     expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
@@ -10704,9 +11390,12 @@ describe('PRO PIN membership choice and removal reasons', () => {
     await leavePresence(worker, evicted.cookie);
     const evictedHash = sessionHashOf(worker, evicted.viewer.participantId)!;
     const template = worker.room!.sessions[evictedHash]!;
+    const syntheticSessionHashes = new Set<string>();
     for (let index = 0; Object.keys(worker.room!.sessions).length < 128; index += 1) {
       const id = String(index).padStart(24, '0');
-      worker.room!.sessions[`F${id}`.padEnd(43, 'F')] = {
+      const syntheticHash = `F${id}`.padEnd(43, 'F');
+      syntheticSessionHashes.add(syntheticHash);
+      worker.room!.sessions[syntheticHash] = {
         ...structuredClone(template),
         participantId: `participant_${id}`,
         memberId: `member_${id}`,
@@ -10717,9 +11406,9 @@ describe('PRO PIN membership choice and removal reasons', () => {
     expect((await admit(worker)).status).toBe(200);
     expect(worker.room!.sessions[evictedHash]).toBeUndefined();
     await expectSessionRequired(enter(worker, evicted.cookie));
-    for (const tokenHash of Object.keys(worker.room!.sessions)) {
-      if (tokenHash.startsWith('F')) delete worker.room!.sessions[tokenHash];
-    }
+    // Real base64url token hashes can also start with F. Only remove the
+    // synthetic capacity records, never a randomly matching live cookie.
+    for (const tokenHash of syntheticSessionHashes) delete worker.room!.sessions[tokenHash];
 
     // An explicit leave and a fenced close.
     const leaving = await join(worker);

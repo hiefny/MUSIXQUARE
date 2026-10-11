@@ -822,9 +822,9 @@ const bn: Record<I18nKey, string> = {
     'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে। {{count}} মিনিট পরে আবার চেষ্টা করুন।',
   'pro.join_rate_limited_later':
     'যোগ দেওয়ার চেষ্টা অনেক বেশি হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
-  'pro.active_tab_title': 'এই PRO রুম ইতিমধ্যে অন্য একটি ট্যাবে খোলা আছে',
-  'pro.active_tab_message': 'এখানে চালিয়ে গেলে বিদ্যমান ট্যাবের সংযোগ বিচ্ছিন্ন হবে।',
-  'pro.use_this_tab': 'এই ট্যাব ব্যবহার করুন',
+  'pro.active_tab_title': 'আগের একটি সংযোগ রয়ে গেছে',
+  'pro.active_tab_message': 'এখানে চালিয়ে গেলে আগের সংযোগটি বিচ্ছিন্ন হবে।',
+  'pro.use_this_tab': 'এখানে চালিয়ে যান',
   'pro.upload.batch_progress': 'ট্র্যাক আপলোড হচ্ছে {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'কিছু ট্র্যাক আপলোড করা যায়নি',
   'pro.upload.batch_failed_message':

@@ -844,9 +844,9 @@ const fil: Record<I18nKey, string> = {
   'pro.join_rate_limited':
     'Masyadong maraming pagtatangkang sumali. Subukan ulit pagkalipas ng {{count}} minuto.',
   'pro.join_rate_limited_later': 'Masyadong maraming pagtatangkang sumali. Subukan ulit maya-maya.',
-  'pro.active_tab_title': 'Bukas na sa ibang tab ang PRO room na ito',
-  'pro.active_tab_message': 'Kapag nagpatuloy ka rito, madidiskonekta ang kasalukuyang tab.',
-  'pro.use_this_tab': 'Gamitin ang tab na ito',
+  'pro.active_tab_title': 'May natitirang naunang koneksyon',
+  'pro.active_tab_message': 'Kapag nagpatuloy ka rito, mapuputol ang naunang koneksyon.',
+  'pro.use_this_tab': 'Magpatuloy rito',
   'pro.upload.batch_progress': 'Ina-upload ang mga track {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Hindi na-upload ang ilang track',
   'pro.upload.batch_failed_message':

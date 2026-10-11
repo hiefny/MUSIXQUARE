@@ -828,9 +828,9 @@ const cs: Record<I18nKey, string> = {
     'Místnost PRO pojme až 100 zařízení včetně zařízení vlastníka. Jedno místo je vždy vyhrazeno pro vlastníka.',
   'pro.join_rate_limited': 'Příliš mnoho pokusů o připojení. Zkuste to znovu za {{count}} min.',
   'pro.join_rate_limited_later': 'Příliš mnoho pokusů o připojení. Zkuste to znovu za chvíli.',
-  'pro.active_tab_title': 'Tato místnost PRO už je otevřená na jiné kartě',
-  'pro.active_tab_message': 'Pokračováním zde odpojíte existující kartu.',
-  'pro.use_this_tab': 'Použít tuto kartu',
+  'pro.active_tab_title': 'Předchozí připojení stále existuje',
+  'pro.active_tab_message': 'Pokračováním zde ukončíte předchozí připojení.',
+  'pro.use_this_tab': 'Pokračovat zde',
   'pro.upload.batch_progress': 'Nahrávání skladeb {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Některé skladby se nepodařilo nahrát',
   'pro.upload.batch_failed_message':

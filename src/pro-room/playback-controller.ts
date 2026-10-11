@@ -37,6 +37,7 @@ import {
   type ProPlaybackAuthorityToken,
   type ProPlaybackCommitResult,
   type ProPlaybackPrepareResult,
+  type ProPlaybackPrepareRequest,
   type ProPlaybackTimingMode,
   type ProPlaybackUserIntent,
 } from './playback-authority-hooks.ts';
@@ -50,6 +51,9 @@ const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
 const PLAYLIST_HYDRATION_PREPARE_RESERVE_MS = 500;
 const PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS = 1_000;
 const PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS = 700;
+const MEDIA_DURATION_REPORT_TIMEOUT_MS = 6_000;
+const MEDIA_DURATION_REPORT_RETRY_MS = 30_000;
+const MEDIA_DURATION_REPORT_CACHE_SIZE = 128;
 
 export interface ProRoomPlaybackPlaylistLease {
   readonly generation: number;
@@ -79,6 +83,10 @@ interface ProRoomPlaybackControllerPorts {
   reportPlaybackTransitionReady(
     input: Parameters<ProRoomApiClient['reportPlaybackTransitionReady']>[0],
   ): ReturnType<ProRoomApiClient['reportPlaybackTransitionReady']>;
+  reportMediaDuration?(
+    input: Parameters<ProRoomApiClient['reportMediaDuration']>[0],
+    signal?: AbortSignal,
+  ): ReturnType<ProRoomApiClient['reportMediaDuration']>;
   executePlaybackCommand(
     input: Parameters<ProRoomApiClient['executePlaybackCommand']>[0],
     signal?: AbortSignal,
@@ -253,6 +261,166 @@ function createImplementation(
   let controlChannelGeneration = 0;
   let controlChannelRecovering = false;
   let commandPlayback: { roomId: string; playback: ProRoomPlaybackCheckpoint } | null = null;
+  let durationReportGeneration = 0;
+  let durationEndpointUnavailable = false;
+  let durationReportSequence = 0;
+  const durationReports = new Map<
+    string,
+    { status: 'pending' | 'succeeded' | 'failed'; retryAtMs: number }
+  >();
+  const durationReportRequests = new Set<AbortController>();
+
+  function resetDurationReports(): void {
+    durationReportGeneration += 1;
+    durationEndpointUnavailable = false;
+    durationReports.clear();
+    for (const controller of durationReportRequests) controller.abort();
+    durationReportRequests.clear();
+  }
+
+  /** Capture the immutable source before decoding, never infer it from the next song. */
+  function captureFileDurationReporter(
+    request: Pick<ProPlaybackPrepareRequest, 'authority' | 'queueItemId'>,
+    isCurrent: () => boolean,
+  ): (result: ProPlaybackPrepareResult) => void {
+    if (!ports.reportMediaDuration) return () => undefined;
+    const snapshot = ports.getPlaylistSnapshot() ?? ports.getCanonicalSnapshot();
+    const item = snapshot?.playlist.find(
+      (candidate) => candidate.queueItemId === request.queueItemId,
+    );
+    const lease = ports.capturePlaylistLease();
+    const context = getState('room.context');
+    const source = item?.source;
+    if (
+      !lease ||
+      source?.kind !== 'pro-r2' ||
+      context.kind !== 'pro' ||
+      context.roomId !== request.authority.roomId ||
+      context.epoch !== request.authority.roomEpoch ||
+      !context.capabilities.includes('playback.control') ||
+      snapshot?.roomCode !== context.roomId ||
+      lease.roomCode !== context.roomId
+    )
+      return () => undefined;
+    const captured = {
+      code: context.roomId,
+      assetId: source.assetId,
+      assetVersion: source.version,
+      byteLength: source.byteLength,
+    };
+    const epoch = context.epoch;
+    const generation = durationReportGeneration;
+    const roomSignal = ports.getRoomAbortSignal();
+    const stillCurrent = () => {
+      const currentContext = getState('room.context');
+      const currentSnapshot = ports.getPlaylistSnapshot() ?? ports.getCanonicalSnapshot();
+      const currentSource = currentSnapshot?.playlist.find(
+        (candidate) => candidate.queueItemId === request.queueItemId,
+      )?.source;
+      return (
+        isCurrent() &&
+        ports.isActive() &&
+        !roomSignal?.aborted &&
+        generation === durationReportGeneration &&
+        ports.isPlaylistLeaseCurrent(lease) &&
+        currentContext.kind === 'pro' &&
+        currentContext.roomId === captured.code &&
+        currentContext.epoch === epoch &&
+        currentContext.capabilities.includes('playback.control') &&
+        currentSnapshot?.roomCode === captured.code &&
+        currentSource?.kind === 'pro-r2' &&
+        currentSource.assetId === captured.assetId &&
+        currentSource.version === captured.assetVersion &&
+        currentSource.byteLength === captured.byteLength
+      );
+    };
+    return (result) => {
+      if (
+        result.status !== 'ready' ||
+        result.mediaKind !== 'file' ||
+        result.queueItemId !== request.queueItemId ||
+        result.authority.roomId !== captured.code ||
+        result.authority.roomEpoch !== epoch ||
+        result.authority.basePlaybackRevision !== request.authority.basePlaybackRevision ||
+        result.authority.transitionId !== request.authority.transitionId ||
+        result.durationSeconds === null ||
+        !Number.isFinite(result.durationSeconds) ||
+        result.durationSeconds <= 0 ||
+        result.durationSeconds > 7 * 24 * 60 * 60 ||
+        !stillCurrent() ||
+        durationEndpointUnavailable
+      )
+        return;
+      const input = { ...captured, durationSeconds: result.durationSeconds };
+      const key = JSON.stringify(input);
+      const previous = durationReports.get(key);
+      if (previous && (previous.status !== 'failed' || previous.retryAtMs > Date.now())) return;
+      if (durationReportRequests.size >= MEDIA_DURATION_REPORT_CACHE_SIZE) return;
+      const entry = { status: 'pending' as 'pending' | 'succeeded' | 'failed', retryAtMs: 0 };
+      durationReports.delete(key);
+      durationReports.set(key, entry);
+      while (durationReports.size > MEDIA_DURATION_REPORT_CACHE_SIZE) {
+        const oldest = durationReports.keys().next().value;
+        if (oldest === undefined) break;
+        durationReports.delete(oldest);
+      }
+      const linked = createRoomLinkedAbortController(roomSignal);
+      durationReportRequests.add(linked.controller);
+      const signal = linked.controller.signal;
+      const timer = `pro-file-duration-report-${++durationReportSequence}`;
+      let onAbort: () => void = () => undefined;
+      const aborted = new Promise<false>((resolve) => {
+        onAbort = () => resolve(false);
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      });
+      setManagedTimer(timer, () => linked.controller.abort(), MEDIA_DURATION_REPORT_TIMEOUT_MS);
+      // Metadata must never delay a media commit or turn a working renderer
+      // into a failed one. Retry only on a later preparation after backoff.
+      void (async () => {
+        let success = false;
+        try {
+          if (!signal.aborted && stillCurrent()) {
+            success = await Promise.race([
+              ports.reportMediaDuration!(input, signal).then(() => true),
+              aborted,
+            ]);
+          }
+        } catch (error) {
+          // A refreshed App can run against an older Worker during rollback.
+          if (
+            generation === durationReportGeneration &&
+            error instanceof ProRoomApiError &&
+            error.status === 404 &&
+            error.code === 'NOT_FOUND'
+          ) {
+            durationEndpointUnavailable = true;
+          }
+        } finally {
+          clearManagedTimer(timer);
+          signal.removeEventListener('abort', onAbort);
+          linked.detach();
+          durationReportRequests.delete(linked.controller);
+          if (generation === durationReportGeneration && durationReports.get(key) === entry) {
+            entry.status = success && !signal.aborted ? 'succeeded' : 'failed';
+            entry.retryAtMs = Date.now() + MEDIA_DURATION_REPORT_RETRY_MS;
+          }
+        }
+      })().catch(() => undefined);
+    };
+  }
+
+  function prepareWithDurationReport(
+    request: Readonly<ProPlaybackPrepareRequest>,
+    isCurrent: () => boolean,
+    prepare = prepareProPlaybackAuthority,
+  ): Promise<ProPlaybackPrepareResult> {
+    const report = captureFileDurationReporter(request, isCurrent);
+    return prepare(request).then((result) => {
+      report(result);
+      return result;
+    });
+  }
 
   function createSnapshotPlaybackOwner(): PlaybackCommitOwner {
     const generation = snapshotPlaybackGeneration;
@@ -596,6 +764,15 @@ function createImplementation(
             transitionId: transition.event.transitionId,
             basePlaybackRevision: transition.event.basePlaybackRevision,
             status,
+            ...(status === 'ready' &&
+            result.status === 'ready' &&
+            result.mediaKind === 'file' &&
+            getState('room.context').capabilities.includes('playback.control') &&
+            result.durationSeconds !== null &&
+            Number.isFinite(result.durationSeconds) &&
+            result.durationSeconds > 0
+              ? { durationSeconds: result.durationSeconds }
+              : {}),
           });
           // A lost WebSocket COMMIT is recovered from the canonical snapshot.
           if (outcome === 'committed') {
@@ -643,13 +820,16 @@ function createImplementation(
     isCurrent: () => boolean,
   ): Promise<ProPlaybackPrepareResult> {
     const prepareWithRemainingBudget = () =>
-      prepareProPlaybackAuthority({
-        ...request,
-        prepareBudgetMs: Math.max(
-          0,
-          event.deadlineAtMs - serverNowForFrame(event.serverTimeMs, receivedAtMs),
-        ),
-      });
+      prepareWithDurationReport(
+        {
+          ...request,
+          prepareBudgetMs: Math.max(
+            0,
+            event.deadlineAtMs - serverNowForFrame(event.serverTimeMs, receivedAtMs),
+          ),
+        },
+        isCurrent,
+      );
     if (hasProjectedQueueItem(request.queueItemId)) {
       return prepareWithRemainingBudget();
     }
@@ -899,12 +1079,17 @@ function createImplementation(
     );
     const request = playbackPrepareRequest(authority, playback);
     if (!request) return null;
+    const current = () => playbackCommitStillCurrent(event, generation, isRequestCurrent);
+    const reportRecoveredDuration = captureFileDurationReporter(request, current);
     let prepared: ProPlaybackPrepareResult;
     try {
-      prepared = await prepareProPlaybackAuthority({
-        ...request,
-        isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
-      });
+      prepared = await prepareWithDurationReport(
+        {
+          ...request,
+          isCurrent: current,
+        },
+        current,
+      );
     } catch (error) {
       cancelProPlaybackPreparation(authority);
       throw error;
@@ -937,6 +1122,7 @@ function createImplementation(
             isCurrent: exactCheckpointIsCurrent,
           },
           () => playbackCommitTiming(event, receivedAtMs),
+          reportRecoveredDuration,
         );
       }
       return null;
@@ -1047,10 +1233,13 @@ function createImplementation(
       );
       const request = playbackPrepareRequest(authority, playback);
       preparation = request
-        ? prepareProPlaybackAuthority({
-            ...request,
-            isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
-          })
+        ? prepareWithDurationReport(
+            {
+              ...request,
+              isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
+            },
+            () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
+          )
         : null;
     } else {
       authority = playbackAuthorityFor(context.roomId, context.epoch, playback.revision, null);
@@ -1851,7 +2040,12 @@ function createImplementation(
       youtubeVideoId: playback.youtubeVideoId,
       isCurrent,
     };
-    const operation = recoverCancelledProPlaybackCheckpoint(request, timing)
+    const reportRecoveredDuration = captureFileDurationReporter(request, isCurrent);
+    const operation = recoverCancelledProPlaybackCheckpoint(
+      request,
+      timing,
+      reportRecoveredDuration,
+    )
       .then(async (result) => {
         if (result.reason === 'device-unavailable' && isCurrent()) {
           await invalidateCommittedProPlaybackMedia({ ...request, ...timing() });
@@ -1932,14 +2126,18 @@ function createImplementation(
     if (prepareRenderer) {
       let prepared: ProPlaybackPrepareResult;
       try {
-        prepared = await prepareCurrentProPlaybackRendezvousAuthority({
-          authority,
-          queueItemId: playback.queueItemId,
-          positionSeconds: canonicalPositionNow,
-          youtubeSubIndex: playback.youtubeSubIndex,
-          youtubeVideoId: playback.youtubeVideoId,
+        prepared = await prepareWithDurationReport(
+          {
+            authority,
+            queueItemId: playback.queueItemId,
+            positionSeconds: canonicalPositionNow,
+            youtubeSubIndex: playback.youtubeSubIndex,
+            youtubeVideoId: playback.youtubeVideoId,
+            isCurrent,
+          },
           isCurrent,
-        });
+          prepareCurrentProPlaybackRendezvousAuthority,
+        );
       } catch (error) {
         cancelProPlaybackPreparation(authority);
         throw error;
@@ -2224,6 +2422,7 @@ function createImplementation(
   }
 
   function resetPlaylistRuntime(): void {
+    resetDurationReports();
     controlChannelGeneration += 1;
     controlChannelRecovering = false;
     invalidateSnapshotPlaybackOwner();
@@ -2250,6 +2449,7 @@ function createImplementation(
   }
 
   function stopLifecycle(): void {
+    resetDurationReports();
     controlChannelGeneration += 1;
     controlChannelRecovering = false;
     unregisterSystemAudioState?.();

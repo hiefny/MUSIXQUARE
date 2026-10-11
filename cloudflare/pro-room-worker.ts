@@ -79,6 +79,8 @@ import {
   developerMutationScopes,
 } from './developer-api-credential.ts';
 import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.ts';
+import { readProRoomFileDuration } from './pro-room-media-duration.ts';
+import { resolveProYouTubeDuration } from './pro-youtube-duration.ts';
 import {
   finalizeProRoomActivationEntitlement,
   reserveProRoomActivationEntitlement,
@@ -139,7 +141,10 @@ interface R2ObjectPort {
 interface R2BucketPort {
   list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<unknown>;
   head(key: string): Promise<R2ObjectPort | null>;
-  get(key: string): Promise<R2ObjectPort | null>;
+  get(
+    key: string,
+    options?: { range: { offset: number; length: number } },
+  ): Promise<R2ObjectPort | null>;
   put(
     key: string,
     value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null,
@@ -186,6 +191,7 @@ interface ProRoomEnvPort {
   readonly PRO_ROOMS?: DurableObjectNamespacePort;
   readonly PRO_SIGNALING_ROOMS?: DurableObjectNamespacePort;
   readonly PRO_SIGNALING_SECRET?: unknown;
+  readonly PRO_YOUTUBE_METADATA?: FetcherPort;
   readonly R2_ACCESS_KEY_ID?: unknown;
   readonly R2_ACCOUNT_ID?: unknown;
   readonly R2_BUCKET_NAME?: unknown;
@@ -240,6 +246,43 @@ interface PlaybackState {
 interface PlaybackMediaIdentity {
   youtubeVideoId: string;
   youtubeSubIndex: number;
+}
+
+type PlaybackDurationIdentity =
+  | {
+      queueItemId: string;
+      mediaKind: 'file';
+      assetId: string;
+      assetVersion: number;
+      byteLength: number;
+    }
+  | { queueItemId: string; mediaKind: 'youtube'; youtubeVideoId: string; youtubeSubIndex: number };
+
+interface PlaybackDurationEvidence {
+  identity: PlaybackDurationIdentity;
+  // Null is an explicit provider-confirmed unplayable video, never unknown/live.
+  durationSeconds: number | null;
+  checkedAtMs: number;
+  source: 'server' | 'controller' | 'upload';
+}
+
+interface AssetDurationEvidence {
+  assetVersion: number;
+  byteLength: number;
+  roomGeneration: number;
+  durationSeconds: number;
+  checkedAtMs: number;
+  source: PlaybackDurationEvidence['source'];
+}
+
+function durationSourcePriority(source: PlaybackDurationEvidence['source']) {
+  return source === 'controller' ? 3 : source === 'server' ? 2 : 1;
+}
+
+interface PlaybackDurationProbe {
+  identity: PlaybackDurationIdentity;
+  attempts: number;
+  retryAtMs: number;
 }
 
 type PlaybackAuthorityCommand =
@@ -497,6 +540,8 @@ interface AssetDeletionPending {
 }
 
 interface RoomAsset extends StagingCleanupFields {
+  // Private immutable-object metadata; never included in publicAsset().
+  duration?: AssetDurationEvidence;
   status: 'reserved' | 'ready' | 'deleting';
   assetId: string;
   objectKey: string;
@@ -722,6 +767,10 @@ interface ProRoomState {
   playback: PlaybackState;
   pendingPlaybackTransition: PlaybackTransition | null;
   pendingPlaybackBroadcasts: PlaybackBroadcastRecord[];
+  playbackDurations: Record<string, PlaybackDurationEvidence>;
+  pendingAssetDurationProbes?: string[];
+  playbackDurationProbe: PlaybackDurationProbe | null;
+  automaticUnavailableSkips: number;
   presence: PresenceState;
   pendingPresenceBroadcast: PresenceBroadcastRecord | null;
   queueMode: StoredQueueMode;
@@ -1201,6 +1250,11 @@ const PLAYBACK_ZERO_START_COMMIT_LEAD_MS = PLAYBACK_COMMIT_LEAD_MS - 1;
 // durations use the narrower timeline-alignment rule in
 // applyPlaybackAuthorityCommand instead of being rejected wholesale.
 const PLAYBACK_ENDED_NEAR_END_TOLERANCE_SECONDS = 2;
+const PLAYBACK_DURATION_CACHE_MAX_ITEMS = 64;
+const PLAYBACK_DURATION_YOUTUBE_TTL_MS = 60 * 60 * 1000;
+const PLAYBACK_DURATION_PROBE_WATCHDOG_MS = 10_000;
+const PLAYBACK_DURATION_UNKNOWN_RETRY_MS = 60_000;
+const PLAYBACK_DURATION_FILE_RETRY_MS = 5 * 60_000;
 const PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS = 10;
 const PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS = 750;
 const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
@@ -1743,6 +1797,9 @@ function initialRoomState(
     },
     pendingPlaybackTransition: null,
     pendingPlaybackBroadcasts: [],
+    playbackDurations: {},
+    playbackDurationProbe: null,
+    automaticUnavailableSkips: 0,
     presence: {
       coordinatorEpoch: 0,
       revision: 0,
@@ -3173,6 +3230,58 @@ function playbackPositionAt(playback: PlaybackState, nowMs: number) {
   );
 }
 
+function playbackDurationIdentityKey(identity: PlaybackDurationIdentity) {
+  return identity.mediaKind === 'file'
+    ? `${identity.queueItemId}:file:${identity.assetId}:${identity.assetVersion}:${identity.byteLength}`
+    : `${identity.queueItemId}:youtube:${identity.youtubeSubIndex}:${identity.youtubeVideoId}`;
+}
+
+function playbackDurationEvidenceExpiresAtMs(evidence: PlaybackDurationEvidence) {
+  return evidence.identity.mediaKind === 'file'
+    ? Number.MAX_SAFE_INTEGER
+    : evidence.checkedAtMs +
+        (evidence.durationSeconds === null
+          ? PLAYBACK_DURATION_UNKNOWN_RETRY_MS
+          : PLAYBACK_DURATION_YOUTUBE_TTL_MS);
+}
+
+function parsePlaybackDurationIdentity(value: unknown): PlaybackDurationIdentity | null {
+  if (!isRecord(value) || !matchesPattern(value.queueItemId, QUEUE_ITEM_ID_RE)) return null;
+  if (value.mediaKind === 'file') {
+    return hasExactKeys(value, [
+      'queueItemId',
+      'mediaKind',
+      'assetId',
+      'assetVersion',
+      'byteLength',
+    ]) &&
+      matchesPattern(value.assetId, /^[A-Za-z0-9_-]{16,128}$/) &&
+      isSafeNonNegativeInteger(value.assetVersion) &&
+      isSafeInteger(value.byteLength) &&
+      value.byteLength > 0
+      ? {
+          queueItemId: value.queueItemId as string,
+          mediaKind: 'file',
+          assetId: value.assetId as string,
+          assetVersion: value.assetVersion,
+          byteLength: value.byteLength,
+        }
+      : null;
+  }
+  return value.mediaKind === 'youtube' &&
+    hasExactKeys(value, ['queueItemId', 'mediaKind', 'youtubeVideoId', 'youtubeSubIndex']) &&
+    matchesPattern(value.youtubeVideoId, YOUTUBE_VIDEO_ID_RE) &&
+    isSafeNonNegativeInteger(value.youtubeSubIndex) &&
+    value.youtubeSubIndex <= 100_000
+    ? {
+        queueItemId: value.queueItemId as string,
+        mediaKind: 'youtube',
+        youtubeVideoId: value.youtubeVideoId as string,
+        youtubeSubIndex: value.youtubeSubIndex,
+      }
+    : null;
+}
+
 function playbackTraversalOrder(room: ProRoomState) {
   return room.queueMode.shuffleEnabled
     ? [...room.queueMode.shuffleOrder]
@@ -3834,6 +3943,12 @@ function assertBoundedRoomState(room: ProRoomState) {
     Object.keys(room.accountDeletionTombstones || {}).length >
       ACCOUNT_DELETION_TOMBSTONE_MAX_ITEMS ||
     Object.keys(room.assets).length > ASSET_MAX_ITEMS ||
+    (room.pendingAssetDurationProbes !== undefined &&
+      (!Array.isArray(room.pendingAssetDurationProbes) ||
+        room.pendingAssetDurationProbes.length > ASSET_MAX_ITEMS ||
+        room.pendingAssetDurationProbes.some(
+          (id) => typeof id !== 'string' || !OPAQUE_ID_RE.test(id),
+        ))) ||
     Object.keys(room.assets).length + Object.keys(room.stagingTombstones || {}).length >
       ASSET_MAX_ITEMS ||
     Object.keys(room.idempotency).length > IDEMPOTENCY_MAX_ITEMS ||
@@ -3999,6 +4114,8 @@ export class MusixquareProRoom {
   alarmMaintenanceRetryTimer: ReturnType<typeof setTimeout> | null;
   scheduledAlarmMs: number | null | undefined;
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
+  playbackDurationLookup: { key: string; promise: Promise<void> } | null;
+  assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
   ready: Promise<void> | undefined;
 
   private get activeRoom(): ProRoomState {
@@ -4035,6 +4152,8 @@ export class MusixquareProRoom {
     // storage alarm; `null` means it has authoritatively removed one.
     this.scheduledAlarmMs = undefined;
     this.sessionAdmissionThrottle = null;
+    this.playbackDurationLookup = null;
+    this.assetDurationLookup = null;
     const load = async () => {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
@@ -4829,7 +4948,622 @@ export class MusixquareProRoom {
     );
     if (pending === null && this.activeRoom.pendingPlaybackTransition !== null) changed = true;
     this.activeRoom.pendingPlaybackTransition = pending;
+    const storedDurations = this.activeRoom.playbackDurations;
+    const durations: Record<string, PlaybackDurationEvidence> = {};
+    if (isRecord(storedDurations)) {
+      for (const [key, raw] of Object.entries(storedDurations).slice(
+        -PLAYBACK_DURATION_CACHE_MAX_ITEMS,
+      )) {
+        const identity = isRecord(raw) ? parsePlaybackDurationIdentity(raw.identity) : null;
+        if (
+          identity &&
+          isRecord(raw) &&
+          key === playbackDurationIdentityKey(identity) &&
+          ((isFiniteNumber(raw.durationSeconds) &&
+            raw.durationSeconds > 0 &&
+            raw.durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS) ||
+            (raw.durationSeconds === null && identity.mediaKind === 'youtube')) &&
+          isSafeNonNegativeInteger(raw.checkedAtMs)
+        ) {
+          durations[key] = {
+            identity,
+            durationSeconds: raw.durationSeconds,
+            checkedAtMs: raw.checkedAtMs,
+            source:
+              (raw.source === 'controller' || raw.source === 'upload') &&
+              identity.mediaKind === 'file'
+                ? raw.source
+                : 'server',
+          };
+        }
+      }
+    }
+    if (JSON.stringify(storedDurations) !== JSON.stringify(durations)) changed = true;
+    this.activeRoom.playbackDurations = durations;
+    // Upgrade only the bounded, already-verified queue cache. Existing libraries
+    // are otherwise learned lazily, rather than probed en masse at deployment.
+    for (const evidence of Object.values(durations)) {
+      if (evidence.identity.mediaKind !== 'file' || evidence.durationSeconds === null) continue;
+      const asset = this.durationAsset(evidence.identity);
+      if (asset)
+        changed =
+          this.storeAssetDuration(
+            asset,
+            evidence.durationSeconds,
+            evidence.source,
+            evidence.checkedAtMs,
+          ) || changed;
+    }
+    const pendingAssets = this.activeRoom.pendingAssetDurationProbes;
+    if (pendingAssets !== undefined) {
+      const normalized = Array.isArray(pendingAssets)
+        ? [...new Set(pendingAssets.filter((id): id is string => typeof id === 'string'))]
+            .slice(0, ASSET_MAX_ITEMS)
+            .filter((id) => {
+              const asset = this.activeRoom.assets[id];
+              return (
+                asset?.status === 'ready' &&
+                !asset.deletionPending &&
+                asset.roomGeneration === this.activeRoom.roomGeneration &&
+                !this.assetDurationEvidence(asset)
+              );
+            })
+        : [];
+      if (JSON.stringify(pendingAssets) !== JSON.stringify(normalized)) changed = true;
+      this.activeRoom.pendingAssetDurationProbes = normalized;
+    }
+    if (!isSafeNonNegativeInteger(this.activeRoom.automaticUnavailableSkips)) {
+      this.activeRoom.automaticUnavailableSkips = 0;
+      changed = true;
+    }
+    const probe = this.activeRoom.playbackDurationProbe;
+    const identity = isRecord(probe) ? parsePlaybackDurationIdentity(probe.identity) : null;
+    if (
+      !identity ||
+      !isRecord(probe) ||
+      !isSafeNonNegativeInteger(probe.attempts) ||
+      !isSafeNonNegativeInteger(probe.retryAtMs)
+    ) {
+      if (probe !== null) changed = true;
+      this.activeRoom.playbackDurationProbe = null;
+    }
     this.playbackAuthorityMigrationPending = this.playbackAuthorityMigrationPending || changed;
+  }
+
+  playbackDurationIdentity(playback = this.activeRoom.playback): PlaybackDurationIdentity | null {
+    if (!playback.queueItemId || playback.state === 'idle') return null;
+    const item = this.activeRoom.playlist.find((row) => row.queueItemId === playback.queueItemId);
+    if (!item) return null;
+    if (item.source.kind === 'pro-r2') {
+      return {
+        queueItemId: item.queueItemId,
+        mediaKind: 'file',
+        assetId: item.source.assetId,
+        assetVersion: item.source.version,
+        byteLength: item.source.byteLength,
+      };
+    }
+    if (playback.youtubeVideoId === null || playback.youtubeSubIndex === null) return null;
+    return {
+      queueItemId: item.queueItemId,
+      mediaKind: 'youtube',
+      youtubeVideoId: playback.youtubeVideoId,
+      youtubeSubIndex: playback.youtubeSubIndex,
+    };
+  }
+
+  playbackDurationIdentityExists(identity: PlaybackDurationIdentity) {
+    const item = this.activeRoom.playlist.find((row) => row.queueItemId === identity.queueItemId);
+    if (!item) return false;
+    if (identity.mediaKind === 'file') {
+      return (
+        item.source.kind === 'pro-r2' &&
+        item.source.assetId === identity.assetId &&
+        item.source.version === identity.assetVersion &&
+        item.source.byteLength === identity.byteLength
+      );
+    }
+    if (item.source.kind !== 'youtube') return false;
+    if (item.source.videoIds)
+      return item.source.videoIds[identity.youtubeSubIndex] === identity.youtubeVideoId;
+    if (!item.source.playlistId)
+      return identity.youtubeSubIndex === 0 && item.source.videoId === identity.youtubeVideoId;
+    // Legacy playlist rows have no complete manifest. Only a currently accepted
+    // target may supply the occurrence identity; a cached row cannot invent it.
+    return [this.activeRoom.playback, this.activeRoom.pendingPlaybackTransition?.target].some(
+      (target) =>
+        target?.queueItemId === identity.queueItemId &&
+        target.youtubeVideoId === identity.youtubeVideoId &&
+        target.youtubeSubIndex === identity.youtubeSubIndex,
+    );
+  }
+
+  desiredPlaybackDurationIdentity() {
+    if (
+      this.activeRoom.status !== 'active' ||
+      this.activeRoom.runtime !== 'awake' ||
+      this.activeRoom.systemAudio.status !== 'idle' ||
+      Object.keys(this.activeRoom.presence.participants).length === 0
+    )
+      return null;
+    const playback = this.activeRoom.pendingPlaybackTransition?.target ?? this.activeRoom.playback;
+    return playback.state === 'playing' ? this.playbackDurationIdentity(playback) : null;
+  }
+
+  durationAsset(identity: Extract<PlaybackDurationIdentity, { mediaKind: 'file' }>) {
+    const asset = this.activeRoom.assets[identity.assetId];
+    return asset?.status === 'ready' &&
+      !asset.deletionPending &&
+      asset.version === identity.assetVersion &&
+      asset.byteLength === identity.byteLength &&
+      asset.roomGeneration === this.activeRoom.roomGeneration
+      ? asset
+      : null;
+  }
+
+  assetDurationEvidence(asset: RoomAsset): AssetDurationEvidence | null {
+    const raw = asset.duration;
+    return raw &&
+      isRecord(raw) &&
+      raw.assetVersion === asset.version &&
+      raw.byteLength === asset.byteLength &&
+      raw.roomGeneration === asset.roomGeneration &&
+      asset.roomGeneration === this.activeRoom.roomGeneration &&
+      isFiniteNumber(raw.durationSeconds) &&
+      raw.durationSeconds > 0 &&
+      raw.durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS &&
+      isSafeNonNegativeInteger(raw.checkedAtMs) &&
+      (raw.source === 'server' || raw.source === 'controller' || raw.source === 'upload')
+      ? raw
+      : null;
+  }
+
+  storeAssetDuration(
+    asset: RoomAsset,
+    durationSeconds: number,
+    source: PlaybackDurationEvidence['source'],
+    nowMs = Date.now(),
+  ) {
+    const previous = this.assetDurationEvidence(asset);
+    if (
+      previous &&
+      (durationSourcePriority(previous.source) > durationSourcePriority(source) ||
+        (previous.source === source &&
+          (previous.checkedAtMs > nowMs || previous.durationSeconds === durationSeconds)))
+    )
+      return false;
+    const before = asset.duration;
+    asset.duration = {
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+      roomGeneration: asset.roomGeneration,
+      durationSeconds,
+      checkedAtMs: nowMs,
+      source,
+    };
+    // Optional timing evidence must never make a previously valid room unloadable
+    // or consume the headroom needed by an unrelated authoritative mutation.
+    if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
+      if (before === undefined) delete asset.duration;
+      else asset.duration = before;
+      return false;
+    }
+    return true;
+  }
+
+  enqueueAssetDurationProbe(asset: RoomAsset) {
+    if (this.assetDurationEvidence(asset)) return;
+    const before = this.activeRoom.pendingAssetDurationProbes;
+    const queue = before ?? [];
+    if (queue.includes(asset.assetId) || queue.length >= ASSET_MAX_ITEMS) return;
+    this.activeRoom.pendingAssetDurationProbes = [...queue, asset.assetId];
+    if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
+      if (before === undefined) delete this.activeRoom.pendingAssetDurationProbes;
+      else this.activeRoom.pendingAssetDurationProbes = before;
+    }
+  }
+
+  storePlaybackDurationEvidence(
+    identity: PlaybackDurationIdentity,
+    durationSeconds: number | null,
+    source: PlaybackDurationEvidence['source'],
+    nowMs = Date.now(),
+  ) {
+    if (identity.mediaKind === 'file' && durationSeconds !== null) {
+      const asset = this.durationAsset(identity);
+      if (asset) {
+        const stored = this.storeAssetDuration(asset, durationSeconds, source, nowMs);
+        const best = this.assetDurationEvidence(asset);
+        if (
+          best &&
+          (stored ||
+            durationSourcePriority(best.source) > durationSourcePriority(source) ||
+            (best.source === source && best.checkedAtMs > nowMs))
+        ) {
+          durationSeconds = best.durationSeconds;
+          source = best.source;
+          nowMs = best.checkedAtMs;
+        }
+      }
+    }
+    const key = playbackDurationIdentityKey(identity);
+    const entries = Object.entries(this.activeRoom.playbackDurations)
+      .filter(([existingKey]) => existingKey !== key)
+      .sort((left, right) => left[1].checkedAtMs - right[1].checkedAtMs);
+    while (entries.length >= PLAYBACK_DURATION_CACHE_MAX_ITEMS) {
+      const oldest = entries.shift();
+      if (oldest) delete this.activeRoom.playbackDurations[oldest[0]];
+    }
+    this.activeRoom.playbackDurations[key] = {
+      identity,
+      durationSeconds,
+      checkedAtMs: nowMs,
+      source,
+    };
+    if (
+      this.activeRoom.playbackDurationProbe &&
+      playbackDurationIdentityKey(this.activeRoom.playbackDurationProbe.identity) === key
+    ) {
+      this.activeRoom.playbackDurationProbe = null;
+    }
+  }
+
+  reconcilePlaybackDurationProbe(nowMs = Date.now()) {
+    let changed = false;
+    for (const [key, evidence] of Object.entries(this.activeRoom.playbackDurations)) {
+      if (evidence.identity.mediaKind === 'file' && evidence.durationSeconds !== null) {
+        const asset = this.durationAsset(evidence.identity);
+        if (asset)
+          changed =
+            this.storeAssetDuration(
+              asset,
+              evidence.durationSeconds,
+              evidence.source,
+              evidence.checkedAtMs,
+            ) || changed;
+      }
+      if (!this.playbackDurationIdentityExists(evidence.identity)) {
+        delete this.activeRoom.playbackDurations[key];
+        changed = true;
+      }
+    }
+    const identity = this.desiredPlaybackDurationIdentity();
+    const key = identity ? playbackDurationIdentityKey(identity) : null;
+    if (identity?.mediaKind === 'file' && key) {
+      const asset = this.durationAsset(identity);
+      const durable = asset && this.assetDurationEvidence(asset);
+      const cached = this.activeRoom.playbackDurations[key];
+      if (
+        durable &&
+        (!cached ||
+          durationSourcePriority(durable.source) > durationSourcePriority(cached.source) ||
+          (durable.source === cached.source && durable.checkedAtMs >= cached.checkedAtMs)) &&
+        (!cached ||
+          cached.durationSeconds !== durable.durationSeconds ||
+          cached.source !== durable.source)
+      ) {
+        this.storePlaybackDurationEvidence(
+          identity,
+          durable.durationSeconds,
+          durable.source,
+          durable.checkedAtMs,
+        );
+        changed = true;
+      }
+    }
+    const evidence = key ? this.activeRoom.playbackDurations[key] : null;
+    const fresh = evidence && playbackDurationEvidenceExpiresAtMs(evidence) > nowMs;
+    if (!identity || fresh) {
+      if (this.activeRoom.playbackDurationProbe) changed = true;
+      this.activeRoom.playbackDurationProbe = null;
+    } else if (
+      !this.activeRoom.playbackDurationProbe ||
+      playbackDurationIdentityKey(this.activeRoom.playbackDurationProbe.identity) !== key
+    ) {
+      this.activeRoom.playbackDurationProbe = { identity, attempts: 0, retryAtMs: nowMs };
+      changed = true;
+    }
+    return changed;
+  }
+
+  naturalPlaybackEndAtMs(nowMs = Date.now()) {
+    const playback = this.activeRoom.playback;
+    if (
+      this.activeRoom.pendingPlaybackTransition ||
+      playback.state !== 'playing' ||
+      playback.revision >= Number.MAX_SAFE_INTEGER ||
+      this.activeRoom.status !== 'active' ||
+      this.activeRoom.runtime !== 'awake' ||
+      this.activeRoom.systemAudio.status !== 'idle' ||
+      Object.keys(this.activeRoom.presence.participants).length === 0
+    )
+      return null;
+    const identity = this.playbackDurationIdentity(playback);
+    const evidence = identity
+      ? this.activeRoom.playbackDurations[playbackDurationIdentityKey(identity)]
+      : null;
+    if (!identity || !evidence || !this.playbackDurationIdentityExists(identity)) return null;
+    if (playbackDurationEvidenceExpiresAtMs(evidence) <= nowMs) return null;
+    if (evidence.durationSeconds === null) return playback.updatedAtMs;
+    // The YouTube API duration may be rounded. Never schedule before the real
+    // endpoint; native ENDED may still settle the exact boundary sooner.
+    const graceMs = identity.mediaKind === 'file' && evidence.source === 'controller' ? 0 : 2_000;
+    const deadline = Math.ceil(
+      playback.updatedAtMs +
+        Math.max(0, evidence.durationSeconds - playback.positionSeconds) * 1_000 +
+        graceMs,
+    );
+    return Number.isSafeInteger(deadline) ? deadline : null;
+  }
+
+  advanceCompletedPlayback(nowMs = Date.now()) {
+    const deadline = this.naturalPlaybackEndAtMs(nowMs);
+    if (deadline === null || deadline > nowMs) return null;
+    const playback = this.activeRoom.playback;
+    const identity = this.playbackDurationIdentity(playback);
+    if (!identity) return null;
+    const evidence = this.activeRoom.playbackDurations[playbackDurationIdentityKey(identity)];
+    if (!evidence) return null;
+    if (evidence.durationSeconds === null) {
+      this.activeRoom.automaticUnavailableSkips += 1;
+      const occurrenceCount = this.activeRoom.playlist.reduce(
+        (total, item) =>
+          total +
+          (item.source.kind === 'youtube' && item.source.videoIds
+            ? item.source.videoIds.length
+            : 1),
+        0,
+      );
+      if (this.activeRoom.automaticUnavailableSkips >= Math.max(1, occurrenceCount)) {
+        // A repeat-all queue of inaccessible videos must not circulate forever.
+        // Count occurrences (including duplicate playlist video IDs), and stop
+        // after one uninterrupted pass without any playable media completion.
+        const idle = this.targetPlayback(null, 'idle', 0, nowMs);
+        return idle ? this.directPlaybackCommit(idle, nowMs) : null;
+      }
+    } else {
+      this.activeRoom.automaticUnavailableSkips = 0;
+    }
+    const result = this.applyPlaybackAuthorityCommand(
+      {
+        type: evidence.durationSeconds === null ? 'unavailable' : 'ended',
+        baseRevision: playback.revision,
+        queueItemId: identity.queueItemId,
+        mediaKind: identity.mediaKind,
+        observedPositionSeconds: playbackPositionAt(playback, nowMs),
+        durationSeconds: evidence.durationSeconds,
+        ...(identity.mediaKind === 'youtube'
+          ? { youtubeVideoId: identity.youtubeVideoId, youtubeSubIndex: identity.youtubeSubIndex }
+          : {}),
+      },
+      nowMs,
+      null,
+      true,
+    );
+    if (!result.error) return result;
+    // A legacy YouTube playlist may lack a traversal manifest. End accurately
+    // rather than repeatedly waking the alarm or claiming playback continues.
+    const target = this.targetPlayback(
+      playback.queueItemId,
+      'paused',
+      evidence.durationSeconds ?? playbackPositionAt(playback, nowMs),
+      nowMs,
+      identity.mediaKind === 'youtube'
+        ? { youtubeVideoId: identity.youtubeVideoId, youtubeSubIndex: identity.youtubeSubIndex }
+        : null,
+    );
+    return target ? this.directPlaybackCommit(target, nowMs) : null;
+  }
+
+  startAssetDurationProbe() {
+    const queue = this.room?.pendingAssetDurationProbes;
+    if (
+      !queue?.length ||
+      this.assetDurationLookup ||
+      this.playbackDurationLookup?.key.includes(':file:')
+    )
+      return;
+    const desired = this.desiredPlaybackDurationIdentity();
+    const assetId =
+      desired?.mediaKind === 'file' && queue.includes(desired.assetId) ? desired.assetId : queue[0];
+    if (!assetId) return;
+    const asset = this.activeRoom.assets[assetId];
+    const roomGeneration = this.activeRoom.roomGeneration;
+    const objectKey = asset?.objectKey;
+    const version = asset?.version;
+    const byteLength = asset?.byteLength;
+    let finished = false;
+    const lookup = (async () => {
+      let duration: number | null = null;
+      if (
+        asset?.status === 'ready' &&
+        !asset.deletionPending &&
+        asset.roomGeneration === roomGeneration &&
+        this.env.PRO_MEDIA_BUCKET &&
+        !this.assetDurationEvidence(asset)
+      ) {
+        duration = await readProRoomFileDuration(
+          this.env.PRO_MEDIA_BUCKET,
+          asset.objectKey,
+          asset.byteLength,
+        ).catch(() => null);
+      }
+      await this.withMutation(async () => {
+        if (
+          !this.room ||
+          this.activeRoom.roomGeneration !== roomGeneration ||
+          !this.activeRoom.pendingAssetDurationProbes?.includes(assetId)
+        )
+          return;
+        if ((await readServiceMaintenance(this.env)).enabled) return;
+        await this.withStateCapacityRollback(
+          async () => {
+            const current = this.activeRoom.assets[assetId];
+            if (
+              current?.status === 'ready' &&
+              !current.deletionPending &&
+              current.roomGeneration === roomGeneration &&
+              current.objectKey === objectKey &&
+              current.version === version &&
+              current.byteLength === byteLength &&
+              isFiniteNumber(duration) &&
+              duration > 0 &&
+              duration <= PLAYBACK_MAX_POSITION_SECONDS
+            ) {
+              this.storeAssetDuration(current, duration, 'server');
+            }
+            // One bounded registration attempt. Unsupported headers remain unknown;
+            // a later controller decode or active playback probe can fill the gap.
+            this.activeRoom.pendingAssetDurationProbes = (
+              this.activeRoom.pendingAssetDurationProbes ?? []
+            ).filter((id) => id !== assetId);
+            await this.persist();
+            finished = true;
+          },
+          { rollbackStorageFailure: true },
+        );
+      });
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.assetDurationLookup?.assetId === assetId) this.assetDurationLookup = null;
+        if (finished)
+          void this.withMutation(() => {
+            this.startPlaybackDurationProbe();
+            this.startAssetDurationProbe();
+          }).catch(() => undefined);
+      });
+    this.assetDurationLookup = { assetId, promise: lookup };
+    this.state.waitUntil?.(lookup);
+  }
+
+  startPlaybackDurationProbe() {
+    const probe = this.room?.playbackDurationProbe;
+    if (!probe || probe.retryAtMs > Date.now() || this.playbackDurationLookup) return;
+    if (
+      probe.identity.mediaKind === 'file' &&
+      (this.assetDurationLookup ||
+        this.activeRoom.pendingAssetDurationProbes?.includes(probe.identity.assetId))
+    )
+      return;
+    const identity = structuredClone(probe.identity);
+    const key = playbackDurationIdentityKey(identity);
+    const roomGeneration = this.activeRoom.roomGeneration;
+    const sourceAsset =
+      identity.mediaKind === 'file' ? this.activeRoom.assets[identity.assetId] : null;
+    const objectKey =
+      identity.mediaKind === 'file' &&
+      sourceAsset?.status === 'ready' &&
+      !sourceAsset.deletionPending &&
+      sourceAsset.version === identity.assetVersion &&
+      sourceAsset.byteLength === identity.byteLength &&
+      sourceAsset.roomGeneration === roomGeneration
+        ? sourceAsset.objectKey
+        : null;
+    // Metadata I/O is outside the room mutation lane. A slow provider cannot
+    // block joins, pause/seek, heartbeats or an ordinary authority command.
+    const lookup = (async () => {
+      let durationSeconds: number | null = null;
+      let unplayable = false;
+      let retryMs = PLAYBACK_DURATION_UNKNOWN_RETRY_MS;
+      let diagnostic: string | null = null;
+      try {
+        if (identity.mediaKind === 'file') {
+          durationSeconds =
+            objectKey && this.env.PRO_MEDIA_BUCKET
+              ? await readProRoomFileDuration(
+                  this.env.PRO_MEDIA_BUCKET,
+                  objectKey,
+                  identity.byteLength,
+                )
+              : null;
+          retryMs = PLAYBACK_DURATION_FILE_RETRY_MS;
+          if (durationSeconds === null) diagnostic = 'FILE_DURATION_UNAVAILABLE';
+        } else {
+          const result = await resolveProYouTubeDuration(this.env, identity.youtubeVideoId);
+          if (result.kind === 'finite') durationSeconds = result.durationSeconds;
+          unplayable = result.kind === 'unplayable';
+          if (result.kind === 'unavailable') diagnostic = 'YOUTUBE_METADATA_UNAVAILABLE';
+          if (result.kind === 'retry') diagnostic = 'YOUTUBE_METADATA_RETRY';
+          if (result.kind === 'retry')
+            retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
+        }
+      } catch {
+        retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
+        diagnostic = 'METADATA_LOOKUP_FAILED';
+      }
+      await this.withMutation(async () => {
+        if (!this.room || this.activeRoom.roomGeneration !== roomGeneration) return;
+        const currentProbe = this.activeRoom.playbackDurationProbe;
+        const currentAsset = identity.mediaKind === 'file' ? this.durationAsset(identity) : null;
+        const matchesAsset = currentAsset && currentAsset.objectKey === objectKey;
+        const appliesToQueue =
+          currentProbe &&
+          playbackDurationIdentityKey(currentProbe.identity) === key &&
+          this.playbackDurationIdentityExists(identity) &&
+          (identity.mediaKind === 'youtube' || matchesAsset);
+        const appliesToAsset =
+          matchesAsset &&
+          isFiniteNumber(durationSeconds) &&
+          durationSeconds > 0 &&
+          durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS;
+        if (!appliesToQueue && !appliesToAsset) return;
+        if ((await readServiceMaintenance(this.env)).enabled) return;
+        await this.withStateCapacityRollback(
+          async () => {
+            const nowMs = Date.now();
+            if (appliesToAsset && currentAsset && durationSeconds !== null)
+              this.storeAssetDuration(currentAsset, durationSeconds, 'server', nowMs);
+            if (
+              appliesToQueue &&
+              (unplayable ||
+                (isFiniteNumber(durationSeconds) &&
+                  durationSeconds > 0 &&
+                  durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS))
+            ) {
+              this.storePlaybackDurationEvidence(identity, durationSeconds, 'server', nowMs);
+            } else if (appliesToQueue) {
+              // Live/unknown/unavailable is not authority to skip a track. Retry
+              // metadata without accepting ordinary members' declared duration.
+              delete this.activeRoom.playbackDurations[key];
+              this.activeRoom.playbackDurationProbe = {
+                identity,
+                attempts: Math.min(100, probe.attempts + 1),
+                retryAtMs: nowMs + retryMs,
+              };
+            }
+            await this.persist();
+            if (
+              appliesToQueue &&
+              diagnostic &&
+              probe.attempts === 0 &&
+              (identity.mediaKind === 'file' || this.env.PRO_YOUTUBE_METADATA)
+            ) {
+              console.warn('[PRO Playback] Automatic completion metadata unavailable', {
+                mediaKind: identity.mediaKind,
+                reason: diagnostic,
+              });
+            }
+            return undefined;
+          },
+          { rollbackStorageFailure: true },
+        );
+      });
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.playbackDurationLookup?.key === key) this.playbackDurationLookup = null;
+        // A selection made while this lookup was pending may already have its
+        // own durable probe. Start it immediately instead of waiting its watchdog.
+        void this.withMutation(() => {
+          const nextProbe = this.room?.playbackDurationProbe;
+          if (nextProbe && playbackDurationIdentityKey(nextProbe.identity) !== key)
+            this.startPlaybackDurationProbe();
+          this.startAssetDurationProbe();
+        }).catch(() => undefined);
+      });
+    this.playbackDurationLookup = { key, promise: lookup };
+    this.state.waitUntil?.(lookup);
   }
 
   normalizeLoadedPlaybackBroadcasts() {
@@ -5260,10 +5994,13 @@ export class MusixquareProRoom {
       // this point may the cross-Worker dispatch begin.
       await this.flushPendingPlaybackBroadcasts(Date.now());
     }
+    this.startPlaybackDurationProbe();
+    this.startAssetDurationProbe();
     return true;
   }
 
   async persistRoom(options: PersistOptions = {}) {
+    this.reconcilePlaybackDurationProbe(Date.now());
     assertBoundedRoomState(this.activeRoom);
     const storedCore = splitPersistentRoomState(this.activeRoom);
     const nextSignatures = new Map(
@@ -5474,6 +6211,39 @@ export class MusixquareProRoom {
       // already-due deadline here would strand PREPARE until unrelated traffic
       // wakes the object. Install a next-tick alarm instead.
       candidates.push(deadlineAtMs <= nowMs ? nowMs + 1 : deadlineAtMs);
+    }
+    candidates.push(this.naturalPlaybackEndAtMs(nowMs));
+    const durationIdentity = this.desiredPlaybackDurationIdentity();
+    const durationEvidence =
+      durationIdentity && durationIdentity.mediaKind === 'youtube'
+        ? this.activeRoom.playbackDurations[playbackDurationIdentityKey(durationIdentity)]
+        : null;
+    if (durationEvidence && playbackDurationEvidenceExpiresAtMs(durationEvidence) > nowMs) {
+      candidates.push(playbackDurationEvidenceExpiresAtMs(durationEvidence));
+    }
+    if (this.activeRoom.playbackDurationProbe) {
+      const registrationBlocked =
+        this.activeRoom.playbackDurationProbe.identity.mediaKind === 'file' &&
+        (this.assetDurationLookup ||
+          this.activeRoom.pendingAssetDurationProbes?.includes(
+            this.activeRoom.playbackDurationProbe.identity.assetId,
+          ));
+      candidates.push(
+        this.playbackDurationLookup || registrationBlocked
+          ? Math.max(
+              this.activeRoom.playbackDurationProbe.retryAtMs,
+              nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS,
+            )
+          : this.activeRoom.playbackDurationProbe.retryAtMs,
+      );
+    }
+    if (this.activeRoom.pendingAssetDurationProbes?.length) {
+      candidates.push(
+        nowMs +
+          (this.assetDurationLookup || this.playbackDurationLookup
+            ? PLAYBACK_DURATION_PROBE_WATCHDOG_MS
+            : 1),
+      );
     }
     const next = candidates
       // Alarm installation may recover after a cleanup deadline. Retain due
@@ -6036,6 +6806,9 @@ export class MusixquareProRoom {
           new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`),
         );
         const completedAssetId = completeMediaMatch?.[1];
+        const durationAssetId = url.pathname.match(
+          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/duration$`),
+        )?.[1];
         const deletedAssetId = deleteMediaMatch?.[1];
         // Completion may leave a verified immutable final object in R2 before
         // the room-state commit. Its retry path now treats that object as the
@@ -6131,6 +6904,8 @@ export class MusixquareProRoom {
               return this.handleCreateReservation(request);
             if (request.method === 'POST' && completedAssetId)
               return this.handleCompleteMedia(request, completedAssetId);
+            if (request.method === 'POST' && durationAssetId)
+              return this.handleMediaDuration(request, durationAssetId);
             if (request.method === 'DELETE' && deletedAssetId)
               return this.handleDeleteMedia(request, deletedAssetId);
             return errorResponse('NOT_FOUND', 404);
@@ -7736,6 +8511,7 @@ export class MusixquareProRoom {
     asset.status = 'ready';
     delete asset.expiresAtMs;
     asset.completedAtMs = nowMs;
+    this.enqueueAssetDurationProbe(asset);
     const uploadExpiresAtMs = isSafeInteger(asset.uploadExpiresAtMs)
       ? asset.uploadExpiresAtMs
       : nowMs;
@@ -11509,6 +12285,7 @@ export class MusixquareProRoom {
     command: PlaybackAuthorityCommand,
     nowMs = Date.now(),
     developerCommandId: string | null = null,
+    automatic = false,
   ): PlaybackAuthorityResult {
     if (command.baseRevision !== this.activeRoom.playback.revision) {
       return { error: 'PLAYBACK_REVISION_CONFLICT', status: 409 };
@@ -11785,6 +12562,7 @@ export class MusixquareProRoom {
     }
 
     if (!target) return { error: 'INVALID_PLAYBACK_TARGET', status: 400 };
+    if (!automatic) this.activeRoom.automaticUnavailableSkips = 0;
     return requiresPrepare
       ? this.preparePlaybackTransition(target, nowMs, developerCommandId, { timingMode })
       : this.directPlaybackCommit(target, nowMs, developerCommandId);
@@ -14685,8 +15463,13 @@ export class MusixquareProRoom {
     if (parsed.response) return parsed.response;
     if (
       !PLAYBACK_TRANSITION_ID_RE.test(transitionId || '') ||
-      !hasExactKeys(parsed.value, ['basePlaybackRevision', 'status']) ||
+      !hasExactKeys(parsed.value, ['basePlaybackRevision', 'status'], ['durationSeconds']) ||
       !isSafeNonNegativeInteger(parsed.value.basePlaybackRevision) ||
+      (parsed.value.durationSeconds !== undefined &&
+        parsed.value.durationSeconds !== null &&
+        (!isFiniteNumber(parsed.value.durationSeconds) ||
+          parsed.value.durationSeconds <= 0 ||
+          parsed.value.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS)) ||
       (parsed.value.status !== 'ready' && parsed.value.status !== 'failed')
     ) {
       return errorResponse('INVALID_REQUEST', 400);
@@ -14712,6 +15495,18 @@ export class MusixquareProRoom {
     }
     pending.ready[incarnationId] = parsed.value.status;
     participant.lastSeenAtMs = Date.now();
+    if (
+      parsed.value.status === 'ready' &&
+      isFiniteNumber(parsed.value.durationSeconds) &&
+      this.sessionHasPermission(auth.session, 'playback.control')
+    ) {
+      const identity = this.playbackDurationIdentity(pending.target);
+      if (identity?.mediaKind === 'file' && this.playbackDurationIdentityExists(identity)) {
+        // Only an authorized controller may attest the decoded file duration.
+        // YouTube iframe durations (live elapsed time) are never timer evidence.
+        this.storePlaybackDurationEvidence(identity, parsed.value.durationSeconds, 'controller');
+      }
+    }
     // A readiness report is final for this immutable cohort: conflicting
     // replacements are rejected above. Once every participant has answered,
     // waiting out the remainder of the fixed deadline cannot make a failed
@@ -15360,10 +16155,24 @@ export class MusixquareProRoom {
     const key = this.readIdempotencyKey(request);
     if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
     if (!OPAQUE_ID_RE.test(assetId)) return errorResponse('INVALID_ASSET_ID', 400);
-    if (request.body && (request.headers.get('content-length') || '') !== '0')
+    const parsed = await this.parseBody(request, 1024, false, true);
+    if (parsed.response) return parsed.response;
+    if (
+      !parsed.empty &&
+      (!hasExactKeys(parsed.value, [], ['durationSeconds']) ||
+        (parsed.value.durationSeconds !== undefined &&
+          (!isFiniteNumber(parsed.value.durationSeconds) ||
+            parsed.value.durationSeconds <= 0 ||
+            parsed.value.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS)))
+    )
       return errorResponse('INVALID_REQUEST', 400);
+    const durationSeconds =
+      !parsed.empty && isRecord(parsed.value) ? parsed.value.durationSeconds : undefined;
     const scope = `participant:${auth.session.participantId}:complete`;
-    const fingerprint = await this.idempotencyFingerprint(scope, { assetId });
+    const fingerprint = await this.idempotencyFingerprint(scope, {
+      assetId,
+      ...(durationSeconds === undefined ? {} : { durationSeconds }),
+    });
     const replay = this.replayIdempotency(scope, key, fingerprint);
     if (replay) return replay;
     const asset = this.activeRoom.assets[assetId];
@@ -15462,6 +16271,12 @@ export class MusixquareProRoom {
     asset.status = 'ready';
     delete asset.expiresAtMs;
     asset.completedAtMs = completedAtMs;
+    if (
+      isFiniteNumber(durationSeconds) &&
+      this.sessionHasPermission(auth.session, 'playback.control')
+    )
+      this.storeAssetDuration(asset, durationSeconds, 'upload', completedAtMs);
+    this.enqueueAssetDurationProbe(asset);
     asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
     this.activeRoom.quota.reservedBytes -= asset.byteLength;
     this.activeRoom.quota.usedBytes += asset.byteLength;
@@ -15480,6 +16295,46 @@ export class MusixquareProRoom {
     const cleanup = this.env.PRO_MEDIA_BUCKET.delete(stagingObjectKey).catch(() => {});
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(cleanup);
     return jsonResponse(responseBody);
+  }
+
+  async handleMediaDuration(request: Request, assetId: string) {
+    const auth = await this.requireSession(request, {
+      activePresence: true,
+      capability: 'playback.control',
+    });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['assetVersion', 'byteLength', 'durationSeconds']) ||
+      !isSafeInteger(parsed.value.assetVersion) ||
+      parsed.value.assetVersion <= 0 ||
+      !isSafeInteger(parsed.value.byteLength) ||
+      parsed.value.byteLength <= 0 ||
+      !isFiniteNumber(parsed.value.durationSeconds) ||
+      parsed.value.durationSeconds <= 0 ||
+      parsed.value.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS
+    )
+      return errorResponse('INVALID_REQUEST', 400);
+    const asset = this.activeRoom.assets[assetId];
+    if (!asset || asset.status !== 'ready' || asset.deletionPending)
+      return errorResponse('ASSET_NOT_FOUND', 404);
+    if (
+      asset.version !== parsed.value.assetVersion ||
+      asset.byteLength !== parsed.value.byteLength ||
+      asset.roomGeneration !== this.activeRoom.roomGeneration
+    )
+      return errorResponse('ASSET_VERSION_CONFLICT', 409);
+    const stored = this.storeAssetDuration(asset, parsed.value.durationSeconds, 'controller');
+    const evidence = this.assetDurationEvidence(asset);
+    if (
+      !stored &&
+      (evidence?.source !== 'controller' ||
+        evidence.durationSeconds !== parsed.value.durationSeconds)
+    )
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    if (stored) await this.persist();
+    return jsonResponse({ ok: true });
   }
 
   async handleDownloadMedia(request: Request, assetId: string) {
@@ -15659,6 +16514,7 @@ export class MusixquareProRoom {
         changed = this.removePresence(participant.participantId, nowMs) || changed;
       }
     }
+    changed = this.reconcilePlaybackDurationProbe(nowMs) || changed;
     // Repair legacy detachments that lost their session reference, and reclaim
     // ordinary identities once their final live or retained session is gone.
     // Owner and delegated-admin records deliberately outlive all sessions.
@@ -15859,6 +16715,24 @@ export class MusixquareProRoom {
       this.playbackAuthorityMigrationPending = false;
       this.assetDeletionMigrationPending = false;
     }
+    // Complete after liveness pruning and its independent maintenance writes.
+    // Natural advance has its own atomic rollback boundary: an R2 cleanup above
+    // must not be rewound, but a failed playback commit must not survive solely
+    // in memory and later leak as an uncommitted queue transition.
+    const naturalDeadline = this.naturalPlaybackEndAtMs(nowMs);
+    if (naturalDeadline !== null && naturalDeadline <= nowMs) {
+      const advanced = await this.withStateCapacityRollback(
+        async () => {
+          const outcome = this.advanceCompletedPlayback(nowMs);
+          if (!outcome) return false;
+          this.enqueuePlaybackOutcome(outcome, nowMs);
+          await this.persist();
+          return true;
+        },
+        { rollbackStorageFailure: true },
+      );
+      changed = advanced === true || changed;
+    }
     return changed;
   }
 
@@ -15906,6 +16780,8 @@ export class MusixquareProRoom {
       await this.retryPendingPresenceBroadcast(nowMs);
       await this.flushPendingPlaybackBroadcasts(nowMs);
       await this.maintainAlarm();
+      this.startPlaybackDurationProbe();
+      this.startAssetDurationProbe();
     });
   }
 }

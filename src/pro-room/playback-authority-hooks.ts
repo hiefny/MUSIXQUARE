@@ -206,6 +206,9 @@ export function routeProPlaybackCommand(
   // so it follows the same capability boundary as an explicit user control.
   // The Worker independently enforces this boundary as the security backstop.
   if (!context.capabilities.includes('playback.control')) {
+    // A local renderer reaching its end is expected for ordinary listeners.
+    // The server owns automatic queue progression; this isn't a denied user action.
+    if (intent.kind === 'ended' || intent.kind === 'advance-sub-video') return true;
     log.warn('[PRO Playback] Ignored action without delegated playback authority');
     return true;
   }
@@ -713,6 +716,7 @@ export function hasCancelledProPlaybackCheckpointRecovery(
 export async function recoverCancelledProPlaybackCheckpoint(
   request: Readonly<ProPlaybackCommitRequest>,
   refreshTiming: () => Pick<ProPlaybackCommitRequest, 'positionSeconds' | 'scheduleDelayMs'>,
+  onPrepared?: (result: Extract<ProPlaybackPrepareResult, { status: 'ready' }>) => void,
 ): Promise<ProPlaybackCommitResult> {
   if (!isProPlaybackAuthorityToken(request.authority)) {
     throw new TypeError('A server authority token is required');
@@ -801,6 +805,13 @@ export async function recoverCancelledProPlaybackCheckpoint(
     });
     if (!isCurrent() || activePreparation !== pending) return rejected();
     if (result.status === 'applied') {
+      // Observe only the successful current recovery, never a cancelled
+      // predecessor. Optional metadata reporting cannot fail media playback.
+      try {
+        onPrepared?.(prepared);
+      } catch {
+        // Recovery already succeeded; metadata remains best-effort.
+      }
       latestApplied = request.authority;
       highestCommittedPlaybackRevision = request.committedPlaybackRevision;
       activePreparation = null;

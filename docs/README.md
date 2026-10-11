@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-10-11 |
+| Last source review | 2026-10-12 |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -90,11 +90,22 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO file duration registration and backfill — 2026-10-12](design/pro-file-duration-registration-2026-10-12.md) —
+  bounded upload metadata, immutable asset duration retention, late authorized
+  preparation reports, legacy backfill, compatibility and verification limits.
+
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO autonomous natural completion — 2026-10-12](design/pro-autonomous-playback-2026-10-12.md) —
+  server-owned end deadlines, bounded file headers and authenticated YouTube
+  metadata, controller sleep/departure, queue transitions and rollback compatibility;
+  App 8.9.5 / v656 release, exact-main CI and production verification evidence.
+- [PRO PWA force-close and relaunch — 2026-10-12](design/pro-pwa-force-close-audit-2026-10-12.md) —
+  missing-exit presence retention, 45-second lease probes and approved continuation
+  copy in all 42 locales; App 8.9.4 / v655 release and verification evidence.
 - [In-room update prompt — 2026-10-11](design/in-room-update-prompt-2026-10-11.md) —
-  unreleased App 8.10.0/v658, same release as the Standard-room owner PIN:
+  unreleased App 8.10.0/v659, same release as the Standard-room owner PIN:
   in a room (standard or PRO, including the create and join screens and PRO
   presence re-entry) or the demo, a waiting update no longer opens the
   blocking dialog. It is an automatic "나중에" with no stored dismissal and
@@ -102,18 +113,18 @@ labeled portion still supports a current guard or operating interpretation:
   "앱을 다시 열면" in a home-screen app), never sent to peers, or a toast
   where the chat cannot be seen, followed by the chat notice once the room
   starts. Another tab's activation posts the same notice, and back on setup
-  the dialog is offered once. Devices on older code (production v651) show
+  the dialog is offered once. Devices on older code (production v657) show
   the old dialog once for this update, so the first deployment must avoid
   live events. Owner decisions after the review (2026-10-11): the create and
   join screens keep the toast, and the lazy-feature recovery dialog keeps
   opening in a room (not dismissible, Refresh only) with its own copy
   ("새로고침이 필요해요" / "MUSIXQUARE가 업데이트되었어요. 정상적으로
-  사용하려면 새로고침이 필요해요.", 42 locales; v658 follow-up). Local unit,
+  사용하려면 새로고침이 필요해요.", 42 locales; v658 follow-up, v659 after merging App 8.9.6). Local unit,
   coverage, build, and Chromium browser checks with screenshots; no
   real-device or native-speaker review.
 - [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
   unreleased App 8.10.0 with the signaling Worker (target `all`; tested at
-  v655, ships as v658 with the in-room update prompt):
+  v655, ships as v659 with the in-room update prompt):
   Standard-room hosts type the 8-digit PIN in the shared two-step dialog,
   step 2 is skipped when nobody else is in the room (both room types), the PIN
   is masked in both, "모두 재입장" closes guest sockets in the Worker before
@@ -127,8 +138,15 @@ labeled portion still supports a current guard or operating interpretation:
   selected-row text, the pressed PIN toggle, selected tab and option icons, and
   the invite QR in light high-contrast themes. Local unit, Worker, coverage,
   build and browser checks; no real-device or native-speaker review.
+- [PRO entry failure retry audit — 2026-10-11](design/pro-entry-retry-audit-2026-10-11.md) —
+  retained-role defect after failed PRO entry, local same-page retry repair,
+  lifecycle fencing and admission regression evidence; shipped in 8.9.4.
+- [PRO clock budget and concurrent admission — 2026-10-11](design/pro-clock-and-admission-races-2026-10-11.md) —
+  delayed clock replies within the caller budget, still-active admission
+  tickets overtaken by another arrival, and unchanged admission limits.
+  Local repairs and regression evidence; shipped in 8.9.4.
 - [PRO PIN two-step dialog — 2026-10-11](design/pro-pin-two-step-2026-10-11.md) —
-  unreleased App 8.9.1/v652 (target `app`): a minimal PIN page with Cancel /
+  shipped with App 8.9.4/v655: a minimal PIN page with Cancel /
   Next, then "현재 참여자를 어떻게 할까요?" with "그대로 두기" / "모두 재입장" rows
   styled like the language list, replacing the 8.9.0 in-dialog radio group that
   clipped on small phones and in landscape. Local unit, build, browser, and

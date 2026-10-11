@@ -300,7 +300,7 @@ describe('operations drift audit', () => {
       workerSecretPolicyCount: 6,
       workerSecretNameCount: 39,
       workerSurfacePolicyCount: 6,
-      workerBindingCount: 63,
+      workerBindingCount: 64,
       workerCustomDomainCount: 6,
       workerRouteCount: 0,
       githubRuleCount: 2,
@@ -366,6 +366,16 @@ describe('operations drift audit', () => {
       workersDev: false,
       previewUrls: false,
       customDomains: [],
+    });
+    const proRoomBindings = workerSurfaceFromToml(
+      readFileSync('cloudflare/wrangler.pro-room.toml', 'utf8'),
+      'cloudflare/wrangler.pro-room.toml',
+    ).bindings;
+    expect(proRoomBindings).toContainEqual({
+      name: 'PRO_YOUTUBE_METADATA',
+      type: 'service',
+      target: 'musixquare-app',
+      environment: 'production',
     });
   });
 

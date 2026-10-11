@@ -20,10 +20,13 @@
     "cloudflare/pro-room-permissions.ts",
     "cloudflare/pro-room-generation.ts",
     "cloudflare/pro-room-body.ts",
+    "cloudflare/pro-room-media-duration.ts",
+    "cloudflare/pro-room-mp4-duration.ts",
     "cloudflare/pro-room-claims.ts",
     "cloudflare/pro-room-crypto.ts",
     "cloudflare/pro-room-effects.ts",
     "cloudflare/pro-room-queue-mode.ts",
+    "cloudflare/pro-youtube-duration.ts",
     "cloudflare/service-maintenance.ts"
   ]
 }

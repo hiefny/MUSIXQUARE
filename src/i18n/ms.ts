@@ -838,9 +838,9 @@ const ms: Record<I18nKey, string> = {
     'Terlalu banyak percubaan untuk menyertai. Cuba lagi dalam {{count}} minit.',
   'pro.join_rate_limited_later':
     'Terlalu banyak percubaan untuk menyertai. Cuba lagi sebentar nanti.',
-  'pro.active_tab_title': 'Bilik PRO ini sudah dibuka dalam tab lain',
-  'pro.active_tab_message': 'Meneruskan di sini akan memutuskan sambungan tab sedia ada.',
-  'pro.use_this_tab': 'Gunakan tab ini',
+  'pro.active_tab_title': 'Sambungan sebelumnya masih ada',
+  'pro.active_tab_message': 'Jika anda meneruskan di sini, sambungan sebelumnya akan diputuskan.',
+  'pro.use_this_tab': 'Teruskan di sini',
   'pro.upload.batch_progress': 'Memuat naik trek {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sesetengah trek tidak dapat dimuat naik',
   'pro.upload.batch_failed_message':

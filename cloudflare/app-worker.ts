@@ -1,6 +1,10 @@
 // MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 import { handleProBotRequest } from './pro-bot.ts';
 import {
+  handleProYouTubeDurationRequest,
+  PRO_YOUTUBE_DURATION_PATH,
+} from './pro-youtube-duration.ts';
+import {
   handleTranslationCommunityRequest,
   handleAdminTranslationCommunityRequest,
 } from './translation-community.ts';
@@ -15853,6 +15857,10 @@ export default {
           }),
         );
       }
+    }
+
+    if (url.pathname === PRO_YOUTUBE_DURATION_PATH) {
+      return withSecurityHeaders(await handleProYouTubeDurationRequest(request, env));
     }
 
     if (url.pathname.startsWith('/api/auth/')) {

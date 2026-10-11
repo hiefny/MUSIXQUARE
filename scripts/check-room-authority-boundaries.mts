@@ -470,7 +470,8 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
     'src/ui/setup-guest.ts',
     [
       "read:appRole @ function:handleSetupJoinWithRole :: variable appRole = getState('network.appRole') => consumers [appRole -> if (appRole !== 'guest')]",
-      "write-direct:appRole @ function:startGuestFlow :: setState('network.appRole', 'guest')",
+      // The same setup-only writer also restores a failed, still-owned PRO entry.
+      "write-direct:appRole @ function:restoreGuestSetupRole :: setState('network.appRole', 'guest')",
     ],
   ],
   [

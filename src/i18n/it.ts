@@ -843,10 +843,9 @@ const it: Record<I18nKey, string> = {
     'Una stanza PRO accoglie fino a 100 dispositivi, incluso quello del proprietario. Un posto resta sempre riservato al proprietario.',
   'pro.join_rate_limited': 'Troppi tentativi di accesso. Riprova tra {{count}} minuti.',
   'pro.join_rate_limited_later': 'Troppi tentativi di accesso. Riprova tra poco.',
-  'pro.active_tab_title': 'Questa stanza PRO è già aperta in un’altra scheda',
-  'pro.active_tab_message':
-    'Continuando qui, la connessione nella scheda già aperta verrà interrotta.',
-  'pro.use_this_tab': 'Usa questa scheda',
+  'pro.active_tab_title': 'Rimane una connessione precedente',
+  'pro.active_tab_message': 'Continuando qui, la connessione precedente verrà interrotta.',
+  'pro.use_this_tab': 'Continua qui',
   'pro.upload.batch_progress': 'Caricamento tracce {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Impossibile caricare alcune tracce',
   'pro.upload.batch_failed_message':

@@ -804,9 +804,9 @@ const ko = {
     'PRO 방에는 방 소유자를 포함해 최대 100대까지 연결할 수 있어요. 한 자리는 항상 방 소유자를 위해 비워 둬요.',
   'pro.join_rate_limited': '입장 시도가 너무 많아요. {{count}}분 후에 다시 시도해 주세요.',
   'pro.join_rate_limited_later': '입장 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.',
-  'pro.active_tab_title': '이 PRO 방이 다른 탭에서 열려 있어요',
-  'pro.active_tab_message': '이 탭에서 계속하면 기존 탭의 연결이 종료돼요.',
-  'pro.use_this_tab': '강제로 계속',
+  'pro.active_tab_title': '이전 연결이 남아 있어요',
+  'pro.active_tab_message': '여기서 계속하면 기존 연결이 종료돼요.',
+  'pro.use_this_tab': '여기서 계속',
   'pro.upload.batch_progress': '트랙 업로드 중 {{current}}/{{total}}',
   'pro.upload.batch_failed_title': '일부 트랙을 업로드하지 못했어요',
   'pro.upload.batch_failed_message':

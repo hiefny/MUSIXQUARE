@@ -921,6 +921,53 @@ describe('coordinator-free PRO server channel', () => {
     }
   });
 
+  it.each(['youtube', 'pro-r2'] as const)(
+    'reconciles a playing %s checkpoint over a 334ms clock route',
+    async (sourceKind) => {
+      resetProPlaybackAuthorityHooks();
+      const bridge = proRoomServerBridge;
+      const socket = await openBridge(bridge);
+      const { controller, current, prepare, commit, unregister } =
+        createSnapshotPlaybackController();
+      if (sourceKind === 'pro-r2') {
+        current.playlist[0]!.source = {
+          kind: 'pro-r2',
+          assetId: 'asset_00000001',
+          version: 1,
+          byteLength: 11_000_000,
+          mime: 'audio/mpeg',
+        };
+        current.playback.youtubeSubIndex = null;
+        current.playback.youtubeVideoId = null;
+        prepare.mockImplementation(async (request) => ({
+          status: 'ready',
+          authority: request.authority,
+          queueItemId: request.queueItemId,
+          mediaKind: 'file',
+          durationSeconds: 240,
+          youtubeSubIndex: null,
+          youtubeVideoId: null,
+        }));
+      }
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        const reconcile = controller.requestReconciliation();
+        await vi.advanceTimersByTimeAsync(0);
+        const request = clockRequests(socket).at(-1)!;
+        await vi.advanceTimersByTimeAsync(334);
+        answerClockRequest(socket, request, 11_167);
+        await expect(reconcile).resolves.toBe(true);
+        expect(prepare).toHaveBeenCalledOnce();
+        expect(commit).toHaveBeenCalledOnce();
+        expect(commit.mock.calls[0]?.[0].queueItemId).toBe(current.currentQueueItemId);
+      } finally {
+        controller.resetPlaylistRuntime();
+        unregister();
+        bridge.disconnect();
+      }
+    },
+  );
+
   it('calibrates server time from the best round-trip clock sample', async () => {
     const bridge = new ServerProRoomNetworkBridge();
     const socket = await openBridge(bridge);
@@ -1027,6 +1074,185 @@ describe('coordinator-free PRO server channel', () => {
     expect(bridge.serverNowMs).toBe(1_700);
     bridge.disconnect();
   });
+
+  it.each([221, 334, 900])(
+    'accepts a fresh response with %ims RTT within the caller budget after the selection window',
+    async (rtt) => {
+      const bridge = new ServerProRoomNetworkBridge();
+      const socket = await openBridge(bridge);
+      await vi.advanceTimersByTimeAsync(0);
+      const initial = clockRequests(socket).at(-1)!;
+      await vi.advanceTimersByTimeAsync(334);
+      answerClockRequest(socket, initial, 1_984);
+      expect(bridge.clockDiagnostics).toMatchObject({
+        connected: true,
+        calibrated: true,
+        bestRttMs: 334,
+        bestOffsetMs: 817,
+        readyCalibrationAgeMs: null,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      const startedAt = Date.now();
+      const settled = vi.fn();
+      const calibrated = bridge
+        .waitForFreshClockCalibration({
+          serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
+          fallbackTimeoutMs: 1_000,
+        })
+        .then(settled);
+      const request = clockRequests(socket).at(-1)!;
+      await vi.advanceTimersByTimeAsync(220);
+      expect(settled).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(rtt - 220);
+      answerClockRequest(socket, request, Math.round(startedAt + rtt / 2 + 817));
+      await calibrated;
+      expect(settled).toHaveBeenCalledExactlyOnceWith(true);
+      expect(bridge.clockDiagnostics).toMatchObject({
+        connected: true,
+        calibrated: true,
+        bestRttMs: rtt,
+        readyCalibrationAgeMs: 0,
+      });
+
+      const requests = clockRequests(socket).length;
+      await expect(
+        bridge.waitForFreshClockCalibration({
+          serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
+          fallbackTimeoutMs: 1_000,
+        }),
+      ).resolves.toBe(true);
+      expect(clockRequests(socket)).toHaveLength(requests);
+      bridge.disconnect();
+    },
+  );
+
+  it('fails at the caller budget without a response, ignores expired replies, and allows a retry', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
+    const settled = vi.fn();
+    const calibrated = bridge
+      .waitForFreshClockCalibration({
+        serverDeadlineAtMs: 10_000,
+        fallbackTimeoutMs: 1_000,
+      })
+      .then(settled);
+    const expired = clockRequests(socket).at(-1)!;
+    await vi.advanceTimersByTimeAsync(999);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await calibrated;
+    expect(settled).toHaveBeenCalledExactlyOnceWith(false);
+    answerClockRequest(socket, expired, 2_500);
+    expect(bridge.clockCalibrated).toBe(false);
+
+    const retry = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 10_000,
+      fallbackTimeoutMs: 1_000,
+    });
+    const request = clockRequests(socket).at(-1)!;
+    await vi.advanceTimersByTimeAsync(334);
+    answerClockRequest(socket, request, 2_167);
+    await expect(retry).resolves.toBe(true);
+    bridge.disconnect();
+  });
+
+  it('does not cancel a longer clock wait when a short PREPARE budget expires', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
+    const short = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 1_200,
+      fallbackTimeoutMs: 200,
+    });
+    const request = clockRequests(socket).at(-1)!;
+    const settled = vi.fn();
+    const longer = bridge
+      .waitForFreshClockCalibration({
+        serverDeadlineAtMs: 5_000,
+        fallbackTimeoutMs: 1_000,
+      })
+      .then(settled);
+    await vi.advanceTimersByTimeAsync(220);
+    await expect(short).resolves.toBe(false);
+    expect(settled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(114);
+    answerClockRequest(socket, request, 1_167);
+    await longer;
+    expect(settled).toHaveBeenCalledExactlyOnceWith(true);
+    bridge.disconnect();
+  });
+
+  it('retains a delayed round for another waiter when one caller aborts', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
+    const abort = new AbortController();
+    const cancelled = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 5_000,
+      fallbackTimeoutMs: 1_000,
+      signal: abort.signal,
+    });
+    const request = clockRequests(socket).at(-1)!;
+    const surviving = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 5_000,
+      fallbackTimeoutMs: 1_000,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    abort.abort();
+    await expect(cancelled).resolves.toBe(false);
+    await vi.advanceTimersByTimeAsync(84);
+    answerClockRequest(socket, request, 1_167);
+    await expect(surviving).resolves.toBe(true);
+    bridge.disconnect();
+  });
+
+  it('checks each server deadline even when the delayed sample fits both local budgets', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    await vi.advanceTimersByTimeAsync(0);
+    const tooLate = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 2_000,
+      fallbackTimeoutMs: 1_000,
+    });
+    const request = clockRequests(socket).at(-1)!;
+    const inTime = bridge.waitForFreshClockCalibration({
+      serverDeadlineAtMs: 3_000,
+      fallbackTimeoutMs: 1_000,
+    });
+    await vi.advanceTimersByTimeAsync(334);
+    answerClockRequest(socket, request, 1_984);
+    expect(bridge.serverNowMs).toBe(2_151);
+    await expect(tooLate).resolves.toBe(false);
+    await expect(inTime).resolves.toBe(true);
+    bridge.disconnect();
+  });
+
+  it.each(['abort', 'disconnect'] as const)(
+    'ignores a delayed response after %s closes the last waiter',
+    async (ending) => {
+      const bridge = new ServerProRoomNetworkBridge();
+      const socket = await openBridge(bridge);
+      await vi.advanceTimersByTimeAsync(0);
+      const abort = new AbortController();
+      const calibrated = bridge.waitForFreshClockCalibration({
+        serverDeadlineAtMs: 5_000,
+        fallbackTimeoutMs: 1_000,
+        signal: abort.signal,
+      });
+      const request = clockRequests(socket).at(-1)!;
+      await vi.advanceTimersByTimeAsync(250);
+      if (ending === 'abort') abort.abort();
+      else bridge.disconnect();
+      await expect(calibrated).resolves.toBe(false);
+      await vi.advanceTimersByTimeAsync(84);
+      answerClockRequest(socket, request, 1_167);
+      expect(bridge.clockCalibrated).toBe(false);
+      expect(bridge.clockDiagnostics.readyCalibrationAgeMs).toBeNull();
+      bridge.disconnect();
+    },
+  );
 
   it('finishes a short PREPARE budget with the best sample already available', async () => {
     const bridge = new ServerProRoomNetworkBridge();

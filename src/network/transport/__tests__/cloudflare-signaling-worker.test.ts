@@ -422,6 +422,29 @@ async function joinProMember(
   return lastServer();
 }
 
+function broadcastProPresence(
+  room: InstanceType<WorkerModule['MusixquareRoom']>,
+  presenceRevision: number,
+  targets: string[],
+): Promise<Response> {
+  return room.fetch(
+    new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': '000001',
+        'x-mxqr-pro-room-generation': '0',
+      },
+      body: JSON.stringify({
+        roomCode: '000001',
+        coordinatorEpoch: 1,
+        targets,
+        event: { type: 'pro-presence-snapshot', presenceRevision },
+      }),
+    }),
+  );
+}
+
 function requestLike(url: string, headers: Record<string, string> = {}): Request {
   const normalizedHeaders = new Map(
     Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]),
@@ -2829,7 +2852,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         participantId: 'initial-stale-member',
         coordinatorEpoch: 3,
         presenceRevision: 6,
-        presenceIncarnationId,
+        presenceIncarnationId: 'initial-stale-presence-01',
         jti: 'initial-stale-ticket-00001',
       }),
     );
@@ -3145,6 +3168,159 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       code: 1008,
       reason: 'PRO_SIGNALING_PRESENCE_STALE',
     });
+  });
+
+  it.each(['joins', 'leaves'] as const)(
+    'admits a delayed PRO ticket while another participant %s',
+    async (change) => {
+      const state = new FakeDurableObjectState();
+      const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+      const incarnation = 'delayed-live-incarnation-01';
+      const otherIncarnation = 'other-live-incarnation-001';
+      expect((await broadcastProPresence(room, 10, [incarnation, otherIncarnation])).status).toBe(
+        200,
+      );
+      const delayed = await proWsRequest({
+        participantId: 'delayed-live-member',
+        presenceRevision: 10,
+        presenceIncarnationId: incarnation,
+        jti: 'delayed-live-ticket-00001',
+      });
+
+      // The ticket was current when issued. Another person's presence change
+      // overtakes its network handshake without changing this participant.
+      const targets =
+        change === 'joins'
+          ? [incarnation, otherIncarnation, 'new-live-incarnation-00001']
+          : [incarnation];
+      expect((await broadcastProPresence(room, 11, targets)).status).toBe(200);
+      expect((await room.fetch(delayed)).status).toBe(101);
+      const admitted = lastServer();
+      expect(admitted.closed).toBe(false);
+      expect(sent(admitted)[0]).toMatchObject({
+        type: 'peer-open',
+        peerId: 'delayed-live-member',
+      });
+
+      await room.webSocketMessage(
+        admitted,
+        JSON.stringify({
+          type: 'pro-realtime',
+          version: 1,
+          eventId: 'delayed-live-clock-event1',
+          channel: 'clock',
+          payload: { requestId: 1, clientSentAtMs: 1234 },
+        }),
+      );
+      expect(admitted.closed).toBe(false);
+      expect(sent(admitted).at(-1)).toMatchObject({ type: 'pro-clock', requestId: 1 });
+    },
+  );
+
+  it('admits 30 delayed PRO tickets after interleaved presence snapshots', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const requests: Request[] = [];
+    const targets: string[] = [];
+    const participantIds: string[] = [];
+    for (let index = 1; index <= 30; index += 1) {
+      const participantId = `crowd-member-${index}`;
+      const incarnation = `crowd-incarnation-${String(index).padStart(8, '0')}`;
+      participantIds.push(participantId);
+      targets.push(incarnation);
+      expect((await broadcastProPresence(room, index, [...targets])).status).toBe(200);
+      requests.push(
+        await proWsRequest({
+          participantId,
+          presenceIncarnationId: incarnation,
+          presenceRevision: index,
+          jti: `crowd-ticket-${String(index).padStart(14, '0')}`,
+        }),
+      );
+    }
+
+    // All tickets are signed and fresh at issuance, but each later join's
+    // broadcast reaches signaling before these delayed handshakes do.
+    const responses = await Promise.all(requests.map((request) => room.fetch(request)));
+    expect(responses.map((response) => response.status)).toEqual(Array(30).fill(101));
+    expect(state.sockets).toHaveLength(30);
+    expect(state.sockets.every((socket) => !socket.closed)).toBe(true);
+    expect(
+      state.sockets
+        .map((socket) => sent(socket).find((frame) => frame.type === 'peer-open')?.peerId)
+        .sort(),
+    ).toEqual(participantIds.sort());
+  });
+
+  it('rehydrates delayed PRO ticket eligibility while retaining replay and sequence fences', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const incarnation = 'stored-delayed-incarnation';
+    expect((await broadcastProPresence(room, 5, [incarnation])).status).toBe(200);
+    const delayed = await proWsRequest({
+      participantId: 'stored-delayed-member',
+      presenceIncarnationId: incarnation,
+      presenceRevision: 5,
+      jti: 'stored-delayed-ticket-001',
+    });
+    expect(
+      (await broadcastProPresence(room, 6, [incarnation, 'stored-other-incarnation1'])).status,
+    ).toBe(200);
+
+    const rehydrated = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await rehydrated.fetch(delayed);
+    const live = lastServer();
+    expect(live.closed).toBe(false);
+    expect(sent(live)[0]).toMatchObject({ type: 'peer-open', peerId: 'stored-delayed-member' });
+    await rehydrated.fetch(delayed);
+    expect(lastServer().closeEvents.at(-1)?.reason).toBe('PRO_SIGNALING_TICKET_REPLAYED');
+    await rehydrated.fetch(
+      await proWsRequest({
+        participantId: 'stored-delayed-member',
+        presenceIncarnationId: incarnation,
+        presenceRevision: 5,
+        ticketSequence: 1,
+        jti: 'stored-delayed-ticket-002',
+      }),
+    );
+    expect(lastServer().closeEvents.at(-1)?.reason).toBe('PRO_SIGNALING_TICKET_STALE');
+    expect(live.closed).toBe(false);
+  });
+
+  it('rejects an unused old-incarnation ticket before a takeover replacement connects', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const oldIncarnation = 'takeover-old-incarnation1';
+    const newIncarnation = 'takeover-new-incarnation2';
+    expect((await broadcastProPresence(room, 5, [oldIncarnation])).status).toBe(200);
+    const unusedOldTicket = await proWsRequest({
+      participantId: 'takeover-member',
+      presenceIncarnationId: oldIncarnation,
+      presenceRevision: 5,
+      ticketSequence: 2,
+      jti: 'takeover-unused-ticket01',
+    });
+    expect((await broadcastProPresence(room, 6, [newIncarnation])).status).toBe(200);
+    // No socket has connected, so neither JTI replay nor the sequence fence
+    // can reject this request. The exact active incarnation must do so.
+    await room.fetch(unusedOldTicket);
+    expect(lastServer().closeEvents.at(-1)?.reason).toBe('PRO_SIGNALING_PRESENCE_STALE');
+    expect(await state.storage.get('proSignalingTicketUses')).toBeUndefined();
+    expect(await state.storage.get('proSignalingParticipantHighWater')).toBeUndefined();
+
+    expect((await broadcastProPresence(room, 5, [oldIncarnation])).status).toBe(409);
+    const rehydrated = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    await rehydrated.fetch(unusedOldTicket);
+    expect(lastServer().closeEvents.at(-1)?.reason).toBe('PRO_SIGNALING_PRESENCE_STALE');
+    const replacement = await joinProMember(rehydrated, {
+      participantId: 'takeover-member',
+      presenceIncarnationId: newIncarnation,
+      presenceRevision: 6,
+      ticketSequence: 3,
+      jti: 'takeover-current-ticket02',
+    });
+    expect(replacement.closed).toBe(false);
+    expect(sent(replacement)[0]).toMatchObject({ type: 'peer-open', peerId: 'takeover-member' });
   });
 
   it('allows a next-revision join race and then establishes its authoritative live-set', async () => {

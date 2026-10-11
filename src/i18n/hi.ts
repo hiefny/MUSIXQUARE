@@ -821,9 +821,9 @@ const hi: Record<I18nKey, string> = {
     'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं। {{count}} मिनट बाद फिर कोशिश करें।',
   'pro.join_rate_limited_later':
     'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं। थोड़ी देर बाद फिर कोशिश करें।',
-  'pro.active_tab_title': 'यह PRO रूम पहले से दूसरे टैब में खुला है',
-  'pro.active_tab_message': 'यहाँ जारी रखने पर मौजूदा टैब डिस्कनेक्ट हो जाएगा।',
-  'pro.use_this_tab': 'यह टैब इस्तेमाल करें',
+  'pro.active_tab_title': 'एक पिछला कनेक्शन बाकी है',
+  'pro.active_tab_message': 'यहाँ जारी रखने पर पिछला कनेक्शन बंद हो जाएगा।',
+  'pro.use_this_tab': 'यहाँ जारी रखें',
   'pro.upload.batch_progress': 'ट्रैक अपलोड हो रहे हैं {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'कुछ ट्रैक अपलोड नहीं हो सके',
   'pro.upload.batch_failed_message':

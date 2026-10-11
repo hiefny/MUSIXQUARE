@@ -819,9 +819,9 @@ const mr: Record<I18nKey, string> = {
     'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. {{count}} मिनिटांनी पुन्हा प्रयत्न करा.',
   'pro.join_rate_limited_later':
     'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
-  'pro.active_tab_title': 'ही PRO रूम आधीपासून दुसऱ्या टॅबमध्ये उघडी आहे',
-  'pro.active_tab_message': 'इथे पुढे गेल्यास विद्यमान टॅबचे कनेक्शन तुटेल.',
-  'pro.use_this_tab': 'हा टॅब वापरा',
+  'pro.active_tab_title': 'आधीचे कनेक्शन शिल्लक आहे',
+  'pro.active_tab_message': 'इथे पुढे गेल्यास आधीचे कनेक्शन तुटेल.',
+  'pro.use_this_tab': 'इथे पुढे जा',
   'pro.upload.batch_progress': 'ट्रॅक अपलोड होत आहेत {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'काही ट्रॅक अपलोड करता आले नाहीत',
   'pro.upload.batch_failed_message':

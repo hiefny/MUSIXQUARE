@@ -831,9 +831,9 @@ const bg: Record<I18nKey, string> = {
   'pro.join_rate_limited':
     'Твърде много опити за присъединяване. Опитай отново след {{count}} мин.',
   'pro.join_rate_limited_later': 'Твърде много опити за присъединяване. Опитай отново след малко.',
-  'pro.active_tab_title': 'Тази PRO стая вече е отворена в друг раздел',
-  'pro.active_tab_message': 'Ако продължиш тук, съществуващият раздел ще бъде изключен.',
-  'pro.use_this_tab': 'Използване на този раздел',
+  'pro.active_tab_title': 'Останала е предишна връзка',
+  'pro.active_tab_message': 'Ако продължиш тук, предишната връзка ще бъде прекъсната.',
+  'pro.use_this_tab': 'Продължи тук',
   'pro.upload.batch_progress': 'Качване на песни: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Някои песни не бяха качени',
   'pro.upload.batch_failed_message': 'Неуспешно качени песни от заявените {{total}}: {{failed}}.',

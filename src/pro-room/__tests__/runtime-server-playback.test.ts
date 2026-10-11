@@ -254,6 +254,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         .spyOn(ProRoomApiClient.prototype, 'createSignalingTicket')
         .mockResolvedValue(signalingAccess()),
       vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial),
+      vi.spyOn(ProRoomApiClient.prototype, 'reportMediaDuration').mockResolvedValue(undefined),
       vi.spyOn(ProRoomApiClient.prototype, 'getSettingsSync').mockResolvedValue({
         schemaVersion: 1,
         view: 'settings-sync',
@@ -903,6 +904,42 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       }),
     );
   });
+
+  it.each([
+    ['file', true, 180],
+    ['file', false, undefined],
+    ['youtube', true, undefined],
+  ] as const)(
+    'attests a prepared %s duration only with controller authority (%s)',
+    async (mediaKind, authorized, expectedDuration) => {
+      const context = getState('room.context');
+      setState('room.context', {
+        ...context,
+        capabilities: authorized
+          ? context.capabilities
+          : context.capabilities.filter((capability) => capability !== 'playback.control'),
+      });
+      prepareMedia.mockImplementation(async (request) => ({
+        status: 'ready',
+        authority: request.authority,
+        queueItemId: request.queueItemId,
+        mediaKind,
+        durationSeconds: 180,
+        youtubeSubIndex: request.youtubeSubIndex ?? null,
+        youtubeVideoId: request.youtubeVideoId ?? null,
+      }));
+      const event = prepareEvent(TRANSITION_READY);
+      acceptProRoomRealtimeFrameForTests(serverFrame(event as unknown as Record<string, unknown>));
+      await vi.waitFor(() => expect(reportReady).toHaveBeenCalledOnce());
+      expect(reportReady.mock.calls[0]![0]).toEqual({
+        code: ROOM_CODE,
+        transitionId: TRANSITION_READY,
+        basePlaybackRevision: 0,
+        status: 'ready',
+        ...(expectedDuration === undefined ? {} : { durationSeconds: expectedDuration }),
+      });
+    },
+  );
 
   it('keeps all participants visibly busy from PREPARE through media COMMIT', async () => {
     let resolveCommit!: (value: {

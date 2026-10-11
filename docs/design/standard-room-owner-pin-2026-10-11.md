@@ -148,7 +148,7 @@ carries `retryAfterSeconds` on guest errors.
   `_refresh_aria`, `_off`, `_pending`, `_enabled`. The removal notices differ
   from the PRO ones in every locale.
 
-### Forced colors (`25da8909`)
+### Forced colors (`25da8909`, `6c99a122`)
 
 Chromium paints a `Canvas` backplate behind text in forced colors, so the
 `HighlightText` copy of every Highlight-filled selected state vanished; the
@@ -159,6 +159,25 @@ backplate) take `HighlightText`, as #293 did for the PIN choice rows. The
 `:is(...) *` HighlightText rule is gone, and `forced-color-adjust` remains
 limited to the QR code. A CSS test requires every forced-colors
 `color: HighlightText` to target an `svg` or a check mark.
+
+The sibling pass (`6c99a122`) probed every Highlight-filled element on the
+five tabs, the PIN dialog and the language list in emulated light and dark
+forced colors, and found three more forced-colors rules that never applied:
+
+- `!important` declarations inside `@layer base` outrank the unlayered
+  forced-colors rules. In light high-contrast themes the invite QR therefore
+  drew `CanvasText` (black) modules on its black square and could not be
+  scanned, and the pressed room-PIN toggle kept a transparent track instead of
+  its `Highlight` fill and `HighlightText` knob. Both base rules drop the
+  redundant `!important`: the QR library paints with presentation attributes,
+  and the toggle's inline styles carry the same colors.
+- The selected bottom-nav tab and the pressed settings option cards painted
+  their icons with the accent fill (`LinkText`) on the `Highlight` fill, about
+  1:1 in both emulated palettes. In forced colors they now use `currentColor`
+  and take the `HighlightText` icon color.
+
+A CSS test now fails when a base-layer `!important` color declaration shares a
+selector with a forced-colors rule, and pins the icon rule.
 
 ## Compatibility and rollback
 
@@ -186,6 +205,10 @@ limited to the QR code. A CSS test requires every forced-colors
   now reports a commit, a pending change, or a failure.
 - Forced-colors vanishing text on every Highlight-filled selected state,
   including the language list and the pinned demo "next" rule.
+- Forced colors, found by the sibling pass: the invite QR was a solid black
+  square in light high-contrast themes (unscannable), the pressed room-PIN
+  toggle never showed its Highlight fill, and the selected tab and option icons
+  were LinkText on Highlight (pre-existing since the OS contrast work).
 - Masked PIN rows were read as "bullet bullet …" by screen readers, in PRO
   too.
 - The plaintext Standard PIN lived in the global state tree
@@ -215,7 +238,7 @@ Observed, not changed:
 - App `8.9.1` to `8.10.0` (minor) in `package.json`, both
   `package-lock.json` product fields, `browser/classic-runtime/admin.ts` and
   `cloudflare/app-worker.ts`. PWA cache `v652` to `v653` with the
-  `index.html` bootstrap query (`b950b381`). If main's cache moves first,
+  `index.html` bootstrap query (`120d59e2`). If main's cache moves first,
   bump again before merging.
 - Against the deployed SHA `d76b1432`, `changedRuntimePaths()` finds 3
   signaling paths (`signaling-protocol.ts`, `signaling-worker.ts`,
@@ -228,39 +251,35 @@ Observed, not changed:
 
 ## Verification
 
-Tested code: `b950b381` on `agent/standard-room-owner-pin`
+Tested code: `120d59e2` on `agent/standard-room-owner-pin`
 (`origin/agent/pro-pin-two-step` `32a75a00` plus `4935f8a2` membership and
 limiter contract, `20068ac1` signaling Worker, `71340ee3` transport,
-`964d30c8` App flow and copy, `25da8909` forced colors, `b950b381` App
-8.10.0 / v653). The browser test `e2e/standard-room-owner-pin.test.ts` was
-added after that SHA in the documentation commit and ran against the same
-built tree. Windows 11, Node 24.13.1, npm 11.8.0, Playwright 1.63.0
-Chromium, dependencies from the main checkout's `node_modules` (Vite 8.3.3,
-Vitest 5.0.3) through a junction. All runs are local; none is an exact-main
-CI candidate.
+`964d30c8` App flow and copy, `25da8909` and `6c99a122` forced colors,
+`120d59e2` App 8.10.0 / v653). The runs used the tree of the following browser
+test commit `1dde0c11` (`e2e/standard-room-owner-pin.test.ts`), whose
+documentation-only successor changes no code. Windows 11, Node 24.13.1, npm
+11.8.0, Playwright 1.63.0 Chromium, dependencies from the main checkout's
+`node_modules` (Vite 8.3.3, Vitest 5.0.3) through a junction. All runs are
+local; none is an exact-main CI candidate.
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` (every project, including tests and e2e) | pass |
 | `npm run lint` | pass, zero warnings |
 | `npm run format:check` | pass |
-| `npm test` | 538 files, 11,460 passed, 0 failed, 1 skipped¹ |
+| `npm test` | 538 files, 11,462 passed, 0 failed, 1 skipped¹ |
 | `npm run test:coverage:critical` | 58 files, 1,988 passed; thresholds met (81.84 / 76.50 / 88.07 / 85.95) |
 | `npm run test:coverage:workers` | 38 files, 2,078 passed; thresholds met (84.89 / 81.47 / 93.14 / 89.39) |
 | `guard:dead-exports` | pass (self-only 79, test-only 21: unchanged baselines) |
 | `guard:release-identity` | pass; `8.10.0` / `v653` |
-| `guard:sw-cache-version` | pass; `v653` (`b950b381`) covers every committed PWA runtime change |
-| `guard:bus-pairing` (198/198), `import-graph`, `lifecycle-writes`, `room-authority-boundaries`, `source-complexity` (signaling-protocol 988/1000, signaling-worker 8,279/10,000), `standard-room-hot-path`, `prod-security` | pass |
+| `guard:sw-cache-version` | pass; `v653` (`120d59e2`) covers every committed PWA runtime change |
+| `guard:bus-pairing` (198/198), `import-graph`, `lifecycle-writes`, `room-authority-boundaries`, `source-complexity` (signaling-protocol 988/1000, signaling-worker 8,279/10,000), `standard-room-hot-path`, `prod-security`, `brand-capitalization` | pass |
 | `npm run build:checked` | pass, including `guard:legacy-tv-build` (Chromium 79) |
 | `npm run check:worker-bundles` (after the build) | pass, every production Worker bundled |
-| `npm run build:e2e`, then `npx playwright test e2e/standard-room-owner-pin.test.ts e2e/pro-entry-password.test.ts e2e/dialog-locale-layout.test.ts e2e/device-management.test.ts --project=chromium` | 18 passed (local Chromium; Standard rooms over local PeerJS, PRO over a synthetic API fixture; outside CI by design) |
+| `npm run build:e2e`, then `npx playwright test e2e/standard-room-owner-pin.test.ts e2e/pro-entry-password.test.ts e2e/dialog-locale-layout.test.ts e2e/device-management.test.ts e2e/accessibility-contrast.test.ts --project=chromium` | 25 passed (local Chromium; Standard rooms over local PeerJS, PRO over a synthetic API fixture; outside CI by design) |
 
 ¹ The `release-deployment-state` shell-plan contract test skips when `jq` is
 not installed, as on this machine. It does not exercise this change.
-
-The first `check:worker-bundles` in the gate script ran before the build and
-stopped because `dist/` was missing; it passed once `build:checked` had
-produced `dist/`.
 
 New and changed App tests: `src/network/__tests__/standard-room-pin.test.ts`
 (kept list snapshot, removal only after the applied commit with the right
@@ -281,36 +300,51 @@ nobody, cancel paths send nothing, the lock, pending and failure outcomes,
 immediate turn-off, session change aborts, no generator; PRO: the skip, the
 alone-only legacy fallback, and no fallback when someone arrived);
 `contrast-accessibility.test.ts` (no forced-colors `HighlightText` text,
-selected fill and border kept); the 42-locale copy checks in
+selected fill and border kept, no base-layer `!important` color sharing a
+selector with a forced-colors rule, accent-filled tab and option icons follow
+`currentColor` when selected); the 42-locale copy checks in
 `translations.test.ts`; and the browser cases in
 `e2e/pro-entry-password.test.ts` and `e2e/standard-room-owner-pin.test.ts`.
 The Worker, protocol and transport tests are listed in their commits.
 
 ### Screenshots and layout measurements
 
-Captured with Playwright Chromium from the e2e build of `b950b381`'s tree,
-Standard rooms over the local PeerJS server, PIN typed as `1234-5678`. Phone
-sizes use touch emulation at device scale 2. Files are in the owner's local
-scratch folder `stdpin-captures/` (not in the repository):
+Captured with Playwright Chromium from an e2e build of the code at
+`120d59e2`, Standard rooms over the local PeerJS server, PIN typed as
+`1234-5678`. Phone sizes use
+touch emulation at device scale 2. Files are in the owner's local scratch
+folder `scratch/standard-pin-screens/` (not in the repository), with
+`measurements.json`:
 
-- Korean, host alone: step 1 with 취소 / 확인 (empty and typed) and the masked
-  row at 390x844 and 360x640.
-- Korean, host with a guest: step 1 with 다음, step 2 with "그대로 두기" checked
-  and with "모두 재입장" chosen, and the masked row, at 390x844, 320x568,
-  844x390 and 1280x800; the same in Arabic at 390x844.
-- The guest's removal notice in Korean ("방장이 방 암호를 설정했어요. …") and
-  Arabic at 390x844.
-- The language list in forced colors, light and dark, at 390x844: after this
-  change, and with the previous rules injected as "before".
+- Standard host flow in Korean at 390x844 light and dark, 844x390 and
+  320x568: alone, step 1 with 취소 / 확인; with a guest, the empty step 1 with
+  취소 / 다음; step 2 with "그대로 두기" checked; the guest's removal notice
+  ("방장이 방 암호를 설정했어요. …"); after its 확인, the PIN prompt of the same
+  room ("방 암호 입력" on `/{code}`, reached by auto-join); the wrong-PIN
+  lockout ("입장 시도가 너무 많아요. 9분 후에 다시 시도해 주세요."); and the
+  host's masked row.
+- Standard step 2 in Arabic at 390x844 (RTL).
+- PRO owner at 390x844 (synthetic PRO API fixture): step 1 with 다음 when
+  another device is present, step 1 with 확인 alone, and the masked row.
+- Forced colors, emulated light and dark at 390x844: the language list with
+  its selected row, the PIN choice rows with each option selected, the host's
+  masked row with the pressed toggle, and the invite QR.
 
-Every dialog capture measured no horizontal overflow in the panel or the page,
-a panel inside the viewport, and both actions visible and hit-testable at
-their centre. The masked row read `••••-••••` with `aria-hidden="true"`, the
-status "암호 적용됨", and the pencil "방 암호 변경". In forced colors the active
-language row kept its `Highlight` fill; its label and English name were
-`HighlightText` before (white on Chromium's white backplate in light mode,
-the blank boxes) and are `CanvasText` now (black in light, white in dark),
-with the check mark still `HighlightText`.
+After the removal notice the guest page stood in for the signaling Worker,
+which the local PeerJS suite does not run: it answered the first `guest-auth`
+(no PIN) with `room-password-required` and the next with
+`room-password-rate-limited` and `retryAfterSeconds: 540`, so the prompt and
+the lockout copy come from the real transport, setup and dialog code.
+
+All 42 dialog and page captures measured no horizontal overflow in the page or
+the panel, a panel inside the viewport with no vertical scroll, and every
+visible action hit-testable at its centre. Every masked row read `••••-••••`
+with `aria-hidden="true"`, the status "암호 적용됨" and the pencil "방 암호 변경".
+In forced colors the selected language row and the chosen PIN row keep their
+`Highlight` fill with `CanvasText` copy (the chosen label in `LinkText`) on
+the backplate and a `HighlightText` check mark; the pressed toggle is a
+`Highlight` track with a `HighlightText` knob; the invite QR has white modules
+on its black square in both palettes.
 
 ### Limits
 
@@ -323,7 +357,10 @@ with the check mark still `HighlightText`.
   transport unit tests (including one end-to-end transport run against the
   real Worker code), not by a browser against a live signaling Worker. No
   production Worker or real room was used.
-- Forced colors were checked only with Chromium's emulation.
+- Forced colors were checked only with Chromium's emulation, not with a
+  Windows high-contrast theme, Firefox or a QR scan of the inverted code.
+- The PIN prompt and lockout captures used a page-level stand-in for the
+  signaling Worker; the Worker's own refusal is covered by its unit tests.
 - Translations were written for this change without native-speaker review.
   Thai, Vietnamese, Turkish and Chinese use the same word for the Standard
   host and the PRO room owner, so their notices differ from PRO only in

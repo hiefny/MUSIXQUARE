@@ -119,9 +119,9 @@ labeled portion still supports a current guard or operating interpretation:
   join screens keep the toast, and the lazy-feature recovery dialog keeps
   opening in a room (not dismissible, Refresh only) with its own copy
   ("새로고침이 필요해요" / "MUSIXQUARE가 업데이트되었어요. 정상적으로
-  사용하려면 새로고침이 필요해요.", 42 locales; v658 follow-up, v659 after merging App 8.9.6). Local unit,
-  coverage, build, and Chromium browser checks with screenshots; no
-  real-device or native-speaker review.
+  사용하려면 새로고침이 필요해요.", 42 locales; v658 follow-up, v659 after
+  merging App 8.9.6). Local unit, coverage, build, and Chromium browser checks
+  with screenshots; no real-device or native-speaker review.
 - [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
   unreleased App 8.10.0 with the signaling Worker (target `all`; tested at
   v655, ships as v659 with the in-room update prompt):

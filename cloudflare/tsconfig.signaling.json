@@ -8,7 +8,8 @@
     "remote-share-upload-assertion.ts",
     "service-maintenance.ts",
     "signaling-diagnostics.ts",
-    "signaling-protocol.ts"
+    "signaling-protocol.ts",
+    "standard-room-pin-membership.ts"
   ],
   "include": ["signaling-worker.ts", "signaling-worker.contract.ts"]
 }

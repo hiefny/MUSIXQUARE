@@ -1,4 +1,5 @@
 // Pure signaling validation; storage and socket lifecycle stay in signaling-worker.ts.
+import { validateStandardRoomPasswordSetFrame } from './standard-room-pin-membership.ts';
 export const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 export const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
 export const PRO_CHAT_SLOWMODE_MAX_SECONDS = 60;
@@ -913,12 +914,7 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
       : 'ignore';
   }
   if (message.type === 'room-password-set') {
-    return hasExactObjectKeys(message, ['type', 'password'], ['pinMutationId']) &&
-      (message.password === '' ||
-        (typeof message.password === 'string' && /^\d{8}$/.test(message.password))) &&
-      (message.pinMutationId === undefined ||
-        (typeof message.pinMutationId === 'string' &&
-          STANDARD_ROOM_PIN_MUTATION_ID_RE.test(message.pinMutationId)))
+    return validateStandardRoomPasswordSetFrame(message, isPeerId, STANDARD_ROOM_PIN_MUTATION_ID_RE)
       ? 'valid'
       : 'ignore';
   }

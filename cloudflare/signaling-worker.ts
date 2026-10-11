@@ -5020,11 +5020,12 @@ export class MusixquareRoom {
   private async recordStandardPinFailure(pinAttemptKey: string | undefined): Promise<void> {
     if (!pinAttemptKey) return;
     try {
-      const next = recordStandardRoomPinFailure(
-        await this.loadStandardPinFailures(),
-        pinAttemptKey,
-        Date.now(),
-      );
+      const current = await this.loadStandardPinFailures();
+      const next = recordStandardRoomPinFailure(current, pinAttemptKey, Date.now());
+      // Fail open: with every slot held by another block's live bucket this
+      // key is not tracked, nothing changed, and an untracked guess costs no
+      // storage write.
+      if (next === current) return;
       this.standardPinFailures = next;
       await this.state.storage.put(
         STANDARD_ROOM_PIN_FAILURES_KEY,

@@ -11802,6 +11802,110 @@ describe('Standard-room PIN membership and wrong-PIN limit', () => {
     expect(JSON.stringify([...state.storage.data.entries()])).not.toContain('2001:db8');
   });
 
+  it('fails open past 256 tracked address blocks instead of locking newcomers out', async () => {
+    const { room, state } = await createPasswordRoom();
+    // One routed IPv6 /56 is 256 /64s: one wrong PIN each fills the table.
+    for (let block = 0; block < 256; block += 1) {
+      const guess = await joinFrom(room, `v6-fill-${block}`, {
+        password: '00000000',
+        ip: `2001:db8:0:${block.toString(16)}::1`,
+      });
+      expect(closeReason(guess)).toBe('ROOM_PASSWORD_INVALID');
+    }
+    const full = (await state.storage.get(FAILURES_KEY)) as { entries: unknown[] };
+    expect(full.entries).toHaveLength(256);
+
+    // A 257th block guesses on: refused as wrong, never locked, never stored.
+    const originalPut = state.storage.put.bind(state.storage);
+    let failureWrites = 0;
+    state.storage.put = async (key: string, value: unknown) => {
+      if (key === FAILURES_KEY) failureWrites += 1;
+      return originalPut(key, value);
+    };
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      expect(
+        closeReason(
+          await joinFrom(room, `v6-extra-${attempt}`, {
+            password: '00000000',
+            ip: `2001:db8:0:100::${attempt + 1}`,
+          }),
+        ),
+      ).toBe('ROOM_PASSWORD_INVALID');
+    }
+    expect(failureWrites).toBe(0);
+    expect(await state.storage.get(FAILURES_KEY)).toEqual(full);
+
+    // Fresh legitimate guests from other networks get in with the right PIN.
+    expect(
+      admitted(await joinFrom(room, 'v6-guest', { password: STALE_PIN, ip: '2001:db8:0:200::1' })),
+    ).toBe(true);
+    expect(
+      admitted(
+        await joinFrom(room, 'v4-guest', {
+          password: STALE_PIN,
+          ip: '192.0.2.200',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe(true);
+
+    // A tracked block still locks at 20 and is still stored.
+    for (let attempt = 1; attempt < 20; attempt += 1) {
+      await joinFrom(room, `v6-tracked-${attempt}`, {
+        password: '00000000',
+        ip: '2001:db8:0:7::9',
+      });
+    }
+    expect(failureWrites).toBe(19);
+    expect(
+      closeReason(
+        await joinFrom(room, 'v6-tracked-correct', { password: STALE_PIN, ip: '2001:db8:0:7::2' }),
+      ),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    state.storage.put = originalPut;
+  });
+
+  it('never lets a full table of locked buckets or an oversized record lock a newcomer', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { state } = await createPasswordRoom();
+    const lockedEntry = (index: number) => ({
+      key: `k${String(index).padStart(42, '0')}`,
+      count: 20,
+      resetAt: Date.now() + 5 * 60_000,
+    });
+    // 256 locked buckets of other blocks: a newcomer is neither locked nor counted.
+    const lockedTable = { v: 1, entries: Array.from({ length: 256 }, (_, i) => lockedEntry(i)) };
+    await state.storage.put(FAILURES_KEY, lockedTable);
+    const room = reopen(state);
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      expect(
+        closeReason(await joinFrom(room, `newcomer-${attempt}`, { password: '00000000' })),
+      ).toBe('ROOM_PASSWORD_INVALID');
+    }
+    expect(await state.storage.get(FAILURES_KEY)).toEqual(lockedTable);
+    expect(
+      admitted(await joinFrom(room, 'newcomer', { password: STALE_PIN, ip: '203.0.113.50' })),
+    ).toBe(true);
+
+    // An oversized record (for example the old shared bucket as a 257th entry)
+    // normalizes to an empty table, so it locks nobody either.
+    await state.storage.put(FAILURES_KEY, {
+      v: 1,
+      entries: Array.from({ length: 257 }, (_, i) => lockedEntry(i)),
+    });
+    const reopened = reopen(state);
+    expect(
+      admitted(
+        await joinFrom(reopened, 'after-oversized', {
+          password: STALE_PIN,
+          ip: '203.0.113.51',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it('counts wrong PINs only and lets kept devices bypass a locked bucket', async () => {
     const { room, host } = await createPasswordRoom();
     for (let attempt = 0; attempt < 25; attempt += 1) {

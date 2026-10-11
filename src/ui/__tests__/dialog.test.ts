@@ -1307,13 +1307,19 @@ describe('Dialog System', () => {
       // Inline offsets and uneven inline shorthands compile to :is() fallbacks
       // that the Chromium 79 (legacy TV) build rejects.
       expect(choiceRules).not.toMatch(/inset-inline|(?:padding|margin)-inline:\s*\S+\s+\S+;/);
-      // Forced colors outline the chosen row like the active language row.
+      // Forced colors fill and outline the chosen row with Highlight. Its copy
+      // keeps the OS text colors on Chromium's Canvas text backplate, where
+      // HighlightText would vanish; only the check mark takes HighlightText.
       const forced = STYLE_SOURCE.slice(
         STYLE_SOURCE.lastIndexOf('@media (forced-colors: active) {'),
       );
       expect(forced).toMatch(
-        /\.dialog-choice-radio:checked \+ \.dialog-choice-surface \{\s*border-color: Highlight !important;/,
+        /\.dialog-choice-radio:checked \+ \.dialog-choice-surface \{\s*border-color: Highlight !important;\s*background: Highlight !important;\s*\}/,
       );
+      expect(forced).toMatch(
+        /\.dialog-choice-radio:checked \+ \.dialog-choice-surface \.dialog-choice-check \{\s*color: HighlightText !important;\s*\}/,
+      );
+      expect(forced).not.toContain('.dialog-choice-radio:checked + .dialog-choice-surface *');
     });
 
     it('lets Japanese and Chinese choice copy wrap between characters', () => {

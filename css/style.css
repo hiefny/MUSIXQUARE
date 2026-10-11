@@ -12509,14 +12509,17 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     color: HighlightText !important;
   }
 
-  /* Dialog choice radios are transparent; their surfaces carry the state. */
+  /* Dialog choice radios are transparent; their surfaces carry the state.
+     Forced colors paint a Canvas backplate behind text, so HighlightText
+     copy would vanish on it. The chosen row's copy keeps the OS text colors
+     on that backplate, as filled buttons do; only the check mark, which has
+     no backplate, takes HighlightText. */
   .dialog-choice-radio:checked + .dialog-choice-surface {
     border-color: Highlight !important;
     background: Highlight !important;
-    color: HighlightText !important;
   }
 
-  .dialog-choice-radio:checked + .dialog-choice-surface * {
+  .dialog-choice-radio:checked + .dialog-choice-surface .dialog-choice-check {
     color: HighlightText !important;
   }
 

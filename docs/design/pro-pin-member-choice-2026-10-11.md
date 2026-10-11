@@ -13,9 +13,11 @@ Status: implemented and verified locally on branch
 > happen to current participants?") with "그대로 두기" / "모두 재입장"
 > ("Keep everyone" / "Everyone rejoins") rows styled like the language list.
 > The shared dialog's `choiceField` became `choiceStep` and
-> `pro.pin_members_legend` was removed. The `POST /pin` contract, the
-> `keep_present` / legacy-body mapping, the keep-unavailable path and the
-> removal reasons below are unchanged. See
+> `pro.pin_members_legend` was removed. The keep-unavailable message now
+> ends by naming that row ("…“모두 재입장”을 선택해 주세요." / "…or choose
+> “Everyone rejoins”."). The `POST /pin` contract, the `keep_present` /
+> legacy-body mapping, the keep-unavailable path and the removal reasons
+> below are unchanged. See
 > [PRO PIN two-step dialog — 2026-10-11](pro-pin-two-step-2026-10-11.md).
 
 ## Owner decisions (2026-10-11)

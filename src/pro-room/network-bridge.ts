@@ -75,6 +75,7 @@ interface ClockCalibrationRound {
   id: number;
   generation: number;
   started: boolean;
+  decisionWindowElapsed: boolean;
   responseCount: number;
   bestRttMs: number;
   bestOffsetMs: number;
@@ -671,7 +672,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
           round.bestOffsetMs = offset;
           round.bestReceivedAtMs = receivedAt;
         }
-        if (round.responseCount >= CLOCK_READY_MIN_RESPONSES) {
+        if (round.responseCount >= CLOCK_READY_MIN_RESPONSES || round.decisionWindowElapsed) {
           this.#finalizeClockCalibrationRound(round);
         }
       }
@@ -716,6 +717,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       id: ++this.#clockCalibrationRoundSequence,
       generation,
       started: false,
+      decisionWindowElapsed: false,
       responseCount: 0,
       bestRttMs: Number.POSITIVE_INFINITY,
       bestOffsetMs: 0,
@@ -760,7 +762,13 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     }
 
     const decisionTimer = this.#schedule(
-      () => this.#finalizeClockCalibrationRound(round),
+      () => {
+        // This is a sample-selection window, not the caller's timeout. On a
+        // slower route, keep the requests alive until a response arrives or
+        // each waiter exhausts its own budget (or is aborted/disconnected).
+        round.decisionWindowElapsed = true;
+        if (round.responseCount > 0) this.#finalizeClockCalibrationRound(round);
+      },
       CLOCK_READY_DECISION_WINDOW_MS,
       round.generation,
     );

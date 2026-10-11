@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   pendingAutoCode: null as string | null,
   pendingRole: 0 as number | null,
+  overlayAbort: null as AbortController | null,
   scheduleDocumentReload: vi.fn(),
   scheduleSessionReset: vi.fn(),
   setupRenderActions: vi.fn((buttons: Array<Record<string, unknown>>) => {
@@ -121,7 +122,7 @@ vi.mock('../setup-shared.ts', () => ({
     mocks.pendingRole = value;
   },
   getPendingAutoJoinCode: () => mocks.pendingAutoCode,
-  getSetupOverlayAbort: () => null,
+  getSetupOverlayAbort: () => mocks.overlayAbort,
   setupSetAutoJoinCode: vi.fn(),
   setOnInviteLinkRoleSelected: vi.fn(),
   setupEl: (id: string) => document.getElementById(id),
@@ -162,6 +163,7 @@ beforeEach(() => {
   mocks.actions = [];
   mocks.pendingAutoCode = null;
   mocks.pendingRole = 0;
+  mocks.overlayAbort = null;
   mocks.state.clear();
   mocks.state.set('network.appRole', 'guest');
   mocks.state.set('room.context', { kind: 'standard' });
@@ -469,5 +471,182 @@ describe('guest setup recovery', () => {
     const refresh = mocks.actions[1]?.onClick as (() => void) | undefined;
     refresh?.();
     expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
+  });
+
+  it.each(
+    (['manual', 'invite', 'qr'] as const).flatMap((route) =>
+      (['host', 'idle'] as const).map((role) => ({ route, role })),
+    ),
+  )(
+    'retries $route entry after PRO failure leaves the transport $role',
+    async ({ route, role }) => {
+      mocks.isProRoomCode.mockReturnValue(true);
+      mocks.prepareFromGesture.mockResolvedValue(true);
+      mocks.pendingAutoCode = route === 'invite' ? '000001' : null;
+      mocks.enterProRoomFromSetup.mockImplementationOnce(async () => {
+        // OPEN failure retains host; explicit post-connect cleanup produces idle.
+        mocks.state.set('network.appRole', role);
+        mocks.state.set('network.isConnecting', false);
+        throw new Error('PRO_SIGNALING_START_FAILED');
+      });
+      mocks.enterProRoomFromSetup.mockImplementationOnce(async () => {
+        mocks.state.set('network.appRole', 'host');
+        return true;
+      });
+      mocks.busEmit.mockImplementation((event: string) => {
+        if (event === 'setup:guest-join-failure') {
+          restoreGuestJoinControlsAfterFailure('pro.connect_failed');
+        }
+      });
+
+      startGuestFlow();
+      const input = document.getElementById('setup-join-code') as HTMLInputElement;
+      if (route === 'qr') {
+        mocks.scannerCallbacks?.onStartFromGesture?.();
+        mocks.scannerCallbacks?.onCode('000001');
+      } else {
+        input.value = '000001';
+        (document.getElementById('btn-setup-confirm') as HTMLButtonElement).click();
+      }
+      await vi.waitFor(() =>
+        expect(document.getElementById('btn-setup-confirm')?.textContent).toBe('common.retry'),
+      );
+      expect(mocks.state.get('network.appRole')).toBe('guest');
+      expect(mocks.state.get('network.isConnecting')).toBe(false);
+      if (route !== 'invite') expect(input.value).toBe('000001');
+      const retry = document.getElementById('btn-setup-confirm') as HTMLButtonElement;
+      expect(retry.disabled).toBe(false);
+      retry.click();
+      await vi.waitFor(() => expect(mocks.enterProRoomFromSetup).toHaveBeenCalledTimes(2));
+      expect(mocks.enterProRoomFromSetup).toHaveBeenNthCalledWith(2, '000001');
+      expect(mocks.busEmit).toHaveBeenCalledWith('setup:guest-join-success');
+      expect(mocks.state.get('network.appRole')).toBe('host');
+    },
+  );
+
+  it('can change a failed PRO code to an ordinary room without leaving setup', async () => {
+    mocks.isProRoomCode.mockReturnValue(true);
+    mocks.enterProRoomFromSetup.mockImplementationOnce(async () => {
+      mocks.state.set('network.appRole', 'host');
+      throw new Error('PRO_SIGNALING_START_FAILED');
+    });
+    mocks.busEmit.mockImplementation((event: string) => {
+      if (event === 'setup:guest-join-failure') {
+        restoreGuestJoinControlsAfterFailure('pro.connect_failed');
+      }
+    });
+    const input = document.getElementById('setup-join-code') as HTMLInputElement;
+    input.value = '000001';
+    await handleSetupJoinWithRole(0);
+    input.value = '123456';
+    mocks.isProRoomCode.mockReturnValue(false);
+    (document.getElementById('btn-setup-confirm') as HTMLButtonElement).click();
+    expect(mocks.joinSession).toHaveBeenCalledWith('123456');
+    expect(mocks.enterProRoomFromSetup).toHaveBeenCalledOnce();
+  });
+
+  it.each(['host', 'idle'])('restores setup after a canceled PRO flow leaves %s', async (role) => {
+    mocks.isProRoomCode.mockReturnValue(true);
+    mocks.enterProRoomFromSetup.mockImplementationOnce(async () => {
+      mocks.state.set('network.appRole', role);
+      return false;
+    });
+    (document.getElementById('setup-join-code') as HTMLInputElement).value = '000001';
+    await handleSetupJoinWithRole(0);
+    expect(mocks.state.get('network.appRole')).toBe('guest');
+    expect(mocks.actions[1]).toMatchObject({ text: 'common.start' });
+    mocks.enterProRoomFromSetup.mockResolvedValue(true);
+    await handleSetupJoinWithRole(0);
+    expect(mocks.enterProRoomFromSetup).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])(
+    'admits only one PRO operation before the bridge starts (invite=%s)',
+    async (invite) => {
+      mocks.isProRoomCode.mockReturnValue(true);
+      mocks.pendingAutoCode = invite ? '000001' : null;
+      let finish!: (joined: boolean) => void;
+      mocks.enterProRoomFromSetup.mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      startGuestFlow();
+      (document.getElementById('setup-join-code') as HTMLInputElement).value = '000001';
+      const start = mocks.actions[1]!.onClick as () => void;
+      start();
+      start();
+      await handleSetupJoinWithRole(0); // Enter can arrive despite the disabled button.
+      expect(mocks.enterProRoomFromSetup).toHaveBeenCalledOnce();
+      finish(true);
+      await vi.waitFor(() =>
+        expect(mocks.busEmit).toHaveBeenCalledWith('setup:guest-join-success'),
+      );
+    },
+  );
+
+  it.each(
+    (['replaced', 'aborted', 'started'] as const).flatMap((boundary) =>
+      (['error', 'cancel', 'reload', 'success'] as const).map((result) => ({ boundary, result })),
+    ),
+  )('ignores a late PRO $result when setup is $boundary', async ({ boundary, result }) => {
+    mocks.isProRoomCode.mockReturnValue(true);
+    mocks.overlayAbort = new AbortController();
+    let resolve!: (value: boolean | 'reload-required') => void;
+    let reject!: (error: Error) => void;
+    mocks.enterProRoomFromSetup.mockImplementation(
+      () =>
+        new Promise((yes, no) => {
+          resolve = yes;
+          reject = no;
+        }),
+    );
+    const joining = handleSetupJoinWithRole(0);
+    if (boundary === 'replaced') startGuestFlow();
+    else if (boundary === 'aborted') mocks.overlayAbort.abort();
+    else mocks.state.set('setup.sessionStarted', true);
+    mocks.state.set('network.appRole', 'host');
+    mocks.state.set('network.isConnecting', true);
+    mocks.busEmit.mockClear();
+    mocks.setupRenderActions.mockClear();
+    if (result === 'error') reject(new Error('late failure'));
+    else resolve(result === 'reload' ? 'reload-required' : result === 'success');
+    await joining;
+    expect(mocks.state.get('network.appRole')).toBe('host');
+    expect(mocks.state.get('network.isConnecting')).toBe(true);
+    expect(mocks.busEmit).not.toHaveBeenCalled();
+    expect(mocks.setupRenderActions).not.toHaveBeenCalled();
+  });
+
+  it('does not release a newer pending PRO operation when an older failure arrives', async () => {
+    mocks.isProRoomCode.mockReturnValue(true);
+    let rejectOld!: (error: Error) => void;
+    let finishNew!: (value: boolean) => void;
+    mocks.enterProRoomFromSetup
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectOld = reject;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishNew = resolve;
+          }),
+      );
+    const old = handleSetupJoinWithRole(0);
+    startGuestFlow();
+    (document.getElementById('setup-join-code') as HTMLInputElement).value = '000002';
+    const current = handleSetupJoinWithRole(0);
+    rejectOld(new Error('old connection failed'));
+    await old;
+    await handleSetupJoinWithRole(0);
+    expect(mocks.enterProRoomFromSetup).toHaveBeenCalledTimes(2);
+    finishNew(true);
+    await current;
+    expect(mocks.busEmit).toHaveBeenCalledWith('setup:guest-join-success');
+    expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-failure', expect.anything());
   });
 });

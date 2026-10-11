@@ -12474,6 +12474,12 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     outline-color: HighlightText !important;
   }
 
+  /* Selected and filled states keep their Highlight fill and border. Chromium
+     paints a Canvas backplate behind every text run in forced colors, so
+     HighlightText copy would vanish on it (blank boxes in the language list).
+     Their text keeps the OS text color on that backplate, as the dialog
+     choice rows do; only icons and check marks, which have no backplate,
+     take HighlightText. */
   :is(button, [role='button'], [role='switch'], [role='tab']):is(
     [aria-pressed='true'],
     [aria-selected='true'],
@@ -12489,15 +12495,15 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     border-color: Highlight !important;
     outline-color: Highlight;
     background: Highlight !important;
-    color: HighlightText !important;
+    color: CanvasText !important;
   }
 
-  .demo-step-nav .demo-step-next:not(.is-final) {
-    border-color: Highlight !important;
-    background: Highlight !important;
-    color: HighlightText !important;
-  }
-
+  :is(button, [role='button'], [role='switch'], [role='tab']):is(
+      [aria-pressed='true'],
+      [aria-selected='true'],
+      [aria-checked='true']
+    )
+    svg,
   :is(
       .track-item.active,
       .sub-track-item.active,
@@ -12505,7 +12511,17 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
       .chat-cmd-item.active,
       .language-option.active
     )
-    * {
+    svg {
+    color: HighlightText !important;
+  }
+
+  .demo-step-nav .demo-step-next:not(.is-final) {
+    border-color: Highlight !important;
+    background: Highlight !important;
+    color: CanvasText !important;
+  }
+
+  .demo-step-nav .demo-step-next:not(.is-final) svg {
     color: HighlightText !important;
   }
 

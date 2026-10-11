@@ -86,7 +86,7 @@ describe('OS contrast accessibility styles', () => {
       /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{(?=[^}]*background:\s*var\(--primary-filled\);)(?=[^}]*border-color:\s*transparent;)(?=[^}]*color:\s*#fff;)[^}]*\}/u,
     );
     expect(forcedCss).toMatch(
-      /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{[^}]*border-color:\s*Highlight !important;[^}]*background:\s*Highlight !important;[^}]*color:\s*HighlightText !important;/u,
+      /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{[^}]*border-color:\s*Highlight !important;[^}]*background:\s*Highlight !important;[^}]*color:\s*CanvasText !important;/u,
     );
 
     for (const colorOnlyCss of [manualCss, prefersCss]) {
@@ -151,6 +151,49 @@ describe('OS contrast accessibility styles', () => {
     expect(css).toContain('color: GrayText !important;');
     expect(css).toContain('color: LinkText;');
     expect(css).toContain('background: Canvas;');
+  });
+
+  it('never paints forced-colors text in HighlightText, which vanishes on the text backplate', async () => {
+    const css = await readFile('css/style.css', 'utf8');
+    const forcedCss = css.slice(css.lastIndexOf('@media (forced-colors: active) {'));
+    const splitSelectors = (selectorList: string): string[] => {
+      const selectors: string[] = [];
+      let depth = 0;
+      let current = '';
+      for (const char of selectorList) {
+        if (char === '(') depth += 1;
+        if (char === ')') depth -= 1;
+        if (char === ',' && depth === 0) {
+          selectors.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      selectors.push(current.trim());
+      return selectors;
+    };
+    const highlightTextColorSelectors = [...forcedCss.matchAll(/([^{}]+)\{([^{}]*)\}/gu)].flatMap(
+      ([, selectorList, body]) =>
+        /(?:^|[\s;])color:\s*HighlightText\b/u.test(body!)
+          ? splitSelectors(selectorList!.replace(/\/\*[\s\S]*?\*\//gu, ''))
+          : [],
+    );
+
+    expect(highlightTextColorSelectors.length).toBeGreaterThan(0);
+    for (const selector of highlightTextColorSelectors) {
+      // Icons and check marks have no backplate; everything else is text.
+      expect(selector, selector).toMatch(/(?:\bsvg|-check)$/u);
+    }
+    // Selected rows and pressed controls keep their Highlight fill and border,
+    // and their copy keeps the OS text color on the backplate.
+    expect(forcedCss).toMatch(
+      /\.language-option\.active\s*\)\s*\{\s*border-color:\s*Highlight !important;\s*outline-color:\s*Highlight;\s*background:\s*Highlight !important;\s*color:\s*CanvasText !important;/u,
+    );
+    expect(forcedCss).toMatch(
+      /\.language-option\.active\s*\)\s*svg\s*\{\s*color:\s*HighlightText !important;/u,
+    );
+    expect(forcedCss).not.toMatch(/\.language-option\.active\s*\)\s*\*\s*\{/u);
   });
 
   it('restores range geometry after forced colors removes authored gradients', async () => {

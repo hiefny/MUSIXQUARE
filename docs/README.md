@@ -93,6 +93,15 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
+  unreleased App 8.10.0/v653 with the signaling Worker (target `all`):
+  Standard-room hosts type the 8-digit PIN in the shared two-step dialog,
+  step 2 is skipped when nobody else is in the room (both room types), the PIN
+  is masked in both, "모두 재입장" closes guest sockets in the Worker before
+  the host's reasoned kick, kept devices reconnect without the new PIN, and the
+  Worker limits wrong PINs per room and address block. Also fixes forced-colors
+  text on selected rows. Local unit, Worker, coverage, build and browser checks;
+  no real-device or native-speaker review.
 - [PRO PIN two-step dialog — 2026-10-11](design/pro-pin-two-step-2026-10-11.md) —
   unreleased App 8.9.1/v652 (target `app`): a minimal PIN page with Cancel /
   Next, then "현재 참여자를 어떻게 할까요?" with "그대로 두기" / "모두 재입장" rows

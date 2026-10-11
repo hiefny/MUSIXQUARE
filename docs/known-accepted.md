@@ -187,6 +187,49 @@ The next mitigations would be a WAF rule for
 `/api/pro-room/v1/rooms/*/sessions`, or sign-in or proof of work for public
 admission.
 
+### 12. Standard-Room Owner PINs, Kicks, and Guessing
+
+Accepted 2026-10-11 with App 8.10.0. A Standard-room host now types the
+8-digit room PIN instead of receiving a random one, and weak PINs such as
+`00000000` are allowed in both room types by owner decision: a room PIN is a
+soft access deterrent, not an account credential. The signaling Worker limits
+wrong PINs to 20 per 10 minutes per room and per client address block (IPv4
+address or IPv6 /64), counting failures only
+([ops](../cloudflare/standard-room-pin-ops.md#owner-chosen-pins-kept-devices-and-the-wrong-pin-limit-app-8100)).
+What remains accepted:
+
+- **No ban list after an individual kick.** Kicking a Standard-room device
+  closes its data channel and its unmodified App leaves, but the Worker keeps
+  that guest's signaling socket admitted and the host accepts new offers
+  without a deny list. A modified client can therefore come back without the
+  PIN. It can also come back by reconnecting with its kept exemption ("그대로
+  두기") until the next PIN change. The remedy is a PIN change with
+  "모두 재입장", which closes every guest socket and clears the reconnect
+  bindings and the kept set; a host-to-Worker revoke for one guest can come
+  later.
+- **Distributed guessing.** Guesses spread across many networks are not
+  limited; each address block gets its own 20 attempts per window. With an
+  owner-chosen PIN this is weaker than the former random PIN.
+- **Shared networks.** Everyone behind one NAT shares a bucket, so a crowded
+  venue can be locked out briefly after many typos. HTTP-bridge guests carry no
+  client address and share one per-room bucket. During the 8.10.0 transition,
+  cached 8.9.x hosts still generate random PINs; if they refreshed the PIN,
+  their present guests re-send the old PIN on the deploy reconnect and those
+  failures count against the shared bucket too.
+- **Older Worker.** If signaling is rolled back, the App sends the PIN alone:
+  present guests are kept as before 8.10.0 (and lose ICE-restart recovery after
+  a later signaling reconnect), "모두 재입장" is only the host's kick, which a
+  modified client can ignore, and the wrong-PIN limit is off.
+- **Older App copy.** Guests on a cached App older than 8.10.0 removed by
+  "모두 재입장" show the generic "강제퇴장" kick dialog and reload instead of the
+  PIN notice, and show the generic join error for `room-password-changed` and
+  `room-password-rate-limited`. Both errors stay permanent auth errors there,
+  so there is no reconnect storm.
+
+Reopen this item if Standard rooms become discoverable or listed, if guessing
+or kick evasion is observed in production, or before relying on a Standard-room
+PIN for anything more than keeping casual visitors out.
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

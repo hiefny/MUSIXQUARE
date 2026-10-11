@@ -69,7 +69,8 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 - [ ] 리버브 10초 경계(일반방, PRO, API)와 데모 종료 뒤 표시되는 설정이 실제
   효과와 같은지.
 - [ ] 물리 키보드, 미디어 키, 실제 음향 출력(QA055 음향 테스트 포함).
-- [ ] PRO 암호 참여자 선택·퇴장 사유(8.9.0, 두 단계 대화상자는 미배포 8.9.1):
+- [ ] PRO 암호 참여자 선택·퇴장 사유(8.9.0, 두 단계 대화상자는 미배포 8.9.1, 따로
+  배포하지 않으면 8.10.0에 포함):
   iPhone Safari/PWA와 Android에서 암호 지정·변경의 두 단계(암호 입력 뒤 "다음",
   "현재 참여자를 어떻게 할까요?"의 "그대로 두기"(기본)·"모두 재입장", "이전"으로
   돌아가도 입력한 암호 유지, 두 번 탭해도 바로 확인되지 않음), 소프트 키보드가
@@ -80,6 +81,17 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   줄바꿈 포함), RTL 배치를 확인한다.
   [상세](design/pro-pin-member-choice-2026-10-11.md),
   [두 단계](design/pro-pin-two-step-2026-10-11.md)
+- [ ] 일반방 방장 암호와 공통 암호 흐름(미배포 8.10.0): iPhone Safari/PWA, Android,
+  Windows에서 두 방 종류 모두 1단계 버튼이 혼자일 때 "확인", 다른 기기가 있을 때
+  "다음"인지, 2단계 "그대로 두기"(기본)·"모두 재입장", 일반방 암호가 빈 칸에서
+  시작하고 "••••-••••"와 연필 버튼으로만 보이는지, VoiceOver·TalkBack이 점 대신
+  "암호 적용됨"을 읽는지 확인한다. "그대로 두기"로 남은 참여자가 백그라운드 전환,
+  네트워크 변경, 시그널링 재연결 뒤 새 암호 없이 ICE 재시작으로 회복되는지,
+  "모두 재입장" 뒤 참여자에게 "방장이 방 암호를 …" 안내가 한 번 뜨고 같은 방의 암호
+  입력 화면으로 가는지, 아직 갱신되지 않은 이전 App 참여자가 "강제퇴장" 문구를 보는지,
+  오답 20회 뒤 기다릴 시간이 분 단위로 보이는지, 강제 색상 모드에서 언어 목록과 선택된
+  행의 글자가 보이는지, 320·360·390px, 가로 모드, RTL 배치를 함께 본다.
+  [상세](design/standard-room-owner-pin-2026-10-11.md)
 
 ### 원인을 모르는 관찰
 
@@ -110,7 +122,31 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   App Worker는 관리자 버전 상수만 바뀐다. App `8.9.1` / SW 캐시 `v652`. API,
   Worker, 저장소를 바꾸지 않아 복구 경계와 floor는 그대로다. main의 캐시가 먼저
   올라가면 병합 직전에 번호를 다시 올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을
-  지운다. [상세](design/pro-pin-two-step-2026-10-11.md)
+  지운다. 8.10.0 브랜치가 이 변경을 포함하므로, 8.9.1을 따로 배포하지 않으면 아래
+  8.10.0 항목과 함께 닫는다. [상세](design/pro-pin-two-step-2026-10-11.md)
+- [ ] 미배포 일반방 방장 암호(8.10.0): App과 시그널링 Worker가 함께 바뀌어 Production
+  Release `target=all`이다. release.yml에서 시그널링이 App보다 먼저 배포되고, App도
+  peer-open의 기능 플래그를 확인하므로 순서가 바뀌어도 안전하다. 배포 SHA `d76b1432`
+  대비 런타임 경로는 signaling 3개(`signaling-protocol.ts`, `signaling-worker.ts`, 새
+  `standard-room-pin-membership.ts`), app 62개, pro-room·remote-share·developer-api
+  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v653`. 새
+  Durable Object 키 2개(`standard-room-pin-membership-v1`,
+  `standard-room-pin-failures-v1`)만 쓰고
+  `cloudflare/standard-room-pin-storage-contract-version.txt`, room meta v2, guest
+  binding 형식은 그대로라 새 floor가 없다. 시그널링만 이전으로 되돌리면 이전 Worker가
+  두 키를 읽지 않고 플래그도 없어 App이 암호만 보낸다. 그동안 "그대로 두기"는 8.10.0
+  이전처럼 동작하고(재연결 때 옛 암호 재전송 결함이 돌아온다), "모두 재입장"은 방장의
+  강퇴뿐이며 오답 제한은 꺼진다. App만 되돌리면 8.9.x의 무작위 암호로 돌아가고 새
+  Worker는 예전 프레임을 그대로 받는다. 전환기 한계: 캐시된 8.9.x 방장은 계속 무작위
+  암호를 만들고, 그 암호를 새로 만들었으면 남아 있던 참여자가 배포 재연결 때 옛 암호를
+  보내 실패가 같은 주소 버킷에 쌓일 수 있다. 이전 App 참여자는 "모두 재입장"으로
+  내보내지면 "강제퇴장"을 보고, 새 오류 두 가지는 일반 입장 오류로 보인다(영구 인증
+  오류라 재연결 폭주는 없다). 배포 뒤 관리자 대시보드의 Password lockouts
+  (`guest_auth_rate_limited`)가 평소 0에 가까운지 본다. main의 캐시가 먼저 올라가면
+  병합 직전에 번호를 다시 올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을 지운다.
+  [상세](design/standard-room-owner-pin-2026-10-11.md),
+  [운영](../cloudflare/standard-room-pin-ops.md),
+  [허용 위험](known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)
 - [ ] Drift Audit 수동 5항목: Worker zone routes, `/admin` Access+MFA, WAF rate
   limit과 Worker/R2/D1 비용 알림, 두 번째 Git 배포 경로가 없음, main review·필수
   체크 정책. 자동 감사가 통과해도 이 항목은 완료가 아니다.

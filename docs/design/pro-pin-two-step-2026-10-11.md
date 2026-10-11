@@ -32,6 +32,17 @@ The owner's third request in the same message, making standard rooms use an
 owner-set password with the same two-step choice, is not part of this
 change.
 
+> **Amendment (App 8.10.0, 2026-10-11).** The owner's third request shipped in
+> [Standard-room owner PIN](standard-room-owner-pin-2026-10-11.md), which also
+> changes this flow for PRO: step 2 is skipped when no other device is in the
+> room (step 1's primary action then reads 확인 and "그대로 두기" is sent), and
+> when a skipped step meets a PRO Worker that refuses `keep_present` while the
+> owner is still alone, the App retries once with the legacy `{pin}` body
+> instead of pointing at a row the owner never saw. The choice group's radio
+> name became `room-pin-existing-participants`, shared with Standard rooms.
+> The forced-colors limit below (the language list's vanishing active text) is
+> fixed there too.
+
 ## Change
 
 ### Flow (`src/ui/connect.ts`)

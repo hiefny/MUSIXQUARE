@@ -3,6 +3,16 @@ import ts from 'typescript';
 const PIN_PEPPER_BINDING = 'MXQR_STANDARD_ROOM_PIN_PEPPER';
 const PLAINTEXT_STORAGE_ERROR =
   'Standard room PINs must never be written or verified through plaintext roomPassword';
+const PIN_RECORD_STORAGE_ERROR =
+  'Standard room PIN membership and wrong-PIN records must be written only through their normalizers and never carry PIN material';
+const PIN_RECORD_NORMALIZERS = new Map<string, string>([
+  ['STANDARD_ROOM_PIN_MEMBERSHIP_KEY', 'normalizeStandardRoomPinMembership'],
+  ['STANDARD_ROOM_PIN_FAILURES_KEY', 'normalizeStandardRoomPinFailures'],
+]);
+const PIN_RECORD_STORAGE_KEYS = [
+  'standard-room-pin-membership-v1',
+  'standard-room-pin-failures-v1',
+];
 
 function walk(node: ts.Node, visitor: (node: ts.Node) => void): void {
   visitor(node);
@@ -75,6 +85,97 @@ function validateRoomPasswordWrites(workerSource: string): string[] {
 }
 
 /**
+ * The kept-set and wrong-PIN records live under their own keys so an older
+ * Worker never reads them. Every write must pass the exact-key normalizer of
+ * its record, whose shapes hold only digests, peer IDs and counters, and no
+ * argument may reach for PIN material.
+ */
+function validatePinRecordWrites(workerSource: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    'signaling-worker.ts',
+    workerSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const writes = new Map<string, number>();
+  let unsafe = PIN_RECORD_STORAGE_KEYS.some((key) => workerSource.includes(key));
+  walk(sourceFile, (node) => {
+    if (
+      !ts.isCallExpression(node) ||
+      !ts.isPropertyAccessExpression(node.expression) ||
+      node.expression.name.text !== 'put'
+    ) {
+      return;
+    }
+    const [keyArgument, valueArgument] = node.arguments;
+    if (!keyArgument) return;
+    const normalizer = PIN_RECORD_NORMALIZERS.get(keyArgument.getText(sourceFile));
+    if (!normalizer) return;
+    writes.set(normalizer, (writes.get(normalizer) ?? 0) + 1);
+    if (
+      !valueArgument ||
+      !ts.isCallExpression(valueArgument) ||
+      !ts.isIdentifier(valueArgument.expression) ||
+      valueArgument.expression.text !== normalizer ||
+      /password|pepper/iu.test(valueArgument.getText(sourceFile))
+    ) {
+      unsafe = true;
+    }
+  });
+  for (const normalizer of PIN_RECORD_NORMALIZERS.values()) {
+    if (!writes.get(normalizer)) unsafe = true;
+  }
+  return unsafe ? [PIN_RECORD_STORAGE_ERROR] : [];
+}
+
+/**
+ * The record helpers must keep their exact-key shapes. Only the wire
+ * validator may read the frame's `password` field; no other code in the
+ * module may touch PIN material.
+ */
+function validatePinRecordShapes(membershipSource: string): string[] {
+  const errors: string[] = [];
+  for (const marker of [
+    "export const STANDARD_ROOM_PIN_MEMBERSHIP_KEY = 'standard-room-pin-membership-v1';",
+    "export const STANDARD_ROOM_PIN_FAILURES_KEY = 'standard-room-pin-failures-v1';",
+    "!hasExactKeys(value, ['v', 'roomSecretHash', 'verifierDigest', 'kept'])",
+    "!hasExactKeys(entry, ['peerId', 'secretHash'])",
+    "!hasExactKeys(value, ['v', 'entries'])",
+    "!hasExactKeys(entry, ['key', 'count', 'resetAt'])",
+    "const ATTEMPT_KEY_PURPOSE = 'MUSIXQUARE:standard-room-pin-attempt:v1';",
+  ]) {
+    if (!membershipSource.includes(marker)) {
+      errors.push(
+        `Standard room PIN record storage is missing required boundary marker: ${marker}`,
+      );
+    }
+  }
+  const sourceFile = ts.createSourceFile(
+    'standard-room-pin-membership.ts',
+    membershipSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let touchesPinMaterial = false;
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === 'validateStandardRoomPasswordSetFrame'
+    ) {
+      continue;
+    }
+    walk(statement, (node) => {
+      if (ts.isIdentifier(node) && /password/iu.test(node.text)) touchesPinMaterial = true;
+      if (ts.isStringLiteralLike(node) && /password/iu.test(node.text)) touchesPinMaterial = true;
+    });
+  }
+  if (touchesPinMaterial) errors.push(PIN_RECORD_STORAGE_ERROR);
+  return errors;
+}
+
+/**
  * Pin the Standard-room password storage boundary to a dedicated secret and a
  * verifier-only v2 record. Its opaque roomPassword compatibility token keeps
  * the legacy reader locked during rollback without retaining the PIN and must
@@ -85,12 +186,16 @@ function validateRoomPasswordWrites(workerSource: string): string[] {
 export function validateStandardRoomPinStorageBoundary({
   workerSource,
   signalingConfig,
+  membershipSource,
 }: {
   workerSource: string;
   signalingConfig: string;
+  membershipSource?: string;
 }): string[] {
   const errors: string[] = [];
   errors.push(...validateRoomPasswordWrites(workerSource));
+  errors.push(...validatePinRecordWrites(workerSource));
+  if (membershipSource !== undefined) errors.push(...validatePinRecordShapes(membershipSource));
 
   for (const marker of [
     `readonly ${PIN_PEPPER_BINDING}?: unknown;`,

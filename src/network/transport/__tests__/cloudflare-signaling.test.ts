@@ -329,6 +329,7 @@ class ContractWorkerState {
     put: async (key: string, value: unknown): Promise<void> => {
       this.values.set(key, structuredClone(value));
     },
+    delete: async (key: string): Promise<boolean> => this.values.delete(key),
     getAlarm: async (): Promise<null> => null,
     setAlarm: async (): Promise<void> => {},
     deleteAlarm: async (): Promise<void> => {},

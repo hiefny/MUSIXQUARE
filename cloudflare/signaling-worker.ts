@@ -46,6 +46,24 @@ import {
   validateIncomingMessage,
   WS_MESSAGE_MAX_BYTES,
 } from './signaling-protocol.ts';
+import {
+  MAX_KEPT_PEERS,
+  normalizeStandardRoomPinFailures,
+  normalizeStandardRoomPinMembership,
+  recordStandardRoomPinFailure,
+  STANDARD_ROOM_PIN_FAILURES_KEY,
+  STANDARD_ROOM_PIN_MEMBERSHIP_KEY,
+  STANDARD_ROOM_PIN_MEMBERSHIP_VERSION,
+  standardRoomPinAttemptKey,
+  standardRoomPinAttemptLockedFor,
+  standardRoomPinMembershipDirective,
+  standardRoomPinMembershipRoomSecretHash,
+  type StandardRoomPinExistingParticipants,
+  type StandardRoomPinFailures,
+  type StandardRoomPinKeptPeer,
+  type StandardRoomPinMembership,
+  type StandardRoomPinMembershipDirective,
+} from './standard-room-pin-membership.ts';
 
 type JsonRecord = Record<string, unknown>;
 type HeaderRecord = Record<string, string>;
@@ -264,6 +282,8 @@ interface StandardGuestPendingAttachment extends JsonRecord {
   auth: 'pending';
   authDeadline: number;
   authStarted?: boolean;
+  /** Wrong-PIN bucket for this socket's room and client address block. */
+  pinAttemptKey?: string;
   guestMessageTokens?: number;
   guestMessageUpdatedAt?: number;
 }
@@ -1580,8 +1600,14 @@ function sendChecked(ws: SocketPort, message: unknown): boolean {
   }
 }
 
-function closeWithError(ws: SocketPort, errorType: string, message: string, code = 1011): void {
-  send(ws, { type: 'error', errorType, message });
+function closeWithError(
+  ws: SocketPort,
+  errorType: string,
+  message: string,
+  code = 1011,
+  details: JsonRecord = {},
+): void {
+  send(ws, { type: 'error', errorType, message, ...details });
   try {
     ws.close(code, message);
   } catch {
@@ -2299,6 +2325,9 @@ function normalizeAttachment(value: unknown): SocketAttachment | null {
       auth: 'pending',
       authDeadline: isFiniteNumber(value.authDeadline) ? value.authDeadline : 0,
       authStarted: value.authStarted === true,
+      ...(typeof value.pinAttemptKey === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value.pinAttemptKey)
+        ? { pinAttemptKey: value.pinAttemptKey }
+        : {}),
       ...guestMessageBucket,
     };
   }
@@ -2485,6 +2514,9 @@ export class MusixquareRoom {
   private guestBindingsInvalid: boolean;
   private guestBindingsFutureVersion: boolean;
   private guestBindingsLoad: Promise<GuestBindings> | null;
+  // Lazy caches of the two additive PIN keys; undefined/null = not loaded.
+  private standardPinMembership: StandardRoomPinMembership | null | undefined;
+  private standardPinFailures: StandardRoomPinFailures | null;
   private standardRoomMembers: StandardRoomMembers | null;
   private proTicketUses: ProTicketUses | null;
   private proParticipantHighWater: ProParticipantHighWater | null;
@@ -2570,6 +2602,8 @@ export class MusixquareRoom {
     this.guestBindingsInvalid = false;
     this.guestBindingsFutureVersion = false;
     this.guestBindingsLoad = null;
+    this.standardPinMembership = undefined;
+    this.standardPinFailures = null;
     this.standardRoomMembers = null;
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
@@ -4655,7 +4689,20 @@ export class MusixquareRoom {
     // Successful previous-key verification is also the rewrap boundary. Make
     // the current-key verifier durable before guest admission so the previous
     // key can be retired without disconnecting an active protected room.
-    await this.saveRoomMeta(currentRoomMeta(meta, presentedVerifier));
+    const membership = await this.loadStandardPinMembership();
+    if (
+      !membership ||
+      !constantTimeStringEqual(membership.verifierDigest, meta.roomPasswordVerifier.digest)
+    ) {
+      await this.saveRoomMeta(currentRoomMeta(meta, presentedVerifier));
+      return true;
+    }
+    // The kept set is bound to the verifier digest. Re-stamp it in the same
+    // transaction so the rewrap never silently drops the host's exemption.
+    await this.commitStandardRoomPinState(currentRoomMeta(meta, presentedVerifier), {
+      ...membership,
+      verifierDigest: presentedVerifier.digest,
+    });
     return true;
   }
 
@@ -4680,6 +4727,8 @@ export class MusixquareRoom {
         await transaction.put(ROOM_META_KEY, roomMeta);
         await transaction.put(STANDARD_ROOM_MEMBERS_KEY, members);
         await transaction.put(GUEST_BINDINGS_KEY, bindings);
+        await transaction.delete(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
+        await transaction.delete(STANDARD_ROOM_PIN_FAILURES_KEY);
       });
     } else {
       // Test/runtime compatibility fallback. Production Durable Object storage
@@ -4687,6 +4736,8 @@ export class MusixquareRoom {
       await this.state.storage.put(ROOM_META_KEY, roomMeta);
       await this.state.storage.put(STANDARD_ROOM_MEMBERS_KEY, members);
       await this.state.storage.put(GUEST_BINDINGS_KEY, bindings);
+      await this.state.storage.delete(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
+      await this.state.storage.delete(STANDARD_ROOM_PIN_FAILURES_KEY);
     }
     this.roomMeta = roomMeta;
     this.futureRoomMetaVersion = false;
@@ -4694,7 +4745,236 @@ export class MusixquareRoom {
     this.guestBindings = bindings;
     this.guestBindingsInvalid = false;
     this.guestBindingsFutureVersion = false;
+    this.standardPinMembership = null;
+    this.standardPinFailures = normalizeStandardRoomPinFailures(undefined);
     return roomMeta;
+  }
+
+  private async loadStandardPinMembership(): Promise<StandardRoomPinMembership | null> {
+    if (this.standardPinMembership === undefined) {
+      const stored = await this.state.storage.get(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
+      this.standardPinMembership = normalizeStandardRoomPinMembership(stored);
+    }
+    return this.standardPinMembership;
+  }
+
+  private async loadStandardPinFailures(): Promise<StandardRoomPinFailures> {
+    if (!this.standardPinFailures) {
+      const stored = await this.state.storage.get(STANDARD_ROOM_PIN_FAILURES_KEY);
+      this.standardPinFailures = normalizeStandardRoomPinFailures(stored);
+    }
+    return this.standardPinFailures;
+  }
+
+  /**
+   * Commit a PIN verifier together with its kept-set record (kept peers, or
+   * none) in one storage transaction, optionally clearing every guest
+   * reconnect binding. Room meta keeps its exact v2 schema; the record lives
+   * under its own key, which an older Worker never reads.
+   */
+  private async commitStandardRoomPinState(
+    meta: CurrentRoomMeta,
+    membership: StandardRoomPinMembership | null,
+    clearGuestBindings = false,
+  ): Promise<void> {
+    if (this.futureRoomMetaVersion) {
+      throw new Error('STANDARD_ROOM_META_FUTURE_VERSION');
+    }
+    if (clearGuestBindings) {
+      await this.loadGuestBindings();
+      if (this.guestBindingsFutureVersion) {
+        throw new Error('STANDARD_ROOM_GUEST_BINDINGS_FUTURE_VERSION');
+      }
+    }
+    const roomMeta = normalizeRoomMeta(meta);
+    const kept = membership && membership.kept.length > 0 ? membership : null;
+    if (kept && !normalizeStandardRoomPinMembership(kept)) {
+      throw new Error('STANDARD_ROOM_PIN_MEMBERSHIP_INVALID');
+    }
+    const bindings = defaultGuestBindings();
+    const write = async (storage: DurableObjectStoragePort): Promise<void> => {
+      await storage.put(ROOM_META_KEY, roomMeta);
+      if (clearGuestBindings) await storage.put(GUEST_BINDINGS_KEY, bindings);
+      if (kept) {
+        await storage.put(
+          STANDARD_ROOM_PIN_MEMBERSHIP_KEY,
+          normalizeStandardRoomPinMembership(kept),
+        );
+      } else {
+        await storage.delete(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
+      }
+    };
+    if (typeof this.state.storage.transaction === 'function') {
+      await this.state.storage.transaction(write);
+    } else {
+      // Test/runtime compatibility fallback; production storage is atomic.
+      await write(this.state.storage);
+    }
+    this.roomMeta = roomMeta;
+    if (clearGuestBindings) {
+      this.guestBindings = bindings;
+      this.guestBindingsInvalid = false;
+    }
+    this.standardPinMembership = kept ? normalizeStandardRoomPinMembership(kept) : null;
+  }
+
+  /**
+   * The kept-set record re-stamped for a pepper rotation: the stored digest is
+   * this same PIN under the previous key. Anything else is not a rekey.
+   */
+  private async rekeyedStandardPinMembership(
+    stored: StandardRoomPinMembership,
+    roomId: string,
+    roomSecret: string | null,
+    password: string,
+    verifier: StandardRoomPinVerifier,
+  ): Promise<StandardRoomPinMembership | null> {
+    const previousPinPepper = standardRoomPinPepperKeyring(this.env)?.previous?.secret;
+    if (!previousPinPepper) return null;
+    const previousDigest = await createStandardRoomPinVerifierWithPepper(
+      previousPinPepper,
+      roomId,
+      roomSecret,
+      password,
+    );
+    return previousDigest && constantTimeStringEqual(stored.verifierDigest, previousDigest.digest)
+      ? { ...stored, verifierDigest: verifier.digest }
+      : null;
+  }
+
+  /**
+   * Decide the kept-set record for a room-password-set commit. undefined
+   * leaves the record untouched (the plain meta write), null deletes it.
+   */
+  private async nextStandardRoomPinMembership(
+    meta: RoomMeta,
+    roomId: string,
+    password: string,
+    verifier: StandardRoomPinVerifier | null,
+    directive: StandardRoomPinMembershipDirective | null,
+  ): Promise<StandardRoomPinMembership | null | undefined> {
+    if (directive?.mode === 'revoke_all') {
+      // Refuse before any socket is revoked: a future reconnect schema may
+      // carry authority this Worker cannot discard.
+      await this.loadGuestBindings();
+      if (this.guestBindingsFutureVersion) {
+        throw new Error('STANDARD_ROOM_GUEST_BINDINGS_FUTURE_VERSION');
+      }
+      return null;
+    }
+    if (directive?.mode === 'keep_present' && verifier && meta.roomSecret) {
+      // Copy each kept binding's secret hash so the exemption outlives the
+      // ordinary five-minute reconnect TTL while still requiring the same
+      // reconnect secret. Unbound ids keep nothing.
+      const stored = await this.loadGuestBindings();
+      const bindings = this.guestBindingsInvalid
+        ? defaultGuestBindings()
+        : this.pruneGuestBindings(stored);
+      const secretHashes = new Map(
+        bindings.entries.map((entry) => [entry.peerId, entry.secretHash]),
+      );
+      const kept: StandardRoomPinKeptPeer[] = [];
+      for (const peerId of directive.keptPeerIds) {
+        const secretHash = secretHashes.get(peerId);
+        if (secretHash && kept.length < MAX_KEPT_PEERS) kept.push({ peerId, secretHash });
+      }
+      return {
+        v: STANDARD_ROOM_PIN_MEMBERSHIP_VERSION,
+        roomSecretHash: await standardRoomPinMembershipRoomSecretHash(roomId, meta.roomSecret),
+        verifierDigest: verifier.digest,
+        kept,
+      };
+    }
+    const stored = await this.loadStandardPinMembership();
+    if (!stored) return undefined;
+    if (!verifier) return null;
+    // A legacy replay of the same PIN keeps the host's earlier choice; the
+    // same PIN under a rotated pepper re-stamps it; any other change voids it.
+    if (constantTimeStringEqual(stored.verifierDigest, verifier.digest)) return undefined;
+    return this.rekeyedStandardPinMembership(stored, roomId, meta.roomSecret, password, verifier);
+  }
+
+  /**
+   * revoke_all: remove every admitted guest socket while the PIN mutation
+   * fence is held, before the commit, so a crash can never leave a revoked
+   * socket admitted under the new PIN. Pending candidates stay: the fence
+   * refuses them and they then authenticate against the new verifier.
+   */
+  private revokeAdmittedStandardGuestsForPinChange(): void {
+    const admitted = [...this.guests];
+    for (const [peerId, socket] of admitted) {
+      this.guests.delete(peerId);
+      if (this.host) send(this.host, { type: 'peer-left', peerId });
+      closeWithError(socket, 'room-password-changed', 'ROOM_PASSWORD_CHANGED', 1008);
+    }
+    if (admitted.length > 0) this.requestMaintenanceAlarm();
+  }
+
+  /** A peer the host kept across the current PIN, proven by its reconnect secret. */
+  private async isKeptStandardRoomGuest(
+    meta: RoomMeta,
+    roomId: string,
+    peerId: string,
+    reconnectSecret: string,
+  ): Promise<boolean> {
+    if (
+      meta.v !== 2 ||
+      !meta.roomSecret ||
+      meta.roomPasswordVerifier === null ||
+      !isValidStandardRoomPinVerifier(meta.roomPasswordVerifier) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(reconnectSecret)
+    ) {
+      return false;
+    }
+    const membership = await this.loadStandardPinMembership();
+    const entry = membership?.kept.find((candidate) => candidate.peerId === peerId);
+    if (
+      !membership ||
+      !entry ||
+      !constantTimeStringEqual(membership.verifierDigest, meta.roomPasswordVerifier.digest)
+    ) {
+      return false;
+    }
+    const roomSecretHash = await standardRoomPinMembershipRoomSecretHash(roomId, meta.roomSecret);
+    if (!constantTimeStringEqual(membership.roomSecretHash, roomSecretHash)) return false;
+    const presentedHash = await hashGuestReconnectSecret(reconnectSecret);
+    return constantTimeStringEqual(presentedHash, entry.secretHash);
+  }
+
+  private async standardPinAttemptLockedForMs(pinAttemptKey: string | undefined): Promise<number> {
+    if (!pinAttemptKey) return 0;
+    try {
+      return standardRoomPinAttemptLockedFor(
+        await this.loadStandardPinFailures(),
+        pinAttemptKey,
+        Date.now(),
+      );
+    } catch (error) {
+      // The PIN check still applies; a storage read failure must not lock out
+      // every legitimate guest.
+      this.reportFailure('webSocketMessage', 'handled', error);
+      return 0;
+    }
+  }
+
+  private async recordStandardPinFailure(pinAttemptKey: string | undefined): Promise<void> {
+    if (!pinAttemptKey) return;
+    try {
+      const next = recordStandardRoomPinFailure(
+        await this.loadStandardPinFailures(),
+        pinAttemptKey,
+        Date.now(),
+      );
+      this.standardPinFailures = next;
+      await this.state.storage.put(
+        STANDARD_ROOM_PIN_FAILURES_KEY,
+        normalizeStandardRoomPinFailures(next),
+      );
+    } catch (error) {
+      // Counting is persisted so hibernation cannot reset it, but a failed
+      // write must not turn a wrong PIN into an admission or a crash.
+      this.reportFailure('webSocketMessage', 'handled', error);
+    }
   }
 
   private failStandardRoomPinMutation(
@@ -5332,13 +5612,41 @@ export class MusixquareRoom {
     if (role === 'host') {
       this.acceptPendingHost(server, roomId, peerId);
     } else if (role === 'guest') {
-      await this.acceptGuest(server, roomId, peerId);
+      await this.acceptGuest(
+        server,
+        roomId,
+        peerId,
+        await this.standardPinAttemptKeyFor(request, roomId),
+      );
     } else {
       this.acceptSocket(server, null, ['role:invalid']);
       closeWithError(server, 'invalid-id', 'INVALID_ROLE');
     }
 
     return webSocketUpgradeResponse(client);
+  }
+
+  /**
+   * Wrong-PIN bucket for a guest socket. Cloudflare sets CF-Connecting-IP on
+   * every public request; only internal hops (the HTTP bridge) lack it and
+   * share one per-room bucket. X-Forwarded-For is client-controlled and never
+   * used. Without the PIN pepper protected rooms already fail closed.
+   */
+  private async standardPinAttemptKeyFor(
+    request: Request,
+    roomId: string,
+  ): Promise<string | undefined> {
+    const pinPepper = standardRoomPinPepperKeyring(this.env)?.current.secret;
+    if (!pinPepper) return undefined;
+    try {
+      return await standardRoomPinAttemptKey(
+        pinPepper,
+        roomId,
+        request.headers.get('CF-Connecting-IP'),
+      );
+    } catch {
+      return undefined;
+    }
   }
 
   private async proDecommissionedResponse(
@@ -6054,6 +6362,8 @@ export class MusixquareRoom {
       if (isNewRoom) {
         await this.clearGuestBindings();
         await this.clearStandardRoomMembers();
+        await this.state.storage.delete(STANDARD_ROOM_PIN_MEMBERSHIP_KEY);
+        this.standardPinMembership = null;
       }
       identity = await this.resolveStandardRoomIdentity(
         accountAssertion,
@@ -6114,6 +6424,9 @@ export class MusixquareRoom {
           : {}),
         ...remoteShareUploadAssertionFeatureFields(this.env),
         ...workerVersionFields(this.env),
+        // Host-only capability: room-password-set may carry existingParticipants
+        // and keptPeerIds on this socket. Old clients ignore unknown keys.
+        standardRoomPinMembershipVersion: STANDARD_ROOM_PIN_MEMBERSHIP_VERSION,
         ...(ownsPinMutation
           ? { roomPasswordMutationId: pinMutationId, roomPasswordApplied: true }
           : {}),
@@ -6150,12 +6463,58 @@ export class MusixquareRoom {
     // current mutation after peer-open, so a newer local PIN always supersedes
     // the snapshot captured by host-auth before any guest can enter.
     if (previous && previous !== ws) closeSocket(previous, 1012, 'HOST_REPLACED');
+    if (ownsPinMutation && desiredVerifier) {
+      await this.restampStandardPinMembershipAfterHostAuth(
+        roomId,
+        secret,
+        desiredRoomPassword,
+        desiredVerifier,
+      );
+    }
     this.requestMaintenanceAlarm();
     this.recordMetric(isNewRoom ? 'room_opened' : 'host_reconnected');
     return true;
   }
 
-  private async acceptGuest(ws: SocketPort, roomId: string, peerId: string): Promise<void> {
+  /**
+   * host-auth re-commits the desired PIN. The same PIN under a rotated pepper
+   * changes the verifier digest without a PIN change, so re-stamp the kept
+   * set. Best effort: a failed write only loses the exemption (fail closed).
+   * Guest admission stays fenced until the post-peer-open confirmation.
+   */
+  private async restampStandardPinMembershipAfterHostAuth(
+    roomId: string,
+    roomSecret: string,
+    password: string,
+    verifier: StandardRoomPinVerifier,
+  ): Promise<void> {
+    try {
+      const stored = await this.loadStandardPinMembership();
+      if (!stored || constantTimeStringEqual(stored.verifierDigest, verifier.digest)) return;
+      const rekeyed = await this.rekeyedStandardPinMembership(
+        stored,
+        roomId,
+        roomSecret,
+        password,
+        verifier,
+      );
+      if (!rekeyed || !normalizeStandardRoomPinMembership(rekeyed)) return;
+      await this.state.storage.put(
+        STANDARD_ROOM_PIN_MEMBERSHIP_KEY,
+        normalizeStandardRoomPinMembership(rekeyed),
+      );
+      this.standardPinMembership = normalizeStandardRoomPinMembership(rekeyed);
+    } catch (error) {
+      this.reportFailure('webSocketMessage', 'handled', error);
+    }
+  }
+
+  private async acceptGuest(
+    ws: SocketPort,
+    roomId: string,
+    peerId: string,
+    pinAttemptKey?: string,
+  ): Promise<void> {
     const meta = await this.loadRoomMeta();
     if (this.standardRoomPinMutationFence) {
       this.acceptSocket(ws, null, ['role:guest', 'rejected:pin-mutation']);
@@ -6186,7 +6545,7 @@ export class MusixquareRoom {
     // Every guest authenticates its reconnect secret over the WebSocket frame,
     // never in the URL. The current client sends guest-auth for passwordless
     // rooms too, so this adds no user-visible round trip.
-    this.acceptPendingGuest(ws, roomId, peerId);
+    this.acceptPendingGuest(ws, roomId, peerId, pinAttemptKey);
     if (hasStandardRoomPassword(meta)) this.recordMetric('guest_auth_pending');
   }
 
@@ -6209,7 +6568,12 @@ export class MusixquareRoom {
     return false;
   }
 
-  private acceptPendingGuest(ws: SocketPort, roomId: string, peerId: string): void {
+  private acceptPendingGuest(
+    ws: SocketPort,
+    roomId: string,
+    peerId: string,
+    pinAttemptKey?: string,
+  ): void {
     const attachment: StandardGuestPendingAttachment = {
       v: ATTACHMENT_VERSION,
       role: 'guest',
@@ -6217,6 +6581,7 @@ export class MusixquareRoom {
       peerId,
       auth: 'pending',
       authDeadline: Date.now() + GUEST_AUTH_TIMEOUT_MS,
+      ...(pinAttemptKey ? { pinAttemptKey } : {}),
     };
     this.acceptSocket(ws, attachment, ['role:guest', `peer:${peerId}`, 'auth:pending']);
     this.pendingGuests.add(ws);
@@ -7320,23 +7685,46 @@ export class MusixquareRoom {
 
     const meta = await this.loadRoomMeta();
     const password = typeof message.password === 'string' ? message.password : '';
+    const reconnectSecret =
+      typeof message.reconnectSecret === 'string' ? message.reconnectSecret : '';
     const passwordRequired = hasStandardRoomPassword(meta);
-    if (passwordRequired && !password) {
+    // A device the host kept across the latest PIN change still reconnects
+    // with the PIN it entered (or none, after a first enable). The exemption
+    // is bound to this room epoch, this verifier and this reconnect secret.
+    const keptByHost =
+      passwordRequired &&
+      (await this.isKeptStandardRoomGuest(
+        meta,
+        attachment.roomId,
+        attachment.peerId,
+        reconnectSecret,
+      ));
+    if (passwordRequired && !keptByHost && !password) {
       this.pendingGuests.delete(ws);
       this.requestMaintenanceAlarm();
       this.recordMetric('guest_auth_failed');
       closeWithError(ws, 'room-password-required', 'ROOM_PASSWORD_REQUIRED');
       return;
     }
-    if (
-      passwordRequired &&
-      !(await this.verifyStandardRoomPassword(meta, attachment.roomId, password))
-    ) {
-      this.pendingGuests.delete(ws);
-      this.requestMaintenanceAlarm();
-      this.recordMetric('guest_auth_failed');
-      closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
-      return;
+    if (passwordRequired && !keptByHost) {
+      const lockedForMs = await this.standardPinAttemptLockedForMs(attachment.pinAttemptKey);
+      if (lockedForMs > 0) {
+        this.pendingGuests.delete(ws);
+        this.requestMaintenanceAlarm();
+        this.recordMetric('guest_auth_rate_limited');
+        closeWithError(ws, 'room-password-rate-limited', 'ROOM_PASSWORD_RATE_LIMITED', 1008, {
+          retryAfterSeconds: Math.max(1, Math.ceil(lockedForMs / 1000)),
+        });
+        return;
+      }
+      if (!(await this.verifyStandardRoomPassword(meta, attachment.roomId, password))) {
+        await this.recordStandardPinFailure(attachment.pinAttemptKey);
+        this.pendingGuests.delete(ws);
+        this.requestMaintenanceAlarm();
+        this.recordMetric('guest_auth_failed');
+        closeWithError(ws, 'room-password-invalid', 'ROOM_PASSWORD_INVALID');
+        return;
+      }
     }
 
     // Socket admission and frame authentication are separate events. Recheck
@@ -7360,8 +7748,6 @@ export class MusixquareRoom {
     }
     const bindings = this.pruneGuestBindings(storedBindings);
     const existingBinding = bindings.entries.find((entry) => entry.peerId === attachment.peerId);
-    const reconnectSecret =
-      typeof message.reconnectSecret === 'string' ? message.reconnectSecret : '';
     if (existingBinding) {
       const presentedHash = await hashGuestReconnectSecret(reconnectSecret);
       if (!constantTimeStringEqual(presentedHash, existingBinding.secretHash)) {
@@ -7564,12 +7950,35 @@ export class MusixquareRoom {
             throw new Error('STANDARD_ROOM_PIN_PEPPER_UNAVAILABLE');
           }
         }
+        // Validation admits membership fields only with an 8-digit PIN and a
+        // mutation ID, and the App sends them only to a socket whose peer-open
+        // advertised this Worker's membership version.
+        const directive = verifier ? standardRoomPinMembershipDirective(message) : null;
         try {
-          await this.saveRoomMeta(currentRoomMeta(meta, verifier));
+          const membership = await this.nextStandardRoomPinMembership(
+            meta,
+            attachment.roomId,
+            password,
+            verifier,
+            directive,
+          );
+          if (membership === undefined) {
+            await this.saveRoomMeta(currentRoomMeta(meta, verifier));
+          } else {
+            const revokeAll = directive?.mode === 'revoke_all';
+            if (revokeAll) this.revokeAdmittedStandardGuestsForPinChange();
+            await this.commitStandardRoomPinState(
+              currentRoomMeta(meta, verifier),
+              membership,
+              revokeAll,
+            );
+          }
         } catch (error) {
           this.failStandardRoomPinMutation(ws, pinMutationId, 'ROOM_PASSWORD_STORAGE_UNAVAILABLE');
           throw error;
         }
+        const existingParticipants: StandardRoomPinExistingParticipants | null =
+          directive?.mode ?? null;
         // Other host-only work (notably Remote Share assertion rate limiting)
         // can update this hibernation attachment while the storage write
         // yields. Clear only the compatibility bit on the latest live value;
@@ -7607,6 +8016,7 @@ export class MusixquareRoom {
             type: 'room-password-result',
             mutationId: pinMutationId,
             applied: true,
+            ...(existingParticipants ? { existingParticipants } : {}),
           });
         }
       });

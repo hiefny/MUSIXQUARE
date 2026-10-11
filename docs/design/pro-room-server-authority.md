@@ -407,15 +407,29 @@ remains, owner departure or browser suspension does not pause the playlist.
 The Durable Object resolves finite media duration from immutable R2 object
 bytes or the App Worker's signed, private YouTube metadata service. A
 playback-authorized browser may additionally attest its decoded **file** length
-in the exact PREPARE READY response; ordinary listeners and iframe durations
-cannot set the server's ending boundary. Stored evidence is bounded and tied to
-the exact queue occurrence, source asset/version, or YouTube video/subindex.
+in the exact PREPARE READY response or a separate, active-session asset-duration
+report after a slow preparation or late join. Ordinary listeners and iframe
+durations cannot set the server's ending boundary. File evidence is private
+metadata bound to the immutable asset version, byte length and room generation;
+the bounded queue-occurrence cache is reconstructed from it when needed.
+YouTube evidence remains bound to the video/subindex and expires as before.
+
+New browser uploads inspect bounded local metadata alongside the PUT. Only an
+uploader with `playback.control` may persist the optional length; upload-only
+permission does not confer timing authority. Missing metadata, including
+Developer API uploads, queues one bounded server inspection. Existing rooms
+migrate verified queue evidence lazily and learn other lengths during playback
+inspection or authorized preparation, without reupload or playlist reset.
+Decoded controller evidence takes precedence over server evidence and upload
+headers. Neither a metadata timeout nor an unsupported format rejects an
+otherwise successful upload. Optional metadata is omitted near room-state
+capacity rather than making an existing room unloadable.
 
 The next Durable Object alarm includes the canonical anchor's ending time.
 After pruning expired presence, the alarm advances through the same reducer,
 PREPARE/COMMIT, and durable broadcast outbox as authorized browser observations.
 Pending manual transitions, explicit pause, an empty room, and system audio
-suppress this timer. Server-parsed lengths have two seconds of conservative
+suppress this timer. Server-parsed and upload-header lengths have two seconds of conservative
 grace for container padding and YouTube duration rounding; controller-attested
 decoded file lengths do not need that grace. Browser ENDED can still settle
 the boundary sooner. A new seek/selection/repeat revision cannot inherit an old
@@ -432,6 +446,8 @@ An old YouTube playlist without a traversal manifest ends in a canonical
 paused state when its next internal video cannot be resolved. No ordinary
 participant gains manual playback control. See the
 [implementation and verification record](pro-autonomous-playback-2026-10-12.md).
+File registration and legacy backfill are covered in the
+[duration persistence record](pro-file-duration-registration-2026-10-12.md).
 
 Queue traversal, shuffle, repeat-one, repeat-all, and YouTube playlist
 sub-index selection are server reducer operations. UI controls, ENDED reports,

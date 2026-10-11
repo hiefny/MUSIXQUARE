@@ -145,6 +145,104 @@ function makeDownloadResponse(chunks: Uint8Array[], contentLength: string | null
 }
 
 describe('PRO room direct R2 upload orchestration', () => {
+  function durationUpload(
+    probeDuration: (file: Blob, signal?: AbortSignal) => Promise<number | null>,
+    signal?: AbortSignal,
+  ) {
+    const harness = apiHarness();
+    harness.createMediaReservation.mockResolvedValue(reservation());
+    harness.completeMedia.mockResolvedValue({ asset: source(), quota });
+    harness.deleteMedia.mockResolvedValue({ assetId: ASSET_ID, quota });
+    const xhr = new FakeXhr();
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory: () => xhr as unknown as XMLHttpRequest,
+      probeDuration,
+    });
+    const pending = transfer.upload({
+      code: ROOM_CODE,
+      file: new File(['data'], 'track.flac'),
+      signal,
+    });
+    return { ...harness, xhr, pending };
+  }
+
+  it('collects optional duration alongside the PUT and retains it across long uploads', async () => {
+    vi.useFakeTimers();
+    const probe = vi.fn(async () => 123.45);
+    const h = durationUpload(probe);
+    await waitForSend(h.xhr);
+    expect(probe).toHaveBeenCalledOnce();
+    expect(h.completeMedia).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(6000);
+    finishPut(h.xhr);
+    await h.pending;
+    expect(h.completeMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ durationSeconds: 123.45 }),
+      undefined,
+    );
+  });
+
+  it('caps unfinished metadata at a 250ms tail and cancels it without failing the upload', async () => {
+    vi.useFakeTimers();
+    const probe = vi.fn(
+      (_file: Blob, _signal?: AbortSignal) => new Promise<number | null>(() => undefined),
+    );
+    const h = durationUpload(probe);
+    await waitForSend(h.xhr);
+    finishPut(h.xhr);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(h.completeMedia).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await h.pending;
+    expect(h.completeMedia).toHaveBeenCalledOnce();
+    expect(h.completeMedia.mock.calls[0]?.[0]).not.toHaveProperty('durationSeconds');
+    expect(probe.mock.calls[0]?.[1]?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels metadata immediately when the PUT fails and cleans its reservation', async () => {
+    const probe = vi.fn(
+      (_file: Blob, _signal?: AbortSignal) => new Promise<number | null>(() => undefined),
+    );
+    const h = durationUpload(probe);
+    const failed = expect(h.pending).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_UPLOAD_HTTP_500',
+    });
+    await waitForSend(h.xhr);
+    finishPut(h.xhr, 500);
+    await failed;
+    expect(probe.mock.calls[0]?.[1]?.aborted).toBe(true);
+    expect(h.deleteMedia).toHaveBeenCalledOnce();
+    expect(h.completeMedia).not.toHaveBeenCalled();
+  });
+
+  it('does not complete an upload cancelled while waiting for metadata', async () => {
+    const controller = new AbortController();
+    const probe = vi.fn(
+      (_file: Blob, _signal?: AbortSignal) => new Promise<number | null>(() => undefined),
+    );
+    const h = durationUpload(probe, controller.signal);
+    const failed = expect(h.pending).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_ABORTED' });
+    await waitForSend(h.xhr);
+    finishPut(h.xhr);
+    controller.abort();
+    await failed;
+    expect(probe.mock.calls[0]?.[1]?.aborted).toBe(true);
+    expect(h.completeMedia).not.toHaveBeenCalled();
+  });
+
+  it.each([null, 0, -1, Infinity, NaN, 604801])(
+    'omits unusable optional duration %s',
+    async (value) => {
+      const h = durationUpload(async () => value);
+      await waitForSend(h.xhr);
+      finishPut(h.xhr);
+      await h.pending;
+      expect(h.completeMedia.mock.calls[0]?.[0]).not.toHaveProperty('durationSeconds');
+    },
+  );
+
   it('reserves, PUTs with exact signed headers, completes, reports progress, and caches RAM bytes', async () => {
     const harness = apiHarness();
     harness.createMediaReservation.mockResolvedValue(reservation());

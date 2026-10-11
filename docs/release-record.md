@@ -144,6 +144,9 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   서버 자연 종료 경로를 추가했으며, 길이를 검증할 수 없는 파일·라이브·조회가
   불확실한 YouTube는 임의 종료하지 않는다. 실기 확인은 자동화로 대신하지 않는다.
   [구현·검증·한계](design/pro-autonomous-playback-2026-10-12.md)
+  등록 시 길이 확보와 기존 파일의 점진적 보완도 같은 실기 확인 대상이다.
+  분석 불가 형식은 권한 기기의 준비 완료 전까지 미확정으로 남는다.
+  [등록·보완 근거](design/pro-file-duration-registration-2026-10-12.md)
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
   포커스를 받는다. 8.7.8 이전부터 있던 문제다.
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전
@@ -193,6 +196,15 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 버전과 캐시 번호는 앞으로만 올린다. 아래는 지금 유효한 복구 경계다. PRO 선택형
 입장 암호 floor의 정본은 hotfix-procedure의 "Optional PRO entry passwords"
 문단이고, 아래는 요약이다.
+
+- **PRO 파일 길이 저장(8.9.6):** App·PRO 함께 `all`로 배포한다. 새 비밀·바인딩·D1
+  마이그레이션·복구 floor는 없다. 기존 파일의 private asset metadata를 점진적으로
+  보완하고 업로드나 재생목록을 초기화하지 않는다. 이전 PRO에 대한 업로드 완료의
+  선택적 길이 필드는 400 `INVALID_REQUEST`에서만 한 번 제외해 재시도한다.
+  추가 길이 보고는 실패해도 재생을 막지 않으며, 구 서버의 404 `NOT_FOUND`는 해당
+  클라이언트 수명 동안 생략한다. 8.9.5로 복구하면 새 필드는 사용하지 않고 기존
+  큐 캐시·서버 조회·READY 경로로 돌아간다.
+  [상세](design/pro-file-duration-registration-2026-10-12.md)
 
 - **PRO 자율 재생(8.9.5):** App과 PRO를 함께 배포(`all`)한다. 새
   `PRO_YOUTUBE_METADATA` 서비스 바인딩은 기존 App의 YouTube 키와 기존 공유

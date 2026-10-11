@@ -14,6 +14,7 @@ import {
 } from './contracts.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import { ProRoomAssetCache } from './media-cache.ts';
+import { probeProRoomUploadDuration } from './upload-duration.ts';
 import {
   cancelResponseBody,
   createIdleWatchdog,
@@ -87,6 +88,7 @@ class ProRoomMediaTransferError extends Error {
 
 type XhrFactory = () => XMLHttpRequest;
 type IdempotencyKeyFactory = () => string;
+type DurationProbe = (file: Blob, signal?: AbortSignal) => Promise<number | null>;
 const OPAQUE_ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const PRO_ROOM_MEDIA_MIME_RE =
   /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
@@ -416,6 +418,7 @@ export class ProRoomMediaTransfer {
   readonly #fetch: typeof fetch;
   readonly #xhrFactory: XhrFactory;
   readonly #createIdempotencyKey: IdempotencyKeyFactory;
+  readonly #probeDuration: DurationProbe;
 
   constructor(options: {
     api: ProRoomMediaApi;
@@ -423,12 +426,14 @@ export class ProRoomMediaTransfer {
     fetch?: typeof fetch;
     xhrFactory?: XhrFactory;
     createIdempotencyKey?: IdempotencyKeyFactory;
+    probeDuration?: DurationProbe;
   }) {
     this.#api = options.api;
     this.#cache = options.cache ?? new ProRoomAssetCache();
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#xhrFactory = options.xhrFactory ?? (() => new XMLHttpRequest());
     this.#createIdempotencyKey = options.createIdempotencyKey ?? createProRoomIdempotencyKey;
+    this.#probeDuration = options.probeDuration ?? probeProRoomUploadDuration;
   }
 
   get cache(): ProRoomAssetCache {
@@ -460,6 +465,22 @@ export class ProRoomMediaTransfer {
     );
     validateReservation(reservation, input.file.size);
 
+    const metadataScope = createLinkedAbortScope(input.signal, 5000);
+    const metadataResult: { settled: boolean; value: number | null } = {
+      settled: false,
+      value: null,
+    };
+    // Metadata work overlaps the upload and never owns its success. Even an
+    // unsupported file or a stuck metadata reader must still complete its PUT.
+    const metadata = Promise.resolve()
+      .then(() => this.#probeDuration(input.file, metadataScope.signal))
+      .catch(() => null)
+      .then((value) => {
+        metadataResult.settled = true;
+        metadataResult.value = value;
+        return value;
+      });
+    let durationSeconds: number | null;
     try {
       throwIfAborted(input.signal);
       await directPut(
@@ -470,6 +491,16 @@ export class ProRoomMediaTransfer {
         report,
         input.signal,
       );
+      // A tiny file can finish before its metadata. Give it a short tail, not
+      // the full probe budget, then leave unknown duration to server/READY.
+      const tailScope = createLinkedAbortScope(metadataScope.signal, 250);
+      try {
+        durationSeconds = metadataResult.settled
+          ? metadataResult.value
+          : await raceWithAbortSignal(metadata, tailScope.signal).catch(() => null);
+      } finally {
+        tailScope.cleanup();
+      }
     } catch (error) {
       // A failed PUT cannot have a trusted completed asset. Ask the server to
       // release the reservation, without delaying the caller's cancellation.
@@ -481,8 +512,12 @@ export class ProRoomMediaTransfer {
         })
         .catch(() => undefined);
       throw error;
+    } finally {
+      metadataScope.abort();
+      metadataScope.cleanup();
     }
 
+    throwIfAborted(input.signal);
     // Do not delete after an ambiguous completion failure: the idempotent
     // server operation may already have committed, and cleanup could destroy a
     // playlist asset whose success response was merely lost.
@@ -491,6 +526,12 @@ export class ProRoomMediaTransfer {
         code: input.code,
         assetId: reservation.assetId,
         idempotencyKey: this.#createIdempotencyKey(),
+        ...(typeof durationSeconds === 'number' &&
+        Number.isFinite(durationSeconds) &&
+        durationSeconds > 0 &&
+        durationSeconds <= 7 * 24 * 60 * 60
+          ? { durationSeconds }
+          : {}),
       },
       input.signal,
     );

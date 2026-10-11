@@ -716,6 +716,7 @@ export function hasCancelledProPlaybackCheckpointRecovery(
 export async function recoverCancelledProPlaybackCheckpoint(
   request: Readonly<ProPlaybackCommitRequest>,
   refreshTiming: () => Pick<ProPlaybackCommitRequest, 'positionSeconds' | 'scheduleDelayMs'>,
+  onPrepared?: (result: Extract<ProPlaybackPrepareResult, { status: 'ready' }>) => void,
 ): Promise<ProPlaybackCommitResult> {
   if (!isProPlaybackAuthorityToken(request.authority)) {
     throw new TypeError('A server authority token is required');
@@ -804,6 +805,13 @@ export async function recoverCancelledProPlaybackCheckpoint(
     });
     if (!isCurrent() || activePreparation !== pending) return rejected();
     if (result.status === 'applied') {
+      // Observe only the successful current recovery, never a cancelled
+      // predecessor. Optional metadata reporting cannot fail media playback.
+      try {
+        onPrepared?.(prepared);
+      } catch {
+        // Recovery already succeeded; metadata remains best-effort.
+      }
       latestApplied = request.authority;
       highestCommittedPlaybackRevision = request.committedPlaybackRevision;
       activePreparation = null;

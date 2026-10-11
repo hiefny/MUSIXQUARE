@@ -23,6 +23,31 @@ function memoryBucket(bytes: Uint8Array, logicalSize = bytes.length) {
 }
 
 describe('trusted PRO file duration from bounded R2 ranges', () => {
+  it('does not open a range when its caller already cancelled metadata work', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const bucket = memoryBucket(new Uint8Array(100));
+    expect(await readProRoomFileDuration(bucket, 'object', 100, controller.signal)).toBeNull();
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it('settles immediately on caller cancellation and cancels a late object body', async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    let finish!: (value: { size: number; body: ReadableStream<Uint8Array> }) => void;
+    const get = vi.fn(
+      () =>
+        new Promise<{ size: number; body: ReadableStream<Uint8Array> }>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = readProRoomFileDuration({ get }, 'object', 100, controller.signal);
+    controller.abort();
+    expect(await pending).toBeNull();
+    finish({ size: 100, body: new ReadableStream<Uint8Array>({ cancel }) });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  });
+
   it.each([
     ['test-01.mp3', 87.48],
     ['large-audio-chirp.mp3', 5.041633],

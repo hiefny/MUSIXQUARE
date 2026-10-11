@@ -2538,6 +2538,7 @@ const playbackController = new ProRoomPlaybackController({
   runHeartbeat: (force, includePersistedState, playbackIsCurrent) =>
     runHeartbeat(force, includePersistedState, playbackIsCurrent),
   reportPlaybackTransitionReady: (input) => api.reportPlaybackTransitionReady(input),
+  reportMediaDuration: (input, signal) => api.reportMediaDuration(input, signal),
   executePlaybackCommand: (input, signal) => api.executePlaybackCommand(input, signal),
   recoverTerminalSession: (error) => recoverTerminalSession(error),
 });

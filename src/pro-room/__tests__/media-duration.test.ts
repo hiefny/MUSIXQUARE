@@ -196,6 +196,56 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
         await readProRoomFileDuration(memoryBucket(joined), 'vbri-joined', joined.length),
       ).toBeCloseTo(scanned(30), 6);
     });
+
+    describe('VBRI stream byte counts', () => {
+      // At 128 kbps the largest-frame bound alone admits counts far below the
+      // 29 audio frames here, so only the declared byte count can refuse them.
+      const frameBytes = 417;
+      const frame = () => {
+        const bytes = new Uint8Array(frameBytes);
+        bytes.set([0xff, 0xfb, 0x90, 0x64]);
+        return bytes;
+      };
+      const vbri = (frames: number, streamBytes: number) => {
+        const bytes = frame();
+        bytes.set(new TextEncoder().encode('VBRI'), 36);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(46, streamBytes);
+        view.setUint32(50, frames);
+        return bytes;
+      };
+      const read = (...parts: Uint8Array[]) => {
+        const bytes = concatenate(...parts);
+        return readProRoomFileDuration(memoryBucket(bytes), 'vbri-bytes', bytes.length);
+      };
+      const audio = () => Array.from({ length: 29 }, frame);
+      const id3 = (tagBytes: number) => {
+        const tag = new Uint8Array(10 + tagBytes);
+        tag.set(new TextEncoder().encode('ID3'));
+        tag.set([3, 0, 0, 0, 0, tagBytes >> 7, tagBytes & 127], 3);
+        return tag;
+      };
+
+      it.each([
+        ['matches the audio span within 1/16', 0, 30 * frameBytes + 700],
+        ['also counts the leading ID3 tag', 1_000, 1_010 + 30 * frameBytes],
+      ])('trusts a frame count whose byte count %s', async (_label, tagBytes, streamBytes) => {
+        const tag = tagBytes ? [id3(tagBytes)] : [];
+        expect(await read(...tag, vbri(29, streamBytes), ...audio())).toBe(scanned(29));
+      });
+
+      it.each([
+        ['describes a shorter first part', 25, 26 * frameBytes],
+        ['exceeds the audio span by more than 1/16', 29, 30 * frameBytes + 800],
+        ['falls short of the audio span by more than 1/16', 29, 28 * frameBytes],
+      ])('scans instead of trusting a byte count that %s', async (_label, frames, streamBytes) => {
+        expect(await read(vbri(frames, streamBytes), ...audio())).toBeCloseTo(scanned(30), 6);
+      });
+
+      it('stays unknown when a refused count leaves an unscannable continuation', async () => {
+        expect(await read(vbri(25, 26 * frameBytes), ...audio(), new Uint8Array(500))).toBeNull();
+      });
+    });
   });
 
   describe('320 kbps CBR MP3 with trailing tags', () => {

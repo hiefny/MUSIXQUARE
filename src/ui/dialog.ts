@@ -197,6 +197,9 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // a page swap, so a double click or double tap cannot press both.
 const STEP_SWAP_ACTION_GUARD_MS = 400;
 
+// Relative offset (css/style.css) that keeps a stepped panel's top edge still.
+const STEP_OFFSET_PROPERTY = '--dialog-step-offset';
+
 /** The language list's check mark, so both selection lists read the same. */
 function createChoiceCheck(): HTMLSpanElement {
   const check = document.createElement('span');
@@ -586,15 +589,48 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   };
 
   _dialogActive = { resolve, prevFocus, cleanup };
+
+  // The centred panel would re-centre when the taller choice page replaces
+  // the first page, moving the title up. Keep its top edge where the first
+  // page put it instead, so the title stays in place and the page grows
+  // downwards; where the viewport is too short for that, move up only as far
+  // as needed to keep the whole panel inside the overlay. A resize or locale
+  // change re-centres it, and the next swap anchors again.
+  let stepAnchorTop: number | null = null;
+  const resetStepOffset = () => {
+    stepAnchorTop = null;
+    dialogPanel?.style.removeProperty(STEP_OFFSET_PROPERTY);
+  };
+  const anchorStepPanel = () => {
+    // Layout offsets, not client rects: the slide-in transform may still run.
+    if (dialogPanel && stepAnchorTop === null) stepAnchorTop = dialogPanel.offsetTop;
+  };
+  const alignStepPanel = () => {
+    if (!dialogPanel || stepAnchorTop === null) return;
+    dialogPanel.style.removeProperty(STEP_OFFSET_PROPERTY);
+    const overlayStyle = getComputedStyle(overlay);
+    const minTop = parseFloat(overlayStyle.paddingTop) || 0;
+    const maxTop =
+      overlay.clientHeight -
+      (parseFloat(overlayStyle.paddingBottom) || 0) -
+      dialogPanel.offsetHeight;
+    const top = Math.min(Math.max(stepAnchorTop, minTop), Math.max(minTop, maxTop));
+    const offset = Math.round(top - dialogPanel.offsetTop);
+    if (offset !== 0) dialogPanel.style.setProperty(STEP_OFFSET_PROPERTY, `${offset}px`);
+  };
+
   if (choice) {
-    // Both pages share the short-viewport spacing, so the title stays put.
+    // Both pages share the short-viewport spacing, so the title keeps its
+    // offset inside the panel.
     overlay.classList.add('dialog-stepped');
     cleanup.push(() => {
       overlay.classList.remove('dialog-stepped');
+      resetStepOffset();
       choice.destroy();
       msgEl.hidden = false;
       dialogPanel?.setAttribute('aria-describedby', msgEl.id);
     });
+    on(window, 'resize', resetStepOffset);
   }
 
   // The choice page swaps the title and both actions in place; the first
@@ -652,6 +688,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       }
       if (choice) {
         choice.refresh();
+        resetStepOffset();
         choice.updateEdges();
       }
     }),
@@ -722,10 +759,12 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     if (!choice) return;
     choicePageShown = true;
     pageSwappedAt = Date.now();
+    anchorStepPanel();
     msgEl.hidden = true;
     choice.frame.hidden = false;
     dialogPanel?.removeAttribute('aria-describedby');
     applyPageCopy();
+    alignStepPanel();
     resetPageScroll();
     choice.updateEdges();
     const target = choice.focusTarget();
@@ -742,6 +781,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     msgEl.hidden = false;
     dialogPanel?.setAttribute('aria-describedby', msgEl.id);
     applyPageCopy();
+    alignStepPanel();
     resetPageScroll();
     const target = (_dialogInputFocusTarget || _dialogInput || okBtn) as HTMLElement;
     target.focus({ preventScroll: true });
@@ -800,9 +840,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   });
 
   if (choice) {
-    // The taller choice page re-centres, so the second press of a double
-    // press on Next can land on a row instead of OK. Keep the default then.
-    // Arrow keys fire clicks with no pointer detail; they stay immediate.
+    // The taller choice page moves the actions down, so the second press of a
+    // double press on Next can land on a row instead of OK. Keep the default
+    // then. Arrow keys fire clicks with no pointer detail; they stay immediate.
     on(choice.list, 'click', (e) => {
       if (justSwappedPage() && (e as MouseEvent).detail > 0) e.preventDefault();
     });

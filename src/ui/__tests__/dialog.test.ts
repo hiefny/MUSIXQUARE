@@ -1019,7 +1019,13 @@ describe('Dialog System', () => {
       await Promise.resolve();
       expect(frame().hidden).toBe(false);
       expect(resolved).not.toHaveBeenCalled();
-      // The taller page re-centres; a second press landing on a row keeps the default.
+      // The actions move down; a second press landing on a row keeps the
+      // default, whether it hits the row's radio (which covers the row) or
+      // its label.
+      radios()[1]!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }),
+      );
+      expect(radios().map((radio) => radio.checked)).toEqual([true, false]);
       radios()[1]!
         .closest('label')!
         .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
@@ -1109,6 +1115,74 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
 
+    it('keeps the panel top edge still across page swaps where the viewport has room', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const panel = wrapInPanel();
+      const overlay = document.getElementById('dialog-overlay')!;
+      // A centred flex panel: page 1 is 300px tall, page 2 is 390px (451px in
+      // the short viewport). The relative offset moves it from that centre.
+      let viewportHeight = 844;
+      let choiceHeight = 390;
+      overlay.style.paddingTop = '24px';
+      overlay.style.paddingBottom = '24px';
+      Object.defineProperty(overlay, 'clientHeight', {
+        get: () => viewportHeight,
+        configurable: true,
+      });
+      const height = () => (frame().hidden ? 300 : choiceHeight);
+      const offset = () => panel.style.getPropertyValue('--dialog-step-offset');
+      Object.defineProperty(panel, 'offsetHeight', { get: height, configurable: true });
+      Object.defineProperty(panel, 'offsetTop', {
+        get: () => (viewportHeight - height()) / 2 + (parseFloat(offset()) || 0),
+        configurable: true,
+      });
+      const promise = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        choiceStep,
+      });
+      vi.advanceTimersByTime(10);
+      fillPin('1234', '5678');
+      expect(panel.offsetTop).toBe(272);
+
+      // Room below: page 2 keeps page 1's top edge (272), not its centre (227).
+      ok().click();
+      expect(offset()).toBe('45px');
+      expect(panel.offsetTop).toBe(272);
+      // Back: page 1 is centred at that edge again, with no offset.
+      afterSwap();
+      secondary().click();
+      expect(offset()).toBe('');
+      expect(panel.offsetTop).toBe(272);
+
+      // A short viewport moves the panel up only as far as it must:
+      // 568 - 24 - 451 = 93, so page 2 sits 35px below its centre (58.5).
+      viewportHeight = 568;
+      choiceHeight = 451;
+      window.dispatchEvent(new Event('resize'));
+      afterSwap();
+      ok().click();
+      expect(offset()).toBe('35px');
+      expect(panel.offsetTop).toBeCloseTo(93.5, 5);
+      expect(panel.offsetTop + height()).toBeLessThanOrEqual(568 - 24 + 0.5);
+
+      // A resize re-centres the page, and closing leaves no offset behind.
+      window.dispatchEvent(new Event('resize'));
+      expect(offset()).toBe('');
+      afterSwap();
+      secondary().click();
+      expect(offset()).toBe('');
+      afterSwap();
+      ok().click();
+      expect(offset()).toBe('35px');
+      closeDialog('secondary');
+      await promise;
+      expect(offset()).toBe('');
+      vi.advanceTimersByTime(10);
+    });
+
     it('tears the page down on close and abort so the next dialog has no choice', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       const panel = wrapInPanel();
@@ -1186,6 +1260,10 @@ describe('Dialog System', () => {
       expect(surface).toContain('border-radius: var(--radius-m)');
       expect(surface).toContain('justify-content: space-between');
       expect(surface).toContain('min-block-size: 52px');
+      // Forced colors paint the transparent border, as on the language rows;
+      // the 1px smaller padding keeps the row height.
+      expect(surface).toContain('border: 1px solid transparent');
+      expect(surface).toMatch(/padding-block: 13px;\s*padding-inline: 13px;/);
       expect(block('.dialog-choice-radio:checked + .dialog-choice-surface')).toMatch(
         /background: var\(--surface-2\);[^}]*color: var\(--primary\);/s,
       );
@@ -1195,10 +1273,20 @@ describe('Dialog System', () => {
       expect(block('.dialog-choice-radio:focus-visible + .dialog-choice-surface')).toContain(
         'outline: 2px solid var(--primary)',
       );
-      // The native radio stays focusable and announced but is not painted.
+      // The native radio stays focusable and announced but is not painted. It
+      // covers the whole row, so touch exploration, the screen reader's focus
+      // outline and scroll-into-view use the row's bounds, and taps hit it.
       const radio = block('.dialog-choice-radio');
       expect(radio).toContain('opacity: 0');
-      expect(radio).not.toMatch(/display:\s*none|visibility:\s*hidden/);
+      expect(radio).not.toMatch(/display:\s*none|visibility:\s*hidden|pointer-events:\s*none/);
+      expect(radio).toMatch(/top: 0;\s*left: 0;\s*width: 100%;\s*height: 100%;/);
+      expect(radio).not.toMatch(/\b(?:inline|block)-size:\s*1px/);
+      // A wrapped step-2 question uses the row labels' line height.
+      expect(block('#dialog-overlay.dialog-stepped .dialog-title')).toContain('line-height: 1.3');
+      // The panel keeps its top edge across page swaps through a relative offset.
+      expect(block('#dialog-overlay.dialog-stepped .dialog')).toMatch(
+        /position: relative;\s*top: var\(--dialog-step-offset, 0px\);/,
+      );
       // Only the list scrolls in short landscape viewports; actions stay put.
       expect(block('.dialog-choice-list')).toContain('overflow-y: auto');
       expect(block('#dialog-overlay .dialog > .dialog-choice-frame')).toContain('flex-shrink: 1');
@@ -1207,16 +1295,25 @@ describe('Dialog System', () => {
       expect(STYLE_SOURCE).toMatch(
         /\.dialog-choice-list\.can-scroll-down ~ \.dialog-choice-edge-bottom \{\s*opacity: 1;/,
       );
+      // The radio's full-width stretch is the one direction-neutral physical
+      // offset; everything else stays logical so RTL mirrors the rows.
       const choiceRules = STYLE_SOURCE.slice(
         STYLE_SOURCE.indexOf('.dialog-choice-frame {'),
         STYLE_SOURCE.indexOf('.dialog-choice-check svg {'),
-      );
+      ).replace(radio, '');
       expect(choiceRules).not.toMatch(
         /(?:margin|padding|inset)-(?:left|right)|text-align: (?:left|right)|\b(?:left|right):/,
       );
       // Inline offsets and uneven inline shorthands compile to :is() fallbacks
       // that the Chromium 79 (legacy TV) build rejects.
       expect(choiceRules).not.toMatch(/inset-inline|(?:padding|margin)-inline:\s*\S+\s+\S+;/);
+      // Forced colors outline the chosen row like the active language row.
+      const forced = STYLE_SOURCE.slice(
+        STYLE_SOURCE.lastIndexOf('@media (forced-colors: active) {'),
+      );
+      expect(forced).toMatch(
+        /\.dialog-choice-radio:checked \+ \.dialog-choice-surface \{\s*border-color: Highlight !important;/,
+      );
     });
 
     it('lets Japanese and Chinese choice copy wrap between characters', () => {
@@ -1240,6 +1337,7 @@ describe('Dialog System', () => {
       const media = STYLE_SOURCE.slice(start, STYLE_SOURCE.indexOf('\n  }\n', start));
       expect(media).toMatch(/#dialog-overlay\.dialog-stepped \{\s*padding-block: 12px;/);
       expect(media).toContain('max-height: calc(100dvh - 24px)');
+      expect(media).toMatch(/\.dialog-choice-surface \{\s*padding-block: 11px;/);
       expect(media).toMatch(/\.dialog-actions > button \{\s*min-height: 48px;/);
     });
   });

@@ -254,7 +254,13 @@ test('owner sets the PIN, then chooses who stays on a second page', async ({ pag
   await expect(next).toHaveText('Next');
   await segments.first().fill('0000');
   await segments.last().fill('0034');
+  await settleDialog(page);
+  const titleTop = async () => (await title.boundingBox())!.y;
+  const stepOneTitleTop = await titleTop();
   await next.click();
+  await settleDialog(page);
+  // The taller step 2 grows downwards: the title stays where it was.
+  expect(Math.abs((await titleTop()) - stepOneTitleTop)).toBeLessThanOrEqual(1);
 
   // Step 2 replaces the title, has no subtitle, and keeps people by default.
   await expect(title).toHaveText('What should happen to current participants?');
@@ -267,6 +273,9 @@ test('owner sets the PIN, then chooses who stays on a second page', async ({ pag
   await expect(next).toHaveText('OK');
   await expect(checks.first()).toHaveCSS('opacity', '1');
   await expect(checks.last()).toHaveCSS('opacity', '0');
+  // Each row's transparent radio covers the row, so touch exploration, the
+  // screen reader's focus outline and taps all land on the radio itself.
+  expect(await radioUnderRowCentres(page)).toEqual([true, true]);
   expect(state.changes).toEqual([]);
   await afterPageSwap(page);
   await next.click();
@@ -321,6 +330,22 @@ test('owner sets the PIN, then chooses who stays on a second page', async ({ pag
   await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/);
   expect(state.changes).toHaveLength(2);
 });
+
+// Whether the point at each visible row's centre hit-tests to that row's radio.
+function radioUnderRowCentres(page: Page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('.dialog-choice-option')].map((row) => {
+      const rect = row.getBoundingClientRect();
+      const radio = row.querySelector('.dialog-choice-radio');
+      const radioRect = radio!.getBoundingClientRect();
+      return (
+        document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === radio &&
+        Math.abs(radioRect.width - rect.width) < 0.5 &&
+        Math.abs(radioRect.height - rect.height) < 0.5
+      );
+    }),
+  );
+}
 
 async function settleDialog(page: Page) {
   await page.waitForFunction(() =>
@@ -405,5 +430,7 @@ for (const viewport of [
       page.locator('input[name="pro-pin-existing-participants"][value="revoke_all"]'),
     ).toBeChecked();
     expect((await measureDialog(page)).okHit).toBe(true);
+    // The chosen row was scrolled fully into view and its radio covers it.
+    expect((await radioUnderRowCentres(page))[1]).toBe(true);
   });
 }

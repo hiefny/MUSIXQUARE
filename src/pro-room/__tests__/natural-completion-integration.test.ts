@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PRO_ROOM_FILE_DURATION_READER } from '../../../cloudflare/pro-room-media-duration.ts';
 import { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
 
 const metadata = vi.hoisted(() => ({ file: vi.fn(), youtube: vi.fn() }));
-vi.mock('../../../cloudflare/pro-room-media-duration.ts', () => ({
+vi.mock('../../../cloudflare/pro-room-media-duration.ts', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   readProRoomFileDuration: metadata.file,
 }));
 vi.mock('../../../cloudflare/pro-youtube-duration.ts', () => ({
@@ -1013,5 +1015,78 @@ describe('PRO YouTube metadata backoff and confirmed missing videos', () => {
     context.room.playbackDurationProbe!.notFoundAtMs = NOW;
     context.worker.normalizeLoadedPlaybackAuthority();
     expect(context.room.playbackDurationProbe).toEqual(probe);
+  });
+});
+
+describe('PRO file lengths stored before the current duration reader', () => {
+  // 8.9.5-8.10.0 stored server lengths from an MP3/MP4 reader that could
+  // undercount, and the uploading client's own reading, without a version.
+  async function restartWithUnversionedLengths(source: 'server' | 'upload' | 'controller') {
+    const context = await fixture([fileItem(FIRST), fileItem(SECOND), fileItem(THIRD)]);
+    await start(context);
+    await leaveOwner(context);
+    expect(metadata.file).toHaveBeenCalledOnce();
+    const stored = context.storage.data.get('pro-room:v2:core') as { core: Room };
+    for (const queueItemId of [FIRST, SECOND, THIRD]) {
+      stored.core.assets[`asset_${queueItemId}`]!.duration = {
+        assetVersion: 1,
+        byteLength: 4096,
+        roomGeneration: 0,
+        durationSeconds: 1,
+        checkedAtMs: NOW,
+        source: source as 'server',
+      };
+    }
+    const entries = Object.values(stored.core.playbackDurations);
+    expect(entries).toEqual([expect.objectContaining({ source: 'server' })]);
+    Object.assign(entries[0]!, { durationSeconds: 1, source });
+    delete entries[0]!.reader;
+    context.worker = context.createWorker();
+    await context.worker.ready;
+    return context;
+  }
+
+  it.each(['server', 'upload'] as const)(
+    'measures the playing file again instead of ending it from an unversioned %s length',
+    async (source) => {
+      const context = await restartWithUnversionedLengths(source);
+      metadata.file.mockResolvedValue(30);
+      expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+      await alarmAt(context, Date.now() + 1_000);
+      expect(metadata.file).toHaveBeenCalledTimes(2);
+      expect(metadata.file.mock.calls[1]?.[1]).toBe(`fixture/asset_${FIRST}/object`);
+      expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+        durationSeconds: 30,
+        source: 'server',
+        reader: PRO_ROOM_FILE_DURATION_READER,
+      });
+      expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+        context.room.playback.updatedAtMs + 32_000,
+      );
+      expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+      // Other assets wait for their own playback instead of a deployment-wide sweep.
+      expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+      expect(context.room.assets[`asset_${SECOND}`]!.duration).toMatchObject({
+        durationSeconds: 1,
+        source,
+      });
+      await reachEnd(context);
+      await finishPrepare(context);
+      expect(context.room.playback.queueItemId).toBe(SECOND);
+      await context.settle();
+      expect(metadata.file).toHaveBeenCalledTimes(3);
+      expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+        context.room.playback.updatedAtMs + 32_000,
+      );
+    },
+  );
+
+  it('keeps an unversioned controller-decoded length', async () => {
+    const context = await restartWithUnversionedLengths('controller');
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(context.room.playback.updatedAtMs + 1_000);
+    await alarmAt(context, Date.now() + 500);
+    expect(metadata.file).toHaveBeenCalledOnce();
+    await reachEnd(context);
+    expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
   });
 });

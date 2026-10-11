@@ -18,6 +18,15 @@ const MAX_AUDIO_FRAMES = 100_000;
 const MAX_PROBE_MS = 10_000;
 const MAX_DURATION_SECONDS = 7 * 24 * 60 * 60;
 
+/**
+ * Version of this reader (with its MP4 helper) stored beside server-measured
+ * lengths. Bump it whenever a change can lengthen a duration an earlier version
+ * returned: the PRO room treats older measurements as absent and reads again.
+ * Version 1 (8.9.5-8.10.0, unmarked) trusted stale MP3 frame counts and
+ * fragmented MP4 headers.
+ */
+export const PRO_ROOM_FILE_DURATION_READER = 2;
+
 function finiteDuration(value: number | null): number | null {
   return value !== null && Number.isFinite(value) && value > 0 && value <= MAX_DURATION_SECONDS
     ? value

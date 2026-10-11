@@ -79,7 +79,10 @@ import {
   developerMutationScopes,
 } from './developer-api-credential.ts';
 import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.ts';
-import { readProRoomFileDuration } from './pro-room-media-duration.ts';
+import {
+  PRO_ROOM_FILE_DURATION_READER,
+  readProRoomFileDuration,
+} from './pro-room-media-duration.ts';
 import { resolveProYouTubeDuration } from './pro-youtube-duration.ts';
 import {
   finalizeProRoomActivationEntitlement,
@@ -263,7 +266,12 @@ interface PlaybackDurationEvidence {
   // Null is an explicit provider-confirmed unplayable video, never unknown/live.
   durationSeconds: number | null;
   checkedAtMs: number;
-  source: 'server' | 'controller' | 'upload';
+  // 8.9.5-8.10.0 also stored client-supplied 'upload' lengths. Those, like
+  // server file lengths without the current `reader`, are discarded on load.
+  source: 'server' | 'controller';
+  // PRO_ROOM_FILE_DURATION_READER behind a server file length. Older Workers
+  // ignore and drop the key; this Worker then rebuilds the entry from the asset.
+  reader?: number;
 }
 
 interface AssetDurationEvidence {
@@ -273,13 +281,17 @@ interface AssetDurationEvidence {
   durationSeconds: number;
   checkedAtMs: number;
   source: PlaybackDurationEvidence['source'];
-  // Server/upload length replaced by a controller value. Later controller
-  // reports keep the same floor; older Workers ignore and drop the key.
+  // Server length replaced by a controller value. Later controller reports
+  // keep the same floor; older Workers ignore and drop the key.
   measuredSeconds?: number;
+  // Reader version of a server length, or of `measuredSeconds`. Server
+  // evidence without the current version, and legacy 'upload' evidence, count
+  // as absent. Older Workers keep the key until they rewrite the evidence.
+  reader?: number;
 }
 
 function durationSourcePriority(source: PlaybackDurationEvidence['source']) {
-  return source === 'controller' ? 3 : source === 'server' ? 2 : 1;
+  return source === 'controller' ? 2 : 1;
 }
 
 interface PlaybackDurationProbe {
@@ -4987,15 +4999,20 @@ export class MusixquareProRoom {
             (raw.durationSeconds === null && identity.mediaKind === 'youtube')) &&
           isSafeNonNegativeInteger(raw.checkedAtMs)
         ) {
+          // An older file reader or a client upload probe may have stored a
+          // too-short length. Drop it; playback re-measures the file.
+          const source =
+            identity.mediaKind === 'file' && raw.source === 'controller' ? 'controller' : 'server';
+          const current = raw.source === source && raw.reader === PRO_ROOM_FILE_DURATION_READER;
+          if (identity.mediaKind === 'file' && source === 'server' && !current) continue;
           durations[key] = {
             identity,
             durationSeconds: raw.durationSeconds,
             checkedAtMs: raw.checkedAtMs,
-            source:
-              (raw.source === 'controller' || raw.source === 'upload') &&
-              identity.mediaKind === 'file'
-                ? raw.source
-                : 'server',
+            source,
+            ...(identity.mediaKind === 'file' && source === 'server'
+              ? { reader: PRO_ROOM_FILE_DURATION_READER }
+              : {}),
           };
         }
       }
@@ -5027,7 +5044,7 @@ export class MusixquareProRoom {
                 asset?.status === 'ready' &&
                 !asset.deletionPending &&
                 asset.roomGeneration === this.activeRoom.roomGeneration &&
-                !this.assetDurationEvidence(asset)
+                this.assetDurationProbeNeeded(asset)
               );
             })
         : [];
@@ -5145,18 +5162,31 @@ export class MusixquareProRoom {
       raw.durationSeconds > 0 &&
       raw.durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS &&
       isSafeNonNegativeInteger(raw.checkedAtMs) &&
-      (raw.source === 'server' || raw.source === 'controller' || raw.source === 'upload')
+      // Server lengths from an older reader, and client-supplied 'upload'
+      // lengths (8.9.5-8.10.0), may be too short: treat them as absent so a
+      // current server read replaces them. Decoded controller lengths stay.
+      (raw.source === 'controller' ||
+        (raw.source === 'server' && raw.reader === PRO_ROOM_FILE_DURATION_READER))
       ? raw
       : null;
   }
 
-  /** Server-measured or uploaded length that bounds later controller reports. */
+  /** Current-reader server length that bounds later controller reports. */
   measuredAssetDurationSeconds(evidence: AssetDurationEvidence | null) {
     const measured =
-      evidence?.source === 'controller' ? evidence.measuredSeconds : evidence?.durationSeconds;
+      evidence?.source === 'controller'
+        ? evidence.reader === PRO_ROOM_FILE_DURATION_READER
+          ? evidence.measuredSeconds
+          : undefined
+        : evidence?.durationSeconds;
     return isFiniteNumber(measured) && measured > 0 && measured <= PLAYBACK_MAX_POSITION_SECONDS
       ? measured
       : null;
+  }
+
+  /** The asset has no length a current server read or a controller decode vouches for. */
+  assetDurationProbeNeeded(asset: RoomAsset) {
+    return !this.assetDurationEvidence(asset);
   }
 
   controllerDurationContradictsMeasurement(asset: RoomAsset, durationSeconds: number) {
@@ -5181,6 +5211,9 @@ export class MusixquareProRoom {
           (previous.checkedAtMs > nowMs || previous.durationSeconds === durationSeconds)))
     )
       return false;
+    // A server length, or the floor a controller value inherits from it,
+    // carries the reader version that measured it.
+    const reader = { reader: PRO_ROOM_FILE_DURATION_READER };
     const before = asset.duration;
     asset.duration = {
       assetVersion: asset.version,
@@ -5189,7 +5222,11 @@ export class MusixquareProRoom {
       durationSeconds,
       checkedAtMs: nowMs,
       source,
-      ...(source === 'controller' && measuredSeconds !== null ? { measuredSeconds } : {}),
+      ...(source === 'server'
+        ? reader
+        : measuredSeconds !== null
+          ? { measuredSeconds, ...reader }
+          : {}),
     };
     // Optional timing evidence must never make a previously valid room unloadable
     // or consume the headroom needed by an unrelated authoritative mutation.
@@ -5202,7 +5239,7 @@ export class MusixquareProRoom {
   }
 
   enqueueAssetDurationProbe(asset: RoomAsset) {
-    if (this.assetDurationEvidence(asset)) return;
+    if (!this.assetDurationProbeNeeded(asset)) return;
     const before = this.activeRoom.pendingAssetDurationProbes;
     const queue = before ?? [];
     if (queue.includes(asset.assetId) || queue.length >= ASSET_MAX_ITEMS) return;
@@ -5255,6 +5292,11 @@ export class MusixquareProRoom {
       durationSeconds,
       checkedAtMs: nowMs,
       source,
+      // Every server file length reaching the cache was read (or re-read
+      // through asset evidence) by this Worker's reader.
+      ...(identity.mediaKind === 'file' && source === 'server'
+        ? { reader: PRO_ROOM_FILE_DURATION_READER }
+        : {}),
     };
     if (
       this.activeRoom.playbackDurationProbe &&
@@ -5447,7 +5489,7 @@ export class MusixquareProRoom {
         !asset.deletionPending &&
         asset.roomGeneration === roomGeneration &&
         this.env.PRO_MEDIA_BUCKET &&
-        !this.assetDurationEvidence(asset)
+        this.assetDurationProbeNeeded(asset)
       ) {
         duration = await readProRoomFileDuration(
           this.env.PRO_MEDIA_BUCKET,
@@ -16371,11 +16413,9 @@ export class MusixquareProRoom {
     asset.status = 'ready';
     delete asset.expiresAtMs;
     asset.completedAtMs = completedAtMs;
-    if (
-      isFiniteNumber(durationSeconds) &&
-      this.sessionHasPermission(auth.session, 'playback.control')
-    )
-      this.storeAssetDuration(asset, durationSeconds, 'upload', completedAtMs);
+    // The optional client length (read by an App's bundled copy of the same,
+    // possibly older reader) stays part of the idempotency fingerprint but is
+    // never timing evidence: the server reads the stored object itself.
     this.enqueueAssetDurationProbe(asset);
     asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
     this.activeRoom.quota.reservedBytes -= asset.byteLength;

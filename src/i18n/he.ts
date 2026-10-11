@@ -759,8 +759,28 @@ const he: Record<I18nKey, string> = {
   'pro.pin_message': 'יש להזין את הסיסמה בת 8 הספרות של חדר ה-PRO.',
   'pro.pin_retry_message': 'הסיסמה אינה נכונה. כדאי לנסות שוב.',
   'pro.pin_change_title': 'שינוי סיסמת החדר',
-  'pro.pin_change_message': 'יש להגדיר סיסמה חדשה בת 8 ספרות. כולם יצטרכו להצטרף מחדש.',
+  'pro.pin_change_message': 'יש להגדיר סיסמה חדשה בת 8 ספרות.',
   'pro.pin_changed': 'סיסמת החדר שונתה.',
+  'pro.pin_enable_title': 'הגדרת סיסמת החדר',
+  'pro.pin_enabled': 'סיסמת החדר הוגדרה.',
+  'pro.pin_members_legend': 'מי שנמצא בחדר עכשיו',
+  'pro.pin_members_keep': 'להשאיר אותם',
+  'pro.pin_members_keep_detail':
+    'מי שמחובר עכשיו יכול להישאר. כל השאר יצטרכו את הסיסמה כדי להצטרף.',
+  'pro.pin_members_reenter': 'לבקש מכולם להצטרף מחדש',
+  'pro.pin_members_reenter_detail':
+    'כל השאר, כולל המכשירים האחרים שלך, יצטרכו להצטרף מחדש. כדאי לבחור באפשרות הזו כדי להסיר אנשים לא מוכרים.',
+  'pro.pin_keep_unavailable':
+    'הסיסמה לא שונתה. כרגע אי אפשר להשאיר אנשים בחדר. אפשר לנסות שוב מאוחר יותר או לבקש מכולם להצטרף מחדש.',
+  'pro.pin_enabled_removed_title': 'הוגדרה סיסמה לחדר',
+  'pro.pin_enabled_removed_message':
+    'בעל החדר הגדיר סיסמה לחדר הזה. אפשר להזין אותה כדי להצטרף מחדש.',
+  'pro.pin_changed_removed_title': 'סיסמת החדר השתנתה',
+  'pro.pin_changed_removed_message':
+    'בעל החדר שינה את סיסמת החדר. אפשר להזין את הסיסמה החדשה כדי להצטרף מחדש.',
+  'pro.removed_title': 'הוסרת מהחדר',
+  'pro.removed_message': 'בעל החדר או מנהל הסירו אותך מהחדר הזה.',
+  'pro.device_removed_message': 'מכשיר אחר שמחובר לחשבון שלך ניתק את המכשיר הזה מהחדר.',
   'pro.owner_only': 'רק בעל החדר יכול לבצע את הפעולה.',
   'pro.connect_failed': 'לא הצלחנו להתחבר לחדר ה-PRO.',
   'pro.room_full': 'חדר ה-PRO מלא',

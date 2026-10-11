@@ -47,11 +47,31 @@ interface DialogOptions {
     /** Keep significant whitespace for validators and the resolved value. */
     preserveWhitespace?: boolean;
   };
+  /**
+   * One required single choice, rendered as a native radio group in a
+   * fieldset below any input. The checked value resolves as `choiceValue`.
+   */
+  choiceField?: {
+    legend: DialogText;
+    /** Radio group name; unique per document while the dialog is open. */
+    name: string;
+    defaultValue: string;
+    options: ReadonlyArray<{ value: string; label: DialogText; detail?: DialogText }>;
+  };
 }
 
 export interface DialogResult {
   action: string;
   inputValue?: string;
+  /** The checked `choiceField` value, read before the dialog is torn down. */
+  choiceValue?: string;
+}
+
+interface DialogChoiceState {
+  radios: HTMLInputElement[];
+  value: () => string | undefined;
+  focusTarget: () => HTMLInputElement | null;
+  refresh: () => void;
 }
 
 interface DialogActiveState {
@@ -70,6 +90,7 @@ let _dialogHint: HTMLDivElement | null = null;
 let _dialogValidator: ((value: string) => string | null) | null = null;
 let _dialogHintDefault = '';
 let _dialogPreserveWhitespace = false;
+let _dialogChoice: DialogChoiceState | null = null;
 const _dialogQueue: Array<{
   opts: DialogOptions | string;
   resolve: (result: DialogResult) => void;
@@ -98,6 +119,9 @@ function setDialogInputInvalid(invalid: boolean): void {
 
 export function closeDialog(action = 'close'): void {
   clearManagedTimer('dialog-focus');
+  // Read the choice before cleanup or focus restoration can touch the radios.
+  const choiceValue = _dialogChoice?.value();
+  _dialogChoice = null;
   const overlay = document.getElementById('dialog-overlay');
   if (overlay) {
     overlay.classList.remove('show');
@@ -144,13 +168,82 @@ export function closeDialog(action = 'close'): void {
 
   if (typeof active?.resolve === 'function') {
     try {
-      active.resolve({ action, inputValue });
+      active.resolve({
+        action,
+        inputValue,
+        ...(choiceValue === undefined ? {} : { choiceValue }),
+      });
     } catch {
       /* ignore */
     }
   }
 
   setManagedTimer('dialog-drain', drainDialogQueue, 0);
+}
+
+function createDialogChoice(
+  host: HTMLElement,
+  config: DialogOptions['choiceField'],
+): DialogChoiceState | null {
+  if (!config || config.options.length === 0) return null;
+  const fieldset = document.createElement('fieldset');
+  fieldset.className = 'dialog-choice';
+  const legend = document.createElement('legend');
+  legend.className = 'dialog-choice-legend';
+  fieldset.appendChild(legend);
+  const radios: HTMLInputElement[] = [];
+  const texts: Array<{ node: HTMLElement; text: DialogText }> = [
+    { node: legend, text: config.legend },
+  ];
+  config.options.forEach((option, index) => {
+    const row = document.createElement('label');
+    row.className = 'dialog-choice-option';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.className = 'dialog-choice-radio';
+    radio.name = config.name;
+    radio.value = option.value;
+    radio.checked = option.value === config.defaultValue;
+    const copy = document.createElement('span');
+    copy.className = 'dialog-choice-text';
+    const label = document.createElement('span');
+    label.className = 'dialog-choice-label';
+    label.id = `dialog-choice-label-${index}`;
+    // The wrapping <label> keeps the whole row clickable, but its text would
+    // also fold the detail into the name. Name the radio by its label only;
+    // the detail stays its description.
+    radio.setAttribute('aria-labelledby', label.id);
+    copy.appendChild(label);
+    texts.push({ node: label, text: option.label });
+    if (option.detail !== undefined) {
+      const detail = document.createElement('span');
+      detail.className = 'dialog-choice-detail';
+      detail.id = `dialog-choice-detail-${index}`;
+      radio.setAttribute('aria-describedby', detail.id);
+      copy.appendChild(detail);
+      texts.push({ node: detail, text: option.detail });
+    }
+    row.append(radio, copy);
+    fieldset.appendChild(row);
+    radios.push(radio);
+  });
+  if (!radios.some((radio) => radio.checked)) radios[0]!.checked = true;
+  const refresh = () => {
+    for (const { node, text } of texts) {
+      node.textContent = dialogText(text);
+      applyUserTextFontFallback(node, node.textContent);
+    }
+  };
+  refresh();
+  host.appendChild(fieldset);
+  const checked = () => radios.find((radio) => radio.checked) ?? null;
+  return {
+    radios,
+    value: () => checked()?.value,
+    // A native radio group is one Tab stop: its checked radio.
+    focusTarget: () => checked() ?? radios[0] ?? null,
+    refresh,
+  };
 }
 
 function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResult) => void): void {
@@ -357,6 +450,26 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     _dialogPreserveWhitespace = false;
   }
 
+  _dialogChoice = createDialogChoice(
+    msgEl,
+    typeof opts === 'object' && opts ? opts.choiceField : undefined,
+  );
+  // The dialog is described by #dialog-message, which now also holds the
+  // choice group. Describe it by the message text alone so opening it does
+  // not read every option before focus arrives; the group announces itself.
+  const dialogPanel = msgEl.closest<HTMLElement>('[role="dialog"]');
+  if (dialogPanel) {
+    if (_dialogChoice) {
+      const messageText = document.createElement('span');
+      messageText.id = 'dialog-message-text';
+      msgEl.insertBefore(messageText, messageNode);
+      messageText.appendChild(messageNode);
+      dialogPanel.setAttribute('aria-describedby', messageText.id);
+    } else {
+      dialogPanel.setAttribute('aria-describedby', msgEl.id);
+    }
+  }
+
   okBtn.textContent = buttonText;
 
   if (secondaryBtn) {
@@ -433,6 +546,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
           applyUserTextFontFallback(_dialogHint, _dialogHint.textContent);
         }
       }
+      _dialogChoice?.refresh();
     }),
   );
   if (o.signal) {
@@ -541,7 +655,16 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
     if (ke.key === 'Enter') {
       const focused = document.activeElement;
-      if (focused === okBtn && !okBtn.disabled) {
+      if (
+        _dialogChoice &&
+        focused instanceof HTMLInputElement &&
+        _dialogChoice.radios.includes(focused)
+      ) {
+        // A radio has no Enter behavior of its own: confirm the dialog, and
+        // still run the input validator first.
+        ke.preventDefault();
+        tryValidateAndClose();
+      } else if (focused === okBtn && !okBtn.disabled) {
         ke.preventDefault();
         tryValidateAndClose();
       } else if (
@@ -562,6 +685,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         : [hasSecondary ? secondaryBtn : null, okBtn];
       const focusables = [
         (_dialogInputFocusTarget || _dialogInput) as HTMLElement | null,
+        _dialogChoice?.focusTarget() ?? null,
         ...actionButtons,
       ].filter((x): x is HTMLElement => x != null && x.offsetParent !== null);
       if (focusables.length === 0) return;

@@ -113,4 +113,54 @@ describe('dialog locale lifetime', () => {
     expect(await pending).toMatchObject({ action: 'superseded' });
     expect(bus.debug()['i18n:changed'] || 0).toBe(0);
   });
+  it('relabels a choice group without rebuilding it or losing the checked option', async () => {
+    const pending = showDialog({
+      title: () => t('pro.pin_change_title'),
+      choiceField: {
+        legend: () => t('pro.pin_members_legend'),
+        name: 'locale-membership',
+        defaultValue: 'keep_present',
+        options: [
+          {
+            value: 'keep_present',
+            label: () => t('pro.pin_members_keep'),
+            detail: () => t('pro.pin_members_keep_detail'),
+          },
+          {
+            value: 'revoke_all',
+            label: () => t('pro.pin_members_reenter'),
+            detail: () => t('pro.pin_members_reenter_detail'),
+          },
+        ],
+      },
+    });
+    const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
+    radios[1]!.click();
+    const text = () => [
+      document.querySelector('.dialog-choice-legend')?.textContent,
+      ...[...document.querySelectorAll('.dialog-choice-label')].map((node) => node.textContent),
+      ...[...document.querySelectorAll('.dialog-choice-detail')].map((node) => node.textContent),
+    ];
+    const english = text();
+    expect(english).toEqual([
+      t('pro.pin_members_legend'),
+      t('pro.pin_members_keep'),
+      t('pro.pin_members_reenter'),
+      t('pro.pin_members_keep_detail'),
+      t('pro.pin_members_reenter_detail'),
+    ]);
+    setLanguageMode('ko');
+    expect(text()).toEqual([
+      t('pro.pin_members_legend'),
+      t('pro.pin_members_keep'),
+      t('pro.pin_members_reenter'),
+      t('pro.pin_members_keep_detail'),
+      t('pro.pin_members_reenter_detail'),
+    ]);
+    expect(text()).not.toEqual(english);
+    expect([...document.querySelectorAll('.dialog-choice-radio')]).toEqual(radios);
+    expect(radios.map((radio) => radio.checked)).toEqual([false, true]);
+    closeDialog('ok');
+    expect(await pending).toMatchObject({ action: 'ok', choiceValue: 'revoke_all' });
+  });
 });

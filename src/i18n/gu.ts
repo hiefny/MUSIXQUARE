@@ -767,8 +767,29 @@ const gu: Record<I18nKey, string> = {
   'pro.pin_message': 'આ PRO રૂમનો 8-અંકનો પાસવર્ડ દાખલ કરો.',
   'pro.pin_retry_message': 'એ પાસવર્ડ ખોટો છે. ફરી પ્રયાસ કરો.',
   'pro.pin_change_title': 'રૂમનો પાસવર્ડ બદલો',
-  'pro.pin_change_message': 'નવો 8-અંકનો પાસવર્ડ નક્કી કરો. બધાએ ફરી જોડાવું પડશે.',
+  'pro.pin_change_message': 'નવો 8-અંકનો પાસવર્ડ નક્કી કરો.',
   'pro.pin_changed': 'રૂમનો પાસવર્ડ બદલાયો.',
+  'pro.pin_enable_title': 'રૂમનો પાસવર્ડ સેટ કરો',
+  'pro.pin_enabled': 'રૂમનો પાસવર્ડ સેટ થયો.',
+  'pro.pin_members_legend': 'અત્યારે રૂમમાં રહેલા લોકો',
+  'pro.pin_members_keep': 'તેમને રહેવા દો',
+  'pro.pin_members_keep_detail':
+    'અત્યારે જોડાયેલા લોકો રહી શકે છે. બાકીના બધાને જોડાવા માટે પાસવર્ડ જોઈશે.',
+  'pro.pin_members_reenter': 'બધાને ફરી જોડાવા કહો',
+  'pro.pin_members_reenter_detail':
+    'તમારા અન્ય ડિવાઇસ સહિત બાકીના બધાએ ફરી જોડાવું પડશે. અજાણ્યા લોકોને દૂર કરવા માટે આ પસંદ કરો.',
+  'pro.pin_keep_unavailable':
+    'પાસવર્ડ બદલાયો નથી. અત્યારે લોકોને રૂમમાં રાખીને પાસવર્ડ બદલી શકાતો નથી. થોડી વાર પછી ફરી પ્રયાસ કરો અથવા બધાને ફરી જોડાવા કહો.',
+  'pro.pin_enabled_removed_title': 'રૂમમાં પાસવર્ડ સેટ થયો',
+  'pro.pin_enabled_removed_message':
+    'રૂમના માલિકે આ રૂમ માટે પાસવર્ડ સેટ કર્યો છે. ફરી જોડાવા માટે તે દાખલ કરો.',
+  'pro.pin_changed_removed_title': 'રૂમનો પાસવર્ડ બદલાઈ ગયો',
+  'pro.pin_changed_removed_message':
+    'રૂમના માલિકે રૂમનો પાસવર્ડ બદલ્યો છે. ફરી જોડાવા માટે નવો પાસવર્ડ દાખલ કરો.',
+  'pro.removed_title': 'તમને રૂમમાંથી દૂર કરવામાં આવ્યા',
+  'pro.removed_message': 'રૂમના માલિક અથવા કોઈ સંચાલકે તમને આ રૂમમાંથી દૂર કર્યા છે.',
+  'pro.device_removed_message':
+    'તમારા એકાઉન્ટમાં સાઇન ઇન કરેલા બીજા ડિવાઇસે આ ડિવાઇસને રૂમમાંથી ડિસ્કનેક્ટ કર્યું છે.',
   'pro.owner_only': 'આ ફક્ત રૂમનો માલિક કરી શકે છે.',
   'pro.connect_failed': 'PRO રૂમ સાથે જોડાઈ શકાયું નથી.',
   'pro.room_full': 'આ PRO રૂમ ભરાઈ ગયો છે',

@@ -782,8 +782,29 @@ const fi: Record<I18nKey, string> = {
   'pro.pin_message': 'Anna tämän PRO-huoneen 8-numeroinen salasana.',
   'pro.pin_retry_message': 'Salasana on väärä. Yritä uudelleen.',
   'pro.pin_change_title': 'Vaihda huoneen salasana',
-  'pro.pin_change_message': 'Aseta uusi 8-numeroinen salasana. Kaikkien on liityttävä uudelleen.',
+  'pro.pin_change_message': 'Aseta uusi 8-numeroinen salasana.',
   'pro.pin_changed': 'Huoneen salasana vaihdettiin.',
+  'pro.pin_enable_title': 'Aseta huoneen salasana',
+  'pro.pin_enabled': 'Huoneen salasana asetettiin.',
+  'pro.pin_members_legend': 'Huoneessa nyt olevat',
+  'pro.pin_members_keep': 'Anna heidän jäädä',
+  'pro.pin_members_keep_detail':
+    'Nyt yhdistetyt voivat jäädä. Muut tarvitsevat salasanan liittyäkseen.',
+  'pro.pin_members_reenter': 'Vaadi kaikkia liittymään uudelleen',
+  'pro.pin_members_reenter_detail':
+    'Kaikkien muiden, myös muiden laitteidesi, on liityttävä uudelleen. Valitse tämä, jos haluat poistaa tuntemattomia.',
+  'pro.pin_keep_unavailable':
+    'Salasanaa ei vaihdettu. Ihmisiä ei voi juuri nyt pitää huoneessa. Yritä myöhemmin uudelleen tai vaadi kaikkia liittymään uudelleen.',
+  'pro.pin_enabled_removed_title': 'Huoneelle asetettiin salasana',
+  'pro.pin_enabled_removed_message':
+    'Huoneen omistaja asetti huoneelle salasanan. Anna se, niin voit liittyä uudelleen.',
+  'pro.pin_changed_removed_title': 'Huoneen salasana vaihtui',
+  'pro.pin_changed_removed_message':
+    'Huoneen omistaja vaihtoi huoneen salasanan. Anna uusi salasana, niin voit liittyä uudelleen.',
+  'pro.removed_title': 'Sinut poistettiin huoneesta',
+  'pro.removed_message': 'Huoneen omistaja tai ylläpitäjä poisti sinut tästä huoneesta.',
+  'pro.device_removed_message':
+    'Toinen tilillesi kirjautunut laite katkaisi tämän laitteen yhteyden huoneeseen.',
   'pro.owner_only': 'Vain huoneen omistaja voi tehdä tämän.',
   'pro.connect_failed': 'PRO-huoneeseen ei voitu muodostaa yhteyttä.',
   'pro.room_full': 'Tämä PRO-huone on täynnä',

@@ -780,9 +780,29 @@ const nl: Record<I18nKey, string> = {
   'pro.pin_message': 'Voer het 8-cijferige wachtwoord van deze PRO-kamer in.',
   'pro.pin_retry_message': 'Het wachtwoord klopt niet. Probeer het opnieuw.',
   'pro.pin_change_title': 'Kamerwachtwoord wijzigen',
-  'pro.pin_change_message':
-    'Stel een nieuw wachtwoord van 8 cijfers in. Iedereen moet opnieuw deelnemen.',
+  'pro.pin_change_message': 'Stel een nieuw wachtwoord van 8 cijfers in.',
   'pro.pin_changed': 'Kamerwachtwoord gewijzigd.',
+  'pro.pin_enable_title': 'Kamerwachtwoord instellen',
+  'pro.pin_enabled': 'Kamerwachtwoord ingesteld.',
+  'pro.pin_members_legend': 'Wie nu in de kamer is',
+  'pro.pin_members_keep': 'Laten blijven',
+  'pro.pin_members_keep_detail':
+    'Wie nu verbonden is, kan blijven. Alle anderen hebben het wachtwoord nodig om deel te nemen.',
+  'pro.pin_members_reenter': 'Iedereen opnieuw laten deelnemen',
+  'pro.pin_members_reenter_detail':
+    'Alle anderen, ook je andere apparaten, moeten opnieuw deelnemen. Kies dit om onbekenden te verwijderen.',
+  'pro.pin_keep_unavailable':
+    'Het wachtwoord is niet gewijzigd. Mensen in de kamer laten blijven kan nu niet. Probeer het later opnieuw of laat iedereen opnieuw deelnemen.',
+  'pro.pin_enabled_removed_title': 'De kamer heeft nu een wachtwoord',
+  'pro.pin_enabled_removed_message':
+    'De kamereigenaar heeft een wachtwoord voor deze kamer ingesteld. Voer het in om opnieuw deel te nemen.',
+  'pro.pin_changed_removed_title': 'Het kamerwachtwoord is gewijzigd',
+  'pro.pin_changed_removed_message':
+    'De kamereigenaar heeft het kamerwachtwoord gewijzigd. Voer het nieuwe wachtwoord in om opnieuw deel te nemen.',
+  'pro.removed_title': 'Verwijderd uit deze kamer',
+  'pro.removed_message': 'De kamereigenaar of een beheerder heeft je uit deze kamer verwijderd.',
+  'pro.device_removed_message':
+    'Een ander apparaat dat met je account is ingelogd, heeft dit apparaat losgekoppeld van de kamer.',
   'pro.owner_only': 'Alleen de kamereigenaar kan dit doen.',
   'pro.connect_failed': 'Er kon geen verbinding worden gemaakt met de PRO-kamer.',
   'pro.room_full': 'Deze PRO-kamer is vol',

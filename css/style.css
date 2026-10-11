@@ -5484,7 +5484,11 @@
     word-break: keep-all;
   }
 
+  /* Japanese and Chinese have no spaces between words, so keep-all would hold
+     a whole clause on one line and push dialog copy past the dialog edge. */
   html:lang(ja) .dialog-message,
+  html:lang(zh-Hans) .dialog-message,
+  html:lang(zh-Hant) .dialog-message,
   html:lang(ja) .ob-slide .ob-desc,
   html:lang(ja) .ob-desc,
   html:lang(ja) .setup-header-text p,
@@ -5596,6 +5600,83 @@
 
   .dialog-input-split.shake {
     animation: shake 0.4s ease;
+  }
+
+  /* One required choice below a dialog input: native radios in a fieldset.
+     Logical properties keep the radio on the reading start edge in RTL. */
+  .dialog-choice {
+    min-inline-size: 0;
+    margin-block: 16px 0;
+    margin-inline: 0;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+  }
+
+  .dialog-choice-legend {
+    padding: 0;
+    margin-block-end: 6px;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .dialog-choice-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    min-block-size: 44px;
+    padding-block: 10px;
+    padding-inline: 12px;
+    border-radius: 12px;
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+
+  .dialog-choice-option + .dialog-choice-option {
+    margin-block-start: 4px;
+  }
+
+  .dialog-choice-option:has(.dialog-choice-radio:checked) {
+    background: rgba(var(--primary-rgb), 0.1);
+  }
+
+  .dialog-choice-radio {
+    flex: none;
+    inline-size: 20px;
+    block-size: 20px;
+    margin-block: 1px 0;
+    margin-inline: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+  }
+
+  .dialog-choice-radio:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .dialog-choice-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-inline-size: 0;
+    text-align: start;
+  }
+
+  .dialog-choice-label {
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .dialog-choice-detail {
+    color: var(--text-sub);
+    font-size: 13px;
+    line-height: 1.5;
   }
 
   .dialog-actions {

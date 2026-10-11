@@ -160,6 +160,23 @@ describe('Dialog System', () => {
     expect(STYLE_SOURCE).not.toMatch(/\.adaptive-action-group\s*\{[^}]*column-reverse;/s);
   });
 
+  it('lets Japanese and Chinese dialog copy break between characters', () => {
+    // keep-all forbids breaks between Han characters, so an unpunctuated
+    // Chinese clause would stay on one line wider than the dialog.
+    const anchor = STYLE_SOURCE.indexOf('html:lang(ja) .dialog-message');
+    expect(anchor).toBeGreaterThan(-1);
+    const rule = STYLE_SOURCE.slice(
+      STYLE_SOURCE.lastIndexOf('}', anchor) + 1,
+      STYLE_SOURCE.indexOf('}', anchor),
+    );
+    for (const lang of ['ja', 'zh-Hans', 'zh-Hant']) {
+      expect(rule).toContain(`html:lang(${lang}) .dialog-message`);
+    }
+    expect(rule).toMatch(/word-break:\s*normal;/);
+    expect(rule).toMatch(/overflow-wrap:\s*anywhere;/);
+    expect(rule).toMatch(/line-break:\s*strict;/);
+  });
+
   it('gives the dialog copy a clear beat on both sides', () => {
     expect(STYLE_SOURCE).toMatch(/\.dialog-header\s*\{[^}]*padding:\s*30px\s+32px\s+8px;/s);
     expect(STYLE_SOURCE).toMatch(/\.dialog-message\s*\{[^}]*padding:\s*8px\s+32px\s+24px;/s);
@@ -717,6 +734,260 @@ describe('Dialog System', () => {
       closeDialog();
       await second;
       vi.advanceTimersByTime(10);
+    });
+  });
+  describe('choiceField', () => {
+    const choiceField = {
+      legend: 'People in the room now',
+      name: 'test-membership',
+      defaultValue: 'keep',
+      options: [
+        { value: 'keep', label: 'Let them stay', detail: 'People connected now can stay.' },
+        { value: 'reenter', label: 'Make everyone rejoin', detail: 'Everyone else rejoins.' },
+      ],
+    };
+    const exposeToFocusTrap = (element: Element) =>
+      Object.defineProperty(element, 'offsetParent', {
+        value: document.getElementById('dialog-overlay'),
+        configurable: true,
+      });
+
+    it('renders a labelled native radio group and resolves the checked value', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const promise = showDialog({ title: 'PIN', message: 'Set a PIN', choiceField });
+      vi.advanceTimersByTime(10);
+      const fieldset = document.querySelector('#dialog-message fieldset.dialog-choice')!;
+      expect(fieldset.querySelector('legend')?.textContent).toBe('People in the room now');
+      const radios = [...fieldset.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+      expect(radios.map((radio) => [radio.name, radio.value, radio.checked])).toEqual([
+        ['test-membership', 'keep', true],
+        ['test-membership', 'reenter', false],
+      ]);
+      for (const radio of radios) {
+        const label = radio.closest('label')!;
+        expect(label.classList.contains('dialog-choice-option')).toBe(true);
+        const detail = document.getElementById(radio.getAttribute('aria-describedby')!)!;
+        expect(label.contains(detail)).toBe(true);
+        // The name is the label span alone, so the detail is not read twice.
+        const name = document.getElementById(radio.getAttribute('aria-labelledby')!)!;
+        expect(name.classList.contains('dialog-choice-label')).toBe(true);
+        expect(name.contains(detail)).toBe(false);
+      }
+      expect(
+        radios.map((radio) => document.getElementById(radio.getAttribute('aria-labelledby')!)!),
+      ).toEqual([...fieldset.querySelectorAll('.dialog-choice-label')]);
+      expect(radios[0]!.labels?.[0]?.textContent).toContain('People connected now can stay.');
+      expect(radios[1]!.closest('label')!.textContent).toBe(
+        'Make everyone rejoinEveryone else rejoins.',
+      );
+      radios[1]!.click();
+      document.getElementById('btn-dialog-ok')!.click();
+      expect(await promise).toEqual({
+        action: 'ok',
+        inputValue: undefined,
+        choiceValue: 'reenter',
+      });
+      vi.advanceTimersByTime(10);
+    });
+
+    it('describes the dialog by its message text, not by the options, only while a choice is shown', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const overlay = document.getElementById('dialog-overlay')!;
+      const panel = document.createElement('div');
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-describedby', 'dialog-message');
+      panel.append(...overlay.childNodes);
+      overlay.appendChild(panel);
+      const describedText = () =>
+        document.getElementById(panel.getAttribute('aria-describedby')!)?.textContent;
+
+      const choice = showDialog({
+        title: 'PIN',
+        message: 'Set a PIN',
+        inputField: { maxLength: 8, splitEvery: 4, hint: 'Eight digits' },
+        choiceField,
+      });
+      vi.advanceTimersByTime(10);
+      expect(panel.getAttribute('aria-describedby')).toBe('dialog-message-text');
+      expect(describedText()).toBe('Set a PIN');
+      const message = document.getElementById('dialog-message')!;
+      expect(message.firstElementChild?.id).toBe('dialog-message-text');
+      expect(message.querySelector('.dialog-choice')).not.toBeNull();
+      closeDialog('ok');
+      expect(await choice).toMatchObject({ choiceValue: 'keep' });
+      vi.advanceTimersByTime(10);
+
+      const plain = showDialog({ title: 'Info', message: 'Plain message' });
+      vi.advanceTimersByTime(10);
+      expect(panel.getAttribute('aria-describedby')).toBe('dialog-message');
+      expect(document.getElementById('dialog-message-text')).toBeNull();
+      expect(describedText()).toBe('Plain message');
+      closeDialog('ok');
+      await plain;
+      vi.advanceTimersByTime(10);
+    });
+
+    it('checks the first option when the default is not offered and omits details cleanly', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Choice',
+        choiceField: {
+          legend: () => 'Legend',
+          name: 'test-fallback',
+          defaultValue: 'missing',
+          options: [
+            { value: 'a', label: 'A' },
+            { value: 'b', label: 'B' },
+          ],
+        },
+      });
+      const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
+      expect(radios.map((radio) => radio.checked)).toEqual([true, false]);
+      expect(radios.every((radio) => !radio.hasAttribute('aria-describedby'))).toBe(true);
+      expect(document.querySelectorAll('.dialog-choice-detail')).toHaveLength(0);
+      closeDialog('secondary');
+      expect(await promise).toEqual({
+        action: 'secondary',
+        inputValue: undefined,
+        choiceValue: 'a',
+      });
+      vi.advanceTimersByTime(10);
+    });
+
+    it('confirms with Enter on a radio only after the input validator passes', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const onPrimaryActivation = vi.fn();
+      const promise = showDialog({
+        title: 'PIN',
+        inputField: {
+          maxLength: 8,
+          splitEvery: 4,
+          inputMode: 'numeric',
+          validator: (value) => (value.length === 8 ? null : 'invalid PIN'),
+        },
+        choiceField,
+        onPrimaryActivation,
+      });
+      vi.advanceTimersByTime(10);
+      const resolved = vi.fn();
+      const observed = promise.then(resolved);
+      const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
+      radios[1]!.focus();
+      radios[1]!.click();
+      const early = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      radios[1]!.dispatchEvent(early);
+      await Promise.resolve();
+      expect(early.defaultPrevented).toBe(true);
+      expect(resolved).not.toHaveBeenCalled();
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+      expect(document.getElementById('dialog-input-hint')?.textContent).toBe('invalid PIN');
+
+      const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
+      segments[0]!.value = '1234';
+      segments[1]!.value = '5678';
+      radios[1]!.focus();
+      radios[1]!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      expect(await promise).toEqual({
+        action: 'ok',
+        inputValue: '12345678',
+        choiceValue: 'reenter',
+      });
+      await observed;
+      expect(onPrimaryActivation).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(10);
+    });
+
+    it('places the checked radio between the input and the actions in the focus trap', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'PIN',
+        secondaryText: 'Cancel',
+        inputField: { maxLength: 8, splitEvery: 4 },
+        choiceField,
+      });
+      vi.advanceTimersByTime(10);
+      const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
+      const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
+      for (const element of [...segments, ...radios]) exposeToFocusTrap(element);
+      const ok = document.getElementById('btn-dialog-ok')!;
+      const tab = (shiftKey = false) => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'Tab',
+          shiftKey,
+          bubbles: true,
+          cancelable: true,
+        });
+        window.dispatchEvent(event);
+        return event;
+      };
+      expect(document.activeElement).toBe(segments[0]);
+      expect(tab(true).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(ok);
+      expect(tab().defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(segments[0]);
+      // Inside the cycle the browser moves focus natively; the trap stays out.
+      radios[0]!.focus();
+      expect(tab().defaultPrevented).toBe(false);
+
+      // Without an input, the checked radio opens the cycle.
+      closeDialog();
+      await promise;
+      vi.advanceTimersByTime(10);
+      const second = showDialog({ title: 'Choice', secondaryText: 'Cancel', choiceField });
+      vi.advanceTimersByTime(10);
+      const secondRadios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
+      for (const radio of secondRadios) exposeToFocusTrap(radio);
+      secondRadios[1]!.click();
+      ok.focus();
+      expect(tab().defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(secondRadios[1]);
+      expect(tab(true).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(ok);
+      closeDialog();
+      expect(await second).toMatchObject({ choiceValue: 'reenter' });
+      vi.advanceTimersByTime(10);
+    });
+
+    it('tears the group down on close and abort so the next dialog has no choice', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const controller = new AbortController();
+      const aborted = showDialog({ title: 'Choice', choiceField, signal: controller.signal });
+      vi.advanceTimersByTime(10);
+      expect(document.querySelector('.dialog-choice')).not.toBeNull();
+      controller.abort();
+      expect(await aborted).toMatchObject({ action: 'superseded', choiceValue: 'keep' });
+      vi.advanceTimersByTime(10);
+
+      const plain = showDialog({ title: 'Plain' });
+      vi.advanceTimersByTime(10);
+      expect(document.querySelector('.dialog-choice')).toBeNull();
+      closeDialog('ok');
+      const result = await plain;
+      expect(result).toEqual({ action: 'ok', inputValue: undefined });
+      expect('choiceValue' in result).toBe(false);
+      vi.advanceTimersByTime(10);
+    });
+
+    it('styles the group for touch, keyboard focus, and either reading direction', () => {
+      const block = (selector: string) => {
+        const start = STYLE_SOURCE.indexOf(`${selector} {`);
+        expect(start).toBeGreaterThan(-1);
+        return STYLE_SOURCE.slice(start, STYLE_SOURCE.indexOf('}', start));
+      };
+      expect(block('.dialog-choice-option')).toContain('min-block-size: 44px');
+      expect(block('.dialog-choice-option')).toContain('padding-inline: 12px');
+      expect(block('.dialog-choice-radio')).toContain('accent-color: var(--primary)');
+      expect(block('.dialog-choice-radio:focus-visible')).toContain('outline: 2px solid');
+      expect(block('.dialog-choice-text')).toContain('text-align: start');
+      const choiceRules = STYLE_SOURCE.slice(
+        STYLE_SOURCE.indexOf('.dialog-choice {'),
+        STYLE_SOURCE.indexOf('.dialog-choice-detail {'),
+      );
+      expect(choiceRules).not.toMatch(
+        /(?:margin|padding)-(?:left|right)|text-align: (?:left|right)/,
+      );
     });
   });
 });

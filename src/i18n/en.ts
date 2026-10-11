@@ -773,8 +773,29 @@ const en: Record<I18nKey, string> = {
   'pro.pin_message': 'Enter the 8-digit password for this PRO room.',
   'pro.pin_retry_message': 'That password is not correct. Try again.',
   'pro.pin_change_title': 'Change room password',
-  'pro.pin_change_message': 'Set a new 8-digit password. Everyone will need to join again.',
+  'pro.pin_change_message': 'Set a new 8-digit password.',
   'pro.pin_changed': 'Room password changed.',
+  'pro.pin_enable_title': 'Set room password',
+  'pro.pin_enabled': 'Room password set.',
+  'pro.pin_members_legend': 'People in the room now',
+  'pro.pin_members_keep': 'Let them stay',
+  'pro.pin_members_keep_detail':
+    'People connected now can stay. Anyone else needs the password to join.',
+  'pro.pin_members_reenter': 'Make everyone rejoin',
+  'pro.pin_members_reenter_detail':
+    "Everyone else, including your other devices, has to rejoin. Choose this to remove people you don't know.",
+  'pro.pin_keep_unavailable':
+    "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or make everyone rejoin.",
+  'pro.pin_enabled_removed_title': 'Room password set',
+  'pro.pin_enabled_removed_message':
+    'The room owner set a password for this room. Enter it to rejoin.',
+  'pro.pin_changed_removed_title': 'Room password changed',
+  'pro.pin_changed_removed_message':
+    'The room owner changed the room password. Enter the new password to rejoin.',
+  'pro.removed_title': 'Removed from this room',
+  'pro.removed_message': 'The room owner or an administrator removed you from this room.',
+  'pro.device_removed_message':
+    'Another device signed in to your account disconnected this device from the room.',
   'pro.owner_only': 'Only the room owner can do that.',
   'pro.connect_failed': 'Could not connect to the PRO room.',
   'pro.room_full': 'This PRO room is full',

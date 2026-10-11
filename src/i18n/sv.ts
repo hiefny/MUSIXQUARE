@@ -788,9 +788,29 @@ const sv: Record<I18nKey, string> = {
   'pro.pin_message': 'Ange det 8-siffriga lösenordet för PRO-rummet.',
   'pro.pin_retry_message': 'Lösenordet är inte korrekt. Försök igen.',
   'pro.pin_change_title': 'Ändra rumslösenord',
-  'pro.pin_change_message':
-    'Ange ett nytt 8-siffrigt lösenord. Alla måste ansluta till rummet igen.',
+  'pro.pin_change_message': 'Ange ett nytt 8-siffrigt lösenord.',
   'pro.pin_changed': 'Rumslösenordet har ändrats.',
+  'pro.pin_enable_title': 'Ställ in rumslösenord',
+  'pro.pin_enabled': 'Rumslösenordet har ställts in.',
+  'pro.pin_members_legend': 'Personer i rummet just nu',
+  'pro.pin_members_keep': 'Låt dem stanna',
+  'pro.pin_members_keep_detail':
+    'De som är anslutna nu kan stanna. Alla andra behöver lösenordet för att gå med.',
+  'pro.pin_members_reenter': 'Kräv att alla går med igen',
+  'pro.pin_members_reenter_detail':
+    'Alla andra, även dina andra enheter, måste gå med igen. Välj detta för att ta bort personer du inte känner.',
+  'pro.pin_keep_unavailable':
+    'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller kräv att alla går med igen.',
+  'pro.pin_enabled_removed_title': 'Rummet har fått ett lösenord',
+  'pro.pin_enabled_removed_message':
+    'Rumsägaren har ställt in ett lösenord för rummet. Ange det för att gå med igen.',
+  'pro.pin_changed_removed_title': 'Rumslösenordet ändrades',
+  'pro.pin_changed_removed_message':
+    'Rumsägaren har ändrat rumslösenordet. Ange det nya lösenordet för att gå med igen.',
+  'pro.removed_title': 'Borttagen från rummet',
+  'pro.removed_message': 'Rumsägaren eller en administratör har tagit bort dig från rummet.',
+  'pro.device_removed_message':
+    'En annan enhet som är inloggad på ditt konto har kopplat bort den här enheten från rummet.',
   'pro.owner_only': 'Bara rumsägaren kan göra detta.',
   'pro.connect_failed': 'Det gick inte att ansluta till PRO-rummet.',
   'pro.room_full': 'PRO-rummet är fullt',

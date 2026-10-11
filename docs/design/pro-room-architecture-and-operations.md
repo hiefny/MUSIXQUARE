@@ -258,8 +258,20 @@ matched provider data/code checkpoint.
   flags on existing rooms default to `true`; a missing PIN never makes a room
   public. Owner-only `POST /pin` accepts `{pin: null}` to disable entry protection
   and `{pin: "12345678"}` to enable or change it. Disabling preserves current
-  members and playback; enabling or rotating keeps the existing session
-  revocation policy. Protected-room owners can enter using their verified owner
+  members and playback. Enabling or rotating with the legacy `{pin}` body
+  revokes every other session and advances the room incarnation ("Make
+  everyone rejoin"). Optional-v1 clients may add `existingParticipants`:
+  `revoke_all` is the same revocation, and `keep_present` ("Let them stay",
+  the App's default) keeps every session bound to a live presence entry and
+  revokes all others: dormant devices of kept accounts, dormant controllers
+  and anonymous administrators, the owner's dormant devices, and anyone who
+  left. Keep leaves the authentication epoch, presence, coordinator fence,
+  playback, and any pending transition unchanged, so no socket closes; it
+  still purges session-create receipts and clears the admission throttle after
+  its commit. With the field the response echoes it; without it the response
+  keeps its exact legacy shape. Kept people stay signed in on that device
+  until they leave, are removed, or their 30-day session expires.
+  Protected-room owners can enter using their verified owner
   account without knowing the PIN; a signed-in ordinary member or delegated
   controller cannot bypass it. Public rooms still create authenticated,
   capacity-bounded member sessions and require live presence for media access.
@@ -270,11 +282,12 @@ matched provider data/code checkpoint.
   replay, recovery, transfer), and session creation decides it before touching
   any receipt, account member, owner link, display number, or session record,
   so `ROOM_FULL` has no side effects. An absent owner can therefore find a
-  place in a room that others have filled and enable or rotate the PIN, which
-  revokes every other session, releases every session-create receipt, and
-  resets the admission throttle. The rule is checked only on entry: an owner
-  whose live session was demoted in place (for example by an account detach)
-  can still meet `ROOM_FULL` until somebody leaves
+  place in a room that others have filled and enable or rotate the PIN with
+  "Make everyone rejoin", which revokes every other session, releases every
+  session-create receipt, and resets the admission throttle ("Let them stay"
+  keeps whoever is present and is not that remedy). The rule is checked only
+  on entry: an owner whose live session was demoted in place (for example by
+  an account detach) can still meet `ROOM_FULL` until somebody leaves
   ([accepted risk](../known-accepted.md#11-public-pro-room-seat-holding-and-join-floods)).
   The reservation covers places and receipt slots, not the shared core byte
   budget ([persistent state](#persistent-state-and-sleep)).
@@ -287,6 +300,22 @@ matched provider data/code checkpoint.
   recovery, presence resume, and heartbeats are never throttled, and refusals
   are not counted. The throttle bounds churn; it cannot stop one network from
   holding 99 places with heartbeats ([accepted risk](../known-accepted.md)).
+- A session the owner or an administrator removed on purpose answers its next
+  request with `401 {"error":"SESSION_REQUIRED","reason":R}`: `REMOVED` after
+  `/presence/kick` (every device of the member, dormant ones included) or a
+  non-sibling `/presence/kick-device`, `DEVICE_REMOVED` when a verified
+  sibling device of the same account disconnected it, and `PIN_ENABLED` or
+  `PIN_CHANGED` after a PIN change revoked it (owner devices get no PIN
+  reason). The code stays `SESSION_REQUIRED`, which every App treats as
+  terminal; only the `!auth` branch of session authentication adds a reason,
+  and leave, expiry, eviction, suspension, purge, recovery, and transfer
+  never do. The reason comes from `sessionRevocationNotices`, a bounded core
+  ledger (256 entries, about 36 KiB) keyed by the verified cookie's hash and
+  valid only for the authentication epoch and room generation that wrote it,
+  while the room is active, for at most 7 days or the session's expiry, and
+  never while a live session holds the hash. It is not one-shot. The App
+  explains a removal once per tab and goes home instead of reloading the room
+  URL, and explains a PIN change before its PIN prompt.
 - Opt-in clients receive flat `snapshot.passwordRequired`; legacy snapshots
   keep their exact field set. A legacy client may still ask for a PIN in a
   public room; its structurally valid eight-digit entry is ignored only when
@@ -523,8 +552,10 @@ therefore cannot saturate the participant ledger that protects playback,
 queue, and media mutations, and cannot take the owner's receipt slots.
 Receipts written to the shared ledger by an earlier Worker are still read until
 they expire; they are not migrated. Enabling or rotating a PIN purges every
-session-create receipt, because each one then names a revoked session (the
-owner's own retry converges through deterministic recovery). A revoked
+session-create receipt. After "Make everyone rejoin" each one names a revoked
+session except the owner's, whose retry converges through deterministic
+recovery; after "Let them stay" a kept session's retry converges the same way,
+because the session still exists at the unchanged authentication epoch. A revoked
 client's replay of its admission therefore reaches the PIN check: after a PIN
 is first enabled it carries no PIN and gets `PIN_REQUIRED`; after a rotation it
 carries the old PIN and gets `PIN_INVALID`, which records one PIN-failure hit.
@@ -568,15 +599,21 @@ public traffic can occupy about:
   requests fill it. Its key is the exact client address, not a /64, so one
   IPv6 prefix can fill it and refill it each hour.
 
+Removal notices (`sessionRevocationNotices`, 256 entries, about 36 KiB at most)
+share the same budget, but public traffic cannot write them: only a kick or a
+PIN change does, and each notice is written while a larger session record
+(about 530 bytes) is deleted. A full ledger first evicts notices that are no
+longer valid, then the one that expires first, so a removal never fails on it.
+
 That is roughly 300 KiB in all with anonymous members, and 355 KiB with
 account-linked members. In a room whose legitimate core is already within that
 distance of the budget, owner admission and owner writes can fail closed with
 `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release most of it by
-enabling or rotating the PIN, which revokes every other session and presence
-and purges the admission receipts (the close receipts follow at the next
-prune); the rate-limit records are not cleared and expire within the hour. An
-absent owner has to wait for receipts and records to expire and sessions to
-leave.
+enabling or rotating the PIN with "Make everyone rejoin", which revokes every
+other session and presence and purges the admission receipts (the close
+receipts follow at the next prune); the rate-limit records are not cleared
+and expire within the hour. An absent owner has to wait for receipts and
+records to expire and sessions to leave.
 
 The v2 core and per-item playlist records are the only authoritative storage
 layout. A missing v2 core represents a fresh room incarnation; the Worker does

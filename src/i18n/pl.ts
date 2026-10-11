@@ -793,8 +793,29 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_message': 'Wpisz 8-cyfrowe hasło do tego pokoju PRO.',
   'pro.pin_retry_message': 'Hasło jest nieprawidłowe. Spróbuj ponownie.',
   'pro.pin_change_title': 'Zmień hasło pokoju',
-  'pro.pin_change_message': 'Ustaw nowe 8-cyfrowe hasło. Wszyscy będą musieli dołączyć ponownie.',
+  'pro.pin_change_message': 'Ustaw nowe 8-cyfrowe hasło.',
   'pro.pin_changed': 'Hasło pokoju zostało zmienione.',
+  'pro.pin_enable_title': 'Ustaw hasło pokoju',
+  'pro.pin_enabled': 'Hasło pokoju zostało ustawione.',
+  'pro.pin_members_legend': 'Osoby, które są teraz w pokoju',
+  'pro.pin_members_keep': 'Pozwól im zostać',
+  'pro.pin_members_keep_detail':
+    'Osoby połączone teraz mogą zostać. Pozostali będą potrzebować hasła, aby dołączyć.',
+  'pro.pin_members_reenter': 'Niech wszyscy dołączą ponownie',
+  'pro.pin_members_reenter_detail':
+    'Wszyscy pozostali, w tym twoje inne urządzenia, muszą dołączyć ponownie. Wybierz tę opcję, aby usunąć nieznane osoby.',
+  'pro.pin_keep_unavailable':
+    'Hasło nie zostało zmienione. Obecnie nie można zostawić osób w pokoju. Spróbuj ponownie później albo poproś wszystkich o ponowne dołączenie.',
+  'pro.pin_enabled_removed_title': 'Pokój ma teraz hasło',
+  'pro.pin_enabled_removed_message':
+    'Właściciel pokoju ustawił hasło do tego pokoju. Wpisz je, aby dołączyć ponownie.',
+  'pro.pin_changed_removed_title': 'Hasło pokoju się zmieniło',
+  'pro.pin_changed_removed_message':
+    'Właściciel pokoju zmienił hasło. Wpisz nowe hasło, aby dołączyć ponownie.',
+  'pro.removed_title': 'Usunięto cię z pokoju',
+  'pro.removed_message': 'Właściciel pokoju lub administrator usunął cię z tego pokoju.',
+  'pro.device_removed_message':
+    'Inne urządzenie zalogowane na twoje konto odłączyło to urządzenie od pokoju.',
   'pro.owner_only': 'Tylko właściciel pokoju może to zrobić.',
   'pro.connect_failed': 'Nie udało się połączyć z pokojem PRO.',
   'pro.room_full': 'Ten pokój PRO jest pełny',

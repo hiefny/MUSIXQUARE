@@ -704,8 +704,29 @@ const id: Record<I18nKey, string> = {
   'pro.pin_message': 'Masukkan sandi 8 digit untuk ruang PRO ini.',
   'pro.pin_retry_message': 'Sandi salah. Coba lagi.',
   'pro.pin_change_title': 'Ubah sandi ruang',
-  'pro.pin_change_message': 'Buat sandi baru 8 digit. Semua orang harus bergabung kembali.',
+  'pro.pin_change_message': 'Buat sandi baru 8 digit.',
   'pro.pin_changed': 'Sandi ruang telah diubah.',
+  'pro.pin_enable_title': 'Atur sandi ruang',
+  'pro.pin_enabled': 'Sandi ruang telah diatur.',
+  'pro.pin_members_legend': 'Orang yang ada di ruang sekarang',
+  'pro.pin_members_keep': 'Biarkan tetap di ruang',
+  'pro.pin_members_keep_detail':
+    'Orang yang terhubung sekarang bisa tetap di ruang. Orang lain perlu sandi untuk bergabung.',
+  'pro.pin_members_reenter': 'Minta semua orang bergabung kembali',
+  'pro.pin_members_reenter_detail':
+    'Semua orang lainnya, termasuk perangkat Anda yang lain, harus bergabung kembali. Pilih ini untuk mengeluarkan orang yang tidak Anda kenal.',
+  'pro.pin_keep_unavailable':
+    'Sandi tidak diubah. Saat ini orang di ruang tidak bisa dipertahankan. Coba lagi nanti, atau minta semua orang bergabung kembali.',
+  'pro.pin_enabled_removed_title': 'Ruang kini memakai sandi',
+  'pro.pin_enabled_removed_message':
+    'Pemilik ruang telah mengatur sandi untuk ruang ini. Masukkan sandi untuk bergabung kembali.',
+  'pro.pin_changed_removed_title': 'Sandi ruang telah berubah',
+  'pro.pin_changed_removed_message':
+    'Pemilik ruang telah mengubah sandi ruang. Masukkan sandi baru untuk bergabung kembali.',
+  'pro.removed_title': 'Anda dikeluarkan dari ruang ini',
+  'pro.removed_message': 'Pemilik ruang atau administrator telah mengeluarkan Anda dari ruang ini.',
+  'pro.device_removed_message':
+    'Perangkat lain yang masuk dengan akun Anda telah memutus koneksi perangkat ini dari ruang.',
   'pro.owner_only': 'Hanya pemilik ruang yang dapat melakukannya.',
   'pro.connect_failed': 'Tidak dapat terhubung ke ruang PRO.',
   'pro.room_full': 'Ruang PRO ini sudah penuh',

@@ -694,8 +694,29 @@ const vi: Record<I18nKey, string> = {
   'pro.pin_message': 'Nhập mật khẩu 8 chữ số của phòng PRO này.',
   'pro.pin_retry_message': 'Mật khẩu không đúng. Hãy thử lại.',
   'pro.pin_change_title': 'Đổi mật khẩu phòng',
-  'pro.pin_change_message': 'Đặt mật khẩu mới gồm 8 chữ số. Mọi người sẽ phải vào lại phòng.',
+  'pro.pin_change_message': 'Đặt mật khẩu mới gồm 8 chữ số.',
   'pro.pin_changed': 'Đã đổi mật khẩu phòng.',
+  'pro.pin_enable_title': 'Đặt mật khẩu phòng',
+  'pro.pin_enabled': 'Đã đặt mật khẩu phòng.',
+  'pro.pin_members_legend': 'Những người đang ở trong phòng',
+  'pro.pin_members_keep': 'Để họ ở lại',
+  'pro.pin_members_keep_detail':
+    'Những người đang kết nối có thể ở lại. Người khác phải nhập mật khẩu thì mới vào được.',
+  'pro.pin_members_reenter': 'Yêu cầu mọi người vào lại',
+  'pro.pin_members_reenter_detail':
+    'Tất cả những người khác, kể cả các thiết bị khác của bạn, sẽ phải vào lại phòng. Chọn mục này để mời người lạ ra khỏi phòng.',
+  'pro.pin_keep_unavailable':
+    'Mật khẩu chưa được đổi. Hiện không thể giữ mọi người ở lại phòng. Hãy thử lại sau hoặc yêu cầu mọi người vào lại.',
+  'pro.pin_enabled_removed_title': 'Phòng đã được đặt mật khẩu',
+  'pro.pin_enabled_removed_message':
+    'Chủ phòng đã đặt mật khẩu cho phòng này. Nhập mật khẩu để vào lại phòng.',
+  'pro.pin_changed_removed_title': 'Mật khẩu phòng đã thay đổi',
+  'pro.pin_changed_removed_message':
+    'Chủ phòng đã đổi mật khẩu phòng. Nhập mật khẩu mới để vào lại phòng.',
+  'pro.removed_title': 'Bạn đã bị mời ra khỏi phòng',
+  'pro.removed_message': 'Chủ phòng hoặc quản trị viên đã mời bạn ra khỏi phòng này.',
+  'pro.device_removed_message':
+    'Một thiết bị khác đã đăng nhập tài khoản của bạn đã ngắt kết nối thiết bị này khỏi phòng.',
   'pro.owner_only': 'Chỉ chủ phòng mới có thể thực hiện.',
   'pro.connect_failed': 'Không thể kết nối với phòng PRO.',
   'pro.room_full': 'Phòng PRO này đã đầy',

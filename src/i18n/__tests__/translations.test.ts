@@ -16,6 +16,7 @@ import tr from '../tr.ts';
 import vi from '../vi.ts';
 import zhHans from '../zh-hans.ts';
 import zhHant from '../zh-hant.ts';
+import { APP_DICTIONARIES } from '../catalogs.ts';
 
 const koKeys = Object.keys(ko);
 const locales = {
@@ -951,5 +952,108 @@ describe('Translation key integrity', () => {
     expect(ko['account.stats_listening_label']).toBe('감상 시간');
     expect(ko['account.stats_tracks_label']).toBe('재생한 미디어');
     expect(ko['account.stats_hours_minutes_value']).toBe('{{hours}}시간 {{minutes}}분');
+  });
+});
+
+describe('PRO PIN membership and removal copy', () => {
+  const NEW_KEYS = [
+    'pro.pin_enable_title',
+    'pro.pin_change_message',
+    'pro.pin_enabled',
+    'pro.pin_members_legend',
+    'pro.pin_members_keep',
+    'pro.pin_members_keep_detail',
+    'pro.pin_members_reenter',
+    'pro.pin_members_reenter_detail',
+    'pro.pin_keep_unavailable',
+    'pro.pin_enabled_removed_title',
+    'pro.pin_enabled_removed_message',
+    'pro.pin_changed_removed_title',
+    'pro.pin_changed_removed_message',
+    'pro.removed_title',
+    'pro.removed_message',
+    'pro.device_removed_message',
+  ] as const;
+  const dictionaries = APP_DICTIONARIES as Readonly<Record<string, Record<string, string>>>;
+
+  it('covers all 42 locales with a real, single-line translation of every key', () => {
+    expect(Object.keys(dictionaries)).toHaveLength(42);
+    for (const [locale, dict] of Object.entries(dictionaries)) {
+      for (const key of NEW_KEYS) {
+        const value = dict[key];
+        expect(value, `${locale}.${key}`).toBeTruthy();
+        expect(value!.trim(), `${locale}.${key}`).toBe(value);
+        expect(value, `${locale}.${key}`).not.toMatch(/\n|\{\{|PRO/);
+        // Only the 8-digit PIN instruction may carry a digit.
+        if (key !== 'pro.pin_change_message') {
+          expect(value, `${locale}.${key}`).not.toMatch(/\p{Nd}/u);
+        }
+        if (locale !== 'en') {
+          expect(value, `${locale}.${key} must not fall back to English`).not.toBe(en[key]);
+        }
+      }
+      expect(dict['pro.pin_members_keep'], `${locale} choice labels`).not.toBe(
+        dict['pro.pin_members_reenter'],
+      );
+      expect(dict['pro.pin_members_keep_detail'], `${locale} choice details`).not.toBe(
+        dict['pro.pin_members_reenter_detail'],
+      );
+      expect(dict['pro.pin_enable_title'], `${locale} enable vs change title`).not.toBe(
+        dict['pro.pin_change_title'],
+      );
+      expect(dict['pro.removed_message'], `${locale} kick vs device copy`).not.toBe(
+        dict['pro.device_removed_message'],
+      );
+    }
+  });
+
+  it('pins the approved English and Korean copy', () => {
+    expect(NEW_KEYS.map((key) => en[key])).toEqual([
+      'Set room password',
+      'Set a new 8-digit password.',
+      'Room password set.',
+      'People in the room now',
+      'Let them stay',
+      'People connected now can stay. Anyone else needs the password to join.',
+      'Make everyone rejoin',
+      "Everyone else, including your other devices, has to rejoin. Choose this to remove people you don't know.",
+      "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or make everyone rejoin.",
+      'Room password set',
+      'The room owner set a password for this room. Enter it to rejoin.',
+      'Room password changed',
+      'The room owner changed the room password. Enter the new password to rejoin.',
+      'Removed from this room',
+      'The room owner or an administrator removed you from this room.',
+      'Another device signed in to your account disconnected this device from the room.',
+    ]);
+    expect(NEW_KEYS.map((key) => ko[key])).toEqual([
+      '방 암호 설정',
+      '새 8자리 암호를 설정해 주세요.',
+      '방 암호를 설정했어요.',
+      '지금 방에 있는 사람',
+      '그대로 두기',
+      '지금 연결된 사람은 그대로 있고, 그 밖의 사람은 암호를 입력해야 들어올 수 있어요.',
+      '모두 다시 입장하게 하기',
+      '내 다른 기기를 포함해 모두 다시 들어와야 해요. 모르는 사람을 내보내려면 이걸 골라 주세요.',
+      '암호를 바꾸지 못했어요. 지금은 사람들을 그대로 둔 채 바꿀 수 없어요. 잠시 후 다시 시도하거나 모두 다시 입장하게 해 주세요.',
+      '방 암호가 설정됐어요',
+      '방 소유자가 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',
+      '방 암호가 바뀌었어요',
+      '방 소유자가 방 암호를 바꿨어요. 새 암호를 입력하면 다시 들어올 수 있어요.',
+      '방에서 내보내졌어요',
+      '방 소유자나 관리자가 이 방에서 내보냈어요.',
+      '내 계정으로 로그인한 다른 기기에서 이 기기의 연결을 끊었어요.',
+    ]);
+    // PRO copy names the room owner and administrators, never the standard
+    // room's host ("방장") or its forced-kick wording ("강제퇴장").
+    for (const key of NEW_KEYS) expect(ko[key]).not.toMatch(/방장|강제퇴장/);
+  });
+
+  it('no longer tells the owner that every PIN change makes everyone rejoin', () => {
+    for (const [locale, dict] of Object.entries(dictionaries)) {
+      // Each locale's PIN instruction is now exactly one sentence.
+      const value = dict['pro.pin_change_message']!;
+      expect(value.split(/[.。．।۔]\s*(?=\S)/u), locale).toHaveLength(1);
+    }
   });
 });

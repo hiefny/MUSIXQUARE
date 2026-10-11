@@ -786,9 +786,29 @@ const cs: Record<I18nKey, string> = {
   'pro.pin_message': 'Zadejte osmimístné heslo této místnosti PRO.',
   'pro.pin_retry_message': 'Heslo není správné. Zkuste to znovu.',
   'pro.pin_change_title': 'Změnit heslo místnosti',
-  'pro.pin_change_message':
-    'Nastavte nové osmimístné heslo. Všichni účastníci se budou muset připojit znovu.',
+  'pro.pin_change_message': 'Nastavte nové osmimístné heslo.',
   'pro.pin_changed': 'Heslo místnosti bylo změněno.',
+  'pro.pin_enable_title': 'Nastavit heslo místnosti',
+  'pro.pin_enabled': 'Heslo místnosti bylo nastaveno.',
+  'pro.pin_members_legend': 'Kdo je teď v místnosti',
+  'pro.pin_members_keep': 'Nechat je zůstat',
+  'pro.pin_members_keep_detail':
+    'Kdo je teď připojený, může zůstat. Ostatní budou k připojení potřebovat heslo.',
+  'pro.pin_members_reenter': 'Vyžadovat nové připojení od všech',
+  'pro.pin_members_reenter_detail':
+    'Všichni ostatní včetně vašich dalších zařízení se budou muset připojit znovu. Tuto možnost zvolte, pokud chcete odebrat neznámé lidi.',
+  'pro.pin_keep_unavailable':
+    'Heslo nebylo změněno. Ponechat lidi v místnosti teď nelze. Zkuste to později znovu nebo vyžadujte nové připojení od všech.',
+  'pro.pin_enabled_removed_title': 'Místnost má teď heslo',
+  'pro.pin_enabled_removed_message':
+    'Vlastník místnosti nastavil pro tuto místnost heslo. Zadejte ho a připojte se znovu.',
+  'pro.pin_changed_removed_title': 'Heslo místnosti se změnilo',
+  'pro.pin_changed_removed_message':
+    'Vlastník místnosti změnil heslo místnosti. Zadejte nové heslo a připojte se znovu.',
+  'pro.removed_title': 'Odebrání z místnosti',
+  'pro.removed_message': 'Vlastník místnosti nebo správce vás odebral z této místnosti.',
+  'pro.device_removed_message':
+    'Jiné zařízení přihlášené k vašemu účtu odpojilo toto zařízení od místnosti.',
   'pro.owner_only': 'Tuto akci může provést pouze vlastník místnosti.',
   'pro.connect_failed': 'K místnosti PRO se nepodařilo připojit.',
   'pro.room_full': 'Tato místnost PRO je plná',

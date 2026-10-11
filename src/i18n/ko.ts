@@ -765,8 +765,28 @@ const ko = {
   'pro.pin_message': '이 PRO 방의 8자리 암호를 입력해 주세요.',
   'pro.pin_retry_message': '암호가 올바르지 않아요. 다시 입력해 주세요.',
   'pro.pin_change_title': '방 암호 변경',
-  'pro.pin_change_message': '새 8자리 암호를 설정해 주세요. 모든 참여자가 다시 입장해야 해요.',
+  'pro.pin_change_message': '새 8자리 암호를 설정해 주세요.',
   'pro.pin_changed': '방 암호를 변경했어요.',
+  'pro.pin_enable_title': '방 암호 설정',
+  'pro.pin_enabled': '방 암호를 설정했어요.',
+  'pro.pin_members_legend': '지금 방에 있는 사람',
+  'pro.pin_members_keep': '그대로 두기',
+  'pro.pin_members_keep_detail':
+    '지금 연결된 사람은 그대로 있고, 그 밖의 사람은 암호를 입력해야 들어올 수 있어요.',
+  'pro.pin_members_reenter': '모두 다시 입장하게 하기',
+  'pro.pin_members_reenter_detail':
+    '내 다른 기기를 포함해 모두 다시 들어와야 해요. 모르는 사람을 내보내려면 이걸 골라 주세요.',
+  'pro.pin_keep_unavailable':
+    '암호를 바꾸지 못했어요. 지금은 사람들을 그대로 둔 채 바꿀 수 없어요. 잠시 후 다시 시도하거나 모두 다시 입장하게 해 주세요.',
+  'pro.pin_enabled_removed_title': '방 암호가 설정됐어요',
+  'pro.pin_enabled_removed_message':
+    '방 소유자가 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',
+  'pro.pin_changed_removed_title': '방 암호가 바뀌었어요',
+  'pro.pin_changed_removed_message':
+    '방 소유자가 방 암호를 바꿨어요. 새 암호를 입력하면 다시 들어올 수 있어요.',
+  'pro.removed_title': '방에서 내보내졌어요',
+  'pro.removed_message': '방 소유자나 관리자가 이 방에서 내보냈어요.',
+  'pro.device_removed_message': '내 계정으로 로그인한 다른 기기에서 이 기기의 연결을 끊었어요.',
   'pro.owner_only': '방 소유자만 할 수 있어요.',
   'pro.connect_failed': 'PRO 방에 연결하지 못했어요.',
   'pro.room_full': 'PRO 방이 가득 찼어요',

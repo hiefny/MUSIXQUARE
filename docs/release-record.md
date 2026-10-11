@@ -69,6 +69,11 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 - [ ] 리버브 10초 경계(일반방, PRO, API)와 데모 종료 뒤 표시되는 설정이 실제
   효과와 같은지.
 - [ ] 물리 키보드, 미디어 키, 실제 음향 출력(QA055 음향 테스트 포함).
+- [ ] PRO 암호 참여자 선택·퇴장 사유(미배포): iPhone Safari/PWA와 Android에서
+  암호 지정·변경 대화상자의 "그대로 두기"(기본)와 "모두 다시 입장하게 하기",
+  강퇴·기기 연결 끊기·암호 변경 안내 문구, 안내 뒤 홈 이동과 같은 탭에서 다시
+  열었을 때의 일반 입장, 360·390px(중국어 줄바꿈 포함)와 RTL 배치를 확인한다.
+  [상세](design/pro-pin-member-choice-2026-10-11.md)
 
 ### 원인을 모르는 관찰
 
@@ -97,9 +102,10 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 - [ ] 미배포 App 변경: PRO persisted-resource lane 리팩터링(동작 변화 없음),
   그룹 의존성 업데이트(PR #288: Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0
   등, large-audio 컨테이너 목록에서 HLS 제외), PRO 입장 거절 문구(`ROOM_FULL`,
-  `RATE_LIMITED`와 `Retry-After` 대기 시간, 42개 언어)가 main에 있다. App
-  `8.8.1`, SW 캐시 `v649`. 세 변경 모두 Worker 소스, D1, R2, 프로토콜을 바꾸지
-  않는다.
+  `RATE_LIMITED`와 `Retry-After` 대기 시간, 42개 언어)가 main에 있다. 이 세
+  변경은 Worker 소스, D1, R2, 프로토콜을 바꾸지 않는다. 아래 PRO 암호 참여자
+  선택까지 합쳐 다음 릴리스는 App `8.9.0` / SW 캐시 `v651` 하나로 나간다(8.8.1은
+  따로 배포하지 않는다).
   아래 PRO 공개방 입장 보호(`pro-room`)도 미배포라서, 둘 다 남아 있는 동안
   partial-release gate는 `app`과 `pro-room` 단독 배포를 모두 거부한다(선택하지
   않은 Worker의 runtime 차이). 대상은 배포 직전에 다시 판정한다(§3). 배포한 뒤
@@ -117,6 +123,20 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   (434 pass; binary codec, 실제 WebRTC, live는 범위 밖).
   [상세](design/beta-30-round-repair-2026-10-09.md#daybreak-보안-심화-재시도--2026-10-09)
 - [ ] 8.8.0 배포 뒤 첫 Drift Audit 결과 확인.
+- [ ] 미배포 PRO 암호 참여자 선택·퇴장 사유: PRO Worker와 App이 함께 바뀌어
+  Production Release `target=all`(PRO Worker 먼저, App 나중)이 필요하다.
+  App `8.9.0` / SW 캐시 `v651`이다(main의 8.8.1/`v649`을 합친 뒤 다시 올림).
+  배포한 뒤 §1을 덮어쓰고 이 항목을 지운다.
+  [상세](design/pro-pin-member-choice-2026-10-11.md)
+- [ ] 전환기 한계(PRO 암호 참여자 선택 배포 뒤): 캐시된 8.9.0 이전 App(운영
+  중인 8.8.0)은 퇴장 사유를 읽지 않는다. 강퇴되면 일반 "세션을
+  새로고침하고 있어요..."를 보여 주고, 공개방이면 시작 버튼 한 번으로 다시 들어올
+  수 있다. 그 App이 갱신될 때까지 남는다.
+  [상세](design/pro-pin-member-choice-2026-10-11.md)
+- [ ] 호환·복구(PRO 암호 참여자 선택 배포 뒤): PRO Worker만 이전으로 되돌리면
+  기본값 "그대로 두기"가 400으로 거절되어 App이 "암호를 바꾸지 못했어요"를
+  보여 주고, "모두 다시 입장하게 하기"는 계속 동작한다. 새 floor는 없다(§4).
+  [상세](design/pro-pin-member-choice-2026-10-11.md)
 - [ ] PRO 공개방 입장 보호(`pro-room` 대상, 미배포) 배포 뒤: 실제 공개방에서
   일반 입장·재입장·탭 닫기 후 복귀가 `RATE_LIMITED`나 `ROOM_FULL` 없이 되는지,
   PRO Worker 로그에서 두 응답이 평소보다 늘지 않는지 확인한다. 입장 throttle
@@ -207,6 +227,17 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   상태 변화 없는 409를 받고, App은 이를 무시한다. 계약 marker는 없고 rollback
   floor도 바뀌지 않는다.
   [상세](design/pro-room-admission-protection-2026-10-11.md)
+- **PRO 암호 참여자 선택·퇴장 사유(배포되면 적용):** 이 변경 이전 PRO Worker로
+  되돌리면 `existingParticipants`가 든 `POST /pin`은 400 `INVALID_REQUEST`로
+  거절된다. App은 이를 "그대로 두기를 지금 쓸 수 없음"으로 보여 주고 모두를
+  내보내는 쪽으로 대신 시도하지 않는다. "모두 다시 입장하게 하기"는 예전 `{pin}`
+  요청이라 그대로 동작한다. core의 `sessionRevocationNotices`(최대 256개, 약
+  36 KiB)는 이전 Worker가 그대로 보존하지만 읽거나 정리하지 않으며, 그동안
+  퇴장 사유는 붙지 않는다(코드는 계속 `SESSION_REQUIRED`). 다시 앞으로 배포하면
+  인증 epoch·room generation이 맞지 않거나 만료된 항목은 첫 prune에서 정리된다.
+  App만 이전으로 되돌리면 사유를 무시하고 예전처럼 동작한다. 계약 marker는 없고
+  rollback floor도 바뀌지 않는다.
+  [상세](design/pro-pin-member-choice-2026-10-11.md)
 
 ## 5. 갱신 방법
 

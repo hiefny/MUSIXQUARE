@@ -12,6 +12,8 @@ import {
   __accountLoginReturnForTests,
   rememberAccountLoginReturn,
 } from '../../account/login-return.ts';
+import * as navigation from '../../core/navigation.ts';
+import * as sessionReset from '../../core/session-reset.ts';
 
 const mocks = vi.hoisted(() => ({
   activate: vi.fn(),
@@ -1523,6 +1525,129 @@ describe('PRO room setup flow', () => {
       message: 'pro.new_link_message',
       buttonText: 'common.ok',
     });
+  });
+});
+
+describe('PRO room setup after the owner ended this session', () => {
+  const ACK_KEY = 'mxqr_pro_removed_ack';
+  const PENDING_KEY = `mxqr-pro-session-request:${ROOM_CODE}`;
+  const ended = (reason: 'PIN_ENABLED' | 'PIN_CHANGED' | 'REMOVED' | 'DEVICE_REMOVED' | null) =>
+    new ProRoomApiError('SESSION_REQUIRED', 401, null, reason);
+  const rendered = (text: unknown) =>
+    typeof text === 'function' ? (text as () => string)() : text;
+
+  beforeEach(() => {
+    mocks.bootstrap.mockResolvedValue({
+      roomCode: ROOM_CODE,
+      status: 'open',
+      passwordRequired: false,
+    });
+    vi.spyOn(sessionReset, 'scheduleSessionReset').mockReturnValue(null);
+  });
+
+  it.each([
+    ['REMOVED', 'pro.removed_title', 'pro.removed_message'],
+    ['DEVICE_REMOVED', 'network.disconnected', 'pro.device_removed_message'],
+  ] as const)(
+    'explains a %s removal once, never re-admits silently, and leaves for home',
+    async (reason, title, message) => {
+      sessionStorage.setItem(PENDING_KEY, 'mxqr-pro-' + 'a'.repeat(48));
+      sessionStorage.setItem(`${PENDING_KEY}:mode`, `mxqr-pro-${'a'.repeat(48)}:no-pin`);
+      mocks.resume.mockRejectedValue(ended(reason));
+      mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+      expect(mocks.showDialog).toHaveBeenCalledOnce();
+      const options = mocks.showDialog.mock.calls[0]![0];
+      expect(rendered(options.title)).toBe(title);
+      expect(rendered(options.message)).toBe(message);
+      expect(options.dismissible).toBe(false);
+      expect(mocks.probeJoin).not.toHaveBeenCalled();
+      expect(mocks.join).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(ACK_KEY)).toBe(ROOM_CODE);
+      expect(sessionStorage.getItem(PENDING_KEY)).toBeNull();
+      expect(sessionReset.scheduleSessionReset).toHaveBeenCalledExactlyOnceWith(
+        'dialog.leaving_session',
+        navigation.navigateToAppHome,
+      );
+    },
+  );
+
+  it('treats a deliberate second open in the same tab as an ordinary admission', async () => {
+    sessionStorage.setItem(ACK_KEY, ROOM_CODE);
+    mocks.resume.mockRejectedValue(ended('REMOVED'));
+    mocks.probeJoin.mockResolvedValueOnce({});
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.probeJoin).toHaveBeenCalledOnce();
+    expect(sessionReset.scheduleSessionReset).not.toHaveBeenCalled();
+    // A successful entry clears the acknowledgement for the next removal.
+    expect(sessionStorage.getItem(ACK_KEY)).toBeNull();
+  });
+
+  it('keeps another room removal acknowledgement from silencing this room', async () => {
+    sessionStorage.setItem(ACK_KEY, '000002');
+    mocks.resume.mockRejectedValue(ended('REMOVED'));
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+    expect(mocks.probeJoin).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(ACK_KEY)).toBe(ROOM_CODE);
+  });
+
+  it.each([
+    ['PIN_ENABLED', 'pro.pin_enabled_removed_message'],
+    ['PIN_CHANGED', 'pro.pin_changed_removed_message'],
+  ] as const)(
+    'probes, then explains a %s removal in the first PIN prompt only',
+    async (reason, firstMessage) => {
+      mocks.bootstrap.mockResolvedValue({
+        roomCode: ROOM_CODE,
+        status: 'pin_required',
+        passwordRequired: true,
+      });
+      mocks.resume.mockRejectedValue(ended(reason));
+      mocks.showDialog
+        .mockResolvedValueOnce({ action: 'ok', inputValue: '11111111' })
+        .mockResolvedValueOnce({ action: 'ok', inputValue: '22222222' });
+      mocks.join
+        .mockRejectedValueOnce(new ProRoomApiError('PIN_INVALID', 401))
+        .mockResolvedValueOnce({});
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+      expect(mocks.probeJoin).toHaveBeenCalledOnce();
+      expect(mocks.showDialog.mock.calls.map(([options]) => options.message)).toEqual([
+        firstMessage,
+        'pro.pin_retry_message',
+      ]);
+      expect(mocks.showDialog.mock.calls[0]![0]).toMatchObject({ title: 'pro.pin_title' });
+      expect(sessionReset.scheduleSessionReset).not.toHaveBeenCalled();
+    },
+  );
+
+  it('lets the verified owner account in after a PIN change without any prompt', async () => {
+    mocks.bootstrap.mockResolvedValue({
+      roomCode: ROOM_CODE,
+      status: 'pin_required',
+      passwordRequired: true,
+    });
+    mocks.resume.mockRejectedValue(ended('PIN_CHANGED'));
+    mocks.probeJoin.mockResolvedValueOnce({});
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.join).not.toHaveBeenCalled();
+  });
+
+  it('keeps the ordinary probe and prompt when the server gives no reason', async () => {
+    mocks.bootstrap.mockResolvedValue({
+      roomCode: ROOM_CODE,
+      status: 'pin_required',
+      passwordRequired: true,
+    });
+    mocks.resume.mockRejectedValue(ended(null));
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '11111111' });
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.probeJoin).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog.mock.calls[0]![0]).toMatchObject({ message: 'pro.pin_message' });
+    expect(sessionReset.scheduleSessionReset).not.toHaveBeenCalled();
   });
 });
 

@@ -715,9 +715,29 @@ const es: Record<I18nKey, string> = {
   'pro.pin_message': 'Introduce la contraseña de 8 dígitos de esta sala PRO.',
   'pro.pin_retry_message': 'La contraseña no es correcta. Inténtalo de nuevo.',
   'pro.pin_change_title': 'Cambiar contraseña',
-  'pro.pin_change_message':
-    'Define una nueva contraseña de 8 dígitos. Todos tendrán que volver a entrar.',
+  'pro.pin_change_message': 'Define una nueva contraseña de 8 dígitos.',
   'pro.pin_changed': 'Contraseña de la sala actualizada.',
+  'pro.pin_enable_title': 'Definir contraseña',
+  'pro.pin_enabled': 'Contraseña de la sala definida.',
+  'pro.pin_members_legend': 'Personas que están ahora en la sala',
+  'pro.pin_members_keep': 'Dejar que se queden',
+  'pro.pin_members_keep_detail':
+    'Quienes están conectados ahora pueden quedarse. Los demás necesitarán la contraseña para entrar.',
+  'pro.pin_members_reenter': 'Hacer que todos vuelvan a entrar',
+  'pro.pin_members_reenter_detail':
+    'Todos los demás, incluidos tus otros dispositivos, tendrán que volver a entrar. Elige esta opción para sacar a personas que no conoces.',
+  'pro.pin_keep_unavailable':
+    'No se cambió la contraseña. Ahora mismo no se puede mantener a las personas en la sala. Inténtalo más tarde o haz que todos vuelvan a entrar.',
+  'pro.pin_enabled_removed_title': 'Se definió una contraseña',
+  'pro.pin_enabled_removed_message':
+    'El propietario de la sala definió una contraseña para esta sala. Introdúcela para volver a entrar.',
+  'pro.pin_changed_removed_title': 'Se cambió la contraseña',
+  'pro.pin_changed_removed_message':
+    'El propietario de la sala cambió la contraseña. Introduce la nueva contraseña para volver a entrar.',
+  'pro.removed_title': 'Ya no estás en esta sala',
+  'pro.removed_message': 'El propietario de la sala o un administrador te sacó de esta sala.',
+  'pro.device_removed_message':
+    'Otro dispositivo con tu cuenta iniciada desconectó este dispositivo de la sala.',
   'pro.owner_only': 'Solo el propietario puede hacer eso.',
   'pro.connect_failed': 'No se pudo conectar con la sala PRO.',
   'pro.room_full': 'Esta sala PRO está llena',

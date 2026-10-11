@@ -793,9 +793,29 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_message': 'Masukkan kata laluan 8 digit untuk bilik PRO ini.',
   'pro.pin_retry_message': 'Kata laluan itu tidak betul. Cuba lagi.',
   'pro.pin_change_title': 'Tukar kata laluan bilik',
-  'pro.pin_change_message':
-    'Tetapkan kata laluan 8 digit baharu. Semua orang perlu menyertai semula.',
+  'pro.pin_change_message': 'Tetapkan kata laluan 8 digit baharu.',
   'pro.pin_changed': 'Kata laluan bilik ditukar.',
+  'pro.pin_enable_title': 'Tetapkan kata laluan bilik',
+  'pro.pin_enabled': 'Kata laluan bilik ditetapkan.',
+  'pro.pin_members_legend': 'Orang dalam bilik sekarang',
+  'pro.pin_members_keep': 'Biarkan mereka kekal',
+  'pro.pin_members_keep_detail':
+    'Orang yang sedang bersambung boleh kekal. Orang lain memerlukan kata laluan untuk menyertai.',
+  'pro.pin_members_reenter': 'Minta semua orang menyertai semula',
+  'pro.pin_members_reenter_detail':
+    'Semua orang lain, termasuk peranti Anda yang lain, perlu menyertai semula. Pilih ini untuk mengeluarkan orang yang Anda tidak kenali.',
+  'pro.pin_keep_unavailable':
+    'Kata laluan tidak ditukar. Buat masa ini, orang dalam bilik tidak dapat dikekalkan. Cuba lagi kemudian atau minta semua orang menyertai semula.',
+  'pro.pin_enabled_removed_title': 'Bilik kini mempunyai kata laluan',
+  'pro.pin_enabled_removed_message':
+    'Pemilik bilik telah menetapkan kata laluan untuk bilik ini. Masukkan kata laluan untuk menyertai semula.',
+  'pro.pin_changed_removed_title': 'Kata laluan bilik telah berubah',
+  'pro.pin_changed_removed_message':
+    'Pemilik bilik telah menukar kata laluan bilik. Masukkan kata laluan baharu untuk menyertai semula.',
+  'pro.removed_title': 'Anda dikeluarkan daripada bilik ini',
+  'pro.removed_message': 'Pemilik bilik atau pentadbir telah mengeluarkan Anda daripada bilik ini.',
+  'pro.device_removed_message':
+    'Peranti lain yang dilog masuk ke akaun Anda telah memutuskan sambungan peranti ini daripada bilik.',
   'pro.owner_only': 'Hanya pemilik bilik boleh melakukan tindakan itu.',
   'pro.connect_failed': 'Tidak dapat menyambung ke bilik PRO.',
   'pro.room_full': 'Bilik PRO ini sudah penuh',

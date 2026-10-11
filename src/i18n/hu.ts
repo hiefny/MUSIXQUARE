@@ -789,9 +789,29 @@ const hu: Record<I18nKey, string> = {
   'pro.pin_message': 'Add meg a PRO-szoba nyolcjegyű jelszavát.',
   'pro.pin_retry_message': 'A jelszó helytelen. Próbáld újra.',
   'pro.pin_change_title': 'Szobajelszó módosítása',
-  'pro.pin_change_message':
-    'Állíts be új, nyolcjegyű jelszót. Minden résztvevőnek újra kell csatlakoznia.',
+  'pro.pin_change_message': 'Állíts be új, nyolcjegyű jelszót.',
   'pro.pin_changed': 'A szobajelszó megváltozott.',
+  'pro.pin_enable_title': 'Szobajelszó beállítása',
+  'pro.pin_enabled': 'A szobajelszó be van állítva.',
+  'pro.pin_members_legend': 'Akik most a szobában vannak',
+  'pro.pin_members_keep': 'Maradhatnak',
+  'pro.pin_members_keep_detail':
+    'Aki most csatlakozva van, maradhat. Mindenki másnak jelszó kell a csatlakozáshoz.',
+  'pro.pin_members_reenter': 'Mindenki csatlakozzon újra',
+  'pro.pin_members_reenter_detail':
+    'Mindenki másnak, a többi eszközödet is beleértve, újra kell csatlakoznia. Ezt válaszd, ha ismeretleneket szeretnél eltávolítani.',
+  'pro.pin_keep_unavailable':
+    'A jelszó nem változott. A résztvevőket most nem lehet a szobában tartani. Próbáld újra később, vagy kérd, hogy mindenki csatlakozzon újra.',
+  'pro.pin_enabled_removed_title': 'A szobának jelszava lett',
+  'pro.pin_enabled_removed_message':
+    'A szobatulajdonos jelszót állított be ehhez a szobához. Add meg, és újra csatlakozhatsz.',
+  'pro.pin_changed_removed_title': 'Megváltozott a szobajelszó',
+  'pro.pin_changed_removed_message':
+    'A szobatulajdonos megváltoztatta a szobajelszót. Add meg az új jelszót, és újra csatlakozhatsz.',
+  'pro.removed_title': 'Eltávolítottak a szobából',
+  'pro.removed_message': 'A szobatulajdonos vagy egy adminisztrátor eltávolított ebből a szobából.',
+  'pro.device_removed_message':
+    'Egy másik, a fiókodba bejelentkezett eszköz leválasztotta ezt az eszközt a szobáról.',
   'pro.owner_only': 'Ezt csak a szobatulajdonos teheti meg.',
   'pro.connect_failed': 'Nem sikerült csatlakozni a PRO-szobához.',
   'pro.room_full': 'Ez a PRO-szoba megtelt',

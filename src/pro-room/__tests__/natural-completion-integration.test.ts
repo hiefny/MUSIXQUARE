@@ -1105,13 +1105,51 @@ describe('PRO file lengths stored before the current duration reader', () => {
     },
   );
 
-  it('keeps an unversioned controller-decoded length', async () => {
+  it('measures the playing file once behind an unversioned controller-decoded length', async () => {
     const context = await restartWithUnversionedLengths('controller');
+    // 8.10.0 kept no measured floor beneath a decode. It still sets the end
+    // until the playing file's one bounded read finishes.
     expect(context.worker.naturalPlaybackEndAtMs()).toBe(context.room.playback.updatedAtMs + 1_000);
+    metadata.file.mockResolvedValue(30);
     await alarmAt(context, Date.now() + 500);
-    expect(metadata.file).toHaveBeenCalledOnce();
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(metadata.file.mock.calls[1]?.[1]).toBe(`fixture/asset_${FIRST}/object`);
+    // The measurement refutes the far shorter decode and replaces it.
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 30,
+      source: 'server',
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      context.room.playback.updatedAtMs + 32_000,
+    );
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+    // Other assets wait for their own playback instead of a deployment-wide sweep.
+    expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+    expect(context.room.assets[`asset_${SECOND}`]!.duration).toEqual(
+      expect.not.objectContaining({ reader: expect.anything() }),
+    );
     await reachEnd(context);
     expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
+    expect(metadata.file).toHaveBeenCalledTimes(3);
+    expect(metadata.file.mock.calls[2]?.[1]).toBe(`fixture/asset_${SECOND}/object`);
+  });
+
+  it.each([
+    ['an unknown result', () => metadata.file.mockResolvedValue(null)],
+    ['a failed read', () => metadata.file.mockRejectedValue(new Error('R2 unavailable'))],
+  ])('does not read an unversioned controller length again after %s', async (_label, configure) => {
+    const context = await restartWithUnversionedLengths('controller');
+    configure();
+    await alarmAt(context, Date.now() + 100);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    // Later persists and alarms neither repeat the read nor drop the decode.
+    await context.worker.persist();
+    await context.settle();
+    await alarmAt(context, Date.now() + 100);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(context.room.playback.updatedAtMs + 1_000);
   });
 });
 

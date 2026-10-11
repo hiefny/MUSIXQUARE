@@ -4148,6 +4148,9 @@ export class MusixquareProRoom {
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
   playbackDurationLookup: { key: string; promise: Promise<void> } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
+  // Asset versions whose unmeasured controller length playback has already
+  // queued for a read in this instance.
+  assetDurationReadsQueued: Set<string>;
   naturalAdvanceRetry: { revision: number; updatedAtMs: number; retryAtMs: number } | null;
   // A backoff the stored probe could not record: the probe it belongs to
   // (identity key, attempts and stored retry time) and the time it holds.
@@ -4195,6 +4198,7 @@ export class MusixquareProRoom {
     this.sessionAdmissionThrottle = null;
     this.playbackDurationLookup = null;
     this.assetDurationLookup = null;
+    this.assetDurationReadsQueued = new Set();
     // Instance memory only: eviction costs at most one immediate retry, which
     // records a new backoff if the refusal persists.
     this.naturalAdvanceRetry = null;
@@ -5436,6 +5440,21 @@ export class MusixquareProRoom {
           durable.checkedAtMs,
         );
         changed = true;
+      }
+      // A decode without a current-reader measurement (8.10.0 kept none) is
+      // otherwise read only when a controller reports it again. Queue the one
+      // bounded read for the playing or target file only, not as a sweep, and
+      // once per instance: a failed read waits for the next decode report.
+      if (
+        asset &&
+        durable?.source === 'controller' &&
+        durable.reader !== PRO_ROOM_FILE_DURATION_READER
+      ) {
+        const read = `${asset.assetId}:${asset.version}:${asset.byteLength}:${asset.roomGeneration}`;
+        if (!this.assetDurationReadsQueued.has(read)) {
+          this.assetDurationReadsQueued.add(read);
+          changed = this.enqueueAssetDurationProbe(asset) || changed;
+        }
       }
     }
     const evidence = key ? this.activeRoom.playbackDurations[key] : null;

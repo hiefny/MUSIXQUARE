@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-12 (배포 SHA `8307f12b`, Release `38161550040`) |
+| Last source review | 2026-10-12 (배포 SHA `95e9092c`, Release `38165114764`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,16 +28,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.9.6` / `v657` |
-| 마지막 프로덕션 변경 | 2026-10-12 02:58 KST, [Release 38161550040](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161550040) attempt 1 성공, `target=all`, Developer API D1 `false` |
-| 배포 main SHA | `8307f12ba05683a0738d6f0e4cb293afa7968070` (PR [#300](https://github.com/hiefny/MUSIXQUARE/pull/300)). exact-main [CI 38161158889](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161158889) attempt 1 |
-| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `8307f12b` 적용. 운영 smoke 10개, 최종 배포 소유권, PRO ready, coherent production marker 확인. 이번 배포에서 새 비밀·바인딩·D1 스키마 변경 없음 |
-| 복구 | 필요 없음. Release 38161550040의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 Production Release 실행 안의 job이다 |
-| 활성 복구 floor | PRO/App 선택형 입장 암호. `cloudflare/pro-room-entry-policy-contract-version.txt` = `pro-room-optional-entry-password-v1`. 이번 배포에서 floor 변경 없음. 이 계약 이전의 PRO/App 기준선으로는 복구하지 않는다. forward repair나 검증된 같은 시점 코드·데이터 복구를 쓰고, 계약을 아는 기준선으로의 일반 rollback은 가능하다 (§4) |
-| 검증 범위 | PR·exact-main CI 각각 11개 job 성공. exact-main unit 542파일 11,591 pass / 0 fail / Windows 전용 1 skip, coverage 4종, Chromium candidate·SW 17 + critical 22 pass. 로컬 고정 런타임 전체 unit 11,590 pass / 0 fail / 0 skip, critical Chromium 22 pass, 별도 메타데이터 Chromium·WebKit 16 pass. 이후 추가한 테스트 2개와 critical profile은 로컬 coverage 2,038개 및 원격 전체 CI로 확인했다. 타입·린트·포맷·build:checked·계약 가드·Worker 6종 번들 통과. 공개 GET에서 첫 화면 `bootstrap.js?cache=v657`, `/service-worker.js`의 `v657`와 HTTP 200 확인. 실기·실제 고객방·대규모 도착은 §2에 남는다. [상세](design/pro-file-duration-registration-2026-10-12.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 8.9.6 배포 뒤 [38161918085](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161918085) (2026-10-12 KST, source `8307f12b`) 31 pass / 0 fail / 5 manual. 소스의 64개 바인딩 계약과 실제 제공 중인 모든 Worker 버전의 설정 일치 확인. 수동 5항목은 §2에 남는다 |
-| Full E2E | 매주 월 18:17 UTC. 2026-10-12 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 37602041553은 `agent/full-verification-8.7.2` 브랜치 실행(`716c37af`, PR #251로 병합)이다. 이번 배포의 critical/관련 browser 검사와 별개로, 8.9.6 배포 SHA의 전체 E2E 실행은 없음 |
-| 의존성 | 이번 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등) 유지. 2026-10-11 확인한 `npm audit`(전체·`--omit=dev`) 및 Dependabot alert는 0건. sharp 0.35.5 override 유지, TypeScript 6.1 이상·@types/node 25 이상은 Dependabot ignore. [상세](design/dependency-update-2026-10-11.md) |
+| App 버전 / SW 캐시 | `8.10.0` / `v659` |
+| 마지막 프로덕션 변경 | 2026-10-12 03:50 KST, [Release 38165114764](https://github.com/hiefny/MUSIXQUARE/actions/runs/38165114764) attempt 1 성공, `target=all`, Developer API D1 `false` |
+| 배포 main SHA | `95e9092c21d8facfeadf93cd2c0f4d2462dc39ee` (PR [#294](https://github.com/hiefny/MUSIXQUARE/pull/294)). exact-main [CI 38164204638](https://github.com/hiefny/MUSIXQUARE/actions/runs/38164204638) attempt 2. attempt 1은 unit 2/2에서 기존 시간 의존 테스트 1개(`playlist-view.test.ts`의 업로드 스피너 지연이 `now % 주기`가 0일 때 `-0ms` 대신 `0ms`)만 실패했고, 실패 job만 다시 실행해 11개 job이 모두 성공했다. 이 테스트는 8.10.0이 건드리지 않은 코드이고 8.10.1에서 고친다 |
+| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `95e9092c` 적용. 런타임이 바뀐 것은 signaling(3개 경로)과 app(66개 경로)뿐이다. 운영 smoke 10개, 최종 배포 소유권, PRO generation ready, coherent production marker 확인. 새 비밀·바인딩·D1 스키마 변경 없음. 새 시그널링 Durable Object 키 2개(`standard-room-pin-membership-v1`, `standard-room-pin-failures-v1`)는 계약 marker 없이 쓴다 |
+| 복구 | 필요 없음. Release 38165114764의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 Production Release 실행 안의 job이다 |
+| 활성 복구 floor | PRO/App 선택형 입장 암호. `cloudflare/pro-room-entry-policy-contract-version.txt` = `pro-room-optional-entry-password-v1`. 이번 배포에서 floor 변경 없음(`standard-room-pin-storage-contract-version.txt`는 `standard-room-pin-v2` 그대로). 이 계약 이전의 PRO/App 기준선으로는 복구하지 않는다. forward repair나 검증된 같은 시점 코드·데이터 복구를 쓰고, 계약을 아는 기준선으로의 일반 rollback은 가능하다 (§4) |
+| 검증 범위 | PR [CI 38163808826](https://github.com/hiefny/MUSIXQUARE/actions/runs/38163808826) 11개 job 성공(attempt 1). exact-main unit 544파일 11,742 pass / 0 fail / Linux에서 Windows 전용 1 skip(attempt 2 기준), coverage 4종, Chromium candidate·critical gate 성공. 로컬 병합 트리(`9f3245c2`) 전체 unit 11,743 pass / 0 fail / 0 skip과 타입·린트·포맷·build:checked 통과, 이후 탭 인계 문구 수정은 관련 490개 테스트로 확인했다. 공개 GET에서 첫 화면 HTTP 200과 `bootstrap.js?cache=v659`, `/service-worker.js` HTTP 200과 `v659` 확인. 고객방에는 들어가거나 바꾸지 않았다. 실기·네이티브 화자 검토는 §2에 남는다. [상세](design/release-8-10-0-merge-review-2026-10-12.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 8.10.0 배포 뒤 [38165659080](https://github.com/hiefny/MUSIXQUARE/actions/runs/38165659080) (2026-10-12 KST, source `95e9092c`) 31 pass / 0 fail / 5 manual. 소스의 64개 바인딩 계약과 실제 제공 중인 모든 Worker 버전의 설정 일치 확인. 수동 5항목은 §2에 남는다 |
+| Full E2E | 매주 월 18:17 UTC. 2026-10-12 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 배포의 critical browser 검사와 별개로, 8.10.0 배포 SHA의 전체 E2E 실행은 없음 |
+| 의존성 | 이번 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등) 유지. 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포에 넣지 않았다. 2026-10-11 확인한 `npm audit`(전체·`--omit=dev`) 및 Dependabot alert는 0건. sharp 0.35.5 override 유지, TypeScript 6.1 이상·@types/node 25 이상은 Dependabot ignore. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -80,7 +80,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   줄바꿈 포함), RTL 배치를 확인한다.
   [상세](design/pro-pin-member-choice-2026-10-11.md),
   [두 단계](design/pro-pin-two-step-2026-10-11.md)
-- [ ] 일반방 방장 암호와 공통 암호 흐름(미배포 8.10.0): iPhone Safari/PWA, Android,
+- [ ] 일반방 방장 암호와 공통 암호 흐름(8.10.0 배포 뒤): iPhone Safari/PWA, Android,
   Windows에서 두 방 종류 모두 1단계 버튼이 혼자일 때 "확인", 다른 기기가 있을 때
   "다음"인지, 2단계 "그대로 두기"(기본)·"모두 재입장", 일반방 암호가 빈 칸에서
   시작하고 "••••-••••"와 연필 버튼으로만 보이는지, VoiceOver·TalkBack이 점 대신
@@ -92,7 +92,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   테마)에서 언어 목록과 선택된 행의 글자, 선택된 탭 아이콘, 켜진 암호 스위치가 보이고
   초대 QR이 휴대폰 카메라로 스캔되는지, 320·360·390px, 가로 모드, RTL 배치를 함께 본다.
   [상세](design/standard-room-owner-pin-2026-10-11.md)
-- [ ] 방·데모 중 업데이트 안내(미배포 8.10.0; 기기가 `v659` 코드를 실행한 뒤 다음
+- [ ] 방·데모 중 업데이트 안내(8.10.0 배포 뒤; 기기가 `v659` 코드를 실행한 뒤 다음
   캐시 업데이트가 와야 볼 수 있다):
   iPhone Safari 탭, iPhone 홈 화면 PWA, Android Chrome(탭과 설치 앱), Windows·macOS
   데스크톱에서 방장·참여자·PRO 방·데모 중 새 버전이 대기하면 대화상자 없이 채팅에
@@ -131,53 +131,20 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 운영·보안
 
-- [ ] 미배포 일반방 방장 암호(8.10.0): App과 시그널링 Worker가 함께 바뀌어 Production
-  Release `target=all`이다. release.yml에서 시그널링이 App보다 먼저 배포되고, App도
-  peer-open의 기능 플래그를 확인하므로 순서가 바뀌어도 안전하다. 배포 SHA `8307f12b`
-  (8.9.6) 대비 런타임 경로는 signaling 3개(`signaling-protocol.ts`,
-  `signaling-worker.ts`, 새 `standard-room-pin-membership.ts`), app 66개,
-  pro-room·remote-share·developer-api 계열 0개이고 App 런타임 의존성 변경은 없다.
-  8.9.4의 탭 인계 문구 수정(인계당한 탭은 새 `pro.active_tab_replaced`, 42개 언어)도
-  함께 나간다. App `8.10.0` / SW 캐시 `v659`. 새
-  Durable Object 키 2개(`standard-room-pin-membership-v1`,
-  `standard-room-pin-failures-v1`)만 쓰고
-  `cloudflare/standard-room-pin-storage-contract-version.txt`, room meta v2, guest
-  binding 형식은 그대로라 새 floor가 없다. 시그널링만 이전으로 되돌리면 이전 Worker가
-  두 키를 읽지 않고 플래그도 없어 App이 암호만 보낸다. 그동안 "그대로 두기"는 8.10.0
-  이전처럼 동작하고(재연결 때 옛 암호 재전송 결함이 돌아온다), "모두 재입장"은 방장의
-  강퇴뿐이며 오답 제한은 꺼진다. App만 되돌리면 8.9.x의 무작위 암호로 돌아가고 새
-  Worker는 예전 프레임을 그대로 받는다. 전환기 한계: 캐시된 8.9.x 방장은 계속 무작위
-  암호를 만들고, 그 암호를 새로 만들었으면 남아 있던 참여자가 배포 재연결 때 옛 암호를
-  보내 실패가 같은 주소 버킷에 쌓일 수 있다. 이전 App 참여자는 "모두 재입장"으로
-  내보내지면 "강제퇴장"을 보고, 새 오류 두 가지는 일반 입장 오류로 보인다(영구 인증
-  오류라 재연결 폭주는 없다). 배포 뒤 관리자 대시보드 Operations 화면 Signals
-  패널의 Password lockouts(`guest_auth_rate_limited`, 최근 24시간)가 평소 0에
-  가까운지 본다. 오답 제한은 네트워크(IPv4 주소, IPv6 /64)별로만 건다. 방마다
-  네트워크 256개까지 버킷을 두고 살아 있는 버킷은 밀어내지 않으며, 표가 차 있을 때
-  새 네트워크는 제한하지도 기록하지도 않는다(fail open). 공유 overflow 버킷이 없어
-  오답을 여러 주소로 흩뿌려도 방 전체의 새 참여자를 막을 수 없는 대신, 주소를 많이
-  바꾸는 추측(IPv6로는 쉽다)은 제한되지 않는다. 오너가 2026-10-11 결정 B로 이를
-  허용했고, 추측 공격이 보이면 게스트 암호 시도 앞에 봇 확인(예: Cloudflare
-  Turnstile)이나 작업 증명을 검토한다. 주 신호는 Signals 패널의 Password
-  failures(`guest_auth_failed`)나 Operations의 Password issues 카드 급증, 또는
-  신고다. 표 밖 네트워크의 추측이나 버킷마다 20회 미만으로 나눈 추측은 잠금을
-  남기지 않으므로 Password lockouts는 보조 신호다. 같은 릴리스에 방·데모 중
-  업데이트 안내(오너 결정 2026-10-11, 복구 대화상자 문구 후속 포함)가 들어간다.
-  방(일반 방장·참여자, PRO, 만들기·참여 화면, PRO 재입장 중)과 데모에서는 업데이트
-  대화상자 대신 기기 로컬 채팅 안내를 세대마다 한 번 띄우고 "나중에" 기록을 남기지
-  않으며, 방을 나와 설정 화면으로 돌아오면 대화상자를 한 번 보여 준다. 방 밖 대화상자,
-  쿨다운·세대 판정·다중 탭 선출·reload 예약은 그대로다. 오너 결정(2026-10-11):
-  만들기·참여 화면(초대 링크 참여 포함)은 대화상자 대신 토스트를 띄우고 방이 시작되면
-  채팅 안내를 한 번 더 띄운다. 방에서 쓰는 기능 모듈 로드가 실패하면 뜨는 복구
-  대화상자는 동작을 그대로 둔다. 방에서도 뜨고 닫을 수 없으며 버튼은 새로고침
-  하나다(새로고침 외에는 기능을 불러올 수 없어서다). 문구만 업데이트 대화상자와 따로
-  "새로고침이 필요해요" / "MUSIXQUARE가 업데이트되었어요. 정상적으로 사용하려면
-  새로고침이 필요해요."를 쓴다. 전환기 한계: 이 판단은 새 코드가 하므로, 이 변경을
-  처음 배포할 때는 아직 이전 코드(운영 `v657` 이하)를
-  실행 중인 기기가 방 안에서도 예전 대화상자를 한 번 본다. 그래서 첫 배포는 큰 라이브
-  이벤트 중이 아닐 때 한다. main의 캐시가
-  먼저 올라가면 병합 직전에 번호를 다시 올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을
-  지운다.
+- [ ] 일반방 방장 암호 운영 감시와 전환기 한계(8.10.0 배포 뒤): 관리자 대시보드
+  Operations 화면 Signals 패널의 Password lockouts(`guest_auth_rate_limited`, 최근
+  24시간)가 평소 0에 가까운지 본다. 주 신호는 Password failures(`guest_auth_failed`)나
+  Operations의 Password issues 카드 급증, 또는 신고다. 오답 제한은 방마다
+  네트워크(IPv4 주소, IPv6 /64) 256개까지 버킷을 두고, 표가 차 있으면 새 네트워크는
+  제한하지도 기록하지도 않는다(fail open). 주소를 많이 바꾸는 추측(IPv6로는 쉽다)은
+  제한되지 않으며 오너가 2026-10-11 결정 B로 이를 허용했다. 추측 공격이 보이면 게스트
+  암호 시도 앞에 봇 확인(예: Cloudflare Turnstile)이나 작업 증명을 검토한다. 전환기
+  한계: 캐시된 8.9.x 방장은 계속 무작위 암호를 만들고, 그 암호를 새로 만들었으면 남아
+  있던 참여자가 재연결 때 옛 암호를 보내 실패가 같은 주소 버킷에 쌓일 수 있다. 이전
+  App 참여자는 "모두 재입장"으로 내보내지면 "강제퇴장"을 보고, 새 오류 두 가지는 일반
+  입장 오류로 보인다(영구 인증 오류라 재연결 폭주는 없다). 이 첫 배포 때 이전
+  코드(`v657` 이하)를 실행 중이던 기기는 방 안에서도 예전 업데이트 대화상자를 한 번
+  본다. 다음 배포부터는 새 업데이트 안내 정책을 따른다. 되돌리기는 §4.
   [상세](design/standard-room-owner-pin-2026-10-11.md),
   [업데이트 안내](design/in-room-update-prompt-2026-10-11.md),
   [운영](../cloudflare/standard-room-pin-ops.md),
@@ -229,7 +196,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   길이로 읽혀 컨트롤러가 없을 때 곡이 일찍 넘어갈 수 있다. 방 상태가 용량 한도에
   닿아 자연 넘김이 롤백되거나, 재생 파일의 자산이 식별 검사에 실패하면 알람이 쉬지
   않고 다시 울린다. 라이브·조회 불가 YouTube는 1분마다 다시 조회한다. 권한을 잃은
-  컨트롤러의 짧은 길이 보고가 남는다. 오너 결정(2026-10-12): 8.10.0을 먼저 배포하고
+  컨트롤러의 짧은 길이 보고가 남는다. 오너 결정(2026-10-12): 8.10.0을 먼저 배포하고(완료)
   이 수정은 바로 다음 릴리스로 낸다. 삭제·비공개 YouTube 영상은 시간 간격을 둔 두
   번의 "없음" 응답이 확인되면 건너뛴다.
   [리뷰·처리](design/release-8-10-0-merge-review-2026-10-12.md)
@@ -345,7 +312,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   App만 이전으로 되돌리면 사유를 무시하고 예전처럼 동작한다. 계약 marker는 없고
   rollback floor도 바뀌지 않는다.
   [상세](design/pro-pin-member-choice-2026-10-11.md)
-- **일반방 방장 암호(배포되면 적용):** 시그널링만 8.10.0 이전 Worker로 되돌려도
+- **일반방 방장 암호(8.10.0 배포 뒤):** 시그널링만 8.10.0 이전 Worker로 되돌려도
   floor는 없다. 이전 Worker는 `standard-room-pin-membership-v1`과
   `standard-room-pin-failures-v1`을 읽지 않고 기능 플래그도 알리지 않아, App이
   암호만 보낸다. 그동안 "그대로 두기"는 8.10.0 이전처럼 동작해 재연결 때 옛 암호를

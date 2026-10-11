@@ -1,10 +1,10 @@
 # 8.10.0 merge with 8.9.6 and review of 8.9.4–8.9.6 — 2026-10-12
 
-Status: branch `agent/standard-room-owner-pin` (PR
-[#294](https://github.com/hiefny/MUSIXQUARE/pull/294)) after merging main
-`eb3d1496`, App `8.10.0` / PWA cache `v659`. Not merged or deployed;
-production is App `8.9.6` / `v657` at `8307f12b`
-([release record](../release-record.md)). Release target `all`.
+Status: shipped. PR [#294](https://github.com/hiefny/MUSIXQUARE/pull/294)
+merged as main `95e9092c` after merging main `eb3d1496`, App `8.10.0` / PWA cache
+`v659`, released with target `all` on 2026-10-12 (see
+[Production verification](#production-verification)). It replaced App `8.9.6` /
+`v657` at `8307f12b` ([release record](../release-record.md)).
 
 ## Why
 
@@ -76,3 +76,44 @@ All local runs used Windows 11 and Node from the main checkout's
 
 PR CI and the exact-main CI are the remote evidence for the final SHA. No
 real-device, Full E2E or native-speaker review was run.
+
+## Production verification
+
+- PR [CI 38163808826](https://github.com/hiefny/MUSIXQUARE/actions/runs/38163808826)
+  passed all eleven jobs at the PR head `938e4bc3`, attempt 1. The PR was
+  squash-merged at that exact head as `95e9092c`.
+- Exact-main [CI 38164204638](https://github.com/hiefny/MUSIXQUARE/actions/runs/38164204638)
+  failed on attempt 1. The only failing test was
+  `src/ui/__tests__/playlist-view.test.ts` ("renders active uploads as compact
+  file rows"). It expects the upload spinner's delay to match `-\d+ms`, but
+  received `0ms`: `-Math.round(now % period)` is `-0` when the remainder rounds
+  to zero, and a template literal renders that as `0ms`.
+  - The test, the spinner code and their history predate this release, and
+    #294 did not touch them. Visually the delay is the same either way.
+  - After rerunning the failed jobs, attempt 2 passed all eleven jobs: 544
+    files, 11,742 pass, 0 fail, and 1 Linux skip of a Windows-only test.
+  - The test is fixed in the next release (8.10.1).
+- [Production Release 38165114764](https://github.com/hiefny/MUSIXQUARE/actions/runs/38165114764)
+  ran with `target=all` and Developer API D1 `false`. It succeeded on attempt 1
+  at 2026-10-11 18:50:46 UTC (2026-10-12 03:50 KST).
+  - All six Workers deployed the exact-main candidate, and all ten live smoke
+    steps passed.
+  - It restored PRO generation readiness, verified deployment ownership,
+    re-verified the signaling Custom Domain, and persisted the coherent
+    production marker.
+  - Every recovery and rollback step was skipped.
+- Public GETs returned HTTP 200 for the landing page, which loads
+  `bootstrap.js?cache=v659`, and for `/service-worker.js`, which carries the
+  `v659` cache. No customer room was entered or modified.
+
+| Worker | Deployed version |
+| --- | --- |
+| App | `440431c8-90fd-4da7-ab34-f079168fcd02` |
+| PRO | `63d9067d-1460-4c07-a131-3eb39592a260` |
+| Remote Share | `8aa39334-cf5a-452c-9f44-1ca64860347e` |
+| Signaling | `185b60d0-75de-42fb-a54e-b43a4c8f10b2` |
+| Developer API facade | `9caf753c-27c5-43e5-913b-0f2eb6eca776` |
+| Developer API | `f8e780e0-0923-4f40-b7f8-533065a03898` |
+
+This release did not run the entire serial E2E suite or any physical-device
+test. Those remain open checks in the release record.

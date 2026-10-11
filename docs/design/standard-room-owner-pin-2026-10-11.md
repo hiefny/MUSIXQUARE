@@ -1,5 +1,11 @@
 # Standard-room owner PIN — 2026-10-11
 
+> Released 2026-10-12 as App `8.10.0` / PWA cache `v659` at main `95e9092c`
+> ([Release 38165114764](https://github.com/hiefny/MUSIXQUARE/actions/runs/38165114764),
+> target `all`) after merging 8.9.6. See the
+> [merge, review and production verification](release-8-10-0-merge-review-2026-10-12.md).
+> The status below is the pre-merge test record.
+
 Status: implemented and verified locally on branch
 `agent/standard-room-owner-pin` as App `8.10.0` / PWA cache `v654`, then
 `v655` for the lockout copy ([Copy follow-up](#copy-follow-up-7f69b8bd)); the

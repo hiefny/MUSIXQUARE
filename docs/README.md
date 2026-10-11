@@ -98,10 +98,11 @@ These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
 - [8.10.0 merge and 8.9.4–8.9.6 review — 2026-10-12](design/release-8-10-0-merge-review-2026-10-12.md) —
-  unreleased App 8.10.0 / v659 after merging 8.9.6: merge resolution, four
-  read-only reviews (no P1/P2), the replaced-tab takeover copy fix, the PRO
-  Worker follow-ups deferred to 8.10.1 and the owner decisions on order and
-  deleted YouTube videos. Local full checks; no real-device review.
+  App 8.10.0 / v659 after merging 8.9.6: merge resolution, four read-only
+  reviews (no P1/P2), the replaced-tab takeover copy fix, the PRO Worker
+  follow-ups deferred to 8.10.1, the owner decisions on order and deleted
+  YouTube videos, and the exact-main CI rerun and production verification of
+  the 2026-10-12 release. No real-device review.
 - [PRO autonomous natural completion — 2026-10-12](design/pro-autonomous-playback-2026-10-12.md) —
   server-owned end deadlines, bounded file headers and authenticated YouTube
   metadata, controller sleep/departure, queue transitions and rollback compatibility;
@@ -110,7 +111,7 @@ labeled portion still supports a current guard or operating interpretation:
   missing-exit presence retention, 45-second lease probes and approved continuation
   copy in all 42 locales; App 8.9.4 / v655 release and verification evidence.
 - [In-room update prompt — 2026-10-11](design/in-room-update-prompt-2026-10-11.md) —
-  unreleased App 8.10.0/v659, same release as the Standard-room owner PIN:
+  App 8.10.0/v659 (released 2026-10-12), same release as the Standard-room owner PIN:
   in a room (standard or PRO, including the create and join screens and PRO
   presence re-entry) or the demo, a waiting update no longer opens the
   blocking dialog. It is an automatic "나중에" with no stored dismissal and
@@ -128,7 +129,7 @@ labeled portion still supports a current guard or operating interpretation:
   merging App 8.9.6). Local unit, coverage, build, and Chromium browser checks
   with screenshots; no real-device or native-speaker review.
 - [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
-  unreleased App 8.10.0 with the signaling Worker (target `all`; tested at
+  App 8.10.0 with the signaling Worker (released 2026-10-12, target `all`; tested at
   v655, ships as v659 with the in-room update prompt):
   Standard-room hosts type the 8-digit PIN in the shared two-step dialog,
   step 2 is skipped when nobody else is in the room (both room types), the PIN

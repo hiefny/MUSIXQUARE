@@ -15,7 +15,7 @@ import { setManagedTimer } from './core/timers.ts';
 import { isStandaloneDisplayMode } from './core/platform.ts';
 import { isSessionResetPending, scheduleDocumentReload } from './core/session-reset.ts';
 import { announceSystemMessageLocally } from './chat/protocol.ts';
-import { subscribeRoomAuthorityLifecycle } from './rooms/authority.ts';
+import { getRoomContext, subscribeRoomAuthorityLifecycle } from './rooms/authority.ts';
 import {
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
@@ -113,9 +113,17 @@ function isUnconfirmedRecentUpdateReload(): boolean {
   return updatedAt > 0 && age >= 0 && age < SW_COOLDOWN_MS && controllerConfirmedAt < updatedAt;
 }
 
-/** Whether this tab is hosting or joined to a room (standard or PRO). */
+/**
+ * Whether this tab is in a room (standard or PRO), including a provisional one
+ * that setup is still creating or joining. `network.appRole` alone is not
+ * enough: PRO presence re-entry (after a phone wakes from a lock longer than
+ * the presence TTL, or an account detach) projects `idle` for two network
+ * round trips while the room UI, `setup.sessionStarted`, and the PRO room
+ * context stay up. A real leave clears all three together.
+ */
 function isRoomSessionActive(): boolean {
-  return getState('network.appRole') !== 'idle';
+  if (getState('network.appRole') !== 'idle') return true;
+  return getState('setup.sessionStarted') || getRoomContext().roomId !== null;
 }
 
 /** Whether the guided demo is running or loading. */
@@ -167,19 +175,22 @@ function isChatSurfaceAvailable(): boolean {
 /**
  * Show the update notice on this device only. It never goes to peers: the
  * update state is per device, and a broadcast would tell every guest to
- * reload. Without a chat surface it falls back to a toast, never a dialog.
+ * reload. Without a chat surface it falls back to a toast (unless this
+ * generation already had one), never a dialog. Returns whether the room chat
+ * now shows it.
  */
-function postLocalUpdateNotice(): void {
+function postLocalUpdateNotice(toastShown: boolean): boolean {
   const key = updateNoticeKey();
   if (isChatSurfaceAvailable()) {
     try {
       announceSystemMessageLocally(key);
-      return;
+      return true;
     } catch (error) {
       log.warn('[SW] Chat update notice failed; using a toast', error);
     }
   }
-  showToast(t(key));
+  if (!toastShown) showToast(t(key));
+  return false;
 }
 
 export function registerServiceWorker(): void {
@@ -222,7 +233,11 @@ export function registerServiceWorker(): void {
       'passive' | 'prompting' | 'awaiting-local-controller' | 'reload-scheduled' = 'passive';
     // Generations already announced in this document, so a waiting worker, a
     // re-check, and another tab's activation of that generation share one notice.
-    const announcedUpdateIdentities = new Set<string>();
+    // 'toast' marks a notice that only a toast could show (setup still covering
+    // a provisional room, or a demo with no room). A toast does not use up the
+    // chat notice: the room chat still gets it once it can be seen.
+    const announcedUpdateNotices = new Map<string, 'chat' | 'toast'>();
+    let noticeUpgradeTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
     // The open prompt, so entering a room or the demo can retract it.
     let activePromptAbort: AbortController | null = null;
     let activePromptIdentity: string | null = null;
@@ -237,9 +252,40 @@ export function registerServiceWorker(): void {
     };
 
     const announceAvailableUpdate = (identity: string): void => {
-      if (announcedUpdateIdentities.has(identity)) return;
-      announcedUpdateIdentities.add(identity);
-      postLocalUpdateNotice();
+      const announced = announcedUpdateNotices.get(identity);
+      if (announced === 'chat') return;
+      if (announced === 'toast' && !isChatSurfaceAvailable()) return;
+      announcedUpdateNotices.set(
+        identity,
+        postLocalUpdateNotice(announced === 'toast') ? 'chat' : 'toast',
+      );
+    };
+
+    // Setup starts a room and hides its overlay in the same task, so look
+    // once the lifecycle signal's task has finished. The copy names no
+    // version, so one chat row covers every generation that had only a toast.
+    const upgradeToastNotices = (): void => {
+      noticeUpgradeTimer = null;
+      if (!isChatSurfaceAvailable()) return;
+      const toastOnly = [...announcedUpdateNotices]
+        .filter(([, channel]) => channel === 'toast')
+        .map(([identity]) => identity);
+      const [first, ...rest] = toastOnly;
+      if (first === undefined) return;
+      announceAvailableUpdate(first);
+      if (announcedUpdateNotices.get(first) !== 'chat') return;
+      for (const identity of rest) announcedUpdateNotices.set(identity, 'chat');
+    };
+    const scheduleToastNoticeUpgrade = (): void => {
+      if (noticeUpgradeTimer !== null) return;
+      if (![...announcedUpdateNotices.values()].includes('toast')) return;
+      noticeUpgradeTimer = globalThis.setTimeout(upgradeToastNotices, 0);
+    };
+    // The user's own answer to the dialog replaces a toast-only notice.
+    const forgetToastNotice = (identity: string): void => {
+      if (announcedUpdateNotices.get(identity) === 'toast') {
+        announcedUpdateNotices.delete(identity);
+      }
     };
 
     const announceActivatedUpdate = (identity: string | null): void => {
@@ -656,6 +702,7 @@ export function registerServiceWorker(): void {
               handledWaitingWorker = replacement;
               if (result?.action === 'secondary') {
                 updateLedger.rememberDismissal(replacementGeneration);
+                forgetToastNotice(replacementGeneration.promptIdentity);
               } else {
                 updateLedger.rememberPresentationFailure(replacementGeneration);
               }
@@ -684,8 +731,12 @@ export function registerServiceWorker(): void {
         }
 
         activationState = 'passive';
-        if (result?.action === 'secondary') updateLedger.rememberDismissal(generation);
-        else updateLedger.rememberPresentationFailure(generation);
+        if (result?.action === 'secondary') {
+          updateLedger.rememberDismissal(generation);
+          forgetToastNotice(generation.promptIdentity);
+        } else {
+          updateLedger.rememberPresentationFailure(generation);
+        }
         log.debug('[SW] Update dialog dismissed. Skipping local activation');
         if (controllerChangedWhilePrompting) {
           controllerChangedWhilePrompting = false;
@@ -730,9 +781,11 @@ export function registerServiceWorker(): void {
           activePromptDeferredByRoom = true;
           if (activePromptIdentity) announceAvailableUpdate(activePromptIdentity);
           activePromptAbort.abort();
+          scheduleToastNoticeUpgrade();
           return;
         }
         if (deferredPromptWorker && isDeferralTransient()) armDeferredPromptRetry();
+        scheduleToastNoticeUpgrade();
       };
       subscribeRoomAuthorityLifecycle(handleUpdatePromptContextChange);
       bus.on('state:demo.active', handleUpdatePromptContextChange);

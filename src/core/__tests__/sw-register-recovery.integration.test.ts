@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const integrationMocks = vi.hoisted(() => ({
   clearIntentionalNav: vi.fn(),
-  getState: vi.fn(() => 'idle'),
+  // An idle tab on the setup screen: no role, no started session, no room.
+  getState: vi.fn((key?: string): unknown => {
+    if (key === 'setup.sessionStarted') return false;
+    if (key === 'room.context') return { roomId: null };
+    return 'idle';
+  }),
   markIntentionalNav: vi.fn(),
   showDialog: vi.fn(),
   showToast: vi.fn(),
@@ -142,7 +147,6 @@ describe('service-worker reset recovery integration', () => {
     localStorage.clear();
     document.documentElement.className = '';
     document.body.innerHTML = '<main id="app"></main>';
-    integrationMocks.getState.mockReturnValue('idle');
     integrationMocks.showDialog.mockResolvedValue(undefined);
   });
 

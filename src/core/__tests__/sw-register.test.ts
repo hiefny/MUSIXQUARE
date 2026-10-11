@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const moduleMocks = vi.hoisted(() => ({
   announceSystemMessageLocally: vi.fn(),
   broadcastSystemMessage: vi.fn(),
-  getState: vi.fn((_key?: string): unknown => 'idle'),
+  getState: vi.fn((_key?: string): unknown => undefined),
   isSessionResetPending: vi.fn(() => false),
   isStandaloneDisplayMode: vi.fn(() => false),
   promptContextListeners: [] as Array<() => void>,
@@ -41,6 +41,7 @@ vi.mock('../../chat/protocol.ts', () => ({
   sendSystemMessage: moduleMocks.sendSystemMessage,
 }));
 vi.mock('../../rooms/authority.ts', () => ({
+  getRoomContext: () => moduleMocks.getState('room.context'),
   subscribeRoomAuthorityLifecycle: (listener: () => void) => {
     moduleMocks.promptContextListeners.push(listener);
     return () => undefined;
@@ -67,9 +68,16 @@ function emitPromptContextChange(): void {
   for (const listener of [...moduleMocks.promptContextListeners]) listener();
 }
 
-function setAppState(state: { role?: string; demoActive?: boolean }): void {
+function setAppState(state: {
+  role?: string;
+  demoActive?: boolean;
+  sessionStarted?: boolean;
+  roomId?: string | null;
+}): void {
   moduleMocks.getState.mockImplementation((key?: string) => {
     if (key === 'network.appRole') return state.role ?? 'idle';
+    if (key === 'setup.sessionStarted') return state.sessionStarted === true;
+    if (key === 'room.context') return { roomId: state.roomId ?? null };
     if (key === 'demo.active') return state.demoActive === true;
     if (key === 'demo.loading') return false;
     return undefined;
@@ -80,6 +88,15 @@ function mountChatSurface(): void {
   const chat = document.createElement('div');
   chat.id = 'chat-messages';
   document.body.append(chat);
+}
+
+/** Setup still covering the app, as while a code is created or a join runs. */
+function mountActiveSetupOverlay(): HTMLElement {
+  const setupOverlay = document.createElement('div');
+  setupOverlay.id = 'setup-overlay';
+  setupOverlay.className = 'active';
+  document.body.append(setupOverlay);
+  return setupOverlay;
 }
 
 interface FakeWorker {
@@ -278,11 +295,12 @@ describe('service-worker cache-retirement client handshake', () => {
     localStorage.clear();
     delete document.documentElement.dataset.mxqrNavigationSource;
     document.getElementById('chat-messages')?.remove();
+    document.getElementById('setup-overlay')?.remove();
     document.body.classList.remove('mode-demo');
     moduleMocks.promptContextListeners.length = 0;
     moduleMocks.isSessionResetPending.mockReturnValue(false);
     moduleMocks.isStandaloneDisplayMode.mockReturnValue(false);
-    moduleMocks.getState.mockReturnValue('idle');
+    setAppState({});
     moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
     moduleMocks.scheduleDocumentReload.mockImplementation(
       (message: string, onRecovered?: () => void) => {
@@ -305,7 +323,7 @@ describe('service-worker cache-retirement client handshake', () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController);
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     await registerWithHarness(harness);
 
     harness.setController(newController);
@@ -414,7 +432,7 @@ describe('service-worker cache-retirement client handshake', () => {
     const pageLoadController: FakeWorker = { postMessage: vi.fn() };
     const currentController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(pageLoadController);
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     await registerWithHarness(harness);
 
     harness.setController(currentController);
@@ -547,7 +565,7 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
     // The tab joins a room while the idle-screen prompt is still up.
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     emitPromptContextChange();
 
     await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
@@ -717,7 +735,7 @@ describe('service-worker cache-retirement client handshake', () => {
     { role: 'idle', initiallyControlled: false, replaceController: true, reset: 0, toast: 0 },
     { role: 'idle', initiallyControlled: true, replaceController: false, reset: 0, toast: 0 },
   ])('reconciles controller state after pending registration: %j', async (scenario) => {
-    moduleMocks.getState.mockReturnValue(scenario.role);
+    setAppState({ role: scenario.role });
     let finishRegistration!: () => void;
     const registrationGate = new Promise<void>((resolve) => {
       finishRegistration = resolve;
@@ -901,7 +919,7 @@ describe('service-worker cache-retirement client handshake', () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController);
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     await registerWithHarness(harness);
 
     harness.setController(newController);
@@ -919,7 +937,7 @@ describe('service-worker cache-retirement client handshake', () => {
     const firstWrapper: FakeWorker = { postMessage: vi.fn() };
     const secondWrapper: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController);
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     await registerWithHarness(harness);
 
     harness.setController(firstWrapper, false, 'v494');
@@ -939,7 +957,7 @@ describe('service-worker cache-retirement client handshake', () => {
     const staleController: FakeWorker = { postMessage: vi.fn() };
     const winningController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController);
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     await registerWithHarness(harness);
 
     let staleRequestId: unknown;
@@ -1071,7 +1089,7 @@ describe('service-worker cache-retirement client handshake', () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController, 'reload');
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     sessionStorage.setItem('sw-updated-at', String(Date.now()));
     await registerWithHarness(harness);
 
@@ -1087,7 +1105,7 @@ describe('service-worker cache-retirement client handshake', () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController, 'reload');
-    moduleMocks.getState.mockReturnValue('host');
+    setAppState({ role: 'host' });
     const confirmedAt = Date.now();
     sessionStorage.setItem('sw-updated-at', String(confirmedAt));
     sessionStorage.setItem('sw-controller-confirmed-at', String(confirmedAt));
@@ -1173,23 +1191,134 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(moduleMocks.showToast).not.toHaveBeenCalled();
     });
 
-    it('uses a toast while setup still covers a provisional room', async () => {
-      setAppState({ role: 'host' });
-      mountChatSurface();
-      const setupOverlay = document.createElement('div');
-      setupOverlay.id = 'setup-overlay';
-      setupOverlay.className = 'active';
-      document.body.append(setupOverlay);
-      try {
+    it.each(['host', 'guest'])(
+      'uses a toast while setup still covers a provisional %s room, then the chat notice once the room starts',
+      async (role) => {
+        setAppState({ role });
+        mountChatSurface();
+        const setupOverlay = mountActiveSetupOverlay();
         const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
         await registerWithHarness(harness);
 
         await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE));
         expect(moduleMocks.announceSystemMessageLocally).not.toHaveBeenCalled();
         expect(moduleMocks.showDialog).not.toHaveBeenCalled();
-      } finally {
-        setupOverlay.remove();
-      }
+
+        // A lifecycle change while setup still covers the room adds nothing.
+        emitPromptContextChange();
+        await flushAsyncControllerChange();
+        expect(moduleMocks.showToast).toHaveBeenCalledOnce();
+        expect(moduleMocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+
+        // Setup marks the room started and hides its overlay in one task.
+        setAppState({ role, sessionStarted: true });
+        emitPromptContextChange();
+        setupOverlay.classList.remove('active');
+        await vi.waitFor(() =>
+          expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce(),
+        );
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledWith(TAB_NOTICE);
+
+        emitPromptContextChange();
+        await flushAsyncControllerChange();
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+        expect(moduleMocks.showToast).toHaveBeenCalledOnce();
+        expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+        expect(localStorage.getItem(DISMISSAL_KEY)).toBeNull();
+        expectNoPeerTraffic();
+      },
+    );
+
+    it('does not re-post a toast-only notice after the user answered the dialog on setup', async () => {
+      setAppState({ role: 'guest' });
+      mountChatSurface();
+      const setupOverlay = mountActiveSetupOverlay();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+      await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+
+      // The join is cancelled back to the idle setup screen; "Later" there
+      // is the user's own choice.
+      setAppState({});
+      emitPromptContextChange();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(), {
+        timeout: 3_000,
+      });
+      await vi.waitFor(() => expect(localStorage.getItem(DISMISSAL_KEY)).not.toBeNull());
+
+      setAppState({ role: 'guest', sessionStarted: true });
+      emitPromptContextChange();
+      setupOverlay.classList.remove('active');
+      await flushAsyncControllerChange();
+      await flushAsyncControllerChange();
+      expect(moduleMocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      expect(moduleMocks.showToast).toHaveBeenCalledOnce();
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    });
+
+    describe('PRO presence re-entry (role projected idle, room still up)', () => {
+      const PRO_ROOM_ID = 'pro-room-1';
+
+      it.each([
+        { label: 'session started', sessionStarted: true, roomId: null },
+        { label: 'PRO room context', sessionStarted: false, roomId: PRO_ROOM_ID },
+        { label: 'both', sessionStarted: true, roomId: PRO_ROOM_ID },
+      ])(
+        'offers no dialog while only the role is idle ($label), then once after a real leave',
+        async ({ sessionStarted, roomId }) => {
+          setAppState({ role: 'host', sessionStarted: true, roomId: PRO_ROOM_ID });
+          mountChatSurface();
+          const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+          await registerWithHarness(harness);
+          await vi.waitFor(() =>
+            expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce(),
+          );
+
+          // reenterAfterDetachedPresence(): the bridge disconnect projects an
+          // idle role for enterPresence + createSignalingTicket.
+          setAppState({ role: 'idle', sessionStarted, roomId });
+          emitPromptContextChange();
+          await settle(SETTLE_WAIT_MS);
+          expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+          expect(moduleMocks.showToast).not.toHaveBeenCalled();
+          expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+
+          // Re-entry completes: the role is host again.
+          setAppState({ role: 'host', sessionStarted: true, roomId: PRO_ROOM_ID });
+          emitPromptContextChange();
+          await settle(SETTLE_WAIT_MS);
+          expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+
+          // A real leave clears the role, the session, and the room together.
+          setAppState({});
+          emitPromptContextChange();
+          await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(), {
+            timeout: 3_000,
+          });
+          expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+          expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+        },
+      );
+
+      it('never auto-reloads the tab when another tab activates an update during re-entry', async () => {
+        setAppState({ role: 'idle', sessionStarted: true, roomId: PRO_ROOM_ID });
+        mountChatSurface();
+        const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+        await registerWithHarness(harness);
+
+        const newController: FakeWorker = { postMessage: vi.fn() };
+        harness.setController(newController, false, 'v494');
+        harness.emit('controllerchange');
+
+        await vi.waitFor(() =>
+          expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledWith(TAB_NOTICE),
+        );
+        await flushAsyncControllerChange();
+        expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+        expect(harness.reload).not.toHaveBeenCalled();
+        expect(moduleMocks.showToast).not.toHaveBeenCalled();
+        expectNoPeerTraffic();
+      });
     });
 
     it('keeps the update dialog on the idle setup screen', async () => {

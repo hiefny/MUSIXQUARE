@@ -91,7 +91,7 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
 | Key | Shape and bounds | Written | Deleted |
 | --- | --- | --- | --- |
 | `standard-room-pin-membership-v1` | `{v:1, roomSecretHash, verifierDigest, kept:[{peerId, secretHash}]}`, at most 99 unique peers; hashes are 43-character base64url | With the verifier, in one transaction, by a keep change. Each kept peer's reconnect-secret hash is copied from its binding (active or inside the 5-minute reconnect window), or, for a peer without a live binding, from the current record while that record still exempts it | By a later change without the choice, turning protection off, "모두 재입장", a new room epoch, and `clearRoomMeta` |
-| `standard-room-pin-failures-v1` | `{v:1, entries:[{key, count, resetAt}]}`, at most 256 address-block buckets plus one shared overflow bucket (fixed key `standard-room-pin-overflow-bucket-v1-shared`), `count` 1..20 | After each wrong PIN | Expired entries are pruned on the next write; `clearRoomMeta` (room end) deletes the key. A live bucket is never evicted |
+| `standard-room-pin-failures-v1` | `{v:1, entries:[{key, count, resetAt}]}`, at most 256 address-block buckets (no shared bucket), `count` 1..20; a record that fails normalization, including one with more than 256 entries, reads as empty | After each wrong PIN from a tracked block; not written for a block the full table cannot track | Expired entries are pruned on the next write; `clearRoomMeta` (room end) deletes the key. A live bucket is never evicted |
 
 - **Kept devices.** A guest is exempt from the PIN only while the record's
   `roomSecretHash` matches the current room epoch, its `verifierDigest` matches
@@ -140,17 +140,17 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
   other HTTP-bridge guests) exhaust the shared bucket. A wrong PIN on that path
   is counted and also deletes the binding, so one binding carries at most one
   attempt past a lock. A guest whose binding has expired is treated as new.
-- **Table bound.** Live buckets are never evicted. Once 256 address blocks hold
-  a live bucket, attempts from every other block are charged to the single
-  overflow bucket, which has the same 20-per-window limit. A room therefore
-  accepts at most 256 × 20 + 20 = 5,140 wrong PINs per window however many
-  addresses an attacker rotates through. The cost is a fail-closed lockout:
-  while 256 blocks hold a bucket and the overflow bucket is locked, every new
-  joiner from another block gets `room-password-rate-limited` until the
-  overflow window ends or a bucket expires (at most 10 minutes, renewable by a
-  persistent attacker). Kept devices and guests with a live binding still pass.
-  The host can turn protection off or open a new room. Someone controlling 256
-  IPv6 /64s (one routed /56) can reach this with about 276 wrong PINs.
+- **Table bound (fail open, owner decision B of 2026-10-11).** Live buckets are
+  never evicted. Once 256 address blocks hold a live bucket, a block without
+  one is not limited and its wrong PINs are not recorded or written; it gets
+  its own bucket only when an expired one frees a slot. There is no shared
+  overflow bucket, so no attempt can lock any block but its own, and a
+  corrupt or oversized record or a storage failure locks nobody. The cost is
+  that guessing spread across more than 256 blocks is not limited: someone
+  controlling one routed IPv6 /56 (256 /64s) and one more address can guess
+  without limit. The owner accepted this
+  ([known-accepted #12](../docs/known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing));
+  watch "Password lockouts" for guessing.
 
 ### Rollback
 

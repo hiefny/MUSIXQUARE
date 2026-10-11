@@ -2,8 +2,10 @@
 
 Status: implemented and verified locally on branch
 `agent/standard-room-owner-pin` as App `8.10.0` / PWA cache `v654`, then
-`v655` for the lockout copy ([Copy follow-up](#copy-follow-up-7f69b8bd)). It is
-based on `origin/agent/pro-pin-two-step` `32a75a00` (PR #293, App `8.9.1` /
+`v655` for the lockout copy ([Copy follow-up](#copy-follow-up-7f69b8bd)); the
+wrong-PIN limiter then changed to fail open
+([Owner decision B](#owner-decision-b-fail-open-ecdc2e20), no cache change). It
+is based on `origin/agent/pro-pin-two-step` `32a75a00` (PR #293, App `8.9.1` /
 `v652`, not on main when this was tested), which is based on main `23d2f758`.
 Not merged or deployed; production remains App `8.9.0` / `v651` at `d76b1432`
 ([release record](../release-record.md)). Release target `all`: the signaling
@@ -90,9 +92,10 @@ return the Worker's commit for that exact mutation (`applied` with
 membership only on a flagged socket, clears the directive after the applied
 ack (so a later echo cannot revoke people who entered with the new PIN), and
 carries `retryAfterSeconds` on guest errors. The [review follow-ups](#review-follow-ups)
-made live wrong-PIN buckets non-evictable with one shared overflow bucket, let
-devices already in the room pass a locked bucket, carried kept devices across
-consecutive keep changes, and told first-enable revocations apart.
+made live wrong-PIN buckets non-evictable with one shared overflow bucket
+(removed again by [Owner decision B](#owner-decision-b-fail-open-ecdc2e20)),
+let devices already in the room pass a locked bucket, carried kept devices
+across consecutive keep changes, and told first-enable revocations apart.
 
 ### App (`964d30c8`)
 
@@ -201,6 +204,8 @@ confirmed and fixed in `e846172e` through `6f0c65a7`:
    overflow bucket under a fixed key (`e846172e`). The same script now accepts
    5,120 wrong PINs for 256 blocks and 5,140 for 257 or 1,000 blocks, the
    256 × 20 + 20 bound, which a unit test pins. The cost is item 7.
+   [Owner decision B](#owner-decision-b-fail-open-ecdc2e20) later removed the
+   overflow bucket: blocks past 256 are now not limited.
 2. **A later keep change dropped a kept device whose binding had expired
    (minor).** The keep branch now carries a listed peer's hash over from the
    current record when the peer has no live binding, and only while that record
@@ -230,9 +235,11 @@ confirmed and fixed in `e846172e` through `6f0c65a7`:
 6. **No recovery entry in the release record (minor).** §4 now has
    "일반방 방장 암호(배포되면 적용)".
 7. **The room-wide lockout was missing from known-accepted (minor).** Item #12
-   now states it with its cost after item 1 (about 276 wrong PINs from 256
-   /64s, renewable) and the remedies, as pending owner acceptance, which the
-   release record's §2 item asks for.
+   then stated it with its cost after item 1 (about 276 wrong PINs from 256
+   /64s, renewable) and the remedies, and the release record asked the owner
+   to decide. The owner chose fail open instead
+   ([Owner decision B](#owner-decision-b-fail-open-ecdc2e20)); #12 now
+   records that design.
 
 Items 4 and 5 change PWA runtime files after `120d59e2`, so the cache advanced
 to `v654` (`6f0c65a7`); the App stays `8.10.0`.
@@ -339,7 +346,7 @@ holds the final run.
 | `npm run build:checked` | pass, including `guard:legacy-tv-build` (Chromium 79) and `guard:sw-app-shell` |
 | `npm run check:worker-bundles` (after the build) | pass, every production Worker bundled |
 | `npm run build:e2e`, then `npx playwright test e2e/standard-room-owner-pin.test.ts e2e/pro-entry-password.test.ts e2e/dialog-locale-layout.test.ts e2e/device-management.test.ts e2e/accessibility-contrast.test.ts --project=chromium` | 25 passed (local Chromium; Standard rooms over local PeerJS, PRO over a synthetic API fixture; outside CI by design) |
-| The reviewer's limiter script (one wrong PIN per block in turn, 1 ms apart, 200 rounds) | 256 blocks: 5,120 accepted; 257 blocks: 5,140; 1,000 blocks: 5,140 (before the fix: 51,400 accepted, 0 refused for 257) |
+| The reviewer's limiter script (one wrong PIN per block in turn, 1 ms apart, 200 rounds) | 256 blocks: 5,120 accepted; 257 blocks: 5,140; 1,000 blocks: 5,140 (before the fix: 51,400 accepted, 0 refused for 257); superseded by [Owner decision B](#owner-decision-b-fail-open-ecdc2e20) |
 
 ¹ The `release-deployment-state` shell-plan contract test skips when `jq` is
 not installed, as on this machine. It does not exercise this change.
@@ -372,7 +379,9 @@ The Worker, protocol and transport tests are listed in their commits. The
 review follow-ups add `standard-room-pin-membership.test.ts` cases (no live
 bucket evicted, the shared overflow bucket and its lock, a freed slot, the
 round-robin bound for 256, 257 and 1,000 blocks, the normalizer's 256 + 1
-bound), five Worker cases listed under [Review follow-ups](#review-follow-ups),
+bound; [Owner decision B](#owner-decision-b-fail-open-ecdc2e20) replaced the
+overflow cases with fail-open ones), five Worker cases listed under
+[Review follow-ups](#review-follow-ups),
 the first-enable close notice in `setup-network-error.test.ts`, and the
 "Password lockouts" signal in `admin-dashboard-ui.test.ts`.
 
@@ -513,3 +522,109 @@ with no page or error-box overflow. The dark and landscape lockout images in
 that folder are from `6f0c65a7` and still show the replaced copy. The new
 translations have no native-speaker review, and the other locales' lockout
 copy was not captured.
+
+## Owner decision B (fail open, `ecdc2e20`)
+
+Owner decision (2026-10-11): after being told that, with IPv6, one person with
+one server allocation (a routed /56 holds 256 /64s) could fill all 256 per-room
+buckets and lock the shared overflow bucket with about 276 wrong PINs, and so
+keep every new guest out of the room indefinitely (renewable every 10
+minutes), the owner chose B: the wrong-PIN limiter fails open when its table
+is full. A room PIN is a soft access deterrent, and blocking real guests from
+an event is worse than a guessed PIN. [known-accepted #12](../known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)
+records the accepted design and its revisit trigger.
+
+Change (`ecdc2e20`, `cloudflare/standard-room-pin-membership.ts` and
+`recordStandardPinFailure` in `cloudflare/signaling-worker.ts`):
+
+- The shared overflow bucket and its fixed key are gone. A key that has no live
+  bucket while all 256 slots hold other blocks' live buckets is not limited
+  and not recorded. `standardRoomPinAttemptLockedFor` reads only the key's own
+  bucket, so no attempt can lock any block but its own.
+- `recordStandardRoomPinFailure` returns the input record itself for such a
+  key, and the Worker then skips the storage write, so an untracked guess
+  costs no write.
+- Unchanged: keys with a bucket keep 20 wrong PINs per fixed 10-minute window;
+  live buckets are never evicted; expired buckets are pruned on the next write
+  and their slots reused; the kept-guest and live-binding bypasses; binding
+  deletion on a wrong PIN; `room-password-rate-limited` with
+  `retryAfterSeconds` and its copy; the `guest_auth_rate_limited` metric; and
+  the single HTTP-bridge `unattributed` bucket, which is one key and is limited
+  like any other.
+- No other path can lock every newcomer: the normalizer bound is now 256
+  entries (was 256 + 1), and a record over it or otherwise invalid reads as
+  empty; a reset time beyond one window reads as expired; a storage read
+  failure admits to the PIN check; a failed write is reported and refuses
+  nobody; an attempt without a bucket key (a failed HMAC, or no pepper, where
+  a protected room already fails closed at the PIN check itself) is not
+  limited.
+- The stored table is at most 22,803 bytes of JSON (256 buckets with
+  43-character keys, count 20 and 13-digit reset times), down from 22,892 with
+  the overflow entry; a unit test pins 256 entries and 24 KiB.
+- Compatibility: no wire, key or schema change, no contract marker. This
+  branch is not deployed, so no stored table has the overflow entry; if one
+  did, a 257-entry table would read as empty, and an overflow entry among at
+  most 256 would be an ordinary bucket that no HMAC attempt key matches,
+  gone within 10 minutes.
+- Release identity is unchanged: App `8.10.0`, PWA cache `v655` (no PWA runtime
+  file changed; `guard:sw-cache-version` passes), the same 3 signaling paths,
+  release target `all`.
+
+Tests: `standard-room-pin-membership.test.ts` replaces the overflow cases with
+fail-open cases (a 257th and later block is not counted or locked after many
+wrong PINs and the record object is returned unchanged; attackers spread over
+257, 276 and 1,000 blocks that each guess for 40 rounds (tracked blocks until
+refused) cannot keep a fresh block out, before or after its own typo; a tracked block still locks at 20
+while the table is full; an expired bucket frees a slot that a new block then
+fills and can lock; an oversized in-memory table is pruned; the round-robin
+locks only tracked blocks; corrupt and oversized tables, up to 10,000 entries,
+read as empty; and the size bound). `cloudflare-signaling-worker.test.ts` adds
+two Worker cases: 256 /64s of one /56 fill the table with one wrong PIN each,
+then 25 wrong PINs from a 257th /64 are refused only as wrong, write nothing
+and change nothing, fresh IPv6 and IPv4 guests are admitted with the right
+PIN, and a tracked /64 still locks at 20; and a seeded table of 256 locked
+buckets, or a 257-entry record, locks no newcomer, including bridge
+(`unattributed`) guests. The four fail-open unit cases and both Worker cases
+fail against the previous limiter (`250e455f`), and the first Worker case
+fails when the skipped write is removed.
+
+Attack scripts (the reviewer's round-robin script, one wrong PIN per block in
+turn, 1 ms apart, 200 rounds; and a newcomer-lockout script written for this
+decision, one wrong PIN per attacker block per round, skipping refused blocks,
+then a check of a fresh block; both in the local scratch folder, not in the
+repository), run against the pure limiter before and after:
+
+| Scenario | Before (`250e455f`) | After (`ecdc2e20`) |
+| --- | --- | --- |
+| Round-robin, 256 blocks | 5,120 accepted, 46,080 refused | 5,120 accepted, 46,080 refused |
+| Round-robin, 257 blocks | 5,140 accepted, 46,260 refused | 5,320 accepted (the 257th block unlimited), 46,080 refused |
+| Round-robin, 1,000 blocks | 5,140 accepted, 194,860 refused | 153,920 accepted (744 blocks unlimited), 46,080 refused |
+| 277 blocks, 1 wrong PIN each, then a fresh block | 276 accepted, 1 refused; fresh block locked for 599,979 ms | 277 accepted, 0 refused; fresh block not locked, its own wrong PIN not recorded |
+| 1,000 blocks, 20 rounds, then a fresh block | 5,140 accepted; fresh block locked for 580,256 ms | 20,000 accepted; fresh block not locked |
+
+The refusals after the change all fall on the 256 tracked blocks (256 × 20 =
+5,120 accepted from them). The cost the owner accepted is visible in the 257-
+and 1,000-block rows: blocks past the table guess without limit.
+
+Verification at `ecdc2e20` (same machine and dependencies as above; local, not
+an exact-main CI candidate):
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck`, `npm run lint` (zero warnings), `npm run format:check` | pass |
+| `npx vitest run src/network src/core/__tests__/*signaling* src/core/__tests__/ci-quality-gates.test.ts` | 57 files, 1,523 passed |
+| `npm test` | 538 files, 11,478 passed, 0 failed, 1 skipped (the `jq` contract test, as above) |
+| `npm run test:coverage:workers` | 38 files, 2,089 passed; thresholds met (84.87 / 81.46 / 93.15 / 89.39) |
+| `npm run check:workers` | pass |
+| `guard:sw-cache-version` | pass; `v655` (`7f69b8bd`) still covers every committed PWA runtime change, so no cache bump |
+| `guard:release-identity` | pass; `8.10.0` / `v655` |
+| `npm run build:checked` | pass, including `guard:legacy-tv-build` and `guard:sw-app-shell` |
+
+Limits: the limiter was exercised with unit tests, Worker tests against the
+fake Durable Object storage and the local scripts above, not against a live
+Durable Object, real IPv6 traffic or production. The HTTP-bridge
+`unattributed` bucket is still shared by every bridge guest of a room, as the
+decision kept it, so 20 wrong PINs over the bridge still lock bridge
+newcomers (not WebSocket newcomers) for one window. Other admission limits
+(the per-IP WebSocket-open limit, pending-guest slots and the 99-guest
+ceiling) are outside this change.

@@ -193,10 +193,10 @@ Accepted 2026-10-11 with App 8.10.0. A Standard-room host now types the
 8-digit room PIN instead of receiving a random one, and weak PINs such as
 `00000000` are allowed in both room types by owner decision: a room PIN is a
 soft access deterrent, not an account credential. The signaling Worker limits
-wrong PINs to 20 per 10 minutes per room and per client address block (IPv4
-address or IPv6 /64), counting failures only. It tracks at most 256 address
-blocks per room and never evicts a live bucket; every further block shares one
-overflow bucket with the same limit
+wrong PINs per network only: 20 per 10 minutes per room and per client address
+block (IPv4 address or IPv6 /64), counting failures only. It tracks at most 256
+address blocks per room and never evicts a live bucket; a block it cannot track
+is not limited at all, and there is no shared overflow bucket
 ([ops](../cloudflare/standard-room-pin-ops.md#owner-chosen-pins-kept-devices-and-the-wrong-pin-limit-app-8100)).
 What remains accepted:
 
@@ -209,22 +209,22 @@ What remains accepted:
   "모두 재입장", which closes every guest socket and clears the reconnect
   bindings and the kept set; a host-to-Worker revoke for one guest can come
   later.
-- **Distributed guessing.** Each of the first 256 address blocks gets its own
-  20 attempts per window and all further blocks share 20 more, so a room
-  accepts at most 5,140 wrong PINs per 10 minutes (256 × 20 + 20) however many
-  addresses a guesser rotates through. With an owner-chosen PIN, and weak PINs
-  allowed, this is weaker than the former random PIN.
-- **Room-wide lockout under a spread-out attack (owner acceptance pending).**
-  While 256 address blocks hold a bucket and the shared overflow bucket is
-  locked, every new joiner from another block is refused with
-  `room-password-rate-limited` until the overflow window ends or a bucket
-  expires: at most 10 minutes, and a persistent attacker can renew it. One
-  routed IPv6 /56 (256 /64s) is enough, with about 276 wrong PINs. Kept devices
-  and guests whose live reconnect binding matches are not affected, and the
-  host can turn protection off or open a new room. This fail-closed choice is
-  deliberate: evicting live buckets instead would let guessing spread across
-  more than 256 blocks go unlimited. The owner has not yet accepted it
-  ([release record §2](release-record.md#운영보안)).
+- **Distributed guessing (accepted by the owner on 2026-10-11).** Each tracked
+  network gets 20 wrong PINs per window. Once 256 networks hold a live bucket
+  in a room, every further network is not limited and its failures are not
+  recorded until a bucket expires, so someone who rotates through many
+  addresses, which is easy with IPv6 (one routed /56 holds 256 /64s), can keep
+  guessing without limit. With an owner-chosen PIN, and weak PINs allowed, this is
+  weaker than the former random PIN. The owner chose this over the earlier
+  fail-closed design, in which one shared bucket for every network past 256
+  let about 276 wrong PINs from one /56 keep every new guest out of the room
+  for 10 minutes at a time, renewable indefinitely: room PINs here are a soft
+  access deterrent, and blocking real guests from an event is worse than a
+  guessed PIN. Apart from the shared buckets below (one NAT, or the HTTP
+  bridge), no guest is refused because of another network's failures, and a
+  corrupt or oversized failure record, or a storage failure, refuses nobody.
+  If a guesser gets in, the remedy is the host's: kick the device, or change
+  the PIN with "모두 재입장".
 - **Shared networks.** Everyone behind one NAT shares a bucket, so after many
   typos in a crowded venue new joiners there wait until the window ends (at
   most 10 minutes). HTTP-bridge guests carry no client address and share one
@@ -248,9 +248,12 @@ What remains accepted:
   `room-password-rate-limited`. Both errors stay permanent auth errors there,
   so there is no reconnect storm.
 
-Reopen this item if Standard rooms become discoverable or listed, if guessing
-or kick evasion is observed in production, or before relying on a Standard-room
-PIN for anything more than keeping casual visitors out.
+Reopen this item if Standard rooms become discoverable or listed, if kick
+evasion is observed in production, or before relying on a Standard-room PIN for
+anything more than keeping casual visitors out. If guessing attacks are
+observed (a spike in "Password lockouts", `guest_auth_rate_limited`, in the
+admin Signals panel, or abuse reports), consider adding a bot check (for
+example Cloudflare Turnstile) or proof of work before guest PIN attempts.
 
 ## Retired Risks
 

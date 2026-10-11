@@ -115,7 +115,7 @@ Events:
 | `guest_auth_pending`                     | A password-protected guest reached the password prompt.                                                                               |
 | `guest_auth_failed`                      | A guest submitted a missing or invalid room password.                                                                                 |
 | `guest_auth_timeout`                     | A guest password prompt timed out.                                                                                                    |
-| `guest_auth_rate_limited`                | A guest was refused before the PIN check: its address block, or the shared overflow bucket, hit 20 wrong PINs in 10 minutes.          |
+| `guest_auth_rate_limited`                | A guest was refused before the PIN check: its own address block hit 20 wrong PINs in 10 minutes.                                      |
 | `guest_reconnect_denied`                 | A same-identity reconnect used the wrong or missing reconnect secret.                                                                 |
 | `guest_reconnect_conflict`               | A reconnect collided with another pending or live owner of that identity.                                                             |
 | `guest_room_full`                        | A new guest was rejected because the room reached its active-guest limit.                                                             |

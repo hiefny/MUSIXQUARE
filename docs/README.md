@@ -100,8 +100,9 @@ labeled portion still supports a current guard or operating interpretation:
   is masked in both, "모두 재입장" closes guest sockets in the Worker before
   the host's reasoned kick, kept devices reconnect without the new PIN, and the
   Worker limits wrong PINs per room and address block (live buckets are never
-  evicted; blocks past 256 share one overflow bucket, and devices already in
-  the room keep their signaling recovery), and a guest locked out by wrong
+  evicted; by owner decision B, blocks past 256 are not limited rather than
+  sharing a bucket that could lock every newcomer, and devices already in the
+  room keep their signaling recovery), and a guest locked out by wrong
   PINs sees the Standard room's own "암호를 여러 번 틀렸어요" copy instead of
   the PRO join-limit wording (v655 follow-up). Also fixes forced colors:
   selected-row text, the pressed PIN toggle, selected tab and option icons, and

@@ -284,16 +284,15 @@ const hi: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'आमंत्रण लिंक कॉपी करें',
   'connect.link_copied': 'आमंत्रण लिंक कॉपी हो गया',
   'connect.room_password_title': 'शामिल होने के लिए पासवर्ड ज़रूरी करें',
-  'connect.room_password_set': 'सेट करें',
   'connect.room_password_toggle_aria': 'रूम पासवर्ड की ज़रूरत चालू या बंद करें',
-  'connect.room_password_input_aria': 'रूम का 8 अंकों वाला पासवर्ड दर्ज करें',
-  'connect.room_password_refresh_aria': 'रूम का नया पासवर्ड बनाएँ',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 अंकों का इंतज़ार है',
   'connect.room_password_on': 'पासवर्ड लागू है',
   'connect.room_password_invalid': '8 अंक दर्ज करें',
-  'connect.room_password_enabled': 'नए प्रतिभागियों को रूम का पासवर्ड देना होगा',
   'connect.room_password_disabled': 'प्रतिभागियों को अब रूम का पासवर्ड नहीं देना होगा',
+  'connect.room_password_apply_pending': 'कनेक्शन वापस आने पर नया पासवर्ड लागू हो जाएगा।',
+  'connect.pin_enabled_removed_message':
+    'होस्ट ने रूम का पासवर्ड सेट किया है। फिर से शामिल होने के लिए इसे दर्ज करें।',
+  'connect.pin_changed_removed_message':
+    'होस्ट ने रूम का पासवर्ड बदल दिया है। फिर से शामिल होने के लिए नया पासवर्ड दर्ज करें।',
   'connect.signaling_healthy': 'रूम सर्वर ऑनलाइन है',
   'connect.signaling_recovering': 'फिर से कनेक्ट हो रहा है…',
   'connect.signaling_failed': 'सर्वर से कनेक्शन विफल रहा',
@@ -423,6 +422,10 @@ const hi: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'इस ट्रैक की फ़ाइल बहुत बड़ी है और हो सकता है कि यह कुछ डिवाइसों पर न चले।',
   'chat.device_track_unavailable_system_message': 'यह डिवाइस मौजूदा ट्रैक नहीं चला सकता।',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE का नया वर्ज़न उपलब्ध है। लागू करने के लिए पेज रीफ़्रेश करें।',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE का नया वर्ज़न उपलब्ध है। लागू करने के लिए ऐप फिर से खोलें।',
   'chat.system_audio_started_system_message':
     'सिस्टम ऑडियो साझा होना शुरू हो गया है। होस्ट और अतिथि डिवाइसों के बीच थोड़ी देरी सामान्य है। गूँज से बचने के लिए होस्ट डिवाइस का वॉल्यूम कम रखने की सलाह दी जाती है।',
   'chat.system_audio_stopped_system_message':
@@ -711,6 +714,9 @@ const hi: Record<I18nKey, string> = {
   'dialog.leave_session': 'छोड़ें',
   'dialog.sw_update_title': 'अपडेट',
   'dialog.sw_update_msg': 'नया वर्ज़न तैयार है। अपडेट करने के लिए रीफ़्रेश करें।',
+  'dialog.feature_refresh_title': 'रीफ़्रेश करना ज़रूरी है',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE अपडेट हो गया है। इसे सामान्य रूप से इस्तेमाल करते रहने के लिए रीफ़्रेश करें।',
   'dialog.reconnect_ask': 'क्या आप फिर से कनेक्ट करना चाहते हैं?',
   'dialog.reconnect': 'फिर कनेक्ट करें',
   'dialog.go_back': 'वापस जाएँ',
@@ -722,6 +728,10 @@ const hi: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'कनेक्शन का समय समाप्त हो गया। फिर कोशिश करने के लिए पासवर्ड दोबारा दर्ज करें।',
   'dialog.room_password_placeholder': '8 अंकों का पासवर्ड',
+  'dialog.room_password_rate_limited':
+    'आपने बहुत बार गलत पासवर्ड दर्ज किया है। {{count}} मिनट बाद फिर कोशिश करें।',
+  'dialog.room_password_rate_limited_later':
+    'आपने बहुत बार गलत पासवर्ड दर्ज किया है। थोड़ी देर बाद फिर कोशिश करें।',
   'dialog.session_lost_msg':
     'ऐप स्लीप मोड में चला गया या कनेक्शन टूट गया, इसलिए दूसरे डिवाइस पहले ही डिस्कनेक्ट हो चुके हैं। नया सेशन शुरू करने के लिए रीस्टार्ट करें।',
   'dialog.session_lost_btn': 'रीस्टार्ट करें',
@@ -813,6 +823,7 @@ const hi: Record<I18nKey, string> = {
     'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं। थोड़ी देर बाद फिर कोशिश करें।',
   'pro.active_tab_title': 'एक पिछला कनेक्शन बाकी है',
   'pro.active_tab_message': 'यहाँ जारी रखने पर पिछला कनेक्शन बंद हो जाएगा।',
+  'pro.active_tab_replaced': 'यह PRO रूम पहले से दूसरे टैब में खुला है',
   'pro.use_this_tab': 'यहाँ जारी रखें',
   'pro.upload.batch_progress': 'ट्रैक अपलोड हो रहे हैं {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'कुछ ट्रैक अपलोड नहीं हो सके',

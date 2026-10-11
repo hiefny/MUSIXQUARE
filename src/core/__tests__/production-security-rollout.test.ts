@@ -54,6 +54,7 @@ const GUARD_CONFIG_FILES = [
   REMOTE_SHARE_CONFIG,
   'cloudflare/wrangler.signaling.toml',
   'cloudflare/signaling-worker.ts',
+  'cloudflare/standard-room-pin-membership.ts',
 ] as const;
 const GUARD_CLI = 'scripts/assert-production-security-config.mts';
 const GUARD_SCRIPT_FILES = [

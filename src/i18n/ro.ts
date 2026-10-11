@@ -288,16 +288,15 @@ const ro: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copiază linkul de invitație',
   'connect.link_copied': 'Linkul de invitație a fost copiat',
   'connect.room_password_title': 'Solicită parolă la intrare',
-  'connect.room_password_set': 'Setează',
   'connect.room_password_toggle_aria': 'Activează sau dezactivează parola camerei',
-  'connect.room_password_input_aria': 'Introdu parola de 8 cifre a camerei',
-  'connect.room_password_refresh_aria': 'Generează o parolă nouă pentru cameră',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Se așteaptă 8 cifre',
   'connect.room_password_on': 'Parolă aplicată',
   'connect.room_password_invalid': 'Introdu 8 cifre',
-  'connect.room_password_enabled': 'Noii participanți vor avea nevoie de parola camerei',
   'connect.room_password_disabled': 'Participanții nu mai au nevoie de parola camerei',
+  'connect.room_password_apply_pending': 'Parola nouă se va aplica după ce conexiunea revine.',
+  'connect.pin_enabled_removed_message':
+    'Gazda a setat o parolă pentru cameră. Introdu-o ca să intri din nou.',
+  'connect.pin_changed_removed_message':
+    'Gazda a schimbat parola camerei. Introdu parola nouă ca să intri din nou.',
   'connect.signaling_healthy': 'Serverul camerei este online',
   'connect.signaling_recovering': 'Se reconectează…',
   'connect.signaling_failed': 'Conectarea la server a eșuat',
@@ -429,6 +428,10 @@ const ro: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Fișierul acestei piste este foarte mare și este posibil să nu fie redat pe unele dispozitive.',
   'chat.device_track_unavailable_system_message': 'Acest dispozitiv nu poate reda pista curentă.',
+  'chat.update_available_tab_system_message':
+    'Este disponibilă o versiune nouă a MUSIXQUARE. Reîncarcă pagina pentru a o folosi.',
+  'chat.update_available_app_system_message':
+    'Este disponibilă o versiune nouă a MUSIXQUARE. Redeschide aplicația pentru a o folosi.',
   'chat.system_audio_started_system_message':
     'Partajarea sunetului sistemului a început. O mică latență între dispozitivele gazdă și oaspete este normală. Îți recomandăm să reduci volumul dispozitivului gazdă pentru a evita ecoul.',
   'chat.system_audio_stopped_system_message':
@@ -730,6 +733,9 @@ const ro: Record<I18nKey, string> = {
   'dialog.leave_session': 'Părăsește',
   'dialog.sw_update_title': 'Actualizare',
   'dialog.sw_update_msg': 'Este disponibilă o versiune nouă. Reîncarcă pentru actualizare.',
+  'dialog.feature_refresh_title': 'Este necesară reîncărcarea',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE a fost actualizat. Reîncarcă pagina pentru a-l folosi în continuare normal.',
   'dialog.reconnect_ask': 'Vrei să te reconectezi?',
   'dialog.reconnect': 'Reconectează',
   'dialog.go_back': 'Înapoi',
@@ -741,6 +747,10 @@ const ro: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Conexiunea a expirat. Introdu din nou parola pentru a reîncerca.',
   'dialog.room_password_placeholder': 'Parolă din 8 cifre',
+  'dialog.room_password_rate_limited':
+    'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} minute.',
+  'dialog.room_password_rate_limited_later':
+    'Ai introdus parola greșită de prea multe ori. Reîncearcă puțin mai târziu.',
   'dialog.session_lost_msg':
     'Aplicația a intrat în repaus sau a pierdut conexiunea, iar celelalte dispozitive s-au deconectat deja. Repornește pentru a începe o sesiune nouă.',
   'dialog.session_lost_btn': 'Repornește',
@@ -831,6 +841,7 @@ const ro: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Prea multe încercări de intrare. Reîncearcă puțin mai târziu.',
   'pro.active_tab_title': 'Mai există o conexiune anterioară',
   'pro.active_tab_message': 'Dacă vei continua aici, conexiunea anterioară va fi închisă.',
+  'pro.active_tab_replaced': 'Această cameră PRO este deja deschisă în altă filă',
   'pro.use_this_tab': 'Continuă aici',
   'pro.upload.batch_progress': 'Se încarcă pistele {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Unele piste nu au putut fi încărcate',
@@ -966,5 +977,9 @@ export const pluralMessages = {
   'pro.join_rate_limited': {
     one: 'Prea multe încercări de intrare. Reîncearcă peste {{count}} minut.',
     other: 'Prea multe încercări de intrare. Reîncearcă peste {{count}} de minute.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} minut.',
+    other: 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} de minute.',
   },
 } satisfies LocalePluralMessages;

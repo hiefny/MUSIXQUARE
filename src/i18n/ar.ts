@@ -279,16 +279,14 @@ const ar: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'نسخ رابط الدعوة',
   'connect.link_copied': 'تم نسخ رابط الدعوة',
   'connect.room_password_title': 'طلب كلمة مرور للانضمام',
-  'connect.room_password_set': 'تعيين',
   'connect.room_password_toggle_aria': 'تبديل اشتراط كلمة مرور للغرفة',
-  'connect.room_password_input_aria': 'إدخال كلمة مرور الغرفة المؤلفة من 8 أرقام',
-  'connect.room_password_refresh_aria': 'إنشاء كلمة مرور جديدة للغرفة',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'في انتظار 8 أرقام',
   'connect.room_password_on': 'تم تطبيق كلمة المرور',
   'connect.room_password_invalid': 'أدخل 8 أرقام',
-  'connect.room_password_enabled': 'سيحتاج المشاركون الجدد إلى كلمة مرور الغرفة',
   'connect.room_password_disabled': 'لم يعد المشاركون بحاجة إلى كلمة مرور الغرفة',
+  'connect.room_password_apply_pending': 'ستُطبَّق كلمة المرور الجديدة بعد استعادة الاتصال.',
+  'connect.pin_enabled_removed_message': 'عيّن المضيف كلمة مرور للغرفة. أدخلها للانضمام مرة أخرى.',
+  'connect.pin_changed_removed_message':
+    'غيّر المضيف كلمة مرور الغرفة. أدخل كلمة المرور الجديدة للانضمام مرة أخرى.',
   'connect.signaling_healthy': 'خادم الغرفة يعمل',
   'connect.signaling_recovering': 'جارٍ إعادة الاتصال…',
   'connect.signaling_failed': 'فشل الاتصال بالخادم',
@@ -412,6 +410,10 @@ const ar: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'حجم هذا المقطع كبير جدًا وقد يتعذّر تشغيله على بعض الأجهزة.',
   'chat.device_track_unavailable_system_message': 'لا يستطيع هذا الجهاز تشغيل المقطع الحالي.',
+  'chat.update_available_tab_system_message':
+    'يتوفر إصدار جديد من MUSIXQUARE. حدّث الصفحة لاستخدامه.',
+  'chat.update_available_app_system_message':
+    'يتوفر إصدار جديد من MUSIXQUARE. أعد فتح التطبيق لاستخدامه.',
   'chat.system_audio_started_system_message':
     'بدأت مشاركة صوت النظام. من الطبيعي وجود تأخير بسيط بين أجهزة المضيف والضيوف. ننصح بخفض صوت جهاز المضيف لتجنب الصدى.',
   'chat.system_audio_stopped_system_message':
@@ -697,6 +699,8 @@ const ar: Record<I18nKey, string> = {
   'dialog.leave_session': 'مغادرة',
   'dialog.sw_update_title': 'تحديث',
   'dialog.sw_update_msg': 'يتوفر إصدار جديد. حدّث الصفحة لتثبيته.',
+  'dialog.feature_refresh_title': 'يلزم تحديث الصفحة',
+  'dialog.feature_refresh_msg': 'تم تحديث MUSIXQUARE. حدّث الصفحة لمواصلة استخدامه بشكل طبيعي.',
   'dialog.reconnect_ask': 'هل تريد إعادة الاتصال؟',
   'dialog.reconnect': 'إعادة الاتصال',
   'dialog.go_back': 'رجوع',
@@ -707,6 +711,10 @@ const ar: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'كلمة المرور غير مطابقة. حاول مجددًا.',
   'dialog.room_password_timeout_msg': 'انتهت مهلة الاتصال. أعد إدخال كلمة المرور للمحاولة مجددًا.',
   'dialog.room_password_placeholder': 'كلمة مرور من 8 أرقام',
+  'dialog.room_password_rate_limited':
+    'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقة.',
+  'dialog.room_password_rate_limited_later':
+    'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد قليل.',
   'dialog.session_lost_msg':
     'دخل التطبيق في وضع السكون أو فقد الاتصال، لذلك انقطعت الأجهزة الأخرى بالفعل. أعد التشغيل لبدء جلسة جديدة.',
   'dialog.session_lost_btn': 'إعادة التشغيل',
@@ -795,6 +803,7 @@ const ar: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد قليل.',
   'pro.active_tab_title': 'لا يزال هناك اتصال سابق',
   'pro.active_tab_message': 'ستؤدي المتابعة هنا إلى قطع الاتصال السابق.',
+  'pro.active_tab_replaced': 'غرفة PRO هذه مفتوحة بالفعل في تبويب آخر',
   'pro.use_this_tab': 'المتابعة هنا',
   'pro.upload.batch_progress': 'جارٍ رفع المقاطع {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'تعذّر رفع بعض المقاطع',
@@ -934,5 +943,9 @@ export const pluralMessages = {
   'pro.join_rate_limited': {
     two: 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقتين.',
     few: 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقائق.',
+  },
+  'dialog.room_password_rate_limited': {
+    two: 'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقتين.',
+    few: 'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقائق.',
   },
 } satisfies LocalePluralMessages;

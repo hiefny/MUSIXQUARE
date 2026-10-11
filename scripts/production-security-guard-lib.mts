@@ -166,14 +166,26 @@ export async function collectProductionSecurityFindings({
   const remoteShareConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.remote-share.toml');
   const signalingConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.signaling.toml');
   const signalingWorkerPath = path.join(repoRoot, 'cloudflare', 'signaling-worker.ts');
-  const [proConfig, appConfig, remoteShareConfig, signalingConfig, signalingWorker] =
-    await Promise.all([
-      readFile(proConfigPath, 'utf8'),
-      readFile(appConfigPath, 'utf8'),
-      readFile(remoteShareConfigPath, 'utf8'),
-      readFile(signalingConfigPath, 'utf8'),
-      readFile(signalingWorkerPath, 'utf8'),
-    ]);
+  const standardRoomPinMembershipPath = path.join(
+    repoRoot,
+    'cloudflare',
+    'standard-room-pin-membership.ts',
+  );
+  const [
+    proConfig,
+    appConfig,
+    remoteShareConfig,
+    signalingConfig,
+    signalingWorker,
+    standardRoomPinMembership,
+  ] = await Promise.all([
+    readFile(proConfigPath, 'utf8'),
+    readFile(appConfigPath, 'utf8'),
+    readFile(remoteShareConfigPath, 'utf8'),
+    readFile(signalingConfigPath, 'utf8'),
+    readFile(signalingWorkerPath, 'utf8'),
+    readFile(standardRoomPinMembershipPath, 'utf8'),
+  ]);
 
   return {
     hits,
@@ -190,6 +202,7 @@ export async function collectProductionSecurityFindings({
       ...validateStandardRoomPinStorageBoundary({
         workerSource: signalingWorker,
         signalingConfig,
+        membershipSource: standardRoomPinMembership,
       }),
     ],
   };

@@ -187,6 +187,90 @@ The next mitigations would be a WAF rule for
 `/api/pro-room/v1/rooms/*/sessions`, or sign-in or proof of work for public
 admission.
 
+### 12. Standard-Room Owner PINs, Kicks, and Guessing
+
+Accepted 2026-10-11 with App 8.10.0. A Standard-room host now types the
+8-digit room PIN instead of receiving a random one, and weak PINs such as
+`00000000` are allowed in both room types by owner decision: a room PIN is a
+soft access deterrent, not an account credential. The signaling Worker limits
+wrong PINs per network only: 20 per 10 minutes per room and per client address
+block (IPv4 address or IPv6 /64), counting failures only. It tracks at most 256
+address blocks per room and never evicts a live bucket; a block it cannot track
+is not limited at all, and there is no shared overflow bucket
+([ops](../cloudflare/standard-room-pin-ops.md#owner-chosen-pins-kept-devices-and-the-wrong-pin-limit-app-8100)).
+What remains accepted:
+
+- **No ban list after an individual kick.** Kicking a Standard-room device
+  closes its data channel and its unmodified App leaves, but the Worker keeps
+  that guest's signaling socket admitted and the host accepts new offers
+  without a deny list. A modified client can therefore come back without the
+  PIN. It can also come back by reconnecting with its kept exemption ("그대로
+  두기") until the next PIN change. The remedy is a PIN change with
+  "모두 재입장", which closes every guest socket and clears the reconnect
+  bindings and the kept set; a host-to-Worker revoke for one guest can come
+  later.
+- **Distributed guessing (accepted by the owner on 2026-10-11).** Each tracked
+  network gets 20 wrong PINs per window. Once 256 networks hold a live bucket
+  in a room, every further network is not limited and its failures are not
+  recorded until a bucket expires, so someone who rotates through many
+  addresses, which is easy with IPv6 (one routed /56 holds 256 /64s), can keep
+  guessing without limit. With an owner-chosen PIN, and weak PINs allowed, this is
+  weaker than the former random PIN. The owner chose this over the earlier
+  fail-closed design, in which one shared bucket for every network past 256
+  let about 276 wrong PINs from one /56 keep every new guest out of the room
+  for 10 minutes at a time, renewable indefinitely: room PINs here are a soft
+  access deterrent, and blocking real guests from an event is worse than a
+  guessed PIN. Apart from the shared buckets below (one NAT, or the HTTP
+  bridge), no guest is refused because of another network's failures, and a
+  corrupt or oversized failure record, or a storage failure, refuses nobody.
+  If a guesser gets in, the remedy is the host's: kick the device, or change
+  the PIN with "모두 재입장".
+- **Shared networks.** Everyone behind one NAT shares a bucket, so after many
+  typos in a crowded venue new joiners there wait until the window ends (at
+  most 10 minutes, unless someone on that network keeps entering wrong PINs).
+  HTTP-bridge guests carry no client address and share one per-room bucket,
+  which the owner kept. That lock is not limited to one window: anyone who
+  knows the room code and can open HTTP-bridge sessions (any client with a
+  Standard signaling capability, up to 8 opens a minute each) can lock it with
+  20 wrong PINs and renew it every 10 minutes for as long as they continue.
+  Meanwhile every fresh guest who reaches the room through the HTTPS bridge
+  fallback (used when both WebSocket routes fail before admission) is refused
+  even with the right PIN; WebSocket newcomers are not affected. This is the
+  one newcomer lockout that someone outside the guests' own network can cause.
+  For either shared bucket the host can turn protection off, kept devices
+  bypass the lock, and devices already in the room keep their signaling
+  recovery: a reconnect whose secret matches its live binding (admitted now,
+  or within the 5-minute reconnect window) passes the lock and only has its
+  PIN checked. A device whose signaling stayed down past that window, while
+  its data channel lived, is treated as a new joiner; if its bucket is locked
+  then, the App
+  treats the refusal as a permanent auth error and that device loses signaling
+  recovery (ICE restarts) for the rest of its connection, as with a stale PIN.
+  During the 8.10.0 transition, cached 8.9.x hosts still generate random PINs;
+  if they refreshed the PIN, their present guests re-send the old PIN on the
+  deploy reconnect and those failures count against the shared bucket too.
+- **Older Worker.** If signaling is rolled back, the App sends the PIN alone:
+  present guests are kept as before 8.10.0 (and lose ICE-restart recovery after
+  a later signaling reconnect), "모두 재입장" is only the host's kick, which a
+  modified client can ignore, and the wrong-PIN limit is off.
+- **Older App copy.** Guests on a cached App older than 8.10.0 removed by
+  "모두 재입장" show the generic "강제퇴장" kick dialog and reload instead of the
+  PIN notice, and show the generic join error for `room-password-changed` and
+  `room-password-rate-limited`. Both errors stay permanent auth errors there,
+  so there is no reconnect storm.
+
+Reopen this item if Standard rooms become discoverable or listed, if kick
+evasion is observed in production, or before relying on a Standard-room PIN for
+anything more than keeping casual visitors out. If guessing attacks are
+observed, consider adding a bot check (for example Cloudflare Turnstile) or
+proof of work before guest PIN attempts. The main signal is a spike in
+"Password failures" (`guest_auth_failed`) in the admin Signals panel or in the
+Operations "Password issues" card, or abuse reports: every wrong PIN that
+reaches the PIN check counts there, whether or not its network is tracked.
+"Password lockouts" (`guest_auth_rate_limited`) is only a secondary signal,
+because guessing from networks past the 256 tracked ones, or kept under 20
+wrong PINs per tracked network, never produces a lockout.
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

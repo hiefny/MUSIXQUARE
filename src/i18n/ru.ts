@@ -286,16 +286,16 @@ const ru: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Скопировать ссылку',
   'connect.link_copied': 'Ссылка для приглашения скопирована',
   'connect.room_password_title': 'Требовать пароль для входа в комнату',
-  'connect.room_password_set': 'Установить',
   'connect.room_password_toggle_aria': 'Переключить требование пароля для комнаты',
-  'connect.room_password_input_aria': 'Введите 8-значный пароль для комнаты',
-  'connect.room_password_refresh_aria': 'Создать новый пароль комнаты',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Ожидание 8-значного пароля',
   'connect.room_password_on': 'Пароль установлен',
   'connect.room_password_invalid': 'Введите 8-значный пароль',
-  'connect.room_password_enabled': 'Для входа в эту комнату теперь требуется пароль',
   'connect.room_password_disabled': 'Для входа в эту комнату больше не требуется пароль',
+  'connect.room_password_apply_pending':
+    'Новый пароль начнёт действовать, когда соединение восстановится.',
+  'connect.pin_enabled_removed_message':
+    'Хост задал пароль для комнаты. Введите его, чтобы войти снова.',
+  'connect.pin_changed_removed_message':
+    'Хост изменил пароль комнаты. Введите новый пароль, чтобы войти снова.',
   'connect.signaling_healthy': 'Сервер комнаты доступен',
   'connect.signaling_recovering': 'Переподключение…',
   'connect.signaling_failed': 'Не удалось подключиться к серверу',
@@ -428,6 +428,10 @@ const ru: Record<I18nKey, string> = {
     'Этот материал занимает очень много места и может не воспроизводиться на некоторых устройствах.',
   'chat.device_track_unavailable_system_message':
     'На этом устройстве нельзя воспроизвести текущий материал.',
+  'chat.update_available_tab_system_message':
+    'Доступна новая версия MUSIXQUARE. Обновите страницу, чтобы применить её.',
+  'chat.update_available_app_system_message':
+    'Доступна новая версия MUSIXQUARE. Откройте приложение заново, чтобы применить её.',
   'chat.system_audio_started_system_message':
     'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и участниками. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
   'chat.system_audio_stopped_system_message':
@@ -725,6 +729,9 @@ const ru: Record<I18nKey, string> = {
   'dialog.leave_session': 'Выйти',
   'dialog.sw_update_title': 'Новое обновление',
   'dialog.sw_update_msg': 'Доступна новая версия. Обновите страницу для применения.',
+  'dialog.feature_refresh_title': 'Нужно обновить страницу',
+  'dialog.feature_refresh_msg':
+    'Вышло обновление MUSIXQUARE. Чтобы и дальше пользоваться им как обычно, обновите страницу.',
   'dialog.reconnect_ask': 'Желаете восстановить подключение?',
   'dialog.reconnect': 'Подключить заново',
   'dialog.go_back': 'Назад',
@@ -735,6 +742,10 @@ const ru: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Неверный пароль. Попробуйте ещё раз.',
   'dialog.room_password_timeout_msg': 'Истекло время ожидания соединения. Введите пароль снова.',
   'dialog.room_password_placeholder': '8-значный пароль',
+  'dialog.room_password_rate_limited':
+    'Вы слишком много раз ввели неверный пароль. Повторите попытку через {{count}} мин.',
+  'dialog.room_password_rate_limited_later':
+    'Вы слишком много раз ввели неверный пароль. Повторите попытку чуть позже.',
   'dialog.session_lost_msg':
     'Приложение перешло в спящий режим или потеряло соединение, поэтому остальные устройства уже отключились. Перезапустите приложение, чтобы создать новую комнату.',
   'dialog.session_lost_btn': 'Перезапустить',
@@ -826,6 +837,7 @@ const ru: Record<I18nKey, string> = {
     'Слишком много попыток войти в комнату. Повторите попытку чуть позже.',
   'pro.active_tab_title': 'Сохранилось предыдущее подключение',
   'pro.active_tab_message': 'Если продолжить здесь, предыдущее подключение будет завершено.',
+  'pro.active_tab_replaced': 'Эта PRO-комната уже открыта в другой вкладке',
   'pro.use_this_tab': 'Продолжить здесь',
   'pro.upload.batch_progress': 'Загрузка треков {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Некоторые треки не удалось загрузить',
@@ -981,5 +993,10 @@ export const pluralMessages = {
     one: 'Слишком много попыток войти в комнату. Повторите попытку через {{count}} минуту.',
     few: 'Слишком много попыток войти в комнату. Повторите попытку через {{count}} минуты.',
     many: 'Слишком много попыток войти в комнату. Повторите попытку через {{count}} минут.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Вы слишком много раз ввели неверный пароль. Повторите попытку через {{count}} минуту.',
+    few: 'Вы слишком много раз ввели неверный пароль. Повторите попытку через {{count}} минуты.',
+    many: 'Вы слишком много раз ввели неверный пароль. Повторите попытку через {{count}} минут.',
   },
 } satisfies LocalePluralMessages;

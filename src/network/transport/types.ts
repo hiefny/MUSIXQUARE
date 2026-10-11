@@ -408,6 +408,26 @@ export interface RemoteShareUploadAssertionRequest {
 }
 
 /**
+ * How a Standard-room PIN change treats the devices already in the room.
+ * keep_present lets the listed peers reconnect without the new PIN (bound to
+ * their reconnect secret); revoke_all closes every guest signaling socket.
+ */
+export interface StandardRoomPinMembershipRequest {
+  readonly mode: 'keep_present' | 'revoke_all';
+  readonly keptPeerIds: readonly string[];
+}
+
+/**
+ * Outcome of one Standard-room PIN mutation. `applied` arrives only with the
+ * Worker acknowledgement of that exact mutation; `membership` names what the
+ * Worker committed ('legacy' = the PIN alone, e.g. an older Worker). A newer
+ * call, or destroying the transport, settles an older one as `superseded`.
+ */
+export type StandardRoomPinCommit =
+  | { readonly status: 'applied'; readonly membership: 'keep_present' | 'revoke_all' | 'legacy' }
+  | { readonly status: 'superseded' };
+
+/**
  * Result of a provider-specific foreground reconciliation after the document
  * spent time hidden. Providers that do not retain suspendable transports can
  * omit the hook entirely.
@@ -447,7 +467,15 @@ export interface TransportPeer {
   recoverAfterBackground?(hiddenMs: number): TransportBackgroundRecoveryResult;
   /** Release a deliberately deferred RTC negotiation with its final ICE config. */
   setRtcConfiguration?(configuration: RTCConfiguration, expiresAt?: number): void;
-  setRoomPassword?(password: string | null): void;
+  /**
+   * Replace the Standard-room PIN. The promise has no internal timeout: the
+   * desired PIN persists and replays across signaling reconnects, so callers
+   * race it against their own UI deadline.
+   */
+  setRoomPassword?(
+    password: string | null,
+    membership?: StandardRoomPinMembershipRequest,
+  ): Promise<StandardRoomPinCommit>;
   setProSignalingAccess?(access: ProSignalingOptions): boolean;
   refreshStandardRoomIdentity?(): Promise<void>;
   deleteStandardRoomIdentity?(): void;

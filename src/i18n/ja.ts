@@ -287,16 +287,15 @@ const ja: Record<I18nKey, string> = {
   'connect.copy_invite_link': '招待リンクをコピー',
   'connect.link_copied': '招待リンクをコピーしました',
   'connect.room_password_title': '参加時のパスワードを必須にする',
-  'connect.room_password_set': '設定',
   'connect.room_password_toggle_aria': 'ルーム参加時のパスワード要否を切り替える',
-  'connect.room_password_input_aria': '8桁のルームパスワードを入力',
-  'connect.room_password_refresh_aria': '新しいルームパスワードを生成',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8桁の入力待ち',
   'connect.room_password_on': 'パスワードを適用しました',
   'connect.room_password_invalid': '8桁の数字を入力してください',
-  'connect.room_password_enabled': '新しい参加者はルームパスワードが必要です',
   'connect.room_password_disabled': '参加者はルームパスワードなしで参加できます',
+  'connect.room_password_apply_pending': '接続が回復すると、新しいパスワードが適用されます。',
+  'connect.pin_enabled_removed_message':
+    'ホストがルームのパスワードを設定しました。パスワードを入力すると、もう一度参加できます。',
+  'connect.pin_changed_removed_message':
+    'ホストがルームのパスワードを変更しました。新しいパスワードを入力すると、もう一度参加できます。',
   'connect.signaling_healthy': '接続サーバーは正常です',
   'connect.signaling_recovering': '再接続中…',
   'connect.signaling_failed': 'サーバー接続に失敗しました',
@@ -644,6 +643,9 @@ const ja: Record<I18nKey, string> = {
   'dialog.sw_update_title': 'アップデート',
   'dialog.sw_update_msg':
     '新しいバージョンの準備ができました。ページを再読み込みするとアップデートが適用されます。',
+  'dialog.feature_refresh_title': '再読み込みが必要です',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUAREがアップデートされました。引き続き正常に利用するには、ページを再読み込みしてください。',
   'dialog.reconnect_ask': '再接続しますか？',
   'dialog.reconnect': '再接続',
   'dialog.go_back': '戻る',
@@ -655,6 +657,10 @@ const ja: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     '接続がタイムアウトしました。パスワードを再入力してください。',
   'dialog.room_password_placeholder': '8桁のパスワード',
+  'dialog.room_password_rate_limited':
+    'パスワードを何度も間違えました。{{count}}分後にもう一度お試しください。',
+  'dialog.room_password_rate_limited_later':
+    'パスワードを何度も間違えました。しばらくしてからもう一度お試しください。',
   'dialog.session_lost_msg':
     'アプリがスリープしたか接続を失ったため、他のデバイスはすでに切断されています。ページを再読み込みして新しいルームを始めてください。',
   'dialog.session_lost_btn': '再読み込み',
@@ -735,6 +741,7 @@ const ja: Record<I18nKey, string> = {
     '参加の試行回数が多すぎます。しばらくしてからもう一度お試しください。',
   'pro.active_tab_title': '前の接続が残っています',
   'pro.active_tab_message': 'ここで続けると、前の接続が切断されます。',
+  'pro.active_tab_replaced': 'このPROルームは別のタブで開いています',
   'pro.use_this_tab': 'ここで続ける',
   'pro.upload.batch_progress': 'トラックをアップロード中：{{current}}/{{total}}',
   'pro.upload.batch_failed_title': '一部のトラックをアップロードできませんでした',
@@ -784,6 +791,10 @@ const ja: Record<I18nKey, string> = {
     'このトラックはファイルサイズが非常に大きいため、一部のデバイスでは再生できない場合があります。',
   'chat.device_track_unavailable_system_message':
     'このデバイスでは現在のトラックを再生できません。',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUAREの新しいバージョンがあります。ページを再読み込みすると適用されます。',
+  'chat.update_available_app_system_message':
+    'MUSIXQUAREの新しいバージョンがあります。アプリを開き直すと適用されます。',
   'chat.system_audio_started_system_message':
     'システムオーディオの共有を開始しました。ホストと参加者のデバイス間に少し遅延があるのは正常です。音が二重に聞こえるのを防ぐため、ホストデバイスの音量を下げることをおすすめします。',
   'chat.system_audio_stopped_system_message':

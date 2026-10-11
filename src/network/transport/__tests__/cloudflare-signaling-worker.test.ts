@@ -11309,3 +11309,963 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(source).toContain('acceptWebSocket(');
   });
 });
+
+describe('Standard-room PIN membership and wrong-PIN limit', () => {
+  const MEMBERSHIP_KEY = 'standard-room-pin-membership-v1';
+  const FAILURES_KEY = 'standard-room-pin-failures-v1';
+  const STALE_PIN = '12345678';
+  let mutationCounter = 0;
+
+  type MembershipRecord = {
+    v: 1;
+    roomSecretHash: string;
+    verifierDigest: string;
+    kept: Array<{ peerId: string; secretHash: string }>;
+  };
+
+  function nextMutationId(): string {
+    mutationCounter += 1;
+    return `membership-mutation-${String(mutationCounter).padStart(16, '0')}`;
+  }
+
+  function guestRequest(peerId: string, ip?: string): Request {
+    return requestLike(
+      `https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=${peerId}`,
+      { Upgrade: 'websocket', ...(ip ? { 'CF-Connecting-IP': ip } : {}) },
+    );
+  }
+
+  async function joinFrom(
+    room: InstanceType<WorkerModule['MusixquareRoom']>,
+    peerId: string,
+    options: { password?: string; reconnectSecret?: string; ip?: string } = {},
+  ): Promise<FakeSocket> {
+    await room.fetch(guestRequest(peerId, options.ip));
+    const guest = lastServer();
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: options.password ?? '',
+        reconnectSecret: options.reconnectSecret ?? DEFAULT_RECONNECT_SECRET,
+      }),
+    );
+    return guest;
+  }
+
+  async function setPin(
+    room: InstanceType<WorkerModule['MusixquareRoom']>,
+    host: FakeSocket,
+    password: string,
+    membership: Record<string, unknown> = {},
+    mutationId = nextMutationId(),
+  ): Promise<Record<string, unknown> | undefined> {
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password,
+        pinMutationId: mutationId,
+        ...membership,
+      }),
+    );
+    return sent(host)
+      .filter(
+        (message) => message.type === 'room-password-result' && message.mutationId === mutationId,
+      )
+      .at(-1);
+  }
+
+  function keep(...peerIds: string[]): Record<string, unknown> {
+    return { existingParticipants: 'keep_present', keptPeerIds: peerIds };
+  }
+
+  function admitted(socket: FakeSocket): boolean {
+    return !socket.closed && sent(socket)[0]?.type === 'peer-open';
+  }
+
+  function closeReason(socket: FakeSocket): string | undefined {
+    return socket.closeEvents.at(-1)?.reason;
+  }
+
+  async function dropSignaling(
+    room: InstanceType<WorkerModule['MusixquareRoom']>,
+    socket: FakeSocket,
+  ): Promise<void> {
+    socket.close(1006, 'network');
+    await room.webSocketClose(socket);
+  }
+
+  function reopen(state: FakeDurableObjectState, pepper = STANDARD_ROOM_PIN_PEPPER) {
+    return new workerModule.MusixquareRoom(state, { MXQR_STANDARD_ROOM_PIN_PEPPER: pepper });
+  }
+
+  async function membershipRecord(state: FakeDurableObjectState): Promise<MembershipRecord> {
+    return (await state.storage.get(MEMBERSHIP_KEY)) as MembershipRecord;
+  }
+
+  it('advertises membership support on the host peer-open only', async () => {
+    const { room, host } = await createHostRoom();
+    expect(sent(host)[0]).toMatchObject({
+      type: 'peer-open',
+      roomId: '123456',
+      standardRoomPinMembershipVersion: 1,
+    });
+    const guest = await joinGuest(room, 'guest-1');
+    expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
+  });
+
+  it('keeps chosen guests across a change with their old PIN and their reconnect secret', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    const other = await joinGuest(room, 'other-guest', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+
+    const result = await setPin(room, host, '87654321', keep('kept-guest', 'never-bound'));
+    expect(result).toEqual({
+      type: 'room-password-result',
+      mutationId: expect.any(String),
+      applied: true,
+      existingParticipants: 'keep_present',
+    });
+    expect(kept.closed).toBe(false);
+    expect(other.closed).toBe(false);
+    const record = await membershipRecord(state);
+    expect(record).toEqual({
+      v: 1,
+      roomSecretHash: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      verifierDigest: ((await state.storage.get('roomMeta')) as CurrentRoomMeta)
+        .roomPasswordVerifier?.digest,
+      kept: [{ peerId: 'kept-guest', secretHash: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) }],
+    });
+
+    await dropSignaling(room, kept);
+    const keptReconnect = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    expect(admitted(keptReconnect)).toBe(true);
+
+    await dropSignaling(room, other);
+    const otherReconnect = await joinGuest(room, 'other-guest', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(closeReason(otherReconnect)).toBe('ROOM_PASSWORD_INVALID');
+
+    const impostor = await joinGuest(room, 'kept-guest', {
+      password: STALE_PIN,
+      reconnectSecret: RECENT_RECONNECT_SECRET,
+    });
+    expect(closeReason(impostor)).toBe('ROOM_PASSWORD_INVALID');
+    const impostorWithNewPin = await joinGuest(room, 'kept-guest', {
+      password: '87654321',
+      reconnectSecret: RECENT_RECONNECT_SECRET,
+    });
+    expect(closeReason(impostorWithNewPin)).toBe('GUEST_RECONNECT_DENIED');
+    expect(admitted(keptReconnect)).toBe(true);
+
+    const neverBound = await joinGuest(room, 'never-bound', { password: STALE_PIN });
+    expect(closeReason(neverBound)).toBe('ROOM_PASSWORD_INVALID');
+  });
+
+  it('keeps the exemption beyond the reconnect-binding lifetime with the same secret', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    await dropSignaling(room, kept);
+
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+    const late = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    expect(admitted(late)).toBe(true);
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [expect.objectContaining({ peerId: 'kept-guest' })],
+    });
+  });
+
+  it('carries a kept device into the next keep change after its binding expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    const first = await membershipRecord(state);
+    // Its signaling socket stays down past the reconnect window while its data
+    // channel lives, so the host still lists it at the next change.
+    await dropSignaling(room, kept);
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+
+    await setPin(room, host, '24681357', keep('kept-guest'));
+    const second = await membershipRecord(state);
+    expect(second.kept).toEqual(first.kept);
+    expect(second.verifierDigest).not.toBe(first.verifierDigest);
+    expect(admitted(await joinGuest(room, 'kept-guest', { password: STALE_PIN }))).toBe(true);
+    const impostor = await joinGuest(room, 'kept-guest', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(closeReason(impostor)).toBe('ROOM_PASSWORD_INVALID');
+  });
+
+  it('carries nothing from a kept set that no longer exempts anyone', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    const record = await membershipRecord(state);
+    await dropSignaling(room, kept);
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+
+    for (const stale of [
+      { ...record, roomSecretHash: 'A'.repeat(43) },
+      { ...record, verifierDigest: 'A'.repeat(43) },
+    ]) {
+      await state.storage.put(MEMBERSHIP_KEY, stale);
+      const reopened = reopen(state);
+      const reclaimed = await authenticateHost(
+        reopened,
+        'host-1',
+        'secret-a',
+        undefined,
+        '87654321',
+      );
+      expect(sent(reclaimed)[0]).toMatchObject({ type: 'peer-open' });
+      await state.storage.put(MEMBERSHIP_KEY, stale);
+      await setPin(reopened, reclaimed, '24681357', keep('kept-guest'));
+      expect(await state.storage.get(MEMBERSHIP_KEY)).toBeUndefined();
+      await setPin(reopened, reclaimed, '87654321');
+    }
+  });
+
+  it('lets kept guests of an open room reconnect without a PIN after the first enable', async () => {
+    const { room, host } = await createHostRoom();
+    const guest = await joinGuest(room, 'open-guest');
+
+    const result = await setPin(room, host, '24681357', keep('open-guest'));
+    expect(result).toMatchObject({ applied: true, existingParticipants: 'keep_present' });
+
+    await dropSignaling(room, guest);
+    expect(admitted(await joinGuest(room, 'open-guest', { password: '' }))).toBe(true);
+    const stranger = await joinGuest(room, 'stranger', {
+      password: '',
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(closeReason(stranger)).toBe('ROOM_PASSWORD_REQUIRED');
+  });
+
+  it('stores no record when no kept device has a reconnect binding', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const result = await setPin(room, host, '87654321', keep());
+    expect(result).toMatchObject({ applied: true, existingParticipants: 'keep_present' });
+    const unbound = await setPin(room, host, '11223344', keep('ghost'));
+    expect(unbound).toMatchObject({ applied: true, existingParticipants: 'keep_present' });
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeUndefined();
+  });
+
+  it('voids the kept set on a later change, on disable and on a room epoch reset', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const guest = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeDefined();
+
+    const legacy = await setPin(room, host, '11112222');
+    expect(legacy).toEqual({
+      type: 'room-password-result',
+      mutationId: expect.any(String),
+      applied: true,
+    });
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeUndefined();
+    await dropSignaling(room, guest);
+    expect(closeReason(await joinGuest(room, 'kept-guest', { password: STALE_PIN }))).toBe(
+      'ROOM_PASSWORD_INVALID',
+    );
+
+    const keeper = await joinGuest(room, 'keeper', {
+      password: '11112222',
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    await setPin(room, host, '33334444', keep('keeper'));
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeDefined();
+    await setPin(room, host, '');
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeUndefined();
+    expect(keeper.closed).toBe(false);
+    expect(
+      admitted(
+        await joinGuest(room, 'anyone', { password: '', reconnectSecret: RECENT_RECONNECT_SECRET }),
+      ),
+    ).toBe(true);
+
+    await setPin(room, host, '55556666', keep('keeper'));
+    await state.storage.put(FAILURES_KEY, {
+      v: 1,
+      entries: [{ key: 'K'.repeat(43), count: 3, resetAt: Date.now() + 60_000 }],
+    });
+    await (room as unknown as { clearRoomMeta(): Promise<unknown> }).clearRoomMeta();
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeUndefined();
+    expect(await state.storage.get(FAILURES_KEY)).toBeUndefined();
+  });
+
+  it('ignores a kept set whose room epoch or verifier digest no longer matches', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const guest = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    const record = await membershipRecord(state);
+    await dropSignaling(room, guest);
+
+    // A retired Worker can rewrite the PIN without knowing this record.
+    for (const forged of [
+      { ...record, roomSecretHash: 'A'.repeat(43) },
+      { ...record, verifierDigest: 'A'.repeat(43) },
+      { ...record, kept: [{ peerId: 'kept-guest', secretHash: 'A'.repeat(43) }] },
+      { ...record, extra: true },
+    ]) {
+      await state.storage.put(MEMBERSHIP_KEY, forged);
+      const attempt = await joinGuest(reopen(state), 'kept-guest', { password: STALE_PIN });
+      expect(closeReason(attempt)).toBe('ROOM_PASSWORD_INVALID');
+    }
+    await state.storage.put(MEMBERSHIP_KEY, record);
+    expect(admitted(await joinGuest(reopen(state), 'kept-guest', { password: STALE_PIN }))).toBe(
+      true,
+    );
+  });
+
+  it('keeps the choice across same-PIN replays and re-stamps it for a new host-auth PIN', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const guest = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    const mutationId = nextMutationId();
+    await setPin(room, host, '87654321', keep('kept-guest'), mutationId);
+    const stamped = await membershipRecord(state);
+
+    expect(await setPin(room, host, '87654321', {}, mutationId)).toEqual({
+      type: 'room-password-result',
+      mutationId,
+      applied: true,
+    });
+    expect(await membershipRecord(state)).toEqual(stamped);
+
+    const reclaimed = await authenticateHost(room, 'host-1', 'secret-a', undefined, '87654321');
+    expect(sent(reclaimed)[0]).toMatchObject({ type: 'peer-open' });
+    expect(await membershipRecord(state)).toEqual(stamped);
+    await dropSignaling(room, guest);
+    const back = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    expect(admitted(back)).toBe(true);
+
+    await room.fetch(wsRequest('123456', 'host', 'host-1'));
+    const nextHost = lastServer();
+    const nextMutation = nextMutationId();
+    await room.webSocketMessage(
+      nextHost,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '55556666',
+        pinMutationId: nextMutation,
+      }),
+    );
+    expect(
+      await setPin(room, nextHost, '55556666', keep('kept-guest'), nextMutation),
+    ).toMatchObject({ applied: true, existingParticipants: 'keep_present' });
+    const restamped = await membershipRecord(state);
+    expect(restamped.verifierDigest).not.toBe(stamped.verifierDigest);
+    expect(restamped.verifierDigest).toBe(
+      ((await state.storage.get('roomMeta')) as CurrentRoomMeta).roomPasswordVerifier?.digest,
+    );
+    await dropSignaling(room, back);
+    expect(admitted(await joinGuest(room, 'kept-guest', { password: '87654321' }))).toBe(true);
+  });
+
+  it('re-stamps the kept set atomically when a guest rewraps the previous pepper', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    await dropSignaling(room, kept);
+    const before = await membershipRecord(state);
+
+    const rotating = reopen(state, STANDARD_ROOM_PIN_PEPPER_KEYRING);
+    const transactionsBefore = state.storage.transactionCalls;
+    const rewrapper = await joinGuest(rotating, 'fresh-guest', {
+      password: '87654321',
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(admitted(rewrapper)).toBe(true);
+    expect(state.storage.transactionCalls).toBe(transactionsBefore + 1);
+    const meta = (await state.storage.get('roomMeta')) as CurrentRoomMeta;
+    const after = await membershipRecord(state);
+    expect(after.verifierDigest).toBe(meta.roomPasswordVerifier?.digest);
+    expect(after.verifierDigest).not.toBe(before.verifierDigest);
+    expect(after.kept).toEqual(before.kept);
+
+    const currentOnly = reopen(state, STANDARD_ROOM_PIN_NEXT_PEPPER);
+    expect(admitted(await joinGuest(currentOnly, 'kept-guest', { password: STALE_PIN }))).toBe(
+      true,
+    );
+  });
+
+  it('re-stamps the kept set when a host reconnect commits the same PIN under a new pepper', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    const mutationId = nextMutationId();
+    await setPin(room, host, '87654321', keep('kept-guest'), mutationId);
+    await dropSignaling(room, kept);
+    const before = await membershipRecord(state);
+
+    const rotating = reopen(state, STANDARD_ROOM_PIN_PEPPER_KEYRING);
+    await rotating.fetch(wsRequest('123456', 'host', 'host-1'));
+    const reclaimed = lastServer();
+    await rotating.webSocketMessage(
+      reclaimed,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '87654321',
+        pinMutationId: mutationId,
+      }),
+    );
+    expect(sent(reclaimed)[0]).toMatchObject({ type: 'peer-open' });
+    const after = await membershipRecord(state);
+    expect(after.verifierDigest).not.toBe(before.verifierDigest);
+    expect(after.verifierDigest).toBe(
+      ((await state.storage.get('roomMeta')) as CurrentRoomMeta).roomPasswordVerifier?.digest,
+    );
+    await setPin(rotating, reclaimed, '87654321', {}, mutationId);
+    expect(await membershipRecord(state)).toEqual(after);
+    expect(admitted(await joinGuest(rotating, 'kept-guest', { password: STALE_PIN }))).toBe(true);
+  });
+
+  it('re-stamps a previous-pepper record on a legacy echo of the same PIN', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const kept = await joinGuest(room, 'kept-guest', { password: STALE_PIN });
+    const mutationId = nextMutationId();
+    await setPin(room, host, '87654321', keep('kept-guest'), mutationId);
+    await dropSignaling(room, kept);
+    const before = await membershipRecord(state);
+
+    const rotating = reopen(state, STANDARD_ROOM_PIN_PEPPER_KEYRING);
+    expect(await setPin(rotating, host, '87654321', {}, mutationId)).toMatchObject({
+      applied: true,
+    });
+    const after = await membershipRecord(state);
+    expect(after.verifierDigest).not.toBe(before.verifierDigest);
+    expect(admitted(await joinGuest(rotating, 'kept-guest', { password: STALE_PIN }))).toBe(true);
+  });
+
+  it('revokes every admitted guest socket and clears reconnect state in one transaction', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const first = await joinGuest(room, 'guest-a', { password: STALE_PIN });
+    const second = await joinGuest(room, 'guest-b', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    await setPin(room, host, '33334444', keep('guest-a'));
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeDefined();
+    await room.fetch(wsRequest('123456', 'guest', 'pending-guest'));
+    const pending = lastServer();
+    const hostFramesBefore = host.sent.length;
+    const transactionsBefore = state.storage.transactionCalls;
+
+    const mutationId = nextMutationId();
+    const result = await setPin(
+      room,
+      host,
+      '87654321',
+      { existingParticipants: 'revoke_all' },
+      mutationId,
+    );
+    expect(result).toEqual({
+      type: 'room-password-result',
+      mutationId,
+      applied: true,
+      existingParticipants: 'revoke_all',
+    });
+    for (const socket of [first, second]) {
+      expect(socket.closeEvents.at(-1)).toEqual({ code: 1008, reason: 'ROOM_PASSWORD_CHANGED' });
+      expect(sent(socket).at(-1)).toEqual({
+        type: 'error',
+        errorType: 'room-password-changed',
+        message: 'ROOM_PASSWORD_CHANGED',
+      });
+    }
+    expect(sent(host).slice(hostFramesBefore)).toEqual(
+      expect.arrayContaining([
+        { type: 'peer-left', peerId: 'guest-a' },
+        { type: 'peer-left', peerId: 'guest-b' },
+      ]),
+    );
+    expect(host.closed).toBe(false);
+    expect(pending.closed).toBe(false);
+    expect(state.storage.transactionCalls).toBe(transactionsBefore + 1);
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+    expect(await state.storage.get(MEMBERSHIP_KEY)).toBeUndefined();
+
+    await room.webSocketClose(first);
+    await room.webSocketClose(second);
+    expect(host.closed).toBe(false);
+
+    await room.webSocketMessage(
+      pending,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '87654321',
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      }),
+    );
+    expect(admitted(pending)).toBe(true);
+    expect(closeReason(await joinGuest(room, 'guest-a', { password: STALE_PIN }))).toBe(
+      'ROOM_PASSWORD_INVALID',
+    );
+    const rejoined = await joinGuest(room, 'guest-a', { password: '87654321' });
+    expect(admitted(rejoined)).toBe(true);
+
+    // The client re-sends the acknowledged mutation without its one-shot
+    // directive after a host reconnect; that echo must not revoke anyone.
+    expect(await setPin(room, host, '87654321', {}, mutationId)).toEqual({
+      type: 'room-password-result',
+      mutationId,
+      applied: true,
+    });
+    expect(rejoined.closed).toBe(false);
+    expect(pending.closed).toBe(false);
+  });
+
+  it('tells revoked guests whether the PIN was set for the first time', async () => {
+    const { room, host } = await createHostRoom();
+    const guest = await joinGuest(room, 'open-guest');
+    const result = await setPin(room, host, '24681357', { existingParticipants: 'revoke_all' });
+    expect(result).toMatchObject({ applied: true, existingParticipants: 'revoke_all' });
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1008, reason: 'ROOM_PASSWORD_ENABLED' });
+    expect(sent(guest).at(-1)).toEqual({
+      type: 'error',
+      errorType: 'room-password-changed',
+      message: 'ROOM_PASSWORD_ENABLED',
+    });
+  });
+
+  it('fences guest admission while a revocation commits and fails closed on storage errors', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const guest = await joinGuest(room, 'guest-a', { password: STALE_PIN });
+    const originalTransaction = state.storage.transaction.bind(state.storage);
+    state.storage.transaction = async () => {
+      throw new Error('storage unavailable');
+    };
+    const mutationId = nextMutationId();
+    await expect(
+      room.webSocketMessage(
+        host,
+        JSON.stringify({
+          type: 'room-password-set',
+          password: '87654321',
+          pinMutationId: mutationId,
+          existingParticipants: 'revoke_all',
+        }),
+      ),
+    ).rejects.toThrow('storage unavailable');
+    state.storage.transaction = originalTransaction;
+    expect(sent(host)).toContainEqual({
+      type: 'room-password-result',
+      mutationId,
+      applied: false,
+      errorType: 'ROOM_PASSWORD_STORAGE_UNAVAILABLE',
+    });
+    expect(host.closeEvents.at(-1)?.code).toBe(1011);
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1008, reason: 'ROOM_PASSWORD_CHANGED' });
+    const blocked = await joinGuest(room, 'guest-b', { password: STALE_PIN });
+    expect(closeReason(blocked)).toBe('ROOM_PASSWORD_MUTATION_PENDING');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomPasswordVerifier: expect.objectContaining({ v: 1 }),
+    });
+  });
+
+  it('drops membership fields without a mutation ID, like an older Worker', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const guest = await joinGuest(room, 'guest-a', { password: STALE_PIN });
+    const metaBefore = await state.storage.get('roomMeta');
+    const framesBefore = host.sent.length;
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '87654321',
+        existingParticipants: 'revoke_all',
+      }),
+    );
+    expect(host.sent.length).toBe(framesBefore);
+    expect(guest.closed).toBe(false);
+    expect(await state.storage.get('roomMeta')).toEqual(metaBefore);
+
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({ type: 'room-password-set', password: '99990000' }),
+    );
+    expect(closeReason(await joinGuest(room, 'legacy-old', { password: STALE_PIN }))).toBe(
+      'ROOM_PASSWORD_INVALID',
+    );
+    expect(
+      admitted(
+        await joinGuest(room, 'legacy-new', {
+          password: '99990000',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('limits wrong PINs per room and IPv4 address and reports the wait', async () => {
+    const { room, state } = await createPasswordRoom();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const guess = await joinFrom(room, `guess-${attempt}`, {
+        password: '00000000',
+        ip: '192.0.2.10',
+      });
+      expect(guess.closeEvents.at(-1)).toEqual({ code: 1011, reason: 'ROOM_PASSWORD_INVALID' });
+    }
+    const locked = await joinFrom(room, 'guess-correct', { password: STALE_PIN, ip: '192.0.2.10' });
+    expect(locked.closeEvents.at(-1)).toEqual({ code: 1008, reason: 'ROOM_PASSWORD_RATE_LIMITED' });
+    const frame = sent(locked).at(-1);
+    expect(frame).toMatchObject({
+      type: 'error',
+      errorType: 'room-password-rate-limited',
+      message: 'ROOM_PASSWORD_RATE_LIMITED',
+    });
+    expect(frame?.retryAfterSeconds).toEqual(expect.any(Number));
+    expect(Number(frame?.retryAfterSeconds)).toBeGreaterThan(0);
+    expect(Number(frame?.retryAfterSeconds)).toBeLessThanOrEqual(600);
+
+    expect(
+      admitted(await joinFrom(room, 'other-ip', { password: STALE_PIN, ip: '192.0.2.11' })),
+    ).toBe(true);
+    expect(
+      admitted(
+        await joinFrom(room, 'unattributed', {
+          password: STALE_PIN,
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe(true);
+
+    const dump = JSON.stringify([...state.storage.data.entries()]);
+    expect(dump).not.toContain('192.0.2.10');
+    expect(dump).not.toContain(STALE_PIN);
+    expect(dump).not.toContain('00000000');
+  });
+
+  it('shares one bucket per IPv6 /64 and per unattributed hop', async () => {
+    const { room, state } = await createPasswordRoom();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `v6-${attempt}`, {
+        password: '00000000',
+        ip: `2001:db8:1:2::${attempt + 1}`,
+      });
+    }
+    expect(
+      closeReason(
+        await joinFrom(room, 'v6-same-block', { password: STALE_PIN, ip: '2001:db8:1:2:ffff::9' }),
+      ),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    expect(
+      admitted(
+        await joinFrom(room, 'v6-other-block', { password: STALE_PIN, ip: '2001:db8:1:3::1' }),
+      ),
+    ).toBe(true);
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `bridge-${attempt}`, { password: '00000000' });
+    }
+    expect(closeReason(await joinFrom(room, 'bridge-correct', { password: STALE_PIN }))).toBe(
+      'ROOM_PASSWORD_RATE_LIMITED',
+    );
+    expect(JSON.stringify([...state.storage.data.entries()])).not.toContain('2001:db8');
+  });
+
+  it('fails open past 256 tracked address blocks instead of locking newcomers out', async () => {
+    const { room, state } = await createPasswordRoom();
+    // One routed IPv6 /56 is 256 /64s: one wrong PIN each fills the table.
+    for (let block = 0; block < 256; block += 1) {
+      const guess = await joinFrom(room, `v6-fill-${block}`, {
+        password: '00000000',
+        ip: `2001:db8:0:${block.toString(16)}::1`,
+      });
+      expect(closeReason(guess)).toBe('ROOM_PASSWORD_INVALID');
+    }
+    const full = (await state.storage.get(FAILURES_KEY)) as { entries: unknown[] };
+    expect(full.entries).toHaveLength(256);
+
+    // A 257th block guesses on: refused as wrong, never locked, never stored.
+    const originalPut = state.storage.put.bind(state.storage);
+    let failureWrites = 0;
+    state.storage.put = async (key: string, value: unknown) => {
+      if (key === FAILURES_KEY) failureWrites += 1;
+      return originalPut(key, value);
+    };
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      expect(
+        closeReason(
+          await joinFrom(room, `v6-extra-${attempt}`, {
+            password: '00000000',
+            ip: `2001:db8:0:100::${attempt + 1}`,
+          }),
+        ),
+      ).toBe('ROOM_PASSWORD_INVALID');
+    }
+    expect(failureWrites).toBe(0);
+    expect(await state.storage.get(FAILURES_KEY)).toEqual(full);
+
+    // Fresh legitimate guests from other networks get in with the right PIN.
+    expect(
+      admitted(await joinFrom(room, 'v6-guest', { password: STALE_PIN, ip: '2001:db8:0:200::1' })),
+    ).toBe(true);
+    expect(
+      admitted(
+        await joinFrom(room, 'v4-guest', {
+          password: STALE_PIN,
+          ip: '192.0.2.200',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe(true);
+
+    // A tracked block still locks at 20 and is still stored.
+    for (let attempt = 1; attempt < 20; attempt += 1) {
+      await joinFrom(room, `v6-tracked-${attempt}`, {
+        password: '00000000',
+        ip: '2001:db8:0:7::9',
+      });
+    }
+    expect(failureWrites).toBe(19);
+    expect(
+      closeReason(
+        await joinFrom(room, 'v6-tracked-correct', { password: STALE_PIN, ip: '2001:db8:0:7::2' }),
+      ),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    state.storage.put = originalPut;
+  });
+
+  it('never lets a full table of locked buckets or an oversized record lock a newcomer', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { state } = await createPasswordRoom();
+    const lockedEntry = (index: number) => ({
+      key: `k${String(index).padStart(42, '0')}`,
+      count: 20,
+      resetAt: Date.now() + 5 * 60_000,
+    });
+    // 256 locked buckets of other blocks: a newcomer is neither locked nor counted.
+    const lockedTable = { v: 1, entries: Array.from({ length: 256 }, (_, i) => lockedEntry(i)) };
+    await state.storage.put(FAILURES_KEY, lockedTable);
+    const room = reopen(state);
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      expect(
+        closeReason(await joinFrom(room, `newcomer-${attempt}`, { password: '00000000' })),
+      ).toBe('ROOM_PASSWORD_INVALID');
+    }
+    expect(await state.storage.get(FAILURES_KEY)).toEqual(lockedTable);
+    expect(
+      admitted(await joinFrom(room, 'newcomer', { password: STALE_PIN, ip: '203.0.113.50' })),
+    ).toBe(true);
+
+    // An oversized record (for example the old shared bucket as a 257th entry)
+    // normalizes to an empty table, so it locks nobody either.
+    await state.storage.put(FAILURES_KEY, {
+      v: 1,
+      entries: Array.from({ length: 257 }, (_, i) => lockedEntry(i)),
+    });
+    const reopened = reopen(state);
+    expect(
+      admitted(
+        await joinFrom(reopened, 'after-oversized', {
+          password: STALE_PIN,
+          ip: '203.0.113.51',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('counts wrong PINs only and lets kept devices bypass a locked bucket', async () => {
+    const { room, host } = await createPasswordRoom();
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const required = await joinFrom(room, `required-${attempt}`, { ip: '198.51.100.7' });
+      expect(closeReason(required)).toBe('ROOM_PASSWORD_REQUIRED');
+    }
+    const kept = await joinFrom(room, 'kept-guest', { password: STALE_PIN, ip: '198.51.100.7' });
+    expect(admitted(kept)).toBe(true);
+    await setPin(room, host, '87654321', keep('kept-guest'));
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `guess-${attempt}`, { password: '00000000', ip: '198.51.100.7' });
+    }
+    expect(
+      closeReason(
+        await joinFrom(room, 'correct-but-locked', {
+          password: '87654321',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+          ip: '198.51.100.7',
+        }),
+      ),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    await dropSignaling(room, kept);
+    expect(
+      admitted(await joinFrom(room, 'kept-guest', { password: STALE_PIN, ip: '198.51.100.7' })),
+    ).toBe(true);
+  });
+
+  it('lets an admitted device recover its signaling past a bucket others locked', async () => {
+    const { room } = await createPasswordRoom();
+    const admittedGuest = await joinFrom(room, 'admitted', {
+      password: STALE_PIN,
+      ip: '198.51.100.9',
+    });
+    expect(admitted(admittedGuest)).toBe(true);
+    const bridgeGuest = await joinFrom(room, 'bridge-admitted', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(admitted(bridgeGuest)).toBe(true);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `typo-${attempt}`, {
+        password: '00000000',
+        ip: '198.51.100.9',
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      });
+      await joinFrom(room, `bridge-typo-${attempt}`, {
+        password: '00000000',
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      });
+    }
+    expect(
+      closeReason(await joinFrom(room, 'newcomer', { password: STALE_PIN, ip: '198.51.100.9' })),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    expect(closeReason(await joinFrom(room, 'bridge-newcomer', { password: STALE_PIN }))).toBe(
+      'ROOM_PASSWORD_RATE_LIMITED',
+    );
+
+    await dropSignaling(room, admittedGuest);
+    const recovered = await joinFrom(room, 'admitted', { password: STALE_PIN, ip: '198.51.100.9' });
+    expect(admitted(recovered)).toBe(true);
+    await dropSignaling(room, bridgeGuest);
+    const bridgeRecovered = await joinFrom(room, 'bridge-admitted', {
+      password: STALE_PIN,
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(admitted(bridgeRecovered)).toBe(true);
+
+    // Another device's secret does not pass the lock under an admitted peer id.
+    expect(
+      closeReason(
+        await joinFrom(room, 'admitted', {
+          password: STALE_PIN,
+          ip: '198.51.100.9',
+          reconnectSecret: OTHER_RECONNECT_SECRET,
+        }),
+      ),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    expect(admitted(recovered)).toBe(true);
+  });
+
+  it('lets a reconnect binding carry only one wrong PIN past a locked bucket', async () => {
+    const { room, state, host } = await createPasswordRoom();
+    const guest = await joinFrom(room, 'bound', { password: STALE_PIN, ip: '192.0.2.77' });
+    expect(admitted(guest)).toBe(true);
+    await setPin(room, host, '87654321');
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `typo-${attempt}`, {
+        password: '00000000',
+        ip: '192.0.2.77',
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      });
+    }
+    await dropSignaling(room, guest);
+    const stale = await joinFrom(room, 'bound', { password: STALE_PIN, ip: '192.0.2.77' });
+    expect(closeReason(stale)).toBe('ROOM_PASSWORD_INVALID');
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+    for (const password of [STALE_PIN, '87654321']) {
+      expect(closeReason(await joinFrom(room, 'bound', { password, ip: '192.0.2.77' }))).toBe(
+        'ROOM_PASSWORD_RATE_LIMITED',
+      );
+    }
+  });
+
+  it('persists wrong-PIN windows across Durable Object instances until they expire', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+    const { room, state } = await createPasswordRoom();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `guess-${attempt}`, { password: '00000000', ip: '203.0.113.5' });
+    }
+    const fresh = reopen(state);
+    expect(
+      closeReason(
+        await joinFrom(fresh, 'after-restart', { password: STALE_PIN, ip: '203.0.113.5' }),
+      ),
+    ).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    vi.setSystemTime(Date.now() + 10 * 60_000);
+    expect(
+      admitted(await joinFrom(fresh, 'after-window', { password: STALE_PIN, ip: '203.0.113.5' })),
+    ).toBe(true);
+  });
+
+  it('never blocks a guest when the wrong-PIN table cannot be read or written', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { room, state } = await createPasswordRoom();
+    const originalGet = state.storage.get.bind(state.storage);
+    const originalPut = state.storage.put.bind(state.storage);
+    state.storage.put = async (key: string, value: unknown) => {
+      if (key === FAILURES_KEY) throw new Error('failure table unavailable');
+      return originalPut(key, value);
+    };
+    expect(
+      closeReason(await joinFrom(room, 'wrong', { password: '00000000', ip: '192.0.2.99' })),
+    ).toBe('ROOM_PASSWORD_INVALID');
+    const unreadable = reopen(state);
+    state.storage.get = async (key: string) => {
+      if (key === FAILURES_KEY) throw new Error('failure table unavailable');
+      return originalGet(key);
+    };
+    expect(
+      admitted(await joinFrom(unreadable, 'right', { password: STALE_PIN, ip: '192.0.2.99' })),
+    ).toBe(true);
+    state.storage.get = originalGet;
+    state.storage.put = originalPut;
+    error.mockRestore();
+    warn.mockRestore();
+  });
+
+  it('keeps a well-formed wrong-PIN bucket on the pending attachment and drops a malformed one', async () => {
+    const { room } = await createPasswordRoom();
+    await room.fetch(guestRequest('bucketed', '192.0.2.44'));
+    const bucketed = lastServer();
+    const attachment = bucketed.deserializeAttachment() as Record<string, unknown>;
+    expect(attachment.pinAttemptKey).toEqual(expect.stringMatching(/^[A-Za-z0-9_-]{43}$/));
+    expect(JSON.stringify(attachment)).not.toContain('192.0.2.44');
+
+    await room.fetch(guestRequest('malformed', '192.0.2.44'));
+    const malformed = lastServer();
+    malformed.serializeAttachment({
+      ...(malformed.deserializeAttachment() as Record<string, unknown>),
+      pinAttemptKey: 'not-a-digest',
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await joinFrom(room, `guess-${attempt}`, { password: '00000000', ip: '192.0.2.44' });
+    }
+    await room.webSocketMessage(
+      bucketed,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: STALE_PIN,
+        reconnectSecret: OTHER_RECONNECT_SECRET,
+      }),
+    );
+    expect(closeReason(bucketed)).toBe('ROOM_PASSWORD_RATE_LIMITED');
+    await room.webSocketMessage(
+      malformed,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: STALE_PIN,
+        reconnectSecret: RECENT_RECONNECT_SECRET,
+      }),
+    );
+    expect(admitted(malformed)).toBe(true);
+  });
+});

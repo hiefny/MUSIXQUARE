@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     include: [
-      'src/core/__tests__/{about-lifetime-room-count-worker,account-assertion,account-auth,account-auth-request-lifetime,account-auth-sqlite,account-nickname-policy,app-maintenance-admin,app-worker-cors,auxiliary-service-maintenance,designsystem-preview-indexing,display-name-policy,event-campaign-route,pro-bot-worker,service-maintenance,standard-room-account-assertion}.test.ts',
+      'src/core/__tests__/{about-lifetime-room-count-worker,account-assertion,account-auth,account-auth-request-lifetime,account-auth-sqlite,account-nickname-policy,app-maintenance-admin,app-worker-cors,auxiliary-service-maintenance,designsystem-preview-indexing,display-name-policy,event-campaign-route,pro-bot-worker,service-maintenance,standard-room-account-assertion,standard-room-pin-membership}.test.ts',
       'src/core/__tests__/account-cookie-ordering.test.ts',
       'src/core/__tests__/cloudflare-signaling-http-bridge.test.ts',
       'src/core/__tests__/signaling-diagnostics.test.ts',
@@ -118,6 +118,14 @@ export default defineConfig({
           branches: 91,
           functions: 99,
           lines: 99,
+        },
+        // Pure Standard-room PIN membership and wrong-PIN limiter contract
+        // (2026-10-11): validation, record normalizers and limiter arithmetic.
+        'cloudflare/standard-room-pin-membership.ts': {
+          statements: 97,
+          branches: 95,
+          functions: 99,
+          lines: 98,
         },
       },
     },

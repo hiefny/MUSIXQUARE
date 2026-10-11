@@ -285,16 +285,15 @@ const hu: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Meghívóhivatkozás másolása',
   'connect.link_copied': 'Meghívóhivatkozás kimásolva',
   'connect.room_password_title': 'Jelszó kérése csatlakozáskor',
-  'connect.room_password_set': 'Beállítás',
   'connect.room_password_toggle_aria': 'Szobajelszó követelményének be- vagy kikapcsolása',
-  'connect.room_password_input_aria': 'Add meg a nyolcjegyű szobajelszót',
-  'connect.room_password_refresh_aria': 'Új szobajelszó létrehozása',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 számjegyre vár',
   'connect.room_password_on': 'Jelszó alkalmazva',
   'connect.room_password_invalid': 'Adj meg 8 számjegyet',
-  'connect.room_password_enabled': 'Az új résztvevőknek szükségük lesz a szobajelszóra',
   'connect.room_password_disabled': 'A résztvevőknek már nincs szükségük a szobajelszóra',
+  'connect.room_password_apply_pending': 'Az új jelszó a kapcsolat helyreállása után lép életbe.',
+  'connect.pin_enabled_removed_message':
+    'A házigazda jelszót állított be a szobához. Add meg, és újra csatlakozhatsz.',
+  'connect.pin_changed_removed_message':
+    'A házigazda megváltoztatta a szobajelszót. Add meg az új jelszót, és újra csatlakozhatsz.',
   'connect.signaling_healthy': 'A szobakiszolgáló elérhető',
   'connect.signaling_recovering': 'Újracsatlakozás…',
   'connect.signaling_failed': 'Nem sikerült csatlakozni a kiszolgálóhoz',
@@ -429,6 +428,10 @@ const hu: Record<I18nKey, string> = {
     'A szám fájlja nagyon nagy, ezért egyes eszközökön nem biztos, hogy lejátszható.',
   'chat.device_track_unavailable_system_message':
     'Ez az eszköz nem tudja lejátszani az aktuális számot.',
+  'chat.update_available_tab_system_message':
+    'Elérhető a MUSIXQUARE új verziója. Az oldal újratöltése után lép életbe.',
+  'chat.update_available_app_system_message':
+    'Elérhető a MUSIXQUARE új verziója. Az alkalmazás újbóli megnyitása után lép életbe.',
   'chat.system_audio_started_system_message':
     'Elindult a rendszerhang megosztása. A házigazda és a résztvevők eszközei közötti kis késés normális. A visszhang elkerüléséhez csökkentsd a házigazda eszközének hangerejét.',
   'chat.system_audio_stopped_system_message':
@@ -723,6 +726,9 @@ const hu: Record<I18nKey, string> = {
   'dialog.leave_session': 'Kilépés',
   'dialog.sw_update_title': 'Frissítés',
   'dialog.sw_update_msg': 'Új verzió érhető el. A frissítéshez töltsd újra az oldalt.',
+  'dialog.feature_refresh_title': 'Újratöltés szükséges',
+  'dialog.feature_refresh_msg':
+    'A MUSIXQUARE frissült. A zavartalan használathoz töltsd újra az oldalt.',
   'dialog.reconnect_ask': 'Újracsatlakozol?',
   'dialog.reconnect': 'Újracsatlakozás',
   'dialog.go_back': 'Vissza',
@@ -734,6 +740,10 @@ const hu: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'A kapcsolat időtúllépés miatt megszakadt. Add meg újra a jelszót.',
   'dialog.room_password_placeholder': 'Nyolcjegyű jelszó',
+  'dialog.room_password_rate_limited':
+    'Túl sokszor adtál meg hibás jelszót. Próbáld újra {{count}} perc múlva.',
+  'dialog.room_password_rate_limited_later':
+    'Túl sokszor adtál meg hibás jelszót. Próbáld újra egy kicsit később.',
   'dialog.session_lost_msg':
     'Az alkalmazás alvó állapotba került vagy elvesztette a kapcsolatot, ezért a többi eszköz már levált. Új munkamenet indításához indítsd újra.',
   'dialog.session_lost_btn': 'Újraindítás',
@@ -823,6 +833,7 @@ const hu: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Túl sok csatlakozási kísérlet. Próbáld újra egy kicsit később.',
   'pro.active_tab_title': 'Még van egy korábbi kapcsolat',
   'pro.active_tab_message': 'Ha itt folytatod, a korábbi kapcsolat megszakad.',
+  'pro.active_tab_replaced': 'Ez a PRO-szoba már meg van nyitva egy másik lapon',
   'pro.use_this_tab': 'Folytatás itt',
   'pro.upload.batch_progress': 'Számok feltöltése: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Néhány szám feltöltése sikertelen',

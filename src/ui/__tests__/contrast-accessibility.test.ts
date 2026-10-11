@@ -17,6 +17,33 @@ const contrastRatio = (first: string, second: string): number => {
   return (lighter + 0.05) / (darker + 0.05);
 };
 
+const splitSelectors = (selectorList: string): string[] => {
+  const selectors: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const char of selectorList) {
+    if (char === '(') depth += 1;
+    if (char === ')') depth -= 1;
+    if (char === ',' && depth === 0) {
+      selectors.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  selectors.push(current.trim());
+  return selectors;
+};
+
+/** Innermost style rules with comment-free, whitespace-normalized selectors. */
+const styleRules = (source: string): { selectors: string[]; body: string }[] =>
+  [...source.matchAll(/([^{}]+)\{([^{}]*)\}/gu)].map(([, selectorList, body]) => ({
+    selectors: splitSelectors(selectorList!.replace(/\/\*[\s\S]*?\*\//gu, '')).map((selector) =>
+      selector.replace(/\s+/gu, ' ').replace(/\(\s+/gu, '(').replace(/\s+\)/gu, ')').trim(),
+    ),
+    body: body!,
+  }));
+
 describe('OS contrast accessibility styles', () => {
   it('keeps authored high contrast opt-in scoped to the contrast contract', async () => {
     const css = await readFile('css/style.css', 'utf8');
@@ -86,7 +113,7 @@ describe('OS contrast accessibility styles', () => {
       /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{(?=[^}]*background:\s*var\(--primary-filled\);)(?=[^}]*border-color:\s*transparent;)(?=[^}]*color:\s*#fff;)[^}]*\}/u,
     );
     expect(forcedCss).toMatch(
-      /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{[^}]*border-color:\s*Highlight !important;[^}]*background:\s*Highlight !important;[^}]*color:\s*HighlightText !important;/u,
+      /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{[^}]*border-color:\s*Highlight !important;[^}]*background:\s*Highlight !important;[^}]*color:\s*CanvasText !important;/u,
     );
 
     for (const colorOnlyCss of [manualCss, prefersCss]) {
@@ -151,6 +178,86 @@ describe('OS contrast accessibility styles', () => {
     expect(css).toContain('color: GrayText !important;');
     expect(css).toContain('color: LinkText;');
     expect(css).toContain('background: Canvas;');
+  });
+
+  it('never paints forced-colors text in HighlightText, which vanishes on the text backplate', async () => {
+    const css = await readFile('css/style.css', 'utf8');
+    const forcedCss = css.slice(css.lastIndexOf('@media (forced-colors: active) {'));
+    const highlightTextColorSelectors = [...forcedCss.matchAll(/([^{}]+)\{([^{}]*)\}/gu)].flatMap(
+      ([, selectorList, body]) =>
+        /(?:^|[\s;])color:\s*HighlightText\b/u.test(body!)
+          ? splitSelectors(selectorList!.replace(/\/\*[\s\S]*?\*\//gu, ''))
+          : [],
+    );
+
+    expect(highlightTextColorSelectors.length).toBeGreaterThan(0);
+    for (const selector of highlightTextColorSelectors) {
+      // Icons and check marks have no backplate; everything else is text.
+      expect(selector, selector).toMatch(/(?:\bsvg|-check)$/u);
+    }
+    // Selected rows and pressed controls keep their Highlight fill and border,
+    // and their copy keeps the OS text color on the backplate.
+    expect(forcedCss).toMatch(
+      /\.language-option\.active\s*\)\s*\{\s*border-color:\s*Highlight !important;\s*outline-color:\s*Highlight;\s*background:\s*Highlight !important;\s*color:\s*CanvasText !important;/u,
+    );
+    expect(forcedCss).toMatch(
+      /\.language-option\.active\s*\)\s*svg\s*\{\s*color:\s*HighlightText !important;/u,
+    );
+    expect(forcedCss).not.toMatch(/\.language-option\.active\s*\)\s*\*\s*\{/u);
+  });
+
+  it('keeps base-layer important colors from outranking the forced-colors rules', async () => {
+    const css = await readFile('css/style.css', 'utf8');
+    const baseCss = css.slice(0, css.indexOf('/* end @layer base */'));
+    const forcedCss = css.slice(css.lastIndexOf('@media (forced-colors: active) {'));
+    // An important declaration inside @layer base outranks an unlayered
+    // important one, so it would silently defeat the forced-colors rule.
+    const importantColorFamilies = (body: string): Set<string> =>
+      new Set(
+        body
+          .split(';')
+          .map((declaration) => declaration.trim())
+          .filter((declaration) => /!important$/u.test(declaration))
+          .map((declaration) => declaration.slice(0, declaration.indexOf(':')).trim())
+          .map((property) =>
+            property.match(/^(color|background|border|outline|fill|stroke)(?:-color)?$/u),
+          )
+          .filter((match): match is RegExpMatchArray => match !== null)
+          .map((match) => match[1]!),
+      );
+    const forced = new Map<string, Set<string>>();
+    for (const rule of styleRules(forcedCss)) {
+      const families = importantColorFamilies(rule.body);
+      for (const selector of rule.selectors) {
+        forced.set(selector, new Set([...(forced.get(selector) ?? []), ...families]));
+      }
+    }
+    const conflicts = styleRules(baseCss).flatMap((rule) =>
+      [...importantColorFamilies(rule.body)].flatMap((family) =>
+        rule.selectors
+          .filter((selector) => forced.get(selector)?.has(family))
+          .map((selector) => `${selector} { ${family} }`),
+      ),
+    );
+
+    expect(forced.get(".room-password-toggle[aria-pressed='true']")).toContain('background');
+    expect(forced.get('.qr-svg path')).toContain('stroke');
+    expect(conflicts).toEqual([]);
+  });
+
+  it('lets accent-filled tab and option icons follow the selected icon color', async () => {
+    const css = await readFile('css/style.css', 'utf8');
+    const forcedCss = css.slice(css.lastIndexOf('@media (forced-colors: active) {'));
+
+    // These icons use the accent fill instead of currentColor, which would
+    // leave LinkText icons on the Highlight fill of the selected tab or option.
+    expect(css).toMatch(/\.nav-item\.active svg\s*\{[^}]*fill:\s*var\(--primary\);/u);
+    expect(css).toMatch(
+      /\.ch-opt\.active svg,\s*\.ch-opt\.selected svg\s*\{[^}]*fill:\s*var\(--primary\);/u,
+    );
+    expect(forcedCss).toMatch(
+      /:is\(\.nav-item, \.ch-opt\):is\(\[aria-pressed='true'\], \[aria-selected='true'\], \[aria-checked='true'\]\)\s*svg\s*\{\s*fill:\s*currentColor;\s*\}/u,
+    );
   });
 
   it('restores range geometry after forced colors removes authored gradients', async () => {

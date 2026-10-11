@@ -287,16 +287,16 @@ const nl: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Uitnodigingslink kopiëren',
   'connect.link_copied': 'Uitnodigingslink gekopieerd',
   'connect.room_password_title': 'Wachtwoord vereisen',
-  'connect.room_password_set': 'Instellen',
   'connect.room_password_toggle_aria': 'Kamerwachtwoord in- of uitschakelen',
-  'connect.room_password_input_aria': 'Voer het 8-cijferige kamerwachtwoord in',
-  'connect.room_password_refresh_aria': 'Nieuw kamerwachtwoord maken',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Wachten op 8 cijfers',
   'connect.room_password_on': 'Wachtwoord toegepast',
   'connect.room_password_invalid': 'Voer 8 cijfers in',
-  'connect.room_password_enabled': 'Nieuwe deelnemers hebben het wachtwoord nodig',
   'connect.room_password_disabled': 'Deelnemers hebben geen wachtwoord meer nodig',
+  'connect.room_password_apply_pending':
+    'Het nieuwe wachtwoord gaat in zodra de verbinding hersteld is.',
+  'connect.pin_enabled_removed_message':
+    'De host heeft een kamerwachtwoord ingesteld. Voer het in om weer deel te nemen.',
+  'connect.pin_changed_removed_message':
+    'De host heeft het kamerwachtwoord gewijzigd. Voer het nieuwe wachtwoord in om weer deel te nemen.',
   'connect.signaling_healthy': 'Kamerserver online',
   'connect.signaling_recovering': 'Opnieuw verbinden…',
   'connect.signaling_failed': 'Serververbinding mislukt',
@@ -427,6 +427,10 @@ const nl: Record<I18nKey, string> = {
     'Deze track neemt erg veel ruimte in en kan mogelijk niet op alle apparaten worden afgespeeld.',
   'chat.device_track_unavailable_system_message':
     'Dit apparaat kan de huidige track niet afspelen.',
+  'chat.update_available_tab_system_message':
+    'Er is een nieuwe versie van MUSIXQUARE. Vernieuw de pagina om deze te gebruiken.',
+  'chat.update_available_app_system_message':
+    'Er is een nieuwe versie van MUSIXQUARE. Open de app opnieuw om deze te gebruiken.',
   'chat.system_audio_started_system_message':
     'Het delen van systeemaudio is gestart. Een kleine vertraging tussen de host en deelnemers is normaal. Zet het volume van het hostapparaat zo laag mogelijk om echo te voorkomen.',
   'chat.system_audio_stopped_system_message':
@@ -725,6 +729,9 @@ const nl: Record<I18nKey, string> = {
   'dialog.leave_session': 'Verlaten',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Er staat een nieuwe versie klaar. Vernieuw om deze bij te werken.',
+  'dialog.feature_refresh_title': 'Vernieuwen nodig',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE is bijgewerkt. Vernieuw de pagina om het normaal te blijven gebruiken.',
   'dialog.reconnect_ask': 'Opnieuw verbinden?',
   'dialog.reconnect': 'Opnieuw verbinden',
   'dialog.go_back': 'Terug',
@@ -735,6 +742,10 @@ const nl: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Dat wachtwoord klopt niet. Probeer opnieuw.',
   'dialog.room_password_timeout_msg': 'Verbinding duurde te lang. Voer het wachtwoord opnieuw in.',
   'dialog.room_password_placeholder': '8-cijferig wachtwoord',
+  'dialog.room_password_rate_limited':
+    'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het over {{count}} minuten opnieuw.',
+  'dialog.room_password_rate_limited_later':
+    'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het straks opnieuw.',
   'dialog.session_lost_msg':
     'De app ging in de slaapstand of verloor de verbinding, waardoor de andere apparaten al zijn losgekoppeld. Start opnieuw om een nieuwe kamer te maken.',
   'dialog.session_lost_btn': 'Opnieuw starten',
@@ -815,6 +826,7 @@ const nl: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Te veel pogingen om deel te nemen. Probeer het straks opnieuw.',
   'pro.active_tab_title': 'Er is nog een eerdere verbinding',
   'pro.active_tab_message': 'Als je hier doorgaat, wordt de eerdere verbinding verbroken.',
+  'pro.active_tab_replaced': 'Deze PRO-kamer is al geopend in een ander tabblad',
   'pro.use_this_tab': 'Hier doorgaan',
   'pro.upload.batch_progress': 'Tracks uploaden {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sommige tracks konden niet worden geüpload',
@@ -920,5 +932,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Te veel pogingen om deel te nemen. Probeer het over {{count}} minuut opnieuw.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het over {{count}} minuut opnieuw.',
   },
 } satisfies LocalePluralMessages;

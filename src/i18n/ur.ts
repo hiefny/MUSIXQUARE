@@ -283,16 +283,15 @@ const ur: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'دعوتی لنک کاپی کریں',
   'connect.link_copied': 'دعوتی لنک کاپی ہو گیا',
   'connect.room_password_title': 'شامل ہونے کے لیے پاس ورڈ درکار کریں',
-  'connect.room_password_set': 'مقرر کریں',
   'connect.room_password_toggle_aria': 'کمرے کے پاس ورڈ کی شرط بدلیں',
-  'connect.room_password_input_aria': 'کمرے کا 8 ہندسوں کا پاس ورڈ درج کریں',
-  'connect.room_password_refresh_aria': 'کمرے کا نیا پاس ورڈ بنائیں',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 ہندسوں کا انتظار ہے',
   'connect.room_password_on': 'پاس ورڈ لاگو ہے',
   'connect.room_password_invalid': '8 ہندسے درج کریں',
-  'connect.room_password_enabled': 'نئے شرکا کو کمرے کا پاس ورڈ درکار ہوگا',
   'connect.room_password_disabled': 'شرکا کو اب کمرے کا پاس ورڈ درکار نہیں',
+  'connect.room_password_apply_pending': 'کنکشن بحال ہونے پر نیا پاس ورڈ لاگو ہو جائے گا۔',
+  'connect.pin_enabled_removed_message':
+    'میزبان نے کمرے کا پاس ورڈ مقرر کیا ہے۔ دوبارہ شامل ہونے کے لیے اسے درج کریں۔',
+  'connect.pin_changed_removed_message':
+    'میزبان نے کمرے کا پاس ورڈ بدل دیا ہے۔ دوبارہ شامل ہونے کے لیے نیا پاس ورڈ درج کریں۔',
   'connect.signaling_healthy': 'کمرے کا سرور آن لائن ہے',
   'connect.signaling_recovering': 'دوبارہ منسلک ہو رہا ہے…',
   'connect.signaling_failed': 'سرور سے کنکشن ناکام ہوا',
@@ -419,6 +418,10 @@ const ur: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'اس ٹریک کی فائل بہت بڑی ہے اور شاید کچھ آلات پر نہ چلے۔',
   'chat.device_track_unavailable_system_message': 'یہ آلہ موجودہ ٹریک نہیں چلا سکتا۔',
+  'chat.update_available_tab_system_message':
+    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے صفحہ ریفریش کریں۔',
+  'chat.update_available_app_system_message':
+    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے ایپ دوبارہ کھولیں۔',
   'chat.system_audio_started_system_message':
     'سسٹم آڈیو شیئر ہونا شروع ہو گیا ہے۔ میزبان اور مہمان آلات کے درمیان معمولی تاخیر عام ہے۔ بازگشت سے بچنے کے لیے میزبان آلے کی آواز کم رکھنے کا مشورہ ہے۔',
   'chat.system_audio_stopped_system_message':
@@ -706,6 +709,9 @@ const ur: Record<I18nKey, string> = {
   'dialog.leave_session': 'چھوڑیں',
   'dialog.sw_update_title': 'اپ ڈیٹ',
   'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔ اپ ڈیٹ کے لیے ریفریش کریں۔',
+  'dialog.feature_refresh_title': 'ریفریش کرنا ضروری ہے',
+  'dialog.feature_refresh_msg':
+    'اب MUSIXQUARE اپ ڈیٹ ہو چکا ہے۔ معمول کے مطابق استعمال جاری رکھنے کے لیے ریفریش کریں۔',
   'dialog.reconnect_ask': 'دوبارہ منسلک ہونا چاہتے ہیں؟',
   'dialog.reconnect': 'دوبارہ منسلک کریں',
   'dialog.go_back': 'واپس جائیں',
@@ -717,6 +723,10 @@ const ur: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'کنکشن کا وقت ختم ہو گیا۔ دوبارہ کوشش کے لیے پاس ورڈ پھر درج کریں۔',
   'dialog.room_password_placeholder': '8 ہندسوں کا پاس ورڈ',
+  'dialog.room_password_rate_limited':
+    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے۔ {{count}} منٹ بعد دوبارہ کوشش کریں۔',
+  'dialog.room_password_rate_limited_later':
+    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
   'dialog.session_lost_msg':
     'ایپ سلیپ میں چلی گئی یا کنکشن کھو بیٹھی، اس لیے دوسرے آلات پہلے ہی منقطع ہو چکے ہیں۔ نیا سیشن شروع کرنے کے لیے دوبارہ شروع کریں۔',
   'dialog.session_lost_btn': 'دوبارہ شروع کریں',
@@ -808,6 +818,7 @@ const ur: Record<I18nKey, string> = {
     'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
   'pro.active_tab_title': 'پچھلا کنکشن باقی ہے',
   'pro.active_tab_message': 'یہاں جاری رکھنے سے پچھلا کنکشن منقطع ہو جائے گا۔',
+  'pro.active_tab_replaced': 'یہ PRO کمرہ پہلے ہی دوسرے ٹیب میں کھلا ہے',
   'pro.use_this_tab': 'یہاں جاری رکھیں',
   'pro.upload.batch_progress': 'ٹریک اپ لوڈ ہو رہے ہیں {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'کچھ ٹریک اپ لوڈ نہیں ہو سکے',

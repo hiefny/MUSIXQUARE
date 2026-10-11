@@ -76,3 +76,108 @@ signaling deployment is live, automatic recovery retains the compatible
 signaling Worker instead of restoring a captured plaintext-only version. The
 app can recover independently because the new Worker keeps the legacy
 post-open configuration handshake fenced until its durable write succeeds.
+
+## Owner-chosen PINs: kept devices and the wrong-PIN limit (App 8.10.0)
+
+From 8.10.0 the Standard-room host types the 8-digit PIN (no generator) and,
+when other devices are present, chooses "그대로 두기" (keep everyone, default) or
+"모두 재입장" (everyone rejoins). The signaling Worker stores the result under
+two additional Durable Object keys. Room meta v2, the guest reconnect bindings,
+and `standard-room-pin-storage-contract-version.txt` are unchanged, so this
+adds no contract cutover and no forward floor. Both records are written only
+through their exact-key normalizers in `standard-room-pin-membership.ts`, and
+the PIN storage-boundary guard pins that neither ever holds PIN material.
+
+| Key | Shape and bounds | Written | Deleted |
+| --- | --- | --- | --- |
+| `standard-room-pin-membership-v1` | `{v:1, roomSecretHash, verifierDigest, kept:[{peerId, secretHash}]}`, at most 99 unique peers; hashes are 43-character base64url | With the verifier, in one transaction, by a keep change. Each kept peer's reconnect-secret hash is copied from its binding (active or inside the 5-minute reconnect window), or, for a peer without a live binding, from the current record while that record still exempts it | By a later change without the choice, turning protection off, "모두 재입장", a new room epoch, and `clearRoomMeta` |
+| `standard-room-pin-failures-v1` | `{v:1, entries:[{key, count, resetAt}]}`, at most 256 address-block buckets (no shared bucket), `count` 1..20; a record that fails normalization, including one with more than 256 entries, reads as empty | After each wrong PIN from a tracked block; not written for a block the full table cannot track | Expired entries are pruned on the next write; `clearRoomMeta` (room end) deletes the key. A live bucket is never evicted |
+
+- **Kept devices.** A guest is exempt from the PIN only while the record's
+  `roomSecretHash` matches the current room epoch, its `verifierDigest` matches
+  the current verifier, and the guest presents the same reconnect secret whose
+  hash was copied. Any other record (including one that fails normalization)
+  means "no exemption". A kept guest can reconnect with its old PIN, or with no
+  PIN after a first enable; error precedence and close codes are unchanged.
+  This also fixes the old defect where a present guest re-sent a stale PIN on
+  a signaling reconnect, got `room-password-invalid`, and lost ICE-restart
+  recovery. A later keep change that lists a kept guest whose binding has
+  expired (its signaling socket down for over five minutes while its data
+  channel lives) carries that guest's hash over from the current record, so the
+  exemption still needs the same reconnect secret and is not lost between
+  changes.
+- **Everyone rejoins.** While the PIN mutation fence is held, the Worker sends
+  `peer-left` to the host and closes every admitted guest socket with
+  `room-password-changed` (1008). The message (and close reason) is
+  `ROOM_PASSWORD_ENABLED` when the room had no PIN before and
+  `ROOM_PASSWORD_CHANGED` otherwise, so a guest without an open data channel
+  sees the matching notice. It then commits the verifier, empty bindings
+  and no record in one transaction. Guests still authenticating are not closed;
+  they meet the fence (1013) and then the new verifier. After the Worker
+  acknowledges, the host App sends `KICK_DEVICE` with reason `room-pin-enabled`
+  or `room-pin-changed` to every connected device and closes the channels.
+- **Key rotation.** The same PIN under a rotated pepper re-stamps the record's
+  digest: atomically on the previous-key guest rewrap, after host-auth
+  re-commits the PIN, and on a legacy echo. A failed best-effort re-stamp only
+  loses the exemption (fail closed).
+- **Wrong-PIN limit.** Per room and per client address block (IPv4 address,
+  IPv6 /64, IPv4-mapped IPv6 as IPv4), 20 failures per fixed 10-minute window
+  that starts at the first failure. The bucket key is a domain-separated HMAC
+  (`MUSIXQUARE:standard-room-pin-attempt:v1`) of room and address block, keyed
+  with the current `MXQR_STANDARD_ROOM_PIN_PEPPER`, so a pepper rotation resets
+  the windows. The address comes from `CF-Connecting-IP` only; HTTP-bridge
+  guests carry none and share one per-room `unattributed` bucket, and
+  `X-Forwarded-For` is never used. A locked attempt gets
+  `room-password-rate-limited` (1008) with `retryAfterSeconds` and the
+  `guest_auth_rate_limited` metric ("Password lockouts" in the admin Signals
+  panel, last 24 hours); attempts without a PIN are not counted, and a storage
+  failure never blocks a guest. Counters are stored, so hibernation does not
+  reset them.
+- **Who passes a locked bucket.** Kept devices bypass the lock. So does a guest
+  whose reconnect secret matches its live binding (admitted now, or within the
+  5-minute reconnect window): its PIN is still checked, so a device already in
+  the room keeps its signaling recovery when other people on its network (or
+  other HTTP-bridge guests) exhaust the shared bucket. A wrong PIN on that path
+  is counted and also deletes the binding, so one binding carries at most one
+  attempt past a lock. A guest whose binding has expired is treated as new.
+- **Table bound (fail open, owner decision B of 2026-10-11).** Live buckets are
+  never evicted. Once 256 address blocks hold a live bucket, a block without
+  one is not limited and its wrong PINs are not recorded or written; it gets
+  its own bucket only when an expired one frees a slot. There is no shared
+  overflow bucket, so no attempt can lock any block but its own, and a
+  corrupt or oversized record or a storage failure locks nobody. The cost is
+  that guessing spread across more than 256 blocks is not limited: someone
+  controlling one routed IPv6 /56 (256 /64s) and one more address can guess
+  without limit. The owner accepted this
+  ([known-accepted #12](../docs/known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)).
+  Watch "Password failures" (`guest_auth_failed`) in the Signals panel and the
+  Operations "Password issues" card for guessing: every wrong PIN that reaches
+  the PIN check counts there. "Password lockouts" is only secondary, because
+  untracked blocks, and tracked blocks kept under 20 wrong PINs, never produce
+  one.
+- **HTTP-bridge bucket.** Owner decision B kept the single `unattributed`
+  bucket and its limit. Anyone who knows the room code and can open bridge
+  sessions can lock it with 20 wrong PINs and renew the lock every 10 minutes
+  for as long as they continue, so it is not limited to one window. It refuses
+  only fresh guests who reach the room through the HTTPS bridge fallback (both
+  WebSocket routes failed before admission), even with the right PIN;
+  WebSocket guests, kept devices and devices with a live binding are not
+  affected. The host can turn protection off.
+
+### Rollback
+
+- No marker or floor changes. An older signaling Worker never reads either key
+  and does not advertise `standardRoomPinMembershipVersion`, so the App sends
+  the PIN alone: "그대로 두기" behaves as before 8.10.0 (present guests stay
+  but re-send their old PIN on a signaling reconnect), and "모두 재입장" is only
+  the host's `KICK_DEVICE`, which a modified client could ignore because its
+  signaling socket stays admitted. The wrong-PIN limit is off while rolled
+  back.
+- Older Apps treat every `room-password-*` error as a permanent auth error, so
+  `room-password-changed` and `room-password-rate-limited` cause no reconnect
+  storm; they show the generic join error.
+- A record survives a rollback untouched. Because it is tied to the room epoch
+  and the verifier digest, a stale record is ignored, with one exception: if an
+  older Worker changes the PIN X→Y→X within one epoch, the X digest matches
+  again after the forward deploy and the old kept set is revived. Its peers
+  still need their own reconnect secrets.

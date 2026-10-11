@@ -282,16 +282,15 @@ const tr: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Davet bağlantısını kopyala',
   'connect.link_copied': 'Davet bağlantısı kopyalandı',
   'connect.room_password_title': 'Odaya Girişte Şifre İste',
-  'connect.room_password_set': 'Ayarla',
   'connect.room_password_toggle_aria': 'Oda şifresi gereksinimini aç/kapat',
-  'connect.room_password_input_aria': '8 haneli oda şifresini gir',
-  'connect.room_password_refresh_aria': 'Yeni oda şifresi oluştur',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 haneli şifre bekleniyor',
   'connect.room_password_on': 'Şifre Aktif',
   'connect.room_password_invalid': '8 haneli bir sayı gir',
-  'connect.room_password_enabled': 'Artık bu odaya katılmak için şifre girilmesi gerekiyor',
   'connect.room_password_disabled': 'Artık bu odaya şifresiz katılım sağlanabilir',
+  'connect.room_password_apply_pending': 'Bağlantı geri geldiğinde yeni parola geçerli olacak.',
+  'connect.pin_enabled_removed_message':
+    'Oda sahibi oda parolası belirledi. Tekrar katılmak için parolayı gir.',
+  'connect.pin_changed_removed_message':
+    'Oda sahibi oda parolasını değiştirdi. Tekrar katılmak için yeni parolayı gir.',
   'connect.signaling_healthy': 'Oda sunucusu çevrimiçi',
   'connect.signaling_recovering': 'Yeniden bağlanılıyor…',
   'connect.signaling_failed': 'Sunucu bağlantısı başarısız',
@@ -419,6 +418,10 @@ const tr: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Bu medyanın boyutu çok büyük, bu yüzden bazı cihazlarda oynatılamayabilir.',
   'chat.device_track_unavailable_system_message': 'Bu cihaz mevcut medyayı oynatamıyor.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE’ın yeni bir sürümü var. Geçerli olması için sayfayı yenile.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE’ın yeni bir sürümü var. Geçerli olması için uygulamayı yeniden aç.',
   'chat.system_audio_started_system_message':
     'Sistem sesi paylaşımı başladı. Oda sahibinin cihazıyla katılımcı cihazları arasında hafif gecikme olması normaldir. Yankıyı önlemek için oda sahibi cihazının sesini kısmalıdır.',
   'chat.system_audio_stopped_system_message':
@@ -710,6 +713,9 @@ const tr: Record<I18nKey, string> = {
   'dialog.leave_session': 'Ayrıl',
   'dialog.sw_update_title': 'Yeni Güncelleme',
   'dialog.sw_update_msg': 'Yeni bir sürüm hazır. Güncellemek için sayfayı yenile.',
+  'dialog.feature_refresh_title': 'Yenileme gerekli',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE güncellendi. Normal şekilde kullanmaya devam etmek için sayfayı yenile.',
   'dialog.reconnect_ask': 'Yeniden bağlanmayı denemek istiyor musun?',
   'dialog.reconnect': 'Yeniden Bağlan',
   'dialog.go_back': 'Geri',
@@ -720,6 +726,10 @@ const tr: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Şifre yanlış. Tekrar dene.',
   'dialog.room_password_timeout_msg': 'Bağlantı zaman aşımına uğradı. Şifreyi tekrar gir.',
   'dialog.room_password_placeholder': '8 haneli şifre',
+  'dialog.room_password_rate_limited':
+    'Şifreyi çok fazla kez yanlış girdin. {{count}} dakika sonra tekrar dene.',
+  'dialog.room_password_rate_limited_later':
+    'Şifreyi çok fazla kez yanlış girdin. Biraz sonra tekrar dene.',
   'dialog.session_lost_msg':
     'Uygulama arka planda uyku moduna geçtiği veya bağlantısı koptuğu için diğer cihazlarla bağlantı kesildi. Yeniden başlatarak yeni bir oda aç.',
   'dialog.session_lost_btn': 'Yeniden Başlat',
@@ -810,6 +820,7 @@ const tr: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Çok fazla katılma denemesi yapıldı. Biraz sonra tekrar dene.',
   'pro.active_tab_title': 'Önceki bir bağlantı hâlâ mevcut',
   'pro.active_tab_message': 'Burada devam edersen önceki bağlantı sonlandırılır.',
+  'pro.active_tab_replaced': 'Bu PRO odası başka bir sekmede zaten açık',
   'pro.use_this_tab': 'Burada devam et',
   'pro.upload.batch_progress': 'Parçalar yükleniyor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Bazı parçalar yüklenemedi',

@@ -6,6 +6,7 @@ import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, resetState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import * as sessionReset from '../../core/session-reset.ts';
+import { t } from '../../i18n/index.ts';
 import { ProRoomApiClient, ProRoomApiError, type ProRoomSignalingAccess } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -254,6 +255,11 @@ describe('PRO runtime takeover validation', { concurrent: false }, () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(getState('room.context').kind).toBe('standard');
     expect(sessionReset.scheduleSessionReset).toHaveBeenCalledOnce();
+    // The replaced tab is the earlier connection, so it must not reuse the
+    // setup dialog's "a previous connection remains" title.
+    const [message] = vi.mocked(sessionReset.scheduleSessionReset).mock.calls[0]!;
+    expect(message).toBe(t('pro.active_tab_replaced'));
+    expect(message).not.toBe(t('pro.active_tab_title'));
     expect(sessionReset.scheduleDocumentReload).not.toHaveBeenCalled();
     expect(ProRoomApiClient.prototype.enterPresence).not.toHaveBeenCalled();
     expect(ProRoomApiClient.prototype.closeSessionFenced).not.toHaveBeenCalled();

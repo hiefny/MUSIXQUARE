@@ -1023,9 +1023,12 @@ type LazyFeatureFailure = {
 
 const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
   async present() {
+    // Its own copy, not the waiting-worker update dialog's: this dialog can
+    // open in a room (where that dialog is deferred) and says the app was
+    // updated and needs a refresh to keep working. Owner decision 2026-10-11.
     const result = await showDialog({
-      title: t('dialog.sw_update_title'),
-      message: t('dialog.sw_update_msg'),
+      title: t('dialog.feature_refresh_title'),
+      message: t('dialog.feature_refresh_msg'),
       buttonText: t('common.refresh'),
       dismissible: false,
       defaultFocus: 'primary',
@@ -1041,7 +1044,7 @@ const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
   onRecovered({ feature, error }) {
     // A WebKit reload can be cancelled or become a no-op while the old
     // document remains alive. Reopening the same modal from the recovery
-    // callback creates an update-dialog loop without changing the cached
+    // callback creates a recovery-dialog loop without changing the cached
     // module graph. End this attempt; a later explicit feature action can
     // offer recovery again.
     log.warn(`[App] ${feature} reload recovery returned to the stale document`, error);

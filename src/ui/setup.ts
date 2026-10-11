@@ -65,8 +65,46 @@ import {
 } from './setup-shared.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
 import { scheduleStandardRoomPrerequisiteWarmup } from '../network/standard-room-prerequisites.ts';
+import type { StandardRoomPinKickReason } from '../types/index.ts';
 import { bindOnboardingDebugGesture } from './onboarding-debug-gesture.ts';
 import { initOnboardingDiagnostics, openOnboardingDiagnostics } from './onboarding-diagnostics.ts';
+
+let _standardRoomPinRemovalNoticeOpen = false;
+
+/**
+ * A Standard-room host changed the PIN and chose "Everyone rejoins". The kick
+ * frame and the Worker's socket close can both report it, so a second report
+ * while the notice is open is dropped. `roomCode` is read when the removal
+ * arrives, before the departing session clears it.
+ */
+function showStandardRoomPinRemovalNotice(
+  reason: StandardRoomPinKickReason,
+  roomCode: string,
+): void {
+  if (_standardRoomPinRemovalNoticeOpen) return;
+  _standardRoomPinRemovalNoticeOpen = true;
+  const enabled = reason === 'room-pin-enabled';
+  showDialog({
+    title: () => t(enabled ? 'pro.pin_enabled_removed_title' : 'pro.pin_changed_removed_title'),
+    message: () =>
+      t(enabled ? 'connect.pin_enabled_removed_message' : 'connect.pin_changed_removed_message'),
+    buttonText: () => t('common.ok'),
+    dismissible: false,
+  })
+    .catch((e) => log.warn('[Setup] Room password removal dialog error:', e))
+    .finally(() => {
+      _standardRoomPinRemovalNoticeOpen = false;
+      // Defense-in-depth at the navigation sink, as for the reconnect route.
+      if (/^\d{6}$/.test(roomCode)) {
+        log.info(`[Setup] Room password changed → /${roomCode}`);
+        scheduleSessionReset(t('dialog.refreshing_session'), () => {
+          window.location.href = '/' + roomCode;
+        });
+      } else {
+        scheduleDocumentReload(t('dialog.leaving_session'));
+      }
+    });
+}
 
 function startSetupJoinWithRole(mode: number): void {
   handleSetupJoinWithRole(mode).catch((error) => {
@@ -334,7 +372,6 @@ function initSetupOverlay(): void {
 
   setState('network.sessionCode', '');
   setState('network.roomPasswordRequired', false);
-  setState('network.roomPassword', '');
   setCurrentObSlide(0);
   setPendingGuestRoleMode(null);
 
@@ -558,6 +595,40 @@ export function initSetup(): void {
       msg === 'ROOM_PASSWORD_AUTH_TIMEOUT' || peerType === 'room-password-auth-timeout';
     const isRoomFull = msg === 'ROOM_GUEST_LIMIT_REACHED' || peerType === 'room-full';
 
+    if (peerType === 'room-password-changed') {
+      // The host chose "Everyone rejoins" while this guest was not on a live
+      // data channel (the kick frame normally explains it first). The Worker's
+      // message says whether the PIN was set for the first time or changed.
+      setState('network.isConnecting', false);
+      updateRoleBadge();
+      showLoader(false);
+      showStandardRoomPinRemovalNotice(
+        msg === 'ROOM_PASSWORD_ENABLED' ? 'room-pin-enabled' : 'room-pin-changed',
+        getState('network.lastJoinCode'),
+      );
+      return;
+    }
+    if (peerType === 'room-password-rate-limited') {
+      const retryAfterSeconds = err?.retryAfterSeconds;
+      const minutes =
+        typeof retryAfterSeconds === 'number' &&
+        Number.isSafeInteger(retryAfterSeconds) &&
+        retryAfterSeconds > 0
+          ? Math.ceil(retryAfterSeconds / 60)
+          : null;
+      setState('network.isConnecting', false);
+      updateRoleBadge();
+      showLoader(false);
+      bus.emit('setup:guest-join-failure', {
+        error: err,
+        userMessage:
+          minutes === null
+            ? t('dialog.room_password_rate_limited_later')
+            : t('dialog.room_password_rate_limited', { count: minutes }),
+      });
+      return;
+    }
+
     if (isRoomPasswordRequired || isRoomPasswordInvalid || isRoomPasswordAuthTimeout) {
       setState('network.isConnecting', false);
       updateRoleBadge();
@@ -691,7 +762,13 @@ export function initSetup(): void {
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
-  bus.on('network:kicked-explicitly', () => {
+  bus.on('network:kicked-explicitly', (reason) => {
+    if (reason) {
+      // A PIN change with "Everyone rejoins": explain it, then reopen the same
+      // room so the guest can enter the new PIN.
+      showStandardRoomPinRemovalNotice(reason, getState('network.lastJoinCode'));
+      return;
+    }
     showDialog({
       title: t('connect.kicked_title'),
       message: t('connect.kicked_message'),

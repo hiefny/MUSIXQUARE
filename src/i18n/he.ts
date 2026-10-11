@@ -281,16 +281,14 @@ const he: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'העתקת קישור ההזמנה',
   'connect.link_copied': 'קישור ההזמנה הועתק',
   'connect.room_password_title': 'דרישת סיסמה להצטרפות',
-  'connect.room_password_set': 'הגדרה',
   'connect.room_password_toggle_aria': 'הפעלה או כיבוי של דרישת סיסמה לחדר',
-  'connect.room_password_input_aria': 'הזנת סיסמת חדר בת 8 ספרות',
-  'connect.room_password_refresh_aria': 'יצירת סיסמה חדשה לחדר',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'ממתין ל-8 ספרות',
   'connect.room_password_on': 'הסיסמה הוחלה',
   'connect.room_password_invalid': 'יש להזין 8 ספרות',
-  'connect.room_password_enabled': 'משתתפים חדשים יצטרכו את סיסמת החדר',
   'connect.room_password_disabled': 'משתתפים אינם צריכים עוד את סיסמת החדר',
+  'connect.room_password_apply_pending': 'הסיסמה החדשה תיכנס לתוקף כשהחיבור יחזור.',
+  'connect.pin_enabled_removed_message': 'המארח הגדיר סיסמה לחדר. אפשר להזין אותה כדי להצטרף שוב.',
+  'connect.pin_changed_removed_message':
+    'המארח שינה את סיסמת החדר. אפשר להזין את הסיסמה החדשה כדי להצטרף שוב.',
   'connect.signaling_healthy': 'שרת החדר מחובר',
   'connect.signaling_recovering': 'מתבצע חיבור מחדש…',
   'connect.signaling_failed': 'החיבור לשרת נכשל',
@@ -415,6 +413,10 @@ const he: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'הקובץ של הרצועה גדול מאוד וייתכן שלא יתנגן בחלק מהמכשירים.',
   'chat.device_track_unavailable_system_message': 'המכשיר הזה לא יכול לנגן את הרצועה הנוכחית.',
+  'chat.update_available_tab_system_message':
+    'זמינה גרסה חדשה של MUSIXQUARE. יש לרענן את הדף כדי להחיל אותה.',
+  'chat.update_available_app_system_message':
+    'זמינה גרסה חדשה של MUSIXQUARE. יש לפתוח מחדש את האפליקציה כדי להחיל אותה.',
   'chat.system_audio_started_system_message':
     'שיתוף שמע המערכת התחיל. השהיה קלה בין המארח למכשירי האורחים היא תקינה. מומלץ להנמיך את עוצמת הקול במכשיר המארח כדי למנוע הד.',
   'chat.system_audio_stopped_system_message':
@@ -696,6 +698,9 @@ const he: Record<I18nKey, string> = {
   'dialog.leave_session': 'יציאה',
   'dialog.sw_update_title': 'עדכון',
   'dialog.sw_update_msg': 'גרסה חדשה מוכנה. יש לרענן כדי לעדכן.',
+  'dialog.feature_refresh_title': 'נדרש רענון',
+  'dialog.feature_refresh_msg':
+    'בוצע עדכון ל-MUSIXQUARE. כדי להמשיך להשתמש בו כרגיל, יש לרענן את הדף.',
   'dialog.reconnect_ask': 'להתחבר מחדש?',
   'dialog.reconnect': 'חיבור מחדש',
   'dialog.go_back': 'חזרה',
@@ -706,6 +711,10 @@ const he: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'הסיסמה אינה תואמת. כדאי לנסות שוב.',
   'dialog.room_password_timeout_msg': 'תם הזמן לחיבור. יש להזין שוב את הסיסמה ולנסות מחדש.',
   'dialog.room_password_placeholder': 'סיסמה בת 8 ספרות',
+  'dialog.room_password_rate_limited':
+    'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד {{count}} דקות.',
+  'dialog.room_password_rate_limited_later':
+    'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד כמה רגעים.',
   'dialog.session_lost_msg':
     'האפליקציה עברה למצב שינה או איבדה את החיבור, ולכן המכשירים האחרים כבר התנתקו. יש להפעיל מחדש כדי לפתוח חדר חדש.',
   'dialog.session_lost_btn': 'הפעלה מחדש',
@@ -791,6 +800,7 @@ const he: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד כמה רגעים.',
   'pro.active_tab_title': 'נשאר חיבור קודם',
   'pro.active_tab_message': 'המשך כאן ינתק את החיבור הקודם.',
+  'pro.active_tab_replaced': 'חדר ה-PRO כבר פתוח בכרטיסייה אחרת',
   'pro.use_this_tab': 'להמשיך כאן',
   'pro.upload.batch_progress': 'רצועות מועלות {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'חלק מהרצועות לא הועלו',
@@ -903,5 +913,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד {{count}} דקה.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד {{count}} דקה.',
   },
 } satisfies LocalePluralMessages;

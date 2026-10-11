@@ -351,7 +351,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.9.6';
+const ADMIN_ASSET_VERSION = '8.10.0';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -490,6 +490,7 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_auth_pending', label: 'Password prompts' },
   { key: 'guest_auth_failed', label: 'Password failures' },
   { key: 'guest_auth_timeout', label: 'Password timeouts' },
+  { key: 'guest_auth_rate_limited', label: 'Password lockouts' },
   { key: 'guest_reconnect_denied', label: 'Guest reconnect denials' },
   { key: 'guest_reconnect_conflict', label: 'Guest reconnect conflicts' },
   { key: 'guest_room_full', label: 'Room-full rejections' },

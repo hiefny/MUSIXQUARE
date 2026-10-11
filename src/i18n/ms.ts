@@ -290,16 +290,16 @@ const ms: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Salin pautan jemputan',
   'connect.link_copied': 'Pautan jemputan disalin',
   'connect.room_password_title': 'Wajibkan kata laluan untuk menyertai',
-  'connect.room_password_set': 'Tetapkan',
   'connect.room_password_toggle_aria': 'Togol keperluan kata laluan bilik',
-  'connect.room_password_input_aria': 'Masukkan kata laluan bilik 8 digit',
-  'connect.room_password_refresh_aria': 'Jana kata laluan bilik baharu',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Menunggu 8 digit',
   'connect.room_password_on': 'Kata laluan digunakan',
   'connect.room_password_invalid': 'Masukkan 8 digit',
-  'connect.room_password_enabled': 'Peserta baharu perlu memasukkan kata laluan bilik',
   'connect.room_password_disabled': 'Peserta tidak lagi memerlukan kata laluan bilik',
+  'connect.room_password_apply_pending':
+    'Kata laluan baharu akan berkuat kuasa sebaik sahaja sambungan pulih.',
+  'connect.pin_enabled_removed_message':
+    'Hos telah menetapkan kata laluan bilik. Masukkan kata laluan untuk menyertai semula.',
+  'connect.pin_changed_removed_message':
+    'Hos telah menukar kata laluan bilik. Masukkan kata laluan baharu untuk menyertai semula.',
   'connect.signaling_healthy': 'Pelayan bilik dalam talian',
   'connect.signaling_recovering': 'Menyambung semula…',
   'connect.signaling_failed': 'Sambungan pelayan gagal',
@@ -431,6 +431,10 @@ const ms: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Saiz fail trek ini sangat besar dan mungkin tidak dapat dimainkan pada sesetengah peranti.',
   'chat.device_track_unavailable_system_message': 'Peranti ini tidak dapat memainkan trek semasa.',
+  'chat.update_available_tab_system_message':
+    'Versi baharu MUSIXQUARE tersedia. Muat semula halaman untuk menggunakannya.',
+  'chat.update_available_app_system_message':
+    'Versi baharu MUSIXQUARE tersedia. Buka semula aplikasi untuk menggunakannya.',
   'chat.system_audio_started_system_message':
     'Perkongsian audio sistem telah bermula. Sedikit kependaman antara peranti hos dan tetamu adalah perkara biasa. Kami mengesyorkan agar kelantangan peranti hos dikecilkan untuk mengelakkan gema.',
   'chat.system_audio_stopped_system_message':
@@ -727,6 +731,9 @@ const ms: Record<I18nKey, string> = {
   'dialog.leave_session': 'Keluar',
   'dialog.sw_update_title': 'Kemas Kini',
   'dialog.sw_update_msg': 'Versi baharu sudah sedia. Muat semula untuk mengemas kini.',
+  'dialog.feature_refresh_title': 'Perlu dimuat semula',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE telah dikemas kini. Muat semula untuk terus menggunakannya seperti biasa.',
   'dialog.reconnect_ask': 'Adakah anda mahu menyambung semula?',
   'dialog.reconnect': 'Sambung semula',
   'dialog.go_back': 'Kembali',
@@ -738,6 +745,10 @@ const ms: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Masa sambungan tamat. Masukkan semula kata laluan untuk mencuba lagi.',
   'dialog.room_password_placeholder': 'Kata laluan 8 digit',
+  'dialog.room_password_rate_limited':
+    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi dalam {{count}} minit.',
+  'dialog.room_password_rate_limited_later':
+    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi sebentar nanti.',
   'dialog.session_lost_msg':
     'Aplikasi telah tidur atau kehilangan sambungan, jadi peranti lain sudah terputus. Mulakan semula untuk memulakan sesi baharu.',
   'dialog.session_lost_btn': 'Mulakan semula',
@@ -829,6 +840,7 @@ const ms: Record<I18nKey, string> = {
     'Terlalu banyak percubaan untuk menyertai. Cuba lagi sebentar nanti.',
   'pro.active_tab_title': 'Sambungan sebelumnya masih ada',
   'pro.active_tab_message': 'Jika anda meneruskan di sini, sambungan sebelumnya akan diputuskan.',
+  'pro.active_tab_replaced': 'Bilik PRO ini sudah dibuka dalam tab lain',
   'pro.use_this_tab': 'Teruskan di sini',
   'pro.upload.batch_progress': 'Memuat naik trek {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sesetengah trek tidak dapat dimuat naik',

@@ -281,16 +281,15 @@ const ko = {
   'connect.copy_invite_link': '초대 링크 복사하기',
   'connect.link_copied': '초대 링크가 복사되었어요',
   'connect.room_password_title': '방 참여시 암호 요구',
-  'connect.room_password_set': '설정',
   'connect.room_password_toggle_aria': '방 참여 암호 요구 전환',
-  'connect.room_password_input_aria': '방 참여 암호 8자리 입력',
-  'connect.room_password_refresh_aria': '방 암호 새로 만들기',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8자리 암호 대기 중',
   'connect.room_password_on': '암호 적용됨',
   'connect.room_password_invalid': '8자리 숫자를 입력해 주세요',
-  'connect.room_password_enabled': '이제 이 방에 참여하려면 암호를 입력해야 해요',
   'connect.room_password_disabled': '이제 이 방에 참여할 때 암호를 입력하지 않아도 돼요',
+  'connect.room_password_apply_pending': '연결이 회복되면 새 암호가 적용돼요.',
+  'connect.pin_enabled_removed_message':
+    '방장이 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',
+  'connect.pin_changed_removed_message':
+    '방장이 방 암호를 바꿨어요. 새 암호를 입력하면 다시 들어올 수 있어요.',
   'connect.signaling_healthy': '연결 서버 정상',
   'connect.signaling_recovering': '다시 연결 중…',
   'connect.signaling_failed': '연결 복구 실패',
@@ -417,6 +416,10 @@ const ko = {
   'chat.large_local_track_system_message':
     '현재 트랙의 용량이 매우 커 일부 기기에서는 재생되지 않을 수 있어요.',
   'chat.device_track_unavailable_system_message': '이 기기에서는 현재 트랙을 재생할 수 없어요.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE의 새 버전이 있어요. 페이지를 새로고침하면 적용돼요.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE의 새 버전이 있어요. 앱을 다시 열면 적용돼요.',
   'chat.system_audio_started_system_message':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',
   'chat.system_audio_stopped_system_message':
@@ -702,6 +705,9 @@ const ko = {
   'dialog.leave_session': '세션 나가기',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었어요. 새로고침하면 업데이트가 적용돼요.',
+  'dialog.feature_refresh_title': '새로고침이 필요해요',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE가 업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요.',
   'dialog.reconnect_ask': '다시 연결할까요?',
   'dialog.reconnect': '다시 연결',
   'dialog.go_back': '돌아가기',
@@ -712,6 +718,9 @@ const ko = {
   'dialog.room_password_retry_msg': '암호가 맞지 않아요. 다시 입력해 주세요.',
   'dialog.room_password_timeout_msg': '연결 시간이 초과됐어요. 암호를 다시 입력해 주세요.',
   'dialog.room_password_placeholder': '8자리 암호',
+  'dialog.room_password_rate_limited':
+    '암호를 여러 번 틀렸어요. {{count}}분 후에 다시 시도해 주세요.',
+  'dialog.room_password_rate_limited_later': '암호를 여러 번 틀렸어요. 잠시 후 다시 시도해 주세요.',
   'dialog.session_lost_msg':
     '앱이 잠시 꺼지거나 절전 상태로 들어가서 다른 기기들과 연결이 끊어졌어요. 다시 시작하면 새 세션을 열 수 있어요.',
   'dialog.session_lost_btn': '다시 시작',
@@ -797,6 +806,7 @@ const ko = {
   'pro.join_rate_limited_later': '입장 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.',
   'pro.active_tab_title': '이전 연결이 남아 있어요',
   'pro.active_tab_message': '여기서 계속하면 기존 연결이 종료돼요.',
+  'pro.active_tab_replaced': '이 PRO 방이 다른 탭에서 열려 있어요',
   'pro.use_this_tab': '여기서 계속',
   'pro.upload.batch_progress': '트랙 업로드 중 {{current}}/{{total}}',
   'pro.upload.batch_failed_title': '일부 트랙을 업로드하지 못했어요',

@@ -30,7 +30,7 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(13);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(14);
   });
 
   it('uses natural English singular and plural copy for all count-sensitive messages', async () => {
@@ -79,6 +79,16 @@ describe('count-sensitive translations', () => {
       ['dialog.file_drop.unsupported_notice', { count: 2 }, "2 unsupported files won't be added."],
       ['pro.join_rate_limited', { count: 1 }, 'Too many join attempts. Try again in 1 minute.'],
       ['pro.join_rate_limited', { count: 10 }, 'Too many join attempts. Try again in 10 minutes.'],
+      [
+        'dialog.room_password_rate_limited',
+        { count: 1 },
+        'You entered the wrong password too many times. Try again in 1 minute.',
+      ],
+      [
+        'dialog.room_password_rate_limited',
+        { count: 10 },
+        'You entered the wrong password too many times. Try again in 10 minutes.',
+      ],
     ] as const;
 
     for (const [key, params, expected] of cases) {
@@ -233,6 +243,57 @@ describe('count-sensitive translations', () => {
       for (const [caseLocale, count, expected] of cases) {
         if (caseLocale !== locale) continue;
         expect(t('pro.join_rate_limited', { count }), `${locale} ${count}`).toBe(expected);
+      }
+    }
+  });
+
+  it('inflects the Standard wrong-password wait in minutes across plural systems', async () => {
+    const cases = [
+      ['ko-KR', 1, '암호를 여러 번 틀렸어요. 1분 후에 다시 시도해 주세요.'],
+      ['ko-KR', 10, '암호를 여러 번 틀렸어요. 10분 후에 다시 시도해 주세요.'],
+      [
+        'de-DE',
+        1,
+        'Du hast das Passwort zu oft falsch eingegeben. Versuche es in 1 Minute erneut.',
+      ],
+      [
+        'de-DE',
+        2,
+        'Du hast das Passwort zu oft falsch eingegeben. Versuche es in 2 Minuten erneut.',
+      ],
+      ['ru-RU', 1, 'Вы слишком много раз ввели неверный пароль. Повторите попытку через 1 минуту.'],
+      ['ru-RU', 3, 'Вы слишком много раз ввели неверный пароль. Повторите попытку через 3 минуты.'],
+      [
+        'ru-RU',
+        10,
+        'Вы слишком много раз ввели неверный пароль. Повторите попытку через 10 минут.',
+      ],
+      [
+        'ru-RU',
+        21,
+        'Вы слишком много раз ввели неверный пароль. Повторите попытку через 21 минуту.',
+      ],
+      ['pl-PL', 1, 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za 1 minutę.'],
+      ['pl-PL', 2, 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za 2 minuty.'],
+      ['pl-PL', 5, 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za 5 minut.'],
+      ['pl-PL', 22, 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za 22 minuty.'],
+      ['ro-RO', 1, 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste 1 minut.'],
+      ['ro-RO', 2, 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste 2 minute.'],
+      ['ro-RO', 20, 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste 20 de minute.'],
+      ['ar-SA', 2, 'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد 2 دقيقتين.'],
+      ['ar-SA', 3, 'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد 3 دقائق.'],
+      ['ar-SA', 11, 'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد 11 دقيقة.'],
+      ['cs-CZ', 1, 'Příliš mnohokrát jste zadali nesprávné heslo. Zkuste to znovu za 1 min.'],
+      ['cs-CZ', 5, 'Příliš mnohokrát jste zadali nesprávné heslo. Zkuste to znovu za 5 min.'],
+    ] as const;
+
+    for (const locale of new Set(cases.map(([caseLocale]) => caseLocale))) {
+      const t = await loadTranslator(locale);
+      for (const [caseLocale, count, expected] of cases) {
+        if (caseLocale !== locale) continue;
+        expect(t('dialog.room_password_rate_limited', { count }), `${locale} ${count}`).toBe(
+          expected,
+        );
       }
     }
   });

@@ -6,7 +6,7 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The binding-aware 21/79 count baselines record the reviewed runtime and
+ * The binding-aware 21/78 count baselines record the reviewed runtime and
  * server-authority surfaces. Fully-dead exports remain forbidden, and both
  * counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
@@ -153,8 +153,10 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 // export is allowed.
 // 2026-09-25: resolve typed namespace destructuring through async wrappers and
 // Promise callbacks; keep the decoder startup error class module-private.
+// 2026-10-11: sw-register reads isStandaloneDisplayMode for the in-room update
+// notice, so that platform export is no longer self-only.
 const TEST_ONLY_BASELINE_COUNT = 21;
-const SELF_ONLY_BASELINE_COUNT = 79;
+const SELF_ONLY_BASELINE_COUNT = 78;
 
 function kindCounts(entries: readonly ExportEntry[]): Record<ExportKind, number> {
   return entries.reduce(

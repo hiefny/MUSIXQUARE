@@ -279,16 +279,15 @@ const th: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'คัดลอกลิงก์เชิญ',
   'connect.link_copied': 'คัดลอกลิงก์เชิญแล้ว',
   'connect.room_password_title': 'ต้องใช้รหัสผ่านเมื่อเข้าห้อง',
-  'connect.room_password_set': 'ตั้งค่า',
   'connect.room_password_toggle_aria': 'เปิด/ปิดการขอรหัสผ่านห้อง',
-  'connect.room_password_input_aria': 'ใส่รหัสผ่านห้อง 8 หลัก',
-  'connect.room_password_refresh_aria': 'สร้างรหัสผ่านห้องใหม่',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'กำลังรอรหัสผ่าน 8 หลัก',
   'connect.room_password_on': 'ใช้งานรหัสผ่านแล้ว',
   'connect.room_password_invalid': 'ใส่รหัสผ่าน 8 หลัก',
-  'connect.room_password_enabled': 'ผู้เข้าร่วมใหม่จะต้องใช้รหัสผ่านห้อง',
   'connect.room_password_disabled': 'ผู้เข้าร่วมไม่ต้องใช้รหัสผ่านห้องแล้ว',
+  'connect.room_password_apply_pending': 'รหัสผ่านใหม่จะมีผลเมื่อการเชื่อมต่อกลับมา',
+  'connect.pin_enabled_removed_message':
+    'เจ้าของห้องตั้งรหัสผ่านห้องแล้ว ใส่รหัสผ่านเพื่อกลับเข้าห้อง',
+  'connect.pin_changed_removed_message':
+    'เจ้าของห้องเปลี่ยนรหัสผ่านห้องแล้ว ใส่รหัสผ่านใหม่เพื่อกลับเข้าห้อง',
   'connect.signaling_healthy': 'เซิร์ฟเวอร์ห้องทำงานปกติ',
   'connect.signaling_recovering': 'กำลังเชื่อมต่อใหม่…',
   'connect.signaling_failed': 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ',
@@ -414,6 +413,10 @@ const th: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
   'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นรายการปัจจุบันไม่ได้',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE มีเวอร์ชันใหม่ โหลดหน้าใหม่เพื่อใช้งานเวอร์ชันนี้',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE มีเวอร์ชันใหม่ เปิดแอปอีกครั้งเพื่อใช้งานเวอร์ชันนี้',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างอุปกรณ์ของเจ้าของห้องกับผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์เจ้าของห้องเพื่อเลี่ยงเสียงก้อง',
   'chat.system_audio_stopped_system_message':
@@ -697,6 +700,8 @@ const th: Record<I18nKey, string> = {
   'dialog.leave_session': 'ออก',
   'dialog.sw_update_title': 'อัปเดต',
   'dialog.sw_update_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว โหลดหน้าใหม่เพื่ออัปเดต',
+  'dialog.feature_refresh_title': 'จำเป็นต้องรีเฟรช',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE อัปเดตแล้ว รีเฟรชเพื่อใช้งานต่อได้ตามปกติ',
   'dialog.reconnect_ask': 'ต้องการเชื่อมต่อใหม่ไหม?',
   'dialog.reconnect': 'เชื่อมต่อใหม่',
   'dialog.go_back': 'ย้อนกลับ',
@@ -707,6 +712,10 @@ const th: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'รหัสผ่านไม่ตรงกัน ลองอีกครั้ง',
   'dialog.room_password_timeout_msg': 'การเชื่อมต่อหมดเวลา ใส่รหัสผ่านอีกครั้ง',
   'dialog.room_password_placeholder': 'รหัสผ่าน 8 หลัก',
+  'dialog.room_password_rate_limited':
+    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+  'dialog.room_password_rate_limited_later':
+    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
   'dialog.session_lost_msg':
     'แอปเข้าสู่โหมดพักหรือการเชื่อมต่อหลุด อุปกรณ์อื่นจึงหลุดไปแล้ว เริ่มใหม่เพื่อเปิดห้องใหม่',
   'dialog.session_lost_btn': 'เริ่มใหม่',
@@ -795,6 +804,7 @@ const th: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในภายหลัง',
   'pro.active_tab_title': 'ยังมีการเชื่อมต่อก่อนหน้าค้างอยู่',
   'pro.active_tab_message': 'หากดำเนินการต่อที่นี่ การเชื่อมต่อก่อนหน้าจะถูกตัด',
+  'pro.active_tab_replaced': 'ห้อง PRO นี้เปิดอยู่ในแท็บอื่นแล้ว',
   'pro.use_this_tab': 'ดำเนินการต่อที่นี่',
   'pro.upload.batch_progress': 'กำลังอัปโหลดรายการ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'อัปโหลดบางรายการไม่สำเร็จ',

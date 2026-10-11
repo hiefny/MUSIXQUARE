@@ -287,16 +287,16 @@ const pl: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Skopiuj link zaproszenia',
   'connect.link_copied': 'Link zaproszenia skopiowany',
   'connect.room_password_title': 'Wymagaj hasła przy wejściu do pokoju',
-  'connect.room_password_set': 'Ustaw',
   'connect.room_password_toggle_aria': 'Przełącz wymaganie hasła do pokoju',
-  'connect.room_password_input_aria': 'Wpisz 8-cyfrowe hasło do pokoju',
-  'connect.room_password_refresh_aria': 'Wygeneruj nowe hasło do pokoju',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Oczekiwanie na 8-cyfrowe hasło',
   'connect.room_password_on': 'Hasło aktywne',
   'connect.room_password_invalid': 'Wpisz 8-cyfrowe hasło',
-  'connect.room_password_enabled': 'Wejście do tego pokoju wymaga teraz hasła',
   'connect.room_password_disabled': 'Wejście do tego pokoju nie wymaga już hasła',
+  'connect.room_password_apply_pending':
+    'Nowe hasło zacznie obowiązywać, gdy połączenie zostanie przywrócone.',
+  'connect.pin_enabled_removed_message':
+    'Host ustawił hasło do pokoju. Wpisz je, aby znowu dołączyć.',
+  'connect.pin_changed_removed_message':
+    'Host zmienił hasło do pokoju. Wpisz nowe hasło, aby znowu dołączyć.',
   'connect.signaling_healthy': 'Serwer pokoju jest dostępny',
   'connect.signaling_recovering': 'Ponowne łączenie…',
   'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',
@@ -431,6 +431,10 @@ const pl: Record<I18nKey, string> = {
     'Plik tego materiału jest bardzo duży i może nie zostać odtworzony na niektórych urządzeniach.',
   'chat.device_track_unavailable_system_message':
     'To urządzenie nie może odtworzyć bieżącego materiału.',
+  'chat.update_available_tab_system_message':
+    'Dostępna jest nowa wersja MUSIXQUARE. Odśwież stronę, aby ją zastosować.',
+  'chat.update_available_app_system_message':
+    'Dostępna jest nowa wersja MUSIXQUARE. Otwórz ponownie aplikację, aby ją zastosować.',
   'chat.system_audio_started_system_message':
     'Rozpoczęto udostępnianie dźwięku systemowego. Niewielkie opóźnienie między urządzeniem hosta a urządzeniami uczestników jest normalne. Zalecamy zmniejszenie głośności urządzenia hosta, aby uniknąć echa.',
   'chat.system_audio_stopped_system_message':
@@ -728,6 +732,9 @@ const pl: Record<I18nKey, string> = {
   'dialog.leave_session': 'Wyjdź',
   'dialog.sw_update_title': 'Aktualizacja',
   'dialog.sw_update_msg': 'Dostępna jest nowa wersja. Odśwież stronę, aby ją zastosować.',
+  'dialog.feature_refresh_title': 'Wymagane odświeżenie',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE został zaktualizowany. Odśwież stronę, aby dalej normalnie z niego korzystać.',
   'dialog.reconnect_ask': 'Czy chcesz spróbować połączyć się ponownie?',
   'dialog.reconnect': 'Połącz się ponownie',
   'dialog.go_back': 'Wróć',
@@ -738,6 +745,10 @@ const pl: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Wprowadzone hasło jest niepoprawne. Spróbuj ponownie.',
   'dialog.room_password_timeout_msg': 'Przekroczono limit czasu połączenia. Wpisz hasło ponownie.',
   'dialog.room_password_placeholder': '8-cyfrowe hasło',
+  'dialog.room_password_rate_limited':
+    'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} min.',
+  'dialog.room_password_rate_limited_later':
+    'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za chwilę.',
   'dialog.session_lost_msg':
     'Aplikacja przeszła w stan uśpienia lub straciła połączenie, dlatego pozostałe urządzenia zostały już rozłączone. Uruchom aplikację ponownie, aby utworzyć nowy pokój.',
   'dialog.session_lost_btn': 'Uruchom ponownie',
@@ -827,6 +838,7 @@ const pl: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Zbyt wiele prób dołączenia. Spróbuj ponownie za chwilę.',
   'pro.active_tab_title': 'Poprzednie połączenie nadal istnieje',
   'pro.active_tab_message': 'Kontynuowanie tutaj zakończy poprzednie połączenie.',
+  'pro.active_tab_replaced': 'Ten pokój PRO jest już otwarty w innej karcie',
   'pro.use_this_tab': 'Kontynuuj tutaj',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',
@@ -982,5 +994,10 @@ export const pluralMessages = {
     one: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minutę.',
     few: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minuty.',
     many: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} minutę.',
+    few: 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} minuty.',
+    many: 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

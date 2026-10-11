@@ -285,16 +285,16 @@ const da: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopiér invitationslink',
   'connect.link_copied': 'Invitationslinket er kopieret',
   'connect.room_password_title': 'Kræv adgangskode for at deltage',
-  'connect.room_password_set': 'Angiv',
   'connect.room_password_toggle_aria': 'Slå krav om adgangskode til rummet til eller fra',
-  'connect.room_password_input_aria': 'Indtast den 8-cifrede adgangskode til rummet',
-  'connect.room_password_refresh_aria': 'Opret en ny adgangskode til rummet',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Venter på 8 cifre',
   'connect.room_password_on': 'Adgangskoden er aktiveret',
   'connect.room_password_invalid': 'Indtast 8 cifre',
-  'connect.room_password_enabled': 'Nye deltagere skal bruge adgangskoden til rummet',
   'connect.room_password_disabled': 'Deltagerne behøver ikke længere adgangskoden til rummet',
+  'connect.room_password_apply_pending':
+    'Den nye adgangskode træder i kraft, når forbindelsen er genoprettet.',
+  'connect.pin_enabled_removed_message':
+    'Værten har angivet en adgangskode til rummet. Indtast den for at deltage igen.',
+  'connect.pin_changed_removed_message':
+    'Værten har ændret rummets adgangskode. Indtast den nye adgangskode for at deltage igen.',
   'connect.signaling_healthy': 'Rummets server er online',
   'connect.signaling_recovering': 'Opretter forbindelse igen…',
   'connect.signaling_failed': 'Forbindelsen til serveren mislykkedes',
@@ -427,6 +427,10 @@ const da: Record<I18nKey, string> = {
     'Filen til dette nummer er meget stor og kan muligvis ikke afspilles på nogle enheder.',
   'chat.device_track_unavailable_system_message':
     'Denne enhed kan ikke afspille det aktuelle nummer.',
+  'chat.update_available_tab_system_message':
+    'Der er en ny version af MUSIXQUARE. Opdater siden for at tage den i brug.',
+  'chat.update_available_app_system_message':
+    'Der er en ny version af MUSIXQUARE. Åbn appen igen for at tage den i brug.',
   'chat.system_audio_started_system_message':
     'Deling af systemlyd er startet. En lille forsinkelse mellem værtens og gæsternes enheder er normal. Vi anbefaler at sænke værtens lydstyrke for at undgå ekko.',
   'chat.system_audio_stopped_system_message':
@@ -717,6 +721,9 @@ const da: Record<I18nKey, string> = {
   'dialog.leave_session': 'Forlad',
   'dialog.sw_update_title': 'Opdatering',
   'dialog.sw_update_msg': 'En ny version er klar. Opdater siden for at installere den.',
+  'dialog.feature_refresh_title': 'Siden skal opdateres',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE er blevet opdateret. Opdater siden for at fortsætte med at bruge det som normalt.',
   'dialog.reconnect_ask': 'Vil du oprette forbindelse igen?',
   'dialog.reconnect': 'Opret forbindelse igen',
   'dialog.go_back': 'Gå tilbage',
@@ -728,6 +735,10 @@ const da: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Forbindelsen fik timeout. Indtast adgangskoden igen for at prøve på ny.',
   'dialog.room_password_placeholder': '8-cifret adgangskode',
+  'dialog.room_password_rate_limited':
+    'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om {{count}} minutter.',
+  'dialog.room_password_rate_limited_later':
+    'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om lidt.',
   'dialog.session_lost_msg':
     'Appen gik i dvale eller mistede forbindelsen, så de andre enheder er allerede blevet afbrudt. Genstart for at begynde en ny session.',
   'dialog.session_lost_btn': 'Genstart',
@@ -817,6 +828,7 @@ const da: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'For mange forsøg på at deltage. Prøv igen om lidt.',
   'pro.active_tab_title': 'Der er stadig en tidligere forbindelse',
   'pro.active_tab_message': 'Hvis du fortsætter her, afbrydes den tidligere forbindelse.',
+  'pro.active_tab_replaced': 'Dette PRO-rum er allerede åbent i en anden fane',
   'pro.use_this_tab': 'Fortsæt her',
   'pro.upload.batch_progress': 'Uploader numre {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nogle numre kunne ikke uploades',
@@ -936,5 +948,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'For mange forsøg på at deltage. Prøv igen om {{count}} minut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

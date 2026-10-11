@@ -282,16 +282,15 @@ const fa: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'کپی پیوند دعوت',
   'connect.link_copied': 'پیوند دعوت کپی شد',
   'connect.room_password_title': 'نیاز به گذرواژه برای پیوستن',
-  'connect.room_password_set': 'تنظیم',
   'connect.room_password_toggle_aria': 'روشن یا خاموش کردن نیاز به گذرواژهٔ اتاق',
-  'connect.room_password_input_aria': 'وارد کردن گذرواژهٔ 8 رقمی اتاق',
-  'connect.room_password_refresh_aria': 'ساخت گذرواژهٔ جدید برای اتاق',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'در انتظار 8 رقم',
   'connect.room_password_on': 'گذرواژه اعمال شد',
   'connect.room_password_invalid': '8 رقم وارد کنید',
-  'connect.room_password_enabled': 'شرکت‌کنندگان جدید به گذرواژهٔ اتاق نیاز دارند',
   'connect.room_password_disabled': 'شرکت‌کنندگان دیگر به گذرواژهٔ اتاق نیاز ندارند',
+  'connect.room_password_apply_pending': 'گذرواژهٔ جدید پس از برقراری دوبارهٔ اتصال اعمال می‌شود.',
+  'connect.pin_enabled_removed_message':
+    'میزبان برای اتاق گذرواژه تنظیم کرد. برای پیوستن دوباره، آن را وارد کنید.',
+  'connect.pin_changed_removed_message':
+    'میزبان گذرواژهٔ اتاق را تغییر داد. برای پیوستن دوباره، گذرواژهٔ جدید را وارد کنید.',
   'connect.signaling_healthy': 'سرور اتاق آنلاین است',
   'connect.signaling_recovering': 'در حال اتصال دوباره…',
   'connect.signaling_failed': 'اتصال به سرور ناموفق بود',
@@ -418,6 +417,10 @@ const fa: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'حجم فایل این قطعه بسیار زیاد است و ممکن است در بعضی دستگاه‌ها پخش نشود.',
   'chat.device_track_unavailable_system_message': 'این دستگاه نمی‌تواند قطعهٔ فعلی را پخش کند.',
+  'chat.update_available_tab_system_message':
+    'نسخهٔ جدید MUSIXQUARE آماده است. برای اعمال آن، صفحه را تازه‌سازی کنید.',
+  'chat.update_available_app_system_message':
+    'نسخهٔ جدید MUSIXQUARE آماده است. برای اعمال آن، برنامه را دوباره باز کنید.',
   'chat.system_audio_started_system_message':
     'اشتراک‌گذاری صدای سیستم آغاز شد. کمی تأخیر میان دستگاه میزبان و مهمان‌ها طبیعی است. برای جلوگیری از پژواک، صدای دستگاه میزبان را کم کنید.',
   'chat.system_audio_stopped_system_message':
@@ -707,6 +710,9 @@ const fa: Record<I18nKey, string> = {
   'dialog.leave_session': 'خروج',
   'dialog.sw_update_title': 'به‌روزرسانی',
   'dialog.sw_update_msg': 'نسخهٔ جدید آماده است. برای به‌روزرسانی، تازه‌سازی کنید.',
+  'dialog.feature_refresh_title': 'تازه‌سازی صفحه لازم است',
+  'dialog.feature_refresh_msg':
+    'برنامهٔ MUSIXQUARE به‌روزرسانی شده است. برای ادامهٔ استفادهٔ عادی از آن، صفحه را تازه‌سازی کنید.',
   'dialog.reconnect_ask': 'دوباره متصل می‌شوید؟',
   'dialog.reconnect': 'اتصال دوباره',
   'dialog.go_back': 'بازگشت',
@@ -717,6 +723,10 @@ const fa: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'گذرواژه درست نیست. دوباره تلاش کنید.',
   'dialog.room_password_timeout_msg': 'مهلت اتصال تمام شد. برای تلاش دوباره گذرواژه را وارد کنید.',
   'dialog.room_password_placeholder': 'گذرواژهٔ 8 رقمی',
+  'dialog.room_password_rate_limited':
+    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید. {{count}} دقیقه دیگر دوباره تلاش کنید.',
+  'dialog.room_password_rate_limited_later':
+    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید. کمی بعد دوباره تلاش کنید.',
   'dialog.session_lost_msg':
     'برنامه به خواب رفت یا اتصال را از دست داد و دستگاه‌های دیگر جدا شده‌اند. برای شروع جلسهٔ جدید، برنامه را دوباره راه‌اندازی کنید.',
   'dialog.session_lost_btn': 'راه‌اندازی دوباره',
@@ -808,6 +818,7 @@ const fa: Record<I18nKey, string> = {
     'تعداد تلاش‌ها برای پیوستن بیش از حد است. کمی بعد دوباره تلاش کنید.',
   'pro.active_tab_title': 'اتصال قبلی باقی مانده است',
   'pro.active_tab_message': 'ادامه در اینجا، اتصال قبلی را قطع می‌کند.',
+  'pro.active_tab_replaced': 'این اتاق PRO از قبل در زبانهٔ دیگری باز است',
   'pro.use_this_tab': 'ادامه در اینجا',
   'pro.upload.batch_progress': 'در حال بارگذاری قطعه‌ها {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'برخی قطعه‌ها بارگذاری نشدند',

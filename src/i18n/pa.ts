@@ -287,16 +287,15 @@ const pa: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'ਸੱਦਾ ਲਿੰਕ ਕਾਪੀ ਕਰੋ',
   'connect.link_copied': 'ਸੱਦਾ ਲਿੰਕ ਕਾਪੀ ਹੋ ਗਿਆ',
   'connect.room_password_title': 'ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਪਾਸਵਰਡ ਲਾਜ਼ਮੀ ਕਰੋ',
-  'connect.room_password_set': 'ਸੈੱਟ ਕਰੋ',
   'connect.room_password_toggle_aria': 'ਰੂਮ ਪਾਸਵਰਡ ਦੀ ਲੋੜ ਚਾਲੂ/ਬੰਦ ਕਰੋ',
-  'connect.room_password_input_aria': 'ਰੂਮ ਦਾ 8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ',
-  'connect.room_password_refresh_aria': 'ਰੂਮ ਲਈ ਨਵਾਂ ਪਾਸਵਰਡ ਬਣਾਓ',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 ਅੰਕਾਂ ਦੀ ਉਡੀਕ ਹੈ',
   'connect.room_password_on': 'ਪਾਸਵਰਡ ਲਾਗੂ ਹੋ ਗਿਆ',
   'connect.room_password_invalid': '8 ਅੰਕ ਦਾਖਲ ਕਰੋ',
-  'connect.room_password_enabled': 'ਨਵੇਂ ਭਾਗੀਦਾਰਾਂ ਨੂੰ ਰੂਮ ਪਾਸਵਰਡ ਦੇਣਾ ਪਵੇਗਾ',
   'connect.room_password_disabled': 'ਭਾਗੀਦਾਰਾਂ ਨੂੰ ਹੁਣ ਰੂਮ ਪਾਸਵਰਡ ਦੀ ਲੋੜ ਨਹੀਂ ਹੈ',
+  'connect.room_password_apply_pending': 'ਕਨੈਕਸ਼ਨ ਮੁੜ ਬਣਨ ਤੋਂ ਬਾਅਦ ਨਵਾਂ ਪਾਸਵਰਡ ਲਾਗੂ ਹੋਵੇਗਾ।',
+  'connect.pin_enabled_removed_message':
+    'ਹੋਸਟ ਨੇ ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਸੈੱਟ ਕੀਤਾ ਹੈ। ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਇਸਨੂੰ ਦਾਖਲ ਕਰੋ।',
+  'connect.pin_changed_removed_message':
+    'ਹੋਸਟ ਨੇ ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਬਦਲ ਦਿੱਤਾ ਹੈ। ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਨਵਾਂ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ।',
   'connect.signaling_healthy': 'ਰੂਮ ਸਰਵਰ ਆਨਲਾਈਨ ਹੈ',
   'connect.signaling_recovering': 'ਮੁੜ ਕਨੈਕਟ ਹੋ ਰਿਹਾ ਹੈ…',
   'connect.signaling_failed': 'ਸਰਵਰ ਕਨੈਕਸ਼ਨ ਅਸਫਲ',
@@ -426,6 +425,10 @@ const pa: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'ਇਸ ਟਰੈਕ ਦੀ ਫ਼ਾਈਲ ਬਹੁਤ ਵੱਡੀ ਹੈ ਅਤੇ ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਸ਼ਾਇਦ ਨਾ ਚੱਲੇ।',
   'chat.device_track_unavailable_system_message': 'ਇਹ ਡਿਵਾਈਸ ਮੌਜੂਦਾ ਟਰੈਕ ਨਹੀਂ ਚਲਾ ਸਕਦੀ।',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE ਦਾ ਨਵਾਂ ਵਰਜਨ ਉਪਲਬਧ ਹੈ। ਲਾਗੂ ਕਰਨ ਲਈ ਪੰਨਾ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE ਦਾ ਨਵਾਂ ਵਰਜਨ ਉਪਲਬਧ ਹੈ। ਲਾਗੂ ਕਰਨ ਲਈ ਐਪ ਦੁਬਾਰਾ ਖੋਲ੍ਹੋ।',
   'chat.system_audio_started_system_message':
     'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਸ਼ੁਰੂ ਹੋ ਗਿਆ ਹੈ। ਹੋਸਟ ਅਤੇ ਮਹਿਮਾਨ ਡਿਵਾਈਸਾਂ ਵਿਚਕਾਰ ਥੋੜ੍ਹੀ ਦੇਰੀ ਆਮ ਗੱਲ ਹੈ। ਗੂੰਜ ਤੋਂ ਬਚਣ ਲਈ ਹੋਸਟ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘਟਾਉਣ ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕੀਤੀ ਜਾਂਦੀ ਹੈ।',
   'chat.system_audio_stopped_system_message':
@@ -713,6 +716,9 @@ const pa: Record<I18nKey, string> = {
   'dialog.leave_session': 'ਬਾਹਰ ਜਾਓ',
   'dialog.sw_update_title': 'ਅੱਪਡੇਟ',
   'dialog.sw_update_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ। ਅੱਪਡੇਟ ਕਰਨ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
+  'dialog.feature_refresh_title': 'ਰਿਫ੍ਰੈਸ਼ ਕਰਨਾ ਜ਼ਰੂਰੀ ਹੈ',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE ਅੱਪਡੇਟ ਹੋ ਗਿਆ ਹੈ। ਇਸਨੂੰ ਆਮ ਵਾਂਗ ਵਰਤਦੇ ਰਹਿਣ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
   'dialog.reconnect_ask': 'ਮੁੜ ਕਨੈਕਟ ਕਰਨਾ ਹੈ?',
   'dialog.reconnect': 'ਮੁੜ ਕਨੈਕਟ ਕਰੋ',
   'dialog.go_back': 'ਪਿੱਛੇ ਜਾਓ',
@@ -724,6 +730,10 @@ const pa: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'ਕਨੈਕਸ਼ਨ ਦਾ ਸਮਾਂ ਮੁੱਕ ਗਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਪਾਸਵਰਡ ਫਿਰ ਦਾਖਲ ਕਰੋ।',
   'dialog.room_password_placeholder': '8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ',
+  'dialog.room_password_rate_limited':
+    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ। {{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'dialog.room_password_rate_limited_later':
+    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'dialog.session_lost_msg':
     'ਐਪ ਸਲੀਪ ਮੋਡ ਵਿੱਚ ਚਲੀ ਗਈ ਜਾਂ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ, ਇਸ ਲਈ ਹੋਰ ਡਿਵਾਈਸਾਂ ਪਹਿਲਾਂ ਹੀ ਡਿਸਕਨੈਕਟ ਹੋ ਗਈਆਂ ਹਨ। ਨਵਾਂ ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਮੁੜ ਸ਼ੁਰੂ ਕਰੋ।',
   'dialog.session_lost_btn': 'ਮੁੜ ਸ਼ੁਰੂ ਕਰੋ',
@@ -815,6 +825,7 @@ const pa: Record<I18nKey, string> = {
     'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'pro.active_tab_title': 'ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਬਾਕੀ ਹੈ',
   'pro.active_tab_message': 'ਇੱਥੇ ਅੱਗੇ ਵਧਣ ਨਾਲ ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਜਾਵੇਗਾ।',
+  'pro.active_tab_replaced': 'ਇਹ PRO ਰੂਮ ਪਹਿਲਾਂ ਹੀ ਕਿਸੇ ਹੋਰ ਟੈਬ ਵਿੱਚ ਖੁੱਲ੍ਹਾ ਹੈ',
   'pro.use_this_tab': 'ਇੱਥੇ ਅੱਗੇ ਵਧੋ',
   'pro.upload.batch_progress': 'ਟਰੈਕ ਅੱਪਲੋਡ ਹੋ ਰਹੇ ਹਨ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ਕੁਝ ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ',

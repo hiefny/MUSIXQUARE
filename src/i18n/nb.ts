@@ -287,16 +287,16 @@ const nb: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopier invitasjonslenke',
   'connect.link_copied': 'Invitasjonslenken er kopiert',
   'connect.room_password_title': 'Krev passord for å delta',
-  'connect.room_password_set': 'Angi',
   'connect.room_password_toggle_aria': 'Slå krav om rompassord av eller på',
-  'connect.room_password_input_aria': 'Skriv inn det 8-sifrede rompassordet',
-  'connect.room_password_refresh_aria': 'Opprett et nytt rompassord',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Venter på 8 sifre',
   'connect.room_password_on': 'Passordet er tatt i bruk',
   'connect.room_password_invalid': 'Skriv inn 8 sifre',
-  'connect.room_password_enabled': 'Nye deltakere trenger rompassordet',
   'connect.room_password_disabled': 'Deltakere trenger ikke lenger rompassordet',
+  'connect.room_password_apply_pending':
+    'Det nye passordet gjelder når tilkoblingen er gjenopprettet.',
+  'connect.pin_enabled_removed_message':
+    'Verten har angitt et passord for rommet. Skriv det inn for å bli med igjen.',
+  'connect.pin_changed_removed_message':
+    'Verten har endret rompassordet. Skriv inn det nye passordet for å bli med igjen.',
   'connect.signaling_healthy': 'Romserveren er på nett',
   'connect.signaling_recovering': 'Kobler til på nytt…',
   'connect.signaling_failed': 'Tilkoblingen til serveren mislyktes',
@@ -426,6 +426,10 @@ const nb: Record<I18nKey, string> = {
     'Filen til dette sporet er svært stor og kan kanskje ikke spilles av på enkelte enheter.',
   'chat.device_track_unavailable_system_message':
     'Denne enheten kan ikke spille av gjeldende spor.',
+  'chat.update_available_tab_system_message':
+    'Det finnes en ny versjon av MUSIXQUARE. Oppdater siden for å ta den i bruk.',
+  'chat.update_available_app_system_message':
+    'Det finnes en ny versjon av MUSIXQUARE. Åpne appen på nytt for å ta den i bruk.',
   'chat.system_audio_started_system_message':
     'Deling av systemlyd er startet. En liten forsinkelse mellom vertens og gjestenes enheter er normal. Vi anbefaler å senke volumet på vertsenheten for å unngå ekko.',
   'chat.system_audio_stopped_system_message':
@@ -716,6 +720,9 @@ const nb: Record<I18nKey, string> = {
   'dialog.leave_session': 'Forlat',
   'dialog.sw_update_title': 'Oppdatering',
   'dialog.sw_update_msg': 'En ny versjon er klar. Oppdater siden for å installere den.',
+  'dialog.feature_refresh_title': 'Siden må oppdateres',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE er oppdatert. Oppdater siden for å fortsette å bruke det som vanlig.',
   'dialog.reconnect_ask': 'Vil du koble til på nytt?',
   'dialog.reconnect': 'Koble til på nytt',
   'dialog.go_back': 'Gå tilbake',
@@ -727,6 +734,10 @@ const nb: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Tilkoblingen fikk tidsavbrudd. Skriv inn passordet igjen for å prøve på nytt.',
   'dialog.room_password_placeholder': '8-sifret passord',
+  'dialog.room_password_rate_limited':
+    'Du har skrevet inn feil passord for mange ganger. Prøv igjen om {{count}} minutter.',
+  'dialog.room_password_rate_limited_later':
+    'Du har skrevet inn feil passord for mange ganger. Prøv igjen om litt.',
   'dialog.session_lost_msg':
     'Appen gikk i dvale eller mistet tilkoblingen, så de andre enhetene er allerede frakoblet. Start på nytt for å begynne en ny økt.',
   'dialog.session_lost_btn': 'Start på nytt',
@@ -816,6 +827,7 @@ const nb: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'For mange forsøk på å bli med. Prøv igjen om litt.',
   'pro.active_tab_title': 'Det finnes fortsatt en tidligere tilkobling',
   'pro.active_tab_message': 'Hvis du fortsetter her, avsluttes den tidligere tilkoblingen.',
+  'pro.active_tab_replaced': 'Dette PRO-rommet er allerede åpent i en annen fane',
   'pro.use_this_tab': 'Fortsett her',
   'pro.upload.batch_progress': 'Laster opp spor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Enkelte spor kunne ikke lastes opp',
@@ -925,5 +937,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'For mange forsøk på å bli med. Prøv igjen om {{count}} minutt.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du har skrevet inn feil passord for mange ganger. Prøv igjen om {{count}} minutt.',
   },
 } satisfies LocalePluralMessages;

@@ -289,16 +289,16 @@ const sv: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopiera inbjudningslänk',
   'connect.link_copied': 'Inbjudningslänken har kopierats',
   'connect.room_password_title': 'Kräv lösenord för att ansluta',
-  'connect.room_password_set': 'Ange',
   'connect.room_password_toggle_aria': 'Slå på eller av krav på rumslösenord',
-  'connect.room_password_input_aria': 'Ange det 8-siffriga rumslösenordet',
-  'connect.room_password_refresh_aria': 'Skapa ett nytt rumslösenord',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Väntar på 8 siffror',
   'connect.room_password_on': 'Lösenordet har aktiverats',
   'connect.room_password_invalid': 'Ange 8 siffror',
-  'connect.room_password_enabled': 'Nya deltagare behöver rumslösenordet',
   'connect.room_password_disabled': 'Deltagare behöver inte längre rumslösenordet',
+  'connect.room_password_apply_pending':
+    'Det nya lösenordet gäller när anslutningen är återställd.',
+  'connect.pin_enabled_removed_message':
+    'Värden har ställt in ett lösenord för rummet. Ange det för att gå med igen.',
+  'connect.pin_changed_removed_message':
+    'Värden har ändrat rumslösenordet. Ange det nya lösenordet för att gå med igen.',
   'connect.signaling_healthy': 'Rumsservern är online',
   'connect.signaling_recovering': 'Ansluter igen…',
   'connect.signaling_failed': 'Serveranslutningen misslyckades',
@@ -429,6 +429,10 @@ const sv: Record<I18nKey, string> = {
     'Den här spårfilen är mycket stor och kanske inte kan spelas på vissa enheter.',
   'chat.device_track_unavailable_system_message':
     'Den här enheten kan inte spela det aktuella spåret.',
+  'chat.update_available_tab_system_message':
+    'Det finns en ny version av MUSIXQUARE. Uppdatera sidan för att börja använda den.',
+  'chat.update_available_app_system_message':
+    'Det finns en ny version av MUSIXQUARE. Öppna appen igen för att börja använda den.',
   'chat.system_audio_started_system_message':
     'Delning av systemljud har startat. En liten fördröjning mellan värd- och gästenheter är normal. Vi rekommenderar att du sänker värdenhetens volym för att undvika eko.',
   'chat.system_audio_stopped_system_message':
@@ -722,6 +726,9 @@ const sv: Record<I18nKey, string> = {
   'dialog.leave_session': 'Lämna',
   'dialog.sw_update_title': 'Uppdatering',
   'dialog.sw_update_msg': 'En ny version är klar. Uppdatera sidan för att installera den.',
+  'dialog.feature_refresh_title': 'Sidan behöver uppdateras',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE har uppdaterats. Uppdatera sidan för att fortsätta använda det som vanligt.',
   'dialog.reconnect_ask': 'Vill du ansluta igen?',
   'dialog.reconnect': 'Anslut igen',
   'dialog.go_back': 'Gå tillbaka',
@@ -733,6 +740,10 @@ const sv: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Anslutningens tidsgräns löpte ut. Ange lösenordet igen för att försöka på nytt.',
   'dialog.room_password_placeholder': '8-siffrigt lösenord',
+  'dialog.room_password_rate_limited':
+    'Du har angett fel lösenord för många gånger. Försök igen om {{count}} minuter.',
+  'dialog.room_password_rate_limited_later':
+    'Du har angett fel lösenord för många gånger. Försök igen om en liten stund.',
   'dialog.session_lost_msg':
     'Appen försattes i viloläge eller tappade anslutningen, så de andra enheterna har redan kopplats bort. Starta om för att påbörja en ny session.',
   'dialog.session_lost_btn': 'Starta om',
@@ -822,6 +833,7 @@ const sv: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'För många försök att ansluta. Försök igen om en liten stund.',
   'pro.active_tab_title': 'En tidigare anslutning finns kvar',
   'pro.active_tab_message': 'Om du fortsätter här avslutas den tidigare anslutningen.',
+  'pro.active_tab_replaced': 'PRO-rummet är redan öppet i en annan flik',
   'pro.use_this_tab': 'Fortsätt här',
   'pro.upload.batch_progress': 'Laddar upp spår {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Vissa spår kunde inte laddas upp',
@@ -930,5 +942,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'För många försök att ansluta. Försök igen om {{count}} minut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du har angett fel lösenord för många gånger. Försök igen om {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

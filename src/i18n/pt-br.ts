@@ -287,16 +287,15 @@ const ptBr: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copiar link de convite',
   'connect.link_copied': 'Link de convite copiado',
   'connect.room_password_title': 'Exigir senha da sala',
-  'connect.room_password_set': 'Definir',
   'connect.room_password_toggle_aria': 'Alternar exigência de senha da sala',
-  'connect.room_password_input_aria': 'Digite a senha da sala com 8 dígitos',
-  'connect.room_password_refresh_aria': 'Gerar uma nova senha da sala',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Aguardando 8 dígitos',
   'connect.room_password_on': 'Senha aplicada',
   'connect.room_password_invalid': 'Digite 8 dígitos',
-  'connect.room_password_enabled': 'Novos participantes precisarão da senha da sala',
   'connect.room_password_disabled': 'Os participantes não precisam mais da senha da sala',
+  'connect.room_password_apply_pending': 'A nova senha será aplicada quando a conexão voltar.',
+  'connect.pin_enabled_removed_message':
+    'O anfitrião definiu uma senha para a sala. Digite a senha para entrar de novo.',
+  'connect.pin_changed_removed_message':
+    'O anfitrião mudou a senha da sala. Digite a nova senha para entrar de novo.',
   'connect.signaling_healthy': 'Servidor da sala online',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falha na conexão com o servidor',
@@ -657,6 +656,9 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.leave_session': 'Sair',
   'dialog.sw_update_title': 'Atualização',
   'dialog.sw_update_msg': 'Uma nova versão está pronta. Atualize para aplicar.',
+  'dialog.feature_refresh_title': 'É preciso atualizar a página',
+  'dialog.feature_refresh_msg':
+    'O MUSIXQUARE foi atualizado. Atualize a página para continuar usando normalmente.',
   'dialog.reconnect_ask': 'Deseja reconectar?',
   'dialog.reconnect': 'Reconectar',
   'dialog.go_back': 'Voltar',
@@ -667,6 +669,10 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'A senha não confere. Tente novamente.',
   'dialog.room_password_timeout_msg': 'A conexão expirou. Digite a senha novamente.',
   'dialog.room_password_placeholder': 'Senha de 8 dígitos',
+  'dialog.room_password_rate_limited':
+    'Você digitou a senha errada muitas vezes. Tente novamente em {{count}} minutos.',
+  'dialog.room_password_rate_limited_later':
+    'Você digitou a senha errada muitas vezes. Tente novamente daqui a pouco.',
   'dialog.session_lost_msg':
     'O app entrou em repouso ou perdeu a conexão, então os outros dispositivos já foram desconectados. Reinicie para criar uma nova sala.',
   'dialog.session_lost_btn': 'Reiniciar',
@@ -746,6 +752,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Muitas tentativas de entrar. Tente novamente daqui a pouco.',
   'pro.active_tab_title': 'Ainda há uma conexão anterior',
   'pro.active_tab_message': 'Continuar aqui encerrará a conexão anterior.',
+  'pro.active_tab_replaced': 'Esta sala PRO já está aberta em outra aba',
   'pro.use_this_tab': 'Continuar aqui',
   'pro.upload.batch_progress': 'Enviando faixas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Não foi possível enviar algumas faixas',
@@ -795,6 +802,10 @@ const ptBr: Record<I18nKey, string> = {
     'O arquivo desta faixa é muito grande e pode não ser reproduzido em alguns dispositivos.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo não consegue reproduzir a faixa atual.',
+  'chat.update_available_tab_system_message':
+    'Há uma nova versão do MUSIXQUARE. Atualize a página para usá-la.',
+  'chat.update_available_app_system_message':
+    'Há uma nova versão do MUSIXQUARE. Abra o aplicativo novamente para usá-la.',
   'chat.system_audio_started_system_message':
     'Compartilhamento de áudio do sistema iniciado. Um pequeno atraso entre o dispositivo do anfitrião e os dos participantes é normal. Para evitar eco, recomendamos diminuir o volume do dispositivo do anfitrião.',
   'chat.system_audio_stopped_system_message':
@@ -921,5 +932,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Muitas tentativas de entrar. Tente novamente em {{count}} minuto.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Você digitou a senha errada muitas vezes. Tente novamente em {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

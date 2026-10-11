@@ -97,6 +97,11 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [8.10.0 merge and 8.9.4–8.9.6 review — 2026-10-12](design/release-8-10-0-merge-review-2026-10-12.md) —
+  unreleased App 8.10.0 / v659 after merging 8.9.6: merge resolution, four
+  read-only reviews (no P1/P2), the replaced-tab takeover copy fix, the PRO
+  Worker follow-ups deferred to 8.10.1 and the owner decisions on order and
+  deleted YouTube videos. Local full checks; no real-device review.
 - [PRO autonomous natural completion — 2026-10-12](design/pro-autonomous-playback-2026-10-12.md) —
   server-owned end deadlines, bounded file headers and authenticated YouTube
   metadata, controller sleep/departure, queue transitions and rollback compatibility;
@@ -104,6 +109,40 @@ labeled portion still supports a current guard or operating interpretation:
 - [PRO PWA force-close and relaunch — 2026-10-12](design/pro-pwa-force-close-audit-2026-10-12.md) —
   missing-exit presence retention, 45-second lease probes and approved continuation
   copy in all 42 locales; App 8.9.4 / v655 release and verification evidence.
+- [In-room update prompt — 2026-10-11](design/in-room-update-prompt-2026-10-11.md) —
+  unreleased App 8.10.0/v659, same release as the Standard-room owner PIN:
+  in a room (standard or PRO, including the create and join screens and PRO
+  presence re-entry) or the demo, a waiting update no longer opens the
+  blocking dialog. It is an automatic "나중에" with no stored dismissal and
+  one local chat notice per generation ("페이지를 새로고침하면" in a tab,
+  "앱을 다시 열면" in a home-screen app), never sent to peers, or a toast
+  where the chat cannot be seen, followed by the chat notice once the room
+  starts. Another tab's activation posts the same notice, and back on setup
+  the dialog is offered once. Devices on older code (production v657) show
+  the old dialog once for this update, so the first deployment must avoid
+  live events. Owner decisions after the review (2026-10-11): the create and
+  join screens keep the toast, and the lazy-feature recovery dialog keeps
+  opening in a room (not dismissible, Refresh only) with its own copy
+  ("새로고침이 필요해요" / "MUSIXQUARE가 업데이트되었어요. 정상적으로
+  사용하려면 새로고침이 필요해요.", 42 locales; v658 follow-up, v659 after
+  merging App 8.9.6). Local unit, coverage, build, and Chromium browser checks
+  with screenshots; no real-device or native-speaker review.
+- [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
+  unreleased App 8.10.0 with the signaling Worker (target `all`; tested at
+  v655, ships as v659 with the in-room update prompt):
+  Standard-room hosts type the 8-digit PIN in the shared two-step dialog,
+  step 2 is skipped when nobody else is in the room (both room types), the PIN
+  is masked in both, "모두 재입장" closes guest sockets in the Worker before
+  the host's reasoned kick, kept devices reconnect without the new PIN, and the
+  Worker limits wrong PINs per room and address block (live buckets are never
+  evicted; by owner decision B, blocks past 256 are not limited rather than
+  sharing a bucket that could lock every newcomer, and devices already in the
+  room keep their signaling recovery), and a guest locked out by wrong
+  PINs sees the Standard room's own "암호를 여러 번 틀렸어요" copy instead of
+  the PRO join-limit wording (v655 follow-up). Also fixes forced colors:
+  selected-row text, the pressed PIN toggle, selected tab and option icons, and
+  the invite QR in light high-contrast themes. Local unit, Worker, coverage,
+  build and browser checks; no real-device or native-speaker review.
 - [PRO entry failure retry audit — 2026-10-11](design/pro-entry-retry-audit-2026-10-11.md) —
   retained-role defect after failed PRO entry, local same-page retry repair,
   lifecycle fencing and admission regression evidence; shipped in 8.9.4.

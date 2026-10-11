@@ -5484,7 +5484,11 @@
     word-break: keep-all;
   }
 
+  /* Japanese and Chinese have no spaces between words, so keep-all would hold
+     a whole clause on one line and push dialog copy past the dialog edge. */
   html:lang(ja) .dialog-message,
+  html:lang(zh-Hans) .dialog-message,
+  html:lang(zh-Hant) .dialog-message,
   html:lang(ja) .ob-slide .ob-desc,
   html:lang(ja) .ob-desc,
   html:lang(ja) .setup-header-text p,

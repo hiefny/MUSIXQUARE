@@ -160,6 +160,23 @@ describe('Dialog System', () => {
     expect(STYLE_SOURCE).not.toMatch(/\.adaptive-action-group\s*\{[^}]*column-reverse;/s);
   });
 
+  it('lets Japanese and Chinese dialog copy break between characters', () => {
+    // keep-all forbids breaks between Han characters, so an unpunctuated
+    // Chinese clause would stay on one line wider than the dialog.
+    const anchor = STYLE_SOURCE.indexOf('html:lang(ja) .dialog-message');
+    expect(anchor).toBeGreaterThan(-1);
+    const rule = STYLE_SOURCE.slice(
+      STYLE_SOURCE.lastIndexOf('}', anchor) + 1,
+      STYLE_SOURCE.indexOf('}', anchor),
+    );
+    for (const lang of ['ja', 'zh-Hans', 'zh-Hant']) {
+      expect(rule).toContain(`html:lang(${lang}) .dialog-message`);
+    }
+    expect(rule).toMatch(/word-break:\s*normal;/);
+    expect(rule).toMatch(/overflow-wrap:\s*anywhere;/);
+    expect(rule).toMatch(/line-break:\s*strict;/);
+  });
+
   it('gives the dialog copy a clear beat on both sides', () => {
     expect(STYLE_SOURCE).toMatch(/\.dialog-header\s*\{[^}]*padding:\s*30px\s+32px\s+8px;/s);
     expect(STYLE_SOURCE).toMatch(/\.dialog-message\s*\{[^}]*padding:\s*8px\s+32px\s+24px;/s);

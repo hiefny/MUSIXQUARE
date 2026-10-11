@@ -846,6 +846,8 @@ describe('Dialog System', () => {
         expect(row.classList.contains('dialog-choice-option')).toBe(true);
         const surface = radio.nextElementSibling!;
         expect(surface.classList.contains('dialog-choice-surface')).toBe(true);
+        // Browse mode reads the radio (name + description), not the copy again.
+        expect(surface.getAttribute('aria-hidden')).toBe('true');
         // The check mark sits after the copy, on the reading end edge.
         expect(surface.lastElementChild?.classList.contains('dialog-choice-check')).toBe(true);
         expect(surface.lastElementChild?.getAttribute('aria-hidden')).toBe('true');

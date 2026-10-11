@@ -249,6 +249,9 @@ function createDialogChoiceStep(
     radio.checked = option.value === config.defaultValue;
     const surface = document.createElement('span');
     surface.className = 'dialog-choice-surface';
+    // The radio reads the label and the detail by reference; hiding the
+    // painted copy keeps a screen reader's browse mode from reading it twice.
+    surface.setAttribute('aria-hidden', 'true');
     const copy = document.createElement('span');
     copy.className = 'dialog-choice-text';
     const label = document.createElement('span');

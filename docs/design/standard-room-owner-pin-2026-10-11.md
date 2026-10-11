@@ -13,7 +13,8 @@ Worker and the App change together.
 
 > **Same release (2026-10-11).** The branch also carries the
 > [in-room update prompt](in-room-update-prompt-2026-10-11.md), which moves
-> the PWA cache to `v656`. The `v654`/`v655` results below predate it.
+> the PWA cache to `v657` (`v656`, then `v657` for its review follow-up).
+> The `v654`/`v655` results below predate it.
 
 ## Owner decisions (2026-10-11)
 

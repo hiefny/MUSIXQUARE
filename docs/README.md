@@ -94,18 +94,24 @@ These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
 - [In-room update prompt — 2026-10-11](design/in-room-update-prompt-2026-10-11.md) —
-  unreleased App 8.10.0/v656, same release as the Standard-room owner PIN:
-  in a room (standard or PRO) or the demo, a waiting update no longer opens
-  the blocking dialog. It is an automatic "나중에" with no stored dismissal
-  and one local chat notice per generation ("페이지를 새로고침하면" in a tab,
-  "앱을 다시 열면" in a home-screen app), never sent to peers, or a toast where
-  the chat cannot be seen. Another tab's activation posts the same notice,
-  and back on setup the dialog is offered once. Devices still on v655 or
-  older show the old dialog once for this update, so the first deployment
-  must avoid live events. Local unit, coverage, build, and Chromium browser
-  checks with screenshots; no real-device or native-speaker review.
+  unreleased App 8.10.0/v657, same release as the Standard-room owner PIN:
+  in a room (standard or PRO, including the create and join screens and PRO
+  presence re-entry) or the demo, a waiting update no longer opens the
+  blocking dialog. It is an automatic "나중에" with no stored dismissal and
+  one local chat notice per generation ("페이지를 새로고침하면" in a tab,
+  "앱을 다시 열면" in a home-screen app), never sent to peers, or a toast
+  where the chat cannot be seen, followed by the chat notice once the room
+  starts. Another tab's activation posts the same notice, and back on setup
+  the dialog is offered once. Devices on older code (production v651) show
+  the old dialog once for this update, so the first deployment must avoid
+  live events. Open for the owner: the create and join screens follow
+  decision 1 (toast) rather than decision 2 (dialog), and the lazy-feature
+  recovery dialog can still open in a room. Local unit, coverage, build, and
+  Chromium browser checks with screenshots; no real-device or native-speaker
+  review.
 - [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
-  unreleased App 8.10.0/v655 with the signaling Worker (target `all`):
+  unreleased App 8.10.0 with the signaling Worker (target `all`; tested at
+  v655, ships as v657 with the in-room update prompt):
   Standard-room hosts type the 8-digit PIN in the shared two-step dialog,
   step 2 is skipped when nobody else is in the room (both room types), the PIN
   is masked in both, "모두 재입장" closes guest sockets in the Worker before

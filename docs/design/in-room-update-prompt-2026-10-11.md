@@ -2,7 +2,9 @@
 
 Status: implemented and verified locally on branch
 `agent/standard-room-owner-pin` (PR #294) as part of the unreleased App
-`8.10.0`, PWA cache `v656`. Not merged or deployed; production remains App
+`8.10.0`, PWA cache `v657` (`v656` for the first version, then `v657` for the
+[review follow-up](#review-follow-up-2026-10-11); `v656` was never
+deployed). Not merged or deployed; production remains App
 `8.9.0` / `v651` at `d76b1432` ([release record](../release-record.md)). On
 its own this is an App-only change; it ships in the 8.10.0 release, whose
 target is `all` because of the [Standard-room owner
@@ -36,14 +38,38 @@ toast with the same text. The owner decided:
    decision 1 for the same generation.
 5. Every existing safeguard stays, and a tab in a room is never auto-reloaded.
 
+### Decisions 1 and 2 conflict on the create and join screens (owner confirmation)
+
+Decision 1 defines a room as `network.appRole !== 'idle'`; decision 2 lists
+the create and join flows as outside rooms. Tapping Host or Join, and an
+invite-link landing, set `appRole` to `host` or `guest` at once
+(`startHostFlow`, `startGuestFlow`), so the two decisions disagree there. The
+implementation follows decision 1: the create and join screens get no
+dialog, a toast while setup still covers them, and the chat notice once the
+room starts. Reason: a host already accepts guests on the code screen before
+it taps Start (the `connection` handler checks only the host role), so a
+Refresh there would drop them, and an invite-link guest is in the middle of
+joining a live event, which a Refresh would restart. **The owner should
+confirm this.** If decision 2 is meant literally, the
+deferral can be gated on a started room (`setup.sessionStarted` or a room
+context) instead of the role; the create and join screens would then keep
+today's dialog.
+
 ## Change
 
 ### Policy (`src/sw-register.ts`)
 
 - **Where the dialog is deferred.** `isUpdatePromptDeferred()` is true in a
-  room (`isRoomSessionActive()`, the module's only `network.appRole` read),
-  while `demo.active` or `demo.loading` is set, and while `body.mode-demo`
-  is still present during the demo's exit curtain.
+  room, while `demo.active` or `demo.loading` is set, and while
+  `body.mode-demo` is still present during the demo's exit curtain.
+  `isRoomSessionActive()` (the module's only `network.appRole` read) counts a
+  room while the role is not `idle`, `setup.sessionStarted` is set, or the
+  room context has a `roomId`. The role alone is not enough: PRO presence
+  re-entry (`reenterAfterDetachedPresence`, after a lock longer than the
+  45-second presence TTL or an account detach) projects `idle` for the
+  `enterPresence` and `createSignalingTicket` calls while the PRO room UI,
+  the started session, and the PRO room context stay up. A real leave
+  (`leaveSession()`, or setup's back action) clears all three together.
 - **Waiting worker.** The order is unchanged up to the dismissal check:
   cooldown silent activation, generation resolution, same-cache silent
   activation, and a dismissed generation stays quiet (no dialog and no
@@ -62,8 +88,16 @@ toast with the same text. The owner decided:
   overlay is not active; otherwise (a demo with no room, or setup still
   covering a provisional room while a code is created or a join runs) the
   same copy is a toast.
-- **Once per generation per document.** A `Set` in the registration closure
-  holds announced identities: the exact cache version when the worker
+- **A toast does not use up the chat notice.** A generation shown only as a
+  toast is marked so. On the next room-lifecycle signal, once that signal's
+  task has finished (setup marks the room started and hides its overlay in
+  one task), one chat row is posted if the chat can now be seen; the copy
+  names no version, so one row covers every toast-only generation. A toast
+  is never repeated, and a generation whose dialog the user answered on
+  setup in the meantime is not re-posted.
+- **Once per generation per document.** A `Map` in the registration closure
+  holds announced identities (chat or toast-only): the exact cache version
+  when the worker
   answers the generation protocol, otherwise its script URL (waiting worker)
   or a per-object controller identity. Re-checks, a second worker object for
   the same generation, and another tab activating that generation therefore
@@ -75,13 +109,14 @@ toast with the same text. The owner decided:
   when it is dequeued), and records the deferral without a dismissal.
 - **Another tab accepted.** `handlePassiveControllerChange()` now defers in a
   room or the demo (it previously checked only the role, so a demo tab with
-  no room could auto-reload) and posts the same notice instead of the
-  `dialog.sw_update_msg` toast. Idle tabs still reload, aligned to
-  `controllerchange`.
+  no room, or a PRO tab during presence re-entry, could auto-reload) and
+  posts the same notice instead of the `dialog.sw_update_msg` toast. Idle
+  tabs still reload, aligned to `controllerchange`.
 - **Back on setup.** Most leave paths (the Leave buttons, Back, kicks)
   navigate to `/`, and the new idle document's existing boot check shows the
-  dialog for the still-waiting generation. For an in-place return to idle,
-  the lifecycle signal arms a native 1-second timer (`leaveSession()` clears
+  dialog for the still-waiting generation. For an in-place return to idle
+  (role, started session, and room context all cleared), the lifecycle
+  signal arms a native 1-second timer (`leaveSession()` clears
   managed timers). When it fires it re-arms while `isSessionResetPending()`
   or `body.mode-demo` holds, drops the deferral if a reload is already
   scheduled or another prompt is open, and otherwise runs the normal waiting
@@ -113,25 +148,45 @@ Not reviewed by native speakers.
 - `guard:room-authority-boundaries`: the one grandfathered `appRole` read in
   `sw-register.ts` moved from `handlePassiveControllerChange` into
   `isRoomSessionActive()`; the count stays 1 and the manifest records the
-  new use site.
+  new use site (an `if` since the review follow-up).
 - `guard:dead-exports`: the exact self-only baseline drops 79 → 78 because
   `isStandaloneDisplayMode` now has a production consumer.
 - PWA cache `v655` → `v656` and the `index.html` bootstrap query; App stays
-  `8.10.0`. The release-record 8.10.0 item now counts 66 App runtime paths
-  against `d76b1432` (adds `src/sw-register.ts`).
+  `8.10.0`. The review follow-up changed `sw-register.ts` and two locales
+  after that bump, so `guard:sw-cache-version` required `v657` (`c56ce268`).
+  The release-record 8.10.0 item counts 66 App runtime paths against
+  `d76b1432` (adds `src/sw-register.ts`); the follow-up adds no new path.
+
+## Review follow-up (2026-10-11)
+
+A review of the first version (`2759fcb2`) found six issues:
+
+| Finding | Result |
+| --- | --- |
+| PRO presence re-entry projects `appRole` `idle` while the room stays up, so the deferred retry could open the dialog in the room and another tab's activation could reload it | Fixed in `75c75ac8`: a room also counts while the session is started or a room context is set. Unit tests for each condition and for another tab's activation during re-entry |
+| The lazy-feature recovery dialog in `src/app.ts` reuses the update dialog's title and message, is not dismissible, and can open in a room | Not changed: it is needed, because the feature cannot load without a reload. Recorded as a known exception here and in the hotfix procedure; distinct copy or a dismissible in-room variant would be an owner decision |
+| The docs said the create and join screens keep the dialog, but they are `host`/`guest` by role and get a toast, which also used up the chat notice | Docs corrected; the toast no longer uses up the chat notice (`75c75ac8`); the conflict between decisions 1 and 2 is [raised for the owner](#decisions-1-and-2-conflict-on-the-create-and-join-screens-owner-confirmation) |
+| Urdu notices began with the Latin brand, so `dir="auto"` laid them out left to right | Fixed in `37e31cac` (both begin with "اب", "now"); the factual contract now requires RTL notices to open with RTL script |
+| Russian wrote "применить ее" | Fixed in `37e31cac` ("её") |
+| The README still named the owner PIN release `v655` | Corrected |
+
 
 ## Rollout limit: the first deployment
 
-The new behavior runs in the client. Devices still running `v655` or older
-code see the `v656` update through their old code: the blocking dialog on any
-screen, including in a room, and the old toast when another tab accepts.
-Only updates after `v656` follow the new policy on devices that already run
-`v656`. **Deploy this change outside a live event.**
+The new behavior runs in the client. Devices still running older code
+(production `v651` or earlier; `v656` was never deployed) see the `v657`
+update through their old code: the blocking dialog on any screen, including
+in a room, and the old toast when another tab accepts. Only updates after
+`v657` follow the new policy on devices that already run `v657`. **Deploy
+this change outside a live event.**
 
 ## Verification
 
-Tested code: `bb61cbc6` on `agent/standard-room-owner-pin` (`c9042ffc` copy,
-`d0e84ade` policy and tests, `bb61cbc6` cache `v656`; the docs commit follows).
+Tested code: `c56ce268` on `agent/standard-room-owner-pin` (`c9042ffc` copy,
+`d0e84ade` policy and tests, `bb61cbc6` cache `v656`, `2759fcb2` docs, then
+the review follow-up: `75c75ac8` policy and tests, `37e31cac` copy,
+`c56ce268` cache `v657`; the docs commit follows). The first version was
+verified the same way at `bb61cbc6` (11,498 unit tests passed then).
 Windows 11, Node 24.13.1, npm 11.8.0, Vitest 5.0.3, Playwright 1.63.0
 Chromium, dependencies through the main checkout's `node_modules` junction.
 All runs are local; none is an exact-main CI candidate.
@@ -141,12 +196,12 @@ All runs are local; none is an exact-main CI candidate.
 | `npm run typecheck` | pass |
 | `npm run lint` | pass, zero warnings |
 | `npm run format:check` | pass |
-| `npx vitest run` sw-register (unit and recovery integration), sw-update coordination and completion, `src/chat`, `src/i18n` | 40 files, 619 passed |
-| `npm test` | 538 files, 11,498 passed, 0 failed, 1 skipped¹ |
+| `npx vitest run` sw-register (unit and recovery integration), sw-update coordination and completion, `src/chat`, `src/i18n` | 40 files, 625 passed |
+| `npm test` | 538 files, 11,504 passed, 0 failed, 1 skipped¹ |
 | `npm run test:coverage:critical` | 58 files, 1,995 passed; thresholds met (81.84 / 76.50 / 88.07 / 85.95) |
-| `guard:release-identity` | pass; `8.10.0` / `v656` |
-| `guard:sw-cache-version` | pass; `v656` (`bb61cbc6`) covers every committed PWA runtime change |
-| `guard:service-worker`, `brand-capitalization`, `dead-exports`, `bus-pairing`, `import-graph`, `room-authority-boundaries`, `source-complexity` | pass |
+| `guard:release-identity` | pass; `8.10.0` / `v657` |
+| `guard:sw-cache-version` | pass; `v657` (`c56ce268`) covers every committed PWA runtime change |
+| `guard:service-worker`, `brand-capitalization` (771 sources), `dead-exports`, `bus-pairing` (198/198), `import-graph`, `room-authority-boundaries`, `source-complexity` | pass |
 | `npm run build:checked` | pass, including `guard:legacy-tv-build` (Chromium 79), `initial-transfer-budget`, and `sw-app-shell` |
 | Chromium browser probe (below) | 1 passed (`build:e2e`, local PeerJS server; outside CI) |
 
@@ -178,14 +233,30 @@ screen; two toast assertions use the new copy. The factual i18n contract
 covers both keys in 42 locales. The recovery integration test mocks the new
 chat and platform imports.
 
+Review follow-up tests (7 new cases replacing 1, so 25 in "in-room update
+notice"): PRO presence re-entry with the role `idle` while the session is
+started, the PRO room context is set, or both, offers no dialog or toast after the settle and
+through re-entry, then the dialog once after a real leave; another tab's
+activation during re-entry posts the chat notice with no reset or reload;
+setup covering a provisional host or guest room uses one toast, adds nothing
+on a lifecycle change while it still covers the room, then posts one chat
+notice once the room starts (no second toast, no dismissal); and a
+toast-only generation whose dialog the user answered on setup is not posted
+again when the room starts. Each new case was checked to fail with its fix
+removed. The state mocks in both sw-register test files are now key-aware,
+so an unrelated state key no longer reads as the role. The factual contract
+now requires the RTL locales' notices to open with RTL script (it fails on
+the old Urdu copy).
+
 ### Browser probe
 
 A temporary Playwright spec (not committed; archived as
 `scratch/update-prompt-screens/capture.tmp.test.ts` in the main checkout)
-ran against `npm run build:e2e` with the local PeerJS server: a Chromium host
-at 390x844, `ko-KR`, light theme, started a Standard room; the spec then
-changed `CACHE_VERSION` in `dist/service-worker.js` from `v656` to `v657` on
-disk (restored afterwards) and called `registration.update()`. The worker
+ran against `npm run build:e2e` with the local PeerJS server, first at
+`bb61cbc6` and again at `c56ce268`: a Chromium host at 390x844, `ko-KR`,
+light theme, started a Standard room; the spec then changed `CACHE_VERSION`
+in `dist/service-worker.js` to the next generation on disk (`v657` to `v658`
+in the second run; restored afterwards) and called `registration.update()`. The worker
 installed and waited; the chat had exactly one system row with the tab copy
 and no dialog opened (log: "Update waiting in a room or the demo. Posting a
 local notice"). A second update check left one row. Leaving through
@@ -214,7 +285,20 @@ the worker still waiting. Screenshots (outside the repository):
 - The pre-v268 legacy completion path (a reload navigation within 30 seconds
   of an already approved update, without the controller-confirmed marker)
   still completes that approved reload, as before.
-- A provisional room (`appRole` already `host` or `guest` while setup
-  creates a code or runs a join) counts as a room, per decision 1. It gets
-  the toast instead of the dialog.
+- The create and join screens, including an invite-link join, are a
+  provisional room by role (`appRole` `host` or `guest` from the moment
+  Host or Join is tapped), so per decision 1 they get a toast instead of the
+  dialog, then the chat notice once the room starts. Decision 2 listed them
+  as keeping the dialog; this needs [owner
+  confirmation](#decisions-1-and-2-conflict-on-the-create-and-join-screens-owner-confirmation).
+- Known exception: when a room-time lazy feature fails to load (Connect on
+  entering a room, announcements, the room session, or PRO setup), the
+  lazy-feature recovery dialog in `src/app.ts` still opens in the room. It
+  uses the update dialog's title and message ("업데이트 / 새 버전이
+  준비되었어요"), is not dismissible, and its only button reloads the device
+  out of the room. It is needed because the feature cannot load without a
+  reload. Distinct copy, or a dismissible variant while in a room, would be
+  an owner decision.
+- PRO presence re-entry and the toast-to-chat follow-up are covered by unit
+  tests only.
 - No native-speaker review of the 41 translated locales.

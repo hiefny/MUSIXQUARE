@@ -149,8 +149,20 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
   that guessing spread across more than 256 blocks is not limited: someone
   controlling one routed IPv6 /56 (256 /64s) and one more address can guess
   without limit. The owner accepted this
-  ([known-accepted #12](../docs/known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing));
-  watch "Password lockouts" for guessing.
+  ([known-accepted #12](../docs/known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)).
+  Watch "Password failures" (`guest_auth_failed`) in the Signals panel and the
+  Operations "Password issues" card for guessing: every wrong PIN that reaches
+  the PIN check counts there. "Password lockouts" is only secondary, because
+  untracked blocks, and tracked blocks kept under 20 wrong PINs, never produce
+  one.
+- **HTTP-bridge bucket.** Owner decision B kept the single `unattributed`
+  bucket and its limit. Anyone who knows the room code and can open bridge
+  sessions can lock it with 20 wrong PINs and renew the lock every 10 minutes
+  for as long as they continue, so it is not limited to one window. It refuses
+  only fresh guests who reach the room through the HTTPS bridge fallback (both
+  WebSocket routes failed before admission), even with the right PIN;
+  WebSocket guests, kept devices and devices with a live binding are not
+  affected. The host can turn protection off.
 
 ### Rollback
 

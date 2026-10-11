@@ -624,7 +624,42 @@ Limits: the limiter was exercised with unit tests, Worker tests against the
 fake Durable Object storage and the local scripts above, not against a live
 Durable Object, real IPv6 traffic or production. The HTTP-bridge
 `unattributed` bucket is still shared by every bridge guest of a room, as the
-decision kept it, so 20 wrong PINs over the bridge still lock bridge
-newcomers (not WebSocket newcomers) for one window. Other admission limits
-(the per-IP WebSocket-open limit, pending-guest slots and the 99-guest
-ceiling) are outside this change.
+decision kept it. Twenty wrong PINs over the bridge lock it, and the lock is
+not limited to one window: anyone who knows the room code and can open bridge
+sessions (a Standard signaling capability allows 8 opens a minute) can renew
+it every 10 minutes for as long as they continue. While it holds, fresh guests
+who reach the room through the HTTPS bridge fallback (both WebSocket routes
+failed before admission) are refused even with the right PIN; WebSocket
+newcomers, kept devices and devices with a live binding are not affected, and
+the host can turn protection off. Other admission limits (the per-IP
+WebSocket-open limit, pending-guest slots and the 99-guest ceiling) are
+outside this change.
+
+### Review follow-ups (decision B)
+
+A review of `ecdc2e20` and `315260b8` raised three findings; the two in the
+repository are documentation fixes, and the limiter code is unchanged.
+
+1. **The revisit trigger could not fire on the accepted attack (should-fix).**
+   known-accepted #12, the ops runbook and the release record named only
+   "Password lockouts" (`guest_auth_rate_limited`) as the guessing signal. That
+   event is recorded only when a key's own bucket is locked, so guesses from
+   blocks past the 256-entry table, or kept under 20 per tracked block, never
+   produce one; in the 1,000-block round-robin above, the 744 untracked blocks
+   make 148,800 accepted guesses without a lockout. Every wrong PIN that
+   reaches the PIN check records `guest_auth_failed`, shown as "Password
+   failures" in the Signals panel and counted in the Operations "Password
+   issues" card. The three documents now name a spike there (or abuse reports)
+   as the main trigger and keep lockouts as a secondary signal. A separate
+   metric for untracked guesses was not added: it would be a 19th admin event
+   across the signaling Worker, the App Worker catalog, the admin runtime and
+   their tests, while "Password failures" already counts those guesses.
+2. **The HTTP-bridge lockout was described as lasting one window (minor).**
+   The limits above, known-accepted #12 ("Shared networks") and the ops
+   runbook now say that anyone who can open bridge sessions can renew it every
+   10 minutes, that it refuses only fresh guests who reach the room through the
+   bridge fallback, and what still works (live bindings, kept devices,
+   turning protection off). The bucket itself stays as the owner decided.
+3. **The PR description was stale (minor).** It still described the overflow
+   bucket, the pending owner acceptance and cache `v654`; it is replaced when
+   the branch is pushed. This is outside the repository.

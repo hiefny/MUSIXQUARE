@@ -149,8 +149,11 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   새 네트워크는 제한하지도 기록하지도 않는다(fail open). 공유 overflow 버킷이 없어
   오답을 여러 주소로 흩뿌려도 방 전체의 새 참여자를 막을 수 없는 대신, 주소를 많이
   바꾸는 추측(IPv6로는 쉽다)은 제한되지 않는다. 오너가 2026-10-11 결정 B로 이를
-  허용했고, 추측 공격이 보이면(Password lockouts 급증이나 신고) 게스트 암호 시도
-  앞에 봇 확인(예: Cloudflare Turnstile)이나 작업 증명을 검토한다. main의 캐시가
+  허용했고, 추측 공격이 보이면 게스트 암호 시도 앞에 봇 확인(예: Cloudflare
+  Turnstile)이나 작업 증명을 검토한다. 주 신호는 Signals 패널의 Password
+  failures(`guest_auth_failed`)나 Operations의 Password issues 카드 급증, 또는
+  신고다. 표 밖 네트워크의 추측이나 버킷마다 20회 미만으로 나눈 추측은 잠금을
+  남기지 않으므로 Password lockouts는 보조 신호다. main의 캐시가
   먼저 올라가면 병합 직전에 번호를 다시 올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을
   지운다.
   [상세](design/standard-room-owner-pin-2026-10-11.md),

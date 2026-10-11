@@ -227,12 +227,23 @@ What remains accepted:
   the PIN with "모두 재입장".
 - **Shared networks.** Everyone behind one NAT shares a bucket, so after many
   typos in a crowded venue new joiners there wait until the window ends (at
-  most 10 minutes). HTTP-bridge guests carry no client address and share one
-  per-room bucket. Devices already in the room keep their signaling recovery:
-  a reconnect whose secret matches its live binding (admitted now, or within
-  the 5-minute reconnect window) passes the lock and only has its PIN checked.
-  A device whose signaling stayed down past that window, while its data channel
-  lived, is treated as a new joiner; if its bucket is locked then, the App
+  most 10 minutes, unless someone on that network keeps entering wrong PINs).
+  HTTP-bridge guests carry no client address and share one per-room bucket,
+  which the owner kept. That lock is not limited to one window: anyone who
+  knows the room code and can open HTTP-bridge sessions (any client with a
+  Standard signaling capability, up to 8 opens a minute each) can lock it with
+  20 wrong PINs and renew it every 10 minutes for as long as they continue.
+  Meanwhile every fresh guest who reaches the room through the HTTPS bridge
+  fallback (used when both WebSocket routes fail before admission) is refused
+  even with the right PIN; WebSocket newcomers are not affected. This is the
+  one newcomer lockout that someone outside the guests' own network can cause.
+  For either shared bucket the host can turn protection off, kept devices
+  bypass the lock, and devices already in the room keep their signaling
+  recovery: a reconnect whose secret matches its live binding (admitted now,
+  or within the 5-minute reconnect window) passes the lock and only has its
+  PIN checked. A device whose signaling stayed down past that window, while
+  its data channel lived, is treated as a new joiner; if its bucket is locked
+  then, the App
   treats the refusal as a permanent auth error and that device loses signaling
   recovery (ICE restarts) for the rest of its connection, as with a stale PIN.
   During the 8.10.0 transition, cached 8.9.x hosts still generate random PINs;
@@ -251,9 +262,14 @@ What remains accepted:
 Reopen this item if Standard rooms become discoverable or listed, if kick
 evasion is observed in production, or before relying on a Standard-room PIN for
 anything more than keeping casual visitors out. If guessing attacks are
-observed (a spike in "Password lockouts", `guest_auth_rate_limited`, in the
-admin Signals panel, or abuse reports), consider adding a bot check (for
-example Cloudflare Turnstile) or proof of work before guest PIN attempts.
+observed, consider adding a bot check (for example Cloudflare Turnstile) or
+proof of work before guest PIN attempts. The main signal is a spike in
+"Password failures" (`guest_auth_failed`) in the admin Signals panel or in the
+Operations "Password issues" card, or abuse reports: every wrong PIN that
+reaches the PIN check counts there, whether or not its network is tracked.
+"Password lockouts" (`guest_auth_rate_limited`) is only a secondary signal,
+because guessing from networks past the 256 tracked ones, or kept under 20
+wrong PINs per tracked network, never produces a lockout.
 
 ## Retired Risks
 

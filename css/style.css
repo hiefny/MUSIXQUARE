@@ -5668,11 +5668,11 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Focusable and announced, but drawn by the surface that follows it. */
+  /* Focusable and announced, but drawn by the surface that follows it. It
+     keeps its static position: an inline offset would need a direction-
+     specific fallback (:is()) that the Chromium 79 build cannot use. */
   .dialog-choice-radio {
     position: absolute;
-    inset-block-start: 0;
-    inset-inline-start: 0;
     inline-size: 1px;
     block-size: 1px;
     margin: 0;
@@ -5683,7 +5683,7 @@
   .dialog-choice-surface {
     min-block-size: 52px;
     padding-block: 14px;
-    padding-inline: 22px 14px;
+    padding-inline: 14px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -5718,8 +5718,10 @@
     outline: none;
   }
 
+  /* The extra start inset matches the language rows' label inset. */
   .dialog-choice-text {
     min-inline-size: 0;
+    padding-inline-start: 8px;
     display: flex;
     flex-direction: column;
     gap: 4px;

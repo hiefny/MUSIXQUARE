@@ -1212,6 +1212,9 @@ describe('Dialog System', () => {
       expect(choiceRules).not.toMatch(
         /(?:margin|padding|inset)-(?:left|right)|text-align: (?:left|right)|\b(?:left|right):/,
       );
+      // Inline offsets and uneven inline shorthands compile to :is() fallbacks
+      // that the Chromium 79 (legacy TV) build rejects.
+      expect(choiceRules).not.toMatch(/inset-inline|(?:padding|margin)-inline:\s*\S+\s+\S+;/);
     });
 
     it('lets Japanese and Chinese choice copy wrap between characters', () => {

@@ -771,6 +771,11 @@ const gu: Record<I18nKey, string> = {
   'pro.pin_changed': 'રૂમનો પાસવર્ડ બદલાયો.',
   'pro.owner_only': 'આ ફક્ત રૂમનો માલિક કરી શકે છે.',
   'pro.connect_failed': 'PRO રૂમ સાથે જોડાઈ શકાયું નથી.',
+  'pro.room_full': 'આ PRO રૂમ ભરાઈ ગયો છે',
+  'pro.room_full_detail':
+    'PRO રૂમમાં માલિક સહિત વધુમાં વધુ 100 ડિવાઇસ જોડાઈ શકે છે. માલિક માટે હંમેશા એક જગ્યા અનામત રહે છે.',
+  'pro.join_rate_limited': 'જોડાવાના ઘણા વધારે પ્રયાસો થયા છે. {{count}} મિનિટ પછી ફરી પ્રયાસ કરો.',
+  'pro.join_rate_limited_later': 'જોડાવાના ઘણા વધારે પ્રયાસો થયા છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
   'pro.active_tab_title': 'આ PRO રૂમ પહેલેથી બીજા ટૅબમાં ખુલ્લો છે',
   'pro.active_tab_message': 'અહીં આગળ વધવાથી હાલના ટૅબનું જોડાણ તૂટશે.',
   'pro.use_this_tab': 'આ ટૅબ વાપરો',

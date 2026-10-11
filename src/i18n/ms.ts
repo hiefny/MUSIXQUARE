@@ -798,6 +798,13 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_changed': 'Kata laluan bilik ditukar.',
   'pro.owner_only': 'Hanya pemilik bilik boleh melakukan tindakan itu.',
   'pro.connect_failed': 'Tidak dapat menyambung ke bilik PRO.',
+  'pro.room_full': 'Bilik PRO ini sudah penuh',
+  'pro.room_full_detail':
+    'Bilik PRO boleh memuatkan sehingga 100 peranti, termasuk peranti pemilik. Satu tempat sentiasa dikhaskan untuk pemilik bilik.',
+  'pro.join_rate_limited':
+    'Terlalu banyak percubaan untuk menyertai. Cuba lagi dalam {{count}} minit.',
+  'pro.join_rate_limited_later':
+    'Terlalu banyak percubaan untuk menyertai. Cuba lagi sebentar nanti.',
   'pro.active_tab_title': 'Bilik PRO ini sudah dibuka dalam tab lain',
   'pro.active_tab_message': 'Meneruskan di sini akan memutuskan sambungan tab sedia ada.',
   'pro.use_this_tab': 'Gunakan tab ini',

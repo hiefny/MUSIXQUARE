@@ -717,6 +717,11 @@ const ptBr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Senha da sala alterada.',
   'pro.owner_only': 'Só o proprietário pode fazer isso.',
   'pro.connect_failed': 'Não foi possível conectar à sala PRO.',
+  'pro.room_full': 'Esta sala PRO está cheia',
+  'pro.room_full_detail':
+    'Uma sala PRO comporta até 100 dispositivos, incluindo o do proprietário. Sempre fica uma vaga reservada para o proprietário.',
+  'pro.join_rate_limited': 'Muitas tentativas de entrar. Tente novamente em {{count}} minutos.',
+  'pro.join_rate_limited_later': 'Muitas tentativas de entrar. Tente novamente daqui a pouco.',
   'pro.active_tab_title': 'Esta sala PRO já está aberta em outra aba',
   'pro.active_tab_message': 'Continuar aqui desconectará a aba existente.',
   'pro.use_this_tab': 'Usar esta aba',
@@ -891,5 +896,8 @@ export const pluralMessages = {
   'dialog.file_drop.message': { one: 'Adicionar {{count}} arquivo?' },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} arquivo não compatível não será adicionado.',
+  },
+  'pro.join_rate_limited': {
+    one: 'Muitas tentativas de entrar. Tente novamente em {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

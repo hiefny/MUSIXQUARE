@@ -793,6 +793,11 @@ const sv: Record<I18nKey, string> = {
   'pro.pin_changed': 'Rumslösenordet har ändrats.',
   'pro.owner_only': 'Bara rumsägaren kan göra detta.',
   'pro.connect_failed': 'Det gick inte att ansluta till PRO-rummet.',
+  'pro.room_full': 'PRO-rummet är fullt',
+  'pro.room_full_detail':
+    'Ett PRO-rum rymmer upp till 100 enheter, inklusive ägarens. En plats är alltid reserverad för rumsägaren.',
+  'pro.join_rate_limited': 'För många försök att ansluta. Försök igen om {{count}} minuter.',
+  'pro.join_rate_limited_later': 'För många försök att ansluta. Försök igen om en liten stund.',
   'pro.active_tab_title': 'PRO-rummet är redan öppet i en annan flik',
   'pro.active_tab_message': 'Om du fortsätter här kopplas den redan öppna fliken från.',
   'pro.use_this_tab': 'Använd den här fliken',
@@ -900,5 +905,8 @@ export const pluralMessages = {
   },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} fil som inte stöds kommer inte att läggas till.',
+  },
+  'pro.join_rate_limited': {
+    one: 'För många försök att ansluta. Försök igen om {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

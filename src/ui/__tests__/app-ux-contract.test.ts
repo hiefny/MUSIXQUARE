@@ -697,6 +697,19 @@ describe('app UX markup contract', () => {
     expect(roleDescriptionRule).toMatch(/margin-bottom:\s*24px\s*;/);
   });
 
+  it('lets Japanese setup inline errors wrap inside unbroken kana and kanji runs', () => {
+    // keep-all forbids breaks inside a Japanese run, so a long sentence such as
+    // the PRO room-full detail would be clipped by the setup area without the
+    // same Japanese override the other keep-all setup copy uses.
+    expect(declarationsForSelector('.setup-inline-error').join('\n')).toMatch(
+      /word-break:\s*keep-all\s*;/,
+    );
+    const japaneseRules = declarationsForSelector('html:lang(ja) .setup-inline-error').join('\n');
+    expect(japaneseRules).toMatch(/word-break:\s*normal\s*;/);
+    expect(japaneseRules).toMatch(/overflow-wrap:\s*anywhere\s*;/);
+    expect(japaneseRules).toMatch(/line-break:\s*strict\s*;/);
+  });
+
   it('keeps settings descriptions on the desktop title and control inset', () => {
     const descriptionRule = desktopStylesheet.match(
       /\.settings-option-description\s*\{([^}]*)\}/,

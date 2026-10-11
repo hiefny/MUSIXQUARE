@@ -5490,6 +5490,7 @@
   html:lang(ja) .setup-header-text p,
   html:lang(ja) .setup-unified-item .setup-inner-desc,
   html:lang(ja) .setup-inner-desc,
+  html:lang(ja) .setup-inline-error,
   html:lang(ja) .demo-step-copy p,
   html:lang(ja) .demo-step-body {
     word-break: normal;

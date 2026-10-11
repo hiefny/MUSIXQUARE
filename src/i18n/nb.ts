@@ -786,6 +786,11 @@ const nb: Record<I18nKey, string> = {
   'pro.pin_changed': 'Rompassordet er endret.',
   'pro.owner_only': 'Bare rommets eier kan gjøre dette.',
   'pro.connect_failed': 'Kunne ikke koble til PRO-rommet.',
+  'pro.room_full': 'Dette PRO-rommet er fullt',
+  'pro.room_full_detail':
+    'Et PRO-rom har plass til opptil 100 enheter, inkludert eierens. Én plass er alltid holdt av til eieren.',
+  'pro.join_rate_limited': 'For mange forsøk på å bli med. Prøv igjen om {{count}} minutter.',
+  'pro.join_rate_limited_later': 'For mange forsøk på å bli med. Prøv igjen om litt.',
   'pro.active_tab_title': 'Dette PRO-rommet er allerede åpent i en annen fane',
   'pro.active_tab_message': 'Hvis du fortsetter her, kobles den allerede åpne fanen fra.',
   'pro.use_this_tab': 'Bruk denne fanen',
@@ -894,5 +899,8 @@ export const pluralMessages = {
   },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} fil som ikke støttes, blir ikke lagt til.',
+  },
+  'pro.join_rate_limited': {
+    one: 'For mange forsøk på å bli med. Prøv igjen om {{count}} minutt.',
   },
 } satisfies LocalePluralMessages;

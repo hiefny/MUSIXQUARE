@@ -93,6 +93,11 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO join error copy — 2026-10-11](design/pro-join-error-copy-2026-10-11.md) —
+  unreleased App 8.8.1/v648 (code `8961ff46`): localized `ROOM_FULL` and
+  `RATE_LIMITED` join messages in 42 locales, with the wait in whole minutes.
+  Local unit, build, and headless Chromium phone-width checks; no real-device or
+  native-speaker review.
 - [Grouped dependency update — 2026-10-11](design/dependency-update-2026-10-11.md) —
   Dependabot PR #288 (Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0) with its
   adaptations: regenerated Worker types, HLS kept out of large-audio detection for the
@@ -100,7 +105,9 @@ labeled portion still supports a current guard or operating interpretation:
 - [PRO public-room admission protection — 2026-10-11](design/pro-room-admission-protection-2026-10-11.md) —
   owner seat, dedicated admission and presence-close receipt ledgers, and soft
   join throttle (PRO Worker only, code `95fa7a88`). Local Worker tests only; not yet
-  deployed. The App error-message follow-up and a post-deploy check remain open.
+  deployed. The App error-message follow-up is the unreleased
+  [PRO join error copy](design/pro-join-error-copy-2026-10-11.md) change
+  (8.8.1/v648); a post-deploy check remains open.
 - [PRO persisted-resource lane — 2026-10-11](design/persisted-resource-lane-2026-10-11.md) —
   unreleased behaviour-neutral refactor (8.8.0/v647): shared lock and refresh flight,
   differential and mutant evidence, and the effects/queue-mode asymmetries kept on purpose.

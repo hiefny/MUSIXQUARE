@@ -94,16 +94,19 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 운영·보안
 
-- [ ] 미배포 App 변경: PRO persisted-resource lane 리팩터링(동작 변화 없음)과
+- [ ] 미배포 App 변경: PRO persisted-resource lane 리팩터링(동작 변화 없음),
   그룹 의존성 업데이트(PR #288: Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0
-  등, large-audio 컨테이너 목록에서 HLS 제외)가 main에 있다. App `8.8.0` 유지,
-  SW 캐시 `v648`. 두 변경 모두 Worker 소스, D1, R2, 프로토콜을 바꾸지 않는다.
+  등, large-audio 컨테이너 목록에서 HLS 제외), PRO 입장 거절 문구(`ROOM_FULL`,
+  `RATE_LIMITED`와 `Retry-After` 대기 시간, 42개 언어)가 main에 있다. App
+  `8.8.1`, SW 캐시 `v649`. 세 변경 모두 Worker 소스, D1, R2, 프로토콜을 바꾸지
+  않는다.
   아래 PRO 공개방 입장 보호(`pro-room`)도 미배포라서, 둘 다 남아 있는 동안
   partial-release gate는 `app`과 `pro-room` 단독 배포를 모두 거부한다(선택하지
   않은 Worker의 runtime 차이). 대상은 배포 직전에 다시 판정한다(§3). 배포한 뒤
   §1을 덮어쓰고 이 항목을 지운다.
   [lane](design/persisted-resource-lane-2026-10-11.md),
-  [의존성](design/dependency-update-2026-10-11.md)
+  [의존성](design/dependency-update-2026-10-11.md),
+  [입장 문구](design/pro-join-error-copy-2026-10-11.md)
 - [ ] Drift Audit 수동 5항목: Worker zone routes, `/admin` Access+MFA, WAF rate
   limit과 Worker/R2/D1 비용 알림, 두 번째 Git 배포 경로가 없음, main review·필수
   체크 정책. 자동 감사가 통과해도 이 항목은 완료가 아니다.
@@ -125,13 +128,6 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
   포커스를 받는다. 8.7.8 이전부터 있던 문제다.
-- [ ] PRO 입장 오류 문구(App 후속): App은 입장 거절 `ROOM_FULL`과 새
-  `RATE_LIMITED`(429, `Retry-After`)를 모두 일반 `pro.connect_failed`로
-  보여 준다. `RATE_LIMITED`에는 새 문구와 대기 시간 표시가 필요하다.
-  `ROOM_FULL`에 기존 `network.session_full_detail`("방장 포함 최대 100대")을
-  그대로 쓰면, 방장이 없을 때 방장 외 99대에서 거절하는 PRO 좌석 예약과 맞지
-  않는다. App 변경이므로 target `all`, SemVer patch, SW 캐시 번호 증가가 따른다.
-  [상세](design/pro-room-admission-protection-2026-10-11.md)
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전
   30초 상한 때 Developer API로 저장된 10초 초과 값이 PRO 저장소에 남아 있으면,
   재로드 검증이 effects 전체를 기본값으로 돌린다. 오너가 실제 API 사용자를 확인한

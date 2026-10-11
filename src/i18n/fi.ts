@@ -786,6 +786,12 @@ const fi: Record<I18nKey, string> = {
   'pro.pin_changed': 'Huoneen salasana vaihdettiin.',
   'pro.owner_only': 'Vain huoneen omistaja voi tehdä tämän.',
   'pro.connect_failed': 'PRO-huoneeseen ei voitu muodostaa yhteyttä.',
+  'pro.room_full': 'Tämä PRO-huone on täynnä',
+  'pro.room_full_detail':
+    'PRO-huoneeseen mahtuu enintään 100 laitetta omistaja mukaan lukien. Yksi paikka on aina varattu omistajalle.',
+  'pro.join_rate_limited':
+    'Liian monta liittymisyritystä. Yritä uudelleen {{count}} minuutin kuluttua.',
+  'pro.join_rate_limited_later': 'Liian monta liittymisyritystä. Yritä hetken kuluttua uudelleen.',
   'pro.active_tab_title': 'Tämä PRO-huone on jo avoinna toisessa välilehdessä',
   'pro.active_tab_message': 'Jos jatkat tässä, ennestään avoimen välilehden yhteys katkaistaan.',
   'pro.use_this_tab': 'Käytä tätä välilehteä',

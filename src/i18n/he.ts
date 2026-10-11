@@ -763,6 +763,11 @@ const he: Record<I18nKey, string> = {
   'pro.pin_changed': 'סיסמת החדר שונתה.',
   'pro.owner_only': 'רק בעל החדר יכול לבצע את הפעולה.',
   'pro.connect_failed': 'לא הצלחנו להתחבר לחדר ה-PRO.',
+  'pro.room_full': 'חדר ה-PRO מלא',
+  'pro.room_full_detail':
+    'חדר PRO מכיל עד 100 מכשירים, כולל המכשיר של בעל החדר. מקום אחד תמיד שמור לבעל החדר.',
+  'pro.join_rate_limited': 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד {{count}} דקות.',
+  'pro.join_rate_limited_later': 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד כמה רגעים.',
   'pro.active_tab_title': 'חדר ה-PRO כבר פתוח בכרטיסייה אחרת',
   'pro.active_tab_message': 'המשך כאן ינתק את הכרטיסייה שכבר פתוחה.',
   'pro.use_this_tab': 'שימוש בכרטיסייה הזאת',
@@ -874,5 +879,8 @@ export const pluralMessages = {
   },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} קובץ שאינו נתמך לא יתווסף.',
+  },
+  'pro.join_rate_limited': {
+    one: 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד {{count}} דקה.',
   },
 } satisfies LocalePluralMessages;

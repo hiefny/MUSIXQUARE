@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   actions: [] as Array<Record<string, unknown>>,
   busEmit: vi.fn(),
+  describeProRoomJoinFailure: vi.fn((_error: unknown) => 'pro.connect_failed'),
   enterProRoomFromSetup: vi.fn(),
   isProRoomCode: vi.fn(() => false),
   joinSession: vi.fn(),
@@ -103,6 +104,7 @@ vi.mock('../../pro-room/room-code.ts', () => ({
 }));
 
 vi.mock('../../pro-room/setup-flow.ts', () => ({
+  describeProRoomJoinFailure: mocks.describeProRoomJoinFailure,
   enterProRoomFromSetup: mocks.enterProRoomFromSetup,
 }));
 
@@ -143,6 +145,7 @@ import {
   promptForRoomPassword,
 } from '../setup-guest.ts';
 import { showDialog } from '../dialog.ts';
+import { ProRoomApiError } from '../../pro-room/api.ts';
 
 beforeEach(() => {
   clearPendingRoomPasswordJoin();
@@ -153,6 +156,7 @@ beforeEach(() => {
   mocks.scannerCallbacks = null;
   mocks.busEmit.mockReset();
   mocks.enterProRoomFromSetup.mockReset();
+  mocks.describeProRoomJoinFailure.mockReset().mockReturnValue('pro.connect_failed');
   mocks.isProRoomCode.mockReset();
   mocks.isProRoomCode.mockReturnValue(false);
   mocks.actions = [];
@@ -408,6 +412,43 @@ describe('guest setup recovery', () => {
     );
     expect(goBack).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['a full room', new ProRoomApiError('ROOM_FULL', 409), 'pro.room_full\npro.room_full_detail'],
+    [
+      'a join throttle',
+      new ProRoomApiError('RATE_LIMITED', 429, 120),
+      'pro.join_rate_limited:{"count":2}',
+    ],
+  ])(
+    'shows the specific PRO refusal for %s and keeps the same-code retry',
+    async (_label, failure, copy) => {
+      const input = document.getElementById('setup-join-code') as HTMLInputElement;
+      input.value = '000001';
+      mocks.isProRoomCode.mockReturnValue(true);
+      mocks.enterProRoomFromSetup.mockRejectedValue(failure);
+      mocks.describeProRoomJoinFailure.mockReturnValue(copy);
+      mocks.busEmit.mockImplementation((event: string, payload?: unknown) => {
+        if (event !== 'setup:guest-join-failure') return;
+        restoreGuestJoinControlsAfterFailure(
+          (payload as { userMessage?: string } | undefined)?.userMessage ?? null,
+        );
+      });
+
+      await handleSetupJoinWithRole(0);
+
+      expect(mocks.describeProRoomJoinFailure).toHaveBeenCalledWith(failure);
+      expect(mocks.busEmit).toHaveBeenCalledWith('setup:guest-join-failure', {
+        error: failure,
+        userMessage: copy,
+      });
+      expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith(copy, false);
+      const guestError = document.getElementById('setup-guest-error') as HTMLElement;
+      expect(guestError.textContent).toBe(copy);
+      expect(guestError.hidden).toBe(false);
+      expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+    },
+  );
 
   it('keeps a terminal PRO lazy failure on a dedicated Refresh action', async () => {
     const input = document.getElementById('setup-join-code') as HTMLInputElement;

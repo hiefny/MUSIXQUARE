@@ -20,4 +20,7 @@ export const EN_PLURAL_MESSAGES = {
   'dialog.file_drop.unsupported_notice': {
     one: "{{count}} unsupported file won't be added.",
   },
+  'pro.join_rate_limited': {
+    one: 'Too many join attempts. Try again in {{count}} minute.',
+  },
 } satisfies LocalePluralMessages;

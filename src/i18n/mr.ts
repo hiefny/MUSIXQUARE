@@ -779,6 +779,13 @@ const mr: Record<I18nKey, string> = {
   'pro.pin_changed': 'रूमचा पासवर्ड बदलला.',
   'pro.owner_only': 'हे फक्त रूमचा मालक करू शकतो.',
   'pro.connect_failed': 'PRO रूमशी कनेक्ट करता आले नाही.',
+  'pro.room_full': 'ही PRO रूम भरली आहे',
+  'pro.room_full_detail':
+    'PRO रूममध्ये मालकासह कमाल 100 डिव्हाइस कनेक्ट होऊ शकतात. मालकासाठी नेहमी एक जागा राखीव ठेवली जाते.',
+  'pro.join_rate_limited':
+    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. {{count}} मिनिटांनी पुन्हा प्रयत्न करा.',
+  'pro.join_rate_limited_later':
+    'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. थोड्या वेळाने पुन्हा प्रयत्न करा.',
   'pro.active_tab_title': 'ही PRO रूम आधीपासून दुसऱ्या टॅबमध्ये उघडी आहे',
   'pro.active_tab_message': 'इथे पुढे गेल्यास विद्यमान टॅबचे कनेक्शन तुटेल.',
   'pro.use_this_tab': 'हा टॅब वापरा',
@@ -895,5 +902,8 @@ export const pluralMessages = {
   },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} असमर्थित फाइल जोडली जाणार नाही.',
+  },
+  'pro.join_rate_limited': {
+    one: 'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. {{count}} मिनिटाने पुन्हा प्रयत्न करा.',
   },
 } satisfies LocalePluralMessages;

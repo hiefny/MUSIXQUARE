@@ -30,7 +30,7 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(12);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(13);
   });
 
   it('uses natural English singular and plural copy for all count-sensitive messages', async () => {
@@ -77,6 +77,8 @@ describe('count-sensitive translations', () => {
       ['dialog.file_drop.message', { count: 2 }, 'Add 2 files?'],
       ['dialog.file_drop.unsupported_notice', { count: 1 }, "1 unsupported file won't be added."],
       ['dialog.file_drop.unsupported_notice', { count: 2 }, "2 unsupported files won't be added."],
+      ['pro.join_rate_limited', { count: 1 }, 'Too many join attempts. Try again in 1 minute.'],
+      ['pro.join_rate_limited', { count: 10 }, 'Too many join attempts. Try again in 10 minutes.'],
     ] as const;
 
     for (const [key, params, expected] of cases) {
@@ -200,6 +202,39 @@ describe('count-sensitive translations', () => {
 
     expect(t('dialog.file_drop.message', { count: 1 })).toBe('파일 1개를 추가할까요?');
     expect(t('dialog.file_drop.message', { count: 5 })).toBe('파일 5개를 추가할까요?');
+  });
+
+  it('inflects the PRO join wait in minutes across plural systems', async () => {
+    const cases = [
+      ['ko-KR', 1, '입장 시도가 너무 많아요. 1분 후에 다시 시도해 주세요.'],
+      ['ko-KR', 10, '입장 시도가 너무 많아요. 10분 후에 다시 시도해 주세요.'],
+      ['de-DE', 1, 'Zu viele Beitrittsversuche. Versuche es in 1 Minute erneut.'],
+      ['de-DE', 2, 'Zu viele Beitrittsversuche. Versuche es in 2 Minuten erneut.'],
+      ['ru-RU', 1, 'Слишком много попыток войти в комнату. Повторите попытку через 1 минуту.'],
+      ['ru-RU', 3, 'Слишком много попыток войти в комнату. Повторите попытку через 3 минуты.'],
+      ['ru-RU', 10, 'Слишком много попыток войти в комнату. Повторите попытку через 10 минут.'],
+      ['ru-RU', 21, 'Слишком много попыток войти в комнату. Повторите попытку через 21 минуту.'],
+      ['pl-PL', 1, 'Zbyt wiele prób dołączenia. Spróbuj ponownie za 1 minutę.'],
+      ['pl-PL', 2, 'Zbyt wiele prób dołączenia. Spróbuj ponownie za 2 minuty.'],
+      ['pl-PL', 5, 'Zbyt wiele prób dołączenia. Spróbuj ponownie za 5 minut.'],
+      ['pl-PL', 22, 'Zbyt wiele prób dołączenia. Spróbuj ponownie za 22 minuty.'],
+      ['ro-RO', 1, 'Prea multe încercări de intrare. Reîncearcă peste 1 minut.'],
+      ['ro-RO', 2, 'Prea multe încercări de intrare. Reîncearcă peste 2 minute.'],
+      ['ro-RO', 20, 'Prea multe încercări de intrare. Reîncearcă peste 20 de minute.'],
+      ['ar-SA', 2, 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد 2 دقيقتين.'],
+      ['ar-SA', 3, 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد 3 دقائق.'],
+      ['ar-SA', 11, 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد 11 دقيقة.'],
+      ['cs-CZ', 1, 'Příliš mnoho pokusů o připojení. Zkuste to znovu za 1 min.'],
+      ['cs-CZ', 5, 'Příliš mnoho pokusů o připojení. Zkuste to znovu za 5 min.'],
+    ] as const;
+
+    for (const locale of new Set(cases.map(([caseLocale]) => caseLocale))) {
+      const t = await loadTranslator(locale);
+      for (const [caseLocale, count, expected] of cases) {
+        if (caseLocale !== locale) continue;
+        expect(t('pro.join_rate_limited', { count }), `${locale} ${count}`).toBe(expected);
+      }
+    }
   });
 
   it('keeps Thai classifiers intact through the other fallback', async () => {

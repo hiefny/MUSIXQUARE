@@ -93,6 +93,9 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO entry failure retry audit — 2026-10-11](design/pro-entry-retry-audit-2026-10-11.md) —
+  retained-role defect after failed PRO entry, local same-page retry repair,
+  lifecycle fencing and admission regression evidence; deployment remains held.
 - [PRO clock budget and concurrent admission — 2026-10-11](design/pro-clock-and-admission-races-2026-10-11.md) —
   delayed clock replies within the caller budget, still-active admission
   tickets overtaken by another arrival, and unchanged admission limits.

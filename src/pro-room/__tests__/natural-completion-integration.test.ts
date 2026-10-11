@@ -271,6 +271,21 @@ async function alarmAt(context: Context, at: number, keepListener = true) {
   await context.settle();
 }
 
+// Pad the core until `margin` more bytes would exceed the 1.2 MB state limit.
+function fillCore(context: Context, margin: number) {
+  const asset = context.room.assets[`asset_${SECOND}`]!;
+  asset.name = '';
+  const { playlist, ...core } = context.room;
+  const encoded = Buffer.byteLength(
+    JSON.stringify({
+      schemaVersion: 2,
+      core,
+      playlistOrder: playlist.map((item) => item.queueItemId),
+    }),
+  );
+  asset.name = 'x'.repeat(1200 * 1024 - encoded - margin);
+}
+
 async function reachEnd(context: Context) {
   const end = context.worker.naturalPlaybackEndAtMs();
   expect(end).not.toBeNull();
@@ -1045,7 +1060,10 @@ describe('PRO YouTube metadata backoff and confirmed missing videos', () => {
 describe('PRO file lengths stored before the current duration reader', () => {
   // 8.9.5-8.10.0 stored server lengths from an MP3/MP4 reader that could
   // undercount, and the uploading client's own reading, without a version.
-  async function restartWithUnversionedLengths(source: 'server' | 'upload' | 'controller') {
+  async function restartWithUnversionedLengths(
+    source: 'server' | 'upload' | 'controller',
+    durationSeconds = 1,
+  ) {
     const context = await fixture([fileItem(FIRST), fileItem(SECOND), fileItem(THIRD)]);
     await start(context);
     await leaveOwner(context);
@@ -1056,14 +1074,14 @@ describe('PRO file lengths stored before the current duration reader', () => {
         assetVersion: 1,
         byteLength: 4096,
         roomGeneration: 0,
-        durationSeconds: 1,
+        durationSeconds,
         checkedAtMs: NOW,
         source: source as 'server',
       };
     }
     const entries = Object.values(stored.core.playbackDurations);
     expect(entries).toEqual([expect.objectContaining({ source: 'server' })]);
-    Object.assign(entries[0]!, { durationSeconds: 1, source });
+    Object.assign(entries[0]!, { durationSeconds, source });
     delete entries[0]!.reader;
     context.worker = context.createWorker();
     await context.worker.ready;
@@ -1135,12 +1153,9 @@ describe('PRO file lengths stored before the current duration reader', () => {
     expect(metadata.file.mock.calls[2]?.[1]).toBe(`fixture/asset_${SECOND}/object`);
   });
 
-  it.each([
-    ['an unknown result', () => metadata.file.mockResolvedValue(null)],
-    ['a failed read', () => metadata.file.mockRejectedValue(new Error('R2 unavailable'))],
-  ])('does not read an unversioned controller length again after %s', async (_label, configure) => {
+  it('does not read an unversioned controller length again after an unknown result', async () => {
     const context = await restartWithUnversionedLengths('controller');
-    configure();
+    metadata.file.mockResolvedValue(null);
     await alarmAt(context, Date.now() + 100);
     expect(metadata.file).toHaveBeenCalledTimes(2);
     // Later persists and alarms neither repeat the read nor drop the decode.
@@ -1151,25 +1166,82 @@ describe('PRO file lengths stored before the current duration reader', () => {
     expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
     expect(context.worker.naturalPlaybackEndAtMs()).toBe(context.room.playback.updatedAtMs + 1_000);
   });
+
+  it('keeps a measured floor beneath an unversioned controller length it confirms', async () => {
+    const context = await restartWithUnversionedLengths('controller', 100);
+    const end = context.room.playback.updatedAtMs + 100_000;
+    metadata.file.mockResolvedValue(95);
+    await alarmAt(context, Date.now() + 100);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 100,
+      source: 'controller',
+      measuredSeconds: 95,
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+    await context.worker.persist();
+    await context.settle();
+    await alarmAt(context, Date.now() + 10_000);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(end);
+  });
+
+  it('queues a read the queue refused near state capacity again after 5 s', async () => {
+    const context = await restartWithUnversionedLengths('controller', 100);
+    metadata.file.mockResolvedValue(130);
+    // Optional duration work keeps 8 KiB of headroom below the state limit.
+    fillCore(context, 4 * 1024);
+    const refusedAt = Date.now() + 100;
+    await alarmAt(context, refusedAt);
+    expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+    expect(metadata.file).toHaveBeenCalledOnce();
+    expect(context.storage.alarm).toBe(refusedAt + 5_000);
+    context.room.assets[`asset_${SECOND}`]!.name = '';
+    await alarmAt(context, context.storage.alarm!);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 130,
+      source: 'server',
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+  });
+
+  it('retries a failed read of an unversioned controller length after 5 s, then 30 s', async () => {
+    const context = await restartWithUnversionedLengths('controller', 100);
+    const end = context.room.playback.updatedAtMs + 100_000;
+    metadata.file.mockRejectedValue(new Error('R2 unavailable'));
+    const failedAt = Date.now() + 100;
+    await alarmAt(context, failedAt);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    // A failed read is no answer: the decode still sets the end meanwhile,
+    // and a persist before the retry time does not repeat the read.
+    await context.worker.persist();
+    await context.settle();
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(end);
+    // No request arrives; the alarm alone wakes the room for each retry.
+    expect(context.storage.alarm).toBe(failedAt + 5_000);
+    await alarmAt(context, context.storage.alarm!);
+    expect(metadata.file).toHaveBeenCalledTimes(3);
+    expect(context.storage.alarm).toBe(failedAt + 35_000);
+    metadata.file.mockResolvedValue(95);
+    await alarmAt(context, context.storage.alarm!);
+    expect(metadata.file).toHaveBeenCalledTimes(4);
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 100,
+      source: 'controller',
+      measuredSeconds: 95,
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(end);
+    await alarmAt(context, failedAt + 60_000);
+    expect(metadata.file).toHaveBeenCalledTimes(4);
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+  });
 });
 
 describe('PRO metadata answers refused by room state capacity', () => {
   type YouTubeAnswer = Awaited<ReturnType<typeof metadata.youtube>>;
-
-  // Pad the core until `margin` more bytes would exceed the 1.2 MB state limit.
-  function fillCore(context: Context, margin: number) {
-    const asset = context.room.assets[`asset_${SECOND}`]!;
-    asset.name = '';
-    const { playlist, ...core } = context.room;
-    const encoded = Buffer.byteLength(
-      JSON.stringify({
-        schemaVersion: 2,
-        core,
-        playlistOrder: playlist.map((item) => item.queueItemId),
-      }),
-    );
-    asset.name = 'x'.repeat(1200 * 1024 - encoded - margin);
-  }
 
   async function answerInFullRoom(
     answer: YouTubeAnswer,

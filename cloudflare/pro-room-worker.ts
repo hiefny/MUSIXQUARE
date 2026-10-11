@@ -4148,9 +4148,10 @@ export class MusixquareProRoom {
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
   playbackDurationLookup: { key: string; promise: Promise<void> } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
-  // Asset versions whose unmeasured controller length playback has already
-  // queued for a read in this instance.
-  assetDurationReadsQueued: Set<string>;
+  // Reads that playback queued for an unmeasured controller length in this
+  // instance, by asset version: Infinity while queued or once answered,
+  // otherwise when a read that got no answer or was refused is due again.
+  assetDurationReads: Map<string, { retryAtMs: number; attempts: number }>;
   naturalAdvanceRetry: { revision: number; updatedAtMs: number; retryAtMs: number } | null;
   // A backoff the stored probe could not record: the probe it belongs to
   // (identity key, attempts and stored retry time) and the time it holds.
@@ -4198,7 +4199,7 @@ export class MusixquareProRoom {
     this.sessionAdmissionThrottle = null;
     this.playbackDurationLookup = null;
     this.assetDurationLookup = null;
-    this.assetDurationReadsQueued = new Set();
+    this.assetDurationReads = new Map();
     // Instance memory only: eviction costs at most one immediate retry, which
     // records a new backoff if the refusal persists.
     this.naturalAdvanceRetry = null;
@@ -5307,6 +5308,36 @@ export class MusixquareProRoom {
     return true;
   }
 
+  /**
+   * The desired file when its only length is a controller decode the current
+   * reader has not read (8.10.0 stored such decodes without a floor).
+   */
+  unmeasuredControllerAsset(identity = this.desiredPlaybackDurationIdentity()) {
+    if (identity?.mediaKind !== 'file') return null;
+    const asset = this.durationAsset(identity);
+    const evidence = asset && this.assetDurationEvidence(asset);
+    return asset &&
+      evidence?.source === 'controller' &&
+      evidence.reader !== PRO_ROOM_FILE_DURATION_READER
+      ? asset
+      : null;
+  }
+
+  assetDurationReadKey(asset: RoomAsset) {
+    return `${asset.assetId}:${asset.version}:${asset.byteLength}:${asset.roomGeneration}`;
+  }
+
+  /** A read with no answer: queue it again after 5 s, 30 s, then 5 minutes. */
+  deferAssetDurationRead(read: string, nowMs: number) {
+    const attempts = this.assetDurationReads.get(read)?.attempts ?? 0;
+    this.assetDurationReads.set(read, {
+      retryAtMs:
+        nowMs +
+        (attempts === 0 ? 5_000 : attempts === 1 ? 30_000 : PLAYBACK_DURATION_FILE_RETRY_MS),
+      attempts: Math.min(attempts + 1, 2),
+    });
+  }
+
   enqueueAssetDurationProbe(asset: RoomAsset) {
     if (!this.assetDurationProbeNeeded(asset)) return false;
     const before = this.activeRoom.pendingAssetDurationProbes;
@@ -5441,18 +5472,29 @@ export class MusixquareProRoom {
         changed = true;
       }
       // A decode without a current-reader measurement (8.10.0 kept none) is
-      // otherwise read only when a controller reports it again. Queue the one
-      // bounded read for the playing or target file only, not as a sweep, and
-      // once per instance: a failed read waits for the next decode report.
-      if (
-        asset &&
-        durable?.source === 'controller' &&
-        durable.reader !== PRO_ROOM_FILE_DURATION_READER
-      ) {
-        const read = `${asset.assetId}:${asset.version}:${asset.byteLength}:${asset.roomGeneration}`;
-        if (!this.assetDurationReadsQueued.has(read)) {
-          this.assetDurationReadsQueued.add(read);
-          changed = this.enqueueAssetDurationProbe(asset) || changed;
+      // otherwise read only when a controller reports it again. Queue one
+      // bounded read for the playing or target file only, not as a sweep. An
+      // answer is final for this instance. A read that got no answer, or that
+      // the queue refused or lost to a rolled-back write, is queued again
+      // after 5 s, 30 s, then every PLAYBACK_DURATION_FILE_RETRY_MS (the alarm
+      // wakes an idle room for it), never at once on the next persist.
+      const unmeasured = this.unmeasuredControllerAsset(identity);
+      if (unmeasured) {
+        const read = this.assetDurationReadKey(unmeasured);
+        const memo = this.assetDurationReads.get(read);
+        if (this.activeRoom.pendingAssetDurationProbes?.includes(unmeasured.assetId)) {
+          // Queued, perhaps by a decode report: its completion decides.
+          this.assetDurationReads.set(read, { retryAtMs: Infinity, attempts: memo?.attempts ?? 0 });
+        } else if (memo?.retryAtMs === Infinity) {
+          this.deferAssetDurationRead(read, nowMs);
+        } else if (!memo || nowMs >= memo.retryAtMs) {
+          if (this.enqueueAssetDurationProbe(unmeasured)) {
+            this.assetDurationReads.set(read, {
+              retryAtMs: Infinity,
+              attempts: memo?.attempts ?? 0,
+            });
+            changed = true;
+          } else this.deferAssetDurationRead(read, nowMs);
         }
       }
     }
@@ -5593,6 +5635,7 @@ export class MusixquareProRoom {
     const objectKey = asset?.objectKey;
     const version = asset?.version;
     const byteLength = asset?.byteLength;
+    const read = asset ? this.assetDurationReadKey(asset) : null;
     let finished = false;
     const lookup = (async () => {
       let duration: number | null = null;
@@ -5625,6 +5668,9 @@ export class MusixquareProRoom {
         )
           return;
         if ((await readServiceMaintenance(this.env)).enabled) return;
+        // Before this completion's persist reconciles: playback may queue a
+        // read with no answer again only after a backoff.
+        if (!answered && read) this.deferAssetDurationRead(read, Date.now());
         await this.withStateCapacityRollback(
           async () => {
             const current = this.activeRoom.assets[assetId];
@@ -6559,6 +6605,13 @@ export class MusixquareProRoom {
         this.playbackDurationLookup || registrationBlocked
           ? Math.max(retryAtMs, nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS)
           : retryAtMs,
+      );
+    }
+    // A playing file's decode whose read got no answer, or was refused.
+    const unmeasured = this.unmeasuredControllerAsset();
+    if (unmeasured) {
+      candidates.push(
+        this.assetDurationReads.get(this.assetDurationReadKey(unmeasured))?.retryAtMs,
       );
     }
     if (this.activeRoom.pendingAssetDurationProbes?.length) {

@@ -427,13 +427,21 @@ except that a controller length more than 10% shorter than a server
 measurement of the same asset version is ignored, or replaced when the
 measurement arrives later; the measurement stays as a floor beneath accepted
 controller values. A decode reported before any current measurement queues one
-bounded server read. MP3 frame-count headers inconsistent with the audio span
+bounded server read; a decode stored by 8.10.0 without one gets that read when
+its file next plays or is prepared. A failed or timed-out object read is not an
+answer: it is not recorded as an unknown length, so the next decode report
+reads again, and a playing file's failed read is retried like a failed
+metadata lookup. MP3 frame-count headers inconsistent with the audio span
 (after recognized ID3v1, APEv2, Lyrics3v2 and appended ID3v2.4 tags) and
-fragmented MP4 timelines remain unknown rather than too short. Neither a
+fragmented MP4 timelines remain unknown rather than too short. Behind a leading
+ID3 tag larger than the 1/16 concatenation tolerance, a stream byte count
+cannot tell the tag from an appended part: a CBR count must itself span the
+audio, and a VBR count is replaced by the bounded frame scan. Neither a
 metadata timeout nor an unsupported format rejects an otherwise successful
 upload. Optional metadata is omitted near room-state capacity rather than
 making an existing room unloadable; a refused metadata answer still records
-its retry backoff.
+its retry backoff, and withdraws an earlier "not found" answer as an applied
+one would.
 
 The next Durable Object alarm includes the canonical anchor's ending time.
 After pruning expired presence, the alarm advances through the same reducer,

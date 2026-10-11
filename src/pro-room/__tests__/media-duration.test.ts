@@ -198,6 +198,126 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     });
   });
 
+  describe('320 kbps CBR MP3 with trailing tags', () => {
+    const FRAMES = 2_000;
+    const encoder = new TextEncoder();
+    const concatenate = (...parts: Uint8Array[]) => {
+      const bytes = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+      let offset = 0;
+      for (const part of parts) {
+        bytes.set(part, offset);
+        offset += part.length;
+      }
+      return bytes;
+    };
+    // MPEG-1 Layer III at 320 kbps / 44.1 kHz pads frames to average 1044.898
+    // bytes, so the largest frame (1045) leaves almost no slack for trailers.
+    const frame = (index: number) => {
+      const exact = (count: number) => Math.floor((count * 144000 * 320) / 44100);
+      const bytes = new Uint8Array(exact(index + 1) - exact(index));
+      bytes.set([0xff, 0xfb, bytes.length === 1045 ? 0xe2 : 0xe0, 0x64]);
+      return bytes;
+    };
+    const stream = (info: boolean) => {
+      const audio = Array.from({ length: FRAMES }, (_, index) => frame(index + 1));
+      if (!info) return concatenate(...audio);
+      const header = frame(0);
+      header.set(encoder.encode('Info'), 36);
+      const view = new DataView(header.buffer);
+      view.setUint32(40, 0x3);
+      view.setUint32(44, FRAMES);
+      view.setUint32(48, header.length + audio.reduce((sum, part) => sum + part.length, 0));
+      return concatenate(header, ...audio);
+    };
+    const id3v1 = () => {
+      const bytes = new Uint8Array(128);
+      bytes.set(encoder.encode('TAGtitle'));
+      return bytes;
+    };
+    const ape = (bytes: number, options: { header?: boolean; version?: number } = {}) => {
+      const header = options.header ?? true;
+      const tag = new Uint8Array(bytes);
+      const item = header ? 32 : 0;
+      const key = encoder.encode('Comment\0');
+      // One text item fills the space between the header and the footer.
+      new DataView(tag.buffer).setUint32(item, bytes - item - 32 - 8 - key.length, true);
+      tag.set(key, item + 8);
+      const block = (offset: number, flags: number) => {
+        tag.set(encoder.encode('APETAGEX'), offset);
+        const view = new DataView(tag.buffer, offset, 32);
+        view.setUint32(8, options.version ?? 2000, true);
+        view.setUint32(12, bytes - (header ? 32 : 0), true); // Excludes the header.
+        view.setUint32(16, 1, true);
+        view.setUint32(20, flags >>> 0, true);
+      };
+      if (header) block(0, 0xa0000000);
+      block(bytes - 32, header ? 0x80000000 : 0);
+      return tag;
+    };
+    const lyrics3 = (lyrics: number, digits?: string) => {
+      const body = encoder.encode(
+        `LYRICSBEGINLYR${String(lyrics).padStart(5, '0')}${'x'.repeat(lyrics)}`,
+      );
+      return concatenate(
+        body,
+        encoder.encode(`${digits ?? String(body.length).padStart(6, '0')}LYRICS200`),
+      );
+    };
+    const appendedId3v2 = (bytes: number) => {
+      const tag = new Uint8Array(bytes);
+      const size = bytes - 20;
+      const block = (offset: number, magic: string) => {
+        tag.set(encoder.encode(magic), offset);
+        tag.set(
+          [4, 0, 0x10, (size >> 21) & 127, (size >> 14) & 127, (size >> 7) & 127],
+          offset + 3,
+        );
+        tag[offset + 9] = size & 127;
+      };
+      block(0, 'ID3');
+      block(bytes - 10, '3DI');
+      return tag;
+    };
+    const read = (bytes: Uint8Array) =>
+      readProRoomFileDuration(memoryBucket(bytes), 'cbr', bytes.length);
+
+    it.each([
+      ['ID3v1', () => [id3v1()]],
+      ['APEv2 and ID3v1', () => [ape(1000), id3v1()]],
+      ['APEv2 without a header', () => [ape(1000, { header: false })]],
+      ['Lyrics3v2 and ID3v1', () => [lyrics3(900), id3v1()]],
+      ['APEv2, Lyrics3v2 and ID3v1', () => [lyrics3(900), ape(1000), id3v1()]],
+      ['an appended 4 KB ID3v2.4 tag', () => [appendedId3v2(4096)]],
+    ])('reads the header and scans the frames before %s', async (_label, trailers) => {
+      const indexed = concatenate(stream(true), ...trailers());
+      expect(await read(indexed)).toBeCloseTo((FRAMES * 1152) / 44100, 6);
+      const scanned = concatenate(stream(false), ...trailers());
+      expect(await read(scanned)).toBeCloseTo((FRAMES * 1152) / 44100, 6);
+    });
+
+    it.each([
+      ['an unknown APE version', () => [ape(1000, { version: 3000 }), id3v1()]],
+      ['an APE header flag without a header', () => [ape(1000).subarray(32), id3v1()]],
+      [
+        'an APE size reaching into the audio',
+        () => {
+          const tag = ape(1000, { header: false });
+          new DataView(tag.buffer).setUint32(1000 - 32 + 12, 1000 + 50 * 1045, true);
+          return [tag, id3v1()];
+        },
+      ],
+      ['a non-numeric Lyrics3v2 size', () => [lyrics3(900, '00091x'), id3v1()]],
+      ['a Lyrics3v2 size that misses its start', () => [lyrics3(900, '000918'), id3v1()]],
+      [
+        'an appended ID3v2 footer without its header',
+        () => [new Uint8Array(4086), appendedId3v2(4096).subarray(4086)],
+      ],
+    ])('leaves %s inside the audio span', async (_label, trailers) => {
+      expect(await read(concatenate(stream(true), ...trailers()))).toBeNull();
+      expect(await read(concatenate(stream(false), ...trailers()))).toBeNull();
+    });
+  });
+
   it('reads explicit FLAC sample counts without fetching a huge object body', async () => {
     const bytes = await readFile(
       new URL('../../../e2e/fixtures/large-audio-chirp.flac', import.meta.url),

@@ -187,10 +187,109 @@ function mp3Frame(header: Uint8Array): { bytes: number; samples: number; rate: n
   };
 }
 
+// Bytes inspected at the end of an MP3/ADTS object for appended tag footers.
+const TRAILER_WINDOW_BYTES = 8 * 1024;
+const MAX_TRAILING_TAGS = 3;
+
+/**
+ * Tags appended after the audio: ID3v1 in the last 128 bytes, then up to three
+ * APEv2, Lyrics3v2 or appended ID3v2.4 tags, each found from its footer. Only a
+ * footer whose size leads back to a matching tag start is removed. Anything
+ * malformed stays inside the audio span, where it can only make the duration
+ * unknown. Reads one tail window plus a few small checks beyond it.
+ */
+async function audioEndOffset(read: RangeReader, size: number, start: number): Promise<number> {
+  const windowStart = Math.max(start, size - TRAILER_WINDOW_BYTES);
+  const tail = await read(windowStart, size);
+  const at = async (position: number, length: number) =>
+    position >= windowStart
+      ? tail.subarray(position - windowStart, position - windowStart + length)
+      : read(position, position + length);
+  let end = size;
+  if (end - 128 > start && ascii(await at(end - 128, 3), 0, 'TAG')) end -= 128;
+  for (let tags = 0; tags < MAX_TRAILING_TAGS; tags += 1) {
+    const tagStart = await trailingTagStart(at, start, end);
+    if (tagStart === null) break;
+    end = tagStart;
+  }
+  return end;
+}
+
+async function trailingTagStart(
+  at: (position: number, length: number) => Promise<Uint8Array>,
+  start: number,
+  end: number,
+): Promise<number | null> {
+  if (end - 32 > start) {
+    const footer = await at(end - 32, 32);
+    if (ascii(footer, 0, 'APETAGEX')) {
+      const view = new DataView(footer.buffer, footer.byteOffset, footer.byteLength);
+      const version = view.getUint32(8, true);
+      // Declared size covers items and footer; a flagged header precedes it.
+      const length = view.getUint32(12, true);
+      const count = view.getUint32(16, true);
+      const flags = view.getUint32(20, true);
+      const header = flags & 0x80000000 ? 32 : 0;
+      const tagStart = end - length - header;
+      // Bit 30: tag has no footer; bit 29: this block is the header.
+      if (
+        (version !== 1000 && version !== 2000) ||
+        (version === 1000 && header) ||
+        flags & 0x60000000 ||
+        length < 32 ||
+        tagStart <= start ||
+        (header && !ascii(await at(tagStart, 8), 0, 'APETAGEX'))
+      )
+        return null;
+      const items = length - 32;
+      if (count === 0 || items === 0) return count === 0 && items === 0 ? tagStart : null;
+      // The first item's length, flags and NUL-terminated printable key must
+      // fit the declared region; audio bytes misread as a tag fail here.
+      if (items < 11) return null;
+      const item = await at(tagStart + header, Math.min(items, 8 + 256));
+      const key = item.subarray(8);
+      const keyLength = key.indexOf(0);
+      return keyLength >= 2 &&
+        key.subarray(0, keyLength).every((byte) => byte >= 0x20 && byte <= 0x7e) &&
+        8 + keyLength + 1 + new DataView(item.buffer, item.byteOffset, 4).getUint32(0, true) <=
+          items
+        ? tagStart
+        : null;
+    }
+  }
+  if (end - 15 > start) {
+    const footer = await at(end - 15, 15);
+    if (ascii(footer, 6, 'LYRICS200')) {
+      // Six decimal digits count the bytes from LYRICSBEGIN up to themselves.
+      const digits = footer.subarray(0, 6);
+      if (digits.some((byte) => byte < 0x30 || byte > 0x39)) return null;
+      const tagStart = end - 15 - Number(String.fromCharCode(...digits));
+      return tagStart > start && ascii(await at(tagStart, 11), 0, 'LYRICSBEGIN') ? tagStart : null;
+    }
+  }
+  if (end - 10 > start) {
+    const footer = await at(end - 10, 10);
+    if (ascii(footer, 0, '3DI')) {
+      if (footer[3] !== 4 || !(footer[5]! & 0x10) || footer.slice(6, 10).some((byte) => byte > 127))
+        return null;
+      const tagStart =
+        end - 20 - ((footer[6]! << 21) | (footer[7]! << 14) | (footer[8]! << 7) | footer[9]!);
+      if (tagStart <= start) return null;
+      // An appended ID3v2.4 header repeats the footer's version, flags and size.
+      const header = await at(tagStart, 10);
+      return ascii(header, 0, 'ID3') &&
+        header.every((byte, index) => index < 3 || byte === footer[index])
+        ? tagStart
+        : null;
+    }
+  }
+  return null;
+}
+
 async function framedAudioDuration(
   read: RangeReader,
-  size: number,
   start: number,
+  end: number,
   kind: 'mp3' | 'adts',
 ): Promise<number | null> {
   let cache: Uint8Array = new Uint8Array(0);
@@ -198,22 +297,19 @@ async function framedAudioDuration(
   const headerAt = async (offset: number, length: number) => {
     if (offset < cacheOffset || offset + length > cacheOffset + cache.length) {
       cacheOffset = offset;
-      cache = await read(offset, Math.min(size, offset + MAX_RANGE_BYTES));
+      cache = await read(offset, Math.min(end, offset + MAX_RANGE_BYTES));
     }
     return cache.subarray(offset - cacheOffset, offset - cacheOffset + length);
   };
   let offset = start;
   let seconds = 0;
   let frames = 0;
-  while (offset < size && frames < MAX_AUDIO_FRAMES) {
-    const header = await headerAt(offset, Math.min(kind === 'mp3' ? 4 : 7, size - offset));
-    if (kind === 'mp3' && size - offset === 128 && ascii(header, 0, 'TAG')) {
-      offset = size;
-      break;
-    }
+  // Recognized trailing tags are already outside [start, end).
+  while (offset < end && frames < MAX_AUDIO_FRAMES) {
+    const header = await headerAt(offset, Math.min(kind === 'mp3' ? 4 : 7, end - offset));
     if (kind === 'mp3') {
       const frame = mp3Frame(header);
-      if (!frame || offset + frame.bytes > size) return null;
+      if (!frame || offset + frame.bytes > end) return null;
       offset += frame.bytes;
       seconds += frame.samples / frame.rate;
     } else {
@@ -222,29 +318,23 @@ async function framedAudioDuration(
         96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
       ][(header[2]! >> 2) & 15];
       const length = ((header[3]! & 3) << 11) | (header[4]! << 3) | (header[5]! >> 5);
-      if (!rate || length < (header[1]! & 1 ? 7 : 9) || offset + length > size) return null;
+      if (!rate || length < (header[1]! & 1 ? 7 : 9) || offset + length > end) return null;
       offset += length;
       seconds += (1024 * ((header[6]! & 3) + 1)) / rate;
     }
     frames += 1;
   }
-  return offset === size && frames > 0 ? finiteDuration(seconds) : null;
+  return offset === end && frames > 0 ? finiteDuration(seconds) : null;
 }
 
 /** Only the explicit frame-count header is authoritative; bitrate estimates aren't. */
 async function indexedMp3Duration(
-  read: (start: number, end: number) => Promise<Uint8Array>,
-  size: number,
+  read: RangeReader,
+  offset: number,
+  end: number,
 ): Promise<number | null> {
-  const prefix = await read(0, Math.min(size, 10));
-  let offset = 0;
-  if (ascii(prefix, 0, 'ID3')) {
-    if (prefix.length < 10 || prefix.slice(6, 10).some((byte) => byte > 127)) return null;
-    offset = 10 + ((prefix[6]! << 21) | (prefix[7]! << 14) | (prefix[8]! << 7) | prefix[9]!);
-    if (prefix[3] === 4 && prefix[5]! & 0x10) offset += 10;
-  }
-  if (offset + 48 > size) return null;
-  const bytes = await read(offset, Math.min(size, offset + 4096));
+  if (offset + 48 > end) return null;
+  const bytes = await read(offset, Math.min(end, offset + 4096));
   // The first MPEG frame must begin at the validated ID3 boundary. A heuristic
   // scan could mistake an embedded cover image for a duration-bearing header.
   if (bytes[0] !== 0xff || (bytes[1]! & 0xe0) !== 0xe0) return null;
@@ -268,13 +358,14 @@ async function indexedMp3Duration(
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // Joined or truncated files keep the first part's header, which would end
   // playback early. Trust its frame count only when that many frames could span
-  // the remaining bytes (largest Layer III frame at this rate, plus the header
-  // frame and an ID3v1 tag) and a declared stream size matches the audio span
-  // (or, as some encoders count it, that span plus the leading ID3 tag) within
+  // the audio between the leading ID3 tag and any recognized trailing tags
+  // (largest Layer III frame at this rate, plus the header frame and 128 bytes
+  // of unrecognized trailer) and a declared stream size matches that span (or,
+  // as some encoders count it, that span plus the leading ID3 tag) within
   // FFmpeg's 1/16 concatenation tolerance of the audio. A tolerance taken from
   // the whole file would let a large tag hide an appended part. Otherwise the
   // bounded scan measures the whole file or leaves it unknown.
-  const audioBytes = size - offset;
+  const audioBytes = end - offset;
   const largestFrame = Math.floor((version === 3 ? 144000 * 320 : 72000 * 160) / sampleRate) + 1;
   const near = (declared: number, actual: number) =>
     Math.abs(declared - actual) <= Math.min(declared, actual) / 16;
@@ -384,11 +475,13 @@ export async function readProRoomFileDuration(
     if (offset === null || offset + 4 > expectedBytes) return null;
     const frameHeader = await read(offset, Math.min(expectedBytes, offset + 7));
     if (mp3Frame(frameHeader)) {
-      const indexedDuration = await indexedMp3Duration(read, expectedBytes);
-      return indexedDuration ?? framedAudioDuration(read, expectedBytes, offset, 'mp3');
+      const end = await audioEndOffset(read, expectedBytes, offset);
+      const indexedDuration = await indexedMp3Duration(read, offset, end);
+      return indexedDuration ?? framedAudioDuration(read, offset, end, 'mp3');
     }
     if (frameHeader[0] === 0xff && (frameHeader[1]! & 0xf6) === 0xf0) {
-      return framedAudioDuration(read, expectedBytes, offset, 'adts');
+      const end = await audioEndOffset(read, expectedBytes, offset);
+      return framedAudioDuration(read, offset, end, 'adts');
     }
     // Unknown formats are intentionally not handed to a general demuxer:
     // attacker-controlled sample/tag counts can allocate or loop before a

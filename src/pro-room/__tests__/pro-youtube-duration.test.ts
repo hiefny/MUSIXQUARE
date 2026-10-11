@@ -18,7 +18,7 @@ function signedRequest(videoId = VIDEO_ID, timestamp = Date.now()): Request {
   const time = String(timestamp);
   const signature = createHmac('sha256', SECRET)
     .update(
-      `musixquare:pro-youtube-duration:v1\nGET\n${INTERNAL_ORIGIN}${PRO_YOUTUBE_DURATION_PATH}\n${videoId}\n${time}`,
+      `MUSIXQUARE:pro-youtube-duration:v1\nGET\n${INTERNAL_ORIGIN}${PRO_YOUTUBE_DURATION_PATH}\n${videoId}\n${time}`,
     )
     .digest('base64url');
   return new Request(`${INTERNAL_ORIGIN}${PRO_YOUTUBE_DURATION_PATH}?videoId=${videoId}`, {

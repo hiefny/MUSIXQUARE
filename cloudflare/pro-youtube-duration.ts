@@ -52,7 +52,7 @@ function validSecret(value: unknown): value is string {
 function signaturePayload(videoId: string, timestamp: string): string {
   // A separate domain prevents an account assertion from authorizing paid
   // metadata access, even though both Workers already share this secret.
-  return `musixquare:pro-youtube-duration:v1\nGET\n${INTERNAL_ORIGIN}${PRO_YOUTUBE_DURATION_PATH}\n${videoId}\n${timestamp}`;
+  return `MUSIXQUARE:pro-youtube-duration:v1\nGET\n${INTERNAL_ORIGIN}${PRO_YOUTUBE_DURATION_PATH}\n${videoId}\n${timestamp}`;
 }
 
 function durationSeconds(value: unknown): number | null {

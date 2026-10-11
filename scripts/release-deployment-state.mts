@@ -438,6 +438,9 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-bot.ts',
     'cloudflare/pro-room-body.ts',
     'cloudflare/pro-youtube-duration.ts',
+    // The browser upload probe bundles the PRO media duration readers.
+    'cloudflare/pro-room-media-duration.ts',
+    'cloudflare/pro-room-mp4-duration.ts',
     'cloudflare/pro-room-claims.ts',
     'cloudflare/pro-room-crypto.ts',
     'cloudflare/pro-room-grants.ts',

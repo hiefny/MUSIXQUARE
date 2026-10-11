@@ -27,6 +27,8 @@ vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: integrationMocks.showDialog }));
 vi.mock('../../ui/toast.ts', () => ({ showToast: integrationMocks.showToast }));
 vi.mock('../timers.ts', () => ({ setManagedTimer: vi.fn() }));
+vi.mock('../platform.ts', () => ({ isStandaloneDisplayMode: vi.fn(() => false) }));
+vi.mock('../../chat/protocol.ts', () => ({ announceSystemMessageLocally: vi.fn() }));
 
 interface FakeWorker {
   postMessage: ReturnType<typeof vi.fn>;

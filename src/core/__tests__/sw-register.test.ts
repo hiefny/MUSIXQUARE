@@ -1,12 +1,20 @@
 /** @vitest-environment jsdom */
 
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { performance as nodePerformance } from 'node:perf_hooks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const moduleMocks = vi.hoisted(() => ({
-  getState: vi.fn(() => 'idle'),
+  announceSystemMessageLocally: vi.fn(),
+  broadcastSystemMessage: vi.fn(),
+  getState: vi.fn((_key?: string): unknown => 'idle'),
+  isSessionResetPending: vi.fn(() => false),
+  isStandaloneDisplayMode: vi.fn(() => false),
+  promptContextListeners: [] as Array<() => void>,
   scheduleDocumentReload: vi.fn(),
   scheduleSessionReset: vi.fn(),
+  sendSystemMessage: vi.fn(),
   showDialog: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -20,9 +28,59 @@ vi.mock('../../ui/dialog.ts', () => ({ showDialog: moduleMocks.showDialog }));
 vi.mock('../../ui/toast.ts', () => ({ showToast: moduleMocks.showToast }));
 vi.mock('../timers.ts', () => ({ setManagedTimer: vi.fn() }));
 vi.mock('../session-reset.ts', () => ({
+  isSessionResetPending: moduleMocks.isSessionResetPending,
   scheduleDocumentReload: moduleMocks.scheduleDocumentReload,
   scheduleSessionReset: moduleMocks.scheduleSessionReset,
 }));
+vi.mock('../platform.ts', () => ({
+  isStandaloneDisplayMode: moduleMocks.isStandaloneDisplayMode,
+}));
+vi.mock('../../chat/protocol.ts', () => ({
+  announceSystemMessageLocally: moduleMocks.announceSystemMessageLocally,
+  broadcastSystemMessage: moduleMocks.broadcastSystemMessage,
+  sendSystemMessage: moduleMocks.sendSystemMessage,
+}));
+vi.mock('../../rooms/authority.ts', () => ({
+  subscribeRoomAuthorityLifecycle: (listener: () => void) => {
+    moduleMocks.promptContextListeners.push(listener);
+    return () => undefined;
+  },
+}));
+vi.mock('../events.ts', () => ({
+  bus: {
+    emit: vi.fn(),
+    on: (event: string, listener: () => void) => {
+      if (event === 'state:demo.active' || event === 'state:demo.loading') {
+        moduleMocks.promptContextListeners.push(listener);
+      }
+      return () => undefined;
+    },
+  },
+}));
+
+const TAB_NOTICE = 'chat.update_available_tab_system_message';
+const APP_NOTICE = 'chat.update_available_app_system_message';
+const DISMISSAL_KEY = 'mxqr-sw-update-dismissal-v1';
+
+/** Room or demo lifecycle change, as the room-authority seam and demo state report it. */
+function emitPromptContextChange(): void {
+  for (const listener of [...moduleMocks.promptContextListeners]) listener();
+}
+
+function setAppState(state: { role?: string; demoActive?: boolean }): void {
+  moduleMocks.getState.mockImplementation((key?: string) => {
+    if (key === 'network.appRole') return state.role ?? 'idle';
+    if (key === 'demo.active') return state.demoActive === true;
+    if (key === 'demo.loading') return false;
+    return undefined;
+  });
+}
+
+function mountChatSurface(): void {
+  const chat = document.createElement('div');
+  chat.id = 'chat-messages';
+  document.body.append(chat);
+}
 
 interface FakeWorker {
   postMessage: ReturnType<typeof vi.fn>;
@@ -219,6 +277,11 @@ describe('service-worker cache-retirement client handshake', () => {
     sessionStorage.clear();
     localStorage.clear();
     delete document.documentElement.dataset.mxqrNavigationSource;
+    document.getElementById('chat-messages')?.remove();
+    document.body.classList.remove('mode-demo');
+    moduleMocks.promptContextListeners.length = 0;
+    moduleMocks.isSessionResetPending.mockReturnValue(false);
+    moduleMocks.isStandaloneDisplayMode.mockReturnValue(false);
     moduleMocks.getState.mockReturnValue('idle');
     moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
     moduleMocks.scheduleDocumentReload.mockImplementation(
@@ -464,14 +527,15 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
   });
 
-  it('converges to one active-room toast when another client activates the prompted worker', async () => {
-    let resolveDialog!: (value: { action: 'secondary' }) => void;
-    moduleMocks.showDialog.mockReturnValue(
-      new Promise((resolve) => {
-        resolveDialog = resolve;
-      }),
+  it('converges to one room notice when another client activates the prompted worker and a room starts', async () => {
+    moduleMocks.showDialog.mockImplementation(
+      (options: { signal: AbortSignal }) =>
+        new Promise((resolve) => {
+          options.signal.addEventListener('abort', () => resolve({ action: 'superseded' }), {
+            once: true,
+          });
+        }),
     );
-    moduleMocks.getState.mockReturnValue('host');
     const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
     await registerWithHarness(harness);
 
@@ -479,14 +543,19 @@ describe('service-worker cache-retirement client handshake', () => {
     update.emitInstalled();
     await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
 
-    harness.setController(update.waitingWorker, true);
+    harness.setController(update.waitingWorker, true, 'v494');
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
-    resolveDialog({ action: 'secondary' });
+    // The tab joins a room while the idle-screen prompt is still up.
+    moduleMocks.getState.mockReturnValue('host');
+    emitPromptContextChange();
 
     await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+    await flushAsyncControllerChange();
+    expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE);
     expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    expect(localStorage.getItem(DISMISSAL_KEY)).toBeNull();
   });
 
   it('still performs one bounded update check while an older worker is waiting', async () => {
@@ -838,8 +907,9 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
+    // No chat surface is mounted here, so the notice falls back to a toast.
     await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
-    expect(moduleMocks.showToast).toHaveBeenCalledWith('dialog.sw_update_msg');
+    expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE);
     expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
     expect(harness.reload).not.toHaveBeenCalled();
   });
@@ -898,11 +968,12 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
   });
 
-  it('waits for controllerchange before reloading an approved active-session update', async () => {
+  it('waits for controllerchange before reloading an approved update', async () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController);
-    moduleMocks.getState.mockReturnValue('host');
+    // Rooms never see the dialog (see the in-room policy below); approval
+    // happens on the idle screen.
     moduleMocks.showDialog.mockResolvedValue({ action: 'ok' });
     await registerWithHarness(harness);
 
@@ -972,7 +1043,6 @@ describe('service-worker cache-retirement client handshake', () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController);
-    moduleMocks.getState.mockReturnValue('host');
     let resolveDialog!: (value: { action: 'ok' }) => void;
     moduleMocks.showDialog.mockReturnValue(
       new Promise((resolve) => {
@@ -1026,9 +1096,337 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    await vi.waitFor(() =>
-      expect(moduleMocks.showToast).toHaveBeenCalledWith('dialog.sw_update_msg'),
-    );
+    await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE));
     expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+  });
+
+  describe('in-room update notice (owner policy 2026-10-11)', () => {
+    const PROMPT_LEASE_KEY = 'mxqr-sw-update-prompt-lease-v1';
+    // Longer than the 1 s settle delay after a room or demo ends.
+    const SETTLE_WAIT_MS = 1_300;
+    const settle = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const holdDialogUntilAborted = () => {
+      moduleMocks.showDialog.mockImplementation(
+        (options: { signal: AbortSignal }) =>
+          new Promise((resolve) => {
+            options.signal.addEventListener('abort', () => resolve({ action: 'superseded' }), {
+              once: true,
+            });
+          }),
+      );
+    };
+    const expectNoPeerTraffic = () => {
+      expect(moduleMocks.broadcastSystemMessage).not.toHaveBeenCalled();
+      expect(moduleMocks.sendSystemMessage).not.toHaveBeenCalled();
+    };
+
+    it.each(['host', 'guest'])(
+      'posts one local chat notice instead of the dialog in a %s room',
+      async (role) => {
+        setAppState({ role });
+        mountChatSurface();
+        const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+        await registerWithHarness(harness);
+
+        await vi.waitFor(() =>
+          expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce(),
+        );
+        await flushAsyncControllerChange();
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledWith(TAB_NOTICE);
+        expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+        expect(moduleMocks.showToast).not.toHaveBeenCalled();
+        expectNoPeerTraffic();
+        // An automatic "Later": no dismissal and no cross-tab prompt lease.
+        expect(localStorage.getItem(DISMISSAL_KEY)).toBeNull();
+        expect(localStorage.getItem(PROMPT_LEASE_KEY)).toBeNull();
+        expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
+          type: 'SKIP_WAITING',
+        });
+        expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      },
+    );
+
+    it('defers the dialog in the demo and uses a toast when no room chat exists', async () => {
+      setAppState({ demoActive: true });
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+
+      await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+      await flushAsyncControllerChange();
+      expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE);
+      expect(moduleMocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+      expect(localStorage.getItem(DISMISSAL_KEY)).toBeNull();
+    });
+
+    it('posts the room chat notice while a room runs the demo', async () => {
+      setAppState({ role: 'host', demoActive: true });
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+
+      await vi.waitFor(() =>
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledWith(TAB_NOTICE),
+      );
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+      expect(moduleMocks.showToast).not.toHaveBeenCalled();
+    });
+
+    it('uses a toast while setup still covers a provisional room', async () => {
+      setAppState({ role: 'host' });
+      mountChatSurface();
+      const setupOverlay = document.createElement('div');
+      setupOverlay.id = 'setup-overlay';
+      setupOverlay.className = 'active';
+      document.body.append(setupOverlay);
+      try {
+        const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+        await registerWithHarness(harness);
+
+        await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE));
+        expect(moduleMocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+        expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+      } finally {
+        setupOverlay.remove();
+      }
+    });
+
+    it('keeps the update dialog on the idle setup screen', async () => {
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      expect(moduleMocks.showDialog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'dialog.sw_update_title',
+          message: 'dialog.sw_update_msg',
+          buttonText: 'common.refresh',
+          secondaryText: 'common.later',
+        }),
+      );
+      expect(moduleMocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      expect(moduleMocks.showToast).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { standalone: false, chat: true, key: TAB_NOTICE },
+      { standalone: true, chat: true, key: APP_NOTICE },
+      { standalone: false, chat: false, key: TAB_NOTICE },
+      { standalone: true, chat: false, key: APP_NOTICE },
+    ])('uses the browser-tab or home-screen copy: %j', async ({ standalone, chat, key }) => {
+      moduleMocks.isStandaloneDisplayMode.mockReturnValue(standalone);
+      setAppState({ role: 'guest' });
+      if (chat) mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+
+      const channel = chat ? moduleMocks.announceSystemMessageLocally : moduleMocks.showToast;
+      const other = chat ? moduleMocks.showToast : moduleMocks.announceSystemMessageLocally;
+      await vi.waitFor(() => expect(channel).toHaveBeenCalledOnce());
+      expect(channel).toHaveBeenCalledWith(key);
+      expect(other).not.toHaveBeenCalled();
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it('announces each generation once across re-checks and another tab activating it', async () => {
+      setAppState({ role: 'host' });
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+
+      const first = harness.installUpdate('v494');
+      first.emitInstalled();
+      await vi.waitFor(() =>
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce(),
+      );
+
+      // A second worker object for the same generation is a re-check.
+      const again = harness.installUpdate('v494');
+      again.emitInstalled();
+      await flushAsyncControllerChange();
+      await flushAsyncControllerChange();
+      expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+
+      // Another tab accepts that generation: same notice, no reload, no toast.
+      harness.setController(again.waitingWorker, true, 'v494');
+      harness.emit('controllerchange');
+      await flushAsyncControllerChange();
+      await flushAsyncControllerChange();
+      expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+      expect(moduleMocks.showToast).not.toHaveBeenCalled();
+      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+
+      // A newer generation is news again.
+      const newer = harness.installUpdate('v495');
+      newer.emitInstalled();
+      await vi.waitFor(() =>
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledTimes(2),
+      );
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+      expectNoPeerTraffic();
+    });
+
+    it('stays quiet in a room for a generation the user already dismissed', async () => {
+      const first = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(first);
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(localStorage.getItem(DISMISSAL_KEY)).not.toBeNull());
+
+      vi.resetModules();
+      moduleMocks.promptContextListeners.length = 0;
+      setAppState({ role: 'host' });
+      mountChatSurface();
+      const reopened = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(reopened);
+      await flushAsyncControllerChange();
+      await flushAsyncControllerChange();
+
+      expect(moduleMocks.announceSystemMessageLocally).not.toHaveBeenCalled();
+      expect(moduleMocks.showToast).not.toHaveBeenCalled();
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    });
+
+    it('replaces the other-tab update toast with a local chat notice in a room', async () => {
+      setAppState({ role: 'host' });
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+
+      const newController: FakeWorker = { postMessage: vi.fn() };
+      harness.setController(newController, false, 'v494');
+      harness.emit('controllerchange');
+
+      await vi.waitFor(() =>
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce(),
+      );
+      expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledWith(TAB_NOTICE);
+      expect(moduleMocks.showToast).not.toHaveBeenCalled();
+      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expect(harness.reload).not.toHaveBeenCalled();
+      expectNoPeerTraffic();
+    });
+
+    it('never auto-reloads a tab running the demo when another tab activates an update', async () => {
+      setAppState({ demoActive: true });
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+
+      const newController: FakeWorker = { postMessage: vi.fn() };
+      harness.setController(newController, false, 'v494');
+      harness.emit('controllerchange');
+
+      await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE));
+      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expect(harness.reload).not.toHaveBeenCalled();
+    });
+
+    it('offers the deferred generation once after the tab leaves the room', async () => {
+      setAppState({ role: 'host' });
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+      await vi.waitFor(() =>
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce(),
+      );
+
+      setAppState({ role: 'idle' });
+      // leaveSession publishes several lifecycle fields in one teardown.
+      emitPromptContextChange();
+      emitPromptContextChange();
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(), {
+        timeout: 3_000,
+      });
+      // This "Later" is the user's own choice and is remembered.
+      await vi.waitFor(() => expect(localStorage.getItem(DISMISSAL_KEY)).not.toBeNull());
+
+      emitPromptContextChange();
+      await settle(SETTLE_WAIT_MS);
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+      expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+    });
+
+    it('waits while a leave or reload is still committing', async () => {
+      setAppState({ role: 'guest' });
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+      await vi.waitFor(() =>
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce(),
+      );
+
+      moduleMocks.isSessionResetPending.mockReturnValue(true);
+      setAppState({ role: 'idle' });
+      emitPromptContextChange();
+      await settle(SETTLE_WAIT_MS);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+
+      // The navigation did not commit and this document stayed on setup.
+      moduleMocks.isSessionResetPending.mockReturnValue(false);
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(), {
+        timeout: 3_000,
+      });
+    });
+
+    it('waits for the demo exit curtain before offering the deferred prompt', async () => {
+      setAppState({ demoActive: true });
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+      await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+
+      // demo.active clears before the curtain removes body.mode-demo.
+      document.body.classList.add('mode-demo');
+      setAppState({});
+      emitPromptContextChange();
+      await settle(SETTLE_WAIT_MS);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+
+      document.body.classList.remove('mode-demo');
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(), {
+        timeout: 3_000,
+      });
+      expect(moduleMocks.showToast).toHaveBeenCalledOnce();
+    });
+
+    it('retracts an open idle prompt when a room starts, without a dismissal', async () => {
+      holdDialogUntilAborted();
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      const signal = moduleMocks.showDialog.mock.calls[0]![0].signal as AbortSignal;
+
+      setAppState({ role: 'host' });
+      emitPromptContextChange();
+      expect(signal.aborted).toBe(true);
+      expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+      await flushAsyncControllerChange();
+      expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+      expect(localStorage.getItem(DISMISSAL_KEY)).toBeNull();
+      expect(localStorage.getItem(PROMPT_LEASE_KEY)).toBeNull();
+      expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
+        type: 'SKIP_WAITING',
+      });
+
+      moduleMocks.showDialog.mockResolvedValue({ action: 'secondary' });
+      setAppState({ role: 'idle' });
+      emitPromptContextChange();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2), {
+        timeout: 3_000,
+      });
+    });
+
+    it('never sends the update notice to peers', () => {
+      const source = readFileSync(resolvePath(process.cwd(), 'src/sw-register.ts'), 'utf8');
+      expect(source).toContain(
+        "import { announceSystemMessageLocally } from './chat/protocol.ts';",
+      );
+      expect(source).not.toMatch(
+        /broadcastSystemMessage|sendSystemMessage|safeSend|\bbroadcast\(|sendProRoomRealtime/,
+      );
+    });
   });
 });

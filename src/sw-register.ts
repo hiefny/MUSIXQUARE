@@ -6,12 +6,16 @@
  */
 
 import { log } from './core/log.ts';
-import { t } from './i18n/index.ts';
+import { bus } from './core/events.ts';
+import { t, type I18nKey } from './i18n/index.ts';
 import { getState } from './core/state.ts';
 import { showDialog } from './ui/dialog.ts';
 import { showToast } from './ui/toast.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { scheduleDocumentReload } from './core/session-reset.ts';
+import { isStandaloneDisplayMode } from './core/platform.ts';
+import { isSessionResetPending, scheduleDocumentReload } from './core/session-reset.ts';
+import { announceSystemMessageLocally } from './chat/protocol.ts';
+import { subscribeRoomAuthorityLifecycle } from './rooms/authority.ts';
 import {
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
@@ -21,6 +25,10 @@ const SW_UPDATE_KEY = 'sw-updated-at';
 const SW_CONTROLLER_CONFIRMED_KEY = 'sw-controller-confirmed-at';
 // Avoid a second update prompt when controller activation and reload overlap.
 const SW_COOLDOWN_MS = 30_000;
+// Let an in-place leave, the demo exit curtain, or a reset navigation settle
+// before a prompt that a room or the demo deferred is offered on setup.
+// Native timer: leaveSession() clears managed timers.
+const DEFERRED_PROMPT_SETTLE_MS = 1_000;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
@@ -105,6 +113,75 @@ function isUnconfirmedRecentUpdateReload(): boolean {
   return updatedAt > 0 && age >= 0 && age < SW_COOLDOWN_MS && controllerConfirmedAt < updatedAt;
 }
 
+/** Whether this tab is hosting or joined to a room (standard or PRO). */
+function isRoomSessionActive(): boolean {
+  return getState('network.appRole') !== 'idle';
+}
+
+/** Whether the guided demo is running or loading. */
+function isDemoStateActive(): boolean {
+  return getState('demo.active') === true || getState('demo.loading') === true;
+}
+
+/** The demo surface stays up during its exit curtain, after the state clears. */
+function isDemoSurfaceVisible(): boolean {
+  try {
+    return document.body?.classList.contains('mode-demo') === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Owner policy (2026-10-11): rooms and the demo never get the blocking update
+ * dialog. A live event must not be interrupted, and accepting would reload
+ * this device out of the room. They get a local chat notice instead.
+ */
+function isUpdatePromptDeferred(): boolean {
+  return isRoomSessionActive() || isDemoStateActive() || isDemoSurfaceVisible();
+}
+
+/** A deferral that only waits for a transient leave/exit to finish. */
+function isDeferralTransient(): boolean {
+  return !isRoomSessionActive() && !isDemoStateActive();
+}
+
+function updateNoticeKey(): I18nKey {
+  // A home-screen app has no reload control; it applies on its next launch.
+  return isStandaloneDisplayMode()
+    ? 'chat.update_available_app_system_message'
+    : 'chat.update_available_tab_system_message';
+}
+
+function isChatSurfaceAvailable(): boolean {
+  // Chat is a room surface: outside a room (a demo with no room) it cannot be
+  // opened, and while setup still covers a provisional room (creating a code,
+  // joining) it is hidden, so the notice would not be seen there.
+  return (
+    isRoomSessionActive() &&
+    document.getElementById('chat-messages') !== null &&
+    document.getElementById('setup-overlay')?.classList.contains('active') !== true
+  );
+}
+
+/**
+ * Show the update notice on this device only. It never goes to peers: the
+ * update state is per device, and a broadcast would tell every guest to
+ * reload. Without a chat surface it falls back to a toast, never a dialog.
+ */
+function postLocalUpdateNotice(): void {
+  const key = updateNoticeKey();
+  if (isChatSurfaceAvailable()) {
+    try {
+      announceSystemMessageLocally(key);
+      return;
+    } catch (error) {
+      log.warn('[SW] Chat update notice failed; using a toast', error);
+    }
+  }
+  showToast(t(key));
+}
+
 export function registerServiceWorker(): void {
   if (!('serviceWorker' in navigator)) {
     log.info('[SW] Service Worker not supported');
@@ -143,9 +220,50 @@ export function registerServiceWorker(): void {
       undefined;
     let activationState:
       'passive' | 'prompting' | 'awaiting-local-controller' | 'reload-scheduled' = 'passive';
+    // Generations already announced in this document, so a waiting worker, a
+    // re-check, and another tab's activation of that generation share one notice.
+    const announcedUpdateIdentities = new Set<string>();
+    // The open prompt, so entering a room or the demo can retract it.
+    let activePromptAbort: AbortController | null = null;
+    let activePromptIdentity: string | null = null;
+    let activePromptDeferredByRoom = false;
+    // A waiting worker whose prompt a room or the demo deferred. No dismissal
+    // was stored, so returning to setup offers it once.
+    let deferredPromptWorker: ServiceWorker | null = null;
+    let deferredPromptTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 
     const probeCacheStatus = () => {
       navigator.serviceWorker.controller?.postMessage({ type: CACHE_STATUS_PROBE });
+    };
+
+    const announceAvailableUpdate = (identity: string): void => {
+      if (announcedUpdateIdentities.has(identity)) return;
+      announcedUpdateIdentities.add(identity);
+      postLocalUpdateNotice();
+    };
+
+    const announceActivatedUpdate = (identity: string | null): void => {
+      if (identity) {
+        announceAvailableUpdate(identity);
+        return;
+      }
+      const controller = navigator.serviceWorker.controller;
+      if (!controller) {
+        announceAvailableUpdate('unknown-controller');
+        return;
+      }
+      // Cached per worker: an exact generation dedupes with the waiting
+      // worker's notice for the same release.
+      generationResolver.resolve(controller).then(
+        (generation) => {
+          announceAvailableUpdate(
+            generation.cacheVersion ||
+              unknownControllerIdentities.get(controller) ||
+              'unknown-controller',
+          );
+        },
+        () => announceAvailableUpdate('unknown-controller'),
+      );
     };
 
     const scheduleControllerAlignedReload = () => {
@@ -174,7 +292,10 @@ export function registerServiceWorker(): void {
       });
     };
 
-    const handlePassiveControllerChange = (notifyActiveRoom = true): boolean => {
+    const handlePassiveControllerChange = (
+      notifyActiveRoom = true,
+      controllerIdentity: string | null = null,
+    ): boolean => {
       if (_swReloading || activationState === 'reload-scheduled') return false;
 
       // Transitional recovery for the version that introduced this fix:
@@ -192,12 +313,13 @@ export function registerServiceWorker(): void {
       // controllerchange fires in EVERY controlled same-origin tab when any
       // one of them accepts the update (skipWaiting activation migrates all
       // clients). Do not auto-reload another tab that is hosting or joined
-      // to a live room; markIntentionalNav would also suppress its leave
-      // prompt.
-      if (getState('network.appRole') !== 'idle') {
+      // to a live room, or running the demo; markIntentionalNav would also
+      // suppress its leave prompt. It gets the same local notice as a
+      // waiting update, once per generation.
+      if (isUpdatePromptDeferred()) {
         if (!notifyActiveRoom) return false;
-        log.info('[SW] Update activated elsewhere. Deferring reload (session active)');
-        showToast(t('dialog.sw_update_msg'));
+        log.info('[SW] Update activated elsewhere. Deferring reload (room or demo active)');
+        announceActivatedUpdate(controllerIdentity);
         return true;
       }
 
@@ -316,7 +438,7 @@ export function registerServiceWorker(): void {
           scheduleControllerAlignedReload();
           return;
         }
-        handlePassiveControllerChange();
+        handlePassiveControllerChange(true, actionIdentity);
       };
 
       const handleControllerChange = () => {
@@ -393,6 +515,13 @@ export function registerServiceWorker(): void {
             log.warn('[SW] Replacement waiting worker handling failed', error);
           });
         };
+        // An automatic "Later" for a room or the demo. Storing no dismissal
+        // keeps this generation eligible for one prompt back on setup.
+        const deferPromptForRoom = (promptIdentity: string) => {
+          deferredPromptWorker = worker;
+          announceAvailableUpdate(promptIdentity);
+          if (isDeferralTransient()) armDeferredPromptRetry();
+        };
 
         if (!waitingWorkerIsCurrent()) {
           continueWithReplacement();
@@ -436,6 +565,11 @@ export function registerServiceWorker(): void {
           log.debug('[SW] Waiting worker prompt already dismissed for this generation');
           return;
         }
+        if (isUpdatePromptDeferred()) {
+          log.info('[SW] Update waiting in a room or the demo. Posting a local notice');
+          deferPromptForRoom(generation.promptIdentity);
+          return;
+        }
         const promptAbort = new AbortController();
         if (!(await updateLedger.acquirePrompt(generation, () => promptAbort.abort()))) {
           log.debug('[SW] Waiting worker prompt owned by another app client');
@@ -446,9 +580,18 @@ export function registerServiceWorker(): void {
           continueWithReplacement();
           return;
         }
+        if (isUpdatePromptDeferred()) {
+          // The election can take a few frames; a room or demo may start meanwhile.
+          updateLedger.releasePrompt(generation);
+          deferPromptForRoom(generation.promptIdentity);
+          return;
+        }
 
         activationState = 'prompting';
         controllerChangedWhilePrompting = false;
+        activePromptAbort = promptAbort;
+        activePromptIdentity = generation.promptIdentity;
+        activePromptDeferredByRoom = false;
         let result: Awaited<ReturnType<typeof showDialog>> | undefined;
         try {
           result = await showDialog({
@@ -461,12 +604,20 @@ export function registerServiceWorker(): void {
         } catch {
           result = undefined;
         }
+        const deferredByRoom = activePromptDeferredByRoom;
+        activePromptAbort = null;
+        activePromptIdentity = null;
+        activePromptDeferredByRoom = false;
         updateLedger.releasePrompt(generation);
 
         if (promptAbort.signal.aborted) {
           // Losing a best-effort legacy election is not a user dismissal and
           // must not suppress the winning tab's prompt or a newer generation.
+          // Neither is a prompt retracted because a room or the demo started.
           activationState = 'passive';
+          if (deferredByRoom && waitingWorkerIsCurrent()) {
+            deferPromptForRoom(generation.promptIdentity);
+          }
           if (controllerChangedWhilePrompting) handlePassiveControllerChange();
           continueWithReplacement();
           return;
@@ -541,6 +692,51 @@ export function registerServiceWorker(): void {
           handlePassiveControllerChange();
         }
       };
+
+      // Back on setup after a room or the demo: offer a deferred, undismissed
+      // generation once through the normal path (cooldown, generation checks,
+      // dismissal ledger, and cross-tab election all still apply).
+      const retryDeferredPrompt = () => {
+        deferredPromptTimer = null;
+        if (!deferredPromptWorker) return;
+        // Back in a room or the demo: the next lifecycle change re-arms this.
+        if (!isDeferralTransient()) return;
+        // A leave or reset navigation is still committing, or the demo
+        // curtain is still up. A reload makes the next document decide.
+        if (isSessionResetPending() || isDemoSurfaceVisible()) {
+          armDeferredPromptRetry();
+          return;
+        }
+        deferredPromptWorker = null;
+        // A reload is already on its way, or a prompt is already up.
+        if (_swReloading || activationState !== 'passive') return;
+        const waiting = reg.waiting;
+        if (!waiting || waiting.state !== 'installed' || !navigator.serviceWorker.controller)
+          return;
+        handledWaitingWorker = null;
+        handleWaitingWorker(waiting).catch((error) => {
+          log.warn('[SW] Deferred waiting worker prompt failed', error);
+        });
+      };
+      function armDeferredPromptRetry(): void {
+        if (deferredPromptTimer !== null) globalThis.clearTimeout(deferredPromptTimer);
+        deferredPromptTimer = globalThis.setTimeout(retryDeferredPrompt, DEFERRED_PROMPT_SETTLE_MS);
+      }
+      const handleUpdatePromptContextChange = () => {
+        if (isUpdatePromptDeferred() && activationState === 'prompting' && activePromptAbort) {
+          // Entering a room or the demo retracts an open or queued prompt.
+          // Post the notice now; a queued dialog resolves only when it is
+          // dequeued.
+          activePromptDeferredByRoom = true;
+          if (activePromptIdentity) announceAvailableUpdate(activePromptIdentity);
+          activePromptAbort.abort();
+          return;
+        }
+        if (deferredPromptWorker && isDeferralTransient()) armDeferredPromptRetry();
+      };
+      subscribeRoomAuthorityLifecycle(handleUpdatePromptContextChange);
+      bus.on('state:demo.active', handleUpdatePromptContextChange);
+      bus.on('state:demo.loading', handleUpdatePromptContextChange);
 
       reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;

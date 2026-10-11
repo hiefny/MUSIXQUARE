@@ -40,8 +40,8 @@ describe('Dead-export ratchet', () => {
       // Typed namespace destructuring now resolves actual imports through
       // async wrappers and Promise callbacks; private decoder error branding
       // no longer exposes a class used externally only by test fixtures.
-      expect(summary).toContain('baseline 21), self-only: 79 ');
-      expect(summary).toMatch(/self-only: 79 .*baseline 79\)$/u);
+      expect(summary).toContain('baseline 21), self-only: 78 ');
+      expect(summary).toMatch(/self-only: 78 .*baseline 78\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

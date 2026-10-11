@@ -406,7 +406,9 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/sw-register.ts',
     [
-      "read:appRole @ callback-variable:handlePassiveControllerChange :: if (getState('network.appRole') !== 'idle')",
+      // One room-presence query shared by the update-reload deferral and the
+      // in-room update notice (2026-10-11 owner policy); not an authority grant.
+      "read:appRole @ function:isRoomSessionActive :: return getState('network.appRole') !== 'idle'",
     ],
   ],
   [

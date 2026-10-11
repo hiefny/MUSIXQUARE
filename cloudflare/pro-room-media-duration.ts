@@ -266,16 +266,34 @@ async function indexedMp3Duration(
   const mono = bytes[3]! >> 6 === 3;
   const xingOffset = 4 + (version === 3 ? (mono ? 17 : 32) : mono ? 9 : 17);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // Joined or truncated files keep the first part's header, which would end
+  // playback early. Trust its frame count only when that many frames could span
+  // the remaining bytes (largest Layer III frame at this rate, plus the header
+  // frame and an ID3v1 tag) and a declared stream size matches the audio span
+  // within FFmpeg's 1/16 concatenation tolerance. Otherwise the bounded scan
+  // measures the whole file or leaves it unknown.
+  const audioBytes = size - offset;
+  const largestFrame = Math.floor((version === 3 ? 144000 * 320 : 72000 * 160) / sampleRate) + 1;
+  const indexed = (frames: number, declaredBytes: number | null) =>
+    (frames + 1) * largestFrame + 128 >= audioBytes &&
+    (declaredBytes === null ||
+      Math.abs(declaredBytes - audioBytes) <= Math.min(declaredBytes, audioBytes) / 16)
+      ? finiteDuration((frames * samplesPerFrame) / sampleRate)
+      : null;
   if (
     (ascii(bytes, xingOffset, 'Xing') || ascii(bytes, xingOffset, 'Info')) &&
     bytes.length >= xingOffset + 12 &&
     view.getUint32(xingOffset + 4) & 1
   ) {
-    return finiteDuration((view.getUint32(xingOffset + 8) * samplesPerFrame) / sampleRate);
+    const declared =
+      view.getUint32(xingOffset + 4) & 2 && bytes.length >= xingOffset + 16
+        ? view.getUint32(xingOffset + 12)
+        : null;
+    return indexed(view.getUint32(xingOffset + 8), declared);
   }
   // Fraunhofer VBRI's frame count uses the same MPEG sample clock.
   if (ascii(bytes, 36, 'VBRI') && bytes.length >= 54) {
-    return finiteDuration((view.getUint32(50) * samplesPerFrame) / sampleRate);
+    return indexed(view.getUint32(50), view.getUint32(46));
   }
   return null;
 }

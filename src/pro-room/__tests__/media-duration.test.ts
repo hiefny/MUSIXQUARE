@@ -72,6 +72,82 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     );
   });
 
+  describe('MP3 frame-count headers that no longer describe the whole file', () => {
+    const CHIRP_AUDIO_START = 44;
+    const CHIRP_SCANNED_FRAMES = 194;
+    const scanned = (frames: number) => (frames * 1152) / 44100;
+    const concatenate = (...parts: Uint8Array[]) => {
+      const bytes = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+      let offset = 0;
+      for (const part of parts) {
+        bytes.set(part, offset);
+        offset += part.length;
+      }
+      return bytes;
+    };
+    const chirp = async () =>
+      new Uint8Array(
+        await readFile(new URL('../../../e2e/fixtures/large-audio-chirp.mp3', import.meta.url)),
+      );
+
+    it('scans a joined file instead of trusting the first part Xing frame and byte count', async () => {
+      const first = await chirp();
+      const bytes = concatenate(first, first.subarray(CHIRP_AUDIO_START));
+      expect(
+        await readProRoomFileDuration(memoryBucket(bytes), 'joined', bytes.length),
+      ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES * 2), 6);
+    });
+
+    it('leaves a joined file unknown when its continuation cannot be scanned', async () => {
+      const first = await chirp();
+      // `cat a.mp3 b.mp3` keeps the second ID3 tag inside the MPEG stream.
+      const bytes = concatenate(first, first);
+      expect(await readProRoomFileDuration(memoryBucket(bytes), 'cat', bytes.length)).toBeNull();
+    });
+
+    it('rejects a frame count too small for the file even without a declared byte count', async () => {
+      const first = await chirp();
+      const xingFlags = CHIRP_AUDIO_START + 36 + 4;
+      const header = first.slice();
+      new DataView(header.buffer).setUint32(xingFlags, 0x1);
+      const continuation = first.subarray(CHIRP_AUDIO_START);
+      const bytes = concatenate(header, ...Array.from({ length: 6 }, () => continuation));
+      expect(
+        await readProRoomFileDuration(memoryBucket(bytes), 'frames-only', bytes.length),
+      ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES * 7), 6);
+      // The same header remains authoritative for the file it actually describes.
+      expect(
+        await readProRoomFileDuration(memoryBucket(header), 'frames-only-exact', header.length),
+      ).toBeCloseTo(5.041633, 6);
+    });
+
+    it('applies the same consistency rule to Fraunhofer VBRI headers', async () => {
+      const frameBytes = 417; // MPEG-1 Layer III, 128 kbps, 44.1 kHz, no padding.
+      const frame = () => {
+        const bytes = new Uint8Array(frameBytes);
+        bytes.set([0xff, 0xfb, 0x90, 0x64]);
+        return bytes;
+      };
+      const vbri = (frames: number, streamBytes: number) => {
+        const bytes = frame();
+        bytes.set(new TextEncoder().encode('VBRI'), 36);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(46, streamBytes);
+        view.setUint32(50, frames);
+        return bytes;
+      };
+      const audio = Array.from({ length: 29 }, frame);
+      const exact = concatenate(vbri(29, 30 * frameBytes), ...audio);
+      expect(await readProRoomFileDuration(memoryBucket(exact), 'vbri', exact.length)).toBe(
+        scanned(29),
+      );
+      const joined = concatenate(vbri(9, 10 * frameBytes), ...audio);
+      expect(
+        await readProRoomFileDuration(memoryBucket(joined), 'vbri-joined', joined.length),
+      ).toBeCloseTo(scanned(30), 6);
+    });
+  });
+
   it('reads explicit FLAC sample counts without fetching a huge object body', async () => {
     const bytes = await readFile(
       new URL('../../../e2e/fixtures/large-audio-chirp.flac', import.meta.url),

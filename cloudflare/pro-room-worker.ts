@@ -1255,6 +1255,9 @@ const PLAYBACK_DURATION_YOUTUBE_TTL_MS = 60 * 60 * 1000;
 const PLAYBACK_DURATION_PROBE_WATCHDOG_MS = 10_000;
 const PLAYBACK_DURATION_UNKNOWN_RETRY_MS = 60_000;
 const PLAYBACK_DURATION_FILE_RETRY_MS = 5 * 60_000;
+// A due natural end whose commit is refused (room state capacity) would
+// otherwise re-arm the alarm at now+1 and repeat on every request's prune().
+const PLAYBACK_NATURAL_ADVANCE_RETRY_MS = 30_000;
 const PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS = 10;
 const PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS = 750;
 const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
@@ -4116,6 +4119,7 @@ export class MusixquareProRoom {
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
   playbackDurationLookup: { key: string; promise: Promise<void> } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
+  naturalAdvanceRetry: { revision: number; updatedAtMs: number; retryAtMs: number } | null;
   ready: Promise<void> | undefined;
 
   private get activeRoom(): ProRoomState {
@@ -4154,6 +4158,9 @@ export class MusixquareProRoom {
     this.sessionAdmissionThrottle = null;
     this.playbackDurationLookup = null;
     this.assetDurationLookup = null;
+    // Instance memory only: eviction costs at most one immediate retry, which
+    // records a new backoff if the refusal persists.
+    this.naturalAdvanceRetry = null;
     const load = async () => {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
@@ -5284,16 +5291,27 @@ export class MusixquareProRoom {
       : null;
     if (!identity || !evidence || !this.playbackDurationIdentityExists(identity)) return null;
     if (playbackDurationEvidenceExpiresAtMs(evidence) <= nowMs) return null;
-    if (evidence.durationSeconds === null) return playback.updatedAtMs;
     // The YouTube API duration may be rounded. Never schedule before the real
     // endpoint; native ENDED may still settle the exact boundary sooner.
     const graceMs = identity.mediaKind === 'file' && evidence.source === 'controller' ? 0 : 2_000;
-    const deadline = Math.ceil(
-      playback.updatedAtMs +
-        Math.max(0, evidence.durationSeconds - playback.positionSeconds) * 1_000 +
-        graceMs,
-    );
-    return Number.isSafeInteger(deadline) ? deadline : null;
+    const deadline =
+      evidence.durationSeconds === null
+        ? playback.updatedAtMs
+        : Math.ceil(
+            playback.updatedAtMs +
+              Math.max(0, evidence.durationSeconds - playback.positionSeconds) * 1_000 +
+              graceMs,
+          );
+    if (!Number.isSafeInteger(deadline)) return null;
+    // A refused advance applies only to the exact checkpoint it was tried on;
+    // any committed playback change (seek, select, pause) supersedes it.
+    const retry = this.naturalAdvanceRetry;
+    return retry &&
+      retry.revision === playback.revision &&
+      retry.updatedAtMs === playback.updatedAtMs &&
+      retry.retryAtMs > deadline
+      ? retry.retryAtMs
+      : deadline;
   }
 
   advanceCompletedPlayback(nowMs = Date.now()) {
@@ -16731,7 +16749,20 @@ export class MusixquareProRoom {
         },
         { rollbackStorageFailure: true },
       );
-      changed = advanced === true || changed;
+      if (advanced === true) {
+        this.naturalAdvanceRetry = null;
+        changed = true;
+      } else {
+        // The past deadline is unchanged after a refused or empty advance.
+        // Defer it so the alarm and every request's prune() do not spin.
+        const playback = this.activeRoom.playback;
+        this.naturalAdvanceRetry = {
+          revision: playback.revision,
+          updatedAtMs: playback.updatedAtMs,
+          retryAtMs: Date.now() + PLAYBACK_NATURAL_ADVANCE_RETRY_MS,
+        };
+        await this.maintainAlarm();
+      }
     }
     return changed;
   }

@@ -507,6 +507,73 @@ describe('PRO natural completion with ordinary listeners and no active controlle
     expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
   });
 
+  it('backs off a natural end refused by room state capacity instead of re-arming at once', async () => {
+    const context = await fixture();
+    await start(context);
+    await leaveOwner(context);
+    const end = context.worker.naturalPlaybackEndAtMs()!;
+    // Fill the bounded core so the successor PREPARE and its outbox cannot fit.
+    const asset = context.room.assets[`asset_${FIRST}`]!;
+    const { playlist, ...core } = context.room;
+    const encoded = Buffer.byteLength(
+      JSON.stringify({
+        schemaVersion: 2,
+        core,
+        playlistOrder: playlist.map((item) => item.queueItemId),
+      }),
+    );
+    asset.name = 'x'.repeat(1200 * 1024 - encoded - 256);
+    await context.worker.persist();
+    const playback = structuredClone(context.room.playback);
+    const delivered = context.broadcasts.length;
+    await alarmAt(context, end);
+    expect(context.room.pendingPlaybackTransition).toBeNull();
+    expect(context.room.playback).toEqual(playback);
+    expect(context.broadcasts).toHaveLength(delivered);
+    const retryAt = context.storage.alarm!;
+    expect(retryAt).toBeGreaterThanOrEqual(end + 30_000);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(retryAt);
+    // Ordinary requests prune too; they must not repeat the refused work.
+    const advance = vi.spyOn(context.worker, 'advanceCompletedPlayback');
+    vi.setSystemTime(end + 1_000);
+    await context.worker.prune(Date.now());
+    expect(advance).not.toHaveBeenCalled();
+    // Once capacity is available again, the retry completes the track. The
+    // rollback restored a cloned room, so read the current asset record.
+    delete context.room.assets[`asset_${FIRST}`]!.name;
+    await context.worker.persist();
+    expect(context.storage.alarm).toBe(retryAt);
+    await alarmAt(context, retryAt);
+    expect(advance).toHaveBeenCalledOnce();
+    expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
+  });
+
+  it('drops a capacity retry when the playback it was measured against changes', async () => {
+    const context = await fixture();
+    await start(context);
+    await leaveOwner(context);
+    const end = context.worker.naturalPlaybackEndAtMs()!;
+    const asset = context.room.assets[`asset_${FIRST}`]!;
+    const { playlist, ...core } = context.room;
+    const encoded = Buffer.byteLength(
+      JSON.stringify({
+        schemaVersion: 2,
+        core,
+        playlistOrder: playlist.map((item) => item.queueItemId),
+      }),
+    );
+    asset.name = 'x'.repeat(1200 * 1024 - encoded - 256);
+    await context.worker.persist();
+    await alarmAt(context, end);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeGreaterThanOrEqual(end + 30_000);
+    delete context.room.assets[`asset_${FIRST}`]!.name;
+    await command(context, { type: 'seek', positionSeconds: 1 });
+    await finishPrepare(context);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      context.room.playback.updatedAtMs + 3_000 + 2_000,
+    );
+  });
+
   it('does not block a new selection on metadata I/O or apply the previous track result to it', async () => {
     let completeFile!: (duration: number | null) => void;
     metadata.file.mockImplementationOnce(

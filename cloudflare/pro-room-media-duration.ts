@@ -175,6 +175,15 @@ async function waveDuration(read: RangeReader, size: number): Promise<number | n
   return finiteDuration(samples / sampleRate);
 }
 
+/** Layer III bitrate in kbit/s for an MPEG version and a valid index (1-14). */
+function layer3Kbps(version: number, index: number): number {
+  return (
+    version === 3
+      ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+      : [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+  )[index]!;
+}
+
 function mp3Frame(header: Uint8Array): { bytes: number; samples: number; rate: number } | null {
   if (header.length < 4 || header[0] !== 0xff || (header[1]! & 0xe0) !== 0xe0) return null;
   const version = (header[1]! >> 3) & 3;
@@ -183,11 +192,7 @@ function mp3Frame(header: Uint8Array): { bytes: number; samples: number; rate: n
   const rateIndex = (header[2]! >> 2) & 3;
   if (version === 1 || layer !== 1 || index === 0 || index === 15 || rateIndex === 3) return null;
   const rate = [44100, 48000, 32000][rateIndex]! / (version === 3 ? 1 : version === 2 ? 2 : 4);
-  const bitrate = (
-    version === 3
-      ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
-      : [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
-  )[index]!;
+  const bitrate = layer3Kbps(version, index);
   return {
     bytes:
       Math.floor(((version === 3 ? 144000 : 72000) * bitrate) / rate) + ((header[2]! >> 1) & 1),
@@ -374,15 +379,23 @@ async function indexedMp3Duration(
   // FFmpeg's 1/16 concatenation tolerance of the audio. A tolerance taken from
   // the whole file would let a large tag hide an appended part. Otherwise the
   // bounded scan measures the whole file or leaves it unknown.
+  //
+  // A leading tag larger than that tolerance makes the two conventions predict
+  // different spans, and an appended part about the tag's size satisfies the
+  // tag-counting one. A VBR count cannot tell them apart. A CBR 'Info' count
+  // can: its frames all have the first frame's exact average length (padding
+  // included), so they must themselves span the audio.
   const audioBytes = end - offset;
   const largestFrame = Math.floor((version === 3 ? 144000 * 320 : 72000 * 160) / sampleRate) + 1;
+  const averageFrame = (samplesPerFrame * 125 * layer3Kbps(version, bitrateIndex)) / sampleRate;
   const near = (declared: number, actual: number) =>
     Math.abs(declared - actual) <= Math.min(declared, actual) / 16;
-  const indexed = (frames: number, declaredBytes: number | null) =>
+  const indexed = (frames: number, declaredBytes: number | null, constant: boolean) =>
     (frames + 1) * largestFrame + 128 >= audioBytes &&
     (declaredBytes === null ||
-      near(declaredBytes, audioBytes) ||
-      near(declaredBytes - offset, audioBytes))
+      ((near(declaredBytes, audioBytes) || near(declaredBytes - offset, audioBytes)) &&
+        (offset <= Math.min(declaredBytes, audioBytes) / 16 ||
+          (constant && near((frames + 1) * averageFrame, audioBytes)))))
       ? finiteDuration((frames * samplesPerFrame) / sampleRate)
       : null;
   if (
@@ -394,11 +407,11 @@ async function indexedMp3Duration(
       view.getUint32(xingOffset + 4) & 2 && bytes.length >= xingOffset + 16
         ? view.getUint32(xingOffset + 12)
         : null;
-    return indexed(view.getUint32(xingOffset + 8), declared);
+    return indexed(view.getUint32(xingOffset + 8), declared, ascii(bytes, xingOffset, 'Info'));
   }
   // Fraunhofer VBRI's frame count uses the same MPEG sample clock.
   if (ascii(bytes, 36, 'VBRI') && bytes.length >= 54) {
-    return indexed(view.getUint32(50), view.getUint32(46));
+    return indexed(view.getUint32(50), view.getUint32(46), false);
   }
   return null;
 }

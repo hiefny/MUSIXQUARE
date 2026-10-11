@@ -283,6 +283,9 @@ interface PlaybackDurationProbe {
   identity: PlaybackDurationIdentity;
   attempts: number;
   retryAtMs: number;
+  // First YouTube "not found" answer for this identity. A later answer from a
+  // separate lookup confirms it. Older Workers keep or drop the extra key.
+  notFoundAtMs?: number;
 }
 
 type PlaybackAuthorityCommand =
@@ -1254,6 +1257,10 @@ const PLAYBACK_DURATION_CACHE_MAX_ITEMS = 64;
 const PLAYBACK_DURATION_YOUTUBE_TTL_MS = 60 * 60 * 1000;
 const PLAYBACK_DURATION_PROBE_WATCHDOG_MS = 10_000;
 const PLAYBACK_DURATION_UNKNOWN_RETRY_MS = 60_000;
+const PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS = 15 * 60_000;
+// Two "not found" answers this far apart (separate lookups; the App caches an
+// answer for 30 s) skip a deleted/private video. Live is never skipped.
+const PLAYBACK_DURATION_NOT_FOUND_CONFIRM_MS = 60_000;
 const PLAYBACK_DURATION_FILE_RETRY_MS = 5 * 60_000;
 // A due natural end whose commit is refused (room state capacity) would
 // otherwise re-arm the alarm at now+1 and repeat on every request's prune().
@@ -5033,6 +5040,16 @@ export class MusixquareProRoom {
     ) {
       if (probe !== null) changed = true;
       this.activeRoom.playbackDurationProbe = null;
+    } else if (
+      probe.notFoundAtMs !== undefined &&
+      (identity.mediaKind !== 'youtube' ||
+        !isSafeNonNegativeInteger(probe.notFoundAtMs) ||
+        probe.notFoundAtMs > Date.now())
+    ) {
+      // A malformed confirmation only restarts the two-answer rule; it never
+      // invalidates the probe or counts toward a skip.
+      delete probe.notFoundAtMs;
+      changed = true;
     }
     this.playbackAuthorityMigrationPending = this.playbackAuthorityMigrationPending || changed;
   }
@@ -5483,7 +5500,16 @@ export class MusixquareProRoom {
     const lookup = (async () => {
       let durationSeconds: number | null = null;
       let unplayable = false;
-      let retryMs = PLAYBACK_DURATION_UNKNOWN_RETRY_MS;
+      // Only a provider "not found" answer counts toward a confirmed skip. A
+      // failed lookup carries no answer: it neither counts nor clears one.
+      let notFound = false;
+      let unanswered = false;
+      // Every unresolved YouTube answer costs provider quota. Back off live,
+      // unavailable and failed lookups exponentially from 1 to 15 minutes.
+      let retryMs = Math.min(
+        PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS,
+        PLAYBACK_DURATION_UNKNOWN_RETRY_MS * 2 ** Math.min(probe.attempts, 4),
+      );
       let diagnostic: string | null = null;
       try {
         if (identity.mediaKind === 'file') {
@@ -5501,13 +5527,15 @@ export class MusixquareProRoom {
           const result = await resolveProYouTubeDuration(this.env, identity.youtubeVideoId);
           if (result.kind === 'finite') durationSeconds = result.durationSeconds;
           unplayable = result.kind === 'unplayable';
+          notFound = result.kind === 'unavailable' && result.reason === 'not-found';
+          unanswered = result.kind === 'retry';
           if (result.kind === 'unavailable') diagnostic = 'YOUTUBE_METADATA_UNAVAILABLE';
           if (result.kind === 'retry') diagnostic = 'YOUTUBE_METADATA_RETRY';
-          if (result.kind === 'retry')
-            retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
         }
       } catch {
-        retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
+        unanswered = true;
+        if (identity.mediaKind === 'file')
+          retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
         diagnostic = 'METADATA_LOOKUP_FAILED';
       }
       await this.withMutation(async () => {
@@ -5535,9 +5563,15 @@ export class MusixquareProRoom {
             const nowMs = Date.now();
             if (appliesToAsset && currentAsset && durationSeconds !== null)
               this.storeAssetDuration(currentAsset, durationSeconds, 'server', nowMs);
+            const firstNotFoundAtMs = currentProbe?.notFoundAtMs;
+            const confirmedNotFound =
+              notFound &&
+              firstNotFoundAtMs !== undefined &&
+              nowMs - firstNotFoundAtMs >= PLAYBACK_DURATION_NOT_FOUND_CONFIRM_MS;
             if (
               appliesToQueue &&
               (unplayable ||
+                confirmedNotFound ||
                 (isFiniteNumber(durationSeconds) &&
                   durationSeconds > 0 &&
                   durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS))
@@ -5546,11 +5580,19 @@ export class MusixquareProRoom {
             } else if (appliesToQueue) {
               // Live/unknown/unavailable is not authority to skip a track. Retry
               // metadata without accepting ordinary members' declared duration.
+              // A first "not found" stays durable until a second, separate
+              // answer confirms it; any other provider answer withdraws it.
+              const notFoundAtMs = notFound
+                ? (firstNotFoundAtMs ?? nowMs)
+                : unanswered
+                  ? firstNotFoundAtMs
+                  : undefined;
               delete this.activeRoom.playbackDurations[key];
               this.activeRoom.playbackDurationProbe = {
                 identity,
                 attempts: Math.min(100, probe.attempts + 1),
                 retryAtMs: nowMs + retryMs,
+                ...(notFoundAtMs === undefined ? {} : { notFoundAtMs }),
               };
             }
             await this.persist();

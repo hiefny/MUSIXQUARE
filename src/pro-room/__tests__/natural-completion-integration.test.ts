@@ -869,3 +869,132 @@ describe('PRO natural completion with ordinary listeners and no active controlle
     },
   );
 });
+
+describe('PRO YouTube metadata backoff and confirmed missing videos', () => {
+  const notFound = { kind: 'unavailable', reason: 'not-found' } as const;
+
+  async function playingYouTube() {
+    const context = await fixture([youtubeItem(FIRST), fileItem(SECOND)]);
+    await start(context);
+    await leaveOwner(context);
+    return context;
+  }
+
+  async function nextLookup(context: Context) {
+    const at = context.room.playbackDurationProbe!.retryAtMs;
+    await alarmAt(context, at);
+    return at;
+  }
+
+  it.each([
+    ['live', () => metadata.youtube.mockResolvedValue({ kind: 'live' })],
+    ['unavailable', () => metadata.youtube.mockResolvedValue({ kind: 'unavailable' })],
+    ['retry', () => metadata.youtube.mockResolvedValue({ kind: 'retry' })],
+    ['failed', () => metadata.youtube.mockRejectedValue(new Error('metadata network failure'))],
+  ])(
+    'backs off %s lookups from one minute to fifteen without skipping',
+    async (_kind, configure) => {
+      configure();
+      const context = await playingYouTube();
+      const delays = [context.room.playbackDurationProbe!.retryAtMs - NOW];
+      for (let lookup = 0; lookup < 5; lookup += 1) {
+        const at = await nextLookup(context);
+        delays.push(context.room.playbackDurationProbe!.retryAtMs - at);
+      }
+      expect(delays).toEqual([60_000, 120_000, 240_000, 480_000, 900_000, 900_000]);
+      expect(metadata.youtube).toHaveBeenCalledTimes(6);
+      // Liveness alarms in between do not repeat the provider lookup.
+      await alarmAt(context, Date.now() + 60_000);
+      expect(metadata.youtube).toHaveBeenCalledTimes(6);
+      expect(context.room.playbackDurationProbe).not.toHaveProperty('notFoundAtMs');
+      expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+      expect(context.room.pendingPlaybackTransition).toBeNull();
+    },
+  );
+
+  it('skips a video YouTube reports missing only after a second answer a minute later', async () => {
+    metadata.youtube.mockResolvedValue(notFound);
+    const context = await playingYouTube();
+    expect(context.room.playbackDurationProbe).toMatchObject({ attempts: 1, notFoundAtMs: NOW });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+    // An early repeated answer is not a separate confirmation.
+    vi.setSystemTime(NOW + 59_000);
+    context.room.playbackDurationProbe!.retryAtMs = Date.now();
+    context.worker.startPlaybackDurationProbe();
+    await context.settle();
+    expect(context.room.playbackDurationProbe).toMatchObject({ attempts: 2, notFoundAtMs: NOW });
+    expect(context.room.playbackDurations).toEqual({});
+    context.room.playbackDurationProbe!.retryAtMs = NOW + 60_000;
+    await nextLookup(context);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+    expect(Object.values(context.room.playbackDurations)).toEqual([
+      expect.objectContaining({ durationSeconds: null, source: 'server' }),
+    ]);
+    // The existing unplayable path then skips to the next queue item.
+    await alarmAt(context, context.storage.alarm!);
+    expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
+    expect(context.room.automaticUnavailableSkips).toBe(1);
+  });
+
+  it.each([
+    ['a failed lookup', () => metadata.youtube.mockResolvedValueOnce({ kind: 'retry' }), true],
+    ['a thrown lookup', () => metadata.youtube.mockRejectedValueOnce(new Error('network')), true],
+    ['a live answer', () => metadata.youtube.mockResolvedValueOnce({ kind: 'live' }), false],
+    [
+      'an older App unavailable answer',
+      () => metadata.youtube.mockResolvedValueOnce({ kind: 'unavailable' }),
+      false,
+    ],
+  ])('treats %s between two not-found answers correctly', async (_label, between, confirms) => {
+    metadata.youtube.mockResolvedValueOnce(notFound);
+    between();
+    metadata.youtube.mockResolvedValue(notFound);
+    const context = await playingYouTube();
+    await nextLookup(context);
+    expect(context.room.playbackDurations).toEqual({});
+    await nextLookup(context);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+    if (confirms) {
+      expect(Object.values(context.room.playbackDurations)[0]?.durationSeconds).toBeNull();
+    } else {
+      // The withdrawn answer restarts the rule from this lookup.
+      expect(context.room.playbackDurations).toEqual({});
+      expect(context.room.playbackDurationProbe!.notFoundAtMs).toBe(Date.now());
+    }
+  });
+
+  it('keeps the first not-found answer across Durable Object eviction', async () => {
+    metadata.youtube.mockResolvedValue(notFound);
+    const context = await playingYouTube();
+    const retryAt = context.room.playbackDurationProbe!.retryAtMs;
+    context.worker = context.createWorker();
+    await context.worker.ready;
+    expect(context.room.playbackDurationProbe).toMatchObject({ notFoundAtMs: NOW });
+    await alarmAt(context, retryAt);
+    expect(Object.values(context.room.playbackDurations)[0]?.durationSeconds).toBeNull();
+  });
+
+  it.each([
+    ['malformed', 'soon'],
+    ['negative', -1],
+    ['future', NOW + 3_600_000],
+  ])('drops a %s stored not-found marker without discarding the probe', async (_label, value) => {
+    metadata.youtube.mockResolvedValue({ kind: 'live' });
+    const context = await playingYouTube();
+    const probe = structuredClone(context.room.playbackDurationProbe!);
+    (context.room.playbackDurationProbe as unknown as Record<string, unknown>).notFoundAtMs = value;
+    context.worker.normalizeLoadedPlaybackAuthority();
+    expect(context.room.playbackDurationProbe).toEqual(probe);
+  });
+
+  it('drops a not-found marker stored on a file probe', async () => {
+    metadata.file.mockResolvedValue(null);
+    const context = await fixture();
+    await start(context);
+    const probe = structuredClone(context.room.playbackDurationProbe!);
+    expect(probe.identity.mediaKind).toBe('file');
+    context.room.playbackDurationProbe!.notFoundAtMs = NOW;
+    context.worker.normalizeLoadedPlaybackAuthority();
+    expect(context.room.playbackDurationProbe).toEqual(probe);
+  });
+});

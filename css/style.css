@@ -3282,12 +3282,14 @@
     transform: translateX(20px);
   }
 
+  /* No !important on the colors: an important declaration in this layer
+     would outrank the unlayered forced-colors rules for the pressed toggle. */
   .room-password-toggle[aria-pressed='true'] {
-    background: rgba(var(--primary-rgb), 0.18) !important;
+    background: rgba(var(--primary-rgb), 0.18);
   }
 
   .room-password-toggle[aria-pressed='true'] .room-password-toggle-knob {
-    background: var(--primary) !important;
+    background: var(--primary);
     transform: translateX(20px) !important;
   }
 
@@ -4291,9 +4293,12 @@
     height: 200px;
   }
 
+  /* The QR library paints with presentation attributes, which any rule
+     overrides. No !important: in this layer it would outrank the unlayered
+     forced-colors QR rule and draw CanvasText modules on its black square. */
   .qr-svg path {
-    stroke: var(--text-main) !important;
-    fill: var(--text-main) !important;
+    stroke: var(--text-main);
+    fill: var(--text-main);
   }
 
   .qr-placeholder {
@@ -12513,6 +12518,13 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     )
     svg {
     color: HighlightText !important;
+  }
+
+  /* Tab and option icons paint with the accent fill rather than
+     currentColor; in a selected state they follow the icon color above. */
+  :is(.nav-item, .ch-opt):is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'])
+    svg {
+    fill: currentColor;
   }
 
   .demo-step-nav .demo-step-next:not(.is-final) {

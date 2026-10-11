@@ -133,9 +133,8 @@ Final local results:
 | Contracts | Developer API boundary, D1 migration contract, source complexity and Operations Drift source contract passed |
 
 The consolidated source differs after the full local run only in the tested
-signature-domain spelling; the remote full-suite candidate must cover the final
-tree. Remote CI and release evidence are appended after completion. Local or
-branch results are not an exact-main-SHA release candidate.
+signature-domain spelling. The exact-main CI below covers the final tree. Local
+or branch results are not an exact-main-SHA release candidate.
 
 ## Rollout and recovery
 
@@ -158,3 +157,51 @@ OS cannot be made audible by a server alarm. Finite metadata is required for
 owner-independent natural completion, and normal PREPARE can still wait for its
 existing bounded readiness deadline. Physical verification remains open in the
 [release record](../release-record.md).
+
+## Production evidence — 2026-10-12
+
+PR [#298](https://github.com/hiefny/MUSIXQUARE/pull/298) merged as
+`972555c307037c8b3a969d330f5857d3f37dd47f`. PR
+[CI 38156034680](https://github.com/hiefny/MUSIXQUARE/actions/runs/38156034680)
+and exact-main
+[CI 38156513400](https://github.com/hiefny/MUSIXQUARE/actions/runs/38156513400)
+each passed all eleven jobs. The exact-main run used Ubuntu and Node 24.20.0:
+
+- Full unit suite: 540 files, 11,506 pass, zero failures, one skip. Linux skips
+  `pro-grant-campaign-cli.test.ts`'s Windows-only cross-drive rejection case;
+  this is not a missing jq dependency. The Windows local suite has zero skips.
+- Production candidate/service-worker Chromium tests: 17 pass; critical
+  Chromium tests: 22 pass. These are 39 test executions, not a full E2E or
+  WebKit run.
+- Broad, critical runtime, Worker and release-tooling coverage gates all passed.
+  Their tests overlap the full unit suite and are not additional independent totals.
+
+[Production Release 38156993930](https://github.com/hiefny/MUSIXQUARE/actions/runs/38156993930),
+attempt 1, completed its deploy job at **2026-10-12 01:53:32 KST** with
+`target=all` and `apply_developer_api_d1=false`. It reused that exact-main
+candidate, passed all ten live smoke steps, verified ownership of all deployed
+Workers, restored PRO generation readiness and persisted the coherent production
+commit marker. The failed-release recovery job was skipped; no recovery was needed.
+
+| Worker | Deployed version ID |
+| --- | --- |
+| App | `ca678ef8-9674-4c2e-986d-648ad86e71c5` |
+| PRO room | `cb415dd7-2698-4342-a41d-674581426914` |
+| Remote share | `e4b31787-f1d1-4b1f-825c-99dfe40b037a` |
+| Signaling | `51e4cb53-c4e6-4a37-ade3-d797312b45dd` |
+| Developer API facade | `0c523024-f233-450b-80c6-df1561e0f530` |
+| Developer API | `71585dff-c88a-4498-98af-7d1fdfad9fd9` |
+
+Independent public GETs returned HTTP 200 for the landing page and service worker,
+with `bootstrap.js?cache=v656` and cache `v656`. The deploy log confirms
+`PRO_YOUTUBE_METADATA` targets `musixquare-app`. The live smoke checks do not
+demonstrate a physical sleeping phone or actual YouTube playback; those limits
+remain open above and in the release record.
+
+Post-deployment
+[Operations Drift Audit 38157373545](https://github.com/hiefny/MUSIXQUARE/actions/runs/38157373545)
+passed at the same source SHA: **31 pass, zero fail, five manual**. Its source
+contract includes 64 bindings, and every actively serving Worker's non-secret
+bindings matched its checked-in configuration, including the new PRO service
+binding. This closes the pending post-release automated-audit item from the
+previous deployment; the five manual controls remain open and were not queried.

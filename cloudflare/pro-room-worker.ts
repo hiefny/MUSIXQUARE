@@ -263,7 +263,20 @@ interface PlaybackDurationEvidence {
   // Null is an explicit provider-confirmed unplayable video, never unknown/live.
   durationSeconds: number | null;
   checkedAtMs: number;
-  source: 'server' | 'controller';
+  source: 'server' | 'controller' | 'upload';
+}
+
+interface AssetDurationEvidence {
+  assetVersion: number;
+  byteLength: number;
+  roomGeneration: number;
+  durationSeconds: number;
+  checkedAtMs: number;
+  source: PlaybackDurationEvidence['source'];
+}
+
+function durationSourcePriority(source: PlaybackDurationEvidence['source']) {
+  return source === 'controller' ? 3 : source === 'server' ? 2 : 1;
 }
 
 interface PlaybackDurationProbe {
@@ -527,6 +540,8 @@ interface AssetDeletionPending {
 }
 
 interface RoomAsset extends StagingCleanupFields {
+  // Private immutable-object metadata; never included in publicAsset().
+  duration?: AssetDurationEvidence;
   status: 'reserved' | 'ready' | 'deleting';
   assetId: string;
   objectKey: string;
@@ -753,6 +768,7 @@ interface ProRoomState {
   pendingPlaybackTransition: PlaybackTransition | null;
   pendingPlaybackBroadcasts: PlaybackBroadcastRecord[];
   playbackDurations: Record<string, PlaybackDurationEvidence>;
+  pendingAssetDurationProbes?: string[];
   playbackDurationProbe: PlaybackDurationProbe | null;
   automaticUnavailableSkips: number;
   presence: PresenceState;
@@ -3927,6 +3943,12 @@ function assertBoundedRoomState(room: ProRoomState) {
     Object.keys(room.accountDeletionTombstones || {}).length >
       ACCOUNT_DELETION_TOMBSTONE_MAX_ITEMS ||
     Object.keys(room.assets).length > ASSET_MAX_ITEMS ||
+    (room.pendingAssetDurationProbes !== undefined &&
+      (!Array.isArray(room.pendingAssetDurationProbes) ||
+        room.pendingAssetDurationProbes.length > ASSET_MAX_ITEMS ||
+        room.pendingAssetDurationProbes.some(
+          (id) => typeof id !== 'string' || !OPAQUE_ID_RE.test(id),
+        ))) ||
     Object.keys(room.assets).length + Object.keys(room.stagingTombstones || {}).length >
       ASSET_MAX_ITEMS ||
     Object.keys(room.idempotency).length > IDEMPOTENCY_MAX_ITEMS ||
@@ -4093,6 +4115,7 @@ export class MusixquareProRoom {
   scheduledAlarmMs: number | null | undefined;
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
   playbackDurationLookup: { key: string; promise: Promise<void> } | null;
+  assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
   ready: Promise<void> | undefined;
 
   private get activeRoom(): ProRoomState {
@@ -4130,6 +4153,7 @@ export class MusixquareProRoom {
     this.scheduledAlarmMs = undefined;
     this.sessionAdmissionThrottle = null;
     this.playbackDurationLookup = null;
+    this.assetDurationLookup = null;
     const load = async () => {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
@@ -4946,8 +4970,9 @@ export class MusixquareProRoom {
             durationSeconds: raw.durationSeconds,
             checkedAtMs: raw.checkedAtMs,
             source:
-              raw.source === 'controller' && identity.mediaKind === 'file'
-                ? 'controller'
+              (raw.source === 'controller' || raw.source === 'upload') &&
+              identity.mediaKind === 'file'
+                ? raw.source
                 : 'server',
           };
         }
@@ -4955,6 +4980,38 @@ export class MusixquareProRoom {
     }
     if (JSON.stringify(storedDurations) !== JSON.stringify(durations)) changed = true;
     this.activeRoom.playbackDurations = durations;
+    // Upgrade only the bounded, already-verified queue cache. Existing libraries
+    // are otherwise learned lazily, rather than probed en masse at deployment.
+    for (const evidence of Object.values(durations)) {
+      if (evidence.identity.mediaKind !== 'file' || evidence.durationSeconds === null) continue;
+      const asset = this.durationAsset(evidence.identity);
+      if (asset)
+        changed =
+          this.storeAssetDuration(
+            asset,
+            evidence.durationSeconds,
+            evidence.source,
+            evidence.checkedAtMs,
+          ) || changed;
+    }
+    const pendingAssets = this.activeRoom.pendingAssetDurationProbes;
+    if (pendingAssets !== undefined) {
+      const normalized = Array.isArray(pendingAssets)
+        ? [...new Set(pendingAssets.filter((id): id is string => typeof id === 'string'))]
+            .slice(0, ASSET_MAX_ITEMS)
+            .filter((id) => {
+              const asset = this.activeRoom.assets[id];
+              return (
+                asset?.status === 'ready' &&
+                !asset.deletionPending &&
+                asset.roomGeneration === this.activeRoom.roomGeneration &&
+                !this.assetDurationEvidence(asset)
+              );
+            })
+        : [];
+      if (JSON.stringify(pendingAssets) !== JSON.stringify(normalized)) changed = true;
+      this.activeRoom.pendingAssetDurationProbes = normalized;
+    }
     if (!isSafeNonNegativeInteger(this.activeRoom.automaticUnavailableSkips)) {
       this.activeRoom.automaticUnavailableSkips = 0;
       changed = true;
@@ -5033,12 +5090,102 @@ export class MusixquareProRoom {
     return playback.state === 'playing' ? this.playbackDurationIdentity(playback) : null;
   }
 
+  durationAsset(identity: Extract<PlaybackDurationIdentity, { mediaKind: 'file' }>) {
+    const asset = this.activeRoom.assets[identity.assetId];
+    return asset?.status === 'ready' &&
+      !asset.deletionPending &&
+      asset.version === identity.assetVersion &&
+      asset.byteLength === identity.byteLength &&
+      asset.roomGeneration === this.activeRoom.roomGeneration
+      ? asset
+      : null;
+  }
+
+  assetDurationEvidence(asset: RoomAsset): AssetDurationEvidence | null {
+    const raw = asset.duration;
+    return raw &&
+      isRecord(raw) &&
+      raw.assetVersion === asset.version &&
+      raw.byteLength === asset.byteLength &&
+      raw.roomGeneration === asset.roomGeneration &&
+      asset.roomGeneration === this.activeRoom.roomGeneration &&
+      isFiniteNumber(raw.durationSeconds) &&
+      raw.durationSeconds > 0 &&
+      raw.durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS &&
+      isSafeNonNegativeInteger(raw.checkedAtMs) &&
+      (raw.source === 'server' || raw.source === 'controller' || raw.source === 'upload')
+      ? raw
+      : null;
+  }
+
+  storeAssetDuration(
+    asset: RoomAsset,
+    durationSeconds: number,
+    source: PlaybackDurationEvidence['source'],
+    nowMs = Date.now(),
+  ) {
+    const previous = this.assetDurationEvidence(asset);
+    if (
+      previous &&
+      (durationSourcePriority(previous.source) > durationSourcePriority(source) ||
+        (previous.source === source &&
+          (previous.checkedAtMs > nowMs || previous.durationSeconds === durationSeconds)))
+    )
+      return false;
+    const before = asset.duration;
+    asset.duration = {
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+      roomGeneration: asset.roomGeneration,
+      durationSeconds,
+      checkedAtMs: nowMs,
+      source,
+    };
+    // Optional timing evidence must never make a previously valid room unloadable
+    // or consume the headroom needed by an unrelated authoritative mutation.
+    if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
+      if (before === undefined) delete asset.duration;
+      else asset.duration = before;
+      return false;
+    }
+    return true;
+  }
+
+  enqueueAssetDurationProbe(asset: RoomAsset) {
+    if (this.assetDurationEvidence(asset)) return;
+    const before = this.activeRoom.pendingAssetDurationProbes;
+    const queue = before ?? [];
+    if (queue.includes(asset.assetId) || queue.length >= ASSET_MAX_ITEMS) return;
+    this.activeRoom.pendingAssetDurationProbes = [...queue, asset.assetId];
+    if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
+      if (before === undefined) delete this.activeRoom.pendingAssetDurationProbes;
+      else this.activeRoom.pendingAssetDurationProbes = before;
+    }
+  }
+
   storePlaybackDurationEvidence(
     identity: PlaybackDurationIdentity,
     durationSeconds: number | null,
-    source: 'server' | 'controller',
+    source: PlaybackDurationEvidence['source'],
     nowMs = Date.now(),
   ) {
+    if (identity.mediaKind === 'file' && durationSeconds !== null) {
+      const asset = this.durationAsset(identity);
+      if (asset) {
+        const stored = this.storeAssetDuration(asset, durationSeconds, source, nowMs);
+        const best = this.assetDurationEvidence(asset);
+        if (
+          best &&
+          (stored ||
+            durationSourcePriority(best.source) > durationSourcePriority(source) ||
+            (best.source === source && best.checkedAtMs > nowMs))
+        ) {
+          durationSeconds = best.durationSeconds;
+          source = best.source;
+          nowMs = best.checkedAtMs;
+        }
+      }
+    }
     const key = playbackDurationIdentityKey(identity);
     const entries = Object.entries(this.activeRoom.playbackDurations)
       .filter(([existingKey]) => existingKey !== key)
@@ -5064,6 +5211,17 @@ export class MusixquareProRoom {
   reconcilePlaybackDurationProbe(nowMs = Date.now()) {
     let changed = false;
     for (const [key, evidence] of Object.entries(this.activeRoom.playbackDurations)) {
+      if (evidence.identity.mediaKind === 'file' && evidence.durationSeconds !== null) {
+        const asset = this.durationAsset(evidence.identity);
+        if (asset)
+          changed =
+            this.storeAssetDuration(
+              asset,
+              evidence.durationSeconds,
+              evidence.source,
+              evidence.checkedAtMs,
+            ) || changed;
+      }
       if (!this.playbackDurationIdentityExists(evidence.identity)) {
         delete this.activeRoom.playbackDurations[key];
         changed = true;
@@ -5071,6 +5229,28 @@ export class MusixquareProRoom {
     }
     const identity = this.desiredPlaybackDurationIdentity();
     const key = identity ? playbackDurationIdentityKey(identity) : null;
+    if (identity?.mediaKind === 'file' && key) {
+      const asset = this.durationAsset(identity);
+      const durable = asset && this.assetDurationEvidence(asset);
+      const cached = this.activeRoom.playbackDurations[key];
+      if (
+        durable &&
+        (!cached ||
+          durationSourcePriority(durable.source) > durationSourcePriority(cached.source) ||
+          (durable.source === cached.source && durable.checkedAtMs >= cached.checkedAtMs)) &&
+        (!cached ||
+          cached.durationSeconds !== durable.durationSeconds ||
+          cached.source !== durable.source)
+      ) {
+        this.storePlaybackDurationEvidence(
+          identity,
+          durable.durationSeconds,
+          durable.source,
+          durable.checkedAtMs,
+        );
+        changed = true;
+      }
+    }
     const evidence = key ? this.activeRoom.playbackDurations[key] : null;
     const fresh = evidence && playbackDurationEvidenceExpiresAtMs(evidence) > nowMs;
     if (!identity || fresh) {
@@ -5175,9 +5355,97 @@ export class MusixquareProRoom {
     return target ? this.directPlaybackCommit(target, nowMs) : null;
   }
 
+  startAssetDurationProbe() {
+    const queue = this.room?.pendingAssetDurationProbes;
+    if (
+      !queue?.length ||
+      this.assetDurationLookup ||
+      this.playbackDurationLookup?.key.includes(':file:')
+    )
+      return;
+    const desired = this.desiredPlaybackDurationIdentity();
+    const assetId =
+      desired?.mediaKind === 'file' && queue.includes(desired.assetId) ? desired.assetId : queue[0];
+    if (!assetId) return;
+    const asset = this.activeRoom.assets[assetId];
+    const roomGeneration = this.activeRoom.roomGeneration;
+    const objectKey = asset?.objectKey;
+    const version = asset?.version;
+    const byteLength = asset?.byteLength;
+    let finished = false;
+    const lookup = (async () => {
+      let duration: number | null = null;
+      if (
+        asset?.status === 'ready' &&
+        !asset.deletionPending &&
+        asset.roomGeneration === roomGeneration &&
+        this.env.PRO_MEDIA_BUCKET &&
+        !this.assetDurationEvidence(asset)
+      ) {
+        duration = await readProRoomFileDuration(
+          this.env.PRO_MEDIA_BUCKET,
+          asset.objectKey,
+          asset.byteLength,
+        ).catch(() => null);
+      }
+      await this.withMutation(async () => {
+        if (
+          !this.room ||
+          this.activeRoom.roomGeneration !== roomGeneration ||
+          !this.activeRoom.pendingAssetDurationProbes?.includes(assetId)
+        )
+          return;
+        if ((await readServiceMaintenance(this.env)).enabled) return;
+        await this.withStateCapacityRollback(
+          async () => {
+            const current = this.activeRoom.assets[assetId];
+            if (
+              current?.status === 'ready' &&
+              !current.deletionPending &&
+              current.roomGeneration === roomGeneration &&
+              current.objectKey === objectKey &&
+              current.version === version &&
+              current.byteLength === byteLength &&
+              isFiniteNumber(duration) &&
+              duration > 0 &&
+              duration <= PLAYBACK_MAX_POSITION_SECONDS
+            ) {
+              this.storeAssetDuration(current, duration, 'server');
+            }
+            // One bounded registration attempt. Unsupported headers remain unknown;
+            // a later controller decode or active playback probe can fill the gap.
+            this.activeRoom.pendingAssetDurationProbes = (
+              this.activeRoom.pendingAssetDurationProbes ?? []
+            ).filter((id) => id !== assetId);
+            await this.persist();
+            finished = true;
+          },
+          { rollbackStorageFailure: true },
+        );
+      });
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.assetDurationLookup?.assetId === assetId) this.assetDurationLookup = null;
+        if (finished)
+          void this.withMutation(() => {
+            this.startPlaybackDurationProbe();
+            this.startAssetDurationProbe();
+          }).catch(() => undefined);
+      });
+    this.assetDurationLookup = { assetId, promise: lookup };
+    this.state.waitUntil?.(lookup);
+  }
+
   startPlaybackDurationProbe() {
     const probe = this.room?.playbackDurationProbe;
     if (!probe || probe.retryAtMs > Date.now() || this.playbackDurationLookup) return;
+    if (
+      probe.identity.mediaKind === 'file' &&
+      (this.assetDurationLookup ||
+        this.activeRoom.pendingAssetDurationProbes?.includes(probe.identity.assetId))
+    )
+      return;
     const identity = structuredClone(probe.identity);
     const key = playbackDurationIdentityKey(identity);
     const roomGeneration = this.activeRoom.roomGeneration;
@@ -5225,26 +5493,36 @@ export class MusixquareProRoom {
         diagnostic = 'METADATA_LOOKUP_FAILED';
       }
       await this.withMutation(async () => {
-        if (
-          !this.room ||
-          this.activeRoom.roomGeneration !== roomGeneration ||
-          !this.activeRoom.playbackDurationProbe ||
-          playbackDurationIdentityKey(this.activeRoom.playbackDurationProbe.identity) !== key ||
-          !this.playbackDurationIdentityExists(identity)
-        )
-          return;
+        if (!this.room || this.activeRoom.roomGeneration !== roomGeneration) return;
+        const currentProbe = this.activeRoom.playbackDurationProbe;
+        const currentAsset = identity.mediaKind === 'file' ? this.durationAsset(identity) : null;
+        const matchesAsset = currentAsset && currentAsset.objectKey === objectKey;
+        const appliesToQueue =
+          currentProbe &&
+          playbackDurationIdentityKey(currentProbe.identity) === key &&
+          this.playbackDurationIdentityExists(identity) &&
+          (identity.mediaKind === 'youtube' || matchesAsset);
+        const appliesToAsset =
+          matchesAsset &&
+          isFiniteNumber(durationSeconds) &&
+          durationSeconds > 0 &&
+          durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS;
+        if (!appliesToQueue && !appliesToAsset) return;
         if ((await readServiceMaintenance(this.env)).enabled) return;
         await this.withStateCapacityRollback(
           async () => {
             const nowMs = Date.now();
+            if (appliesToAsset && currentAsset && durationSeconds !== null)
+              this.storeAssetDuration(currentAsset, durationSeconds, 'server', nowMs);
             if (
-              unplayable ||
-              (isFiniteNumber(durationSeconds) &&
-                durationSeconds > 0 &&
-                durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS)
+              appliesToQueue &&
+              (unplayable ||
+                (isFiniteNumber(durationSeconds) &&
+                  durationSeconds > 0 &&
+                  durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS))
             ) {
               this.storePlaybackDurationEvidence(identity, durationSeconds, 'server', nowMs);
-            } else {
+            } else if (appliesToQueue) {
               // Live/unknown/unavailable is not authority to skip a track. Retry
               // metadata without accepting ordinary members' declared duration.
               delete this.activeRoom.playbackDurations[key];
@@ -5256,6 +5534,7 @@ export class MusixquareProRoom {
             }
             await this.persist();
             if (
+              appliesToQueue &&
               diagnostic &&
               probe.attempts === 0 &&
               (identity.mediaKind === 'file' || this.env.PRO_YOUTUBE_METADATA)
@@ -5280,6 +5559,7 @@ export class MusixquareProRoom {
           const nextProbe = this.room?.playbackDurationProbe;
           if (nextProbe && playbackDurationIdentityKey(nextProbe.identity) !== key)
             this.startPlaybackDurationProbe();
+          this.startAssetDurationProbe();
         }).catch(() => undefined);
       });
     this.playbackDurationLookup = { key, promise: lookup };
@@ -5715,6 +5995,7 @@ export class MusixquareProRoom {
       await this.flushPendingPlaybackBroadcasts(Date.now());
     }
     this.startPlaybackDurationProbe();
+    this.startAssetDurationProbe();
     return true;
   }
 
@@ -5941,13 +6222,27 @@ export class MusixquareProRoom {
       candidates.push(playbackDurationEvidenceExpiresAtMs(durationEvidence));
     }
     if (this.activeRoom.playbackDurationProbe) {
+      const registrationBlocked =
+        this.activeRoom.playbackDurationProbe.identity.mediaKind === 'file' &&
+        (this.assetDurationLookup ||
+          this.activeRoom.pendingAssetDurationProbes?.includes(
+            this.activeRoom.playbackDurationProbe.identity.assetId,
+          ));
       candidates.push(
-        this.playbackDurationLookup
+        this.playbackDurationLookup || registrationBlocked
           ? Math.max(
               this.activeRoom.playbackDurationProbe.retryAtMs,
               nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS,
             )
           : this.activeRoom.playbackDurationProbe.retryAtMs,
+      );
+    }
+    if (this.activeRoom.pendingAssetDurationProbes?.length) {
+      candidates.push(
+        nowMs +
+          (this.assetDurationLookup || this.playbackDurationLookup
+            ? PLAYBACK_DURATION_PROBE_WATCHDOG_MS
+            : 1),
       );
     }
     const next = candidates
@@ -6511,6 +6806,9 @@ export class MusixquareProRoom {
           new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`),
         );
         const completedAssetId = completeMediaMatch?.[1];
+        const durationAssetId = url.pathname.match(
+          new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/duration$`),
+        )?.[1];
         const deletedAssetId = deleteMediaMatch?.[1];
         // Completion may leave a verified immutable final object in R2 before
         // the room-state commit. Its retry path now treats that object as the
@@ -6606,6 +6904,8 @@ export class MusixquareProRoom {
               return this.handleCreateReservation(request);
             if (request.method === 'POST' && completedAssetId)
               return this.handleCompleteMedia(request, completedAssetId);
+            if (request.method === 'POST' && durationAssetId)
+              return this.handleMediaDuration(request, durationAssetId);
             if (request.method === 'DELETE' && deletedAssetId)
               return this.handleDeleteMedia(request, deletedAssetId);
             return errorResponse('NOT_FOUND', 404);
@@ -8211,6 +8511,7 @@ export class MusixquareProRoom {
     asset.status = 'ready';
     delete asset.expiresAtMs;
     asset.completedAtMs = nowMs;
+    this.enqueueAssetDurationProbe(asset);
     const uploadExpiresAtMs = isSafeInteger(asset.uploadExpiresAtMs)
       ? asset.uploadExpiresAtMs
       : nowMs;
@@ -15854,10 +16155,24 @@ export class MusixquareProRoom {
     const key = this.readIdempotencyKey(request);
     if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
     if (!OPAQUE_ID_RE.test(assetId)) return errorResponse('INVALID_ASSET_ID', 400);
-    if (request.body && (request.headers.get('content-length') || '') !== '0')
+    const parsed = await this.parseBody(request, 1024, false, true);
+    if (parsed.response) return parsed.response;
+    if (
+      !parsed.empty &&
+      (!hasExactKeys(parsed.value, [], ['durationSeconds']) ||
+        (parsed.value.durationSeconds !== undefined &&
+          (!isFiniteNumber(parsed.value.durationSeconds) ||
+            parsed.value.durationSeconds <= 0 ||
+            parsed.value.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS)))
+    )
       return errorResponse('INVALID_REQUEST', 400);
+    const durationSeconds =
+      !parsed.empty && isRecord(parsed.value) ? parsed.value.durationSeconds : undefined;
     const scope = `participant:${auth.session.participantId}:complete`;
-    const fingerprint = await this.idempotencyFingerprint(scope, { assetId });
+    const fingerprint = await this.idempotencyFingerprint(scope, {
+      assetId,
+      ...(durationSeconds === undefined ? {} : { durationSeconds }),
+    });
     const replay = this.replayIdempotency(scope, key, fingerprint);
     if (replay) return replay;
     const asset = this.activeRoom.assets[assetId];
@@ -15956,6 +16271,12 @@ export class MusixquareProRoom {
     asset.status = 'ready';
     delete asset.expiresAtMs;
     asset.completedAtMs = completedAtMs;
+    if (
+      isFiniteNumber(durationSeconds) &&
+      this.sessionHasPermission(auth.session, 'playback.control')
+    )
+      this.storeAssetDuration(asset, durationSeconds, 'upload', completedAtMs);
+    this.enqueueAssetDurationProbe(asset);
     asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
     this.activeRoom.quota.reservedBytes -= asset.byteLength;
     this.activeRoom.quota.usedBytes += asset.byteLength;
@@ -15974,6 +16295,46 @@ export class MusixquareProRoom {
     const cleanup = this.env.PRO_MEDIA_BUCKET.delete(stagingObjectKey).catch(() => {});
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(cleanup);
     return jsonResponse(responseBody);
+  }
+
+  async handleMediaDuration(request: Request, assetId: string) {
+    const auth = await this.requireSession(request, {
+      activePresence: true,
+      capability: 'playback.control',
+    });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['assetVersion', 'byteLength', 'durationSeconds']) ||
+      !isSafeInteger(parsed.value.assetVersion) ||
+      parsed.value.assetVersion <= 0 ||
+      !isSafeInteger(parsed.value.byteLength) ||
+      parsed.value.byteLength <= 0 ||
+      !isFiniteNumber(parsed.value.durationSeconds) ||
+      parsed.value.durationSeconds <= 0 ||
+      parsed.value.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS
+    )
+      return errorResponse('INVALID_REQUEST', 400);
+    const asset = this.activeRoom.assets[assetId];
+    if (!asset || asset.status !== 'ready' || asset.deletionPending)
+      return errorResponse('ASSET_NOT_FOUND', 404);
+    if (
+      asset.version !== parsed.value.assetVersion ||
+      asset.byteLength !== parsed.value.byteLength ||
+      asset.roomGeneration !== this.activeRoom.roomGeneration
+    )
+      return errorResponse('ASSET_VERSION_CONFLICT', 409);
+    const stored = this.storeAssetDuration(asset, parsed.value.durationSeconds, 'controller');
+    const evidence = this.assetDurationEvidence(asset);
+    if (
+      !stored &&
+      (evidence?.source !== 'controller' ||
+        evidence.durationSeconds !== parsed.value.durationSeconds)
+    )
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    if (stored) await this.persist();
+    return jsonResponse({ ok: true });
   }
 
   async handleDownloadMedia(request: Request, assetId: string) {
@@ -16420,6 +16781,7 @@ export class MusixquareProRoom {
       await this.flushPendingPlaybackBroadcasts(nowMs);
       await this.maintainAlarm();
       this.startPlaybackDurationProbe();
+      this.startAssetDurationProbe();
     });
   }
 }

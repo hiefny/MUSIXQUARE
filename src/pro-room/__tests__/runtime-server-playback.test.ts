@@ -254,6 +254,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         .spyOn(ProRoomApiClient.prototype, 'createSignalingTicket')
         .mockResolvedValue(signalingAccess()),
       vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial),
+      vi.spyOn(ProRoomApiClient.prototype, 'reportMediaDuration').mockResolvedValue(undefined),
       vi.spyOn(ProRoomApiClient.prototype, 'getSettingsSync').mockResolvedValue({
         schemaVersion: 1,
         view: 'settings-sync',

@@ -665,6 +665,16 @@ Live or unknown-duration media are not assigned a guessed deadline. See the
 [natural-completion contract](pro-room-server-authority.md#8-ended-and-unavailable-arbitration)
 and [verification record](pro-autonomous-playback-2026-10-12.md).
 
+File lengths are retained on private immutable-asset metadata, independently of
+queue occurrences. New registrations overlap bounded local inspection with the
+upload and enqueue server inspection when metadata is absent. Existing rooms
+upgrade their verified cache lazily; later server inspection or an authorized
+browser's successful preparation backfills missing lengths. Reupload and queue
+reset are unnecessary. Ordinary participants do not gain duration-report or
+playback authority. Unsupported/ambiguous files remain unknown until a trusted
+preparation supplies their length. See the
+[registration/backfill record](pro-file-duration-registration-2026-10-12.md).
+
 When the final participant leaves, the room becomes `sleeping` and freezes the
 playing position at server time. If playback had been active, the first
 returning participant causes the PRO object to create a wake PREPARE from that

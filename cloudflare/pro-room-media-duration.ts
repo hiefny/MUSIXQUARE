@@ -284,8 +284,10 @@ export async function readProRoomFileDuration(
   bucket: DurationBucket,
   key: string,
   expectedBytes: number,
+  signal?: AbortSignal,
 ): Promise<number | null> {
-  if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || !key) return null;
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || !key || signal?.aborted)
+    return null;
   let stopped = false;
   let totalBytes = 0;
   let reads = 0;
@@ -298,10 +300,12 @@ export async function readProRoomFileDuration(
     stopped = true;
     for (const reader of readers) cancelReadableBody(reader, 'PRO_MEDIA_DURATION_PROBE_STOPPED');
   };
-  const timer = setTimeout(() => {
+  const abort = (): void => {
     stop();
     finishTimeout(null);
-  }, MAX_PROBE_MS);
+  };
+  const timer = setTimeout(abort, MAX_PROBE_MS);
+  signal?.addEventListener('abort', abort, { once: true });
   const read = async (start: number, end: number): Promise<Uint8Array> => {
     const length = end - start;
     if (
@@ -373,6 +377,7 @@ export async function readProRoomFileDuration(
     return await Promise.race([probe().catch(() => null), expired]);
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
     stop();
   }
 }

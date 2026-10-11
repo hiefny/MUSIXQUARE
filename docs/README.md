@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO file duration registration and backfill — 2026-10-12](design/pro-file-duration-registration-2026-10-12.md) —
+  bounded upload metadata, immutable asset duration retention, late authorized
+  preparation reports, legacy backfill, compatibility and verification limits.
+
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 

@@ -373,13 +373,23 @@ export interface CreateProRoomMediaReservationInput {
   idempotencyKey: string;
 }
 
-export interface CompleteProRoomMediaInput {
+export interface DeleteProRoomMediaInput {
   code: string;
   assetId: string;
   idempotencyKey: string;
 }
 
-export type DeleteProRoomMediaInput = CompleteProRoomMediaInput;
+export interface CompleteProRoomMediaInput extends DeleteProRoomMediaInput {
+  durationSeconds?: number;
+}
+
+interface ReportProRoomMediaDurationInput {
+  code: string;
+  assetId: string;
+  assetVersion: number;
+  byteLength: number;
+  durationSeconds: number;
+}
 
 /**
  * Why the room owner, an administrator, or a sibling device ended this
@@ -2310,23 +2320,82 @@ export class ProRoomApiClient {
     });
   }
 
-  completeMedia(
+  async completeMedia(
     input: CompleteProRoomMediaInput,
     signal?: AbortSignal,
   ): Promise<{ asset: ProRoomR2Source; quota: ProRoomQuotaSnapshot }> {
     const path = roomPath(input.code);
     const assetId = validateOpaqueId(input.assetId, 'INVALID_ASSET_ID');
-    return this.#request(`${path}/media/${encodeURIComponent(assetId)}/complete`, {
+    if (
+      input.durationSeconds !== undefined &&
+      (!Number.isFinite(input.durationSeconds) ||
+        input.durationSeconds <= 0 ||
+        input.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS)
+    ) {
+      throw new ProRoomApiError('INVALID_REQUEST', 400);
+    }
+    const complete = (includeDuration: boolean) =>
+      this.#request(`${path}/media/${encodeURIComponent(assetId)}/complete`, {
+        method: 'POST',
+        idempotencyKey: input.idempotencyKey,
+        ...(includeDuration && input.durationSeconds !== undefined
+          ? { body: { durationSeconds: input.durationSeconds } }
+          : {}),
+        signal,
+        activeRoomCode: input.code,
+        parser: (value) => {
+          if (!isRecord(value) || !hasExactKeys(value, ['asset', 'quota'])) return null;
+          const asset = parseR2Asset(value.asset);
+          const quota = parseQuota(value.quota);
+          return asset && quota ? { asset, quota } : null;
+        },
+      });
+    try {
+      return await complete(true);
+    } catch (error) {
+      // Older Workers reject a body before claiming the idempotency key.
+      // Only that explicit validation rejection can be retried without metadata.
+      if (
+        input.durationSeconds !== undefined &&
+        error instanceof ProRoomApiError &&
+        error.status === 400 &&
+        error.code === 'INVALID_REQUEST' &&
+        !signal?.aborted
+      ) {
+        return complete(false);
+      }
+      throw error;
+    }
+  }
+
+  async reportMediaDuration(
+    input: ReportProRoomMediaDurationInput,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const path = roomPath(input.code);
+    const assetId = validateOpaqueId(input.assetId, 'INVALID_ASSET_ID');
+    if (
+      !Number.isSafeInteger(input.assetVersion) ||
+      input.assetVersion <= 0 ||
+      !Number.isSafeInteger(input.byteLength) ||
+      input.byteLength <= 0 ||
+      input.byteLength > PRO_ROOM_MAX_ASSET_BYTES ||
+      !Number.isFinite(input.durationSeconds) ||
+      input.durationSeconds <= 0 ||
+      input.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS
+    )
+      throw new ProRoomApiError('INVALID_REQUEST', 400);
+    await this.#request(`${path}/media/${encodeURIComponent(assetId)}/duration`, {
       method: 'POST',
-      idempotencyKey: input.idempotencyKey,
+      body: {
+        assetVersion: input.assetVersion,
+        byteLength: input.byteLength,
+        durationSeconds: input.durationSeconds,
+      },
       signal,
       activeRoomCode: input.code,
-      parser: (value) => {
-        if (!isRecord(value) || !hasExactKeys(value, ['asset', 'quota'])) return null;
-        const asset = parseR2Asset(value.asset);
-        const quota = parseQuota(value.quota);
-        return asset && quota ? { asset, quota } : null;
-      },
+      parser: (value) =>
+        isRecord(value) && hasExactKeys(value, ['ok']) && value.ok === true ? true : null,
     });
   }
 

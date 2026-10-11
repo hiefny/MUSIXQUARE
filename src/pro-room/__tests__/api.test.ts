@@ -2413,6 +2413,166 @@ describe('PRO room private media API', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
+  it('attaches upload duration and retries an old Worker validation rejection once with the same key', async () => {
+    const asset = {
+      kind: 'pro-r2',
+      assetId: ASSET_ID,
+      version: 1,
+      byteLength: 1024,
+      mime: 'audio/flac',
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
+      .mockResolvedValueOnce(jsonResponse({ asset, quota: quota() }));
+    await expect(
+      client.completeMedia({
+        code: ROOM_CODE,
+        assetId: ASSET_ID,
+        idempotencyKey: IDEMPOTENCY_KEY,
+        durationSeconds: 123.45,
+      }),
+    ).resolves.toEqual({ asset, quota: quota() });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      durationSeconds: 123.45,
+    });
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBeUndefined();
+    for (const call of fetchMock.mock.calls) {
+      expect(new Headers(call[1]?.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
+    }
+  });
+
+  it.each([
+    [403, 'PERMISSION_DENIED'],
+    [409, 'CONFLICT'],
+    [500, 'INTERNAL_ERROR'],
+    [400, 'OTHER_ERROR'],
+  ])('does not strip duration on unrelated completion rejection %s/%s', async (status, error) => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValue(jsonResponse({ error }, { status }));
+    await expect(
+      client.completeMedia({
+        code: ROOM_CODE,
+        assetId: ASSET_ID,
+        idempotencyKey: IDEMPOTENCY_KEY,
+        durationSeconds: 10,
+      }),
+    ).rejects.toMatchObject({ status, code: error });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not repeatedly retry a bodyless completion rejected by an old Worker', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }),
+    );
+    await expect(
+      client.completeMedia({
+        code: ROOM_CODE,
+        assetId: ASSET_ID,
+        idempotencyKey: IDEMPOTENCY_KEY,
+        durationSeconds: 10,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([0, -1, NaN, Infinity, 604801])(
+    'rejects invalid upload duration %s before a request',
+    async (durationSeconds) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await expect(
+        client.completeMedia({
+          code: ROOM_CODE,
+          assetId: ASSET_ID,
+          idempotencyKey: IDEMPOTENCY_KEY,
+          durationSeconds,
+        }),
+      ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reports decoded duration with exact asset identity and an abortable request', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const controller = new AbortController();
+    await expect(
+      client.reportMediaDuration(
+        {
+          code: ROOM_CODE,
+          assetId: ASSET_ID,
+          assetVersion: 2,
+          byteLength: 1024,
+          durationSeconds: 90.25,
+        },
+        controller.signal,
+      ),
+    ).resolves.toBeUndefined();
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/${ROOM_CODE}/media/${ASSET_ID}/duration`,
+    );
+    expect(JSON.parse(String(init.body))).toEqual({
+      assetVersion: 2,
+      byteLength: 1024,
+      durationSeconds: 90.25,
+    });
+    expect(new Headers(init.headers).get('idempotency-key')).toBeNull();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { assetVersion: 0 },
+    { assetVersion: 1.5 },
+    { byteLength: 0 },
+    { byteLength: PRO_ROOM_MAX_ASSET_BYTES + 1 },
+    { durationSeconds: Infinity },
+    { durationSeconds: 0 },
+    { durationSeconds: 604801 },
+  ])('rejects invalid duration backfill before issuing a request: %j', async (invalid) => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await expect(
+      client.reportMediaDuration({
+        code: ROOM_CODE,
+        assetId: ASSET_ID,
+        assetVersion: 1,
+        byteLength: 1024,
+        durationSeconds: 5,
+        ...invalid,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('exposes an old Worker missing duration route without retry or presence recovery', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'NOT_FOUND' }, { status: 404 }));
+    await expect(
+      client.reportMediaDuration({
+        code: ROOM_CODE,
+        assetId: ASSET_ID,
+        assetVersion: 1,
+        byteLength: 1024,
+        durationSeconds: 5,
+      }),
+    ).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('strictly parses complete, download, and delete media envelopes', async () => {
     const asset = {
       kind: 'pro-r2' as const,

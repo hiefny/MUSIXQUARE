@@ -274,10 +274,50 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
       expect(
         await readProRoomFileDuration(memoryBucket(bytes), 'frames-only', bytes.length),
       ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES * 7), 6);
-      // The same header remains authoritative for the file it actually describes.
+      // Without a stream size a VBR count cannot rule out an appended part, so
+      // even the file it describes is measured by the exact scan.
       expect(
         await readProRoomFileDuration(memoryBucket(header), 'frames-only-exact', header.length),
-      ).toBeCloseTo(5.041633, 6);
+      ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES), 6);
+    });
+
+    describe('frame counts without a declared stream size', () => {
+      const encoder = new TextEncoder();
+      // MPEG-1 Layer III, 128 kbps, 44.1 kHz, padded to the exact average length.
+      const exact = (count: number) => Math.floor((count * 144000 * 128) / 44100);
+      const frame = (index: number) => {
+        const bytes = new Uint8Array(exact(index + 1) - exact(index));
+        bytes.set([0xff, 0xfb, 0x90 | (bytes.length === 418 ? 2 : 0), 0x64]);
+        return bytes;
+      };
+      const header = (magic: 'Xing' | 'Info', frames: number) => {
+        const bytes = frame(0);
+        bytes.set(encoder.encode(magic), 36);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(40, 0x1);
+        view.setUint32(44, frames);
+        return bytes;
+      };
+      const audio = (from: number, count: number) =>
+        Array.from({ length: count }, (_, index) => frame(from + index));
+      const read = (bytes: Uint8Array) =>
+        readProRoomFileDuration(memoryBucket(bytes), 'frames-only-size', bytes.length);
+
+      it('indexes a CBR Info count whose frames span the audio', async () => {
+        const bytes = concatenate(header('Info', 3_000), ...audio(1, 3_000));
+        expect(await read(bytes)).toBe((3_000 * 1152) / 44100);
+      });
+
+      // An appended part about as large as the counted audio still fits the
+      // largest-frame bound at 128 kbps, so the bound alone would keep the
+      // first part's length.
+      it.each(['Xing', 'Info'] as const)(
+        'scans a joined file behind a %s count without a stream size',
+        async (magic) => {
+          const bytes = concatenate(header(magic, 3_000), ...audio(1, 3_000), ...audio(1, 3_000));
+          expect(await read(bytes)).toBeCloseTo(scanned(6_001), 6);
+        },
+      );
     });
 
     it('applies the same consistency rule to Fraunhofer VBRI headers', async () => {

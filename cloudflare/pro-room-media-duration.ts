@@ -385,19 +385,26 @@ async function indexedMp3Duration(
   // tag-counting one. A VBR count cannot tell them apart. A CBR 'Info' count
   // can: its frames all have the first frame's exact average length (padding
   // included), so they must themselves span the audio.
+  //
+  // A header without a stream size leaves only the largest-frame bound, which
+  // at ordinary bitrates would hide an appended part larger than the counted
+  // audio. Trust such a count only for CBR 'Info' frames that span the audio
+  // at their exact average length; a VBR count is scanned instead.
   const audioBytes = end - offset;
   const largestFrame = Math.floor((version === 3 ? 144000 * 320 : 72000 * 160) / sampleRate) + 1;
   const averageFrame = (samplesPerFrame * 125 * layer3Kbps(version, bitrateIndex)) / sampleRate;
   const near = (declared: number, actual: number) =>
     Math.abs(declared - actual) <= Math.min(declared, actual) / 16;
-  const indexed = (frames: number, declaredBytes: number | null, constant: boolean) =>
-    (frames + 1) * largestFrame + 128 >= audioBytes &&
-    (declaredBytes === null ||
-      ((near(declaredBytes, audioBytes) || near(declaredBytes - offset, audioBytes)) &&
-        (offset <= Math.min(declaredBytes, audioBytes) / 16 ||
-          (constant && near((frames + 1) * averageFrame, audioBytes)))))
+  const indexed = (frames: number, declaredBytes: number | null, constant: boolean) => {
+    const constantSpan = constant && near((frames + 1) * averageFrame, audioBytes);
+    return (frames + 1) * largestFrame + 128 >= audioBytes &&
+      (declaredBytes === null
+        ? constantSpan
+        : (near(declaredBytes, audioBytes) || near(declaredBytes - offset, audioBytes)) &&
+          (offset <= Math.min(declaredBytes, audioBytes) / 16 || constantSpan))
       ? finiteDuration((frames * samplesPerFrame) / sampleRate)
       : null;
+  };
   if (
     (ascii(bytes, xingOffset, 'Xing') || ascii(bytes, xingOffset, 'Info')) &&
     bytes.length >= xingOffset + 12 &&

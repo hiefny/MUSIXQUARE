@@ -5802,7 +5802,8 @@ export class MusixquareProRoom {
         // Room state capacity refused the answer. The queue still owes its
         // backoff; otherwise the overdue probe repeats this lookup, and a full
         // core rewrite, on every watchdog. Record the attempt alone: no
-        // evidence, and only a not-found answer that was already stored.
+        // evidence, and only a not-found answer that was already stored and
+        // that this answer did not withdraw (it was "not found" or none).
         // Instance memory holds the same backoff in case even that is refused.
         const retryAtMs = Date.now() + retryMs;
         this.playbackDurationRetry = { key, retryAtMs };
@@ -5814,7 +5815,9 @@ export class MusixquareProRoom {
               identity: current.identity,
               attempts: Math.min(100, probe.attempts + 1),
               retryAtMs,
-              ...(current.notFoundAtMs === undefined ? {} : { notFoundAtMs: current.notFoundAtMs }),
+              ...(current.notFoundAtMs !== undefined && (notFound || unanswered)
+                ? { notFoundAtMs: current.notFoundAtMs }
+                : {}),
             };
             await this.persist();
           },

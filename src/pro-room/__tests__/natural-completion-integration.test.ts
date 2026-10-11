@@ -1221,4 +1221,33 @@ describe('PRO metadata answers refused by room state capacity', () => {
     await alarmAt(context, at + 900_000);
     expect(metadata.youtube).toHaveBeenCalledTimes(3);
   });
+
+  it.each([
+    ['finite', { kind: 'finite', durationSeconds: 5 }],
+    ['unplayable', { kind: 'unplayable' }],
+  ] as const)(
+    'withdraws a stored not-found answer when a %s answer does not fit',
+    async (_label, answer) => {
+      const { context, before, at } = await answerInFullRoom(answer, 30, {
+        notFoundAgoMs: 30_000,
+      });
+      expect(context.room.playbackDurations).toEqual({});
+      const { notFoundAtMs, ...withdrawn } = before;
+      expect(notFoundAtMs).toBe(at - 30_000);
+      expect(context.room.playbackDurationProbe).toEqual({
+        ...withdrawn,
+        attempts: 1,
+        retryAtMs: at + 60_000,
+      });
+      // With space again, one transient "not found" more than a minute after
+      // the withdrawn one restarts the two-answer rule instead of skipping.
+      context.room.assets[`asset_${SECOND}`]!.name = '';
+      metadata.youtube.mockResolvedValue({ kind: 'unavailable', reason: 'not-found' });
+      await alarmAt(context, at + 60_000);
+      expect(metadata.youtube).toHaveBeenCalledTimes(3);
+      expect(context.room.playbackDurations).toEqual({});
+      expect(context.room.playbackDurationProbe).toMatchObject({ notFoundAtMs: at + 60_000 });
+      expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+    },
+  );
 });

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { getLanguageMode, setLanguageMode, t } from '../../i18n/index.ts';
@@ -113,11 +113,20 @@ describe('dialog locale lifetime', () => {
     expect(await pending).toMatchObject({ action: 'superseded' });
     expect(bus.debug()['i18n:changed'] || 0).toBe(0);
   });
-  it('relabels a choice group without rebuilding it or losing the checked option', async () => {
+  it('relabels the choice page without rebuilding it or losing the checked option', async () => {
+    // The action buttons ignore presses just after a page swap; step past it.
+    let clock = 1_000_000;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const afterSwap = () => {
+      clock += 500;
+    };
     const pending = showDialog({
       title: () => t('pro.pin_change_title'),
-      choiceField: {
-        legend: () => t('pro.pin_members_legend'),
+      message: () => t('pro.pin_change_message'),
+      buttonText: () => t('dialog.step_next'),
+      secondaryText: () => t('common.cancel'),
+      choiceStep: {
+        title: () => t('pro.pin_members_title'),
         name: 'locale-membership',
         defaultValue: 'keep_present',
         options: [
@@ -132,35 +141,57 @@ describe('dialog locale lifetime', () => {
             detail: () => t('pro.pin_members_reenter_detail'),
           },
         ],
+        buttonText: () => t('common.ok'),
+        backText: () => t('dialog.step_back'),
       },
     });
+    document.getElementById('btn-dialog-ok')!.click();
     const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
+    afterSwap();
     radios[1]!.click();
     const text = () => [
-      document.querySelector('.dialog-choice-legend')?.textContent,
+      document.getElementById('dialog-title')?.textContent,
       ...[...document.querySelectorAll('.dialog-choice-label')].map((node) => node.textContent),
       ...[...document.querySelectorAll('.dialog-choice-detail')].map((node) => node.textContent),
+      document.getElementById('btn-dialog-secondary')?.textContent,
+      document.getElementById('btn-dialog-ok')?.textContent,
+    ];
+    const expected = () => [
+      t('pro.pin_members_title'),
+      t('pro.pin_members_keep'),
+      t('pro.pin_members_reenter'),
+      t('pro.pin_members_keep_detail'),
+      t('pro.pin_members_reenter_detail'),
+      t('dialog.step_back'),
+      t('common.ok'),
     ];
     const english = text();
-    expect(english).toEqual([
-      t('pro.pin_members_legend'),
-      t('pro.pin_members_keep'),
-      t('pro.pin_members_reenter'),
-      t('pro.pin_members_keep_detail'),
-      t('pro.pin_members_reenter_detail'),
-    ]);
+    expect(english).toEqual(expected());
     setLanguageMode('ko');
+    expect(text()).toEqual(expected());
     expect(text()).toEqual([
-      t('pro.pin_members_legend'),
-      t('pro.pin_members_keep'),
-      t('pro.pin_members_reenter'),
-      t('pro.pin_members_keep_detail'),
-      t('pro.pin_members_reenter_detail'),
+      '현재 참여자를 어떻게 할까요?',
+      '그대로 두기',
+      '모두 재입장',
+      '다시 입장하거나, 새로 참여하는 기기만 암호를 입력하면 돼요.',
+      '모두가 다시 들어와야 해요. 모르는 사람들을 한번에 내보내려면 이 방식을 추천해요.',
+      '이전',
+      '확인',
     ]);
     expect(text()).not.toEqual(english);
     expect([...document.querySelectorAll('.dialog-choice-radio')]).toEqual(radios);
     expect(radios.map((radio) => radio.checked)).toEqual([false, true]);
-    closeDialog('ok');
+    // Back restores the first page's copy in the new language.
+    afterSwap();
+    document.getElementById('btn-dialog-secondary')!.click();
+    expect(document.getElementById('dialog-title')?.textContent).toBe('방 암호 변경');
+    expect(document.getElementById('btn-dialog-ok')?.textContent).toBe('다음');
+    expect(document.getElementById('btn-dialog-secondary')?.textContent).toBe('취소');
+    afterSwap();
+    document.getElementById('btn-dialog-ok')!.click();
+    afterSwap();
+    document.getElementById('btn-dialog-ok')!.click();
     expect(await pending).toMatchObject({ action: 'ok', choiceValue: 'revoke_all' });
+    now.mockRestore();
   });
 });

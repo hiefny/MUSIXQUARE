@@ -728,6 +728,8 @@ const nl: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Opnieuw verbinden?',
   'dialog.reconnect': 'Opnieuw verbinden',
   'dialog.go_back': 'Terug',
+  'dialog.step_next': 'Volgende',
+  'dialog.step_back': 'Terug',
   'dialog.room_password_title': 'Kamerwachtwoord invoeren',
   'dialog.room_password_msg': 'Je hebt een wachtwoord nodig om aan deze kamer deel te nemen.',
   'dialog.room_password_retry_msg': 'Dat wachtwoord klopt niet. Probeer opnieuw.',
@@ -784,15 +786,15 @@ const nl: Record<I18nKey, string> = {
   'pro.pin_changed': 'Kamerwachtwoord gewijzigd.',
   'pro.pin_enable_title': 'Kamerwachtwoord instellen',
   'pro.pin_enabled': 'Kamerwachtwoord ingesteld.',
-  'pro.pin_members_legend': 'Wie nu in de kamer is',
-  'pro.pin_members_keep': 'Laten blijven',
+  'pro.pin_members_title': 'Wat moet er met de huidige deelnemers gebeuren?',
+  'pro.pin_members_keep': 'Iedereen blijft',
   'pro.pin_members_keep_detail':
-    'Wie nu verbonden is, kan blijven. Alle anderen hebben het wachtwoord nodig om deel te nemen.',
-  'pro.pin_members_reenter': 'Iedereen opnieuw laten deelnemen',
+    'Alleen apparaten die opnieuw of voor het eerst deelnemen, moeten het wachtwoord invoeren.',
+  'pro.pin_members_reenter': 'Iedereen neemt opnieuw deel',
   'pro.pin_members_reenter_detail':
-    'Alle anderen, ook je andere apparaten, moeten opnieuw deelnemen. Kies dit om onbekenden te verwijderen.',
+    'Iedereen moet opnieuw deelnemen. Aanbevolen om onbekenden in één keer te verwijderen.',
   'pro.pin_keep_unavailable':
-    'Het wachtwoord is niet gewijzigd. Mensen in de kamer laten blijven kan nu niet. Probeer het later opnieuw of laat iedereen opnieuw deelnemen.',
+    'Het wachtwoord is niet gewijzigd. Mensen in de kamer laten blijven kan nu niet. Probeer het later opnieuw of kies “Iedereen neemt opnieuw deel”.',
   'pro.pin_enabled_removed_title': 'De kamer heeft nu een wachtwoord',
   'pro.pin_enabled_removed_message':
     'De kamereigenaar heeft een wachtwoord voor deze kamer ingesteld. Voer het in om opnieuw deel te nemen.',

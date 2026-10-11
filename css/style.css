@@ -625,6 +625,17 @@
     }
   }
 
+  /* Pages of a stepped dialog swap in place; fade the incoming page only. */
+  @keyframes dialogPageIn {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
   /* Keep the clipped, shadowed surface translation-only. Scaling it can snap
      subpixel-centered multiline dialogs when WebKit drops the animation layer. */
   @keyframes modalSlideUp {
@@ -5489,6 +5500,12 @@
   html:lang(ja) .dialog-message,
   html:lang(zh-Hans) .dialog-message,
   html:lang(zh-Hant) .dialog-message,
+  html:lang(ja) .dialog-choice-text,
+  html:lang(zh-Hans) .dialog-choice-text,
+  html:lang(zh-Hant) .dialog-choice-text,
+  html:lang(ja) #dialog-overlay.dialog-stepped .dialog-title,
+  html:lang(zh-Hans) #dialog-overlay.dialog-stepped .dialog-title,
+  html:lang(zh-Hant) #dialog-overlay.dialog-stepped .dialog-title,
   html:lang(ja) .ob-slide .ob-desc,
   html:lang(ja) .ob-desc,
   html:lang(ja) .setup-header-text p,
@@ -5602,81 +5619,226 @@
     animation: shake 0.4s ease;
   }
 
-  /* One required choice below a dialog input: native radios in a fieldset.
-     Logical properties keep the radio on the reading start edge in RTL. */
-  .dialog-choice {
-    min-inline-size: 0;
-    margin-block: 16px 0;
-    margin-inline: 0;
-    padding: 0;
-    border: 0;
-    white-space: normal;
+  /* Choice page of a stepped dialog. Rows follow the language list (end-edge
+     check, surface-2 selection, primary label) with the settings choice
+     radius. Each row is a native radio painted by the surface after it, so the
+     group keeps radio semantics and arrow keys. Logical properties put the
+     check on the reading end edge in RTL. */
+  .dialog-choice-frame {
+    --language-list-fade-size: 24px;
+    position: relative;
+    display: flex;
+    min-block-size: 0;
+    margin-block: 16px 24px;
+    margin-inline: 28px;
+    animation: dialogPageIn 0.24s ease-out both;
   }
 
-  .dialog-choice-legend {
-    padding: 0;
-    margin-block-end: 6px;
-    color: var(--text-main);
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.4;
+  .dialog-choice-frame[hidden] {
+    display: none;
+  }
+
+  /* When a short landscape viewport cannot fit every row, only the list gives
+     up height: the title and actions stay visible and the list scrolls. */
+  #dialog-overlay .dialog > .dialog-choice-frame {
+    flex-shrink: 1;
+    min-block-size: 88px;
+  }
+
+  #dialog-message:has(+ .dialog-choice-frame) {
+    animation: dialogPageIn 0.24s ease-out both;
+  }
+
+  .dialog-choice-list {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    padding-inline: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .dialog-choice-option {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    min-block-size: 44px;
-    padding-block: 10px;
-    padding-inline: 12px;
-    border-radius: 12px;
-    box-sizing: border-box;
+    position: relative;
+    display: block;
+    flex-shrink: 0;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .dialog-choice-option + .dialog-choice-option {
-    margin-block-start: 4px;
-  }
-
-  .dialog-choice-option:has(.dialog-choice-radio:checked) {
-    background: rgba(var(--primary-rgb), 0.1);
-  }
-
+  /* Focusable and announced, but drawn by the surface that follows it. The
+     transparent radio covers the whole row, so touch exploration, the screen
+     reader's focus outline and scroll-into-view all use the row's bounds, and
+     a tap lands on the radio itself. Physical offsets spanning the full width
+     are direction-neutral and stay inside the Chromium 79 subset; logical
+     inline offsets would compile to :is() fallbacks it cannot parse. */
   .dialog-choice-radio {
-    flex: none;
-    inline-size: 20px;
-    block-size: 20px;
-    margin-block: 1px 0;
-    margin-inline: 0;
-    accent-color: var(--primary);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
     cursor: pointer;
   }
 
-  .dialog-choice-radio:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
+  /* The transparent border keeps the language rows' outline in forced colors;
+     the padding is 1px smaller so the rows keep their height. */
+  .dialog-choice-surface {
+    min-block-size: 52px;
+    padding-block: 13px;
+    padding-inline: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-m);
+    background: transparent;
+    color: var(--text-main);
+    box-sizing: border-box;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
   }
 
+  @media (hover: hover) {
+    .dialog-choice-option:hover .dialog-choice-radio:not(:checked) + .dialog-choice-surface {
+      background: rgba(255, 255, 255, 0.035);
+    }
+  }
+
+  .dialog-choice-radio:checked + .dialog-choice-surface {
+    background: var(--surface-2);
+    color: var(--primary);
+  }
+
+  /* Keep the ring inside the scrollport, as on the language rows. */
+  .dialog-choice-radio:focus-visible + .dialog-choice-surface {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
+
+  .dialog-choice-pointer-focus .dialog-choice-radio:focus + .dialog-choice-surface {
+    outline: none;
+  }
+
+  /* The extra start inset matches the language rows' label inset. */
   .dialog-choice-text {
+    min-inline-size: 0;
+    padding-inline-start: 8px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    min-inline-size: 0;
+    gap: 4px;
     text-align: start;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    text-wrap: pretty;
+  }
+
+  /* The choice page asks its question in the title: keep Korean words whole
+     and avoid a one-word last line on narrow phones. A wrapped question gets
+     the row labels' line height in every script (the font's normal line
+     height is about 2 for Arabic). */
+  #dialog-overlay.dialog-stepped .dialog-title {
+    line-height: 1.3;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+    text-wrap: pretty;
+  }
+
+  /* dialog.ts keeps the panel's top edge where the first page put it, so the
+     title stays in place and the taller choice page grows downwards. Where
+     the viewport is too short for that, it moves up only as far as needed. */
+  #dialog-overlay.dialog-stepped .dialog {
+    position: relative;
+    top: var(--dialog-step-offset, 0px);
   }
 
   .dialog-choice-label {
-    color: var(--text-main);
     font-size: 15px;
-    font-weight: 600;
-    line-height: 1.4;
+    font-weight: 750;
+    line-height: 1.3;
   }
 
   .dialog-choice-detail {
     color: var(--text-sub);
     font-size: 13px;
-    line-height: 1.5;
+    font-weight: 500;
+    line-height: 1.45;
+  }
+
+  .dialog-choice-check {
+    inline-size: 22px;
+    block-size: 22px;
+    flex-shrink: 0;
+    opacity: 0;
+  }
+
+  .dialog-choice-radio:checked + .dialog-choice-surface .dialog-choice-check {
+    opacity: 1;
+  }
+
+  .dialog-choice-check svg {
+    inline-size: 22px;
+    block-size: 22px;
+    display: block;
+  }
+
+  /* Short landscape phones: a stepped dialog takes the short-height spacing
+     the account dialog uses, so both choices usually fit without scrolling.
+     Both pages share it, so the title keeps its offset inside the panel. */
+  @media (max-height: 480px) {
+    #dialog-overlay.dialog-stepped {
+      padding-block: 12px;
+    }
+
+    #dialog-overlay.dialog-stepped .dialog {
+      max-height: calc(var(--app-height, 100vh) - 24px);
+      max-height: calc(100dvh - 24px);
+    }
+
+    #dialog-overlay.dialog-stepped .dialog-header {
+      padding-block-start: 22px;
+    }
+
+    #dialog-overlay.dialog-stepped .dialog-message {
+      padding-block-end: 16px;
+    }
+
+    #dialog-overlay.dialog-stepped .dialog-choice-frame {
+      margin-block: 12px 16px;
+    }
+
+    #dialog-overlay.dialog-stepped .dialog-choice-surface {
+      padding-block: 11px;
+    }
+
+    #dialog-overlay.dialog-stepped .dialog-actions {
+      padding-block-end: 22px;
+    }
+
+    #dialog-overlay.dialog-stepped .dialog-actions > button {
+      min-height: 48px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dialog-choice-frame {
+      animation: none;
+    }
+
+    /* Separate rule: a browser without :has() must still drop the fade above. */
+    #dialog-message:has(+ .dialog-choice-frame) {
+      animation: none;
+    }
+
+    .dialog-choice-surface {
+      transition: none;
+    }
   }
 
   .dialog-actions {
@@ -5770,7 +5932,8 @@
     overflow-y: auto;
   }
 
-  .language-list-edge {
+  .language-list-edge,
+  .dialog-choice-edge {
     position: absolute;
     left: 0;
     right: 0;
@@ -5781,7 +5944,8 @@
     transition: opacity 0.2s ease;
   }
 
-  .language-list-edge-top {
+  .language-list-edge-top,
+  .dialog-choice-edge-top {
     top: -1px;
     height: calc(var(--language-list-fade-size) + 1px);
     background: linear-gradient(
@@ -5792,7 +5956,8 @@
     );
   }
 
-  .language-list-edge-bottom {
+  .language-list-edge-bottom,
+  .dialog-choice-edge-bottom {
     bottom: -1px;
     height: calc(var(--language-list-fade-size) + 1px);
     background: linear-gradient(
@@ -5804,7 +5969,9 @@
   }
 
   .language-list.can-scroll-up ~ .language-list-edge-top,
-  .language-list.can-scroll-down ~ .language-list-edge-bottom {
+  .language-list.can-scroll-down ~ .language-list-edge-bottom,
+  .dialog-choice-list.can-scroll-up ~ .dialog-choice-edge-top,
+  .dialog-choice-list.can-scroll-down ~ .dialog-choice-edge-bottom {
     opacity: 1;
   }
 
@@ -5848,7 +6015,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .language-list-edge {
+    .language-list-edge,
+    .dialog-choice-edge {
       transition: none;
     }
   }
@@ -12339,6 +12507,29 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     )
     * {
     color: HighlightText !important;
+  }
+
+  /* Dialog choice radios are transparent; their surfaces carry the state.
+     Forced colors paint a Canvas backplate behind text, so HighlightText
+     copy would vanish on it. The chosen row's copy keeps the OS text colors
+     on that backplate, as filled buttons do; only the check mark, which has
+     no backplate, takes HighlightText. */
+  .dialog-choice-radio:checked + .dialog-choice-surface {
+    border-color: Highlight !important;
+    background: Highlight !important;
+  }
+
+  .dialog-choice-radio:checked + .dialog-choice-surface .dialog-choice-check {
+    color: HighlightText !important;
+  }
+
+  .dialog-choice-radio:focus-visible + .dialog-choice-surface {
+    outline: 3px solid Highlight !important;
+    outline-offset: -3px !important;
+  }
+
+  .dialog-choice-radio:checked:focus-visible + .dialog-choice-surface {
+    outline-color: HighlightText !important;
   }
 
   :is(button, [role='button'], [role='switch'], [role='tab']):is(:disabled, [aria-disabled='true']),

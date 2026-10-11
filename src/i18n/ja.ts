@@ -647,6 +647,8 @@ const ja: Record<I18nKey, string> = {
   'dialog.reconnect_ask': '再接続しますか？',
   'dialog.reconnect': '再接続',
   'dialog.go_back': '戻る',
+  'dialog.step_next': '次へ',
+  'dialog.step_back': '戻る',
   'dialog.room_password_title': 'ルームパスワードを入力',
   'dialog.room_password_msg': 'このルームに参加するにはパスワードが必要です。',
   'dialog.room_password_retry_msg': 'パスワードが一致しません。もう一度入力してください。',
@@ -704,15 +706,15 @@ const ja: Record<I18nKey, string> = {
   'pro.pin_changed': 'ルームのパスワードを変更しました。',
   'pro.pin_enable_title': 'ルームのパスワードを設定',
   'pro.pin_enabled': 'ルームのパスワードを設定しました。',
-  'pro.pin_members_legend': '今ルームにいる人',
+  'pro.pin_members_title': '今の参加者をどうしますか？',
   'pro.pin_members_keep': 'そのまま残す',
   'pro.pin_members_keep_detail':
-    '今つながっている人はそのまま残れます。それ以外の人は、パスワードを入力しないと入室できません。',
-  'pro.pin_members_reenter': '全員に再入室してもらう',
+    '再入室するデバイスと新しく参加するデバイスだけ、パスワードの入力が必要です。',
+  'pro.pin_members_reenter': '全員再入室',
   'pro.pin_members_reenter_detail':
-    '自分のほかのデバイスも含めて、全員が入り直す必要があります。知らない人を退出させたいときはこちらを選んでください。',
+    '全員が入り直す必要があります。知らない人をまとめて退出させたいときにおすすめです。',
   'pro.pin_keep_unavailable':
-    'パスワードは変更されていません。今は参加者を残したまま変更できません。しばらくしてからもう一度お試しいただくか、全員に再入室してもらってください。',
+    'パスワードは変更されていません。今は参加者を残したまま変更できません。しばらくしてからもう一度お試しいただくか、「全員再入室」を選んでください。',
   'pro.pin_enabled_removed_title': 'ルームのパスワードが設定されました',
   'pro.pin_enabled_removed_message':
     'ルームのオーナーがこのルームにパスワードを設定しました。パスワードを入力すると再入室できます。',

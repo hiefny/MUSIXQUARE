@@ -736,94 +736,487 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
   });
-  describe('choiceField', () => {
-    const choiceField = {
-      legend: 'People in the room now',
+  describe('choiceStep', () => {
+    const choiceStep = {
+      title: 'What should happen to current participants?',
       name: 'test-membership',
       defaultValue: 'keep',
       options: [
-        { value: 'keep', label: 'Let them stay', detail: 'People connected now can stay.' },
-        { value: 'reenter', label: 'Make everyone rejoin', detail: 'Everyone else rejoins.' },
+        { value: 'keep', label: 'Keep everyone', detail: 'Only new devices enter it.' },
+        { value: 'reenter', label: 'Everyone rejoins', detail: 'Everyone joins again.' },
       ],
+      buttonText: 'OK',
+      backText: 'Back',
+    };
+    const pinField = {
+      maxLength: 8,
+      splitEvery: 4,
+      inputMode: 'numeric' as const,
+      validator: (value: string) => (value.length === 8 ? null : 'invalid PIN'),
     };
     const exposeToFocusTrap = (element: Element) =>
       Object.defineProperty(element, 'offsetParent', {
         value: document.getElementById('dialog-overlay'),
         configurable: true,
       });
-
-    it('renders a labelled native radio group and resolves the checked value', async () => {
-      const { showDialog } = await import('../dialog.ts');
-      const promise = showDialog({ title: 'PIN', message: 'Set a PIN', choiceField });
-      vi.advanceTimersByTime(10);
-      const fieldset = document.querySelector('#dialog-message fieldset.dialog-choice')!;
-      expect(fieldset.querySelector('legend')?.textContent).toBe('People in the room now');
-      const radios = [...fieldset.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-      expect(radios.map((radio) => [radio.name, radio.value, radio.checked])).toEqual([
-        ['test-membership', 'keep', true],
-        ['test-membership', 'reenter', false],
-      ]);
-      for (const radio of radios) {
-        const label = radio.closest('label')!;
-        expect(label.classList.contains('dialog-choice-option')).toBe(true);
-        const detail = document.getElementById(radio.getAttribute('aria-describedby')!)!;
-        expect(label.contains(detail)).toBe(true);
-        // The name is the label span alone, so the detail is not read twice.
-        const name = document.getElementById(radio.getAttribute('aria-labelledby')!)!;
-        expect(name.classList.contains('dialog-choice-label')).toBe(true);
-        expect(name.contains(detail)).toBe(false);
-      }
-      expect(
-        radios.map((radio) => document.getElementById(radio.getAttribute('aria-labelledby')!)!),
-      ).toEqual([...fieldset.querySelectorAll('.dialog-choice-label')]);
-      expect(radios[0]!.labels?.[0]?.textContent).toContain('People connected now can stay.');
-      expect(radios[1]!.closest('label')!.textContent).toBe(
-        'Make everyone rejoinEveryone else rejoins.',
-      );
-      radios[1]!.click();
-      document.getElementById('btn-dialog-ok')!.click();
-      expect(await promise).toEqual({
-        action: 'ok',
-        inputValue: undefined,
-        choiceValue: 'reenter',
-      });
-      vi.advanceTimersByTime(10);
-    });
-
-    it('describes the dialog by its message text, not by the options, only while a choice is shown', async () => {
-      const { showDialog, closeDialog } = await import('../dialog.ts');
+    const wrapInPanel = () => {
       const overlay = document.getElementById('dialog-overlay')!;
       const panel = document.createElement('div');
       panel.setAttribute('role', 'dialog');
       panel.setAttribute('aria-describedby', 'dialog-message');
       panel.append(...overlay.childNodes);
       overlay.appendChild(panel);
-      const describedText = () =>
-        document.getElementById(panel.getAttribute('aria-describedby')!)?.textContent;
+      return panel;
+    };
+    const fillPin = (first: string, second: string) => {
+      const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
+      segments[0]!.value = first;
+      segments[1]!.value = second;
+      return segments;
+    };
+    const key = (target: EventTarget, name: string, init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent('keydown', {
+        key: name,
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      target.dispatchEvent(event);
+      return event;
+    };
+    const frame = () => document.querySelector<HTMLElement>('.dialog-choice-frame')!;
+    const radios = () => [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
+    const ok = () => document.getElementById('btn-dialog-ok') as HTMLButtonElement;
+    const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
+    const title = () => document.getElementById('dialog-title')!.textContent;
+    const message = () => document.getElementById('dialog-message')!;
+    // Both action buttons ignore presses just after a page swap.
+    const afterSwap = () => vi.advanceTimersByTime(500);
 
-      const choice = showDialog({
-        title: 'PIN',
-        message: 'Set a PIN',
-        inputField: { maxLength: 8, splitEvery: 4, hint: 'Eight digits' },
-        choiceField,
+    it('keeps the first page minimal and opens the choice page in place after a valid input', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const panel = wrapInPanel();
+      const overlay = document.getElementById('dialog-overlay')!;
+      const promise = showDialog({
+        title: 'Set room password',
+        message: 'Set a new 8-digit password.',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        choiceStep,
       });
       vi.advanceTimersByTime(10);
-      expect(panel.getAttribute('aria-describedby')).toBe('dialog-message-text');
-      expect(describedText()).toBe('Set a PIN');
-      const message = document.getElementById('dialog-message')!;
-      expect(message.firstElementChild?.id).toBe('dialog-message-text');
-      expect(message.querySelector('.dialog-choice')).not.toBeNull();
-      closeDialog('ok');
-      expect(await choice).toMatchObject({ choiceValue: 'keep' });
+
+      // Page 1: the message, the input and Cancel / Next; the choice is hidden.
+      expect(title()).toBe('Set room password');
+      expect(message().hidden).toBe(false);
+      expect(message().firstChild?.textContent).toBe('Set a new 8-digit password.');
+      expect(message().querySelector('input[type="radio"]')).toBeNull();
+      expect(frame().hidden).toBe(true);
+      expect(frame().previousElementSibling).toBe(message());
+      expect([ok().textContent, secondary().textContent]).toEqual(['Next', 'Cancel']);
+      expect(panel.getAttribute('aria-describedby')).toBe('dialog-message');
+
+      // An invalid PIN stays on page 1 exactly as OK did before.
+      ok().click();
+      expect(frame().hidden).toBe(true);
+      expect(document.getElementById('dialog-input-hint')?.textContent).toBe('invalid PIN');
+
+      fillPin('1234', '5678');
+      ok().click();
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(overlay.classList.contains('dialog-stepped')).toBe(true);
+      expect(title()).toBe('What should happen to current participants?');
+      expect(message().hidden).toBe(true);
+      expect(frame().hidden).toBe(false);
+      expect([ok().textContent, secondary().textContent]).toEqual(['OK', 'Back']);
+      expect(secondary().hidden).toBe(false);
+      // No subtitle on the choice page: the dialog loses its description.
+      expect(panel.hasAttribute('aria-describedby')).toBe(false);
+
+      const group = frame().querySelector('[role="radiogroup"]')!;
+      expect(group.getAttribute('aria-labelledby')).toBe('dialog-title');
+      expect(radios().map((radio) => [radio.name, radio.value, radio.checked])).toEqual([
+        ['test-membership', 'keep', true],
+        ['test-membership', 'reenter', false],
+      ]);
+      expect(document.activeElement).toBe(radios()[0]);
+      for (const radio of radios()) {
+        const row = radio.closest('label')!;
+        expect(row.classList.contains('dialog-choice-option')).toBe(true);
+        const surface = radio.nextElementSibling!;
+        expect(surface.classList.contains('dialog-choice-surface')).toBe(true);
+        // Browse mode reads the radio (name + description), not the copy again.
+        expect(surface.getAttribute('aria-hidden')).toBe('true');
+        // The check mark sits after the copy, on the reading end edge.
+        expect(surface.lastElementChild?.classList.contains('dialog-choice-check')).toBe(true);
+        expect(surface.lastElementChild?.getAttribute('aria-hidden')).toBe('true');
+        expect(surface.lastElementChild?.querySelector('svg path')).not.toBeNull();
+        // Named by the label alone and described by the detail, read once each.
+        const name = document.getElementById(radio.getAttribute('aria-labelledby')!)!;
+        const detail = document.getElementById(radio.getAttribute('aria-describedby')!)!;
+        expect(name.classList.contains('dialog-choice-label')).toBe(true);
+        expect(detail.classList.contains('dialog-choice-detail')).toBe(true);
+        expect(name.contains(detail)).toBe(false);
+      }
+      expect(radios()[1]!.closest('label')!.textContent).toBe(
+        'Everyone rejoinsEveryone joins again.',
+      );
+
+      afterSwap();
+      radios()[1]!.click();
+      ok().click();
+      expect(await promise).toEqual({
+        action: 'ok',
+        inputValue: '12345678',
+        choiceValue: 'reenter',
+      });
+      vi.advanceTimersByTime(10);
+    });
+
+    it('returns to the first page with the PIN kept, then cancels without a change', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const panel = wrapInPanel();
+      const onSecondaryActivation = vi.fn();
+      const resolved = vi.fn();
+      const promise = showDialog({
+        title: 'Change room password',
+        message: 'Set a new 8-digit password.',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        onSecondaryActivation,
+        choiceStep,
+      });
+      const observed = promise.then(resolved);
+      vi.advanceTimersByTime(10);
+      const segments = fillPin('1111', '2222');
+      ok().click();
+      afterSwap();
+      radios()[1]!.click();
+      secondary().click();
+      await Promise.resolve();
+
+      expect(resolved).not.toHaveBeenCalled();
+      expect(onSecondaryActivation).not.toHaveBeenCalled();
+      expect(title()).toBe('Change room password');
+      expect(message().hidden).toBe(false);
+      expect(frame().hidden).toBe(true);
+      expect([ok().textContent, secondary().textContent]).toEqual(['Next', 'Cancel']);
+      expect(panel.getAttribute('aria-describedby')).toBe('dialog-message');
+      expect(segments.map((segment) => segment.value)).toEqual(['1111', '2222']);
+      expect(document.activeElement).toBe(segments[0]);
+
+      // The choice made before going back is still the one shown next time.
+      afterSwap();
+      ok().click();
+      expect(radios().map((radio) => radio.checked)).toEqual([false, true]);
+      expect(document.activeElement).toBe(radios()[1]);
+      afterSwap();
+      secondary().click();
+      afterSwap();
+      secondary().click();
+      expect(await promise).toMatchObject({ action: 'secondary', inputValue: '11112222' });
+      await observed;
+      expect(onSecondaryActivation).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(10);
+    });
+
+    it('moves through both pages by keyboard and confirms exactly once', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const onPrimaryActivation = vi.fn();
+      const promise = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        onPrimaryActivation,
+        choiceStep,
+      });
+      vi.advanceTimersByTime(10);
+      const segments = fillPin('1234', '5678');
+      // Enter in the PIN input acts as Next and lands on the checked option.
+      const enter = key(segments[1]!, 'Enter');
+      expect(enter.defaultPrevented).toBe(true);
+      expect(frame().hidden).toBe(false);
+      expect(document.activeElement).toBe(radios()[0]);
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+      // Keyboard activation keeps the normal focus ring.
+      expect(frame().querySelector('.dialog-choice-pointer-focus')).toBeNull();
+
+      afterSwap();
+      radios()[1]!.click();
+      radios()[1]!.focus();
+      const confirm = key(radios()[1]!, 'Enter');
+      expect(confirm.defaultPrevented).toBe(true);
+      // A second Enter after the close cannot send another change.
+      key(window, 'Enter');
+      ok().click();
+      expect(await promise).toEqual({
+        action: 'ok',
+        inputValue: '12345678',
+        choiceValue: 'reenter',
+      });
+      expect(onPrimaryActivation).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(10);
+    });
+
+    it('goes back with Enter on Back and closes on Escape from either page', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const first = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        choiceStep,
+      });
+      vi.advanceTimersByTime(10);
+      fillPin('1234', '5678');
+      ok().click();
+      secondary().focus();
+      afterSwap();
+      expect(key(secondary(), 'Enter').defaultPrevented).toBe(true);
+      expect(frame().hidden).toBe(true);
+      key(window, 'Escape');
+      expect(await first).toMatchObject({ action: 'escape', inputValue: '12345678' });
       vi.advanceTimersByTime(10);
 
-      const plain = showDialog({ title: 'Info', message: 'Plain message' });
+      const second = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        choiceStep,
+      });
       vi.advanceTimersByTime(10);
+      fillPin('1234', '5678');
+      ok().click();
+      key(window, 'Escape');
+      expect(await second).toMatchObject({ action: 'escape' });
+      vi.advanceTimersByTime(10);
+    });
+
+    it('ignores a double press or a held Enter that would also press the next page action', async () => {
+      const { showDialog } = await import('../dialog.ts');
+      const onPrimaryActivation = vi.fn();
+      const resolved = vi.fn();
+      const promise = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        onPrimaryActivation,
+        choiceStep,
+      });
+      const observed = promise.then(resolved);
+      vi.advanceTimersByTime(10);
+      const segments = fillPin('1234', '5678');
+
+      // Double click on Next: the second click lands on OK and is ignored.
+      ok().click();
+      ok().click();
+      secondary().click();
+      await Promise.resolve();
+      expect(frame().hidden).toBe(false);
+      expect(resolved).not.toHaveBeenCalled();
+      // The actions move down; a second press landing on a row keeps the
+      // default, whether it hits the row's radio (which covers the row) or
+      // its label.
+      radios()[1]!.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }),
+      );
+      expect(radios().map((radio) => radio.checked)).toEqual([true, false]);
+      radios()[1]!
+        .closest('label')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+      expect(radios().map((radio) => radio.checked)).toEqual([true, false]);
+
+      // Double click on Back: the second click lands on Cancel and is ignored.
+      afterSwap();
+      secondary().click();
+      secondary().click();
+      await Promise.resolve();
+      expect(frame().hidden).toBe(true);
+      expect(resolved).not.toHaveBeenCalled();
+
+      // A held Enter (key repeat) neither moves on nor confirms.
+      afterSwap();
+      key(segments[1]!, 'Enter', { repeat: true });
+      expect(frame().hidden).toBe(true);
+      key(segments[1]!, 'Enter');
+      expect(frame().hidden).toBe(false);
+      key(radios()[0]!, 'Enter', { repeat: true });
+      afterSwap();
+      key(radios()[0]!, 'Enter', { repeat: true });
+      await Promise.resolve();
+      expect(resolved).not.toHaveBeenCalled();
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+
+      key(radios()[0]!, 'Enter');
+      expect(await promise).toEqual({
+        action: 'ok',
+        inputValue: '12345678',
+        choiceValue: 'keep',
+      });
+      await observed;
+      expect(onPrimaryActivation).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(10);
+    });
+
+    it('traps focus on the checked option and the two actions while the choice page is shown', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        choiceStep,
+      });
+      vi.advanceTimersByTime(10);
+      const segments = fillPin('1234', '5678');
+      for (const element of [...segments, ...radios()]) exposeToFocusTrap(element);
+      ok().click();
+      afterSwap();
+      radios()[1]!.click();
+      const tab = (shiftKey = false) => key(window, 'Tab', { shiftKey });
+
+      ok().focus();
+      expect(tab().defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(radios()[1]);
+      expect(tab(true).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(ok());
+      // Inside the cycle the browser moves focus natively; the trap stays out.
+      radios()[1]!.focus();
+      expect(tab().defaultPrevented).toBe(false);
+      closeDialog();
+      await promise;
+      vi.advanceTimersByTime(10);
+    });
+
+    it('suppresses the keyboard ring after a pointer Next until the next key', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        choiceStep,
+      });
+      vi.advanceTimersByTime(10);
+      fillPin('1234', '5678');
+      ok().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+      const list = frame().querySelector('.dialog-choice-list')!;
+      expect(document.activeElement).toBe(radios()[0]);
+      expect(list.classList.contains('dialog-choice-pointer-focus')).toBe(true);
+      key(radios()[0]!, 'ArrowDown');
+      expect(list.classList.contains('dialog-choice-pointer-focus')).toBe(false);
+      closeDialog();
+      await promise;
+      vi.advanceTimersByTime(10);
+    });
+
+    it('keeps the panel top edge still across page swaps where the viewport has room', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const panel = wrapInPanel();
+      const overlay = document.getElementById('dialog-overlay')!;
+      // A centred flex panel: page 1 is 300px tall, page 2 is 390px (451px in
+      // the short viewport). The relative offset moves it from that centre.
+      let viewportHeight = 844;
+      let choiceHeight = 390;
+      overlay.style.paddingTop = '24px';
+      overlay.style.paddingBottom = '24px';
+      Object.defineProperty(overlay, 'clientHeight', {
+        get: () => viewportHeight,
+        configurable: true,
+      });
+      const height = () => (frame().hidden ? 300 : choiceHeight);
+      const offset = () => panel.style.getPropertyValue('--dialog-step-offset');
+      Object.defineProperty(panel, 'offsetHeight', { get: height, configurable: true });
+      Object.defineProperty(panel, 'offsetTop', {
+        get: () => (viewportHeight - height()) / 2 + (parseFloat(offset()) || 0),
+        configurable: true,
+      });
+      const promise = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        secondaryText: 'Cancel',
+        choiceStep,
+      });
+      vi.advanceTimersByTime(10);
+      fillPin('1234', '5678');
+      expect(panel.offsetTop).toBe(272);
+
+      // Room below: page 2 keeps page 1's top edge (272), not its centre (227).
+      ok().click();
+      expect(offset()).toBe('45px');
+      expect(panel.offsetTop).toBe(272);
+      // Back: page 1 is centred at that edge again, with no offset.
+      afterSwap();
+      secondary().click();
+      expect(offset()).toBe('');
+      expect(panel.offsetTop).toBe(272);
+
+      // A short viewport moves the panel up only as far as it must:
+      // 568 - 24 - 451 = 93, so page 2 sits 35px below its centre (58.5).
+      viewportHeight = 568;
+      choiceHeight = 451;
+      window.dispatchEvent(new Event('resize'));
+      afterSwap();
+      ok().click();
+      expect(offset()).toBe('35px');
+      expect(panel.offsetTop).toBeCloseTo(93.5, 5);
+      expect(panel.offsetTop + height()).toBeLessThanOrEqual(568 - 24 + 0.5);
+
+      // A resize re-centres the page, and closing leaves no offset behind.
+      window.dispatchEvent(new Event('resize'));
+      expect(offset()).toBe('');
+      afterSwap();
+      secondary().click();
+      expect(offset()).toBe('');
+      afterSwap();
+      ok().click();
+      expect(offset()).toBe('35px');
+      closeDialog('secondary');
+      await promise;
+      expect(offset()).toBe('');
+      vi.advanceTimersByTime(10);
+    });
+
+    it('tears the page down on close and abort so the next dialog has no choice', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const panel = wrapInPanel();
+      const controller = new AbortController();
+      const aborted = showDialog({
+        title: 'PIN',
+        inputField: pinField,
+        buttonText: 'Next',
+        choiceStep,
+        signal: controller.signal,
+      });
+      vi.advanceTimersByTime(10);
+      fillPin('1234', '5678');
+      ok().click();
+      expect(message().hidden).toBe(true);
+      controller.abort();
+      expect(await aborted).toMatchObject({ action: 'superseded', choiceValue: 'keep' });
+      expect(document.querySelector('.dialog-choice-frame')).toBeNull();
+      expect(document.getElementById('dialog-overlay')!.classList.contains('dialog-stepped')).toBe(
+        false,
+      );
+      expect(message().hidden).toBe(false);
       expect(panel.getAttribute('aria-describedby')).toBe('dialog-message');
-      expect(document.getElementById('dialog-message-text')).toBeNull();
-      expect(describedText()).toBe('Plain message');
+      vi.advanceTimersByTime(10);
+
+      const plain = showDialog({ title: 'Plain', message: 'Plain message' });
+      vi.advanceTimersByTime(10);
+      expect(document.querySelector('.dialog-choice-frame')).toBeNull();
+      expect(secondary().hidden).toBe(true);
+      expect(message().textContent).toBe('Plain message');
       closeDialog('ok');
-      await plain;
+      const result = await plain;
+      expect(result).toEqual({ action: 'ok', inputValue: undefined });
+      expect('choiceValue' in result).toBe(false);
       vi.advanceTimersByTime(10);
     });
 
@@ -831,20 +1224,21 @@ describe('Dialog System', () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       const promise = showDialog({
         title: 'Choice',
-        choiceField: {
-          legend: () => 'Legend',
-          name: 'test-fallback',
+        choiceStep: {
+          ...choiceStep,
           defaultValue: 'missing',
           options: [
             { value: 'a', label: 'A' },
-            { value: 'b', label: 'B' },
+            { value: 'b', label: () => 'B' },
           ],
         },
       });
-      const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
-      expect(radios.map((radio) => radio.checked)).toEqual([true, false]);
-      expect(radios.every((radio) => !radio.hasAttribute('aria-describedby'))).toBe(true);
+      // Without an input, the first page's primary opens the choice page.
+      ok().click();
+      expect(radios().map((radio) => radio.checked)).toEqual([true, false]);
+      expect(radios().every((radio) => !radio.hasAttribute('aria-describedby'))).toBe(true);
       expect(document.querySelectorAll('.dialog-choice-detail')).toHaveLength(0);
+      expect(document.querySelectorAll('.dialog-choice-label')[1]?.textContent).toBe('B');
       closeDialog('secondary');
       expect(await promise).toEqual({
         action: 'secondary',
@@ -854,140 +1248,103 @@ describe('Dialog System', () => {
       vi.advanceTimersByTime(10);
     });
 
-    it('confirms with Enter on a radio only after the input validator passes', async () => {
-      const { showDialog } = await import('../dialog.ts');
-      const onPrimaryActivation = vi.fn();
-      const promise = showDialog({
-        title: 'PIN',
-        inputField: {
-          maxLength: 8,
-          splitEvery: 4,
-          inputMode: 'numeric',
-          validator: (value) => (value.length === 8 ? null : 'invalid PIN'),
-        },
-        choiceField,
-        onPrimaryActivation,
-      });
-      vi.advanceTimersByTime(10);
-      const resolved = vi.fn();
-      const observed = promise.then(resolved);
-      const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
-      radios[1]!.focus();
-      radios[1]!.click();
-      const early = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
-      radios[1]!.dispatchEvent(early);
-      await Promise.resolve();
-      expect(early.defaultPrevented).toBe(true);
-      expect(resolved).not.toHaveBeenCalled();
-      expect(onPrimaryActivation).not.toHaveBeenCalled();
-      expect(document.getElementById('dialog-input-hint')?.textContent).toBe('invalid PIN');
-
-      const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
-      segments[0]!.value = '1234';
-      segments[1]!.value = '5678';
-      radios[1]!.focus();
-      radios[1]!.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-      );
-      expect(await promise).toEqual({
-        action: 'ok',
-        inputValue: '12345678',
-        choiceValue: 'reenter',
-      });
-      await observed;
-      expect(onPrimaryActivation).toHaveBeenCalledTimes(1);
-      vi.advanceTimersByTime(10);
-    });
-
-    it('places the checked radio between the input and the actions in the focus trap', async () => {
-      const { showDialog, closeDialog } = await import('../dialog.ts');
-      const promise = showDialog({
-        title: 'PIN',
-        secondaryText: 'Cancel',
-        inputField: { maxLength: 8, splitEvery: 4 },
-        choiceField,
-      });
-      vi.advanceTimersByTime(10);
-      const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
-      const radios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
-      for (const element of [...segments, ...radios]) exposeToFocusTrap(element);
-      const ok = document.getElementById('btn-dialog-ok')!;
-      const tab = (shiftKey = false) => {
-        const event = new KeyboardEvent('keydown', {
-          key: 'Tab',
-          shiftKey,
-          bubbles: true,
-          cancelable: true,
-        });
-        window.dispatchEvent(event);
-        return event;
-      };
-      expect(document.activeElement).toBe(segments[0]);
-      expect(tab(true).defaultPrevented).toBe(true);
-      expect(document.activeElement).toBe(ok);
-      expect(tab().defaultPrevented).toBe(true);
-      expect(document.activeElement).toBe(segments[0]);
-      // Inside the cycle the browser moves focus natively; the trap stays out.
-      radios[0]!.focus();
-      expect(tab().defaultPrevented).toBe(false);
-
-      // Without an input, the checked radio opens the cycle.
-      closeDialog();
-      await promise;
-      vi.advanceTimersByTime(10);
-      const second = showDialog({ title: 'Choice', secondaryText: 'Cancel', choiceField });
-      vi.advanceTimersByTime(10);
-      const secondRadios = [...document.querySelectorAll<HTMLInputElement>('.dialog-choice-radio')];
-      for (const radio of secondRadios) exposeToFocusTrap(radio);
-      secondRadios[1]!.click();
-      ok.focus();
-      expect(tab().defaultPrevented).toBe(true);
-      expect(document.activeElement).toBe(secondRadios[1]);
-      expect(tab(true).defaultPrevented).toBe(true);
-      expect(document.activeElement).toBe(ok);
-      closeDialog();
-      expect(await second).toMatchObject({ choiceValue: 'reenter' });
-      vi.advanceTimersByTime(10);
-    });
-
-    it('tears the group down on close and abort so the next dialog has no choice', async () => {
-      const { showDialog, closeDialog } = await import('../dialog.ts');
-      const controller = new AbortController();
-      const aborted = showDialog({ title: 'Choice', choiceField, signal: controller.signal });
-      vi.advanceTimersByTime(10);
-      expect(document.querySelector('.dialog-choice')).not.toBeNull();
-      controller.abort();
-      expect(await aborted).toMatchObject({ action: 'superseded', choiceValue: 'keep' });
-      vi.advanceTimersByTime(10);
-
-      const plain = showDialog({ title: 'Plain' });
-      vi.advanceTimersByTime(10);
-      expect(document.querySelector('.dialog-choice')).toBeNull();
-      closeDialog('ok');
-      const result = await plain;
-      expect(result).toEqual({ action: 'ok', inputValue: undefined });
-      expect('choiceValue' in result).toBe(false);
-      vi.advanceTimersByTime(10);
-    });
-
-    it('styles the group for touch, keyboard focus, and either reading direction', () => {
+    it('styles the rows like the language list with the settings choice radius in either direction', () => {
       const block = (selector: string) => {
-        const start = STYLE_SOURCE.indexOf(`${selector} {`);
-        expect(start).toBeGreaterThan(-1);
+        const start = STYLE_SOURCE.indexOf(`\n  ${selector} {`);
+        expect(start, selector).toBeGreaterThan(-1);
         return STYLE_SOURCE.slice(start, STYLE_SOURCE.indexOf('}', start));
       };
-      expect(block('.dialog-choice-option')).toContain('min-block-size: 44px');
-      expect(block('.dialog-choice-option')).toContain('padding-inline: 12px');
-      expect(block('.dialog-choice-radio')).toContain('accent-color: var(--primary)');
-      expect(block('.dialog-choice-radio:focus-visible')).toContain('outline: 2px solid');
-      expect(block('.dialog-choice-text')).toContain('text-align: start');
+      expect(STYLE_SOURCE).not.toContain('.dialog-choice-legend');
+      expect(STYLE_SOURCE).not.toContain('accent-color: var(--primary)');
+      const surface = block('.dialog-choice-surface');
+      expect(surface).toContain('border-radius: var(--radius-m)');
+      expect(surface).toContain('justify-content: space-between');
+      expect(surface).toContain('min-block-size: 52px');
+      // Forced colors paint the transparent border, as on the language rows;
+      // the 1px smaller padding keeps the row height.
+      expect(surface).toContain('border: 1px solid transparent');
+      expect(surface).toMatch(/padding-block: 13px;\s*padding-inline: 13px;/);
+      expect(block('.dialog-choice-radio:checked + .dialog-choice-surface')).toMatch(
+        /background: var\(--surface-2\);[^}]*color: var\(--primary\);/s,
+      );
+      expect(
+        block('.dialog-choice-radio:checked + .dialog-choice-surface .dialog-choice-check'),
+      ).toContain('opacity: 1');
+      expect(block('.dialog-choice-radio:focus-visible + .dialog-choice-surface')).toContain(
+        'outline: 2px solid var(--primary)',
+      );
+      // The native radio stays focusable and announced but is not painted. It
+      // covers the whole row, so touch exploration, the screen reader's focus
+      // outline and scroll-into-view use the row's bounds, and taps hit it.
+      const radio = block('.dialog-choice-radio');
+      expect(radio).toContain('opacity: 0');
+      expect(radio).not.toMatch(/display:\s*none|visibility:\s*hidden|pointer-events:\s*none/);
+      expect(radio).toMatch(/top: 0;\s*left: 0;\s*width: 100%;\s*height: 100%;/);
+      expect(radio).not.toMatch(/\b(?:inline|block)-size:\s*1px/);
+      // A wrapped step-2 question uses the row labels' line height.
+      expect(block('#dialog-overlay.dialog-stepped .dialog-title')).toContain('line-height: 1.3');
+      // The panel keeps its top edge across page swaps through a relative offset.
+      expect(block('#dialog-overlay.dialog-stepped .dialog')).toMatch(
+        /position: relative;\s*top: var\(--dialog-step-offset, 0px\);/,
+      );
+      // Only the list scrolls in short landscape viewports; actions stay put.
+      expect(block('.dialog-choice-list')).toContain('overflow-y: auto');
+      expect(block('#dialog-overlay .dialog > .dialog-choice-frame')).toContain('flex-shrink: 1');
+      // The language list's fades cover the choice list too.
+      expect(STYLE_SOURCE).toMatch(/\.language-list-edge,\s*\.dialog-choice-edge \{/);
+      expect(STYLE_SOURCE).toMatch(
+        /\.dialog-choice-list\.can-scroll-down ~ \.dialog-choice-edge-bottom \{\s*opacity: 1;/,
+      );
+      // The radio's full-width stretch is the one direction-neutral physical
+      // offset; everything else stays logical so RTL mirrors the rows.
       const choiceRules = STYLE_SOURCE.slice(
-        STYLE_SOURCE.indexOf('.dialog-choice {'),
-        STYLE_SOURCE.indexOf('.dialog-choice-detail {'),
-      );
+        STYLE_SOURCE.indexOf('.dialog-choice-frame {'),
+        STYLE_SOURCE.indexOf('.dialog-choice-check svg {'),
+      ).replace(radio, '');
       expect(choiceRules).not.toMatch(
-        /(?:margin|padding)-(?:left|right)|text-align: (?:left|right)/,
+        /(?:margin|padding|inset)-(?:left|right)|text-align: (?:left|right)|\b(?:left|right):/,
       );
+      // Inline offsets and uneven inline shorthands compile to :is() fallbacks
+      // that the Chromium 79 (legacy TV) build rejects.
+      expect(choiceRules).not.toMatch(/inset-inline|(?:padding|margin)-inline:\s*\S+\s+\S+;/);
+      // Forced colors fill and outline the chosen row with Highlight. Its copy
+      // keeps the OS text colors on Chromium's Canvas text backplate, where
+      // HighlightText would vanish; only the check mark takes HighlightText.
+      const forced = STYLE_SOURCE.slice(
+        STYLE_SOURCE.lastIndexOf('@media (forced-colors: active) {'),
+      );
+      expect(forced).toMatch(
+        /\.dialog-choice-radio:checked \+ \.dialog-choice-surface \{\s*border-color: Highlight !important;\s*background: Highlight !important;\s*\}/,
+      );
+      expect(forced).toMatch(
+        /\.dialog-choice-radio:checked \+ \.dialog-choice-surface \.dialog-choice-check \{\s*color: HighlightText !important;\s*\}/,
+      );
+      expect(forced).not.toContain('.dialog-choice-radio:checked + .dialog-choice-surface *');
+    });
+
+    it('lets Japanese and Chinese choice copy wrap between characters', () => {
+      const anchor = STYLE_SOURCE.indexOf('html:lang(ja) .dialog-message');
+      const rule = STYLE_SOURCE.slice(anchor, STYLE_SOURCE.indexOf('}', anchor));
+      for (const lang of ['ja', 'zh-Hans', 'zh-Hant']) {
+        expect(rule).toContain(`html:lang(${lang}) .dialog-choice-text`);
+        expect(rule).toContain(`html:lang(${lang}) #dialog-overlay.dialog-stepped .dialog-title`);
+      }
+      // Korean keeps words whole in the choice copy and the stepped title.
+      expect(STYLE_SOURCE).toMatch(
+        /#dialog-overlay\.dialog-stepped \.dialog-title \{[^}]*word-break: keep-all;/,
+      );
+    });
+
+    it('gives a stepped dialog the short-height spacing on landscape phones', () => {
+      const start = STYLE_SOURCE.indexOf(
+        '@media (max-height: 480px) {\n    #dialog-overlay.dialog-stepped {',
+      );
+      expect(start).toBeGreaterThan(-1);
+      const media = STYLE_SOURCE.slice(start, STYLE_SOURCE.indexOf('\n  }\n', start));
+      expect(media).toMatch(/#dialog-overlay\.dialog-stepped \{\s*padding-block: 12px;/);
+      expect(media).toContain('max-height: calc(100dvh - 24px)');
+      expect(media).toMatch(/\.dialog-choice-surface \{\s*padding-block: 11px;/);
+      expect(media).toMatch(/\.dialog-actions > button \{\s*min-height: 48px;/);
     });
   });
 });

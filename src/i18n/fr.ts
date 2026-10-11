@@ -658,6 +658,8 @@ const fr: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Voulez-vous vous reconnecter ?',
   'dialog.reconnect': 'Se reconnecter',
   'dialog.go_back': 'Retour',
+  'dialog.step_next': 'Suivant',
+  'dialog.step_back': 'Retour',
   'dialog.room_password_title': 'Saisir le mot de passe du salon',
   'dialog.room_password_msg': 'Un mot de passe est requis pour rejoindre ce salon.',
   'dialog.room_password_retry_msg': 'Ce mot de passe ne correspond pas. Réessayez.',
@@ -715,15 +717,15 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Mot de passe du salon modifié.',
   'pro.pin_enable_title': 'Définir le mot de passe du salon',
   'pro.pin_enabled': 'Mot de passe du salon défini.',
-  'pro.pin_members_legend': 'Personnes actuellement dans le salon',
-  'pro.pin_members_keep': 'Les laisser rester',
+  'pro.pin_members_title': 'Que faire des participants actuels ?',
+  'pro.pin_members_keep': 'Garder tout le monde',
   'pro.pin_members_keep_detail':
-    'Les personnes connectées peuvent rester. Les autres devront saisir le mot de passe pour rejoindre le salon.',
-  'pro.pin_members_reenter': 'Faire revenir tout le monde',
+    'Seuls les appareils qui rejoignent de nouveau le salon ou pour la première fois devront saisir le mot de passe.',
+  'pro.pin_members_reenter': 'Tout le monde revient',
   'pro.pin_members_reenter_detail':
-    'Tous les autres, y compris vos autres appareils, devront rejoindre de nouveau le salon. Choisissez cette option pour retirer des inconnus.',
+    'Tout le monde devra rejoindre de nouveau le salon. Recommandé pour retirer d’un coup les personnes que vous ne connaissez pas.',
   'pro.pin_keep_unavailable':
-    'Le mot de passe n’a pas été modifié. Impossible pour l’instant de laisser les personnes dans le salon. Réessayez plus tard ou faites revenir tout le monde.',
+    'Le mot de passe n’a pas été modifié. Impossible pour l’instant de laisser les personnes dans le salon. Réessayez plus tard ou choisissez « Tout le monde revient ».',
   'pro.pin_enabled_removed_title': 'Mot de passe du salon défini',
   'pro.pin_enabled_removed_message':
     'Le propriétaire du salon a défini un mot de passe. Saisissez-le pour rejoindre de nouveau le salon.',

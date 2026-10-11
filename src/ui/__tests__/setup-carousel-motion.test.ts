@@ -661,8 +661,13 @@ describe('setup greeting reveal', () => {
     expect(languageStyles).toContain('.language-list.can-scroll-up ~ .language-list-edge-top');
     expect(languageStyles).toContain('.language-list.can-scroll-down ~ .language-list-edge-bottom');
     expect(languageStyles).toContain('transition: opacity 0.2s ease;');
-    expect(languageStyles).toMatch(/\.language-list-edge-top\s*{[^}]*top:\s*-1px;/s);
-    expect(languageStyles).toMatch(/\.language-list-edge-bottom\s*{[^}]*bottom:\s*-1px;/s);
+    // The dialog choice list shares these fades, so each rule may list it too.
+    expect(languageStyles).toMatch(
+      /\.language-list-edge-top(?:,\s*\.dialog-choice-edge-top)?\s*{[^}]*top:\s*-1px;/s,
+    );
+    expect(languageStyles).toMatch(
+      /\.language-list-edge-bottom(?:,\s*\.dialog-choice-edge-bottom)?\s*{[^}]*bottom:\s*-1px;/s,
+    );
     expect(
       languageStyles.match(/height:\s*calc\(var\(--language-list-fade-size\) \+ 1px\);/g),
     ).toHaveLength(2);

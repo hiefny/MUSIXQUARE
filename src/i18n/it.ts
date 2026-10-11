@@ -736,6 +736,8 @@ const it: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Vuoi provare a riconnetterti?',
   'dialog.reconnect': 'Riconnetti',
   'dialog.go_back': 'Indietro',
+  'dialog.step_next': 'Avanti',
+  'dialog.step_back': 'Indietro',
   'dialog.room_password_title': 'Inserisci la password della stanza',
   'dialog.room_password_msg': 'Per accedere a questa stanza è necessaria una password.',
   'dialog.room_password_retry_msg': 'La password inserita è errata. Riprova.',
@@ -803,15 +805,15 @@ const it: Record<I18nKey, string> = {
   'pro.pin_changed': 'Password della stanza modificata.',
   'pro.pin_enable_title': 'Imposta password',
   'pro.pin_enabled': 'Password della stanza impostata.',
-  'pro.pin_members_legend': 'Chi è nella stanza ora',
-  'pro.pin_members_keep': 'Lasciali restare',
+  'pro.pin_members_title': 'Cosa vuoi fare con i partecipanti attuali?',
+  'pro.pin_members_keep': 'Tieni tutti',
   'pro.pin_members_keep_detail':
-    'Chi è connesso ora può restare. Tutti gli altri avranno bisogno della password per entrare.',
-  'pro.pin_members_reenter': 'Fai rientrare tutti',
+    'Solo i dispositivi che rientrano o entrano per la prima volta dovranno inserire la password.',
+  'pro.pin_members_reenter': 'Tutti rientrano',
   'pro.pin_members_reenter_detail':
-    'Tutti gli altri, compresi i tuoi altri dispositivi, dovranno rientrare. Scegli questa opzione per rimuovere chi non conosci.',
+    'Tutti dovranno rientrare. Consigliato per rimuovere in una volta sola chi non conosci.',
   'pro.pin_keep_unavailable':
-    'La password non è stata cambiata. Al momento non è possibile lasciare le persone nella stanza. Riprova più tardi o fai rientrare tutti.',
+    'La password non è stata cambiata. Al momento non è possibile lasciare le persone nella stanza. Riprova più tardi o scegli “Tutti rientrano”.',
   'pro.pin_enabled_removed_title': 'La stanza ora ha una password',
   'pro.pin_enabled_removed_message':
     'Il proprietario della stanza ha impostato una password. Inseriscila per rientrare.',

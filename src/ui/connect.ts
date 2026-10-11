@@ -729,10 +729,13 @@ async function changeProRoomPin(disable = false): Promise<void> {
           validator: (value) =>
             normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
         },
-        // Who stays when the PIN takes effect. Keeping them is the default;
-        // making everyone rejoin is the remedy for strangers in the room.
-        choiceField: {
-          legend: () => t('pro.pin_members_legend'),
+        // "Next" leads to who stays when the PIN takes effect. Keeping them is
+        // the default; making everyone rejoin is the remedy for strangers in
+        // the room. Nothing is sent until that page's OK.
+        buttonText: () => t('dialog.step_next'),
+        secondaryText: () => t('common.cancel'),
+        choiceStep: {
+          title: () => t('pro.pin_members_title'),
           name: 'pro-pin-existing-participants',
           defaultValue: 'keep_present',
           options: [
@@ -747,9 +750,9 @@ async function changeProRoomPin(disable = false): Promise<void> {
               detail: () => t('pro.pin_members_reenter_detail'),
             },
           ],
+          buttonText: () => t('common.ok'),
+          backText: () => t('dialog.step_back'),
         },
-        buttonText: () => t('common.ok'),
-        secondaryText: () => t('common.cancel'),
         defaultFocus: 'primary',
         signal: abort.signal,
       });

@@ -6,6 +6,20 @@ Status: implemented and verified locally on branch
 `v646` at `6e59d96c` ([release record](../release-record.md)). Release target
 `all` (PRO Worker first, App last). Standard rooms do not change.
 
+> **Amendment (2026-10-11, App 8.9.1, not yet deployed):** the in-dialog
+> radio group described below clipped on small phones and in mobile
+> landscape. The PIN dialog is minimal again (Cancel / Next), and the choice
+> moved to a second page titled "현재 참여자를 어떻게 할까요?" ("What should
+> happen to current participants?") with "그대로 두기" / "모두 재입장"
+> ("Keep everyone" / "Everyone rejoins") rows styled like the language list.
+> The shared dialog's `choiceField` became `choiceStep` and
+> `pro.pin_members_legend` was removed. The keep-unavailable message now
+> ends by naming that row ("…“모두 재입장”을 선택해 주세요." / "…or choose
+> “Everyone rejoins”."). The `POST /pin` contract, the `keep_present` /
+> legacy-body mapping, the keep-unavailable path and the removal reasons
+> below are unchanged. See
+> [PRO PIN two-step dialog — 2026-10-11](pro-pin-two-step-2026-10-11.md).
+
 ## Owner decisions (2026-10-11)
 
 For PRO rooms only:

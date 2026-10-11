@@ -730,6 +730,8 @@ const ms: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Adakah anda mahu menyambung semula?',
   'dialog.reconnect': 'Sambung semula',
   'dialog.go_back': 'Kembali',
+  'dialog.step_next': 'Seterusnya',
+  'dialog.step_back': 'Kembali',
   'dialog.room_password_title': 'Masukkan Kata Laluan Bilik',
   'dialog.room_password_msg': 'Kata laluan diperlukan untuk menyertai bilik ini.',
   'dialog.room_password_retry_msg': 'Kata laluan itu tidak sepadan. Cuba lagi.',
@@ -797,15 +799,15 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_changed': 'Kata laluan bilik ditukar.',
   'pro.pin_enable_title': 'Tetapkan kata laluan bilik',
   'pro.pin_enabled': 'Kata laluan bilik ditetapkan.',
-  'pro.pin_members_legend': 'Orang dalam bilik sekarang',
-  'pro.pin_members_keep': 'Biarkan mereka kekal',
+  'pro.pin_members_title': 'Apakah yang perlu dilakukan kepada peserta semasa?',
+  'pro.pin_members_keep': 'Kekalkan semua',
   'pro.pin_members_keep_detail':
-    'Orang yang sedang bersambung boleh kekal. Orang lain memerlukan kata laluan untuk menyertai.',
-  'pro.pin_members_reenter': 'Minta semua orang menyertai semula',
+    'Hanya peranti yang menyertai semula atau menyertai buat kali pertama perlu memasukkan kata laluan.',
+  'pro.pin_members_reenter': 'Semua menyertai semula',
   'pro.pin_members_reenter_detail':
-    'Semua orang lain, termasuk peranti Anda yang lain, perlu menyertai semula. Pilih ini untuk mengeluarkan orang yang Anda tidak kenali.',
+    'Semua orang perlu menyertai semula. Disyorkan untuk mengeluarkan orang yang Anda tidak kenali sekali gus.',
   'pro.pin_keep_unavailable':
-    'Kata laluan tidak ditukar. Buat masa ini, orang dalam bilik tidak dapat dikekalkan. Cuba lagi kemudian atau minta semua orang menyertai semula.',
+    'Kata laluan tidak ditukar. Buat masa ini, orang dalam bilik tidak dapat dikekalkan. Cuba lagi kemudian atau pilih “Semua menyertai semula”.',
   'pro.pin_enabled_removed_title': 'Bilik kini mempunyai kata laluan',
   'pro.pin_enabled_removed_message':
     'Pemilik bilik telah menetapkan kata laluan untuk bilik ini. Masukkan kata laluan untuk menyertai semula.',

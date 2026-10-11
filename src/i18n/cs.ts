@@ -724,6 +724,8 @@ const cs: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Chcete se znovu připojit?',
   'dialog.reconnect': 'Připojit znovu',
   'dialog.go_back': 'Zpět',
+  'dialog.step_next': 'Další',
+  'dialog.step_back': 'Zpět',
   'dialog.room_password_title': 'Zadejte heslo místnosti',
   'dialog.room_password_msg': 'Pro vstup do této místnosti je vyžadováno heslo.',
   'dialog.room_password_retry_msg': 'Heslo nesouhlasí. Zkuste to znovu.',
@@ -790,15 +792,15 @@ const cs: Record<I18nKey, string> = {
   'pro.pin_changed': 'Heslo místnosti bylo změněno.',
   'pro.pin_enable_title': 'Nastavit heslo místnosti',
   'pro.pin_enabled': 'Heslo místnosti bylo nastaveno.',
-  'pro.pin_members_legend': 'Kdo je teď v místnosti',
-  'pro.pin_members_keep': 'Nechat je zůstat',
+  'pro.pin_members_title': 'Co udělat s aktuálními účastníky?',
+  'pro.pin_members_keep': 'Ponechat všechny',
   'pro.pin_members_keep_detail':
-    'Kdo je teď připojený, může zůstat. Ostatní budou k připojení potřebovat heslo.',
-  'pro.pin_members_reenter': 'Vyžadovat nové připojení od všech',
+    'Heslo budou muset zadat jen zařízení, která se připojí znovu nebo poprvé.',
+  'pro.pin_members_reenter': 'Všichni se připojí znovu',
   'pro.pin_members_reenter_detail':
-    'Všichni ostatní včetně vašich dalších zařízení se budou muset připojit znovu. Tuto možnost zvolte, pokud chcete odebrat neznámé lidi.',
+    'Všichni se budou muset připojit znovu. Doporučujeme, pokud chcete najednou odebrat lidi, které neznáte.',
   'pro.pin_keep_unavailable':
-    'Heslo nebylo změněno. Ponechat lidi v místnosti teď nelze. Zkuste to později znovu nebo vyžadujte nové připojení od všech.',
+    'Heslo nebylo změněno. Ponechat lidi v místnosti teď nelze. Zkuste to později znovu nebo zvolte „Všichni se připojí znovu“.',
   'pro.pin_enabled_removed_title': 'Místnost má teď heslo',
   'pro.pin_enabled_removed_message':
     'Vlastník místnosti nastavil pro tuto místnost heslo. Zadejte ho a připojte se znovu.',

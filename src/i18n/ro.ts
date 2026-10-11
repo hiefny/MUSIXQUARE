@@ -733,6 +733,8 @@ const ro: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Vrei să te reconectezi?',
   'dialog.reconnect': 'Reconectează',
   'dialog.go_back': 'Înapoi',
+  'dialog.step_next': 'Înainte',
+  'dialog.step_back': 'Înapoi',
   'dialog.room_password_title': 'Introdu parola camerei',
   'dialog.room_password_msg': 'Este necesară o parolă pentru a intra în această cameră.',
   'dialog.room_password_retry_msg': 'Parola nu corespunde. Încearcă din nou.',
@@ -800,15 +802,15 @@ const ro: Record<I18nKey, string> = {
   'pro.pin_changed': 'Parola camerei a fost schimbată.',
   'pro.pin_enable_title': 'Setează parola camerei',
   'pro.pin_enabled': 'Parola camerei a fost setată.',
-  'pro.pin_members_legend': 'Cine este acum în cameră',
-  'pro.pin_members_keep': 'Lasă-i să rămână',
+  'pro.pin_members_title': 'Ce faci cu participanții actuali?',
+  'pro.pin_members_keep': 'Păstrează-i pe toți',
   'pro.pin_members_keep_detail':
-    'Cei conectați acum pot rămâne. Ceilalți vor avea nevoie de parolă pentru a intra.',
-  'pro.pin_members_reenter': 'Cere tuturor să intre din nou',
+    'Doar dispozitivele care intră din nou sau pentru prima dată trebuie să introducă parola.',
+  'pro.pin_members_reenter': 'Toți intră din nou',
   'pro.pin_members_reenter_detail':
-    'Toți ceilalți, inclusiv celelalte dispozitive ale tale, vor trebui să intre din nou. Alege această opțiune ca să elimini persoanele pe care nu le cunoști.',
+    'Toți vor trebui să intre din nou. Recomandat ca să elimini dintr-odată persoanele pe care nu le cunoști.',
   'pro.pin_keep_unavailable':
-    'Parola nu a fost schimbată. Momentan nu poți păstra persoanele în cameră. Încearcă mai târziu sau cere tuturor să intre din nou.',
+    'Parola nu a fost schimbată. Momentan nu poți păstra persoanele în cameră. Încearcă mai târziu sau alege „Toți intră din nou”.',
   'pro.pin_enabled_removed_title': 'Camera are acum parolă',
   'pro.pin_enabled_removed_message':
     'Proprietarul camerei a setat o parolă pentru această cameră. Introdu-o ca să intri din nou.',

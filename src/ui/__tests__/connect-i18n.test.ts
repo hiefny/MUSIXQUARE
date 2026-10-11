@@ -3127,7 +3127,7 @@ describe('PRO optional entry password controls', () => {
     { required: false, title: 'pro.pin_enable_title', toast: 'pro.pin_enabled' },
     { required: true, title: 'pro.pin_change_title', toast: 'pro.pin_changed' },
   ] as const)(
-    'offers who stays when the PIN takes effect, keeping people by default (protected: $required)',
+    'asks for the PIN with Next, then who stays on its own page, keeping people by default (protected: $required)',
     async ({ required, title, toast }) => {
       openOwnerSettings(required);
       mockedShowDialog.mockResolvedValueOnce({
@@ -3144,14 +3144,24 @@ describe('PRO optional entry password controls', () => {
           'keep_present',
         ),
       );
+      expect(mockedShowDialog).toHaveBeenCalledOnce();
+      expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce();
       const options = lastDialogOptions();
+      // Step 1 is the minimal PIN page: title, one-line message, input, Cancel / Next.
       expect(renderedDialogText(options.title)).toBe(t(title));
       expect(renderedDialogText(options.message)).toBe(t('pro.pin_change_message'));
-      const choice = options.choiceField!;
-      expect(choice.defaultValue).toBe('keep_present');
-      expect(renderedDialogText(choice.legend)).toBe(t('pro.pin_members_legend'));
+      expect(renderedDialogText(options.buttonText)).toBe(t('dialog.step_next'));
+      expect(renderedDialogText(options.secondaryText)).toBe(t('common.cancel'));
+      expect(options).not.toHaveProperty('choiceField');
+      // Step 2 asks who stays, with no subtitle, and Back / OK.
+      const step = options.choiceStep!;
+      expect(renderedDialogText(step.title)).toBe(t('pro.pin_members_title'));
+      expect(step).not.toHaveProperty('message');
+      expect(step.defaultValue).toBe('keep_present');
+      expect(renderedDialogText(step.buttonText)).toBe(t('common.ok'));
+      expect(renderedDialogText(step.backText)).toBe(t('dialog.step_back'));
       expect(
-        choice.options.map((option) => [
+        step.options.map((option) => [
           option.value,
           renderedDialogText(option.label),
           renderedDialogText(option.detail),
@@ -3161,6 +3171,28 @@ describe('PRO optional entry password controls', () => {
         ['revoke_all', t('pro.pin_members_reenter'), t('pro.pin_members_reenter_detail')],
       ]);
       await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t(toast)));
+    },
+  );
+
+  it.each(['escape', 'secondary', 'superseded'])(
+    'sends nothing when the two-step dialog ends with %s',
+    async (action) => {
+      openOwnerSettings(false);
+      mockedShowDialog.mockResolvedValueOnce({
+        action,
+        inputValue: '11223344',
+        choiceValue: 'revoke_all',
+      });
+      document.getElementById('room-password-toggle')?.click();
+      await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledOnce());
+      await vi.waitFor(() =>
+        expect(
+          (document.getElementById('room-password-toggle') as HTMLButtonElement).disabled,
+        ).toBe(false),
+      );
+      expect(mockedChangeActiveProRoomPin).not.toHaveBeenCalled();
+      expect(showToast).not.toHaveBeenCalled();
+      expect(getState('network.roomPasswordRequired')).toBe(false);
     },
   );
 

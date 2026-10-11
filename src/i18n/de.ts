@@ -661,6 +661,8 @@ const de: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Möchtest du dich erneut verbinden?',
   'dialog.reconnect': 'Erneut verbinden',
   'dialog.go_back': 'Zurück',
+  'dialog.step_next': 'Weiter',
+  'dialog.step_back': 'Zurück',
   'dialog.room_password_title': 'Raumpasswort eingeben',
   'dialog.room_password_msg': 'Für den Beitritt zu diesem Raum ist ein Passwort erforderlich.',
   'dialog.room_password_retry_msg': 'Das Passwort stimmt nicht. Bitte erneut versuchen.',
@@ -718,15 +720,15 @@ const de: Record<I18nKey, string> = {
   'pro.pin_changed': 'Raumpasswort wurde geändert.',
   'pro.pin_enable_title': 'Raumpasswort festlegen',
   'pro.pin_enabled': 'Raumpasswort wurde festgelegt.',
-  'pro.pin_members_legend': 'Wer gerade im Raum ist',
-  'pro.pin_members_keep': 'Im Raum lassen',
+  'pro.pin_members_title': 'Was soll mit den aktuellen Teilnehmenden passieren?',
+  'pro.pin_members_keep': 'Alle bleiben',
   'pro.pin_members_keep_detail':
-    'Wer gerade verbunden ist, kann bleiben. Alle anderen brauchen das Passwort, um beizutreten.',
-  'pro.pin_members_reenter': 'Alle neu beitreten lassen',
+    'Nur Geräte, die erneut oder zum ersten Mal beitreten, müssen das Passwort eingeben.',
+  'pro.pin_members_reenter': 'Alle treten neu bei',
   'pro.pin_members_reenter_detail':
-    'Alle anderen, auch deine anderen Geräte, müssen erneut beitreten. Wähle das, um Unbekannte zu entfernen.',
+    'Alle müssen erneut beitreten. Empfohlen, um Unbekannte auf einmal zu entfernen.',
   'pro.pin_keep_unavailable':
-    'Das Passwort wurde nicht geändert. Personen im Raum zu lassen ist gerade nicht möglich. Versuche es später erneut oder lass alle neu beitreten.',
+    'Das Passwort wurde nicht geändert. Personen im Raum zu lassen ist gerade nicht möglich. Versuche es später erneut oder wähle „Alle treten neu bei“.',
   'pro.pin_enabled_removed_title': 'Raumpasswort festgelegt',
   'pro.pin_enabled_removed_message':
     'Der Raumbesitzer hat ein Passwort für diesen Raum festgelegt. Gib es ein, um erneut beizutreten.',

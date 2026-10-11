@@ -725,6 +725,8 @@ const sv: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Vill du ansluta igen?',
   'dialog.reconnect': 'Anslut igen',
   'dialog.go_back': 'Gå tillbaka',
+  'dialog.step_next': 'Nästa',
+  'dialog.step_back': 'Tillbaka',
   'dialog.room_password_title': 'Ange rumslösenord',
   'dialog.room_password_msg': 'Ett lösenord krävs för att ansluta till rummet.',
   'dialog.room_password_retry_msg': 'Lösenordet stämde inte. Försök igen.',
@@ -792,15 +794,15 @@ const sv: Record<I18nKey, string> = {
   'pro.pin_changed': 'Rumslösenordet har ändrats.',
   'pro.pin_enable_title': 'Ställ in rumslösenord',
   'pro.pin_enabled': 'Rumslösenordet har ställts in.',
-  'pro.pin_members_legend': 'Personer i rummet just nu',
-  'pro.pin_members_keep': 'Låt dem stanna',
+  'pro.pin_members_title': 'Vad ska hända med de nuvarande deltagarna?',
+  'pro.pin_members_keep': 'Behåll alla',
   'pro.pin_members_keep_detail':
-    'De som är anslutna nu kan stanna. Alla andra behöver lösenordet för att gå med.',
-  'pro.pin_members_reenter': 'Kräv att alla går med igen',
+    'Bara enheter som går med igen eller för första gången behöver ange lösenordet.',
+  'pro.pin_members_reenter': 'Alla går med igen',
   'pro.pin_members_reenter_detail':
-    'Alla andra, även dina andra enheter, måste gå med igen. Välj detta för att ta bort personer du inte känner.',
+    'Alla måste gå med igen. Rekommenderas om du vill ta bort personer du inte känner på en gång.',
   'pro.pin_keep_unavailable':
-    'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller kräv att alla går med igen.',
+    'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller välj ”Alla går med igen”.',
   'pro.pin_enabled_removed_title': 'Rummet har fått ett lösenord',
   'pro.pin_enabled_removed_message':
     'Rumsägaren har ställt in ett lösenord för rummet. Ange det för att gå med igen.',

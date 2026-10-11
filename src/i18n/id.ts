@@ -652,6 +652,8 @@ const id: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Ingin menyambung ulang?',
   'dialog.reconnect': 'Sambung ulang',
   'dialog.go_back': 'Kembali',
+  'dialog.step_next': 'Berikutnya',
+  'dialog.step_back': 'Kembali',
   'dialog.room_password_title': 'Masukkan sandi ruang',
   'dialog.room_password_msg': 'Sandi diperlukan untuk bergabung ke ruang ini.',
   'dialog.room_password_retry_msg': 'Sandi tidak cocok. Coba lagi.',
@@ -708,15 +710,15 @@ const id: Record<I18nKey, string> = {
   'pro.pin_changed': 'Sandi ruang telah diubah.',
   'pro.pin_enable_title': 'Atur sandi ruang',
   'pro.pin_enabled': 'Sandi ruang telah diatur.',
-  'pro.pin_members_legend': 'Orang yang ada di ruang sekarang',
-  'pro.pin_members_keep': 'Biarkan tetap di ruang',
+  'pro.pin_members_title': 'Bagaimana dengan peserta saat ini?',
+  'pro.pin_members_keep': 'Biarkan semua tetap di ruang',
   'pro.pin_members_keep_detail':
-    'Orang yang terhubung sekarang bisa tetap di ruang. Orang lain perlu sandi untuk bergabung.',
-  'pro.pin_members_reenter': 'Minta semua orang bergabung kembali',
+    'Hanya perangkat yang bergabung kembali atau baru pertama kali bergabung yang perlu memasukkan sandi.',
+  'pro.pin_members_reenter': 'Semua bergabung kembali',
   'pro.pin_members_reenter_detail':
-    'Semua orang lainnya, termasuk perangkat Anda yang lain, harus bergabung kembali. Pilih ini untuk mengeluarkan orang yang tidak Anda kenal.',
+    'Semua orang harus bergabung kembali. Disarankan untuk mengeluarkan orang yang tidak Anda kenal sekaligus.',
   'pro.pin_keep_unavailable':
-    'Sandi tidak diubah. Saat ini orang di ruang tidak bisa dipertahankan. Coba lagi nanti, atau minta semua orang bergabung kembali.',
+    'Sandi tidak diubah. Saat ini orang di ruang tidak bisa dipertahankan. Coba lagi nanti, atau pilih “Semua bergabung kembali”.',
   'pro.pin_enabled_removed_title': 'Ruang kini memakai sandi',
   'pro.pin_enabled_removed_message':
     'Pemilik ruang telah mengatur sandi untuk ruang ini. Masukkan sandi untuk bergabung kembali.',

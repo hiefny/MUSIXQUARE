@@ -713,6 +713,8 @@ const tr: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Yeniden bağlanmayı denemek istiyor musun?',
   'dialog.reconnect': 'Yeniden Bağlan',
   'dialog.go_back': 'Geri',
+  'dialog.step_next': 'İleri',
+  'dialog.step_back': 'Geri',
   'dialog.room_password_title': 'Oda şifresini gir',
   'dialog.room_password_msg': 'Bu odaya katılmak için şifre gereklidir.',
   'dialog.room_password_retry_msg': 'Şifre yanlış. Tekrar dene.',
@@ -779,15 +781,15 @@ const tr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Oda parolası değiştirildi.',
   'pro.pin_enable_title': 'Oda parolası belirle',
   'pro.pin_enabled': 'Oda parolası belirlendi.',
-  'pro.pin_members_legend': 'Şu anda odadakiler',
-  'pro.pin_members_keep': 'Kalsınlar',
+  'pro.pin_members_title': 'Mevcut katılımcılar için ne yapılsın?',
+  'pro.pin_members_keep': 'Herkes kalsın',
   'pro.pin_members_keep_detail':
-    'Şu anda bağlı olanlar kalabilir. Diğer herkesin katılmak için parolaya ihtiyacı olacak.',
+    'Yalnızca yeniden katılan veya ilk kez katılan cihazların parolayı girmesi gerekir.',
   'pro.pin_members_reenter': 'Herkes yeniden katılsın',
   'pro.pin_members_reenter_detail':
-    'Diğer cihazların da dahil olmak üzere herkesin yeniden katılması gerekecek. Tanımadığın kişileri çıkarmak için bunu seç.',
+    'Herkesin yeniden katılması gerekir. Tanımadığın kişileri tek seferde çıkarmak için önerilir.',
   'pro.pin_keep_unavailable':
-    'Parola değiştirilmedi. Şu anda kişileri odada tutmak mümkün değil. Daha sonra tekrar dene veya herkesin yeniden katılmasını sağla.',
+    'Parola değiştirilmedi. Şu anda kişileri odada tutmak mümkün değil. Daha sonra tekrar dene veya “Herkes yeniden katılsın” seçeneğini seç.',
   'pro.pin_enabled_removed_title': 'Odaya parola belirlendi',
   'pro.pin_enabled_removed_message':
     'Oda sahibi bu oda için bir parola belirledi. Yeniden katılmak için parolayı gir.',

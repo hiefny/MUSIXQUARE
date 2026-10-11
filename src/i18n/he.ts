@@ -699,6 +699,8 @@ const he: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'להתחבר מחדש?',
   'dialog.reconnect': 'חיבור מחדש',
   'dialog.go_back': 'חזרה',
+  'dialog.step_next': 'הבא',
+  'dialog.step_back': 'הקודם',
   'dialog.room_password_title': 'הזנת סיסמת החדר',
   'dialog.room_password_msg': 'נדרשת סיסמה כדי להצטרף לחדר הזה.',
   'dialog.room_password_retry_msg': 'הסיסמה אינה תואמת. כדאי לנסות שוב.',
@@ -763,15 +765,14 @@ const he: Record<I18nKey, string> = {
   'pro.pin_changed': 'סיסמת החדר שונתה.',
   'pro.pin_enable_title': 'הגדרת סיסמת החדר',
   'pro.pin_enabled': 'סיסמת החדר הוגדרה.',
-  'pro.pin_members_legend': 'מי שנמצא בחדר עכשיו',
-  'pro.pin_members_keep': 'להשאיר אותם',
-  'pro.pin_members_keep_detail':
-    'מי שמחובר עכשיו יכול להישאר. כל השאר יצטרכו את הסיסמה כדי להצטרף.',
-  'pro.pin_members_reenter': 'לבקש מכולם להצטרף מחדש',
+  'pro.pin_members_title': 'מה לעשות עם המשתתפים הנוכחיים?',
+  'pro.pin_members_keep': 'להשאיר את כולם',
+  'pro.pin_members_keep_detail': 'רק מכשירים שמצטרפים מחדש או בפעם הראשונה יצטרכו להזין את הסיסמה.',
+  'pro.pin_members_reenter': 'כולם מצטרפים מחדש',
   'pro.pin_members_reenter_detail':
-    'כל השאר, כולל המכשירים האחרים שלך, יצטרכו להצטרף מחדש. כדאי לבחור באפשרות הזו כדי להסיר אנשים לא מוכרים.',
+    'כולם יצטרכו להצטרף מחדש. מומלץ כדי להסיר בבת אחת אנשים לא מוכרים.',
   'pro.pin_keep_unavailable':
-    'הסיסמה לא שונתה. כרגע אי אפשר להשאיר אנשים בחדר. אפשר לנסות שוב מאוחר יותר או לבקש מכולם להצטרף מחדש.',
+    'הסיסמה לא שונתה. כרגע אי אפשר להשאיר אנשים בחדר. אפשר לנסות שוב מאוחר יותר או לבחור „כולם מצטרפים מחדש”.',
   'pro.pin_enabled_removed_title': 'הוגדרה סיסמה לחדר',
   'pro.pin_enabled_removed_message':
     'בעל החדר הגדיר סיסמה לחדר הזה. אפשר להזין אותה כדי להצטרף מחדש.',

@@ -660,6 +660,8 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Deseja reconectar?',
   'dialog.reconnect': 'Reconectar',
   'dialog.go_back': 'Voltar',
+  'dialog.step_next': 'Avançar',
+  'dialog.step_back': 'Voltar',
   'dialog.room_password_title': 'Digite a senha da sala',
   'dialog.room_password_msg': 'Uma senha é necessária para entrar nesta sala.',
   'dialog.room_password_retry_msg': 'A senha não confere. Tente novamente.',
@@ -716,15 +718,15 @@ const ptBr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Senha da sala alterada.',
   'pro.pin_enable_title': 'Definir senha',
   'pro.pin_enabled': 'Senha da sala definida.',
-  'pro.pin_members_legend': 'Pessoas na sala agora',
-  'pro.pin_members_keep': 'Deixar ficar',
+  'pro.pin_members_title': 'O que fazer com os participantes atuais?',
+  'pro.pin_members_keep': 'Manter todos',
   'pro.pin_members_keep_detail':
-    'Quem está conectado agora pode ficar. As demais pessoas vão precisar da senha para entrar.',
-  'pro.pin_members_reenter': 'Fazer todos entrarem novamente',
+    'Só os dispositivos que entrarem novamente ou pela primeira vez vão precisar digitar a senha.',
+  'pro.pin_members_reenter': 'Todos entram novamente',
   'pro.pin_members_reenter_detail':
-    'Todos os outros, incluindo seus outros dispositivos, vão precisar entrar novamente. Escolha esta opção para remover pessoas que você não conhece.',
+    'Todos vão precisar entrar novamente. Recomendado para remover de uma vez as pessoas que você não conhece.',
   'pro.pin_keep_unavailable':
-    'A senha não foi alterada. No momento, não é possível manter as pessoas na sala. Tente novamente mais tarde ou faça todos entrarem novamente.',
+    'A senha não foi alterada. No momento, não é possível manter as pessoas na sala. Tente novamente mais tarde ou escolha “Todos entram novamente”.',
   'pro.pin_enabled_removed_title': 'A sala agora tem senha',
   'pro.pin_enabled_removed_message':
     'O proprietário da sala definiu uma senha para esta sala. Digite a senha para entrar novamente.',

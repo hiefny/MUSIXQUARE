@@ -726,6 +726,8 @@ const hu: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Újracsatlakozol?',
   'dialog.reconnect': 'Újracsatlakozás',
   'dialog.go_back': 'Vissza',
+  'dialog.step_next': 'Tovább',
+  'dialog.step_back': 'Vissza',
   'dialog.room_password_title': 'Add meg a szobajelszót',
   'dialog.room_password_msg': 'A szobához való csatlakozáshoz jelszó szükséges.',
   'dialog.room_password_retry_msg': 'A jelszó nem egyezik. Próbáld újra.',
@@ -793,15 +795,15 @@ const hu: Record<I18nKey, string> = {
   'pro.pin_changed': 'A szobajelszó megváltozott.',
   'pro.pin_enable_title': 'Szobajelszó beállítása',
   'pro.pin_enabled': 'A szobajelszó be van állítva.',
-  'pro.pin_members_legend': 'Akik most a szobában vannak',
-  'pro.pin_members_keep': 'Maradhatnak',
+  'pro.pin_members_title': 'Mi legyen a jelenlegi résztvevőkkel?',
+  'pro.pin_members_keep': 'Mindenki marad',
   'pro.pin_members_keep_detail':
-    'Aki most csatlakozva van, maradhat. Mindenki másnak jelszó kell a csatlakozáshoz.',
-  'pro.pin_members_reenter': 'Mindenki csatlakozzon újra',
+    'Csak az újra vagy először csatlakozó eszközöknek kell megadniuk a jelszót.',
+  'pro.pin_members_reenter': 'Mindenki újra csatlakozik',
   'pro.pin_members_reenter_detail':
-    'Mindenki másnak, a többi eszközödet is beleértve, újra kell csatlakoznia. Ezt válaszd, ha ismeretleneket szeretnél eltávolítani.',
+    'Mindenkinek újra kell csatlakoznia. Ezt ajánljuk, ha egyszerre szeretnéd eltávolítani az ismeretleneket.',
   'pro.pin_keep_unavailable':
-    'A jelszó nem változott. A résztvevőket most nem lehet a szobában tartani. Próbáld újra később, vagy kérd, hogy mindenki csatlakozzon újra.',
+    'A jelszó nem változott. A résztvevőket most nem lehet a szobában tartani. Próbáld újra később, vagy válaszd a „Mindenki újra csatlakozik” lehetőséget.',
   'pro.pin_enabled_removed_title': 'A szobának jelszava lett',
   'pro.pin_enabled_removed_message':
     'A szobatulajdonos jelszót állított be ehhez a szobához. Add meg, és újra csatlakozhatsz.',

@@ -662,6 +662,8 @@ const es: Record<I18nKey, string> = {
   'dialog.reconnect_ask': '¿Quieres reconectar?',
   'dialog.reconnect': 'Reconectar',
   'dialog.go_back': 'Volver',
+  'dialog.step_next': 'Siguiente',
+  'dialog.step_back': 'Atrás',
   'dialog.room_password_title': 'Introducir contraseña de la sala',
   'dialog.room_password_msg': 'Se requiere contraseña para unirse a esta sala.',
   'dialog.room_password_retry_msg': 'La contraseña no coincide. Inténtalo de nuevo.',
@@ -719,15 +721,15 @@ const es: Record<I18nKey, string> = {
   'pro.pin_changed': 'Contraseña de la sala actualizada.',
   'pro.pin_enable_title': 'Definir contraseña',
   'pro.pin_enabled': 'Contraseña de la sala definida.',
-  'pro.pin_members_legend': 'Personas que están ahora en la sala',
-  'pro.pin_members_keep': 'Dejar que se queden',
+  'pro.pin_members_title': '¿Qué quieres hacer con los participantes actuales?',
+  'pro.pin_members_keep': 'Mantener a todos',
   'pro.pin_members_keep_detail':
-    'Quienes están conectados ahora pueden quedarse. Los demás necesitarán la contraseña para entrar.',
-  'pro.pin_members_reenter': 'Hacer que todos vuelvan a entrar',
+    'Solo los dispositivos que vuelvan a entrar o entren por primera vez tendrán que introducir la contraseña.',
+  'pro.pin_members_reenter': 'Todos vuelven a entrar',
   'pro.pin_members_reenter_detail':
-    'Todos los demás, incluidos tus otros dispositivos, tendrán que volver a entrar. Elige esta opción para sacar a personas que no conoces.',
+    'Todos tendrán que volver a entrar. Recomendado para sacar de una vez a las personas que no conoces.',
   'pro.pin_keep_unavailable':
-    'No se cambió la contraseña. Ahora mismo no se puede mantener a las personas en la sala. Inténtalo más tarde o haz que todos vuelvan a entrar.',
+    'No se cambió la contraseña. Ahora mismo no se puede mantener a las personas en la sala. Inténtalo más tarde o elige “Todos vuelven a entrar”.',
   'pro.pin_enabled_removed_title': 'Se definió una contraseña',
   'pro.pin_enabled_removed_message':
     'El propietario de la sala definió una contraseña para esta sala. Introdúcela para volver a entrar.',

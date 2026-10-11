@@ -828,6 +828,7 @@ const da: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'For mange forsøg på at deltage. Prøv igen om lidt.',
   'pro.active_tab_title': 'Der er stadig en tidligere forbindelse',
   'pro.active_tab_message': 'Hvis du fortsætter her, afbrydes den tidligere forbindelse.',
+  'pro.active_tab_replaced': 'Dette PRO-rum er allerede åbent i en anden fane',
   'pro.use_this_tab': 'Fortsæt her',
   'pro.upload.batch_progress': 'Uploader numre {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nogle numre kunne ikke uploades',

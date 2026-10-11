@@ -823,6 +823,7 @@ const hi: Record<I18nKey, string> = {
     'शामिल होने की बहुत ज़्यादा कोशिशें हुई हैं। थोड़ी देर बाद फिर कोशिश करें।',
   'pro.active_tab_title': 'एक पिछला कनेक्शन बाकी है',
   'pro.active_tab_message': 'यहाँ जारी रखने पर पिछला कनेक्शन बंद हो जाएगा।',
+  'pro.active_tab_replaced': 'यह PRO रूम पहले से दूसरे टैब में खुला है',
   'pro.use_this_tab': 'यहाँ जारी रखें',
   'pro.upload.batch_progress': 'ट्रैक अपलोड हो रहे हैं {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'कुछ ट्रैक अपलोड नहीं हो सके',

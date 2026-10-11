@@ -845,6 +845,7 @@ const it: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Troppi tentativi di accesso. Riprova tra poco.',
   'pro.active_tab_title': 'Rimane una connessione precedente',
   'pro.active_tab_message': 'Continuando qui, la connessione precedente verrà interrotta.',
+  'pro.active_tab_replaced': 'Questa stanza PRO è già aperta in un’altra scheda',
   'pro.use_this_tab': 'Continua qui',
   'pro.upload.batch_progress': 'Caricamento tracce {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Impossibile caricare alcune tracce',

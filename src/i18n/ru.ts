@@ -837,6 +837,7 @@ const ru: Record<I18nKey, string> = {
     'Слишком много попыток войти в комнату. Повторите попытку чуть позже.',
   'pro.active_tab_title': 'Сохранилось предыдущее подключение',
   'pro.active_tab_message': 'Если продолжить здесь, предыдущее подключение будет завершено.',
+  'pro.active_tab_replaced': 'Эта PRO-комната уже открыта в другой вкладке',
   'pro.use_this_tab': 'Продолжить здесь',
   'pro.upload.batch_progress': 'Загрузка треков {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Некоторые треки не удалось загрузить',

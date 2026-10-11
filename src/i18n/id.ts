@@ -744,6 +744,7 @@ const id: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Terlalu banyak percobaan bergabung. Coba lagi sebentar lagi.',
   'pro.active_tab_title': 'Koneksi sebelumnya masih tersisa',
   'pro.active_tab_message': 'Melanjutkan di sini akan memutus koneksi sebelumnya.',
+  'pro.active_tab_replaced': 'Ruang PRO ini sudah terbuka di tab lain',
   'pro.use_this_tab': 'Lanjutkan di sini',
   'pro.upload.batch_progress': 'Mengunggah media {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Beberapa media tidak dapat diunggah',

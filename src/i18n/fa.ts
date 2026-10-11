@@ -818,6 +818,7 @@ const fa: Record<I18nKey, string> = {
     'تعداد تلاش‌ها برای پیوستن بیش از حد است. کمی بعد دوباره تلاش کنید.',
   'pro.active_tab_title': 'اتصال قبلی باقی مانده است',
   'pro.active_tab_message': 'ادامه در اینجا، اتصال قبلی را قطع می‌کند.',
+  'pro.active_tab_replaced': 'این اتاق PRO از قبل در زبانهٔ دیگری باز است',
   'pro.use_this_tab': 'ادامه در اینجا',
   'pro.upload.batch_progress': 'در حال بارگذاری قطعه‌ها {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'برخی قطعه‌ها بارگذاری نشدند',

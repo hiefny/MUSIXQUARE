@@ -825,6 +825,7 @@ const pa: Record<I18nKey, string> = {
     'ਸ਼ਾਮਲ ਹੋਣ ਦੀਆਂ ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ ਹੋਈਆਂ ਹਨ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'pro.active_tab_title': 'ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਬਾਕੀ ਹੈ',
   'pro.active_tab_message': 'ਇੱਥੇ ਅੱਗੇ ਵਧਣ ਨਾਲ ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਜਾਵੇਗਾ।',
+  'pro.active_tab_replaced': 'ਇਹ PRO ਰੂਮ ਪਹਿਲਾਂ ਹੀ ਕਿਸੇ ਹੋਰ ਟੈਬ ਵਿੱਚ ਖੁੱਲ੍ਹਾ ਹੈ',
   'pro.use_this_tab': 'ਇੱਥੇ ਅੱਗੇ ਵਧੋ',
   'pro.upload.batch_progress': 'ਟਰੈਕ ਅੱਪਲੋਡ ਹੋ ਰਹੇ ਹਨ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ਕੁਝ ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ',

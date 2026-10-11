@@ -832,6 +832,7 @@ const uk: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Забагато спроб приєднатися. Спробуйте ще раз трохи згодом.',
   'pro.active_tab_title': 'Залишилося попереднє з’єднання',
   'pro.active_tab_message': 'Якщо продовжити тут, попереднє з’єднання буде завершено.',
+  'pro.active_tab_replaced': 'Цю кімнату PRO вже відкрито в іншій вкладці',
   'pro.use_this_tab': 'Продовжити тут',
   'pro.upload.batch_progress': 'Надсилання треків: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Деякі треки не вдалося надіслати',

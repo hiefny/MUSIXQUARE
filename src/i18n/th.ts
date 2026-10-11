@@ -804,6 +804,7 @@ const th: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'พยายามเข้าร่วมบ่อยเกินไป โปรดลองอีกครั้งในภายหลัง',
   'pro.active_tab_title': 'ยังมีการเชื่อมต่อก่อนหน้าค้างอยู่',
   'pro.active_tab_message': 'หากดำเนินการต่อที่นี่ การเชื่อมต่อก่อนหน้าจะถูกตัด',
+  'pro.active_tab_replaced': 'ห้อง PRO นี้เปิดอยู่ในแท็บอื่นแล้ว',
   'pro.use_this_tab': 'ดำเนินการต่อที่นี่',
   'pro.upload.batch_progress': 'กำลังอัปโหลดรายการ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'อัปโหลดบางรายการไม่สำเร็จ',

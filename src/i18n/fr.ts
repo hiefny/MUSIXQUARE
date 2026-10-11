@@ -754,6 +754,7 @@ const fr: Record<I18nKey, string> = {
     'Trop de tentatives pour rejoindre le salon. Réessayez dans quelques instants.',
   'pro.active_tab_title': 'Il reste une connexion précédente',
   'pro.active_tab_message': 'Continuer ici mettra fin à la connexion précédente.',
+  'pro.active_tab_replaced': 'Ce salon PRO est déjà ouvert dans un autre onglet',
   'pro.use_this_tab': 'Continuer ici',
   'pro.upload.batch_progress': 'Envoi des pistes {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Certaines pistes n’ont pas pu être envoyées',

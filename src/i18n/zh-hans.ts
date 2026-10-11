@@ -687,6 +687,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': '加入尝试次数过多。请稍后重试。',
   'pro.active_tab_title': '之前的连接仍然存在',
   'pro.active_tab_message': '在这里继续将断开之前的连接。',
+  'pro.active_tab_replaced': '这个 PRO 房间已在另一个标签页中打开',
   'pro.use_this_tab': '在这里继续',
   'pro.upload.batch_progress': '正在上传曲目 {{current}}/{{total}}',
   'pro.upload.batch_failed_title': '部分曲目无法上传',

@@ -752,6 +752,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Muitas tentativas de entrar. Tente novamente daqui a pouco.',
   'pro.active_tab_title': 'Ainda há uma conexão anterior',
   'pro.active_tab_message': 'Continuar aqui encerrará a conexão anterior.',
+  'pro.active_tab_replaced': 'Esta sala PRO já está aberta em outra aba',
   'pro.use_this_tab': 'Continuar aqui',
   'pro.upload.batch_progress': 'Enviando faixas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Não foi possível enviar algumas faixas',

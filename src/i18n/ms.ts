@@ -840,6 +840,7 @@ const ms: Record<I18nKey, string> = {
     'Terlalu banyak percubaan untuk menyertai. Cuba lagi sebentar nanti.',
   'pro.active_tab_title': 'Sambungan sebelumnya masih ada',
   'pro.active_tab_message': 'Jika anda meneruskan di sini, sambungan sebelumnya akan diputuskan.',
+  'pro.active_tab_replaced': 'Bilik PRO ini sudah dibuka dalam tab lain',
   'pro.use_this_tab': 'Teruskan di sini',
   'pro.upload.batch_progress': 'Memuat naik trek {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sesetengah trek tidak dapat dimuat naik',

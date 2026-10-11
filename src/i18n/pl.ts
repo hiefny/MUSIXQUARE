@@ -838,6 +838,7 @@ const pl: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Zbyt wiele prób dołączenia. Spróbuj ponownie za chwilę.',
   'pro.active_tab_title': 'Poprzednie połączenie nadal istnieje',
   'pro.active_tab_message': 'Kontynuowanie tutaj zakończy poprzednie połączenie.',
+  'pro.active_tab_replaced': 'Ten pokój PRO jest już otwarty w innej karcie',
   'pro.use_this_tab': 'Kontynuuj tutaj',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',

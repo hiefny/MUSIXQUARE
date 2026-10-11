@@ -803,6 +803,7 @@ const ar: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد قليل.',
   'pro.active_tab_title': 'لا يزال هناك اتصال سابق',
   'pro.active_tab_message': 'ستؤدي المتابعة هنا إلى قطع الاتصال السابق.',
+  'pro.active_tab_replaced': 'غرفة PRO هذه مفتوحة بالفعل في تبويب آخر',
   'pro.use_this_tab': 'المتابعة هنا',
   'pro.upload.batch_progress': 'جارٍ رفع المقاطع {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'تعذّر رفع بعض المقاطع',

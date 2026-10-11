@@ -756,6 +756,7 @@ const de: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Zu viele Beitrittsversuche. Versuche es etwas später erneut.',
   'pro.active_tab_title': 'Eine vorherige Verbindung besteht noch',
   'pro.active_tab_message': 'Wenn du hier fortfährst, wird die vorherige Verbindung getrennt.',
+  'pro.active_tab_replaced': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
   'pro.use_this_tab': 'Hier fortfahren',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',

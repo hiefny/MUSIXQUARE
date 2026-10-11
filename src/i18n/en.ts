@@ -816,6 +816,7 @@ const en: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Too many join attempts. Try again in a little while.',
   'pro.active_tab_title': 'A previous connection remains',
   'pro.active_tab_message': 'Continuing here will disconnect the previous connection.',
+  'pro.active_tab_replaced': 'This PRO room is already open in another tab',
   'pro.use_this_tab': 'Continue here',
   'pro.upload.batch_progress': 'Uploading tracks {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Some tracks couldn’t be uploaded',

@@ -833,6 +833,7 @@ const hu: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Túl sok csatlakozási kísérlet. Próbáld újra egy kicsit később.',
   'pro.active_tab_title': 'Még van egy korábbi kapcsolat',
   'pro.active_tab_message': 'Ha itt folytatod, a korábbi kapcsolat megszakad.',
+  'pro.active_tab_replaced': 'Ez a PRO-szoba már meg van nyitva egy másik lapon',
   'pro.use_this_tab': 'Folytatás itt',
   'pro.upload.batch_progress': 'Számok feltöltése: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Néhány szám feltöltése sikertelen',

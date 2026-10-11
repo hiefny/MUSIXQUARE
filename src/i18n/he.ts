@@ -800,6 +800,7 @@ const he: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד כמה רגעים.',
   'pro.active_tab_title': 'נשאר חיבור קודם',
   'pro.active_tab_message': 'המשך כאן ינתק את החיבור הקודם.',
+  'pro.active_tab_replaced': 'חדר ה-PRO כבר פתוח בכרטיסייה אחרת',
   'pro.use_this_tab': 'להמשיך כאן',
   'pro.upload.batch_progress': 'רצועות מועלות {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'חלק מהרצועות לא הועלו',

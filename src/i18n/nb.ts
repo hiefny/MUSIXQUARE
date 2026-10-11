@@ -827,6 +827,7 @@ const nb: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'For mange forsøk på å bli med. Prøv igjen om litt.',
   'pro.active_tab_title': 'Det finnes fortsatt en tidligere tilkobling',
   'pro.active_tab_message': 'Hvis du fortsetter her, avsluttes den tidligere tilkoblingen.',
+  'pro.active_tab_replaced': 'Dette PRO-rommet er allerede åpent i en annen fane',
   'pro.use_this_tab': 'Fortsett her',
   'pro.upload.batch_progress': 'Laster opp spor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Enkelte spor kunne ikke lastes opp',

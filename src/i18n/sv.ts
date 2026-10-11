@@ -833,6 +833,7 @@ const sv: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'För många försök att ansluta. Försök igen om en liten stund.',
   'pro.active_tab_title': 'En tidigare anslutning finns kvar',
   'pro.active_tab_message': 'Om du fortsätter här avslutas den tidigare anslutningen.',
+  'pro.active_tab_replaced': 'PRO-rummet är redan öppet i en annan flik',
   'pro.use_this_tab': 'Fortsätt här',
   'pro.upload.batch_progress': 'Laddar upp spår {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Vissa spår kunde inte laddas upp',

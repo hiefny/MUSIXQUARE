@@ -820,6 +820,7 @@ const tr: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Çok fazla katılma denemesi yapıldı. Biraz sonra tekrar dene.',
   'pro.active_tab_title': 'Önceki bir bağlantı hâlâ mevcut',
   'pro.active_tab_message': 'Burada devam edersen önceki bağlantı sonlandırılır.',
+  'pro.active_tab_replaced': 'Bu PRO odası başka bir sekmede zaten açık',
   'pro.use_this_tab': 'Burada devam et',
   'pro.upload.batch_progress': 'Parçalar yükleniyor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Bazı parçalar yüklenemedi',

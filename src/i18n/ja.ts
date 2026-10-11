@@ -741,6 +741,7 @@ const ja: Record<I18nKey, string> = {
     '参加の試行回数が多すぎます。しばらくしてからもう一度お試しください。',
   'pro.active_tab_title': '前の接続が残っています',
   'pro.active_tab_message': 'ここで続けると、前の接続が切断されます。',
+  'pro.active_tab_replaced': 'このPROルームは別のタブで開いています',
   'pro.use_this_tab': 'ここで続ける',
   'pro.upload.batch_progress': 'トラックをアップロード中：{{current}}/{{total}}',
   'pro.upload.batch_failed_title': '一部のトラックをアップロードできませんでした',

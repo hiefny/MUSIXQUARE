@@ -757,6 +757,7 @@ const es: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Demasiados intentos de entrar. Vuelve a intentarlo en un rato.',
   'pro.active_tab_title': 'Queda una conexión anterior',
   'pro.active_tab_message': 'Si continúas aquí, se cerrará la conexión anterior.',
+  'pro.active_tab_replaced': 'Esta sala PRO ya está abierta en otra pestaña',
   'pro.use_this_tab': 'Continuar aquí',
   'pro.upload.batch_progress': 'Subiendo pistas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'No se pudieron subir algunas pistas',

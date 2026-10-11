@@ -734,6 +734,7 @@ const vi: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Có quá nhiều lượt thử tham gia. Hãy thử lại sau một lát.',
   'pro.active_tab_title': 'Kết nối trước vẫn còn',
   'pro.active_tab_message': 'Tiếp tục tại đây sẽ ngắt kết nối trước đó.',
+  'pro.active_tab_replaced': 'Phòng PRO này đã được mở trong thẻ khác',
   'pro.use_this_tab': 'Tiếp tục tại đây',
   'pro.upload.batch_progress': 'Đang tải các bản nhạc lên {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Không thể tải lên một số bản nhạc',

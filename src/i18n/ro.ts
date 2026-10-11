@@ -841,6 +841,7 @@ const ro: Record<I18nKey, string> = {
   'pro.join_rate_limited_later': 'Prea multe încercări de intrare. Reîncearcă puțin mai târziu.',
   'pro.active_tab_title': 'Mai există o conexiune anterioară',
   'pro.active_tab_message': 'Dacă vei continua aici, conexiunea anterioară va fi închisă.',
+  'pro.active_tab_replaced': 'Această cameră PRO este deja deschisă în altă filă',
   'pro.use_this_tab': 'Continuă aici',
   'pro.upload.batch_progress': 'Se încarcă pistele {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Unele piste nu au putut fi încărcate',

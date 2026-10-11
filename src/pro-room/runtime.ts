@@ -2870,7 +2870,7 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   // immediately challenge the new tab and recreate the takeover loop.
   if (error.code === 'PRESENCE_SUPERSEDED') {
     if (typeof window !== 'undefined') {
-      scheduleSessionReset(t('pro.active_tab_title'), () => {
+      scheduleSessionReset(t('pro.active_tab_replaced'), () => {
         if (terminalRecoveryOwner !== recoveryOwner) {
           restoreSessionReset();
           return;

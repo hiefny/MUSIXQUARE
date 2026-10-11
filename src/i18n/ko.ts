@@ -806,6 +806,7 @@ const ko = {
   'pro.join_rate_limited_later': '입장 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.',
   'pro.active_tab_title': '이전 연결이 남아 있어요',
   'pro.active_tab_message': '여기서 계속하면 기존 연결이 종료돼요.',
+  'pro.active_tab_replaced': '이 PRO 방이 다른 탭에서 열려 있어요',
   'pro.use_this_tab': '여기서 계속',
   'pro.upload.batch_progress': '트랙 업로드 중 {{current}}/{{total}}',
   'pro.upload.batch_failed_title': '일부 트랙을 업로드하지 못했어요',

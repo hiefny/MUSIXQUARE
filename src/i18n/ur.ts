@@ -818,6 +818,7 @@ const ur: Record<I18nKey, string> = {
     'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
   'pro.active_tab_title': 'پچھلا کنکشن باقی ہے',
   'pro.active_tab_message': 'یہاں جاری رکھنے سے پچھلا کنکشن منقطع ہو جائے گا۔',
+  'pro.active_tab_replaced': 'یہ PRO کمرہ پہلے ہی دوسرے ٹیب میں کھلا ہے',
   'pro.use_this_tab': 'یہاں جاری رکھیں',
   'pro.upload.batch_progress': 'ٹریک اپ لوڈ ہو رہے ہیں {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'کچھ ٹریک اپ لوڈ نہیں ہو سکے',

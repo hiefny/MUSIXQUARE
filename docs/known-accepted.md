@@ -143,20 +143,20 @@ What remains accepted:
   legitimate core is already within that distance of the budget, owner
   admission and owner writes, including media reservations, can fail closed
   with `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release most of it
-  by enabling or rotating the PIN with "Make everyone rejoin", which does not
+  by enabling or rotating the PIN with "Everyone rejoins", which does not
   clear the rate-limit records; an absent owner has to wait for receipts and
   records to expire and sessions to leave, and a sustained distributed flood
   can repeat this. No byte headroom is reserved for the owner.
 - The remedy is the owner's: enter through the reserved place and enable or
-  rotate the PIN, choosing "Make everyone rejoin". That revokes every other
+  rotate the PIN, choosing "Everyone rejoins". That revokes every other
   session and presence, purges all session-create receipts, and resets the
   throttle; the revoked sessions' presence-close receipts go at the next
-  prune. The default choice, "Let them stay", is not a flood remedy: it keeps
+  prune. The default choice, "Keep everyone", is not a flood remedy: it keeps
   every present session, strangers included, and revokes only dormant ones.
   People it keeps stay signed in to the room on that device, without the PIN,
   until they leave, are removed, or their 30-day session expires.
 - A kick deletes the member's sessions, so coming back needs a new, throttled
-  join; there is no ban list. The kick (and a "Make everyone rejoin" PIN
+  join; there is no ban list. The kick (and an "Everyone rejoins" PIN
   change) also writes a removal notice, so the updated App tells that browser
   why and does not re-admit it silently. It shows the notice once per tab;
   after that, deliberately opening the room again is an ordinary join. Up to

@@ -259,9 +259,9 @@ matched provider data/code checkpoint.
   public. Owner-only `POST /pin` accepts `{pin: null}` to disable entry protection
   and `{pin: "12345678"}` to enable or change it. Disabling preserves current
   members and playback. Enabling or rotating with the legacy `{pin}` body
-  revokes every other session and advances the room incarnation ("Make
-  everyone rejoin"). Optional-v1 clients may add `existingParticipants`:
-  `revoke_all` is the same revocation, and `keep_present` ("Let them stay",
+  revokes every other session and advances the room incarnation ("Everyone
+  rejoins"). Optional-v1 clients may add `existingParticipants`:
+  `revoke_all` is the same revocation, and `keep_present` ("Keep everyone",
   the App's default) keeps every session bound to a live presence entry and
   revokes all others: dormant devices of kept accounts, dormant controllers
   and anonymous administrators, the owner's dormant devices, and anyone who
@@ -283,8 +283,8 @@ matched provider data/code checkpoint.
   any receipt, account member, owner link, display number, or session record,
   so `ROOM_FULL` has no side effects. An absent owner can therefore find a
   place in a room that others have filled and enable or rotate the PIN with
-  "Make everyone rejoin", which revokes every other session, releases every
-  session-create receipt, and resets the admission throttle ("Let them stay"
+  "Everyone rejoins", which revokes every other session, releases every
+  session-create receipt, and resets the admission throttle ("Keep everyone"
   keeps whoever is present and is not that remedy). The rule is checked only
   on entry: an owner whose live session was demoted in place (for example by
   an account detach) can still meet `ROOM_FULL` until somebody leaves
@@ -552,9 +552,9 @@ therefore cannot saturate the participant ledger that protects playback,
 queue, and media mutations, and cannot take the owner's receipt slots.
 Receipts written to the shared ledger by an earlier Worker are still read until
 they expire; they are not migrated. Enabling or rotating a PIN purges every
-session-create receipt. After "Make everyone rejoin" each one names a revoked
+session-create receipt. After "Everyone rejoins" each one names a revoked
 session except the owner's, whose retry converges through deterministic
-recovery; after "Let them stay" a kept session's retry converges the same way,
+recovery; after "Keep everyone" a kept session's retry converges the same way,
 because the session still exists at the unchanged authentication epoch. A revoked
 client's replay of its admission therefore reaches the PIN check: after a PIN
 is first enabled it carries no PIN and gets `PIN_REQUIRED`; after a rotation it
@@ -609,7 +609,7 @@ That is roughly 300 KiB in all with anonymous members, and 355 KiB with
 account-linked members. In a room whose legitimate core is already within that
 distance of the budget, owner admission and owner writes can fail closed with
 `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release most of it by
-enabling or rotating the PIN with "Make everyone rejoin", which revokes every
+enabling or rotating the PIN with "Everyone rejoins", which revokes every
 other session and presence and purges the admission receipts (the close
 receipts follow at the next prune); the rate-limit records are not cleared
 and expire within the hour. An absent owner has to wait for receipts and

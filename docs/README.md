@@ -93,6 +93,13 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO PIN two-step dialog — 2026-10-11](design/pro-pin-two-step-2026-10-11.md) —
+  unreleased App 8.9.1/v652 (target `app`): a minimal PIN page with Cancel /
+  Next, then "현재 참여자를 어떻게 할까요?" with "그대로 두기" / "모두 재입장" rows
+  styled like the language list, replacing the 8.9.0 in-dialog radio group that
+  clipped on small phones and in landscape. Local unit, build, browser, and
+  headless Chromium layout checks with screenshots; no real-device or
+  native-speaker review.
 - [PRO PIN membership choice and removal reasons — 2026-10-11](design/pro-pin-member-choice-2026-10-11.md) —
   "Let them stay" / "Make everyone rejoin" on PIN enable or change, and a
   `reason` on the unchanged `SESSION_REQUIRED` 401 for kicked, disconnected,

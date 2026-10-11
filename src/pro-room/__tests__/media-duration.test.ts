@@ -320,6 +320,163 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
       );
     });
 
+    describe('CBR Info counts measured against the first audio frame', () => {
+      const encoder = new TextEncoder();
+      // Version bits: 3 = MPEG-1, 2 = MPEG-2, 0 = MPEG-2.5.
+      type Version = 3 | 2 | 0;
+      const KBPS = {
+        3: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+        2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+        0: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+      } as const;
+      const rateOf = (version: Version, rateIndex: number) =>
+        [44100, 48000, 32000][rateIndex]! / (version === 3 ? 1 : version === 2 ? 2 : 4);
+      const seconds = (version: Version, rateIndex: number, frames: number) =>
+        (frames * (version === 3 ? 1152 : 576)) / rateOf(version, rateIndex);
+      // Layer III frames padded like an encoder to the exact average length.
+      const cbr = (
+        version: Version,
+        rateIndex: number,
+        bitrateIndex: number,
+        count: number,
+        mono = false,
+      ) => {
+        const scale = (version === 3 ? 144000 : 72000) * KBPS[version][bitrateIndex]!;
+        const exact = (frames: number) => Math.floor((frames * scale) / rateOf(version, rateIndex));
+        return Array.from({ length: count }, (_, index) => {
+          const bytes = new Uint8Array(exact(index + 1) - exact(index));
+          const padded = bytes.length > exact(1);
+          bytes.set([
+            0xff,
+            0xe3 | (version << 3),
+            (bitrateIndex << 4) | (rateIndex << 2) | (padded ? 2 : 0),
+            mono ? 0xc4 : 0x64,
+          ]);
+          return bytes;
+        });
+      };
+      const id3 = (tagBytes: number) => {
+        const tag = new Uint8Array(10 + tagBytes);
+        tag.set(encoder.encode('ID3'));
+        tag.set([3, 0, 0], 3);
+        tag.set(
+          [(tagBytes >> 21) & 127, (tagBytes >> 14) & 127, (tagBytes >> 7) & 127, tagBytes & 127],
+          6,
+        );
+        return tag;
+      };
+      const COVER_ART = 2 * 1024 * 1024;
+      // An unpadded Info frame at the stream's bitrate, as LAME writes it, or
+      // at a raised `headerBitrate`, as FFmpeg writes it for low bitrates.
+      const infoFile = (options: {
+        version?: Version;
+        rateIndex?: number;
+        bitrate: number;
+        headerBitrate?: number;
+        mono?: boolean;
+        frames: number;
+        counted?: number;
+        size?: boolean;
+        tag?: number;
+      }) => {
+        const { version = 3, rateIndex = 0, bitrate, frames, mono = false } = options;
+        const at = 4 + (version === 3 ? (mono ? 17 : 32) : mono ? 9 : 17);
+        // Encoders never write a tag frame too small to hold it.
+        let headerBitrate = options.headerBitrate ?? bitrate;
+        while (cbr(version, rateIndex, headerBitrate, 1)[0]!.length < at + 16) headerBitrate += 1;
+        const [header] = cbr(version, rateIndex, headerBitrate, 1, mono);
+        const audio = cbr(version, rateIndex, bitrate, frames, mono);
+        const view = new DataView(header!.buffer);
+        header!.set(encoder.encode('Info'), at);
+        view.setUint32(at + 4, options.size === false ? 1 : 3);
+        view.setUint32(at + 8, options.counted ?? frames);
+        view.setUint32(at + 12, header!.length + audio.reduce((sum, part) => sum + part.length, 0));
+        return concatenate(...(options.tag ? [id3(options.tag)] : []), header!, ...audio);
+      };
+      const read = (bytes: Uint8Array) =>
+        readProRoomFileDuration(memoryBucket(bytes), 'cbr-info', bytes.length);
+      const LAYOUTS = [
+        ['without a stream size', { size: false }],
+        ['with a stream size', {}],
+        ['with a stream size behind a small ID3 tag', { tag: 1_000 }],
+        ['with a stream size behind cover art', { tag: COVER_ART }],
+        ['without a stream size behind cover art', { size: false, tag: COVER_ART }],
+      ] as const;
+
+      it.each(
+        ([3, 2, 0] as const).flatMap((version) =>
+          [0, 1, 2].flatMap((rateIndex) =>
+            Array.from({ length: 14 }, (_, index) => [version, rateIndex, index + 1] as const),
+          ),
+        ),
+      )(
+        'indexes MPEG version bits %i, rate index %i, bitrate index %i exactly in every layout',
+        async (version, rateIndex, bitrate) => {
+          for (const [, layout] of LAYOUTS) {
+            const options = { version, rateIndex, bitrate, frames: 1_000, ...layout };
+            // 128 KiB already exceeds 1/16 of every 1,000-frame stream here.
+            const tag = 'tag' in layout ? Math.min(layout.tag, 128 * 1024) : undefined;
+            expect(await read(infoFile({ ...options, tag }))).toBe(
+              seconds(version, rateIndex, 1_000),
+            );
+          }
+        },
+      );
+
+      it('accepts a count that also includes the Info frame', async () => {
+        const bytes = infoFile({ bitrate: 9, frames: 3_000, counted: 3_001 });
+        expect(await read(bytes)).toBe(seconds(3, 0, 3_001));
+      });
+
+      // FFmpeg raises the Info frame to the smallest bitrate that holds its
+      // tag; the audio frames keep the stream's bitrate.
+      describe.each([
+        ['32 kbps stereo at 44.1 kHz behind a 64 kbps', 3, 1, 5, false],
+        ['32 kbps mono at 44.1 kHz behind a 56 kbps', 3, 1, 4, true],
+        ['32 kbps stereo at 22.05 kHz behind a 56 kbps', 2, 4, 7, false],
+        ['8 kbps mono at 22.05 kHz behind a 56 kbps', 2, 1, 7, true],
+      ] as const)('%s Info frame', (_label, version, bitrate, headerBitrate, mono) => {
+        const ffmpeg = { version, bitrate, headerBitrate, mono, frames: 3_000 } as const;
+
+        it.each(LAYOUTS)('indexes the stream exactly %s', async (_layout, layout) => {
+          expect(await read(infoFile({ ...ffmpeg, ...layout }))).toBe(seconds(version, 0, 3_000));
+        });
+
+        it('scans a doubled file whose header has no stream size', async () => {
+          const single = infoFile({ ...ffmpeg, size: false });
+          // `cat a.mp3 a.mp3`: the second Info frame is an ordinary frame to a scan.
+          expect(await read(concatenate(single, single))).toBeCloseTo(
+            seconds(version, 0, 6_002),
+            6,
+          );
+        });
+      });
+
+      // A tail below 1/16 of the first part fits FFmpeg's concatenation
+      // tolerance; at a lower bitrate it hides far more than 1/16 of the time.
+      describe.each([
+        ['a 128 kbps file with a 32 kbps tail', 9, () => cbr(3, 0, 1, 750), seconds(3, 0, 750)],
+        [
+          'a 192 kbps file with a 32 kbps tail',
+          11,
+          () => cbr(3, 0, 1, 1_100),
+          seconds(3, 0, 1_100),
+        ],
+        [
+          'a 128 kbps file with an 8 kbps MPEG-2.5 tail',
+          9,
+          () => cbr(0, 0, 1, 1_500),
+          seconds(0, 0, 1_500),
+        ],
+      ] as const)('%s', (_label, bitrate, tail, tailSeconds) => {
+        it.each(LAYOUTS)('scans to the exact length %s', async (_layout, layout) => {
+          const bytes = concatenate(infoFile({ bitrate, frames: 3_000, ...layout }), ...tail());
+          // The scan also counts the Info frame.
+          expect(await read(bytes)).toBeCloseTo(seconds(3, 0, 3_001) + tailSeconds, 6);
+        });
+      });
+    });
+
     it('applies the same consistency rule to Fraunhofer VBRI headers', async () => {
       const frameBytes = 417; // MPEG-1 Layer III, 128 kbps, 44.1 kHz, no padding.
       const frame = () => {

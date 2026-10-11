@@ -374,37 +374,49 @@ async function indexedMp3Duration(
   // playback early. Trust its frame count only when that many frames could span
   // the audio between the leading ID3 tag and any recognized trailing tags
   // (largest Layer III frame at this rate, plus the header frame and 128 bytes
-  // of unrecognized trailer) and a declared stream size matches that span (or,
-  // as some encoders count it, that span plus the leading ID3 tag) within
-  // FFmpeg's 1/16 concatenation tolerance of the audio. A tolerance taken from
-  // the whole file would let a large tag hide an appended part. Otherwise the
-  // bounded scan measures the whole file or leaves it unknown.
+  // of unrecognized trailer), and only when the count is tied to that span:
   //
-  // A leading tag larger than that tolerance makes the two conventions predict
-  // different spans, and an appended part about the tag's size satisfies the
-  // tag-counting one. A VBR count cannot tell them apart. A CBR 'Info' count
-  // can: its frames all have the first frame's exact average length (padding
-  // included), so they must themselves span the audio.
+  // A CBR 'Info' count must itself span the audio: the header frame, then that
+  // many frames at the exact average length (padding included) of the first
+  // audio frame, within one such frame and 128 bytes of unrecognized trailer.
+  // That slack also admits a count that includes the header frame (LAME and
+  // FFmpeg exclude it). The header frame's own bitrate cannot set the length:
+  // FFmpeg raises a low-bitrate stream's header to the smallest bitrate whose
+  // frame holds the tag. A declared stream size must also match, as below.
   //
-  // A header without a stream size leaves only the largest-frame bound, which
-  // at ordinary bitrates would hide an appended part larger than the counted
-  // audio. Trust such a count only for CBR 'Info' frames that span the audio
-  // at their exact average length; a VBR count is scanned instead.
+  // A VBR 'Xing' or VBRI count needs a declared stream size that matches the
+  // audio span (or, as some encoders count it, that span plus the leading ID3
+  // tag) within FFmpeg's 1/16 concatenation tolerance, and a leading tag within
+  // that tolerance: a larger tag makes the two conventions predict different
+  // spans, and an appended part about the tag's size satisfies the
+  // tag-counting one. A tolerance taken from the whole file would let a large
+  // tag hide an appended part. Known limit: a VBR count still trusts an
+  // appended part smaller than 1/16 of the audio, which at a lower bitrate
+  // hides more than 1/16 of the time.
+  //
+  // Otherwise the bounded scan measures the whole file or leaves it unknown.
   const audioBytes = end - offset;
   const largestFrame = Math.floor((version === 3 ? 144000 * 320 : 72000 * 160) / sampleRate) + 1;
-  const averageFrame = (samplesPerFrame * 125 * layer3Kbps(version, bitrateIndex)) / sampleRate;
   const near = (declared: number, actual: number) =>
     Math.abs(declared - actual) <= Math.min(declared, actual) / 16;
-  const indexed = (frames: number, declaredBytes: number | null, constant: boolean) => {
-    const constantSpan = constant && near((frames + 1) * averageFrame, audioBytes);
-    return (frames + 1) * largestFrame + 128 >= audioBytes &&
-      (declaredBytes === null
-        ? constantSpan
-        : (near(declaredBytes, audioBytes) || near(declaredBytes - offset, audioBytes)) &&
-          (offset <= Math.min(declaredBytes, audioBytes) / 16 || constantSpan))
+  const headerBytes = mp3Frame(bytes)!.bytes;
+  const audioHeader = bytes.subarray(headerBytes, headerBytes + 4);
+  // Same version, layer and sample rate (each version has its own rates).
+  const audioFrame =
+    mp3Frame(audioHeader)?.rate === sampleRate
+      ? (samplesPerFrame * 125 * layer3Kbps(version, audioHeader[2]! >> 4)) / sampleRate
+      : null;
+  const indexed = (frames: number, declaredBytes: number | null, constant: boolean) =>
+    (frames + 1) * largestFrame + 128 >= audioBytes &&
+    (constant
+      ? audioFrame !== null &&
+        Math.abs(headerBytes + frames * audioFrame - audioBytes) <= audioFrame + 128
+      : declaredBytes !== null && offset <= Math.min(declaredBytes, audioBytes) / 16) &&
+    (declaredBytes === null ||
+      near(declaredBytes, audioBytes) ||
+      near(declaredBytes - offset, audioBytes))
       ? finiteDuration((frames * samplesPerFrame) / sampleRate)
       : null;
-  };
   if (
     (ascii(bytes, xingOffset, 'Xing') || ascii(bytes, xingOffset, 'Info')) &&
     bytes.length >= xingOffset + 12 &&

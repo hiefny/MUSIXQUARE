@@ -208,6 +208,11 @@ function createDialogChoice(
     copy.className = 'dialog-choice-text';
     const label = document.createElement('span');
     label.className = 'dialog-choice-label';
+    label.id = `dialog-choice-label-${index}`;
+    // The wrapping <label> keeps the whole row clickable, but its text would
+    // also fold the detail into the name. Name the radio by its label only;
+    // the detail stays its description.
+    radio.setAttribute('aria-labelledby', label.id);
     copy.appendChild(label);
     texts.push({ node: label, text: option.label });
     if (option.detail !== undefined) {
@@ -449,6 +454,21 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     msgEl,
     typeof opts === 'object' && opts ? opts.choiceField : undefined,
   );
+  // The dialog is described by #dialog-message, which now also holds the
+  // choice group. Describe it by the message text alone so opening it does
+  // not read every option before focus arrives; the group announces itself.
+  const dialogPanel = msgEl.closest<HTMLElement>('[role="dialog"]');
+  if (dialogPanel) {
+    if (_dialogChoice) {
+      const messageText = document.createElement('span');
+      messageText.id = 'dialog-message-text';
+      msgEl.insertBefore(messageText, messageNode);
+      messageText.appendChild(messageNode);
+      dialogPanel.setAttribute('aria-describedby', messageText.id);
+    } else {
+      dialogPanel.setAttribute('aria-describedby', msgEl.id);
+    }
+  }
 
   okBtn.textContent = buttonText;
 

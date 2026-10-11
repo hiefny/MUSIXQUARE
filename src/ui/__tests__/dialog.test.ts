@@ -768,7 +768,15 @@ describe('Dialog System', () => {
         expect(label.classList.contains('dialog-choice-option')).toBe(true);
         const detail = document.getElementById(radio.getAttribute('aria-describedby')!)!;
         expect(label.contains(detail)).toBe(true);
+        // The name is the label span alone, so the detail is not read twice.
+        const name = document.getElementById(radio.getAttribute('aria-labelledby')!)!;
+        expect(name.classList.contains('dialog-choice-label')).toBe(true);
+        expect(name.contains(detail)).toBe(false);
       }
+      expect(
+        radios.map((radio) => document.getElementById(radio.getAttribute('aria-labelledby')!)!),
+      ).toEqual([...fieldset.querySelectorAll('.dialog-choice-label')]);
+      expect(radios[0]!.labels?.[0]?.textContent).toContain('People connected now can stay.');
       expect(radios[1]!.closest('label')!.textContent).toBe(
         'Make everyone rejoinEveryone else rejoins.',
       );
@@ -779,6 +787,43 @@ describe('Dialog System', () => {
         inputValue: undefined,
         choiceValue: 'reenter',
       });
+      vi.advanceTimersByTime(10);
+    });
+
+    it('describes the dialog by its message text, not by the options, only while a choice is shown', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const overlay = document.getElementById('dialog-overlay')!;
+      const panel = document.createElement('div');
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-describedby', 'dialog-message');
+      panel.append(...overlay.childNodes);
+      overlay.appendChild(panel);
+      const describedText = () =>
+        document.getElementById(panel.getAttribute('aria-describedby')!)?.textContent;
+
+      const choice = showDialog({
+        title: 'PIN',
+        message: 'Set a PIN',
+        inputField: { maxLength: 8, splitEvery: 4, hint: 'Eight digits' },
+        choiceField,
+      });
+      vi.advanceTimersByTime(10);
+      expect(panel.getAttribute('aria-describedby')).toBe('dialog-message-text');
+      expect(describedText()).toBe('Set a PIN');
+      const message = document.getElementById('dialog-message')!;
+      expect(message.firstElementChild?.id).toBe('dialog-message-text');
+      expect(message.querySelector('.dialog-choice')).not.toBeNull();
+      closeDialog('ok');
+      expect(await choice).toMatchObject({ choiceValue: 'keep' });
+      vi.advanceTimersByTime(10);
+
+      const plain = showDialog({ title: 'Info', message: 'Plain message' });
+      vi.advanceTimersByTime(10);
+      expect(panel.getAttribute('aria-describedby')).toBe('dialog-message');
+      expect(document.getElementById('dialog-message-text')).toBeNull();
+      expect(describedText()).toBe('Plain message');
+      closeDialog('ok');
+      await plain;
       vi.advanceTimersByTime(10);
     });
 

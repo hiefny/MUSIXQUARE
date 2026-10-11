@@ -444,7 +444,8 @@ sleep/freeze behavior.
 Live or unknown YouTube lengths, a single missing-video answer, API failures,
 and files exceeding bounded metadata inspection do not become permission to
 skip. They retain the authorized observation path and metadata retries that
-back off from one to fifteen minutes. Explicit server-verified
+back off to fifteen minutes (from one minute for live or unavailable answers;
+failed lookups first retry after 5 and 30 seconds). Explicit server-verified
 non-embeddability, terminal upload failure, or two YouTube "not found" answers
 (an empty result: deleted, or private to the key) from separate lookups at
 least a minute apart are automatic unavailability verdicts; a live stream never

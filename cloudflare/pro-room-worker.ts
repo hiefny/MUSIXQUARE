@@ -5537,7 +5537,7 @@ export class MusixquareProRoom {
       let notFound = false;
       let unanswered = false;
       // Every unresolved YouTube answer costs provider quota. Back off live,
-      // unavailable and failed lookups exponentially from 1 to 15 minutes.
+      // unavailable and repeatedly failed lookups exponentially up to 15 minutes.
       let retryMs = Math.min(
         PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS,
         PLAYBACK_DURATION_UNKNOWN_RETRY_MS * 2 ** Math.min(probe.attempts, 4),
@@ -5570,6 +5570,11 @@ export class MusixquareProRoom {
           retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
         diagnostic = 'METADATA_LOOKUP_FAILED';
       }
+      // A failed YouTube lookup is not an answer about the video. Keep the quick
+      // first retries so one transient provider error does not leave the track
+      // without a deadline for minutes; repeated failures join the backoff.
+      if (identity.mediaKind === 'youtube' && unanswered && probe.attempts < 2)
+        retryMs = probe.attempts === 0 ? 5_000 : 30_000;
       await this.withMutation(async () => {
         if (!this.room || this.activeRoom.roomGeneration !== roomGeneration) return;
         const currentProbe = this.activeRoom.playbackDurationProbe;

@@ -887,13 +887,30 @@ describe('PRO YouTube metadata backoff and confirmed missing videos', () => {
   }
 
   it.each([
-    ['live', () => metadata.youtube.mockResolvedValue({ kind: 'live' })],
-    ['unavailable', () => metadata.youtube.mockResolvedValue({ kind: 'unavailable' })],
-    ['retry', () => metadata.youtube.mockResolvedValue({ kind: 'retry' })],
-    ['failed', () => metadata.youtube.mockRejectedValue(new Error('metadata network failure'))],
+    [
+      'live',
+      () => metadata.youtube.mockResolvedValue({ kind: 'live' }),
+      [60_000, 120_000, 240_000, 480_000, 900_000, 900_000],
+    ],
+    [
+      'unavailable',
+      () => metadata.youtube.mockResolvedValue({ kind: 'unavailable' }),
+      [60_000, 120_000, 240_000, 480_000, 900_000, 900_000],
+    ],
+    // Failed lookups are not answers: they keep the quick first retries.
+    [
+      'retry',
+      () => metadata.youtube.mockResolvedValue({ kind: 'retry' }),
+      [5_000, 30_000, 240_000, 480_000, 900_000, 900_000],
+    ],
+    [
+      'failed',
+      () => metadata.youtube.mockRejectedValue(new Error('metadata network failure')),
+      [5_000, 30_000, 240_000, 480_000, 900_000, 900_000],
+    ],
   ])(
-    'backs off %s lookups from one minute to fifteen without skipping',
-    async (_kind, configure) => {
+    'backs off %s lookups up to fifteen minutes without skipping',
+    async (_kind, configure, expected) => {
       configure();
       const context = await playingYouTube();
       const delays = [context.room.playbackDurationProbe!.retryAtMs - NOW];
@@ -901,7 +918,7 @@ describe('PRO YouTube metadata backoff and confirmed missing videos', () => {
         const at = await nextLookup(context);
         delays.push(context.room.playbackDurationProbe!.retryAtMs - at);
       }
-      expect(delays).toEqual([60_000, 120_000, 240_000, 480_000, 900_000, 900_000]);
+      expect(delays).toEqual(expected);
       expect(metadata.youtube).toHaveBeenCalledTimes(6);
       // Liveness alarms in between do not repeat the provider lookup.
       await alarmAt(context, Date.now() + 60_000);

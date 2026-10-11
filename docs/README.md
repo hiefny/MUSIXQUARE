@@ -96,7 +96,7 @@ labeled portion still supports a current guard or operating interpretation:
 - [PRO PIN membership choice and removal reasons — 2026-10-11](design/pro-pin-member-choice-2026-10-11.md) —
   "Let them stay" / "Make everyone rejoin" on PIN enable or change, and a
   `reason` on the unchanged `SESSION_REQUIRED` 401 for kicked, disconnected,
-  and PIN-revoked sessions (PRO Worker and App, 8.9.0/v650, code `4319a2a0`
+  and PIN-revoked sessions (PRO Worker and App, 8.9.0/v651, code `4319a2a0` merged with #290
   on main `13a25ee4`). Local tests only; not merged or deployed. Real-device
   checks remain open.
 - [PRO join error copy — 2026-10-11](design/pro-join-error-copy-2026-10-11.md) —

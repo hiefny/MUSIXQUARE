@@ -104,7 +104,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   등, large-audio 컨테이너 목록에서 HLS 제외), PRO 입장 거절 문구(`ROOM_FULL`,
   `RATE_LIMITED`와 `Retry-After` 대기 시간, 42개 언어)가 main에 있다. 이 세
   변경은 Worker 소스, D1, R2, 프로토콜을 바꾸지 않는다. 아래 PRO 암호 참여자
-  선택까지 합쳐 다음 릴리스는 App `8.9.0` / SW 캐시 `v650` 하나로 나간다(8.8.1은
+  선택까지 합쳐 다음 릴리스는 App `8.9.0` / SW 캐시 `v651` 하나로 나간다(8.8.1은
   따로 배포하지 않는다).
   아래 PRO 공개방 입장 보호(`pro-room`)도 미배포라서, 둘 다 남아 있는 동안
   partial-release gate는 `app`과 `pro-room` 단독 배포를 모두 거부한다(선택하지
@@ -125,7 +125,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 - [ ] 8.8.0 배포 뒤 첫 Drift Audit 결과 확인.
 - [ ] 미배포 PRO 암호 참여자 선택·퇴장 사유: PRO Worker와 App이 함께 바뀌어
   Production Release `target=all`(PRO Worker 먼저, App 나중)이 필요하다.
-  App `8.9.0` / SW 캐시 `v650`(main의 8.8.1/`v649` 다음)이다.
+  App `8.9.0` / SW 캐시 `v651`이다(main의 8.8.1/`v649`을 합친 뒤 다시 올림).
   배포한 뒤 §1을 덮어쓰고 이 항목을 지운다.
   [상세](design/pro-pin-member-choice-2026-10-11.md)
 - [ ] 전환기 한계(PRO 암호 참여자 선택 배포 뒤): 캐시된 8.9.0 이전 App(운영

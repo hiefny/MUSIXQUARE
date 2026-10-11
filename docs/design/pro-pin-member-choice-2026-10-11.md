@@ -270,3 +270,13 @@ Limits:
 Recorded in the [release record](../release-record.md) §2: real-device checks
 on iPhone Safari/PWA and Android, the transitional behaviour of Apps before
 8.9.0, and the rollback note.
+
+## Merge addendum — 2026-10-11
+
+After #290 (App 8.8.1 / PWA cache `v649`) merged to main, main was merged into
+this branch at `bf09dbb3`. The version mirrors keep 8.9.0. The PWA cache moved
+from `v650` to `v651` in a commit after the merge, because the merge brought
+#290's runtime files in after the earlier `v650` bump and
+`guard:sw-cache-version` checks the branch's first-parent history. The
+`setup-flow.test.ts` suites from both branches were combined. The verification
+results after the merge are recorded in the pull request.

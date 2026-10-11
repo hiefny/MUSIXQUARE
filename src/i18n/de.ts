@@ -288,16 +288,16 @@ const de: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Einladungslink kopieren',
   'connect.link_copied': 'Einladungslink kopiert',
   'connect.room_password_title': 'Raumpasswort verlangen',
-  'connect.room_password_set': 'Festlegen',
   'connect.room_password_toggle_aria': 'Raumpasswort-Anforderung umschalten',
-  'connect.room_password_input_aria': '8-stelliges Raumpasswort eingeben',
-  'connect.room_password_refresh_aria': 'Neues Raumpasswort erzeugen',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Warten auf 8 Ziffern',
   'connect.room_password_on': 'Passwort angewendet',
   'connect.room_password_invalid': 'Gib 8 Ziffern ein',
-  'connect.room_password_enabled': 'Neue Teilnehmer benötigen das Raumpasswort',
   'connect.room_password_disabled': 'Teilnehmer benötigen kein Raumpasswort mehr',
+  'connect.room_password_apply_pending':
+    'Das neue Passwort gilt, sobald die Verbindung wiederhergestellt ist.',
+  'connect.pin_enabled_removed_message':
+    'Der Host hat ein Raumpasswort festgelegt. Gib es ein, um wieder beizutreten.',
+  'connect.pin_changed_removed_message':
+    'Der Host hat das Raumpasswort geändert. Gib das neue Passwort ein, um wieder beizutreten.',
   'connect.signaling_healthy': 'Raumserver online',
   'connect.signaling_recovering': 'Wird neu verbunden…',
   'connect.signaling_failed': 'Serververbindung fehlgeschlagen',

@@ -288,16 +288,16 @@ const el: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Αντιγραφή συνδέσμου πρόσκλησης',
   'connect.link_copied': 'Ο σύνδεσμος πρόσκλησης αντιγράφηκε',
   'connect.room_password_title': 'Απαίτηση κωδικού πρόσβασης για είσοδο',
-  'connect.room_password_set': 'Ορισμός',
   'connect.room_password_toggle_aria': 'Εναλλαγή απαίτησης κωδικού πρόσβασης δωματίου',
-  'connect.room_password_input_aria': 'Εισαγάγετε τον οκταψήφιο κωδικό πρόσβασης δωματίου',
-  'connect.room_password_refresh_aria': 'Δημιουργία νέου κωδικού πρόσβασης δωματίου',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Αναμονή για 8 ψηφία',
   'connect.room_password_on': 'Ο κωδικός εφαρμόστηκε',
   'connect.room_password_invalid': 'Εισαγάγετε 8 ψηφία',
-  'connect.room_password_enabled': 'Τα νέα μέλη θα χρειάζονται τον κωδικό πρόσβασης δωματίου',
   'connect.room_password_disabled': 'Τα μέλη δεν χρειάζονται πλέον τον κωδικό πρόσβασης δωματίου',
+  'connect.room_password_apply_pending':
+    'Ο νέος κωδικός πρόσβασης θα ισχύσει μόλις αποκατασταθεί η σύνδεση.',
+  'connect.pin_enabled_removed_message':
+    'Ο οικοδεσπότης όρισε κωδικό πρόσβασης για το δωμάτιο. Εισαγάγετέ τον για να συνδεθείτε ξανά.',
+  'connect.pin_changed_removed_message':
+    'Ο οικοδεσπότης άλλαξε τον κωδικό πρόσβασης του δωματίου. Εισαγάγετε τον νέο κωδικό για να συνδεθείτε ξανά.',
   'connect.signaling_healthy': 'Ο διακομιστής δωματίου είναι online',
   'connect.signaling_recovering': 'Επανασύνδεση…',
   'connect.signaling_failed': 'Η σύνδεση με τον διακομιστή απέτυχε',

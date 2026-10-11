@@ -288,16 +288,16 @@ const es: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copiar enlace',
   'connect.link_copied': 'Enlace de invitación copiado',
   'connect.room_password_title': 'Pedir contraseña',
-  'connect.room_password_set': 'Establecer',
   'connect.room_password_toggle_aria': 'Cambiar requisito de contraseña de la sala',
-  'connect.room_password_input_aria': 'Introduce la contraseña de 8 dígitos de la sala',
-  'connect.room_password_refresh_aria': 'Generar una nueva contraseña de sala',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Esperando 8 dígitos',
   'connect.room_password_on': 'Contraseña aplicada',
   'connect.room_password_invalid': 'Introduce 8 dígitos',
-  'connect.room_password_enabled': 'Los nuevos participantes necesitarán la contraseña de la sala',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
+  'connect.room_password_apply_pending':
+    'La nueva contraseña se aplicará cuando se recupere la conexión.',
+  'connect.pin_enabled_removed_message':
+    'El anfitrión definió una contraseña para la sala. Introdúcela para volver a unirte.',
+  'connect.pin_changed_removed_message':
+    'El anfitrión cambió la contraseña de la sala. Introduce la nueva contraseña para volver a unirte.',
   'connect.signaling_healthy': 'Servidor de la sala disponible',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falló la conexión con el servidor',

@@ -49,7 +49,6 @@ const PROTECTED_TOKENS = [
 // limits such as device counts, percentages, storage sizes, and retention periods remain covered
 // by the exact numeric-fact contract below.
 const NATURAL_LANGUAGE_NUMBER_KEYS = new Set([
-  'connect.room_password_input_aria',
   'setup.enter_code',
   'setup.six_digit_enter',
   'dialog.room_password_placeholder',

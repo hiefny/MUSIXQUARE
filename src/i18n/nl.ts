@@ -287,16 +287,16 @@ const nl: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Uitnodigingslink kopiëren',
   'connect.link_copied': 'Uitnodigingslink gekopieerd',
   'connect.room_password_title': 'Wachtwoord vereisen',
-  'connect.room_password_set': 'Instellen',
   'connect.room_password_toggle_aria': 'Kamerwachtwoord in- of uitschakelen',
-  'connect.room_password_input_aria': 'Voer het 8-cijferige kamerwachtwoord in',
-  'connect.room_password_refresh_aria': 'Nieuw kamerwachtwoord maken',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Wachten op 8 cijfers',
   'connect.room_password_on': 'Wachtwoord toegepast',
   'connect.room_password_invalid': 'Voer 8 cijfers in',
-  'connect.room_password_enabled': 'Nieuwe deelnemers hebben het wachtwoord nodig',
   'connect.room_password_disabled': 'Deelnemers hebben geen wachtwoord meer nodig',
+  'connect.room_password_apply_pending':
+    'Het nieuwe wachtwoord gaat in zodra de verbinding hersteld is.',
+  'connect.pin_enabled_removed_message':
+    'De host heeft een kamerwachtwoord ingesteld. Voer het in om weer deel te nemen.',
+  'connect.pin_changed_removed_message':
+    'De host heeft het kamerwachtwoord gewijzigd. Voer het nieuwe wachtwoord in om weer deel te nemen.',
   'connect.signaling_healthy': 'Kamerserver online',
   'connect.signaling_recovering': 'Opnieuw verbinden…',
   'connect.signaling_failed': 'Serververbinding mislukt',

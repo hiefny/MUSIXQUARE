@@ -287,16 +287,16 @@ const nb: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopier invitasjonslenke',
   'connect.link_copied': 'Invitasjonslenken er kopiert',
   'connect.room_password_title': 'Krev passord for å delta',
-  'connect.room_password_set': 'Angi',
   'connect.room_password_toggle_aria': 'Slå krav om rompassord av eller på',
-  'connect.room_password_input_aria': 'Skriv inn det 8-sifrede rompassordet',
-  'connect.room_password_refresh_aria': 'Opprett et nytt rompassord',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Venter på 8 sifre',
   'connect.room_password_on': 'Passordet er tatt i bruk',
   'connect.room_password_invalid': 'Skriv inn 8 sifre',
-  'connect.room_password_enabled': 'Nye deltakere trenger rompassordet',
   'connect.room_password_disabled': 'Deltakere trenger ikke lenger rompassordet',
+  'connect.room_password_apply_pending':
+    'Det nye passordet gjelder når tilkoblingen er gjenopprettet.',
+  'connect.pin_enabled_removed_message':
+    'Verten har angitt et passord for rommet. Skriv det inn for å bli med igjen.',
+  'connect.pin_changed_removed_message':
+    'Verten har endret rompassordet. Skriv inn det nye passordet for å bli med igjen.',
   'connect.signaling_healthy': 'Romserveren er på nett',
   'connect.signaling_recovering': 'Kobler til på nytt…',
   'connect.signaling_failed': 'Tilkoblingen til serveren mislyktes',

@@ -285,16 +285,16 @@ const da: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopiér invitationslink',
   'connect.link_copied': 'Invitationslinket er kopieret',
   'connect.room_password_title': 'Kræv adgangskode for at deltage',
-  'connect.room_password_set': 'Angiv',
   'connect.room_password_toggle_aria': 'Slå krav om adgangskode til rummet til eller fra',
-  'connect.room_password_input_aria': 'Indtast den 8-cifrede adgangskode til rummet',
-  'connect.room_password_refresh_aria': 'Opret en ny adgangskode til rummet',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Venter på 8 cifre',
   'connect.room_password_on': 'Adgangskoden er aktiveret',
   'connect.room_password_invalid': 'Indtast 8 cifre',
-  'connect.room_password_enabled': 'Nye deltagere skal bruge adgangskoden til rummet',
   'connect.room_password_disabled': 'Deltagerne behøver ikke længere adgangskoden til rummet',
+  'connect.room_password_apply_pending':
+    'Den nye adgangskode træder i kraft, når forbindelsen er genoprettet.',
+  'connect.pin_enabled_removed_message':
+    'Værten har angivet en adgangskode til rummet. Indtast den for at deltage igen.',
+  'connect.pin_changed_removed_message':
+    'Værten har ændret rummets adgangskode. Indtast den nye adgangskode for at deltage igen.',
   'connect.signaling_healthy': 'Rummets server er online',
   'connect.signaling_recovering': 'Opretter forbindelse igen…',
   'connect.signaling_failed': 'Forbindelsen til serveren mislykkedes',

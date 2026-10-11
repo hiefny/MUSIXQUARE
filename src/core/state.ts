@@ -187,7 +187,6 @@ function createInitialState(): StateTree {
       standardRoomCapabilities: null,
       pendingTrackChangeQueueItemId: null,
       roomPasswordRequired: false,
-      roomPassword: '',
       isConnecting: false,
       isIntentionalDisconnect: false,
       lastKnownDeviceList: null,

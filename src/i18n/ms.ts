@@ -290,16 +290,16 @@ const ms: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Salin pautan jemputan',
   'connect.link_copied': 'Pautan jemputan disalin',
   'connect.room_password_title': 'Wajibkan kata laluan untuk menyertai',
-  'connect.room_password_set': 'Tetapkan',
   'connect.room_password_toggle_aria': 'Togol keperluan kata laluan bilik',
-  'connect.room_password_input_aria': 'Masukkan kata laluan bilik 8 digit',
-  'connect.room_password_refresh_aria': 'Jana kata laluan bilik baharu',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Menunggu 8 digit',
   'connect.room_password_on': 'Kata laluan digunakan',
   'connect.room_password_invalid': 'Masukkan 8 digit',
-  'connect.room_password_enabled': 'Peserta baharu perlu memasukkan kata laluan bilik',
   'connect.room_password_disabled': 'Peserta tidak lagi memerlukan kata laluan bilik',
+  'connect.room_password_apply_pending':
+    'Kata laluan baharu akan berkuat kuasa sebaik sahaja sambungan pulih.',
+  'connect.pin_enabled_removed_message':
+    'Hos telah menetapkan kata laluan bilik. Masukkan kata laluan untuk menyertai semula.',
+  'connect.pin_changed_removed_message':
+    'Hos telah menukar kata laluan bilik. Masukkan kata laluan baharu untuk menyertai semula.',
   'connect.signaling_healthy': 'Pelayan bilik dalam talian',
   'connect.signaling_recovering': 'Menyambung semula…',
   'connect.signaling_failed': 'Sambungan pelayan gagal',

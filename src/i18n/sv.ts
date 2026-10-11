@@ -289,16 +289,16 @@ const sv: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopiera inbjudningslänk',
   'connect.link_copied': 'Inbjudningslänken har kopierats',
   'connect.room_password_title': 'Kräv lösenord för att ansluta',
-  'connect.room_password_set': 'Ange',
   'connect.room_password_toggle_aria': 'Slå på eller av krav på rumslösenord',
-  'connect.room_password_input_aria': 'Ange det 8-siffriga rumslösenordet',
-  'connect.room_password_refresh_aria': 'Skapa ett nytt rumslösenord',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Väntar på 8 siffror',
   'connect.room_password_on': 'Lösenordet har aktiverats',
   'connect.room_password_invalid': 'Ange 8 siffror',
-  'connect.room_password_enabled': 'Nya deltagare behöver rumslösenordet',
   'connect.room_password_disabled': 'Deltagare behöver inte längre rumslösenordet',
+  'connect.room_password_apply_pending':
+    'Det nya lösenordet gäller när anslutningen är återställd.',
+  'connect.pin_enabled_removed_message':
+    'Värden har ställt in ett lösenord för rummet. Ange det för att gå med igen.',
+  'connect.pin_changed_removed_message':
+    'Värden har ändrat rumslösenordet. Ange det nya lösenordet för att gå med igen.',
   'connect.signaling_healthy': 'Rumsservern är online',
   'connect.signaling_recovering': 'Ansluter igen…',
   'connect.signaling_failed': 'Serveranslutningen misslyckades',

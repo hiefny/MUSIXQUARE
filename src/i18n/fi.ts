@@ -285,17 +285,16 @@ const fi: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopioi kutsulinkki',
   'connect.link_copied': 'Kutsulinkki kopioitu',
   'connect.room_password_title': 'Vaadi liittymiseen salasana',
-  'connect.room_password_set': 'Aseta',
   'connect.room_password_toggle_aria':
     'Ota huoneen salasanavaatimus käyttöön tai poista se käytöstä',
-  'connect.room_password_input_aria': 'Anna huoneen 8-numeroinen salasana',
-  'connect.room_password_refresh_aria': 'Luo uusi huoneen salasana',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Odotetaan 8 numeroa',
   'connect.room_password_on': 'Salasana käytössä',
   'connect.room_password_invalid': 'Anna 8 numeroa',
-  'connect.room_password_enabled': 'Uudet osallistujat tarvitsevat huoneen salasanan',
   'connect.room_password_disabled': 'Osallistujat eivät enää tarvitse huoneen salasanaa',
+  'connect.room_password_apply_pending': 'Uusi salasana tulee voimaan, kun yhteys palautuu.',
+  'connect.pin_enabled_removed_message':
+    'Isäntä asetti huoneelle salasanan. Anna se, niin voit liittyä uudelleen.',
+  'connect.pin_changed_removed_message':
+    'Isäntä vaihtoi huoneen salasanan. Anna uusi salasana, niin voit liittyä uudelleen.',
   'connect.signaling_healthy': 'Huonepalvelin on käytettävissä',
   'connect.signaling_recovering': 'Yhdistetään uudelleen…',
   'connect.signaling_failed': 'Palvelinyhteys epäonnistui',

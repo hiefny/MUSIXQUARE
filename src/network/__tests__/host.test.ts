@@ -1497,6 +1497,62 @@ describe('standard-room account authority', () => {
     expect(other.close).not.toHaveBeenCalled();
   });
 
+  it('removes every connected device after a committed "Everyone rejoins" and keeps account grants', () => {
+    const identity = verifiedIdentity();
+    setAuthenticatedPhysicalHost(identity);
+    // The owner's other device, an account administrator, and an anonymous guest.
+    const ownerSibling = makeVerifiedIncomingConn('owner-sibling-device', identity);
+    const administrator = makeVerifiedIncomingConn(
+      'administrator-device',
+      verifiedIdentity('member_zyxwvutsrqponmlkjihgfe', 'Jisu', 2),
+    );
+    const anonymous = makeIncomingConn('anonymous-device');
+    handleHostIncomingConnection(ownerSibling);
+    handleHostIncomingConnection(administrator);
+    handleHostIncomingConnection(anonymous);
+    completeStandardJoin(ownerSibling);
+    completeStandardJoin(administrator, BOOTSTRAP_ID_B);
+    bus.emit('network:grant-standard-room-administrator', {
+      memberId: 'member_zyxwvutsrqponmlkjihgfe',
+    });
+    const closed = makeIncomingConn('closed-device');
+    setState('network.connectedPeers', [
+      ...getState('network.connectedPeers'),
+      { ...makePeer(closed), id: 'closed-device', conn: { ...closed, open: false } },
+    ]);
+
+    bus.emit('network:room-pin-revoke-present', 'room-pin-changed');
+
+    for (const conn of [ownerSibling, administrator, anonymous]) {
+      expect(conn.send).toHaveBeenCalledWith({
+        type: MSG.KICK_DEVICE,
+        reason: 'room-pin-changed',
+      });
+      expect(conn.close).not.toHaveBeenCalled();
+    }
+    expect(closed.send).not.toHaveBeenCalled();
+    // People regain an account-linked grant when they re-enter with the new PIN.
+    expect(
+      getState('network.standardRoomAdministrators').has('member_zyxwvutsrqponmlkjihgfe'),
+    ).toBe(true);
+    vi.advanceTimersByTime(300);
+    for (const conn of [ownerSibling, administrator, anonymous]) {
+      expect(conn.close).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('ignores a PIN revoke request outside a Standard-room host', () => {
+    const conn = makeIncomingConn('guest-device');
+    handleHostIncomingConnection(conn);
+    completeStandardJoin(conn);
+    conn.send.mockClear();
+    setState('room.context', { ...getState('room.context'), kind: 'pro' });
+
+    bus.emit('network:room-pin-revoke-present', 'room-pin-enabled');
+
+    expect(conn.send).not.toHaveBeenCalled();
+  });
+
   it('disconnects one physical device while preserving its sibling and member grant', () => {
     const identity = verifiedIdentity();
     const first = makeVerifiedIncomingConn('physical-device-a', identity);

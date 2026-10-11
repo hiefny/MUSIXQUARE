@@ -287,16 +287,16 @@ const pl: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Skopiuj link zaproszenia',
   'connect.link_copied': 'Link zaproszenia skopiowany',
   'connect.room_password_title': 'Wymagaj hasła przy wejściu do pokoju',
-  'connect.room_password_set': 'Ustaw',
   'connect.room_password_toggle_aria': 'Przełącz wymaganie hasła do pokoju',
-  'connect.room_password_input_aria': 'Wpisz 8-cyfrowe hasło do pokoju',
-  'connect.room_password_refresh_aria': 'Wygeneruj nowe hasło do pokoju',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Oczekiwanie na 8-cyfrowe hasło',
   'connect.room_password_on': 'Hasło aktywne',
   'connect.room_password_invalid': 'Wpisz 8-cyfrowe hasło',
-  'connect.room_password_enabled': 'Wejście do tego pokoju wymaga teraz hasła',
   'connect.room_password_disabled': 'Wejście do tego pokoju nie wymaga już hasła',
+  'connect.room_password_apply_pending':
+    'Nowe hasło zacznie obowiązywać, gdy połączenie zostanie przywrócone.',
+  'connect.pin_enabled_removed_message':
+    'Host ustawił hasło do pokoju. Wpisz je, aby znowu dołączyć.',
+  'connect.pin_changed_removed_message':
+    'Host zmienił hasło do pokoju. Wpisz nowe hasło, aby znowu dołączyć.',
   'connect.signaling_healthy': 'Serwer pokoju jest dostępny',
   'connect.signaling_recovering': 'Ponowne łączenie…',
   'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',

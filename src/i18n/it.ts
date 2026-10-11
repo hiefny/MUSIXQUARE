@@ -286,17 +286,17 @@ const it: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copia il link d’invito',
   'connect.link_copied': "Link d'invito copiato",
   'connect.room_password_title': 'Richiedi password per accedere alla stanza',
-  'connect.room_password_set': 'Imposta',
   'connect.room_password_toggle_aria': 'Attiva/disattiva richiesta password stanza',
-  'connect.room_password_input_aria': 'Inserisci la password di 8 cifre per la stanza',
-  'connect.room_password_refresh_aria': 'Rigenera password stanza',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'In attesa di una password di 8 cifre',
   'connect.room_password_on': 'Password attiva',
   'connect.room_password_invalid': 'Inserisci una password di 8 cifre',
-  'connect.room_password_enabled': 'Ora è richiesta la password per accedere a questa stanza',
   'connect.room_password_disabled':
     'Ora non è più richiesta la password per accedere a questa stanza',
+  'connect.room_password_apply_pending':
+    'La nuova password verrà applicata quando la connessione sarà ripristinata.',
+  'connect.pin_enabled_removed_message':
+    'L’host ha impostato una password per la stanza. Inseriscila per entrare di nuovo.',
+  'connect.pin_changed_removed_message':
+    'L’host ha cambiato la password della stanza. Inserisci la nuova password per entrare di nuovo.',
   'connect.signaling_healthy': 'Server della stanza online',
   'connect.signaling_recovering': 'Riconnessione…',
   'connect.signaling_failed': 'Connessione al server non riuscita',

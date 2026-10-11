@@ -286,17 +286,16 @@ const fr: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Copier le lien d’invitation',
   'connect.link_copied': 'Lien d’invitation copié',
   'connect.room_password_title': 'Exiger un mot de passe pour rejoindre le salon',
-  'connect.room_password_set': 'Définir',
   'connect.room_password_toggle_aria': 'Activer/désactiver le mot de passe du salon',
-  'connect.room_password_input_aria': 'Saisir le mot de passe à 8 chiffres du salon',
-  'connect.room_password_refresh_aria': 'Générer un nouveau mot de passe pour le salon',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'En attente de 8 chiffres',
   'connect.room_password_on': 'Mot de passe appliqué',
   'connect.room_password_invalid': 'Saisissez 8 chiffres',
-  'connect.room_password_enabled':
-    'Les nouveaux participants devront saisir le mot de passe du salon',
   'connect.room_password_disabled': 'Les participants n’ont plus besoin du mot de passe du salon',
+  'connect.room_password_apply_pending':
+    'Le nouveau mot de passe s’appliquera dès que la connexion sera rétablie.',
+  'connect.pin_enabled_removed_message':
+    'L’hôte a défini un mot de passe pour le salon. Saisissez-le pour revenir dans le salon.',
+  'connect.pin_changed_removed_message':
+    'L’hôte a modifié le mot de passe du salon. Saisissez le nouveau mot de passe pour revenir dans le salon.',
   'connect.signaling_healthy': 'Serveur du salon en ligne',
   'connect.signaling_recovering': 'Reconnexion…',
   'connect.signaling_failed': 'Échec de la connexion au serveur',

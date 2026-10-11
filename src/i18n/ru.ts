@@ -286,16 +286,16 @@ const ru: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Скопировать ссылку',
   'connect.link_copied': 'Ссылка для приглашения скопирована',
   'connect.room_password_title': 'Требовать пароль для входа в комнату',
-  'connect.room_password_set': 'Установить',
   'connect.room_password_toggle_aria': 'Переключить требование пароля для комнаты',
-  'connect.room_password_input_aria': 'Введите 8-значный пароль для комнаты',
-  'connect.room_password_refresh_aria': 'Создать новый пароль комнаты',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Ожидание 8-значного пароля',
   'connect.room_password_on': 'Пароль установлен',
   'connect.room_password_invalid': 'Введите 8-значный пароль',
-  'connect.room_password_enabled': 'Для входа в эту комнату теперь требуется пароль',
   'connect.room_password_disabled': 'Для входа в эту комнату больше не требуется пароль',
+  'connect.room_password_apply_pending':
+    'Новый пароль начнёт действовать, когда соединение восстановится.',
+  'connect.pin_enabled_removed_message':
+    'Хост задал пароль для комнаты. Введите его, чтобы войти снова.',
+  'connect.pin_changed_removed_message':
+    'Хост изменил пароль комнаты. Введите новый пароль, чтобы войти снова.',
   'connect.signaling_healthy': 'Сервер комнаты доступен',
   'connect.signaling_recovering': 'Переподключение…',
   'connect.signaling_failed': 'Не удалось подключиться к серверу',

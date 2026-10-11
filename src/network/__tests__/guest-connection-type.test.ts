@@ -92,7 +92,23 @@ describe('guest connection type authority', () => {
 
       await handleData({ type: MSG.KICK_DEVICE }, gatedHostConn);
       expect(kicked).toHaveBeenCalledTimes(1);
+      expect(kicked).toHaveBeenCalledWith();
       expect(getState('network.isIntentionalDisconnect')).toBe(true);
+    });
+
+    it('forwards only a known room-PIN kick reason, and only from the host', async () => {
+      const { handleData } = await import('../protocol.ts');
+      const kicked = vi.fn();
+      bus.on('network:kicked-explicitly', kicked);
+
+      await handleData({ type: MSG.KICK_DEVICE, reason: 'room-pin-changed' }, evilConn);
+      expect(kicked).not.toHaveBeenCalled();
+
+      await handleData({ type: MSG.KICK_DEVICE, reason: 'room-pin-changed' }, gatedHostConn);
+      await handleData({ type: MSG.KICK_DEVICE, reason: 'room-pin-enabled' }, gatedHostConn);
+      // A reason this App does not know keeps the generic kick copy.
+      await handleData({ type: MSG.KICK_DEVICE, reason: 'future-reason' }, gatedHostConn);
+      expect(kicked.mock.calls).toEqual([['room-pin-changed'], ['room-pin-enabled'], []]);
     });
 
     it('ignores a forged session-full frame and tears down only on the host frame', async () => {

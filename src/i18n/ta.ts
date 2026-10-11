@@ -292,16 +292,16 @@ const ta: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'அழைப்பு இணைப்பை நகலெடு',
   'connect.link_copied': 'அழைப்பு இணைப்பு நகலெடுக்கப்பட்டது',
   'connect.room_password_title': 'சேரக் கடவுச்சொல் தேவை',
-  'connect.room_password_set': 'அமை',
   'connect.room_password_toggle_aria': 'அறைக் கடவுச்சொல் தேவையை மாற்று',
-  'connect.room_password_input_aria': '8 இலக்க அறைக் கடவுச்சொல்லை உள்ளிடு',
-  'connect.room_password_refresh_aria': 'புதிய அறைக் கடவுச்சொல்லை உருவாக்கு',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': '8 இலக்கங்களுக்காகக் காத்திருக்கிறது',
   'connect.room_password_on': 'கடவுச்சொல் பயன்படுத்தப்பட்டது',
   'connect.room_password_invalid': '8 இலக்கங்களை உள்ளிடவும்',
-  'connect.room_password_enabled': 'புதிய பங்கேற்பாளர்களுக்கு அறைக் கடவுச்சொல் தேவைப்படும்',
   'connect.room_password_disabled': 'பங்கேற்பாளர்களுக்கு இனி அறைக் கடவுச்சொல் தேவையில்லை',
+  'connect.room_password_apply_pending':
+    'இணைப்பு மீண்டும் கிடைத்ததும் புதிய கடவுச்சொல் நடைமுறைக்கு வரும்.',
+  'connect.pin_enabled_removed_message':
+    'ஹோஸ்ட் அறைக் கடவுச்சொல்லை அமைத்துள்ளார். மீண்டும் சேர அதை உள்ளிடவும்.',
+  'connect.pin_changed_removed_message':
+    'ஹோஸ்ட் அறைக் கடவுச்சொல்லை மாற்றியுள்ளார். மீண்டும் சேர புதிய கடவுச்சொல்லை உள்ளிடவும்.',
   'connect.signaling_healthy': 'அறை சர்வர் ஆன்லைனில் உள்ளது',
   'connect.signaling_recovering': 'மீண்டும் இணைக்கிறது…',
   'connect.signaling_failed': 'சர்வர் இணைப்பு தோல்வியடைந்தது',

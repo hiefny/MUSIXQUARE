@@ -292,16 +292,16 @@ const fil: Record<I18nKey, string> = {
   'connect.copy_invite_link': 'Kopyahin ang link ng imbitasyon',
   'connect.link_copied': 'Nakopya ang link ng imbitasyon',
   'connect.room_password_title': 'Kailangan ng password para sumali',
-  'connect.room_password_set': 'Itakda',
   'connect.room_password_toggle_aria': 'I-on o i-off ang password ng kuwarto',
-  'connect.room_password_input_aria': 'Ilagay ang 8-digit na password ng kuwarto',
-  'connect.room_password_refresh_aria': 'Gumawa ng bagong password ng kuwarto',
-  'connect.room_password_off': '- - - - - - - -',
-  'connect.room_password_pending': 'Hinihintay ang 8 digit',
   'connect.room_password_on': 'Nailapat ang password',
   'connect.room_password_invalid': 'Maglagay ng 8 digit',
-  'connect.room_password_enabled': 'Kakailanganin ng mga bagong kalahok ang password ng kuwarto',
   'connect.room_password_disabled': 'Hindi na kailangan ng mga kalahok ang password ng kuwarto',
+  'connect.room_password_apply_pending':
+    'Malalapat ang bagong password kapag bumalik na ang koneksyon.',
+  'connect.pin_enabled_removed_message':
+    'Nagtakda ang host ng password para sa kuwarto. Ilagay ito para makasali ulit.',
+  'connect.pin_changed_removed_message':
+    'Pinalitan ng host ang password ng kuwarto. Ilagay ang bagong password para makasali ulit.',
   'connect.signaling_healthy': 'Online ang server ng kuwarto',
   'connect.signaling_recovering': 'Muling kumokonekta…',
   'connect.signaling_failed': 'Hindi makakonekta sa server',

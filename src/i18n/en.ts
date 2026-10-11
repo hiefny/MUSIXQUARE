@@ -798,6 +798,11 @@ const en: Record<I18nKey, string> = {
     'Another device signed in to your account disconnected this device from the room.',
   'pro.owner_only': 'Only the room owner can do that.',
   'pro.connect_failed': 'Could not connect to the PRO room.',
+  'pro.room_full': 'This PRO room is full',
+  'pro.room_full_detail':
+    'A PRO room holds up to 100 devices, including the owner. One spot is always kept for the owner.',
+  'pro.join_rate_limited': 'Too many join attempts. Try again in {{count}} minutes.',
+  'pro.join_rate_limited_later': 'Too many join attempts. Try again in a little while.',
   'pro.active_tab_title': 'This PRO room is already open in another tab',
   'pro.active_tab_message': 'Continuing here will disconnect the existing tab.',
   'pro.use_this_tab': 'Use this tab',

@@ -789,6 +789,11 @@ const ko = {
   'pro.device_removed_message': '내 계정으로 로그인한 다른 기기에서 이 기기의 연결을 끊었어요.',
   'pro.owner_only': '방 소유자만 할 수 있어요.',
   'pro.connect_failed': 'PRO 방에 연결하지 못했어요.',
+  'pro.room_full': 'PRO 방이 가득 찼어요',
+  'pro.room_full_detail':
+    'PRO 방에는 방 소유자를 포함해 최대 100대까지 연결할 수 있어요. 한 자리는 항상 방 소유자를 위해 비워 둬요.',
+  'pro.join_rate_limited': '입장 시도가 너무 많아요. {{count}}분 후에 다시 시도해 주세요.',
+  'pro.join_rate_limited_later': '입장 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.',
   'pro.active_tab_title': '이 PRO 방이 다른 탭에서 열려 있어요',
   'pro.active_tab_message': '이 탭에서 계속하면 기존 탭의 연결이 종료돼요.',
   'pro.use_this_tab': '강제로 계속',

@@ -719,6 +719,11 @@ const vi: Record<I18nKey, string> = {
     'Một thiết bị khác đã đăng nhập tài khoản của bạn đã ngắt kết nối thiết bị này khỏi phòng.',
   'pro.owner_only': 'Chỉ chủ phòng mới có thể thực hiện.',
   'pro.connect_failed': 'Không thể kết nối với phòng PRO.',
+  'pro.room_full': 'Phòng PRO này đã đầy',
+  'pro.room_full_detail':
+    'Phòng PRO chứa tối đa 100 thiết bị, bao gồm cả thiết bị của chủ phòng. Luôn có một chỗ được giữ sẵn cho chủ phòng.',
+  'pro.join_rate_limited': 'Có quá nhiều lượt thử tham gia. Hãy thử lại sau {{count}} phút.',
+  'pro.join_rate_limited_later': 'Có quá nhiều lượt thử tham gia. Hãy thử lại sau một lát.',
   'pro.active_tab_title': 'Phòng PRO này đã được mở trong thẻ khác',
   'pro.active_tab_message': 'Nếu tiếp tục tại đây, thẻ đang mở sẽ bị ngắt kết nối.',
   'pro.use_this_tab': 'Dùng thẻ này',

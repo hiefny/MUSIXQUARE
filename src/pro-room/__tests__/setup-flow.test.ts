@@ -33,7 +33,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../core/state.ts', () => ({ getState: mocks.getState }));
-vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
+vi.mock('../../i18n/index.ts', () => ({
+  t: (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}:${JSON.stringify(params)}` : key,
+}));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
 vi.mock('../../account/session.ts', () => ({ requestAccountLoginPopup: mocks.loginPopup }));
 vi.mock('../activation-account.ts', () => ({
@@ -56,7 +59,11 @@ vi.mock('../runtime.ts', () => ({
   transferProRoomOwner: mocks.transferOwner,
 }));
 
-import { clearPendingSessionRequestIdsForTests, enterProRoomFromSetup } from '../setup-flow.ts';
+import {
+  clearPendingSessionRequestIdsForTests,
+  describeProRoomJoinFailure,
+  enterProRoomFromSetup,
+} from '../setup-flow.ts';
 
 const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
@@ -1641,5 +1648,138 @@ describe('PRO room setup after the owner ended this session', () => {
     expect(mocks.showDialog).toHaveBeenCalledOnce();
     expect(mocks.showDialog.mock.calls[0]![0]).toMatchObject({ message: 'pro.pin_message' });
     expect(sessionReset.scheduleSessionReset).not.toHaveBeenCalled();
+  });
+});
+
+describe('PRO join failure copy', () => {
+  const ROOM_FULL_COPY = 'pro.room_full\npro.room_full_detail';
+  const pendingRequestKey = `mxqr-pro-session-request:${ROOM_CODE}`;
+
+  async function enterAndCatch(): Promise<unknown> {
+    try {
+      await enterProRoomFromSetup(ROOM_CODE);
+    } catch (error) {
+      return error;
+    }
+    throw new Error('Expected the PRO room entry to fail');
+  }
+
+  it('explains a full room when a fresh public-room admission is refused', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'open' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.probeJoin.mockReset().mockRejectedValue(new ProRoomApiError('ROOM_FULL', 409));
+
+    const failure = await enterAndCatch();
+
+    expect(failure).toMatchObject({ code: 'ROOM_FULL', status: 409 });
+    expect(mocks.probeJoin).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    // A definitive refusal must not leave a replayable admission behind.
+    expect(sessionStorage.getItem(pendingRequestKey)).toBeNull();
+    expect(describeProRoomJoinFailure(failure)).toBe(ROOM_FULL_COPY);
+  });
+
+  it('explains a full room when a PIN admission is refused', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '12345678' });
+    mocks.join.mockRejectedValueOnce(new ProRoomApiError('ROOM_FULL', 409));
+
+    const failure = await enterAndCatch();
+
+    expect(failure).toMatchObject({ code: 'ROOM_FULL', status: 409 });
+    expect(mocks.join).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem(pendingRequestKey)).toBeNull();
+    expect(describeProRoomJoinFailure(failure)).toBe(ROOM_FULL_COPY);
+  });
+
+  it('explains a full room when a cookie resume is refused', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'open' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('ROOM_FULL', 409));
+
+    const failure = await enterAndCatch();
+
+    expect(failure).toMatchObject({ code: 'ROOM_FULL', status: 409 });
+    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.probeJoin).not.toHaveBeenCalled();
+    expect(mocks.join).not.toHaveBeenCalled();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(describeProRoomJoinFailure(failure)).toBe(ROOM_FULL_COPY);
+  });
+
+  it('shows the throttle wait from a refused admission in whole minutes', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'open' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.probeJoin.mockReset().mockRejectedValue(new ProRoomApiError('RATE_LIMITED', 429, 125));
+
+    const failure = await enterAndCatch();
+
+    expect(failure).toMatchObject({ code: 'RATE_LIMITED', status: 429, retryAfterSeconds: 125 });
+    expect(sessionStorage.getItem(pendingRequestKey)).toBeNull();
+    expect(describeProRoomJoinFailure(failure)).toBe('pro.join_rate_limited:{"count":3}');
+  });
+
+  it('shows the PIN-failure lockout wait after a refused PIN admission', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '12345678' });
+    mocks.join.mockRejectedValueOnce(new ProRoomApiError('RATE_LIMITED', 429, 3_600));
+
+    const failure = await enterAndCatch();
+
+    expect(describeProRoomJoinFailure(failure)).toBe('pro.join_rate_limited:{"count":60}');
+  });
+
+  it.each([
+    [1, 1],
+    [59, 1],
+    [60, 1],
+    [61, 2],
+    [599, 10],
+    [600, 10],
+  ])('rounds a %i-second Retry-After up to %i whole minutes', (seconds, minutes) => {
+    expect(describeProRoomJoinFailure(new ProRoomApiError('RATE_LIMITED', 429, seconds))).toBe(
+      `pro.join_rate_limited:${JSON.stringify({ count: minutes })}`,
+    );
+  });
+
+  it.each([
+    ['without Retry-After', null],
+    ['with a zero Retry-After', 0],
+  ])('asks to try again later %s', async (_label, retryAfterSeconds) => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'open' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.probeJoin
+      .mockReset()
+      .mockRejectedValue(new ProRoomApiError('RATE_LIMITED', 429, retryAfterSeconds));
+
+    const failure = await enterAndCatch();
+
+    expect(describeProRoomJoinFailure(failure)).toBe('pro.join_rate_limited_later');
+  });
+
+  it.each([
+    ['an entry timeout', new ProRoomApiError('PRO_ROOM_ENTRY_TIMEOUT', 408)],
+    ['a full receipt ledger', new ProRoomApiError('ROOM_STATE_CAPACITY_EXCEEDED', 409)],
+    ['a full account member list', new ProRoomApiError('ACCOUNT_MEMBER_CAPACITY_EXCEEDED', 409)],
+    ['an uncoded 429', new ProRoomApiError('HTTP_429', 429, 30)],
+    ['a service outage', new ProRoomApiError('PRO_ROOM_API_UNAVAILABLE', 502)],
+    ['a transport failure', new TypeError('Failed to fetch')],
+    ['an untyped error with the same text', new Error('ROOM_FULL')],
+    ['a non-error value', 'RATE_LIMITED'],
+  ])('keeps the generic connection message for %s', (_label, error) => {
+    expect(describeProRoomJoinFailure(error)).toBe('pro.connect_failed');
+  });
+
+  it('keeps the generic connection message for other refused admissions', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'open' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.probeJoin
+      .mockReset()
+      .mockRejectedValue(new ProRoomApiError('ACCOUNT_MEMBER_CAPACITY_EXCEEDED', 409));
+
+    const failure = await enterAndCatch();
+
+    expect(describeProRoomJoinFailure(failure)).toBe('pro.connect_failed');
   });
 });

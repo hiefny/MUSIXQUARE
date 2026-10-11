@@ -729,6 +729,11 @@ const id: Record<I18nKey, string> = {
     'Perangkat lain yang masuk dengan akun Anda telah memutus koneksi perangkat ini dari ruang.',
   'pro.owner_only': 'Hanya pemilik ruang yang dapat melakukannya.',
   'pro.connect_failed': 'Tidak dapat terhubung ke ruang PRO.',
+  'pro.room_full': 'Ruang PRO ini sudah penuh',
+  'pro.room_full_detail':
+    'Ruang PRO dapat menampung hingga 100 perangkat, termasuk milik pemilik ruang. Satu tempat selalu disediakan untuk pemilik ruang.',
+  'pro.join_rate_limited': 'Terlalu banyak percobaan bergabung. Coba lagi dalam {{count}} menit.',
+  'pro.join_rate_limited_later': 'Terlalu banyak percobaan bergabung. Coba lagi sebentar lagi.',
   'pro.active_tab_title': 'Ruang PRO ini sudah terbuka di tab lain',
   'pro.active_tab_message': 'Melanjutkan di sini akan memutuskan koneksi tab yang sudah terbuka.',
   'pro.use_this_tab': 'Gunakan tab ini',

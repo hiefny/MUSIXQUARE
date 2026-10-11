@@ -800,6 +800,12 @@ const tr: Record<I18nKey, string> = {
     'Hesabınla oturum açmış başka bir cihaz, bu cihazın odayla bağlantısını kesti.',
   'pro.owner_only': 'Bunu yalnızca oda sahibi yapabilir.',
   'pro.connect_failed': 'PRO odasına bağlanılamadı.',
+  'pro.room_full': 'Bu PRO odası dolu',
+  'pro.room_full_detail':
+    'Bir PRO odasına oda sahibi dâhil en fazla 100 cihaz bağlanabilir. Bir yer her zaman oda sahibine ayrılır.',
+  'pro.join_rate_limited':
+    'Çok fazla katılma denemesi yapıldı. {{count}} dakika sonra tekrar dene.',
+  'pro.join_rate_limited_later': 'Çok fazla katılma denemesi yapıldı. Biraz sonra tekrar dene.',
   'pro.active_tab_title': 'Bu PRO odası başka bir sekmede zaten açık',
   'pro.active_tab_message': 'Burada devam edersen açık sekmenin bağlantısı kesilir.',
   'pro.use_this_tab': 'Bu sekmeyi kullan',

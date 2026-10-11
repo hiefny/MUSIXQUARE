@@ -808,6 +808,11 @@ const da: Record<I18nKey, string> = {
     'En anden enhed, der er logget ind med din konto, har afbrudt denne enheds forbindelse til rummet.',
   'pro.owner_only': 'Kun rummets ejer kan gøre dette.',
   'pro.connect_failed': 'Kunne ikke oprette forbindelse til PRO-rummet.',
+  'pro.room_full': 'Dette PRO-rum er fuldt',
+  'pro.room_full_detail':
+    'Et PRO-rum kan have op til 100 enheder inklusive ejerens. Der er altid én plads reserveret til ejeren.',
+  'pro.join_rate_limited': 'For mange forsøg på at deltage. Prøv igen om {{count}} minutter.',
+  'pro.join_rate_limited_later': 'For mange forsøg på at deltage. Prøv igen om lidt.',
   'pro.active_tab_title': 'Dette PRO-rum er allerede åbent i en anden fane',
   'pro.active_tab_message':
     'Hvis du fortsætter her, afbrydes forbindelsen til den allerede åbne fane.',
@@ -927,5 +932,8 @@ export const pluralMessages = {
   },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} fil, der ikke understøttes, bliver ikke tilføjet.',
+  },
+  'pro.join_rate_limited': {
+    one: 'For mange forsøg på at deltage. Prøv igen om {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

@@ -161,6 +161,28 @@ function isDefinitiveSessionAdmissionError(error: unknown): boolean {
   );
 }
 
+/**
+ * Describe a failed PRO join or cookie resume for the setup screen. A full
+ * room (the owner always keeps one of the 100 places) and the server's join
+ * throttle each have their own guidance; every other failure keeps the generic
+ * connection message. The wait is shown in whole minutes, rounded up, so the
+ * user never retries before the server's Retry-After has passed.
+ */
+export function describeProRoomJoinFailure(error: unknown): string {
+  if (error instanceof ProRoomApiError) {
+    if (error.code === 'ROOM_FULL') {
+      return `${t('pro.room_full')}\n${t('pro.room_full_detail')}`;
+    }
+    if (error.code === 'RATE_LIMITED') {
+      const seconds = error.retryAfterSeconds;
+      return seconds !== null && seconds > 0
+        ? t('pro.join_rate_limited', { count: Math.ceil(seconds / 60) })
+        : t('pro.join_rate_limited_later');
+    }
+  }
+  return t('pro.connect_failed');
+}
+
 export function clearPendingSessionRequestIdsForTests(): void {
   pendingSessionRequestIds.clear();
   pendingPinAdmissions.clear();

@@ -737,6 +737,13 @@ const fr: Record<I18nKey, string> = {
     'Un autre appareil connecté à votre compte a déconnecté cet appareil du salon.',
   'pro.owner_only': 'Seul le propriétaire du salon peut le faire.',
   'pro.connect_failed': 'Connexion au salon PRO impossible.',
+  'pro.room_full': 'Ce salon PRO est complet',
+  'pro.room_full_detail':
+    'Un salon PRO accueille jusqu’à 100 appareils, propriétaire compris. Une place est toujours réservée au propriétaire.',
+  'pro.join_rate_limited':
+    'Trop de tentatives pour rejoindre le salon. Réessayez dans {{count}} minutes.',
+  'pro.join_rate_limited_later':
+    'Trop de tentatives pour rejoindre le salon. Réessayez dans quelques instants.',
   'pro.active_tab_title': 'Ce salon PRO est déjà ouvert dans un autre onglet',
   'pro.active_tab_message': 'Continuer ici déconnectera l’autre onglet.',
   'pro.use_this_tab': 'Utiliser cet onglet',
@@ -908,5 +915,8 @@ export const pluralMessages = {
   'dialog.file_drop.message': { one: 'Ajouter {{count}} fichier ?' },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} fichier non pris en charge ne sera pas ajouté.',
+  },
+  'pro.join_rate_limited': {
+    one: 'Trop de tentatives pour rejoindre le salon. Réessayez dans {{count}} minute.',
   },
 } satisfies LocalePluralMessages;

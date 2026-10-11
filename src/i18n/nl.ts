@@ -805,6 +805,12 @@ const nl: Record<I18nKey, string> = {
     'Een ander apparaat dat met je account is ingelogd, heeft dit apparaat losgekoppeld van de kamer.',
   'pro.owner_only': 'Alleen de kamereigenaar kan dit doen.',
   'pro.connect_failed': 'Er kon geen verbinding worden gemaakt met de PRO-kamer.',
+  'pro.room_full': 'Deze PRO-kamer is vol',
+  'pro.room_full_detail':
+    'Een PRO-kamer biedt plaats aan maximaal 100 apparaten, inclusief dat van de kamereigenaar. Er is altijd één plek gereserveerd voor de kamereigenaar.',
+  'pro.join_rate_limited':
+    'Te veel pogingen om deel te nemen. Probeer het over {{count}} minuten opnieuw.',
+  'pro.join_rate_limited_later': 'Te veel pogingen om deel te nemen. Probeer het straks opnieuw.',
   'pro.active_tab_title': 'Deze PRO-kamer is al geopend in een ander tabblad',
   'pro.active_tab_message': 'Als je hier doorgaat, wordt het bestaande tabblad losgekoppeld.',
   'pro.use_this_tab': 'Dit tabblad gebruiken',
@@ -909,5 +915,8 @@ export const pluralMessages = {
   'dialog.file_drop.message': { one: '{{count}} bestand toevoegen?' },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} niet-ondersteund bestand wordt niet toegevoegd.',
+  },
+  'pro.join_rate_limited': {
+    one: 'Te veel pogingen om deel te nemen. Probeer het over {{count}} minuut opnieuw.',
   },
 } satisfies LocalePluralMessages;

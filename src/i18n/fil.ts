@@ -825,6 +825,12 @@ const fil: Record<I18nKey, string> = {
     'Dinisconnect ng isa pang device na naka-sign in sa account mo ang device na ito mula sa kuwarto.',
   'pro.owner_only': 'May-ari lang ng kuwarto ang makakagawa nito.',
   'pro.connect_failed': 'Hindi makakonekta sa PRO room.',
+  'pro.room_full': 'Puno na ang PRO room na ito',
+  'pro.room_full_detail':
+    'Hanggang 100 device ang kasya sa isang PRO room, kasama ang sa may-ari. Laging may isang puwestong nakalaan para sa may-ari.',
+  'pro.join_rate_limited':
+    'Masyadong maraming pagtatangkang sumali. Subukan ulit pagkalipas ng {{count}} minuto.',
+  'pro.join_rate_limited_later': 'Masyadong maraming pagtatangkang sumali. Subukan ulit maya-maya.',
   'pro.active_tab_title': 'Bukas na sa ibang tab ang PRO room na ito',
   'pro.active_tab_message': 'Kapag nagpatuloy ka rito, madidiskonekta ang kasalukuyang tab.',
   'pro.use_this_tab': 'Gamitin ang tab na ito',

@@ -740,6 +740,11 @@ const de: Record<I18nKey, string> = {
     'Ein anderes Gerät, das mit deinem Konto angemeldet ist, hat dieses Gerät vom Raum getrennt.',
   'pro.owner_only': 'Nur der Raumbesitzer kann das tun.',
   'pro.connect_failed': 'Verbindung zum PRO-Raum fehlgeschlagen.',
+  'pro.room_full': 'Dieser PRO-Raum ist voll',
+  'pro.room_full_detail':
+    'Ein PRO-Raum bietet Platz für bis zu 100 Geräte, einschließlich des Raumbesitzers. Ein Platz bleibt immer für den Raumbesitzer frei.',
+  'pro.join_rate_limited': 'Zu viele Beitrittsversuche. Versuche es in {{count}} Minuten erneut.',
+  'pro.join_rate_limited_later': 'Zu viele Beitrittsversuche. Versuche es etwas später erneut.',
   'pro.active_tab_title': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
   'pro.active_tab_message':
     'Wenn du hier fortfährst, wird die Verbindung im bisherigen Tab getrennt.',
@@ -912,5 +917,8 @@ export const pluralMessages = {
   'dialog.file_drop.message': { one: '{{count}} Datei hinzufügen?' },
   'dialog.file_drop.unsupported_notice': {
     one: '{{count}} nicht unterstützte Datei wird nicht hinzugefügt.',
+  },
+  'pro.join_rate_limited': {
+    one: 'Zu viele Beitrittsversuche. Versuche es in {{count}} Minute erneut.',
   },
 } satisfies LocalePluralMessages;

@@ -786,6 +786,11 @@ const ar: Record<I18nKey, string> = {
   'pro.device_removed_message': 'قطع جهاز آخر مسجّل الدخول إلى حسابك اتصال هذا الجهاز بالغرفة.',
   'pro.owner_only': 'لا يستطيع تنفيذ ذلك إلا مالك الغرفة.',
   'pro.connect_failed': 'تعذّر الاتصال بغرفة PRO.',
+  'pro.room_full': 'غرفة PRO هذه ممتلئة',
+  'pro.room_full_detail':
+    'تتسع غرفة PRO لما يصل إلى 100 جهاز، بما فيها جهاز مالك الغرفة، ويبقى مكان واحد محجوزًا له دائمًا.',
+  'pro.join_rate_limited': 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقة.',
+  'pro.join_rate_limited_later': 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد قليل.',
   'pro.active_tab_title': 'غرفة PRO هذه مفتوحة بالفعل في تبويب آخر',
   'pro.active_tab_message': 'ستؤدي المتابعة هنا إلى قطع اتصال التبويب المفتوح حاليًا.',
   'pro.use_this_tab': 'استخدام هذا التبويب',
@@ -923,5 +928,9 @@ export const pluralMessages = {
     two: 'لن تتم إضافة {{count}} ملفين غير مدعومين.',
     few: 'لن تتم إضافة {{count}} ملفات غير مدعومة.',
     many: 'لن تتم إضافة {{count}} ملفًا غير مدعوم.',
+  },
+  'pro.join_rate_limited': {
+    two: 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقتين.',
+    few: 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقائق.',
   },
 } satisfies LocalePluralMessages;

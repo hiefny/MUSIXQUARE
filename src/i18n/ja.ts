@@ -725,6 +725,12 @@ const ja: Record<I18nKey, string> = {
     'あなたのアカウントでログインしている別のデバイスが、このデバイスをルームから切断しました。',
   'pro.owner_only': 'この操作はルームのオーナーのみ行えます。',
   'pro.connect_failed': 'PROルームに接続できませんでした。',
+  'pro.room_full': 'このPROルームは満員です',
+  'pro.room_full_detail':
+    'PROルームにはオーナーを含め最大100台まで接続できます。オーナー用の枠が常に一つ確保されています。',
+  'pro.join_rate_limited': '参加の試行回数が多すぎます。{{count}}分後にもう一度お試しください。',
+  'pro.join_rate_limited_later':
+    '参加の試行回数が多すぎます。しばらくしてからもう一度お試しください。',
   'pro.active_tab_title': 'このPROルームは別のタブで開いています',
   'pro.active_tab_message': 'このタブで続けると、元のタブの接続が終了します。',
   'pro.use_this_tab': 'このタブを使う',

@@ -121,6 +121,12 @@ export async function readProRoomMp4Duration(
       }
       const body = offset + headerLength;
       const boxEnd = offset + length;
+      // Fragmented files declare only the initial (often empty or partial)
+      // timeline in moov; later moof runs extend it. Summing untrusted fragment
+      // runs is exactly the expansion this reader avoids, so leave them unknown.
+      if ((container === 'moov' && type === 'mvex') || (container === 'root' && type === 'moof')) {
+        throw new Error('MP4_DURATION_FRAGMENTED');
+      }
       if (container === 'root' && type === 'moov') {
         await walk(body, boxEnd, depth + 1, 'moov');
       } else if (container === 'moov' && type === 'mvhd') {

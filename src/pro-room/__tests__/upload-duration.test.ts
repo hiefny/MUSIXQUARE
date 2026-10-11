@@ -20,6 +20,23 @@ describe('optional upload duration from bounded local file metadata', () => {
     expect(wholeFileRead).not.toHaveBeenCalled();
   });
 
+  it('shares the server rules for joined MP3 headers and fragmented MP4 timelines', async () => {
+    const fixture = (name: string) =>
+      readFile(new URL(`../../../e2e/fixtures/${name}`, import.meta.url));
+    const mp3 = await fixture('large-audio-chirp.mp3');
+    // The first part's Xing header claims 193 frames; the joined file holds 2 x 194.
+    const joined = new File([mp3, mp3.subarray(44)], 'joined.mp3');
+    expect(await probeProRoomUploadDuration(joined)).toBeCloseTo((388 * 1152) / 44100, 6);
+    const fragment = new Uint8Array(8);
+    new DataView(fragment.buffer).setUint32(0, 8);
+    fragment.set(new TextEncoder().encode('moof'), 4);
+    const fragmented = new File(
+      [await fixture('large-audio-chirp-lc-stereo.m4a'), fragment],
+      'fragmented.m4a',
+    );
+    expect(await probeProRoomUploadDuration(fragmented)).toBeNull();
+  });
+
   it('reads a huge FLAC header without allocating or reading its encoded/PCM body', async () => {
     const bytes = await readFile(
       new URL('../../../e2e/fixtures/large-audio-chirp.flac', import.meta.url),

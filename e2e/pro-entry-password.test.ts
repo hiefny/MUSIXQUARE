@@ -150,6 +150,12 @@ async function openRoom(page: Page, owner: boolean, initiallyProtected: boolean)
   };
 }
 
+// The dialog ignores action presses just after a page swap (double-press
+// guard), so a scripted press waits that long, as a person reading would.
+async function afterPageSwap(page: Page) {
+  await page.waitForTimeout(450);
+}
+
 async function showPasswordSettings(page: Page) {
   const desktop = page.locator('#settings-subtab-connect');
   if (await desktop.isVisible()) await desktop.click();
@@ -206,6 +212,12 @@ for (const width of [390, 1280]) {
     await page.locator('.dialog-input-segment').first().fill('0000');
     await page.locator('.dialog-input-segment').last().fill('0034');
     await page.locator('#btn-dialog-ok').click();
+    await expect(page.locator('#dialog-title')).toHaveText(
+      'What should happen to current participants?',
+    );
+    expect(state.changes).toHaveLength(1);
+    await afterPageSwap(page);
+    await page.locator('#btn-dialog-ok').click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
     // Keeping the people in the room is the default choice.
     expect(state.changes).toEqual([
@@ -220,36 +232,178 @@ for (const width of [390, 1280]) {
   });
 }
 
-test('owner keeps people by default and can make everyone rejoin on a PIN change', async ({
-  page,
-}) => {
+test('owner sets the PIN, then chooses who stays on a second page', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 820 });
   const state = await openRoom(page, true, false);
   await waitForState(page, 'room.context.kind', 'pro');
   const toggle = await showPasswordSettings(page);
-  await toggle.click();
-  await expect(page.locator('#dialog-title')).toHaveText('Set room password');
-  await expect(page.locator('.dialog-choice legend')).toHaveText('People in the room now');
+  const title = page.locator('#dialog-title');
+  const next = page.locator('#btn-dialog-ok');
+  const secondary = page.locator('#btn-dialog-secondary');
+  const segments = page.locator('.dialog-input-segment');
   const keep = page.locator('input[name="pro-pin-existing-participants"][value="keep_present"]');
   const rejoin = page.locator('input[name="pro-pin-existing-participants"][value="revoke_all"]');
+  const checks = page.locator('.dialog-choice-check');
+
+  await toggle.click();
+  // Step 1 is the minimal PIN page: no choice, Cancel / Next.
+  await expect(title).toHaveText('Set room password');
+  await expect(page.locator('#dialog-message')).toContainText('Set a new 8-digit password.');
+  await expect(page.locator('.dialog-choice-frame')).toBeHidden();
+  await expect(secondary).toHaveText('Cancel');
+  await expect(next).toHaveText('Next');
+  await segments.first().fill('0000');
+  await segments.last().fill('0034');
+  await next.click();
+
+  // Step 2 replaces the title, has no subtitle, and keeps people by default.
+  await expect(title).toHaveText('What should happen to current participants?');
+  await expect(page.locator('#dialog-message')).toBeHidden();
+  await expect(page.locator('[role="radiogroup"]')).toBeVisible();
   await expect(keep).toBeChecked();
+  await expect(keep).toBeFocused();
   await expect(rejoin).not.toBeChecked();
-  await page.locator('.dialog-input-segment').first().fill('0000');
-  await page.locator('.dialog-input-segment').last().fill('0034');
-  await page.locator('#btn-dialog-ok').click();
+  await expect(secondary).toHaveText('Back');
+  await expect(next).toHaveText('OK');
+  await expect(checks.first()).toHaveCSS('opacity', '1');
+  await expect(checks.last()).toHaveCSS('opacity', '0');
+  expect(state.changes).toEqual([]);
+  await afterPageSwap(page);
+  await next.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   expect(state.changes).toEqual([{ pin: '00000034', existingParticipants: 'keep_present' }]);
 
   await page
     .locator('#room-password-refresh:visible, #desktop-room-password-refresh:visible')
     .click();
-  await expect(page.locator('#dialog-title')).toHaveText('Change room password');
-  await page.locator('.dialog-choice-option', { hasText: 'Make everyone rejoin' }).click();
+  await expect(title).toHaveText('Change room password');
+  await segments.first().fill('1111');
+  await segments.last().fill('2222');
+  await next.click();
+  await afterPageSwap(page);
+  await page.locator('.dialog-choice-option', { hasText: 'Everyone rejoins' }).click();
   await expect(rejoin).toBeChecked();
-  await page.locator('.dialog-input-segment').first().fill('1111');
-  await page.locator('.dialog-input-segment').last().fill('2222');
-  await page.locator('#btn-dialog-ok').click();
+  await expect(checks.last()).toHaveCSS('opacity', '1');
+  // Back keeps the typed PIN and the choice; nothing is sent yet.
+  await afterPageSwap(page);
+  await secondary.click();
+  await expect(title).toHaveText('Change room password');
+  await expect(segments.first()).toHaveValue('1111');
+  await expect(segments.last()).toHaveValue('2222');
+  await expect(segments.first()).toBeFocused();
+  expect(state.changes).toHaveLength(1);
+  await afterPageSwap(page);
+  await next.click();
+  await expect(rejoin).toBeChecked();
+  // Arrow keys move the single choice like any radio group.
+  await rejoin.press('ArrowUp');
+  await expect(keep).toBeChecked();
+  await keep.press('ArrowDown');
+  await expect(rejoin).toBeChecked();
+  await afterPageSwap(page);
+  await rejoin.press('Enter');
   await expect.poll(() => state.changes.length).toBe(2);
-  // "Make everyone rejoin" sends the legacy body every Worker understands.
+  // "Everyone rejoins" sends the legacy body every Worker understands.
   expect(state.changes[1]).toEqual({ pin: '11112222' });
+
+  // A double click on Next stops on the second page (its OK is not pressed),
+  // and Escape there closes without a change.
+  await page
+    .locator('#room-password-refresh:visible, #desktop-room-password-refresh:visible')
+    .click();
+  await segments.first().fill('3333');
+  await segments.last().fill('4444');
+  await next.dblclick();
+  await expect(title).toHaveText('What should happen to current participants?');
+  await expect(keep).toBeChecked();
+  expect(state.changes).toHaveLength(2);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/);
+  expect(state.changes).toHaveLength(2);
 });
+
+async function settleDialog(page: Page) {
+  await page.waitForFunction(() =>
+    document
+      .getElementById('dialog-overlay')!
+      .getAnimations({ subtree: true })
+      .every((animation) => ['finished', 'idle'].includes(animation.playState)),
+  );
+}
+
+function measureDialog(page: Page) {
+  return page.evaluate(() => {
+    const panel = document.querySelector<HTMLElement>('#dialog-overlay .dialog')!;
+    const box = panel.getBoundingClientRect();
+    const hit = (element: Element | null) => {
+      if (!element) return false;
+      const rect = element.getBoundingClientRect();
+      return (
+        rect.top >= box.top &&
+        rect.bottom <= box.bottom &&
+        document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === element
+      );
+    };
+    const overflowing = [...panel.querySelectorAll<HTMLElement>('*')].filter((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && (rect.right > box.right + 0.5 || rect.left < box.left - 0.5);
+    }).length;
+    return {
+      panelInside:
+        box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight,
+      panelScrollX: panel.scrollWidth - panel.clientWidth,
+      overflowing,
+      pageOverflow: document.documentElement.scrollWidth - innerWidth,
+      okHit: hit(document.getElementById('btn-dialog-ok')),
+      secondaryHit: hit(document.getElementById('btn-dialog-secondary')),
+    };
+  });
+}
+
+for (const viewport of [
+  { width: 320, height: 568 },
+  { width: 360, height: 640 },
+  { width: 844, height: 390 },
+  { width: 740, height: 360 },
+]) {
+  test(`both PIN pages fit without clipping at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await openRoom(page, true, true);
+    await waitForState(page, 'room.context.kind', 'pro');
+    await showPasswordSettings(page);
+    await page
+      .locator('#room-password-refresh:visible, #desktop-room-password-refresh:visible')
+      .click();
+    await page.locator('.dialog-input-segment').first().fill('1234');
+    await page.locator('.dialog-input-segment').last().fill('5678');
+    await settleDialog(page);
+    expect(await measureDialog(page)).toMatchObject({
+      panelInside: true,
+      panelScrollX: 0,
+      overflowing: 0,
+      pageOverflow: 0,
+    });
+    await page.locator('#btn-dialog-ok').click();
+    await settleDialog(page);
+    // Both actions stay visible and hit-testable without scrolling the panel.
+    expect(await measureDialog(page)).toEqual({
+      panelInside: true,
+      panelScrollX: 0,
+      overflowing: 0,
+      pageOverflow: 0,
+      okHit: true,
+      secondaryHit: true,
+    });
+    // Every row can be reached and chosen, scrolling the list when needed.
+    const rejoin = page.locator('.dialog-choice-option', { hasText: 'Everyone rejoins' });
+    await afterPageSwap(page);
+    await rejoin.scrollIntoViewIfNeeded();
+    await rejoin.click();
+    await expect(
+      page.locator('input[name="pro-pin-existing-participants"][value="revoke_all"]'),
+    ).toBeChecked();
+    expect((await measureDialog(page)).okHit).toBe(true);
+  });
+}

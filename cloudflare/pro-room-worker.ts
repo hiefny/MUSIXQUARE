@@ -281,12 +281,14 @@ interface AssetDurationEvidence {
   durationSeconds: number;
   checkedAtMs: number;
   source: PlaybackDurationEvidence['source'];
-  // Server length replaced by a controller value. Later controller reports
-  // keep the same floor; older Workers ignore and drop the key.
+  // Current-reader server length beneath a controller value, measured before
+  // or after it. Later controller reports keep the same floor; older Workers
+  // ignore and drop the key.
   measuredSeconds?: number;
-  // Reader version of a server length, or of `measuredSeconds`. Server
-  // evidence without the current version, and legacy 'upload' evidence, count
-  // as absent. Older Workers keep the key until they rewrite the evidence.
+  // Reader version of a server length, or of a controller value's
+  // `measuredSeconds` (or its unknown result when absent). Server evidence
+  // without the current version, and legacy 'upload' evidence, count as
+  // absent. Older Workers keep the key until they rewrite the evidence.
   reader?: number;
 }
 
@@ -5184,9 +5186,16 @@ export class MusixquareProRoom {
       : null;
   }
 
-  /** The asset has no length a current server read or a controller decode vouches for. */
+  /**
+   * The current reader has not read this asset yet: it has no trusted length,
+   * or only a controller decode that still lacks a measured floor.
+   */
   assetDurationProbeNeeded(asset: RoomAsset) {
-    return !this.assetDurationEvidence(asset);
+    const evidence = this.assetDurationEvidence(asset);
+    return (
+      !evidence ||
+      (evidence.source === 'controller' && evidence.reader !== PRO_ROOM_FILE_DURATION_READER)
+    );
   }
 
   controllerDurationContradictsMeasurement(asset: RoomAsset, durationSeconds: number) {
@@ -5202,8 +5211,30 @@ export class MusixquareProRoom {
   ) {
     const previous = this.assetDurationEvidence(asset);
     const measuredSeconds = this.measuredAssetDurationSeconds(previous);
+    // A server length, or the floor a controller value inherits from it,
+    // carries the reader version that measured it.
+    const reader = { reader: PRO_ROOM_FILE_DURATION_READER };
+    if (
+      source === 'server' &&
+      previous?.source === 'controller' &&
+      previous.durationSeconds >= durationSeconds * PLAYBACK_CONTROLLER_DURATION_MIN_RATIO
+    ) {
+      // A measurement after a decode it confirms becomes that decode's floor.
+      if (measuredSeconds === durationSeconds) return false;
+      return this.replaceAssetDuration(asset, {
+        ...this.assetDurationIdentity(asset),
+        durationSeconds: previous.durationSeconds,
+        checkedAtMs: previous.checkedAtMs,
+        source: 'controller',
+        measuredSeconds: durationSeconds,
+        ...reader,
+      });
+    }
     if (
       previous &&
+      // A decode far below a later measurement is refused retroactively, as
+      // it would have been on arrival: the measurement replaces it.
+      !(source === 'server' && previous.source === 'controller') &&
       (durationSourcePriority(previous.source) > durationSourcePriority(source) ||
         (source === 'controller' &&
           this.controllerDurationContradictsMeasurement(asset, durationSeconds)) ||
@@ -5211,23 +5242,47 @@ export class MusixquareProRoom {
           (previous.checkedAtMs > nowMs || previous.durationSeconds === durationSeconds)))
     )
       return false;
-    // A server length, or the floor a controller value inherits from it,
-    // carries the reader version that measured it.
-    const reader = { reader: PRO_ROOM_FILE_DURATION_READER };
-    const before = asset.duration;
-    asset.duration = {
-      assetVersion: asset.version,
-      byteLength: asset.byteLength,
-      roomGeneration: asset.roomGeneration,
+    // A controller value keeps the floor, or the unknown result, of the
+    // current reader's earlier read of this asset.
+    const probed = previous?.source === 'server' || previous?.reader === reader.reader;
+    return this.replaceAssetDuration(asset, {
+      ...this.assetDurationIdentity(asset),
       durationSeconds,
       checkedAtMs: nowMs,
       source,
       ...(source === 'server'
         ? reader
-        : measuredSeconds !== null
-          ? { measuredSeconds, ...reader }
+        : probed
+          ? { ...(measuredSeconds === null ? {} : { measuredSeconds }), ...reader }
           : {}),
+    });
+  }
+
+  /** The current reader found no length for an asset only a controller decoded. */
+  markAssetDurationProbed(asset: RoomAsset) {
+    const previous = this.assetDurationEvidence(asset);
+    if (previous?.source !== 'controller' || previous.reader === PRO_ROOM_FILE_DURATION_READER)
+      return false;
+    return this.replaceAssetDuration(asset, {
+      ...this.assetDurationIdentity(asset),
+      durationSeconds: previous.durationSeconds,
+      checkedAtMs: previous.checkedAtMs,
+      source: 'controller',
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+  }
+
+  assetDurationIdentity(asset: RoomAsset) {
+    return {
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+      roomGeneration: asset.roomGeneration,
     };
+  }
+
+  replaceAssetDuration(asset: RoomAsset, evidence: AssetDurationEvidence) {
+    const before = asset.duration;
+    asset.duration = evidence;
     // Optional timing evidence must never make a previously valid room unloadable
     // or consume the headroom needed by an unrelated authoritative mutation.
     if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
@@ -5239,15 +5294,17 @@ export class MusixquareProRoom {
   }
 
   enqueueAssetDurationProbe(asset: RoomAsset) {
-    if (!this.assetDurationProbeNeeded(asset)) return;
+    if (!this.assetDurationProbeNeeded(asset)) return false;
     const before = this.activeRoom.pendingAssetDurationProbes;
     const queue = before ?? [];
-    if (queue.includes(asset.assetId) || queue.length >= ASSET_MAX_ITEMS) return;
+    if (queue.includes(asset.assetId) || queue.length >= ASSET_MAX_ITEMS) return false;
     this.activeRoom.pendingAssetDurationProbes = [...queue, asset.assetId];
     if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
       if (before === undefined) delete this.activeRoom.pendingAssetDurationProbes;
       else this.activeRoom.pendingAssetDurationProbes = before;
+      return false;
     }
+    return true;
   }
 
   storePlaybackDurationEvidence(
@@ -5306,9 +5363,30 @@ export class MusixquareProRoom {
     }
   }
 
+  /** A cached controller decode that a later measurement of its asset refuted. */
+  refutedPlaybackDuration(evidence: PlaybackDurationEvidence) {
+    if (
+      evidence.identity.mediaKind !== 'file' ||
+      evidence.source !== 'controller' ||
+      evidence.durationSeconds === null
+    )
+      return false;
+    const asset = this.durationAsset(evidence.identity);
+    return (
+      asset !== null &&
+      this.controllerDurationContradictsMeasurement(asset, evidence.durationSeconds)
+    );
+  }
+
   reconcilePlaybackDurationProbe(nowMs = Date.now()) {
     let changed = false;
     for (const [key, evidence] of Object.entries(this.activeRoom.playbackDurations)) {
+      if (this.refutedPlaybackDuration(evidence)) {
+        // The occurrence is rebuilt below from the asset's measured length.
+        delete this.activeRoom.playbackDurations[key];
+        changed = true;
+        continue;
+      }
       if (evidence.identity.mediaKind === 'file' && evidence.durationSeconds !== null) {
         const asset = this.durationAsset(evidence.identity);
         if (asset)
@@ -5382,6 +5460,7 @@ export class MusixquareProRoom {
       : null;
     if (!identity || !evidence || !this.playbackDurationIdentityExists(identity)) return null;
     if (playbackDurationEvidenceExpiresAtMs(evidence) <= nowMs) return null;
+    if (this.refutedPlaybackDuration(evidence)) return null;
     // The YouTube API duration may be rounded. Never schedule before the real
     // endpoint; native ENDED may still settle the exact boundary sooner.
     const graceMs = identity.mediaKind === 'file' && evidence.source === 'controller' ? 0 : 2_000;
@@ -5484,6 +5563,7 @@ export class MusixquareProRoom {
     let finished = false;
     const lookup = (async () => {
       let duration: number | null = null;
+      let read = false;
       if (
         asset?.status === 'ready' &&
         !asset.deletionPending &&
@@ -5491,6 +5571,7 @@ export class MusixquareProRoom {
         this.env.PRO_MEDIA_BUCKET &&
         this.assetDurationProbeNeeded(asset)
       ) {
+        read = true;
         duration = await readProRoomFileDuration(
           this.env.PRO_MEDIA_BUCKET,
           asset.objectKey,
@@ -5514,12 +5595,17 @@ export class MusixquareProRoom {
               current.roomGeneration === roomGeneration &&
               current.objectKey === objectKey &&
               current.version === version &&
-              current.byteLength === byteLength &&
-              isFiniteNumber(duration) &&
-              duration > 0 &&
-              duration <= PLAYBACK_MAX_POSITION_SECONDS
+              current.byteLength === byteLength
             ) {
-              this.storeAssetDuration(current, duration, 'server');
+              if (
+                isFiniteNumber(duration) &&
+                duration > 0 &&
+                duration <= PLAYBACK_MAX_POSITION_SECONDS
+              )
+                this.storeAssetDuration(current, duration, 'server');
+              // A decoded length keeps working without a floor; do not read
+              // the same unsupported object again on every later report.
+              else if (read) this.markAssetDurationProbed(current);
             }
             // One bounded registration attempt. Unsupported headers remain unknown;
             // a later controller decode or active playback probe can fill the gap.
@@ -15647,6 +15733,8 @@ export class MusixquareProRoom {
         // Only an authorized controller may attest the decoded file duration.
         // YouTube iframe durations (live elapsed time) are never timer evidence.
         this.storePlaybackDurationEvidence(identity, parsed.value.durationSeconds, 'controller');
+        const asset = this.durationAsset(identity);
+        if (asset) this.enqueueAssetDurationProbe(asset);
       }
     }
     // A readiness report is final for this immutable cohort: conflicting
@@ -16477,7 +16565,10 @@ export class MusixquareProRoom {
         evidence.durationSeconds !== parsed.value.durationSeconds)
     )
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
-    if (stored) await this.persist();
+    // A decode reported before any current server read still gets one bounded
+    // read, which may set its floor or retroactively replace it.
+    const queued = this.enqueueAssetDurationProbe(asset);
+    if (stored || queued) await this.persist();
     return jsonResponse({ ok: true });
   }
 

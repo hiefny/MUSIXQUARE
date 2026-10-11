@@ -133,10 +133,12 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 - [ ] 미배포 일반방 방장 암호(8.10.0): App과 시그널링 Worker가 함께 바뀌어 Production
   Release `target=all`이다. release.yml에서 시그널링이 App보다 먼저 배포되고, App도
-  peer-open의 기능 플래그를 확인하므로 순서가 바뀌어도 안전하다. 배포 SHA `d76b1432`
-  대비 런타임 경로는 signaling 3개(`signaling-protocol.ts`, `signaling-worker.ts`, 새
-  `standard-room-pin-membership.ts`), app 67개, pro-room·remote-share·developer-api
-  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v659`. 새
+  peer-open의 기능 플래그를 확인하므로 순서가 바뀌어도 안전하다. 배포 SHA `8307f12b`
+  (8.9.6) 대비 런타임 경로는 signaling 3개(`signaling-protocol.ts`,
+  `signaling-worker.ts`, 새 `standard-room-pin-membership.ts`), app 66개,
+  pro-room·remote-share·developer-api 계열 0개이고 App 런타임 의존성 변경은 없다.
+  8.9.4의 탭 인계 문구 수정(인계당한 탭은 새 `pro.active_tab_replaced`, 42개 언어)도
+  함께 나간다. App `8.10.0` / SW 캐시 `v659`. 새
   Durable Object 키 2개(`standard-room-pin-membership-v1`,
   `standard-room-pin-failures-v1`)만 쓰고
   `cloudflare/standard-room-pin-storage-contract-version.txt`, room meta v2, guest
@@ -222,6 +224,15 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   등록 시 길이 확보와 기존 파일의 점진적 보완도 같은 실기 확인 대상이다.
   분석 불가 형식은 권한 기기의 준비 완료 전까지 미확정으로 남는다.
   [등록·보완 근거](design/pro-file-duration-registration-2026-10-12.md)
+- [ ] PRO 자동 넘김 후속 수정(8.10.1 예정, PRO Worker): 8.9.4–8.9.6 리뷰에서 나온
+  P3·P4. 연결 MP3의 낡은 Xing/VBRI 프레임 수와 조각난 MP4(`mvex`·`moof`)가 짧은
+  길이로 읽혀 컨트롤러가 없을 때 곡이 일찍 넘어갈 수 있다. 방 상태가 용량 한도에
+  닿아 자연 넘김이 롤백되거나, 재생 파일의 자산이 식별 검사에 실패하면 알람이 쉬지
+  않고 다시 울린다. 라이브·조회 불가 YouTube는 1분마다 다시 조회한다. 권한을 잃은
+  컨트롤러의 짧은 길이 보고가 남는다. 오너 결정(2026-10-12): 8.10.0을 먼저 배포하고
+  이 수정은 바로 다음 릴리스로 낸다. 삭제·비공개 YouTube 영상은 시간 간격을 둔 두
+  번의 "없음" 응답이 확인되면 건너뛴다.
+  [리뷰·처리](design/release-8-10-0-merge-review-2026-10-12.md)
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
   포커스를 받는다. 8.7.8 이전부터 있던 문제다.
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전

@@ -97,6 +97,11 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [8.10.0 merge and 8.9.4–8.9.6 review — 2026-10-12](design/release-8-10-0-merge-review-2026-10-12.md) —
+  unreleased App 8.10.0 / v659 after merging 8.9.6: merge resolution, four
+  read-only reviews (no P1/P2), the replaced-tab takeover copy fix, the PRO
+  Worker follow-ups deferred to 8.10.1 and the owner decisions on order and
+  deleted YouTube videos. Local full checks; no real-device review.
 - [PRO autonomous natural completion — 2026-10-12](design/pro-autonomous-playback-2026-10-12.md) —
   server-owned end deadlines, bounded file headers and authenticated YouTube
   metadata, controller sleep/departure, queue transitions and rollback compatibility;

@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — append-only 릴리스 로그 |
 | Applies to         | 프로덕션 배포와 롤백 (`Production Release` 실행, 로컬 emergency deploy, CLI rollback) |
-| Last source review | 2026-10-11 |
+| Last source review | 2026-10-12 |
 | Executable sources | [Production Release](../.github/workflows/release.yml), [Release Recovery](../.github/workflows/release-recovery.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts) |
 | Related documents  | [현재 릴리스 기록](release-record.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md) |
 
@@ -50,6 +50,7 @@
 | 2026-10-09 21:32 | 8.7.9 / v645  | app       | `b831b932` | [#279](https://github.com/hiefny/MUSIXQUARE/pull/279) | [37930447317](https://github.com/hiefny/MUSIXQUARE/actions/runs/37930447317) | 성공 | 헤더 독립 크로스페이드, 로딩·시크 중 탭 전환 차단 제거 | [상세](design/header-crossfade-2026-10-09.md) |
 | 2026-10-10 19:33 | 8.8.0 / v646  | all       | `6e59d96c` | [#281](https://github.com/hiefny/MUSIXQUARE/pull/281) | [38045004901](https://github.com/hiefny/MUSIXQUARE/actions/runs/38045004901) | 성공 | PRO 선택형 입장 암호, PRO/App forward-repair floor | [상세](design/pro-optional-entry-password-2026-10-10.md) |
 | 2026-10-11 10:33 | 8.9.0 / v651  | all       | `d76b1432` | [#291](https://github.com/hiefny/MUSIXQUARE/pull/291) (+[#287](https://github.com/hiefny/MUSIXQUARE/pull/287)–[#290](https://github.com/hiefny/MUSIXQUARE/pull/290)) | [38101940058](https://github.com/hiefny/MUSIXQUARE/actions/runs/38101940058) | 성공 | PRO 입장 보호(방장 자리, 입장·나가기 기록 분리, 입장 한도), 암호 설정·변경 때 참여자 선택과 퇴장 사유 안내, 입장 거절 문구 42개 언어, 의존성 업데이트, persisted-resource lane 리팩터링. 8.8.1은 따로 배포하지 않음 | [입장 보호](design/pro-room-admission-protection-2026-10-11.md), [참여자 선택](design/pro-pin-member-choice-2026-10-11.md), [입장 문구](design/pro-join-error-copy-2026-10-11.md), [의존성](design/dependency-update-2026-10-11.md), [lane](design/persisted-resource-lane-2026-10-11.md) |
+| 2026-10-12 00:37 | 8.9.4 / v655 | all | `a440e184` | [#295](https://github.com/hiefny/MUSIXQUARE/pull/295) (+[#293](https://github.com/hiefny/MUSIXQUARE/pull/293)) | [38151658686](https://github.com/hiefny/MUSIXQUARE/actions/runs/38151658686) | 성공 (attempt 1) | PRO 시계 응답 대기 예산, 동시 입장 티켓 검증, 실패 후 같은 화면 재시도, 이전 연결 안내 42개 언어, 암호 두 단계 UI 묶음. 8.9.1–8.9.3은 따로 배포하지 않음 | [검증·배포](design/pro-pwa-force-close-audit-2026-10-12.md) |
 
 ## 이 표 밖의 기록
 

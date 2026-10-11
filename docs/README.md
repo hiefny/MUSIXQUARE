@@ -104,7 +104,7 @@ labeled portion still supports a current guard or operating interpretation:
   tickets overtaken by another arrival, and unchanged admission limits.
   Local repairs and regression evidence; shipped in 8.9.4.
 - [PRO PIN two-step dialog — 2026-10-11](design/pro-pin-two-step-2026-10-11.md) —
-  unreleased App 8.9.1/v652 (target `app`): a minimal PIN page with Cancel /
+  shipped with App 8.9.4/v655: a minimal PIN page with Cancel /
   Next, then "현재 참여자를 어떻게 할까요?" with "그대로 두기" / "모두 재입장" rows
   styled like the language list, replacing the 8.9.0 in-dialog radio group that
   clipped on small phones and in landscape. Local unit, build, browser, and

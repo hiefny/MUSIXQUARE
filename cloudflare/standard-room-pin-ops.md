@@ -90,8 +90,8 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
 
 | Key | Shape and bounds | Written | Deleted |
 | --- | --- | --- | --- |
-| `standard-room-pin-membership-v1` | `{v:1, roomSecretHash, verifierDigest, kept:[{peerId, secretHash}]}`, at most 99 unique peers; hashes are 43-character base64url | With the verifier, in one transaction, by a keep change. Each kept peer's reconnect-secret hash is copied from its binding (active or inside the 5-minute reconnect window) | By a later change without the choice, turning protection off, "모두 재입장", a new room epoch, and `clearRoomMeta` |
-| `standard-room-pin-failures-v1` | `{v:1, entries:[{key, count, resetAt}]}`, at most 256 buckets, `count` 1..20 | After each wrong PIN | Expired entries are pruned on the next write; `clearRoomMeta` (room end) deletes the key |
+| `standard-room-pin-membership-v1` | `{v:1, roomSecretHash, verifierDigest, kept:[{peerId, secretHash}]}`, at most 99 unique peers; hashes are 43-character base64url | With the verifier, in one transaction, by a keep change. Each kept peer's reconnect-secret hash is copied from its binding (active or inside the 5-minute reconnect window), or, for a peer without a live binding, from the current record while that record still exempts it | By a later change without the choice, turning protection off, "모두 재입장", a new room epoch, and `clearRoomMeta` |
+| `standard-room-pin-failures-v1` | `{v:1, entries:[{key, count, resetAt}]}`, at most 256 address-block buckets plus one shared overflow bucket (fixed key `standard-room-pin-overflow-bucket-v1-shared`), `count` 1..20 | After each wrong PIN | Expired entries are pruned on the next write; `clearRoomMeta` (room end) deletes the key. A live bucket is never evicted |
 
 - **Kept devices.** A guest is exempt from the PIN only while the record's
   `roomSecretHash` matches the current room epoch, its `verifierDigest` matches
@@ -101,10 +101,17 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
   PIN after a first enable; error precedence and close codes are unchanged.
   This also fixes the old defect where a present guest re-sent a stale PIN on
   a signaling reconnect, got `room-password-invalid`, and lost ICE-restart
-  recovery.
+  recovery. A later keep change that lists a kept guest whose binding has
+  expired (its signaling socket down for over five minutes while its data
+  channel lives) carries that guest's hash over from the current record, so the
+  exemption still needs the same reconnect secret and is not lost between
+  changes.
 - **Everyone rejoins.** While the PIN mutation fence is held, the Worker sends
   `peer-left` to the host and closes every admitted guest socket with
-  `room-password-changed` (1008). It then commits the verifier, empty bindings
+  `room-password-changed` (1008). The message (and close reason) is
+  `ROOM_PASSWORD_ENABLED` when the room had no PIN before and
+  `ROOM_PASSWORD_CHANGED` otherwise, so a guest without an open data channel
+  sees the matching notice. It then commits the verifier, empty bindings
   and no record in one transaction. Guests still authenticating are not closed;
   they meet the fence (1013) and then the new verifier. After the Worker
   acknowledges, the host App sends `KICK_DEVICE` with reason `room-pin-enabled`
@@ -122,11 +129,28 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
   guests carry none and share one per-room `unattributed` bucket, and
   `X-Forwarded-For` is never used. A locked attempt gets
   `room-password-rate-limited` (1008) with `retryAfterSeconds` and the
-  `guest_auth_rate_limited` metric ("Password lockouts"); attempts without a
-  PIN are not counted, kept devices bypass the lock, and a storage failure
-  never blocks a guest. A full table of 256 locked buckets locks a new bucket
-  until the earliest window ends. Counters are stored, so hibernation does not
+  `guest_auth_rate_limited` metric ("Password lockouts" in the admin Signals
+  panel, last 24 hours); attempts without a PIN are not counted, and a storage
+  failure never blocks a guest. Counters are stored, so hibernation does not
   reset them.
+- **Who passes a locked bucket.** Kept devices bypass the lock. So does a guest
+  whose reconnect secret matches its live binding (admitted now, or within the
+  5-minute reconnect window): its PIN is still checked, so a device already in
+  the room keeps its signaling recovery when other people on its network (or
+  other HTTP-bridge guests) exhaust the shared bucket. A wrong PIN on that path
+  is counted and also deletes the binding, so one binding carries at most one
+  attempt past a lock. A guest whose binding has expired is treated as new.
+- **Table bound.** Live buckets are never evicted. Once 256 address blocks hold
+  a live bucket, attempts from every other block are charged to the single
+  overflow bucket, which has the same 20-per-window limit. A room therefore
+  accepts at most 256 × 20 + 20 = 5,140 wrong PINs per window however many
+  addresses an attacker rotates through. The cost is a fail-closed lockout:
+  while 256 blocks hold a bucket and the overflow bucket is locked, every new
+  joiner from another block gets `room-password-rate-limited` until the
+  overflow window ends or a bucket expires (at most 10 minutes, renewable by a
+  persistent attacker). Kept devices and guests with a live binding still pass.
+  The host can turn protection off or open a new room. Someone controlling 256
+  IPv6 /64s (one routed /56) can reach this with about 276 wrong PINs.
 
 ### Rollback
 

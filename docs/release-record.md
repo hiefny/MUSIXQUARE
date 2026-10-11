@@ -129,8 +129,8 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   Release `target=all`이다. release.yml에서 시그널링이 App보다 먼저 배포되고, App도
   peer-open의 기능 플래그를 확인하므로 순서가 바뀌어도 안전하다. 배포 SHA `d76b1432`
   대비 런타임 경로는 signaling 3개(`signaling-protocol.ts`, `signaling-worker.ts`, 새
-  `standard-room-pin-membership.ts`), app 62개, pro-room·remote-share·developer-api
-  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v653`. 새
+  `standard-room-pin-membership.ts`), app 63개, pro-room·remote-share·developer-api
+  계열 0개이고 App 런타임 의존성 변경은 없다. App `8.10.0` / SW 캐시 `v654`. 새
   Durable Object 키 2개(`standard-room-pin-membership-v1`,
   `standard-room-pin-failures-v1`)만 쓰고
   `cloudflare/standard-room-pin-storage-contract-version.txt`, room meta v2, guest
@@ -142,9 +142,18 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   암호를 만들고, 그 암호를 새로 만들었으면 남아 있던 참여자가 배포 재연결 때 옛 암호를
   보내 실패가 같은 주소 버킷에 쌓일 수 있다. 이전 App 참여자는 "모두 재입장"으로
   내보내지면 "강제퇴장"을 보고, 새 오류 두 가지는 일반 입장 오류로 보인다(영구 인증
-  오류라 재연결 폭주는 없다). 배포 뒤 관리자 대시보드의 Password lockouts
-  (`guest_auth_rate_limited`)가 평소 0에 가까운지 본다. main의 캐시가 먼저 올라가면
-  병합 직전에 번호를 다시 올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을 지운다.
+  오류라 재연결 폭주는 없다). 배포 뒤 관리자 대시보드 Operations 화면 Signals
+  패널의 Password lockouts(`guest_auth_rate_limited`, 최근 24시간)가 평소 0에
+  가까운지 본다. 오너 결정 필요: 오답 버킷은 방마다 주소 블록 256개까지 따로 두고,
+  그 밖의 블록은 공유 overflow 버킷 하나를 같이 쓴다. 살아 있는 버킷은 밀어내지
+  않으므로 방 하나가 10분에 받는 오답은 최대 5,140회다. 대신 256개 블록이 버킷을
+  가진 채 overflow 버킷까지 잠기면, 다른 블록의 새 참여자는 그 창이 끝나거나 버킷
+  하나가 만료될 때까지(최대 10분, 공격이 이어지면 갱신) 입장이 막힌다. 라우팅된
+  IPv6 /56 하나로 오답 약 276회면 된다. 유지된 기기와 재연결 바인딩이 살아 있는
+  참여자는 영향이 없고, 방장은 암호를 끄거나 새 방을 열 수 있다. 버킷을 밀어내면
+  256개를 넘는 주소로 나눈 추측이 무제한이 되므로 막는 쪽을 택했다. 이 선택을
+  허용할지 오너가 정한다. main의 캐시가 먼저 올라가면 병합 직전에 번호를 다시
+  올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을 지운다.
   [상세](design/standard-room-owner-pin-2026-10-11.md),
   [운영](../cloudflare/standard-room-pin-ops.md),
   [허용 위험](known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)
@@ -270,6 +279,21 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   App만 이전으로 되돌리면 사유를 무시하고 예전처럼 동작한다. 계약 marker는 없고
   rollback floor도 바뀌지 않는다.
   [상세](design/pro-pin-member-choice-2026-10-11.md)
+- **일반방 방장 암호(배포되면 적용):** 시그널링만 8.10.0 이전 Worker로 되돌려도
+  floor는 없다. 이전 Worker는 `standard-room-pin-membership-v1`과
+  `standard-room-pin-failures-v1`을 읽지 않고 기능 플래그도 알리지 않아, App이
+  암호만 보낸다. 그동안 "그대로 두기"는 8.10.0 이전처럼 동작해 재연결 때 옛 암호를
+  다시 보내는 결함이 돌아오고, "모두 재입장"은 방장의 강퇴뿐이라 수정된
+  클라이언트는 시그널링에 남을 수 있다. 오답 제한도 꺼지는데 방장이 고른 약한
+  암호는 계속 허용된다. 그래서 forward fix를 우선하고, 되돌려야 하면 App도 함께
+  되돌린다(8.9.x의 무작위 암호로 돌아간다). 되돌린 동안 같은 방에서 암호를
+  X→Y→X로 바꾸면, 다시 앞으로 배포했을 때 X 때의 유지 목록이 되살아난다(그 기기도
+  자기 재연결 비밀이 있어야 한다). App만 되돌리면 무작위 암호로 돌아가고 새
+  Worker는 예전 프레임을 그대로 받는다. 되돌리기 전에 저장된 유지 목록은 방
+  epoch와 verifier에 묶여 있어 그 경우 말고는 무시되고, 오답 기록은 10분 안에
+  만료된다. 계약 marker는 없고 rollback floor도 바뀌지 않는다.
+  [상세](design/standard-room-owner-pin-2026-10-11.md),
+  [운영](../cloudflare/standard-room-pin-ops.md#rollback)
 
 ## 5. 갱신 방법
 

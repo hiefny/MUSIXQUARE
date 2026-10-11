@@ -1,7 +1,7 @@
 # Standard-room owner PIN — 2026-10-11
 
 Status: implemented and verified locally on branch
-`agent/standard-room-owner-pin` as App `8.10.0` / PWA cache `v653`. It is
+`agent/standard-room-owner-pin` as App `8.10.0` / PWA cache `v654`. It is
 based on `origin/agent/pro-pin-two-step` `32a75a00` (PR #293, App `8.9.1` /
 `v652`, not on main when this was tested), which is based on main `23d2f758`.
 Not merged or deployed; production remains App `8.9.0` / `v651` at `d76b1432`
@@ -69,9 +69,10 @@ decided:
   The applied `room-password-result` may echo `existingParticipants`.
 - `host-auth` is byte-identical.
 - New guest close errors, both 1008: `room-password-changed` (sent to
-  admitted guest sockets on "모두 재입장") and `room-password-rate-limited`
-  (with `retryAfterSeconds`). Every shipped client treats any
-  `room-password-*` error as permanent: no reconnect storm.
+  admitted guest sockets on "모두 재입장", with message `ROOM_PASSWORD_ENABLED`
+  when the room had no PIN before and `ROOM_PASSWORD_CHANGED` otherwise) and
+  `room-password-rate-limited` (with `retryAfterSeconds`). Every shipped client
+  treats any `room-password-*` error as permanent: no reconnect storm.
 
 ## Change
 
@@ -87,7 +88,10 @@ return the Worker's commit for that exact mutation (`applied` with
 `keep_present` / `revoke_all` / `legacy`, or `superseded`), sends the
 membership only on a flagged socket, clears the directive after the applied
 ack (so a later echo cannot revoke people who entered with the new PIN), and
-carries `retryAfterSeconds` on guest errors.
+carries `retryAfterSeconds` on guest errors. The [review follow-ups](#review-follow-ups)
+made live wrong-PIN buckets non-evictable with one shared overflow bucket, let
+devices already in the room pass a locked bucket, carried kept devices across
+consecutive keep changes, and told first-enable revocations apart.
 
 ### App (`964d30c8`)
 
@@ -128,7 +132,8 @@ carries `retryAfterSeconds` on guest errors.
   auto-join asks for the PIN (`room-password-required`, not counted). An
   invalid code reloads instead. A `room-password-changed` close that arrives
   without the kick frame shows the same notice, and a second report while it
-  is open is dropped. `room-password-rate-limited` shows "입장 시도가 너무
+  is open is dropped; its Worker message `ROOM_PASSWORD_ENABLED` selects the
+  "설정" notice. `room-password-rate-limited` shows "입장 시도가 너무
   많아요. N분 후에 다시 시도해 주세요." (minutes rounded up) or the "잠시 후"
   variant. Unknown or missing reasons keep the old 강제퇴장 dialog.
 - **Masking.** Both room types show `••••-••••` when protected, with the code
@@ -178,6 +183,56 @@ forced colors, and found three more forced-colors rules that never applied:
 
 A CSS test now fails when a base-layer `!important` color declaration shares a
 selector with a forced-colors rule, and pins the icon rule.
+
+## Review follow-ups
+
+A review of the branch at `67ac15f6` raised seven findings. All seven were
+confirmed and fixed in `e846172e` through `6f0c65a7`:
+
+1. **No limiter ceiling past 256 address blocks (should-fix).** With a full
+   table, a new block evicted the unlocked bucket that expired first, so a
+   round-robin over 257 blocks (one IPv6 /56 plus one IPv4 address) reset every
+   counter before its next turn: the reviewer's script accepted 51,400 wrong
+   PINs in 51 s and refused none. Live buckets are now never evicted; while 256
+   blocks hold one, every other block is charged to, and locked with, one
+   overflow bucket under a fixed key (`e846172e`). The same script now accepts
+   5,120 wrong PINs for 256 blocks and 5,140 for 257 or 1,000 blocks, the
+   256 × 20 + 20 bound, which a unit test pins. The cost is item 7.
+2. **A later keep change dropped a kept device whose binding had expired
+   (minor).** The keep branch now carries a listed peer's hash over from the
+   current record when the peer has no live binding, and only while that record
+   still exempts it (room epoch and verifier digest match) (`e3d4bb71`). Worker
+   tests cover two keep changes with the binding expiring in between, and a
+   stale record that carries nothing.
+3. **An admitted guest lost signaling recovery while its bucket was locked
+   (should-fix).** The Worker now lets a guest whose reconnect secret matches
+   its live binding pass a locked bucket. Its PIN is still checked; a wrong PIN
+   on that path is counted and deletes the binding, so one binding carries at
+   most one attempt past a lock (`e3d4bb71`). The fix is in the Worker, so it
+   covers every App version and the shared HTTP-bridge bucket. The App still
+   treats `room-password-rate-limited` as permanent, so a device whose
+   signaling stayed down past the 5-minute reconnect window is treated as new
+   and can still lose recovery; known-accepted #12 records this. Worker tests
+   cover an IPv4 guest and a bridge guest recovering during a lock, another
+   device's secret under the same peer ID still refused, and the one-attempt
+   limit.
+4. **The socket-close notice always said "changed" (minor).** "모두 재입장" now
+   closes guests with message `ROOM_PASSWORD_ENABLED` when the room had no PIN
+   before, under the same error type, and the App maps it to "방 암호가
+   설정됐어요" (`e3d4bb71`, `98312ece`).
+5. **The planned production check was not visible in the dashboard
+   (should-fix).** The admin Signals panel now shows "Password lockouts"
+   (`guest_auth_rate_limited`, last 24 hours) and has six desktop columns
+   (`0de283bc`), covered by a jsdom test of the admin runtime.
+6. **No recovery entry in the release record (minor).** §4 now has
+   "일반방 방장 암호(배포되면 적용)".
+7. **The room-wide lockout was missing from known-accepted (minor).** Item #12
+   now states it with its cost after item 1 (about 276 wrong PINs from 256
+   /64s, renewable) and the remedies, as pending owner acceptance, which the
+   release record's §2 item asks for.
+
+Items 4 and 5 change PWA runtime files after `120d59e2`, so the cache advanced
+to `v654` (`6f0c65a7`); the App stays `8.10.0`.
 
 ## Compatibility and rollback
 
@@ -238,11 +293,11 @@ Observed, not changed:
 - App `8.9.1` to `8.10.0` (minor) in `package.json`, both
   `package-lock.json` product fields, `browser/classic-runtime/admin.ts` and
   `cloudflare/app-worker.ts`. PWA cache `v652` to `v653` with the
-  `index.html` bootstrap query (`120d59e2`). If main's cache moves first,
-  bump again before merging.
+  `index.html` bootstrap query (`120d59e2`), then `v654` (`6f0c65a7`) after
+  the review fixes. If main's cache moves first, bump again before merging.
 - Against the deployed SHA `d76b1432`, `changedRuntimePaths()` finds 3
   signaling paths (`signaling-protocol.ts`, `signaling-worker.ts`,
-  `standard-room-pin-membership.ts`), 62 App paths, and none for `pro-room`,
+  `standard-room-pin-membership.ts`), 63 App paths, and none for `pro-room`,
   `remote-share`, `developer-api-facade` or `developer-api`;
   `changedAppRuntimeDependencies()` is empty. Release target `all`; the
   release workflow deploys signaling before the App.
@@ -251,32 +306,37 @@ Observed, not changed:
 
 ## Verification
 
-Tested code: `120d59e2` on `agent/standard-room-owner-pin`
+Tested code: `6f0c65a7` on `agent/standard-room-owner-pin`
 (`origin/agent/pro-pin-two-step` `32a75a00` plus `4935f8a2` membership and
 limiter contract, `20068ac1` signaling Worker, `71340ee3` transport,
 `964d30c8` App flow and copy, `25da8909` and `6c99a122` forced colors,
-`120d59e2` App 8.10.0 / v653). The runs used the tree of the following browser
-test commit `1dde0c11` (`e2e/standard-room-owner-pin.test.ts`), whose
-documentation-only successor changes no code. Windows 11, Node 24.13.1, npm
-11.8.0, Playwright 1.63.0 Chromium, dependencies from the main checkout's
-`node_modules` (Vite 8.3.3, Vitest 5.0.3) through a junction. All runs are
-local; none is an exact-main CI candidate.
+`120d59e2` App 8.10.0 / v653, `1dde0c11` browser tests, the documentation-only
+`a26159ca` and `67ac15f6`, then the review follow-ups `e846172e` limiter,
+`e3d4bb71` Worker, `98312ece` App notice, `0de283bc` admin Signals and
+`6f0c65a7` v654). The documentation-only successor that records this run
+changes no code. Windows 11, Node 24.13.1, npm 11.8.0, Playwright 1.63.0
+Chromium, dependencies from the main checkout's `node_modules` (Vite 8.3.3,
+Vitest 5.0.3) through a junction. All runs are local; none is an exact-main CI
+candidate. A first round of these checks at `120d59e2` also passed; the table
+holds the final run.
 
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` (every project, including tests and e2e) | pass |
 | `npm run lint` | pass, zero warnings |
 | `npm run format:check` | pass |
-| `npm test` | 538 files, 11,462 passed, 0 failed, 1 skipped¹ |
-| `npm run test:coverage:critical` | 58 files, 1,988 passed; thresholds met (81.84 / 76.50 / 88.07 / 85.95) |
-| `npm run test:coverage:workers` | 38 files, 2,078 passed; thresholds met (84.89 / 81.47 / 93.14 / 89.39) |
+| `npm test` | 538 files, 11,470 passed, 0 failed, 1 skipped¹ |
+| `npm run test:coverage:critical` | 58 files, 1,993 passed; thresholds met (81.84 / 76.50 / 88.07 / 85.95) |
+| `npm run test:coverage:workers` | 38 files, 2,084 passed; thresholds met (84.87 / 81.46 / 93.16 / 89.39) |
+| `npm run check:workers` | pass |
 | `guard:dead-exports` | pass (self-only 79, test-only 21: unchanged baselines) |
-| `guard:release-identity` | pass; `8.10.0` / `v653` |
-| `guard:sw-cache-version` | pass; `v653` (`120d59e2`) covers every committed PWA runtime change |
-| `guard:bus-pairing` (198/198), `import-graph`, `lifecycle-writes`, `room-authority-boundaries`, `source-complexity` (signaling-protocol 988/1000, signaling-worker 8,279/10,000), `standard-room-hot-path`, `prod-security`, `brand-capitalization` | pass |
-| `npm run build:checked` | pass, including `guard:legacy-tv-build` (Chromium 79) |
+| `guard:release-identity` | pass; `8.10.0` / `v654` |
+| `guard:sw-cache-version` | pass; `v654` (`6f0c65a7`) covers every committed PWA runtime change |
+| `guard:bus-pairing` (198/198), `import-graph`, `lifecycle-writes`, `room-authority-boundaries`, `source-complexity` (signaling-protocol 988/1000, signaling-worker 8,350/10,000, admin 6,663/10,000), `standard-room-hot-path`, `prod-security`, `brand-capitalization` | pass |
+| `npm run build:checked` | pass, including `guard:legacy-tv-build` (Chromium 79) and `guard:sw-app-shell` |
 | `npm run check:worker-bundles` (after the build) | pass, every production Worker bundled |
 | `npm run build:e2e`, then `npx playwright test e2e/standard-room-owner-pin.test.ts e2e/pro-entry-password.test.ts e2e/dialog-locale-layout.test.ts e2e/device-management.test.ts e2e/accessibility-contrast.test.ts --project=chromium` | 25 passed (local Chromium; Standard rooms over local PeerJS, PRO over a synthetic API fixture; outside CI by design) |
+| The reviewer's limiter script (one wrong PIN per block in turn, 1 ms apart, 200 rounds) | 256 blocks: 5,120 accepted; 257 blocks: 5,140; 1,000 blocks: 5,140 (before the fix: 51,400 accepted, 0 refused for 257) |
 
 ¹ The `release-deployment-state` shell-plan contract test skips when `jq` is
 not installed, as on this machine. It does not exercise this change.
@@ -305,12 +365,19 @@ selector with a forced-colors rule, accent-filled tab and option icons follow
 `currentColor` when selected); the 42-locale copy checks in
 `translations.test.ts`; and the browser cases in
 `e2e/pro-entry-password.test.ts` and `e2e/standard-room-owner-pin.test.ts`.
-The Worker, protocol and transport tests are listed in their commits.
+The Worker, protocol and transport tests are listed in their commits. The
+review follow-ups add `standard-room-pin-membership.test.ts` cases (no live
+bucket evicted, the shared overflow bucket and its lock, a freed slot, the
+round-robin bound for 256, 257 and 1,000 blocks, the normalizer's 256 + 1
+bound), five Worker cases listed under [Review follow-ups](#review-follow-ups),
+the first-enable close notice in `setup-network-error.test.ts`, and the
+"Password lockouts" signal in `admin-dashboard-ui.test.ts`.
 
 ### Screenshots and layout measurements
 
 Captured with Playwright Chromium from an e2e build of the code at
-`120d59e2`, Standard rooms over the local PeerJS server, PIN typed as
+`6f0c65a7` (the whole set was regenerated after the review follow-ups),
+Standard rooms over the local PeerJS server, PIN typed as
 `1234-5678`. Phone sizes use
 touch emulation at device scale 2. Files are in the owner's local scratch
 folder `scratch/standard-pin-screens/` (not in the repository), with
@@ -321,22 +388,32 @@ folder `scratch/standard-pin-screens/` (not in the repository), with
   취소 / 다음; step 2 with "그대로 두기" checked; the guest's removal notice
   ("방장이 방 암호를 설정했어요. …"); after its 확인, the PIN prompt of the same
   room ("방 암호 입력" on `/{code}`, reached by auto-join); the wrong-PIN
-  lockout ("입장 시도가 너무 많아요. 9분 후에 다시 시도해 주세요."); and the
-  host's masked row.
+  lockout ("입장 시도가 너무 많아요. 9분 후에 다시 시도해 주세요."); a joining
+  guest closed by the Worker on a first enable, which now reads "방 암호가
+  설정됐어요" / "방장이 방 암호를 설정했어요. …" (`-08-guest-close-enabled-notice`);
+  and the host's masked row.
 - Standard step 2 in Arabic at 390x844 (RTL).
 - PRO owner at 390x844 (synthetic PRO API fixture): step 1 with 다음 when
   another device is present, step 1 with 확인 alone, and the masked row.
 - Forced colors, emulated light and dark at 390x844: the language list with
   its selected row, the PIN choice rows with each option selected, the host's
   masked row with the pressed toggle, and the invite QR.
+- The admin Signals panel at 1280x900 and 390x844 with synthetic metrics
+  (the page markup is the App Worker's admin template, with `admin.css` and
+  `admin.js` from the build; the admin keeps its own dark theme): six signals
+  including "Password lockouts", in one row of six columns on desktop and one
+  column on the phone, with no item or page overflow.
 
 After the removal notice the guest page stood in for the signaling Worker,
 which the local PeerJS suite does not run: it answered the first `guest-auth`
 (no PIN) with `room-password-required` and the next with
 `room-password-rate-limited` and `retryAfterSeconds: 540`, so the prompt and
-the lockout copy come from the real transport, setup and dialog code.
+the lockout copy come from the real transport, setup and dialog code. For the
+first-enable capture it answered `guest-auth` with `room-password-changed` and
+message `ROOM_PASSWORD_ENABLED`, then closed the socket with 1008.
 
-All 42 dialog and page captures measured no horizontal overflow in the page or
+All 42 measured dialog and page captures (the four forced-colors language and
+QR images record colors instead) measured no horizontal overflow in the page or
 the panel, a panel inside the viewport with no vertical scroll, and every
 visible action hit-testable at its centre. Every masked row read `••••-••••`
 with `aria-hidden="true"`, the status "암호 적용됨" and the pencil "방 암호 변경".
@@ -359,8 +436,12 @@ on its black square in both palettes.
   production Worker or real room was used.
 - Forced colors were checked only with Chromium's emulation, not with a
   Windows high-contrast theme, Firefox or a QR scan of the inverted code.
-- The PIN prompt and lockout captures used a page-level stand-in for the
-  signaling Worker; the Worker's own refusal is covered by its unit tests.
+- The PIN prompt, lockout and first-enable close captures used a page-level
+  stand-in for the signaling Worker; the Worker's own refusals are covered by
+  its unit tests. The admin capture used a synthetic metrics response, not
+  the App Worker or D1.
+- The limiter bound and the binding bypass were checked with unit and Worker
+  tests and a local script, not against a live Durable Object under load.
 - Translations were written for this change without native-speaker review.
   Thai, Vietnamese, Turkish and Chinese use the same word for the Standard
   host and the PRO room owner, so their notices differ from PRO only in

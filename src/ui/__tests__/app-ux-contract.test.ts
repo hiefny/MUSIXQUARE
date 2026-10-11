@@ -464,6 +464,17 @@ describe('app UX markup contract', () => {
 
     expect(appRuntimeSource).toContain("bus.on('app:lazy-feature-load-failed'");
     expect(appRuntimeSource).toContain("buttonText: t('common.refresh')");
+    // Owner decision 2026-10-11: the recovery dialog keeps opening in rooms and
+    // stays non-dismissible with Refresh as its only action, but uses its own
+    // copy instead of the waiting-worker update dialog's title and message.
+    expect(recoverySource).toContain("title: t('dialog.feature_refresh_title')");
+    expect(recoverySource).toContain("message: t('dialog.feature_refresh_msg')");
+    expect(recoverySource).toContain("buttonText: t('common.refresh')");
+    expect(recoverySource).toContain('dismissible: false');
+    expect(recoverySource).not.toContain('dialog.sw_update_');
+    // No second button, and no abort signal or room check that would hide or
+    // retract it in a room the way the waiting-worker update dialog is.
+    expect(recoverySource).not.toMatch(/secondaryText|cancelText|signal:|appRole|Deferred/u);
     expect(appRuntimeSource).toContain("scheduleDocumentReload(t('dialog.refreshing_session')");
     expect(recoverySource).toContain("showToast(t('error.network_generic'))");
     expect(recoverySource.match(/reportLazyFeatureLoadFailure\(/gu)).toHaveLength(1);

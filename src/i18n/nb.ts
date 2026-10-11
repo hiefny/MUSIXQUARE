@@ -814,9 +814,9 @@ const nb: Record<I18nKey, string> = {
     'Et PRO-rom har plass til opptil 100 enheter, inkludert eierens. Én plass er alltid holdt av til eieren.',
   'pro.join_rate_limited': 'For mange forsøk på å bli med. Prøv igjen om {{count}} minutter.',
   'pro.join_rate_limited_later': 'For mange forsøk på å bli med. Prøv igjen om litt.',
-  'pro.active_tab_title': 'Dette PRO-rommet er allerede åpent i en annen fane',
-  'pro.active_tab_message': 'Hvis du fortsetter her, kobles den allerede åpne fanen fra.',
-  'pro.use_this_tab': 'Bruk denne fanen',
+  'pro.active_tab_title': 'Det finnes fortsatt en tidligere tilkobling',
+  'pro.active_tab_message': 'Hvis du fortsetter her, avsluttes den tidligere tilkoblingen.',
+  'pro.use_this_tab': 'Fortsett her',
   'pro.upload.batch_progress': 'Laster opp spor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Enkelte spor kunne ikke lastes opp',
   'pro.upload.batch_failed_message':

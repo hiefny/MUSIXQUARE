@@ -832,9 +832,9 @@ const el: Record<I18nKey, string> = {
     'Ένα δωμάτιο PRO δέχεται έως 100 συσκευές, μαζί με τη συσκευή του κατόχου. Μία θέση είναι πάντα δεσμευμένη για τον κάτοχο.',
   'pro.join_rate_limited': 'Πάρα πολλές προσπάθειες σύνδεσης. Δοκιμάστε ξανά σε {{count}} λεπ.',
   'pro.join_rate_limited_later': 'Πάρα πολλές προσπάθειες σύνδεσης. Δοκιμάστε ξανά σε λίγο.',
-  'pro.active_tab_title': 'Αυτό το δωμάτιο PRO είναι ήδη ανοιχτό σε άλλη καρτέλα',
-  'pro.active_tab_message': 'Αν συνεχίσετε εδώ, η υπάρχουσα καρτέλα θα αποσυνδεθεί.',
-  'pro.use_this_tab': 'Χρήση αυτής της καρτέλας',
+  'pro.active_tab_title': 'Υπάρχει ακόμα προηγούμενη σύνδεση',
+  'pro.active_tab_message': 'Αν συνεχίσετε εδώ, η προηγούμενη σύνδεση θα τερματιστεί.',
+  'pro.use_this_tab': 'Συνέχεια εδώ',
   'pro.upload.batch_progress': 'Αποστολή κομματιών {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Δεν ήταν δυνατή η αποστολή ορισμένων κομματιών',
   'pro.upload.batch_failed_message':

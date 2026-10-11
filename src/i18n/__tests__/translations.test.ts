@@ -306,10 +306,10 @@ describe('Translation key integrity', () => {
     expect(en['common.grant']).toBe('Grant');
     expect(en['common.revoke']).toBe('Revoke');
     expect(en['connect.signaling_recover_action']).toBe('Reconnect');
-    expect(en['pro.use_this_tab']).toBe('Use this tab');
+    expect(en['pro.use_this_tab']).toBe('Continue here');
     expect(ko['common.grant']).toBe('관리자 부여');
     expect(ko['common.revoke']).toBe('관리자 해제');
-    expect(ko['pro.use_this_tab']).toBe('강제로 계속');
+    expect(ko['pro.use_this_tab']).toBe('여기서 계속');
     expect(ko['common.next']).toBe('다음으로');
     expect(ko['common.start']).toBe('시작하기');
     expect(ko['dialog.continue']).toBe('계속하기');

@@ -820,9 +820,9 @@ const sv: Record<I18nKey, string> = {
     'Ett PRO-rum rymmer upp till 100 enheter, inklusive ägarens. En plats är alltid reserverad för rumsägaren.',
   'pro.join_rate_limited': 'För många försök att ansluta. Försök igen om {{count}} minuter.',
   'pro.join_rate_limited_later': 'För många försök att ansluta. Försök igen om en liten stund.',
-  'pro.active_tab_title': 'PRO-rummet är redan öppet i en annan flik',
-  'pro.active_tab_message': 'Om du fortsätter här kopplas den redan öppna fliken från.',
-  'pro.use_this_tab': 'Använd den här fliken',
+  'pro.active_tab_title': 'En tidigare anslutning finns kvar',
+  'pro.active_tab_message': 'Om du fortsätter här avslutas den tidigare anslutningen.',
+  'pro.use_this_tab': 'Fortsätt här',
   'pro.upload.batch_progress': 'Laddar upp spår {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Vissa spår kunde inte laddas upp',
   'pro.upload.batch_failed_message':

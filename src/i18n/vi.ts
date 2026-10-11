@@ -726,9 +726,9 @@ const vi: Record<I18nKey, string> = {
     'Phòng PRO chứa tối đa 100 thiết bị, bao gồm cả thiết bị của chủ phòng. Luôn có một chỗ được giữ sẵn cho chủ phòng.',
   'pro.join_rate_limited': 'Có quá nhiều lượt thử tham gia. Hãy thử lại sau {{count}} phút.',
   'pro.join_rate_limited_later': 'Có quá nhiều lượt thử tham gia. Hãy thử lại sau một lát.',
-  'pro.active_tab_title': 'Phòng PRO này đã được mở trong thẻ khác',
-  'pro.active_tab_message': 'Nếu tiếp tục tại đây, thẻ đang mở sẽ bị ngắt kết nối.',
-  'pro.use_this_tab': 'Dùng thẻ này',
+  'pro.active_tab_title': 'Kết nối trước vẫn còn',
+  'pro.active_tab_message': 'Tiếp tục tại đây sẽ ngắt kết nối trước đó.',
+  'pro.use_this_tab': 'Tiếp tục tại đây',
   'pro.upload.batch_progress': 'Đang tải các bản nhạc lên {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Không thể tải lên một số bản nhạc',
   'pro.upload.batch_failed_message':

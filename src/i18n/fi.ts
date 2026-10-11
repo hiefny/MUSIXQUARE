@@ -815,9 +815,9 @@ const fi: Record<I18nKey, string> = {
   'pro.join_rate_limited':
     'Liian monta liittymisyritystä. Yritä uudelleen {{count}} minuutin kuluttua.',
   'pro.join_rate_limited_later': 'Liian monta liittymisyritystä. Yritä hetken kuluttua uudelleen.',
-  'pro.active_tab_title': 'Tämä PRO-huone on jo avoinna toisessa välilehdessä',
-  'pro.active_tab_message': 'Jos jatkat tässä, ennestään avoimen välilehden yhteys katkaistaan.',
-  'pro.use_this_tab': 'Käytä tätä välilehteä',
+  'pro.active_tab_title': 'Aiempi yhteys on yhä jäljellä',
+  'pro.active_tab_message': 'Jos jatkat tässä, aiempi yhteys katkaistaan.',
+  'pro.use_this_tab': 'Jatka tässä',
   'pro.upload.batch_progress': 'Lähetetään kappaleita {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Joitakin kappaleita ei voitu lähettää',
   'pro.upload.batch_failed_message':

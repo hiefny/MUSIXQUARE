@@ -820,9 +820,9 @@ const kn: Record<I18nKey, string> = {
     'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. {{count}} ನಿಮಿಷಗಳ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
   'pro.join_rate_limited_later':
     'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
-  'pro.active_tab_title': 'ಈ PRO ರೂಮ್ ಈಗಾಗಲೇ ಮತ್ತೊಂದು ಟ್ಯಾಬ್‌ನಲ್ಲಿ ತೆರೆದಿದೆ',
-  'pro.active_tab_message': 'ಇಲ್ಲಿ ಮುಂದುವರಿದರೆ ಈಗಿರುವ ಟ್ಯಾಬ್‌ನ ಸಂಪರ್ಕ ಕಡಿತಗೊಳ್ಳುತ್ತದೆ.',
-  'pro.use_this_tab': 'ಈ ಟ್ಯಾಬ್ ಬಳಸಿ',
+  'pro.active_tab_title': 'ಹಿಂದಿನ ಸಂಪರ್ಕ ಉಳಿದಿದೆ',
+  'pro.active_tab_message': 'ಇಲ್ಲಿ ಮುಂದುವರಿದರೆ ಹಿಂದಿನ ಸಂಪರ್ಕ ಕಡಿತಗೊಳ್ಳುತ್ತದೆ.',
+  'pro.use_this_tab': 'ಇಲ್ಲಿ ಮುಂದುವರಿಸಿ',
   'pro.upload.batch_progress': 'ಟ್ರ್ಯಾಕ್‌ಗಳು ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿವೆ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ಕೆಲವು ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಪ್‌ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ',
   'pro.upload.batch_failed_message':

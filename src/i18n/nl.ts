@@ -813,9 +813,9 @@ const nl: Record<I18nKey, string> = {
   'pro.join_rate_limited':
     'Te veel pogingen om deel te nemen. Probeer het over {{count}} minuten opnieuw.',
   'pro.join_rate_limited_later': 'Te veel pogingen om deel te nemen. Probeer het straks opnieuw.',
-  'pro.active_tab_title': 'Deze PRO-kamer is al geopend in een ander tabblad',
-  'pro.active_tab_message': 'Als je hier doorgaat, wordt het bestaande tabblad losgekoppeld.',
-  'pro.use_this_tab': 'Dit tabblad gebruiken',
+  'pro.active_tab_title': 'Er is nog een eerdere verbinding',
+  'pro.active_tab_message': 'Als je hier doorgaat, wordt de eerdere verbinding verbroken.',
+  'pro.use_this_tab': 'Hier doorgaan',
   'pro.upload.batch_progress': 'Tracks uploaden {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sommige tracks konden niet worden geüpload',
   'pro.upload.batch_failed_message':

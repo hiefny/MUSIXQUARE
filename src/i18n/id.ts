@@ -736,9 +736,9 @@ const id: Record<I18nKey, string> = {
     'Ruang PRO dapat menampung hingga 100 perangkat, termasuk milik pemilik ruang. Satu tempat selalu disediakan untuk pemilik ruang.',
   'pro.join_rate_limited': 'Terlalu banyak percobaan bergabung. Coba lagi dalam {{count}} menit.',
   'pro.join_rate_limited_later': 'Terlalu banyak percobaan bergabung. Coba lagi sebentar lagi.',
-  'pro.active_tab_title': 'Ruang PRO ini sudah terbuka di tab lain',
-  'pro.active_tab_message': 'Melanjutkan di sini akan memutuskan koneksi tab yang sudah terbuka.',
-  'pro.use_this_tab': 'Gunakan tab ini',
+  'pro.active_tab_title': 'Koneksi sebelumnya masih tersisa',
+  'pro.active_tab_message': 'Melanjutkan di sini akan memutus koneksi sebelumnya.',
+  'pro.use_this_tab': 'Lanjutkan di sini',
   'pro.upload.batch_progress': 'Mengunggah media {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Beberapa media tidak dapat diunggah',
   'pro.upload.batch_failed_message':

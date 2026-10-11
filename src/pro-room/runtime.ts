@@ -3664,7 +3664,7 @@ export async function changeActiveProRoomPin(
             error.code === 'INVALID_REQUEST' &&
             error.status === 400
           ) {
-            throw new Error(PRO_ROOM_PIN_KEEP_UNSUPPORTED);
+            throw new Error(PRO_ROOM_PIN_KEEP_UNSUPPORTED, { cause: error });
           }
           throw error;
         }

@@ -32,6 +32,9 @@ function key(index: number): string {
   return `k${String(index).padStart(42, '0')}`;
 }
 
+// The reserved shared bucket for blocks that arrive while the table is full.
+const OVERFLOW_KEY = 'standard-room-pin-overflow-bucket-v1-shared';
+
 describe('Standard-room PIN membership wire validation', () => {
   const pinFrame = { type: 'room-password-set', password: '12345678', pinMutationId: MUTATION_ID };
 
@@ -201,9 +204,40 @@ describe('Standard-room PIN durable records', () => {
           resetAt: 1,
         })),
       },
+      {
+        v: 1,
+        entries: [
+          ...Array.from({ length: STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES + 1 }, (_, index) => ({
+            key: key(index),
+            count: 1,
+            resetAt: 1,
+          })),
+          { key: OVERFLOW_KEY, count: 1, resetAt: 1 },
+        ],
+      },
+      {
+        v: 1,
+        entries: [
+          { key: OVERFLOW_KEY, count: 1, resetAt: 1 },
+          { key: OVERFLOW_KEY, count: 2, resetAt: 1 },
+        ],
+      },
     ]) {
       expect(normalizeStandardRoomPinFailures(invalid)).toEqual({ v: 1, entries: [] });
     }
+    const fullWithOverflow = {
+      v: 1,
+      entries: [
+        { key: OVERFLOW_KEY, count: 20, resetAt: 1 },
+        ...Array.from({ length: STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES }, (_, index) => ({
+          key: key(index),
+          count: 1,
+          resetAt: 1,
+        })),
+      ],
+    };
+    expect(normalizeStandardRoomPinFailures(fullWithOverflow)).toEqual(fullWithOverflow);
+    expect(OVERFLOW_KEY).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 });
 
@@ -254,31 +288,111 @@ describe('Standard-room wrong-PIN limiter', () => {
     ]);
   });
 
-  it('evicts the unlocked entry that expires first when the table is full', () => {
+  function fillAddressBuckets(times: number, at = now): StandardRoomPinFailures {
     let full: StandardRoomPinFailures = empty;
     for (let index = 0; index < STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES; index += 1) {
-      full = recordStandardRoomPinFailure(full, key(index), now + index);
+      full = fail(full, key(index), times, at + index);
     }
-    full = fail(full, key(0), STANDARD_ROOM_PIN_FAILURE_LIMIT - 1, now + 1_000);
-    const next = recordStandardRoomPinFailure(full, key(999), now + 2_000);
-    expect(next.entries).toHaveLength(STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES);
-    expect(next.entries.some((entry) => entry.key === key(0))).toBe(true);
-    expect(next.entries.some((entry) => entry.key === key(1))).toBe(false);
-    expect(next.entries.some((entry) => entry.key === key(999))).toBe(true);
-    expect(standardRoomPinAttemptLockedFor(full, key(999), now + 2_000)).toBe(0);
+    return full;
+  }
+
+  it('never evicts a live bucket and charges untracked keys to one shared overflow bucket', () => {
+    let full = fillAddressBuckets(1);
+    full = fail(full, key(0), STANDARD_ROOM_PIN_FAILURE_LIMIT - 2, now + 1_000);
+    const at = now + 2_000;
+    expect(standardRoomPinAttemptLockedFor(full, key(999), at)).toBe(0);
+
+    const overflowed = recordStandardRoomPinFailure(full, key(999), at);
+    expect(overflowed.entries).toHaveLength(STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES + 1);
+    expect(overflowed.entries.slice(0, -1)).toEqual(full.entries);
+    expect(overflowed.entries.at(-1)).toEqual({
+      key: OVERFLOW_KEY,
+      count: 1,
+      resetAt: at + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS,
+    });
+    expect(normalizeStandardRoomPinFailures(overflowed)).toEqual(overflowed);
+
+    // Every untracked block shares the overflow window; tracked blocks keep theirs.
+    let locked = overflowed;
+    for (let index = 1; index < STANDARD_ROOM_PIN_FAILURE_LIMIT; index += 1) {
+      locked = recordStandardRoomPinFailure(locked, key(1_000 + index), at);
+    }
+    expect(locked.entries).toHaveLength(STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES + 1);
+    expect(locked.entries.at(-1)?.count).toBe(STANDARD_ROOM_PIN_FAILURE_LIMIT);
+    for (const untracked of [key(999), key(5_000)]) {
+      expect(standardRoomPinAttemptLockedFor(locked, untracked, at + 1_000)).toBe(
+        STANDARD_ROOM_PIN_FAILURE_WINDOW_MS - 1_000,
+      );
+    }
+    expect(standardRoomPinAttemptLockedFor(locked, key(0), at + 1_000)).toBe(0);
+    const atLimit = recordStandardRoomPinFailure(locked, key(0), at + 1_000);
+    expect(atLimit.entries[0]).toMatchObject({
+      key: key(0),
+      count: STANDARD_ROOM_PIN_FAILURE_LIMIT,
+    });
+    expect(standardRoomPinAttemptLockedFor(atLimit, key(0), at + 1_000)).toBeGreaterThan(0);
+    expect(recordStandardRoomPinFailure(locked, key(5_000), at + 1_000)).toEqual(locked);
+
+    // An expired address bucket frees a slot: the next new block gets its own.
+    const freed = now + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS;
+    expect(standardRoomPinAttemptLockedFor(locked, key(5_000), freed)).toBe(0);
+    const own = recordStandardRoomPinFailure(locked, key(5_000), freed);
+    expect(own.entries.some((entry) => entry.key === key(0))).toBe(false);
+    expect(own.entries.some((entry) => entry.key === key(1))).toBe(true);
+    expect(own.entries.at(-1)).toEqual({
+      key: key(5_000),
+      count: 1,
+      resetAt: freed + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS,
+    });
+    expect(standardRoomPinAttemptLockedFor(own, key(999), freed)).toBe(
+      at + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS - freed,
+    );
   });
 
-  it('locks untracked keys until the earliest slot expires when every slot is locked', () => {
-    let full: StandardRoomPinFailures = empty;
-    for (let index = 0; index < STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES; index += 1) {
-      full = fail(full, key(index), STANDARD_ROOM_PIN_FAILURE_LIMIT, now + index);
+  it('caps a round-robin across more address blocks than the table holds', () => {
+    for (const blocks of [
+      STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES,
+      STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES + 1,
+      1_000,
+    ]) {
+      let record = empty;
+      let accepted = 0;
+      let refused = 0;
+      // One wrong attempt per block in turn, 1 ms apart, for one full window.
+      for (let tick = 0; tick < STANDARD_ROOM_PIN_FAILURE_WINDOW_MS / 20; tick += 1) {
+        const at = now + tick;
+        const attemptKey = key(tick % blocks);
+        if (standardRoomPinAttemptLockedFor(record, attemptKey, at) > 0) {
+          refused += 1;
+          continue;
+        }
+        accepted += 1;
+        record = recordStandardRoomPinFailure(record, attemptKey, at);
+      }
+      expect(refused).toBeGreaterThan(0);
+      expect(accepted).toBeLessThanOrEqual(
+        (STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES + 1) * STANDARD_ROOM_PIN_FAILURE_LIMIT,
+      );
+      expect(record.entries.length).toBeLessThanOrEqual(STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES + 1);
     }
-    expect(standardRoomPinAttemptLockedFor(full, key(999), now + 1_000)).toBe(
+  });
+
+  it('keeps refusing new blocks while every bucket and the overflow bucket are locked', () => {
+    const full = fillAddressBuckets(STANDARD_ROOM_PIN_FAILURE_LIMIT);
+    expect(standardRoomPinAttemptLockedFor(full, key(999), now + 1_000)).toBe(0);
+    const overflowLocked = fail(full, key(999), STANDARD_ROOM_PIN_FAILURE_LIMIT, now + 1_000);
+    expect(standardRoomPinAttemptLockedFor(overflowLocked, key(4_242), now + 2_000)).toBe(
       STANDARD_ROOM_PIN_FAILURE_WINDOW_MS - 1_000,
     );
-    expect(recordStandardRoomPinFailure(full, key(999), now + 1_000)).toEqual(full);
+    expect(recordStandardRoomPinFailure(overflowLocked, key(4_242), now + 2_000)).toEqual(
+      overflowLocked,
+    );
     expect(
-      standardRoomPinAttemptLockedFor(full, key(999), now + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS),
+      standardRoomPinAttemptLockedFor(
+        overflowLocked,
+        key(4_242),
+        now + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS,
+      ),
     ).toBe(0);
   });
 });

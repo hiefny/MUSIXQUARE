@@ -19,7 +19,13 @@ export const STANDARD_ROOM_PIN_FAILURES_KEY = 'standard-room-pin-failures-v1';
 // window that starts at the first failure. Only failures are counted.
 export const STANDARD_ROOM_PIN_FAILURE_LIMIT = 20;
 export const STANDARD_ROOM_PIN_FAILURE_WINDOW_MS = 600_000;
+// Address-block buckets per room. A live bucket is never evicted: once 256
+// blocks hold one, every other block shares the single overflow bucket below,
+// so a room accepts at most 256 x 20 + 20 wrong PINs per window.
 export const STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES = 256;
+// A fixed key in the attempt-key alphabet and length. Attempt keys are
+// HMAC-SHA-256 outputs, so none can collide with it in practice.
+const STANDARD_ROOM_PIN_OVERFLOW_KEY = 'standard-room-pin-overflow-bucket-v1-shared';
 // One host plus 99 guests: the host can keep at most every other device.
 export const MAX_KEPT_PEERS = 99;
 // Internal hops (the HTTP bridge) carry no client address. They share one
@@ -203,18 +209,22 @@ function emptyFailures(): StandardRoomPinFailures {
   return { v: 1, entries: [] };
 }
 
-/** Invalid records normalize to an empty table: corruption never locks a room. */
+/**
+ * Invalid records normalize to an empty table: corruption never locks a room.
+ * A table holds at most 256 address-block buckets plus the overflow bucket.
+ */
 export function normalizeStandardRoomPinFailures(value: unknown): StandardRoomPinFailures {
   if (
     !hasExactKeys(value, ['v', 'entries']) ||
     value.v !== 1 ||
     !Array.isArray(value.entries) ||
-    value.entries.length > STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES
+    value.entries.length > STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES + 1
   ) {
     return emptyFailures();
   }
   const entries: StandardRoomPinFailureEntry[] = [];
   const seen = new Set<string>();
+  let addressBuckets = 0;
   for (const entry of value.entries) {
     if (
       !hasExactKeys(entry, ['key', 'count', 'resetAt']) ||
@@ -231,6 +241,8 @@ export function normalizeStandardRoomPinFailures(value: unknown): StandardRoomPi
     ) {
       return emptyFailures();
     }
+    if (entry.key !== STANDARD_ROOM_PIN_OVERFLOW_KEY) addressBuckets += 1;
+    if (addressBuckets > STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES) return emptyFailures();
     seen.add(entry.key);
     entries.push({ key: entry.key, count: entry.count, resetAt: entry.resetAt });
   }
@@ -249,10 +261,30 @@ function liveFailureEntries(
 }
 
 /**
+ * The bucket an attempt is charged to: the key's own live bucket, a new one
+ * while fewer than 256 address blocks hold a live bucket, and otherwise the
+ * shared overflow bucket. Live buckets are never evicted, so rotating through
+ * more address blocks than the table holds cannot reset any counter.
+ */
+function standardRoomPinFailureBucket(
+  live: readonly StandardRoomPinFailureEntry[],
+  key: string,
+): string {
+  if (live.some((entry) => entry.key === key)) return key;
+  const addressBuckets = live.filter(
+    (entry) => entry.key !== STANDARD_ROOM_PIN_OVERFLOW_KEY,
+  ).length;
+  return addressBuckets < STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES
+    ? key
+    : STANDARD_ROOM_PIN_OVERFLOW_KEY;
+}
+
+/**
  * Milliseconds until this attempt key may try again, or 0 when it may try
- * now. A key that cannot be tracked because every slot belongs to a locked
- * client is itself locked until the earliest slot expires: that fails closed
- * only under a guessing attack spread across 256 address blocks.
+ * now. While 256 other address blocks hold a live bucket, an untracked key
+ * shares the overflow bucket and is locked with it: under a guessing attack
+ * spread across that many blocks, new joiners wait for that window (or for a
+ * bucket to expire) instead of the limit lapsing.
  */
 export function standardRoomPinAttemptLockedFor(
   record: StandardRoomPinFailures,
@@ -260,11 +292,9 @@ export function standardRoomPinAttemptLockedFor(
   now: number,
 ): number {
   const live = liveFailureEntries(record, now);
-  const entry = live.find((candidate) => candidate.key === key);
-  if (entry) return entry.count >= STANDARD_ROOM_PIN_FAILURE_LIMIT ? entry.resetAt - now : 0;
-  if (live.length < STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES) return 0;
-  if (live.some((candidate) => candidate.count < STANDARD_ROOM_PIN_FAILURE_LIMIT)) return 0;
-  return Math.min(...live.map((candidate) => candidate.resetAt)) - now;
+  const bucket = standardRoomPinFailureBucket(live, key);
+  const entry = live.find((candidate) => candidate.key === bucket);
+  return entry && entry.count >= STANDARD_ROOM_PIN_FAILURE_LIMIT ? entry.resetAt - now : 0;
 }
 
 /** Count one wrong PIN. Returns a new pruned record; the input is not mutated. */
@@ -274,23 +304,13 @@ export function recordStandardRoomPinFailure(
   now: number,
 ): StandardRoomPinFailures {
   const entries = liveFailureEntries(record, now).map((entry) => ({ ...entry }));
-  const existing = entries.find((entry) => entry.key === key);
+  const bucket = standardRoomPinFailureBucket(entries, key);
+  const existing = entries.find((entry) => entry.key === bucket);
   if (existing) {
     existing.count = Math.min(STANDARD_ROOM_PIN_FAILURE_LIMIT, existing.count + 1);
-    return { v: 1, entries };
+  } else {
+    entries.push({ key: bucket, count: 1, resetAt: now + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS });
   }
-  if (entries.length >= STANDARD_ROOM_PIN_FAILURE_MAX_ENTRIES) {
-    let evictIndex = -1;
-    for (let index = 0; index < entries.length; index += 1) {
-      const candidate = entries[index];
-      if (!candidate || candidate.count >= STANDARD_ROOM_PIN_FAILURE_LIMIT) continue;
-      const current = evictIndex >= 0 ? entries[evictIndex] : undefined;
-      if (!current || candidate.resetAt < current.resetAt) evictIndex = index;
-    }
-    if (evictIndex < 0) return { v: 1, entries };
-    entries.splice(evictIndex, 1);
-  }
-  entries.push({ key, count: 1, resetAt: now + STANDARD_ROOM_PIN_FAILURE_WINDOW_MS });
   return { v: 1, entries };
 }
 

@@ -1313,6 +1313,38 @@ describe('PRO metadata answers refused by room state capacity', () => {
     },
   );
 
+  it.each([
+    [
+      'select of another item',
+      { type: 'select', queueItemId: SECOND, state: 'playing', positionSeconds: 0 },
+    ],
+    ['pause', { type: 'pause' }],
+  ] as const)('keeps a memory-only backoff across a refused %s', async (_label, input) => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      0,
+      { attempts: 9 },
+    );
+    vi.setSystemTime(at + 1_000);
+    for (let refusals = 0; refusals < 3; refusals += 1) {
+      // The command's own persist replaces or removes the probe before the
+      // capacity check refuses it; the rollback restores the stored probe.
+      const refused = await context.worker.withStateCapacityRollback(() =>
+        command(context, input, false),
+      );
+      expect(refused).toBeInstanceOf(Response);
+      expect((refused as Response).status).toBe(409);
+      await context.settle();
+    }
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+    expect(context.room.playbackDurationProbe).toEqual(before);
+    // The restored probe keeps the backoff it shadows: no provider lookup.
+    expect(context.worker.playbackDurationLookup).toBeNull();
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    await alarmAt(context, at + 900_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+  });
+
   it('drops a memory-only backoff when its probe is replaced by a fresh one', async () => {
     const { context, before, at } = await answerInFullRoom(
       { kind: 'finite', durationSeconds: 5 },

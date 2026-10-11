@@ -5374,7 +5374,6 @@ export class MusixquareProRoom {
       playbackDurationIdentityKey(this.activeRoom.playbackDurationProbe.identity) === key
     ) {
       this.activeRoom.playbackDurationProbe = null;
-      this.playbackDurationRetry = null;
     }
   }
 
@@ -5459,19 +5458,18 @@ export class MusixquareProRoom {
     }
     const evidence = key ? this.activeRoom.playbackDurations[key] : null;
     const fresh = evidence && playbackDurationEvidenceExpiresAtMs(evidence) > nowMs;
+    // A removed or replaced probe leaves any memory-held backoff in place: it
+    // applies only to the exact stored probe it shadows (identity, attempts and
+    // retry time), so a fresh probe starts its own schedule, while a refused
+    // command that restores the stored probe also keeps its backoff.
     if (!identity || fresh) {
-      if (this.activeRoom.playbackDurationProbe) {
-        changed = true;
-        this.playbackDurationRetry = null;
-      }
+      if (this.activeRoom.playbackDurationProbe) changed = true;
       this.activeRoom.playbackDurationProbe = null;
     } else if (
       !this.activeRoom.playbackDurationProbe ||
       playbackDurationIdentityKey(this.activeRoom.playbackDurationProbe.identity) !== key
     ) {
-      // A fresh probe owes nothing to an earlier one's held backoff.
       this.activeRoom.playbackDurationProbe = { identity, attempts: 0, retryAtMs: nowMs };
-      this.playbackDurationRetry = null;
       changed = true;
     }
     return changed;

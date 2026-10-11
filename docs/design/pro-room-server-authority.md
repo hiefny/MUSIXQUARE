@@ -414,27 +414,32 @@ metadata bound to the immutable asset version, byte length and room generation;
 the bounded queue-occurrence cache is reconstructed from it when needed.
 YouTube evidence remains bound to the video/subindex and expires as before.
 
-New browser uploads inspect bounded local metadata alongside the PUT. Only an
-uploader with `playback.control` may persist the optional length; upload-only
-permission does not confer timing authority. Missing metadata, including
-Developer API uploads, queues one bounded server inspection. Existing rooms
-migrate verified queue evidence lazily and learn other lengths during playback
-inspection or authorized preparation, without reupload or playlist reset.
-Decoded controller evidence takes precedence over server evidence and upload
-headers, except that a controller length more than 10% shorter than a server
-or upload measurement of the same asset version is acknowledged and ignored;
-the measurement stays as a floor beneath accepted controller values. MP3
-frame-count headers inconsistent with the file size and fragmented MP4
-timelines remain unknown rather than too short. Neither a metadata timeout nor
-an unsupported format rejects an otherwise successful upload. Optional metadata
-is omitted near room-state capacity rather than making an existing room
-unloadable.
+Every completed upload, browser or Developer API, queues one bounded server
+inspection of the stored object. A browser may still send the length it read
+locally; it stays part of the completion receipt but is never timing evidence.
+Server lengths are stored with the reader version that measured them. Lengths
+from an older reader (8.9.5-8.10.0) and earlier client-supplied upload lengths
+count as absent: the playing file is measured again on its next playback, not
+in a deployment-wide sweep. Existing rooms otherwise learn lengths during
+playback inspection or authorized preparation, without reupload or playlist
+reset. Decoded controller evidence takes precedence over server evidence,
+except that a controller length more than 10% shorter than a server
+measurement of the same asset version is ignored, or replaced when the
+measurement arrives later; the measurement stays as a floor beneath accepted
+controller values. A decode reported before any current measurement queues one
+bounded server read. MP3 frame-count headers inconsistent with the audio span
+(after recognized ID3v1, APEv2, Lyrics3v2 and appended ID3v2.4 tags) and
+fragmented MP4 timelines remain unknown rather than too short. Neither a
+metadata timeout nor an unsupported format rejects an otherwise successful
+upload. Optional metadata is omitted near room-state capacity rather than
+making an existing room unloadable; a refused metadata answer still records
+its retry backoff.
 
 The next Durable Object alarm includes the canonical anchor's ending time.
 After pruning expired presence, the alarm advances through the same reducer,
 PREPARE/COMMIT, and durable broadcast outbox as authorized browser observations.
 Pending manual transitions, explicit pause, an empty room, and system audio
-suppress this timer. Server-parsed and upload-header lengths have two seconds of conservative
+suppress this timer. Server-parsed lengths have two seconds of conservative
 grace for container padding and YouTube duration rounding; controller-attested
 decoded file lengths do not need that grace. Browser ENDED can still settle
 the boundary sooner. A new seek/selection/repeat revision cannot inherit an old

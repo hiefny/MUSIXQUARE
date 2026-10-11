@@ -65,10 +65,59 @@ behavior in place; newly persisted private asset fields are not used there.
 
 ## Verification
 
-Implementation and verification are in progress on the temporary
-`agent/pro-file-duration-registration` branch based on
+Runtime source: `0a273542b13632990cb26b9cdd61e02256c6a47f`, based on
 `a873629715cbe1b9889b5a31d338455c0344765c`.
 Environment: Windows, pinned Node 24.20.0 / npm 12.0.2, jq 1.8.2.
-Final tested source SHA and pass/fail/skip counts will be recorded before merge.
+Logs: `scratch/pro-file-duration-2026-10-12/` (local, not committed).
+
+Focused checks during implementation (overlapping counts, not additive):
+
+- Worker plus natural-completion integration: 446/446 pass; the subsequent
+  explicit capacity-response change passed 17 targeted cases.
+- API, transfer, local upload reader and shared structural reader: 189/189 pass.
+- Controller/hook/runtime: 173/173 pass before two additional reporting cases;
+  final dedicated reporting suite 18/18 pass.
+- Actual bundled Blob adapter: Chromium 153.0.8010.12 8/8 and WebKit 26.6 8/8.
+  MP3, FLAC, M4A, edited M4A, raw AAC, safe unknown Opus, pre-abort and in-flight
+  cancellation passed, with zero page errors and whole-file reads. WebKit's
+  M4A probe took up to 378 ms; a very fast PUT may deliberately defer that
+  metadata to the server after the 250 ms tail.
+- Critical Chromium browser suite: 22/22 pass. This is the release subset,
+  not the entire E2E suite or an iPhone physical-device run.
+- Full typecheck, lint and formatting passed. Production build and all six
+  Worker dry-run bundles passed. Source complexity, authority boundaries,
+  Developer API, D1 and Operations Drift source contracts passed.
+
+Independent review caught and fixed an alarm hot loop while an active-file
+probe waited behind registration inspection. Tests hold the metadata read and
+assert watchdog scheduling. Optional late-report capacity refusal returns 409
+instead of falsely acknowledging storage, allowing a later bounded retry.
+The initial full unit run had 11,573 pass / 17 fail across 542 files: one
+redundant exported type and sixteen failures from two controller suites that
+use partial snapshots without the optional report port. Its unused export was
+removed without raising the dead-export guard baseline. The controller now
+returns before accessing metadata when reporting is not installed; production
+snapshot validation was not loosened. Those two suites and the reporting suite
+then passed 38/38. The final full run uses the fixed, frozen source above.
+
+A separate pre-existing PIN test intermittently returned 401. Its fixture
+deleted all hashes beginning with `F`, including real random owner-session
+hashes with that prefix (approximately 1/64). Cleanup now removes only the
+synthetic hashes it inserted. Two reviewers confirmed the cause; three isolated
+repeat runs passed. No production session-eviction policy changed.
+
+Final local results at the frozen runtime SHA above:
+
+| Check | Result |
+| --- | --- |
+| Full unit, four workers | 542 files, 11,590 pass / 0 fail / 0 skip, 265.49 s |
+| Critical Chromium E2E | 22 pass / 0 fail / 0 skip, 57.7 s |
+| Production build | `build:checked` passed, including cache history, legacy output, initial transfer budget, security and app shell |
+| Type validation | Full project typecheck passed; final App, test and PRO projects rechecked after final fixes |
+| Worker bundles | Six production Worker dry-run bundles passed; no deployment by this check |
+| Lint and format | Full checks passed; final changed files checked again |
+
+The 16 real-browser metadata checks are separate from the critical E2E counts.
+Remote exact-main and deployment evidence will be appended after successful release.
 Local/branch tests are not a successful exact-main-SHA production candidate.
 Physical iPhone/Android playback and actual customer rooms remain manual checks.

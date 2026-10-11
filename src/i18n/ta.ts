@@ -737,6 +737,9 @@ const ta: Record<I18nKey, string> = {
   'dialog.leave_session': 'வெளியேறு',
   'dialog.sw_update_title': 'புதுப்பிப்பு',
   'dialog.sw_update_msg': 'புதிய பதிப்பு தயாராக உள்ளது. புதுப்பிக்க மீண்டும் ஏற்றவும்.',
+  'dialog.feature_refresh_title': 'மீண்டும் ஏற்ற வேண்டும்',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE புதுப்பிக்கப்பட்டுள்ளது. வழக்கம்போல் தொடர்ந்து பயன்படுத்த பக்கத்தை மீண்டும் ஏற்றவும்.',
   'dialog.reconnect_ask': 'மீண்டும் இணைக்க விரும்புகிறீர்களா?',
   'dialog.reconnect': 'மீண்டும் இணை',
   'dialog.go_back': 'திரும்பிச் செல்',

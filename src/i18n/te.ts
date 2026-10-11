@@ -720,6 +720,9 @@ const te: Record<I18nKey, string> = {
   'dialog.leave_session': 'వెళ్లిపో',
   'dialog.sw_update_title': 'అప్‌డేట్',
   'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది. అప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
+  'dialog.feature_refresh_title': 'రిఫ్రెష్ చేయాలి',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE అప్‌డేట్ అయింది. ఎప్పటిలాగే ఉపయోగించడం కొనసాగించడానికి రిఫ్రెష్ చేయండి.',
   'dialog.reconnect_ask': 'మళ్లీ కనెక్ట్ కావాలా?',
   'dialog.reconnect': 'మళ్లీ కనెక్ట్ చేయి',
   'dialog.go_back': 'వెనక్కి వెళ్లు',

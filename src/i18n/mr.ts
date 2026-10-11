@@ -712,6 +712,9 @@ const mr: Record<I18nKey, string> = {
   'dialog.leave_session': 'बाहेर पडा',
   'dialog.sw_update_title': 'अद्ययावत करा',
   'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे. अद्ययावत करण्यासाठी रीफ्रेश करा.',
+  'dialog.feature_refresh_title': 'रीफ्रेश करणे आवश्यक आहे',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE अद्ययावत झाले आहे. नेहमीप्रमाणे वापरणे सुरू ठेवण्यासाठी रीफ्रेश करा.',
   'dialog.reconnect_ask': 'पुन्हा कनेक्ट करायचे?',
   'dialog.reconnect': 'पुन्हा कनेक्ट करा',
   'dialog.go_back': 'मागे जा',

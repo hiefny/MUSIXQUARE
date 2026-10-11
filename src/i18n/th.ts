@@ -700,6 +700,8 @@ const th: Record<I18nKey, string> = {
   'dialog.leave_session': 'ออก',
   'dialog.sw_update_title': 'อัปเดต',
   'dialog.sw_update_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว โหลดหน้าใหม่เพื่ออัปเดต',
+  'dialog.feature_refresh_title': 'จำเป็นต้องรีเฟรช',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE อัปเดตแล้ว รีเฟรชเพื่อใช้งานต่อได้ตามปกติ',
   'dialog.reconnect_ask': 'ต้องการเชื่อมต่อใหม่ไหม?',
   'dialog.reconnect': 'เชื่อมต่อใหม่',
   'dialog.go_back': 'ย้อนกลับ',

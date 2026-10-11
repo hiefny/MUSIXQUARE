@@ -656,6 +656,9 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.leave_session': 'Sair',
   'dialog.sw_update_title': 'Atualização',
   'dialog.sw_update_msg': 'Uma nova versão está pronta. Atualize para aplicar.',
+  'dialog.feature_refresh_title': 'É preciso atualizar a página',
+  'dialog.feature_refresh_msg':
+    'O MUSIXQUARE foi atualizado. Atualize a página para continuar usando normalmente.',
   'dialog.reconnect_ask': 'Deseja reconectar?',
   'dialog.reconnect': 'Reconectar',
   'dialog.go_back': 'Voltar',

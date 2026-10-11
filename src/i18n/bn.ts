@@ -715,6 +715,9 @@ const bn: Record<I18nKey, string> = {
   'dialog.leave_session': 'চলে যান',
   'dialog.sw_update_title': 'আপডেট',
   'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত। আপডেট করতে রিফ্রেশ করুন।',
+  'dialog.feature_refresh_title': 'রিফ্রেশ করা প্রয়োজন',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE আপডেট হয়েছে। স্বাভাবিকভাবে ব্যবহার চালিয়ে যেতে রিফ্রেশ করুন।',
   'dialog.reconnect_ask': 'আবার সংযোগ করতে চান?',
   'dialog.reconnect': 'আবার সংযোগ করুন',
   'dialog.go_back': 'ফিরে যান',

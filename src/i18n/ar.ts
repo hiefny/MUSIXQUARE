@@ -699,6 +699,8 @@ const ar: Record<I18nKey, string> = {
   'dialog.leave_session': 'مغادرة',
   'dialog.sw_update_title': 'تحديث',
   'dialog.sw_update_msg': 'يتوفر إصدار جديد. حدّث الصفحة لتثبيته.',
+  'dialog.feature_refresh_title': 'يلزم تحديث الصفحة',
+  'dialog.feature_refresh_msg': 'تم تحديث MUSIXQUARE. حدّث الصفحة لمواصلة استخدامه بشكل طبيعي.',
   'dialog.reconnect_ask': 'هل تريد إعادة الاتصال؟',
   'dialog.reconnect': 'إعادة الاتصال',
   'dialog.go_back': 'رجوع',

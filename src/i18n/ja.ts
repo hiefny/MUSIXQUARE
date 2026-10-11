@@ -643,6 +643,9 @@ const ja: Record<I18nKey, string> = {
   'dialog.sw_update_title': 'アップデート',
   'dialog.sw_update_msg':
     '新しいバージョンの準備ができました。ページを再読み込みするとアップデートが適用されます。',
+  'dialog.feature_refresh_title': '再読み込みが必要です',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUAREがアップデートされました。引き続き正常に利用するには、ページを再読み込みしてください。',
   'dialog.reconnect_ask': '再接続しますか？',
   'dialog.reconnect': '再接続',
   'dialog.go_back': '戻る',

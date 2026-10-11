@@ -737,6 +737,9 @@ const it: Record<I18nKey, string> = {
   'dialog.leave_session': 'Esci',
   'dialog.sw_update_title': 'Nuovo aggiornamento',
   'dialog.sw_update_msg': 'È disponibile una nuova versione. Aggiorna la pagina per applicarla.',
+  'dialog.feature_refresh_title': 'È necessario aggiornare la pagina',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE è stato aggiornato. Aggiorna la pagina per continuare a usarlo normalmente.',
   'dialog.reconnect_ask': 'Vuoi provare a riconnetterti?',
   'dialog.reconnect': 'Riconnetti',
   'dialog.go_back': 'Indietro',

@@ -720,6 +720,9 @@ const nb: Record<I18nKey, string> = {
   'dialog.leave_session': 'Forlat',
   'dialog.sw_update_title': 'Oppdatering',
   'dialog.sw_update_msg': 'En ny versjon er klar. Oppdater siden for å installere den.',
+  'dialog.feature_refresh_title': 'Siden må oppdateres',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE er oppdatert. Oppdater siden for å fortsette å bruke det som vanlig.',
   'dialog.reconnect_ask': 'Vil du koble til på nytt?',
   'dialog.reconnect': 'Koble til på nytt',
   'dialog.go_back': 'Gå tilbake',

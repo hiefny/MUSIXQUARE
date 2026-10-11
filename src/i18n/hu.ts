@@ -726,6 +726,9 @@ const hu: Record<I18nKey, string> = {
   'dialog.leave_session': 'Kilépés',
   'dialog.sw_update_title': 'Frissítés',
   'dialog.sw_update_msg': 'Új verzió érhető el. A frissítéshez töltsd újra az oldalt.',
+  'dialog.feature_refresh_title': 'Újratöltés szükséges',
+  'dialog.feature_refresh_msg':
+    'A MUSIXQUARE frissült. A zavartalan használathoz töltsd újra az oldalt.',
   'dialog.reconnect_ask': 'Újracsatlakozol?',
   'dialog.reconnect': 'Újracsatlakozás',
   'dialog.go_back': 'Vissza',

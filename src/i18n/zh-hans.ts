@@ -605,6 +605,8 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.leave_session': '离开',
   'dialog.sw_update_title': '更新',
   'dialog.sw_update_msg': '新版本已准备好。刷新即可更新。',
+  'dialog.feature_refresh_title': '需要刷新',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE 已更新。请刷新页面以继续正常使用。',
   'dialog.reconnect_ask': '要重新连接吗？',
   'dialog.reconnect': '重新连接',
   'dialog.go_back': '返回',

@@ -725,6 +725,9 @@ const uk: Record<I18nKey, string> = {
   'dialog.leave_session': 'Вийти',
   'dialog.sw_update_title': 'Оновлення',
   'dialog.sw_update_msg': 'Нова версія готова. Оновіть сторінку, щоб застосувати її.',
+  'dialog.feature_refresh_title': 'Потрібно оновити сторінку',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE оновлено. Щоб і далі нормально ним користуватися, оновіть сторінку.',
   'dialog.reconnect_ask': 'Підключитися знову?',
   'dialog.reconnect': 'Підключитися знову',
   'dialog.go_back': 'Назад',

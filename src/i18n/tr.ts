@@ -713,6 +713,9 @@ const tr: Record<I18nKey, string> = {
   'dialog.leave_session': 'Ayrıl',
   'dialog.sw_update_title': 'Yeni Güncelleme',
   'dialog.sw_update_msg': 'Yeni bir sürüm hazır. Güncellemek için sayfayı yenile.',
+  'dialog.feature_refresh_title': 'Yenileme gerekli',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE güncellendi. Normal şekilde kullanmaya devam etmek için sayfayı yenile.',
   'dialog.reconnect_ask': 'Yeniden bağlanmayı denemek istiyor musun?',
   'dialog.reconnect': 'Yeniden Bağlan',
   'dialog.go_back': 'Geri',

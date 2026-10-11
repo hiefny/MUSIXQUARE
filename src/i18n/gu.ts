@@ -705,6 +705,9 @@ const gu: Record<I18nKey, string> = {
   'dialog.leave_session': 'બહાર નીકળો',
   'dialog.sw_update_title': 'અપડેટ',
   'dialog.sw_update_msg': 'નવી આવૃત્તિ તૈયાર છે. અપડેટ કરવા રિફ્રેશ કરો.',
+  'dialog.feature_refresh_title': 'રિફ્રેશ કરવું જરૂરી છે',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE અપડેટ થયું છે. સામાન્ય રીતે વાપરવાનું ચાલુ રાખવા રિફ્રેશ કરો.',
   'dialog.reconnect_ask': 'ફરી જોડાવું છે?',
   'dialog.reconnect': 'ફરી જોડાવો',
   'dialog.go_back': 'પાછા જાઓ',

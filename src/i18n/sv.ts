@@ -726,6 +726,9 @@ const sv: Record<I18nKey, string> = {
   'dialog.leave_session': 'Lämna',
   'dialog.sw_update_title': 'Uppdatering',
   'dialog.sw_update_msg': 'En ny version är klar. Uppdatera sidan för att installera den.',
+  'dialog.feature_refresh_title': 'Sidan behöver uppdateras',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE har uppdaterats. Uppdatera sidan för att fortsätta använda det som vanligt.',
   'dialog.reconnect_ask': 'Vill du ansluta igen?',
   'dialog.reconnect': 'Anslut igen',
   'dialog.go_back': 'Gå tillbaka',

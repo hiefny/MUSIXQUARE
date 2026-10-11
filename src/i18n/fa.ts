@@ -710,6 +710,9 @@ const fa: Record<I18nKey, string> = {
   'dialog.leave_session': 'خروج',
   'dialog.sw_update_title': 'به‌روزرسانی',
   'dialog.sw_update_msg': 'نسخهٔ جدید آماده است. برای به‌روزرسانی، تازه‌سازی کنید.',
+  'dialog.feature_refresh_title': 'تازه‌سازی صفحه لازم است',
+  'dialog.feature_refresh_msg':
+    'برنامهٔ MUSIXQUARE به‌روزرسانی شده است. برای ادامهٔ استفادهٔ عادی از آن، صفحه را تازه‌سازی کنید.',
   'dialog.reconnect_ask': 'دوباره متصل می‌شوید؟',
   'dialog.reconnect': 'اتصال دوباره',
   'dialog.go_back': 'بازگشت',

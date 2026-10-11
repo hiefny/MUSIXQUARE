@@ -738,6 +738,9 @@ const fil: Record<I18nKey, string> = {
   'dialog.leave_session': 'Umalis',
   'dialog.sw_update_title': 'I-update',
   'dialog.sw_update_msg': 'Handa na ang bagong bersyon. I-refresh para mag-update.',
+  'dialog.feature_refresh_title': 'Kailangang mag-refresh',
+  'dialog.feature_refresh_msg':
+    'Na-update ang MUSIXQUARE. I-refresh para patuloy itong magamit nang maayos.',
   'dialog.reconnect_ask': 'Gusto mo bang kumonekta muli?',
   'dialog.reconnect': 'Kumonekta muli',
   'dialog.go_back': 'Bumalik',

@@ -716,6 +716,9 @@ const pa: Record<I18nKey, string> = {
   'dialog.leave_session': 'ਬਾਹਰ ਜਾਓ',
   'dialog.sw_update_title': 'ਅੱਪਡੇਟ',
   'dialog.sw_update_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ। ਅੱਪਡੇਟ ਕਰਨ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
+  'dialog.feature_refresh_title': 'ਰਿਫ੍ਰੈਸ਼ ਕਰਨਾ ਜ਼ਰੂਰੀ ਹੈ',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE ਅੱਪਡੇਟ ਹੋ ਗਿਆ ਹੈ। ਇਸਨੂੰ ਆਮ ਵਾਂਗ ਵਰਤਦੇ ਰਹਿਣ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
   'dialog.reconnect_ask': 'ਮੁੜ ਕਨੈਕਟ ਕਰਨਾ ਹੈ?',
   'dialog.reconnect': 'ਮੁੜ ਕਨੈਕਟ ਕਰੋ',
   'dialog.go_back': 'ਪਿੱਛੇ ਜਾਓ',

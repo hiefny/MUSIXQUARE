@@ -723,6 +723,9 @@ const kn: Record<I18nKey, string> = {
   'dialog.leave_session': 'ಹೊರಡಿ',
   'dialog.sw_update_title': 'ನವೀಕರಿಸಿ',
   'dialog.sw_update_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ. ನವೀಕರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+  'dialog.feature_refresh_title': 'ರಿಫ್ರೆಶ್ ಮಾಡಬೇಕಾಗಿದೆ',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE ನವೀಕರಿಸಲಾಗಿದೆ. ಸಾಮಾನ್ಯವಾಗಿ ಬಳಸುವುದನ್ನು ಮುಂದುವರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
   'dialog.reconnect_ask': 'ಮರುಸಂಪರ್ಕಿಸಬೇಕೆ?',
   'dialog.reconnect': 'ಮರುಸಂಪರ್ಕಿಸಿ',
   'dialog.go_back': 'ಹಿಂದೆ ಹೋಗಿ',

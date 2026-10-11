@@ -733,6 +733,9 @@ const ro: Record<I18nKey, string> = {
   'dialog.leave_session': 'Părăsește',
   'dialog.sw_update_title': 'Actualizare',
   'dialog.sw_update_msg': 'Este disponibilă o versiune nouă. Reîncarcă pentru actualizare.',
+  'dialog.feature_refresh_title': 'Este necesară reîncărcarea',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE a fost actualizat. Reîncarcă pagina pentru a-l folosi în continuare normal.',
   'dialog.reconnect_ask': 'Vrei să te reconectezi?',
   'dialog.reconnect': 'Reconectează',
   'dialog.go_back': 'Înapoi',

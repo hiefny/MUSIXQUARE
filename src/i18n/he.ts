@@ -698,6 +698,9 @@ const he: Record<I18nKey, string> = {
   'dialog.leave_session': 'יציאה',
   'dialog.sw_update_title': 'עדכון',
   'dialog.sw_update_msg': 'גרסה חדשה מוכנה. יש לרענן כדי לעדכן.',
+  'dialog.feature_refresh_title': 'נדרש רענון',
+  'dialog.feature_refresh_msg':
+    'בוצע עדכון ל-MUSIXQUARE. כדי להמשיך להשתמש בו כרגיל, יש לרענן את הדף.',
   'dialog.reconnect_ask': 'להתחבר מחדש?',
   'dialog.reconnect': 'חיבור מחדש',
   'dialog.go_back': 'חזרה',

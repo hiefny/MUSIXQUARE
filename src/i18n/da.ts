@@ -721,6 +721,9 @@ const da: Record<I18nKey, string> = {
   'dialog.leave_session': 'Forlad',
   'dialog.sw_update_title': 'Opdatering',
   'dialog.sw_update_msg': 'En ny version er klar. Opdater siden for at installere den.',
+  'dialog.feature_refresh_title': 'Siden skal opdateres',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE er blevet opdateret. Opdater siden for at fortsætte med at bruge det som normalt.',
   'dialog.reconnect_ask': 'Vil du oprette forbindelse igen?',
   'dialog.reconnect': 'Opret forbindelse igen',
   'dialog.go_back': 'Gå tilbage',

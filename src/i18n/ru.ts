@@ -729,6 +729,9 @@ const ru: Record<I18nKey, string> = {
   'dialog.leave_session': 'Выйти',
   'dialog.sw_update_title': 'Новое обновление',
   'dialog.sw_update_msg': 'Доступна новая версия. Обновите страницу для применения.',
+  'dialog.feature_refresh_title': 'Нужно обновить страницу',
+  'dialog.feature_refresh_msg':
+    'Вышло обновление MUSIXQUARE. Чтобы и дальше пользоваться им как обычно, обновите страницу.',
   'dialog.reconnect_ask': 'Желаете восстановить подключение?',
   'dialog.reconnect': 'Подключить заново',
   'dialog.go_back': 'Назад',

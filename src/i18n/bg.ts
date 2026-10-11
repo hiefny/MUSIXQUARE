@@ -725,6 +725,9 @@ const bg: Record<I18nKey, string> = {
   'dialog.leave_session': 'Напускане',
   'dialog.sw_update_title': 'Актуализация',
   'dialog.sw_update_msg': 'Нова версия е готова. Опресни, за да актуализираш.',
+  'dialog.feature_refresh_title': 'Нужно е опресняване',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE се обнови. Опресни страницата, за да продължиш да го използваш нормално.',
   'dialog.reconnect_ask': 'Искаш ли да се свържеш отново?',
   'dialog.reconnect': 'Повторно свързване',
   'dialog.go_back': 'Назад',

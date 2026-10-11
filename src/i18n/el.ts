@@ -738,6 +738,9 @@ const el: Record<I18nKey, string> = {
   'dialog.leave_session': 'Αποχώρηση',
   'dialog.sw_update_title': 'Ενημέρωση',
   'dialog.sw_update_msg': 'Μια νέα έκδοση είναι έτοιμη. Ανανεώστε για ενημέρωση.',
+  'dialog.feature_refresh_title': 'Απαιτείται ανανέωση',
+  'dialog.feature_refresh_msg':
+    'Το MUSIXQUARE ενημερώθηκε. Ανανεώστε τη σελίδα για να συνεχίσετε να το χρησιμοποιείτε κανονικά.',
   'dialog.reconnect_ask': 'Θέλετε να συνδεθείτε ξανά;',
   'dialog.reconnect': 'Επανασύνδεση',
   'dialog.go_back': 'Επιστροφή',

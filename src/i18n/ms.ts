@@ -731,6 +731,9 @@ const ms: Record<I18nKey, string> = {
   'dialog.leave_session': 'Keluar',
   'dialog.sw_update_title': 'Kemas Kini',
   'dialog.sw_update_msg': 'Versi baharu sudah sedia. Muat semula untuk mengemas kini.',
+  'dialog.feature_refresh_title': 'Perlu dimuat semula',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE telah dikemas kini. Muat semula untuk terus menggunakannya seperti biasa.',
   'dialog.reconnect_ask': 'Adakah anda mahu menyambung semula?',
   'dialog.reconnect': 'Sambung semula',
   'dialog.go_back': 'Kembali',

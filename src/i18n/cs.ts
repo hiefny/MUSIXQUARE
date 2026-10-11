@@ -724,6 +724,9 @@ const cs: Record<I18nKey, string> = {
   'dialog.leave_session': 'Odejít',
   'dialog.sw_update_title': 'Aktualizace',
   'dialog.sw_update_msg': 'Je připravena nová verze. Aktualizujte ji načtením stránky znovu.',
+  'dialog.feature_refresh_title': 'Je potřeba načíst stránku znovu',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE byl aktualizován. Chcete-li ho dál normálně používat, načtěte stránku znovu.',
   'dialog.reconnect_ask': 'Chcete se znovu připojit?',
   'dialog.reconnect': 'Připojit znovu',
   'dialog.go_back': 'Zpět',

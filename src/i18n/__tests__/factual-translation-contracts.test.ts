@@ -298,6 +298,62 @@ describe('completed translation factual contracts', () => {
     ]);
   });
 
+  it('gives the lazy-feature recovery dialog its own refresh copy in every locale', () => {
+    const english = APP_DICTIONARIES.en;
+    const titleKey = 'dialog.feature_refresh_title';
+    const messageKey = 'dialog.feature_refresh_msg';
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const title = dictionary[titleKey];
+      const message = dictionary[messageKey];
+      for (const [key, text] of [
+        [titleKey, title],
+        [messageKey, message],
+      ] as const) {
+        // Plain dialog text: no placeholders, markup, numbers, or line breaks.
+        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]|\n/u);
+        expect(text.trim(), `${language}.${key}`).toBe(text);
+      }
+      // The message names the brand exactly once (it was updated); the short
+      // title does not.
+      expect(message.split('MUSIXQUARE'), `${language}.${messageKey}`).toHaveLength(2);
+      expect(title, `${language}.${titleKey}`).not.toContain('MUSIXQUARE');
+      // Distinct from the waiting-worker update dialog, which the recovery
+      // dialog used to borrow.
+      expect(title, `${language} title`).not.toBe(dictionary['dialog.sw_update_title']);
+      expect(message, `${language} message`).not.toBe(dictionary['dialog.sw_update_msg']);
+      // An RTL message that opened with the Latin brand would be laid out left
+      // to right wherever it is rendered with dir="auto".
+      if (languageDirection(language as LanguageCode) === 'rtl') {
+        for (const text of [title, message]) {
+          expect(text, `${language} opens with RTL script`).toMatch(
+            /^(?:\p{Script=Arabic}|\p{Script=Hebrew}|\u200F)/u,
+          );
+        }
+      }
+      if (language === 'en') continue;
+      expect(title, `${language}.${titleKey} English copy`).not.toBe(english[titleKey]);
+      expect(message, `${language}.${messageKey} English copy`).not.toBe(english[messageKey]);
+    }
+
+    // Owner's copy (2026-10-11). The message says the app was updated and
+    // needs a refresh to keep working normally; it names no single feature.
+    expect([APP_DICTIONARIES.ko[titleKey], APP_DICTIONARIES.ko[messageKey]]).toEqual([
+      '새로고침이 필요해요',
+      'MUSIXQUARE가 업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요.',
+    ]);
+    expect([english[titleKey], english[messageKey]]).toEqual([
+      'Refresh needed',
+      'MUSIXQUARE has been updated. Refresh to keep using it normally.',
+    ]);
+    // The regular update dialog keeps its copy.
+    expect([
+      APP_DICTIONARIES.ko['dialog.sw_update_title'],
+      APP_DICTIONARIES.ko['dialog.sw_update_msg'],
+    ]).toEqual(['업데이트', '새 버전이 준비되었어요. 새로고침하면 업데이트가 적용돼요.']);
+  });
+
   it('keeps supported-browser, synchronization, and system-audio claims factual', async () => {
     const dictionaries = await loadLandingDictionary();
     expect(Object.keys(dictionaries).sort()).toEqual(

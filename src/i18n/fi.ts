@@ -720,6 +720,9 @@ const fi: Record<I18nKey, string> = {
   'dialog.leave_session': 'Poistu',
   'dialog.sw_update_title': 'Päivitys',
   'dialog.sw_update_msg': 'Uusi versio on valmis. Päivitä sivu ottaaksesi sen käyttöön.',
+  'dialog.feature_refresh_title': 'Sivu on päivitettävä',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE on päivittynyt. Päivitä sivu, jotta voit jatkaa sen käyttöä normaalisti.',
   'dialog.reconnect_ask': 'Haluatko muodostaa yhteyden uudelleen?',
   'dialog.reconnect': 'Yhdistä uudelleen',
   'dialog.go_back': 'Palaa takaisin',

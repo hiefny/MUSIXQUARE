@@ -709,6 +709,9 @@ const ur: Record<I18nKey, string> = {
   'dialog.leave_session': 'چھوڑیں',
   'dialog.sw_update_title': 'اپ ڈیٹ',
   'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔ اپ ڈیٹ کے لیے ریفریش کریں۔',
+  'dialog.feature_refresh_title': 'ریفریش کرنا ضروری ہے',
+  'dialog.feature_refresh_msg':
+    'اب MUSIXQUARE اپ ڈیٹ ہو چکا ہے۔ معمول کے مطابق استعمال جاری رکھنے کے لیے ریفریش کریں۔',
   'dialog.reconnect_ask': 'دوبارہ منسلک ہونا چاہتے ہیں؟',
   'dialog.reconnect': 'دوبارہ منسلک کریں',
   'dialog.go_back': 'واپس جائیں',

@@ -731,6 +731,9 @@ const ml: Record<I18nKey, string> = {
   'dialog.leave_session': 'പുറത്തുകടക്കുക',
   'dialog.sw_update_title': 'അപ്‌ഡേറ്റ്',
   'dialog.sw_update_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്. അപ്‌ഡേറ്റ് ചെയ്യാൻ പുതുക്കുക.',
+  'dialog.feature_refresh_title': 'പുതുക്കേണ്ടതുണ്ട്',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE അപ്‌ഡേറ്റ് ചെയ്‌തിട്ടുണ്ട്. സാധാരണ പോലെ ഉപയോഗിക്കുന്നത് തുടരാൻ പേജ് പുതുക്കുക.',
   'dialog.reconnect_ask': 'വീണ്ടും ബന്ധിപ്പിക്കണോ?',
   'dialog.reconnect': 'വീണ്ടും ബന്ധിപ്പിക്കുക',
   'dialog.go_back': 'തിരികെ പോകുക',

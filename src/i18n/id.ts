@@ -648,6 +648,9 @@ const id: Record<I18nKey, string> = {
   'dialog.leave_session': 'Keluar',
   'dialog.sw_update_title': 'Pembaruan',
   'dialog.sw_update_msg': 'Versi baru siap. Muat ulang untuk memperbarui.',
+  'dialog.feature_refresh_title': 'Perlu dimuat ulang',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE telah diperbarui. Muat ulang agar tetap bisa digunakan dengan normal.',
   'dialog.reconnect_ask': 'Ingin menyambung ulang?',
   'dialog.reconnect': 'Sambung ulang',
   'dialog.go_back': 'Kembali',

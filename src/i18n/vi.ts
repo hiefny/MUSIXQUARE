@@ -638,6 +638,9 @@ const vi: Record<I18nKey, string> = {
   'dialog.leave_session': 'Rời đi',
   'dialog.sw_update_title': 'Cập nhật',
   'dialog.sw_update_msg': 'Phiên bản mới đã sẵn sàng. Làm mới để cập nhật.',
+  'dialog.feature_refresh_title': 'Cần làm mới',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE đã được cập nhật. Làm mới để tiếp tục sử dụng bình thường.',
   'dialog.reconnect_ask': 'Bạn muốn kết nối lại?',
   'dialog.reconnect': 'Kết nối lại',
   'dialog.go_back': 'Quay lại',

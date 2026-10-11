@@ -711,6 +711,8 @@ const en: Record<I18nKey, string> = {
   'dialog.leave_session': 'Leave',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready. Refresh to update.',
+  'dialog.feature_refresh_title': 'Refresh needed',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE has been updated. Refresh to keep using it normally.',
   'dialog.reconnect_ask': 'Would you like to reconnect?',
   'dialog.reconnect': 'Reconnect',
   'dialog.go_back': 'Go back',

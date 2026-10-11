@@ -705,6 +705,9 @@ const ko = {
   'dialog.leave_session': '세션 나가기',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었어요. 새로고침하면 업데이트가 적용돼요.',
+  'dialog.feature_refresh_title': '새로고침이 필요해요',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE가 업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요.',
   'dialog.reconnect_ask': '다시 연결할까요?',
   'dialog.reconnect': '다시 연결',
   'dialog.go_back': '돌아가기',

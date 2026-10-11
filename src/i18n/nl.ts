@@ -729,6 +729,9 @@ const nl: Record<I18nKey, string> = {
   'dialog.leave_session': 'Verlaten',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Er staat een nieuwe versie klaar. Vernieuw om deze bij te werken.',
+  'dialog.feature_refresh_title': 'Vernieuwen nodig',
+  'dialog.feature_refresh_msg':
+    'MUSIXQUARE is bijgewerkt. Vernieuw de pagina om het normaal te blijven gebruiken.',
   'dialog.reconnect_ask': 'Opnieuw verbinden?',
   'dialog.reconnect': 'Opnieuw verbinden',
   'dialog.go_back': 'Terug',

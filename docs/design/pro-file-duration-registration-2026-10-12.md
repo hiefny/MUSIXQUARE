@@ -118,6 +118,17 @@ Final local results at the frozen runtime SHA above:
 | Lint and format | Full checks passed; final changed files checked again |
 
 The 16 real-browser metadata checks are separate from the critical E2E counts.
+The first PR CI (`38160297339`) found function coverage below the unchanged
+floors in media-transfer (85.71% / 86%) and playback-controller (85% / 87%).
+The dedicated duration-report tests had not been listed in the critical
+profile. They and the upload-reader tests are now included. Two transfer tests
+also verify a real FLAC through the default adapter and metadata rejection
+without upload failure. The former waits on the actual probe while PUT is
+pending, so slow CI imports do not turn the optional 250 ms tail into a flaky
+test requirement. The final local critical profile passes: transfer functions
+88.09%, controller functions 90.62%; global statements 81.97%, branches 76.78%,
+functions 88.15%, lines 86.08%. Only tests/profile changed after the frozen
+runtime SHA and full local run; remote full CI verifies those additions.
 Remote exact-main and deployment evidence will be appended after successful release.
 Local/branch tests are not a successful exact-main-SHA production candidate.
 Physical iPhone/Android playback and actual customer rooms remain manual checks.

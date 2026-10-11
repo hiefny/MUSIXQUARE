@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { proRoomR2HostForTests as PRO_ROOM_R2_HOST, type ProRoomMediaReservation } from '../api.ts';
@@ -12,6 +13,7 @@ import {
   ProRoomMediaTransfer,
   type ProRoomMediaApiForTests as ProRoomMediaApi,
 } from '../media-transfer.ts';
+import * as uploadDuration from '../upload-duration.ts';
 
 const ROOM_CODE = '000001';
 const ASSET_ID = 'asset_00000000001';
@@ -19,6 +21,7 @@ const ASSET_ID = 'asset_00000000001';
 afterEach(() => {
   clearAllManagedTimers();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 const quota: ProRoomQuotaSnapshot = {
@@ -181,6 +184,55 @@ describe('PRO room direct R2 upload orchestration', () => {
       expect.objectContaining({ durationSeconds: 123.45 }),
       undefined,
     );
+  });
+
+  it('registers a real FLAC duration through the default local metadata adapter', async () => {
+    const probe = vi.spyOn(uploadDuration, 'probeProRoomUploadDuration');
+    const bytes = await readFile(
+      new URL('../../../e2e/fixtures/large-audio-chirp.flac', import.meta.url),
+    );
+    const file = new File([bytes], 'chirp.flac', { type: 'audio/flac' });
+    const wholeFileRead = vi.spyOn(file, 'arrayBuffer');
+    const asset = source({ byteLength: file.size });
+    const completedQuota = { ...quota, usedBytes: file.size };
+    const reserved = reservation();
+    reserved.byteLength = file.size;
+    reserved.quota.reservedBytes = file.size;
+    const harness = apiHarness();
+    harness.createMediaReservation.mockResolvedValue(reserved);
+    harness.completeMedia.mockResolvedValue({ asset, quota: completedQuota });
+    const xhr = new FakeXhr();
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory: () => xhr as unknown as XMLHttpRequest,
+    });
+
+    const pending = transfer.upload({ code: ROOM_CODE, file });
+    await waitForSend(xhr);
+    expect(xhr.sent).toBe(file);
+    // Model a network PUT that finishes after metadata, without making the
+    // assertion depend on module import/I/O completing inside the 250ms tail.
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce());
+    expect(await probe.mock.results[0]!.value).toBe(5);
+    finishPut(xhr);
+    await expect(pending).resolves.toEqual({ asset, quota: completedQuota });
+    expect(harness.completeMedia).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId: ASSET_ID, durationSeconds: 5 }),
+      undefined,
+    );
+    expect(wholeFileRead).not.toHaveBeenCalled();
+    expect(harness.deleteMedia).not.toHaveBeenCalled();
+  });
+
+  it('still completes the uploaded file when optional metadata unexpectedly rejects', async () => {
+    const h = durationUpload(async () => {
+      throw new Error('LOCAL_METADATA_UNAVAILABLE');
+    });
+    await waitForSend(h.xhr);
+    finishPut(h.xhr);
+    await expect(h.pending).resolves.toEqual({ asset: source(), quota });
+    expect(h.completeMedia.mock.calls[0]?.[0]).not.toHaveProperty('durationSeconds');
+    expect(h.deleteMedia).not.toHaveBeenCalled();
   });
 
   it('caps unfinished metadata at a 250ms tail and cancels it without failing the upload', async () => {

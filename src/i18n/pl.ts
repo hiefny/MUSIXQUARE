@@ -738,6 +738,10 @@ const pl: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Wprowadzone hasło jest niepoprawne. Spróbuj ponownie.',
   'dialog.room_password_timeout_msg': 'Przekroczono limit czasu połączenia. Wpisz hasło ponownie.',
   'dialog.room_password_placeholder': '8-cyfrowe hasło',
+  'dialog.room_password_rate_limited':
+    'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} min.',
+  'dialog.room_password_rate_limited_later':
+    'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za chwilę.',
   'dialog.session_lost_msg':
     'Aplikacja przeszła w stan uśpienia lub straciła połączenie, dlatego pozostałe urządzenia zostały już rozłączone. Uruchom aplikację ponownie, aby utworzyć nowy pokój.',
   'dialog.session_lost_btn': 'Uruchom ponownie',
@@ -983,5 +987,10 @@ export const pluralMessages = {
     one: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minutę.',
     few: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minuty.',
     many: 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} minut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} minutę.',
+    few: 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} minuty.',
+    many: 'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

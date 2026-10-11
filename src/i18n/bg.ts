@@ -732,6 +732,10 @@ const bg: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Времето за свързване изтече. Въведи паролата отново, за да опиташ пак.',
   'dialog.room_password_placeholder': '8-цифрена парола',
+  'dialog.room_password_rate_limited':
+    'Въведе грешна парола твърде много пъти. Опитай отново след {{count}} мин.',
+  'dialog.room_password_rate_limited_later':
+    'Въведе грешна парола твърде много пъти. Опитай отново след малко.',
   'dialog.session_lost_msg':
     'Приложението е заспало или е загубило връзка, затова останалите устройства вече са се изключили. Рестартирай, за да започнеш нова сесия.',
   'dialog.session_lost_btn': 'Рестартиране',

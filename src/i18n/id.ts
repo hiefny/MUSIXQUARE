@@ -658,6 +658,10 @@ const id: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Sandi tidak cocok. Coba lagi.',
   'dialog.room_password_timeout_msg': 'Koneksi melewati batas waktu. Masukkan sandi lagi.',
   'dialog.room_password_placeholder': 'Sandi 8 digit',
+  'dialog.room_password_rate_limited':
+    'Anda terlalu sering memasukkan sandi yang salah. Coba lagi dalam {{count}} menit.',
+  'dialog.room_password_rate_limited_later':
+    'Anda terlalu sering memasukkan sandi yang salah. Coba lagi sebentar lagi.',
   'dialog.session_lost_msg':
     'Aplikasi tertidur atau kehilangan koneksi, jadi perangkat lain sudah terputus. Mulai ulang untuk membuat ruang baru.',
   'dialog.session_lost_btn': 'Mulai ulang',

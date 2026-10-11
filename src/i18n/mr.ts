@@ -719,6 +719,10 @@ const mr: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'कनेक्शनची वेळ संपली. पुन्हा प्रयत्न करण्यासाठी पासवर्ड पुन्हा प्रविष्ट करा.',
   'dialog.room_password_placeholder': '8-अंकी पासवर्ड',
+  'dialog.room_password_rate_limited':
+    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. {{count}} मिनिटांनी पुन्हा प्रयत्न करा.',
+  'dialog.room_password_rate_limited_later':
+    'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. थोड्या वेळाने पुन्हा प्रयत्न करा.',
   'dialog.session_lost_msg':
     'अ‍ॅप स्लीप मोडमध्ये गेले किंवा त्याचे कनेक्शन तुटले, त्यामुळे इतर डिव्हाइस आधीच डिस्कनेक्ट झाली आहेत. नवीन सत्र सुरू करण्यासाठी पुन्हा सुरू करा.',
   'dialog.session_lost_btn': 'पुन्हा सुरू करा',
@@ -927,5 +931,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'सामील होण्याचे खूप जास्त प्रयत्न झाले आहेत. {{count}} मिनिटाने पुन्हा प्रयत्न करा.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'तुम्ही अनेक वेळा चुकीचा पासवर्ड प्रविष्ट केला आहे. {{count}} मिनिटाने पुन्हा प्रयत्न करा.',
   },
 } satisfies LocalePluralMessages;

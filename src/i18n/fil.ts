@@ -745,6 +745,10 @@ const fil: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Nag-timeout ang koneksyon. Ilagay muli ang password para subukan ulit.',
   'dialog.room_password_placeholder': '8-digit na password',
+  'dialog.room_password_rate_limited':
+    'Masyadong maraming beses kang naglagay ng maling password. Subukan ulit pagkalipas ng {{count}} minuto.',
+  'dialog.room_password_rate_limited_later':
+    'Masyadong maraming beses kang naglagay ng maling password. Subukan ulit maya-maya.',
   'dialog.session_lost_msg':
     'Naka-sleep ang app o nawalan ito ng koneksyon, kaya nadiskonekta na ang ibang device. I-restart para magsimula ng bagong session.',
   'dialog.session_lost_btn': 'I-restart',

@@ -716,6 +716,10 @@ const ur: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'کنکشن کا وقت ختم ہو گیا۔ دوبارہ کوشش کے لیے پاس ورڈ پھر درج کریں۔',
   'dialog.room_password_placeholder': '8 ہندسوں کا پاس ورڈ',
+  'dialog.room_password_rate_limited':
+    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے۔ {{count}} منٹ بعد دوبارہ کوشش کریں۔',
+  'dialog.room_password_rate_limited_later':
+    'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
   'dialog.session_lost_msg':
     'ایپ سلیپ میں چلی گئی یا کنکشن کھو بیٹھی، اس لیے دوسرے آلات پہلے ہی منقطع ہو چکے ہیں۔ نیا سیشن شروع کرنے کے لیے دوبارہ شروع کریں۔',
   'dialog.session_lost_btn': 'دوبارہ شروع کریں',

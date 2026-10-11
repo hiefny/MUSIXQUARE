@@ -705,6 +705,10 @@ const ar: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'كلمة المرور غير مطابقة. حاول مجددًا.',
   'dialog.room_password_timeout_msg': 'انتهت مهلة الاتصال. أعد إدخال كلمة المرور للمحاولة مجددًا.',
   'dialog.room_password_placeholder': 'كلمة مرور من 8 أرقام',
+  'dialog.room_password_rate_limited':
+    'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقة.',
+  'dialog.room_password_rate_limited_later':
+    'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد قليل.',
   'dialog.session_lost_msg':
     'دخل التطبيق في وضع السكون أو فقد الاتصال، لذلك انقطعت الأجهزة الأخرى بالفعل. أعد التشغيل لبدء جلسة جديدة.',
   'dialog.session_lost_btn': 'إعادة التشغيل',
@@ -932,5 +936,9 @@ export const pluralMessages = {
   'pro.join_rate_limited': {
     two: 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقتين.',
     few: 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقائق.',
+  },
+  'dialog.room_password_rate_limited': {
+    two: 'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقتين.',
+    few: 'أدخلت كلمة مرور خاطئة مرات كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقائق.',
   },
 } satisfies LocalePluralMessages;

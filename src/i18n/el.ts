@@ -744,6 +744,10 @@ const el: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Ο κωδικός πρόσβασης δεν ταιριάζει. Δοκιμάστε ξανά.',
   'dialog.room_password_timeout_msg': 'Η σύνδεση έληξε. Εισαγάγετε ξανά τον κωδικό πρόσβασης.',
   'dialog.room_password_placeholder': 'Οκταψήφιος κωδικός πρόσβασης',
+  'dialog.room_password_rate_limited':
+    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές. Δοκιμάστε ξανά σε {{count}} λεπ.',
+  'dialog.room_password_rate_limited_later':
+    'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές. Δοκιμάστε ξανά σε λίγο.',
   'dialog.session_lost_msg':
     'Η εφαρμογή τέθηκε σε αναστολή ή έχασε τη σύνδεση, επομένως οι άλλες συσκευές έχουν ήδη αποσυνδεθεί. Κάντε επανεκκίνηση για να ξεκινήσετε νέα συνεδρία.',
   'dialog.session_lost_btn': 'Επανεκκίνηση',

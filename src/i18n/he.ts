@@ -704,6 +704,10 @@ const he: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'הסיסמה אינה תואמת. כדאי לנסות שוב.',
   'dialog.room_password_timeout_msg': 'תם הזמן לחיבור. יש להזין שוב את הסיסמה ולנסות מחדש.',
   'dialog.room_password_placeholder': 'סיסמה בת 8 ספרות',
+  'dialog.room_password_rate_limited':
+    'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד {{count}} דקות.',
+  'dialog.room_password_rate_limited_later':
+    'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד כמה רגעים.',
   'dialog.session_lost_msg':
     'האפליקציה עברה למצב שינה או איבדה את החיבור, ולכן המכשירים האחרים כבר התנתקו. יש להפעיל מחדש כדי לפתוח חדר חדש.',
   'dialog.session_lost_btn': 'הפעלה מחדש',
@@ -901,5 +905,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'יותר מדי ניסיונות הצטרפות. אפשר לנסות שוב בעוד {{count}} דקה.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'הוזנה סיסמה שגויה יותר מדי פעמים. אפשר לנסות שוב בעוד {{count}} דקה.',
   },
 } satisfies LocalePluralMessages;

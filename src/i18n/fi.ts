@@ -726,6 +726,10 @@ const fi: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Salasana ei täsmännyt. Yritä uudelleen.',
   'dialog.room_password_timeout_msg': 'Yhteys aikakatkaistiin. Yritä uudelleen antamalla salasana.',
   'dialog.room_password_placeholder': '8-numeroinen salasana',
+  'dialog.room_password_rate_limited':
+    'Annoit väärän salasanan liian monta kertaa. Yritä uudelleen {{count}} minuutin kuluttua.',
+  'dialog.room_password_rate_limited_later':
+    'Annoit väärän salasanan liian monta kertaa. Yritä hetken kuluttua uudelleen.',
   'dialog.session_lost_msg':
     'Sovellus siirtyi lepotilaan tai menetti yhteyden, joten muiden laitteiden yhteydet ovat jo katkenneet. Aloita uusi istunto käynnistämällä uudelleen.',
   'dialog.session_lost_btn': 'Käynnistä uudelleen',

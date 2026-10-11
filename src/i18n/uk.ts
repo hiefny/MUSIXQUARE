@@ -731,6 +731,10 @@ const uk: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Пароль не збігається. Спробуйте ще раз.',
   'dialog.room_password_timeout_msg': 'Час очікування з’єднання минув. Введіть пароль ще раз.',
   'dialog.room_password_placeholder': '8-значний пароль',
+  'dialog.room_password_rate_limited':
+    'Ви забагато разів ввели неправильний пароль. Спробуйте ще раз через {{count}} хв.',
+  'dialog.room_password_rate_limited_later':
+    'Ви забагато разів ввели неправильний пароль. Спробуйте ще раз трохи згодом.',
   'dialog.session_lost_msg':
     'Застосунок перейшов у режим сну або втратив з’єднання, тому інші пристрої вже відключилися. Перезапустіть його, щоб почати новий сеанс.',
   'dialog.session_lost_btn': 'Перезапустити',

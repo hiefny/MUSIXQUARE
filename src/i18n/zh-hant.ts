@@ -615,6 +615,8 @@ const zhHant: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': '密碼不相符。請重試。',
   'dialog.room_password_timeout_msg': '連線逾時。請重新輸入密碼後重試。',
   'dialog.room_password_placeholder': '8 位數密碼',
+  'dialog.room_password_rate_limited': '密碼錯誤次數過多。請在 {{count}} 分鐘後再試一次。',
+  'dialog.room_password_rate_limited_later': '密碼錯誤次數過多。請稍後再試一次。',
   'dialog.session_lost_msg':
     '應用程式進入睡眠或失去連線，與其他裝置的連線已中斷。請重新整理頁面以建立新房間。',
   'dialog.session_lost_btn': '重新整理',

@@ -716,6 +716,10 @@ const fa: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'گذرواژه درست نیست. دوباره تلاش کنید.',
   'dialog.room_password_timeout_msg': 'مهلت اتصال تمام شد. برای تلاش دوباره گذرواژه را وارد کنید.',
   'dialog.room_password_placeholder': 'گذرواژهٔ 8 رقمی',
+  'dialog.room_password_rate_limited':
+    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید. {{count}} دقیقه دیگر دوباره تلاش کنید.',
+  'dialog.room_password_rate_limited_later':
+    'گذرواژه را بیش از حد اشتباه وارد کرده‌اید. کمی بعد دوباره تلاش کنید.',
   'dialog.session_lost_msg':
     'برنامه به خواب رفت یا اتصال را از دست داد و دستگاه‌های دیگر جدا شده‌اند. برای شروع جلسهٔ جدید، برنامه را دوباره راه‌اندازی کنید.',
   'dialog.session_lost_btn': 'راه‌اندازی دوباره',

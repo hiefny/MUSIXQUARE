@@ -670,6 +670,10 @@ const es: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Se agotó el tiempo de conexión. Vuelve a introducir la contraseña.',
   'dialog.room_password_placeholder': 'Contraseña de 8 dígitos',
+  'dialog.room_password_rate_limited':
+    'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en {{count}} minutos.',
+  'dialog.room_password_rate_limited_later':
+    'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en un rato.',
   'dialog.session_lost_msg':
     'La app se suspendió o perdió conexión, así que los demás dispositivos ya se desconectaron. Reinicia para crear una sala nueva.',
   'dialog.session_lost_btn': 'Reiniciar',
@@ -927,5 +931,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Demasiados intentos de entrar. Vuelve a intentarlo en {{count}} minuto.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

@@ -654,6 +654,10 @@ const ja: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     '接続がタイムアウトしました。パスワードを再入力してください。',
   'dialog.room_password_placeholder': '8桁のパスワード',
+  'dialog.room_password_rate_limited':
+    'パスワードを何度も間違えました。{{count}}分後にもう一度お試しください。',
+  'dialog.room_password_rate_limited_later':
+    'パスワードを何度も間違えました。しばらくしてからもう一度お試しください。',
   'dialog.session_lost_msg':
     'アプリがスリープしたか接続を失ったため、他のデバイスはすでに切断されています。ページを再読み込みして新しいルームを始めてください。',
   'dialog.session_lost_btn': '再読み込み',

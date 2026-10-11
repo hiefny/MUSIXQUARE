@@ -744,6 +744,10 @@ const it: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Tempo di connessione scaduto. Inserisci di nuovo la password.',
   'dialog.room_password_placeholder': 'Password di 8 cifre',
+  'dialog.room_password_rate_limited':
+    'Hai inserito una password errata troppe volte. Riprova tra {{count}} minuti.',
+  'dialog.room_password_rate_limited_later':
+    'Hai inserito una password errata troppe volte. Riprova tra poco.',
   'dialog.session_lost_msg':
     'L’app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per aprire una nuova stanza.',
   'dialog.session_lost_btn': 'Riavvia',
@@ -950,5 +954,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Troppi tentativi di accesso. Riprova tra {{count}} minuto.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Hai inserito una password errata troppe volte. Riprova tra {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

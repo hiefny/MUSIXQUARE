@@ -188,6 +188,64 @@ describe('completed translation factual contracts', () => {
     );
   });
 
+  it('gives the Standard wrong-password lockout its own copy in every locale', () => {
+    const english = APP_DICTIONARIES.en;
+    const keys = [
+      'dialog.room_password_rate_limited',
+      'dialog.room_password_rate_limited_later',
+    ] as const;
+    const commonPrefix = (left: string, right: string): string => {
+      let index = 0;
+      while (index < left.length && left[index] === right[index]) index += 1;
+      return left.slice(0, index);
+    };
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      // The wait is the Worker's retryAfterSeconds in whole minutes; the
+      // fallback has no number because the Worker did not provide one.
+      expect(
+        dictionary['dialog.room_password_rate_limited'].match(/\{\{\w+\}\}/gu),
+        language,
+      ).toEqual(['{{count}}']);
+      expect(dictionary['dialog.room_password_rate_limited_later'], language).not.toMatch(
+        /\{\{|[0-9]/u,
+      );
+      // The lead says the password was wrong too often, not the PRO join
+      // throttle's "too many join attempts".
+      const standardLead = commonPrefix(
+        dictionary['dialog.room_password_rate_limited'],
+        dictionary['dialog.room_password_rate_limited_later'],
+      );
+      const proLead = commonPrefix(
+        dictionary['pro.join_rate_limited'],
+        dictionary['pro.join_rate_limited_later'],
+      );
+      expect(standardLead.trim().length, language).toBeGreaterThan(0);
+      expect(dictionary['pro.join_rate_limited'], language).not.toContain(standardLead.trim());
+      expect(dictionary['dialog.room_password_rate_limited'], language).not.toContain(
+        proLead.trim(),
+      );
+      if (language === 'en') continue;
+      for (const key of keys) {
+        expect(dictionary[key], `${language}.${key} English copy`).not.toBe(english[key]);
+      }
+    }
+
+    expect(keys.map((key) => APP_DICTIONARIES.ko[key])).toEqual([
+      '암호를 여러 번 틀렸어요. {{count}}분 후에 다시 시도해 주세요.',
+      '암호를 여러 번 틀렸어요. 잠시 후 다시 시도해 주세요.',
+    ]);
+    expect(keys.map((key) => english[key])).toEqual([
+      'You entered the wrong password too many times. Try again in {{count}} minutes.',
+      'You entered the wrong password too many times. Try again in a little while.',
+    ]);
+    // PRO join throttling keeps its own wording.
+    expect(APP_DICTIONARIES.ko['pro.join_rate_limited']).toBe(
+      '입장 시도가 너무 많아요. {{count}}분 후에 다시 시도해 주세요.',
+    );
+  });
+
   it('keeps supported-browser, synchronization, and system-audio claims factual', async () => {
     const dictionaries = await loadLandingDictionary();
     expect(Object.keys(dictionaries).sort()).toEqual(

@@ -430,9 +430,10 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
   });
 
   it.each([
-    [600, 'pro.join_rate_limited'],
-    [61, 'pro.join_rate_limited'],
-    [undefined, 'pro.join_rate_limited_later'],
+    [600, 'dialog.room_password_rate_limited'],
+    [61, 'dialog.room_password_rate_limited'],
+    [0, 'dialog.room_password_rate_limited_later'],
+    [undefined, 'dialog.room_password_rate_limited_later'],
   ] as const)(
     'tells a guest locked out for %s seconds when to try again',
     (retryAfterSeconds, message) => {
@@ -461,6 +462,10 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
         retryAfterSeconds: 61,
       }),
     );
-    expect(t).toHaveBeenCalledWith('pro.join_rate_limited', { count: 2 });
+    expect(t).toHaveBeenCalledWith('dialog.room_password_rate_limited', { count: 2 });
+    // The Standard wrong-PIN lockout has its own copy; the PRO join throttle
+    // wording ("too many join attempts") is not reused.
+    expect(t).not.toHaveBeenCalledWith('pro.join_rate_limited', expect.anything());
+    expect(t).not.toHaveBeenCalledWith('pro.join_rate_limited_later');
   });
 });

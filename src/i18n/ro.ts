@@ -740,6 +740,10 @@ const ro: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Conexiunea a expirat. Introdu din nou parola pentru a reîncerca.',
   'dialog.room_password_placeholder': 'Parolă din 8 cifre',
+  'dialog.room_password_rate_limited':
+    'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} minute.',
+  'dialog.room_password_rate_limited_later':
+    'Ai introdus parola greșită de prea multe ori. Reîncearcă puțin mai târziu.',
   'dialog.session_lost_msg':
     'Aplicația a intrat în repaus sau a pierdut conexiunea, iar celelalte dispozitive s-au deconectat deja. Repornește pentru a începe o sesiune nouă.',
   'dialog.session_lost_btn': 'Repornește',
@@ -965,5 +969,9 @@ export const pluralMessages = {
   'pro.join_rate_limited': {
     one: 'Prea multe încercări de intrare. Reîncearcă peste {{count}} minut.',
     other: 'Prea multe încercări de intrare. Reîncearcă peste {{count}} de minute.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} minut.',
+    other: 'Ai introdus parola greșită de prea multe ori. Reîncearcă peste {{count}} de minute.',
   },
 } satisfies LocalePluralMessages;

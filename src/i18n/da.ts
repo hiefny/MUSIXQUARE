@@ -728,6 +728,10 @@ const da: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Forbindelsen fik timeout. Indtast adgangskoden igen for at prøve på ny.',
   'dialog.room_password_placeholder': '8-cifret adgangskode',
+  'dialog.room_password_rate_limited':
+    'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om {{count}} minutter.',
+  'dialog.room_password_rate_limited_later':
+    'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om lidt.',
   'dialog.session_lost_msg':
     'Appen gik i dvale eller mistede forbindelsen, så de andre enheder er allerede blevet afbrudt. Genstart for at begynde en ny session.',
   'dialog.session_lost_btn': 'Genstart',
@@ -937,5 +941,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'For mange forsøg på at deltage. Prøv igen om {{count}} minut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du har indtastet en forkert adgangskode for mange gange. Prøv igen om {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

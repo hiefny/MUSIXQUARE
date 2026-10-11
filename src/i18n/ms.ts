@@ -738,6 +738,10 @@ const ms: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Masa sambungan tamat. Masukkan semula kata laluan untuk mencuba lagi.',
   'dialog.room_password_placeholder': 'Kata laluan 8 digit',
+  'dialog.room_password_rate_limited':
+    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi dalam {{count}} minit.',
+  'dialog.room_password_rate_limited_later':
+    'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi sebentar nanti.',
   'dialog.session_lost_msg':
     'Aplikasi telah tidur atau kehilangan sambungan, jadi peranti lain sudah terputus. Mulakan semula untuk memulakan sesi baharu.',
   'dialog.session_lost_btn': 'Mulakan semula',

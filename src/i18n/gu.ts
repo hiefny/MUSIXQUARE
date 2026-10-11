@@ -711,6 +711,10 @@ const gu: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'એ પાસવર્ડ મેળ ખાતો નથી. ફરી પ્રયાસ કરો.',
   'dialog.room_password_timeout_msg': 'જોડાણનો સમય પૂરો થયો. ફરી પ્રયાસ કરવા પાસવર્ડ ફરી દાખલ કરો.',
   'dialog.room_password_placeholder': '8-અંકનો પાસવર્ડ',
+  'dialog.room_password_rate_limited':
+    'તમે ઘણી વાર ખોટો પાસવર્ડ દાખલ કર્યો છે. {{count}} મિનિટ પછી ફરી પ્રયાસ કરો.',
+  'dialog.room_password_rate_limited_later':
+    'તમે ઘણી વાર ખોટો પાસવર્ડ દાખલ કર્યો છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
   'dialog.session_lost_msg':
     'ઍપ સ્લીપ મોડમાં ગઈ અથવા જોડાણ તૂટ્યું, તેથી અન્ય ડિવાઇસ પહેલેથી છૂટા પડી ગયા છે. નવું સત્ર શરૂ કરવા ફરી શરૂ કરો.',
   'dialog.session_lost_btn': 'ફરી શરૂ કરો',

@@ -727,6 +727,10 @@ const nb: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Tilkoblingen fikk tidsavbrudd. Skriv inn passordet igjen for å prøve på nytt.',
   'dialog.room_password_placeholder': '8-sifret passord',
+  'dialog.room_password_rate_limited':
+    'Du har skrevet inn feil passord for mange ganger. Prøv igjen om {{count}} minutter.',
+  'dialog.room_password_rate_limited_later':
+    'Du har skrevet inn feil passord for mange ganger. Prøv igjen om litt.',
   'dialog.session_lost_msg':
     'Appen gikk i dvale eller mistet tilkoblingen, så de andre enhetene er allerede frakoblet. Start på nytt for å begynne en ny økt.',
   'dialog.session_lost_btn': 'Start på nytt',
@@ -925,5 +929,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'For mange forsøk på å bli med. Prøv igjen om {{count}} minutt.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du har skrevet inn feil passord for mange ganger. Prøv igjen om {{count}} minutt.',
   },
 } satisfies LocalePluralMessages;

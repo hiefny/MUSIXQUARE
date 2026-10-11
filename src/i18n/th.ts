@@ -706,6 +706,10 @@ const th: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'รหัสผ่านไม่ตรงกัน ลองอีกครั้ง',
   'dialog.room_password_timeout_msg': 'การเชื่อมต่อหมดเวลา ใส่รหัสผ่านอีกครั้ง',
   'dialog.room_password_placeholder': 'รหัสผ่าน 8 หลัก',
+  'dialog.room_password_rate_limited':
+    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในอีก {{count}} นาที',
+  'dialog.room_password_rate_limited_later':
+    'ใส่รหัสผ่านผิดหลายครั้งเกินไป โปรดลองอีกครั้งในภายหลัง',
   'dialog.session_lost_msg':
     'แอปเข้าสู่โหมดพักหรือการเชื่อมต่อหลุด อุปกรณ์อื่นจึงหลุดไปแล้ว เริ่มใหม่เพื่อเปิดห้องใหม่',
   'dialog.session_lost_btn': 'เริ่มใหม่',

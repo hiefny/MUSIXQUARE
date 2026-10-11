@@ -665,6 +665,10 @@ const fr: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'La connexion a expiré. Saisissez de nouveau le mot de passe.',
   'dialog.room_password_placeholder': 'Mot de passe à 8 chiffres',
+  'dialog.room_password_rate_limited':
+    'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans {{count}} minutes.',
+  'dialog.room_password_rate_limited_later':
+    'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans quelques instants.',
   'dialog.session_lost_msg':
     'L’application est passée en veille ou a perdu la connexion. Les autres appareils sont donc déjà déconnectés. Redémarrez pour créer un nouveau salon.',
   'dialog.session_lost_btn': 'Redémarrer',
@@ -919,5 +923,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Trop de tentatives pour rejoindre le salon. Réessayez dans {{count}} minute.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Vous avez saisi un mot de passe incorrect trop de fois. Réessayez dans {{count}} minute.',
   },
 } satisfies LocalePluralMessages;

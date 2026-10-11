@@ -733,6 +733,10 @@ const hu: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'A kapcsolat időtúllépés miatt megszakadt. Add meg újra a jelszót.',
   'dialog.room_password_placeholder': 'Nyolcjegyű jelszó',
+  'dialog.room_password_rate_limited':
+    'Túl sokszor adtál meg hibás jelszót. Próbáld újra {{count}} perc múlva.',
+  'dialog.room_password_rate_limited_later':
+    'Túl sokszor adtál meg hibás jelszót. Próbáld újra egy kicsit később.',
   'dialog.session_lost_msg':
     'Az alkalmazás alvó állapotba került vagy elvesztette a kapcsolatot, ezért a többi eszköz már levált. Új munkamenet indításához indítsd újra.',
   'dialog.session_lost_btn': 'Újraindítás',

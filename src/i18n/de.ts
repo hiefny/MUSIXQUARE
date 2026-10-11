@@ -669,6 +669,10 @@ const de: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Die Verbindung hat zu lange gedauert. Gib das Passwort erneut ein.',
   'dialog.room_password_placeholder': '8-stelliges Passwort',
+  'dialog.room_password_rate_limited':
+    'Du hast das Passwort zu oft falsch eingegeben. Versuche es in {{count}} Minuten erneut.',
+  'dialog.room_password_rate_limited_later':
+    'Du hast das Passwort zu oft falsch eingegeben. Versuche es etwas später erneut.',
   'dialog.session_lost_msg':
     'Die App wurde in den Ruhezustand versetzt oder hat die Verbindung verloren. Die anderen Geräte wurden daher bereits getrennt. Starte neu, um einen neuen Raum zu öffnen.',
   'dialog.session_lost_btn': 'Neu starten',
@@ -922,5 +926,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Zu viele Beitrittsversuche. Versuche es in {{count}} Minute erneut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du hast das Passwort zu oft falsch eingegeben. Versuche es in {{count}} Minute erneut.',
   },
 } satisfies LocalePluralMessages;

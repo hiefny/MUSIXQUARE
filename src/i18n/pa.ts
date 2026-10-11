@@ -723,6 +723,10 @@ const pa: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'ਕਨੈਕਸ਼ਨ ਦਾ ਸਮਾਂ ਮੁੱਕ ਗਿਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ ਲਈ ਪਾਸਵਰਡ ਫਿਰ ਦਾਖਲ ਕਰੋ।',
   'dialog.room_password_placeholder': '8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ',
+  'dialog.room_password_rate_limited':
+    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ। {{count}} ਮਿੰਟ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'dialog.room_password_rate_limited_later':
+    'ਤੁਸੀਂ ਕਈ ਵਾਰ ਗਲਤ ਪਾਸਵਰਡ ਦਾਖਲ ਕੀਤਾ ਹੈ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'dialog.session_lost_msg':
     'ਐਪ ਸਲੀਪ ਮੋਡ ਵਿੱਚ ਚਲੀ ਗਈ ਜਾਂ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ, ਇਸ ਲਈ ਹੋਰ ਡਿਵਾਈਸਾਂ ਪਹਿਲਾਂ ਹੀ ਡਿਸਕਨੈਕਟ ਹੋ ਗਈਆਂ ਹਨ। ਨਵਾਂ ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਮੁੜ ਸ਼ੁਰੂ ਕਰੋ।',
   'dialog.session_lost_btn': 'ਮੁੜ ਸ਼ੁਰੂ ਕਰੋ',

@@ -718,6 +718,10 @@ const en: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'The connection timed out. Re-enter the password to try again.',
   'dialog.room_password_placeholder': '8-digit password',
+  'dialog.room_password_rate_limited':
+    'You entered the wrong password too many times. Try again in {{count}} minutes.',
+  'dialog.room_password_rate_limited_later':
+    'You entered the wrong password too many times. Try again in a little while.',
   'dialog.session_lost_msg':
     'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',
   'dialog.session_lost_btn': 'Restart',

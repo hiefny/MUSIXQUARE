@@ -719,6 +719,10 @@ const tr: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Şifre yanlış. Tekrar dene.',
   'dialog.room_password_timeout_msg': 'Bağlantı zaman aşımına uğradı. Şifreyi tekrar gir.',
   'dialog.room_password_placeholder': '8 haneli şifre',
+  'dialog.room_password_rate_limited':
+    'Şifreyi çok fazla kez yanlış girdin. {{count}} dakika sonra tekrar dene.',
+  'dialog.room_password_rate_limited_later':
+    'Şifreyi çok fazla kez yanlış girdin. Biraz sonra tekrar dene.',
   'dialog.session_lost_msg':
     'Uygulama arka planda uyku moduna geçtiği veya bağlantısı koptuğu için diğer cihazlarla bağlantı kesildi. Yeniden başlatarak yeni bir oda aç.',
   'dialog.session_lost_btn': 'Yeniden Başlat',

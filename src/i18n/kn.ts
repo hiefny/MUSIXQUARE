@@ -730,6 +730,10 @@ const kn: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'ಸಂಪರ್ಕದ ಸಮಯ ಮೀರಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಪಾಸ್‌ವರ್ಡ್ ಅನ್ನು ಮರುನಮೂದಿಸಿ.',
   'dialog.room_password_placeholder': '8-ಅಂಕಿಯ ಪಾಸ್‌ವರ್ಡ್',
+  'dialog.room_password_rate_limited':
+    'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ. {{count}} ನಿಮಿಷಗಳ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'dialog.room_password_rate_limited_later':
+    'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
   'dialog.session_lost_msg':
     'ಆ್ಯಪ್ ಸ್ಲೀಪ್ ಮೋಡ್‌ಗೆ ಹೋಗಿದೆ ಅಥವಾ ಸಂಪರ್ಕ ಕಳೆದುಕೊಂಡಿದೆ, ಆದ್ದರಿಂದ ಇತರ ಸಾಧನಗಳು ಈಗಾಗಲೇ ಸಂಪರ್ಕ ಕಳೆದುಕೊಂಡಿವೆ. ಹೊಸ ಸೆಷನ್ ಪ್ರಾರಂಭಿಸಲು ಮರುಪ್ರಾರಂಭಿಸಿ.',
   'dialog.session_lost_btn': 'ಮರುಪ್ರಾರಂಭಿಸಿ',
@@ -942,5 +946,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'ಸೇರುವ ಪ್ರಯತ್ನಗಳು ತುಂಬಾ ಹೆಚ್ಚಾಗಿವೆ. {{count}} ನಿಮಿಷದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'ನೀವು ಹಲವು ಬಾರಿ ತಪ್ಪು ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿದ್ದೀರಿ. {{count}} ನಿಮಿಷದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
   },
 } satisfies LocalePluralMessages;

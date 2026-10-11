@@ -623,8 +623,8 @@ export function initSetup(): void {
         error: err,
         userMessage:
           minutes === null
-            ? t('pro.join_rate_limited_later')
-            : t('pro.join_rate_limited', { count: minutes }),
+            ? t('dialog.room_password_rate_limited_later')
+            : t('dialog.room_password_rate_limited', { count: minutes }),
       });
       return;
     }

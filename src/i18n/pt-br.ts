@@ -666,6 +666,10 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'A senha não confere. Tente novamente.',
   'dialog.room_password_timeout_msg': 'A conexão expirou. Digite a senha novamente.',
   'dialog.room_password_placeholder': 'Senha de 8 dígitos',
+  'dialog.room_password_rate_limited':
+    'Você digitou a senha errada muitas vezes. Tente novamente em {{count}} minutos.',
+  'dialog.room_password_rate_limited_later':
+    'Você digitou a senha errada muitas vezes. Tente novamente daqui a pouco.',
   'dialog.session_lost_msg':
     'O app entrou em repouso ou perdeu a conexão, então os outros dispositivos já foram desconectados. Reinicie para criar uma nova sala.',
   'dialog.session_lost_btn': 'Reiniciar',
@@ -920,5 +924,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Muitas tentativas de entrar. Tente novamente em {{count}} minuto.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Você digitou a senha errada muitas vezes. Tente novamente em {{count}} minuto.',
   },
 } satisfies LocalePluralMessages;

@@ -730,6 +730,10 @@ const cs: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Heslo nesouhlasí. Zkuste to znovu.',
   'dialog.room_password_timeout_msg': 'Vypršel časový limit připojení. Zadejte heslo znovu.',
   'dialog.room_password_placeholder': 'Osmimístné heslo',
+  'dialog.room_password_rate_limited':
+    'Příliš mnohokrát jste zadali nesprávné heslo. Zkuste to znovu za {{count}} min.',
+  'dialog.room_password_rate_limited_later':
+    'Příliš mnohokrát jste zadali nesprávné heslo. Zkuste to znovu za chvíli.',
   'dialog.session_lost_msg':
     'Aplikace přešla do režimu spánku nebo ztratila spojení, takže ostatní zařízení už byla odpojena. Restartováním zahájíte novou relaci.',
   'dialog.session_lost_btn': 'Restartovat',

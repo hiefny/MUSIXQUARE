@@ -727,6 +727,10 @@ const te: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'కనెక్షన్ సమయం ముగిసింది. మళ్లీ ప్రయత్నించడానికి పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'dialog.room_password_placeholder': '8 అంకెల పాస్‌వర్డ్',
+  'dialog.room_password_rate_limited':
+    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. {{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి.',
+  'dialog.room_password_rate_limited_later':
+    'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
   'dialog.session_lost_msg':
     'యాప్ నిద్రలోకి వెళ్లింది లేదా కనెక్షన్ పోయింది, కాబట్టి ఇతర పరికరాలు ఇప్పటికే డిస్‌కనెక్ట్ అయ్యాయి. కొత్త సెషన్‌ను ప్రారంభించడానికి రీస్టార్ట్ చేయండి.',
   'dialog.session_lost_btn': 'రీస్టార్ట్',
@@ -945,5 +949,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. {{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'మీరు చాలాసార్లు తప్పు పాస్‌వర్డ్ నమోదు చేశారు. {{count}} నిమిషం తర్వాత మళ్లీ ప్రయత్నించండి.',
   },
 } satisfies LocalePluralMessages;

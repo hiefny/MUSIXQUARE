@@ -648,6 +648,10 @@ const vi: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Mật khẩu không khớp. Hãy thử lại.',
   'dialog.room_password_timeout_msg': 'Kết nối đã hết thời gian chờ. Hãy nhập lại mật khẩu.',
   'dialog.room_password_placeholder': 'Mật khẩu 8 chữ số',
+  'dialog.room_password_rate_limited':
+    'Bạn đã nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau {{count}} phút.',
+  'dialog.room_password_rate_limited_later':
+    'Bạn đã nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau một lát.',
   'dialog.session_lost_msg':
     'Ứng dụng đã ngủ hoặc mất kết nối, nên các thiết bị khác đã rời. Hãy khởi động lại để tạo phòng mới.',
   'dialog.session_lost_btn': 'Khởi động lại',

@@ -733,6 +733,10 @@ const sv: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'Anslutningens tidsgräns löpte ut. Ange lösenordet igen för att försöka på nytt.',
   'dialog.room_password_placeholder': '8-siffrigt lösenord',
+  'dialog.room_password_rate_limited':
+    'Du har angett fel lösenord för många gånger. Försök igen om {{count}} minuter.',
+  'dialog.room_password_rate_limited_later':
+    'Du har angett fel lösenord för många gånger. Försök igen om en liten stund.',
   'dialog.session_lost_msg':
     'Appen försattes i viloläge eller tappade anslutningen, så de andra enheterna har redan kopplats bort. Starta om för att påbörja en ny session.',
   'dialog.session_lost_btn': 'Starta om',
@@ -930,5 +934,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'För många försök att ansluta. Försök igen om {{count}} minut.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Du har angett fel lösenord för många gånger. Försök igen om {{count}} minut.',
   },
 } satisfies LocalePluralMessages;

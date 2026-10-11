@@ -722,6 +722,10 @@ const bn: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'সংযোগের সময় শেষ হয়েছে। আবার চেষ্টা করতে পাসওয়ার্ডটি পুনরায় লিখুন।',
   'dialog.room_password_placeholder': '8 সংখ্যার পাসওয়ার্ড',
+  'dialog.room_password_rate_limited':
+    'আপনি অনেকবার ভুল পাসওয়ার্ড লিখেছেন। {{count}} মিনিট পরে আবার চেষ্টা করুন।',
+  'dialog.room_password_rate_limited_later':
+    'আপনি অনেকবার ভুল পাসওয়ার্ড লিখেছেন। কিছুক্ষণ পরে আবার চেষ্টা করুন।',
   'dialog.session_lost_msg':
     'অ্যাপটি স্লিপ মোডে চলে গিয়েছিল বা সংযোগ হারিয়েছিল, তাই অন্য ডিভাইসগুলো ইতিমধ্যে বিচ্ছিন্ন হয়ে গেছে। নতুন সেশন শুরু করতে আবার চালু করুন।',
   'dialog.session_lost_btn': 'আবার চালু করুন',

@@ -721,6 +721,10 @@ const hi: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'कनेक्शन का समय समाप्त हो गया। फिर कोशिश करने के लिए पासवर्ड दोबारा दर्ज करें।',
   'dialog.room_password_placeholder': '8 अंकों का पासवर्ड',
+  'dialog.room_password_rate_limited':
+    'आपने बहुत बार गलत पासवर्ड दर्ज किया है। {{count}} मिनट बाद फिर कोशिश करें।',
+  'dialog.room_password_rate_limited_later':
+    'आपने बहुत बार गलत पासवर्ड दर्ज किया है। थोड़ी देर बाद फिर कोशिश करें।',
   'dialog.session_lost_msg':
     'ऐप स्लीप मोड में चला गया या कनेक्शन टूट गया, इसलिए दूसरे डिवाइस पहले ही डिस्कनेक्ट हो चुके हैं। नया सेशन शुरू करने के लिए रीस्टार्ट करें।',
   'dialog.session_lost_btn': 'रीस्टार्ट करें',

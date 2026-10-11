@@ -615,6 +615,8 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': '密码不匹配。请重试。',
   'dialog.room_password_timeout_msg': '连接超时。请重新输入密码后重试。',
   'dialog.room_password_placeholder': '8 位密码',
+  'dialog.room_password_rate_limited': '密码错误次数过多。请在 {{count}} 分钟后重试。',
+  'dialog.room_password_rate_limited_later': '密码错误次数过多。请稍后重试。',
   'dialog.session_lost_msg': '应用进入休眠或失去连接，其他设备已经断开。请重启以创建新房间。',
   'dialog.session_lost_btn': '重启',
 

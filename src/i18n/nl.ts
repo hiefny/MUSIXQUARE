@@ -735,6 +735,10 @@ const nl: Record<I18nKey, string> = {
   'dialog.room_password_retry_msg': 'Dat wachtwoord klopt niet. Probeer opnieuw.',
   'dialog.room_password_timeout_msg': 'Verbinding duurde te lang. Voer het wachtwoord opnieuw in.',
   'dialog.room_password_placeholder': '8-cijferig wachtwoord',
+  'dialog.room_password_rate_limited':
+    'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het over {{count}} minuten opnieuw.',
+  'dialog.room_password_rate_limited_later':
+    'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het straks opnieuw.',
   'dialog.session_lost_msg':
     'De app ging in de slaapstand of verloor de verbinding, waardoor de andere apparaten al zijn losgekoppeld. Start opnieuw om een nieuwe kamer te maken.',
   'dialog.session_lost_btn': 'Opnieuw starten',
@@ -920,5 +924,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'Te veel pogingen om deel te nemen. Probeer het over {{count}} minuut opnieuw.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het over {{count}} minuut opnieuw.',
   },
 } satisfies LocalePluralMessages;

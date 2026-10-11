@@ -711,6 +711,9 @@ const ko = {
   'dialog.room_password_retry_msg': '암호가 맞지 않아요. 다시 입력해 주세요.',
   'dialog.room_password_timeout_msg': '연결 시간이 초과됐어요. 암호를 다시 입력해 주세요.',
   'dialog.room_password_placeholder': '8자리 암호',
+  'dialog.room_password_rate_limited':
+    '암호를 여러 번 틀렸어요. {{count}}분 후에 다시 시도해 주세요.',
+  'dialog.room_password_rate_limited_later': '암호를 여러 번 틀렸어요. 잠시 후 다시 시도해 주세요.',
   'dialog.session_lost_msg':
     '앱이 잠시 꺼지거나 절전 상태로 들어가서 다른 기기들과 연결이 끊어졌어요. 다시 시작하면 새 세션을 열 수 있어요.',
   'dialog.session_lost_btn': '다시 시작',

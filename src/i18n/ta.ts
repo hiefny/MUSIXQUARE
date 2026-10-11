@@ -744,6 +744,10 @@ const ta: Record<I18nKey, string> = {
   'dialog.room_password_timeout_msg':
     'இணைப்பு நேரம் முடிந்தது. மீண்டும் முயலக் கடவுச்சொல்லை மறுபடியும் உள்ளிடவும்.',
   'dialog.room_password_placeholder': '8 இலக்கக் கடவுச்சொல்',
+  'dialog.room_password_rate_limited':
+    'நீங்கள் பலமுறை தவறான கடவுச்சொல்லை உள்ளிட்டுள்ளீர்கள். {{count}} நிமிடங்களில் மீண்டும் முயலவும்.',
+  'dialog.room_password_rate_limited_later':
+    'நீங்கள் பலமுறை தவறான கடவுச்சொல்லை உள்ளிட்டுள்ளீர்கள். சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
   'dialog.session_lost_msg':
     'பயன்பாடு உறக்கநிலைக்குச் சென்றது அல்லது இணைப்பை இழந்தது; எனவே மற்ற சாதனங்கள் ஏற்கனவே துண்டிக்கப்பட்டுவிட்டன. புதிய அமர்வைத் தொடங்க மறுதொடக்கம் செய்யவும்.',
   'dialog.session_lost_btn': 'மறுதொடக்கம் செய்',
@@ -964,5 +968,8 @@ export const pluralMessages = {
   },
   'pro.join_rate_limited': {
     one: 'சேருவதற்கான முயற்சிகள் அதிகமாகிவிட்டன. {{count}} நிமிடத்தில் மீண்டும் முயலவும்.',
+  },
+  'dialog.room_password_rate_limited': {
+    one: 'நீங்கள் பலமுறை தவறான கடவுச்சொல்லை உள்ளிட்டுள்ளீர்கள். {{count}} நிமிடத்தில் மீண்டும் முயலவும்.',
   },
 } satisfies LocalePluralMessages;

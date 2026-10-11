@@ -720,6 +720,8 @@ const fi: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Haluatko muodostaa yhteyden uudelleen?',
   'dialog.reconnect': 'Yhdistä uudelleen',
   'dialog.go_back': 'Palaa takaisin',
+  'dialog.step_next': 'Seuraava',
+  'dialog.step_back': 'Takaisin',
   'dialog.room_password_title': 'Anna huoneen salasana',
   'dialog.room_password_msg': 'Tähän huoneeseen liittyminen vaatii salasanan.',
   'dialog.room_password_retry_msg': 'Salasana ei täsmännyt. Yritä uudelleen.',
@@ -787,12 +789,13 @@ const fi: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Aseta huoneen salasana',
   'pro.pin_enabled': 'Huoneen salasana asetettiin.',
   'pro.pin_members_legend': 'Huoneessa nyt olevat',
-  'pro.pin_members_keep': 'Anna heidän jäädä',
+  'pro.pin_members_title': 'Mitä nykyisille osallistujille tehdään?',
+  'pro.pin_members_keep': 'Pidä kaikki',
   'pro.pin_members_keep_detail':
-    'Nyt yhdistetyt voivat jäädä. Muut tarvitsevat salasanan liittyäkseen.',
-  'pro.pin_members_reenter': 'Vaadi kaikkia liittymään uudelleen',
+    'Vain laitteiden, jotka liittyvät uudelleen tai ensimmäistä kertaa, täytyy antaa salasana.',
+  'pro.pin_members_reenter': 'Kaikki liittyvät uudelleen',
   'pro.pin_members_reenter_detail':
-    'Kaikkien muiden, myös muiden laitteidesi, on liityttävä uudelleen. Valitse tämä, jos haluat poistaa tuntemattomia.',
+    'Kaikkien on liityttävä uudelleen. Suositeltavaa, jos haluat poistaa tuntemattomat kerralla.',
   'pro.pin_keep_unavailable':
     'Salasanaa ei vaihdettu. Ihmisiä ei voi juuri nyt pitää huoneessa. Yritä myöhemmin uudelleen tai vaadi kaikkia liittymään uudelleen.',
   'pro.pin_enabled_removed_title': 'Huoneelle asetettiin salasana',

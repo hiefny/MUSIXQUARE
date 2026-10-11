@@ -642,6 +642,8 @@ const vi: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Bạn muốn kết nối lại?',
   'dialog.reconnect': 'Kết nối lại',
   'dialog.go_back': 'Quay lại',
+  'dialog.step_next': 'Tiếp theo',
+  'dialog.step_back': 'Quay lại',
   'dialog.room_password_title': 'Nhập mật khẩu phòng',
   'dialog.room_password_msg': 'Cần mật khẩu để tham gia phòng này.',
   'dialog.room_password_retry_msg': 'Mật khẩu không khớp. Hãy thử lại.',
@@ -699,12 +701,13 @@ const vi: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Đặt mật khẩu phòng',
   'pro.pin_enabled': 'Đã đặt mật khẩu phòng.',
   'pro.pin_members_legend': 'Những người đang ở trong phòng',
-  'pro.pin_members_keep': 'Để họ ở lại',
+  'pro.pin_members_title': 'Bạn muốn xử lý những người đang tham gia thế nào?',
+  'pro.pin_members_keep': 'Giữ nguyên mọi người',
   'pro.pin_members_keep_detail':
-    'Những người đang kết nối có thể ở lại. Người khác phải nhập mật khẩu thì mới vào được.',
-  'pro.pin_members_reenter': 'Yêu cầu mọi người vào lại',
+    'Chỉ những thiết bị vào lại hoặc tham gia lần đầu mới cần nhập mật khẩu.',
+  'pro.pin_members_reenter': 'Mọi người vào lại',
   'pro.pin_members_reenter_detail':
-    'Tất cả những người khác, kể cả các thiết bị khác của bạn, sẽ phải vào lại phòng. Chọn mục này để mời người lạ ra khỏi phòng.',
+    'Mọi người đều phải vào lại. Nên chọn cách này để mời tất cả người lạ ra khỏi phòng cùng lúc.',
   'pro.pin_keep_unavailable':
     'Mật khẩu chưa được đổi. Hiện không thể giữ mọi người ở lại phòng. Hãy thử lại sau hoặc yêu cầu mọi người vào lại.',
   'pro.pin_enabled_removed_title': 'Phòng đã được đặt mật khẩu',

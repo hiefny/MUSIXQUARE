@@ -720,6 +720,8 @@ const da: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Vil du oprette forbindelse igen?',
   'dialog.reconnect': 'Opret forbindelse igen',
   'dialog.go_back': 'Gå tilbage',
+  'dialog.step_next': 'Næste',
+  'dialog.step_back': 'Tilbage',
   'dialog.room_password_title': 'Indtast adgangskoden til rummet',
   'dialog.room_password_msg': 'Der kræves en adgangskode for at deltage i dette rum.',
   'dialog.room_password_retry_msg': 'Adgangskoden stemte ikke. Prøv igen.',
@@ -788,12 +790,13 @@ const da: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Angiv adgangskode til rummet',
   'pro.pin_enabled': 'Adgangskoden til rummet er angivet.',
   'pro.pin_members_legend': 'Personer i rummet lige nu',
-  'pro.pin_members_keep': 'Lad dem blive',
+  'pro.pin_members_title': 'Hvad skal der ske med de nuværende deltagere?',
+  'pro.pin_members_keep': 'Behold alle',
   'pro.pin_members_keep_detail':
-    'De, der er forbundet nu, kan blive. Alle andre skal bruge adgangskoden for at deltage.',
-  'pro.pin_members_reenter': 'Få alle til at deltage igen',
+    'Kun enheder, der deltager igen eller for første gang, skal indtaste adgangskoden.',
+  'pro.pin_members_reenter': 'Alle deltager igen',
   'pro.pin_members_reenter_detail':
-    'Alle andre, også dine andre enheder, skal deltage igen. Vælg dette for at fjerne personer, du ikke kender.',
+    'Alle skal deltage igen. Anbefales, hvis du vil fjerne personer, du ikke kender, på én gang.',
   'pro.pin_keep_unavailable':
     'Adgangskoden blev ikke ændret. Det er ikke muligt at lade folk blive i rummet lige nu. Prøv igen senere, eller få alle til at deltage igen.',
   'pro.pin_enabled_removed_title': 'Rummet har fået en adgangskode',

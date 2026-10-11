@@ -711,6 +711,8 @@ const en: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Would you like to reconnect?',
   'dialog.reconnect': 'Reconnect',
   'dialog.go_back': 'Go back',
+  'dialog.step_next': 'Next',
+  'dialog.step_back': 'Back',
   'dialog.room_password_title': 'Enter Room Password',
   'dialog.room_password_msg': 'A password is required to join this room.',
   'dialog.room_password_retry_msg': 'That password did not match. Try again.',
@@ -778,12 +780,13 @@ const en: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Set room password',
   'pro.pin_enabled': 'Room password set.',
   'pro.pin_members_legend': 'People in the room now',
-  'pro.pin_members_keep': 'Let them stay',
+  'pro.pin_members_title': 'What should happen to current participants?',
+  'pro.pin_members_keep': 'Keep everyone',
   'pro.pin_members_keep_detail':
-    'People connected now can stay. Anyone else needs the password to join.',
-  'pro.pin_members_reenter': 'Make everyone rejoin',
+    'Only devices that rejoin or join for the first time need to enter the password.',
+  'pro.pin_members_reenter': 'Everyone rejoins',
   'pro.pin_members_reenter_detail':
-    "Everyone else, including your other devices, has to rejoin. Choose this to remove people you don't know.",
+    "Everyone has to join again. Recommended for removing people you don't know all at once.",
   'pro.pin_keep_unavailable':
     "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or make everyone rejoin.",
   'pro.pin_enabled_removed_title': 'Room password set',

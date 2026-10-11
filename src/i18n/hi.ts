@@ -714,6 +714,8 @@ const hi: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'क्या आप फिर से कनेक्ट करना चाहते हैं?',
   'dialog.reconnect': 'फिर कनेक्ट करें',
   'dialog.go_back': 'वापस जाएँ',
+  'dialog.step_next': 'अगला',
+  'dialog.step_back': 'पिछला',
   'dialog.room_password_title': 'रूम का पासवर्ड दर्ज करें',
   'dialog.room_password_msg': 'इस रूम में शामिल होने के लिए पासवर्ड चाहिए।',
   'dialog.room_password_retry_msg': 'पासवर्ड मेल नहीं खाता। फिर कोशिश करें।',
@@ -782,12 +784,13 @@ const hi: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'रूम का पासवर्ड सेट करें',
   'pro.pin_enabled': 'रूम का पासवर्ड सेट हो गया।',
   'pro.pin_members_legend': 'अभी रूम में मौजूद लोग',
-  'pro.pin_members_keep': 'उन्हें रहने दें',
+  'pro.pin_members_title': 'मौजूदा प्रतिभागियों का क्या करें?',
+  'pro.pin_members_keep': 'सभी को रहने दें',
   'pro.pin_members_keep_detail':
-    'अभी कनेक्ट लोग रह सकते हैं। बाकी सभी को शामिल होने के लिए पासवर्ड चाहिए होगा।',
-  'pro.pin_members_reenter': 'सभी को फिर से शामिल कराएं',
+    'सिर्फ़ फिर से या पहली बार शामिल होने वाले डिवाइस को पासवर्ड डालना होगा।',
+  'pro.pin_members_reenter': 'सभी फिर से शामिल हों',
   'pro.pin_members_reenter_detail':
-    'आपके दूसरे डिवाइस समेत बाकी सभी को फिर से शामिल होना होगा। अनजान लोगों को हटाने के लिए इसे चुनें।',
+    'सभी को फिर से शामिल होना होगा। अनजान लोगों को एक साथ हटाने के लिए हम यह तरीका सुझाते हैं।',
   'pro.pin_keep_unavailable':
     'पासवर्ड नहीं बदला गया। अभी लोगों को रूम में रखते हुए पासवर्ड नहीं बदला जा सकता। थोड़ी देर बाद फिर कोशिश करें या सभी को फिर से शामिल कराएं।',
   'pro.pin_enabled_removed_title': 'रूम का पासवर्ड सेट किया गया',

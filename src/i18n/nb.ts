@@ -719,6 +719,8 @@ const nb: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Vil du koble til på nytt?',
   'dialog.reconnect': 'Koble til på nytt',
   'dialog.go_back': 'Gå tilbake',
+  'dialog.step_next': 'Neste',
+  'dialog.step_back': 'Tilbake',
   'dialog.room_password_title': 'Skriv inn rompassordet',
   'dialog.room_password_msg': 'Du må ha et passord for å bli med i dette rommet.',
   'dialog.room_password_retry_msg': 'Passordet samsvarte ikke. Prøv igjen.',
@@ -787,12 +789,13 @@ const nb: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Angi rompassord',
   'pro.pin_enabled': 'Rompassordet er angitt.',
   'pro.pin_members_legend': 'Folk i rommet nå',
-  'pro.pin_members_keep': 'La dem bli',
+  'pro.pin_members_title': 'Hva skal skje med de nåværende deltakerne?',
+  'pro.pin_members_keep': 'Behold alle',
   'pro.pin_members_keep_detail':
-    'De som er tilkoblet nå, kan bli. Alle andre trenger passordet for å bli med.',
-  'pro.pin_members_reenter': 'Få alle til å bli med på nytt',
+    'Bare enheter som blir med på nytt eller for første gang, må skrive inn passordet.',
+  'pro.pin_members_reenter': 'Alle blir med på nytt',
   'pro.pin_members_reenter_detail':
-    'Alle andre, også de andre enhetene dine, må bli med på nytt. Velg dette for å fjerne folk du ikke kjenner.',
+    'Alle må bli med på nytt. Anbefales hvis du vil fjerne folk du ikke kjenner, på én gang.',
   'pro.pin_keep_unavailable':
     'Passordet ble ikke endret. Det går ikke an å la folk bli i rommet akkurat nå. Prøv igjen senere, eller få alle til å bli med på nytt.',
   'pro.pin_enabled_removed_title': 'Rommet har fått passord',

@@ -728,6 +728,8 @@ const ru: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Желаете восстановить подключение?',
   'dialog.reconnect': 'Подключить заново',
   'dialog.go_back': 'Назад',
+  'dialog.step_next': 'Далее',
+  'dialog.step_back': 'Назад',
   'dialog.room_password_title': 'Введите пароль комнаты',
   'dialog.room_password_msg': 'Для входа в эту комнату требуется пароль.',
   'dialog.room_password_retry_msg': 'Неверный пароль. Попробуйте ещё раз.',
@@ -795,12 +797,13 @@ const ru: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Задать пароль комнаты',
   'pro.pin_enabled': 'Пароль комнаты задан.',
   'pro.pin_members_legend': 'Кто сейчас в комнате',
-  'pro.pin_members_keep': 'Оставить их',
+  'pro.pin_members_title': 'Что сделать с текущими участниками?',
+  'pro.pin_members_keep': 'Оставить всех',
   'pro.pin_members_keep_detail':
-    'Те, кто сейчас подключён, могут остаться. Всем остальным для входа понадобится пароль.',
-  'pro.pin_members_reenter': 'Всем войти заново',
+    'Пароль нужно будет ввести только устройствам, которые входят заново или впервые.',
+  'pro.pin_members_reenter': 'Все входят заново',
   'pro.pin_members_reenter_detail':
-    'Всем остальным, включая ваши другие устройства, нужно будет войти снова. Выберите это, чтобы удалить незнакомых людей.',
+    'Всем нужно будет войти снова. Рекомендуется, если нужно сразу удалить незнакомых людей.',
   'pro.pin_keep_unavailable':
     'Пароль не изменён. Сейчас нельзя оставить людей в комнате. Попробуйте позже или попросите всех войти заново.',
   'pro.pin_enabled_removed_title': 'Для комнаты задан пароль',

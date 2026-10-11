@@ -716,6 +716,8 @@ const pa: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'ਮੁੜ ਕਨੈਕਟ ਕਰਨਾ ਹੈ?',
   'dialog.reconnect': 'ਮੁੜ ਕਨੈਕਟ ਕਰੋ',
   'dialog.go_back': 'ਪਿੱਛੇ ਜਾਓ',
+  'dialog.step_next': 'ਅੱਗੇ',
+  'dialog.step_back': 'ਪਿੱਛੇ',
   'dialog.room_password_title': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ',
   'dialog.room_password_msg': 'ਇਸ ਰੂਮ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਪਾਸਵਰਡ ਲਾਜ਼ਮੀ ਹੈ।',
   'dialog.room_password_retry_msg': 'ਉਹ ਪਾਸਵਰਡ ਮੇਲ ਨਹੀਂ ਖਾਂਦਾ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
@@ -784,12 +786,13 @@ const pa: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਸੈੱਟ ਕਰੋ',
   'pro.pin_enabled': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਸੈੱਟ ਹੋ ਗਿਆ।',
   'pro.pin_members_legend': 'ਇਸ ਵੇਲੇ ਰੂਮ ਵਿੱਚ ਮੌਜੂਦ ਲੋਕ',
-  'pro.pin_members_keep': 'ਉਨ੍ਹਾਂ ਨੂੰ ਰਹਿਣ ਦਿਓ',
+  'pro.pin_members_title': 'ਮੌਜੂਦਾ ਭਾਗੀਦਾਰਾਂ ਦਾ ਕੀ ਕਰੀਏ?',
+  'pro.pin_members_keep': 'ਸਾਰਿਆਂ ਨੂੰ ਰਹਿਣ ਦਿਓ',
   'pro.pin_members_keep_detail':
-    'ਇਸ ਵੇਲੇ ਕਨੈਕਟ ਲੋਕ ਰਹਿ ਸਕਦੇ ਹਨ। ਬਾਕੀ ਸਾਰਿਆਂ ਨੂੰ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਪਾਸਵਰਡ ਚਾਹੀਦਾ ਹੋਵੇਗਾ।',
-  'pro.pin_members_reenter': 'ਸਾਰਿਆਂ ਨੂੰ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਕਹੋ',
+    'ਸਿਰਫ਼ ਦੁਬਾਰਾ ਜਾਂ ਪਹਿਲੀ ਵਾਰ ਸ਼ਾਮਲ ਹੋਣ ਵਾਲੀਆਂ ਡਿਵਾਈਸਾਂ ਨੂੰ ਪਾਸਵਰਡ ਦਰਜ ਕਰਨਾ ਪਵੇਗਾ।',
+  'pro.pin_members_reenter': 'ਸਾਰੇ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ',
   'pro.pin_members_reenter_detail':
-    'ਤੁਹਾਡੀਆਂ ਹੋਰ ਡਿਵਾਈਸਾਂ ਸਮੇਤ ਬਾਕੀ ਸਾਰਿਆਂ ਨੂੰ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣਾ ਪਵੇਗਾ। ਅਣਜਾਣ ਲੋਕਾਂ ਨੂੰ ਹਟਾਉਣ ਲਈ ਇਹ ਚੁਣੋ।',
+    'ਸਾਰਿਆਂ ਨੂੰ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣਾ ਪਵੇਗਾ। ਅਣਜਾਣ ਲੋਕਾਂ ਨੂੰ ਇੱਕੋ ਵਾਰ ਹਟਾਉਣ ਲਈ ਅਸੀਂ ਇਸ ਤਰੀਕੇ ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕਰਦੇ ਹਾਂ।',
   'pro.pin_keep_unavailable':
     'ਪਾਸਵਰਡ ਨਹੀਂ ਬਦਲਿਆ ਗਿਆ। ਇਸ ਵੇਲੇ ਲੋਕਾਂ ਨੂੰ ਰੂਮ ਵਿੱਚ ਰੱਖ ਕੇ ਪਾਸਵਰਡ ਨਹੀਂ ਬਦਲਿਆ ਜਾ ਸਕਦਾ। ਕੁਝ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ ਜਾਂ ਸਾਰਿਆਂ ਨੂੰ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਕਹੋ।',
   'pro.pin_enabled_removed_title': 'ਰੂਮ ਲਈ ਪਾਸਵਰਡ ਸੈੱਟ ਕੀਤਾ ਗਿਆ',

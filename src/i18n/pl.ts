@@ -731,6 +731,8 @@ const pl: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Czy chcesz spróbować połączyć się ponownie?',
   'dialog.reconnect': 'Połącz się ponownie',
   'dialog.go_back': 'Wróć',
+  'dialog.step_next': 'Dalej',
+  'dialog.step_back': 'Wstecz',
   'dialog.room_password_title': 'Wpisz hasło do pokoju',
   'dialog.room_password_msg': 'Aby dołączyć do tego pokoju, wymagane jest hasło.',
   'dialog.room_password_retry_msg': 'Wprowadzone hasło jest niepoprawne. Spróbuj ponownie.',
@@ -798,12 +800,13 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Ustaw hasło pokoju',
   'pro.pin_enabled': 'Hasło pokoju zostało ustawione.',
   'pro.pin_members_legend': 'Osoby, które są teraz w pokoju',
-  'pro.pin_members_keep': 'Pozwól im zostać',
+  'pro.pin_members_title': 'Co zrobić z obecnymi uczestnikami?',
+  'pro.pin_members_keep': 'Zostaw wszystkich',
   'pro.pin_members_keep_detail':
-    'Osoby połączone teraz mogą zostać. Pozostali będą potrzebować hasła, aby dołączyć.',
-  'pro.pin_members_reenter': 'Niech wszyscy dołączą ponownie',
+    'Hasło muszą wpisać tylko urządzenia, które dołączają ponownie lub po raz pierwszy.',
+  'pro.pin_members_reenter': 'Wszyscy dołączają ponownie',
   'pro.pin_members_reenter_detail':
-    'Wszyscy pozostali, w tym twoje inne urządzenia, muszą dołączyć ponownie. Wybierz tę opcję, aby usunąć nieznane osoby.',
+    'Wszyscy muszą dołączyć ponownie. Zalecane, jeśli chcesz od razu usunąć nieznane osoby.',
   'pro.pin_keep_unavailable':
     'Hasło nie zostało zmienione. Obecnie nie można zostawić osób w pokoju. Spróbuj ponownie później albo poproś wszystkich o ponowne dołączenie.',
   'pro.pin_enabled_removed_title': 'Pokój ma teraz hasło',

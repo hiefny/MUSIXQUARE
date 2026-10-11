@@ -700,6 +700,8 @@ const ar: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'هل تريد إعادة الاتصال؟',
   'dialog.reconnect': 'إعادة الاتصال',
   'dialog.go_back': 'رجوع',
+  'dialog.step_next': 'التالي',
+  'dialog.step_back': 'السابق',
   'dialog.room_password_title': 'إدخال كلمة مرور الغرفة',
   'dialog.room_password_msg': 'يلزم إدخال كلمة مرور للانضمام إلى هذه الغرفة.',
   'dialog.room_password_retry_msg': 'كلمة المرور غير مطابقة. حاول مجددًا.',
@@ -767,12 +769,13 @@ const ar: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'تعيين كلمة مرور الغرفة',
   'pro.pin_enabled': 'تم تعيين كلمة مرور الغرفة.',
   'pro.pin_members_legend': 'الموجودون في الغرفة الآن',
-  'pro.pin_members_keep': 'إبقاؤهم',
+  'pro.pin_members_title': 'ماذا تريد أن تفعل بالمشاركين الحاليين؟',
+  'pro.pin_members_keep': 'إبقاء الجميع',
   'pro.pin_members_keep_detail':
-    'يمكن للمتصلين الآن البقاء. أما غيرهم فسيحتاجون إلى كلمة المرور للانضمام.',
-  'pro.pin_members_reenter': 'مطالبة الجميع بالانضمام مجددًا',
+    'لن تحتاج إلى إدخال كلمة المرور إلا الأجهزة التي تعيد الانضمام أو تنضم لأول مرة.',
+  'pro.pin_members_reenter': 'انضمام الجميع مجددًا',
   'pro.pin_members_reenter_detail':
-    'سيتعين على جميع الآخرين، بما في ذلك أجهزتك الأخرى، الانضمام مجددًا. اختر هذا لإزالة أشخاص لا تعرفهم.',
+    'سيتعين على الجميع الانضمام مجددًا. يُنصح بهذا الخيار لإزالة الأشخاص الذين لا تعرفهم دفعة واحدة.',
   'pro.pin_keep_unavailable':
     'لم يتم تغيير كلمة المرور. لا يمكن حاليًا إبقاء الأشخاص في الغرفة. حاول مجددًا لاحقًا أو اطلب من الجميع الانضمام مجددًا.',
   'pro.pin_enabled_removed_title': 'أصبحت للغرفة كلمة مرور',

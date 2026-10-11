@@ -709,6 +709,8 @@ const ur: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'دوبارہ منسلک ہونا چاہتے ہیں؟',
   'dialog.reconnect': 'دوبارہ منسلک کریں',
   'dialog.go_back': 'واپس جائیں',
+  'dialog.step_next': 'اگلا',
+  'dialog.step_back': 'پچھلا',
   'dialog.room_password_title': 'کمرے کا پاس ورڈ درج کریں',
   'dialog.room_password_msg': 'اس کمرے میں شامل ہونے کے لیے پاس ورڈ درکار ہے۔',
   'dialog.room_password_retry_msg': 'پاس ورڈ درست نہیں۔ دوبارہ کوشش کریں۔',
@@ -777,12 +779,13 @@ const ur: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'کمرے کا پاس ورڈ مقرر کریں',
   'pro.pin_enabled': 'کمرے کا پاس ورڈ مقرر ہو گیا۔',
   'pro.pin_members_legend': 'اس وقت کمرے میں موجود لوگ',
-  'pro.pin_members_keep': 'انہیں رہنے دیں',
+  'pro.pin_members_title': 'موجودہ شرکاء کے ساتھ کیا کیا جائے؟',
+  'pro.pin_members_keep': 'سب کو رہنے دیں',
   'pro.pin_members_keep_detail':
-    'اس وقت جڑے ہوئے لوگ رہ سکتے ہیں۔ باقی سب کو شامل ہونے کے لیے پاس ورڈ درکار ہوگا۔',
+    'صرف دوبارہ یا پہلی بار شامل ہونے والے آلات کو پاس ورڈ درج کرنا ہوگا۔',
   'pro.pin_members_reenter': 'سب دوبارہ شامل ہوں',
   'pro.pin_members_reenter_detail':
-    'آپ کے دوسرے آلات سمیت باقی سب کو دوبارہ شامل ہونا ہوگا۔ ناواقف لوگوں کو نکالنے کے لیے یہ منتخب کریں۔',
+    'سب کو دوبارہ شامل ہونا ہوگا۔ ناواقف لوگوں کو ایک ساتھ نکالنے کے لیے ہم یہ طریقہ تجویز کرتے ہیں۔',
   'pro.pin_keep_unavailable':
     'پاس ورڈ تبدیل نہیں ہوا۔ ابھی لوگوں کو کمرے میں رکھتے ہوئے پاس ورڈ نہیں بدلا جا سکتا۔ کچھ دیر بعد دوبارہ کوشش کریں یا سب کو دوبارہ شامل ہونے کو کہیں۔',
   'pro.pin_enabled_removed_title': 'کمرے کا پاس ورڈ مقرر کر دیا گیا',

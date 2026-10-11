@@ -705,6 +705,8 @@ const ko = {
   'dialog.reconnect_ask': '다시 연결할까요?',
   'dialog.reconnect': '다시 연결',
   'dialog.go_back': '돌아가기',
+  'dialog.step_next': '다음',
+  'dialog.step_back': '이전',
   'dialog.room_password_title': '방 암호 입력',
   'dialog.room_password_msg': '이 방에 참여하려면 암호가 필요해요.',
   'dialog.room_password_retry_msg': '암호가 맞지 않아요. 다시 입력해 주세요.',
@@ -770,12 +772,12 @@ const ko = {
   'pro.pin_enable_title': '방 암호 설정',
   'pro.pin_enabled': '방 암호를 설정했어요.',
   'pro.pin_members_legend': '지금 방에 있는 사람',
+  'pro.pin_members_title': '현재 참여자를 어떻게 할까요?',
   'pro.pin_members_keep': '그대로 두기',
-  'pro.pin_members_keep_detail':
-    '지금 연결된 사람은 그대로 있고, 그 밖의 사람은 암호를 입력해야 들어올 수 있어요.',
-  'pro.pin_members_reenter': '모두 다시 입장하게 하기',
+  'pro.pin_members_keep_detail': '다시 입장하거나, 새로 참여하는 기기만 암호를 입력하면 돼요.',
+  'pro.pin_members_reenter': '모두 재입장',
   'pro.pin_members_reenter_detail':
-    '내 다른 기기를 포함해 모두 다시 들어와야 해요. 모르는 사람을 내보내려면 이걸 골라 주세요.',
+    '모두가 다시 들어와야 해요. 모르는 사람들을 한번에 내보내려면 이 방식을 추천해요.',
   'pro.pin_keep_unavailable':
     '암호를 바꾸지 못했어요. 지금은 사람들을 그대로 둔 채 바꿀 수 없어요. 잠시 후 다시 시도하거나 모두 다시 입장하게 해 주세요.',
   'pro.pin_enabled_removed_title': '방 암호가 설정됐어요',

@@ -705,6 +705,8 @@ const gu: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'ફરી જોડાવું છે?',
   'dialog.reconnect': 'ફરી જોડાવો',
   'dialog.go_back': 'પાછા જાઓ',
+  'dialog.step_next': 'આગળ',
+  'dialog.step_back': 'પાછળ',
   'dialog.room_password_title': 'રૂમનો પાસવર્ડ દાખલ કરો',
   'dialog.room_password_msg': 'આ રૂમમાં જોડાવા પાસવર્ડ જરૂરી છે.',
   'dialog.room_password_retry_msg': 'એ પાસવર્ડ મેળ ખાતો નથી. ફરી પ્રયાસ કરો.',
@@ -772,12 +774,13 @@ const gu: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'રૂમનો પાસવર્ડ સેટ કરો',
   'pro.pin_enabled': 'રૂમનો પાસવર્ડ સેટ થયો.',
   'pro.pin_members_legend': 'અત્યારે રૂમમાં રહેલા લોકો',
-  'pro.pin_members_keep': 'તેમને રહેવા દો',
+  'pro.pin_members_title': 'હાલના સહભાગીઓનું શું કરવું?',
+  'pro.pin_members_keep': 'બધાને રહેવા દો',
   'pro.pin_members_keep_detail':
-    'અત્યારે જોડાયેલા લોકો રહી શકે છે. બાકીના બધાને જોડાવા માટે પાસવર્ડ જોઈશે.',
-  'pro.pin_members_reenter': 'બધાને ફરી જોડાવા કહો',
+    'ફક્ત ફરી જોડાતાં અથવા પહેલી વાર જોડાતાં ડિવાઇસે જ પાસવર્ડ દાખલ કરવો પડશે.',
+  'pro.pin_members_reenter': 'બધા ફરી જોડાશે',
   'pro.pin_members_reenter_detail':
-    'તમારા અન્ય ડિવાઇસ સહિત બાકીના બધાએ ફરી જોડાવું પડશે. અજાણ્યા લોકોને દૂર કરવા માટે આ પસંદ કરો.',
+    'બધાએ ફરી જોડાવું પડશે. અજાણ્યા લોકોને એકસાથે દૂર કરવા માટે આ રીતની ભલામણ કરીએ છીએ.',
   'pro.pin_keep_unavailable':
     'પાસવર્ડ બદલાયો નથી. અત્યારે લોકોને રૂમમાં રાખીને પાસવર્ડ બદલી શકાતો નથી. થોડી વાર પછી ફરી પ્રયાસ કરો અથવા બધાને ફરી જોડાવા કહો.',
   'pro.pin_enabled_removed_title': 'રૂમમાં પાસવર્ડ સેટ થયો',

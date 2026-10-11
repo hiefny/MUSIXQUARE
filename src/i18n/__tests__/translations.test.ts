@@ -960,7 +960,7 @@ describe('PRO PIN membership and removal copy', () => {
     'pro.pin_enable_title',
     'pro.pin_change_message',
     'pro.pin_enabled',
-    'pro.pin_members_legend',
+    'pro.pin_members_title',
     'pro.pin_members_keep',
     'pro.pin_members_keep_detail',
     'pro.pin_members_reenter',
@@ -1012,11 +1012,11 @@ describe('PRO PIN membership and removal copy', () => {
       'Set room password',
       'Set a new 8-digit password.',
       'Room password set.',
-      'People in the room now',
-      'Let them stay',
-      'People connected now can stay. Anyone else needs the password to join.',
-      'Make everyone rejoin',
-      "Everyone else, including your other devices, has to rejoin. Choose this to remove people you don't know.",
+      'What should happen to current participants?',
+      'Keep everyone',
+      'Only devices that rejoin or join for the first time need to enter the password.',
+      'Everyone rejoins',
+      "Everyone has to join again. Recommended for removing people you don't know all at once.",
       "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or make everyone rejoin.",
       'Room password set',
       'The room owner set a password for this room. Enter it to rejoin.',
@@ -1030,11 +1030,11 @@ describe('PRO PIN membership and removal copy', () => {
       '방 암호 설정',
       '새 8자리 암호를 설정해 주세요.',
       '방 암호를 설정했어요.',
-      '지금 방에 있는 사람',
+      '현재 참여자를 어떻게 할까요?',
       '그대로 두기',
-      '지금 연결된 사람은 그대로 있고, 그 밖의 사람은 암호를 입력해야 들어올 수 있어요.',
-      '모두 다시 입장하게 하기',
-      '내 다른 기기를 포함해 모두 다시 들어와야 해요. 모르는 사람을 내보내려면 이걸 골라 주세요.',
+      '다시 입장하거나, 새로 참여하는 기기만 암호를 입력하면 돼요.',
+      '모두 재입장',
+      '모두가 다시 들어와야 해요. 모르는 사람들을 한번에 내보내려면 이 방식을 추천해요.',
       '암호를 바꾸지 못했어요. 지금은 사람들을 그대로 둔 채 바꿀 수 없어요. 잠시 후 다시 시도하거나 모두 다시 입장하게 해 주세요.',
       '방 암호가 설정됐어요',
       '방 소유자가 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',
@@ -1055,5 +1055,23 @@ describe('PRO PIN membership and removal copy', () => {
       const value = dict['pro.pin_change_message']!;
       expect(value.split(/[.。．।۔]\s*(?=\S)/u), locale).toHaveLength(1);
     }
+  });
+
+  it('labels the two-step PIN dialog actions in every locale', () => {
+    const STEP_KEYS = ['dialog.step_next', 'dialog.step_back'] as const;
+    for (const [locale, dict] of Object.entries(dictionaries)) {
+      for (const key of STEP_KEYS) {
+        const value = dict[key];
+        expect(value, `${locale}.${key}`).toBeTruthy();
+        expect(value!.trim(), `${locale}.${key}`).toBe(value);
+        expect(value, `${locale}.${key}`).not.toMatch(/\n|\{\{|\p{Nd}/u);
+        if (locale !== 'en') expect(value, `${locale}.${key}`).not.toBe(en[key]);
+      }
+      expect(dict['dialog.step_next'], `${locale} next vs back`).not.toBe(dict['dialog.step_back']);
+    }
+    // The owner's approved Korean step actions are the bare "다음" / "이전",
+    // not the onboarding's "다음으로" / "이전 설명".
+    expect(STEP_KEYS.map((key) => ko[key])).toEqual(['다음', '이전']);
+    expect(STEP_KEYS.map((key) => en[key])).toEqual(['Next', 'Back']);
   });
 });

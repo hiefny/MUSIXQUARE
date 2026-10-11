@@ -737,6 +737,8 @@ const fil: Record<I18nKey, string> = {
   'dialog.reconnect_ask': 'Gusto mo bang kumonekta muli?',
   'dialog.reconnect': 'Kumonekta muli',
   'dialog.go_back': 'Bumalik',
+  'dialog.step_next': 'Susunod',
+  'dialog.step_back': 'Bumalik',
   'dialog.room_password_title': 'Ilagay ang Password ng Kuwarto',
   'dialog.room_password_msg': 'Kailangan ng password para sumali sa kuwartong ito.',
   'dialog.room_password_retry_msg': 'Hindi tugma ang password. Subukan muli.',
@@ -805,12 +807,13 @@ const fil: Record<I18nKey, string> = {
   'pro.pin_enable_title': 'Magtakda ng password ng kuwarto',
   'pro.pin_enabled': 'Naitakda na ang password ng kuwarto.',
   'pro.pin_members_legend': 'Mga nasa kuwarto ngayon',
-  'pro.pin_members_keep': 'Hayaan silang manatili',
+  'pro.pin_members_title': 'Ano ang gagawin sa mga kasalukuyang kalahok?',
+  'pro.pin_members_keep': 'Panatilihin ang lahat',
   'pro.pin_members_keep_detail':
-    'Puwedeng manatili ang mga nakakonekta ngayon. Kakailanganin ng iba ang password para makasali.',
-  'pro.pin_members_reenter': 'Pasalihin muli ang lahat',
+    'Ang mga device lang na sasali muli o sasali sa unang pagkakataon ang kailangang maglagay ng password.',
+  'pro.pin_members_reenter': 'Sasali muli ang lahat',
   'pro.pin_members_reenter_detail':
-    'Kailangang sumali muli ng lahat ng iba, kasama ang iba mo pang device. Piliin ito para alisin ang mga taong hindi mo kilala.',
+    'Kailangang sumali muli ng lahat. Inirerekomenda ito para maalis nang sabay-sabay ang mga taong hindi mo kilala.',
   'pro.pin_keep_unavailable':
     'Hindi napalitan ang password. Hindi pa puwedeng panatilihin ang mga tao sa kuwarto ngayon. Subukan muli mamaya, o pasalihin muli ang lahat.',
   'pro.pin_enabled_removed_title': 'May password na ang kuwarto',

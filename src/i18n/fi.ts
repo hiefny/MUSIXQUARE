@@ -426,6 +426,10 @@ const fi: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Tiedosto on erittäin suuri, eikä kappale välttämättä toistu kaikilla laitteilla.',
   'chat.device_track_unavailable_system_message': 'Tämä laite ei voi toistaa nykyistä kappaletta.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUAREsta on saatavilla uusi versio. Päivitä sivu ottaaksesi sen käyttöön.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUAREsta on saatavilla uusi versio. Avaa sovellus uudelleen ottaaksesi sen käyttöön.',
   'chat.system_audio_started_system_message':
     'Järjestelmän äänen jakaminen aloitettiin. Pieni viive isäntä- ja vieraslaitteiden välillä on normaalia. Kaikumisen välttämiseksi isäntälaitteen äänenvoimakkuutta kannattaa pienentää.',
   'chat.system_audio_stopped_system_message':

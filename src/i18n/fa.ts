@@ -417,6 +417,10 @@ const fa: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'حجم فایل این قطعه بسیار زیاد است و ممکن است در بعضی دستگاه‌ها پخش نشود.',
   'chat.device_track_unavailable_system_message': 'این دستگاه نمی‌تواند قطعهٔ فعلی را پخش کند.',
+  'chat.update_available_tab_system_message':
+    'نسخهٔ جدید MUSIXQUARE آماده است. برای اعمال آن، صفحه را تازه‌سازی کنید.',
+  'chat.update_available_app_system_message':
+    'نسخهٔ جدید MUSIXQUARE آماده است. برای اعمال آن، برنامه را دوباره باز کنید.',
   'chat.system_audio_started_system_message':
     'اشتراک‌گذاری صدای سیستم آغاز شد. کمی تأخیر میان دستگاه میزبان و مهمان‌ها طبیعی است. برای جلوگیری از پژواک، صدای دستگاه میزبان را کم کنید.',
   'chat.system_audio_stopped_system_message':

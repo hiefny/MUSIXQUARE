@@ -422,6 +422,10 @@ const bn: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'এই ট্র্যাকের ফাইল অনেক বড় এবং কিছু ডিভাইসে নাও চলতে পারে।',
   'chat.device_track_unavailable_system_message': 'এই ডিভাইসটি বর্তমান ট্র্যাক চালাতে পারছে না।',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ। প্রয়োগ করতে পেজটি রিফ্রেশ করুন।',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ। প্রয়োগ করতে অ্যাপটি আবার খুলুন।',
   'chat.system_audio_started_system_message':
     'সিস্টেম অডিও শেয়ার করা শুরু হয়েছে। হোস্ট ও অতিথি ডিভাইসের মাঝে সামান্য বিলম্ব স্বাভাবিক। প্রতিধ্বনি এড়াতে হোস্ট ডিভাইসের ভলিউম কম রাখার পরামর্শ দেওয়া হচ্ছে।',
   'chat.system_audio_stopped_system_message':

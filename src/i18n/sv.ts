@@ -429,6 +429,10 @@ const sv: Record<I18nKey, string> = {
     'Den här spårfilen är mycket stor och kanske inte kan spelas på vissa enheter.',
   'chat.device_track_unavailable_system_message':
     'Den här enheten kan inte spela det aktuella spåret.',
+  'chat.update_available_tab_system_message':
+    'Det finns en ny version av MUSIXQUARE. Uppdatera sidan för att börja använda den.',
+  'chat.update_available_app_system_message':
+    'Det finns en ny version av MUSIXQUARE. Öppna appen igen för att börja använda den.',
   'chat.system_audio_started_system_message':
     'Delning av systemljud har startat. En liten fördröjning mellan värd- och gästenheter är normal. Vi rekommenderar att du sänker värdenhetens volym för att undvika eko.',
   'chat.system_audio_stopped_system_message':

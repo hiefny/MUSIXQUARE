@@ -436,6 +436,10 @@ const ta: Record<I18nKey, string> = {
     'இந்த டிராக்கின் கோப்பு மிகப் பெரியது; சில சாதனங்களில் இயங்காமல் போகலாம்.',
   'chat.device_track_unavailable_system_message':
     'இந்தச் சாதனத்தால் தற்போதைய டிராக்கை இயக்க முடியாது.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்த பக்கத்தை மீண்டும் ஏற்றவும்.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்த பயன்பாட்டை மீண்டும் திறக்கவும்.',
   'chat.system_audio_started_system_message':
     'சிஸ்டம் ஆடியோ பகிர்வு தொடங்கியது. ஹோஸ்ட் மற்றும் விருந்தினர் சாதனங்களுக்கு இடையிலான சிறிய தாமதம் இயல்பானது. எதிரொலியைத் தவிர்க்க ஹோஸ்ட் சாதனத்தின் ஒலியளவைக் குறைக்கப் பரிந்துரைக்கிறோம்.',
   'chat.system_audio_stopped_system_message':

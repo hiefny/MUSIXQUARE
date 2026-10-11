@@ -413,6 +413,10 @@ const th: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
   'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นรายการปัจจุบันไม่ได้',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE มีเวอร์ชันใหม่ โหลดหน้าใหม่เพื่อใช้งานเวอร์ชันนี้',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE มีเวอร์ชันใหม่ เปิดแอปอีกครั้งเพื่อใช้งานเวอร์ชันนี้',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างอุปกรณ์ของเจ้าของห้องกับผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์เจ้าของห้องเพื่อเลี่ยงเสียงก้อง',
   'chat.system_audio_stopped_system_message':

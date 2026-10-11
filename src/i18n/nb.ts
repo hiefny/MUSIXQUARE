@@ -426,6 +426,10 @@ const nb: Record<I18nKey, string> = {
     'Filen til dette sporet er svært stor og kan kanskje ikke spilles av på enkelte enheter.',
   'chat.device_track_unavailable_system_message':
     'Denne enheten kan ikke spille av gjeldende spor.',
+  'chat.update_available_tab_system_message':
+    'Det finnes en ny versjon av MUSIXQUARE. Oppdater siden for å ta den i bruk.',
+  'chat.update_available_app_system_message':
+    'Det finnes en ny versjon av MUSIXQUARE. Åpne appen på nytt for å ta den i bruk.',
   'chat.system_audio_started_system_message':
     'Deling av systemlyd er startet. En liten forsinkelse mellom vertens og gjestenes enheter er normal. Vi anbefaler å senke volumet på vertsenheten for å unngå ekko.',
   'chat.system_audio_stopped_system_message':

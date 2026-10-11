@@ -428,6 +428,10 @@ const ru: Record<I18nKey, string> = {
     'Этот материал занимает очень много места и может не воспроизводиться на некоторых устройствах.',
   'chat.device_track_unavailable_system_message':
     'На этом устройстве нельзя воспроизвести текущий материал.',
+  'chat.update_available_tab_system_message':
+    'Доступна новая версия MUSIXQUARE. Обновите страницу, чтобы применить ее.',
+  'chat.update_available_app_system_message':
+    'Доступна новая версия MUSIXQUARE. Откройте приложение заново, чтобы применить ее.',
   'chat.system_audio_started_system_message':
     'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и участниками. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
   'chat.system_audio_stopped_system_message':

@@ -729,6 +729,8 @@ const zhHant: Record<I18nKey, string> = {
   'chat.large_track_playback_system_message': '此曲目非常大，使用時可能會出現延遲。',
   'chat.large_local_track_system_message': '目前項目的檔案很大，部分裝置可能無法播放。',
   'chat.device_track_unavailable_system_message': '此裝置無法播放目前的項目。',
+  'chat.update_available_tab_system_message': 'MUSIXQUARE 有新版本。重新整理頁面後即可生效。',
+  'chat.update_available_app_system_message': 'MUSIXQUARE 有新版本。重新開啟應用程式後即可生效。',
   'chat.system_audio_started_system_message':
     '系統音訊分享已啟動。房主與參與者裝置之間有些微延遲是正常現象。為避免回音，建議盡量降低房主裝置的音量。',
   'chat.system_audio_stopped_system_message':

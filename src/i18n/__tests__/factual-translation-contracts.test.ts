@@ -246,6 +246,48 @@ describe('completed translation factual contracts', () => {
     );
   });
 
+  it('gives the in-room update notice a browser-tab and a home-screen form in every locale', () => {
+    const english = APP_DICTIONARIES.en;
+    const tabKey = 'chat.update_available_tab_system_message';
+    const appKey = 'chat.update_available_app_system_message';
+    const commonPrefix = (left: string, right: string): string => {
+      let index = 0;
+      while (index < left.length && left[index] === right[index]) index += 1;
+      return left.slice(0, index);
+    };
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const tab = dictionary[tabKey];
+      const app = dictionary[appKey];
+      for (const [key, text] of [
+        [tabKey, tab],
+        [appKey, app],
+      ] as const) {
+        // The brand stays exact; the notice is plain chat text with no
+        // placeholders, markup, or numbers.
+        expect(text, `${language}.${key}`).toContain('MUSIXQUARE');
+        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
+      }
+      // Both say the same news ("a new MUSIXQUARE version is available") and
+      // differ only in how it applies: reload the tab, or reopen the app.
+      expect(app, language).not.toBe(tab);
+      expect(commonPrefix(tab, app), language).toContain('MUSIXQUARE');
+      if (language === 'en') continue;
+      expect(tab, `${language}.${tabKey} English copy`).not.toBe(english[tabKey]);
+      expect(app, `${language}.${appKey} English copy`).not.toBe(english[appKey]);
+    }
+
+    expect([APP_DICTIONARIES.ko[tabKey], APP_DICTIONARIES.ko[appKey]]).toEqual([
+      'MUSIXQUARE의 새 버전이 있어요. 페이지를 새로고침하면 적용돼요.',
+      'MUSIXQUARE의 새 버전이 있어요. 앱을 다시 열면 적용돼요.',
+    ]);
+    expect([english[tabKey], english[appKey]]).toEqual([
+      'A new version of MUSIXQUARE is available. Refresh the page to apply it.',
+      'A new version of MUSIXQUARE is available. Reopen the app to apply it.',
+    ]);
+  });
+
   it('keeps supported-browser, synchronization, and system-audio claims factual', async () => {
     const dictionaries = await loadLandingDictionary();
     expect(Object.keys(dictionaries).sort()).toEqual(

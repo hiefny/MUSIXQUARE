@@ -426,6 +426,10 @@ const te: Record<I18nKey, string> = {
     'ఈ ట్రాక్ ఫైల్ చాలా పెద్దది; కొన్ని పరికరాల్లో ప్లే కాకపోవచ్చు.',
   'chat.device_track_unavailable_system_message':
     'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది. దీన్ని వర్తింపజేయడానికి పేజీని రిఫ్రెష్ చేయండి.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది. దీన్ని వర్తింపజేయడానికి యాప్‌ను మళ్లీ తెరవండి.',
   'chat.system_audio_started_system_message':
     'సిస్టమ్ ఆడియో షేరింగ్ ప్రారంభమైంది. హోస్ట్, అతిథి పరికరాల మధ్య కొద్దిపాటి ఆలస్యం సాధారణం. ప్రతిధ్వనిని నివారించడానికి హోస్ట్ పరికరం వాల్యూమ్‌ను తగ్గించాలని సిఫార్సు చేస్తున్నాం.',
   'chat.system_audio_stopped_system_message':

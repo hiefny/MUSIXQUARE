@@ -426,6 +426,10 @@ const cs: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Soubor této skladby je velmi velký a na některých zařízeních se nemusí přehrát.',
   'chat.device_track_unavailable_system_message': 'Toto zařízení nemůže přehrát aktuální skladbu.',
+  'chat.update_available_tab_system_message':
+    'Je k dispozici nová verze MUSIXQUARE. Projeví se po opětovném načtení stránky.',
+  'chat.update_available_app_system_message':
+    'Je k dispozici nová verze MUSIXQUARE. Projeví se po opětovném otevření aplikace.',
   'chat.system_audio_started_system_message':
     'Sdílení systémového zvuku bylo spuštěno. Mírné zpoždění mezi zařízením hostitele a zařízeními účastníků je běžné. Doporučujeme ztlumit zařízení hostitele, aby nevznikala ozvěna.',
   'chat.system_audio_stopped_system_message':

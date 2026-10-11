@@ -422,6 +422,10 @@ const mr: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो कदाचित प्ले होणार नाही.',
   'chat.device_track_unavailable_system_message': 'हे डिव्हाइस सध्याचा ट्रॅक प्ले करू शकत नाही.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे. लागू करण्यासाठी पेज रीफ्रेश करा.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे. लागू करण्यासाठी अ‍ॅप पुन्हा उघडा.',
   'chat.system_audio_started_system_message':
     'सिस्टम ऑडिओ शेअरिंग सुरू झाले आहे. होस्ट आणि अतिथी डिव्हाइसदरम्यान थोडा विलंब होणे सामान्य आहे. प्रतिध्वनी टाळण्यासाठी होस्ट डिव्हाइसचा आवाज कमी ठेवण्याची शिफारस केली जाते.',
   'chat.system_audio_stopped_system_message':

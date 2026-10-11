@@ -427,6 +427,10 @@ const da: Record<I18nKey, string> = {
     'Filen til dette nummer er meget stor og kan muligvis ikke afspilles på nogle enheder.',
   'chat.device_track_unavailable_system_message':
     'Denne enhed kan ikke afspille det aktuelle nummer.',
+  'chat.update_available_tab_system_message':
+    'Der er en ny version af MUSIXQUARE. Opdater siden for at tage den i brug.',
+  'chat.update_available_app_system_message':
+    'Der er en ny version af MUSIXQUARE. Åbn appen igen for at tage den i brug.',
   'chat.system_audio_started_system_message':
     'Deling af systemlyd er startet. En lille forsinkelse mellem værtens og gæsternes enheder er normal. Vi anbefaler at sænke værtens lydstyrke for at undgå ekko.',
   'chat.system_audio_stopped_system_message':

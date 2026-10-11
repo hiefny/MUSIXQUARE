@@ -422,6 +422,10 @@ const hi: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'इस ट्रैक की फ़ाइल बहुत बड़ी है और हो सकता है कि यह कुछ डिवाइसों पर न चले।',
   'chat.device_track_unavailable_system_message': 'यह डिवाइस मौजूदा ट्रैक नहीं चला सकता।',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE का नया वर्ज़न उपलब्ध है। लागू करने के लिए पेज रीफ़्रेश करें।',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE का नया वर्ज़न उपलब्ध है। लागू करने के लिए ऐप फिर से खोलें।',
   'chat.system_audio_started_system_message':
     'सिस्टम ऑडियो साझा होना शुरू हो गया है। होस्ट और अतिथि डिवाइसों के बीच थोड़ी देरी सामान्य है। गूँज से बचने के लिए होस्ट डिवाइस का वॉल्यूम कम रखने की सलाह दी जाती है।',
   'chat.system_audio_stopped_system_message':

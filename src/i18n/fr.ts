@@ -799,6 +799,10 @@ const fr: Record<I18nKey, string> = {
     'Cette piste est très volumineuse et risque de ne pas être lue sur certains appareils.',
   'chat.device_track_unavailable_system_message':
     'Cet appareil ne peut pas lire la piste en cours.',
+  'chat.update_available_tab_system_message':
+    'Une nouvelle version de MUSIXQUARE est disponible. Actualisez la page pour l’utiliser.',
+  'chat.update_available_app_system_message':
+    'Une nouvelle version de MUSIXQUARE est disponible. Rouvrez l’application pour l’utiliser.',
   'chat.system_audio_started_system_message':
     'Le partage de l’audio système a démarré. Une légère latence entre l’hôte et les participants est normale. Nous recommandons de baisser le volume de l’appareil de l’hôte pour éviter les échos.',
   'chat.system_audio_stopped_system_message':

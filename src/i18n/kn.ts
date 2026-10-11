@@ -430,6 +430,10 @@ const kn: Record<I18nKey, string> = {
     'ಈ ಟ್ರ್ಯಾಕ್‌ನ ಫೈಲ್ ಗಾತ್ರ ಬಹಳ ದೊಡ್ಡದಿದೆ ಮತ್ತು ಕೆಲವು ಸಾಧನಗಳಲ್ಲಿ ಪ್ಲೇ ಆಗದಿರಬಹುದು.',
   'chat.device_track_unavailable_system_message':
     'ಈ ಸಾಧನವು ಪ್ರಸ್ತುತ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಪ್ಲೇ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ. ಅನ್ವಯಿಸಲು ಪುಟವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ. ಅನ್ವಯಿಸಲು ಆ್ಯಪ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆಯಿರಿ.',
   'chat.system_audio_started_system_message':
     'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಪ್ರಾರಂಭವಾಗಿದೆ. ಹೋಸ್ಟ್ ಮತ್ತು ಅತಿಥಿ ಸಾಧನಗಳ ನಡುವೆ ಸ್ವಲ್ಪ ವಿಳಂಬ ಸಹಜ. ಪ್ರತಿಧ್ವನಿ ತಪ್ಪಿಸಲು ಹೋಸ್ಟ್ ಸಾಧನದ ಧ್ವನಿಮಟ್ಟ ಕಡಿಮೆ ಮಾಡುವಂತೆ ಶಿಫಾರಸು ಮಾಡುತ್ತೇವೆ.',
   'chat.system_audio_stopped_system_message':

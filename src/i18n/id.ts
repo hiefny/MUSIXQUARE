@@ -789,6 +789,10 @@ const id: Record<I18nKey, string> = {
     'Ukuran media ini sangat besar dan mungkin tidak dapat diputar di sebagian perangkat.',
   'chat.device_track_unavailable_system_message':
     'Perangkat ini tidak dapat memutar media saat ini.',
+  'chat.update_available_tab_system_message':
+    'Versi baru MUSIXQUARE tersedia. Muat ulang halaman untuk menerapkannya.',
+  'chat.update_available_app_system_message':
+    'Versi baru MUSIXQUARE tersedia. Buka ulang aplikasi untuk menerapkannya.',
   'chat.system_audio_started_system_message':
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
   'chat.system_audio_stopped_system_message':

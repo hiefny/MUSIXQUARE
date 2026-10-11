@@ -427,6 +427,10 @@ const nl: Record<I18nKey, string> = {
     'Deze track neemt erg veel ruimte in en kan mogelijk niet op alle apparaten worden afgespeeld.',
   'chat.device_track_unavailable_system_message':
     'Dit apparaat kan de huidige track niet afspelen.',
+  'chat.update_available_tab_system_message':
+    'Er is een nieuwe versie van MUSIXQUARE. Vernieuw de pagina om deze te gebruiken.',
+  'chat.update_available_app_system_message':
+    'Er is een nieuwe versie van MUSIXQUARE. Open de app opnieuw om deze te gebruiken.',
   'chat.system_audio_started_system_message':
     'Het delen van systeemaudio is gestart. Een kleine vertraging tussen de host en deelnemers is normaal. Zet het volume van het hostapparaat zo laag mogelijk om echo te voorkomen.',
   'chat.system_audio_stopped_system_message':

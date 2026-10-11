@@ -431,6 +431,10 @@ const pl: Record<I18nKey, string> = {
     'Plik tego materiału jest bardzo duży i może nie zostać odtworzony na niektórych urządzeniach.',
   'chat.device_track_unavailable_system_message':
     'To urządzenie nie może odtworzyć bieżącego materiału.',
+  'chat.update_available_tab_system_message':
+    'Dostępna jest nowa wersja MUSIXQUARE. Odśwież stronę, aby ją zastosować.',
+  'chat.update_available_app_system_message':
+    'Dostępna jest nowa wersja MUSIXQUARE. Otwórz ponownie aplikację, aby ją zastosować.',
   'chat.system_audio_started_system_message':
     'Rozpoczęto udostępnianie dźwięku systemowego. Niewielkie opóźnienie między urządzeniem hosta a urządzeniami uczestników jest normalne. Zalecamy zmniejszenie głośności urządzenia hosta, aby uniknąć echa.',
   'chat.system_audio_stopped_system_message':

@@ -437,6 +437,10 @@ const fil: Record<I18nKey, string> = {
     'Napakalaki ng file ng track na ito at maaaring hindi ito ma-play sa ilang device.',
   'chat.device_track_unavailable_system_message':
     'Hindi ma-play ng device na ito ang kasalukuyang track.',
+  'chat.update_available_tab_system_message':
+    'May bagong bersyon ng MUSIXQUARE. I-refresh ang page para magamit ito.',
+  'chat.update_available_app_system_message':
+    'May bagong bersyon ng MUSIXQUARE. Buksan muli ang app para magamit ito.',
   'chat.system_audio_started_system_message':
     'Nagsimula na ang pagbabahagi ng system audio. Normal ang kaunting latency sa pagitan ng host at mga bisitang device. Inirerekomenda naming hinaan ang volume ng host device para maiwasan ang echo.',
   'chat.system_audio_stopped_system_message':

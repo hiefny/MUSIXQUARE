@@ -787,6 +787,10 @@ const ja: Record<I18nKey, string> = {
     'このトラックはファイルサイズが非常に大きいため、一部のデバイスでは再生できない場合があります。',
   'chat.device_track_unavailable_system_message':
     'このデバイスでは現在のトラックを再生できません。',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUAREの新しいバージョンがあります。ページを再読み込みすると適用されます。',
+  'chat.update_available_app_system_message':
+    'MUSIXQUAREの新しいバージョンがあります。アプリを開き直すと適用されます。',
   'chat.system_audio_started_system_message':
     'システムオーディオの共有を開始しました。ホストと参加者のデバイス間に少し遅延があるのは正常です。音が二重に聞こえるのを防ぐため、ホストデバイスの音量を下げることをおすすめします。',
   'chat.system_audio_stopped_system_message':

@@ -431,6 +431,10 @@ const ml: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'ഈ ട്രാക്കിന്റെ ഫയൽ വലുപ്പം വളരെ കൂടുതലാണ്; ചില ഡിവൈസുകളിൽ ഇത് പ്ലേ ചെയ്തേക്കില്ല.',
   'chat.device_track_unavailable_system_message': 'ഈ ഡിവൈസിന് നിലവിലെ ട്രാക്ക് പ്ലേ ചെയ്യാനാകില്ല.',
+  'chat.update_available_tab_system_message':
+    'MUSIXQUARE-ന്റെ പുതിയ പതിപ്പ് ലഭ്യമാണ്. ഇത് ബാധകമാക്കാൻ പേജ് പുതുക്കുക.',
+  'chat.update_available_app_system_message':
+    'MUSIXQUARE-ന്റെ പുതിയ പതിപ്പ് ലഭ്യമാണ്. ഇത് ബാധകമാക്കാൻ ആപ്പ് വീണ്ടും തുറക്കുക.',
   'chat.system_audio_started_system_message':
     'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ ആരംഭിച്ചു. ഹോസ്റ്റിന്റെയും അതിഥി ഡിവൈസുകളുടെയും ഇടയിൽ നേരിയ കാലതാമസം സാധാരണമാണ്. എക്കോ ഒഴിവാക്കാൻ ഹോസ്റ്റ് ഡിവൈസിന്റെ ശബ്ദനില കുറയ്ക്കാൻ ശുപാർശ ചെയ്യുന്നു.',
   'chat.system_audio_stopped_system_message':

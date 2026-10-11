@@ -803,6 +803,10 @@ const es: Record<I18nKey, string> = {
     'El archivo de esta pista es muy grande y puede que no se reproduzca en algunos dispositivos.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo no puede reproducir la pista actual.',
+  'chat.update_available_tab_system_message':
+    'Hay una nueva versión de MUSIXQUARE. Actualiza la página para empezar a usarla.',
+  'chat.update_available_app_system_message':
+    'Hay una nueva versión de MUSIXQUARE. Vuelve a abrir la aplicación para empezar a usarla.',
   'chat.system_audio_started_system_message':
     'Se empezó a compartir el audio del sistema. Es normal que haya una leve latencia entre el anfitrión y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo del anfitrión para evitar ecos.',
   'chat.system_audio_stopped_system_message':

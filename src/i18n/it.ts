@@ -432,6 +432,10 @@ const it: Record<I18nKey, string> = {
     'Il file di questa traccia è molto grande e potrebbe non essere riprodotto su alcuni dispositivi.',
   'chat.device_track_unavailable_system_message':
     'Questo dispositivo non riesce a riprodurre la traccia corrente.',
+  'chat.update_available_tab_system_message':
+    'È disponibile una nuova versione di MUSIXQUARE. Aggiorna la pagina per applicarla.',
+  'chat.update_available_app_system_message':
+    'È disponibile una nuova versione di MUSIXQUARE. Riapri l’app per applicarla.',
   'chat.system_audio_started_system_message':
     "La condivisione dell'audio di sistema è iniziata. Un leggero ritardo tra il dispositivo dell'host e quelli dei partecipanti è normale. Per evitare l'eco, consigliamo all'host di abbassare il volume del proprio dispositivo.",
   'chat.system_audio_stopped_system_message':

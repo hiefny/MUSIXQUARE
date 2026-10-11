@@ -413,6 +413,10 @@ const he: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'הקובץ של הרצועה גדול מאוד וייתכן שלא יתנגן בחלק מהמכשירים.',
   'chat.device_track_unavailable_system_message': 'המכשיר הזה לא יכול לנגן את הרצועה הנוכחית.',
+  'chat.update_available_tab_system_message':
+    'זמינה גרסה חדשה של MUSIXQUARE. יש לרענן את הדף כדי להחיל אותה.',
+  'chat.update_available_app_system_message':
+    'זמינה גרסה חדשה של MUSIXQUARE. יש לפתוח מחדש את האפליקציה כדי להחיל אותה.',
   'chat.system_audio_started_system_message':
     'שיתוף שמע המערכת התחיל. השהיה קלה בין המארח למכשירי האורחים היא תקינה. מומלץ להנמיך את עוצמת הקול במכשיר המארח כדי למנוע הד.',
   'chat.system_audio_stopped_system_message':

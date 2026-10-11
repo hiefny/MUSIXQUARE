@@ -428,6 +428,10 @@ const hu: Record<I18nKey, string> = {
     'A szám fájlja nagyon nagy, ezért egyes eszközökön nem biztos, hogy lejátszható.',
   'chat.device_track_unavailable_system_message':
     'Ez az eszköz nem tudja lejátszani az aktuális számot.',
+  'chat.update_available_tab_system_message':
+    'Elérhető a MUSIXQUARE új verziója. Az oldal újratöltése után lép életbe.',
+  'chat.update_available_app_system_message':
+    'Elérhető a MUSIXQUARE új verziója. Az alkalmazás újbóli megnyitása után lép életbe.',
   'chat.system_audio_started_system_message':
     'Elindult a rendszerhang megosztása. A házigazda és a résztvevők eszközei közötti kis késés normális. A visszhang elkerüléséhez csökkentsd a házigazda eszközének hangerejét.',
   'chat.system_audio_stopped_system_message':

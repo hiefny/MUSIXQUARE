@@ -778,6 +778,10 @@ const vi: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Mục này có dung lượng rất lớn và có thể không phát được trên một số thiết bị.',
   'chat.device_track_unavailable_system_message': 'Thiết bị này không thể phát mục hiện tại.',
+  'chat.update_available_tab_system_message':
+    'Đã có phiên bản mới của MUSIXQUARE. Làm mới trang để áp dụng.',
+  'chat.update_available_app_system_message':
+    'Đã có phiên bản mới của MUSIXQUARE. Mở lại ứng dụng để áp dụng.',
   'chat.system_audio_started_system_message':
     'Chia sẻ âm thanh hệ thống đã bắt đầu. Có một chút độ trễ giữa thiết bị của chủ phòng và thiết bị của người tham gia là bình thường. Nên giảm âm lượng thiết bị của chủ phòng để tránh tiếng vọng.',
   'chat.system_audio_stopped_system_message':

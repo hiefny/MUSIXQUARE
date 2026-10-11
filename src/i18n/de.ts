@@ -802,6 +802,10 @@ const de: Record<I18nKey, string> = {
     'Die Datei dieses Titels ist sehr groß und lässt sich möglicherweise nicht auf allen Geräten abspielen.',
   'chat.device_track_unavailable_system_message':
     'Dieses Gerät kann den aktuellen Titel nicht abspielen.',
+  'chat.update_available_tab_system_message':
+    'Eine neue Version von MUSIXQUARE ist verfügbar. Lade die Seite neu, um sie anzuwenden.',
+  'chat.update_available_app_system_message':
+    'Eine neue Version von MUSIXQUARE ist verfügbar. Öffne die App erneut, um sie anzuwenden.',
   'chat.system_audio_started_system_message':
     'Systemaudio-Freigabe gestartet. Eine leichte Verzögerung zwischen dem Host-Gerät und den Geräten der Teilnehmer ist normal. Um Echos zu vermeiden, sollte der Host die Lautstärke seines Geräts möglichst weit senken.',
   'chat.system_audio_stopped_system_message':

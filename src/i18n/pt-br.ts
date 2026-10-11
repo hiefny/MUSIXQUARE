@@ -798,6 +798,10 @@ const ptBr: Record<I18nKey, string> = {
     'O arquivo desta faixa é muito grande e pode não ser reproduzido em alguns dispositivos.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo não consegue reproduzir a faixa atual.',
+  'chat.update_available_tab_system_message':
+    'Há uma nova versão do MUSIXQUARE. Atualize a página para usá-la.',
+  'chat.update_available_app_system_message':
+    'Há uma nova versão do MUSIXQUARE. Abra o aplicativo novamente para usá-la.',
   'chat.system_audio_started_system_message':
     'Compartilhamento de áudio do sistema iniciado. Um pequeno atraso entre o dispositivo do anfitrião e os dos participantes é normal. Para evitar eco, recomendamos diminuir o volume do dispositivo do anfitrião.',
   'chat.system_audio_stopped_system_message':

@@ -428,6 +428,10 @@ const ro: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Fișierul acestei piste este foarte mare și este posibil să nu fie redat pe unele dispozitive.',
   'chat.device_track_unavailable_system_message': 'Acest dispozitiv nu poate reda pista curentă.',
+  'chat.update_available_tab_system_message':
+    'Este disponibilă o versiune nouă a MUSIXQUARE. Reîncarcă pagina pentru a o folosi.',
+  'chat.update_available_app_system_message':
+    'Este disponibilă o versiune nouă a MUSIXQUARE. Redeschide aplicația pentru a o folosi.',
   'chat.system_audio_started_system_message':
     'Partajarea sunetului sistemului a început. O mică latență între dispozitivele gazdă și oaspete este normală. Îți recomandăm să reduci volumul dispozitivului gazdă pentru a evita ecoul.',
   'chat.system_audio_stopped_system_message':

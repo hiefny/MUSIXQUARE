@@ -5531,6 +5531,7 @@ function renderSignals(summary: AdminMetricsSummary): void {
     ['Password prompts', last24.guest_auth_pending || 0],
     ['Password failures', last24.guest_auth_failed || 0],
     ['Password timeouts', last24.guest_auth_timeout || 0],
+    ['Password lockouts', last24.guest_auth_rate_limited || 0],
     ['Host reconnects', last24.host_reconnected || 0],
   ];
   signalEl.replaceChildren(

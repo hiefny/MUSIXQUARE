@@ -116,6 +116,38 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
       ).toBeCloseTo(5.041633, 6);
     });
 
+    it('does not let a large leading ID3 tag widen the stream size tolerance of a joined file', async () => {
+      const frameBytes = 417; // MPEG-1 Layer III, 128 kbps, 44.1 kHz, no padding.
+      const frame = () => {
+        const bytes = new Uint8Array(frameBytes);
+        bytes.set([0xff, 0xfb, 0x90, 0x64]);
+        return bytes;
+      };
+      const tagBytes = 2 * 1024 * 1024;
+      const tag = new Uint8Array(10 + tagBytes);
+      tag.set(new TextEncoder().encode('ID3'));
+      tag.set([3, 0, 0], 3);
+      tag.set(
+        [(tagBytes >> 21) & 127, (tagBytes >> 14) & 127, (tagBytes >> 7) & 127, tagBytes & 127],
+        6,
+      );
+      const xing = frame();
+      xing.set(new TextEncoder().encode('Xing'), 36);
+      const view = new DataView(xing.buffer);
+      view.setUint32(40, 0x3);
+      view.setUint32(44, 7180);
+      // The first part's whole-file size, as some encoders count it.
+      view.setUint32(48, tag.length + 7181 * frameBytes);
+      const bytes = concatenate(
+        tag,
+        xing,
+        ...Array.from({ length: 7180 + 700 }, frame), // 700 appended tagless frames.
+      );
+      expect(
+        await readProRoomFileDuration(memoryBucket(bytes), 'tagged-joined', bytes.length),
+      ).toBeCloseTo(scanned(7881), 6);
+    });
+
     it('leaves a joined file unknown when its continuation cannot be scanned', async () => {
       const first = await chirp();
       // `cat a.mp3 b.mp3` keeps the second ID3 tag inside the MPEG stream.

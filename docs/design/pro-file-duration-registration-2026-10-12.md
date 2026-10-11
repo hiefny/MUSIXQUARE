@@ -129,6 +129,43 @@ test requirement. The final local critical profile passes: transfer functions
 88.09%, controller functions 90.62%; global statements 81.97%, branches 76.78%,
 functions 88.15%, lines 86.08%. Only tests/profile changed after the frozen
 runtime SHA and full local run; remote full CI verifies those additions.
-Remote exact-main and deployment evidence will be appended after successful release.
 Local/branch tests are not a successful exact-main-SHA production candidate.
 Physical iPhone/Android playback and actual customer rooms remain manual checks.
+
+## Production verification
+
+- Runtime PR [#300](https://github.com/hiefny/MUSIXQUARE/pull/300) merged to
+  `8307f12ba05683a0738d6f0e4cb293afa7968070`.
+- Final PR [CI 38160713245](https://github.com/hiefny/MUSIXQUARE/actions/runs/38160713245)
+  and exact-main [CI 38161158889](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161158889)
+  each passed all eleven jobs, attempt 1. Main uses Node 24.20.0 on Ubuntu:
+  542 files, 11,591 pass / 0 fail / 1 skip (the Windows-only cross-drive CLI test).
+  Critical runtime 2,038 tests, Worker 2,148 and release-tooling 345 tests pass;
+  broad coverage was merged from the two unit shards. Candidate/Service Worker
+  Chromium 17 and critical Chromium 22 browser checks passed.
+- [Production Release 38161550040](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161550040)
+  succeeded at 2026-10-11 17:58:59 UTC (2026-10-12 02:58:59 KST), attempt 1,
+  `target=all`, Developer API D1 application `false`. All six Workers used the
+  exact-main candidate; ten live smoke steps passed, deployment ownership and
+  PRO readiness were restored/verified, and the coherent production marker was
+  persisted. No recovery was required.
+- Independent public GETs returned HTTP 200 for the landing page and service
+  worker, with `bootstrap.js?cache=v657` and the `v657` service-worker cache.
+  No customer room was entered or modified for this verification.
+- Post-release [Operations Drift Audit 38161918085](https://github.com/hiefny/MUSIXQUARE/actions/runs/38161918085)
+  passed on the same deployed SHA: 31 pass / 0 fail / 5 manual. All 64 source
+  binding contracts matched actively serving Worker versions. The five existing
+  manual controls remain open; automated success does not verify those controls.
+
+| Worker | Deployed version |
+| --- | --- |
+| App | `d60b4127-d012-49f1-8d5a-d65ef6cb4a64` |
+| PRO | `b58ea516-af5f-44f8-b1f0-112a3300436b` |
+| Remote Share | `0f3946c5-74af-45a6-85ff-04ed63a05ad0` |
+| Signaling | `6c548c48-5cc3-4b44-b6da-a8e1cfc88b64` |
+| Developer API facade | `df517d08-5ef4-434a-8d15-8bbd0b7e7e3d` |
+| Developer API | `80d3b025-06d3-47e7-b474-b4a82a9125bd` |
+
+This release did not run the entire serial E2E suite or physical-device tests.
+Those limits and the unknown-duration behavior remain explicit open checks in
+the release record.

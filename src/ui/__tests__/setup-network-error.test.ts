@@ -410,7 +410,21 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
     );
     expect(getState('network.isConnecting')).toBe(false);
     expect(text(dialogOptions().title)).toBe('pro.pin_changed_removed_title');
+    expect(text(dialogOptions().message)).toBe('connect.pin_changed_removed_message');
     expect(restoreGuestJoinControlsAfterFailure).not.toHaveBeenCalled();
+    await flush();
+    expect(scheduleSessionReset).toHaveBeenCalledOnce();
+  });
+
+  it('uses the first-enable notice when the Worker closes the socket for a new PIN', async () => {
+    setState('network.isConnecting', true);
+    bus.emit(
+      'network:error',
+      Object.assign(new Error('ROOM_PASSWORD_ENABLED'), { type: 'room-password-changed' }),
+    );
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(text(dialogOptions().title)).toBe('pro.pin_enabled_removed_title');
+    expect(text(dialogOptions().message)).toBe('connect.pin_enabled_removed_message');
     await flush();
     expect(scheduleSessionReset).toHaveBeenCalledOnce();
   });

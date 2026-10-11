@@ -597,11 +597,15 @@ export function initSetup(): void {
 
     if (peerType === 'room-password-changed') {
       // The host chose "Everyone rejoins" while this guest was not on a live
-      // data channel (the kick frame normally explains it first).
+      // data channel (the kick frame normally explains it first). The Worker's
+      // message says whether the PIN was set for the first time or changed.
       setState('network.isConnecting', false);
       updateRoleBadge();
       showLoader(false);
-      showStandardRoomPinRemovalNotice('room-pin-changed', getState('network.lastJoinCode'));
+      showStandardRoomPinRemovalNotice(
+        msg === 'ROOM_PASSWORD_ENABLED' ? 'room-pin-enabled' : 'room-pin-changed',
+        getState('network.lastJoinCode'),
+      );
       return;
     }
     if (peerType === 'room-password-rate-limited') {

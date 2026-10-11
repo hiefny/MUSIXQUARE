@@ -598,6 +598,61 @@ describe('PRO room server-authoritative playback', () => {
     expect(asset.duration).toEqual({ ...firstEvidence, measuredSeconds: 120 });
   });
 
+  it.each([
+    ['an R2 error', 'reject'],
+    ['a resized object', 'resize'],
+    ['the lookup deadline', 'stall'],
+  ] as const)(
+    'does not record %s as an unknown length, so the next decode report reads again',
+    async (_label, failure) => {
+      const context = await activatedRoom();
+      const { assetId, asset } = await completeReadyAsset(context, `failed-floor-${failure}`);
+      await context.worker.assetDurationLookup?.promise;
+      if (failure === 'stall') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const get = vi.spyOn(context.bucket, 'get').mockImplementation(async () => {
+        if (failure === 'reject') throw new Error('R2 unavailable');
+        if (failure === 'stall') return new Promise<never>(() => {});
+        return { size: asset.byteLength + 1, body: new ReadableStream() } as never;
+      });
+      const report = async (durationSeconds: number) => {
+        const response = await context.worker.fetch(
+          jsonRequest(
+            `/media/${assetId}/duration`,
+            'POST',
+            { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds },
+            context.ownerCookie,
+          ),
+        );
+        expect(response.status).toBe(200);
+        const lookup = context.worker.assetDurationLookup?.promise;
+        if (failure === 'stall' && vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(10_000);
+        await lookup;
+        return context.worker.room!.assets[assetId]!.duration;
+      };
+      expect(await report(100)).toEqual({
+        assetVersion: asset.version,
+        byteLength: asset.byteLength,
+        roomGeneration: 0,
+        durationSeconds: 100,
+        checkedAtMs: expect.any(Number),
+        source: 'controller',
+      });
+      expect(get).toHaveBeenCalledOnce();
+      expect(context.worker.room!.pendingAssetDurationProbes).toEqual([]);
+      vi.useRealTimers();
+      get.mockRestore();
+      // The read is still owed: the next report queues it, and its length
+      // replaces the far shorter decode.
+      const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(130);
+      expect(await report(100)).toMatchObject({
+        source: 'server',
+        durationSeconds: 130,
+        reader: fileDuration.PRO_ROOM_FILE_DURATION_READER,
+      });
+      expect(probe).toHaveBeenCalledOnce();
+    },
+  );
+
   it('refuses controller durations far below measured timing but keeps accepting corrections', async () => {
     const context = await activatedRoom();
     const { assetId, asset } = await completeReadyAsset(context, 'measured-floor');

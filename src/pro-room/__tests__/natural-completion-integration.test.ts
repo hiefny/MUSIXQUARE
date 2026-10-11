@@ -576,6 +576,30 @@ describe('PRO natural completion with ordinary listeners and no active controlle
     );
   });
 
+  it.each([
+    // The reader rejects a failed object read or its lookup deadline.
+    [
+      'a failed file read quickly',
+      () => metadata.file.mockRejectedValueOnce(new Error('PRO_MEDIA_DURATION_PROBE_TIMEOUT')),
+      5_000,
+    ],
+    [
+      'an unknown file length after five minutes',
+      () => metadata.file.mockResolvedValueOnce(null),
+      300_000,
+    ],
+  ])('retries %s', async (_label, configure, delay) => {
+    configure();
+    const context = await fixture();
+    await start(context);
+    expect(metadata.file).toHaveBeenCalledOnce();
+    expect(context.room.playbackDurationProbe).toMatchObject({
+      attempts: 1,
+      retryAtMs: NOW + delay,
+    });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+  });
+
   it.each(['version', 'deletion'] as const)(
     'backs off a file probe whose asset fails its %s identity check instead of re-arming at once',
     async (change) => {

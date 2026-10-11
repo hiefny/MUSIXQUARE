@@ -416,32 +416,44 @@ async function indexedMp3Duration(
   return null;
 }
 
+/**
+ * Duration from bounded R2 ranges of an immutable object. Null means the bytes
+ * give no trustworthy duration (unsupported, inconsistent, or beyond the read
+ * budget): reading them again would find the same. The promise rejects when
+ * the object could not be read (an R2 error, a missing or resized object, a
+ * short or overlong range), on the lookup deadline, or on cancellation; such a
+ * failure says nothing about the file.
+ */
 export async function readProRoomFileDuration(
   bucket: DurationBucket,
   key: string,
   expectedBytes: number,
   signal?: AbortSignal,
 ): Promise<number | null> {
-  if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || !key || signal?.aborted)
-    return null;
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || !key) return null;
+  if (signal?.aborted) throw new Error('PRO_MEDIA_DURATION_PROBE_ABORTED');
   let stopped = false;
   let totalBytes = 0;
   let reads = 0;
+  // Set by any failed object read, even one a parser caught and turned into
+  // an unknown result (the MP4 reader does).
+  let readFailed = false;
   const readers = new Set<ReadableStreamDefaultReader<Uint8Array>>();
-  let finishTimeout!: (value: null) => void;
-  const expired = new Promise<null>((resolve) => {
-    finishTimeout = resolve;
+  let finishTimeout!: (reason: Error) => void;
+  const expired = new Promise<never>((_resolve, reject) => {
+    finishTimeout = reject;
   });
   const stop = (): void => {
     stopped = true;
     for (const reader of readers) cancelReadableBody(reader, 'PRO_MEDIA_DURATION_PROBE_STOPPED');
   };
-  const abort = (): void => {
+  const abort = (reason: string): void => {
     stop();
-    finishTimeout(null);
+    finishTimeout(new Error(reason));
   };
-  const timer = setTimeout(abort, MAX_PROBE_MS);
-  signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(() => abort('PRO_MEDIA_DURATION_PROBE_TIMEOUT'), MAX_PROBE_MS);
+  const cancel = (): void => abort('PRO_MEDIA_DURATION_PROBE_ABORTED');
+  signal?.addEventListener('abort', cancel, { once: true });
   const read = async (start: number, end: number): Promise<Uint8Array> => {
     const length = end - start;
     if (
@@ -456,6 +468,14 @@ export async function readProRoomFileDuration(
       (totalBytes += length) > MAX_READ_BYTES
     )
       throw new Error('PRO_MEDIA_DURATION_PROBE_BUDGET');
+    try {
+      return await readRange(start, length);
+    } catch (error) {
+      readFailed = true;
+      throw error;
+    }
+  };
+  const readRange = async (start: number, length: number): Promise<Uint8Array> => {
     const object = await bucket.get(key, { range: { offset: start, length } });
     if (stopped || !object?.body || object.size !== expectedBytes) {
       cancelReadableBody(object?.body, 'PRO_MEDIA_DURATION_SOURCE_CHANGED');
@@ -511,11 +531,22 @@ export async function readProRoomFileDuration(
     // a decoded duration for these formats without changing playback support.
     return null;
   };
+  const outcome = probe().then(
+    (seconds) => {
+      if (seconds === null && readFailed) throw new Error('PRO_MEDIA_DURATION_READ_FAILED');
+      return seconds;
+    },
+    (error: unknown) => {
+      if (readFailed) throw error;
+      // Parser errors and the read budget are answers about these bytes.
+      return null;
+    },
+  );
   try {
-    return await Promise.race([probe().catch(() => null), expired]);
+    return await Promise.race([outcome, expired]);
   } finally {
     clearTimeout(timer);
-    signal?.removeEventListener('abort', abort);
+    signal?.removeEventListener('abort', cancel);
     stop();
   }
 }

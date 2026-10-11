@@ -27,7 +27,10 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     const controller = new AbortController();
     controller.abort();
     const bucket = memoryBucket(new Uint8Array(100));
-    expect(await readProRoomFileDuration(bucket, 'object', 100, controller.signal)).toBeNull();
+    // Cancelled work is no answer about the file.
+    await expect(readProRoomFileDuration(bucket, 'object', 100, controller.signal)).rejects.toThrow(
+      'PRO_MEDIA_DURATION_PROBE_ABORTED',
+    );
     expect(bucket.get).not.toHaveBeenCalled();
   });
 
@@ -43,7 +46,7 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     );
     const pending = readProRoomFileDuration({ get }, 'object', 100, controller.signal);
     controller.abort();
-    expect(await pending).toBeNull();
+    await expect(pending).rejects.toThrow('PRO_MEDIA_DURATION_PROBE_ABORTED');
     finish({ size: 100, body: new ReadableStream<Uint8Array>({ cancel }) });
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
   });
@@ -631,7 +634,9 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     const bucket = {
       get: vi.fn(async () => ({ size: 2000, body: new ReadableStream<Uint8Array>({ cancel }) })),
     };
-    expect(await readProRoomFileDuration(bucket, 'object', 1000)).toBeNull();
+    await expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+      'PRO_MEDIA_DURATION_SOURCE_CHANGED',
+    );
     expect(cancel).toHaveBeenCalledOnce();
   });
 
@@ -649,7 +654,43 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
         }),
       })),
     };
-    expect(await readProRoomFileDuration(bucket, 'object', 1000)).toBeNull();
+    await expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+      length ? 'PRO_MEDIA_DURATION_RANGE_OVERRUN' : 'PRO_MEDIA_DURATION_RANGE_TRUNCATED',
+    );
+  });
+
+  it.each([
+    ['an R2 error', () => Promise.reject(new Error('R2 unavailable'))],
+    ['a missing object', () => Promise.resolve(null)],
+    ['an object without a body', () => Promise.resolve({ size: 1000 })],
+  ])('fails instead of answering unknown on %s', async (_label, get) => {
+    await expect(readProRoomFileDuration({ get: vi.fn(get) }, 'object', 1000)).rejects.toThrow();
+  });
+
+  it('fails when a parser turned a failed range read into an unknown result', async () => {
+    const bytes = await readFile(
+      new URL('../../../e2e/fixtures/large-audio-chirp-lc-stereo.m4a', import.meta.url),
+    );
+    const healthy = memoryBucket(bytes);
+    let calls = 0;
+    const get = vi.fn(
+      async (key: string, options: { range: { offset: number; length: number } }) =>
+        ++calls > 2 ? Promise.reject(new Error('R2 unavailable')) : healthy.get(key, options),
+    );
+    // The MP4 reader catches its own errors; the failed read still counts.
+    await expect(readProRoomFileDuration({ get }, 'object', bytes.length)).rejects.toThrow(
+      'PRO_MEDIA_DURATION_READ_FAILED',
+    );
+    expect(await readProRoomFileDuration(healthy, 'object', bytes.length)).toBe(5);
+  });
+
+  it('answers unknown, not failed, for a stream beyond the read budget', async () => {
+    // 17 MiB of unindexed 128 kbps frames: the bounded scan stops at 16 MiB.
+    const frames = Math.ceil((17 * 1024 * 1024) / 417);
+    const bytes = new Uint8Array(frames * 417);
+    for (let offset = 0; offset < bytes.length; offset += 417)
+      bytes.set([0xff, 0xfb, 0x90, 0x64], offset);
+    expect(await readProRoomFileDuration(memoryBucket(bytes), 'long', bytes.length)).toBeNull();
   });
 
   it('bounds a stalled R2 body and releases its reader', async () => {
@@ -659,9 +700,11 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
       const bucket = {
         get: vi.fn(async () => ({ size: 1000, body: new ReadableStream<Uint8Array>({ cancel }) })),
       };
-      const result = readProRoomFileDuration(bucket, 'object', 1000);
+      const result = expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+        'PRO_MEDIA_DURATION_PROBE_TIMEOUT',
+      );
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(await result).toBeNull();
+      await result;
       expect(cancel).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
@@ -681,9 +724,11 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
             }),
         ),
       };
-      const result = readProRoomFileDuration(bucket, 'object', 1000);
+      const result = expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+        'PRO_MEDIA_DURATION_PROBE_TIMEOUT',
+      );
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(await result).toBeNull();
+      await result;
       deliver({ size: 1000, body: new ReadableStream<Uint8Array>({ cancel }) });
       await vi.advanceTimersByTimeAsync(0);
       expect(cancel).toHaveBeenCalledOnce();

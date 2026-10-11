@@ -5579,7 +5579,9 @@ export class MusixquareProRoom {
     let finished = false;
     const lookup = (async () => {
       let duration: number | null = null;
-      let read = false;
+      // The reader answered: a length, or no trustworthy one in these bytes.
+      // A failed object read or the lookup deadline is no answer.
+      let answered = false;
       if (
         asset?.status === 'ready' &&
         !asset.deletionPending &&
@@ -5587,12 +5589,16 @@ export class MusixquareProRoom {
         this.env.PRO_MEDIA_BUCKET &&
         this.assetDurationProbeNeeded(asset)
       ) {
-        read = true;
-        duration = await readProRoomFileDuration(
-          this.env.PRO_MEDIA_BUCKET,
-          asset.objectKey,
-          asset.byteLength,
-        ).catch(() => null);
+        try {
+          duration = await readProRoomFileDuration(
+            this.env.PRO_MEDIA_BUCKET,
+            asset.objectKey,
+            asset.byteLength,
+          );
+          answered = true;
+        } catch {
+          // No answer: the evidence stays as it was for a later report.
+        }
       }
       await this.withMutation(async () => {
         if (
@@ -5620,8 +5626,9 @@ export class MusixquareProRoom {
               )
                 this.storeAssetDuration(current, duration, 'server');
               // A decoded length keeps working without a floor; do not read
-              // the same unsupported object again on every later report.
-              else if (read) this.markAssetDurationProbed(current);
+              // the same unsupported object again on every later report. A
+              // failed read is not recorded, so a later report reads again.
+              else if (answered) this.markAssetDurationProbed(current);
             }
             // One bounded registration attempt. Unsupported headers remain unknown;
             // a later controller decode or active playback probe can fill the gap.
@@ -5710,6 +5717,8 @@ export class MusixquareProRoom {
       let diagnostic: string | null = null;
       try {
         if (identity.mediaKind === 'file') {
+          // A failed read or the lookup deadline throws: it is retried like a
+          // failed metadata lookup, after 5 s and 30 s, not as an unknown file.
           durationSeconds =
             objectKey && this.env.PRO_MEDIA_BUCKET
               ? await readProRoomFileDuration(

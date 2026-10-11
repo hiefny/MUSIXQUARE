@@ -1,6 +1,10 @@
 // MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 import { handleProBotRequest } from './pro-bot.ts';
 import {
+  handleProYouTubeDurationRequest,
+  PRO_YOUTUBE_DURATION_PATH,
+} from './pro-youtube-duration.ts';
+import {
   handleTranslationCommunityRequest,
   handleAdminTranslationCommunityRequest,
 } from './translation-community.ts';
@@ -347,7 +351,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.9.4';
+const ADMIN_ASSET_VERSION = '8.9.5';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -15852,6 +15856,10 @@ export default {
           }),
         );
       }
+    }
+
+    if (url.pathname === PRO_YOUTUBE_DURATION_PATH) {
+      return withSecurityHeaders(await handleProYouTubeDurationRequest(request, env));
     }
 
     if (url.pathname.startsWith('/api/auth/')) {

@@ -596,6 +596,15 @@ function createImplementation(
             transitionId: transition.event.transitionId,
             basePlaybackRevision: transition.event.basePlaybackRevision,
             status,
+            ...(status === 'ready' &&
+            result.status === 'ready' &&
+            result.mediaKind === 'file' &&
+            getState('room.context').capabilities.includes('playback.control') &&
+            result.durationSeconds !== null &&
+            Number.isFinite(result.durationSeconds) &&
+            result.durationSeconds > 0
+              ? { durationSeconds: result.durationSeconds }
+              : {}),
           });
           // A lost WebSocket COMMIT is recovered from the canonical snapshot.
           if (outcome === 'committed') {

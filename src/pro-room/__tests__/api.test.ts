@@ -205,6 +205,51 @@ afterEach(() => {
 });
 
 describe('PRO room endpoint boundary', () => {
+  it('retries an optional duration attestation once against a rolled-back READY contract', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    const transitionId = `transition_${'A'.repeat(22)}`;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ ok: true, transitionId, status: 'committed', playbackRevision: 2 }),
+      );
+    await expect(
+      client.reportPlaybackTransitionReady({
+        code: ROOM_CODE,
+        transitionId,
+        basePlaybackRevision: 1,
+        status: 'ready',
+        durationSeconds: 180,
+      }),
+    ).resolves.toBe('committed');
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { basePlaybackRevision: 1, status: 'ready', durationSeconds: 180 },
+      { basePlaybackRevision: 1, status: 'ready' },
+    ]);
+  });
+
+  it.each([400, 403, 409, 503])(
+    'does not retry a READY error outside the optional-field compatibility case (%s)',
+    async (status) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValue(jsonResponse({ error: 'INVALID_REQUEST' }, { status }));
+      await expect(
+        client.reportPlaybackTransitionReady({
+          code: ROOM_CODE,
+          transitionId: `transition_${'A'.repeat(22)}`,
+          basePlaybackRevision: 1,
+          status: 'ready',
+          ...(status === 400 ? {} : { durationSeconds: 180 }),
+        }),
+      ).rejects.toMatchObject({ status });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
   it('releases a request whose JSON body stalls after response headers', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(

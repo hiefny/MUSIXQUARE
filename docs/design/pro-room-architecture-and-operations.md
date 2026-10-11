@@ -656,6 +656,15 @@ already accepted newer snapshot without projecting the older state. Equal
 revision conflicts remain errors, and ambiguous upload recovery still checks
 the exact queue-item and asset identity before treating the append as committed.
 
+While at least one authoritative presence remains, natural completion no longer
+depends on an awake playback controller. The room alarm uses identity-fenced
+file timing metadata or authenticated YouTube metadata, and runs the same
+server transition reducer as an authorized ended observation. Explicit pause,
+seek, target replacement, PREPARE, and system audio supersede the old deadline.
+Live or unknown-duration media are not assigned a guessed deadline. See the
+[natural-completion contract](pro-room-server-authority.md#8-ended-and-unavailable-arbitration)
+and [verification record](pro-autonomous-playback-2026-10-12.md).
+
 When the final participant leaves, the room becomes `sleeping` and freezes the
 playing position at server time. If playback had been active, the first
 returning participant causes the PRO object to create a wake PREPARE from that

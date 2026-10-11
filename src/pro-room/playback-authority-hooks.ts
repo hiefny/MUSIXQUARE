@@ -206,6 +206,9 @@ export function routeProPlaybackCommand(
   // so it follows the same capability boundary as an explicit user control.
   // The Worker independently enforces this boundary as the security backstop.
   if (!context.capabilities.includes('playback.control')) {
+    // A local renderer reaching its end is expected for ordinary listeners.
+    // The server owns automatic queue progression; this isn't a denied user action.
+    if (intent.kind === 'ended' || intent.kind === 'advance-sub-video') return true;
     log.warn('[PRO Playback] Ignored action without delegated playback authority');
     return true;
   }

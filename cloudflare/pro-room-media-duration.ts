@@ -270,14 +270,16 @@ async function indexedMp3Duration(
   // playback early. Trust its frame count only when that many frames could span
   // the remaining bytes (largest Layer III frame at this rate, plus the header
   // frame and an ID3v1 tag) and a declared stream size matches the audio span
-  // within FFmpeg's 1/16 concatenation tolerance. Otherwise the bounded scan
-  // measures the whole file or leaves it unknown.
+  // (or, as some encoders count it, the whole file) within FFmpeg's 1/16
+  // concatenation tolerance. Otherwise the bounded scan measures the whole
+  // file or leaves it unknown.
   const audioBytes = size - offset;
   const largestFrame = Math.floor((version === 3 ? 144000 * 320 : 72000 * 160) / sampleRate) + 1;
+  const near = (declared: number, actual: number) =>
+    Math.abs(declared - actual) <= Math.min(declared, actual) / 16;
   const indexed = (frames: number, declaredBytes: number | null) =>
     (frames + 1) * largestFrame + 128 >= audioBytes &&
-    (declaredBytes === null ||
-      Math.abs(declaredBytes - audioBytes) <= Math.min(declaredBytes, audioBytes) / 16)
+    (declaredBytes === null || near(declaredBytes, audioBytes) || near(declaredBytes, size))
       ? finiteDuration((frames * samplesPerFrame) / sampleRate)
       : null;
   if (

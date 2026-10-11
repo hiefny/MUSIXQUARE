@@ -98,6 +98,24 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
       ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES * 2), 6);
     });
 
+    it('accepts a stream size that also counts a large leading ID3 tag', async () => {
+      const original = await chirp();
+      const tagBytes = 20_000;
+      const tag = new Uint8Array(10 + tagBytes);
+      tag.set(new TextEncoder().encode('ID3'));
+      tag.set([3, 0, 0], 3);
+      tag.set(
+        [(tagBytes >> 21) & 127, (tagBytes >> 14) & 127, (tagBytes >> 7) & 127, tagBytes & 127],
+        6,
+      );
+      const audio = original.slice(CHIRP_AUDIO_START);
+      const bytes = concatenate(tag, audio);
+      new DataView(bytes.buffer).setUint32(tag.length + 36 + 12, bytes.length);
+      expect(
+        await readProRoomFileDuration(memoryBucket(bytes), 'tagged', bytes.length),
+      ).toBeCloseTo(5.041633, 6);
+    });
+
     it('leaves a joined file unknown when its continuation cannot be scanned', async () => {
       const first = await chirp();
       // `cat a.mp3 b.mp3` keeps the second ID3 tag inside the MPEG stream.

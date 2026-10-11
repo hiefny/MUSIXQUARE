@@ -203,8 +203,26 @@ per finding. Every upheld finding is addressed above.
     - a refused command clearing the in-memory backoff.
   - **Fixes:** `ad920fa5`, `99b5e34a` and `ec9f4856`. They were checked
     against real FFmpeg 8.0.1 output at 8–320 kbps and 8–48 kHz.
-- **Ship gate** (`024950a0..6da737c8`, P1–P3 only): pending.
+- **Ship gate** (`024950a0..6da737c8`, P1–P3 only): no findings. Two checkers
+  covered this range:
+  - one bundled the real Worker and drove alarms and refused commands;
+  - one ran 30,432 synthetic LAME- and FFmpeg-style CBR `Info` files with 0
+    wrong, plus the round-3 repros, which now scan to their real length.
 
 ## Verification
 
-To be completed with the final SHA.
+Local runs used Windows 11 and Node from the main checkout's `node_modules`, at
+release SHA `ed53d978` (App 8.10.1, cache v660). All of the following passed:
+
+- `npm run typecheck`, `lint` and `format:check`.
+- The full app suite: 544 files, 12,005 pass, 0 fail, 0 skip.
+- The full Worker suite (`vitest.workers.config.ts`): 42 files, 2,475 pass.
+- `npm run build:checked`, including every guard, with `guard:sw-cache-version`
+  at v660 and `guard:release-identity` at 8.10.1 / v660.
+- `npm run check:worker-bundles`: all six production Workers bundled without
+  deploying.
+
+Every fix commit was tested before and after: its tests fail without the fix.
+PR CI and the exact-main CI are the remote evidence for the final SHA. No
+real-device, customer-room or Full E2E run. Physical playback with controllers
+asleep stays in the release record's open checks.

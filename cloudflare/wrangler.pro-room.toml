@@ -51,6 +51,12 @@ script_name = "musixquare-developer-api"
 binding = "PRO_MEDIA_BUCKET"
 bucket_name = "musixquare-pro-media"
 
+# Signed service-only metadata requests reuse the App Worker's YouTube API key.
+# The old App may return 404 while this binding rolls out; rooms retry safely.
+[[services]]
+binding = "PRO_YOUTUBE_METADATA"
+service = "musixquare-app"
+
 # Shared with the admin Worker for the bounded front-door registry and the
 # permanent-deletion completion tombstone.
 [[d1_databases]]

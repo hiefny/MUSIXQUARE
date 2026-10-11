@@ -140,10 +140,11 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   42개 언어 문구·재시도 복원은 배포 완료했으며, 자동화가 실기 강제 종료를 대신하지
   않는다. [PWA·배포 근거](design/pro-pwa-force-close-audit-2026-10-12.md),
   [재시도 근거](design/pro-entry-retry-audit-2026-10-11.md)
-- [ ] PRO 재생 권한 기기가 백그라운드·절전 상태일 때 곡 끝에 멈추는 관찰:
-  오너가 해당 조건을 확인했다. 이번 시계·입장·안내 수정의 해결 범위가 아니며
-  권한 기기의 종료 보고에 의존하는 전환 경로는 별도 후속 검토가 필요하다.
-  [이번 배포 범위와 한계](design/pro-pwa-force-close-audit-2026-10-12.md)
+- [ ] PRO 자율 재생 실기: 재생 권한 기기 절전·퇴장 후 일반 참여자만 남은 방에서
+  파일·YouTube·플레이리스트 서브인덱스의 연속 전환, 전원 퇴장·복귀를 확인한다.
+  서버 자연 종료 경로를 추가했으며, 길이를 검증할 수 없는 파일·라이브·조회가
+  불확실한 YouTube는 임의 종료하지 않는다. 실기 확인은 자동화로 대신하지 않는다.
+  [구현·검증·한계](design/pro-autonomous-playback-2026-10-12.md)
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
   포커스를 받는다. 8.7.8 이전부터 있던 문제다.
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전
@@ -193,6 +194,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 버전과 캐시 번호는 앞으로만 올린다. 아래는 지금 유효한 복구 경계다. PRO 선택형
 입장 암호 floor의 정본은 hotfix-procedure의 "Optional PRO entry passwords"
 문단이고, 아래는 요약이다.
+
+- **PRO 자율 재생(8.9.5):** App과 PRO를 함께 배포(`all`)한다. 새
+  `PRO_YOUTUBE_METADATA` 서비스 바인딩은 기존 App의 YouTube 키와 기존 공유
+  assertion secret을 쓰며, 새 비밀·D1 마이그레이션·호환 floor는 없다. PRO를 먼저
+  배포했을 때 이전 App의 내부 경로 404는 미확정으로 처리하고 재시도한다.
+  PRO 롤백 시 파일 READY의 선택적 길이 필드는 400 `INVALID_REQUEST`에만 한 번
+  제외하고 재시도한다. 구 Worker는 새 길이 캐시를 사용하지 않으므로 자율 곡 전환은
+  다시 권한 기기의 종료 보고에 의존한다. App만 롤백해도 기존 파일 근거는 유지되지만
+  새 YouTube 길이 조회는 복구 전까지 미확정이 된다.
+  [상세](design/pro-autonomous-playback-2026-10-12.md)
 
 - **PRO 선택형 입장 암호:** `passwordRequired: false` / `pin: null`이 저장될 수
   있는 배포 이후에는 이 계약을 모르는 구 PRO/App 조합으로 자동 복구하지 않는다.

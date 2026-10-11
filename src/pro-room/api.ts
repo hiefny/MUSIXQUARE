@@ -215,6 +215,8 @@ export interface ReportProRoomPlaybackReadyInput {
   transitionId: string;
   basePlaybackRevision: number;
   status: 'ready' | 'failed';
+  /** Finite decoded file length; the Worker accepts it only from a playback controller. */
+  durationSeconds?: number;
 }
 
 export interface ProRoomPresenceIdentity {
@@ -1677,31 +1679,62 @@ export class ProRoomApiClient {
     if (!isSafeNonNegativeInteger(input.basePlaybackRevision)) {
       throw new ProRoomApiError('INVALID_PLAYBACK_REVISION');
     }
+    if (
+      input.durationSeconds !== undefined &&
+      (!Number.isFinite(input.durationSeconds) ||
+        input.durationSeconds <= 0 ||
+        input.durationSeconds > PLAYBACK_MAX_POSITION_SECONDS ||
+        input.status !== 'ready')
+    ) {
+      throw new ProRoomApiError('INVALID_PLAYBACK_DURATION');
+    }
     const path = roomPath(input.code);
     const transitionId = input.transitionId;
-    return this.#request(`${path}/playback/transitions/${encodeURIComponent(transitionId)}/ready`, {
-      method: 'POST',
-      body: {
-        basePlaybackRevision: input.basePlaybackRevision,
-        status: input.status,
-      },
-      signal,
-      activeRoomCode: input.code,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-      parser: (value) => {
-        if (
-          !isRecord(value) ||
-          !hasExactKeys(value, ['ok', 'transitionId', 'status', 'playbackRevision']) ||
-          value.ok !== true ||
-          value.transitionId !== transitionId ||
-          (value.status !== 'waiting' && value.status !== 'committed') ||
-          !isSafeNonNegativeInteger(value.playbackRevision)
-        ) {
-          return null;
-        }
-        return value.status;
-      },
-    });
+    const report = (includeDuration: boolean) =>
+      this.#request<'waiting' | 'committed'>(
+        `${path}/playback/transitions/${encodeURIComponent(transitionId)}/ready`,
+        {
+          method: 'POST',
+          body: {
+            basePlaybackRevision: input.basePlaybackRevision,
+            status: input.status,
+            ...(!includeDuration || input.durationSeconds === undefined
+              ? {}
+              : { durationSeconds: input.durationSeconds }),
+          },
+          signal,
+          activeRoomCode: input.code,
+          maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+          parser: (value) => {
+            if (
+              !isRecord(value) ||
+              !hasExactKeys(value, ['ok', 'transitionId', 'status', 'playbackRevision']) ||
+              value.ok !== true ||
+              value.transitionId !== transitionId ||
+              (value.status !== 'waiting' && value.status !== 'committed') ||
+              !isSafeNonNegativeInteger(value.playbackRevision)
+            ) {
+              return null;
+            }
+            return value.status;
+          },
+        },
+      );
+    try {
+      return await report(true);
+    } catch (error) {
+      // A cached new App can outlive a PRO Worker rollback. The former READY
+      // contract rejects the optional attestation before applying any mutation.
+      if (
+        input.durationSeconds !== undefined &&
+        error instanceof ProRoomApiError &&
+        error.status === 400 &&
+        error.code === 'INVALID_REQUEST'
+      ) {
+        return report(false);
+      }
+      throw error;
+    }
   }
 
   async closeSession(code: string, signal?: AbortSignal): Promise<void> {

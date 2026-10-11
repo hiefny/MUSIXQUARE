@@ -392,6 +392,135 @@ describe('PRO room server-authoritative playback', () => {
     return internal.room.playback as Record<string, any>;
   }
 
+  it('accepts decoded file duration only from a playback-authorized READY participant', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const friend = await addMember(context);
+    const { assetId, asset } = await completeReadyAsset(context, 'duration-authority');
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [
+            {
+              queueItemId: firstQueueItemId,
+              name: 'Finite file',
+              source: {
+                kind: 'pro-r2',
+                assetId,
+                version: asset.version,
+                byteLength: asset.byteLength,
+                mime: asset.mime,
+              },
+            },
+          ],
+          'duration-authority',
+        )
+      ).status,
+    ).toBe(200);
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'duration-authority-select',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    await context.worker.playbackDurationLookup?.promise;
+    const readyPath = `/playback/transitions/${selected.transition.transitionId}/ready`;
+    const ready = {
+      basePlaybackRevision: selected.transition.basePlaybackRevision,
+      status: 'ready',
+    };
+    const memberReady = await context.worker.fetch(
+      jsonRequest(
+        readyPath,
+        'POST',
+        {
+          ...ready,
+          durationSeconds: 0.01,
+        },
+        friend.cookie,
+      ),
+    );
+    expect(memberReady.status).toBe(200);
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([]);
+    const ownerReady = await context.worker.fetch(
+      jsonRequest(
+        readyPath,
+        'POST',
+        {
+          ...ready,
+          durationSeconds: 123.456,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ownerReady.status).toBe(200);
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([
+      expect.objectContaining({
+        durationSeconds: 123.456,
+        source: 'controller',
+        identity: {
+          queueItemId: firstQueueItemId,
+          mediaKind: 'file',
+          assetId,
+          assetVersion: asset.version,
+          byteLength: asset.byteLength,
+        },
+      }),
+    ]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      realtime.internal.room.playback.updatedAtMs + 123_456,
+    );
+  });
+
+  it('never interprets an owner YouTube READY duration as finite metadata for a live stream', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'youtube-untrusted-duration')).status,
+    ).toBe(200);
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'youtube-untrusted-duration-select',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: selected.transition.basePlaybackRevision,
+          status: 'ready',
+          durationSeconds: 3,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    await context.worker.playbackDurationLookup?.promise;
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+  });
+
   it('reclaims legacy playback receipts immediately without shortening other browser mutations', async () => {
     const context = await activatedRoom();
     expect(
@@ -2267,6 +2396,9 @@ describe('PRO room server-authoritative playback', () => {
     const pending = internal.room.pendingPlaybackBroadcasts[0] as Record<string, any>;
     expect(pending).toMatchObject({ kind: 'prepare', attempts: 1 });
     expect(pending.retryAtMs).toBe(startedAtMs + 1_000);
+    // Metadata probing has its own earlier alarm until the bounded background
+    // lookup settles. The playback outbox still owns the next retry afterward.
+    await context.worker.playbackDurationLookup?.promise;
     expect(context.state.storage.alarm).toBe(pending.retryAtMs);
 
     const successfulDispatch = vi.fn(async () =>
@@ -9240,6 +9372,7 @@ describe('PRO admission capacity and throttle', () => {
     );
     expect(queued.status).toBe(200);
     expect((await ownerSelect(restarted, context.ownerCookie, queueItemId)).status).toBe(202);
+    await restarted.playbackDurationLookup?.promise;
     expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
     expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
     expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});

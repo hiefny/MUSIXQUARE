@@ -93,6 +93,9 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO autonomous natural completion — 2026-10-12](design/pro-autonomous-playback-2026-10-12.md) —
+  server-owned end deadlines, bounded file headers and authenticated YouTube
+  metadata, controller sleep/departure, queue transitions and rollback compatibility.
 - [PRO PWA force-close and relaunch — 2026-10-12](design/pro-pwa-force-close-audit-2026-10-12.md) —
   missing-exit presence retention, 45-second lease probes and approved continuation
   copy in all 42 locales; App 8.9.4 / v655 release and verification evidence.

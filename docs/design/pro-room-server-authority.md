@@ -2,7 +2,7 @@
 
 - **Status:** Accepted and implemented as the current production contract
 - **Decision date:** 2026-07-20
-- **Last repository contract review:** 2026-08-19
+- **Last repository contract review:** 2026-10-12
 - **Applies to:** persistent PRO rooms in the reserved `0xxxxx` namespace
 - **Does not apply to:** ordinary temporary rooms
 - **Compatibility:** the PRO cutover does not support the former
@@ -402,13 +402,36 @@ rebased onto a later canonical revision.
 - Reports from a prior item, prior transition, replaced tab, prior control
   epoch, or already-advanced revision cannot affect playback.
 
-This strict boundary means natural queue advance requires at least one online,
-playback-authorized browser to observe the end. If only ordinary listeners are
-online, their local media may end while the canonical anchor remains on that
-item until an authorized browser returns or issues a control. A future
-server-derived timer may remove that availability trade-off only after media
-duration is sourced from trusted server metadata; client-declared duration is
-not sufficient authority.
+Natural completion also has a server-owned path. While at least one participant
+remains, owner departure or browser suspension does not pause the playlist.
+The Durable Object resolves finite media duration from immutable R2 object
+bytes or the App Worker's signed, private YouTube metadata service. A
+playback-authorized browser may additionally attest its decoded **file** length
+in the exact PREPARE READY response; ordinary listeners and iframe durations
+cannot set the server's ending boundary. Stored evidence is bounded and tied to
+the exact queue occurrence, source asset/version, or YouTube video/subindex.
+
+The next Durable Object alarm includes the canonical anchor's ending time.
+After pruning expired presence, the alarm advances through the same reducer,
+PREPARE/COMMIT, and durable broadcast outbox as authorized browser observations.
+Pending manual transitions, explicit pause, an empty room, and system audio
+suppress this timer. Server-parsed lengths have two seconds of conservative
+grace for container padding and YouTube duration rounding; controller-attested
+decoded file lengths do not need that grace. Browser ENDED can still settle
+the boundary sooner. A new seek/selection/repeat revision cannot inherit an old
+ending action, and the last participant's departure retains the existing
+sleep/freeze behavior.
+
+Live or unknown YouTube lengths, private/missing metadata, API failures, and
+files exceeding bounded metadata inspection do not become permission to skip.
+They retain the authorized observation path and bounded metadata retries.
+Only explicit server-verified non-embeddability or terminal upload failure is
+an automatic unavailability verdict; repeated unavailable targets are bounded
+so an entirely unplayable repeat queue becomes idle instead of cycling forever.
+An old YouTube playlist without a traversal manifest ends in a canonical
+paused state when its next internal video cannot be resolved. No ordinary
+participant gains manual playback control. See the
+[implementation and verification record](pro-autonomous-playback-2026-10-12.md).
 
 Queue traversal, shuffle, repeat-one, repeat-all, and YouTube playlist
 sub-index selection are server reducer operations. UI controls, ENDED reports,

@@ -14,7 +14,10 @@ Worker and the App change together.
 > **Same release (2026-10-11).** The branch also carries the
 > [in-room update prompt](in-room-update-prompt-2026-10-11.md), which moves
 > the PWA cache to `v657` (`v656`, then `v657` for its review follow-up).
-> The `v654`/`v655` results below predate it.
+> The `v654`/`v655` results below predate it. Follow-up: the lazy-feature
+> recovery dialog's own copy (owner decision 2026-10-11) then moved the
+> release cache to `v658`; see that report's [recovery dialog copy
+> follow-up](in-room-update-prompt-2026-10-11.md#recovery-dialog-copy-follow-up-2026-10-11).
 
 ## Owner decisions (2026-10-11)
 

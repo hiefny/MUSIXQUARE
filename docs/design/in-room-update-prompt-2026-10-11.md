@@ -2,9 +2,10 @@
 
 Status: implemented and verified locally on branch
 `agent/standard-room-owner-pin` (PR #294) as part of the unreleased App
-`8.10.0`, PWA cache `v657` (`v656` for the first version, then `v657` for the
-[review follow-up](#review-follow-up-2026-10-11); `v656` was never
-deployed). Not merged or deployed; production remains App
+`8.10.0`, PWA cache `v658` (`v656` for the first version, `v657` for the
+[review follow-up](#review-follow-up-2026-10-11), then `v658` for the
+[recovery dialog copy](#recovery-dialog-copy-follow-up-2026-10-11); `v656`
+and `v657` were never deployed). Not merged or deployed; production remains App
 `8.9.0` / `v651` at `d76b1432` ([release record](../release-record.md)). On
 its own this is an App-only change; it ships in the 8.10.0 release, whose
 target is `all` because of the [Standard-room owner
@@ -38,22 +39,29 @@ toast with the same text. The owner decided:
    decision 1 for the same generation.
 5. Every existing safeguard stays, and a tab in a room is never auto-reloaded.
 
-### Decisions 1 and 2 conflict on the create and join screens (owner confirmation)
+### Create and join screens (owner decision 2026-10-11)
 
 Decision 1 defines a room as `network.appRole !== 'idle'`; decision 2 lists
 the create and join flows as outside rooms. Tapping Host or Join, and an
 invite-link landing, set `appRole` to `host` or `guest` at once
-(`startHostFlow`, `startGuestFlow`), so the two decisions disagree there. The
+(`startHostFlow`, `startGuestFlow`), so the two decisions disagreed there. The
 implementation follows decision 1: the create and join screens get no
 dialog, a toast while setup still covers them, and the chat notice once the
 room starts. Reason: a host already accepts guests on the code screen before
 it taps Start (the `connection` handler checks only the host role), so a
 Refresh there would drop them, and an invite-link guest is in the middle of
-joining a live event, which a Refresh would restart. **The owner should
-confirm this.** If decision 2 is meant literally, the
-deferral can be gated on a started room (`setup.sessionStarted` or a room
-context) instead of the role; the create and join screens would then keep
-today's dialog.
+joining a live event, which a Refresh would restart. The owner confirmed
+this behaviour after the review (decision 6 below).
+
+### Owner decisions after the review (2026-10-11)
+
+6. The create and join screens, including an invite-link join, keep the
+   toast (then the chat notice once the room starts), not the dialog.
+7. The lazy-feature recovery dialog keeps its behaviour: it still opens in a
+   room, is not dismissible, and its only action is 새로고침. It gets its own
+   copy instead of the update dialog's: "새로고침이 필요해요" / "MUSIXQUARE가
+   업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요." See the
+   [recovery dialog copy follow-up](#recovery-dialog-copy-follow-up-2026-10-11).
 
 ## Change
 
@@ -156,6 +164,9 @@ Not reviewed by native speakers.
   after that bump, so `guard:sw-cache-version` required `v657` (`c56ce268`).
   The release-record 8.10.0 item counts 66 App runtime paths against
   `d76b1432` (adds `src/sw-register.ts`); the follow-up adds no new path.
+  The [recovery dialog copy
+  follow-up](#recovery-dialog-copy-follow-up-2026-10-11) moves the cache to
+  `v658` and the count to 67.
 
 ## Review follow-up (2026-10-11)
 
@@ -164,8 +175,8 @@ A review of the first version (`2759fcb2`) found six issues:
 | Finding | Result |
 | --- | --- |
 | PRO presence re-entry projects `appRole` `idle` while the room stays up, so the deferred retry could open the dialog in the room and another tab's activation could reload it | Fixed in `75c75ac8`: a room also counts while the session is started or a room context is set. Unit tests for each condition and for another tab's activation during re-entry |
-| The lazy-feature recovery dialog in `src/app.ts` reuses the update dialog's title and message, is not dismissible, and can open in a room | Not changed: it is needed, because the feature cannot load without a reload. Recorded as a known exception here and in the hotfix procedure; distinct copy or a dismissible in-room variant would be an owner decision |
-| The docs said the create and join screens keep the dialog, but they are `host`/`guest` by role and get a toast, which also used up the chat notice | Docs corrected; the toast no longer uses up the chat notice (`75c75ac8`); the conflict between decisions 1 and 2 is [raised for the owner](#decisions-1-and-2-conflict-on-the-create-and-join-screens-owner-confirmation) |
+| The lazy-feature recovery dialog in `src/app.ts` reuses the update dialog's title and message, is not dismissible, and can open in a room | Behaviour not changed: it is needed, because the feature cannot load without a reload. The owner then kept the behaviour and gave it its own copy ([decision 7](#owner-decisions-after-the-review-2026-10-11), [follow-up](#recovery-dialog-copy-follow-up-2026-10-11)) |
+| The docs said the create and join screens keep the dialog, but they are `host`/`guest` by role and get a toast, which also used up the chat notice | Docs corrected; the toast no longer uses up the chat notice (`75c75ac8`); the owner then confirmed the toast on these screens ([decision 6](#owner-decisions-after-the-review-2026-10-11)) |
 | Urdu notices began with the Latin brand, so `dir="auto"` laid them out left to right | Fixed in `37e31cac` (both begin with "اب", "now"); the factual contract now requires RTL notices to open with RTL script |
 | Russian wrote "применить ее" | Fixed in `37e31cac` ("её") |
 | The README still named the owner PIN release `v655` | Corrected |
@@ -174,11 +185,11 @@ A review of the first version (`2759fcb2`) found six issues:
 ## Rollout limit: the first deployment
 
 The new behavior runs in the client. Devices still running older code
-(production `v651` or earlier; `v656` was never deployed) see the `v657`
-update through their old code: the blocking dialog on any screen, including
-in a room, and the old toast when another tab accepts. Only updates after
-`v657` follow the new policy on devices that already run `v657`. **Deploy
-this change outside a live event.**
+(production `v651` or earlier; `v656` and `v657` were never deployed) see the
+`v658` update through their old code: the blocking dialog on any screen,
+including in a room, and the old toast when another tab accepts. Only updates
+after `v658` follow the new policy on devices that already run `v658`.
+**Deploy this change outside a live event.**
 
 ## Verification
 
@@ -189,7 +200,9 @@ the review follow-up: `75c75ac8` policy and tests, `37e31cac` copy,
 verified the same way at `bb61cbc6` (11,498 unit tests passed then).
 Windows 11, Node 24.13.1, npm 11.8.0, Vitest 5.0.3, Playwright 1.63.0
 Chromium, dependencies through the main checkout's `node_modules` junction.
-All runs are local; none is an exact-main CI candidate.
+All runs are local; none is an exact-main CI candidate. The later recovery
+dialog copy follow-up (cache `v658`) has its own
+[verification](#follow-up-verification) at `441b88fa`.
 
 | Command | Result |
 | --- | --- |
@@ -287,18 +300,94 @@ the worker still waiting. Screenshots (outside the repository):
   still completes that approved reload, as before.
 - The create and join screens, including an invite-link join, are a
   provisional room by role (`appRole` `host` or `guest` from the moment
-  Host or Join is tapped), so per decision 1 they get a toast instead of the
-  dialog, then the chat notice once the room starts. Decision 2 listed them
-  as keeping the dialog; this needs [owner
-  confirmation](#decisions-1-and-2-conflict-on-the-create-and-join-screens-owner-confirmation).
-- Known exception: when a room-time lazy feature fails to load (Connect on
-  entering a room, announcements, the room session, or PRO setup), the
-  lazy-feature recovery dialog in `src/app.ts` still opens in the room. It
-  uses the update dialog's title and message ("업데이트 / 새 버전이
-  준비되었어요"), is not dismissible, and its only button reloads the device
-  out of the room. It is needed because the feature cannot load without a
-  reload. Distinct copy, or a dismissible variant while in a room, would be
-  an owner decision.
+  Host or Join is tapped), so they get a toast instead of the dialog, then
+  the chat notice once the room starts. Decision 2 had listed them as keeping
+  the dialog; the owner confirmed the toast ([decision
+  6](#owner-decisions-after-the-review-2026-10-11)).
+- Owner-approved exception: when a room-time lazy feature fails to load
+  (Connect on entering a room, announcements, the room session, or PRO
+  setup), the lazy-feature recovery dialog in `src/app.ts` still opens in the
+  room, is not dismissible, and its only button reloads the device out of the
+  room, because the feature cannot load without a reload. Since the [copy
+  follow-up](#recovery-dialog-copy-follow-up-2026-10-11) it no longer borrows
+  the update dialog's title and message ([decision
+  7](#owner-decisions-after-the-review-2026-10-11)).
 - PRO presence re-entry and the toast-to-chat follow-up are covered by unit
   tests only.
+- No native-speaker review of the 41 translated locales.
+
+## Recovery dialog copy follow-up (2026-10-11)
+
+After the review, the owner made [decisions 6 and
+7](#owner-decisions-after-the-review-2026-10-11): the create and join screens
+keep the toast (no code change), and the lazy-feature recovery dialog keeps
+its behaviour but gets its own copy.
+
+### Follow-up change
+
+- **Copy (42 locales).** New keys `dialog.feature_refresh_title` and
+  `dialog.feature_refresh_msg`. Korean is the owner's text; English is
+  "Refresh needed" / "MUSIXQUARE has been updated. Refresh to keep using it
+  normally." The message names no single feature: it says the app was
+  updated and needs a refresh to keep working normally. Every locale keeps
+  `MUSIXQUARE` exact (once, in the message) and its existing register. The
+  Arabic, Persian, Hebrew, and Urdu texts open with RTL script (Urdu with
+  "اب", as in the in-room notice), so `dir="auto"` keeps them right to left.
+  `dialog.sw_update_*` and the in-room chat notice are unchanged. Not
+  reviewed by native speakers.
+- **Dialog (`src/app.ts`).** `runLazyFeatureRecovery` shows the new keys
+  instead of `dialog.sw_update_title` / `dialog.sw_update_msg`. Behaviour is
+  unchanged: it still opens in a room, `dismissible: false`, one button
+  (`common.refresh`), no abort signal, and the same reload, decline, and
+  stale-document handling.
+- **Release identity.** PWA cache `v657` to `v658` with the `index.html`
+  bootstrap query, as the last runtime commit; App stays `8.10.0`. The
+  release-record 8.10.0 item now counts 67 App runtime paths against
+  `d76b1432` (adds `src/app.ts`).
+
+| Key | Korean (owner's text) | English |
+| --- | --- | --- |
+| `dialog.feature_refresh_title` | 새로고침이 필요해요 | Refresh needed |
+| `dialog.feature_refresh_msg` | MUSIXQUARE가 업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요. | MUSIXQUARE has been updated. Refresh to keep using it normally. |
+
+### Follow-up tests
+
+- `src/i18n/__tests__/factual-translation-contracts.test.ts`, one new case
+  over both keys in 42 locales: plain text with no placeholders, markup,
+  digits, or line breaks; the brand exactly once in the message and not in
+  the title; different from the update dialog's title and message; RTL
+  locales open with RTL script; no English copy outside English; the
+  Korean and English copy pinned; the Korean update dialog copy unchanged.
+- `src/ui/__tests__/app-ux-contract.test.ts`: the recovery dialog uses the
+  two new keys, `common.refresh`, and `dismissible: false`, names no
+  `dialog.sw_update_` key, and has no second button, abort signal, or room
+  check that could hide or retract it in a room.
+
+### Follow-up verification
+
+Tested code: `441b88fa` on `agent/standard-room-owner-pin` (`314fc548` copy
+and contract, `1334953f` dialog and contract, `441b88fa` cache `v658`; the
+docs commit follows). Same machine and tool versions as above (Windows 11,
+Node 24.13.1, npm 11.8.0, Vitest 5.0.3, main checkout's `node_modules`
+junction). All runs are local; none is an exact-main CI candidate.
+
+| Command | Result |
+| --- | --- |
+| `npm run typecheck` | pass |
+| `npm run lint` | pass, zero warnings |
+| `npm run format:check` | pass |
+| `npx vitest run` app UX contract, reload-recovery latch, room-session feature loader, PRO setup runtime boundary and failure, sw-register (unit and recovery integration), sw-update coordination and completion, `src/i18n` | 36 files, 544 passed |
+| `npm test` | 538 files, 11,505 passed, 0 failed, 1 skipped (the same `jq`-dependent shell-plan contract test) |
+| `guard:release-identity` | pass; `8.10.0` / `v658` |
+| `guard:sw-cache-version` | pass; `v658` (`441b88fa`) covers every committed PWA runtime change |
+| `guard:brand-capitalization` | pass (771 sources) |
+| `guard:dead-exports` | pass |
+| `npm run build:checked` | pass, including `guard:legacy-tv-build` (Chromium 79), `service-worker` at `v658`, `initial-transfer-budget`, and `sw-app-shell` |
+
+### Follow-up limits
+
+- Not run for this follow-up: `test:coverage:critical`, the Chromium browser
+  probe, and real devices. The recovery dialog only appears when a lazily
+  loaded chunk fails to load, so its copy is covered by the unit contracts
+  above, not seen in a browser.
 - No native-speaker review of the 41 translated locales.

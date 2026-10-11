@@ -574,6 +574,34 @@ describe('PRO natural completion with ordinary listeners and no active controlle
     );
   });
 
+  it.each(['version', 'deletion'] as const)(
+    'backs off a file probe whose asset fails its %s identity check instead of re-arming at once',
+    async (change) => {
+      const context = await fixture();
+      const asset = context.room.assets[`asset_${FIRST}`]!;
+      if (change === 'version') asset.version = 2; // The queue row still names version 1.
+      if (change === 'deletion')
+        asset.deletionPending = {
+          reason: 'orphan-gc',
+          originalStatus: 'ready',
+          requestedAtMs: NOW,
+          retryAtMs: NOW + 3_600_000,
+        };
+      await context.worker.persist();
+      await start(context);
+      await leaveOwner(context);
+      expect(metadata.file).not.toHaveBeenCalled();
+      expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+      const probe = context.room.playbackDurationProbe!;
+      expect(probe).toMatchObject({ attempts: 1 });
+      expect(probe.retryAtMs).toBeGreaterThanOrEqual(NOW + 5 * 60_000);
+      expect(context.storage.alarm).toBeGreaterThan(Date.now() + 1_000);
+      await alarmAt(context, Date.now() + 1_000);
+      expect(context.room.playbackDurationProbe).toEqual(probe);
+      expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+    },
+  );
+
   it('does not block a new selection on metadata I/O or apply the previous track result to it', async () => {
     let completeFile!: (duration: number | null) => void;
     metadata.file.mockImplementationOnce(

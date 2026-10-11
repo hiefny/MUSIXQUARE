@@ -5515,11 +5515,14 @@ export class MusixquareProRoom {
         const currentProbe = this.activeRoom.playbackDurationProbe;
         const currentAsset = identity.mediaKind === 'file' ? this.durationAsset(identity) : null;
         const matchesAsset = currentAsset && currentAsset.objectKey === objectKey;
+        // A file whose asset failed the identity check at lookup start read no
+        // bytes and has no evidence to store, but still owes the queue its
+        // retry backoff; otherwise the overdue probe re-arms the alarm at once.
         const appliesToQueue =
           currentProbe &&
           playbackDurationIdentityKey(currentProbe.identity) === key &&
           this.playbackDurationIdentityExists(identity) &&
-          (identity.mediaKind === 'youtube' || matchesAsset);
+          (identity.mediaKind === 'youtube' || matchesAsset || objectKey === null);
         const appliesToAsset =
           matchesAsset &&
           isFiniteNumber(durationSeconds) &&

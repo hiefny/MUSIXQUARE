@@ -810,7 +810,7 @@ const ro: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Toți vor trebui să intre din nou. Recomandat ca să elimini dintr-odată persoanele pe care nu le cunoști.',
   'pro.pin_keep_unavailable':
-    'Parola nu a fost schimbată. Momentan nu poți păstra persoanele în cameră. Încearcă mai târziu sau cere tuturor să intre din nou.',
+    'Parola nu a fost schimbată. Momentan nu poți păstra persoanele în cameră. Încearcă mai târziu sau alege „Toți intră din nou”.',
   'pro.pin_enabled_removed_title': 'Camera are acum parolă',
   'pro.pin_enabled_removed_message':
     'Proprietarul camerei a setat o parolă pentru această cameră. Introdu-o ca să intri din nou.',

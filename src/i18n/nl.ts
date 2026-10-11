@@ -794,7 +794,7 @@ const nl: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Iedereen moet opnieuw deelnemen. Aanbevolen om onbekenden in één keer te verwijderen.',
   'pro.pin_keep_unavailable':
-    'Het wachtwoord is niet gewijzigd. Mensen in de kamer laten blijven kan nu niet. Probeer het later opnieuw of laat iedereen opnieuw deelnemen.',
+    'Het wachtwoord is niet gewijzigd. Mensen in de kamer laten blijven kan nu niet. Probeer het later opnieuw of kies “Iedereen neemt opnieuw deel”.',
   'pro.pin_enabled_removed_title': 'De kamer heeft nu een wachtwoord',
   'pro.pin_enabled_removed_message':
     'De kamereigenaar heeft een wachtwoord voor deze kamer ingesteld. Voer het in om opnieuw deel te nemen.',

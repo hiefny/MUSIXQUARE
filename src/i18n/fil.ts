@@ -814,7 +814,7 @@ const fil: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Kailangang sumali muli ng lahat. Inirerekomenda ito para maalis nang sabay-sabay ang mga taong hindi mo kilala.',
   'pro.pin_keep_unavailable':
-    'Hindi napalitan ang password. Hindi pa puwedeng panatilihin ang mga tao sa kuwarto ngayon. Subukan muli mamaya, o pasalihin muli ang lahat.',
+    'Hindi napalitan ang password. Hindi pa puwedeng panatilihin ang mga tao sa kuwarto ngayon. Subukan muli mamaya, o piliin ang “Sasali muli ang lahat”.',
   'pro.pin_enabled_removed_title': 'May password na ang kuwarto',
   'pro.pin_enabled_removed_message':
     'Nagtakda ng password ang may-ari ng kuwarto para sa kuwartong ito. Ilagay ito para makasali muli.',

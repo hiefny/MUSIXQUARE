@@ -718,7 +718,7 @@ const id: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Semua orang harus bergabung kembali. Disarankan untuk mengeluarkan orang yang tidak Anda kenal sekaligus.',
   'pro.pin_keep_unavailable':
-    'Sandi tidak diubah. Saat ini orang di ruang tidak bisa dipertahankan. Coba lagi nanti, atau minta semua orang bergabung kembali.',
+    'Sandi tidak diubah. Saat ini orang di ruang tidak bisa dipertahankan. Coba lagi nanti, atau pilih “Semua bergabung kembali”.',
   'pro.pin_enabled_removed_title': 'Ruang kini memakai sandi',
   'pro.pin_enabled_removed_message':
     'Pemilik ruang telah mengatur sandi untuk ruang ini. Masukkan sandi untuk bergabung kembali.',

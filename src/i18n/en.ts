@@ -787,7 +787,7 @@ const en: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     "Everyone has to join again. Recommended for removing people you don't know all at once.",
   'pro.pin_keep_unavailable':
-    "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or make everyone rejoin.",
+    "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or choose “Everyone rejoins”.",
   'pro.pin_enabled_removed_title': 'Room password set',
   'pro.pin_enabled_removed_message':
     'The room owner set a password for this room. Enter it to rejoin.',

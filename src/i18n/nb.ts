@@ -796,7 +796,7 @@ const nb: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Alle må bli med på nytt. Anbefales hvis du vil fjerne folk du ikke kjenner, på én gang.',
   'pro.pin_keep_unavailable':
-    'Passordet ble ikke endret. Det går ikke an å la folk bli i rommet akkurat nå. Prøv igjen senere, eller få alle til å bli med på nytt.',
+    'Passordet ble ikke endret. Det går ikke an å la folk bli i rommet akkurat nå. Prøv igjen senere, eller velg «Alle blir med på nytt».',
   'pro.pin_enabled_removed_title': 'Rommet har fått passord',
   'pro.pin_enabled_removed_message':
     'Rommets eier har angitt et passord for rommet. Skriv det inn for å bli med igjen.',

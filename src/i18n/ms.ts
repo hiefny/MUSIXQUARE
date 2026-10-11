@@ -807,7 +807,7 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Semua orang perlu menyertai semula. Disyorkan untuk mengeluarkan orang yang Anda tidak kenali sekali gus.',
   'pro.pin_keep_unavailable':
-    'Kata laluan tidak ditukar. Buat masa ini, orang dalam bilik tidak dapat dikekalkan. Cuba lagi kemudian atau minta semua orang menyertai semula.',
+    'Kata laluan tidak ditukar. Buat masa ini, orang dalam bilik tidak dapat dikekalkan. Cuba lagi kemudian atau pilih “Semua menyertai semula”.',
   'pro.pin_enabled_removed_title': 'Bilik kini mempunyai kata laluan',
   'pro.pin_enabled_removed_message':
     'Pemilik bilik telah menetapkan kata laluan untuk bilik ini. Masukkan kata laluan untuk menyertai semula.',

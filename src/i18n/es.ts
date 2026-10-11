@@ -729,7 +729,7 @@ const es: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Todos tendrán que volver a entrar. Recomendado para sacar de una vez a las personas que no conoces.',
   'pro.pin_keep_unavailable':
-    'No se cambió la contraseña. Ahora mismo no se puede mantener a las personas en la sala. Inténtalo más tarde o haz que todos vuelvan a entrar.',
+    'No se cambió la contraseña. Ahora mismo no se puede mantener a las personas en la sala. Inténtalo más tarde o elige “Todos vuelven a entrar”.',
   'pro.pin_enabled_removed_title': 'Se definió una contraseña',
   'pro.pin_enabled_removed_message':
     'El propietario de la sala definió una contraseña para esta sala. Introdúcela para volver a entrar.',

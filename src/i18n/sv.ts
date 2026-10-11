@@ -802,7 +802,7 @@ const sv: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Alla måste gå med igen. Rekommenderas om du vill ta bort personer du inte känner på en gång.',
   'pro.pin_keep_unavailable':
-    'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller kräv att alla går med igen.',
+    'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller välj ”Alla går med igen”.',
   'pro.pin_enabled_removed_title': 'Rummet har fått ett lösenord',
   'pro.pin_enabled_removed_message':
     'Rumsägaren har ställt in ett lösenord för rummet. Ange det för att gå med igen.',

@@ -789,7 +789,7 @@ const tr: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Herkesin yeniden katılması gerekir. Tanımadığın kişileri tek seferde çıkarmak için önerilir.',
   'pro.pin_keep_unavailable':
-    'Parola değiştirilmedi. Şu anda kişileri odada tutmak mümkün değil. Daha sonra tekrar dene veya herkesin yeniden katılmasını sağla.',
+    'Parola değiştirilmedi. Şu anda kişileri odada tutmak mümkün değil. Daha sonra tekrar dene veya “Herkes yeniden katılsın” seçeneğini seç.',
   'pro.pin_enabled_removed_title': 'Odaya parola belirlendi',
   'pro.pin_enabled_removed_message':
     'Oda sahibi bu oda için bir parola belirledi. Yeniden katılmak için parolayı gir.',

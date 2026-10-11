@@ -807,7 +807,7 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Wszyscy muszą dołączyć ponownie. Zalecane, jeśli chcesz od razu usunąć nieznane osoby.',
   'pro.pin_keep_unavailable':
-    'Hasło nie zostało zmienione. Obecnie nie można zostawić osób w pokoju. Spróbuj ponownie później albo poproś wszystkich o ponowne dołączenie.',
+    'Hasło nie zostało zmienione. Obecnie nie można zostawić osób w pokoju. Spróbuj ponownie później albo wybierz „Wszyscy dołączają ponownie”.',
   'pro.pin_enabled_removed_title': 'Pokój ma teraz hasło',
   'pro.pin_enabled_removed_message':
     'Właściciel pokoju ustawił hasło do tego pokoju. Wpisz je, aby dołączyć ponownie.',

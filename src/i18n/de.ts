@@ -728,7 +728,7 @@ const de: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Alle müssen erneut beitreten. Empfohlen, um Unbekannte auf einmal zu entfernen.',
   'pro.pin_keep_unavailable':
-    'Das Passwort wurde nicht geändert. Personen im Raum zu lassen ist gerade nicht möglich. Versuche es später erneut oder lass alle neu beitreten.',
+    'Das Passwort wurde nicht geändert. Personen im Raum zu lassen ist gerade nicht möglich. Versuche es später erneut oder wähle „Alle treten neu bei“.',
   'pro.pin_enabled_removed_title': 'Raumpasswort festgelegt',
   'pro.pin_enabled_removed_message':
     'Der Raumbesitzer hat ein Passwort für diesen Raum festgelegt. Gib es ein, um erneut beizutreten.',

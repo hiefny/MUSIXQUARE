@@ -796,7 +796,7 @@ const fi: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Kaikkien on liityttävä uudelleen. Suositeltavaa, jos haluat poistaa tuntemattomat kerralla.',
   'pro.pin_keep_unavailable':
-    'Salasanaa ei vaihdettu. Ihmisiä ei voi juuri nyt pitää huoneessa. Yritä myöhemmin uudelleen tai vaadi kaikkia liittymään uudelleen.',
+    'Salasanaa ei vaihdettu. Ihmisiä ei voi juuri nyt pitää huoneessa. Yritä myöhemmin uudelleen tai valitse ”Kaikki liittyvät uudelleen”.',
   'pro.pin_enabled_removed_title': 'Huoneelle asetettiin salasana',
   'pro.pin_enabled_removed_message':
     'Huoneen omistaja asetti huoneelle salasanan. Anna se, niin voit liittyä uudelleen.',

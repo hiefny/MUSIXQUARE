@@ -803,7 +803,7 @@ const hu: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Mindenkinek újra kell csatlakoznia. Ezt ajánljuk, ha egyszerre szeretnéd eltávolítani az ismeretleneket.',
   'pro.pin_keep_unavailable':
-    'A jelszó nem változott. A résztvevőket most nem lehet a szobában tartani. Próbáld újra később, vagy kérd, hogy mindenki csatlakozzon újra.',
+    'A jelszó nem változott. A résztvevőket most nem lehet a szobában tartani. Próbáld újra később, vagy válaszd a „Mindenki újra csatlakozik” lehetőséget.',
   'pro.pin_enabled_removed_title': 'A szobának jelszava lett',
   'pro.pin_enabled_removed_message':
     'A szobatulajdonos jelszót állított be ehhez a szobához. Add meg, és újra csatlakozhatsz.',

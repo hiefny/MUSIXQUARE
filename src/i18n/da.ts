@@ -797,7 +797,7 @@ const da: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Alle skal deltage igen. Anbefales, hvis du vil fjerne personer, du ikke kender, på én gang.',
   'pro.pin_keep_unavailable':
-    'Adgangskoden blev ikke ændret. Det er ikke muligt at lade folk blive i rummet lige nu. Prøv igen senere, eller få alle til at deltage igen.',
+    'Adgangskoden blev ikke ændret. Det er ikke muligt at lade folk blive i rummet lige nu. Prøv igen senere, eller vælg ”Alle deltager igen”.',
   'pro.pin_enabled_removed_title': 'Rummet har fået en adgangskode',
   'pro.pin_enabled_removed_message':
     'Rummets ejer har angivet en adgangskode til rummet. Indtast den for at deltage igen.',

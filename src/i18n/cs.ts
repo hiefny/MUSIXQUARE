@@ -800,7 +800,7 @@ const cs: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Všichni se budou muset připojit znovu. Doporučujeme, pokud chcete najednou odebrat lidi, které neznáte.',
   'pro.pin_keep_unavailable':
-    'Heslo nebylo změněno. Ponechat lidi v místnosti teď nelze. Zkuste to později znovu nebo vyžadujte nové připojení od všech.',
+    'Heslo nebylo změněno. Ponechat lidi v místnosti teď nelze. Zkuste to později znovu nebo zvolte „Všichni se připojí znovu“.',
   'pro.pin_enabled_removed_title': 'Místnost má teď heslo',
   'pro.pin_enabled_removed_message':
     'Vlastník místnosti nastavil pro tuto místnost heslo. Zadejte ho a připojte se znovu.',

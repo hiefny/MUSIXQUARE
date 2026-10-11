@@ -725,7 +725,7 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Tout le monde devra rejoindre de nouveau le salon. Recommandé pour retirer d’un coup les personnes que vous ne connaissez pas.',
   'pro.pin_keep_unavailable':
-    'Le mot de passe n’a pas été modifié. Impossible pour l’instant de laisser les personnes dans le salon. Réessayez plus tard ou faites revenir tout le monde.',
+    'Le mot de passe n’a pas été modifié. Impossible pour l’instant de laisser les personnes dans le salon. Réessayez plus tard ou choisissez « Tout le monde revient ».',
   'pro.pin_enabled_removed_title': 'Mot de passe du salon défini',
   'pro.pin_enabled_removed_message':
     'Le propriétaire du salon a défini un mot de passe. Saisissez-le pour rejoindre de nouveau le salon.',

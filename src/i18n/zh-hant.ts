@@ -671,7 +671,7 @@ const zhHant: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     '所有人都必須重新加入。若要一次移除所有不認識的人，建議使用此方式。',
   'pro.pin_keep_unavailable':
-    '密碼未變更。目前無法在保留現有成員的情況下變更密碼。請稍後再試，或讓所有人重新加入。',
+    '密碼未變更。目前無法在保留現有成員的情況下變更密碼。請稍後再試，或選擇「全部重新加入」。',
   'pro.pin_enabled_removed_title': '房間已設定密碼',
   'pro.pin_enabled_removed_message': '房主為這個房間設定了密碼。輸入密碼即可重新加入。',
   'pro.pin_changed_removed_title': '房間密碼已更新',

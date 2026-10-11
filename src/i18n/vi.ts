@@ -708,7 +708,7 @@ const vi: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Mọi người đều phải vào lại. Nên chọn cách này để mời tất cả người lạ ra khỏi phòng cùng lúc.',
   'pro.pin_keep_unavailable':
-    'Mật khẩu chưa được đổi. Hiện không thể giữ mọi người ở lại phòng. Hãy thử lại sau hoặc yêu cầu mọi người vào lại.',
+    'Mật khẩu chưa được đổi. Hiện không thể giữ mọi người ở lại phòng. Hãy thử lại sau hoặc chọn “Mọi người vào lại”.',
   'pro.pin_enabled_removed_title': 'Phòng đã được đặt mật khẩu',
   'pro.pin_enabled_removed_message':
     'Chủ phòng đã đặt mật khẩu cho phòng này. Nhập mật khẩu để vào lại phòng.',

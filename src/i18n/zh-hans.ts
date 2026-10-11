@@ -670,7 +670,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     '所有人都需要重新加入。如需一次移除所有陌生人，推荐使用此方式。',
   'pro.pin_keep_unavailable':
-    '密码未修改。目前无法在保留现有成员的情况下修改密码。请稍后重试，或让所有人重新加入。',
+    '密码未修改。目前无法在保留现有成员的情况下修改密码。请稍后重试，或选择“全部重新加入”。',
   'pro.pin_enabled_removed_title': '房间已设置密码',
   'pro.pin_enabled_removed_message': '房主为此房间设置了密码。输入密码即可重新加入。',
   'pro.pin_changed_removed_title': '房间密码已更改',

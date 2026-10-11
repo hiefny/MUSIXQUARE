@@ -726,7 +726,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Todos vão precisar entrar novamente. Recomendado para remover de uma vez as pessoas que você não conhece.',
   'pro.pin_keep_unavailable':
-    'A senha não foi alterada. No momento, não é possível manter as pessoas na sala. Tente novamente mais tarde ou faça todos entrarem novamente.',
+    'A senha não foi alterada. No momento, não é possível manter as pessoas na sala. Tente novamente mais tarde ou escolha “Todos entram novamente”.',
   'pro.pin_enabled_removed_title': 'A sala agora tem senha',
   'pro.pin_enabled_removed_message':
     'O proprietário da sala definiu uma senha para esta sala. Digite a senha para entrar novamente.',

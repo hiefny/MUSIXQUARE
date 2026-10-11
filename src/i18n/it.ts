@@ -813,7 +813,7 @@ const it: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Tutti dovranno rientrare. Consigliato per rimuovere in una volta sola chi non conosci.',
   'pro.pin_keep_unavailable':
-    'La password non è stata cambiata. Al momento non è possibile lasciare le persone nella stanza. Riprova più tardi o fai rientrare tutti.',
+    'La password non è stata cambiata. Al momento non è possibile lasciare le persone nella stanza. Riprova più tardi o scegli “Tutti rientrano”.',
   'pro.pin_enabled_removed_title': 'La stanza ora ha una password',
   'pro.pin_enabled_removed_message':
     'Il proprietario della stanza ha impostato una password. Inseriscila per rientrare.',

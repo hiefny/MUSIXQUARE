@@ -1234,7 +1234,9 @@ bus.on('network:room-password-changed', (password: string | null) => {
 
   const peer = getPeer();
   try {
-    peer?.setRoomPassword?.(password);
+    peer?.setRoomPassword?.(password)?.catch((error: unknown) => {
+      log.warn('[Host] Failed to update room password:', error);
+    });
   } catch (error) {
     log.warn('[Host] Failed to update room password:', error);
   }

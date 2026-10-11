@@ -431,17 +431,22 @@ bounded server read; a decode stored by 8.10.0 without one gets that read when
 its file next plays or is prepared. A failed or timed-out object read is not an
 answer: it is not recorded as an unknown length, so the next decode report
 reads again, and a playing file's failed read is retried like a failed
-metadata lookup. MP3 frame-count headers inconsistent with the audio span
-(after recognized ID3v1, APEv2, Lyrics3v2 and appended ID3v2.4 tags) and
-fragmented MP4 timelines remain unknown rather than too short. Behind a leading
-ID3 tag larger than the 1/16 concatenation tolerance, a stream byte count
-cannot tell the tag from an appended part: a CBR count must itself span the
-audio, and a VBR count is replaced by the bounded frame scan. Neither a
-metadata timeout nor an unsupported format rejects an otherwise successful
-upload. Optional metadata is omitted near room-state capacity rather than
-making an existing room unloadable; a refused metadata answer still records
-its retry backoff, and withdraws an earlier "not found" answer as an applied
-one would.
+metadata lookup, after 5 s, 30 s and then every 5 minutes. That includes the
+read behind an 8.10.0 decode, and one the queue refused near state capacity;
+the alarm wakes an otherwise idle room for it. MP3 frame-count headers
+inconsistent with the audio span (after recognized ID3v1, APEv2, Lyrics3v2 and
+appended ID3v2.4 tags) and fragmented MP4 timelines remain unknown rather than
+too short. A CBR 'Info' count must itself span the audio to within one frame,
+at the exact average length of the first audio frame after the Info frame
+(FFmpeg writes a low-bitrate stream's Info frame at a higher bitrate). A VBR
+count needs a stream byte count within the 1/16 concatenation tolerance, and
+behind a leading ID3 tag larger than that tolerance, or without a byte count,
+it is replaced by the bounded frame scan. Known limit: a VBR count still
+accepts an appended part smaller than that tolerance. Neither a metadata
+timeout nor an unsupported format rejects an otherwise successful upload.
+Optional metadata is omitted near room-state capacity rather than making an
+existing room unloadable; a refused metadata answer still records its retry
+backoff, and withdraws an earlier "not found" answer as an applied one would.
 
 The next Durable Object alarm includes the canonical anchor's ending time.
 After pruning expired presence, the alarm advances through the same reducer,

@@ -820,9 +820,9 @@ const uk: Record<I18nKey, string> = {
     'У кімнаті PRO може бути до 100 пристроїв, включно з пристроєм власника. Одне місце завжди залишається за власником.',
   'pro.join_rate_limited': 'Забагато спроб приєднатися. Спробуйте ще раз через {{count}} хв.',
   'pro.join_rate_limited_later': 'Забагато спроб приєднатися. Спробуйте ще раз трохи згодом.',
-  'pro.active_tab_title': 'Цю кімнату PRO вже відкрито в іншій вкладці',
-  'pro.active_tab_message': 'Якщо продовжити тут, наявна вкладка відключиться.',
-  'pro.use_this_tab': 'Використовувати цю вкладку',
+  'pro.active_tab_title': 'Залишилося попереднє з’єднання',
+  'pro.active_tab_message': 'Якщо продовжити тут, попереднє з’єднання буде завершено.',
+  'pro.use_this_tab': 'Продовжити тут',
   'pro.upload.batch_progress': 'Надсилання треків: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Деякі треки не вдалося надіслати',
   'pro.upload.batch_failed_message':

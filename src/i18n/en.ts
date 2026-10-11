@@ -805,9 +805,9 @@ const en: Record<I18nKey, string> = {
     'A PRO room holds up to 100 devices, including the owner. One spot is always kept for the owner.',
   'pro.join_rate_limited': 'Too many join attempts. Try again in {{count}} minutes.',
   'pro.join_rate_limited_later': 'Too many join attempts. Try again in a little while.',
-  'pro.active_tab_title': 'This PRO room is already open in another tab',
-  'pro.active_tab_message': 'Continuing here will disconnect the existing tab.',
-  'pro.use_this_tab': 'Use this tab',
+  'pro.active_tab_title': 'A previous connection remains',
+  'pro.active_tab_message': 'Continuing here will disconnect the previous connection.',
+  'pro.use_this_tab': 'Continue here',
   'pro.upload.batch_progress': 'Uploading tracks {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Some tracks couldn’t be uploaded',
   'pro.upload.batch_failed_message':

@@ -834,9 +834,9 @@ const ta: Record<I18nKey, string> = {
     'சேருவதற்கான முயற்சிகள் அதிகமாகிவிட்டன. {{count}} நிமிடங்களில் மீண்டும் முயலவும்.',
   'pro.join_rate_limited_later':
     'சேருவதற்கான முயற்சிகள் அதிகமாகிவிட்டன. சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
-  'pro.active_tab_title': 'இந்த PRO அறை ஏற்கனவே வேறொரு தாவலில் திறந்துள்ளது',
-  'pro.active_tab_message': 'இங்கே தொடர்ந்தால் ஏற்கனவே உள்ள தாவல் துண்டிக்கப்படும்.',
-  'pro.use_this_tab': 'இந்தத் தாவலைப் பயன்படுத்து',
+  'pro.active_tab_title': 'முந்தைய இணைப்பு இன்னும் உள்ளது',
+  'pro.active_tab_message': 'இங்கே தொடர்ந்தால் முந்தைய இணைப்பு துண்டிக்கப்படும்.',
+  'pro.use_this_tab': 'இங்கே தொடரவும்',
   'pro.upload.batch_progress': 'டிராக்குகள் பதிவேற்றப்படுகின்றன {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'சில டிராக்குகளைப் பதிவேற்ற முடியவில்லை',
   'pro.upload.batch_failed_message':

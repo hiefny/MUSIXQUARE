@@ -105,8 +105,19 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 운영·보안
 
+- [ ] **배포 승인(오너 지시, 2026-10-12):** 2026-10-11 보류를 해제하고 이전
+  연결 안내 문구와 누적된 PRO 시계·동시 입장·재시도 수정을 함께 배포하도록
+  승인했다. 후보는 App `8.9.4` / 캐시 `v655`이며 기존 미배포 #293을 포함한다.
+  App과 signaling 런타임이 바뀌므로 Production Release 대상은 `all`, Developer
+  API D1은 `false`다. 데이터·secret·binding·프로토콜·정원·요청 제한 및 복구
+  floor 변경은 없다. PR 검토·CI·exact-main-SHA 후보 검증 뒤 배포한다.
+  [시계·동시 입장](design/pro-clock-and-admission-races-2026-10-11.md),
+  [재시도 복원](design/pro-entry-retry-audit-2026-10-11.md),
+  [이전 연결 안내](design/pro-pwa-force-close-audit-2026-10-12.md)
 - [ ] 미배포 PRO 암호 두 단계 대화상자: App만 바뀌어 Production Release
-  `target=app`이면 된다. 배포 SHA `d76b1432` 대비 Worker 런타임 경로 변경은 없고,
+  `target=app`이면 되는 단독 변경이다. 위 PRO 시계·입장 수정과 함께 내보내면
+  그 묶음의 범위 판정을 따른다. 이 UI 변경만으로는 배포 SHA `d76b1432` 대비
+  Worker 런타임 경로 변경은 없고,
   App Worker는 관리자 버전 상수만 바뀐다. App `8.9.1` / SW 캐시 `v652`. API,
   Worker, 저장소를 바꾸지 않아 복구 경계와 floor는 그대로다. main의 캐시가 먼저
   올라가면 병합 직전에 번호를 다시 올린다. 배포한 뒤 §1을 덮어쓰고 이 항목을
@@ -140,6 +151,17 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 후속 작업과 유지 결정
 
+- [ ] iPhone PWA 강제 종료 후 재입장 안내: 종료 알림이 누락되면 마지막 생존 확인
+  후 45초 동안 이전 presence가 남아 "다른 탭" 안내가 나올 수 있다. 실제 Worker
+  진단 2건으로 만료 경계를 확인했다. 42개 언어를 "이전 연결"·"여기서 계속"에
+  해당하는 안내로 수정 중이며 배포·실기 확인이 남아 있다. 명시적 이어하기,
+  45초 presence 수명, 이전 연결 차단 정책은 유지한다.
+  [조사](design/pro-pwa-force-close-audit-2026-10-12.md)
+- [ ] PRO 입장 실패 뒤 재시도 복원 배포 대기: `f5c7a514`에서 현재 입장 시도만
+  같은 코드로 재시도할 수 있게 복원하고 중복 요청·뒤늦은 결과를 차단했다.
+  제품 수정은 로컬에만 있으며 운영에서는 아직 뒤로 가서 입장 흐름을 다시
+  시작해야 할 수 있다. iPhone Safari/PWA 실기 확인도 남아 있다.
+  [수정·검증](design/pro-entry-retry-audit-2026-10-11.md)
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
   포커스를 받는다. 8.7.8 이전부터 있던 문제다.
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전

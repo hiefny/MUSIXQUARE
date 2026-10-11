@@ -815,10 +815,9 @@ const da: Record<I18nKey, string> = {
     'Et PRO-rum kan have op til 100 enheder inklusive ejerens. Der er altid én plads reserveret til ejeren.',
   'pro.join_rate_limited': 'For mange forsøg på at deltage. Prøv igen om {{count}} minutter.',
   'pro.join_rate_limited_later': 'For mange forsøg på at deltage. Prøv igen om lidt.',
-  'pro.active_tab_title': 'Dette PRO-rum er allerede åbent i en anden fane',
-  'pro.active_tab_message':
-    'Hvis du fortsætter her, afbrydes forbindelsen til den allerede åbne fane.',
-  'pro.use_this_tab': 'Brug denne fane',
+  'pro.active_tab_title': 'Der er stadig en tidligere forbindelse',
+  'pro.active_tab_message': 'Hvis du fortsætter her, afbrydes den tidligere forbindelse.',
+  'pro.use_this_tab': 'Fortsæt her',
   'pro.upload.batch_progress': 'Uploader numre {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nogle numre kunne ikke uploades',
   'pro.upload.batch_failed_message':

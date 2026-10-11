@@ -59,6 +59,7 @@ let _youtubeGate: ReturnType<typeof gateSetupYouTubeGesture> | null = null;
 let _scannerActivation: Promise<boolean> | null = null;
 let _joinPreparationGeneration = 0;
 let _waitingForActivation = false;
+let _proJoinGeneration: number | null = null;
 
 function cancelGuestPreparation(): void {
   _youtubeGate?.cancel();
@@ -66,6 +67,7 @@ function cancelGuestPreparation(): void {
   _scannerActivation = null;
   _joinPreparationGeneration++;
   _waitingForActivation = false;
+  _proJoinGeneration = null;
 }
 
 function prepareGuestStartControls(): void {
@@ -108,6 +110,13 @@ export function setGuestGoBack(fn: () => void): void {
   _goBack = fn;
 }
 
+function restoreGuestSetupRole(): void {
+  // Shared by a fresh guest flow and its owned PRO failure/cancel recovery.
+  // PRO projects host before OPEN; failed entry may retain host or become idle.
+  setState('network.appRole', 'guest');
+  setState('network.isConnecting', false);
+}
+
 // Register invite-link role-selected callback
 setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
@@ -135,7 +144,7 @@ export function startGuestFlow(): void {
     }
   }
 
-  setState('network.appRole', 'guest');
+  restoreGuestSetupRole();
   setState('setup.sessionStarted', false);
 
   // Eagerly pre-create the hidden iOS YouTube prime player now (async), well
@@ -220,7 +229,13 @@ function _renderInviteLinkActions(retry = false, reloadRequired = false): void {
 
 /** Join directly using the invite code from URL (skip code input step) */
 async function _handleInviteLinkJoin(mode: number): Promise<void> {
-  if (_youtubeGate?.pending || _waitingForActivation || getState('network.isConnecting')) return;
+  if (
+    _youtubeGate?.pending ||
+    _waitingForActivation ||
+    _proJoinGeneration !== null ||
+    getState('network.isConnecting')
+  )
+    return;
   setupSetGuestJoinError(null);
   const autoCode = getPendingAutoJoinCode();
   if (!autoCode || !/^\d{6}$/.test(autoCode)) {
@@ -275,13 +290,22 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
 }
 
 async function _handleProRoomJoin(code: string): Promise<void> {
+  const generation = _joinPreparationGeneration;
+  const signal = getSetupOverlayAbort()?.signal;
+  _proJoinGeneration = generation;
+  const isCurrent = () =>
+    generation === _joinPreparationGeneration &&
+    !signal?.aborted &&
+    !getState('setup.sessionStarted');
   try {
     const joined = await enterProRoomFromSetup(code);
+    if (!isCurrent()) return;
     if (joined === 'reload-required') {
       _renderProRoomReloadRequired();
       return;
     }
     if (!joined) {
+      restoreGuestSetupRole();
       restoreJoinControlsAfterPasswordCancel();
       return;
     }
@@ -290,11 +314,15 @@ async function _handleProRoomJoin(code: string): Promise<void> {
     // setup UI commit for every equal PRO participant.
     if (!getState('setup.sessionStarted')) bus.emit('setup:guest-join-success');
   } catch (error) {
+    if (!isCurrent()) return;
+    restoreGuestSetupRole();
     log.error('[Setup] PRO room join failed', error);
     bus.emit('setup:guest-join-failure', {
       error,
       userMessage: describeProRoomJoinFailure(error),
     });
+  } finally {
+    if (_proJoinGeneration === generation) _proJoinGeneration = null;
   }
 }
 
@@ -398,7 +426,13 @@ export async function handleSetupJoinWithRole(
   mode: number | null,
   preserveQrScannerSuccess = false,
 ): Promise<void> {
-  if (_youtubeGate?.pending || _waitingForActivation || getState('network.isConnecting')) return;
+  if (
+    _youtubeGate?.pending ||
+    _waitingForActivation ||
+    _proJoinGeneration !== null ||
+    getState('network.isConnecting')
+  )
+    return;
   setupSetGuestJoinError(null);
   if (mode === null || mode === undefined) {
     showToast(t('setup.select_role_alt'));

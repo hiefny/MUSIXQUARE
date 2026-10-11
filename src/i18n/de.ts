@@ -747,10 +747,9 @@ const de: Record<I18nKey, string> = {
     'Ein PRO-Raum bietet Platz für bis zu 100 Geräte, einschließlich des Raumbesitzers. Ein Platz bleibt immer für den Raumbesitzer frei.',
   'pro.join_rate_limited': 'Zu viele Beitrittsversuche. Versuche es in {{count}} Minuten erneut.',
   'pro.join_rate_limited_later': 'Zu viele Beitrittsversuche. Versuche es etwas später erneut.',
-  'pro.active_tab_title': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
-  'pro.active_tab_message':
-    'Wenn du hier fortfährst, wird die Verbindung im bisherigen Tab getrennt.',
-  'pro.use_this_tab': 'Diesen Tab nutzen',
+  'pro.active_tab_title': 'Eine vorherige Verbindung besteht noch',
+  'pro.active_tab_message': 'Wenn du hier fortfährst, wird die vorherige Verbindung getrennt.',
+  'pro.use_this_tab': 'Hier fortfahren',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',
   'pro.upload.batch_failed_message':

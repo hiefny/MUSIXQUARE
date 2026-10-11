@@ -817,9 +817,9 @@ const te: Record<I18nKey, string> = {
     'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. {{count}} నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి.',
   'pro.join_rate_limited_later':
     'చేరడానికి చాలా ఎక్కువ ప్రయత్నాలు జరిగాయి. కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
-  'pro.active_tab_title': 'ఈ PRO గది ఇప్పటికే మరో ట్యాబ్‌లో తెరిచి ఉంది',
-  'pro.active_tab_message': 'ఇక్కడ కొనసాగితే ఇప్పటికే ఉన్న ట్యాబ్ డిస్‌కనెక్ట్ అవుతుంది.',
-  'pro.use_this_tab': 'ఈ ట్యాబ్‌ను ఉపయోగించు',
+  'pro.active_tab_title': 'మునుపటి కనెక్షన్ మిగిలి ఉంది',
+  'pro.active_tab_message': 'ఇక్కడ కొనసాగితే మునుపటి కనెక్షన్ నిలిపివేయబడుతుంది.',
+  'pro.use_this_tab': 'ఇక్కడ కొనసాగించండి',
   'pro.upload.batch_progress': 'ట్రాక్‌లు అప్‌లోడ్ అవుతున్నాయి {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'కొన్ని ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం',
   'pro.upload.batch_failed_message':

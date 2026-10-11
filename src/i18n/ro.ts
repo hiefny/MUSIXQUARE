@@ -829,9 +829,9 @@ const ro: Record<I18nKey, string> = {
     'O cameră PRO poate avea cel mult 100 de dispozitive, inclusiv pe cel al proprietarului. Un loc este mereu rezervat pentru proprietar.',
   'pro.join_rate_limited': 'Prea multe încercări de intrare. Reîncearcă peste {{count}} minute.',
   'pro.join_rate_limited_later': 'Prea multe încercări de intrare. Reîncearcă puțin mai târziu.',
-  'pro.active_tab_title': 'Această cameră PRO este deja deschisă în altă filă',
-  'pro.active_tab_message': 'Dacă vei continua aici, fila existentă va fi deconectată.',
-  'pro.use_this_tab': 'Folosește această filă',
+  'pro.active_tab_title': 'Mai există o conexiune anterioară',
+  'pro.active_tab_message': 'Dacă vei continua aici, conexiunea anterioară va fi închisă.',
+  'pro.use_this_tab': 'Continuă aici',
   'pro.upload.batch_progress': 'Se încarcă pistele {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Unele piste nu au putut fi încărcate',
   'pro.upload.batch_failed_message':

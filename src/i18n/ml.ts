@@ -828,10 +828,9 @@ const ml: Record<I18nKey, string> = {
     'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്. {{count}} മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.',
   'pro.join_rate_limited_later':
     'ചേരാനുള്ള ശ്രമങ്ങൾ വളരെ കൂടുതലാണ്. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.',
-  'pro.active_tab_title': 'ഈ PRO റൂം മറ്റൊരു ടാബിൽ ഇതിനകം തുറന്നിരിക്കുന്നു',
-  'pro.active_tab_message':
-    'ഇവിടെ തുടരുന്നത് ഇതിനകം തുറന്നിരിക്കുന്ന ടാബിന്റെ ബന്ധം വിച്ഛേദിക്കും.',
-  'pro.use_this_tab': 'ഈ ടാബ് ഉപയോഗിക്കുക',
+  'pro.active_tab_title': 'മുമ്പത്തെ കണക്ഷൻ ശേഷിക്കുന്നു',
+  'pro.active_tab_message': 'ഇവിടെ തുടർന്നാൽ മുമ്പത്തെ കണക്ഷൻ വിച്ഛേദിക്കപ്പെടും.',
+  'pro.use_this_tab': 'ഇവിടെ തുടരുക',
   'pro.upload.batch_progress': 'ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യുന്നു {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ചില ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യാനായില്ല',
   'pro.upload.batch_failed_message':

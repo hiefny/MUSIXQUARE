@@ -4249,11 +4249,14 @@ export class MusixquareRoom {
     if (authority.roomGeneration !== ticket.roomGeneration) return false;
     if (ticket.coordinatorEpoch < authority.coordinatorEpoch) return false;
     if (ticket.coordinatorEpoch > authority.coordinatorEpoch) return true;
-    if (ticket.presenceRevision < authority.presenceRevision) return false;
     // A ticket for the next authoritative revision can legitimately arrive
     // before the corresponding presence snapshot broadcast. Once that
     // snapshot arrives it either establishes the incarnation or closes it.
     if (ticket.presenceRevision > authority.presenceRevision) return true;
+    // Other participants can change the room revision while this signed
+    // ticket is in flight. Match the current incarnation, as established
+    // sockets do, so unrelated joins cannot invalidate an active participant.
+    // Removed or superseded incarnations remain absent and are still refused.
     return authority.activeIncarnationIds.includes(ticket.presenceIncarnationId);
   }
 

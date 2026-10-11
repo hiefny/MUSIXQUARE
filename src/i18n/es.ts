@@ -748,9 +748,9 @@ const es: Record<I18nKey, string> = {
   'pro.join_rate_limited':
     'Demasiados intentos de entrar. Vuelve a intentarlo en {{count}} minutos.',
   'pro.join_rate_limited_later': 'Demasiados intentos de entrar. Vuelve a intentarlo en un rato.',
-  'pro.active_tab_title': 'Esta sala PRO ya está abierta en otra pestaña',
-  'pro.active_tab_message': 'Si continúas aquí, se desconectará la pestaña existente.',
-  'pro.use_this_tab': 'Usar esta pestaña',
+  'pro.active_tab_title': 'Queda una conexión anterior',
+  'pro.active_tab_message': 'Si continúas aquí, se cerrará la conexión anterior.',
+  'pro.use_this_tab': 'Continuar aquí',
   'pro.upload.batch_progress': 'Subiendo pistas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'No se pudieron subir algunas pistas',
   'pro.upload.batch_failed_message':

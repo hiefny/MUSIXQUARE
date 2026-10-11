@@ -744,9 +744,9 @@ const ptBr: Record<I18nKey, string> = {
     'Uma sala PRO comporta até 100 dispositivos, incluindo o do proprietário. Sempre fica uma vaga reservada para o proprietário.',
   'pro.join_rate_limited': 'Muitas tentativas de entrar. Tente novamente em {{count}} minutos.',
   'pro.join_rate_limited_later': 'Muitas tentativas de entrar. Tente novamente daqui a pouco.',
-  'pro.active_tab_title': 'Esta sala PRO já está aberta em outra aba',
-  'pro.active_tab_message': 'Continuar aqui desconectará a aba existente.',
-  'pro.use_this_tab': 'Usar esta aba',
+  'pro.active_tab_title': 'Ainda há uma conexão anterior',
+  'pro.active_tab_message': 'Continuar aqui encerrará a conexão anterior.',
+  'pro.use_this_tab': 'Continuar aqui',
   'pro.upload.batch_progress': 'Enviando faixas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Não foi possível enviar algumas faixas',
   'pro.upload.batch_failed_message':

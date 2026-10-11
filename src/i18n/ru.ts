@@ -824,9 +824,9 @@ const ru: Record<I18nKey, string> = {
     'Слишком много попыток войти в комнату. Повторите попытку через {{count}} мин.',
   'pro.join_rate_limited_later':
     'Слишком много попыток войти в комнату. Повторите попытку чуть позже.',
-  'pro.active_tab_title': 'Эта PRO-комната уже открыта в другой вкладке',
-  'pro.active_tab_message': 'Если продолжить здесь, существующая вкладка будет отключена.',
-  'pro.use_this_tab': 'Использовать эту вкладку',
+  'pro.active_tab_title': 'Сохранилось предыдущее подключение',
+  'pro.active_tab_message': 'Если продолжить здесь, предыдущее подключение будет завершено.',
+  'pro.use_this_tab': 'Продолжить здесь',
   'pro.upload.batch_progress': 'Загрузка треков {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Некоторые треки не удалось загрузить',
   'pro.upload.batch_failed_message':

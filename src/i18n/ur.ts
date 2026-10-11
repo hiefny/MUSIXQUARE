@@ -806,9 +806,9 @@ const ur: Record<I18nKey, string> = {
     'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں۔ {{count}} منٹ بعد دوبارہ کوشش کریں۔',
   'pro.join_rate_limited_later':
     'شامل ہونے کی بہت زیادہ کوششیں ہوئی ہیں۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
-  'pro.active_tab_title': 'یہ PRO کمرہ پہلے ہی دوسرے ٹیب میں کھلا ہے',
-  'pro.active_tab_message': 'یہاں جاری رکھنے سے پہلے سے کھلا ٹیب منقطع ہو جائے گا۔',
-  'pro.use_this_tab': 'یہ ٹیب استعمال کریں',
+  'pro.active_tab_title': 'پچھلا کنکشن باقی ہے',
+  'pro.active_tab_message': 'یہاں جاری رکھنے سے پچھلا کنکشن منقطع ہو جائے گا۔',
+  'pro.use_this_tab': 'یہاں جاری رکھیں',
   'pro.upload.batch_progress': 'ٹریک اپ لوڈ ہو رہے ہیں {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'کچھ ٹریک اپ لوڈ نہیں ہو سکے',
   'pro.upload.batch_failed_message':

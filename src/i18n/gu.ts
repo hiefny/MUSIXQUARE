@@ -799,9 +799,9 @@ const gu: Record<I18nKey, string> = {
     'PRO રૂમમાં માલિક સહિત વધુમાં વધુ 100 ડિવાઇસ જોડાઈ શકે છે. માલિક માટે હંમેશા એક જગ્યા અનામત રહે છે.',
   'pro.join_rate_limited': 'જોડાવાના ઘણા વધારે પ્રયાસો થયા છે. {{count}} મિનિટ પછી ફરી પ્રયાસ કરો.',
   'pro.join_rate_limited_later': 'જોડાવાના ઘણા વધારે પ્રયાસો થયા છે. થોડી વાર પછી ફરી પ્રયાસ કરો.',
-  'pro.active_tab_title': 'આ PRO રૂમ પહેલેથી બીજા ટૅબમાં ખુલ્લો છે',
-  'pro.active_tab_message': 'અહીં આગળ વધવાથી હાલના ટૅબનું જોડાણ તૂટશે.',
-  'pro.use_this_tab': 'આ ટૅબ વાપરો',
+  'pro.active_tab_title': 'અગાઉનું જોડાણ બાકી છે',
+  'pro.active_tab_message': 'અહીં આગળ વધવાથી અગાઉનું જોડાણ બંધ થઈ જશે.',
+  'pro.use_this_tab': 'અહીં આગળ વધો',
   'pro.upload.batch_progress': 'ટ્રૅક અપલોડ થઈ રહ્યા છે {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'કેટલાક ટ્રૅક અપલોડ થઈ શક્યા નથી',
   'pro.upload.batch_failed_message':

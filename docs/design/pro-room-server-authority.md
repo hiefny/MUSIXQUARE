@@ -278,6 +278,14 @@ sampling window, samples at 0/120/300/700/1,500 ms after connect, refreshes the
 window every 30 seconds, and maps PREPARE deadlines and COMMIT timestamps
 through that offset. A sample is READY-fresh for five seconds.
 
+Fresh calibration sends requests at 0/80/180 ms. Two responses finish the round
+early with the lowest-RTT estimate; otherwise 220 ms ends sample selection only
+if a response has arrived. With no response yet, the round remains pending until
+its first response or the callers' individual bounded budgets. Expired/aborted
+callers cannot cancel a surviving caller's wait, and each success still checks
+that caller's server deadline. Disconnecting or closing the last wait discards
+the round's outstanding requests, so late replies cannot revive it.
+
 A browser may prepare media without a fresh sample, but it reports READY only
 after calibration is fresh at the decision boundary; otherwise it reports
 failed and later uses exact-checkpoint catch-up. READY v1 reports only

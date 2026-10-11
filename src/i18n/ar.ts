@@ -793,9 +793,9 @@ const ar: Record<I18nKey, string> = {
     'تتسع غرفة PRO لما يصل إلى 100 جهاز، بما فيها جهاز مالك الغرفة، ويبقى مكان واحد محجوزًا له دائمًا.',
   'pro.join_rate_limited': 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد {{count}} دقيقة.',
   'pro.join_rate_limited_later': 'محاولات الانضمام كثيرة جدًا. حاول مرة أخرى بعد قليل.',
-  'pro.active_tab_title': 'غرفة PRO هذه مفتوحة بالفعل في تبويب آخر',
-  'pro.active_tab_message': 'ستؤدي المتابعة هنا إلى قطع اتصال التبويب المفتوح حاليًا.',
-  'pro.use_this_tab': 'استخدام هذا التبويب',
+  'pro.active_tab_title': 'لا يزال هناك اتصال سابق',
+  'pro.active_tab_message': 'ستؤدي المتابعة هنا إلى قطع الاتصال السابق.',
+  'pro.use_this_tab': 'المتابعة هنا',
   'pro.upload.batch_progress': 'جارٍ رفع المقاطع {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'تعذّر رفع بعض المقاطع',
   'pro.upload.batch_failed_message':

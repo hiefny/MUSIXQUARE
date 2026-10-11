@@ -825,10 +825,9 @@ const pl: Record<I18nKey, string> = {
     'Pokój PRO mieści do 100 urządzeń, wliczając urządzenie właściciela. Jedno miejsce jest zawsze zarezerwowane dla właściciela.',
   'pro.join_rate_limited': 'Zbyt wiele prób dołączenia. Spróbuj ponownie za {{count}} min.',
   'pro.join_rate_limited_later': 'Zbyt wiele prób dołączenia. Spróbuj ponownie za chwilę.',
-  'pro.active_tab_title': 'Ten pokój PRO jest już otwarty w innej karcie',
-  'pro.active_tab_message':
-    'Jeśli będziesz kontynuować tutaj, dotychczasowa karta zostanie rozłączona.',
-  'pro.use_this_tab': 'Użyj tej karty',
+  'pro.active_tab_title': 'Poprzednie połączenie nadal istnieje',
+  'pro.active_tab_message': 'Kontynuowanie tutaj zakończy poprzednie połączenie.',
+  'pro.use_this_tab': 'Kontynuuj tutaj',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',
   'pro.upload.batch_failed_message':

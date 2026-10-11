@@ -421,9 +421,14 @@ Developer API uploads, queues one bounded server inspection. Existing rooms
 migrate verified queue evidence lazily and learn other lengths during playback
 inspection or authorized preparation, without reupload or playlist reset.
 Decoded controller evidence takes precedence over server evidence and upload
-headers. Neither a metadata timeout nor an unsupported format rejects an
-otherwise successful upload. Optional metadata is omitted near room-state
-capacity rather than making an existing room unloadable.
+headers, except that a controller length more than 10% shorter than a server
+or upload measurement of the same asset version is acknowledged and ignored;
+the measurement stays as a floor beneath accepted controller values. MP3
+frame-count headers inconsistent with the file size and fragmented MP4
+timelines remain unknown rather than too short. Neither a metadata timeout nor
+an unsupported format rejects an otherwise successful upload. Optional metadata
+is omitted near room-state capacity rather than making an existing room
+unloadable.
 
 The next Durable Object alarm includes the canonical anchor's ending time.
 After pruning expired presence, the alarm advances through the same reducer,
@@ -436,12 +441,15 @@ the boundary sooner. A new seek/selection/repeat revision cannot inherit an old
 ending action, and the last participant's departure retains the existing
 sleep/freeze behavior.
 
-Live or unknown YouTube lengths, private/missing metadata, API failures, and
-files exceeding bounded metadata inspection do not become permission to skip.
-They retain the authorized observation path and bounded metadata retries.
-Only explicit server-verified non-embeddability or terminal upload failure is
-an automatic unavailability verdict; repeated unavailable targets are bounded
-so an entirely unplayable repeat queue becomes idle instead of cycling forever.
+Live or unknown YouTube lengths, a single missing-video answer, API failures,
+and files exceeding bounded metadata inspection do not become permission to
+skip. They retain the authorized observation path and metadata retries that
+back off from one to fifteen minutes. Explicit server-verified
+non-embeddability, terminal upload failure, or two YouTube "not found" answers
+(an empty result: deleted, or private to the key) from separate lookups at
+least a minute apart are automatic unavailability verdicts; a live stream never
+is. Repeated unavailable targets are bounded so an entirely unplayable repeat
+queue becomes idle instead of cycling forever.
 An old YouTube playlist without a traversal manifest ends in a canonical
 paused state when its next internal video cannot be resolved. No ordinary
 participant gains manual playback control. See the

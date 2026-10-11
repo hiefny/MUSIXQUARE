@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-11 (main `1748588e`, 배포 SHA `6e59d96c`) |
+| Last source review | 2026-10-11 (배포 SHA `d76b1432`, Release `38101940058`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,16 +28,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.8.0` / `v646` |
-| 마지막 프로덕션 변경 | 2026-10-10 19:33 KST, [Release 38045004901](https://github.com/hiefny/MUSIXQUARE/actions/runs/38045004901) attempt 1 성공, `target=all`, Developer API D1 `false` |
-| 배포 main SHA | `6e59d96c14ff78de8cff476b074250428007265e` ([PR #281](https://github.com/hiefny/MUSIXQUARE/pull/281), exact-main [CI 38044634408](https://github.com/hiefny/MUSIXQUARE/actions/runs/38044634408) attempt 1) |
-| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `6e59d96c`, version 100%. 운영 smoke 10개, 최종 소유권, PRO ready, coherent marker 확인 |
-| 복구 | 필요 없음. Release 38045004901의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 별도 workflow 실행이 아니라 Production Release 실행 안의 job으로 돈다 |
+| App 버전 / SW 캐시 | `8.9.0` / `v651` |
+| 마지막 프로덕션 변경 | 2026-10-11 10:33 KST, [Release 38101940058](https://github.com/hiefny/MUSIXQUARE/actions/runs/38101940058) attempt 1 성공, `target=all`, Developer API D1 `false` |
+| 배포 main SHA | `d76b1432c6431e4d848fe0826c9782e6296fc4d6` (PR [#287](https://github.com/hiefny/MUSIXQUARE/pull/287), [#288](https://github.com/hiefny/MUSIXQUARE/pull/288), [#289](https://github.com/hiefny/MUSIXQUARE/pull/289), [#290](https://github.com/hiefny/MUSIXQUARE/pull/290), [#291](https://github.com/hiefny/MUSIXQUARE/pull/291) 묶음, exact-main [CI 38101683327](https://github.com/hiefny/MUSIXQUARE/actions/runs/38101683327) attempt 1) |
+| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `d76b1432`, version 100%. 운영 smoke 10개, 최종 소유권, PRO ready, coherent marker 확인 |
+| 복구 | 필요 없음. Release 38101940058의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 별도 workflow 실행이 아니라 Production Release 실행 안의 job으로 돈다 |
 | 활성 복구 floor | PRO/App 선택형 입장 암호. `cloudflare/pro-room-entry-policy-contract-version.txt` = `pro-room-optional-entry-password-v1`. 이 계약 이전의 PRO/App 기준선으로는 복구하지 않는다. forward repair나 검증된 같은 시점 코드·데이터 복구를 쓰고, 계약을 아는 기준선으로의 일반 rollback은 가능하다 (§4) |
-| 검증 범위 | 로컬 unit 531파일 11,075 pass(전체 실행 뒤 영향 파일 결과를 치환한 집계). exact-main CI 11,074 pass / 기존 1 skip, coverage 4종, candidate 17, critical 22. 로컬 Chromium 26, iPhone WebKit 19. 브라우저 검증은 합성 API fixture로만 했고, 운영 보호방 `000001` bootstrap은 읽기 전용으로만 대조했다. 실제 고객방 변경과 실기는 §2에 남아 있다. [상세](design/pro-optional-entry-password-2026-10-10.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 최근 [38043680696](https://github.com/hiefny/MUSIXQUARE/actions/runs/38043680696) (2026-10-10, 8.8.0 배포 전 `6ec501c1`) 31 pass / 0 fail / 5 manual |
+| 검증 범위 | exact-main CI 11개 job 성공: unit 536파일 11,343 pass / 기존 1 skip, coverage 4종, candidate·critical browser gate. 로컬(`7ee3ae73`, #288 의존성 설치) 전체 unit 11,343 pass, Worker·critical coverage, `build:checked` 통과. 배포 뒤 공개 GET에서 `/service-worker.js` cache `v651`, 첫 화면 `bootstrap.js?cache=v651`, 보호방 `000001` bootstrap HTTP 200을 읽기 전용으로 확인했다. 실기, 실제 고객방의 암호·참여자 선택, 공개방 실사용 입장 확인은 §2에 남아 있다. [입장 보호](design/pro-room-admission-protection-2026-10-11.md), [참여자 선택](design/pro-pin-member-choice-2026-10-11.md), [입장 문구](design/pro-join-error-copy-2026-10-11.md), [의존성](design/dependency-update-2026-10-11.md), [lane](design/persisted-resource-lane-2026-10-11.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 최근 [38043680696](https://github.com/hiefny/MUSIXQUARE/actions/runs/38043680696) (2026-10-10, 8.8.0 배포 전 `6ec501c1`) 31 pass / 0 fail / 5 manual. 8.8.0과 8.9.0 배포 뒤의 실행은 아직 없다 |
 | Full E2E | 매주 월 18:17 UTC. main ref 마지막 실행 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 그 뒤의 37602041553은 `agent/full-verification-8.7.2` 브랜치 실행(`716c37af`, PR #251로 main 병합)이다. 8.7.3 이후 배포 SHA로 돈 Full E2E는 없다 |
-| 의존성 | 2026-10-11 기준 `npm audit`(전체·`--omit=dev`) 0건, Dependabot alert 0건, sharp 0.35.5(Miniflare가 아직 0.35.4를 고정해 override 유지). 그룹 업데이트 [PR #288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등)은 main에 있고 아직 배포되지 않았다(§2). TypeScript 6.1 이상과 @types/node 25 이상은 Dependabot ignore 규칙으로 제외한다(PR #285). 이 둘 때문에 실패하던 PR #201은 2026-10-10에 병합 없이 닫혔다. [상세](design/dependency-update-2026-10-11.md) |
+| 의존성 | 2026-10-11 기준 `npm audit`(전체·`--omit=dev`) 0건, Dependabot alert 0건, sharp 0.35.5(Miniflare가 아직 0.35.4를 고정해 override 유지). 그룹 업데이트 [PR #288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등)이 8.9.0으로 배포됐다. TypeScript 6.1 이상과 @types/node 25 이상은 Dependabot ignore 규칙으로 제외한다(PR #285). [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -69,7 +69,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 - [ ] 리버브 10초 경계(일반방, PRO, API)와 데모 종료 뒤 표시되는 설정이 실제
   효과와 같은지.
 - [ ] 물리 키보드, 미디어 키, 실제 음향 출력(QA055 음향 테스트 포함).
-- [ ] PRO 암호 참여자 선택·퇴장 사유(미배포): iPhone Safari/PWA와 Android에서
+- [ ] PRO 암호 참여자 선택·퇴장 사유(8.9.0): iPhone Safari/PWA와 Android에서
   암호 지정·변경 대화상자의 "그대로 두기"(기본)와 "모두 다시 입장하게 하기",
   강퇴·기기 연결 끊기·암호 변경 안내 문구, 안내 뒤 홈 이동과 같은 탭에서 다시
   열었을 때의 일반 입장, 360·390px(중국어 줄바꿈 포함)와 RTL 배치를 확인한다.
@@ -99,20 +99,6 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 운영·보안
 
-- [ ] 미배포 App 변경: PRO persisted-resource lane 리팩터링(동작 변화 없음),
-  그룹 의존성 업데이트(PR #288: Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0
-  등, large-audio 컨테이너 목록에서 HLS 제외), PRO 입장 거절 문구(`ROOM_FULL`,
-  `RATE_LIMITED`와 `Retry-After` 대기 시간, 42개 언어)가 main에 있다. 이 세
-  변경은 Worker 소스, D1, R2, 프로토콜을 바꾸지 않는다. 아래 PRO 암호 참여자
-  선택까지 합쳐 다음 릴리스는 App `8.9.0` / SW 캐시 `v651` 하나로 나간다(8.8.1은
-  따로 배포하지 않는다).
-  아래 PRO 공개방 입장 보호(`pro-room`)도 미배포라서, 둘 다 남아 있는 동안
-  partial-release gate는 `app`과 `pro-room` 단독 배포를 모두 거부한다(선택하지
-  않은 Worker의 runtime 차이). 대상은 배포 직전에 다시 판정한다(§3). 배포한 뒤
-  §1을 덮어쓰고 이 항목을 지운다.
-  [lane](design/persisted-resource-lane-2026-10-11.md),
-  [의존성](design/dependency-update-2026-10-11.md),
-  [입장 문구](design/pro-join-error-copy-2026-10-11.md)
 - [ ] Drift Audit 수동 5항목: Worker zone routes, `/admin` Access+MFA, WAF rate
   limit과 Worker/R2/D1 비용 알림, 두 번째 Git 배포 경로가 없음, main review·필수
   체크 정책. 자동 감사가 통과해도 이 항목은 완료가 아니다.
@@ -122,22 +108,17 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   media reserve/finish 동적 조합은 미실행), QA032 로컬 수신 경로 `fa33c660`
   (434 pass; binary codec, 실제 WebRTC, live는 범위 밖).
   [상세](design/beta-30-round-repair-2026-10-09.md#daybreak-보안-심화-재시도--2026-10-09)
-- [ ] 8.8.0 배포 뒤 첫 Drift Audit 결과 확인.
-- [ ] 미배포 PRO 암호 참여자 선택·퇴장 사유: PRO Worker와 App이 함께 바뀌어
-  Production Release `target=all`(PRO Worker 먼저, App 나중)이 필요하다.
-  App `8.9.0` / SW 캐시 `v651`이다(main의 8.8.1/`v649`을 합친 뒤 다시 올림).
-  배포한 뒤 §1을 덮어쓰고 이 항목을 지운다.
-  [상세](design/pro-pin-member-choice-2026-10-11.md)
-- [ ] 전환기 한계(PRO 암호 참여자 선택 배포 뒤): 캐시된 8.9.0 이전 App(운영
-  중인 8.8.0)은 퇴장 사유를 읽지 않는다. 강퇴되면 일반 "세션을
+- [ ] 8.9.0 배포 뒤 첫 Drift Audit 결과 확인.
+- [ ] 전환기 한계(8.9.0 배포 뒤): 아직 갱신되지 않은 이전 App(8.8.0)은 퇴장
+  사유를 읽지 않는다. 강퇴되면 일반 "세션을
   새로고침하고 있어요..."를 보여 주고, 공개방이면 시작 버튼 한 번으로 다시 들어올
   수 있다. 그 App이 갱신될 때까지 남는다.
   [상세](design/pro-pin-member-choice-2026-10-11.md)
-- [ ] 호환·복구(PRO 암호 참여자 선택 배포 뒤): PRO Worker만 이전으로 되돌리면
+- [ ] 호환·복구(8.9.0 배포 뒤): PRO Worker만 이전으로 되돌리면
   기본값 "그대로 두기"가 400으로 거절되어 App이 "암호를 바꾸지 못했어요"를
   보여 주고, "모두 다시 입장하게 하기"는 계속 동작한다. 새 floor는 없다(§4).
   [상세](design/pro-pin-member-choice-2026-10-11.md)
-- [ ] PRO 공개방 입장 보호(`pro-room` 대상, 미배포) 배포 뒤: 실제 공개방에서
+- [ ] PRO 공개방 입장 보호(8.9.0 배포 뒤): 실제 공개방에서
   일반 입장·재입장·탭 닫기 후 복귀가 `RATE_LIMITED`나 `ROOM_FULL` 없이 되는지,
   PRO Worker 로그에서 두 응답이 평소보다 늘지 않는지 확인한다. 입장 throttle
   카운터는 Durable Object 메모리에만 있어 운영에서 직접 볼 수 없고, 주소별 키

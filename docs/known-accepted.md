@@ -143,15 +143,29 @@ What remains accepted:
   legitimate core is already within that distance of the budget, owner
   admission and owner writes, including media reservations, can fail closed
   with `ROOM_STATE_CAPACITY_EXCEEDED`. A present owner can release most of it
-  by enabling or rotating the PIN, which does not clear the rate-limit
-  records; an absent owner has to wait for receipts and records to expire and
-  sessions to leave, and a sustained distributed flood can repeat this. No
-  byte headroom is reserved for the owner.
+  by enabling or rotating the PIN with "Make everyone rejoin", which does not
+  clear the rate-limit records; an absent owner has to wait for receipts and
+  records to expire and sessions to leave, and a sustained distributed flood
+  can repeat this. No byte headroom is reserved for the owner.
 - The remedy is the owner's: enter through the reserved place and enable or
-  rotate the PIN. That revokes every other session and presence, purges all
-  session-create receipts, and resets the throttle; the revoked sessions'
-  presence-close receipts go at the next prune. A kick deletes the member's
-  sessions, so coming back needs a new, throttled join; there is no ban list.
+  rotate the PIN, choosing "Make everyone rejoin". That revokes every other
+  session and presence, purges all session-create receipts, and resets the
+  throttle; the revoked sessions' presence-close receipts go at the next
+  prune. The default choice, "Let them stay", is not a flood remedy: it keeps
+  every present session, strangers included, and revokes only dormant ones.
+  People it keeps stay signed in to the room on that device, without the PIN,
+  until they leave, are removed, or their 30-day session expires.
+- A kick deletes the member's sessions, so coming back needs a new, throttled
+  join; there is no ban list. The kick (and a "Make everyone rejoin" PIN
+  change) also writes a removal notice, so the updated App tells that browser
+  why and does not re-admit it silently. It shows the notice once per tab;
+  after that, deliberately opening the room again is an ordinary join. Up to
+  256 notices (about 36 KiB of the core) exist at a time, each for at most 7
+  days. Only owner and administrator actions write them, never public
+  traffic, and each is written while a larger session record is deleted.
+  Cached Apps older than 8.9.0 do not read the notice: until they update, a
+  kicked member sees the generic refresh and can rejoin a public room with one
+  Start tap.
 - The throttle counters live only in Durable Object memory and are kept per
   room. A restart forgets them, and different rooms behind the same carrier NAT
   do not share a budget.

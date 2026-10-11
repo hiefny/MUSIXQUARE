@@ -4,6 +4,15 @@ Status: production `8.8.0` / `v646` is deployed. Release
 [`38045004901`](https://github.com/hiefny/MUSIXQUARE/actions/runs/38045004901)
 attempt 1 succeeded at 2026-10-10 10:33:22 UTC (19:33:22 KST).
 
+> **Amendment (2026-10-11, not yet deployed):** enabling or changing the PIN
+> now asks who stays. "Let them stay" (the App default) sends
+> `existingParticipants: "keep_present"` and revokes only dormant sessions;
+> "Make everyone rejoin" keeps the legacy `{pin}` body and the revocation
+> described below. Removed sessions also learn why through a `reason` on the
+> unchanged `SESSION_REQUIRED` 401. The 8.8.0 contract below stays valid for
+> requests without the new field. See
+> [PRO PIN membership choice — 2026-10-11](pro-pin-member-choice-2026-10-11.md).
+
 ## Scope
 
 The owner approved optional PRO entry passwords and production deployment.
@@ -32,7 +41,9 @@ reset the password in settings. An ordinary signed-in member cannot do so.
   Valid legacy activation requests still create a protected room.
 - Owner-only `POST /pin` accepts null to disable or eight digits to enable/change.
   Disable preserves live sessions and playback. Enable/change preserves the
-  existing authentication-epoch revocation behavior.
+  existing authentication-epoch revocation behavior. (Amended 2026-10-11: an
+  optional-v1 `existingParticipants` field can keep present people; see the
+  note at the top.)
 - Public admission retains bounded requests, stable request-ID receipts,
   session cookies, presence requirements, capacity limits, and existing
   activation/security rate limits.

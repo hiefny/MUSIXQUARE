@@ -93,6 +93,12 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO PIN membership choice and removal reasons — 2026-10-11](design/pro-pin-member-choice-2026-10-11.md) —
+  "Let them stay" / "Make everyone rejoin" on PIN enable or change, and a
+  `reason` on the unchanged `SESSION_REQUIRED` 401 for kicked, disconnected,
+  and PIN-revoked sessions (PRO Worker and App, 8.9.0/v650, code `4319a2a0`
+  on main `13a25ee4`). Local tests only; not merged or deployed. Real-device
+  checks remain open.
 - [Grouped dependency update — 2026-10-11](design/dependency-update-2026-10-11.md) —
   Dependabot PR #288 (Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0) with its
   adaptations: regenerated Worker types, HLS kept out of large-audio detection for the

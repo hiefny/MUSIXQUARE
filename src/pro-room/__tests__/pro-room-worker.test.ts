@@ -576,6 +576,88 @@ describe('PRO room server-authoritative playback', () => {
     expect(asset.duration).toEqual(firstEvidence);
   });
 
+  it('refuses controller durations far below measured timing but keeps accepting corrections', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'measured-floor', 4096, {
+      durationSeconds: 200,
+    });
+    expect(context.worker.storeAssetDuration(asset, 180, 'server')).toBe(true);
+    const report = async (durationSeconds: number) => {
+      const response = await context.worker.fetch(
+        jsonRequest(
+          `/media/${assetId}/duration`,
+          'POST',
+          { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds },
+          context.ownerCookie,
+        ),
+      );
+      // Current clients treat any other answer as a failed best-effort report.
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ ok: true });
+      return context.worker.room!.assets[assetId]!.duration;
+    };
+    expect(await report(1)).toMatchObject({ source: 'server', durationSeconds: 180 });
+    expect(await report(161.9)).toMatchObject({ source: 'server', durationSeconds: 180 });
+    // Close or longer decodes still correct the estimate, and the measured
+    // floor stays beneath the controller value for every later report.
+    expect(await report(178.5)).toMatchObject({
+      source: 'controller',
+      durationSeconds: 178.5,
+      measuredSeconds: 180,
+    });
+    expect(await report(30)).toMatchObject({ source: 'controller', durationSeconds: 178.5 });
+    expect(await report(240)).toMatchObject({ durationSeconds: 240, measuredSeconds: 180 });
+    expect(await report(162)).toMatchObject({ durationSeconds: 162, measuredSeconds: 180 });
+  });
+
+  it('keeps measured file timing when a controller READY reports a far shorter decode', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const { completeEnvelope } = await completeReadyAsset(context, 'ready-floor', 4096, {
+      durationSeconds: 120,
+    });
+    await replacePlaylist(
+      context,
+      [{ queueItemId: firstQueueItemId, name: 'measured', source: completeEnvelope.asset }],
+      'ready-floor',
+    );
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'ready-floor-select',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: selected.transition.basePlaybackRevision,
+          status: 'ready',
+          durationSeconds: 3,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    await expect(ready.json()).resolves.toMatchObject({ ok: true, status: 'committed' });
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([
+      expect.objectContaining({ durationSeconds: 120, source: 'upload' }),
+    ]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      realtime.internal.room.playback.updatedAtMs + 122_000,
+    );
+  });
+
   it('reuses private asset duration after queue replacement, cache eviction and cold restart', async () => {
     const context = await activatedRoom();
     const { assetId, asset, completeEnvelope } = await completeReadyAsset(

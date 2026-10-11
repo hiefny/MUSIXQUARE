@@ -273,6 +273,9 @@ interface AssetDurationEvidence {
   durationSeconds: number;
   checkedAtMs: number;
   source: PlaybackDurationEvidence['source'];
+  // Server/upload length replaced by a controller value. Later controller
+  // reports keep the same floor; older Workers ignore and drop the key.
+  measuredSeconds?: number;
 }
 
 function durationSourcePriority(source: PlaybackDurationEvidence['source']) {
@@ -1265,6 +1268,11 @@ const PLAYBACK_DURATION_FILE_RETRY_MS = 5 * 60_000;
 // A due natural end whose commit is refused (room state capacity) would
 // otherwise re-arm the alarm at now+1 and repeat on every request's prune().
 const PLAYBACK_NATURAL_ADVANCE_RETRY_MS = 30_000;
+// A decoded controller length may trim a header estimate (priming, padding,
+// edit lists) but not undercut measured media timing materially. Otherwise a
+// briefly trusted controller could leave a short boundary that keeps skipping
+// the asset early after it loses playback.control.
+const PLAYBACK_CONTROLLER_DURATION_MIN_RATIO = 0.9;
 const PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS = 10;
 const PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS = 750;
 const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
@@ -5142,6 +5150,20 @@ export class MusixquareProRoom {
       : null;
   }
 
+  /** Server-measured or uploaded length that bounds later controller reports. */
+  measuredAssetDurationSeconds(evidence: AssetDurationEvidence | null) {
+    const measured =
+      evidence?.source === 'controller' ? evidence.measuredSeconds : evidence?.durationSeconds;
+    return isFiniteNumber(measured) && measured > 0 && measured <= PLAYBACK_MAX_POSITION_SECONDS
+      ? measured
+      : null;
+  }
+
+  controllerDurationContradictsMeasurement(asset: RoomAsset, durationSeconds: number) {
+    const measured = this.measuredAssetDurationSeconds(this.assetDurationEvidence(asset));
+    return measured !== null && durationSeconds < measured * PLAYBACK_CONTROLLER_DURATION_MIN_RATIO;
+  }
+
   storeAssetDuration(
     asset: RoomAsset,
     durationSeconds: number,
@@ -5149,9 +5171,12 @@ export class MusixquareProRoom {
     nowMs = Date.now(),
   ) {
     const previous = this.assetDurationEvidence(asset);
+    const measuredSeconds = this.measuredAssetDurationSeconds(previous);
     if (
       previous &&
       (durationSourcePriority(previous.source) > durationSourcePriority(source) ||
+        (source === 'controller' &&
+          this.controllerDurationContradictsMeasurement(asset, durationSeconds)) ||
         (previous.source === source &&
           (previous.checkedAtMs > nowMs || previous.durationSeconds === durationSeconds)))
     )
@@ -5164,6 +5189,7 @@ export class MusixquareProRoom {
       durationSeconds,
       checkedAtMs: nowMs,
       source,
+      ...(source === 'controller' && measuredSeconds !== null ? { measuredSeconds } : {}),
     };
     // Optional timing evidence must never make a previously valid room unloadable
     // or consume the headroom needed by an unrelated authoritative mutation.
@@ -5196,11 +5222,17 @@ export class MusixquareProRoom {
     if (identity.mediaKind === 'file' && durationSeconds !== null) {
       const asset = this.durationAsset(identity);
       if (asset) {
-        const stored = this.storeAssetDuration(asset, durationSeconds, source, nowMs);
+        // A refused controller report must not reach the queue cache either;
+        // the cache then mirrors the measured asset evidence it contradicted.
+        const refused =
+          source === 'controller' &&
+          this.controllerDurationContradictsMeasurement(asset, durationSeconds);
+        const stored = !refused && this.storeAssetDuration(asset, durationSeconds, source, nowMs);
         const best = this.assetDurationEvidence(asset);
         if (
           best &&
           (stored ||
+            refused ||
             durationSourcePriority(best.source) > durationSourcePriority(source) ||
             (best.source === source && best.checkedAtMs > nowMs))
         ) {
@@ -16388,6 +16420,10 @@ export class MusixquareProRoom {
       asset.roomGeneration !== this.activeRoom.roomGeneration
     )
       return errorResponse('ASSET_VERSION_CONFLICT', 409);
+    // Best-effort metadata: acknowledge a refused length as a no-op, exactly as
+    // a duplicate, so current clients neither surface nor retry it.
+    if (this.controllerDurationContradictsMeasurement(asset, parsed.value.durationSeconds))
+      return jsonResponse({ ok: true });
     const stored = this.storeAssetDuration(asset, parsed.value.durationSeconds, 'controller');
     const evidence = this.assetDurationEvidence(asset);
     if (

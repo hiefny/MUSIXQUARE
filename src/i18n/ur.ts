@@ -778,7 +778,6 @@ const ur: Record<I18nKey, string> = {
   'pro.pin_changed': 'کمرے کا پاس ورڈ بدل گیا۔',
   'pro.pin_enable_title': 'کمرے کا پاس ورڈ مقرر کریں',
   'pro.pin_enabled': 'کمرے کا پاس ورڈ مقرر ہو گیا۔',
-  'pro.pin_members_legend': 'اس وقت کمرے میں موجود لوگ',
   'pro.pin_members_title': 'موجودہ شرکاء کے ساتھ کیا کیا جائے؟',
   'pro.pin_members_keep': 'سب کو رہنے دیں',
   'pro.pin_members_keep_detail':

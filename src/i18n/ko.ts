@@ -771,7 +771,6 @@ const ko = {
   'pro.pin_changed': '방 암호를 변경했어요.',
   'pro.pin_enable_title': '방 암호 설정',
   'pro.pin_enabled': '방 암호를 설정했어요.',
-  'pro.pin_members_legend': '지금 방에 있는 사람',
   'pro.pin_members_title': '현재 참여자를 어떻게 할까요?',
   'pro.pin_members_keep': '그대로 두기',
   'pro.pin_members_keep_detail': '다시 입장하거나, 새로 참여하는 기기만 암호를 입력하면 돼요.',

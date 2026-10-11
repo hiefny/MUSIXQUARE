@@ -664,7 +664,6 @@ const zhHant: Record<I18nKey, string> = {
   'pro.pin_changed': '房間密碼已變更。',
   'pro.pin_enable_title': '設定房間密碼',
   'pro.pin_enabled': '已設定房間密碼。',
-  'pro.pin_members_legend': '目前在房間裡的人',
   'pro.pin_members_title': '要如何處理目前的參與者？',
   'pro.pin_members_keep': '維持不變',
   'pro.pin_members_keep_detail': '只有重新進入或首次加入的裝置需要輸入密碼。',

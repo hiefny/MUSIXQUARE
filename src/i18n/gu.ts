@@ -773,7 +773,6 @@ const gu: Record<I18nKey, string> = {
   'pro.pin_changed': 'રૂમનો પાસવર્ડ બદલાયો.',
   'pro.pin_enable_title': 'રૂમનો પાસવર્ડ સેટ કરો',
   'pro.pin_enabled': 'રૂમનો પાસવર્ડ સેટ થયો.',
-  'pro.pin_members_legend': 'અત્યારે રૂમમાં રહેલા લોકો',
   'pro.pin_members_title': 'હાલના સહભાગીઓનું શું કરવું?',
   'pro.pin_members_keep': 'બધાને રહેવા દો',
   'pro.pin_members_keep_detail':

@@ -795,7 +795,6 @@ const hu: Record<I18nKey, string> = {
   'pro.pin_changed': 'A szobajelszó megváltozott.',
   'pro.pin_enable_title': 'Szobajelszó beállítása',
   'pro.pin_enabled': 'A szobajelszó be van állítva.',
-  'pro.pin_members_legend': 'Akik most a szobában vannak',
   'pro.pin_members_title': 'Mi legyen a jelenlegi résztvevőkkel?',
   'pro.pin_members_keep': 'Mindenki marad',
   'pro.pin_members_keep_detail':

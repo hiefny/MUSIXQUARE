@@ -706,7 +706,6 @@ const ja: Record<I18nKey, string> = {
   'pro.pin_changed': 'ルームのパスワードを変更しました。',
   'pro.pin_enable_title': 'ルームのパスワードを設定',
   'pro.pin_enabled': 'ルームのパスワードを設定しました。',
-  'pro.pin_members_legend': '今ルームにいる人',
   'pro.pin_members_title': '今の参加者をどうしますか？',
   'pro.pin_members_keep': 'そのまま残す',
   'pro.pin_members_keep_detail':

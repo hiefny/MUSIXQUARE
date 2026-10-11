@@ -663,7 +663,6 @@ const zhHans: Record<I18nKey, string> = {
   'pro.pin_changed': '房间密码已修改。',
   'pro.pin_enable_title': '设置房间密码',
   'pro.pin_enabled': '已设置房间密码。',
-  'pro.pin_members_legend': '当前在房间里的人',
   'pro.pin_members_title': '要如何处理当前的参与者？',
   'pro.pin_members_keep': '保持不变',
   'pro.pin_members_keep_detail': '只有重新进入或首次加入的设备需要输入密码。',

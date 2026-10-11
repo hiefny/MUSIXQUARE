@@ -792,7 +792,6 @@ const cs: Record<I18nKey, string> = {
   'pro.pin_changed': 'Heslo místnosti bylo změněno.',
   'pro.pin_enable_title': 'Nastavit heslo místnosti',
   'pro.pin_enabled': 'Heslo místnosti bylo nastaveno.',
-  'pro.pin_members_legend': 'Kdo je teď v místnosti',
   'pro.pin_members_title': 'Co udělat s aktuálními účastníky?',
   'pro.pin_members_keep': 'Ponechat všechny',
   'pro.pin_members_keep_detail':

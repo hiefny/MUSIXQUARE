@@ -785,7 +785,6 @@ const pa: Record<I18nKey, string> = {
   'pro.pin_changed': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਬਦਲ ਗਿਆ।',
   'pro.pin_enable_title': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਸੈੱਟ ਕਰੋ',
   'pro.pin_enabled': 'ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਸੈੱਟ ਹੋ ਗਿਆ।',
-  'pro.pin_members_legend': 'ਇਸ ਵੇਲੇ ਰੂਮ ਵਿੱਚ ਮੌਜੂਦ ਲੋਕ',
   'pro.pin_members_title': 'ਮੌਜੂਦਾ ਭਾਗੀਦਾਰਾਂ ਦਾ ਕੀ ਕਰੀਏ?',
   'pro.pin_members_keep': 'ਸਾਰਿਆਂ ਨੂੰ ਰਹਿਣ ਦਿਓ',
   'pro.pin_members_keep_detail':

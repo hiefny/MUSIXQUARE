@@ -781,7 +781,6 @@ const tr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Oda parolası değiştirildi.',
   'pro.pin_enable_title': 'Oda parolası belirle',
   'pro.pin_enabled': 'Oda parolası belirlendi.',
-  'pro.pin_members_legend': 'Şu anda odadakiler',
   'pro.pin_members_title': 'Mevcut katılımcılar için ne yapılsın?',
   'pro.pin_members_keep': 'Herkes kalsın',
   'pro.pin_members_keep_detail':

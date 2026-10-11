@@ -805,7 +805,6 @@ const it: Record<I18nKey, string> = {
   'pro.pin_changed': 'Password della stanza modificata.',
   'pro.pin_enable_title': 'Imposta password',
   'pro.pin_enabled': 'Password della stanza impostata.',
-  'pro.pin_members_legend': 'Chi è nella stanza ora',
   'pro.pin_members_title': 'Cosa vuoi fare con i partecipanti attuali?',
   'pro.pin_members_keep': 'Tieni tutti',
   'pro.pin_members_keep_detail':

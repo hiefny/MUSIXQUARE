@@ -778,7 +778,6 @@ const fa: Record<I18nKey, string> = {
   'pro.pin_changed': 'گذرواژهٔ اتاق تغییر کرد.',
   'pro.pin_enable_title': 'تنظیم گذرواژهٔ اتاق',
   'pro.pin_enabled': 'گذرواژهٔ اتاق تنظیم شد.',
-  'pro.pin_members_legend': 'کسانی که اکنون در اتاق هستند',
   'pro.pin_members_title': 'با شرکت‌کنندگان فعلی چه کنیم؟',
   'pro.pin_members_keep': 'همه بمانند',
   'pro.pin_members_keep_detail':

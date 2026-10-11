@@ -802,7 +802,6 @@ const ro: Record<I18nKey, string> = {
   'pro.pin_changed': 'Parola camerei a fost schimbată.',
   'pro.pin_enable_title': 'Setează parola camerei',
   'pro.pin_enabled': 'Parola camerei a fost setată.',
-  'pro.pin_members_legend': 'Cine este acum în cameră',
   'pro.pin_members_title': 'Ce faci cu participanții actuali?',
   'pro.pin_members_keep': 'Păstrează-i pe toți',
   'pro.pin_members_keep_detail':

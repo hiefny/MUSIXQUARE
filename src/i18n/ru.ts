@@ -796,7 +796,6 @@ const ru: Record<I18nKey, string> = {
   'pro.pin_changed': 'Пароль комнаты изменён.',
   'pro.pin_enable_title': 'Задать пароль комнаты',
   'pro.pin_enabled': 'Пароль комнаты задан.',
-  'pro.pin_members_legend': 'Кто сейчас в комнате',
   'pro.pin_members_title': 'Что сделать с текущими участниками?',
   'pro.pin_members_keep': 'Оставить всех',
   'pro.pin_members_keep_detail':

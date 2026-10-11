@@ -717,7 +717,6 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Mot de passe du salon modifié.',
   'pro.pin_enable_title': 'Définir le mot de passe du salon',
   'pro.pin_enabled': 'Mot de passe du salon défini.',
-  'pro.pin_members_legend': 'Personnes actuellement dans le salon',
   'pro.pin_members_title': 'Que faire des participants actuels ?',
   'pro.pin_members_keep': 'Garder tout le monde',
   'pro.pin_members_keep_detail':

@@ -800,7 +800,6 @@ const ml: Record<I18nKey, string> = {
   'pro.pin_changed': 'റൂം പാസ്‌വേഡ് മാറ്റി.',
   'pro.pin_enable_title': 'റൂം പാസ്‌വേഡ് സജ്ജമാക്കുക',
   'pro.pin_enabled': 'റൂം പാസ്‌വേഡ് സജ്ജമാക്കി.',
-  'pro.pin_members_legend': 'ഇപ്പോൾ റൂമിലുള്ളവർ',
   'pro.pin_members_title': 'നിലവിലെ പങ്കാളികളെ എന്തു ചെയ്യണം?',
   'pro.pin_members_keep': 'എല്ലാവരെയും നിലനിർത്തുക',
   'pro.pin_members_keep_detail':

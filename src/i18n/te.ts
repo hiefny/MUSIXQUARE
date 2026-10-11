@@ -789,7 +789,6 @@ const te: Record<I18nKey, string> = {
   'pro.pin_changed': 'గది పాస్‌వర్డ్ మార్చబడింది.',
   'pro.pin_enable_title': 'గది పాస్‌వర్డ్‌ను సెట్ చేయి',
   'pro.pin_enabled': 'గది పాస్‌వర్డ్ సెట్ చేయబడింది.',
-  'pro.pin_members_legend': 'ఇప్పుడు గదిలో ఉన్నవారు',
   'pro.pin_members_title': 'ప్రస్తుత పాల్గొనేవారిని ఏం చేయాలి?',
   'pro.pin_members_keep': 'అందరినీ ఉండనివ్వు',
   'pro.pin_members_keep_detail':

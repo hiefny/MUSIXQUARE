@@ -794,7 +794,6 @@ const bg: Record<I18nKey, string> = {
   'pro.pin_changed': 'Паролата за стаята е променена.',
   'pro.pin_enable_title': 'Задаване на парола за стаята',
   'pro.pin_enabled': 'Паролата за стаята е зададена.',
-  'pro.pin_members_legend': 'Хората в стаята в момента',
   'pro.pin_members_title': 'Какво да стане с текущите участници?',
   'pro.pin_members_keep': 'Всички остават',
   'pro.pin_members_keep_detail':

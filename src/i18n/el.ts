@@ -805,7 +805,6 @@ const el: Record<I18nKey, string> = {
   'pro.pin_changed': 'Ο κωδικός πρόσβασης δωματίου άλλαξε.',
   'pro.pin_enable_title': 'Ορισμός κωδικού πρόσβασης δωματίου',
   'pro.pin_enabled': 'Ο κωδικός πρόσβασης δωματίου ορίστηκε.',
-  'pro.pin_members_legend': 'Όσοι βρίσκονται τώρα στο δωμάτιο',
   'pro.pin_members_title': 'Τι να γίνει με τους τρέχοντες συμμετέχοντες;',
   'pro.pin_members_keep': 'Να μείνουν όλοι',
   'pro.pin_members_keep_detail':

@@ -718,7 +718,6 @@ const ptBr: Record<I18nKey, string> = {
   'pro.pin_changed': 'Senha da sala alterada.',
   'pro.pin_enable_title': 'Definir senha',
   'pro.pin_enabled': 'Senha da sala definida.',
-  'pro.pin_members_legend': 'Pessoas na sala agora',
   'pro.pin_members_title': 'O que fazer com os participantes atuais?',
   'pro.pin_members_keep': 'Manter todos',
   'pro.pin_members_keep_detail':

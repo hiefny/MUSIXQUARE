@@ -799,7 +799,6 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_changed': 'Hasło pokoju zostało zmienione.',
   'pro.pin_enable_title': 'Ustaw hasło pokoju',
   'pro.pin_enabled': 'Hasło pokoju zostało ustawione.',
-  'pro.pin_members_legend': 'Osoby, które są teraz w pokoju',
   'pro.pin_members_title': 'Co zrobić z obecnymi uczestnikami?',
   'pro.pin_members_keep': 'Zostaw wszystkich',
   'pro.pin_members_keep_detail':

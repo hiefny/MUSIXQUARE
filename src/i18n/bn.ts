@@ -784,7 +784,6 @@ const bn: Record<I18nKey, string> = {
   'pro.pin_changed': 'রুমের পাসওয়ার্ড পরিবর্তন করা হয়েছে।',
   'pro.pin_enable_title': 'রুমের পাসওয়ার্ড সেট করুন',
   'pro.pin_enabled': 'রুমের পাসওয়ার্ড সেট করা হয়েছে।',
-  'pro.pin_members_legend': 'এখন রুমে যাঁরা আছেন',
   'pro.pin_members_title': 'বর্তমান অংশগ্রহণকারীদের কী করবেন?',
   'pro.pin_members_keep': 'সবাইকে থাকতে দিন',
   'pro.pin_members_keep_detail':

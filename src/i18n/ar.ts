@@ -768,7 +768,6 @@ const ar: Record<I18nKey, string> = {
   'pro.pin_changed': 'تم تغيير كلمة مرور الغرفة.',
   'pro.pin_enable_title': 'تعيين كلمة مرور الغرفة',
   'pro.pin_enabled': 'تم تعيين كلمة مرور الغرفة.',
-  'pro.pin_members_legend': 'الموجودون في الغرفة الآن',
   'pro.pin_members_title': 'ماذا تريد أن تفعل بالمشاركين الحاليين؟',
   'pro.pin_members_keep': 'إبقاء الجميع',
   'pro.pin_members_keep_detail':

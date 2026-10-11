@@ -794,7 +794,6 @@ const sv: Record<I18nKey, string> = {
   'pro.pin_changed': 'Rumslösenordet har ändrats.',
   'pro.pin_enable_title': 'Ställ in rumslösenord',
   'pro.pin_enabled': 'Rumslösenordet har ställts in.',
-  'pro.pin_members_legend': 'Personer i rummet just nu',
   'pro.pin_members_title': 'Vad ska hända med de nuvarande deltagarna?',
   'pro.pin_members_keep': 'Behåll alla',
   'pro.pin_members_keep_detail':

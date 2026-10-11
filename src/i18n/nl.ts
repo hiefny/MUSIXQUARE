@@ -786,7 +786,6 @@ const nl: Record<I18nKey, string> = {
   'pro.pin_changed': 'Kamerwachtwoord gewijzigd.',
   'pro.pin_enable_title': 'Kamerwachtwoord instellen',
   'pro.pin_enabled': 'Kamerwachtwoord ingesteld.',
-  'pro.pin_members_legend': 'Wie nu in de kamer is',
   'pro.pin_members_title': 'Wat moet er met de huidige deelnemers gebeuren?',
   'pro.pin_members_keep': 'Iedereen blijft',
   'pro.pin_members_keep_detail':

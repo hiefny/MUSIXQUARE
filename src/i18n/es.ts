@@ -721,7 +721,6 @@ const es: Record<I18nKey, string> = {
   'pro.pin_changed': 'Contraseña de la sala actualizada.',
   'pro.pin_enable_title': 'Definir contraseña',
   'pro.pin_enabled': 'Contraseña de la sala definida.',
-  'pro.pin_members_legend': 'Personas que están ahora en la sala',
   'pro.pin_members_title': '¿Qué quieres hacer con los participantes actuales?',
   'pro.pin_members_keep': 'Mantener a todos',
   'pro.pin_members_keep_detail':

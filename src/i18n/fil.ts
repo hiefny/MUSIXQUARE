@@ -806,7 +806,6 @@ const fil: Record<I18nKey, string> = {
   'pro.pin_changed': 'Pinalitan ang password ng kuwarto.',
   'pro.pin_enable_title': 'Magtakda ng password ng kuwarto',
   'pro.pin_enabled': 'Naitakda na ang password ng kuwarto.',
-  'pro.pin_members_legend': 'Mga nasa kuwarto ngayon',
   'pro.pin_members_title': 'Ano ang gagawin sa mga kasalukuyang kalahok?',
   'pro.pin_members_keep': 'Panatilihin ang lahat',
   'pro.pin_members_keep_detail':

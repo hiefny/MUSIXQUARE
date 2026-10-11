@@ -788,7 +788,6 @@ const nb: Record<I18nKey, string> = {
   'pro.pin_changed': 'Rompassordet er endret.',
   'pro.pin_enable_title': 'Angi rompassord',
   'pro.pin_enabled': 'Rompassordet er angitt.',
-  'pro.pin_members_legend': 'Folk i rommet nå',
   'pro.pin_members_title': 'Hva skal skje med de nåværende deltakerne?',
   'pro.pin_members_keep': 'Behold alle',
   'pro.pin_members_keep_detail':

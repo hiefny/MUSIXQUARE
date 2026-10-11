@@ -792,7 +792,6 @@ const kn: Record<I18nKey, string> = {
   'pro.pin_changed': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಾಗಿದೆ.',
   'pro.pin_enable_title': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿ',
   'pro.pin_enabled': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಲಾಗಿದೆ.',
-  'pro.pin_members_legend': 'ಈಗ ರೂಮ್‌ನಲ್ಲಿರುವವರು',
   'pro.pin_members_title': 'ಈಗಿನ ಭಾಗವಹಿಸುವವರನ್ನು ಏನು ಮಾಡಬೇಕು?',
   'pro.pin_members_keep': 'ಎಲ್ಲರನ್ನೂ ಉಳಿಸಿ',
   'pro.pin_members_keep_detail':

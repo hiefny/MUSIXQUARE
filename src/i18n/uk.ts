@@ -794,7 +794,6 @@ const uk: Record<I18nKey, string> = {
   'pro.pin_changed': 'Пароль кімнати змінено.',
   'pro.pin_enable_title': 'Задати пароль кімнати',
   'pro.pin_enabled': 'Пароль кімнати задано.',
-  'pro.pin_members_legend': 'Хто зараз у кімнаті',
   'pro.pin_members_title': 'Що зробити з поточними учасниками?',
   'pro.pin_members_keep': 'Залишити всіх',
   'pro.pin_members_keep_detail':

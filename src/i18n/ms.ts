@@ -799,7 +799,6 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_changed': 'Kata laluan bilik ditukar.',
   'pro.pin_enable_title': 'Tetapkan kata laluan bilik',
   'pro.pin_enabled': 'Kata laluan bilik ditetapkan.',
-  'pro.pin_members_legend': 'Orang dalam bilik sekarang',
   'pro.pin_members_title': 'Apakah yang perlu dilakukan kepada peserta semasa?',
   'pro.pin_members_keep': 'Kekalkan semua',
   'pro.pin_members_keep_detail':

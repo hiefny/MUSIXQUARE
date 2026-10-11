@@ -700,7 +700,6 @@ const vi: Record<I18nKey, string> = {
   'pro.pin_changed': 'Đã đổi mật khẩu phòng.',
   'pro.pin_enable_title': 'Đặt mật khẩu phòng',
   'pro.pin_enabled': 'Đã đặt mật khẩu phòng.',
-  'pro.pin_members_legend': 'Những người đang ở trong phòng',
   'pro.pin_members_title': 'Bạn muốn xử lý những người đang tham gia thế nào?',
   'pro.pin_members_keep': 'Giữ nguyên mọi người',
   'pro.pin_members_keep_detail':

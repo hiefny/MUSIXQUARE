@@ -1057,9 +1057,10 @@ describe('PRO PIN membership and removal copy', () => {
     }
   });
 
-  it('labels the two-step PIN dialog actions in every locale', () => {
+  it('labels the two-step PIN dialog actions in every locale and drops the in-dialog legend', () => {
     const STEP_KEYS = ['dialog.step_next', 'dialog.step_back'] as const;
     for (const [locale, dict] of Object.entries(dictionaries)) {
+      expect(dict, `${locale} legend removed`).not.toHaveProperty('pro.pin_members_legend');
       for (const key of STEP_KEYS) {
         const value = dict[key];
         expect(value, `${locale}.${key}`).toBeTruthy();

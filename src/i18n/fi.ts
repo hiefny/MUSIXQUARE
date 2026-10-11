@@ -788,7 +788,6 @@ const fi: Record<I18nKey, string> = {
   'pro.pin_changed': 'Huoneen salasana vaihdettiin.',
   'pro.pin_enable_title': 'Aseta huoneen salasana',
   'pro.pin_enabled': 'Huoneen salasana asetettiin.',
-  'pro.pin_members_legend': 'Huoneessa nyt olevat',
   'pro.pin_members_title': 'Mitä nykyisille osallistujille tehdään?',
   'pro.pin_members_keep': 'Pidä kaikki',
   'pro.pin_members_keep_detail':

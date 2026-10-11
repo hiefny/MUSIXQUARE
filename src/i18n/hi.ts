@@ -783,7 +783,6 @@ const hi: Record<I18nKey, string> = {
   'pro.pin_changed': 'रूम का पासवर्ड बदल दिया गया।',
   'pro.pin_enable_title': 'रूम का पासवर्ड सेट करें',
   'pro.pin_enabled': 'रूम का पासवर्ड सेट हो गया।',
-  'pro.pin_members_legend': 'अभी रूम में मौजूद लोग',
   'pro.pin_members_title': 'मौजूदा प्रतिभागियों का क्या करें?',
   'pro.pin_members_keep': 'सभी को रहने दें',
   'pro.pin_members_keep_detail':

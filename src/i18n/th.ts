@@ -767,7 +767,6 @@ const th: Record<I18nKey, string> = {
   'pro.pin_changed': 'เปลี่ยนรหัสผ่านห้องแล้ว',
   'pro.pin_enable_title': 'ตั้งรหัสผ่านห้อง',
   'pro.pin_enabled': 'ตั้งรหัสผ่านห้องแล้ว',
-  'pro.pin_members_legend': 'คนที่อยู่ในห้องตอนนี้',
   'pro.pin_members_title': 'จะจัดการกับผู้เข้าร่วมตอนนี้อย่างไร?',
   'pro.pin_members_keep': 'ให้ทุกคนอยู่ต่อ',
   'pro.pin_members_keep_detail':

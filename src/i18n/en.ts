@@ -779,7 +779,6 @@ const en: Record<I18nKey, string> = {
   'pro.pin_changed': 'Room password changed.',
   'pro.pin_enable_title': 'Set room password',
   'pro.pin_enabled': 'Room password set.',
-  'pro.pin_members_legend': 'People in the room now',
   'pro.pin_members_title': 'What should happen to current participants?',
   'pro.pin_members_keep': 'Keep everyone',
   'pro.pin_members_keep_detail':

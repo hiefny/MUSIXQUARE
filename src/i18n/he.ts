@@ -765,7 +765,6 @@ const he: Record<I18nKey, string> = {
   'pro.pin_changed': 'סיסמת החדר שונתה.',
   'pro.pin_enable_title': 'הגדרת סיסמת החדר',
   'pro.pin_enabled': 'סיסמת החדר הוגדרה.',
-  'pro.pin_members_legend': 'מי שנמצא בחדר עכשיו',
   'pro.pin_members_title': 'מה לעשות עם המשתתפים הנוכחיים?',
   'pro.pin_members_keep': 'להשאיר את כולם',
   'pro.pin_members_keep_detail': 'רק מכשירים שמצטרפים מחדש או בפעם הראשונה יצטרכו להזין את הסיסמה.',

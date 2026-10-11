@@ -710,7 +710,6 @@ const id: Record<I18nKey, string> = {
   'pro.pin_changed': 'Sandi ruang telah diubah.',
   'pro.pin_enable_title': 'Atur sandi ruang',
   'pro.pin_enabled': 'Sandi ruang telah diatur.',
-  'pro.pin_members_legend': 'Orang yang ada di ruang sekarang',
   'pro.pin_members_title': 'Bagaimana dengan peserta saat ini?',
   'pro.pin_members_keep': 'Biarkan semua tetap di ruang',
   'pro.pin_members_keep_detail':

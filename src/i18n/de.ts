@@ -720,7 +720,6 @@ const de: Record<I18nKey, string> = {
   'pro.pin_changed': 'Raumpasswort wurde geändert.',
   'pro.pin_enable_title': 'Raumpasswort festlegen',
   'pro.pin_enabled': 'Raumpasswort wurde festgelegt.',
-  'pro.pin_members_legend': 'Wer gerade im Raum ist',
   'pro.pin_members_title': 'Was soll mit den aktuellen Teilnehmenden passieren?',
   'pro.pin_members_keep': 'Alle bleiben',
   'pro.pin_members_keep_detail':

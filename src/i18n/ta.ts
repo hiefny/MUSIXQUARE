@@ -805,7 +805,6 @@ const ta: Record<I18nKey, string> = {
   'pro.pin_changed': 'அறைக் கடவுச்சொல் மாற்றப்பட்டது.',
   'pro.pin_enable_title': 'அறைக் கடவுச்சொல்லை அமை',
   'pro.pin_enabled': 'அறைக் கடவுச்சொல் அமைக்கப்பட்டது.',
-  'pro.pin_members_legend': 'இப்போது அறையில் உள்ளவர்கள்',
   'pro.pin_members_title': 'தற்போதைய பங்கேற்பாளர்களை என்ன செய்வது?',
   'pro.pin_members_keep': 'அனைவரும் தொடரட்டும்',
   'pro.pin_members_keep_detail':

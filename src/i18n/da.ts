@@ -789,7 +789,6 @@ const da: Record<I18nKey, string> = {
   'pro.pin_changed': 'Adgangskoden til rummet er ændret.',
   'pro.pin_enable_title': 'Angiv adgangskode til rummet',
   'pro.pin_enabled': 'Adgangskoden til rummet er angivet.',
-  'pro.pin_members_legend': 'Personer i rummet lige nu',
   'pro.pin_members_title': 'Hvad skal der ske med de nuværende deltagere?',
   'pro.pin_members_keep': 'Behold alle',
   'pro.pin_members_keep_detail':

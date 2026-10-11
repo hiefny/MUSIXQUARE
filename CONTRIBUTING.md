@@ -61,6 +61,13 @@ and must never be the default development setup.
 
 ## Verification ladder
 
+Install [jq](https://jqlang.org/download/) to include the release-recovery
+inventory classifier in local unit tests. On Windows, use
+`winget install --exact --id jqlang.jq --source winget --scope user`, then restart
+the terminal or parent application so it inherits the updated `PATH`.
+`MXQR_TEST_JQ_PATH` can also point to the executable in an already-running
+environment. Without jq, this one local test is skipped; CI requires it.
+
 Run the smallest relevant unit test while iterating, then use this non-E2E
 baseline before handing off a change:
 

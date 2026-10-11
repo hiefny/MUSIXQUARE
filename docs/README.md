@@ -93,6 +93,10 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO clock budget and concurrent admission — 2026-10-11](design/pro-clock-and-admission-races-2026-10-11.md) —
+  delayed clock replies within the caller budget, still-active admission
+  tickets overtaken by another arrival, and unchanged admission limits.
+  Local repairs and regression evidence; all deployment is on owner hold.
 - [PRO PIN two-step dialog — 2026-10-11](design/pro-pin-two-step-2026-10-11.md) —
   unreleased App 8.9.1/v652 (target `app`): a minimal PIN page with Cancel /
   Next, then "현재 참여자를 어떻게 할까요?" with "그대로 두기" / "모두 재입장" rows

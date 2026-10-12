@@ -1,11 +1,11 @@
 # PRO natural-completion duration hardening (8.10.1) — 2026-10-12
 
-Status: implemented and verified locally on branch
-`agent/pro-duration-hardening`, merged with main App `8.10.0` (`eb51ed73`), as
-App `8.10.1` / PWA cache `v660`. Not merged or deployed. Production is App
-`8.10.0` / `v659` at `95e9092c` ([release record](../release-record.md)).
-Release target `all`: the PRO room Worker, the App Worker and the browser
-bundle all change.
+Status: shipped. PR [#303](https://github.com/hiefny/MUSIXQUARE/pull/303)
+merged as main `9c924ee1` (release SHA `ed53d978` on the branch, then docs),
+App `8.10.1` / PWA cache `v660`, released with target `all` on 2026-10-12 (see
+[Production verification](#production-verification)). It replaced App
+`8.10.0` / `v659` at `95e9092c` ([release record](../release-record.md)). The
+PRO room Worker, the App Worker and the browser bundle all changed.
 
 ## Why
 
@@ -226,3 +226,37 @@ Every fix commit was tested before and after: its tests fail without the fix.
 PR CI and the exact-main CI are the remote evidence for the final SHA. No
 real-device, customer-room or Full E2E run. Physical playback with controllers
 asleep stays in the release record's open checks.
+
+## Production verification
+
+- **PR CI.** [CI 38180080843](https://github.com/hiefny/MUSIXQUARE/actions/runs/38180080843)
+  passed all eleven jobs at the PR head `06aa69eb`, attempt 1. The Codex review
+  finished with no findings. The PR was squash-merged at that exact head as
+  `9c924ee1`.
+- **Exact-main CI.** [CI 38192205201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192205201)
+  passed all eleven jobs on attempt 1: 544 files, 12,004 pass, 0 fail, plus 1
+  Linux skip of a Windows-only test.
+- **Release.** [Production Release 38192571743](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192571743)
+  ran with `target=all` and Developer API D1 `false`, and succeeded on attempt 1
+  at 2026-10-12 01:42:30 UTC (10:42 KST).
+  - All six Workers deployed the exact-main candidate, and all ten live smoke
+    steps passed.
+  - It restored PRO generation readiness, verified deployment ownership, and
+    persisted the coherent production marker.
+  - All recovery and rollback steps were skipped.
+- **Public checks.** GET requests returned HTTP 200 for the landing page, which
+  loads `bootstrap.js?cache=v660`, and for `/service-worker.js`, which carries
+  the `v660` cache. No customer room was entered or modified.
+
+| Worker | Deployed version |
+| --- | --- |
+| App | `30c691e2-c049-43fe-9408-a25f2624a010` |
+| PRO | `43012781-9bd1-4363-a2ce-88668e77fcb2` |
+| Remote Share | `41f73ef6-28d6-4fe2-861c-50458db0d917` |
+| Signaling | `5b4ea145-4217-4947-be44-171f2ab1ca80` |
+| Developer API facade | `2ca8abeb-5677-44e6-a2f0-737b713b4fb0` |
+| Developer API | `976bb91c-6038-4d28-81a0-c3f837805671` |
+
+This release did not run the entire serial E2E suite or any physical-device
+test. Those limits, and checks of re-measured durations in real rooms, remain
+open in the release record.

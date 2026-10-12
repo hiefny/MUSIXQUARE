@@ -177,6 +177,13 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 후속 작업과 유지 결정
 
+- [ ] 일반방 공지 초기화 수정 배포 대기(2026-10-13): 새 페이지의 일반방 방장·참여자는
+  `room.context.role`이 idle이라 공지 모듈이 로드되지 않았다. `98c690cf`에서 기존
+  일반방 역할 판독 경로를 추가했고 실제 setup을 지나는 필수 브라우저 검사를 넣었다.
+  준비 버전 `8.10.3` / `v662`, 대상 `app`, Developer API D1 `false`. 의존성·스키마·비밀·
+  바인딩·프로토콜·복구 floor 변경 없음. exact-main CI와 배포 후 실서비스 공지 표시를
+  확인해야 한다. [원인·수정·검증](design/standard-announcement-bootstrap-2026-10-13.md)
+
 - [ ] 일반방 YouTube zero-start 직후 Sync 준비 공백(2026-10-12 로컬 관측):
   초기 프로토콜의 소유권은 풀렸지만 첫 일반 playback snapshot이 오기 전에
   Sync를 누르면 "방장 재생 정보가 없음" 안내가 나오고 자동 재시도하지 않는다.

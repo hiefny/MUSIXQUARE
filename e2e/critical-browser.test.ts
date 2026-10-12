@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { E2E_APP_ORIGIN } from './config.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
-import { setupHostAndStart } from './helpers/setup-flow.ts';
+import { setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { openChatDrawer, sendChat, waitForState } from './helpers/wait.ts';
 
 import {
@@ -15,6 +15,47 @@ import {
 } from './helpers/pro-room-fixture.ts';
 
 test.describe('Critical browser release gate', () => {
+  test('loads the announcement through fresh Standard host and guest bootstrap', async ({
+    page,
+    browser,
+  }) => {
+    const message = 'Maintenance is complete. Please refresh before joining a room.';
+    let hostRequests = 0;
+    await injectPeerServer(page);
+    await page.route('**/api/announcement/current', (route) => {
+      hostRequests += 1;
+      return route.fulfill({ json: { enabled: true, id: 'bootstrap-notice', message } });
+    });
+    await page.goto('/');
+    await expect(page.locator('#btn-setup-host')).toBeVisible();
+    expect(hostRequests).toBe(0);
+
+    const code = await setupHostAndStart(page);
+    await openChatDrawer(page);
+    await expect(page.locator('#chat-pinned-notice')).toBeVisible();
+    await expect(page.locator('#chat-pinned-notice')).toContainText(message);
+    expect(hostRequests).toBe(1);
+
+    const guestContext = await browser.newContext({ baseURL: E2E_APP_ORIGIN });
+    try {
+      const guest = await guestContext.newPage();
+      let guestRequests = 0;
+      await injectPeerServer(guest);
+      await guest.route('**/api/announcement/current', (route) => {
+        guestRequests += 1;
+        return route.fulfill({ json: { enabled: true, id: 'bootstrap-notice', message } });
+      });
+      await setupGuest(guest, code);
+      await openChatDrawer(guest);
+      await expect(guest.locator('#chat-pinned-notice')).toBeVisible();
+      await expect(guest.locator('#chat-pinned-notice')).toContainText(message);
+      // A host-forwarded banner alone must not hide a broken guest loader.
+      expect(guestRequests).toBe(1);
+    } finally {
+      await guestContext.close();
+    }
+  });
+
   test('opens the native file picker from the active media-source dialog', async ({ page }) => {
     await injectPeerServer(page);
     await setupHostAndStart(page);
@@ -35,6 +76,13 @@ test.describe('Critical browser release gate', () => {
     page,
   }) => {
     await injectPeerServer(page);
+    let announcementRequests = 0;
+    await page.route('**/api/announcement/current', (route) => {
+      announcementRequests += 1;
+      return route.fulfill({
+        json: { enabled: true, id: 'pro-bootstrap-notice', message: 'PRO announcement' },
+      });
+    });
     await page.addInitScript((signalingUrl) => {
       (window as unknown as Record<string, unknown>).__MUSIXQUARE_TRANSPORT__ = {
         provider: 'cloudflare',
@@ -179,6 +227,10 @@ test.describe('Critical browser release gate', () => {
     expect(signalingSocketUrl).toBe(`${PRO_SIGNALING_ORIGIN}/api/pro-rooms/${PRO_ROOM_CODE}/ws`);
     expect([...proRequestOrigins]).toEqual([E2E_APP_ORIGIN]);
     expect(pageErrors).toEqual([]);
+    await openChatDrawer(page);
+    await expect(page.locator('#chat-pinned-notice')).toBeVisible();
+    await expect(page.locator('#chat-pinned-notice')).toContainText('PRO announcement');
+    expect(announcementRequests).toBe(1);
   });
 
   test('PRO owner slowmode preserves an unsent draft and allows retry when disabled', async ({

@@ -1428,6 +1428,9 @@ function scheduleRendezvousPlay(
                 snapshot.hostPosition + (getHostNow() - snapshot.hostClockAt) / 1000;
               const duration = pCal.getDuration?.() || 0;
               const playerState = pCal.getPlayerState?.();
+              // Player reads (including the ownership check) can retire this
+              // attempt. Fence them before recording an eligible learning sample.
+              if (!isCurrentRendezvous(attempt) || _rt.rendezvous !== attempt) return;
               if (
                 ![guestPos, hostPosNowMeasured, duration, manualOffsetSec].every(Number.isFinite)
               ) {
@@ -1452,7 +1455,6 @@ function scheduleRendezvousPlay(
               // callback lateness, and reject a changed clock or invalid sample.
               const next = calibration.learn(driftMs, current);
               if (next === null) return;
-              if (!isCurrentRendezvous(attempt)) return;
               if (next !== current) {
                 setState('youtube.guestPlayLatency', next);
                 try {

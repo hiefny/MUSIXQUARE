@@ -3022,6 +3022,45 @@ describe('YouTube Sync — Regression Integration', () => {
       },
     );
 
+    it.each(['position-read', 'ownership-read'] as const)(
+      'does not record eligible learning after reentrant cancellation during %s',
+      async (cancelDuring) => {
+        const player = advancingRendezvousPlayer(0, 100);
+        const sync = await importSync();
+        sync.guestRendezvousSync({ silent: true });
+        await vi.advanceTimersByTimeAsync(1700);
+        const readPosition = player.getCurrentTime;
+        const readVideo = player.getVideoData;
+        let sampledPosition = false;
+        let cancelled = false;
+        player.getCurrentTime = () => {
+          const position = readPosition();
+          sampledPosition = true;
+          if (cancelDuring === 'position-read') {
+            sync.cancelGuestRendezvous();
+            cancelled = true;
+          }
+          return position;
+        };
+        player.getVideoData = () => {
+          if (sampledPosition && cancelDuring === 'ownership-read') {
+            sync.cancelGuestRendezvous();
+            cancelled = true;
+          }
+          return readVideo();
+        };
+        await vi.advanceTimersByTimeAsync(1300);
+        expect(cancelled).toBe(true);
+        const observations = getStandardStartObservations().playback;
+        expect(
+          observations.filter((entry) => entry.kind === 'youtube-rendezvous-release'),
+        ).toHaveLength(1);
+        expect(observations.filter((entry) => entry.detail.eligible === true)).toHaveLength(0);
+        expect(getState('youtube.guestPlayLatency')).toBe(0);
+        expect(localStorage.getItem(storageKey)).toBeNull();
+      },
+    );
+
     it.each([Number.NaN, Number.POSITIVE_INFINITY])(
       'does not persist a non-finite media position %s',
       async (position) => {

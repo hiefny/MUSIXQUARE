@@ -110,7 +110,7 @@ Windows, Node `24.13.1`에서 검사했다. CI는 저장소 고정 Node 버전�
   배포 전 artifact와 최종 artifact의 app-before.json SHA-256은 모두
   `83ec0b036ef7db4344351119bcf7971f1ab4858d2fac85370e42923215d5a58c`로 일치했다.
 
-미선택 Worker 5종은 모두 git `08df0606`이며 dispatch 및 App mutation 직전
+미선택 Worker 5종은 모두 git `08df0606`이며 배포 전 사전검사 및 App mutation 직전
 재검증에서 compatible이었다. 수정 범위에 맞춰 App만 배포했다.
 
 | Worker | 유지한 version | 유지한 deployment |

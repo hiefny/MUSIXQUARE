@@ -374,6 +374,18 @@ describe('admin reads crossing a mutation', () => {
       expect(expires.value).toBe('2032-04-05 12:34');
       expect(gets).toBe(1);
       expect(writes).toHaveLength(0);
+      if (timing !== 'after-first-body') {
+        // The preserved initial draft has never displayed a server revision.
+        // A successful GET alone must not authorize overwriting that notice.
+        document.querySelector<HTMLFormElement>('[data-announcement-form]')!.requestSubmit();
+        await vi.waitFor(() =>
+          expect(document.querySelector('[data-announcement-status]')?.textContent).toBe(
+            'Refresh the announcement before saving.',
+          ),
+        );
+        expect(writes).toHaveLength(0);
+        expect(message.value).toBe('Unsaved unique draft');
+      }
       // The explicit refresh still replaces the draft and advances the CAS revision.
       revision = 2;
       document.querySelector<HTMLButtonElement>('[data-refresh]')!.click();

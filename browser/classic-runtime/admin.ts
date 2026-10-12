@@ -6110,8 +6110,9 @@ async function loadAnnouncement(
     const preserveDraft = announcementDraftSignature() !== initialDraft;
     // A draft based on an older revision must still conflict if another session
     // changed the notice; an incidental read cannot advance its write fence.
-    if (!preserveDraft || currentAnnouncementRevision === null)
-      currentAnnouncementRevision = payload.revision;
+    // An initial draft has no observed base at all: keep it unsaveable until
+    // an explicit refresh renders the current notice and establishes its base.
+    if (!preserveDraft) currentAnnouncementRevision = payload.revision;
     if (!preserveDraft) pendingAnnouncementMutation = null;
     renderAnnouncement(payload, preserveDraft);
     renderAnnouncementHistory(payload);

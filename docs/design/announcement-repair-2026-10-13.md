@@ -117,3 +117,15 @@
   사용한다. 나머지 Worker도 같은 SHA로 배포·smoke를 거치며 동작 변경은 없다.
 - 공개 공지는 비활성 상태를 유지하고 점검 모드를 바꾸지 않는다. 이 문단은
   배포 계획이며 PR CI·exact-main CI·Production Release 성공을 대체하지 않는다.
+
+### PR #309 리뷰 보완
+
+GitHub 자동 리뷰가 최초 조회 완료 전에 작성한 초안에 아직 보지 않은 서버 revision을
+부여하는 경로를 지적했다. 기존 3종 초안 보존 회귀에 저장 시도를 추가하자 첫 응답
+대기 2종에서 실제 POST가 나가며 실패했다. 입력은 보존하되 최초 revision은 `null`로
+남겨 기존 저장 가드가 Refresh를 요구하도록 수정했다. 명시적 Refresh로 서버 상태를
+표시한 뒤에는 정상 저장되고, 이미 표시한 revision에서 만든 초안은 기존 충돌 경계를
+유지한다. 재현 로그는 `scratch/notice-initial-fence-red.log`다.
+수정 후 관리자 46건과 해당 파일의 올바른 tooling/app ESLint 및 포맷 검사가
+통과했다. 최초 ESLint 호출에서 classic 파일에 app 설정을 적용한 명령 오류는
+tooling 설정으로 다시 검사했으며 코드 lint 실패로 숨기지 않는다.

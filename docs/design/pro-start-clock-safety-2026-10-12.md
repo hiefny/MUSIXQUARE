@@ -180,6 +180,17 @@ YouTube 전체 파일 첫 실행에서 새 테스트의 mock 구현 복원이 �
 `scratch/pro-clock-close-lint.log`, `scratch/pro-clock-close-format.log`,
 `scratch/pro-clock-close-build.log`.
 
+### 추가 핀: 재연결 뒤 같은 revision heartbeat 복원
+
+위 후속 검사가 비워 둔 이음새 하나를 `playback-clock-close-file.test.ts`에 핀으로
+추가했다. 적용된 파일 시작 → 자연 close(control-channel recovery 시작 포함) →
+새 소켓 세대로 재연결(기존 lease는 `isClockSnapshotCurrent`에서 false) → 새 시계
+응답 → 같은 revision의 heartbeat 스냅샷을 `restorePersistedPlayback`에 전달. 기대는
+commit 호출 1회 유지, 예약된 `AudioBufferSourceNode` 1개가 같은 시각에 그대로 재생,
+`playback.activity`가 `playing`이다. 적용된 revision의 복원은 취소된 recovery
+flight가 없으면 no-op이라는 현재 동작을 고정하며, 이번 코드 변경을 요구한
+실패(red)는 아니다. 파일 8/8, 테스트 타입 검사, 변경 파일 ESLint·Prettier 통과.
+
 ## 남은 한계와 다음 배포
 
 Android 250ms를 모든 경로에 확대하지 않았다. C1/C7 출력·재개 지연은 기기별

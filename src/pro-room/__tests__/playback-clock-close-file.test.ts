@@ -466,6 +466,54 @@ describe('PRO file COMMIT clock lease across socket close', () => {
     }
   });
 
+  it('keeps an applied file start through unexpected close, reconnection, and a same-revision heartbeat restore', async () => {
+    audio.initDelayMs = 0;
+    const fixture = await beginFileCommit();
+    try {
+      expect(audio.outputs).toHaveLength(1);
+      const scheduledAt = audio.outputs[0]!.when;
+      // The COMMIT's passive acquisition selected the current best candidate.
+      const lease = proRoomServerBridge.captureClockSnapshot();
+      expect(lease).not.toBeNull();
+      await advance(50);
+
+      // Natural close keeps the issued lease; the runtime's recovery hook runs
+      // exactly as it would before an automatic heartbeat reconnection.
+      fixture.socket.close();
+      const recovery = fixture.controller.beginControlChannelRecovery();
+      expect(proRoomServerBridge.connected).toBe(false);
+      expect(proRoomServerBridge.isClockSnapshotCurrent(lease!)).toBe(true);
+      await advance(700);
+      expect(audio.outputs[0]!.stopsAt).toBe(Infinity);
+      expect(getState('playback.activity')).toBe('playing');
+
+      // Reconnection opens a new socket generation, which revokes the old lease
+      // for new work but must not disturb the start it already admitted.
+      const socket = await openBridge(proRoomServerBridge, 2);
+      expect(proRoomServerBridge.isClockSnapshotCurrent(lease!)).toBe(false);
+      await advance(0);
+      const request = clockRequests(socket).at(-1)!;
+      await advance(20);
+      answerClockRequest(socket, request, Date.now() - 10);
+      fixture.controller.completeControlChannelRecovery(recovery);
+
+      // The first heartbeat after reconnection carries the same applied
+      // revision on the unchanged server timeline.
+      fixture.current.playback = { ...fixture.current.playback, updatedAtMs: fixture.executeAtMs };
+      await fixture.controller.restorePersistedPlayback(fixture.current);
+      await advance(100);
+
+      expect(fixture.commit).toHaveBeenCalledTimes(1);
+      expect(audio.outputs).toHaveLength(1);
+      expect(audio.outputs[0]!.when).toBe(scheduledAt);
+      expect(audio.outputs[0]!.stopsAt).toBe(Infinity);
+      expect(getState('playback.activity')).toBe('playing');
+    } finally {
+      fixture.controller.resetPlaylistRuntime();
+      fixture.unregister();
+    }
+  });
+
   it.each(['disconnect', 'replacement', 'new-revision', 'room-reset'] as const)(
     'still cancels native initialization after %s',
     async (action) => {

@@ -350,7 +350,11 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
       isCurrent: () => true,
     });
   };
-  const commitDirect = (positionSeconds: number, playbackState: 'playing' | 'paused' = 'playing') =>
+  const commitDirect = (
+    positionSeconds: number,
+    playbackState: 'playing' | 'paused' = 'playing',
+    scheduleDelayMs = 0,
+  ) =>
     applyProPlaybackYouTubeCommit({
       authority: createProPlaybackAuthorityToken({
         roomId: '000001',
@@ -362,7 +366,7 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
       queueItemId: queueId,
       state: playbackState,
       positionSeconds,
-      scheduleDelayMs: 0,
+      scheduleDelayMs,
       timingMode: 'scheduled-control',
       youtubeSubIndex: 0,
       youtubeVideoId: videoId,
@@ -766,8 +770,26 @@ describe('PRO manual offset across YouTube zero-start', () => {
       expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, canonical - 0.25), 3);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-0.25, 3);
       expect(
-        getProStartObservations().find((entry) => entry.detail.reason === 'direct-no-ack')?.detail,
-      ).toMatchObject({ path: 'direct', timingMode: 'scheduled-control' });
+        getProStartObservations().find((entry) => entry.kind === 'youtube-release')?.detail,
+      ).toMatchObject({
+        path: 'direct',
+        timingMode: 'scheduled-control',
+        playingAckAtMs: null,
+        callToPlayingAckMs: null,
+        canonicalStartSeconds: canonical,
+        localStartDelayMs: delayMs,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+      expect(samples).toHaveLength(2);
+      expect(samples[0].detail).toMatchObject({
+        path: 'direct',
+        elapsedSinceStartMs: 800,
+        learningEnabled: false,
+        learningDriftMs: null,
+        eligible: true,
+      });
+      expect(samples[0].detail.timelineDriftMs).toBeCloseTo(0, 6);
     },
   );
 
@@ -785,9 +807,100 @@ describe('PRO manual offset across YouTube zero-start', () => {
     expect(
       observations.filter((entry) => entry.detail.reason === 'cancelled-pending'),
     ).toHaveLength(2);
-    expect(observations.some((entry) => entry.detail.reason === 'direct-no-ack')).toBe(true);
+    const samples = observations.filter((entry) => entry.kind === 'youtube-sample');
+    expect(samples).toHaveLength(2);
+    expect(samples.every((entry) => entry.detail.path === 'direct')).toBe(true);
+    expect(observations.filter((entry) => entry.kind === 'youtube-learning')).toEqual([
+      expect.objectContaining({
+        detail: expect.objectContaining({ learningEnabled: false, updated: false }),
+      }),
+    ]);
+  });
+
+  it('observes a late direct release against its original future deadline without learning', async () => {
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    const schedule = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementationOnce((callback, ms, ...args) =>
+      schedule(callback, Number(ms) + 80, ...args),
+    );
+    const startedAtMs = performance.now();
+    const committed = endpoint.commitDirect(10, 'playing', 700);
+    await vi.advanceTimersByTimeAsync(780);
+    await expect(committed).resolves.toBe(true);
+    expect(endpoint.currentTime()).toBeCloseTo(10.08, 6);
+    vi.mocked(endpoint.player.getCurrentTime).mockImplementation(
+      () => endpoint.currentTime() - 0.1,
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    const observations = getProStartObservations();
+    expect(observations.find((entry) => entry.kind === 'youtube-release')?.detail).toMatchObject({
+      canonicalExecuteAtMs: startedAtMs + 700,
+      playCallAtMs: startedAtMs + 780,
+      playingAckAtMs: null,
+      rawReleaseLatenessMs: 80,
+      appliedReleaseLatenessMs: 80,
+    });
+    const samples = observations.filter((entry) => entry.kind === 'youtube-sample');
+    expect(samples.map((entry) => entry.detail.elapsedSinceStartMs)).toEqual([800, 2000]);
+    expect(samples[0].detail.timelineDriftMs).toBeCloseTo(-100, 6);
+    expect(samples[0].detail.learningDriftMs).toBeNull();
+    expect(observations.find((entry) => entry.kind === 'youtube-learning')?.detail).toMatchObject({
+      learningEnabled: false,
+      accepted: false,
+      updated: false,
+    });
+  });
+
+  it.each(['not-playing', 'invalid-position', 'identity-mismatch'] as const)(
+    'retains an invalid direct observation: %s',
+    async (reason) => {
+      const endpoint = await createProEndpoint();
+      endpoint.setTimelineLive(false);
+      await endpoint.commitDirect(10);
+      if (reason === 'not-playing') vi.mocked(endpoint.player.getPlayerState).mockReturnValue(3);
+      if (reason === 'invalid-position')
+        vi.mocked(endpoint.player.getCurrentTime).mockReturnValue(Number.NaN);
+      if (reason === 'identity-mismatch') setState('sync.youtubeLocalOffset', 0.2);
+      await vi.advanceTimersByTimeAsync(2_000);
+      const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+      expect(samples).toHaveLength(2);
+      expect(samples[0].detail).toMatchObject({
+        path: 'direct',
+        eligible: false,
+        reason,
+        learningEnabled: false,
+      });
+      if (reason === 'invalid-position') expect(samples[0].detail.rawPositionSeconds).toBeNull();
+    },
+  );
+
+  it('retains missed direct checkpoints after a long local hold at their actual sample times', async () => {
+    const endpoint = await createProEndpoint();
+    await endpoint.applyManual(-3);
+    endpoint.setTimelineLive(false);
+    const committed = endpoint.commitDirect(0);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(committed).resolves.toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+    expect(samples).toHaveLength(2);
+    expect(samples.every((entry) => Number(entry.detail.elapsedSinceStartMs) >= 3_000)).toBe(true);
+    expect(samples.every((entry) => Number(entry.detail.checkpointLatenessMs) > 0)).toBe(true);
+    expect(samples[0].detail.timelineDriftMs).toBeCloseTo(0, 6);
+  });
+
+  it('cancels direct observation checkpoints when a newer pause arrives', async () => {
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    await endpoint.commitDirect(10);
+    await endpoint.commitDirect(10, 'paused');
+    await vi.advanceTimersByTimeAsync(3_000);
+    const observations = getProStartObservations();
+    expect(
+      observations.filter((entry) => entry.detail.reason === 'cancelled-pending'),
+    ).toHaveLength(2);
     expect(observations.filter((entry) => entry.kind === 'youtube-sample')).toHaveLength(0);
-    expect(observations.filter((entry) => entry.kind === 'youtube-learning')).toHaveLength(0);
   });
 
   it('supersedes a delayed direct snapshot with a pause without replaying later', async () => {

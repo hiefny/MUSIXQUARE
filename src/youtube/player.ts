@@ -804,6 +804,7 @@ const proYouTubeLeadCalibrationTimers = new Map<
   {
     commitGeneration: number;
     timingMode: 'zero-start' | 'scheduled-control';
+    path: 'prepared' | 'direct';
     checkpointMs: number;
     plannedSampleAtMs: number;
   }
@@ -850,6 +851,7 @@ function scheduleProYouTubeLeadCalibration(input: {
   preparationGeneration: number;
   localOffsetSeconds: number;
   timingMode: 'zero-start' | 'scheduled-control';
+  path: 'prepared' | 'direct';
   learningEnabled: boolean;
   /** Only callback delay not already added to the release target is removed from learning. */
   uncorrectedCallbackLatenessMs: number;
@@ -948,6 +950,7 @@ function scheduleProYouTubeLeadCalibration(input: {
         recordProStartObservation('youtube-sample', {
           commitGeneration: input.generation,
           timingMode: input.timingMode,
+          path: input.path,
           platform: input.platform,
           checkpointMs,
           plannedSampleAtMs: targetAtMs,
@@ -1000,6 +1003,7 @@ function scheduleProYouTubeLeadCalibration(input: {
           recordProStartObservation('youtube-learning', {
             commitGeneration: input.generation,
             timingMode: input.timingMode,
+            path: input.path,
             learningEnabled: false,
             reason:
               input.timingMode === 'scheduled-control'
@@ -1019,6 +1023,7 @@ function scheduleProYouTubeLeadCalibration(input: {
         recordProStartObservation('youtube-learning', {
           commitGeneration: input.generation,
           timingMode: input.timingMode,
+          path: input.path,
           learningEnabled: true,
           reason: learned.reason,
           sampleGapMs: elapsedSinceStartMs - earlySample.elapsedSinceStartMs,
@@ -1040,6 +1045,7 @@ function scheduleProYouTubeLeadCalibration(input: {
     proYouTubeLeadCalibrationTimers.set(timer, {
       commitGeneration: input.generation,
       timingMode: input.timingMode,
+      path: input.path,
       checkpointMs,
       plannedSampleAtMs: targetAtMs,
     });
@@ -1211,6 +1217,7 @@ export async function applyProPlaybackYouTubeCommit(
         localOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
         timingMode: request.timingMode,
         learningEnabled: request.timingMode === 'zero-start' && positiveLeadWasFullyScheduled,
+        path: 'prepared',
         uncorrectedCallbackLatenessMs,
       });
       return true;
@@ -1251,11 +1258,12 @@ export async function applyProPlaybackYouTubeCommit(
     if (request.youtubeVideoId && liveVideoId !== request.youtubeVideoId) return false;
 
     const duration = getYouTubeDuration(player);
+    let localWait = 0;
     if (request.state === 'playing') {
       const initialPosition =
         (Number.isFinite(request.positionSeconds) ? Math.max(0, request.positionSeconds) : 0) +
         Math.max(0, performance.now() - scheduleDeadlineMs) / 1000;
-      const localWait = resolveYouTubePlaybackStartTarget(
+      localWait = resolveYouTubePlaybackStartTarget(
         initialPosition,
         getState('sync.youtubeLocalOffset') || 0,
         duration,
@@ -1304,23 +1312,67 @@ export async function applyProPlaybackYouTubeCommit(
 
     if (request.state === 'playing') {
       setYtAutoplayIntent(true);
+      const playCallAtMs = performance.now();
       player.playVideo?.();
-      // This path has no prepared-arm acknowledgement owner. Do not represent
-      // a returned playVideo command as PLAYING or silently claim sample coverage.
-      recordProStartObservation('youtube-observation-skipped', {
+      const platform = getYouTubeZeroStartPlatform();
+      const lead = proYouTubeLeadState(
+        request.authority.roomId,
+        request.authority.roomEpoch,
+        platform,
+      );
+      const canonicalStartSeconds = Number.isFinite(request.positionSeconds)
+        ? Math.max(0, request.positionSeconds)
+        : 0;
+      const callbackLatenessMs = Math.max(0, setupLatenessSeconds * 1000 - localWait);
+      // Direct controls have no PLAYING acknowledgement owner. Observe their
+      // media position against the original deadline without treating command
+      // return as acknowledgement or training zero-start compensation.
+      recordProStartObservation('youtube-release', {
         commitGeneration: generation,
         revision: request.committedPlaybackRevision,
         timingMode: request.timingMode,
         path: 'direct',
-        reason: 'direct-no-ack',
+        platform,
+        originalCanonicalExecuteAtMs: scheduleDeadlineMs,
         canonicalExecuteAtMs: scheduleDeadlineMs,
+        canonicalStartSeconds,
+        scheduleDelayMs: delayMs,
         requestedTargetSeconds: request.positionSeconds,
         releasedTargetSeconds: target.localTime,
         manualOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
         appliedOffsetSeconds: target.effectiveOffset,
+        playCallAtMs,
+        playingAckAtMs: null,
+        callToPlayingAckMs: null,
+        acknowledgementOnly: true,
+        platformLeadMs: 0,
+        timelineLeadMs: 0,
+        releaseLeadMs: 0,
+        localStartDelayMs: localWait,
+        rawReleaseLatenessMs: callbackLatenessMs,
+        appliedReleaseLatenessMs: callbackLatenessMs,
+        uncorrectedCallbackLatenessMs: 0,
+        catchUpSeconds: setupLatenessSeconds,
       });
       setPlaybackYouTubePlaying();
       bus.emit('ui:update-play-state', true);
+      scheduleProYouTubeLeadCalibration({
+        generation,
+        sessionKey: lead.sessionKey,
+        platform,
+        player,
+        queueItemId: request.queueItemId,
+        videoId: liveVideoId,
+        subIndex: request.youtubeSubIndex ?? null,
+        canonicalStartSeconds,
+        canonicalExecuteAtMs: scheduleDeadlineMs,
+        preparationGeneration: getProYouTubeAuthorityPreparationGeneration(),
+        localOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
+        timingMode: 'scheduled-control',
+        path: 'direct',
+        learningEnabled: false,
+        uncorrectedCallbackLatenessMs: 0,
+      });
     } else {
       setYtAutoplayIntent(false);
       hideYouTubeTapToPlayGate();

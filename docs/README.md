@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [동기화 점검 배포 준비 — 2026-10-12](design/sync-maintenance-release-preparation-2026-10-12.md) —
+  최신 main 통합, 리뷰 보완, 초기 로딩 경계, 강제 버전 차단 없이 점검 후 배포하는
+  오너 결정과 검증 상태. 준비 중이며 프로덕션 배포 근거는 별도다.
 - [Android YouTube 공통 기준·기기별 출력 보정 — 2026-10-12](design/android-youtube-output-baseline-2026-10-12.md) —
   일반·PRO의 own 250 ms, 방장 수동값 격리, 곡 끝 처리와 로컬 검증.
   실음향·구버전 혼용·릴리스 준비의 남은 한계를 구분한다. 미배포.

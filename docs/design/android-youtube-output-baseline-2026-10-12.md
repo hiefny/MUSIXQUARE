@@ -158,10 +158,12 @@ own total lead and can align to a new host, while old STATE/heartbeat recovery
 lacks the fixed position advance. Do not generalize the zero-start table to
 every recovery path.
 
-Before release, require a verified versioned compatibility policy or a verified
-same-version re-entry boundary. A notice alone does not force cached open clients
-to update. This local task does not silently change protocol versions or treat
-same-version tests as proof of mixed-version safety.
+The initial review required a versioned compatibility policy or a verified
+same-version re-entry boundary. The owner's later 2026-10-12 decision supersedes
+that release requirement: use a maintenance cutover and accept residual old/new
+clients without version admission or migration. A notice still does not force
+cached open clients to update, and same-version tests do not prove mixed-version
+safety. See the [cutover decision and verification](sync-maintenance-release-preparation-2026-10-12.md).
 
 ## Remaining limits and release preparation
 

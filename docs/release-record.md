@@ -205,7 +205,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   유지한다. 실제 현장 원인은 미확정이다.
   C1/C7의 Android 고정 출력 보정은 아래 후속 수정으로 모든 playing 경로에 적용한다.
   재개 startup 지연의 추가 학습은 여전히 별도 실측 대상이다.
-  오너 요청에 따라 로컬 커밋만 남기고 푸시·배포하지 않았다. 후속 배포에는
+  초기에는 오너 요청으로 로컬 커밋만 남겼고, 현재 아래 점검 배포를 준비 중이다. 후속 배포에는
   App/SW 버전 갱신과 정상 exact-main 후보가 필요하다.
   [수정·검증·남은 한계](design/pro-start-clock-safety-2026-10-12.md),
   [14개 후보 판정·재현·한계](design/pro-start-sync-candidate-validation-2026-10-12.md)
@@ -216,18 +216,22 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   실제 적용한 로컬 보정을 빼고 공통 시각을 송신하여 게스트에게 전파하지 않는다.
   시작·재개·시크·수동 싱크·초기화·정상 복구와 학습 분리를 로컬 검증했다.
   실제 수정본의 기기 음향 정렬은 후속 실측 대상이다. UA와 UA-CH 모두 Linux로
-  숨기는 기기는 추측하지 않는다. 배포 전 해결할 호환 항목: 이전 코드와 capability
-  v2가 같아 공통 시각의 출력 의미를 협상하지 못한다. Android 방장에서 구·신 코드가
-  섞이면 zero-start가 ±250ms 어긋날 수 있다. 버전별 호환 또는 검증된 동일 버전
-  재입장 경계가 필요하며, 업데이트 안내만으로 기존 탭의 전환을 보장하지 않는다.
-  [구현·검증·호환 한계](design/android-youtube-output-baseline-2026-10-12.md)
-- [ ] 누적 로컬 App 릴리스 준비: 초기 전송 유지 여유 검사에서 eager JavaScript
-  gzip 471,480 B > 468,160 B(+3,320 B), eager total 544,539 B > 543,400 B(+1,139 B).
-  구조 한도(492,800 B / 572,000 B) 안이지만 5% 여유를 보존하는 검사는 실패했다.
-  한도를 올리지 않았다. 별도 초기 로딩 최적화 후 배포 후보에서 재검증해야 한다.
-  App/SW 버전은 아직 8.10.0/v659라 누적 로컬 런타임 커밋의 캐시 버전 검사도
-  의도적으로 미충족이다. 로컬 검증이 exact-main 릴리스 후보를 대신하지 않는다.
-  [검사 결과·후속 범위](design/android-youtube-output-baseline-2026-10-12.md)
+  숨기는 기기는 추측하지 않는다. 이전 코드와 capability v2가 같아 Android 방장에서
+  구·신 코드가 섞이면 zero-start가 ±250ms 어긋날 수 있다. 오너 결정(2026-10-12):
+  강제 버전 차단·호환 마이그레이션 없이 2026-10-13 00:00 KST 이후 점검 배포한다.
+  기존 탭 잔존과 점검 해제~배포 사이 재입장 가능성을 수용하며 새로고침을 안내한다.
+  점검이 사용자 0명 또는 같은 코드 실행을 보장한다는 뜻은 아니다.
+  [구현·검증·호환 한계](design/android-youtube-output-baseline-2026-10-12.md),
+  [점검 배포 결정·순서·검증](design/sync-maintenance-release-preparation-2026-10-12.md),
+  [수용한 전환기 한계](known-accepted.md#13-maintenance-cutover-without-client-version-admission)
+- [ ] 누적 App 릴리스 준비: 최신 8.10.1/v660 main을 통합했고 8.10.2/v661의
+  `89db0184`에서 `build:checked`가 통과했다. 진단을 방/데모 준비 경계로 옮기고
+  PRO 동기 송신 포트를 분리해 eager JS gzip 464,825 B / 468,160 B,
+  eager total gzip 537,909 B / 543,400 B로 기존 여유 검사를 충족했다.
+  용량 한도는 바꾸지 않았다. 새 수동 싱크 handoff 회귀와 테스트 완료 경계도
+  보완했다. 최종 로컬 검증·리뷰 PR·exact-main CI는 별도로 완료해야 하며
+  로컬 검증이 정상 릴리스 후보를 대신하지 않는다.
+  [현재 준비·검증 상태](design/sync-maintenance-release-preparation-2026-10-12.md)
 - [ ] iPhone Safari/PWA 실기 재입장: 8.9.4의 이전 연결 안내와 "여기서 계속",
   같은 코드로 입장 실패 후 재시도를 확인한다. 종료 알림이 누락되면 마지막 생존
   확인 뒤 45초 동안 presence가 남을 수 있고 명시적 이어하기 정책은 유지한다.

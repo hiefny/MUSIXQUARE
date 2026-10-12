@@ -271,6 +271,23 @@ reaches the PIN check counts there, whether or not its network is tracked.
 because guessing from networks past the 256 tracked ones, or kept under 20
 wrong PINs per tracked network, never produces a lockout.
 
+### 13. Maintenance Cutover Without Client-Version Admission
+
+Accepted by the owner on 2026-10-12 for the App 8.10.2 synchronization release.
+Maintenance plus a reload/reopen notice is an operational cutover, not a proof
+that all running documents have refreshed. Old settings/sleeping tabs can
+rejoin, and Standard P2P sessions have a separate lifetime from signaling.
+Android-host old/new combinations can retain a 250 ms output mismatch described
+in the [Android report](design/android-youtube-output-baseline-2026-10-12.md).
+
+The owner chose not to add version-based admission, a legacy fallback, or forced
+reload. The existing release workflow requires maintenance OFF for its public
+smokes, so the selected sequence reopens immediately before the App release and
+permits arrivals during that interval. This does not relax any CI/release check.
+Revisit if mixed-version reports recur or a future release requires a guaranteed
+wire-contract boundary. See the
+[preparation and execution record](design/sync-maintenance-release-preparation-2026-10-12.md).
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

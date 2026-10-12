@@ -123,9 +123,27 @@ attempt, not a remotely published production candidate.
   the required Linux/main CI evidence.
 - Final full typechecking, app/tooling lint and formatting passed. All **17
   production-candidate browser tests** passed on the final production artifact.
-  The selected Chromium runtime browser run is in progress;
-  their results will be linked on the reviewed PR before merge. This report
-  makes no claim that the complete cross-browser or live-service E2E suite ran.
+- After the separate E2E-mode build of the same source, **61 selected Chromium
+  browser tests passed / 0 failed / 0 skipped** in 9.8 minutes: the critical
+  release subset, bootstrap contract, local-file sync, demo common start and
+  reliability, chat, YouTube manual zero-start, Android output combinations,
+  and rendezvous/drift paths. The release-smoke cases overlap between the two
+  runs; these are execution counts, not 78 unique scenarios. Tests use local
+  PeerJS and controlled service/iframe fixtures, not an actual Cloudflare room
+  or acoustic recording. The complete cross-browser/live E2E suite was not run.
+
+### PR evidence
+
+[PR #305](https://github.com/hiefny/MUSIXQUARE/pull/305) initial head `26094bc4`
+passed all 11 jobs in [CI 38262715122](https://github.com/hiefny/MUSIXQUARE/actions/runs/38262715122).
+Linux broad-unit merge: 550 files, 12,353 passed / 0 failed / 1 skipped; the skip
+is the existing Windows-only alternate-drive CLI case. Candidate browsers:
+17 passed; critical browsers: 22 passed. Coverage gates for broad, critical,
+Worker and release-tooling scopes passed. This PR result is not the required
+exact-main-SHA candidate. A documentation-only follow-up records final local
+browser results; its own final PR CI must complete before merge.
+GitHub's Codex review completed on `26094bc4` with a thumbs-up and no findings;
+the follow-up changes only this evidence and current preparation state.
 
 ## Maintenance execution sequence
 

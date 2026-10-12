@@ -229,8 +229,10 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   PRO 동기 송신 포트를 분리해 eager JS gzip 464,825 B / 468,160 B,
   eager total gzip 537,909 B / 543,400 B로 기존 여유 검사를 충족했다.
   용량 한도는 바꾸지 않았다. 새 수동 싱크 handoff 회귀와 테스트 완료 경계도
-  보완했다. 최종 로컬 검증·리뷰 PR·exact-main CI는 별도로 완료해야 하며
-  로컬 검증이 정상 릴리스 후보를 대신하지 않는다.
+  보완했다. 최종 로컬 전체 단위 12,354건, 후보 브라우저 17건, 선택 Chromium
+  61건이 모두 통과했다. PR #305의 초기 CI 11개 job과 자동 리뷰도 통과했으며,
+  최종 PR·exact-main CI는 별도로 완료해야 한다. 로컬/PR 검증이 정상
+  exact-main 릴리스 후보를 대신하지 않는다.
   [현재 준비·검증 상태](design/sync-maintenance-release-preparation-2026-10-12.md)
 - [ ] iPhone Safari/PWA 실기 재입장: 8.9.4의 이전 연결 안내와 "여기서 계속",
   같은 코드로 입장 실패 후 재시도를 확인한다. 종료 알림이 누락되면 마지막 생존

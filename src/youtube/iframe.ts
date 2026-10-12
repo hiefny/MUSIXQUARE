@@ -3460,6 +3460,14 @@ function updateYouTubeUI(): void {
         isStandardHostYouTubeManualOffsetEndpoint() &&
         (standardHostAutomaticEnd || getStandardHostYouTubeAutomaticOffset() > 0)
       ) {
+        // The boundary already ran for this exact occurrence. Its iframe can
+        // remain ENDED until the next load; avoid re-entering the handler on
+        // every UI tick without suppressing a replacement occurrence.
+        if (
+          standardHostAutomaticEnd?.phase === 'consumed' &&
+          isCurrentStandardHostAutomaticEnd(standardHostAutomaticEnd)
+        )
+          return;
         onYouTubePlayerStateChange({ data: YT.PlayerState.ENDED, target: player });
         // A completed boundary may synchronously load another occurrence.
         // Never publish this outgoing tick over the successor's metadata/UI.

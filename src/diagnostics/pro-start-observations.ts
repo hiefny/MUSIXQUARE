@@ -96,6 +96,7 @@ const METRIC_FIELDS = new Set([
   'releaseLeadMs',
   'scheduledLeadMs',
   'outputPositionAdvanceMs',
+  'ignoredOutputPositionAdvanceMs',
   'localStartDelayMs',
   'rawReleaseLatenessMs',
   'appliedReleaseLatenessMs',

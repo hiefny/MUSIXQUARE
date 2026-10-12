@@ -1254,6 +1254,7 @@ export async function applyProPlaybackYouTubeCommit(
         releaseLeadMs: committed.releaseLeadMs,
         scheduledLeadMs: committed.scheduledLeadMs,
         outputPositionAdvanceMs: committed.outputPositionAdvanceMs,
+        ignoredOutputPositionAdvanceMs: committed.ignoredOutputPositionAdvanceMs,
         localStartDelayMs: committed.localStartDelayMs,
         rawReleaseLatenessMs: committed.rawReleaseLatenessMs,
         appliedReleaseLatenessMs: committed.releaseLatenessMs,

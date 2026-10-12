@@ -57,6 +57,23 @@ describe('PRO start observations', () => {
     });
   });
 
+  it('retains applied and ignored fixed output advance separately from scheduled lead', () => {
+    recordProStartObservation('youtube-release', {
+      platformLeadMs: 250,
+      timelineLeadMs: 0,
+      scheduledLeadMs: 230,
+      outputPositionAdvanceMs: 0,
+      ignoredOutputPositionAdvanceMs: 20,
+    });
+    expect(getProStartObservations()[0].detail).toEqual({
+      platformLeadMs: 250,
+      timelineLeadMs: 0,
+      scheduledLeadMs: 230,
+      outputPositionAdvanceMs: 0,
+      ignoredOutputPositionAdvanceMs: 20,
+    });
+  });
+
   it('retains only finite metrics and known categories, never raw identities or messages', () => {
     const secret = 'private-room-peer-video-filename';
     recordProStartObservation('youtube-sample', {

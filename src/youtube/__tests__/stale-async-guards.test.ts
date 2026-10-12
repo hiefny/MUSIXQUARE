@@ -1085,6 +1085,55 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(false);
   });
 
+  it.each([0, 0.25])(
+    'stops synthesizing a consumed end without suppressing the next occurrence (output %s)',
+    async (nextOutput) => {
+      let monotonicNow = 10_000;
+      vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
+      const { player, handle, offsets } = await createCompensatedHostEnd();
+      const { updateYouTubeUIForTests } = await import('../iframe.ts');
+      const next = vi.fn();
+      bus.on('playlist:next-track', next);
+      handle.fireStateChange(0);
+      monotonicNow += 250;
+      lastTimerCallback(offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER)!();
+      expect(next).toHaveBeenCalledOnce();
+      zeroStartFacade.handlePlayerState.mockClear();
+      for (let tick = 0; tick < 10; tick += 1) updateYouTubeUIForTests();
+      // This callback runs at the entry to the real state-change handler.
+      // A deduplicated queue event alone would not prove work stopped.
+      expect(zeroStartFacade.handlePlayerState).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledOnce();
+
+      // Replace the occurrence without a load callback clearing the old latch.
+      // Its consumed status must not quarantine this new video's real end.
+      setState('playlist.items', [
+        ...getState('playlist.items'),
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'B',
+          videoId: 'vidB000000B',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidB000000B' });
+      offsets.recordStandardHostYouTubeAutomaticOffset(nextOutput);
+      setState('sync.youtubeCoordinatorAppliedOffset', nextOutput);
+      updateYouTubeUIForTests();
+      expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledWith(0);
+      if (nextOutput > 0) {
+        expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(true);
+        expect(next).toHaveBeenCalledOnce();
+        monotonicNow += 250;
+        lastTimerCallback(offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER)!();
+      }
+      expect(next).toHaveBeenCalledTimes(2);
+      expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(false);
+    },
+  );
+
   it('neutralizes a manual residual before holding the automatic output component', async () => {
     const { handle, offsets } = await createCompensatedHostEnd();
     setState('sync.youtubeLocalOffset', 0.4);

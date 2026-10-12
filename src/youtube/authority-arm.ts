@@ -120,6 +120,8 @@ export type YouTubeAuthorityArmCommitResult =
       scheduledLeadMs: number;
       /** Fixed output lead that could only be supplied by advancing media position. */
       outputPositionAdvanceMs: number;
+      /** Bounded fixed output advance omitted to avoid a seek within the jitter tolerance. */
+      ignoredOutputPositionAdvanceMs: number;
       /** Extra participant-only wait used to preserve a negative manual offset. */
       localStartDelayMs: number;
       /** Callback delay caught up at release; zero within the timer-jitter tolerance. */
@@ -184,6 +186,7 @@ type ActiveRun = {
   timelineLeadMs: number;
   scheduledLeadMs: number;
   outputPositionAdvanceMs: number;
+  ignoredOutputPositionAdvanceMs: number;
   localStartDelayMs: number;
   releaseAtMs: number;
   releaseLatenessMs: number;
@@ -362,6 +365,7 @@ export class YouTubeAuthorityArmController {
         timelineLeadMs: 0,
         scheduledLeadMs: 0,
         outputPositionAdvanceMs: 0,
+        ignoredOutputPositionAdvanceMs: 0,
         localStartDelayMs: 0,
         releaseAtMs: 0,
         releaseLatenessMs: 0,
@@ -719,6 +723,14 @@ export class YouTubeAuthorityArmController {
       }
       run.outputPositionAdvanceMs =
         Math.max(0, run.releaseTargetSeconds - uncompensatedTarget) * 1000;
+      // A tiny unscheduled output lead must not add a disruptive iframe seek.
+      // Test the bounded amount, since the end guard can reduce a larger lead.
+      // The epsilon only absorbs floating-point subtraction at the 40ms edge.
+      if (run.outputPositionAdvanceMs <= TIMING.catchUpToleranceMs + 1e-6) {
+        run.ignoredOutputPositionAdvanceMs = run.outputPositionAdvanceMs;
+        run.outputPositionAdvanceMs = 0;
+        run.releaseTargetSeconds = Math.min(run.releaseTargetSeconds, uncompensatedTarget);
+      }
       run.catchUpSeconds = Math.max(0, run.releaseTargetSeconds - run.targetSeconds);
       if (run.catchUpSeconds > 0) {
         run.player.seekTo(run.releaseTargetSeconds, true);
@@ -763,6 +775,7 @@ export class YouTubeAuthorityArmController {
       releaseLeadMs: run.platformLeadMs + run.timelineLeadMs,
       scheduledLeadMs: run.scheduledLeadMs,
       outputPositionAdvanceMs: run.outputPositionAdvanceMs,
+      ignoredOutputPositionAdvanceMs: run.ignoredOutputPositionAdvanceMs,
       localStartDelayMs: run.localStartDelayMs,
       releaseLatenessMs: run.releaseLatenessMs,
       rawReleaseLatenessMs: run.rawReleaseLatenessMs,

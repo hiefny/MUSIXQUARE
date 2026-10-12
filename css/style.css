@@ -5500,6 +5500,26 @@
     word-break: keep-all;
   }
 
+  /* Full notices use the normal dialog surface/motion, with copy scrolling
+     inside the straight edges so its scrollbar never meets the rounded corners. */
+  #dialog-overlay.dialog-reading .dialog-title {
+    overflow-wrap: anywhere;
+  }
+
+  #dialog-overlay.dialog-reading .dialog-message {
+    flex-shrink: 1;
+    min-height: 48px;
+    margin: 8px 24px 24px;
+    padding: 0 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    text-align: start;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
   /* Japanese and Chinese have no spaces between words, so keep-all would hold
      a whole clause on one line and push dialog copy past the dialog edge. */
   html:lang(ja) .dialog-message,
@@ -8090,13 +8110,11 @@
 
   /* Pinned notice banner: host/OP notices stay visible above the feed */
   .chat-pinned-notice {
+    position: relative;
     display: flex;
     align-items: flex-start;
-    gap: 10px;
-    padding: 10px 16px;
     background: rgba(255, 193, 7, 0.12);
     flex-shrink: 0;
-    cursor: pointer;
     transition: background 0.15s;
   }
 
@@ -8114,9 +8132,37 @@
     display: none;
   }
 
-  .chat-pinned-notice-body {
+  .chat-pinned-notice-open {
     flex: 1;
     min-width: 0;
+    padding: 10px 16px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .chat-pinned-notice-dismiss {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  html[dir='rtl'] .chat-pinned-notice-dismiss {
+    right: auto;
+    left: 4px;
   }
 
   .chat-pinned-notice-header {
@@ -8124,6 +8170,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    padding-inline-end: 20px;
     margin-bottom: 4px;
   }
 
@@ -8148,7 +8195,7 @@
     opacity: 0.55;
   }
 
-  /* Decorative affordance only — parent .chat-pinned-notice handles the click */
+  /* The icon sits in its own dismissal button, separate from full-text reading. */
   .chat-pinned-notice-close {
     width: 10px;
     height: 10px;

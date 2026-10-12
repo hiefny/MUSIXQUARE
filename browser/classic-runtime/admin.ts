@@ -343,7 +343,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.10.3';
+const ADMIN_SCRIPT_VERSION = '8.10.4';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -478,6 +478,9 @@ let proRoomSearchTimer: number | null = null;
 let articlesLoaded = false;
 let announcementLoaded = false;
 let currentAnnouncementRevision: number | null = null;
+let announcementDraftBaseline: string | null = null;
+let announcementPersistedExpiresAt: string | null = null;
+let announcementPersistedExpiresValue = '';
 let pendingAnnouncementMutation: PendingAnnouncementMutation | null = null;
 let announcementMutationBusy = false;
 let serviceStatusLoaded = false;
@@ -1578,6 +1581,9 @@ function showLogin(
   document.querySelector<HTMLElement>('[data-translation-export-copy]')?.setAttribute('hidden', '');
   announcementLoaded = false;
   currentAnnouncementRevision = null;
+  announcementDraftBaseline = null;
+  announcementPersistedExpiresAt = null;
+  announcementPersistedExpiresValue = '';
   pendingAnnouncementMutation = null;
   setAnnouncementMutationBusy(false);
   serviceStatusLoaded = false;
@@ -2138,36 +2144,54 @@ function toDatetimeLocalValue(value: AdminTimestamp): string {
 function parseAnnouncementExpiresValue(value: unknown): string | null {
   const text = String(value || '').trim();
   if (!text) return null;
-  const match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})(?::(\d{1,2}))?)?$/);
-  if (match) {
-    const [, year, month, day, hour = '23', minute = '59'] = match;
-    const date = new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-    );
-    if (
-      date.getFullYear() === Number(year) &&
-      date.getMonth() === Number(month) - 1 &&
-      date.getDate() === Number(day) &&
-      date.getHours() === Number(hour) &&
-      date.getMinutes() === Number(minute)
-    ) {
-      if (date.getTime() <= Date.now()) throw new Error('Expires must be in the future.');
-      return date.toISOString();
-    }
-    // Native parsing normalizes impossible calendar dates into a later day.
-    // Keep a failed validation of the displayed format from reaching that fallback.
-    throw new Error('Use YYYY-MM-DD HH:MM for Expires.');
+  const invalid = () => new Error('Use YYYY-MM-DD HH:MM for Expires.');
+  const match = text.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})(?::(\d{1,2}))?(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})?)?$/,
+  );
+  if (!match) throw invalid();
+  const [, year, month, day, hour = '23', minute = '59', second = '0', fraction = '', zone] = match;
+  if (zone && match[5] === undefined) throw invalid();
+  const y = Number(year);
+  const mo = Number(month);
+  const d = Number(day);
+  const h = Number(hour);
+  const mi = Number(minute);
+  const s = Number(second);
+  const ms = Number(fraction.padEnd(3, '0'));
+  // Check the entered wall-clock components before applying an offset: Date's
+  // ISO parser otherwise normalizes February 30 and similar impossible dates.
+  const wall = new Date(0);
+  wall.setUTCFullYear(y, mo - 1, d);
+  wall.setUTCHours(h, mi, s, ms);
+  if (
+    wall.getUTCFullYear() !== y ||
+    wall.getUTCMonth() !== mo - 1 ||
+    wall.getUTCDate() !== d ||
+    wall.getUTCHours() !== h ||
+    wall.getUTCMinutes() !== mi ||
+    wall.getUTCSeconds() !== s
+  )
+    throw invalid();
+  if (zone) {
+    const offsetHours = zone === 'Z' ? 0 : Number(zone.slice(1, 3));
+    const offsetMinutes = zone === 'Z' ? 0 : Number(zone.slice(4, 6));
+    if (offsetHours > 23 || offsetMinutes > 59) throw invalid();
+    const offset = (offsetHours * 60 + offsetMinutes) * (zone.startsWith('-') ? -1 : 1);
+    return new Date(wall.getTime() - offset * 60_000).toISOString();
   }
-  const fallback = new Date(text);
-  if (!Number.isNaN(fallback.getTime())) {
-    if (fallback.getTime() <= Date.now()) throw new Error('Expires must be in the future.');
-    return fallback.toISOString();
-  }
-  throw new Error('Use YYYY-MM-DD HH:MM for Expires.');
+  const local = new Date(0);
+  local.setFullYear(y, mo - 1, d);
+  local.setHours(h, mi, s, ms);
+  if (
+    local.getFullYear() !== y ||
+    local.getMonth() !== mo - 1 ||
+    local.getDate() !== d ||
+    local.getHours() !== h ||
+    local.getMinutes() !== mi ||
+    local.getSeconds() !== s
+  )
+    throw invalid();
+  return local.toISOString();
 }
 
 function adminErrorMessage(error: unknown, fallback: string): string {
@@ -5944,7 +5968,15 @@ function renderAnnouncementStatus(announcement: AdminAnnouncement, active: boole
   if (announcementStatusEl) announcementStatusEl.textContent = statusParts.join(' - ');
 }
 
-function renderAnnouncement(payload: AdminApiPayload): void {
+function announcementDraftSignature(): string {
+  return JSON.stringify([
+    announcementMessageEl?.value || '',
+    Boolean(announcementEnabledEl?.checked),
+    announcementExpiresEl?.value || '',
+  ]);
+}
+
+function renderAnnouncement(payload: AdminApiPayload, preserveDraft = false): void {
   const announcement = payload.announcement || {};
   const message = announcement.message || '';
   const active = isAnnouncementActiveForAdmin(payload, announcement);
@@ -5956,10 +5988,17 @@ function renderAnnouncement(payload: AdminApiPayload): void {
     if (announcementStatusEl?.textContent === renderedStatus)
       renderAnnouncementStatus(announcement, false);
   });
-  if (announcementMessageEl) announcementMessageEl.value = message;
-  if (announcementEnabledEl) announcementEnabledEl.checked = Boolean(announcement.enabled);
-  if (announcementExpiresEl)
-    announcementExpiresEl.value = toDatetimeLocalValue(announcement.expiresAt);
+  if (!preserveDraft) {
+    if (announcementMessageEl) announcementMessageEl.value = message;
+    if (announcementEnabledEl) announcementEnabledEl.checked = Boolean(announcement.enabled);
+    announcementPersistedExpiresValue = toDatetimeLocalValue(announcement.expiresAt);
+    announcementPersistedExpiresAt =
+      announcementPersistedExpiresValue && announcement.expiresAt
+        ? new Date(announcement.expiresAt).toISOString()
+        : null;
+    if (announcementExpiresEl) announcementExpiresEl.value = announcementPersistedExpiresValue;
+    announcementDraftBaseline = announcementDraftSignature();
+  }
 
   if (!announcementPreviewEl) return;
   if (!message) {
@@ -6041,9 +6080,16 @@ function setAnnouncementMutationBusy(busy: boolean): void {
 }
 
 async function loadAnnouncement(
-  options: { readonly updateTimestamp?: boolean } = {},
+  options: { readonly updateTimestamp?: boolean; readonly replaceDraft?: boolean } = {},
 ): Promise<AdminApiPayload | null> {
   if (announcementMutationBusy) return null;
+  const initialDraft = announcementDraftSignature();
+  if (
+    !options.replaceDraft &&
+    announcementDraftBaseline !== null &&
+    initialDraft !== announcementDraftBaseline
+  )
+    return null;
   const load = beginLatestAdminLoad('announcement');
   if (announcementStatusEl) announcementStatusEl.textContent = 'Refreshing...';
   try {
@@ -6061,9 +6107,13 @@ async function loadAnnouncement(
         'The server returned an invalid announcement revision.',
       );
     }
-    currentAnnouncementRevision = payload.revision;
-    pendingAnnouncementMutation = null;
-    renderAnnouncement(payload);
+    const preserveDraft = announcementDraftSignature() !== initialDraft;
+    // A draft based on an older revision must still conflict if another session
+    // changed the notice; an incidental read cannot advance its write fence.
+    if (!preserveDraft || currentAnnouncementRevision === null)
+      currentAnnouncementRevision = payload.revision;
+    if (!preserveDraft) pendingAnnouncementMutation = null;
+    renderAnnouncement(payload, preserveDraft);
     renderAnnouncementHistory(payload);
     announcementLoaded = true;
     if (options.updateTimestamp !== false && updatedAtEl) {
@@ -6092,13 +6142,25 @@ async function saveAnnouncement({ clear = false }: { readonly clear?: boolean } 
       'Refresh the announcement before saving.',
     );
   }
-  const expiresAt = parseAnnouncementExpiresValue(expiresValue);
+  const expiresAt =
+    !clear && expiresValue === announcementPersistedExpiresValue
+      ? announcementPersistedExpiresAt
+      : parseAnnouncementExpiresValue(expiresValue);
   const signature = JSON.stringify({
     message,
     enabled,
     expiresAt,
     expectedRevision: currentAnnouncementRevision,
   });
+  if (
+    enabled &&
+    message &&
+    expiresAt &&
+    new Date(expiresAt).getTime() <= Date.now() &&
+    pendingAnnouncementMutation?.signature !== signature
+  ) {
+    throw new Error('Expires must be in the future.');
+  }
   if (pendingAnnouncementMutation?.signature !== signature) {
     pendingAnnouncementMutation = { signature, requestId: createAdminRequestId() };
   }
@@ -6207,11 +6269,13 @@ async function loadAuthenticatedDashboard({
       updatedAtEl.textContent = adminErrorMessage(error, 'Analytics refresh failed.');
   }
   if (dashboard?.hidden) return status;
-  await loadAnnouncement({ updateTimestamp: false }).catch((error) => {
-    if (announcementStatusEl) {
-      announcementStatusEl.textContent = adminErrorMessage(error, 'Announcement refresh failed.');
-    }
-  });
+  if (!announcementLoaded && !adminLatestLoads.has('announcement'))
+    await loadAnnouncement({ updateTimestamp: false }).catch((error) => {
+      if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
+      if (announcementStatusEl) {
+        announcementStatusEl.textContent = adminErrorMessage(error, 'Announcement refresh failed.');
+      }
+    });
   return status;
 }
 
@@ -6265,7 +6329,7 @@ async function refreshAllDashboardData(): Promise<void> {
       );
     }),
     loadArticles({ updateTimestamp: false }),
-    loadAnnouncement({ updateTimestamp: false }),
+    loadAnnouncement({ updateTimestamp: false, replaceDraft: true }),
     ...(translationsLoaded ? [loadTranslations().catch(reportTranslationAdminError)] : []),
   ]);
   if (refreshEpoch !== adminSessionEpoch || dashboard?.hidden) return;

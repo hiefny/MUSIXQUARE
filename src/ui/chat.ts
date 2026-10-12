@@ -34,6 +34,7 @@ import {
   addSystemChatMessage,
   addNoticeChatMessage,
   clearPinnedNotice,
+  showPinnedNotice,
   formatChatDisplayName,
   isContainerAtBottom,
 } from './chat-render.ts';
@@ -1829,9 +1830,10 @@ export function initChat(): void {
   });
 
   // Notice messages (host-side for OP-initiated notices)
-  _busScope.on('chat:notice-message', (sender: string, text: string, timestamp?: number) => {
-    addNoticeChatMessage(sender, text, timestamp);
+  _busScope.on('chat:notice-message', (sender, text, timestamp, service) => {
+    addNoticeChatMessage(sender, text, timestamp, service);
   });
+  _busScope.on('chat:service-notice-withdrawn', (id) => clearPinnedNotice(id));
 
   // The protocol owns mute state; editor presentation also catches up when
   // moderation arrived before binding, or session cleanup clears that state.
@@ -1869,14 +1871,12 @@ export function initChat(): void {
     clearPinnedNotice();
   });
 
-  // Pinned notice: tap anywhere on the banner to dismiss
-  const pinnedBanner = getUiElement('chat-pinned-notice');
-  pinnedBanner?.addEventListener('click', clearPinnedNotice);
-  pinnedBanner?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      clearPinnedNotice();
-    }
+  // Native sibling buttons keep reading and dismissal separate for touch and keyboard.
+  getUiElement('btn-chat-notice-open')?.addEventListener('click', showPinnedNotice, {
+    signal: uiSignal,
+  });
+  getUiElement('btn-chat-notice-close')?.addEventListener('click', () => clearPinnedNotice(), {
+    signal: uiSignal,
   });
 
   log.info('[Chat] Initialized');

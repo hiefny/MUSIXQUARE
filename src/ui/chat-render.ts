@@ -14,6 +14,9 @@ import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { escapeHtml, escapeAttr } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { t } from '../i18n/index.ts';
+import type { EventMap } from '../types/index.ts';
+import { showDialog } from './dialog.ts';
+import { log } from '../core/log.ts';
 // Import the pure oEmbed fetcher leaf, NOT youtube/search.ts — the search
 // module pulls in the network/peer facade (broadcast) and would re-create
 // the ui/network/chat/youtube import cycle.
@@ -588,8 +591,13 @@ function formatNoticeTime(timestamp: number | undefined): string {
     .padStart(2, '0')}`;
 }
 
-export function addNoticeChatMessage(sender: string, text: string, timestamp?: number): void {
-  setPinnedNotice(sender, text, timestamp);
+export function addNoticeChatMessage(
+  sender: string,
+  text: string,
+  timestamp?: number,
+  service?: EventMap['chat:notice-message'][3],
+): void {
+  setPinnedNotice(sender, text, timestamp, service);
 
   // Notices live only in the pinned banner. Keep preview/unread behavior
   // so users still notice a room-wide announcement while the drawer is closed.
@@ -597,6 +605,35 @@ export function addNoticeChatMessage(sender: string, text: string, timestamp?: n
 }
 
 // ─── Pinned Notice Banner ────────────────────────────────────────
+
+let pinnedNotice: { sender: string; text: string; serviceId?: string } | null = null;
+let noticeDialogController: AbortController | null = null;
+
+function cancelNoticeDialog(): void {
+  noticeDialogController?.abort();
+  noticeDialogController = null;
+}
+
+/** Reading a notice does not dismiss its pinned banner. */
+export function showPinnedNotice(): void {
+  const notice = pinnedNotice;
+  const banner = document.getElementById('chat-pinned-notice');
+  if (!notice || !banner || banner.hidden || noticeDialogController) return;
+  const controller = new AbortController();
+  noticeDialogController = controller;
+  showDialog({
+    title: () => `${t('chat.cmd_notice_prefix')} · \u2068${notice.sender}\u2069`,
+    message: notice.text,
+    buttonText: () => t('common.close'),
+    contentLayout: 'reading',
+    dismissible: true,
+    signal: controller.signal,
+  })
+    .catch((error) => log.warn('[Chat] Notice dialog failed:', error))
+    .finally(() => {
+      if (noticeDialogController === controller) noticeDialogController = null;
+    });
+}
 
 function playPinnedNoticeAttentionHint(banner: HTMLElement): void {
   banner.classList.remove('notice-attention-hint');
@@ -612,7 +649,12 @@ function playPinnedNoticeAttentionHint(banner: HTMLElement): void {
   );
 }
 
-function setPinnedNotice(sender: string, text: string, timestamp?: number): void {
+function setPinnedNotice(
+  sender: string,
+  text: string,
+  timestamp?: number,
+  service?: EventMap['chat:notice-message'][3],
+): void {
   const banner = document.getElementById('chat-pinned-notice');
   const label = document.getElementById('chat-pinned-notice-label');
   const time = document.getElementById('chat-pinned-notice-time');
@@ -621,6 +663,12 @@ function setPinnedNotice(sender: string, text: string, timestamp?: number): void
   // Keep an empty-sender fallback for older system-originated pinned notices.
   // New automatic application events use gray CHAT_SYSTEM rows instead.
   const displayName = sender || t('chat.system_sender');
+  cancelNoticeDialog();
+  pinnedNotice = {
+    sender: displayName,
+    text,
+    ...(service?.source === 'service' ? { serviceId: service.id } : {}),
+  };
   label.textContent = `${t('chat.cmd_notice_prefix')} · ${displayName}`;
   applyUserTextFontFallback(label, label.textContent || displayName);
   if (time) time.textContent = formatNoticeTime(timestamp);
@@ -633,7 +681,10 @@ function setPinnedNotice(sender: string, text: string, timestamp?: number): void
   if (drawer) drawer.classList.add('has-messages');
 }
 
-export function clearPinnedNotice(): void {
+export function clearPinnedNotice(serviceId?: string): void {
+  if (serviceId !== undefined && pinnedNotice?.serviceId !== serviceId) return;
+  pinnedNotice = null;
+  cancelNoticeDialog();
   const banner = document.getElementById('chat-pinned-notice');
   if (banner) {
     banner.hidden = true;

@@ -1,5 +1,6 @@
 // MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 import { handleProBotRequest } from './pro-bot.ts';
+import { parseAnnouncementExpiry } from './announcement-expiry.ts';
 import {
   handleProYouTubeDurationRequest,
   PRO_YOUTUBE_DURATION_PATH,
@@ -351,7 +352,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.10.3';
+const ADMIN_ASSET_VERSION = '8.10.4';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11482,6 +11483,7 @@ async function readCanonicalAdminAnnouncementState(
     if (!state) return { status: 'unavailable', state: null };
     if (state.revision > 0) return { status: 'ok', state };
     const legacy = await readLegacyAdminAnnouncementState(env);
+    if (legacy.status === 'invalid') return { status: 'unavailable', state: null };
     return legacy.status === 'unbound'
       ? { status: 'ok', state }
       : { status: 'legacy', state: legacy };
@@ -11490,6 +11492,7 @@ async function readCanonicalAdminAnnouncementState(
     return { status: 'unavailable', state: null };
   }
   const legacy = await readLegacyAdminAnnouncementState(env);
+  if (legacy.status === 'invalid') return { status: 'unavailable', state: null };
   return legacy.status === 'unbound'
     ? { status: 'unavailable', state: null }
     : { status: 'legacy', state: legacy };
@@ -11571,9 +11574,8 @@ async function handleAdminAnnouncement(request: Request, env: AppEnv) {
     .trim()
     .slice(0, 280);
   const enabled = Boolean(body?.enabled) && Boolean(message);
-  const expiresAtRaw = String(body?.expiresAt || '').trim();
-  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null;
-  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+  const canonicalExpiresAt = parseAnnouncementExpiry(body.expiresAt);
+  if (canonicalExpiresAt === undefined) {
     return json({ error: 'INVALID_EXPIRES_AT' }, 400);
   }
   const current = await readCanonicalAdminAnnouncementState(env, {
@@ -11583,7 +11585,6 @@ async function handleAdminAnnouncement(request: Request, env: AppEnv) {
   if (!current.state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
   }
-  const canonicalExpiresAt = expiresAt ? expiresAt.toISOString() : null;
   if (
     legacyRequest &&
     current.state.announcement.message === message &&
@@ -11595,7 +11596,12 @@ async function handleAdminAnnouncement(request: Request, env: AppEnv) {
     // duplicate history entry.
     return json({ ok: true, ...adminAnnouncementPayload(current.state) });
   }
-  if (legacyRequest && expiresAt && expiresAt.getTime() <= Date.now()) {
+  if (
+    legacyRequest &&
+    enabled &&
+    canonicalExpiresAt &&
+    new Date(canonicalExpiresAt).getTime() <= Date.now()
+  ) {
     return json({ error: 'EXPIRES_AT_IN_PAST' }, 400);
   }
   const requestId = fencedRequest
@@ -11649,10 +11655,19 @@ async function handlePublicAnnouncement(request: Request, env: AppEnv) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
   if (methodError) return methodError;
   const current = await readCanonicalAdminAnnouncementState(env);
-  const announcement = current.state?.announcement || normalizeAnnouncementRecord({});
-  return json(announcementPublicPayload(announcement), 200, {
-    'Cache-Control': 'public, max-age=30',
-  });
+  if (!current.state) {
+    return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
+  }
+  return json(
+    {
+      ...announcementPublicPayload(current.state.announcement),
+      // Separate isolates can retain older snapshots for the cache TTL. The
+      // public counter lets clients reject a stale withdrawal or replacement.
+      revision: current.state.revision,
+    },
+    200,
+    { 'Cache-Control': 'public, max-age=30' },
+  );
 }
 
 function isLifetimeRoomCount(value: unknown) {

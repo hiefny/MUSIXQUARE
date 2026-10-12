@@ -18,10 +18,8 @@ const ANNOUNCEMENT_SENDER = 'MUSIXQUARE';
 const ANNOUNCEMENT_REQUEST_TIMEOUT_MS = 10_000;
 const ANNOUNCEMENT_RESPONSE_MAX_BYTES = 64 * 1024;
 
-type AnnouncementPayload = {
-  enabled?: boolean;
-  id?: string;
-  message?: string;
+type AnnouncementPayload = ({ enabled: false } | { enabled: true; id: string; message: string }) & {
+  revision: number | null;
 };
 
 let active = false;
@@ -29,6 +27,9 @@ let pollingGeneration = 0;
 let requestEpoch = 0;
 let inFlightController: AbortController | null = null;
 let memorySeenId = '';
+let currentAnnouncementId = '';
+let highestRevision = -1;
+let withdrawnRevision = -1;
 let visibilityListenerBound = false;
 let initialCheckPending = true;
 
@@ -44,13 +45,60 @@ function rememberSeenId(id: string): void {
   memorySeenId = id;
 }
 
-function shouldShowAnnouncement(
-  payload: AnnouncementPayload,
-): payload is Required<AnnouncementPayload> {
-  return Boolean(payload.enabled && payload.id && payload.message);
+function parseAnnouncementPayload(value: unknown): AnnouncementPayload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const payload = value as Record<string, unknown>;
+  let revision: number | null = null;
+  if ('revision' in payload) {
+    if (
+      typeof payload.revision !== 'number' ||
+      !Number.isSafeInteger(payload.revision) ||
+      payload.revision < 0
+    ) {
+      return null;
+    }
+    revision = payload.revision;
+  }
+  if (payload.enabled === false) return { enabled: false, revision };
+  if (
+    payload.enabled !== true ||
+    typeof payload.id !== 'string' ||
+    !payload.id.trim() ||
+    typeof payload.message !== 'string' ||
+    !payload.message.trim()
+  ) {
+    return null;
+  }
+  // The server evaluates expiresAt. A skewed device clock must not retract a
+  // live notice early; expiry arrives as enabled:false on polling/foreground.
+  return { enabled: true, id: payload.id, message: payload.message, revision };
 }
 
-async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): Promise<void> {
+function acceptAnnouncementRevision(payload: AnnouncementPayload): boolean {
+  // Isolate caches can return an older snapshot even with serial requests.
+  // Keep this fence across room reentry and never downgrade to a legacy peer
+  // after the current backend has supplied a canonical revision.
+  if (payload.revision === null) return highestRevision < 0;
+  if (
+    payload.revision < highestRevision ||
+    (payload.enabled && payload.revision === withdrawnRevision)
+  ) {
+    return false;
+  }
+  highestRevision = payload.revision;
+  // Expiry can turn the same revision off. That revision must not become live
+  // again if the next response comes from an isolate whose clock/cache lags.
+  if (!payload.enabled) withdrawnRevision = payload.revision;
+  return true;
+}
+
+function withdrawCurrentAnnouncement(): void {
+  const id = currentAnnouncementId;
+  currentAnnouncementId = '';
+  if (id) bus.emit('chat:service-notice-withdrawn', id);
+}
+
+async function checkAnnouncement(): Promise<void> {
   if (
     !active ||
     !isSessionActive() ||
@@ -64,7 +112,7 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
   const controller = new AbortController();
   inFlightController = controller;
   try {
-    const payload = await withRequestDeadline(
+    const value = await withRequestDeadline(
       async (signal) => {
         const response = await fetch('/api/announcement/current', {
           cache: 'no-store',
@@ -76,11 +124,7 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
           await cancelResponseBody(response);
           return null;
         }
-        return (await readBoundedJsonResponse(
-          response,
-          ANNOUNCEMENT_RESPONSE_MAX_BYTES,
-          signal,
-        )) as AnnouncementPayload;
+        return await readBoundedJsonResponse(response, ANNOUNCEMENT_RESPONSE_MAX_BYTES, signal);
       },
       {
         signal: controller.signal,
@@ -88,7 +132,6 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
         timeoutReason: 'ANNOUNCEMENT_REQUEST_TIMEOUT',
       },
     );
-    if (!payload) return;
     // A response from the previous room/session must not mark an announcement
     // seen or inject it into the newly-entered room after stop/start raced it.
     if (
@@ -100,8 +143,15 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
     ) {
       return;
     }
+    const payload = parseAnnouncementPayload(value);
+    if (!payload || !acceptAnnouncementRevision(payload)) return;
+    const notify = !initialCheckPending;
     initialCheckPending = false;
-    if (!shouldShowAnnouncement(payload)) return;
+    if (!payload.enabled) {
+      withdrawCurrentAnnouncement();
+      return;
+    }
+    currentAnnouncementId = payload.id;
     if (readSeenId() === payload.id) return;
 
     rememberSeenId(payload.id);
@@ -109,7 +159,10 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
       showToast(t('toast.announcement_available'), { durationMs: ANNOUNCEMENT_TOAST_MS });
       playAnnouncementSound();
     }
-    bus.emit('chat:notice-message', ANNOUNCEMENT_SENDER, payload.message, Date.now());
+    bus.emit('chat:notice-message', ANNOUNCEMENT_SENDER, payload.message, Date.now(), {
+      source: 'service',
+      id: payload.id,
+    });
   } catch (error) {
     if (!controller.signal.aborted) log.debug('[Announcement] check failed:', error);
   } finally {
@@ -117,9 +170,9 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
   }
 }
 
-function startVisiblePolling({ notify = !initialCheckPending }: { notify?: boolean } = {}): void {
+function startVisiblePolling(): void {
   if (!active || !isSessionActive() || document.visibilityState !== 'visible') return;
-  checkAnnouncement({ notify }).catch((error) => {
+  checkAnnouncement().catch((error) => {
     log.warn('[Announcement] Poll escaped its request boundary', error);
   });
   setManagedTimer(ANNOUNCEMENT_POLL_TIMER, () => checkAnnouncement(), ANNOUNCEMENT_POLL_MS, {
@@ -147,7 +200,7 @@ function startAnnouncementPolling(): void {
   active = true;
   pollingGeneration += 1;
   initialCheckPending = true;
-  startVisiblePolling({ notify: false });
+  startVisiblePolling();
 }
 
 function stopAnnouncementPolling(): void {

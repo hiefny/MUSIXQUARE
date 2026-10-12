@@ -693,6 +693,182 @@ describe('Dialog System', () => {
     });
   });
 
+  describe('reading layout', () => {
+    const resizeObservers: Array<{ disconnect: ReturnType<typeof vi.fn> }> = [];
+
+    beforeEach(() => {
+      resizeObservers.length = 0;
+      // Exercise the real scrollbar lifecycle; jsdom only needs its absent
+      // layout-observer/media APIs supplied, not a fake scrollbar implementation.
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          observe = vi.fn();
+          unobserve = vi.fn();
+          disconnect = vi.fn();
+          constructor() {
+            resizeObservers.push(this);
+          }
+        },
+      );
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(() => false),
+      }));
+      const overlay = document.getElementById('dialog-overlay')!;
+      const panel = document.createElement('div');
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-describedby', 'dialog-message');
+      panel.append(...overlay.childNodes);
+      overlay.appendChild(panel);
+      Object.defineProperty(document.getElementById('dialog-message')!, 'offsetParent', {
+        value: panel,
+        configurable: true,
+      });
+    });
+
+    afterEach(async () => {
+      const { closeDialog } = await import('../dialog.ts');
+      closeDialog();
+      vi.advanceTimersByTime(20);
+      vi.unstubAllGlobals();
+    });
+
+    it('keeps RTL and HTML-looking notice text literal and focuses its reading surface', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const overlay = document.getElementById('dialog-overlay')!;
+      const message = document.getElementById('dialog-message')!;
+      const panel = overlay.querySelector<HTMLElement>('[role="dialog"]')!;
+      const text =
+        '공지 — مرحبا\n<img src=x onerror="alert(1)"><script>alert(2)</script>\nhttps://example.invalid/ & 끝';
+      message.scrollTop = 150;
+      panel.scrollTop = 80;
+      const promise = showDialog({ title: 'Notice', message: text, contentLayout: 'reading' });
+      try {
+        vi.advanceTimersByTime(10);
+        expect(message.textContent).toBe(text);
+        expect(message.querySelector('img, script, a')).toBeNull();
+        expect(message.childNodes).toHaveLength(1);
+        expect(message.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+        expect(message.getAttribute('dir')).toBe('auto');
+        expect(message.getAttribute('tabindex')).toBe('0');
+        expect(message.hasAttribute('contenteditable')).toBe(false);
+        expect(message.scrollTop).toBe(0);
+        expect(panel.scrollTop).toBe(0);
+        expect(panel.getAttribute('aria-describedby')).toBe(message.id);
+        expect(overlay.classList.contains('dialog-reading')).toBe(true);
+        expect(document.activeElement).toBe(message);
+        expect(panel.querySelectorAll('.cscroll-track')).toHaveLength(1);
+      } finally {
+        closeDialog('ok');
+        await promise;
+      }
+    });
+
+    it.each(['close', 'abort'] as const)(
+      'removes reading state and scrollbar on %s before opening a queued ordinary dialog',
+      async (action) => {
+        const { showDialog, closeDialog } = await import('../dialog.ts');
+        const { bus } = await import('../../core/events.ts');
+        const overlay = document.getElementById('dialog-overlay')!;
+        const message = document.getElementById('dialog-message')!;
+        const controller = new AbortController();
+        const reading = showDialog({
+          message: 'Long notice',
+          contentLayout: 'reading',
+          signal: controller.signal,
+        });
+        const ordinary = showDialog({ title: 'Plain dialog', message: 'Plain text' });
+        vi.advanceTimersByTime(10);
+        expect(overlay.querySelectorAll('.cscroll-track')).toHaveLength(1);
+        expect(resizeObservers).toHaveLength(1);
+        if (action === 'abort') controller.abort();
+        else closeDialog('close');
+        await expect(reading).resolves.toEqual({
+          action: action === 'abort' ? 'superseded' : 'close',
+        });
+        expect(overlay.classList.contains('dialog-reading')).toBe(false);
+        expect(message.hasAttribute('tabindex')).toBe(false);
+        expect(message.hasAttribute('dir')).toBe(false);
+        expect(overlay.querySelector('.cscroll-track')).toBeNull();
+        expect(resizeObservers[0]!.disconnect).toHaveBeenCalledTimes(1);
+        try {
+          vi.advanceTimersByTime(20);
+          bus.emit('ui:scrollbar-reveal', message);
+          vi.advanceTimersByTime(20);
+          expect(document.getElementById('dialog-title')?.textContent).toBe('Plain dialog');
+          expect(message.textContent).toBe('Plain text');
+          expect(overlay.classList.contains('dialog-reading')).toBe(false);
+          expect(message.hasAttribute('tabindex')).toBe(false);
+          expect(message.hasAttribute('dir')).toBe(false);
+          expect(overlay.querySelector('.cscroll-track')).toBeNull();
+          expect(document.activeElement).toBe(document.getElementById('btn-dialog-ok'));
+        } finally {
+          closeDialog('ok');
+          await ordinary;
+        }
+      },
+    );
+
+    it('traps keyboard focus through the reading surface and restores the launcher on Escape', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const launcher = document.createElement('button');
+      document.body.appendChild(launcher);
+      launcher.focus();
+      const activated = vi.fn();
+      const promise = showDialog({
+        message: 'Read this notice',
+        contentLayout: 'reading',
+        dismissible: true,
+        secondaryText: 'Cancel',
+        onPrimaryActivation: activated,
+      });
+      const overlay = document.getElementById('dialog-overlay')!;
+      const message = document.getElementById('dialog-message')!;
+      const ok = document.getElementById('btn-dialog-ok')!;
+      const key = (name: string, shiftKey = false) => {
+        const event = new KeyboardEvent('keydown', {
+          key: name,
+          shiftKey,
+          bubbles: true,
+          cancelable: true,
+        });
+        window.dispatchEvent(event);
+        return event;
+      };
+      try {
+        vi.advanceTimersByTime(10);
+        expect(document.activeElement).toBe(message);
+        expect(key('Enter').defaultPrevented).toBe(false);
+        expect(activated).not.toHaveBeenCalled();
+        expect(overlay.classList.contains('show')).toBe(true);
+        expect(key('Tab', true).defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(ok);
+        expect(key('Tab').defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(message);
+        // Native Tab advances within the cycle; only its boundaries are trapped.
+        expect(key('Tab').defaultPrevented).toBe(false);
+        expect(key('Escape').defaultPrevented).toBe(true);
+        await expect(promise).resolves.toEqual({ action: 'escape' });
+        expect(document.activeElement).toBe(launcher);
+        expect(overlay.classList.contains('show')).toBe(false);
+        expect(overlay.querySelector('.cscroll-track')).toBeNull();
+        expect(key('Tab').defaultPrevented).toBe(false);
+        vi.advanceTimersByTime(20);
+        expect(document.activeElement).toBe(launcher);
+      } finally {
+        closeDialog();
+        await promise;
+      }
+    });
+  });
+
   describe('Deferred focus ownership', () => {
     it.each(['abort', 'close'])('preserves restored focus after immediate %s', async (action) => {
       const { showDialog, closeDialog } = await import('../dialog.ts');

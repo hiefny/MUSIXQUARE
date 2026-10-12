@@ -1246,6 +1246,74 @@ describe('MusixquareServiceControl', () => {
     expect(history[0].message).toMatch(/^Concurrent [AB]$/);
   });
 
+  it('allows disabling an expired announcement while rejecting reactivation with its past expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+    const { control, storage } = setup();
+    const expiresAt = '2030-01-01T00:01:00.123Z';
+    const mutate = (enabled: boolean, revision: number, requestId: string) =>
+      control.fetch(
+        new Request(`https://service-control.internal${ADMIN_ANNOUNCEMENT_STATE_PATH}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: 'Expired notice',
+            enabled,
+            expiresAt,
+            expectedRevision: revision,
+            requestId,
+            baseHistory: [],
+          }),
+        }),
+      );
+    expect((await mutate(true, 0, 'announcement-expiry-publish')).status).toBe(200);
+    vi.setSystemTime(new Date('2030-01-01T00:02:00Z'));
+    const disabled = await mutate(false, 1, 'announcement-expiry-disable');
+    expect(disabled.status).toBe(200);
+    expect(await payload(disabled)).toMatchObject({
+      announcementState: {
+        revision: 2,
+        announcement: { enabled: false, expiresAt },
+        history: [{ action: 'disabled' }, { action: 'published' }],
+      },
+    });
+    const rejected = await mutate(true, 2, 'announcement-expiry-reactivate');
+    expect(rejected.status).toBe(400);
+    expect(await payload(rejected)).toEqual({ error: 'EXPIRES_AT_IN_PAST' });
+    const restored = await setup(storage).control.fetch(
+      new Request(`https://service-control.internal${ADMIN_ANNOUNCEMENT_STATUS_PATH}`),
+    );
+    expect(await payload(restored)).toMatchObject({
+      announcementState: { revision: 2, announcement: { enabled: false, expiresAt } },
+    });
+  });
+
+  it.each(['2031-02-29T12:00:00Z', '2032-02-30T12:00:00.001+09:00'])(
+    'rejects impossible expiry instants at the durable mutation boundary: %s',
+    async (expiresAt) => {
+      const { control, storage } = setup();
+      const request = new Request(
+        `https://service-control.internal${ADMIN_ANNOUNCEMENT_STATE_PATH}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: 'Never publish a normalized date',
+            enabled: true,
+            expiresAt,
+            expectedRevision: 0,
+            requestId: 'announcement-impossible-expiry',
+            baseHistory: [],
+          }),
+        },
+      );
+      const response = await control.fetch(request);
+      expect(response.status).toBe(400);
+      expect(await payload(response)).toEqual({ error: 'INVALID_REQUEST' });
+      expect(storage.data.has('admin-announcement-state')).toBe(false);
+    },
+  );
+
   it('accepts a maximum legacy history migration larger than the old 128 KiB cap', async () => {
     const { control } = setup();
     const baseHistory = Array.from({ length: 100 }, (_, index) => ({

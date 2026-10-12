@@ -1364,7 +1364,14 @@ interface BaseEventMap {
   'ui:ui-sounds-changed': [enabled: boolean];
   'i18n:changed': [lang: string];
   'chat:system-message': [text: string];
-  'chat:notice-message': [sender: string, text: string, timestamp?: number];
+  'chat:notice-message': [
+    sender: string,
+    text: string,
+    timestamp?: number,
+    service?: { source: 'service'; id: string },
+  ];
+  /** Withdraw only the service-owned notice with this ID, never a room notice. */
+  'chat:service-notice-withdrawn': [id: string];
   /**
    * Emitted by chat-render.ts when a chat/whisper message is rendered into
    * the DOM, or when a notice reaches its pinned banner. ui/chat.ts listens to

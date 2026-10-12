@@ -11,6 +11,7 @@ import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
 import { syncOverlayState, normalizeEmptyContentEditable } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { destroyCustomScrollbar, initCustomScrollbar } from './custom-scrollbar.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -27,6 +28,8 @@ interface DialogOptions {
   defaultFocus?: 'primary' | 'secondary';
   /** Places primary then secondary on separate full-width rows. */
   actionLayout?: 'stacked';
+  /** Scrollable, selectable user-authored copy with independently directed text. */
+  contentLayout?: 'reading';
   /** Runs synchronously inside the validated primary click/Enter gesture. */
   onPrimaryActivation?: () => void;
   /** Runs synchronously inside the secondary click/Enter gesture. */
@@ -564,6 +567,22 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   syncOverlayState('dialog-overlay');
 
   const cleanup: (() => void)[] = [];
+  const reading = o.contentLayout === 'reading' && !inputCfg && !choice;
+  if (reading) {
+    overlay.classList.add('dialog-reading');
+    msgEl.dir = 'auto';
+    msgEl.tabIndex = 0;
+    msgEl.scrollTop = 0;
+    if (dialogPanel) dialogPanel.scrollTop = 0;
+    initCustomScrollbar(msgEl);
+    bus.emit('ui:scrollbar-reveal', msgEl);
+    cleanup.push(() => {
+      destroyCustomScrollbar(msgEl);
+      overlay.classList.remove('dialog-reading');
+      msgEl.removeAttribute('dir');
+      msgEl.removeAttribute('tabindex');
+    });
+  }
   const stackedActions = o.actionLayout === 'stacked';
   const actions = okBtn.closest('.dialog-actions');
   if (stackedActions && actions) {
@@ -915,7 +934,9 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       const pageTarget =
         choicePageShown && choice
           ? choice.focusTarget()
-          : ((_dialogInputFocusTarget || _dialogInput) as HTMLElement | null);
+          : reading
+            ? msgEl
+            : ((_dialogInputFocusTarget || _dialogInput) as HTMLElement | null);
       const focusables = [pageTarget, ...actionButtons].filter(
         (x): x is HTMLElement => x != null && x.offsetParent !== null,
       );
@@ -959,6 +980,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
               sel.addRange(range);
             }
           }
+        } else if (reading) {
+          msgEl.focus({ preventScroll: true });
         } else {
           const pick =
             defaultFocus === 'secondary' && hasSecondary && secondaryBtn ? secondaryBtn : okBtn;

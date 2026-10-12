@@ -2107,9 +2107,12 @@ describe('Chat Module', () => {
         <div id="chat-drawer"></div>
         <div id="chat-messages"><div class="chat-empty"></div></div>
         <div id="chat-pinned-notice" hidden>
-          <div id="chat-pinned-notice-label"></div>
-          <span id="chat-pinned-notice-time"></span>
-          <div id="chat-pinned-notice-text"></div>
+          <button type="button" id="btn-chat-notice-open">
+            <span id="chat-pinned-notice-label"></span>
+            <span id="chat-pinned-notice-time"></span>
+            <span id="chat-pinned-notice-text"></span>
+          </button>
+          <button type="button" id="btn-chat-notice-close">Close</button>
         </div>
       `;
     }
@@ -2168,6 +2171,59 @@ describe('Chat Module', () => {
         'user-text-font',
         'user-text-font-ja',
       );
+    });
+
+    it('opens the full notice from the body button without dismissing its banner', async () => {
+      renderNoticeShell();
+      const dialog = await import('../dialog.ts');
+      const show = vi.spyOn(dialog, 'showDialog').mockResolvedValue({ action: 'ok' });
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      const text = `Full notice\n${'Long content '.repeat(90)}\nFinal line`;
+      bus.emit('chat:notice-message', 'MUSIXQUARE', text, 123, { source: 'service', id: 'A' });
+      document.getElementById('chat-pinned-notice-text')!.click();
+      expect(show).toHaveBeenCalledOnce();
+      expect(show).toHaveBeenCalledWith(
+        expect.objectContaining({ message: text, contentLayout: 'reading', dismissible: true }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(false);
+    });
+
+    it('dismisses with the separate close button without opening a dialog', async () => {
+      renderNoticeShell();
+      const dialog = await import('../dialog.ts');
+      const show = vi.spyOn(dialog, 'showDialog').mockResolvedValue({ action: 'ok' });
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      bus.emit('chat:notice-message', 'MUSIXQUARE', 'Dismiss me', 123, {
+        source: 'service',
+        id: 'A',
+      });
+      document.getElementById('btn-chat-notice-close')!.click();
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(true);
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('forwards service ownership and withdrawal without clearing a newer room notice', async () => {
+      renderNoticeShell();
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      bus.emit('chat:notice-message', 'MUSIXQUARE', 'Service A', 123, {
+        source: 'service',
+        id: 'A',
+      });
+      bus.emit('chat:service-notice-withdrawn', 'A');
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(true);
+      bus.emit('chat:notice-message', 'MUSIXQUARE', 'Service B', 456, {
+        source: 'service',
+        id: 'B',
+      });
+      bus.emit('chat:notice-message', 'HOST', 'Room notice', 789);
+      bus.emit('chat:service-notice-withdrawn', 'B');
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(false);
+      expect(document.getElementById('chat-pinned-notice-text')?.textContent).toBe('Room notice');
     });
   });
 

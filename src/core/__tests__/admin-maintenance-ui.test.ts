@@ -433,29 +433,102 @@ describe('admin maintenance status UI', () => {
     expect(document.querySelector('[data-service-history-status]')!.textContent).toBe('');
   });
 
-  it.each(['2031-02-29 12:00', '2032-02-30 12:00', '2031-04-31', '2031-12-31 24:00'])(
-    'does not publish an announcement with a rolled-over expiry: %s',
-    async (invalidExpiry) => {
+  it.each([
+    '2031-02-29 12:00',
+    '2032-02-30 12:00',
+    '2031-04-31',
+    '2031-12-31 24:00',
+    '2031-02-29T12:00:00Z',
+    '2031-04-31T12:00:00+09:00',
+    '2031-02-29 12:00:00',
+    '2031-01-01T24:00:00Z',
+    '2031-01-01T12:00:60Z',
+    '2031-01-01T12:00:00+24:00',
+    '2031-01-01T12:00:00+09:60',
+  ])('does not publish an announcement with a rolled-over expiry: %s', async (invalidExpiry) => {
+    installDom();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2030, 0, 1));
+    const writes: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), location.origin).pathname;
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/service-status') {
+          return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
+        }
+        if (path === '/api/admin/announcement') {
+          const body =
+            init?.method === 'POST'
+              ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+              : null;
+          if (body) writes.push(body);
+          return Response.json({
+            revision: writes.length,
+            announcement: body || { message: '', enabled: false },
+            history: [],
+          });
+        }
+        return Response.json({ cards: [], summary: {} });
+      }),
+    );
+    window.eval(adminScript);
+    const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
+    await vi.waitFor(() => expect(status.textContent).toBe('Disabled'));
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!.click();
+    const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+    const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+    const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+    const form = document.querySelector<HTMLFormElement>('[data-announcement-form]')!;
+    message.value = 'Scheduled announcement';
+    enabled.checked = true;
+    expires.value = invalidExpiry;
+    form.requestSubmit();
+    await vi.waitFor(() => expect(status.textContent).toBe('Use YYYY-MM-DD HH:MM for Expires.'));
+    expect(writes).toEqual([]);
+    expect(expires.value).toBe(invalidExpiry);
+    expect(message.disabled).toBe(false);
+
+    // A valid leap day and an explicit UTC timestamp still use the existing form.
+    for (const validExpiry of [
+      '2032-02-29 12:00',
+      '2031-04-30',
+      '2031-05-01T10:30:00Z',
+      '2032-02-29T23:59:59.123+09:00',
+      '2031-05-01T00:00:00-07:30',
+    ]) {
+      expires.value = validExpiry;
+      const expectedCount = writes.length + 1;
+      form.requestSubmit();
+      await vi.waitFor(() => {
+        expect(writes).toHaveLength(expectedCount);
+        expect(message.disabled).toBe(false);
+      });
+      const expectedDate =
+        validExpiry === '2031-04-30' ? new Date(2031, 3, 30, 23, 59) : new Date(validExpiry);
+      expect(writes.at(-1)?.expiresAt).toBe(expectedDate.toISOString());
+    }
+  });
+
+  it.each(['2030-01-01T00:00:59.123Z', '2031-05-01T10:30:59.456Z'])(
+    'keeps untouched expiry precision through a message edit: %s',
+    async (expiresAt) => {
       installDom();
-      vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2030, 0, 1));
+      vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2030, 0, 1, 0, 0, 30));
       const writes: Array<Record<string, unknown>> = [];
       vi.stubGlobal(
         'fetch',
         vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-          const path = new URL(String(input), location.origin).pathname;
+          const path = String(input);
           if (path === '/api/admin/session') return Response.json({ authenticated: true });
-          if (path === '/api/admin/service-status') {
+          if (path === '/api/admin/service-status')
             return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
-          }
           if (path === '/api/admin/announcement') {
-            const body =
-              init?.method === 'POST'
-                ? (JSON.parse(String(init.body)) as Record<string, unknown>)
-                : null;
-            if (body) writes.push(body);
+            if (init?.method === 'POST')
+              writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
             return Response.json({
-              revision: writes.length,
-              announcement: body || { message: '', enabled: false },
+              revision: writes.length + 1,
+              announcement: writes.at(-1) || { message: 'Saved notice', enabled: true, expiresAt },
               history: [],
             });
           }
@@ -463,37 +536,113 @@ describe('admin maintenance status UI', () => {
         }),
       );
       window.eval(adminScript);
-      const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
-      await vi.waitFor(() => expect(status.textContent).toBe('Disabled'));
-      document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!.click();
       const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
-      const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
       const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
       const form = document.querySelector<HTMLFormElement>('[data-announcement-form]')!;
-      message.value = 'Scheduled announcement';
-      enabled.checked = true;
-      expires.value = invalidExpiry;
+      await vi.waitFor(() => expect(message.value).toBe('Saved notice'));
+      const displayed = expires.value;
+      message.value = 'Message edit only';
       form.requestSubmit();
-      await vi.waitFor(() => expect(status.textContent).toBe('Use YYYY-MM-DD HH:MM for Expires.'));
-      expect(writes).toEqual([]);
-      expect(expires.value).toBe(invalidExpiry);
-      expect(message.disabled).toBe(false);
-
-      // A valid leap day and an explicit UTC timestamp still use the existing form.
-      for (const validExpiry of ['2032-02-29 12:00', '2031-04-30', '2031-05-01T10:30:00Z']) {
-        expires.value = validExpiry;
-        const expectedCount = writes.length + 1;
-        form.requestSubmit();
-        await vi.waitFor(() => {
-          expect(writes).toHaveLength(expectedCount);
-          expect(message.disabled).toBe(false);
-        });
-        const expectedDate =
-          validExpiry === '2031-04-30' ? new Date(2031, 3, 30, 23, 59) : new Date(validExpiry);
-        expect(writes.at(-1)?.expiresAt).toBe(expectedDate.toISOString());
-      }
+      await vi.waitFor(() => {
+        expect(writes).toHaveLength(1);
+        expect(message.disabled).toBe(false);
+      });
+      expect(writes[0]).toMatchObject({ message: 'Message edit only', expiresAt });
+      expect(expires.value).toBe(displayed);
+      // A deliberate edit must supersede the saved precise value.
+      expires.value = '2032-01-01T01:02:03.789Z';
+      form.requestSubmit();
+      await vi.waitFor(() => expect(writes).toHaveLength(2));
+      expect(writes[1]?.expiresAt).toBe('2032-01-01T01:02:03.789Z');
     },
   );
+
+  it('disables an expired notice without clearing its message or expiry, but rejects reactivation', async () => {
+    installDom();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2030, 0, 1));
+    const expiresAt = '2029-12-31T23:59:59.123Z';
+    const writes: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/service-status')
+          return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
+        if (path === '/api/admin/announcement') {
+          if (init?.method === 'POST')
+            writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return Response.json({
+            revision: writes.length + 1,
+            announcement: writes.at(-1) || { message: 'Expired notice', enabled: true, expiresAt },
+            history: [],
+          });
+        }
+        return Response.json({ cards: [], summary: {} });
+      }),
+    );
+    window.eval(adminScript);
+    const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
+    const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+    const form = document.querySelector<HTMLFormElement>('[data-announcement-form]')!;
+    await vi.waitFor(() => expect(status.textContent).toMatch(/^Expired/));
+    enabled.checked = false;
+    form.requestSubmit();
+    await vi.waitFor(() => expect(status.textContent).toMatch(/^Disabled/));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ enabled: false, message: 'Expired notice', expiresAt });
+    enabled.checked = true;
+    form.requestSubmit();
+    await vi.waitFor(() => expect(status.textContent).toBe('Expires must be in the future.'));
+    expect(writes).toHaveLength(1);
+    document.querySelector<HTMLButtonElement>('[data-announcement-clear]')!.click();
+    await vi.waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1]).toMatchObject({ enabled: false, message: '', expiresAt: null });
+  });
+
+  it('retries the same uncertain save after its expiry without changing the replay key', async () => {
+    installDom();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2030, 0, 1));
+    const writes: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/service-status')
+          return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
+        if (path === '/api/admin/announcement') {
+          if (init?.method === 'POST') {
+            writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+            if (writes.length === 1)
+              return Response.json(
+                { error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' },
+                { status: 503 },
+              );
+          }
+          return Response.json({
+            revision: writes.length ? 2 : 1,
+            announcement: writes.at(-1) || { message: 'Saved notice', enabled: true },
+            history: [],
+          });
+        }
+        return Response.json({ cards: [], summary: {} });
+      }),
+    );
+    window.eval(adminScript);
+    const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
+    const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+    const form = document.querySelector<HTMLFormElement>('[data-announcement-form]')!;
+    await vi.waitFor(() => expect(status.textContent).toBe('Active'));
+    expires.value = '2030-01-01T00:00:01.123Z';
+    form.requestSubmit();
+    await vi.waitFor(() => expect(status.textContent).toContain('retry the same save'));
+    now.mockReturnValue(Date.UTC(2030, 0, 1, 0, 0, 2));
+    form.requestSubmit();
+    await vi.waitFor(() => expect(status.textContent).toMatch(/^Expired/));
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toEqual(writes[0]);
+  });
 
   it('keeps a newer service mutation locked when an earlier resume refresh finishes', async () => {
     installDom();

@@ -90,11 +90,24 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [공지 철회·관리자 편집·전체보기 수정 — 2026-10-13](design/announcement-repair-2026-10-13.md) —
+  공지 철회/조회 실패 구분, 오래된 서버 캐시 응답 차단, 관리자 초안·만료 처리,
+  긴 공지 전체보기와 초기 알림 정책의 로컬 수정·검증. 배포 전 단계이며
+  App과 Service Control DO를 소유하는 PRO Worker가 함께 후속 배포 대상이다.
+
+- [공지 전체 경로 감사 — 2026-10-13](design/announcement-full-audit-2026-10-13.md) —
+  철회·조회 장애 구분·관리자 초안/만료 처리의 기능 결함 6개, 표시·알림 UX 2개를
+  분리했다. 기존 선택 검사 383건, 추가 탐사 30건 및 관리자 harness로 검증.
+  제품 수정·배포 없이 근거와 후속 수정 조건을 기록했다.
+
 - [일반방 공지 초기화 수정 — 2026-10-13](design/standard-announcement-bootstrap-2026-10-13.md) —
   새 방장·참여자 앱 초기화에서 누락된 공지 로딩, 수정 전 재현과 필수 브라우저 회귀 검사.
   exact-main CI 확인 뒤 Release 38273449653으로 8.10.3/v662 App 배포 완료,
   운영 smoke 4종·사후 Drift Audit 통과, 실제 운영 일반방 공지 표시 확인.
   기존 설치 PWA·실기 확인 한계는 남는다.
+  후속 운영 검증에서 공지 비활성화 후 5분 20초가 지나도 기존 배너가 남는 별도
+  철회 처리 누락을 확인했다. 공지는 비활성화 상태이며 후속 로컬 수정은 위
+  공지 수정 보고서에 기록했다. 추가 배포는 하지 않았다.
 
 - [동기화 점검 배포 준비 — 2026-10-12](design/sync-maintenance-release-preparation-2026-10-12.md) —
   최신 main 통합, 리뷰 보완, 초기 로딩 경계, 강제 버전 차단 없이 점검 후 배포하는

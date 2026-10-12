@@ -36,11 +36,13 @@ describe('Dead-export ratchet', () => {
       const summary = output.split(/\r?\n/u).find((line) => line.includes('fully-dead:'));
       expect(summary).toBeDefined();
       expect(summary).toContain('fully-dead: 0 ');
-      expect(summary).toContain('test-only: 21 ');
+      // Reading dialogs now use destroyCustomScrollbar in production, reducing
+      // the test-only baseline by one without adding a dead binding.
+      expect(summary).toContain('test-only: 20 ');
       // Typed namespace destructuring now resolves actual imports through
       // async wrappers and Promise callbacks; private decoder error branding
       // no longer exposes a class used externally only by test fixtures.
-      expect(summary).toContain('baseline 21), self-only: 78 ');
+      expect(summary).toContain('baseline 20), self-only: 78 ');
       expect(summary).toMatch(/self-only: 78 .*baseline 78\)$/u);
       expect(output).toContain('OK');
     },

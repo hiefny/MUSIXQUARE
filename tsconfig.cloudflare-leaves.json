@@ -14,6 +14,7 @@
   "include": [
     "cloudflare/account-assertion.ts",
     "cloudflare/account-nickname.ts",
+    "cloudflare/announcement-expiry.ts",
     "cloudflare/display-name-policy.ts",
     "cloudflare/developer-api-credential.ts",
     "cloudflare/pro-room-validation.ts",

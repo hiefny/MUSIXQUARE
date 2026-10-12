@@ -4,6 +4,8 @@
 
 - Runtime/test commit: `98c690cf79ff46e97b5e7358d0b3fd4a10866f4b`.
 - Baseline: `d76794c25d94128a2a08201b567941117b623684` (App 8.10.2 / v661).
+- Deployed main commit: `8d0d310c6ee8114722d199b5c8d9834088979ec5`
+  ([PR #307](https://github.com/hiefny/MUSIXQUARE/pull/307)).
 - Owner authorized fixing and deploying the missing Standard-room announcement.
   The approved maintenance-complete announcement was already published through
   the admin UI at 2026-10-13 00:20:34 KST; no new notice is needed for this fix.
@@ -51,22 +53,84 @@ browser tests. No production payload or live room is injected into these tests.
   0 skipped** (local jq supplied), committed `build:checked` passed, and its
   unmodified production artifact passed **17 candidate browser tests**.
 - The 8 critical-browser tests ran on the same announcement implementation
-  before correcting the bootstrap cache query; exact-main CI will rerun the
-  complete critical gate against the final source. The entire auxiliary Full
-  E2E suite and physical Safari/PWA were not run for this bounded fix.
+  before correcting the bootstrap cache query; exact-main CI subsequently
+  passed the complete critical gate against the final source. The entire
+  auxiliary Full E2E suite and physical Safari/PWA were not run for this bounded fix.
 - Independent code review: 0 blockers, 0 required changes; review did not itself
   execute tests.
 
-## Release and limits
+## Reviewed merge and production release
 
-Prepared version: **8.10.3 / v662**, target **app**, Developer API D1 application
-**false**. Version mirrors advance together. No dependency, schema, binding,
-secret, protocol, or recovery-floor changes. Keep maintenance OFF for the normal
-release and live smokes. Compatible rollback baseline is the current 8.10.2 App;
-its announcement omission would return on rollback.
+- PR [CI 38271897913](https://github.com/hiefny/MUSIXQUARE/actions/runs/38271897913):
+  all 11 jobs succeeded. GitHub Codex review returned thumbs-up with 0 findings;
+  the independent review above had 0 blockers.
+- Exact-main [CI 38272698028](https://github.com/hiefny/MUSIXQUARE/actions/runs/38272698028),
+  attempt 1, on `8d0d310c`: all 11 jobs succeeded, including the four coverage
+  gates, production candidate browser tests and critical browser gate. Under
+  the owner's deployment approval, the release reused this successful
+  exact-main candidate; PR/local results did not substitute for that gate.
+- [Production Release 38273449653](https://github.com/hiefny/MUSIXQUARE/actions/runs/38273449653),
+  attempt 1: **success**, completed **2026-10-13 00:55:32 KST**. Version
+  **8.10.3 / v662**, target **app**, Developer API D1 application **false**.
+  Maintenance stayed **OFF** without a new maintenance toggle.
+- App deployment `15f11373-6155-4a5b-8563-664696d6f588`, Worker version
+  `9ba8ecc6-af3e-4009-b6d0-d4857b0c3294`, **100%**, Git `8d0d310c`.
+  Release ownership was true; final current-deployment verification completed
+  at **00:55:28 KST**, and the coherent production marker was persisted.
+- App generation/assets, App anonymous account boundary, current PRO public
+  boundary and Standard HTTPS signaling: **4 live smokes passed**. The other
+  five Workers stayed on `9c924ee1`; partial-release compatibility and its
+  recheck passed. Existing App/admin/auth D1 baselines were applied and verified
+  idempotently. Dependency installation reported 0 vulnerabilities.
+- Recovery was not needed and the recovery job was skipped. The immutable
+  checkpoint retains the previous App deployment
+  `51e0c126-f126-431b-bf19-3f617d1836ec`, version
+  `32c45761-9d66-467f-b272-bb495e80d3b1`, Git
+  `72a6e780c06fbd84aeb63c7abe2d1aed8f77795c` (8.10.2). A compatible rollback
+  to that baseline would restore its Standard-room announcement omission.
+  The checkpoint is not a user-data backup.
+- Post-release [Operations Drift Audit 38273786011](https://github.com/hiefny/MUSIXQUARE/actions/runs/38273786011),
+  source `8d0d310c`, completed **00:56:27 KST**: **31 pass / 0 fail / 5 manual**.
+  Counts were checked against the downloaded JSON artifact. The five manual
+  controls remain open in the release record.
 
-PR CI, exact-main candidate, production release ownership/smokes, and live
-announcement screenshot remain pending. Branch/local tests do not substitute
-for the exact-main CI candidate. Existing open clients need their normal update
-and reload path; no forced refresh or new update system is introduced. Physical
-iPhone/PWA behavior and other release-record open items remain outside this fix.
+Release logs/artifacts are retained locally under
+`scratch/release-38273449653.log` and `scratch/release-38273449653/artifacts/`.
+Drift evidence is under `scratch/ops-drift-38273786011.log` and
+`scratch/ops-drift-38273786011/`. These ignored local files supplement the
+linked GitHub runs; they are not published repository artifacts.
+
+## Live browser verification and limits
+
+At **2026-10-13 00:58 KST**, the real production page in the in-app browser
+showed the approved pinned announcement in a newly created Standard room.
+The existing browser had run `/assets/main-lVZDqPz6.js` with v661 before the
+deployment. After leaving the disposable session through the UI and reloading,
+the document loaded `/bootstrap.js?cache=v662` and
+`/assets/main-D3VyRMei.js`. Creating a Standard room through the normal UI showed
+this exact notice in the chat banner:
+
+> Maintenance is complete. Please refresh the page or fully close and reopen the app before joining a room.
+
+Screenshot: local ignored evidence
+`scratch/announcement-live-8.10.3-2026-10-13.jpg`. No fixture or DOM injection
+was used. Public GET `/` and `/service-worker.js` both returned HTTP 200, the
+root bootstrap referenced v662, and the public announcement response was
+enabled with the same approved message. This validates the new Standard host
+page in production; fresh host and guest request ownership is separately
+covered by the deterministic critical-browser regression.
+
+The release-record announcement deployment item is closed by PR #307, the
+successful exact-main candidate, Release 38273449653 and this live UI evidence.
+No new announcement was published during this hotfix. No dependency, schema,
+binding, secret, protocol or recovery-floor changes were introduced.
+
+Existing open clients need their normal update and reload path; this observation
+does not prove that all open clients updated automatically. No forced refresh
+or new update system is introduced. No real customer PRO room or physical
+iPhone/Safari/PWA was tested in this verification. The latest main-ref Full E2E
+run remained [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001)
+on `61cedbc6` (2026-10-07); no entire auxiliary Full E2E run exists for
+`8d0d310c`. Dependency PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)
+was rechecked and remained open, outside this release. All other release-record
+open items remain unchanged.

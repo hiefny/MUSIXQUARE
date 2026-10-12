@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-13 (배포 SHA `72a6e780`, Release `38267400052`) |
+| Last source review | 2026-10-13 (배포 SHA `8d0d310c`, Release `38273449653`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,16 +28,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.10.2` / `v661` |
-| 마지막 프로덕션 변경 | 2026-10-13 00:05:48 KST, [Release 38267400052](https://github.com/hiefny/MUSIXQUARE/actions/runs/38267400052) attempt 1 성공, `target=app`, Developer API D1 `false`. 기존 점검 모드 ON 00:01:12 → OFF 00:02:07, 공개 정상 응답 확인 뒤 00:03:15 배포 시작. 배포·운영 smoke 동안 OFF 유지 |
-| 배포 main SHA | `72a6e780c06fbd84aeb63c7abe2d1aed8f77795c` (PR [#305](https://github.com/hiefny/MUSIXQUARE/pull/305)). exact-main [CI 38264805590](https://github.com/hiefny/MUSIXQUARE/actions/runs/38264805590) attempt 1 성공 후보 재사용 |
-| Worker | App만 `72a6e780` 적용. App version `32c45761-9d66-467f-b272-bb495e80d3b1`, deployment `51e0c126-f126-431b-bf19-3f617d1836ec`, 100%. 나머지 5종(pro-room, signaling, remote-share, developer-api, developer-api-facade)은 `9c924ee1` 유지, 부분 배포 호환성 검사 통과. App generation·익명 계정 경계·PRO 공개 경계·Standard HTTPS 운영 smoke 4종과 최종 배포 소유권, coherent production marker 확인. 새 의존성·비밀·바인딩·D1 스키마·복구 floor 변경 없음. 기존 App/admin/auth D1 기준선은 멱등 적용·검증 |
-| 복구 | 필요 없음. Release 38267400052의 recovery job은 skip됐다. 변경 전 App deployment `8ccb6994-79f9-4df5-8423-50951810cad3`, version `30c691e2-c049-43fe-9408-a25f2624a010`(`9c924ee1`)가 불변 checkpoint로 보존됐다. checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약을 유지한다. 이번 배포에서 floor 변경 없음. PRO/App 선택형 암호 marker는 `pro-room-optional-entry-password-v1`. 계약을 모르는 이전 기준선으로 복구하지 않으며, 검증된 호환 기준선으로의 rollback은 가능하다. 기존 PRO 파일 길이 저장·판독과 쿠키 경계는 §4 및 정식 복구 절차를 따른다 |
-| 검증 범위 | 최종 PR [CI 38264015007](https://github.com/hiefny/MUSIXQUARE/actions/runs/38264015007)와 exact-main CI 각각 11개 job 성공. coverage 4종, 후보·critical browser gate 통과. 로컬 최종 런타임 SHA `89db0184`: 550파일 unit 12,354 pass / 0 fail / 0 skip, 후보 브라우저 17 pass, 별도 선택 Chromium 61 pass(일부 중복), 타입·린트·포맷·build:checked·Worker 6종 번들 통과. 이전 실패와 재검증 경과는 보고서에 보존했다. 배포 뒤 새 브라우저 첫 화면 정상, 공개 GET `/` 및 `/service-worker.js` HTTP 200과 v661 확인. 실음향·기존 설치 PWA의 갱신·실제 고객방은 §2에 남는다. [검증·배포](design/sync-maintenance-release-preparation-2026-10-12.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 [38267811978](https://github.com/hiefny/MUSIXQUARE/actions/runs/38267811978) (2026-10-13 KST, source `72a6e780`) 31 pass / 0 fail / 5 manual. 실제 제공 중인 Worker의 바인딩·도메인·비밀 이름 및 R2 정책 검사 통과. 수동 5항목은 §2에 남으며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 2026-10-13 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 릴리스의 exact-main 후보·critical browser 검사와 별개로, `72a6e780` 전체 Full E2E 실행은 없음 |
-| 의존성 | 이번 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. 2026-10-13 재조회한 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 여전히 열려 있으며 이번 배포에 포함하지 않았다. 최종 로컬 준비에서 취약점 0건·서명 482개·attestation 105개 검증, release 의존성 설치에서 취약점 0건. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
+| App 버전 / SW 캐시 | `8.10.3` / `v662` |
+| 마지막 프로덕션 변경 | 2026-10-13 00:55:32 KST, [Release 38273449653](https://github.com/hiefny/MUSIXQUARE/actions/runs/38273449653) attempt 1 성공, `target=app`, Developer API D1 `false`. 일반방 공지 초기화 수정. 점검 모드는 변경하지 않고 배포·운영 smoke 동안 OFF 유지 |
+| 배포 main SHA | `8d0d310c6ee8114722d199b5c8d9834088979ec5` (PR [#307](https://github.com/hiefny/MUSIXQUARE/pull/307)). exact-main [CI 38272698028](https://github.com/hiefny/MUSIXQUARE/actions/runs/38272698028) attempt 1 성공 후보 재사용 |
+| Worker | App만 `8d0d310c` 적용. App version `9ba8ecc6-af3e-4009-b6d0-d4857b0c3294`, deployment `15f11373-6155-4a5b-8563-664696d6f588`, 100%. 나머지 5종(pro-room, signaling, remote-share, developer-api, developer-api-facade)은 `9c924ee1` 유지, 부분 배포 호환성 검사 통과. App generation·자산·익명 계정 경계·PRO 공개 경계·Standard HTTPS 운영 smoke 4종 통과. 00:55:28 KST 최종 배포 소유권과 coherent production marker 확인. 새 의존성·비밀·바인딩·D1 스키마·복구 floor 변경 없음. 기존 App/admin/auth D1 기준선은 멱등 적용·검증 |
+| 복구 | 필요 없음. Release 38273449653의 recovery job은 skip됐다. 변경 전 App deployment `51e0c126-f126-431b-bf19-3f617d1836ec`, version `32c45761-9d66-467f-b272-bb495e80d3b1`(`72a6e780`, 8.10.2)가 불변 checkpoint로 보존됐다. 이 기준선으로 복구하면 일반방 공지 누락도 돌아온다. checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 8.10.3에서도 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약을 유지한다. floor 변경 없음. PRO/App 선택형 암호 marker는 `pro-room-optional-entry-password-v1`. 계약을 모르는 이전 기준선으로 복구하지 않으며, 검증된 호환 기준선으로의 rollback은 가능하다. 기존 PRO 파일 길이 저장·판독과 쿠키 경계는 §4 및 정식 복구 절차를 따른다 |
+| 검증 범위 | PR [CI 38271897913](https://github.com/hiefny/MUSIXQUARE/actions/runs/38271897913)와 exact-main CI 각각 11개 job 성공. coverage 4종, 후보·critical browser gate 통과. 로컬 최종 런타임 SHA `98c690cf`: 550파일 unit 12,354 pass / 0 fail / 0 skip, 변경하지 않은 production artifact 후보 브라우저 17 pass, 타입·린트·포맷·build:checked·Worker 정적 검사 통과. critical browser 8 pass는 같은 공지 구현의 bootstrap cache query 보완 전 결과이며 최종 소스는 exact-main CI에서 재검증했다. 최초 재현 실패와 cache mirror 누락 실패도 보고서에 보존했다. 00:58 KST 실제 운영 브라우저에서 UI로 기존 테스트방을 나와 새로고침한 뒤 v662 및 새 App 자산을 확인하고, 새 일반방의 고정 공지 표시를 screenshot으로 확인했다. 공개 GET `/`·`/service-worker.js` HTTP 200, 공지 enabled와 승인 문구 일치. 실음향·기존 설치 PWA의 갱신·실제 고객방은 §2에 남는다. [검증·배포](design/standard-announcement-bootstrap-2026-10-13.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 [38273786011](https://github.com/hiefny/MUSIXQUARE/actions/runs/38273786011) (2026-10-13 00:56:27 KST, source `8d0d310c`) 31 pass / 0 fail / 5 manual. 실제 제공 중인 Worker의 바인딩·도메인·비밀 이름 및 R2 정책 검사 통과. 수동 5항목은 §2에 남으며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 2026-10-13 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 릴리스의 exact-main 후보·critical browser 검사와 별개로, `8d0d310c` 전체 Full E2E 실행은 없음 |
+| 의존성 | 8.10.3 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. 2026-10-13 재조회한 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 여전히 열려 있으며 이번 배포에 포함하지 않았다. Release 38273449653 의존성 설치에서 취약점 0건. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -176,13 +176,6 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   [상세](design/pro-room-admission-protection-2026-10-11.md)
 
 ### 후속 작업과 유지 결정
-
-- [ ] 일반방 공지 초기화 수정 배포 대기(2026-10-13): 새 페이지의 일반방 방장·참여자는
-  `room.context.role`이 idle이라 공지 모듈이 로드되지 않았다. `98c690cf`에서 기존
-  일반방 역할 판독 경로를 추가했고 실제 setup을 지나는 필수 브라우저 검사를 넣었다.
-  준비 버전 `8.10.3` / `v662`, 대상 `app`, Developer API D1 `false`. 의존성·스키마·비밀·
-  바인딩·프로토콜·복구 floor 변경 없음. exact-main CI와 배포 후 실서비스 공지 표시를
-  확인해야 한다. [원인·수정·검증](design/standard-announcement-bootstrap-2026-10-13.md)
 
 - [ ] 일반방 YouTube zero-start 직후 Sync 준비 공백(2026-10-12 로컬 관측):
   초기 프로토콜의 소유권은 풀렸지만 첫 일반 playback snapshot이 오기 전에

@@ -92,6 +92,9 @@ runbooks. Neither belongs in a general setup document.
 
 - [일반방 공지 초기화 수정 — 2026-10-13](design/standard-announcement-bootstrap-2026-10-13.md) —
   새 방장·참여자 앱 초기화에서 누락된 공지 로딩, 수정 전 재현과 필수 브라우저 회귀 검사.
+  exact-main CI 확인 뒤 Release 38273449653으로 8.10.3/v662 App 배포 완료,
+  운영 smoke 4종·사후 Drift Audit 통과, 실제 운영 일반방 공지 표시 확인.
+  기존 설치 PWA·실기 확인 한계는 남는다.
 
 - [동기화 점검 배포 준비 — 2026-10-12](design/sync-maintenance-release-preparation-2026-10-12.md) —
   최신 main 통합, 리뷰 보완, 초기 로딩 경계, 강제 버전 차단 없이 점검 후 배포하는

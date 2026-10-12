@@ -401,6 +401,91 @@ describe('admin reads crossing a mutation', () => {
     },
   );
 
+  it('keeps a draft through an initial failed read and tab retry until explicit refresh establishes its base', async () => {
+    installDom();
+    let gets = 0;
+    let failedRead: ReturnType<typeof heldJson> | undefined;
+    const writes: Array<Record<string, unknown>> = [];
+    const expiresAt = '2099-01-01T00:00:59.123Z';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/announcement') {
+          if (init?.method === 'POST')
+            writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          else if (++gets === 1) {
+            failedRead = heldJson(
+              { error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' },
+              init?.signal,
+            );
+            return new Response(failedRead.response.body, { status: 503 });
+          }
+          return Response.json({
+            revision: 7 + writes.length,
+            announcement: writes.at(-1) || {
+              message: 'Existing server notice',
+              enabled: true,
+              expiresAt,
+            },
+            history: [],
+          });
+        }
+        return Response.json({ cards: [], summary: {}, rooms: [], campaigns: [], articles: [] });
+      }),
+    );
+    window.eval(adminScript);
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false),
+    );
+    const tab = document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!;
+    const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+    const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+    const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+    const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
+    const form = document.querySelector<HTMLFormElement>('[data-announcement-form]')!;
+    tab.click();
+    await vi.waitFor(() => expect(failedRead).toBeDefined());
+    message.value = 'Draft entered during the failed request';
+    enabled.checked = false;
+    expires.value = '2032-04-05 12:34';
+    failedRead!.finish();
+    await vi.waitFor(() => expect(status.textContent).toContain('temporarily unavailable'));
+    tab.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(gets).toBe(1);
+    expect(message.value).toBe('Draft entered during the failed request');
+    expect(enabled.checked).toBe(false);
+    expect(expires.value).toBe('2032-04-05 12:34');
+    form.requestSubmit();
+    await vi.waitFor(() =>
+      expect(status.textContent).toBe('Refresh the announcement before saving.'),
+    );
+    expect(writes).toHaveLength(0);
+
+    // Only the explicit refresh replaces this draft with a displayed server base.
+    document.querySelector<HTMLButtonElement>('[data-refresh]')!.click();
+    await vi.waitFor(() => expect(message.value).toBe('Existing server notice'));
+    expect(gets).toBe(2);
+    expect(enabled.checked).toBe(true);
+    expect(expires.value).not.toBe('2032-04-05 12:34');
+    message.value = 'Reviewed message edit';
+    form.requestSubmit();
+    await vi.waitFor(() => {
+      expect(writes).toHaveLength(1);
+      expect(message.disabled).toBe(false);
+    });
+    expect(writes[0]).toMatchObject({
+      expectedRevision: 7,
+      message: 'Reviewed message edit',
+      enabled: true,
+      expiresAt,
+    });
+    expect(message.value).toBe('Reviewed message edit');
+    expect(status.textContent).toMatch(/^Active/);
+  });
+
   it('keeps edits made after an explicit refresh starts and retains their original revision fence', async () => {
     installDom();
     let gets = 0;

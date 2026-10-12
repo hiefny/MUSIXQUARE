@@ -6084,6 +6084,9 @@ async function loadAnnouncement(
 ): Promise<AdminApiPayload | null> {
   if (announcementMutationBusy) return null;
   const initialDraft = announcementDraftSignature();
+  // Keep the pre-read form as the baseline even if the first request fails.
+  // A later incidental retry must not treat the preserved draft as clean.
+  announcementDraftBaseline ??= initialDraft;
   if (
     !options.replaceDraft &&
     announcementDraftBaseline !== null &&

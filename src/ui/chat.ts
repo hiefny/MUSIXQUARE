@@ -25,7 +25,7 @@ import {
   getCommandArgHint,
 } from '../chat/commands.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
-import { sendProRoomRealtime } from '../pro-room/network-bridge.ts';
+import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { filterProfanity } from '../chat/profanity.ts';
 import { clearLatestPinnedNotice, registerChatProtocolHandlers } from '../chat/protocol.ts';

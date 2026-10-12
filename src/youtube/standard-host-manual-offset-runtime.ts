@@ -21,6 +21,7 @@ import { getYouTubePlayer, isLocalYouTubePaused, setYtAutoplayIntent } from './_
 import type { YouTubePlayerInstance } from './_state.ts';
 import { createHostLocalRendezvous, type HostLocalRendezvous } from './standard-host-rendezvous.ts';
 import { getLocalYouTubeAudibleOutputDelayMs } from './play-latency.ts';
+import { cancelPendingYouTubeStartFromSync } from './player-runtime-bridge.ts';
 import {
   beginProCoordinatorYouTubeNudge,
   clearProCoordinatorYouTubeNudgeAnchor,
@@ -28,6 +29,7 @@ import {
   getYouTubeManualOffsetEndpointIdentity,
   isProCoordinatorYouTubeEndpoint,
   isStandardHostYouTubeEndHoldActive,
+  isStandardHostYouTubeLocalStartPending,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   resolveProCoordinatorYouTubeTarget,
   recordStandardHostYouTubeAutomaticOffset,
@@ -582,9 +584,11 @@ function begin(lease: StandardHostManualOffsetLease): void {
   const samePendingMedia = previous && hasHardIdentityData(previous);
   const playerState = player.getPlayerState?.() ?? -1;
   const finishingAudibleTail = isStandardHostYouTubeEndHoldActive();
-  const endHoldPosition = finishingAudibleTail
-    ? toCanonicalYouTubeTime(player.getCurrentTime(), duration)
-    : undefined;
+  const awaitingLocalStart = isStandardHostYouTubeLocalStartPending();
+  const heldCanonicalPosition =
+    finishingAudibleTail || awaitingLocalStart
+      ? toCanonicalYouTubeTime(player.getCurrentTime(), duration)
+      : undefined;
   clearStandardHostYouTubeEndHold();
   const proTimeline = isProCoordinatorYouTubeEndpoint()
     ? captureProRoomLocalPlaybackTimeline()
@@ -602,6 +606,7 @@ function begin(lease: StandardHostManualOffsetLease): void {
       (samePendingMedia
         ? previous.playing
         : finishingAudibleTail ||
+          awaitingLocalStart ||
           playerState === 1 ||
           (playerState === 3 && getState('playback.activity') === 'playing')));
   const localTime = player.getCurrentTime();
@@ -610,7 +615,7 @@ function begin(lease: StandardHostManualOffsetLease): void {
     localTime,
     duration,
     playing,
-    proTimeline?.positionSeconds ?? endHoldPosition,
+    proTimeline?.positionSeconds ?? heldCanonicalPosition,
   );
   const requestedTarget = outputAwareTarget(
     canonicalTime,
@@ -688,7 +693,10 @@ function begin(lease: StandardHostManualOffsetLease): void {
     duration,
     playing,
     ownsPlayingPreparation:
-      playing && (lease.scheduled || !!(samePendingMedia && previous.ownsPlayingPreparation)),
+      playing &&
+      (lease.scheduled ||
+        awaitingLocalStart ||
+        !!(samePendingMedia && previous.ownsPlayingPreparation)),
     requiresPlaylistDetach:
       canReusePendingDetach ||
       (target.requestedOffset !== 0 &&
@@ -719,6 +727,10 @@ function begin(lease: StandardHostManualOffsetLease): void {
   armGate(next);
 
   try {
+    // Capture the advancing room clock before retiring the old negative-start
+    // wait. The new lease now owns playback, so its predecessor cannot release
+    // or broadcast after this offset has been applied.
+    if (awaitingLocalStart) cancelPendingYouTubeStartFromSync();
     if (lease.scheduled && playing && !inheritedPendingIdentity) {
       next.rendezvous = createHostLocalRendezvous({
         player,

@@ -6,6 +6,7 @@
 
 import { bus } from '../core/events.ts';
 import { createLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
+import { prepareSyncFlightRecorder } from '../diagnostics/sync-flight-recorder-loader.ts';
 
 let loadFlight: Promise<void> | null = null;
 let loadFailure: Error | null = null;
@@ -43,7 +44,10 @@ export function prepareRoomSessionFeatures(signal?: AbortSignal): Promise<void> 
   if (signal?.aborted) return Promise.reject(abortReason(signal));
   if (loadFailure) bus.emit('app:lazy-feature-load-failed', 'room-session', loadFailure);
 
-  loadFlight ??= import('./room-session-feature-runtime.ts')
+  loadFlight ??= Promise.all([
+    import('./room-session-feature-runtime.ts'),
+    prepareSyncFlightRecorder(),
+  ])
     .then(() => undefined)
     .catch((cause: unknown) => {
       // Browsers may cache a failed ESM fetch/evaluation for this document.

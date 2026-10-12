@@ -21,6 +21,7 @@ import {
   proRoomServerBridge,
 } from '../network-bridge.ts';
 import { ProRoomSessionController, type ProRoomSessionApiForTests } from '../session-controller.ts';
+import { sendProRoomRealtime } from '../realtime-sender.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import {
   registerProPlaybackMediaEndpoint,
@@ -498,6 +499,48 @@ afterEach(() => {
 });
 
 describe('coordinator-free PRO server channel', () => {
+  it('binds the chat port before connection callbacks and keeps the current socket after a stale close', async () => {
+    const bridge = proRoomServerBridge;
+    bridge.disconnect();
+    expect(sendProRoomRealtime('chat', { text: 'not connected' })).toBe(false);
+    const onConnected = vi.fn((connected: boolean) => {
+      if (connected)
+        expect(sendProRoomRealtime('chat', { text: 'first connected frame' })).toBe(true);
+    });
+    const unsubscribe = onProRoomRealtimeConnection(onConnected);
+    try {
+      const first = await openBridge(bridge);
+      expect(onConnected).toHaveBeenCalledWith(true);
+      expect(first.sent.map((frame) => JSON.parse(frame))).toContainEqual(
+        expect.objectContaining({
+          type: 'pro-realtime',
+          version: 1,
+          channel: 'chat',
+          payload: { text: 'first connected frame' },
+        }),
+      );
+      const opening = bridge.reconfigure(snapshot(), { ...access(), ticketSequence: 2 });
+      expect(sendProRoomRealtime('chat', { text: 'connecting' })).toBe(false);
+      const replacement = FakeWebSocket.instances.at(-1)!;
+      replacement.dispatch('open');
+      await opening;
+      const firstCount = first.sent.length;
+      first.dispatch('close');
+      expect(sendProRoomRealtime('chat', { text: 'current socket' })).toBe(true);
+      expect(first.sent).toHaveLength(firstCount);
+      expect(JSON.parse(replacement.sent.at(-1)!)).toMatchObject({
+        channel: 'chat',
+        payload: { text: 'current socket' },
+      });
+      replacement.dispatch('close');
+      expect(sendProRoomRealtime('chat', { text: 'closed' })).toBe(false);
+    } finally {
+      unsubscribe();
+      bridge.disconnect();
+    }
+    expect(sendProRoomRealtime('chat', { text: 'left' })).toBe(false);
+  });
+
   it('opens the direct room WebSocket without constructing a peer topology', async () => {
     const rtcConstructor = vi.fn(() => {
       throw new Error('RTCPeerConnection must not be constructed');

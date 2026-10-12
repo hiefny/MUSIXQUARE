@@ -11,10 +11,10 @@ import { log } from '../core/log.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../core/timers.ts';
 import {
   onProRoomRealtimeEvent,
-  sendProRoomRealtime,
   type ProRealtimeRelayEnvelope,
   type ProServerEventEnvelope,
 } from '../pro-room/network-bridge.ts';
+import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { forceStereoSdp } from './peer.ts';
 
 const DIRECT_NEGOTIATION_TIMEOUT_MS = 2_000;

@@ -418,6 +418,20 @@ describe('service-worker build entry manifest', () => {
         imports: ['assets/vendor.js'],
         modules: { 'C:/repo/src/demo/mode.ts': {} },
       },
+      'assets/sync-flight-recorder.js': {
+        type: 'chunk',
+        fileName: 'assets/sync-flight-recorder.js',
+        isEntry: false,
+        imports: ['assets/diagnostic-helper.js'],
+        modules: { 'C:/repo/src/diagnostics/sync-flight-recorder.ts': {} },
+      },
+      'assets/diagnostic-helper.js': {
+        type: 'chunk',
+        fileName: 'assets/diagnostic-helper.js',
+        isEntry: false,
+        imports: [],
+        modules: { 'C:/repo/src/diagnostics/helper.ts': {} },
+      },
       'assets/localized-app-head.js': {
         type: 'chunk',
         fileName: 'assets/localized-app-head.js',
@@ -494,6 +508,7 @@ describe('service-worker build entry manifest', () => {
       './assets/app.js',
       './assets/connect.js',
       './assets/demo-mode.js',
+      './assets/diagnostic-helper.js',
       './assets/localized-app-head.js',
       './assets/manual-sync-overlay.js',
       './assets/media-session.js',
@@ -502,10 +517,15 @@ describe('service-worker build entry manifest', () => {
       './assets/standard-host-manual-offset.js',
       './assets/static-runtime.bin',
       './assets/sw-hard-reset.js',
+      './assets/sync-flight-recorder.js',
       './assets/sync.worker.js',
       './assets/vendor.css',
       './assets/vendor.js',
     ]);
+    const { 'assets/sync-flight-recorder.js': _recorder, ...withoutRecorder } = bundle;
+    expect(() => collectStaticAppEntryAssets(withoutRecorder)).toThrow(
+      'Could not locate reviewed deferred app-shell root /src/diagnostics/sync-flight-recorder.ts.',
+    );
     expect(collectOptionalPrimaryFontAssets(bundle)).toEqual([
       './primary-font-loader.js',
       './primary-font.css',

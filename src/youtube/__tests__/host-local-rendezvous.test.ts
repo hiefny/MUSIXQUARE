@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
+import {
+  clearAllManagedTimers,
+  clearManagedTimer,
+  getManagedTimer,
+  setManagedTimer,
+} from '../../core/timers.ts';
 import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import {
@@ -12,7 +17,13 @@ import {
   repairStandardHostManualOffsetTransaction,
   resetStandardHostManualOffsetTransaction,
 } from '../standard-host-manual-offset-gate.ts';
-import { toCanonicalYouTubeTime } from '../local-offset.ts';
+import {
+  isStandardHostYouTubeLocalStartPending,
+  recordStandardHostYouTubeAutomaticOffset,
+  setStandardHostYouTubeLocalStartTimelineReader,
+  toCanonicalYouTubeTime,
+} from '../local-offset.ts';
+import { configureYouTubePlayerRuntimeHooks } from '../player-runtime-bridge.ts';
 import { registerProRoomLocalPlaybackTimeline } from '../../pro-room/local-playback-timeline.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 import {
@@ -222,6 +233,14 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setStandardHostYouTubeLocalStartTimelineReader(null);
+  configureYouTubePlayerRuntimeHooks({
+    cancelPendingAutoSync: () => undefined,
+    consumePendingAutoSyncOnReady: () => null,
+    isYouTubeZeroStartExternalFallbackActive: () => false,
+    isYouTubeZeroStartExternalFallbackPending: () => false,
+    setPendingAutoSyncOnReady: () => undefined,
+  });
   unregisterProTimeline?.();
   unregisterProTimeline = null;
   registerProPlaybackMediaEndpoint(null);
@@ -236,6 +255,59 @@ describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)'
   beforeEach(() => {
     latency.output = output;
   });
+  it.each([0, -0.4])(
+    'hands a negative-start wait to a new manual offset %s without changing room time',
+    async (offset) => {
+      const fixture = makePlayer({ state: 2, position: 0 });
+      await installPlayer(fixture);
+      setState('sync.youtubeLocalOffset', -9.999);
+      setState('sync.youtubeCoordinatorAppliedOffset', -9.999 + output / 1000);
+      recordStandardHostYouTubeAutomaticOffset(output / 1000);
+      setStandardHostYouTubeLocalStartTimelineReader(() => (Date.now() - EPOCH) / 1000);
+      const oldRelease = vi.fn(() => {
+        fixture.player.seekTo(0, true);
+        fixture.player.playVideo();
+      });
+      const oldBroadcast = vi.fn();
+      setManagedTimer('yt-host-local-start', oldRelease, 9_999 - output);
+      setManagedTimer('yt-auto-sync', oldBroadcast, 11_999 - output);
+      const cancel = vi.fn(() => {
+        clearManagedTimer('yt-host-local-start');
+        clearManagedTimer('yt-auto-sync');
+        setStandardHostYouTubeLocalStartTimelineReader(null);
+      });
+      configureYouTubePlayerRuntimeHooks({
+        cancelPendingAutoSync: cancel,
+        consumePendingAutoSyncOnReady: () => null,
+        isYouTubeZeroStartExternalFallbackActive: () => false,
+        isYouTubeZeroStartExternalFallbackPending: () => false,
+        setPendingAutoSyncOnReady: () => undefined,
+      });
+      vi.advanceTimersByTime(1_000);
+      bus.emit('youtube:set-coordinator-manual-offset', offset, 'committed');
+
+      expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
+      expect(getManagedTimer('yt-host-local-start')).toBeNull();
+      expect(getManagedTimer('yt-auto-sync')).toBeNull();
+      expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(1, 5);
+      vi.advanceTimersByTime(100);
+      expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(2.6 + offset, true);
+      vi.advanceTimersByTime(11_900);
+      expect(oldRelease).not.toHaveBeenCalled();
+      expect(oldBroadcast).not.toHaveBeenCalled();
+      expect(fixture.player.playVideo).toHaveBeenCalledOnce();
+      expect(fixture.player.getPlayerState()).toBe(1);
+      expect(getState('sync.youtubeLocalOffset')).toBe(offset);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(
+        offset + output / 1000,
+        5,
+      );
+      expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(13, 5);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+    },
+  );
   it('preserves the maximum negative manual hold while the room clock advances', async () => {
     const fixture = makePlayer({ position: 0 });
     await installPlayer(fixture);

@@ -791,6 +791,147 @@ describe('YouTube Player', () => {
         expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
       },
     );
+
+    it.each(
+      ['output-tail', 'negative-start'].flatMap((hold) =>
+        ['absolute', 'relative'].map((seek) => ({ hold, seek })),
+      ),
+    )('preserves playing intent when $seek seeking during $hold', async ({ hold, seek }) => {
+      playbackPlatform.android = true;
+      const player = await installHost(hold === 'negative-start' ? -9.999 : 0);
+      const { initYouTube, scheduleYtAutoSync } = await import('../player.ts');
+      const timers = await import('../../core/timers.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const offsets = await import('../local-offset.ts');
+      (globalThis as unknown as { YT: unknown }).YT = {
+        PlayerState: { PLAYING: 1, PAUSED: 2, ENDED: 0 },
+      };
+      initYouTube();
+      let oldLocalRelease: (() => void) | undefined;
+      if (hold === 'negative-start') {
+        scheduleYtAutoSync(0);
+        oldLocalRelease = vi
+          .mocked(timers.setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1] as () => void;
+        vi.advanceTimersByTime(2_000);
+        expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(true);
+      } else {
+        player.__currentTime = 300;
+        player.__state = 0;
+        setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+        offsets.recordStandardHostYouTubeAutomaticOffset(0.25);
+        offsets.beginStandardHostYouTubeEndHold(299.75, 300, () => player.__state === 0);
+        expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(true);
+      }
+      const before = offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300);
+      const relative = hold === 'negative-start' ? 30 : -30;
+      const expectedTarget = seek === 'absolute' ? 30 : before + relative;
+      vi.mocked(broadcast).mockClear();
+      vi.mocked(timers.setManagedTimer).mockClear();
+      if (seek === 'absolute') bus.emit('youtube:seek-to', expectedTarget);
+      else bus.emit('youtube:skip-time', relative);
+
+      expect(broadcast).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: MSG.YOUTUBE_STATE, state: 1, time: expectedTarget }),
+      );
+      expect(player.getPlayerState()).toBe(1);
+      expect(offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(
+        expectedTarget,
+        8,
+      );
+      expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(false);
+      expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(false);
+      expect(timers.clearManagedTimer).toHaveBeenCalledWith(
+        offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER,
+      );
+      const staleRendezvous = vi
+        .mocked(timers.setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-auto-sync')![1] as () => void;
+      bus.emit('youtube:toggle-play');
+      const physicalCalls = player.__log.length;
+      const messages = vi.mocked(broadcast).mock.calls.length;
+      oldLocalRelease?.();
+      staleRendezvous();
+      expect(player.getPlayerState()).toBe(2);
+      expect(player.__log).toHaveLength(physicalCalls);
+      expect(broadcast).toHaveBeenCalledTimes(messages);
+    });
+
+    it('retires real legacy release callbacks when a manual edit takes over a negative start', async () => {
+      playbackPlatform.android = true;
+      const player = await installHost(-9.999);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'VIDEO_ID_01',
+          playlistId: null,
+          name: 'Video',
+        },
+      ]);
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const { beginStandardHostManualOffsetTransaction } =
+        await import('../standard-host-manual-offset-runtime.ts');
+      const offsets = await import('../local-offset.ts');
+      const timers = await import('../../core/timers.ts');
+      const actualTimers = await vi.importActual<typeof timers>('../../core/timers.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const hooks: import('../standard-host-manual-offset-gate.ts').StandardHostManualOffsetRuntimeHooks[] =
+        [];
+      let current = true;
+      vi.mocked(timers.setManagedTimer).mockImplementation(actualTimers.setManagedTimer);
+      vi.mocked(timers.clearManagedTimer).mockImplementation(actualTimers.clearManagedTimer);
+      vi.mocked(timers.getManagedTimer).mockImplementation(actualTimers.getManagedTimer);
+      try {
+        scheduleYtAutoSync(0);
+        const oldRelease = vi
+          .mocked(timers.setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1];
+        const oldBroadcast = vi
+          .mocked(timers.setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-auto-sync')![1];
+        vi.advanceTimersByTime(1_000);
+        beginStandardHostManualOffsetTransaction({
+          generation: 1,
+          player: player as unknown as YouTubePlayerInstance,
+          requestedOffsetSeconds: 0,
+          priorRequestedOffset: -9.999,
+          priorAppliedOffset: -9.749,
+          scheduled: true,
+          isCurrent: () => current,
+          publishRequestedOffset: (value) => setState('sync.youtubeLocalOffset', value),
+          bindRuntimeHooks: (value) => {
+            hooks.push(value);
+            return true;
+          },
+          commit: (action) => {
+            action();
+            current = false;
+            return true;
+          },
+          restorePrevious: () => false,
+        });
+        expect(hooks[0].readPlaybackIntent()).toBe(true);
+        expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(false);
+        expect(offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(1, 8);
+        expect(actualTimers.getManagedTimer('yt-host-local-start')).toBeNull();
+        expect(actualTimers.getManagedTimer('yt-auto-sync')).toBeNull();
+        const calls = player.__log.length;
+        const messages = vi.mocked(broadcast).mock.calls.length;
+        oldRelease();
+        oldBroadcast();
+        expect(player.__log).toHaveLength(calls);
+        expect(broadcast).toHaveBeenCalledTimes(messages);
+        expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      } finally {
+        current = false;
+        hooks[0]?.reset();
+        actualTimers.clearAllManagedTimers();
+        vi.mocked(timers.setManagedTimer).mockReset();
+        vi.mocked(timers.clearManagedTimer).mockReset();
+        vi.mocked(timers.getManagedTimer).mockReset().mockReturnValue(null);
+      }
+    });
   });
 
   describe('PRO participant canonical controls', () => {

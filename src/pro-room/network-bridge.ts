@@ -7,6 +7,7 @@ import type { ProRoomSignalingAccess } from './api.ts';
 import type { ProRoomPlaybackPrepareEvent } from './api.ts';
 import type { ProRoomSnapshot } from './contracts.ts';
 import type { ProRoomTransportBridge } from './session-controller.ts';
+import { bindProRoomRealtimeSender } from './realtime-sender.ts';
 
 const SOCKET_OPEN_TIMEOUT_MS = 15_000;
 const MAX_SERVER_FRAME_BYTES = 256 * 1024;
@@ -1160,13 +1161,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
 }
 
 export const proRoomServerBridge = new ServerProRoomNetworkBridge();
-
-export function sendProRoomRealtime(
-  channel: 'chat' | 'presence' | 'control-ready' | 'system-audio-signal',
-  payload: JsonRecord,
-): boolean {
-  return proRoomServerBridge.send(channel, payload);
-}
+bindProRoomRealtimeSender((channel, payload) => proRoomServerBridge.send(channel, payload));
 
 export function getProRoomServerNow(): number {
   return proRoomServerBridge.serverNowMs;

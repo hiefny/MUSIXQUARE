@@ -15,9 +15,9 @@ const bridgeMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../pro-room/network-bridge.ts', () => ({
-  sendProRoomRealtime: bridgeMocks.send,
   onProRoomRealtimeEvent: bridgeMocks.on,
 }));
+vi.mock('../../pro-room/realtime-sender.ts', () => ({ sendProRoomRealtime: bridgeMocks.send }));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },

@@ -1871,10 +1871,12 @@ function seekYouTubeFromApp(player: YouTubePlayerInstance, seconds: number): voi
       return;
     }
     const state = player.getPlayerState?.() ?? -1;
-    // A pending rendezvous can report PAUSED while logically still playing.
+    // A speaker-local hold can report PAUSED or ENDED while the room plays.
     // Both relative skip and absolute seek must replace that pending target.
     const midSync =
       isYouTubeZeroStartSyncOwned() ||
+      isStandardHostYouTubeLocalStartPending() ||
+      isStandardHostYouTubeEndHoldActive() ||
       !!getManagedTimer('yt-auto-sync') ||
       isStandardHostManualOffsetTransactionPending();
     if (state === 1 || midSync) {

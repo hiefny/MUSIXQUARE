@@ -85,6 +85,8 @@ const METRIC_FIELDS = [
   'sampleLatenessMs',
   'manualOffsetSeconds',
   'effectiveLeadMs',
+  'audibleLeadMs',
+  'minimumLatencyMs',
   'previousLatencyMs',
   'nextLatencyMs',
   'eligible',

@@ -3,9 +3,9 @@ import {
   PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS,
   PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS,
   ProYouTubeLeadSession,
-  getProYouTubeAudibleBaseLeadMs,
   type ProYouTubeLeadSample,
 } from '../pro-lead-learner.ts';
+import { getYouTubeAudibleOutputDelayMs } from '../output-latency.ts';
 
 type ProYouTubeLeadRound = Parameters<ProYouTubeLeadSession['learn']>[1];
 
@@ -45,9 +45,9 @@ function learnFresh(platform: 'ios' | 'android' | 'other', samples: ProYouTubeLe
 
 describe('PRO YouTube per-device lead learner', () => {
   it('keeps the audible platform seed separate from the learned timeline lead', () => {
-    expect(getProYouTubeAudibleBaseLeadMs('ios')).toBe(0);
-    expect(getProYouTubeAudibleBaseLeadMs('android')).toBe(250);
-    expect(getProYouTubeAudibleBaseLeadMs('other')).toBe(0);
+    expect(getYouTubeAudibleOutputDelayMs('ios')).toBe(0);
+    expect(getYouTubeAudibleOutputDelayMs('android')).toBe(250);
+    expect(getYouTubeAudibleOutputDelayMs('other')).toBe(0);
 
     expect(new ProYouTubeLeadSession().get('ios')).toMatchObject({
       audibleBaseLeadMs: 0,

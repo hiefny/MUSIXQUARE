@@ -85,10 +85,6 @@ export const SHORT_WAIT_THRESHOLD_MS = 300;
  *  rendezvous has already expired and we fall through to executeImmediate. */
 export const AUTO_SYNC_MAX_WAIT_MS = 3000;
 
-/** Minimum delay applied after a videoId mismatch — gives loadVideoById
- *  enough time to reach CUED before we fire the scheduled playVideo. */
-export const MISMATCH_MIN_WAIT_MS = 500;
-
 /** Guest-side fallback after "pause-seek" in executeImmediate — play fires
  *  this long after pauseVideo+seekTo to let YouTube commit the seek. */
 export const SEEK_PLAY_GAP_MS = 150;
@@ -133,7 +129,7 @@ export const RENDEZVOUS_DRIFT_SUPPRESS_MS = 2000;
 /** Learning rate for the EMA update (0.3 = 30% weight on each new sample). */
 export const LATENCY_EMA_RATE = 0.3;
 
-/** Android YouTube iframe audible output is consistently late vs. desktop/iOS. */
+/** Owner-tested Android output-delay default; independent from startup learning. */
 export const ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS = 250;
 
 /** Clamp max — anything beyond this is unrealistic for playVideo() latency. */

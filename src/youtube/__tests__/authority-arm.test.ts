@@ -441,7 +441,7 @@ describe('YouTubeAuthorityArmController', () => {
   });
 
   it.each(['ios', 'android'] as const)(
-    'does not apply platform lead to a $platform scheduled control and still catches up a late target',
+    'applies only fixed output lead to a $platform scheduled control and catches up a late target',
     async (platform) => {
       const { controller, player } = makeHarness({ platform });
       await prepareReady(controller, 'resident', 10);
@@ -455,13 +455,15 @@ describe('YouTubeAuthorityArmController', () => {
         timelineLeadMs: 300,
       });
 
-      await vi.advanceTimersByTimeAsync(699);
+      const platformLeadMs = platform === 'android' ? 250 : 0;
+      await vi.advanceTimersByTimeAsync(699 - platformLeadMs);
       expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
       await vi.advanceTimersByTimeAsync(1);
 
       await expect(committed).resolves.toMatchObject({
         status: 'applied',
-        platformLeadMs: 0,
+        platformLeadMs,
+        timelineLeadMs: 0,
         catchUpSeconds: 0.25,
       });
       expect(count(player, 'seekTo')).toBe(seekCount + 1);
@@ -471,6 +473,59 @@ describe('YouTubeAuthorityArmController', () => {
       ]);
     },
   );
+
+  it.each([
+    { timingMode: 'scheduled-control', delay: 0, hold: 0, learned: 300, advance: 250, wait: 0 },
+    { timingMode: 'scheduled-control', delay: 100, hold: 0, learned: 0, advance: 150, wait: 0 },
+    { timingMode: 'scheduled-control', delay: 0, hold: 100, learned: 0, advance: 150, wait: 0 },
+    { timingMode: 'scheduled-control', delay: 0, hold: 500, learned: 0, advance: 0, wait: 250 },
+    { timingMode: 'zero-start', delay: 200, hold: 0, learned: 100, advance: 50, wait: 0 },
+    { timingMode: 'zero-start', delay: 100, hold: 0, learned: -100, advance: 50, wait: 0 },
+  ] as const)(
+    'supplies only unscheduled fixed output by position ($timingMode/$delay/$hold/$learned)',
+    async ({ timingMode, delay, hold, learned, advance, wait }) => {
+      const { controller, player } = makeHarness({ platform: 'android' });
+      await prepareReady(controller, 'resident', 10);
+      const seeks = count(player, 'seekTo');
+      const plays = count(player, 'playVideo');
+      const startedAt = Date.now();
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: delay,
+        localStartDelayMs: hold,
+        timingMode,
+        timelineLeadMs: learned,
+      });
+      await vi.advanceTimersByTimeAsync(wait);
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        playCallAtMs: startedAt + wait,
+        scheduledLeadMs: delay + hold - wait,
+        outputPositionAdvanceMs: expect.closeTo(advance, 6),
+        targetSeconds: 10 + advance / 1000,
+      });
+      expect(count(player, 'playVideo')).toBe(plays + 1);
+      expect(count(player, 'seekTo')).toBe(seeks + (advance > 0 ? 1 : 0));
+    },
+  );
+
+  it('does not let fixed output compensation seek across the media end', async () => {
+    const { controller, player } = makeHarness({ platform: 'android' });
+    player.getDuration = () => 10;
+    await prepareReady(controller, 'resident', 9.9);
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 0,
+      timingMode: 'scheduled-control',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      targetSeconds: 9.95,
+      outputPositionAdvanceMs: expect.closeTo(50, 6),
+    });
+    expect(player.__currentTime).toBeLessThan(10);
+  });
 
   it('runs a late iOS zero-start immediately without inventing platform lead', async () => {
     const { controller, player } = makeHarness({ platform: 'ios' });
@@ -518,7 +573,7 @@ describe('YouTubeAuthorityArmController', () => {
     { platform: 'other', timingMode: 'zero-start', localStartDelayMs: 250, lead: 0 },
     { platform: 'ios', timingMode: 'zero-start', localStartDelayMs: 250, lead: 0 },
     { platform: 'android', timingMode: 'zero-start', localStartDelayMs: 250, lead: 250 },
-    { platform: 'android', timingMode: 'scheduled-control', localStartDelayMs: 250, lead: 0 },
+    { platform: 'android', timingMode: 'scheduled-control', localStartDelayMs: 250, lead: 250 },
     { platform: 'other', timingMode: 'zero-start', localStartDelayMs: 9_999, lead: 0 },
   ] as const)(
     'preserves a negative manual offset using a local wait ($platform/$timingMode/$localStartDelayMs)',

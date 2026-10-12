@@ -219,7 +219,7 @@ describe('YouTube Sync', () => {
       };
     }
 
-    it('pauses after the production stale-frame threshold and resumes on movement', async () => {
+    it('pauses at the stale threshold and resumes on movement even before the iframe acknowledges pause', async () => {
       const player = makePlayer();
       const handler = await registerGuestHandler(player);
 
@@ -227,6 +227,9 @@ describe('YouTube Sync', () => {
         handler({ time: 10, state: 1, videoId: 'same-video' });
       }
       expect(player.pauseVideo).toHaveBeenCalledOnce();
+      // The IFrame API may still expose PLAYING after an asynchronous pause.
+      // The owned ad-pause intent must resume, independently of that stale state.
+      expect(player.getPlayerState()).toBe(1);
 
       handler({ time: 12, state: 1, videoId: 'same-video' });
       expect(player.playVideo).toHaveBeenCalledOnce();

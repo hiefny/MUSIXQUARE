@@ -1,6 +1,6 @@
 import type { QueueItemId, YouTubeZeroStartPlatform } from '../types/index.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_MS } from '../core/constants.ts';
-import { getProYouTubeAudibleBaseLeadMs } from './pro-lead-learner.ts';
+import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 
 const PLAYER_STATE = Object.freeze({
   playing: 1,
@@ -88,7 +88,7 @@ type YouTubeAuthorityArmPrepareResult =
 interface YouTubeAuthorityArmCommitRequest extends YouTubeAuthorityArmIdentity {
   /** Delay from now to the canonical execution instant. */
   executeDelayMs: number;
-  /** Only a true fresh start is eligible for platform audio-output lead. */
+  /** Only a true fresh start is eligible for learned startup lead. */
   timingMode: YouTubeAuthorityTimingMode;
   /** Session-local timeline correction learned from earlier PRO zero-starts. */
   timelineLeadMs?: number;
@@ -116,6 +116,10 @@ export type YouTubeAuthorityArmCommitResult =
       timelineLeadMs: number;
       /** Platform/learned lead, applied before the participant's delayed start instant. */
       releaseLeadMs: number;
+      /** Lead actually supplied by scheduling, before callback lateness. */
+      scheduledLeadMs: number;
+      /** Fixed output lead that could only be supplied by advancing media position. */
+      outputPositionAdvanceMs: number;
       /** Extra participant-only wait used to preserve a negative manual offset. */
       localStartDelayMs: number;
       /** Callback delay caught up at release; zero within the timer-jitter tolerance. */
@@ -178,6 +182,8 @@ type ActiveRun = {
   playCallAtMs: number;
   platformLeadMs: number;
   timelineLeadMs: number;
+  scheduledLeadMs: number;
+  outputPositionAdvanceMs: number;
   localStartDelayMs: number;
   releaseAtMs: number;
   releaseLatenessMs: number;
@@ -221,7 +227,7 @@ function sameIdentity(
 
 /** Fixed audible-output lead against the server timeline. */
 function getYouTubeAuthorityPlatformLeadMs(platform: YouTubeZeroStartPlatform): number {
-  return getProYouTubeAudibleBaseLeadMs(platform);
+  return getYouTubeAudibleOutputDelayMs(platform);
 }
 
 export const getYouTubeAuthorityPlatformLeadMsForTests = getYouTubeAuthorityPlatformLeadMs;
@@ -354,6 +360,8 @@ export class YouTubeAuthorityArmController {
         playCallAtMs: 0,
         platformLeadMs: 0,
         timelineLeadMs: 0,
+        scheduledLeadMs: 0,
+        outputPositionAdvanceMs: 0,
         localStartDelayMs: 0,
         releaseAtMs: 0,
         releaseLatenessMs: 0,
@@ -394,10 +402,7 @@ export class YouTubeAuthorityArmController {
     }
 
     const executeDelayMs = Math.max(0, finiteOr(request.executeDelayMs, 0));
-    run.platformLeadMs =
-      request.timingMode === 'zero-start'
-        ? getYouTubeAuthorityPlatformLeadMs(this.#deps.getPlatform())
-        : 0;
+    run.platformLeadMs = getYouTubeAuthorityPlatformLeadMs(this.#deps.getPlatform());
     run.timelineLeadMs =
       request.timingMode === 'zero-start'
         ? clamp(finiteOr(request.timelineLeadMs ?? 0, 0), -300, 300)
@@ -423,6 +428,14 @@ export class YouTubeAuthorityArmController {
     const callDelayMs = Math.max(
       0,
       executeDelayMs + run.localStartDelayMs - (run.platformLeadMs + run.timelineLeadMs),
+    );
+    const availableMs = executeDelayMs + run.localStartDelayMs;
+    run.scheduledLeadMs = availableMs - callDelayMs;
+    // Missing startup lead is not a position correction. Only the fixed audio
+    // output delay survives a late deadline; retain any learned negative lead.
+    run.outputPositionAdvanceMs = Math.max(
+      0,
+      run.platformLeadMs + Math.min(0, run.timelineLeadMs) - availableMs,
     );
     run.releaseAtMs = this.#now() + callDelayMs;
     this.#later(run, () => this.#release(run), callDelayMs);
@@ -695,11 +708,17 @@ export class YouTubeAuthorityArmController {
       run.releaseLatenessMs =
         callbackLatenessMs > TIMING.catchUpToleranceMs ? callbackLatenessMs : 0;
       const callbackCatchUpSeconds = run.releaseLatenessMs / 1000;
-      run.releaseTargetSeconds = run.targetSeconds + run.catchUpSeconds + callbackCatchUpSeconds;
+      const uncompensatedTarget = run.targetSeconds + run.catchUpSeconds + callbackCatchUpSeconds;
+      run.releaseTargetSeconds = uncompensatedTarget + run.outputPositionAdvanceMs / 1000;
       const duration = run.player.getDuration?.();
       if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
-        run.releaseTargetSeconds = Math.min(duration, run.releaseTargetSeconds);
+        // Output compensation must not seek an otherwise playing target to
+        // ENDED. An authoritative target already at the end remains legal.
+        const outputCeiling = Math.max(uncompensatedTarget, duration - 0.05);
+        run.releaseTargetSeconds = Math.min(duration, outputCeiling, run.releaseTargetSeconds);
       }
+      run.outputPositionAdvanceMs =
+        Math.max(0, run.releaseTargetSeconds - uncompensatedTarget) * 1000;
       run.catchUpSeconds = Math.max(0, run.releaseTargetSeconds - run.targetSeconds);
       if (run.catchUpSeconds > 0) {
         run.player.seekTo(run.releaseTargetSeconds, true);
@@ -742,6 +761,8 @@ export class YouTubeAuthorityArmController {
       platformLeadMs: run.platformLeadMs,
       timelineLeadMs: run.timelineLeadMs,
       releaseLeadMs: run.platformLeadMs + run.timelineLeadMs,
+      scheduledLeadMs: run.scheduledLeadMs,
+      outputPositionAdvanceMs: run.outputPositionAdvanceMs,
       localStartDelayMs: run.localStartDelayMs,
       releaseLatenessMs: run.releaseLatenessMs,
       rawReleaseLatenessMs: run.rawReleaseLatenessMs,

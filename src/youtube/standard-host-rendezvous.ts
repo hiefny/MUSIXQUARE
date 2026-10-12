@@ -1,11 +1,11 @@
-/** A Standard host rejoins its advancing room clock without stopping guests. */
+/** A local speaker rejoins the advancing room clock without stopping others. */
 import { bus } from '../core/events.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
 import { setYtAutoplayIntent } from './_state.ts';
 import { RENDEZVOUS_MARGIN_SEC } from './constants.ts';
 import {
-  resolveProCoordinatorYouTubeTarget,
+  resolveYouTubePlaybackStartTarget,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
 } from './local-offset.ts';
 import { getEffectiveYouTubePlayLatencyMs } from './play-latency.ts';
@@ -93,7 +93,7 @@ export function createHostLocalRendezvous(options: HostRendezvousOptions): HostL
         const state = player.getPlayerState?.();
         if (state !== 2 && state !== 5) return 'pending';
         const canonical = options.canonicalNow() + RENDEZVOUS_MARGIN_SEC;
-        const target = resolveProCoordinatorYouTubeTarget(
+        const target = resolveYouTubePlaybackStartTarget(
           canonical,
           options.requestedOffset,
           options.duration,
@@ -104,6 +104,7 @@ export function createHostLocalRendezvous(options: HostRendezvousOptions): HostL
             target.canonicalTime,
             options.duration,
             target.effectiveOffset,
+            0,
           ) ||
           (options.duration > 0 && target.canonicalTime >= options.duration)
         ) {
@@ -112,7 +113,10 @@ export function createHostLocalRendezvous(options: HostRendezvousOptions): HostL
         baselinePosition = player.getCurrentTime();
         if (!Number.isFinite(baselinePosition)) return fail();
         targetPosition = target.localTime;
-        playAt = now + RENDEZVOUS_MARGIN_SEC * 1000 - getEffectiveYouTubePlayLatencyMs();
+        // Standard and PRO speakers rejoin their canonical room timeline with
+        // their own fixed output delay plus the learned startup component.
+        const releaseLeadMs = getEffectiveYouTubePlayLatencyMs();
+        playAt = now + RENDEZVOUS_MARGIN_SEC * 1000 + target.localStartDelayMs - releaseLeadMs;
         phase = 'buffer';
         player.seekTo(targetPosition, true);
         return 'pending';

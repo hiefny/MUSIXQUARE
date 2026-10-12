@@ -1121,9 +1121,9 @@ function createImplementation(
       : serverNowForFrame(event.serverTimeMs, receivedAtMs);
     const signedDelayMs = event.executeAtMs - nowMs;
     // Wire-compatible rollout marker: old clients treat 699ms as an ordinary
-    // future COMMIT instant. Refreshed clients grant platform lead only to this
-    // explicit marker; legacy, direct, and malformed timings fail safely as
-    // running-timeline controls.
+    // future COMMIT instant. Refreshed clients grant learned startup lead only
+    // to this explicit marker; all playing paths retain fixed output delay.
+    // Legacy, direct, and malformed timings remain running-timeline controls.
     const zeroStart =
       event.transitionId !== null &&
       event.executeAtMs - event.serverTimeMs === PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS;
@@ -1252,8 +1252,8 @@ function createImplementation(
         state: playback.state,
         positionSeconds: timing.positionSeconds,
         scheduleDelayMs: timing.scheduleDelayMs,
-        // Catch-up is already following a committed running checkpoint; applying
-        // the one-time zero-start lead here would move a late endpoint ahead.
+        // Catch-up follows a committed running checkpoint. Keep fixed audio
+        // output compensation, but never inherit learned startup-only lead.
         timingMode: 'scheduled-control',
         youtubeSubIndex: playback.youtubeSubIndex,
         youtubeVideoId: playback.youtubeVideoId,

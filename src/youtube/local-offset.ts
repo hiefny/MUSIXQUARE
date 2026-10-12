@@ -1,19 +1,20 @@
 /**
- * PRO endpoint YouTube time conversion.
+ * Endpoint-local YouTube time conversion for PRO and the Standard host.
  *
- * Every participant is a normal speaker managed by the server timeline. A
- * manual nudge moves only that local iframe while server frames continue to
- * describe the room's canonical position.
+ * Manual and automatic speaker compensation move only the local iframe.
+ * PRO server frames and Standard host messages retain the common room time.
  */
 
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC } from '../core/constants.ts';
 import { getState } from '../core/state.ts';
-import { getManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { getProRoomLocalPlaybackTimelineGeneration } from '../pro-room/local-playback-timeline.ts';
 import { STANDARD_HOST_MANUAL_OFFSET_END_GUARD_SEC } from './constants.ts';
+import { getCurrentSessionId } from './_state.ts';
 
 export const PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER = 'yt-pro-coordinator-local-nudge';
+export const STANDARD_HOST_YOUTUBE_END_HOLD_TIMER = 'yt-standard-host-output-end-hold';
 
 interface ProCoordinatorYouTubeTarget {
   canonicalTime: number;
@@ -30,10 +31,87 @@ interface ProCoordinatorYouTubeNudgeAnchor {
 
 let _nudgeAnchor: ProCoordinatorYouTubeNudgeAnchor | null = null;
 let _scheduledStartTimeline: (() => number | null) | null = null;
+let standardHostLocalStartTimeline: (() => number | null) | null = null;
+let standardHostAutomaticOffset: { identity: string; seconds: number } | null = null;
+let standardHostEndHold: {
+  identity: string;
+  canonicalTime: number;
+  duration: number;
+  startedAtMs: number;
+  isCurrent: () => boolean;
+} | null = null;
+
+function standardHostOccurrenceIdentity(): string | null {
+  if (!isStandardHostYouTubeManualOffsetEndpoint()) return null;
+  return JSON.stringify([
+    getCurrentSessionId(),
+    getState('network.sessionCode'),
+    getState('playlist.currentQueueItemId'),
+    getState('youtube.currentSubIndex'),
+  ]);
+}
+
+/** Record only output compensation actually applied by the current host start. */
+export function recordStandardHostYouTubeAutomaticOffset(seconds: number): void {
+  const identity = standardHostOccurrenceIdentity();
+  standardHostAutomaticOffset = identity
+    ? { identity, seconds: Number.isFinite(seconds) ? seconds : 0 }
+    : null;
+}
+
+export function getStandardHostYouTubeAutomaticOffset(): number {
+  return standardHostAutomaticOffset?.identity === standardHostOccurrenceIdentity()
+    ? (standardHostAutomaticOffset?.seconds ?? 0)
+    : 0;
+}
+
+export function clearStandardHostYouTubeEndHold(): void {
+  standardHostEndHold = null;
+  clearManagedTimer(STANDARD_HOST_YOUTUBE_END_HOLD_TIMER);
+}
+
+/** Keep room time advancing while this compensated speaker drains its final audio. */
+export function beginStandardHostYouTubeEndHold(
+  canonicalTime: number,
+  duration: number,
+  isCurrent: () => boolean,
+): void {
+  const identity = standardHostOccurrenceIdentity();
+  standardHostEndHold = identity
+    ? { identity, canonicalTime, duration, startedAtMs: performance.now(), isCurrent }
+    : null;
+}
+
+function readStandardHostEndHoldTime(): number | null {
+  const hold = standardHostEndHold;
+  if (!hold) return null;
+  if (hold.identity !== standardHostOccurrenceIdentity() || !hold.isCurrent()) {
+    standardHostEndHold = null;
+    return null;
+  }
+  return clampTime(
+    hold.canonicalTime + Math.max(0, performance.now() - hold.startedAtMs) / 1000,
+    hold.duration,
+  );
+}
+
+export function isStandardHostYouTubeEndHoldActive(): boolean {
+  return readStandardHostEndHoldTime() !== null;
+}
 
 /** The Standard start owner supplies room time while its own speaker waits. */
 export function setYouTubeScheduledStartTimelineReader(reader: () => number | null): void {
   _scheduledStartTimeline = reader;
+}
+
+export function setStandardHostYouTubeLocalStartTimelineReader(
+  reader: (() => number | null) | null,
+): void {
+  standardHostLocalStartTimeline = reader;
+}
+
+export function isStandardHostYouTubeLocalStartPending(): boolean {
+  return isStandardHostYouTubeManualOffsetEndpoint() && standardHostLocalStartTimeline?.() != null;
 }
 
 function clampTime(time: number, duration: number): number {
@@ -88,10 +166,15 @@ export function shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
   canonicalTime: number,
   duration: number,
   effectiveOffset: number,
+  automaticOffset = getStandardHostYouTubeAutomaticOffset(),
 ): boolean {
   if (!isStandardHostYouTubeManualOffsetEndpoint()) return false;
   if (!Number.isFinite(duration) || duration <= 0) return false;
-  if (!Number.isFinite(effectiveOffset) || Math.abs(effectiveOffset) < 0.0005) return false;
+  if (!Number.isFinite(effectiveOffset)) return false;
+  // Fixed output compensation belongs to this speaker, not the user's manual
+  // nudge. Its early physical ENDED is held until the canonical boundary.
+  const manualResidual = effectiveOffset - automaticOffset;
+  if (Math.abs(manualResidual) < 0.0005) return false;
   const localRemaining = duration - clampTime(localTime, duration);
   const canonicalRemaining = duration - clampTime(canonicalTime, duration);
   return (
@@ -174,6 +257,11 @@ export function rebaseProCoordinatorYouTubeNudgeAnchor(
 export function toCanonicalYouTubeTime(localTime: number, duration = 0): number {
   if (!isCanonicalYouTubeManualOffsetEndpoint()) return localTime;
   if (isStandardHostYouTubeManualOffsetEndpoint()) {
+    const heldTime = readStandardHostEndHoldTime();
+    if (heldTime !== null) return clampTime(heldTime, duration);
+    const localStartTime = standardHostLocalStartTimeline?.();
+    if (localStartTime !== null && localStartTime !== undefined)
+      return clampTime(localStartTime, duration);
     const scheduledTime = _scheduledStartTimeline?.();
     if (scheduledTime !== null && scheduledTime !== undefined && Number.isFinite(scheduledTime)) {
       return clampTime(scheduledTime, duration);
@@ -220,5 +308,30 @@ export function resolveYouTubePlaybackStartTarget(
     ...target,
     effectiveOffset: target.localTime - target.canonicalTime - delaySeconds,
     localStartDelayMs: delaySeconds * 1000,
+  };
+}
+
+/** Compose the bounded user setting with a separate, actually applied output lead. */
+export function resolveYouTubeAudiblePlaybackTarget(
+  canonicalTime: number,
+  requestedOffset: number,
+  duration: number,
+  outputSeconds: number,
+): ProCoordinatorYouTubeTarget & { automaticOffset: number; localStartDelayMs: number } {
+  const manual = resolveProCoordinatorYouTubeTarget(canonicalTime, requestedOffset, duration);
+  const rawTarget = manual.canonicalTime + manual.requestedOffset + outputSeconds;
+  // The automatic part alone must never manufacture an exact ENDED seek.
+  const ceiling = duration > 0 ? Math.max(manual.localTime, duration - 0.05) : Infinity;
+  const localTime = Math.min(Math.max(0, rawTarget), ceiling);
+  const localStartDelayMs = Math.max(0, -rawTarget * 1000);
+  const effectiveOffset = localTime - manual.canonicalTime - localStartDelayMs / 1000;
+  const manualEffectiveOffset =
+    manual.effectiveOffset - Math.max(0, -(manual.canonicalTime + manual.requestedOffset));
+  return {
+    ...manual,
+    localTime,
+    effectiveOffset,
+    automaticOffset: effectiveOffset - manualEffectiveOffset,
+    localStartDelayMs,
   };
 }

@@ -28,7 +28,7 @@ import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { log } from '../../core/log.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { MSG } from '../../core/constants.ts';
+import { MSG, MANUAL_SYNC_OFFSET_LIMIT_SEC } from '../../core/constants.ts';
 import { isClockCalibrated } from '../../network/shared-clock.ts';
 import {
   getStandardStartObservations,
@@ -59,6 +59,14 @@ const localYouTubePaused = vi.hoisted(() => ({ value: false }));
 const zeroStartFacade = vi.hoisted(() => ({ inFlight: false, active: false }));
 const youtubeSessionFacade = vi.hoisted(() => ({ id: 1 }));
 const sharedClockFacade = vi.hoisted(() => ({ offsetMs: 0 }));
+const androidFacade = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_ANDROID() {
+    return androidFacade.enabled;
+  },
+}));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -226,6 +234,7 @@ beforeEach(async () => {
   zeroStartFacade.active = false;
   youtubeSessionFacade.id = 1;
   sharedClockFacade.offsetMs = 0;
+  androidFacade.enabled = false;
 
   setState('playlist.items', [
     {
@@ -2753,6 +2762,33 @@ describe('YouTube Sync — Regression Integration', () => {
     }
 
     it.each([
+      { android: true, lead: 250, learned: 250 },
+      { android: false, lead: 0, learned: 0 },
+    ])(
+      'preserves each speaker fixed audible lead without learning it away: android=$android',
+      async ({ android, lead, learned }) => {
+        androidFacade.enabled = android;
+        const player = advancingRendezvousPlayer();
+        const beganAt = Date.now();
+        const { guestRendezvousSync } = await import('../sync.ts');
+        guestRendezvousSync();
+        vi.advanceTimersByTime(4000);
+        expect(player.__log.filter((entry) => entry.op === 'seekTo')).toHaveLength(1);
+        expect(player.__log.find((entry) => entry.op === 'playVideo')?.at).toBe(
+          beganAt + 1500 - lead,
+        );
+        const sample = getStandardStartObservations().playback.find(
+          (entry) => entry.kind === 'youtube-rendezvous-sample',
+        );
+        expect(sample?.detail).toMatchObject({
+          eligible: true,
+          nextLatencyMs: learned,
+          learningDriftMs: 0,
+        });
+      },
+    );
+
+    it.each([
       { scenario: 'on time', releaseLate: 0, expected: 0 },
       { scenario: '30ms late release', releaseLate: 30, expected: 0 },
       { scenario: '150ms late release', releaseLate: 150, expected: 0 },
@@ -4149,10 +4185,10 @@ describe('YouTube Sync — Regression Integration', () => {
         mockHostConn,
       );
 
-      // Load fires immediately so the iframe can buffer during the countdown;
+      // Cue immediately without autoplay during the countdown;
       // the tracked sub-index follows the host's payload.
-      expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(1);
-      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['NEW_VIDEO']);
+      expect(player.__log.filter((c) => c.op === 'cueVideoById')).toHaveLength(1);
+      expect(player.__log.find((c) => c.op === 'cueVideoById')?.args).toEqual(['NEW_VIDEO', 0]);
       expect(getState('youtube.currentSubIndex')).toBe(2);
 
       // Play waits for the host-clock instant, not the load completion.
@@ -4167,6 +4203,304 @@ describe('YouTube Sync — Regression Integration', () => {
   // (auto-sync wait / short wait / immediate) are selected by waitMs against
   // SHORT_WAIT_THRESHOLD_MS (300, inclusive on the short side) and
   // AUTO_SYNC_MAX_WAIT_MS (3000, exclusive on the auto-sync side).
+  describe('Standard audible output targets', () => {
+    it('broadcasts canonical PLAYING while a negative host nudge waits at media zero', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+      installPlayer({ __state: 2, __currentTime: 0, __duration: 100 });
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '123456');
+      setState('setup.sessionStarted', true);
+      setState('youtube.currentSubIndex', 0);
+      const { setStandardHostYouTubeLocalStartTimelineReader } = await import('../local-offset.ts');
+      const { broadcastYouTubeSync } = await import('../sync.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const beganAt = performance.now();
+      setStandardHostYouTubeLocalStartTimelineReader(() => (performance.now() - beganAt) / 1000);
+      try {
+        vi.advanceTimersByTime(100);
+        broadcastYouTubeSync(true);
+        expect(broadcast).toHaveBeenLastCalledWith(
+          expect.objectContaining({ type: MSG.YOUTUBE_SYNC, state: 1, time: 0.1 }),
+        );
+        broadcastYouTubeSync(true, 2);
+        expect(broadcast).toHaveBeenLastCalledWith(
+          expect.objectContaining({ type: MSG.YOUTUBE_SYNC, state: 2, time: 0.1 }),
+        );
+      } finally {
+        setStandardHostYouTubeLocalStartTimelineReader(null);
+      }
+    });
+
+    it('broadcasts canonical PLAYING while a compensated host drains its tail, with explicit pause priority', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+      installPlayer({ __state: 0, __currentTime: 100, __duration: 100 });
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '123456');
+      setState('setup.sessionStarted', true);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+      setState('youtube.currentSubIndex', 0);
+      const {
+        beginStandardHostYouTubeEndHold,
+        clearStandardHostYouTubeEndHold,
+        recordStandardHostYouTubeAutomaticOffset,
+      } = await import('../local-offset.ts');
+      const { broadcastYouTubeSync } = await import('../sync.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      recordStandardHostYouTubeAutomaticOffset(0.25);
+      beginStandardHostYouTubeEndHold(99.75, 100, () => true);
+      try {
+        broadcastYouTubeSync(true);
+        expect(broadcast).toHaveBeenLastCalledWith(
+          expect.objectContaining({ type: MSG.YOUTUBE_SYNC, state: 1, time: 99.75 }),
+        );
+        vi.advanceTimersByTime(100);
+        broadcastYouTubeSync(true);
+        expect(vi.mocked(log.error).mock.calls).toEqual([]);
+        expect(vi.mocked(broadcast).mock.calls).toHaveLength(2);
+        expect(broadcast).toHaveBeenLastCalledWith(
+          expect.objectContaining({ type: MSG.YOUTUBE_SYNC, state: 1, time: 99.85 }),
+        );
+        broadcastYouTubeSync(true, 2);
+        expect(broadcast).toHaveBeenLastCalledWith(
+          expect.objectContaining({ type: MSG.YOUTUBE_SYNC, state: 2 }),
+        );
+      } finally {
+        clearStandardHostYouTubeEndHold();
+        recordStandardHostYouTubeAutomaticOffset(0);
+      }
+    });
+
+    it('preserves the full physical delta when a maximally nudged Android speaker enters PRO', () => {
+      androidFacade.enabled = true;
+      const localDelta = MANUAL_SYNC_OFFSET_LIMIT_SEC + 0.25;
+      installPlayer({ __state: 1, __currentTime: 50 + localDelta, __duration: 300 });
+      setState('network.hostConn', mockHostConn);
+      setState('sync.youtubeLocalOffset', MANUAL_SYNC_OFFSET_LIMIT_SEC);
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        { state: 1, time: 50, hostClock: Date.now(), videoId: 'FAKE_VIDEO' },
+        mockHostConn,
+      );
+
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'participant-0',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(localDelta, 8);
+      expect(getState('sync.youtubeLocalOffset')).toBe(MANUAL_SYNC_OFFSET_LIMIT_SEC);
+    });
+
+    it.each(
+      [false, true].flatMap((android) =>
+        [0, 900].flatMap((receiveDelay) =>
+          [false, true].map((replacement) => ({ android, receiveDelay, replacement })),
+        ),
+      ),
+    )(
+      'projects actual bootstrap time@hostClock to its future deadline: android=$android delay=$receiveDelay replacement=$replacement',
+      ({ android, receiveDelay, replacement }) => {
+        androidFacade.enabled = android;
+        const player = installPlayer({ __state: 2, __advanceClock: true, __autoPlayOnLoad: true });
+        setState('network.hostConn', mockHostConn);
+        const sentAt = Date.now();
+        vi.advanceTimersByTime(receiveDelay);
+        capturedHandlers[MSG.YOUTUBE_STATE](
+          {
+            state: 1,
+            time: 50,
+            hostClock: sentAt,
+            hostPlayAt: sentAt + 1000,
+            videoId: replacement ? 'NEW_VIDEO' : 'FAKE_VIDEO',
+          },
+          mockHostConn,
+        );
+        vi.advanceTimersByTime(1400 - receiveDelay);
+        const fixedOutput = android ? 0.25 : 0;
+        expect(player.getCurrentTime() - fixedOutput).toBeCloseTo(51.4, 5);
+      },
+    );
+
+    it('projects a timestamped already-late bootstrap without counting its future window twice', () => {
+      androidFacade.enabled = true;
+      const player = installPlayer({ __state: 2 });
+      setState('network.hostConn', mockHostConn);
+      const sentAt = Date.now();
+      vi.advanceTimersByTime(1100);
+      capturedHandlers[MSG.YOUTUBE_STATE](
+        { state: 1, time: 50, hostClock: sentAt, hostPlayAt: sentAt + 1000 },
+        mockHostConn,
+      );
+      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([51.35, true]);
+    });
+
+    it('does not turn the last 100ms into ENDED solely through the fixed output component', () => {
+      androidFacade.enabled = true;
+      const player = installPlayer({ __state: 2, __duration: 100 });
+      setState('network.hostConn', mockHostConn);
+      const seek = player.seekTo;
+      player.seekTo = (time, ahead) => {
+        seek(time, ahead);
+        if (time >= 100) player.__state = 0;
+      };
+      capturedHandlers[MSG.YOUTUBE_STATE]({ state: 1, time: 99.9, hostPlayAt: 0 }, mockHostConn);
+      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([99.9, true]);
+      vi.advanceTimersByTime(150);
+      expect(player.__state).toBe(1);
+    });
+
+    it('waits for the next occurrence when an ahead speaker naturally ends within the fixed output window', () => {
+      androidFacade.enabled = true;
+      const player = installPlayer({ __state: 0, __currentTime: 100, __duration: 100 });
+      setState('network.hostConn', mockHostConn);
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      handler({ state: 1, time: 99.9, videoId: 'FAKE_VIDEO' }, mockHostConn);
+      vi.advanceTimersByTime(200);
+      expect(
+        player.__log.filter((entry) => entry.op === 'seekTo' || entry.op === 'playVideo'),
+      ).toHaveLength(0);
+      handler({ state: 1, time: 0, videoId: 'NEW_VIDEO' }, mockHostConn);
+      expect(player.__log.find((entry) => entry.op === 'loadVideoById')?.args).toEqual([
+        'NEW_VIDEO',
+        0.25,
+      ]);
+    });
+
+    it.each([
+      { android: true, manual: 0, target: 50.25 },
+      { android: false, manual: 0, target: 50 },
+      {
+        android: true,
+        manual: MANUAL_SYNC_OFFSET_LIMIT_SEC,
+        target: 50 + MANUAL_SYNC_OFFSET_LIMIT_SEC + 0.25,
+      },
+      {
+        android: true,
+        manual: -MANUAL_SYNC_OFFSET_LIMIT_SEC,
+        target: 50 - MANUAL_SYNC_OFFSET_LIMIT_SEC + 0.25,
+      },
+    ])(
+      'applies fixed output separately from manual limits: android=$android / $manual',
+      ({ android, manual, target }) => {
+        androidFacade.enabled = android;
+        const player = installPlayer({ __state: 2, __duration: 300 });
+        setState('network.hostConn', mockHostConn);
+        setState('sync.youtubeLocalOffset', manual);
+        capturedHandlers[MSG.YOUTUBE_STATE]({ state: 1, time: 50, hostPlayAt: 0 }, mockHostConn);
+        expect(player.__log.filter((entry) => entry.op === 'seekTo').at(-1)?.args).toEqual([
+          target,
+          true,
+        ]);
+        vi.advanceTimersByTime(150);
+        expect(player.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(1);
+      },
+    );
+
+    it('applies the playing target once on a future reservation and leaves paused positions unshifted', () => {
+      androidFacade.enabled = true;
+      const player = installPlayer({ __state: 2 });
+      setState('network.hostConn', mockHostConn);
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      handler({ state: 1, time: 50, hostPlayAt: Date.now() + 1000 }, mockHostConn);
+      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([50, true]);
+      vi.advanceTimersByTime(749);
+      expect(player.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(player.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(1);
+      handler({ state: 2, time: 50, hostPlayAt: 0 }, mockHostConn);
+      expect(player.__log.filter((entry) => entry.op === 'seekTo').at(-1)?.args).toEqual([
+        50,
+        true,
+      ]);
+    });
+
+    it.each([
+      { android: true, delay: 700, wait: 450, target: 0 },
+      { android: true, delay: 100, wait: 0, target: 0.15 },
+      { android: false, delay: 700, wait: 700, target: 0 },
+    ])(
+      'spends available lead before position for android=$android / $delay',
+      ({ android, delay, wait, target }) => {
+        androidFacade.enabled = android;
+        const player = installPlayer({ __state: 2, __advanceClock: true });
+        setState('network.hostConn', mockHostConn);
+        const beganAt = Date.now();
+        capturedHandlers[MSG.YOUTUBE_STATE](
+          { state: 1, time: 0, hostPlayAt: beganAt + delay },
+          mockHostConn,
+        );
+        expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([target, true]);
+        vi.advanceTimersByTime(Math.max(delay, wait) + 100);
+        expect(player.__log.find((entry) => entry.op === 'playVideo')?.at).toBe(beganAt + wait);
+        const fixed = android ? 0.25 : 0;
+        // Compare audible position on the canonical timeline after both
+        // releases. A short deadline uses only its unavailable 150ms as position.
+        expect(player.getCurrentTime() - fixed).toBeCloseTo(
+          (Date.now() - beganAt - delay) / 1000,
+          5,
+        );
+      },
+    );
+
+    it.each([false, true])(
+      'holds a negative manual target after local output compensation, replacement=%s',
+      (replacement) => {
+        androidFacade.enabled = true;
+        const player = installPlayer({ __state: 2, __autoPlayOnLoad: true });
+        setState('network.hostConn', mockHostConn);
+        setState('sync.youtubeLocalOffset', -0.5);
+        capturedHandlers[MSG.YOUTUBE_STATE](
+          {
+            state: 1,
+            time: 0,
+            hostPlayAt: 0,
+            videoId: replacement ? 'NEW_VIDEO' : 'FAKE_VIDEO',
+          },
+          mockHostConn,
+        );
+        vi.advanceTimersByTime(249);
+        expect(player.__state).not.toBe(1);
+        expect(player.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(0);
+        vi.advanceTimersByTime(1);
+        expect(player.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(1);
+        expect(player.getCurrentTime()).toBe(0);
+      },
+    );
+
+    it('cancels a negative manual hold when the host pauses', () => {
+      androidFacade.enabled = true;
+      const player = installPlayer({ __state: 2 });
+      setState('network.hostConn', mockHostConn);
+      setState('sync.youtubeLocalOffset', -0.5);
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      handler({ state: 1, time: 0, hostPlayAt: 0 }, mockHostConn);
+      vi.advanceTimersByTime(100);
+      handler({ state: 2, time: 0.1, hostPlayAt: 0 }, mockHostConn);
+      vi.advanceTimersByTime(1000);
+      expect(player.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(0);
+    });
+
+    it('uses the same audible target for heartbeat recovery and later drift correction', () => {
+      androidFacade.enabled = true;
+      const player = installPlayer({ __state: 2, __currentTime: 0 });
+      setState('network.hostConn', mockHostConn);
+      const handler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      handler({ state: 1, time: 50 }, mockHostConn);
+      expect(player.__log.filter((entry) => entry.op === 'seekTo')).toHaveLength(1);
+      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([50.25, true]);
+      vi.advanceTimersByTime(3000);
+      handler({ state: 1, time: 60 }, mockHostConn);
+      expect(player.__log.filter((entry) => entry.op === 'seekTo').at(-1)?.args).toEqual([
+        60.25,
+        true,
+      ]);
+    });
+  });
+
   describe('handleYouTubeState — scheduling boundary values', () => {
     it('waitMs exactly at the short-wait threshold (300ms) seeks to the wait-compensated position', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
@@ -4247,7 +4581,7 @@ describe('YouTube Sync — Regression Integration', () => {
       // reload, and NO drift seek for this frame (the reload supersedes it).
       handler({ time: 50, state: 1, subIndex: 0, videoId: 'OTHER_VIDEO' }, mockHostConn);
       expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(1);
-      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['OTHER_VIDEO']);
+      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['OTHER_VIDEO', 50]);
       expect(player.__log.filter((c) => c.op === 'seekTo')).toHaveLength(0);
 
       // Phase 2 — next heartbeat inside LOAD_DRIFT_SUPPRESS_MS (5s): fully

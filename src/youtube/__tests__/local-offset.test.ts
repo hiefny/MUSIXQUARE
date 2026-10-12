@@ -4,6 +4,8 @@ import {
   isCanonicalYouTubeManualOffsetEndpoint,
   resolveProCoordinatorYouTubeTarget,
   resolveYouTubePlaybackStartTarget,
+  resolveYouTubeAudiblePlaybackTarget,
+  recordStandardHostYouTubeAutomaticOffset,
   setYouTubeScheduledStartTimelineReader,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
@@ -112,6 +114,33 @@ describe('PRO coordinator YouTube local offset', () => {
 
     setState('network.appRole', 'guest');
     expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(119, 109, 120, 10)).toBe(false);
+  });
+
+  it.each([
+    [20, 9.999, 30.249, 0, 10.249, 0.25],
+    [20, -9.999, 10.251, 0, -9.749, 0.25],
+    [0, -9.999, 0, 9749, -9.749, 0.25],
+    [0.1, -0.25, 0.1, 0, 0, 0.25],
+    [299.9, 0, 299.95, 0, 0.05, 0.05],
+  ])(
+    'composes bounded manual and actual output at %s + %s',
+    (canonical, manual, local, wait, applied, automatic) => {
+      const target = resolveYouTubeAudiblePlaybackTarget(canonical, manual, 300, 0.25);
+      expect(target.localTime).toBeCloseTo(local, 8);
+      expect(target.localStartDelayMs).toBeCloseTo(wait, 8);
+      expect(target.effectiveOffset).toBeCloseTo(applied, 8);
+      expect(target.automaticOffset).toBeCloseTo(automatic, 8);
+      expect(target.requestedOffset).toBe(manual);
+    },
+  );
+
+  it('keeps the measured automatic component at the end and neutralizes only manual residual', () => {
+    setActiveStandardHost();
+    recordStandardHostYouTubeAutomaticOffset(0.25);
+    expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(120, 119.75, 120, 0.25)).toBe(false);
+    expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(120, 119.5, 120, 0.5)).toBe(true);
+    expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(119, 119.75, 120, -0.75)).toBe(true);
+    recordStandardHostYouTubeAutomaticOffset(0);
   });
 
   it('stores the achievable lower-bound offset instead of the requested one', () => {

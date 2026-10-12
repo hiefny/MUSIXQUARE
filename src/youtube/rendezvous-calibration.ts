@@ -48,6 +48,8 @@ export function createRendezvousCalibration(
   plannedHostPlayAtMs: number,
   effectiveLeadMs: number,
   manualOffsetSeconds: number,
+  audibleLeadMs = 0,
+  minimumLatencyMs = 0,
 ) {
   const operationId = ++nextOperationId;
   // Preserve the original signed deadline, including time spent waiting for the
@@ -69,6 +71,8 @@ export function createRendezvousCalibration(
     plannedClockCalibrated: planned.calibrated,
     manualOffsetSeconds,
     effectiveLeadMs,
+    audibleLeadMs,
+    minimumLatencyMs,
   };
   recordStandardStartObservation('youtube-rendezvous-start', base);
 
@@ -102,7 +106,8 @@ export function createRendezvousCalibration(
       released.monotonicMs >= scheduled.monotonicMs &&
       scheduled.monotonicMs >= planned.monotonicMs;
     const uncorrectedLatenessMs = Math.max(0, releaseLatenessMs - appliedCatchUpMs);
-    const learningDriftMs = driftMs === null ? null : driftMs + uncorrectedLatenessMs;
+    const learningDriftMs =
+      driftMs === null ? null : driftMs - audibleLeadMs + uncorrectedLatenessMs;
     let verdict = reason;
     if (verdict === 'eligible' && !clockStable) verdict = 'clock-changed';
     if (
@@ -124,7 +129,7 @@ export function createRendezvousCalibration(
       verdict === 'eligible'
         ? Math.round(
             Math.max(
-              0,
+              minimumLatencyMs,
               Math.min(LATENCY_CLAMP_MAX_MS, current! - learningDriftMs! * LATENCY_EMA_RATE),
             ),
           )

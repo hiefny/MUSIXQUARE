@@ -81,6 +81,7 @@ function makeHarness(options?: {
   guestArmedDelayMs?: number;
   guestPrepareDelayMs?: number;
   hostCommitDelayMs?: number;
+  hostReleaseLatenessMs?: number;
   isGuestClockCalibrated?: () => boolean;
   getLiveGuestPeerIds?: () => string[];
   hostCanonicalTransform?: (position: number) => number;
@@ -91,6 +92,7 @@ function makeHarness(options?: {
   getGuestPlayer?: (preparedPlayer: FakeYtPlayer) => FakeYtPlayer;
   onGuestLearnedTimelineLeadMs?: YouTubeZeroStartDependencies['onLearnedTimelineLeadMs'];
   onHostPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
+  onHostPlaybackStarted?: YouTubeZeroStartDependencies['onPlaybackStarted'];
   onGuestPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
   guestDesiredAudioState?: { muted: boolean; volume?: number };
 }): Harness {
@@ -135,6 +137,15 @@ function makeHarness(options?: {
 
   host = new YouTubeZeroStartController({
     ...common,
+    scheduler: {
+      set: (callback, delay) =>
+        setTimeout(
+          callback,
+          delay +
+            (host.getSnapshot().phase === 'scheduled' ? (options?.hostReleaseLatenessMs ?? 0) : 0),
+        ),
+      clear: (timer) => clearTimeout(timer),
+    },
     getRole: () => 'host',
     getLocalPeerId: () => HOST_ID,
     getHostPeerId: () => null,
@@ -164,6 +175,13 @@ function makeHarness(options?: {
     onPrepareSelection: () => options?.hostMediaAction,
     onHostFallbackRequired: options?.onHostFallbackRequired,
     onPhaseChange: options?.onHostPhaseChange,
+    onPlaybackStarted: (event) => {
+      hostAppliedOffsetSec =
+        event.localPositionSec !== null
+          ? event.localPositionSec - event.canonicalPositionSec
+          : hostAppliedOffsetSec + (options?.hostPlatform === 'android' ? 0.25 : 0);
+      options?.onHostPlaybackStarted?.(event);
+    },
     getLocalStartDelayMs: (canonical) =>
       Math.max(0, -(canonical + (options?.hostOffsetSec ?? 0))) * 1_000,
     resolveLocalTargetSec: (canonical) => {
@@ -2199,9 +2217,9 @@ describe('YouTubeZeroStartController', () => {
       totalLeadMs: 0,
     });
     expect(getYouTubeZeroStartRelativeLead('ios', 'android')).toEqual({
-      audibleBaseLeadMs: -250,
+      audibleBaseLeadMs: 0,
       timelineLeadMs: 0,
-      totalLeadMs: -250,
+      totalLeadMs: 0,
     });
     expect(getYouTubeZeroStartRelativeLead('ios', 'other', 85)).toEqual({
       audibleBaseLeadMs: 0,
@@ -2214,9 +2232,9 @@ describe('YouTubeZeroStartController', () => {
       totalLeadMs: -85,
     });
     expect(getYouTubeZeroStartRelativeLead('ios', 'android', 10_000)).toEqual({
-      audibleBaseLeadMs: -250,
+      audibleBaseLeadMs: 0,
       timelineLeadMs: 600,
-      totalLeadMs: 350,
+      totalLeadMs: 600,
     });
   });
 
@@ -2671,6 +2689,91 @@ describe('YouTubeZeroStartController', () => {
       }
       return commit.startAtHost;
     }
+
+    it.each(
+      (['android', 'ios', 'other'] as const).flatMap((hostPlatform) =>
+        (['android', 'ios', 'other'] as const).flatMap((guestPlatform) =>
+          [
+            { hostOffset: 0, guestOffset: 0 },
+            { hostOffset: 0.4, guestOffset: -0.4 },
+            { hostOffset: -9.999, guestOffset: 9.999 },
+          ].map((offsets) => ({ hostPlatform, guestPlatform, ...offsets })),
+        ),
+      ),
+    )(
+      'keeps one canonical timeline with own output delay: $hostPlatform/$guestPlatform manual $hostOffset/$guestOffset',
+      ({ hostPlatform, guestPlatform, hostOffset, guestOffset }) => {
+        const harness = makeHarness({
+          advanceClock: true,
+          hostPlatform,
+          guestPlatform,
+          hostOffsetSec: hostOffset,
+          guestOffsetSec: guestOffset,
+        });
+        const startAt = begin(harness);
+        vi.advanceTimersByTime(startAt - Date.now() + 12_000);
+        const hostFixed = hostPlatform === 'android' ? 0.25 : 0;
+        const guestFixed = guestPlatform === 'android' ? 0.25 : 0;
+        expect(harness.hostPlayer.getCurrentTime() - hostFixed - hostOffset).toBeCloseTo(12, 5);
+        expect(harness.guestPlayer.getCurrentTime() - guestFixed - guestOffset).toBeCloseTo(12, 5);
+        const timeline = latestTimeline(harness);
+        expect(timeline.positionSec).toBeCloseTo((timeline.hostTime - startAt) / 1_000, 5);
+        expect(harness.hostPlayer.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(
+          1,
+        );
+        expect(harness.guestPlayer.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(
+          1,
+        );
+      },
+    );
+
+    it.each(
+      [0, 0.4, -9.999].flatMap((manual) =>
+        [
+          { late: 30, ack: 0, media: 0 },
+          { late: 30, ack: 80, media: 0 },
+          { late: 150, ack: 80, media: 60 },
+          { late: 0, ack: 80, media: 60 },
+        ].map((timing) => ({ manual, ...timing })),
+      ),
+    )(
+      'keeps the host canonical anchor through release $late / acknowledgement $ack / media $media ms, manual $manual',
+      ({ late, ack, media, manual }) => {
+        const started = vi.fn();
+        const harness = makeHarness({
+          advanceClock: true,
+          hostPlatform: 'android',
+          hostOffsetSec: manual,
+          hostReleaseLatenessMs: late,
+          onHostPlaybackStarted: started,
+        });
+        const startAt = begin(harness);
+        harness.hostPlayer.__onStateChange = ({ data }) => {
+          if (data === 1 && harness.host.getSnapshot().phase === 'starting') {
+            if (ack > 0) setTimeout(() => harness.host.handlePlayerStateChange(data), ack);
+            else harness.host.handlePlayerStateChange(data);
+          } else harness.host.handlePlayerStateChange(data);
+        };
+        harness.hostPlayer.playVideo = () => {
+          harness.hostPlayer.__log.push({ op: 'playVideo', at: Date.now() });
+          if (media > 0) setTimeout(() => harness.hostPlayer.__setState(1), media);
+          else harness.hostPlayer.__setState(1);
+        };
+        vi.advanceTimersByTime(startAt - Date.now() + Math.max(0, -manual * 1000) + 1_000);
+        expect(started).toHaveBeenCalledOnce();
+        const observation = started.mock.calls[0]![0];
+        const applied = observation.localPositionSec - observation.canonicalPositionSec;
+        expect(applied - manual).toBeCloseTo(
+          0.25 - (late <= 40 ? late : 0) / 1000 - media / 1000,
+          5,
+        );
+        const timeline = latestTimeline(harness);
+        expect(timeline.positionSec).toBeCloseTo((timeline.hostTime - startAt) / 1000, 5);
+        expect(harness.hostPlayer.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(
+          1,
+        );
+      },
+    );
 
     const negativeOffsets = [-0.1, -0.25, -1, -5, -9.999];
     it.each(

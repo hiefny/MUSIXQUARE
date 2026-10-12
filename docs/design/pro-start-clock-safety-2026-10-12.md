@@ -8,6 +8,7 @@
 - 기준 코드: `eb51ed73ab9561a4b30583127213471ba82bd88f`.
 - 시계·학습 수정 검증 코드: `098b74dc93e5cea052afd1f6eed10945762ea063`.
 - 직접 재생 관측 보완까지 포함한 코드: `9127561431d6b78dd3ceb65e2a9dee7357575787`.
+- 소켓 단절 중 확정된 시작 보존 후속 코드: `a81bf42d00df179f8531269fe2830979cff4d750`.
 - 환경: Windows, Node 24.20.0, Vitest 5.0.3, 로컬 Chromium.
 - 운영은 App 8.10.0 / v659 그대로다. 이 수정은 운영에 반영되지 않았다.
 - UI, 번역, 권한, 서버 프로토콜, DB, 비밀, 바인딩, 의존성은 바꾸지 않았다.
@@ -118,7 +119,66 @@ clock 응답을 보내며 늦은 이전 세션 응답의 거부 assertion은 유
 GitHub CI와 실기 음향 측정은 이번 요청 범위에서 실행하지 않았다.
 직접 재생 계측만 추가한 `91275614`에서는 전체 Vitest와 브라우저 스위트를 다시
 반복하지 않고, 위 43파일의 전체 관련 테스트와 타입·빌드로 변경 범위를 검증했다.
-최종 코드의 빌드 로그는 `scratch/pro-start-observation-production-build.log`다.
+`91275614`의 빌드 로그는 `scratch/pro-start-observation-production-build.log`다.
+
+## 2026-10-12 리뷰 후속: COMMIT 후 예기치 않은 소켓 종료
+
+리뷰의 실질적 지적을 수정 전 코드 `bb2680486e17464cd54cbc7ae8026b54612f7567`에서
+재현했다. `isClockSnapshotCurrent()`가 연결 여부까지 요구해, 소켓 세대와 발급
+토큰이 그대로인 자연 close에도 이미 받은 COMMIT의 작업 시계를 거절했다.
+
+- 파일: COMMIT 후 `initAudio()`를 기다리는 동안 close하면, 준비 완료 뒤 실제
+  `AudioBufferSourceNode` 생성·예약을 취소했다. COMMIT +50ms에 close, +200ms에
+  초기화 완료, +700ms가 시작 시각인 모형으로 재현했다. 반면 **이미 native 소스를
+  예약한 뒤의 close는 수정 전에도 재생을 취소하지 않았다**.
+- YouTube: READY 뒤 700ms 미래 COMMIT을 받고 +100ms에 close한 모형에서 arm은
+  예약 시각에 `playVideo()`를 호출했다. 이후 COMMIT 결과 검증이 lease를 거절해
+  적용 기록이 남지 않고 renderer 무효화로 다시 멈췄다. 예약 callback 자체가
+  실행되지 않는 문제로 해석하지 않는다.
+
+수정은 lease 유효성에서 연결 조건만 제거한다. 현재 세대와 해당 bridge의 발급
+토큰은 계속 검사하고, 새 capture/acquire는 단절 상태에서 거절한다. 명시적 퇴장과
+**소켓 교체 시작**은 세대를 올려 기존 lease를 폐기한다. 교체 handshake 성공까지
+기다리지 않으며, 실패한 교체 시도도 같다. 이 보장은 자연 close와 교체 사이의
+구간에 한정된다. 재연결 이후에는 기존 snapshot 복원·따라잡기 경로를 사용한다.
+미보정 `serverNowMs`가 로컬 벽시각이라는 주석도 추가했다. 반환형·동작은 그대로다.
+
+추가 회귀는 bridge 2개, 실제 파일 transport 통합 7개, 실제 YouTube arm과 controller
+통합 1개다. 소켓·오디오 장치·iframe 표면은 모사하지만 검사 대상 bridge, controller,
+파일 재생 및 YouTube 적용 코드는 실제 모듈이다. YouTube는 런타임의 control-channel
+recovery 호출도 포함한다. 파일 검사는 자동 heartbeat 재접속을 모사하지 않는다.
+
+수정 전 bridge 2개와 파일 초기화 1개가 실패했고, YouTube는 적용 기록·renderer
+무효화·재생 상태 검사가 실패했다. 수정 후 해당 검사들이 통과했다. 파일의 명시적
+disconnect, 소켓 교체, 새 paused revision, 방 초기화는 계속 시작을 취소한다.
+리뷰가 권고한 다른 두 핀은 기존 `playback-clock-safety.test.ts`에 이미 있다.
+새 pause/stop이 오래된 시계 대기를 즉시 끝내는 검사와, 조기 COMMIT이 별도 예산에서
+후보를 사용하고 늦은 READY 보고를 억제하는 검사를 다시 실행했다.
+
+후속 검증은 위 `a81bf42d` 코드와 Windows / Node 24.20.0 / Vitest 5.0.3 기준이다.
+
+| 후속 검사 | 결과·범위 |
+| --- | --- |
+| PRO room·player·YouTube·diagnostics 전체 Vitest | 186파일 **4,393 pass / 0 fail / 0 skip**, 53.88초. 위 신규 회귀·기존 핀을 모두 포함 |
+| TypeScript | App와 테스트 전체 타입 검사 통과 |
+| ESLint·Prettier | 변경한 4개 소스/테스트 파일 통과 |
+| 프로덕션 빌드 | `npm run build`와 production hook/static-header 검사 통과. 버전 미갱신 로컬 변경의 배포 승인은 아님 |
+
+기기·Bluetooth 실측, 브라우저 E2E, 원격 CI, 전체 프로젝트 Vitest는 이 작은 후속
+수정에서 다시 실행하지 않았다. 기존 전체 검사 결과를 이 코드의 전체 통과로
+대체 표기하지 않는다. 독립 읽기 전용 검토에서 추가 actionable finding은 없었다.
+
+재현 로그: `scratch/pro-clock-close-bridge-red.log`,
+`scratch/pro-clock-close-file-red-with-controls.log`,
+`scratch/yt-start-audit-2026-10-12/socket-lease-red.log`.
+신규 회귀와 기존 핀을 포함한 개별 검사 합계는 **114 pass / 0 fail / 0 skip**이다.
+YouTube 전체 파일 첫 실행에서 새 테스트의 mock 구현 복원이 빠져 기존 테스트
+1개가 실패했으며, fixture를 명시적으로 복원한 뒤 37개 전체가 통과했다.
+이는 제품 변경을 요구한 실패가 아니며 위 최종 관련 검사에도 포함했다.
+최종 로그: `scratch/pro-clock-close-related-green.log`,
+`scratch/pro-clock-close-app-types.log`, `scratch/pro-clock-close-test-types.log`,
+`scratch/pro-clock-close-lint.log`, `scratch/pro-clock-close-format.log`,
+`scratch/pro-clock-close-build.log`.
 
 ## 남은 한계와 다음 배포
 

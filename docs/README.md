@@ -92,7 +92,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [PRO 시작 시계·관측 수정 — 2026-10-12](design/pro-start-clock-safety-2026-10-12.md) —
   작업별 시계 snapshot, 미보정 COMMIT 차단, 늦은 READY 대기 분리, C11 callback
-  지연 구분과 관측 전용 YouTube 표본. 로컬 수정·검증만, 미배포.
+  지연 구분과 관측 전용 YouTube 표본. 리뷰 후 소켓 단절 중 확정된 시작을 보존하고
+  파일·YouTube 실제 적용 경로를 재검증. 로컬 수정·검증만, 미배포.
 - [PRO 시작 싱크 원인 후보 재검증 — 2026-10-12](design/pro-start-sync-candidate-validation-2026-10-12.md) —
   C1–C14 반박 검증, 시계 갱신·미보정 COMMIT 예약 결함 재현,
   YouTube 제어·파일 PCM 비교와 실기 측정 한계. 수정 전 분석 기록; 후속 수정은 위 보고서.

@@ -32,6 +32,12 @@ Peer 번호는 동시 접속 수가 아니며, 사용자 메일의 “100명처�
   늦게 끝난 작업이 이후 캐시를 덮지 못한다. 소유 컨텍스트가 없는 호출은 완료된
   캐시만 재사용하고, 진행 중인 조회는 공유하지 않는다. 같은 패턴이 있던 점검·
   공지 조회도 소유된 작업만 공유한다. 실패 시 기존 fail-closed 응답을 유지한다.
+- PR 자동 리뷰에서 공통 조회의 실제 Worker 호출자 context 전달 누락을 발견하여
+  App·signaling·remote-share·Developer API/facade의 입구까지 전파한다. 소유권을
+  보장할 수 없는 DO 조회에는 별도 read 순서 검사를 둔다. 늦은 실패가 최신 정상
+  결과나 TTL을 덮지 못하며, 이미 만료된 정상 캐시를 대신 반환해 gate를 열지도
+  않는다. 높은 canonical revision은 기억하고 기존 mutation·불확실한 결과의
+  차단 규칙과 공지 source priority를 유지한다.
 
 정원 100, owner 예약 슬롯, PIN 보호, 공유망 신규 입장 제한, 영수증 보존,
 presence TTL 45초, 빈 방의 재생 동결 정책은 완화하지 않는다. 기기 잠금·OS 절전
@@ -45,6 +51,8 @@ presence TTL 45초, 빈 방의 재생 동결 정책은 완화하지 않는다. �
 구분한다. App의 응답 헤더 대기 timeout/본문 timeout/전송·본문 실패, registry
 조회 실패, REST 정원·요청 제한·상태 용량, 이미 열린 presence와 신원 불일치,
 서버가 관측한 숫자 투영 계약 오류를 별도로 남긴다.
+PRO 입구의 점검 상태 조회 불가도 의도된 점검과 구분해 기록한다. 같은 조회 결과를
+사용하며 진단을 위한 추가 service-control 요청은 만들지 않는다.
 
 시그널링의 정원 거절에는 socket 수, 마지막 authority의 활성 대상 수와 revision,
 입장 ticket의 revision만 추가한다. 이 대상 수는 마지막 수신한 명단이며 실시간
@@ -84,20 +92,31 @@ Node 24.20.0을 사용한다. 실제 workerd 하니스는 PRO 전체 front handl
 service binding을 사용해 취소·동시 조회·timeout·늦은 결과를 검증한다. 네이티브
 D1의 취소 전파나 고객 행사 네트워크를 재현한 것은 아니다.
 
-실제 HTTP Peer churn/계정 detach/저장 101 복구/TTL 경계와 owner 복구 포함
+1차 수정본에서는 실제 HTTP Peer churn/계정 detach/저장 101 복구/TTL 경계와 owner 복구 포함
 PRO Worker 439개, workerd 14개 시나리오, 진단·proxy 35개가 통과했다.
-Worker coverage 최종 실행은 47파일 / 2,563 pass / 0 fail / 0 skip,
+해당 Worker coverage 실행은 47파일 / 2,563 pass / 0 fail / 0 skip,
 구문 85.41% / 분기 82.20% / 함수 93.42% / 라인 89.87%로 전체·파일별 기준을
 모두 통과했다. 타입·린트·포맷, 경계·D1·운영 감사·복구 범위 guard도 통과했다.
 독립 리뷰에서 identity/TTL/rollback, 공유 조회 수명, 진단 개인정보·부하,
 배포 범위를 확인했으며 최종 차단 지적은 없다.
-동결된 수정본의 전체 unit 재실행은 556파일 / 12,505 pass / 0 fail / 0 skip
+1차 동결본의 전체 unit 재실행은 556파일 / 12,505 pass / 0 fail / 0 skip
 (06:01:45 KST 시작, 467.47초)이다. 설치된 jq 경로를 명시해 로컬 jq 검사도
 실행했다. 초기 편집 중 실행에서 나온 6개 실패는 소스 수정 반영 및 배포 범위·
 coverage 목록·waitUntil 수명·bootstrap cache 참조 계약을 보완한 뒤 전부 통과했다.
 로컬 검증 소스는 `1d5e95e532936e585d9b91a1b4b0520d891c7485`이며, 해당
-committed HEAD에서 `build:checked`도 통과했다. 이후 이 문단의 근거 기록만 추가했다.
-PR·exact-main CI·운영 smoke는 완료 후 아래에 기록한다.
+committed HEAD에서 `build:checked`도 통과했다. PR #311의 첫 CI
+`38309018105`는 11개 job 모두 성공했지만, 자동 리뷰가 실제 Worker context 전달
+누락을 발견하여 병합을 보류했다. 후속 보완은 공통 조회의 역전·만료·권위 규칙,
+실제 Worker 입구·App 관리자/공개 조회·workerd를 포함한 9파일 931개를 통과했고
+독립 리뷰에서 남은 차단 지적이 없었다. 추가 진단 41건도 통과했다.
+후속 전체 실행은 새 context 인자를 아직 인정하지 않던 정적 검사 한 파일에서
+16건 실패, 나머지 12,519건은 통과했다. 이 검사는 정확한 request/env/context
+전달만 허용하고 인자 치환·누락·순서 변경과 추가 fetch 덮어쓰기를 거부하도록
+보완했다. 독립 리뷰와 32건 회귀·실행 guard·타입·린트·포맷이 통과했다.
+최종 동결본 전체 재실행은 556파일 / **12,548 pass / 0 fail / 0 skip**
+(06:34:30 KST 시작, 269.66초)이다. jq 검사를 포함한다. 전체 타입·린트·포맷과
+Worker syntax·Developer API 경계·D1·운영 감사 source guard도 통과했다.
+소스 SHA·committed build·exact-main CI·운영 smoke는 완료 후 아래에 기록한다.
 
 배포 예정: 8.10.5 / v666, `target=all`, Developer API D1 적용 `false`.
 공통 점검 조회를 사용하는 Worker와 App/PRO/signaling 변경을 같이 배포한다.

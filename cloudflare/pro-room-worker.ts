@@ -83,7 +83,7 @@ import {
   checkDeveloperMutationCredential,
   developerMutationScopes,
 } from './developer-api-credential.ts';
-import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.ts';
+import { readServiceMaintenance, serviceMaintenanceResponse } from './service-maintenance.ts';
 import { reportProRoomFrontDiagnostic } from './pro-room-diagnostics.ts';
 import {
   PRO_ROOM_FILE_DURATION_READER,
@@ -4089,11 +4089,22 @@ export default {
         ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
       });
     }
-    const maintenanceResponse = await gateServiceMaintenance(request, env, {
-      format: 'json',
-      context,
-    });
-    if (maintenanceResponse) return maintenanceResponse;
+    const maintenance = await readServiceMaintenance(env, { context });
+    if (maintenance.enabled) {
+      if (maintenance.controlUnavailable === true) {
+        const code = url.pathname.match(/^\/v1\/rooms\/(\d{6})(?:\/|$)/)?.[1];
+        reportProRoomFrontDiagnostic(
+          {
+            scope: 'front',
+            roomCode: isProRoomCode(code) ? code : null,
+            versionId: env.CF_VERSION_METADATA?.id,
+          },
+          'maintenance_unavailable',
+          { operation: 'maintenance_gate', status: 503 },
+        );
+      }
+      return serviceMaintenanceResponse(request, maintenance, { format: 'json' });
+    }
     const origin = allowedOrigin(request, env);
     if (request.method === 'OPTIONS') {
       return origin
@@ -6971,8 +6982,18 @@ export class MusixquareProRoom {
   }
 
   async fetch(request: Request) {
-    const maintenanceResponse = await gateServiceMaintenance(request, this.env, { format: 'json' });
-    if (maintenanceResponse) return maintenanceResponse;
+    const maintenance = await readServiceMaintenance(this.env);
+    if (maintenance.enabled) {
+      if (maintenance.controlUnavailable === true) {
+        // Initialization has not necessarily run yet. The diagnostic provider
+        // leaves room fields null until this object has an established identity.
+        this.diagnostics.record('maintenance_unavailable', {
+          operation: 'maintenance_gate',
+          status: 503,
+        });
+      }
+      return serviceMaintenanceResponse(request, maintenance, { format: 'json' });
+    }
     // Normalization replaces mutable records, so it must share the same
     // serialization boundary as requests awaiting external service responses.
     if (!(await this.withMutation(() => this.ensureReady(request)))) {

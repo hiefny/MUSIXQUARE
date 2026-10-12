@@ -124,6 +124,9 @@ async function harness(owned = true) {
             counts[path] = (counts[path] || 0) + 1;
             const snapshot = { ...config };
             await new Promise(resolve => setTimeout(resolve, snapshot.delay));
+            if (snapshot.controlFailure && path.startsWith('/internal/')) {
+              return Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 });
+            }
             const row = { room_code: '000000', room_generation: snapshot.generation, status: snapshot.status };
             if (path === '/list') return Response.json({ results: [row] });
             if (path === '/recheck') return Response.json(row);
@@ -319,6 +322,26 @@ describe('request lifetime of shared Worker reads (workerd)', () => {
           `/internal/${kind === 'maintenance' ? 'service-maintenance' : 'admin-announcement'}/v1/status`
         ],
       ).toBe(2);
+    },
+  );
+
+  it.each(['maintenance', 'announcement'] as const)(
+    'does not let an older unowned %s timeout overwrite a newer successful read',
+    async (kind) => {
+      const test = await harness(false);
+      await test.configure({ delay: 2700, controlFailure: true });
+      const older = test.read(`/${kind}`);
+      await pause(100);
+      await test.configure({ delay: 0, controlFailure: false });
+      const expected = kind === 'maintenance' ? { enabled: false, revision: 1 } : { status: 'ok' };
+      expect(await test.read(`/${kind}`)).toMatchObject({ status: 200, body: expected });
+      // Maintenance's 1 s cache expires before this 2 s timeout. Its older
+      // caller stays closed, while announcement's 30 s cache is still usable.
+      expect(await older).toMatchObject({
+        status: 200,
+        body: kind === 'maintenance' ? { enabled: true, controlUnavailable: true } : expected,
+      });
+      expect(await test.read(`/${kind}`)).toMatchObject({ status: 200, body: expected });
     },
   );
 });

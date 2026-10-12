@@ -476,7 +476,11 @@ interface StandardWsRateState extends JsonRecord {
 }
 
 interface PortableSignalingHandler {
-  fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response>;
+  fetch(
+    request: Request,
+    env: SignalingWorkerEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response>;
 }
 
 function isSafeInteger(value: unknown): value is number {
@@ -8273,7 +8277,11 @@ export class MusixquareRoom {
 }
 
 const signalingHandler = {
-  async fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: SignalingWorkerEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response> {
     const url = new URL(request.url);
     const match = url.pathname.match(ROOM_PATH);
     const proMatch = url.pathname.match(PRO_ROOM_PATH);
@@ -8291,7 +8299,10 @@ const signalingHandler = {
     if (url.pathname.startsWith('/internal/')) {
       return json({ error: 'NOT_FOUND' }, 404);
     }
-    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    const maintenanceResponse = await gateServiceMaintenance(request, env, {
+      format: 'json',
+      context,
+    });
     if (maintenanceResponse) return maintenanceResponse;
     if (!match && !proMatch) {
       if (hostname === ALTERNATE_STANDARD_SIGNALING_HOST) {
@@ -8360,9 +8371,13 @@ const signalingHandler = {
 } satisfies PortableSignalingHandler;
 
 export default {
-  fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response> {
+  fetch(
+    request: Request,
+    env: SignalingWorkerEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response> {
     return observeSignalingFailure(env, 'worker', 'fetch', () =>
-      signalingHandler.fetch(request, env),
+      signalingHandler.fetch(request, env, context),
     );
   },
 } satisfies PortableSignalingHandler;

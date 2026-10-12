@@ -3440,7 +3440,10 @@ export default {
 
     const isReadinessRequest = request.method === 'GET' && path === '/security-config';
     if (!isReadinessRequest) {
-      const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+      const maintenanceResponse = await gateServiceMaintenance(request, env, {
+        format: 'json',
+        context: context.waitUntil ? { waitUntil: context.waitUntil.bind(context) } : undefined,
+      });
       if (maintenanceResponse) return withRemoteShareHeaders(request, env, maintenanceResponse);
     }
 

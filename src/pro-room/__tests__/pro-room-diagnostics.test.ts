@@ -26,6 +26,32 @@ afterEach(() => {
 });
 
 describe('bounded PRO server diagnostics', () => {
+  it('bounds maintenance outage details while retaining every failed gate in the summary', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const diagnostics = new ProRoomDiagnostics(() => context);
+    for (let i = 0; i < 500; i += 1) {
+      diagnostics.record('maintenance_unavailable', { operation: 'maintenance_gate', status: 503 });
+    }
+    expect(log).toHaveBeenCalledTimes(5);
+    expect(log.mock.calls[0]?.[0]).toMatchObject({
+      kind: 'event',
+      event: 'maintenance_unavailable',
+      operation: 'maintenance_gate',
+      reason: null,
+      status: 503,
+    });
+    diagnostics.record('room_full', { status: 409 });
+    expect(log).toHaveBeenCalledTimes(6);
+    vi.setSystemTime(1_060_000);
+    diagnostics.flushIfDue();
+    expect(log.mock.calls[6]?.[0]).toMatchObject({
+      kind: 'summary',
+      counts: { maintenance_unavailable: 500, room_full: 1 },
+      suppressedDetails: 495,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('distinguishes resident, current, and affected presence and preserves aggregate affected totals', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const diagnostics = new ProRoomDiagnostics(() => context);

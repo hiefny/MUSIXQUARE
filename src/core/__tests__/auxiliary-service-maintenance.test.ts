@@ -3,11 +3,18 @@ import developerApiWorker, {
   DeveloperApiRateLimiter,
 } from '../../../cloudflare/developer-api-worker.ts';
 import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.ts';
+import signalingWorker from '../../../cloudflare/signaling-worker.ts';
 import { clearServiceMaintenanceCacheForTests } from '../../../cloudflare/service-maintenance.ts';
+
+type ExecutionContextPort = { waitUntil(promise: Promise<unknown>): void };
 
 type RemoteShareWorkerModule = {
   default: {
-    fetch(request: Request, env: Record<string, unknown>): Promise<Response>;
+    fetch(
+      request: Request,
+      env: Record<string, unknown>,
+      context?: ExecutionContextPort,
+    ): Promise<Response>;
   };
   RemoteShareQuota: new (
     state: { storage: Record<string, unknown> },
@@ -44,12 +51,100 @@ function activeMaintenanceEnv(extra: Record<string, unknown> = {}) {
   };
 }
 
+function delayedMaintenanceEnv(extra: Record<string, unknown> = {}) {
+  let resolveResponse: (response: Response) => void = () => undefined;
+  const response = new Promise<Response>((resolve) => {
+    resolveResponse = resolve;
+  });
+  const fetch = vi.fn(() => response);
+  return {
+    fetch,
+    resolve: () =>
+      resolveResponse(
+        new Response(null, {
+          headers: {
+            'X-Musixquare-Service-Control-Version': '1',
+            'X-Musixquare-Service-Control-Enabled': '1',
+            'X-Musixquare-Service-Control-Revision': String(ACTIVE_STATUS.revision),
+            'X-Musixquare-Service-Control-Updated-At': String(ACTIVE_STATUS.updatedAt),
+            'X-Musixquare-Service-Control-Activated-At': String(ACTIVE_STATUS.activatedAt),
+          },
+        }),
+      ),
+    env: {
+      ...extra,
+      MUSIXQUARE_ROOMS: {
+        idFromName: vi.fn(),
+        get: vi.fn(() => ({ fetch: vi.fn() })),
+      },
+      MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) },
+    },
+  };
+}
+
 afterEach(() => {
   clearServiceMaintenanceCacheForTests();
   vi.restoreAllMocks();
 });
 
 describe('auxiliary Worker service-maintenance gates', () => {
+  it.each([
+    ['remote-share', remoteShareWorker, 'https://share.musixquare.com/session'],
+    ['Developer API', developerApiWorker, 'https://api.musixquare.com/v1/rooms/000001'],
+    [
+      'Developer API facade',
+      developerApiFacadeWorker,
+      'https://developer-api-facade.internal/internal/v1/read',
+    ],
+    ['signaling', signalingWorker, 'https://signal.musixquare.com/api/rooms/ABCDEF/ws'],
+  ] as const)(
+    'owns and shares the delayed %s entrypoint maintenance read',
+    async (_, worker, url) => {
+      const control = delayedMaintenanceEnv();
+      const waits: Promise<unknown>[] = [];
+      const context = {
+        waitUntil: vi.fn(function (this: unknown, promise: Promise<unknown>) {
+          expect(this).toBe(context);
+          waits.push(promise);
+        }),
+      };
+      const responses = Array.from({ length: 8 }, () =>
+        worker.fetch(new Request(url, { method: 'POST' }), control.env, context),
+      );
+
+      await vi.waitFor(() => expect(control.fetch).toHaveBeenCalledOnce());
+      expect(context.waitUntil).toHaveBeenCalledOnce();
+      control.resolve();
+      expect((await Promise.all(responses)).map((response) => response.status)).toEqual(
+        Array.from({ length: 8 }, () => 503),
+      );
+      await Promise.all(waits);
+      expect(control.fetch).toHaveBeenCalledOnce();
+      expect(control.env.MUSIXQUARE_ROOMS.get).not.toHaveBeenCalled();
+    },
+  );
+
+  it('owns a scheduled Developer API maintenance read shared with a request', async () => {
+    const prepare = vi.fn();
+    const control = delayedMaintenanceEnv({ DEVELOPER_API_DB: { prepare } });
+    const waits: Promise<unknown>[] = [];
+    const context = { waitUntil: vi.fn((promise: Promise<unknown>) => waits.push(promise)) };
+    developerApiWorker.scheduled({ scheduledTime: ACTIVE_STATUS.updatedAt }, control.env, context);
+    await vi.waitFor(() => expect(control.fetch).toHaveBeenCalledOnce());
+    // The scheduled task and the shared control read each retain an event owner.
+    expect(context.waitUntil).toHaveBeenCalledTimes(2);
+    const response = developerApiWorker.fetch(
+      new Request('https://api.musixquare.com/v1/rooms/000001'),
+      control.env,
+      context,
+    );
+    control.resolve();
+    expect((await response).status).toBe(503);
+    await Promise.all(waits);
+    expect(control.fetch).toHaveBeenCalledOnce();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it('blocks remote-share work while keeping CORS preflight available', async () => {
     const env = activeMaintenanceEnv();
     const blocked = await remoteShareWorker.fetch(

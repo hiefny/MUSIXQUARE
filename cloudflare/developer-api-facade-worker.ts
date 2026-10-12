@@ -34,7 +34,11 @@ interface DurableObjectNamespacePort {
 }
 
 interface FacadeFetchHandler {
-  fetch(request: Request, env: DeveloperApiFacadeEnvPort): Promise<Response>;
+  fetch(
+    request: Request,
+    env: DeveloperApiFacadeEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response>;
 }
 
 type SanitizedQueueItem =
@@ -1316,9 +1320,16 @@ async function callRoom(
 }
 
 const developerApiFacadeWorker = {
-  async fetch(request: Request, env: DeveloperApiFacadeEnvPort): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: DeveloperApiFacadeEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response> {
     const url = new URL(request.url);
-    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    const maintenanceResponse = await gateServiceMaintenance(request, env, {
+      format: 'json',
+      context,
+    });
     if (maintenanceResponse) return maintenanceResponse;
     if (
       request.method !== 'POST' ||

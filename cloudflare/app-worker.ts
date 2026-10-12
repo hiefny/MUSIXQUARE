@@ -11297,13 +11297,17 @@ async function handleAdminServiceStatusHistory(request: Request, env: AppEnv) {
     : response;
 }
 
-async function handleAdminServiceStatus(request: Request, env: AppEnv) {
+async function handleAdminServiceStatus(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
   if (methodError) return methodError;
   if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
 
   if (request.method === 'GET' || request.method === 'HEAD') {
-    const state = await readServiceMaintenance(env, { fresh: true });
+    const state = await readServiceMaintenance(env, { fresh: true, context });
     if (state.controlUnavailable) {
       return json({ error: 'SERVICE_CONTROL_UNAVAILABLE' }, 503);
     }
@@ -11505,9 +11509,17 @@ function adminAnnouncementPayload(state: {
 
 async function readCanonicalAdminAnnouncementState(
   env: AppEnv,
-  { allowLegacyFallback = true, fresh = false } = {},
+  {
+    allowLegacyFallback = true,
+    fresh = false,
+    context,
+  }: {
+    allowLegacyFallback?: boolean;
+    fresh?: boolean;
+    context?: AppExecutionContext | undefined;
+  } = {},
 ) {
-  const controlled = await readAdminAnnouncementControl(env, { fresh });
+  const controlled = await readAdminAnnouncementControl(env, { fresh, context });
   if (controlled.status === 'ok') {
     const state = normalizeAnnouncementControlState(controlled.payload);
     if (!state) return { status: 'unavailable', state: null };
@@ -11546,13 +11558,17 @@ function announcementPublicPayload(value: unknown) {
   };
 }
 
-async function handleAdminAnnouncement(request: Request, env: AppEnv) {
+async function handleAdminAnnouncement(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
   if (methodError) return methodError;
   if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
 
   if (request.method === 'GET' || request.method === 'HEAD') {
-    const current = await readCanonicalAdminAnnouncementState(env, { fresh: true });
+    const current = await readCanonicalAdminAnnouncementState(env, { fresh: true, context });
     if (!current.state) {
       return json(
         {
@@ -11611,6 +11627,7 @@ async function handleAdminAnnouncement(request: Request, env: AppEnv) {
   const current = await readCanonicalAdminAnnouncementState(env, {
     allowLegacyFallback: false,
     fresh: true,
+    context,
   });
   if (!current.state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
@@ -11681,10 +11698,14 @@ async function handleAdminAnnouncement(request: Request, env: AppEnv) {
   return json({ ok: true, ...adminAnnouncementPayload(state) });
 }
 
-async function handlePublicAnnouncement(request: Request, env: AppEnv) {
+async function handlePublicAnnouncement(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
   if (methodError) return methodError;
-  const current = await readCanonicalAdminAnnouncementState(env);
+  const current = await readCanonicalAdminAnnouncementState(env, { context });
   if (!current.state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
   }
@@ -15811,7 +15832,7 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
 export default {
   async scheduled(event: { cron?: unknown }, env: unknown, ctx: AppExecutionContext) {
     if (!isAppEnv(env)) throw new TypeError('App Worker environment unavailable');
-    const serviceStatus = await readServiceMaintenance(env);
+    const serviceStatus = await readServiceMaintenance(env, { context: ctx });
     if (serviceStatus.enabled) return;
 
     const cron = typeof event?.cron === 'string' ? event.cron : null;
@@ -16116,7 +16137,7 @@ export default {
       case '/api/cloudflare-realtime':
         return handleRealtime(request, env);
       case '/api/announcement/current':
-        return handlePublicAnnouncement(request, env);
+        return handlePublicAnnouncement(request, env, ctx);
       case '/api/admin/login':
         return handleAdminLogin(request, env);
       case '/api/admin/logout':
@@ -16126,7 +16147,7 @@ export default {
       case ADMIN_MAINTENANCE_PREVIEW_PATH:
         return handleAdminMaintenancePreview(request, env);
       case '/api/admin/service-status':
-        return handleAdminServiceStatus(request, env);
+        return handleAdminServiceStatus(request, env, ctx);
       case '/api/admin/service-status/history':
         return handleAdminServiceStatusHistory(request, env);
       case '/api/admin/metrics':
@@ -16136,7 +16157,7 @@ export default {
       case '/api/admin/articles/visibility':
         return withSoroVisibilityFailureResponse(handleAdminArticleVisibility(request, env));
       case '/api/admin/announcement':
-        return handleAdminAnnouncement(request, env);
+        return handleAdminAnnouncement(request, env, ctx);
       default:
         return withSoroVisibilityFailureResponse(serveStatic(request, env, ctx));
     }

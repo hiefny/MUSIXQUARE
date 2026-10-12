@@ -297,6 +297,9 @@ function findDefaultFetchMethod(parsed: ts.SourceFile): MethodWithBody {
   ) {
     throw new Error(`Expected one default object export in ${parsed.fileName}.`);
   }
+  if (exportedExpression.properties.length !== 1) {
+    throw new Error('signaling fetch wrapper must expose only one fetch method');
+  }
   const method = exportedExpression.properties.find(
     (property) => ts.isMethodDeclaration(property) && property.name.getText(parsed) === 'fetch',
   );
@@ -308,6 +311,7 @@ function findDefaultFetchMethod(parsed: ts.SourceFile): MethodWithBody {
 
 function findSignalingRouterMethod(parsed: ts.SourceFile): MethodWithBody {
   const wrapper = findDefaultFetchMethod(parsed);
+  const forwardedParameters = ['request', 'env', 'context'];
   const statement = wrapper.body.statements[0];
   const observer = statement && ts.isReturnStatement(statement) ? statement.expression : undefined;
   const args = observer && ts.isCallExpression(observer) ? observer.arguments : [];
@@ -316,6 +320,14 @@ function findSignalingRouterMethod(parsed: ts.SourceFile): MethodWithBody {
   // Only unwrap this transparent error observer. Extra work or another target
   // would otherwise hide a new common-path dependency from the router checks.
   if (
+    wrapper.parameters.length !== forwardedParameters.length ||
+    wrapper.parameters.some(
+      (parameter, index) =>
+        !ts.isIdentifier(parameter.name) ||
+        parameter.name.text !== forwardedParameters[index] ||
+        parameter.initializer !== undefined ||
+        parameter.dotDotDotToken !== undefined,
+    ) ||
     wrapper.body.statements.length !== 1 ||
     !observer ||
     !ts.isCallExpression(observer) ||
@@ -341,14 +353,14 @@ function findSignalingRouterMethod(parsed: ts.SourceFile): MethodWithBody {
     !ts.isIdentifier(forward.expression.expression) ||
     forward.expression.expression.text !== 'signalingHandler' ||
     forward.expression.name.text !== 'fetch' ||
-    forward.arguments.length !== 2 ||
+    forward.arguments.length !== forwardedParameters.length ||
     forward.arguments.some(
       (argument, index) =>
-        !ts.isIdentifier(argument) || argument.text !== (index === 0 ? 'request' : 'env'),
+        !ts.isIdentifier(argument) || argument.text !== forwardedParameters[index],
     )
   ) {
     throw new Error(
-      'signaling fetch wrapper must only observe and forward request/env to signalingHandler.fetch',
+      'signaling fetch wrapper must only observe and forward request/env/context to signalingHandler.fetch',
     );
   }
 

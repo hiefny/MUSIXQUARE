@@ -43,6 +43,7 @@ const EVENT_REASONS = {
   // claim that the browser received or rejected the response.
   snapshot_contract_invalid: ['peer_ordinal', 'member_display_number'],
   registry_failure: ['lookup', 'refresh', 'timeout'],
+  maintenance_unavailable: [],
   upstream_timeout: ['response', 'body'],
   upstream_failure: ['fetch', 'response', 'body'],
 } as const;
@@ -59,6 +60,7 @@ const FAILURES = new Set<ProRoomDiagnosticEvent>([
   'presence_identity_mismatch',
   'snapshot_contract_invalid',
   'registry_failure',
+  'maintenance_unavailable',
   'upstream_timeout',
   'upstream_failure',
 ]);
@@ -71,6 +73,7 @@ const OPERATIONS = [
   'bootstrap',
   'registry_refresh',
   'registry_lookup',
+  'maintenance_gate',
   'system_audio',
   'account_lease',
   'snapshot',

@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
+import proRoomWorker, { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
+import {
+  clearServiceMaintenanceCacheForTests,
+  SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_ENABLED_HEADER,
+  SERVICE_CONTROL_STATUS_REVISION_HEADER,
+  SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_VERSION_HEADER,
+} from '../../../cloudflare/service-maintenance.ts';
 
 const VERSION_ID = '440b001f-acde-4321-9876-abcdefabcdef';
 const ROOM = '000000';
@@ -44,6 +52,7 @@ class MemoryStorage {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1_000_000);
+  clearServiceMaintenanceCacheForTests();
   sequence = 0;
   log = vi.fn<(...args: unknown[]) => void>();
   vi.spyOn(console, 'log').mockImplementation(log);
@@ -77,17 +86,35 @@ function request(
 
 async function fixture() {
   const storage = new MemoryStorage();
-  const worker = new MusixquareProRoom({ storage } as never, {
+  const env = {
     PRO_ROOM_PIN_PEPPER: 'private-pin-pepper'.padEnd(48, 'x'),
     PRO_ROOM_SESSION_SECRET: 'private-session-secret'.padEnd(48, 'x'),
     PRO_SIGNALING_SECRET: 'private-signaling-secret'.padEnd(48, 'x'),
     CF_VERSION_METADATA: { id: VERSION_ID },
-  });
+    MUSIXQUARE_SERVICE_CONTROL: undefined as unknown,
+  };
+  const worker = new MusixquareProRoom({ storage } as never, env);
   expect((await worker.fetch(request('/bootstrap'))).status).toBe(200);
   worker.room!.status = 'active';
   worker.room!.passwordRequired = false;
   await worker.persist();
-  return { worker, storage };
+  return { worker, storage, env };
+}
+
+function maintenanceControl(mode: 'maintenance' | 'unavailable') {
+  const fetch = vi.fn(async (_request: Request) => {
+    if (mode === 'unavailable') throw new Error('private-control-error https://private.example');
+    return new Response(null, {
+      headers: {
+        [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+        [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: '1',
+        [SERVICE_CONTROL_STATUS_REVISION_HEADER]: '8',
+        [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: '1000000',
+        [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: '999000',
+      },
+    });
+  });
+  return { fetch, binding: { idFromName: (name: string) => name, get: () => ({ fetch }) } };
 }
 
 async function join(worker: MusixquareProRoom) {
@@ -109,6 +136,96 @@ function expectPrivateDataAbsent() {
 }
 
 describe('PRO Durable Object admission diagnostics', () => {
+  it('reports a front maintenance-control outage from the single existing lookup', async () => {
+    const control = maintenanceControl('unavailable');
+    const incoming = request('/sessions?token=private-query-token', { pin: 'private-pin' });
+    incoming.headers.set('x-mxqr-pro-room-generation', '12345');
+    const response = await proRoomWorker.fetch(incoming, {
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      CF_VERSION_METADATA: { id: VERSION_ID },
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'SERVICE_MAINTENANCE_STATUS_UNAVAILABLE',
+    });
+    expect(records('event')).toEqual([
+      expect.objectContaining({
+        scope: 'front',
+        event: 'maintenance_unavailable',
+        operation: 'maintenance_gate',
+        status: 503,
+        roomCode: ROOM,
+        roomGeneration: null,
+        versionId: VERSION_ID,
+      }),
+    ]);
+    expect(control.fetch).toHaveBeenCalledTimes(1);
+    expect(control.fetch.mock.calls[0]?.[0].method).toBe('HEAD');
+    expect(vi.getTimerCount()).toBe(0);
+    expectPrivateDataAbsent();
+  });
+
+  it.each(['front', 'room'] as const)(
+    'keeps intended maintenance silent in the %s gate and reuses the single lookup',
+    async (scope) => {
+      const control = maintenanceControl('maintenance');
+      const env = { MUSIXQUARE_SERVICE_CONTROL: control.binding };
+      const response =
+        scope === 'front'
+          ? await proRoomWorker.fetch(request('/sessions', {}), env)
+          : await new MusixquareProRoom({ storage: new MemoryStorage() } as never, env).fetch(
+              request('/sessions', {}),
+            );
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({ error: 'SERVICE_MAINTENANCE' });
+      expect(records('event')).toEqual([]);
+      expect(control.fetch).toHaveBeenCalledTimes(1);
+      expect(control.fetch.mock.calls[0]?.[0].method).toBe('HEAD');
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each([false, true])(
+    'reports a room maintenance-control outage with initialized=%s and no extra lookup',
+    async (initialized) => {
+      const control = maintenanceControl('unavailable');
+      const setup = initialized
+        ? await fixture()
+        : (() => {
+            const env = {
+              MUSIXQUARE_SERVICE_CONTROL: undefined as unknown,
+              CF_VERSION_METADATA: { id: VERSION_ID },
+            };
+            return {
+              worker: new MusixquareProRoom({ storage: new MemoryStorage() } as never, env),
+              env,
+            };
+          })();
+      setup.env.MUSIXQUARE_SERVICE_CONTROL = control.binding;
+      const response = await setup.worker.fetch(request('/sessions', { pin: 'private-pin' }));
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toMatchObject({
+        error: 'SERVICE_MAINTENANCE_STATUS_UNAVAILABLE',
+      });
+      expect(records('event')).toEqual([
+        expect.objectContaining({
+          scope: 'room',
+          event: 'maintenance_unavailable',
+          operation: 'maintenance_gate',
+          status: 503,
+          roomCode: initialized ? ROOM : null,
+          roomGeneration: initialized ? 0 : null,
+          versionId: VERSION_ID,
+        }),
+      ]);
+      expect(control.fetch).toHaveBeenCalledTimes(1);
+      expect(control.fetch.mock.calls[0]?.[0].method).toBe('HEAD');
+      expect(vi.getTimerCount()).toBe(0);
+      if (!initialized) expect(setup.worker.room).toBeNull();
+      expectPrivateDataAbsent();
+    },
+  );
+
   it('identifies a full rate ledger independently of a client exhausting its PIN attempts', async () => {
     const { worker } = await fixture();
     worker.room!.passwordRequired = true;

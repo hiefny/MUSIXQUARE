@@ -243,15 +243,88 @@ describe('standard-room security/performance policy', () => {
       "observeSignalingFailure(env, 'worker', 'fetch'",
       "observeSignalingFailure(env, 'room', 'fetch'",
     ],
-    ['signalingHandler.fetch(request, env)', 'otherHandler.fetch(request, env)'],
-    ['signalingHandler.fetch(request, env)', 'signalingHandler.fetch(request, otherEnv)'],
-    ['signalingHandler.fetch(request, env)', 'fetch(request)'],
+    ['signalingHandler.fetch(request, env, context)', 'otherHandler.fetch(request, env, context)'],
+    [
+      'signalingHandler.fetch(request, env, context)',
+      'signalingHandler.fetch(otherRequest, env, context)',
+    ],
+    [
+      'signalingHandler.fetch(request, env, context)',
+      'signalingHandler.fetch(request, otherEnv, context)',
+    ],
+    [
+      'signalingHandler.fetch(request, env, context)',
+      'signalingHandler.fetch(request, env, otherContext)',
+    ],
+    ['signalingHandler.fetch(request, env, context)', 'signalingHandler.fetch(request, env)'],
+    [
+      'signalingHandler.fetch(request, env, context)',
+      'signalingHandler.fetch(request, env, undefined)',
+    ],
+    [
+      'signalingHandler.fetch(request, env, context)',
+      'signalingHandler.fetch(request, context, env)',
+    ],
+    [
+      'signalingHandler.fetch(request, env, context)',
+      'signalingHandler.fetch(request, env, context, otherContext)',
+    ],
+    ['signalingHandler.fetch(request, env, context)', 'fetch(request)'],
   ])('rejects a public fetch wrapper bypass: %s -> %s', async (search, replacement) => {
     const current = await sources();
     const bypassed = replaceOrThrow(current.signalingWorker, search, replacement);
 
     expect(() => assertStandardRoomHotPath({ ...current, signalingWorker: bypassed })).toThrow(
       /signaling fetch wrapper must only observe and forward/u,
+    );
+  });
+
+  it.each([
+    'request: Request, env: SignalingWorkerEnvPort',
+    'request: Request, env: SignalingWorkerEnvPort, otherContext: unknown',
+    'request: Request, context: unknown, env: SignalingWorkerEnvPort',
+    'request: Request, env: SignalingWorkerEnvPort, context = otherContext',
+    'request: Request, env: SignalingWorkerEnvPort, ...context: unknown[]',
+  ])('rejects a public fetch wrapper parameter bypass: %s', async (parameters) => {
+    const current = await sources();
+    const bypassed = replaceOrThrow(
+      current.signalingWorker,
+      `export default {
+  fetch(
+    request: Request,
+    env: SignalingWorkerEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response> {`,
+      `export default {
+  fetch(${parameters}): Promise<Response> {`,
+    );
+
+    expect(() => assertStandardRoomHotPath({ ...current, signalingWorker: bypassed })).toThrow(
+      /signaling fetch wrapper must only observe and forward/u,
+    );
+  });
+
+  it.each([
+    `[String('fetch')]: async (request, env, context) => {
+    await consumeAbuseRateLimit(env, {});
+    return signalingHandler.fetch(request, env, context);
+  },`,
+    '...otherHandler,',
+  ])('rejects overriding the inspected public fetch wrapper: %s', async (override) => {
+    const current = await sources();
+    const bypassed = replaceOrThrow(
+      current.signalingWorker,
+      `      signalingHandler.fetch(request, env, context),
+    );
+  },`,
+      `      signalingHandler.fetch(request, env, context),
+    );
+  },
+  ${override}`,
+    );
+
+    expect(() => assertStandardRoomHotPath({ ...current, signalingWorker: bypassed })).toThrow(
+      /signaling fetch wrapper must expose only one fetch method/u,
     );
   });
 });

@@ -130,6 +130,37 @@ afterEach(() => {
 });
 
 describe('sync flight recorder', () => {
+  it('identifies the executing client build without inspecting service workers or fetching metadata', () => {
+    vi.stubGlobal('__MXQR_APP_VERSION__', '8.10.5');
+    vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', 'v666');
+    const readServiceWorker = vi.fn(() => {
+      throw new Error('Diagnostics must not inspect an unrelated service-worker generation');
+    });
+    vi.stubGlobal(
+      'navigator',
+      Object.defineProperty({}, 'serviceWorker', { get: readServiceWorker }),
+    );
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const save = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      const report = collectSyncFlightRecorderText();
+      expect(report).toContain(
+        'Client build: app=8.10.5 | cacheEpoch=v666 (embedded JS build; active service worker not inspected)',
+      );
+      expect(readServiceWorker).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reports missing build injection as unknown without guessing a service-worker version', () => {
+    expect(collectSyncFlightRecorderText()).toContain(
+      'Client build: app=unknown | cacheEpoch=unknown (embedded JS build; active service worker not inspected)',
+    );
+  });
+
   it('exports separate sanitized Standard clock and playback JSONL without consuming samples', () => {
     startStandardGuest();
     initSyncFlightRecorder();

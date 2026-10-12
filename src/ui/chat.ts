@@ -34,6 +34,7 @@ import {
   addSystemChatMessage,
   addNoticeChatMessage,
   clearPinnedNotice,
+  clearRoomPinnedNotice,
   showPinnedNotice,
   formatChatDisplayName,
   isContainerAtBottom,
@@ -1868,7 +1869,7 @@ export function initChat(): void {
     }
     resetUnread();
     clearLatestPinnedNotice();
-    clearPinnedNotice();
+    clearRoomPinnedNotice();
   });
 
   // Native sibling buttons keep reading and dismissal separate for touch and keyboard.

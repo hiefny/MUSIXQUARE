@@ -78,6 +78,16 @@ function invoke(middleware: DevMiddleware, url: string, method = 'GET') {
 }
 
 describe('Vite local API safety', () => {
+  it('embeds the canonical app and cache identities in the executing client build', async () => {
+    const manifest = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as {
+      version: string;
+    };
+    expect(createViteConfig({}).define).toMatchObject({
+      __MXQR_APP_VERSION__: JSON.stringify(manifest.version),
+      __MXQR_BUILD_CACHE_VERSION__: JSON.stringify(SERVICE_WORKER_CACHE_VERSION),
+    });
+  });
+
   it.each(['privacy', 'terms', 'faq', 'developers', 'sitemap'])(
     'serves flattened %s output through the actual preview alias middleware',
     (page) => {

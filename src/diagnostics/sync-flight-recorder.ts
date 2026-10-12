@@ -461,9 +461,15 @@ export function markSyncFlightRecorderIncident(): void {
 export function collectSyncFlightRecorderText(): string {
   const proStartObservations = getProStartObservations();
   const standardStartObservations = getStandardStartObservations();
+  // These literals belong to the executing bundle. A newer active/waiting SW
+  // must not relabel an older page while diagnosing mixed-client sessions.
+  const appVersion = typeof __MXQR_APP_VERSION__ === 'undefined' ? 'unknown' : __MXQR_APP_VERSION__;
+  const cacheEpoch =
+    typeof __MXQR_BUILD_CACHE_VERSION__ === 'undefined' ? 'unknown' : __MXQR_BUILD_CACHE_VERSION__;
   const lines = [
     'MUSIXQUARE SYNC FLIGHT RECORDER v1',
     `Generated: ${new Date().toISOString()}`,
+    `Client build: app=${appVersion} | cacheEpoch=${cacheEpoch} (embedded JS build; active service worker not inspected)`,
     `Retention: RAM-only, ${MAX_SAMPLES}s max | samples:${samples.length} events:${events.length} proStarts:${proStartObservations.length} standardClock:${standardStartObservations.clock.length} standardStarts:${standardStartObservations.playback.length}`,
     'Privacy: no room code, peer id, nickname, title, filename, or raw queue id',
     'SAMPLES logicalDriftMs: positive = canonical timeline is ahead of local logical position',

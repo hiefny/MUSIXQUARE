@@ -2206,6 +2206,48 @@ describe('Chat Module', () => {
       expect(show).not.toHaveBeenCalled();
     });
 
+    it('clears room history while preserving the service notice and its reading dialog', async () => {
+      renderNoticeShell();
+      const dialog = await import('../dialog.ts');
+      const show = vi.spyOn(dialog, 'showDialog').mockImplementation(() => new Promise(() => {}));
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      bus.emit('chat:notice-message', 'MUSIXQUARE', 'Keep service notice', 123, {
+        source: 'service',
+        id: 'A',
+      });
+      document.getElementById('chat-messages')!.textContent = 'Old room history';
+      document.getElementById('btn-chat-notice-open')!.click();
+      const options = show.mock.calls[0]?.[0];
+      if (!options || typeof options === 'string' || !options.signal) {
+        throw new Error('Expected an abortable notice dialog');
+      }
+      const signal = options.signal;
+
+      bus.emit('chat:clear-all');
+
+      expect(document.getElementById('chat-messages')?.textContent).not.toContain(
+        'Old room history',
+      );
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(false);
+      expect(document.getElementById('chat-pinned-notice-text')?.textContent).toBe(
+        'Keep service notice',
+      );
+      expect(signal.aborted).toBe(false);
+      bus.emit('chat:service-notice-withdrawn', 'A');
+      expect(signal.aborted).toBe(true);
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(true);
+    });
+
+    it('still clears a room notice even when the sender calls themselves MUSIXQUARE', async () => {
+      renderNoticeShell();
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      bus.emit('chat:notice-message', 'MUSIXQUARE', 'Room notice', 123);
+      bus.emit('chat:clear-all');
+      expect(document.getElementById('chat-pinned-notice')?.hidden).toBe(true);
+    });
+
     it('forwards service ownership and withdrawal without clearing a newer room notice', async () => {
       renderNoticeShell();
       const { initChat } = await import('../chat.ts');

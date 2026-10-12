@@ -343,7 +343,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.10.5';
+const ADMIN_SCRIPT_VERSION = '8.10.6';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -6283,7 +6283,9 @@ async function loadAuthenticatedDashboard({
   return status;
 }
 
-async function refreshAllDashboardData(): Promise<void> {
+async function refreshAllDashboardData({
+  replaceAnnouncementDraft,
+}: { readonly replaceAnnouncementDraft?: string | undefined } = {}): Promise<void> {
   const refreshEpoch = adminSessionEpoch;
   if (document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')?.hidden === false) {
     loadServiceStatusHistory().catch(() => {});
@@ -6333,7 +6335,12 @@ async function refreshAllDashboardData(): Promise<void> {
       );
     }),
     loadArticles({ updateTimestamp: false }),
-    loadAnnouncement({ updateTimestamp: false, replaceDraft: true }),
+    loadAnnouncement({
+      updateTimestamp: false,
+      // Consent applies to the draft that was shown when Refresh was clicked.
+      // Edits made while service-status checks were pending remain untouched.
+      replaceDraft: replaceAnnouncementDraft === announcementDraftSignature(),
+    }),
     ...(translationsLoaded ? [loadTranslations().catch(reportTranslationAdminError)] : []),
   ]);
   if (refreshEpoch !== adminSessionEpoch || dashboard?.hidden) return;
@@ -6423,7 +6430,14 @@ addAsyncAdminEventListener(loginForm, 'submit', async (event) => {
 });
 
 refreshBtn?.addEventListener('click', () => {
-  refreshAllDashboardData().catch((error) => {
+  const draft = announcementDraftSignature();
+  const replaceAnnouncementDraft =
+    announcementDraftBaseline !== null &&
+    draft !== announcementDraftBaseline &&
+    window.confirm('Discard your unsaved announcement changes and load the current announcement?')
+      ? draft
+      : undefined;
+  refreshAllDashboardData({ replaceAnnouncementDraft }).catch((error) => {
     if (updatedAtEl) updatedAtEl.textContent = adminErrorMessage(error, 'Refresh failed.');
   });
 });

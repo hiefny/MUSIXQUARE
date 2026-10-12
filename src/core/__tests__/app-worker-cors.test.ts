@@ -5878,6 +5878,44 @@ describe('Cloudflare app worker admin dashboard', () => {
     });
   });
 
+  it('keeps legacy announcement retries idempotent when truncation exposes trailing whitespace', async () => {
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
+    };
+    const now = Math.floor(Date.now() / 1000);
+    const token = await signedAdminSessionFixture(env.MXQR_ADMIN_SESSION_SECRET, {
+      v: 1,
+      iat: now,
+      exp: now + 12 * 60 * 60,
+      nonce: 'abcdefghijklmnopqrstuv',
+    });
+    const message = `${'a'.repeat(279)} b`;
+    let savedId = '';
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/announcement', {
+          method: 'POST',
+          headers: adminMutationHeaders({ Cookie: `__Host-mxqr_admin=${token}` }),
+          body: JSON.stringify({ enabled: true, message, expiresAt: null }),
+        }),
+        env,
+      );
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        revision: number;
+        announcement: { id: string; message: string };
+        history: Array<{ id: string; message: string }>;
+      };
+      savedId ||= payload.announcement.id;
+      expect(payload.revision).toBe(1);
+      expect(payload.announcement).toMatchObject({ id: savedId, message: 'a'.repeat(279) });
+      expect(payload.history).toHaveLength(1);
+      expect(payload.history[0]).toMatchObject({ id: savedId, message: 'a'.repeat(279) });
+    }
+  });
+
   it('migrates legacy announcement current state into the fenced history without losing it', async () => {
     const store = createKvStore();
     const legacyCurrent = {

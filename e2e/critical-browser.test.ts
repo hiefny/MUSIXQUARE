@@ -51,8 +51,66 @@ test.describe('Critical browser release gate', () => {
       await expect(guest.locator('#chat-pinned-notice')).toContainText(message);
       // A host-forwarded banner alone must not hide a broken guest loader.
       expect(guestRequests).toBe(1);
+      await sendChat(page, 'History before clear');
+      await expect(guest.locator('#chat-messages')).toContainText('History before clear');
+      await sendChat(page, '/clear');
+      await expect(guest.locator('#chat-messages')).not.toContainText('History before clear');
+      await expect(page.locator('#chat-pinned-notice')).toBeVisible();
+      await expect(guest.locator('#chat-pinned-notice')).toBeVisible();
+      await expect(guest.locator('#chat-pinned-notice-text')).toHaveText(message);
     } finally {
       await guestContext.close();
+    }
+  });
+
+  test('keeps notice text outside the dismiss hit area in both page and text directions', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await injectPeerServer(page);
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await setupHostAndStart(page);
+    await openChatDrawer(page);
+    const banner = page.locator('#chat-pinned-notice');
+    const body = page.locator('#chat-pinned-notice-text');
+    const dismiss = page.locator('#btn-chat-notice-close');
+    for (const direction of ['ltr', 'rtl']) {
+      for (const message of [
+        'Maintenance is complete. Please refresh the page before joining a room.',
+        'اكتملت الصيانة. يرجى تحديث الصفحة قبل الانضمام إلى الغرفة.',
+      ]) {
+        await page.evaluate(
+          ({ direction, message }) => {
+            document.documentElement.dir = direction;
+            const bus = (
+              window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+            ).__MUSIXQUARE_BUS__;
+            bus.emit('chat:notice-message', 'MUSIXQUARE', message, Date.now(), {
+              source: 'service',
+              id: `${direction}-${message}`,
+            });
+          },
+          { direction, message },
+        );
+        await expect(banner).toBeVisible();
+        const textBox = (await body.boundingBox())!;
+        const closeBox = (await dismiss.boundingBox())!;
+        if (direction === 'ltr') {
+          expect(textBox.x + textBox.width).toBeLessThanOrEqual(closeBox.x);
+        } else {
+          expect(textBox.x).toBeGreaterThanOrEqual(closeBox.x + closeBox.width);
+        }
+        // The first body line used to share the dismiss button's vertical area.
+        await body.click({ position: { x: direction === 'ltr' ? textBox.width - 1 : 1, y: 2 } });
+        await expect(page.locator('#dialog-overlay')).toHaveClass(/show/);
+        await expect(page.locator('#dialog-message')).toHaveText(message);
+        await page.locator('#btn-dialog-ok').click();
+        await expect(banner).toBeVisible();
+        await dismiss.click();
+        await expect(banner).toBeHidden();
+      }
     }
   });
 

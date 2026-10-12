@@ -3,10 +3,12 @@ import { resolve } from 'path';
 import postcss, { type Plugin as PostCssPlugin } from 'postcss';
 import postcssCascadeLayers from '@csstools/postcss-cascade-layers';
 import postcssIsPseudoClass from '@csstools/postcss-is-pseudo-class';
+import { version as appVersion } from './package.json';
 import { INITIAL_TRANSFER_BUDGET } from './scripts/initial-transfer-budget-config.mts';
 import { collectRenderedWorkerAssets } from './scripts/service-worker-app-shell-guard-lib.mts';
 import { classicRuntimeAssets } from './scripts/classic-runtime-assets.ts';
 import {
+  SERVICE_WORKER_CACHE_VERSION,
   SERVICE_WORKER_OUTPUT_PATH,
   assertServiceWorkerJavaScript,
   assertServiceWorkerSourceCompleteness,
@@ -945,6 +947,10 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
   return {
     root: '.',
     publicDir: 'public',
+    define: {
+      __MXQR_APP_VERSION__: JSON.stringify(appVersion),
+      __MXQR_BUILD_CACHE_VERSION__: JSON.stringify(SERVICE_WORKER_CACHE_VERSION),
+    },
     resolve: {
       alias: {
         '@': resolve(import.meta.dirname, 'src'),

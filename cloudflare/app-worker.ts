@@ -353,7 +353,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.10.5';
+const ADMIN_ASSET_VERSION = '8.10.6';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11616,9 +11616,12 @@ async function handleAdminAnnouncement(
   ) {
     return json({ error: 'INVALID_REQUEST' }, 400);
   }
+  // Truncation can expose whitespace inside the original message. Match the
+  // DO's canonical value before comparing legacy retries with stored state.
   const message = String(body?.message || '')
     .trim()
-    .slice(0, 280);
+    .slice(0, 280)
+    .trim();
   const enabled = Boolean(body?.enabled) && Boolean(message);
   const canonicalExpiresAt = parseAnnouncementExpiry(body.expiresAt);
   if (canonicalExpiresAt === undefined) {

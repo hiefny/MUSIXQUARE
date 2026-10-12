@@ -260,13 +260,19 @@
             <div>
               <dt>Operational logs</dt>
               <dd>
-                Sampled, credential-free custom Cloudflare Worker logs are enabled for service
+                Credential-free custom Cloudflare Worker logs are enabled for service
                 health, failures, abuse prevention, and security operations. Automatic invocation
                 logs that include request URLs and automatic Worker traces are disabled for all six
                 Worker deployments; not every deployment has a public route. Application logging
                 does not include raw request URLs, query strings, credentials, cookies, or
-                authorization headers. MUSIXQUARE does not configure a separate retention period for
-                the sampled custom logs in application code; Cloudflare account settings and
+                authorization headers. Bounded PRO diagnostics may include the six-digit room code,
+                room generation, admission failure category, connection counts, and aggregate
+                admission or departure activity. They do not collect participant names, account
+                identifiers, IP addresses, or media contents, and add no device reporting requests.
+                App, PRO, and signaling logs use full configured sampling; other Workers use
+                sampling. Repeated diagnostic details are limited and summarized. MUSIXQUARE does
+                not configure a separate retention period for these logs in application code;
+                Cloudflare account settings and
                 provider policies govern their retention.
               </dd>
             </div>

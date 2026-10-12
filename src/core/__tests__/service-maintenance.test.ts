@@ -891,12 +891,14 @@ describe('shared service-maintenance control', () => {
       });
     });
 
+    const context = { waitUntil: vi.fn() };
     const [left, right] = await Promise.all([
-      readServiceMaintenance(control.env),
-      readServiceMaintenance(control.env),
+      readServiceMaintenance(control.env, { context }),
+      readServiceMaintenance(control.env, { context }),
     ]);
     expect(left.revision).toBe(4);
     expect(right.revision).toBe(4);
+    expect(context.waitUntil).toHaveBeenCalledTimes(1);
     expect(control.fetch).toHaveBeenCalledTimes(1);
 
     expect((await readServiceMaintenance(control.env)).revision).toBe(4);
@@ -1546,13 +1548,15 @@ describe('shared service-maintenance control', () => {
       return Response.json(announcementControlPayload(statusReads));
     });
 
+    const context = { waitUntil: vi.fn() };
     const [left, right] = await Promise.all([
-      readAdminAnnouncementControl(control.env),
-      readAdminAnnouncementControl(control.env),
+      readAdminAnnouncementControl(control.env, { context }),
+      readAdminAnnouncementControl(control.env, { context }),
     ]);
     expect(left).toEqual({ status: 'ok', payload: announcementControlPayload(1) });
     expect(right).toEqual(left);
     expect(statusReads).toBe(1);
+    expect(context.waitUntil).toHaveBeenCalledTimes(1);
     expect(control.fetch).toHaveBeenCalledTimes(1);
 
     await expect(readAdminAnnouncementControl(control.env)).resolves.toEqual(left);

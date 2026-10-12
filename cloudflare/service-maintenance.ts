@@ -185,6 +185,10 @@ export interface AdminAnnouncementUpdateInput {
 
 interface ServiceMaintenanceReadOptions {
   fresh?: boolean;
+  // Only execution-context-owned I/O can be shared across Worker requests.
+  // Reads without an owner retain completed-cache reuse but start independent
+  // bounded I/O on a miss, so cancellation cannot strand later callers.
+  context?: { waitUntil(promise: Promise<unknown>): void } | undefined;
 }
 
 export interface CachedServiceMaintenanceRead {
@@ -1147,10 +1151,14 @@ export async function readServiceMaintenance(
           cache.refreshVersion = -1;
         }
       });
-    cache.refresh = refresh;
-    cache.refreshVersion = version;
+    if (options.context) {
+      options.context.waitUntil(refresh);
+      cache.refresh = refresh;
+      cache.refreshVersion = version;
+    }
+    return refresh;
   }
-  return cache.refresh ?? unavailableServiceMaintenanceState();
+  return cache.refresh;
 }
 
 /**
@@ -1604,10 +1612,14 @@ export async function readAdminAnnouncementControl(
           cache.refreshVersion = -1;
         }
       });
-    cache.refresh = refresh;
-    cache.refreshVersion = version;
+    if (options.context) {
+      options.context.waitUntil(refresh);
+      cache.refresh = refresh;
+      cache.refreshVersion = version;
+    }
+    return refresh;
   }
-  return cache.refresh ?? { status: 'unavailable', payload: null };
+  return cache.refresh;
 }
 
 export async function updateAdminAnnouncementControl(

@@ -90,6 +90,20 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO 입장 복구·서버 진단 — 2026-10-13](design/pro-admission-repair-2026-10-13.md) —
+  활성/휴면 번호 분리, TTL 경계 정원 판정, 공유 조회의 수명과 제한된 서버 진단.
+  수정·검증·배포 근거와 과거 행사 원인을 확정할 수 없는 한계를 기록한다.
+
+- [PRO 행사 외부 리뷰 재검증 — 2026-10-13](design/pro-event-report-verification-2026-10-13.md) —
+  정원 판정 도중 TTL이 끝나는 경계의 거절을 당시·현재 소스에서 재현했다.
+  절전·재입장·캐시·계측 주장의 사실/정책/추정을 구분하고 복구 관련 92개 테스트를
+  통과했다. 원문 보고서 보존, 제품 수정·운영 변경·배포 없음.
+
+- [PRO 행사 입장·Peer 번호 심층 감사 — 2026-10-13](design/pro-event-admission-deep-audit-2026-10-13.md) —
+  당시·현재 소스에서 최대 4대의 `Peer 101`과 앱 입장 응답 거부, 공유 registry 조회 취소의 후속
+  요청 차단을 로컬 재현했다. 002026의 Cloudflare 오류·객체 통계 및 D1 카운터를
+  대조했다. 현장 정원 초과 여부는 미확정이며 제품 수정·로그 추가·배포는 없다.
+
 - [공지 철회·관리자 편집·전체보기 수정 — 2026-10-13](design/announcement-repair-2026-10-13.md) —
   공지 철회/조회 실패 구분, 오래된 서버 캐시 응답 차단, 관리자 초안·만료 처리,
   긴 공지 전체보기와 초기 알림 정책, 리뷰에서 찾은 관리자 초기 초안 경계를 수정했다.

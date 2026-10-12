@@ -20,6 +20,7 @@
     "cloudflare/pro-room-validation.ts",
     "cloudflare/pro-room-permissions.ts",
     "cloudflare/pro-room-generation.ts",
+    "cloudflare/pro-room-diagnostics.ts",
     "cloudflare/pro-room-body.ts",
     "cloudflare/pro-room-media-duration.ts",
     "cloudflare/pro-room-mp4-duration.ts",

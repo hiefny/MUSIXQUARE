@@ -1,3 +1,4 @@
+import { ProRoomDiagnostics } from './pro-room-diagnostics.ts';
 import {
   deriveStandardRoomMemberId,
   verifyStandardRoomAccountAssertion,
@@ -2475,6 +2476,12 @@ function standardHttpBridgeCloseTerminal(event: unknown): StandardHttpBridgeTerm
 }
 
 export class MusixquareRoom {
+  private readonly proAdmissionDiagnostics = new ProRoomDiagnostics(() => ({
+    scope: 'signaling',
+    roomCode: this.proRoomMeta?.roomId,
+    roomGeneration: this.proRoomMeta?.roomGeneration,
+    versionId: workerVersionFields(this.env).workerVersionId,
+  }));
   private readonly state: DurableObjectStatePort;
   private readonly env: SignalingEnvPort;
   private readonly standardHttpBridgeOnly: boolean;
@@ -6260,6 +6267,13 @@ export class MusixquareRoom {
       this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-full']);
       closeWithError(ws, 'room-full', 'ROOM_MEMBER_LIMIT_REACHED', 1008);
       this.recordMetric('pro_room_full');
+      this.proAdmissionDiagnostics.record('room_full', {
+        reason: 'signaling_connections',
+        socketCount: this.proMembers.size,
+        authorityTargetCount: this.proPresenceAuthority?.activeIncarnationIds.length,
+        authorityPresenceRevision: this.proPresenceAuthority?.presenceRevision,
+        ticketPresenceRevision: ticket.presenceRevision,
+      });
       return;
     }
 

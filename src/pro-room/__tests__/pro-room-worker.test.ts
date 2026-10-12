@@ -13569,6 +13569,7 @@ describe('persistent PRO room bootstrap and activation', () => {
         }),
       },
     };
+    const context = { waitUntil: vi.fn() };
     const publicRequest = (path: string, method = 'GET') =>
       proRoomWorker.fetch(
         new Request(`https://pro.musixquare.com/v1/rooms/000012${path}`, {
@@ -13581,6 +13582,7 @@ describe('persistent PRO room bootstrap and activation', () => {
           ...(method === 'POST' ? { body: JSON.stringify({ request: 'facade-test' }) } : {}),
         }),
         env as never,
+        context,
       );
 
     const bootstrap = await publicRequest('/bootstrap');
@@ -18073,6 +18075,354 @@ describe('persistent PRO room authentication, presence, and state', () => {
       memberId: activationEnvelope.snapshot.viewer.memberId,
     });
   });
+
+  it('keeps dormant cookies out of live numbering after account detach and admits all 100 devices', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    let nowMs = Date.now();
+    const { worker, ownerCookie } = await activatedRoom(ROOM_CODE, true);
+    let sequence = 0;
+    const create = async (account = false) => {
+      vi.setSystemTime(++nowMs);
+      let incoming = optionalEntryPolicy(
+        jsonRequest('/sessions', 'POST', {
+          requestId: `ordinal-regression-${++sequence}`,
+        }),
+      );
+      incoming.headers.set('x-mxqr-pro-ip-hash', `ordinal-device-${sequence}`);
+      if (account)
+        incoming = await withAccountAssertion(incoming, 'acct_groupeddevices01234567', 'Minsu');
+      const response = await worker.fetch(incoming);
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      expect(parseProRoomSnapshot(envelope.snapshot)).not.toBeNull();
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { cookie, envelope };
+    };
+    for (let index = 0; index < 97; index += 1) {
+      const device = await create();
+      expect(device.envelope.snapshot.viewer.displayName).toBe('Peer 1');
+      expect(
+        (await worker.fetch(request('/presence/current', { method: 'DELETE' }, device.cookie)))
+          .status,
+      ).toBe(200);
+    }
+    const first = await create(true);
+    const second = await create(true);
+    const accountMemberId = first.envelope.snapshot.viewer.memberId;
+    expect((await worker.fetch(detachRequest(first.cookie))).status).toBe(200);
+    const target = await create();
+    const snapshot = (
+      await responseJson(await worker.fetch(request('/snapshot', {}, target.cookie)))
+    ).snapshot;
+    expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+    expect(snapshot.viewer).toMatchObject({ displayName: 'Peer 2', memberDisplayNumber: 2 });
+    expect(snapshot.presence.participants).toHaveLength(4);
+    expect(snapshot.presence.participants).toContainEqual(
+      expect.objectContaining({
+        participantId: second.envelope.snapshot.viewer.participantId,
+        memberId: accountMemberId,
+        memberDisplayNumber: 1,
+      }),
+    );
+    const room = worker.room!;
+    expect(Object.keys(room.sessions)).toHaveLength(101);
+    expect(
+      Object.values(room.sessions).find(
+        (session) => session.participantId === first.envelope.snapshot.viewer.participantId,
+      ),
+    ).toMatchObject({ detachedAccountMemberId: accountMemberId, role: 'member' });
+    while (Object.keys(room.presence.participants).length < 100) await create();
+    const ordinals = Object.values(room.presence.participants)
+      .map((participant) => room.sessions[participant.sessionHash]!)
+      .filter((session) => session.role !== 'owner')
+      .map((session) => session.peerOrdinal!);
+    expect(new Set(ordinals).size).toBe(99);
+    expect(Math.max(...ordinals)).toBeLessThanOrEqual(100);
+    const rejected = await worker.fetch(
+      optionalEntryPolicy(
+        jsonRequest('/sessions', 'POST', {
+          requestId: 'ordinal-regression-over-capacity',
+        }),
+      ),
+    );
+    expect(rejected.status).toBe(409);
+    expect(await responseJson(rejected)).toEqual({ error: 'ROOM_FULL' });
+    expect((await worker.fetch(detachRequest(ownerCookie))).status).toBe(200);
+    const attached = await worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, target.cookie),
+        'acct_otheraccount0123456789',
+        'Sora',
+      ),
+    );
+    expect(attached.status).toBe(200);
+    const attachedSnapshot = (await responseJson(attached)).snapshot;
+    expect(parseProRoomSnapshot(attachedSnapshot)).not.toBeNull();
+    expect(attachedSnapshot.presence.participants).toHaveLength(100);
+    expect(attachedSnapshot.viewer).toMatchObject({
+      memberDisplayNumber: 2,
+      isAuthenticated: true,
+    });
+  });
+
+  it('reattaches an offline account grant using the current physical slot before returning its snapshot', async () => {
+    const { worker, ownerCookie } = await activatedRoom(ROOM_CODE, true);
+    const accountId = 'acct_groupeddevices01234567';
+    const create = async (account = false) => {
+      let incoming = optionalEntryPolicy(jsonRequest('/sessions', 'POST', {}));
+      if (account) incoming = await withAccountAssertion(incoming, accountId, 'Minsu');
+      const response = await worker.fetch(incoming);
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { cookie, viewer: envelope.snapshot.viewer };
+    };
+    const offline = await create(true);
+    expect(
+      (
+        await worker.fetch(
+          jsonRequest(
+            `/administrators/${offline.viewer.memberId}`,
+            'PUT',
+            {
+              permissions: fullDelegatedPermissions,
+            },
+            ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await worker.fetch(request('/presence/current', { method: 'DELETE' }, offline.cookie)))
+        .status,
+    ).toBe(200);
+    const existing = await create();
+    const attaching = await create();
+    expect(existing.viewer.memberDisplayNumber).toBe(1);
+    expect(attaching.viewer.memberDisplayNumber).toBe(2);
+    const response = await worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, attaching.cookie),
+        accountId,
+        'Minsu',
+      ),
+    );
+    expect(response.status).toBe(200);
+    const snapshot = (await responseJson(response)).snapshot;
+    expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+    expect(snapshot.viewer).toMatchObject({
+      memberId: offline.viewer.memberId,
+      memberDisplayNumber: 2,
+      role: 'controller',
+    });
+    expect(snapshot.presence.participants).toContainEqual(
+      expect.objectContaining({
+        participantId: existing.viewer.participantId,
+        memberDisplayNumber: 1,
+      }),
+    );
+    expect(worker.room!.accountMembers[accountId]).toMatchObject({
+      memberId: offline.viewer.memberId,
+      displayNumber: 2,
+      permissions: fullDelegatedPermissions,
+    });
+  });
+
+  it('repairs stored numbers above 100 without losing live or offline administrator identities', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const context = await activatedRoom(ROOM_CODE, true);
+    const accountId = 'acct_groupeddevices01234567';
+    const offlineId = 'acct_offlineadmin0123456789';
+    const create = async (id?: string) => {
+      let incoming = optionalEntryPolicy(jsonRequest('/sessions', 'POST', {}));
+      if (id) incoming = await withAccountAssertion(incoming, id, 'Minsu');
+      const response = await context.worker.fetch(incoming);
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { cookie, viewer: envelope.snapshot.viewer };
+    };
+    const anonymous = await create();
+    const account = await create(accountId);
+    await create(accountId);
+    const offline = await create(offlineId);
+    for (const member of [anonymous, account, offline]) {
+      expect(
+        (
+          await context.worker.fetch(
+            jsonRequest(
+              `/administrators/${member.viewer.memberId}`,
+              'PUT',
+              { permissions: fullDelegatedPermissions },
+              context.ownerCookie,
+            ),
+          )
+        ).status,
+      ).toBe(200);
+    }
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, offline.cookie),
+        )
+      ).status,
+    ).toBe(200);
+    const room = context.worker.room!;
+    room.accountMembers[accountId]!.displayNumber = 102;
+    room.accountMembers[offlineId]!.displayNumber = 104;
+    room.anonymousAdministrators[anonymous.viewer.memberId]!.displayNumber = 101;
+    room.anonymousAdministrators[anonymous.viewer.memberId]!.displayName = 'Peer 101';
+    for (const session of Object.values(room.sessions)) {
+      if (session.memberId === anonymous.viewer.memberId) {
+        session.peerOrdinal = 101;
+        session.memberDisplayNumber = 101;
+        session.displayName = 'Peer 101';
+      } else if (session.accountId === accountId) {
+        session.peerOrdinal = 102;
+        session.memberDisplayNumber = 102;
+      }
+      const participant = room.presence.participants[session.participantId];
+      if (participant) {
+        participant.memberDisplayNumber = session.memberDisplayNumber;
+        participant.displayName = session.displayName;
+      }
+    }
+    await context.worker.persist();
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const response = await restarted.fetch(request('/snapshot', {}, context.ownerCookie));
+    expect(response.status).toBe(200);
+    const snapshot = parseProRoomSnapshot((await responseJson(response)).snapshot);
+    expect(snapshot).not.toBeNull();
+    expect(snapshot!.viewer!.memberDisplayNumber).toBe(0);
+    const repaired = restarted.room!;
+    for (const id of [accountId, offlineId]) {
+      expect(repaired.accountMembers[id]).toMatchObject({
+        role: 'controller',
+        permissions: fullDelegatedPermissions,
+      });
+      expect(repaired.accountMembers[id]!.displayNumber).toBeLessThanOrEqual(100);
+    }
+    expect(repaired.accountMembers[accountId]!.memberId).toBe(account.viewer.memberId);
+    expect(repaired.accountMembers[offlineId]!.memberId).toBe(offline.viewer.memberId);
+    expect(repaired.anonymousAdministrators[anonymous.viewer.memberId]).toMatchObject({
+      permissions: fullDelegatedPermissions,
+    });
+    const liveSessions = Object.values(repaired.presence.participants)
+      .map((participant) => repaired.sessions[participant.sessionHash]!)
+      .filter((session) => session.role !== 'owner');
+    expect(new Set(liveSessions.map((session) => session.peerOrdinal)).size).toBe(3);
+    expect(new Set(liveSessions.map((session) => session.memberDisplayNumber)).size).toBe(2);
+    const stored = context.state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(stored.core.accountMembers).toEqual(repaired.accountMembers);
+    expect(stored.core.anonymousAdministrators).toEqual(repaired.anonymousAdministrators);
+  });
+
+  it.each(['legacy', 'modern', 'account', 'replay', 'resume', 'owner-recovery'] as const)(
+    'rechecks expired presence after asynchronous %s admission work',
+    async (mode) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const startedAtMs = Date.now();
+      const { worker, ownerCookie } = await activatedRoom(ROOM_CODE, true);
+      let firstCookie = '';
+      let firstIncarnation = '';
+      for (let index = 0; index < 99; index += 1) {
+        const response = await worker.fetch(
+          optionalEntryPolicy(
+            jsonRequest('/sessions', 'POST', {
+              requestId: `ttl-boundary-device-${index}`,
+            }),
+          ),
+        );
+        expect(response.status).toBe(200);
+        if (index === 0) {
+          const envelope = await responseJson(response);
+          firstCookie = cookieFrom(response);
+          firstIncarnation = envelope.snapshot.viewer.presenceIncarnationId;
+          bindCookiePresence(firstCookie, envelope);
+        }
+      }
+      expect(Object.keys(worker.room!.presence.participants)).toHaveLength(100);
+      let recoveryRequest: Request | null = null;
+      if (mode === 'account') {
+        expect((await worker.fetch(detachRequest(ownerCookie))).status).toBe(200);
+      }
+      if (mode === 'owner-recovery') {
+        expect((await worker.fetch(detachRequest(ownerCookie))).status).toBe(200);
+        const issued = await worker.fetch(
+          new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
+            method: 'POST',
+            headers: {
+              'x-mxqr-pro-room-code': ROOM_CODE,
+              'x-mxqr-pro-room-generation': '0',
+            },
+          }),
+        );
+        expect(issued.status).toBe(200);
+        const claimToken = decodeURIComponent(
+          new URL((await responseJson(issued)).recoveryUrl).hash.slice('#pro-recovery='.length),
+        );
+        recoveryRequest = await withAccountAssertion(
+          jsonRequest('/owner-recovery', 'POST', { claimToken }),
+          ACTIVATION_OWNER_ACCOUNT_ID,
+          'Owner',
+        );
+      }
+      vi.setSystemTime(startedAtMs + 44_999);
+      if (mode === 'resume') {
+        const parse = worker.parseBody.bind(worker);
+        vi.spyOn(worker, 'parseBody').mockImplementationOnce(async (...args) => {
+          const result = await parse(...args);
+          vi.setSystemTime(startedAtMs + 45_001);
+          return result;
+        });
+      } else {
+        const verify = worker.accountAssertion.bind(worker);
+        vi.spyOn(worker, 'accountAssertion').mockImplementationOnce(async (...args) => {
+          const result = await verify(...args);
+          vi.setSystemTime(startedAtMs + 45_001);
+          return result;
+        });
+      }
+      let incoming =
+        recoveryRequest ??
+        (mode === 'resume'
+          ? request('/presence/enter', { method: 'POST' }, firstCookie)
+          : optionalEntryPolicy(
+              jsonRequest(
+                '/sessions',
+                'POST',
+                mode === 'legacy'
+                  ? {}
+                  : {
+                      requestId:
+                        mode === 'replay' ? 'ttl-boundary-device-0' : 'ttl-boundary-new-device',
+                    },
+              ),
+            ));
+      if (mode === 'account')
+        incoming = await withAccountAssertion(incoming, 'acct_groupeddevices01234567', 'Minsu');
+      const response = await worker.fetch(incoming);
+      expect(response.status).toBe(200);
+      const snapshot = parseProRoomSnapshot((await responseJson(response)).snapshot);
+      expect(snapshot).not.toBeNull();
+      expect(snapshot!.presence.participants).toHaveLength(1);
+      expect(snapshot!.viewer).toMatchObject(
+        mode === 'owner-recovery'
+          ? { role: 'owner', memberDisplayNumber: 0 }
+          : { displayName: mode === 'account' ? 'Minsu' : 'Peer 1', memberDisplayNumber: 1 },
+      );
+      expect(snapshot!.viewer!.presenceIncarnationId).not.toBe(firstIncarnation);
+      const presence = Object.values(worker.room!.presence.participants)[0]!;
+      expect(presence.lastSeenAtMs).toBe(startedAtMs + 45_001);
+      expect(presence.joinedAtMs).toBe(startedAtMs + 45_001);
+    },
+  );
 
   it('assigns server-owned physical names and rejects heartbeat identity fields', async () => {
     const { worker } = await activatedRoom();

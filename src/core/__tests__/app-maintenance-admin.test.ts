@@ -223,12 +223,16 @@ describe('app maintenance administration', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(statusFetch).toHaveBeenCalledOnce();
     expect(statusFetch.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ method: 'HEAD' }));
+    // The detached launch and the shareable control read each retain their
+    // complete chain; later requests must reuse that owned in-flight read.
+    expect(waitUntil).toHaveBeenCalledTimes(2);
 
     const second = await appWorker.fetch(new Request('https://musixquare.com/favicon.ico'), env, {
       waitUntil,
     });
     expect(second.status).toBe(200);
-    expect(waitUntil).toHaveBeenCalledOnce();
+    expect(waitUntil).toHaveBeenCalledTimes(2);
+    expect(statusFetch).toHaveBeenCalledOnce();
   });
 
   it('applies a completed background maintenance refresh to the next public request', async () => {

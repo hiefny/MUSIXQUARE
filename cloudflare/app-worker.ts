@@ -1,5 +1,6 @@
 // MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 import { handleProBotRequest } from './pro-bot.ts';
+import { reportProRoomFrontDiagnostic } from './pro-room-diagnostics.ts';
 import { parseAnnouncementExpiry } from './announcement-expiry.ts';
 import {
   handleProYouTubeDurationRequest,
@@ -352,7 +353,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.10.4';
+const ADMIN_ASSET_VERSION = '8.10.5';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1078,6 +1079,30 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       /^\d{8}$/.test(sessionCreateBody.pin)
     );
   })();
+  const diagnosticOperation = upstreamPath.endsWith('/sessions')
+    ? 'sessions'
+    : upstreamPath.endsWith('/heartbeat')
+      ? 'heartbeat'
+      : upstreamPath.endsWith('/presence/enter')
+        ? 'presence_enter'
+        : upstreamPath.endsWith('/presence/close')
+          ? 'presence_close'
+          : 'other';
+  const reportUpstreamFailure = (
+    reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body' | 'response',
+  ) => {
+    const timeout = reason === 'response_timeout' || reason === 'body_timeout';
+    reportProRoomFrontDiagnostic(
+      { scope: 'app', roomCode },
+      timeout ? 'upstream_timeout' : 'upstream_failure',
+      {
+        operation: diagnosticOperation,
+        reason:
+          reason === 'response_timeout' ? 'response' : reason === 'body_timeout' ? 'body' : reason,
+        status: 502,
+      },
+    );
+  };
   if (legacySessionCreate) {
     // Cached pre-v1 clients cannot safely synthesize an exactly-once key: an
     // IP/PIN/User-Agent surrogate would merge independent devices behind one
@@ -1090,6 +1115,7 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       );
       return withFacadeProRoomCookies(response, roomCode);
     } catch {
+      reportUpstreamFailure('fetch');
       return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
     }
   }
@@ -1099,11 +1125,15 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       (boundedRequest) => proRoomPublicApi.fetch(boundedRequest),
       new Request(upstreamUrl, upstreamInit),
       PRO_ROOM_SERVICE_RESPONSE_MAX_BYTES,
+      PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
+      reportUpstreamFailure,
     );
   } catch {
+    reportUpstreamFailure('fetch');
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
   }
   if (!upstream || !isValidUtf8(upstream.bytes)) {
+    if (upstream) reportUpstreamFailure('body');
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
   }
   const response = bufferedServiceResponse(
@@ -13581,10 +13611,19 @@ async function fetchServiceBindingResponse(
   request: Request,
   maxBytes: number,
   timeoutMs: number = PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
+  onFailure?: (reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body') => void,
 ) {
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let timedOut = false;
+  let readingBody = false;
+  const reportFailure = (reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body') => {
+    try {
+      onFailure?.(reason);
+    } catch {
+      /* Diagnostics cannot change the bounded response. */
+    }
+  };
   const operation = Promise.resolve()
     .then(() => fetcher(new Request(request, { signal: controller.signal })))
     .then(async (response) => {
@@ -13592,15 +13631,20 @@ async function fetchServiceBindingResponse(
         cancelResponseBody(response, 'SERVICE_RESPONSE_TIMEOUT');
         return null;
       }
+      readingBody = true;
       const bytes = await readResponseBodyLimited(response, maxBytes, controller.signal);
       return timedOut ? null : { response, bytes };
     })
     // A service binding may reject only after the timeout race has completed.
     // Normalize that late settlement so cleanup never becomes an unhandled task.
-    .catch(() => null);
+    .catch(() => {
+      if (!timedOut) reportFailure(readingBody ? 'body' : 'fetch');
+      return null;
+    });
   const timeout = new Promise<null>((resolve) => {
     timeoutId = setTimeout(() => {
       timedOut = true;
+      reportFailure(readingBody ? 'body_timeout' : 'response_timeout');
       controller.abort(new Error('SERVICE_RESPONSE_TIMEOUT'));
       resolve(null);
     }, timeoutMs);
@@ -15860,7 +15904,7 @@ export default {
         // promise. A wedged cross-Worker binding must never hold user traffic
         // open while the last canonical state remains usable.
         const refresh = new Promise<void>((resolve) => setTimeout(resolve, 0))
-          .then(() => readServiceMaintenance(env))
+          .then(() => readServiceMaintenance(env, { context: ctx }))
           .then(() => undefined)
           .catch(() => undefined);
         if (ctx) ctx.waitUntil(refresh);

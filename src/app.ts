@@ -82,7 +82,11 @@ import { initSync } from './network/sync.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
 import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { initStandardOperatorFileUplink } from './network/operator-file-uplink.ts';
-import { getRoomContext, subscribeRoomAuthorityLifecycle } from './rooms/authority.ts';
+import {
+  getRoomContext,
+  isStandardRoomRole,
+  subscribeRoomAuthorityLifecycle,
+} from './rooms/authority.ts';
 // ── Storage ──
 // RAM-only storage dispatches STORAGE_* commands in-process.
 import { initTransfer } from './storage/transfer.ts';
@@ -1225,7 +1229,15 @@ async function bootstrap(): Promise<void> {
       });
     };
     const loadIfActive = (): void => {
-      if (getRoomContext().role !== 'idle') load();
+      // Standard rooms keep their role in the legacy transport projection;
+      // room.context.role only becomes active for PRO rooms.
+      if (
+        getRoomContext().role !== 'idle' ||
+        isStandardRoomRole('host') ||
+        isStandardRoomRole('guest')
+      ) {
+        load();
+      }
     };
     subscribeRoomAuthorityLifecycle(loadIfActive);
     loadIfActive();

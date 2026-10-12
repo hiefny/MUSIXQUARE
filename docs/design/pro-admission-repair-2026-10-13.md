@@ -116,7 +116,9 @@ committed HEAD에서 `build:checked`도 통과했다. PR #311의 첫 CI
 최종 동결본 전체 재실행은 556파일 / **12,548 pass / 0 fail / 0 skip**
 (06:34:30 KST 시작, 269.66초)이다. jq 검사를 포함한다. 전체 타입·린트·포맷과
 Worker syntax·Developer API 경계·D1·운영 감사 source guard도 통과했다.
-소스 SHA·committed build·exact-main CI·운영 smoke는 완료 후 아래에 기록한다.
+최종 런타임 소스는 `3a2664e3328a601c3ca08554e3cede0dd4aa480f`이며 해당
+committed HEAD의 `build:checked`도 통과했다. exact-main CI·운영 smoke는
+완료 후 아래에 기록한다.
 
 배포 예정: 8.10.5 / v666, `target=all`, Developer API D1 적용 `false`.
 공통 점검 조회를 사용하는 Worker와 App/PRO/signaling 변경을 같이 배포한다.

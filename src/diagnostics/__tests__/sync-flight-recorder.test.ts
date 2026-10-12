@@ -76,6 +76,10 @@ import {
   resetSyncFlightRecorderForTests,
 } from '../sync-flight-recorder.ts';
 import { getProStartObservations, recordProStartObservation } from '../pro-start-observations.ts';
+import {
+  getStandardStartObservations,
+  recordStandardStartObservation,
+} from '../standard-start-observations.ts';
 
 const RAW_QUEUE_ID = '00000000-0000-4000-8000-0000000000aa';
 
@@ -126,6 +130,67 @@ afterEach(() => {
 });
 
 describe('sync flight recorder', () => {
+  it('exports separate sanitized Standard clock and playback JSONL without consuming samples', () => {
+    startStandardGuest();
+    initSyncFlightRecorder();
+    recordStandardStartObservation('clock-selection', {
+      selectedSampleId: 3,
+      selectedOffsetMs: 10,
+      reason: 'equal-rtt',
+      peerId: 'private-peer',
+    });
+    recordStandardStartObservation('youtube-rendezvous-release', {
+      operationId: 1,
+      releaseLatenessMs: 30,
+      appliedCatchUpMs: 0,
+      queueItemId: RAW_QUEUE_ID,
+    });
+    captureSyncFlightRecorderSampleForTests();
+    markSyncFlightRecorderIncident();
+    const report = collectSyncFlightRecorderText();
+    expect(report).toContain('standardClock:1 standardStarts:1');
+    expect(report).toContain('STANDARD START timelineDriftMs: positive = local YouTube position');
+    expect(report).not.toContain('private-peer');
+    expect(report).not.toContain(RAW_QUEUE_ID);
+    const clockSection = report.split('STANDARD CLOCK OBSERVATIONS JSONL')[1].split('\n\n')[0];
+    const playbackSection = report.split('STANDARD START OBSERVATIONS JSONL')[1].split('\n\n')[0];
+    const clock = JSON.parse(clockSection.split('\n')[1]);
+    const playback = JSON.parse(playbackSection.split('\n')[1]);
+    expect(clock).toMatchObject({ kind: 'clock-selection', detail: { selectedSampleId: 3 } });
+    expect(playback).toMatchObject({
+      kind: 'youtube-rendezvous-release',
+      detail: { operationId: 1, releaseLatenessMs: 30, appliedCatchUpMs: 0 },
+    });
+    expect(clockSection).not.toContain('youtube-rendezvous-release');
+    expect(playbackSection).not.toContain('clock-selection');
+    expect(getStandardStartObservations().clock).toHaveLength(1);
+    expect(getStandardStartObservations().playback).toHaveLength(1);
+    expect(JSON.parse(report.trim().split('\n').at(-1) ?? '{}').room).toBe('standard');
+  });
+
+  it('clears both Standard observation rings on session boundaries and recorder disposal', () => {
+    initSyncFlightRecorder();
+    for (const boundary of ['start', 'stop', 'reset'] as const) {
+      recordStandardStartObservation('clock-selection', { selectedSampleId: 1 });
+      recordStandardStartObservation('youtube-rendezvous-start', { operationId: 1 });
+      if (boundary === 'start') startStandardGuest();
+      else if (boundary === 'stop') setState('setup.sessionStarted', false);
+      else resetSyncFlightRecorderForTests();
+      expect(getStandardStartObservations()).toEqual({ clock: [], playback: [] });
+    }
+  });
+
+  it('omits expired Standard clock and playback observations when copying the report', () => {
+    const monotonic = vi.spyOn(performance, 'now').mockReturnValue(0);
+    recordStandardStartObservation('clock-selection', { selectedSampleId: 1 });
+    recordStandardStartObservation('youtube-rendezvous-start', { operationId: 1 });
+    monotonic.mockReturnValue(20 * 60 * 1_000 + 1);
+    const report = collectSyncFlightRecorderText();
+    expect(report).toContain('standardClock:0 standardStarts:0');
+    expect(report).not.toContain('"kind":"clock-selection"');
+    expect(report).not.toContain('"kind":"youtube-rendezvous-start"');
+  });
+
   it('exports sanitized PRO start observations without consuming them during sampling', () => {
     startStandardGuest();
     initSyncFlightRecorder();

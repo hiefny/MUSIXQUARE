@@ -39,6 +39,7 @@ vi.mock('../../network/protocol.ts', () => ({
 vi.mock('../../network/peer.ts', () => ({ broadcast: vi.fn() }));
 vi.mock('../../network/shared-clock.ts', () => ({
   getHostNow: () => Date.now(),
+  getClockOffset: () => 0,
   isClockCalibrated: () => true,
 }));
 vi.mock('../../core/log.ts', () => ({

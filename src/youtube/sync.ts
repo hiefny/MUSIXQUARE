@@ -75,11 +75,9 @@ import {
   RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS,
   RENDEZVOUS_CALIBRATE_DELAY_MS,
   RENDEZVOUS_DRIFT_SUPPRESS_MS,
-  LATENCY_EMA_RATE,
-  LATENCY_CLAMP_MAX_MS,
-  LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
 import { getEffectiveYouTubePlayLatencyMs } from './play-latency.ts';
+import { captureRendezvousClock, createRendezvousCalibration } from './rendezvous-calibration.ts';
 import { isYouTubeZeroStartInFlight } from './zero-start.ts';
 import { isYouTubeZeroStartSyncOwned } from './zero-start-ownership.ts';
 import {
@@ -1197,7 +1195,8 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const guestPlayLatency = getEffectiveYouTubePlayLatencyMs();
 
   // Extrapolate host's current position
-  const nowHost = getHostNow();
+  const plannedClock = captureRendezvousClock();
+  const nowHost = plannedClock.hostMs;
   const hostPosNow = snapshot.hostPosition + (nowHost - snapshot.hostClockAt) / 1000;
   const targetPosition = hostPosNow + RENDEZVOUS_MARGIN_SEC + manualOffsetSec;
   // A rendezvous must stay within this occurrence on BOTH timelines. Clamping
@@ -1219,6 +1218,12 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const tHostReachTarget = nowHost + RENDEZVOUS_MARGIN_SEC * 1000;
   // Guest should call playVideo() guestPlayLatency ms before that
   const playCallAtHostClock = tHostReachTarget - guestPlayLatency;
+  const calibration = createRendezvousCalibration(
+    plannedClock,
+    playCallAtHostClock,
+    guestPlayLatency,
+    manualOffsetSec,
+  );
 
   log.debug(
     `[Rendezvous] Start: hostPosNow=${hostPosNow.toFixed(2)}s target=${targetPosition.toFixed(2)}s L_play=${guestPlayLatency}ms`,
@@ -1278,6 +1283,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
         targetPosition,
         snapshot,
         manualOffsetSec,
+        calibration,
         opts,
       );
       return;
@@ -1317,6 +1323,7 @@ function scheduleRendezvousPlay(
   targetPosition: number,
   snapshot: HostPositionSnapshot,
   manualOffsetSec: number,
+  calibration: ReturnType<typeof createRendezvousCalibration>,
   opts: GuestRendezvousOptions = {},
 ): void {
   const notify = (message: string): void => {
@@ -1325,7 +1332,9 @@ function scheduleRendezvousPlay(
   const notifyProgress = (message: string): void => {
     if (!opts.suppressProgressToast) notify(message);
   };
-  const waitMs = Math.max(0, playCallAtHostClock - getHostNow());
+  const schedulingClock = captureRendezvousClock();
+  calibration.schedule(schedulingClock);
+  const waitMs = Math.max(0, playCallAtHostClock - schedulingClock.hostMs);
   log.debug(`[Rendezvous] Scheduling playVideo in ${waitMs.toFixed(0)}ms`);
 
   setManagedTimer(
@@ -1346,6 +1355,7 @@ function scheduleRendezvousPlay(
           return;
         }
         setYtAutoplayIntent(true); // authorize this play past pause-back guard
+        calibration.release();
         p.playVideo();
       } catch (e) {
         log.warn('[Rendezvous] playVideo threw:', e);
@@ -1368,7 +1378,7 @@ function scheduleRendezvousPlay(
           // Defense: bail if state has changed since this timer was scheduled.
           // Host disconnect, mobile background+resume, or sleep/wake all leave
           // the snapshot stale or the connection broken — calibrating against
-          // stale data would poison guestPlayLatency permanently (it's
+          // stale data would poison the persisted guestPlayLatency (it's
           // persisted to localStorage and inherited by future hard-reset
           // rejoins). Each guard catches a distinct trigger; any one is enough
           // to skip a corrupting update.
@@ -1377,12 +1387,14 @@ function scheduleRendezvousPlay(
           try {
             const snapshotAge = getHostNow() - snapshot.hostClockAt;
             if (snapshotAge > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS) {
+              calibration.skip('stale-snapshot');
               log.debug(
                 `[Rendezvous] Calibration skipped: snapshot ${snapshotAge.toFixed(0)}ms stale`,
               );
               return;
             }
             if (typeof document !== 'undefined' && document.hidden) {
+              calibration.skip('hidden');
               log.debug('[Rendezvous] Calibration skipped: page hidden (mobile background)');
               return;
             }
@@ -1400,10 +1412,12 @@ function scheduleRendezvousPlay(
               // host hasn't moved to a different video, so skip rather than risk
               // poisoning the EMA on a cross-timeline drift sample.
               if (!snapshotVideoId) {
+                calibration.skip('video-mismatch');
                 log.debug('[Rendezvous] Calibration skipped: snapshot has no videoId (late-join)');
                 return;
               }
               if (currentVideoId !== snapshotVideoId) {
+                calibration.skip('video-mismatch');
                 log.debug('[Rendezvous] Calibration skipped: video changed during rendezvous');
                 return;
               }
@@ -1413,35 +1427,31 @@ function scheduleRendezvousPlay(
               const hostPosNowMeasured =
                 snapshot.hostPosition + (getHostNow() - snapshot.hostClockAt) / 1000;
               const duration = pCal.getDuration?.() || 0;
+              const playerState = pCal.getPlayerState?.();
               if (
-                pCal.getPlayerState?.() !== 1 ||
+                ![guestPos, hostPosNowMeasured, duration, manualOffsetSec].every(Number.isFinite)
+              ) {
+                calibration.skip('invalid-sample');
+                return;
+              }
+              if (
+                playerState !== 1 ||
                 duration <= 0 ||
                 guestPos >= duration ||
                 hostPosNowMeasured >= duration ||
                 hostPosNowMeasured + manualOffsetSec >= duration
               ) {
+                calibration.skip(playerState !== 1 ? 'not-playing' : 'near-end');
                 return;
               }
               const driftSec = guestPos - hostPosNowMeasured; // + = guest ahead, − = guest behind
               const driftMs = (driftSec - manualOffsetSec) * 1000;
 
-              // Outlier rejection: drift samples larger than
-              // LATENCY_OUTLIER_REJECT_MS are likely from a transitional state
-              // (buffering, seek in progress, ad). Applying them to the EMA
-              // would corrupt guestPlayLatency for 7-10 subsequent rendezvous
-              // attempts. Skip silently.
-              if (Math.abs(driftMs) > LATENCY_OUTLIER_REJECT_MS) {
-                log.debug(
-                  `[Rendezvous] Calibration skipped: drift ${driftMs.toFixed(0)}ms exceeds outlier threshold`,
-                );
-                return;
-              }
-
-              // Positive drift (guest ahead) means playVideo() fired too early → our L_play
-              // estimate was too HIGH → DECREASE it. Hence minus sign.
               const current = getState('youtube.guestPlayLatency') ?? 0;
-              const nextRaw = current - driftMs * LATENCY_EMA_RATE;
-              const next = Math.round(Math.max(0, Math.min(LATENCY_CLAMP_MAX_MS, nextRaw)));
+              // Learn media startup only: remove this attempt's uncorrected
+              // callback lateness, and reject a changed clock or invalid sample.
+              const next = calibration.learn(driftMs, current);
+              if (next === null) return;
               if (!isCurrentRendezvous(attempt)) return;
               if (next !== current) {
                 setState('youtube.guestPlayLatency', next);
@@ -1456,6 +1466,7 @@ function scheduleRendezvousPlay(
                 `[Rendezvous] Calibrate: drift=${driftMs.toFixed(0)}ms, L_play ${current} → ${next} (target=${targetPosition.toFixed(2)}s measured=${guestPos.toFixed(2)}s)`,
               );
             } catch (e) {
+              calibration.skip('player-read-failed');
               log.debug('[Rendezvous] Calibration skipped:', e);
             }
           } finally {

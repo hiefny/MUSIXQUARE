@@ -21,6 +21,10 @@ import {
 import { getHostNow, getSharedClockDiagnostics } from '../network/shared-clock.ts';
 import { isStandardRoomRole } from '../rooms/authority.ts';
 import { getProStartObservations, resetProStartObservations } from './pro-start-observations.ts';
+import {
+  getStandardStartObservations,
+  resetStandardStartObservations,
+} from './standard-start-observations.ts';
 
 const SAMPLE_INTERVAL_MS = 1_000;
 const MAX_SAMPLES = 20 * 60;
@@ -372,6 +376,7 @@ export function initSyncFlightRecorder(): void {
 
 function resetSessionObservationState(): void {
   resetProStartObservations();
+  resetStandardStartObservations();
   canonicalAnchor = null;
   lastWorkerTickAt = 0;
   lastSyncPongAt = 0;
@@ -455,19 +460,29 @@ export function markSyncFlightRecorderIncident(): void {
 
 export function collectSyncFlightRecorderText(): string {
   const proStartObservations = getProStartObservations();
+  const standardStartObservations = getStandardStartObservations();
   const lines = [
     'MUSIXQUARE SYNC FLIGHT RECORDER v1',
     `Generated: ${new Date().toISOString()}`,
-    `Retention: RAM-only, ${MAX_SAMPLES}s max | samples:${samples.length} events:${events.length} proStarts:${proStartObservations.length}`,
+    `Retention: RAM-only, ${MAX_SAMPLES}s max | samples:${samples.length} events:${events.length} proStarts:${proStartObservations.length} standardClock:${standardStartObservations.clock.length} standardStarts:${standardStartObservations.playback.length}`,
     'Privacy: no room code, peer id, nickname, title, filename, or raw queue id',
     'SAMPLES logicalDriftMs: positive = canonical timeline is ahead of local logical position',
     'PRO START timelineDriftMs: positive = local YouTube canonical position is ahead of the predicted timeline',
+    'STANDARD START timelineDriftMs: positive = local YouTube position is ahead of the host prediction after manual offset',
+    'STANDARD CLOCK sentAtMs/wallElapsedMs use the current rebased clock; rawSentAtMs/rawWallElapsedMs retain the original ping send time',
+    'STANDARD START clockMapping: wall time minus monotonic time; deltas are sample minus release, spans cover plan/schedule/release/sample',
     '',
     'EVENTS JSONL',
     ...events.map((event) => JSON.stringify(event)),
     '',
     'PRO START OBSERVATIONS JSONL (local generations, no raw identifiers)',
     ...proStartObservations.map((observation) => JSON.stringify(observation)),
+    '',
+    'STANDARD CLOCK OBSERVATIONS JSONL (local sample numbers, no raw identifiers)',
+    ...standardStartObservations.clock.map((observation) => JSON.stringify(observation)),
+    '',
+    'STANDARD START OBSERVATIONS JSONL (local operation numbers, no raw identifiers)',
+    ...standardStartObservations.playback.map((observation) => JSON.stringify(observation)),
     '',
     'SAMPLES JSONL (oldest to newest)',
     ...samples.map((sample) => JSON.stringify(sample)),

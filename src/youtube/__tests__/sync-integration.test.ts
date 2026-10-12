@@ -30,6 +30,10 @@ import { log } from '../../core/log.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { MSG } from '../../core/constants.ts';
 import { isClockCalibrated } from '../../network/shared-clock.ts';
+import {
+  getStandardStartObservations,
+  resetStandardStartObservations,
+} from '../../diagnostics/standard-start-observations.ts';
 import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
@@ -54,6 +58,7 @@ function dataConnection(peer: string, send = vi.fn()): DataConnection {
 const localYouTubePaused = vi.hoisted(() => ({ value: false }));
 const zeroStartFacade = vi.hoisted(() => ({ inFlight: false, active: false }));
 const youtubeSessionFacade = vi.hoisted(() => ({ id: 1 }));
+const sharedClockFacade = vi.hoisted(() => ({ offsetMs: 0 }));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -98,11 +103,11 @@ vi.mock('../../network/protocol.ts', () => ({
 // broadcast path stays active.
 const mockHostConn = dataConnection('mock-host-peer');
 
-// getHostNow tracks Date.now() so it advances with vitest fake timers.
+// Keep host-now and offset coherent when a test changes the clock estimate.
 vi.mock('../../network/shared-clock.ts', () => ({
-  getHostNow: vi.fn(() => Date.now()),
+  getHostNow: vi.fn(() => Date.now() + sharedClockFacade.offsetMs),
   isClockCalibrated: vi.fn(() => true),
-  getClockOffset: vi.fn(() => 0),
+  getClockOffset: vi.fn(() => sharedClockFacade.offsetMs),
   getClockBestRtt: vi.fn(() => 0),
   setIsHostClock: vi.fn(),
   registerPing: vi.fn(),
@@ -220,6 +225,7 @@ beforeEach(async () => {
   zeroStartFacade.inFlight = false;
   zeroStartFacade.active = false;
   youtubeSessionFacade.id = 1;
+  sharedClockFacade.offsetMs = 0;
 
   setState('playlist.items', [
     {
@@ -2673,6 +2679,362 @@ describe('YouTube Sync — Regression Integration', () => {
 
       expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
     });
+  });
+
+  describe('Standard rendezvous release-lateness calibration', () => {
+    const storageKey = 'musixquare-yt-play-latency';
+
+    beforeEach(() => {
+      vi.useFakeTimers({
+        toFake: [
+          'Date',
+          'performance',
+          'setTimeout',
+          'clearTimeout',
+          'setInterval',
+          'clearInterval',
+        ],
+      });
+      vi.setSystemTime(1_700_000_000_000);
+      localStorage.removeItem(storageKey);
+      resetStandardStartObservations();
+      setState('youtube.guestPlayLatency', 0);
+      mockHostConn.open = true;
+      vi.mocked(isClockCalibrated).mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      localStorage.removeItem(storageKey);
+      mockHostConn.open = true;
+      vi.mocked(isClockCalibrated).mockReturnValue(true);
+    });
+
+    function advancingRendezvousPlayer(manualOffset = 0, mediaDelayMs = 0) {
+      setState('sync.youtubeLocalOffset', manualOffset);
+      const player = installPlayer({
+        __state: 1,
+        __currentTime: 10 + manualOffset,
+        __duration: 300,
+      });
+      let basePosition = 10 + manualOffset;
+      let playingAt: number | null = null;
+      const originalPause = player.pauseVideo;
+      const originalSeek = player.seekTo;
+      const originalPlay = player.playVideo;
+      // The media clock follows monotonic time even when Date.now is stepped.
+      player.getCurrentTime = () =>
+        basePosition +
+        (playingAt !== null && player.__state === 1 ? (performance.now() - playingAt) / 1000 : 0);
+      player.pauseVideo = () => {
+        basePosition = player.getCurrentTime();
+        playingAt = null;
+        originalPause();
+      };
+      player.seekTo = (position, allowAhead) => {
+        basePosition = position;
+        playingAt = player.__state === 1 ? performance.now() : null;
+        originalSeek(position, allowAhead);
+      };
+      player.playVideo = () => {
+        const start = () => {
+          originalPlay();
+          playingAt = performance.now();
+        };
+        if (mediaDelayMs > 0) setTimeout(start, mediaDelayMs);
+        else start();
+      };
+      setState('network.hostConn', mockHostConn);
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        { time: 10, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+      player.__log.length = 0;
+      return player;
+    }
+
+    it.each([
+      { scenario: 'on time', releaseLate: 0, expected: 0 },
+      { scenario: '30ms late release', releaseLate: 30, expected: 0 },
+      { scenario: '150ms late release', releaseLate: 150, expected: 0 },
+      { scenario: '151ms late release aborts', releaseLate: 151, expected: 0 },
+      { scenario: '100ms late observation', observationLate: 100, expected: 0 },
+      {
+        scenario: 'real100ms media delay plus30ms callback',
+        releaseLate: 30,
+        mediaDelay: 100,
+        expected: 30,
+      },
+      {
+        scenario: 'stored200ms latency with matching media delay plus30ms callback',
+        initialLatency: 200,
+        releaseLate: 30,
+        mediaDelay: 200,
+        expected: 200,
+      },
+      { scenario: 'positive manual offset', releaseLate: 30, manualOffset: 0.4, expected: 0 },
+      { scenario: 'negative manual offset', releaseLate: 30, manualOffset: -0.4, expected: 0 },
+      { scenario: 'buffer ready30ms after planned play', bufferDelay: 1480, expected: 0 },
+      {
+        scenario: 'late buffer plus30ms play callback',
+        bufferDelay: 1480,
+        releaseLate: 30,
+        expected: 0,
+      },
+    ])('learns only media delay: $scenario', async (entry) => {
+      const {
+        releaseLate = 0,
+        observationLate = 0,
+        manualOffset = 0,
+        mediaDelay = 0,
+        bufferDelay = 0,
+        initialLatency = 0,
+        expected,
+      } = entry;
+      if (initialLatency) {
+        localStorage.setItem(storageKey, String(initialLatency));
+        setState('youtube.guestPlayLatency', initialLatency);
+      }
+      const player = advancingRendezvousPlayer(manualOffset, mediaDelay);
+      const schedule = globalThis.setTimeout;
+      let bufferDelayed = false;
+      let releaseDelayed = false;
+      const timerSpy = vi
+        .spyOn(globalThis, 'setTimeout')
+        .mockImplementation((callback, ms, ...args) => {
+          let extra = 0;
+          if (!bufferDelayed && ms === 50 && bufferDelay) {
+            bufferDelayed = true;
+            extra = bufferDelay;
+          } else if (!releaseDelayed && ms === (bufferDelay ? 0 : 1450 - initialLatency)) {
+            releaseDelayed = true;
+            extra = releaseLate;
+          } else if (ms === 800) extra = observationLate;
+          return schedule(callback, Number(ms) + extra, ...args);
+        });
+      try {
+        const { guestRendezvousSync } = await importSync();
+        expect(guestRendezvousSync({ silent: true }).status).toBe('started');
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(releaseDelayed).toBe(true);
+        expect(player.__log.filter((call) => call.op === 'seekTo')).toHaveLength(1);
+        expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(
+          releaseLate > 150 ? 0 : 1,
+        );
+        const observations = getStandardStartObservations().playback;
+        const sample = observations.find((entry) => entry.kind === 'youtube-rendezvous-sample');
+        if (releaseLate > 150) {
+          expect(sample).toBeUndefined();
+        } else {
+          // Nested zero-delay timers advance by 1ms in the fake timer scheduler.
+          const lateness = bufferDelay ? 30 + Math.max(1, releaseLate) : releaseLate;
+          expect(
+            observations.find((entry) => entry.kind === 'youtube-rendezvous-release')?.detail,
+          ).toMatchObject({
+            releaseLatenessMs: lateness,
+            appliedCatchUpMs: 0,
+            uncorrectedLatenessMs: lateness,
+          });
+          expect(sample?.detail).toMatchObject({
+            eligible: true,
+            clockStable: true,
+            sampleLatenessMs: observationLate,
+            plannedClockOffsetMs: 0,
+            releaseClockOffsetMs: 0,
+            sampleClockOffsetMs: 0,
+          });
+          expect(sample?.detail.learningDriftMs).toBeCloseTo(initialLatency - mediaDelay, 6);
+        }
+        expect(getState('youtube.guestPlayLatency')).toBe(expected);
+        expect(localStorage.getItem(storageKey)).toBe(expected ? String(expected) : null);
+        resetState();
+        expect(getState('youtube.guestPlayLatency')).toBe(expected);
+      } finally {
+        timerSpy.mockRestore();
+      }
+    });
+
+    it.each([
+      { when: 'before buffer completion', at: 25, offsetMs: 6 },
+      { when: 'between scheduling and release', at: 1400, offsetMs: 30 },
+      { when: 'between release and observation', at: 1700, offsetMs: -30 },
+    ])('rejects clock selection changes $when', async ({ at, offsetMs }) => {
+      const player = advancingRendezvousPlayer(0, 100);
+      const { guestRendezvousSync } = await importSync();
+      guestRendezvousSync({ silent: true });
+      await vi.advanceTimersByTimeAsync(at);
+      sharedClockFacade.offsetMs = offsetMs;
+      await vi.advanceTimersByTimeAsync(3_000 - at);
+      expect(player.__log.filter((call) => call.op === 'seekTo')).toHaveLength(1);
+      expect(
+        getStandardStartObservations().playback.find(
+          (entry) => entry.kind === 'youtube-rendezvous-sample',
+        )?.detail,
+      ).toMatchObject({
+        eligible: false,
+        reason: 'clock-changed',
+        clockStable: false,
+        plannedClockOffsetMs: 0,
+        sampleClockOffsetMs: offsetMs,
+      });
+      expect(getState('youtube.guestPlayLatency')).toBe(0);
+      expect(localStorage.getItem(storageKey)).toBeNull();
+    });
+
+    it.each([
+      { clock: 'offset', changeMs: 30 },
+      { clock: 'wall', changeMs: 75 },
+    ])(
+      'rejects a transient $clock change during scheduling that reverses before release',
+      async ({ clock, changeMs }) => {
+        localStorage.setItem(storageKey, '100');
+        setState('youtube.guestPlayLatency', 100);
+        const player = advancingRendezvousPlayer(0, 100);
+        const { guestRendezvousSync } = await importSync();
+        guestRendezvousSync({ silent: true });
+        await vi.advanceTimersByTimeAsync(25);
+        if (clock === 'offset') sharedClockFacade.offsetMs = changeMs;
+        else vi.setSystemTime(Date.now() + changeMs);
+        // The buffer check arms the play timer at 50ms using the changed clock.
+        await vi.advanceTimersByTimeAsync(75);
+        if (clock === 'offset') sharedClockFacade.offsetMs = 0;
+        else vi.setSystemTime(Date.now() - changeMs);
+        await vi.advanceTimersByTimeAsync(2900);
+
+        expect(player.__log.filter((call) => call.op === 'seekTo')).toHaveLength(1);
+        expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+        expect(getState('youtube.guestPlayLatency')).toBe(100);
+        expect(localStorage.getItem(storageKey)).toBe('100');
+        expect(
+          getStandardStartObservations().playback.find(
+            (entry) => entry.kind === 'youtube-rendezvous-sample',
+          )?.detail,
+        ).toMatchObject({
+          eligible: false,
+          reason: 'clock-changed',
+          clockStable: false,
+          plannedClockOffsetMs: 0,
+          scheduledAtMs: 50,
+          scheduledClockOffsetMs: clock === 'offset' ? changeMs : 0,
+          releaseClockOffsetMs: 0,
+          sampleClockOffsetMs: 0,
+          clockOffsetSpanMs: clock === 'offset' ? changeMs : 0,
+          clockMappingSpanMs: clock === 'wall' ? changeMs : 0,
+        });
+      },
+    );
+
+    it.each([-75, 75])(
+      'rejects an independent %ims wall-clock step while media advances monotonically',
+      async (stepMs) => {
+        const player = advancingRendezvousPlayer(0, 100);
+        const { guestRendezvousSync } = await importSync();
+        guestRendezvousSync({ silent: true });
+        await vi.advanceTimersByTimeAsync(1700);
+        const mediaPosition = player.getCurrentTime();
+        vi.setSystemTime(Date.now() + stepMs);
+        expect(player.getCurrentTime()).toBe(mediaPosition);
+        await vi.advanceTimersByTimeAsync(1300);
+        expect(sharedClockFacade.offsetMs).toBe(0);
+        expect(
+          getStandardStartObservations().playback.find(
+            (entry) => entry.kind === 'youtube-rendezvous-sample',
+          )?.detail,
+        ).toMatchObject({
+          eligible: false,
+          reason: 'clock-changed',
+          clockStable: false,
+          plannedClockOffsetMs: 0,
+          releaseClockOffsetMs: 0,
+          sampleClockOffsetMs: 0,
+        });
+        expect(getState('youtube.guestPlayLatency')).toBe(0);
+        expect(localStorage.getItem(storageKey)).toBeNull();
+      },
+    );
+
+    it.each([
+      { offsetMs: 5, eligible: true, expected: 32 },
+      { offsetMs: 6, eligible: false, expected: 0 },
+    ])(
+      'permits a clock offset span of at most 5ms: $offsetMs',
+      async ({ offsetMs, eligible, expected }) => {
+        advancingRendezvousPlayer(0, 101);
+        const { guestRendezvousSync } = await importSync();
+        guestRendezvousSync({ silent: true });
+        await vi.advanceTimersByTimeAsync(1700);
+        sharedClockFacade.offsetMs = offsetMs;
+        await vi.advanceTimersByTimeAsync(1300);
+        const sample = getStandardStartObservations().playback.find(
+          (entry) => entry.kind === 'youtube-rendezvous-sample',
+        );
+        expect(sample?.detail).toMatchObject({
+          eligible,
+          reason: eligible ? 'eligible' : 'clock-changed',
+          clockStable: eligible,
+          clockOffsetSpanMs: offsetMs,
+          clockMappingSpanMs: 0,
+        });
+        expect(getState('youtube.guestPlayLatency')).toBe(expected);
+        expect(localStorage.getItem(storageKey)).toBe(expected ? String(expected) : null);
+      },
+    );
+
+    it.each([
+      { stepMs: 50, eligible: true, expected: 45 },
+      { stepMs: 51, eligible: false, expected: 0 },
+    ])(
+      'permits a wall-to-monotonic span of at most 50ms: $stepMs',
+      async ({ stepMs, eligible, expected }) => {
+        advancingRendezvousPlayer(0, 100);
+        const { guestRendezvousSync } = await importSync();
+        guestRendezvousSync({ silent: true });
+        await vi.advanceTimersByTimeAsync(1700);
+        vi.setSystemTime(Date.now() + stepMs);
+        await vi.advanceTimersByTimeAsync(1300);
+        const sample = getStandardStartObservations().playback.find(
+          (entry) => entry.kind === 'youtube-rendezvous-sample',
+        );
+        expect(sample?.detail).toMatchObject({
+          eligible,
+          reason: eligible ? 'eligible' : 'clock-changed',
+          clockStable: eligible,
+          clockOffsetSpanMs: 0,
+          clockMappingSpanMs: stepMs,
+        });
+        expect(getState('youtube.guestPlayLatency')).toBe(expected);
+        expect(localStorage.getItem(storageKey)).toBe(expected ? String(expected) : null);
+      },
+    );
+
+    it.each(['cancelled', 'disconnected', 'clock-uncalibrated'] as const)(
+      'does not update from an obsolete %s sample',
+      async (reason) => {
+        advancingRendezvousPlayer(0, 100);
+        const sync = await importSync();
+        sync.guestRendezvousSync({ silent: true });
+        await vi.advanceTimersByTimeAsync(1700);
+        if (reason === 'cancelled') sync.cancelGuestRendezvous();
+        if (reason === 'disconnected') mockHostConn.open = false;
+        if (reason === 'clock-uncalibrated') vi.mocked(isClockCalibrated).mockReturnValue(false);
+        await vi.advanceTimersByTimeAsync(1300);
+        expect(getState('youtube.guestPlayLatency')).toBe(0);
+        expect(localStorage.getItem(storageKey)).toBeNull();
+      },
+    );
+
+    it.each([Number.NaN, Number.POSITIVE_INFINITY])(
+      'does not persist a non-finite media position %s',
+      async (position) => {
+        const player = advancingRendezvousPlayer(0, 100);
+        const { guestRendezvousSync } = await importSync();
+        guestRendezvousSync({ silent: true });
+        await vi.advanceTimersByTimeAsync(1700);
+        player.getCurrentTime = () => position;
+        await vi.advanceTimersByTimeAsync(1300);
+        expect(getState('youtube.guestPlayLatency')).toBe(0);
+        expect(localStorage.getItem(storageKey)).toBeNull();
+      },
+    );
   });
 
   describe('guest rendezvous end-boundary and attempt ownership', () => {

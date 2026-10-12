@@ -97,6 +97,12 @@ runbooks. Neither belongs in a general setup document.
 These files contain dated measurements or completed work, while a clearly
 labeled portion still supports a current guard or operating interpretation:
 
+- [PRO duration hardening (8.10.1) — 2026-10-12](design/pro-duration-hardening-2026-10-12.md) —
+  unreleased App 8.10.1 / v660 (target `all`): stricter MP3/MP4 duration
+  readers, versioned server file durations re-measured on play, ignored upload
+  lengths, the 0.9x controller floor, alarm and metadata backoff fixes, and
+  the two-answer skip for deleted YouTube videos; three adversarial review
+  rounds plus a ship gate. Local full checks; no real-device review.
 - [8.10.0 merge and 8.9.4–8.9.6 review — 2026-10-12](design/release-8-10-0-merge-review-2026-10-12.md) —
   App 8.10.0 / v659 after merging 8.9.6: merge resolution, four read-only
   reviews (no P1/P2), the replaced-tab takeover copy fix, the PRO Worker

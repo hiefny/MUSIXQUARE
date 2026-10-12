@@ -323,6 +323,40 @@ describe('release deployment rollback state', () => {
     }
   });
 
+  it('maps Worker-side modules bundled into the browser App into the App contract', () => {
+    // The App bundle also ships cloudflare/ modules that browser code imports
+    // (for example the PRO upload probe's media duration readers). A change to
+    // only such a module must still count as an App runtime change.
+    const appPaths = runtimePathsForWorker('app');
+    const importPattern = /(?:from\s+|import\s*\()\s*['"](\.[^'"]+)['"]/gu;
+    const cloudflareImports = (file: string): string[] =>
+      [...readFileSync(resolve(file), 'utf8').matchAll(importPattern)]
+        .map((match) =>
+          relative(process.cwd(), resolve(dirname(resolve(file)), match[1]!)).replaceAll('\\', '/'),
+        )
+        .filter((imported) => imported.startsWith('cloudflare/'));
+    const browserSources = execFileSync('git', ['ls-files', 'src'], { encoding: 'utf8' })
+      .split(/\r?\n/u)
+      .filter(
+        (path) =>
+          /\.(?:ts|tsx|mts)$/u.test(path) &&
+          !path.includes('/__tests__/') &&
+          !/\.test\.(?:ts|tsx|mts)$/u.test(path),
+      );
+    const bundled = new Set<string>();
+    const pending = browserSources.flatMap(cloudflareImports);
+    while (pending.length) {
+      const file = pending.pop()!;
+      if (bundled.has(file)) continue;
+      bundled.add(file);
+      pending.push(...cloudflareImports(file));
+    }
+
+    expect(bundled).toContain('cloudflare/pro-room-media-duration.ts');
+    expect(bundled).toContain('cloudflare/pro-room-mp4-duration.ts');
+    for (const file of bundled) expect(appPaths, file).toContain(file);
+  });
+
   it('treats the shared service-maintenance gate as one cross-Worker release contract', () => {
     const sharedGate = 'cloudflare/service-maintenance.ts';
 

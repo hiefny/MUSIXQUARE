@@ -169,6 +169,27 @@ describe('bounded header-only MP4 duration', () => {
     expect(await readProRoomMp4Duration(reader(bytes), bytes.length)).toBeNull();
   });
 
+  it.each([
+    ['an mvex declaration', [box('moov', timed('mvhd'), track(), box('mvex', box('trex')))]],
+    [
+      'a top-level fragment',
+      [
+        box('moov', timed('mvhd'), track()),
+        box('moof', box('traf', box('trun', new Uint8Array(12)))),
+        box('mdat', new Uint8Array(16)),
+      ],
+    ],
+    ['a fragment before moov', [box('moof'), box('moov', timed('mvhd'), track())]],
+  ])(
+    'leaves a fragmented file with %s unknown instead of its partial moov timeline',
+    async (_label, boxes) => {
+      const bytes = concatenate(ftyp, ...boxes);
+      const read = reader(bytes);
+      expect(await readProRoomMp4Duration(read, bytes.length)).toBeNull();
+      expect(read.mock.calls.reduce((sum, [start, end]) => sum + end - start, 0)).toBeLessThan(256);
+    },
+  );
+
   it('bounds box counts and malformed parent extents', async () => {
     const many = concatenate(ftyp, ...Array.from({ length: 2049 }, () => box('free')));
     const read = reader(many);

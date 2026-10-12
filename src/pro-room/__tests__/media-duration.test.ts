@@ -27,7 +27,10 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     const controller = new AbortController();
     controller.abort();
     const bucket = memoryBucket(new Uint8Array(100));
-    expect(await readProRoomFileDuration(bucket, 'object', 100, controller.signal)).toBeNull();
+    // Cancelled work is no answer about the file.
+    await expect(readProRoomFileDuration(bucket, 'object', 100, controller.signal)).rejects.toThrow(
+      'PRO_MEDIA_DURATION_PROBE_ABORTED',
+    );
     expect(bucket.get).not.toHaveBeenCalled();
   });
 
@@ -43,7 +46,7 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     );
     const pending = readProRoomFileDuration({ get }, 'object', 100, controller.signal);
     controller.abort();
-    expect(await pending).toBeNull();
+    await expect(pending).rejects.toThrow('PRO_MEDIA_DURATION_PROBE_ABORTED');
     finish({ size: 100, body: new ReadableStream<Uint8Array>({ cancel }) });
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
   });
@@ -70,6 +73,612 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     expect(bucket.get.mock.calls.every(([, options]) => options.range.length <= 512 * 1024)).toBe(
       true,
     );
+  });
+
+  describe('MP3 frame-count headers that no longer describe the whole file', () => {
+    const CHIRP_AUDIO_START = 44;
+    const CHIRP_SCANNED_FRAMES = 194;
+    const scanned = (frames: number) => (frames * 1152) / 44100;
+    const concatenate = (...parts: Uint8Array[]) => {
+      const bytes = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+      let offset = 0;
+      for (const part of parts) {
+        bytes.set(part, offset);
+        offset += part.length;
+      }
+      return bytes;
+    };
+    const chirp = async () =>
+      new Uint8Array(
+        await readFile(new URL('../../../e2e/fixtures/large-audio-chirp.mp3', import.meta.url)),
+      );
+
+    it('scans a joined file instead of trusting the first part Xing frame and byte count', async () => {
+      const first = await chirp();
+      const bytes = concatenate(first, first.subarray(CHIRP_AUDIO_START));
+      expect(
+        await readProRoomFileDuration(memoryBucket(bytes), 'joined', bytes.length),
+      ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES * 2), 6);
+    });
+
+    it.each([
+      // Within 1/16 of the audio span both conventions describe the same file.
+      ['trusts', 2_000, 5.041633],
+      // Beyond it, a VBR count cannot tell its own tag from an appended part
+      // of about the same size, so the bounded scan measures the stream.
+      ['scans', 20_000, scanned(CHIRP_SCANNED_FRAMES)],
+    ])(
+      '%s a VBR stream size that also counts a %i-byte leading ID3 tag',
+      async (_label, tagBytes, seconds) => {
+        const original = await chirp();
+        const tag = new Uint8Array(10 + tagBytes);
+        tag.set(new TextEncoder().encode('ID3'));
+        tag.set([3, 0, 0], 3);
+        tag.set(
+          [(tagBytes >> 21) & 127, (tagBytes >> 14) & 127, (tagBytes >> 7) & 127, tagBytes & 127],
+          6,
+        );
+        const audio = original.slice(CHIRP_AUDIO_START);
+        const bytes = concatenate(tag, audio);
+        new DataView(bytes.buffer).setUint32(tag.length + 36 + 12, bytes.length);
+        expect(
+          await readProRoomFileDuration(memoryBucket(bytes), 'tagged', bytes.length),
+        ).toBeCloseTo(seconds, 6);
+      },
+    );
+
+    it('does not let a large leading ID3 tag widen the stream size tolerance of a joined file', async () => {
+      const frameBytes = 417; // MPEG-1 Layer III, 128 kbps, 44.1 kHz, no padding.
+      const frame = () => {
+        const bytes = new Uint8Array(frameBytes);
+        bytes.set([0xff, 0xfb, 0x90, 0x64]);
+        return bytes;
+      };
+      const tagBytes = 2 * 1024 * 1024;
+      const tag = new Uint8Array(10 + tagBytes);
+      tag.set(new TextEncoder().encode('ID3'));
+      tag.set([3, 0, 0], 3);
+      tag.set(
+        [(tagBytes >> 21) & 127, (tagBytes >> 14) & 127, (tagBytes >> 7) & 127, tagBytes & 127],
+        6,
+      );
+      const xing = frame();
+      xing.set(new TextEncoder().encode('Xing'), 36);
+      const view = new DataView(xing.buffer);
+      view.setUint32(40, 0x3);
+      view.setUint32(44, 7180);
+      // The first part's whole-file size, as some encoders count it.
+      view.setUint32(48, tag.length + 7181 * frameBytes);
+      const bytes = concatenate(
+        tag,
+        xing,
+        ...Array.from({ length: 7180 + 700 }, frame), // 700 appended tagless frames.
+      );
+      expect(
+        await readProRoomFileDuration(memoryBucket(bytes), 'tagged-joined', bytes.length),
+      ).toBeCloseTo(scanned(7881), 6);
+    });
+
+    describe('frame counts behind a leading ID3 tag larger than the tolerance', () => {
+      // MPEG-1 Layer III at 44.1 kHz. Unpadded frames are enough for a scan;
+      // the CBR stream below pads like an encoder to the exact average length.
+      const encoder = new TextEncoder();
+      const KBPS = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192];
+      const frame = (bitrateIndex = 9, padded = false) => {
+        const bytes = new Uint8Array(
+          Math.floor((144000 * KBPS[bitrateIndex]!) / 44100) + (padded ? 1 : 0),
+        );
+        bytes.set([0xff, 0xfb, (bitrateIndex << 4) | (padded ? 2 : 0), 0x64]);
+        return bytes;
+      };
+      const header = (magic: 'Xing' | 'Info', frames: number, streamBytes: number) => {
+        const bytes = frame();
+        bytes.set(encoder.encode(magic), 36);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(40, 0x3);
+        view.setUint32(44, frames);
+        view.setUint32(48, streamBytes);
+        return bytes;
+      };
+      const coverArt = () => {
+        const tagBytes = 2 * 1024 * 1024;
+        const tag = new Uint8Array(10 + tagBytes);
+        tag.set(encoder.encode('ID3'));
+        tag.set([3, 0, 0], 3);
+        tag.set(
+          [(tagBytes >> 21) & 127, (tagBytes >> 14) & 127, (tagBytes >> 7) & 127, tagBytes & 127],
+          6,
+        );
+        return tag;
+      };
+      const read = (bytes: Uint8Array) =>
+        readProRoomFileDuration(memoryBucket(bytes), 'cover-art', bytes.length);
+
+      // The first part's header counts its 7180 frames and, as some encoders
+      // do, the whole first file including the tag. An appended part about the
+      // tag's size makes that byte count match the joined audio span as well.
+      it.each([
+        ['Xing', 4429],
+        ['Xing', 5029],
+        ['Xing', 5629],
+        ['Info', 4429],
+        ['Info', 5029],
+        ['Info', 5629],
+      ] as const)(
+        'scans instead of trusting a stale %s count followed by %i appended frames',
+        async (magic, appended) => {
+          const tag = coverArt();
+          const bytes = concatenate(
+            tag,
+            header(magic, 7180, tag.length + 7181 * 417),
+            ...Array.from({ length: 7180 + appended }, () => frame()),
+          );
+          expect(await read(bytes)).toBeCloseTo(scanned(7181 + appended), 6);
+        },
+      );
+
+      it.each([
+        ['also counts', true],
+        ['excludes', false],
+      ])(
+        'still indexes a CBR Info count whose stream size %s the cover art',
+        async (_label, countsTag) => {
+          const frames = 3_000;
+          // An encoder pads frames so the stream keeps the exact 128 kbps average.
+          const exact = (count: number) => Math.floor((count * 144000 * 128) / 44100);
+          const audio = Array.from({ length: frames }, (_, index) =>
+            frame(9, exact(index + 2) - exact(index + 1) === 418),
+          );
+          const streamBytes = 417 + audio.reduce((sum, part) => sum + part.length, 0);
+          const tag = coverArt();
+          const bytes = concatenate(
+            tag,
+            header('Info', frames, streamBytes + (countsTag ? tag.length : 0)),
+            ...audio,
+          );
+          // A scan would also count the header frame; only the index is exact.
+          expect(await read(bytes)).toBe((frames * 1152) / 44100);
+        },
+      );
+
+      it('measures a VBR Xing stream behind cover art by scanning within the read budget', async () => {
+        const audio = Array.from({ length: 4_000 }, (_, index) => frame(index % 3 ? 9 : 11));
+        const streamBytes = 417 + audio.reduce((sum, part) => sum + part.length, 0);
+        const tag = coverArt();
+        const bytes = concatenate(tag, header('Xing', 4_000, tag.length + streamBytes), ...audio);
+        const bucket = memoryBucket(bytes);
+        expect(await readProRoomFileDuration(bucket, 'vbr-cover-art', bytes.length)).toBeCloseTo(
+          scanned(4_001),
+          6,
+        );
+        expect(
+          bucket.get.mock.calls.reduce((sum, [, options]) => sum + options.range.length, 0),
+        ).toBeLessThanOrEqual(16 * 1024 * 1024);
+      });
+    });
+
+    it('leaves a joined file unknown when its continuation cannot be scanned', async () => {
+      const first = await chirp();
+      // `cat a.mp3 b.mp3` keeps the second ID3 tag inside the MPEG stream.
+      const bytes = concatenate(first, first);
+      expect(await readProRoomFileDuration(memoryBucket(bytes), 'cat', bytes.length)).toBeNull();
+    });
+
+    it('rejects a frame count too small for the file even without a declared byte count', async () => {
+      const first = await chirp();
+      const xingFlags = CHIRP_AUDIO_START + 36 + 4;
+      const header = first.slice();
+      new DataView(header.buffer).setUint32(xingFlags, 0x1);
+      const continuation = first.subarray(CHIRP_AUDIO_START);
+      const bytes = concatenate(header, ...Array.from({ length: 6 }, () => continuation));
+      expect(
+        await readProRoomFileDuration(memoryBucket(bytes), 'frames-only', bytes.length),
+      ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES * 7), 6);
+      // Without a stream size a VBR count cannot rule out an appended part, so
+      // even the file it describes is measured by the exact scan.
+      expect(
+        await readProRoomFileDuration(memoryBucket(header), 'frames-only-exact', header.length),
+      ).toBeCloseTo(scanned(CHIRP_SCANNED_FRAMES), 6);
+    });
+
+    describe('frame counts without a declared stream size', () => {
+      const encoder = new TextEncoder();
+      // MPEG-1 Layer III, 128 kbps, 44.1 kHz, padded to the exact average length.
+      const exact = (count: number) => Math.floor((count * 144000 * 128) / 44100);
+      const frame = (index: number) => {
+        const bytes = new Uint8Array(exact(index + 1) - exact(index));
+        bytes.set([0xff, 0xfb, 0x90 | (bytes.length === 418 ? 2 : 0), 0x64]);
+        return bytes;
+      };
+      const header = (magic: 'Xing' | 'Info', frames: number) => {
+        const bytes = frame(0);
+        bytes.set(encoder.encode(magic), 36);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(40, 0x1);
+        view.setUint32(44, frames);
+        return bytes;
+      };
+      const audio = (from: number, count: number) =>
+        Array.from({ length: count }, (_, index) => frame(from + index));
+      const read = (bytes: Uint8Array) =>
+        readProRoomFileDuration(memoryBucket(bytes), 'frames-only-size', bytes.length);
+
+      it('indexes a CBR Info count whose frames span the audio', async () => {
+        const bytes = concatenate(header('Info', 3_000), ...audio(1, 3_000));
+        expect(await read(bytes)).toBe((3_000 * 1152) / 44100);
+      });
+
+      // An appended part about as large as the counted audio still fits the
+      // largest-frame bound at 128 kbps, so the bound alone would keep the
+      // first part's length.
+      it.each(['Xing', 'Info'] as const)(
+        'scans a joined file behind a %s count without a stream size',
+        async (magic) => {
+          const bytes = concatenate(header(magic, 3_000), ...audio(1, 3_000), ...audio(1, 3_000));
+          expect(await read(bytes)).toBeCloseTo(scanned(6_001), 6);
+        },
+      );
+    });
+
+    describe('CBR Info counts measured against the first audio frame', () => {
+      const encoder = new TextEncoder();
+      // Version bits: 3 = MPEG-1, 2 = MPEG-2, 0 = MPEG-2.5.
+      type Version = 3 | 2 | 0;
+      const KBPS = {
+        3: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+        2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+        0: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+      } as const;
+      const rateOf = (version: Version, rateIndex: number) =>
+        [44100, 48000, 32000][rateIndex]! / (version === 3 ? 1 : version === 2 ? 2 : 4);
+      const seconds = (version: Version, rateIndex: number, frames: number) =>
+        (frames * (version === 3 ? 1152 : 576)) / rateOf(version, rateIndex);
+      // Layer III frames padded like an encoder to the exact average length.
+      const cbr = (
+        version: Version,
+        rateIndex: number,
+        bitrateIndex: number,
+        count: number,
+        mono = false,
+      ) => {
+        const scale = (version === 3 ? 144000 : 72000) * KBPS[version][bitrateIndex]!;
+        const exact = (frames: number) => Math.floor((frames * scale) / rateOf(version, rateIndex));
+        return Array.from({ length: count }, (_, index) => {
+          const bytes = new Uint8Array(exact(index + 1) - exact(index));
+          const padded = bytes.length > exact(1);
+          bytes.set([
+            0xff,
+            0xe3 | (version << 3),
+            (bitrateIndex << 4) | (rateIndex << 2) | (padded ? 2 : 0),
+            mono ? 0xc4 : 0x64,
+          ]);
+          return bytes;
+        });
+      };
+      const id3 = (tagBytes: number) => {
+        const tag = new Uint8Array(10 + tagBytes);
+        tag.set(encoder.encode('ID3'));
+        tag.set([3, 0, 0], 3);
+        tag.set(
+          [(tagBytes >> 21) & 127, (tagBytes >> 14) & 127, (tagBytes >> 7) & 127, tagBytes & 127],
+          6,
+        );
+        return tag;
+      };
+      const COVER_ART = 2 * 1024 * 1024;
+      // An unpadded Info frame at the stream's bitrate, as LAME writes it, or
+      // at a raised `headerBitrate`, as FFmpeg writes it for low bitrates.
+      const infoFile = (options: {
+        version?: Version;
+        rateIndex?: number;
+        bitrate: number;
+        headerBitrate?: number;
+        mono?: boolean;
+        frames: number;
+        counted?: number;
+        size?: boolean;
+        tag?: number;
+      }) => {
+        const { version = 3, rateIndex = 0, bitrate, frames, mono = false } = options;
+        const at = 4 + (version === 3 ? (mono ? 17 : 32) : mono ? 9 : 17);
+        // Encoders never write a tag frame too small to hold it.
+        let headerBitrate = options.headerBitrate ?? bitrate;
+        while (cbr(version, rateIndex, headerBitrate, 1)[0]!.length < at + 16) headerBitrate += 1;
+        const [header] = cbr(version, rateIndex, headerBitrate, 1, mono);
+        const audio = cbr(version, rateIndex, bitrate, frames, mono);
+        const view = new DataView(header!.buffer);
+        header!.set(encoder.encode('Info'), at);
+        view.setUint32(at + 4, options.size === false ? 1 : 3);
+        view.setUint32(at + 8, options.counted ?? frames);
+        view.setUint32(at + 12, header!.length + audio.reduce((sum, part) => sum + part.length, 0));
+        return concatenate(...(options.tag ? [id3(options.tag)] : []), header!, ...audio);
+      };
+      const read = (bytes: Uint8Array) =>
+        readProRoomFileDuration(memoryBucket(bytes), 'cbr-info', bytes.length);
+      const LAYOUTS = [
+        ['without a stream size', { size: false }],
+        ['with a stream size', {}],
+        ['with a stream size behind a small ID3 tag', { tag: 1_000 }],
+        ['with a stream size behind cover art', { tag: COVER_ART }],
+        ['without a stream size behind cover art', { size: false, tag: COVER_ART }],
+      ] as const;
+
+      it.each(
+        ([3, 2, 0] as const).flatMap((version) =>
+          [0, 1, 2].flatMap((rateIndex) =>
+            Array.from({ length: 14 }, (_, index) => [version, rateIndex, index + 1] as const),
+          ),
+        ),
+      )(
+        'indexes MPEG version bits %i, rate index %i, bitrate index %i exactly in every layout',
+        async (version, rateIndex, bitrate) => {
+          for (const [, layout] of LAYOUTS) {
+            const options = { version, rateIndex, bitrate, frames: 1_000, ...layout };
+            // 128 KiB already exceeds 1/16 of every 1,000-frame stream here.
+            const tag = 'tag' in layout ? Math.min(layout.tag, 128 * 1024) : undefined;
+            expect(await read(infoFile({ ...options, tag }))).toBe(
+              seconds(version, rateIndex, 1_000),
+            );
+          }
+        },
+      );
+
+      it('accepts a count that also includes the Info frame', async () => {
+        const bytes = infoFile({ bitrate: 9, frames: 3_000, counted: 3_001 });
+        expect(await read(bytes)).toBe(seconds(3, 0, 3_001));
+      });
+
+      // FFmpeg raises the Info frame to the smallest bitrate that holds its
+      // tag; the audio frames keep the stream's bitrate.
+      describe.each([
+        ['32 kbps stereo at 44.1 kHz behind a 64 kbps', 3, 1, 5, false],
+        ['32 kbps mono at 44.1 kHz behind a 56 kbps', 3, 1, 4, true],
+        ['32 kbps stereo at 22.05 kHz behind a 56 kbps', 2, 4, 7, false],
+        ['8 kbps mono at 22.05 kHz behind a 56 kbps', 2, 1, 7, true],
+      ] as const)('%s Info frame', (_label, version, bitrate, headerBitrate, mono) => {
+        const ffmpeg = { version, bitrate, headerBitrate, mono, frames: 3_000 } as const;
+
+        it.each(LAYOUTS)('indexes the stream exactly %s', async (_layout, layout) => {
+          expect(await read(infoFile({ ...ffmpeg, ...layout }))).toBe(seconds(version, 0, 3_000));
+        });
+
+        it('scans a doubled file whose header has no stream size', async () => {
+          const single = infoFile({ ...ffmpeg, size: false });
+          // `cat a.mp3 a.mp3`: the second Info frame is an ordinary frame to a scan.
+          expect(await read(concatenate(single, single))).toBeCloseTo(
+            seconds(version, 0, 6_002),
+            6,
+          );
+        });
+      });
+
+      // A tail below 1/16 of the first part fits FFmpeg's concatenation
+      // tolerance; at a lower bitrate it hides far more than 1/16 of the time.
+      describe.each([
+        ['a 128 kbps file with a 32 kbps tail', 9, () => cbr(3, 0, 1, 750), seconds(3, 0, 750)],
+        [
+          'a 192 kbps file with a 32 kbps tail',
+          11,
+          () => cbr(3, 0, 1, 1_100),
+          seconds(3, 0, 1_100),
+        ],
+        [
+          'a 128 kbps file with an 8 kbps MPEG-2.5 tail',
+          9,
+          () => cbr(0, 0, 1, 1_500),
+          seconds(0, 0, 1_500),
+        ],
+      ] as const)('%s', (_label, bitrate, tail, tailSeconds) => {
+        it.each(LAYOUTS)('scans to the exact length %s', async (_layout, layout) => {
+          const bytes = concatenate(infoFile({ bitrate, frames: 3_000, ...layout }), ...tail());
+          // The scan also counts the Info frame.
+          expect(await read(bytes)).toBeCloseTo(seconds(3, 0, 3_001) + tailSeconds, 6);
+        });
+      });
+    });
+
+    it('applies the same consistency rule to Fraunhofer VBRI headers', async () => {
+      const frameBytes = 417; // MPEG-1 Layer III, 128 kbps, 44.1 kHz, no padding.
+      const frame = () => {
+        const bytes = new Uint8Array(frameBytes);
+        bytes.set([0xff, 0xfb, 0x90, 0x64]);
+        return bytes;
+      };
+      const vbri = (frames: number, streamBytes: number) => {
+        const bytes = frame();
+        bytes.set(new TextEncoder().encode('VBRI'), 36);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(46, streamBytes);
+        view.setUint32(50, frames);
+        return bytes;
+      };
+      const audio = Array.from({ length: 29 }, frame);
+      const exact = concatenate(vbri(29, 30 * frameBytes), ...audio);
+      expect(await readProRoomFileDuration(memoryBucket(exact), 'vbri', exact.length)).toBe(
+        scanned(29),
+      );
+      const joined = concatenate(vbri(9, 10 * frameBytes), ...audio);
+      expect(
+        await readProRoomFileDuration(memoryBucket(joined), 'vbri-joined', joined.length),
+      ).toBeCloseTo(scanned(30), 6);
+    });
+
+    describe('VBRI stream byte counts', () => {
+      // At 128 kbps the largest-frame bound alone admits counts far below the
+      // 29 audio frames here, so only the declared byte count can refuse them.
+      const frameBytes = 417;
+      const frame = () => {
+        const bytes = new Uint8Array(frameBytes);
+        bytes.set([0xff, 0xfb, 0x90, 0x64]);
+        return bytes;
+      };
+      const vbri = (frames: number, streamBytes: number) => {
+        const bytes = frame();
+        bytes.set(new TextEncoder().encode('VBRI'), 36);
+        const view = new DataView(bytes.buffer);
+        view.setUint32(46, streamBytes);
+        view.setUint32(50, frames);
+        return bytes;
+      };
+      const read = (...parts: Uint8Array[]) => {
+        const bytes = concatenate(...parts);
+        return readProRoomFileDuration(memoryBucket(bytes), 'vbri-bytes', bytes.length);
+      };
+      const audio = () => Array.from({ length: 29 }, frame);
+      const id3 = (tagBytes: number) => {
+        const tag = new Uint8Array(10 + tagBytes);
+        tag.set(new TextEncoder().encode('ID3'));
+        tag.set([3, 0, 0, 0, 0, tagBytes >> 7, tagBytes & 127], 3);
+        return tag;
+      };
+
+      it.each([
+        ['matches the audio span within 1/16', 0, 30 * frameBytes + 700],
+        ['also counts a leading ID3 tag within 1/16', 700, 710 + 30 * frameBytes],
+      ])('trusts a frame count whose byte count %s', async (_label, tagBytes, streamBytes) => {
+        const tag = tagBytes ? [id3(tagBytes)] : [];
+        expect(await read(...tag, vbri(29, streamBytes), ...audio())).toBe(scanned(29));
+      });
+
+      it('scans when a leading ID3 tag beyond 1/16 makes the byte count ambiguous', async () => {
+        expect(await read(id3(1_000), vbri(29, 1_010 + 30 * frameBytes), ...audio())).toBeCloseTo(
+          scanned(30),
+          6,
+        );
+      });
+
+      it.each([
+        ['describes a shorter first part', 25, 26 * frameBytes],
+        ['exceeds the audio span by more than 1/16', 29, 30 * frameBytes + 800],
+        ['falls short of the audio span by more than 1/16', 29, 28 * frameBytes],
+      ])('scans instead of trusting a byte count that %s', async (_label, frames, streamBytes) => {
+        expect(await read(vbri(frames, streamBytes), ...audio())).toBeCloseTo(scanned(30), 6);
+      });
+
+      it('stays unknown when a refused count leaves an unscannable continuation', async () => {
+        expect(await read(vbri(25, 26 * frameBytes), ...audio(), new Uint8Array(500))).toBeNull();
+      });
+    });
+  });
+
+  describe('320 kbps CBR MP3 with trailing tags', () => {
+    const FRAMES = 2_000;
+    const encoder = new TextEncoder();
+    const concatenate = (...parts: Uint8Array[]) => {
+      const bytes = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+      let offset = 0;
+      for (const part of parts) {
+        bytes.set(part, offset);
+        offset += part.length;
+      }
+      return bytes;
+    };
+    // MPEG-1 Layer III at 320 kbps / 44.1 kHz pads frames to average 1044.898
+    // bytes, so the largest frame (1045) leaves almost no slack for trailers.
+    const frame = (index: number) => {
+      const exact = (count: number) => Math.floor((count * 144000 * 320) / 44100);
+      const bytes = new Uint8Array(exact(index + 1) - exact(index));
+      bytes.set([0xff, 0xfb, bytes.length === 1045 ? 0xe2 : 0xe0, 0x64]);
+      return bytes;
+    };
+    const stream = (info: boolean) => {
+      const audio = Array.from({ length: FRAMES }, (_, index) => frame(index + 1));
+      if (!info) return concatenate(...audio);
+      const header = frame(0);
+      header.set(encoder.encode('Info'), 36);
+      const view = new DataView(header.buffer);
+      view.setUint32(40, 0x3);
+      view.setUint32(44, FRAMES);
+      view.setUint32(48, header.length + audio.reduce((sum, part) => sum + part.length, 0));
+      return concatenate(header, ...audio);
+    };
+    const id3v1 = () => {
+      const bytes = new Uint8Array(128);
+      bytes.set(encoder.encode('TAGtitle'));
+      return bytes;
+    };
+    const ape = (bytes: number, options: { header?: boolean; version?: number } = {}) => {
+      const header = options.header ?? true;
+      const tag = new Uint8Array(bytes);
+      const item = header ? 32 : 0;
+      const key = encoder.encode('Comment\0');
+      // One text item fills the space between the header and the footer.
+      new DataView(tag.buffer).setUint32(item, bytes - item - 32 - 8 - key.length, true);
+      tag.set(key, item + 8);
+      const block = (offset: number, flags: number) => {
+        tag.set(encoder.encode('APETAGEX'), offset);
+        const view = new DataView(tag.buffer, offset, 32);
+        view.setUint32(8, options.version ?? 2000, true);
+        view.setUint32(12, bytes - (header ? 32 : 0), true); // Excludes the header.
+        view.setUint32(16, 1, true);
+        view.setUint32(20, flags >>> 0, true);
+      };
+      if (header) block(0, 0xa0000000);
+      block(bytes - 32, header ? 0x80000000 : 0);
+      return tag;
+    };
+    const lyrics3 = (lyrics: number, digits?: string) => {
+      const body = encoder.encode(
+        `LYRICSBEGINLYR${String(lyrics).padStart(5, '0')}${'x'.repeat(lyrics)}`,
+      );
+      return concatenate(
+        body,
+        encoder.encode(`${digits ?? String(body.length).padStart(6, '0')}LYRICS200`),
+      );
+    };
+    const appendedId3v2 = (bytes: number) => {
+      const tag = new Uint8Array(bytes);
+      const size = bytes - 20;
+      const block = (offset: number, magic: string) => {
+        tag.set(encoder.encode(magic), offset);
+        tag.set(
+          [4, 0, 0x10, (size >> 21) & 127, (size >> 14) & 127, (size >> 7) & 127],
+          offset + 3,
+        );
+        tag[offset + 9] = size & 127;
+      };
+      block(0, 'ID3');
+      block(bytes - 10, '3DI');
+      return tag;
+    };
+    const read = (bytes: Uint8Array) =>
+      readProRoomFileDuration(memoryBucket(bytes), 'cbr', bytes.length);
+
+    it.each([
+      ['ID3v1', () => [id3v1()]],
+      ['APEv2 and ID3v1', () => [ape(1000), id3v1()]],
+      ['APEv2 without a header', () => [ape(1000, { header: false })]],
+      ['Lyrics3v2 and ID3v1', () => [lyrics3(900), id3v1()]],
+      ['APEv2, Lyrics3v2 and ID3v1', () => [lyrics3(900), ape(1000), id3v1()]],
+      ['an appended 4 KB ID3v2.4 tag', () => [appendedId3v2(4096)]],
+    ])('reads the header and scans the frames before %s', async (_label, trailers) => {
+      const indexed = concatenate(stream(true), ...trailers());
+      expect(await read(indexed)).toBeCloseTo((FRAMES * 1152) / 44100, 6);
+      const scanned = concatenate(stream(false), ...trailers());
+      expect(await read(scanned)).toBeCloseTo((FRAMES * 1152) / 44100, 6);
+    });
+
+    it.each([
+      ['an unknown APE version', () => [ape(1000, { version: 3000 }), id3v1()]],
+      ['an APE header flag without a header', () => [ape(1000).subarray(32), id3v1()]],
+      [
+        'an APE size reaching into the audio',
+        () => {
+          const tag = ape(1000, { header: false });
+          new DataView(tag.buffer).setUint32(1000 - 32 + 12, 1000 + 50 * 1045, true);
+          return [tag, id3v1()];
+        },
+      ],
+      ['a non-numeric Lyrics3v2 size', () => [lyrics3(900, '00091x'), id3v1()]],
+      ['a Lyrics3v2 size that misses its start', () => [lyrics3(900, '000918'), id3v1()]],
+      [
+        'an appended ID3v2 footer without its header',
+        () => [new Uint8Array(4086), appendedId3v2(4096).subarray(4086)],
+      ],
+    ])('leaves %s inside the audio span', async (_label, trailers) => {
+      expect(await read(concatenate(stream(true), ...trailers()))).toBeNull();
+      expect(await read(concatenate(stream(false), ...trailers()))).toBeNull();
+    });
   });
 
   it('reads explicit FLAC sample counts without fetching a huge object body', async () => {
@@ -222,7 +831,9 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
     const bucket = {
       get: vi.fn(async () => ({ size: 2000, body: new ReadableStream<Uint8Array>({ cancel }) })),
     };
-    expect(await readProRoomFileDuration(bucket, 'object', 1000)).toBeNull();
+    await expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+      'PRO_MEDIA_DURATION_SOURCE_CHANGED',
+    );
     expect(cancel).toHaveBeenCalledOnce();
   });
 
@@ -240,7 +851,43 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
         }),
       })),
     };
-    expect(await readProRoomFileDuration(bucket, 'object', 1000)).toBeNull();
+    await expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+      length ? 'PRO_MEDIA_DURATION_RANGE_OVERRUN' : 'PRO_MEDIA_DURATION_RANGE_TRUNCATED',
+    );
+  });
+
+  it.each([
+    ['an R2 error', () => Promise.reject(new Error('R2 unavailable'))],
+    ['a missing object', () => Promise.resolve(null)],
+    ['an object without a body', () => Promise.resolve({ size: 1000 })],
+  ])('fails instead of answering unknown on %s', async (_label, get) => {
+    await expect(readProRoomFileDuration({ get: vi.fn(get) }, 'object', 1000)).rejects.toThrow();
+  });
+
+  it('fails when a parser turned a failed range read into an unknown result', async () => {
+    const bytes = await readFile(
+      new URL('../../../e2e/fixtures/large-audio-chirp-lc-stereo.m4a', import.meta.url),
+    );
+    const healthy = memoryBucket(bytes);
+    let calls = 0;
+    const get = vi.fn(
+      async (key: string, options: { range: { offset: number; length: number } }) =>
+        ++calls > 2 ? Promise.reject(new Error('R2 unavailable')) : healthy.get(key, options),
+    );
+    // The MP4 reader catches its own errors; the failed read still counts.
+    await expect(readProRoomFileDuration({ get }, 'object', bytes.length)).rejects.toThrow(
+      'PRO_MEDIA_DURATION_READ_FAILED',
+    );
+    expect(await readProRoomFileDuration(healthy, 'object', bytes.length)).toBe(5);
+  });
+
+  it('answers unknown, not failed, for a stream beyond the read budget', async () => {
+    // 17 MiB of unindexed 128 kbps frames: the bounded scan stops at 16 MiB.
+    const frames = Math.ceil((17 * 1024 * 1024) / 417);
+    const bytes = new Uint8Array(frames * 417);
+    for (let offset = 0; offset < bytes.length; offset += 417)
+      bytes.set([0xff, 0xfb, 0x90, 0x64], offset);
+    expect(await readProRoomFileDuration(memoryBucket(bytes), 'long', bytes.length)).toBeNull();
   });
 
   it('bounds a stalled R2 body and releases its reader', async () => {
@@ -250,9 +897,11 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
       const bucket = {
         get: vi.fn(async () => ({ size: 1000, body: new ReadableStream<Uint8Array>({ cancel }) })),
       };
-      const result = readProRoomFileDuration(bucket, 'object', 1000);
+      const result = expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+        'PRO_MEDIA_DURATION_PROBE_TIMEOUT',
+      );
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(await result).toBeNull();
+      await result;
       expect(cancel).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
@@ -272,9 +921,11 @@ describe('trusted PRO file duration from bounded R2 ranges', () => {
             }),
         ),
       };
-      const result = readProRoomFileDuration(bucket, 'object', 1000);
+      const result = expect(readProRoomFileDuration(bucket, 'object', 1000)).rejects.toThrow(
+        'PRO_MEDIA_DURATION_PROBE_TIMEOUT',
+      );
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(await result).toBeNull();
+      await result;
       deliver({ size: 1000, body: new ReadableStream<Uint8Array>({ cancel }) });
       await vi.advanceTimersByTimeAsync(0);
       expect(cancel).toHaveBeenCalledOnce();

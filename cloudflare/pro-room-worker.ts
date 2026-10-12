@@ -79,7 +79,10 @@ import {
   developerMutationScopes,
 } from './developer-api-credential.ts';
 import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.ts';
-import { readProRoomFileDuration } from './pro-room-media-duration.ts';
+import {
+  PRO_ROOM_FILE_DURATION_READER,
+  readProRoomFileDuration,
+} from './pro-room-media-duration.ts';
 import { resolveProYouTubeDuration } from './pro-youtube-duration.ts';
 import {
   finalizeProRoomActivationEntitlement,
@@ -263,7 +266,12 @@ interface PlaybackDurationEvidence {
   // Null is an explicit provider-confirmed unplayable video, never unknown/live.
   durationSeconds: number | null;
   checkedAtMs: number;
-  source: 'server' | 'controller' | 'upload';
+  // 8.9.5-8.10.0 also stored client-supplied 'upload' lengths. Those, like
+  // server file lengths without the current `reader`, are discarded on load.
+  source: 'server' | 'controller';
+  // PRO_ROOM_FILE_DURATION_READER behind a server file length. Older Workers
+  // ignore and drop the key; this Worker then rebuilds the entry from the asset.
+  reader?: number;
 }
 
 interface AssetDurationEvidence {
@@ -273,16 +281,28 @@ interface AssetDurationEvidence {
   durationSeconds: number;
   checkedAtMs: number;
   source: PlaybackDurationEvidence['source'];
+  // Current-reader server length beneath a controller value, measured before
+  // or after it. Later controller reports keep the same floor; older Workers
+  // ignore and drop the key.
+  measuredSeconds?: number;
+  // Reader version of a server length, or of a controller value's
+  // `measuredSeconds` (or its unknown result when absent). Server evidence
+  // without the current version, and legacy 'upload' evidence, count as
+  // absent. Older Workers keep the key until they rewrite the evidence.
+  reader?: number;
 }
 
 function durationSourcePriority(source: PlaybackDurationEvidence['source']) {
-  return source === 'controller' ? 3 : source === 'server' ? 2 : 1;
+  return source === 'controller' ? 2 : 1;
 }
 
 interface PlaybackDurationProbe {
   identity: PlaybackDurationIdentity;
   attempts: number;
   retryAtMs: number;
+  // First YouTube "not found" answer for this identity. A later answer from a
+  // separate lookup confirms it. Older Workers keep or drop the extra key.
+  notFoundAtMs?: number;
 }
 
 type PlaybackAuthorityCommand =
@@ -1254,7 +1274,19 @@ const PLAYBACK_DURATION_CACHE_MAX_ITEMS = 64;
 const PLAYBACK_DURATION_YOUTUBE_TTL_MS = 60 * 60 * 1000;
 const PLAYBACK_DURATION_PROBE_WATCHDOG_MS = 10_000;
 const PLAYBACK_DURATION_UNKNOWN_RETRY_MS = 60_000;
+const PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS = 15 * 60_000;
+// Two "not found" answers this far apart (separate lookups; the App caches an
+// answer for 30 s) skip a deleted/private video. Live is never skipped.
+const PLAYBACK_DURATION_NOT_FOUND_CONFIRM_MS = 60_000;
 const PLAYBACK_DURATION_FILE_RETRY_MS = 5 * 60_000;
+// A due natural end whose commit is refused (room state capacity) would
+// otherwise re-arm the alarm at now+1 and repeat on every request's prune().
+const PLAYBACK_NATURAL_ADVANCE_RETRY_MS = 30_000;
+// A decoded controller length may trim a header estimate (priming, padding,
+// edit lists) but not undercut measured media timing materially. Otherwise a
+// briefly trusted controller could leave a short boundary that keeps skipping
+// the asset early after it loses playback.control.
+const PLAYBACK_CONTROLLER_DURATION_MIN_RATIO = 0.9;
 const PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS = 10;
 const PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS = 750;
 const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
@@ -4116,6 +4148,19 @@ export class MusixquareProRoom {
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
   playbackDurationLookup: { key: string; promise: Promise<void> } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
+  // Reads that playback queued for an unmeasured controller length in this
+  // instance, by asset version: Infinity while queued or once answered,
+  // otherwise when a read that got no answer or was refused is due again.
+  assetDurationReads: Map<string, { retryAtMs: number; attempts: number }>;
+  naturalAdvanceRetry: { revision: number; updatedAtMs: number; retryAtMs: number } | null;
+  // A backoff the stored probe could not record: the probe it belongs to
+  // (identity key, attempts and stored retry time) and the time it holds.
+  playbackDurationRetry: {
+    key: string;
+    attempts: number;
+    probeRetryAtMs: number;
+    retryAtMs: number;
+  } | null;
   ready: Promise<void> | undefined;
 
   private get activeRoom(): ProRoomState {
@@ -4154,6 +4199,12 @@ export class MusixquareProRoom {
     this.sessionAdmissionThrottle = null;
     this.playbackDurationLookup = null;
     this.assetDurationLookup = null;
+    this.assetDurationReads = new Map();
+    // Instance memory only: eviction costs at most one immediate retry, which
+    // records a new backoff if the refusal persists.
+    this.naturalAdvanceRetry = null;
+    // Same for a metadata backoff that even a probe-only write could not store.
+    this.playbackDurationRetry = null;
     const load = async () => {
       await this.loadRoomFromStorage();
       this.normalizeLoadedSystemAudio();
@@ -4965,15 +5016,20 @@ export class MusixquareProRoom {
             (raw.durationSeconds === null && identity.mediaKind === 'youtube')) &&
           isSafeNonNegativeInteger(raw.checkedAtMs)
         ) {
+          // An older file reader or a client upload probe may have stored a
+          // too-short length. Drop it; playback re-measures the file.
+          const source =
+            identity.mediaKind === 'file' && raw.source === 'controller' ? 'controller' : 'server';
+          const current = raw.source === source && raw.reader === PRO_ROOM_FILE_DURATION_READER;
+          if (identity.mediaKind === 'file' && source === 'server' && !current) continue;
           durations[key] = {
             identity,
             durationSeconds: raw.durationSeconds,
             checkedAtMs: raw.checkedAtMs,
-            source:
-              (raw.source === 'controller' || raw.source === 'upload') &&
-              identity.mediaKind === 'file'
-                ? raw.source
-                : 'server',
+            source,
+            ...(identity.mediaKind === 'file' && source === 'server'
+              ? { reader: PRO_ROOM_FILE_DURATION_READER }
+              : {}),
           };
         }
       }
@@ -5005,7 +5061,7 @@ export class MusixquareProRoom {
                 asset?.status === 'ready' &&
                 !asset.deletionPending &&
                 asset.roomGeneration === this.activeRoom.roomGeneration &&
-                !this.assetDurationEvidence(asset)
+                this.assetDurationProbeNeeded(asset)
               );
             })
         : [];
@@ -5026,6 +5082,16 @@ export class MusixquareProRoom {
     ) {
       if (probe !== null) changed = true;
       this.activeRoom.playbackDurationProbe = null;
+    } else if (
+      probe.notFoundAtMs !== undefined &&
+      (identity.mediaKind !== 'youtube' ||
+        !isSafeNonNegativeInteger(probe.notFoundAtMs) ||
+        probe.notFoundAtMs > Date.now())
+    ) {
+      // A malformed confirmation only restarts the two-answer rule; it never
+      // invalidates the probe or counts toward a skip.
+      delete probe.notFoundAtMs;
+      changed = true;
     }
     this.playbackAuthorityMigrationPending = this.playbackAuthorityMigrationPending || changed;
   }
@@ -5113,9 +5179,43 @@ export class MusixquareProRoom {
       raw.durationSeconds > 0 &&
       raw.durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS &&
       isSafeNonNegativeInteger(raw.checkedAtMs) &&
-      (raw.source === 'server' || raw.source === 'controller' || raw.source === 'upload')
+      // Server lengths from an older reader, and client-supplied 'upload'
+      // lengths (8.9.5-8.10.0), may be too short: treat them as absent so a
+      // current server read replaces them. Decoded controller lengths stay.
+      (raw.source === 'controller' ||
+        (raw.source === 'server' && raw.reader === PRO_ROOM_FILE_DURATION_READER))
       ? raw
       : null;
+  }
+
+  /** Current-reader server length that bounds later controller reports. */
+  measuredAssetDurationSeconds(evidence: AssetDurationEvidence | null) {
+    const measured =
+      evidence?.source === 'controller'
+        ? evidence.reader === PRO_ROOM_FILE_DURATION_READER
+          ? evidence.measuredSeconds
+          : undefined
+        : evidence?.durationSeconds;
+    return isFiniteNumber(measured) && measured > 0 && measured <= PLAYBACK_MAX_POSITION_SECONDS
+      ? measured
+      : null;
+  }
+
+  /**
+   * The current reader has not read this asset yet: it has no trusted length,
+   * or only a controller decode that still lacks a measured floor.
+   */
+  assetDurationProbeNeeded(asset: RoomAsset) {
+    const evidence = this.assetDurationEvidence(asset);
+    return (
+      !evidence ||
+      (evidence.source === 'controller' && evidence.reader !== PRO_ROOM_FILE_DURATION_READER)
+    );
+  }
+
+  controllerDurationContradictsMeasurement(asset: RoomAsset, durationSeconds: number) {
+    const measured = this.measuredAssetDurationSeconds(this.assetDurationEvidence(asset));
+    return measured !== null && durationSeconds < measured * PLAYBACK_CONTROLLER_DURATION_MIN_RATIO;
   }
 
   storeAssetDuration(
@@ -5125,22 +5225,79 @@ export class MusixquareProRoom {
     nowMs = Date.now(),
   ) {
     const previous = this.assetDurationEvidence(asset);
+    const measuredSeconds = this.measuredAssetDurationSeconds(previous);
+    // A server length, or the floor a controller value inherits from it,
+    // carries the reader version that measured it.
+    const reader = { reader: PRO_ROOM_FILE_DURATION_READER };
+    if (
+      source === 'server' &&
+      previous?.source === 'controller' &&
+      previous.durationSeconds >= durationSeconds * PLAYBACK_CONTROLLER_DURATION_MIN_RATIO
+    ) {
+      // A measurement after a decode it confirms becomes that decode's floor.
+      if (measuredSeconds === durationSeconds) return false;
+      return this.replaceAssetDuration(asset, {
+        ...this.assetDurationIdentity(asset),
+        durationSeconds: previous.durationSeconds,
+        checkedAtMs: previous.checkedAtMs,
+        source: 'controller',
+        measuredSeconds: durationSeconds,
+        ...reader,
+      });
+    }
     if (
       previous &&
+      // A decode far below a later measurement is refused retroactively, as
+      // it would have been on arrival: the measurement replaces it.
+      !(source === 'server' && previous.source === 'controller') &&
       (durationSourcePriority(previous.source) > durationSourcePriority(source) ||
+        (source === 'controller' &&
+          this.controllerDurationContradictsMeasurement(asset, durationSeconds)) ||
         (previous.source === source &&
           (previous.checkedAtMs > nowMs || previous.durationSeconds === durationSeconds)))
     )
       return false;
-    const before = asset.duration;
-    asset.duration = {
-      assetVersion: asset.version,
-      byteLength: asset.byteLength,
-      roomGeneration: asset.roomGeneration,
+    // A controller value keeps the floor, or the unknown result, of the
+    // current reader's earlier read of this asset.
+    const probed = previous?.source === 'server' || previous?.reader === reader.reader;
+    return this.replaceAssetDuration(asset, {
+      ...this.assetDurationIdentity(asset),
       durationSeconds,
       checkedAtMs: nowMs,
       source,
+      ...(source === 'server'
+        ? reader
+        : probed
+          ? { ...(measuredSeconds === null ? {} : { measuredSeconds }), ...reader }
+          : {}),
+    });
+  }
+
+  /** The current reader found no length for an asset only a controller decoded. */
+  markAssetDurationProbed(asset: RoomAsset) {
+    const previous = this.assetDurationEvidence(asset);
+    if (previous?.source !== 'controller' || previous.reader === PRO_ROOM_FILE_DURATION_READER)
+      return false;
+    return this.replaceAssetDuration(asset, {
+      ...this.assetDurationIdentity(asset),
+      durationSeconds: previous.durationSeconds,
+      checkedAtMs: previous.checkedAtMs,
+      source: 'controller',
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+  }
+
+  assetDurationIdentity(asset: RoomAsset) {
+    return {
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+      roomGeneration: asset.roomGeneration,
     };
+  }
+
+  replaceAssetDuration(asset: RoomAsset, evidence: AssetDurationEvidence) {
+    const before = asset.duration;
+    asset.duration = evidence;
     // Optional timing evidence must never make a previously valid room unloadable
     // or consume the headroom needed by an unrelated authoritative mutation.
     if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
@@ -5151,16 +5308,48 @@ export class MusixquareProRoom {
     return true;
   }
 
+  /**
+   * The desired file when its only length is a controller decode the current
+   * reader has not read (8.10.0 stored such decodes without a floor).
+   */
+  unmeasuredControllerAsset(identity = this.desiredPlaybackDurationIdentity()) {
+    if (identity?.mediaKind !== 'file') return null;
+    const asset = this.durationAsset(identity);
+    const evidence = asset && this.assetDurationEvidence(asset);
+    return asset &&
+      evidence?.source === 'controller' &&
+      evidence.reader !== PRO_ROOM_FILE_DURATION_READER
+      ? asset
+      : null;
+  }
+
+  assetDurationReadKey(asset: RoomAsset) {
+    return `${asset.assetId}:${asset.version}:${asset.byteLength}:${asset.roomGeneration}`;
+  }
+
+  /** A read with no answer: queue it again after 5 s, 30 s, then 5 minutes. */
+  deferAssetDurationRead(read: string, nowMs: number) {
+    const attempts = this.assetDurationReads.get(read)?.attempts ?? 0;
+    this.assetDurationReads.set(read, {
+      retryAtMs:
+        nowMs +
+        (attempts === 0 ? 5_000 : attempts === 1 ? 30_000 : PLAYBACK_DURATION_FILE_RETRY_MS),
+      attempts: Math.min(attempts + 1, 2),
+    });
+  }
+
   enqueueAssetDurationProbe(asset: RoomAsset) {
-    if (this.assetDurationEvidence(asset)) return;
+    if (!this.assetDurationProbeNeeded(asset)) return false;
     const before = this.activeRoom.pendingAssetDurationProbes;
     const queue = before ?? [];
-    if (queue.includes(asset.assetId) || queue.length >= ASSET_MAX_ITEMS) return;
+    if (queue.includes(asset.assetId) || queue.length >= ASSET_MAX_ITEMS) return false;
     this.activeRoom.pendingAssetDurationProbes = [...queue, asset.assetId];
     if (serializedCoreStateByteLength(this.activeRoom) > STATE_MAX_BYTES - 8 * 1024) {
       if (before === undefined) delete this.activeRoom.pendingAssetDurationProbes;
       else this.activeRoom.pendingAssetDurationProbes = before;
+      return false;
     }
+    return true;
   }
 
   storePlaybackDurationEvidence(
@@ -5172,11 +5361,17 @@ export class MusixquareProRoom {
     if (identity.mediaKind === 'file' && durationSeconds !== null) {
       const asset = this.durationAsset(identity);
       if (asset) {
-        const stored = this.storeAssetDuration(asset, durationSeconds, source, nowMs);
+        // A refused controller report must not reach the queue cache either;
+        // the cache then mirrors the measured asset evidence it contradicted.
+        const refused =
+          source === 'controller' &&
+          this.controllerDurationContradictsMeasurement(asset, durationSeconds);
+        const stored = !refused && this.storeAssetDuration(asset, durationSeconds, source, nowMs);
         const best = this.assetDurationEvidence(asset);
         if (
           best &&
           (stored ||
+            refused ||
             durationSourcePriority(best.source) > durationSourcePriority(source) ||
             (best.source === source && best.checkedAtMs > nowMs))
         ) {
@@ -5199,6 +5394,11 @@ export class MusixquareProRoom {
       durationSeconds,
       checkedAtMs: nowMs,
       source,
+      // Every server file length reaching the cache was read (or re-read
+      // through asset evidence) by this Worker's reader.
+      ...(identity.mediaKind === 'file' && source === 'server'
+        ? { reader: PRO_ROOM_FILE_DURATION_READER }
+        : {}),
     };
     if (
       this.activeRoom.playbackDurationProbe &&
@@ -5208,9 +5408,30 @@ export class MusixquareProRoom {
     }
   }
 
+  /** A cached controller decode that a later measurement of its asset refuted. */
+  refutedPlaybackDuration(evidence: PlaybackDurationEvidence) {
+    if (
+      evidence.identity.mediaKind !== 'file' ||
+      evidence.source !== 'controller' ||
+      evidence.durationSeconds === null
+    )
+      return false;
+    const asset = this.durationAsset(evidence.identity);
+    return (
+      asset !== null &&
+      this.controllerDurationContradictsMeasurement(asset, evidence.durationSeconds)
+    );
+  }
+
   reconcilePlaybackDurationProbe(nowMs = Date.now()) {
     let changed = false;
     for (const [key, evidence] of Object.entries(this.activeRoom.playbackDurations)) {
+      if (this.refutedPlaybackDuration(evidence)) {
+        // The occurrence is rebuilt below from the asset's measured length.
+        delete this.activeRoom.playbackDurations[key];
+        changed = true;
+        continue;
+      }
       if (evidence.identity.mediaKind === 'file' && evidence.durationSeconds !== null) {
         const asset = this.durationAsset(evidence.identity);
         if (asset)
@@ -5250,9 +5471,39 @@ export class MusixquareProRoom {
         );
         changed = true;
       }
+      // A decode without a current-reader measurement (8.10.0 kept none) is
+      // otherwise read only when a controller reports it again. Queue one
+      // bounded read for the playing or target file only, not as a sweep. An
+      // answer is final for this instance. A read that got no answer, or that
+      // the queue refused or lost to a rolled-back write, is queued again
+      // after 5 s, 30 s, then every PLAYBACK_DURATION_FILE_RETRY_MS (the alarm
+      // wakes an idle room for it), never at once on the next persist.
+      const unmeasured = this.unmeasuredControllerAsset(identity);
+      if (unmeasured) {
+        const read = this.assetDurationReadKey(unmeasured);
+        const memo = this.assetDurationReads.get(read);
+        if (this.activeRoom.pendingAssetDurationProbes?.includes(unmeasured.assetId)) {
+          // Queued, perhaps by a decode report: its completion decides.
+          this.assetDurationReads.set(read, { retryAtMs: Infinity, attempts: memo?.attempts ?? 0 });
+        } else if (memo?.retryAtMs === Infinity) {
+          this.deferAssetDurationRead(read, nowMs);
+        } else if (!memo || nowMs >= memo.retryAtMs) {
+          if (this.enqueueAssetDurationProbe(unmeasured)) {
+            this.assetDurationReads.set(read, {
+              retryAtMs: Infinity,
+              attempts: memo?.attempts ?? 0,
+            });
+            changed = true;
+          } else this.deferAssetDurationRead(read, nowMs);
+        }
+      }
     }
     const evidence = key ? this.activeRoom.playbackDurations[key] : null;
     const fresh = evidence && playbackDurationEvidenceExpiresAtMs(evidence) > nowMs;
+    // A removed or replaced probe leaves any memory-held backoff in place: it
+    // applies only to the exact stored probe it shadows (identity, attempts and
+    // retry time), so a fresh probe starts its own schedule, while a refused
+    // command that restores the stored probe also keeps its backoff.
     if (!identity || fresh) {
       if (this.activeRoom.playbackDurationProbe) changed = true;
       this.activeRoom.playbackDurationProbe = null;
@@ -5284,16 +5535,28 @@ export class MusixquareProRoom {
       : null;
     if (!identity || !evidence || !this.playbackDurationIdentityExists(identity)) return null;
     if (playbackDurationEvidenceExpiresAtMs(evidence) <= nowMs) return null;
-    if (evidence.durationSeconds === null) return playback.updatedAtMs;
+    if (this.refutedPlaybackDuration(evidence)) return null;
     // The YouTube API duration may be rounded. Never schedule before the real
     // endpoint; native ENDED may still settle the exact boundary sooner.
     const graceMs = identity.mediaKind === 'file' && evidence.source === 'controller' ? 0 : 2_000;
-    const deadline = Math.ceil(
-      playback.updatedAtMs +
-        Math.max(0, evidence.durationSeconds - playback.positionSeconds) * 1_000 +
-        graceMs,
-    );
-    return Number.isSafeInteger(deadline) ? deadline : null;
+    const deadline =
+      evidence.durationSeconds === null
+        ? playback.updatedAtMs
+        : Math.ceil(
+            playback.updatedAtMs +
+              Math.max(0, evidence.durationSeconds - playback.positionSeconds) * 1_000 +
+              graceMs,
+          );
+    if (!Number.isSafeInteger(deadline)) return null;
+    // A refused advance applies only to the exact checkpoint it was tried on;
+    // any committed playback change (seek, select, pause) supersedes it.
+    const retry = this.naturalAdvanceRetry;
+    return retry &&
+      retry.revision === playback.revision &&
+      retry.updatedAtMs === playback.updatedAtMs &&
+      retry.retryAtMs > deadline
+      ? retry.retryAtMs
+      : deadline;
   }
 
   advanceCompletedPlayback(nowMs = Date.now()) {
@@ -5372,21 +5635,30 @@ export class MusixquareProRoom {
     const objectKey = asset?.objectKey;
     const version = asset?.version;
     const byteLength = asset?.byteLength;
+    const read = asset ? this.assetDurationReadKey(asset) : null;
     let finished = false;
     const lookup = (async () => {
       let duration: number | null = null;
+      // The reader answered: a length, or no trustworthy one in these bytes.
+      // A failed object read or the lookup deadline is no answer.
+      let answered = false;
       if (
         asset?.status === 'ready' &&
         !asset.deletionPending &&
         asset.roomGeneration === roomGeneration &&
         this.env.PRO_MEDIA_BUCKET &&
-        !this.assetDurationEvidence(asset)
+        this.assetDurationProbeNeeded(asset)
       ) {
-        duration = await readProRoomFileDuration(
-          this.env.PRO_MEDIA_BUCKET,
-          asset.objectKey,
-          asset.byteLength,
-        ).catch(() => null);
+        try {
+          duration = await readProRoomFileDuration(
+            this.env.PRO_MEDIA_BUCKET,
+            asset.objectKey,
+            asset.byteLength,
+          );
+          answered = true;
+        } catch {
+          // No answer: the evidence stays as it was for a later report.
+        }
       }
       await this.withMutation(async () => {
         if (
@@ -5396,6 +5668,9 @@ export class MusixquareProRoom {
         )
           return;
         if ((await readServiceMaintenance(this.env)).enabled) return;
+        // Before this completion's persist reconciles: playback may queue a
+        // read with no answer again only after a backoff.
+        if (!answered && read) this.deferAssetDurationRead(read, Date.now());
         await this.withStateCapacityRollback(
           async () => {
             const current = this.activeRoom.assets[assetId];
@@ -5405,12 +5680,18 @@ export class MusixquareProRoom {
               current.roomGeneration === roomGeneration &&
               current.objectKey === objectKey &&
               current.version === version &&
-              current.byteLength === byteLength &&
-              isFiniteNumber(duration) &&
-              duration > 0 &&
-              duration <= PLAYBACK_MAX_POSITION_SECONDS
+              current.byteLength === byteLength
             ) {
-              this.storeAssetDuration(current, duration, 'server');
+              if (
+                isFiniteNumber(duration) &&
+                duration > 0 &&
+                duration <= PLAYBACK_MAX_POSITION_SECONDS
+              )
+                this.storeAssetDuration(current, duration, 'server');
+              // A decoded length keeps working without a floor; do not read
+              // the same unsupported object again on every later report. A
+              // failed read is not recorded, so a later report reads again.
+              else if (answered) this.markAssetDurationProbed(current);
             }
             // One bounded registration attempt. Unsupported headers remain unknown;
             // a later controller decode or active playback probe can fill the gap.
@@ -5437,9 +5718,30 @@ export class MusixquareProRoom {
     this.state.waitUntil?.(lookup);
   }
 
+  /**
+   * The probe's stored retry time, or a later one held after a refused write.
+   * The held time applies only to the exact stored probe it could not update;
+   * a probe recreated for the same occurrence starts its own schedule.
+   */
+  playbackDurationProbeRetryAtMs(probe: PlaybackDurationProbe) {
+    const retry = this.playbackDurationRetry;
+    return retry &&
+      retry.key === playbackDurationIdentityKey(probe.identity) &&
+      retry.attempts === probe.attempts &&
+      retry.probeRetryAtMs === probe.retryAtMs &&
+      retry.retryAtMs > probe.retryAtMs
+      ? retry.retryAtMs
+      : probe.retryAtMs;
+  }
+
   startPlaybackDurationProbe() {
     const probe = this.room?.playbackDurationProbe;
-    if (!probe || probe.retryAtMs > Date.now() || this.playbackDurationLookup) return;
+    if (
+      !probe ||
+      this.playbackDurationProbeRetryAtMs(probe) > Date.now() ||
+      this.playbackDurationLookup
+    )
+      return;
     if (
       probe.identity.mediaKind === 'file' &&
       (this.assetDurationLookup ||
@@ -5465,10 +5767,21 @@ export class MusixquareProRoom {
     const lookup = (async () => {
       let durationSeconds: number | null = null;
       let unplayable = false;
-      let retryMs = PLAYBACK_DURATION_UNKNOWN_RETRY_MS;
+      // Only a provider "not found" answer counts toward a confirmed skip. A
+      // failed lookup carries no answer: it neither counts nor clears one.
+      let notFound = false;
+      let unanswered = false;
+      // Every unresolved YouTube answer costs provider quota. Back off live,
+      // unavailable and repeatedly failed lookups exponentially up to 15 minutes.
+      let retryMs = Math.min(
+        PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS,
+        PLAYBACK_DURATION_UNKNOWN_RETRY_MS * 2 ** Math.min(probe.attempts, 4),
+      );
       let diagnostic: string | null = null;
       try {
         if (identity.mediaKind === 'file') {
+          // A failed read or the lookup deadline throws: it is retried like a
+          // failed metadata lookup, after 5 s and 30 s, not as an unknown file.
           durationSeconds =
             objectKey && this.env.PRO_MEDIA_BUCKET
               ? await readProRoomFileDuration(
@@ -5483,25 +5796,35 @@ export class MusixquareProRoom {
           const result = await resolveProYouTubeDuration(this.env, identity.youtubeVideoId);
           if (result.kind === 'finite') durationSeconds = result.durationSeconds;
           unplayable = result.kind === 'unplayable';
+          notFound = result.kind === 'unavailable' && result.reason === 'not-found';
+          unanswered = result.kind === 'retry';
           if (result.kind === 'unavailable') diagnostic = 'YOUTUBE_METADATA_UNAVAILABLE';
           if (result.kind === 'retry') diagnostic = 'YOUTUBE_METADATA_RETRY';
-          if (result.kind === 'retry')
-            retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
         }
       } catch {
-        retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
+        unanswered = true;
+        if (identity.mediaKind === 'file')
+          retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
         diagnostic = 'METADATA_LOOKUP_FAILED';
       }
+      // A failed YouTube lookup is not an answer about the video. Keep the quick
+      // first retries so one transient provider error does not leave the track
+      // without a deadline for minutes; repeated failures join the backoff.
+      if (identity.mediaKind === 'youtube' && unanswered && probe.attempts < 2)
+        retryMs = probe.attempts === 0 ? 5_000 : 30_000;
       await this.withMutation(async () => {
         if (!this.room || this.activeRoom.roomGeneration !== roomGeneration) return;
         const currentProbe = this.activeRoom.playbackDurationProbe;
         const currentAsset = identity.mediaKind === 'file' ? this.durationAsset(identity) : null;
         const matchesAsset = currentAsset && currentAsset.objectKey === objectKey;
+        // A file whose asset failed the identity check at lookup start read no
+        // bytes and has no evidence to store, but still owes the queue its
+        // retry backoff; otherwise the overdue probe re-arms the alarm at once.
         const appliesToQueue =
           currentProbe &&
           playbackDurationIdentityKey(currentProbe.identity) === key &&
           this.playbackDurationIdentityExists(identity) &&
-          (identity.mediaKind === 'youtube' || matchesAsset);
+          (identity.mediaKind === 'youtube' || matchesAsset || objectKey === null);
         const appliesToAsset =
           matchesAsset &&
           isFiniteNumber(durationSeconds) &&
@@ -5509,14 +5832,20 @@ export class MusixquareProRoom {
           durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS;
         if (!appliesToQueue && !appliesToAsset) return;
         if ((await readServiceMaintenance(this.env)).enabled) return;
-        await this.withStateCapacityRollback(
+        const applied = await this.withStateCapacityRollback(
           async () => {
             const nowMs = Date.now();
             if (appliesToAsset && currentAsset && durationSeconds !== null)
               this.storeAssetDuration(currentAsset, durationSeconds, 'server', nowMs);
+            const firstNotFoundAtMs = currentProbe?.notFoundAtMs;
+            const confirmedNotFound =
+              notFound &&
+              firstNotFoundAtMs !== undefined &&
+              nowMs - firstNotFoundAtMs >= PLAYBACK_DURATION_NOT_FOUND_CONFIRM_MS;
             if (
               appliesToQueue &&
               (unplayable ||
+                confirmedNotFound ||
                 (isFiniteNumber(durationSeconds) &&
                   durationSeconds > 0 &&
                   durationSeconds <= PLAYBACK_MAX_POSITION_SECONDS))
@@ -5525,11 +5854,19 @@ export class MusixquareProRoom {
             } else if (appliesToQueue) {
               // Live/unknown/unavailable is not authority to skip a track. Retry
               // metadata without accepting ordinary members' declared duration.
+              // A first "not found" stays durable until a second, separate
+              // answer confirms it; any other provider answer withdraws it.
+              const notFoundAtMs = notFound
+                ? (firstNotFoundAtMs ?? nowMs)
+                : unanswered
+                  ? firstNotFoundAtMs
+                  : undefined;
               delete this.activeRoom.playbackDurations[key];
               this.activeRoom.playbackDurationProbe = {
                 identity,
                 attempts: Math.min(100, probe.attempts + 1),
                 retryAtMs: nowMs + retryMs,
+                ...(notFoundAtMs === undefined ? {} : { notFoundAtMs }),
               };
             }
             await this.persist();
@@ -5544,7 +5881,42 @@ export class MusixquareProRoom {
                 reason: diagnostic,
               });
             }
-            return undefined;
+            return true;
+          },
+          { rollbackStorageFailure: true },
+        );
+        if (!appliesToQueue) return;
+        if (applied === true) {
+          this.playbackDurationRetry = null;
+          return;
+        }
+        // Room state capacity refused the answer. The queue still owes its
+        // backoff; otherwise the overdue probe repeats this lookup, and a full
+        // core rewrite, on every watchdog. Record the attempt alone: no
+        // evidence, and only a not-found answer that was already stored and
+        // that this answer did not withdraw (it was "not found" or none).
+        // Instance memory holds the same backoff for the stored probe in case
+        // even that is refused.
+        const retryAtMs = Date.now() + retryMs;
+        await this.withStateCapacityRollback(
+          async () => {
+            const current = this.activeRoom.playbackDurationProbe;
+            if (!current || playbackDurationIdentityKey(current.identity) !== key) return;
+            this.playbackDurationRetry = {
+              key,
+              attempts: current.attempts,
+              probeRetryAtMs: current.retryAtMs,
+              retryAtMs,
+            };
+            this.activeRoom.playbackDurationProbe = {
+              identity: current.identity,
+              attempts: Math.min(100, probe.attempts + 1),
+              retryAtMs,
+              ...(current.notFoundAtMs !== undefined && (notFound || unanswered)
+                ? { notFoundAtMs: current.notFoundAtMs }
+                : {}),
+            };
+            await this.persist();
           },
           { rollbackStorageFailure: true },
         );
@@ -6228,13 +6600,18 @@ export class MusixquareProRoom {
           this.activeRoom.pendingAssetDurationProbes?.includes(
             this.activeRoom.playbackDurationProbe.identity.assetId,
           ));
+      const retryAtMs = this.playbackDurationProbeRetryAtMs(this.activeRoom.playbackDurationProbe);
       candidates.push(
         this.playbackDurationLookup || registrationBlocked
-          ? Math.max(
-              this.activeRoom.playbackDurationProbe.retryAtMs,
-              nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS,
-            )
-          : this.activeRoom.playbackDurationProbe.retryAtMs,
+          ? Math.max(retryAtMs, nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS)
+          : retryAtMs,
+      );
+    }
+    // A playing file's decode whose read got no answer, or was refused.
+    const unmeasured = this.unmeasuredControllerAsset();
+    if (unmeasured) {
+      candidates.push(
+        this.assetDurationReads.get(this.assetDurationReadKey(unmeasured))?.retryAtMs,
       );
     }
     if (this.activeRoom.pendingAssetDurationProbes?.length) {
@@ -15505,6 +15882,8 @@ export class MusixquareProRoom {
         // Only an authorized controller may attest the decoded file duration.
         // YouTube iframe durations (live elapsed time) are never timer evidence.
         this.storePlaybackDurationEvidence(identity, parsed.value.durationSeconds, 'controller');
+        const asset = this.durationAsset(identity);
+        if (asset) this.enqueueAssetDurationProbe(asset);
       }
     }
     // A readiness report is final for this immutable cohort: conflicting
@@ -16271,11 +16650,9 @@ export class MusixquareProRoom {
     asset.status = 'ready';
     delete asset.expiresAtMs;
     asset.completedAtMs = completedAtMs;
-    if (
-      isFiniteNumber(durationSeconds) &&
-      this.sessionHasPermission(auth.session, 'playback.control')
-    )
-      this.storeAssetDuration(asset, durationSeconds, 'upload', completedAtMs);
+    // The optional client length (read by an App's bundled copy of the same,
+    // possibly older reader) stays part of the idempotency fingerprint but is
+    // never timing evidence: the server reads the stored object itself.
     this.enqueueAssetDurationProbe(asset);
     asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
     this.activeRoom.quota.reservedBytes -= asset.byteLength;
@@ -16325,6 +16702,10 @@ export class MusixquareProRoom {
       asset.roomGeneration !== this.activeRoom.roomGeneration
     )
       return errorResponse('ASSET_VERSION_CONFLICT', 409);
+    // Best-effort metadata: acknowledge a refused length as a no-op, exactly as
+    // a duplicate, so current clients neither surface nor retry it.
+    if (this.controllerDurationContradictsMeasurement(asset, parsed.value.durationSeconds))
+      return jsonResponse({ ok: true });
     const stored = this.storeAssetDuration(asset, parsed.value.durationSeconds, 'controller');
     const evidence = this.assetDurationEvidence(asset);
     if (
@@ -16333,7 +16714,10 @@ export class MusixquareProRoom {
         evidence.durationSeconds !== parsed.value.durationSeconds)
     )
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
-    if (stored) await this.persist();
+    // A decode reported before any current server read still gets one bounded
+    // read, which may set its floor or retroactively replace it.
+    const queued = this.enqueueAssetDurationProbe(asset);
+    if (stored || queued) await this.persist();
     return jsonResponse({ ok: true });
   }
 
@@ -16731,7 +17115,20 @@ export class MusixquareProRoom {
         },
         { rollbackStorageFailure: true },
       );
-      changed = advanced === true || changed;
+      if (advanced === true) {
+        this.naturalAdvanceRetry = null;
+        changed = true;
+      } else {
+        // The past deadline is unchanged after a refused or empty advance.
+        // Defer it so the alarm and every request's prune() do not spin.
+        const playback = this.activeRoom.playback;
+        this.naturalAdvanceRetry = {
+          revision: playback.revision,
+          updatedAtMs: playback.updatedAtMs,
+          retryAtMs: Date.now() + PLAYBACK_NATURAL_ADVANCE_RETRY_MS,
+        };
+        await this.maintainAlarm();
+      }
     }
     return changed;
   }

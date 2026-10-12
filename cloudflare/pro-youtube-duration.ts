@@ -17,7 +17,9 @@ export type ProYouTubeDurationResult =
   | { kind: 'finite'; durationSeconds: number }
   | { kind: 'live' }
   | { kind: 'unplayable' }
-  | { kind: 'unavailable' }
+  // `reason` is additive: an older PRO Worker reads only `kind`, and an older
+  // App never sends it, so either side of a rolling deploy keeps "unavailable".
+  | { kind: 'unavailable'; reason?: 'not-found' }
   | { kind: 'retry' };
 
 interface MetadataServiceEnv {
@@ -72,7 +74,8 @@ function durationSeconds(value: unknown): number | null {
 function readVideoMetadata(payload: unknown, videoId: string): ProYouTubeDurationResult {
   const root = asRecord(payload);
   if (!root || !Array.isArray(root.items)) return { kind: 'retry' };
-  if (root.items.length === 0) return { kind: 'unavailable' };
+  // A successful answer without the video: deleted, or private to this key.
+  if (root.items.length === 0) return { kind: 'unavailable', reason: 'not-found' };
   if (root.items.length !== 1) return { kind: 'retry' };
   const item = asRecord(root.items[0]);
   if (!item || item.id !== videoId) return { kind: 'retry' };
@@ -202,6 +205,9 @@ export async function resolveProYouTubeDuration(
   if (!response || response.status !== 200) return { kind: 'retry' };
   const payload = asRecord(response.payload);
   if (!payload || payload.videoId !== videoId) return { kind: 'retry' };
+  if (payload.kind === 'unavailable' && payload.reason === 'not-found') {
+    return { kind: 'unavailable', reason: 'not-found' };
+  }
   if (
     payload.kind === 'live' ||
     payload.kind === 'unplayable' ||

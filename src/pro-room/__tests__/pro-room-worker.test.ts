@@ -395,21 +395,28 @@ describe('PRO room server-authoritative playback', () => {
     return internal.room.playback as Record<string, any>;
   }
 
-  it('persists authorized registration duration privately with conservative grace and a duration-aware receipt', async () => {
+  it('keeps a registration duration in the receipt only and measures the stored object privately with conservative grace', async () => {
     const context = await activatedRoom();
     installRealtimeRecorder(context);
+    const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(130.25);
+    // The uploading client's length (an older App reader may undercount) is
+    // never timing evidence, even from a playback-authorized uploader.
     const { assetId, asset, completeEnvelope } = await completeReadyAsset(
       context,
       'registration-duration',
       4096,
       { durationSeconds: 123.5 },
     );
-    expect(asset.duration).toMatchObject({
+    await context.worker.assetDurationLookup?.promise;
+    expect(probe).toHaveBeenCalledOnce();
+    expect(asset.duration).toEqual({
       assetVersion: asset.version,
       byteLength: 4096,
       roomGeneration: 0,
-      durationSeconds: 123.5,
-      source: 'upload',
+      durationSeconds: 130.25,
+      checkedAtMs: expect.any(Number),
+      source: 'server',
+      reader: fileDuration.PRO_ROOM_FILE_DURATION_READER,
     });
     expect(completeEnvelope.asset).not.toHaveProperty('duration');
     expect(context.worker.room!.pendingAssetDurationProbes ?? []).toEqual([]);
@@ -432,8 +439,9 @@ describe('PRO room server-authoritative playback', () => {
     );
     await selectAndCommit(context, firstQueueItemId);
     expect(context.worker.naturalPlaybackEndAtMs()).toBe(
-      context.worker.room!.playback.updatedAtMs + 125_500,
+      context.worker.room!.playback.updatedAtMs + 132_250,
     );
+    expect(probe).toHaveBeenCalledOnce();
   });
 
   it('keeps registration completion bodyless receipts compatible and rejects malformed or oversized metadata', async () => {
@@ -525,11 +533,11 @@ describe('PRO room server-authoritative playback', () => {
     expect(asset.duration).toBeUndefined();
   });
 
-  it('accepts late controller duration without a PREPARE and never downgrades it to upload or server estimates', async () => {
+  it('accepts late controller duration without a PREPARE and never downgrades it to a server estimate', async () => {
     const context = await activatedRoom();
-    const { assetId, asset } = await completeReadyAsset(context, 'late-controller-duration', 4096, {
-      durationSeconds: 125,
-    });
+    const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(null);
+    const { assetId, asset } = await completeReadyAsset(context, 'late-controller-duration');
+    await context.worker.assetDurationLookup?.promise;
     const beforePlayback = structuredClone(context.worker.room!.playback);
     const update = () =>
       context.worker.fetch(
@@ -542,13 +550,27 @@ describe('PRO room server-authoritative playback', () => {
       );
     expect((await update()).status).toBe(200);
     expect(asset.duration).toMatchObject({ source: 'controller', durationSeconds: 123.456 });
+    // The decode still gets one server read; an unknown result is remembered.
+    await context.worker.assetDurationLookup?.promise;
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(asset.duration).toMatchObject({
+      source: 'controller',
+      durationSeconds: 123.456,
+      reader: fileDuration.PRO_ROOM_FILE_DURATION_READER,
+    });
+    expect(asset.duration).not.toHaveProperty('measuredSeconds');
     const firstEvidence = structuredClone(asset.duration);
     expect((await update()).status).toBe(200);
     expect(asset.duration).toEqual(firstEvidence);
+    expect(context.worker.room!.pendingAssetDurationProbes).toEqual([]);
+    expect(probe).toHaveBeenCalledTimes(2);
     expect(context.worker.room!.playback).toEqual(beforePlayback);
+    // A later measurement the decode agrees with becomes its floor only.
+    expect(context.worker.storeAssetDuration(asset, 126, 'server')).toBe(true);
+    expect(asset.duration).toEqual({ ...firstEvidence, measuredSeconds: 126 });
     expect(context.worker.storeAssetDuration(asset, 126, 'server')).toBe(false);
-    expect(context.worker.storeAssetDuration(asset, 124, 'upload')).toBe(false);
-    expect(asset.duration).toEqual(firstEvidence);
+    expect(context.worker.storeAssetDuration(asset, 120, 'server')).toBe(true);
+    expect(asset.duration).toEqual({ ...firstEvidence, measuredSeconds: 120 });
     expect(
       (
         await context.worker.fetch(
@@ -573,7 +595,249 @@ describe('PRO room server-authoritative playback', () => {
         )
       ).status,
     ).toBe(409);
-    expect(asset.duration).toEqual(firstEvidence);
+    expect(asset.duration).toEqual({ ...firstEvidence, measuredSeconds: 120 });
+  });
+
+  it.each([
+    ['an R2 error', 'reject'],
+    ['a resized object', 'resize'],
+    ['the lookup deadline', 'stall'],
+  ] as const)(
+    'does not record %s as an unknown length, so the next decode report reads again',
+    async (_label, failure) => {
+      const context = await activatedRoom();
+      const { assetId, asset } = await completeReadyAsset(context, `failed-floor-${failure}`);
+      await context.worker.assetDurationLookup?.promise;
+      if (failure === 'stall') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const get = vi.spyOn(context.bucket, 'get').mockImplementation(async () => {
+        if (failure === 'reject') throw new Error('R2 unavailable');
+        if (failure === 'stall') return new Promise<never>(() => {});
+        return { size: asset.byteLength + 1, body: new ReadableStream() } as never;
+      });
+      const report = async (durationSeconds: number) => {
+        const response = await context.worker.fetch(
+          jsonRequest(
+            `/media/${assetId}/duration`,
+            'POST',
+            { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds },
+            context.ownerCookie,
+          ),
+        );
+        expect(response.status).toBe(200);
+        const lookup = context.worker.assetDurationLookup?.promise;
+        if (failure === 'stall' && vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(10_000);
+        await lookup;
+        return context.worker.room!.assets[assetId]!.duration;
+      };
+      expect(await report(100)).toEqual({
+        assetVersion: asset.version,
+        byteLength: asset.byteLength,
+        roomGeneration: 0,
+        durationSeconds: 100,
+        checkedAtMs: expect.any(Number),
+        source: 'controller',
+      });
+      expect(get).toHaveBeenCalledOnce();
+      expect(context.worker.room!.pendingAssetDurationProbes).toEqual([]);
+      vi.useRealTimers();
+      get.mockRestore();
+      // The read is still owed: the next report queues it, and its length
+      // replaces the far shorter decode.
+      const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(130);
+      expect(await report(100)).toMatchObject({
+        source: 'server',
+        durationSeconds: 130,
+        reader: fileDuration.PRO_ROOM_FILE_DURATION_READER,
+      });
+      expect(probe).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('refuses controller durations far below measured timing but keeps accepting corrections', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'measured-floor');
+    await context.worker.assetDurationLookup?.promise;
+    expect(context.worker.storeAssetDuration(asset, 180, 'server')).toBe(true);
+    const report = async (durationSeconds: number) => {
+      const response = await context.worker.fetch(
+        jsonRequest(
+          `/media/${assetId}/duration`,
+          'POST',
+          { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds },
+          context.ownerCookie,
+        ),
+      );
+      // Current clients treat any other answer as a failed best-effort report.
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ ok: true });
+      return context.worker.room!.assets[assetId]!.duration;
+    };
+    expect(await report(1)).toMatchObject({ source: 'server', durationSeconds: 180 });
+    expect(await report(161.9)).toMatchObject({ source: 'server', durationSeconds: 180 });
+    // Close or longer decodes still correct the estimate, and the measured
+    // floor stays beneath the controller value for every later report.
+    expect(await report(178.5)).toMatchObject({
+      source: 'controller',
+      durationSeconds: 178.5,
+      measuredSeconds: 180,
+    });
+    expect(await report(30)).toMatchObject({ source: 'controller', durationSeconds: 178.5 });
+    expect(await report(240)).toMatchObject({ durationSeconds: 240, measuredSeconds: 180 });
+    expect(await report(162)).toMatchObject({ durationSeconds: 162, measuredSeconds: 180 });
+  });
+
+  it('keeps measured file timing when a controller READY reports a far shorter decode', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(120);
+    const { completeEnvelope } = await completeReadyAsset(context, 'ready-floor');
+    await context.worker.assetDurationLookup?.promise;
+    await replacePlaylist(
+      context,
+      [{ queueItemId: firstQueueItemId, name: 'measured', source: completeEnvelope.asset }],
+      'ready-floor',
+    );
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'ready-floor-select',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: selected.transition.basePlaybackRevision,
+          status: 'ready',
+          durationSeconds: 3,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    await expect(ready.json()).resolves.toMatchObject({ ok: true, status: 'committed' });
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([
+      expect.objectContaining({
+        durationSeconds: 120,
+        source: 'server',
+        reader: fileDuration.PRO_ROOM_FILE_DURATION_READER,
+      }),
+    ]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      realtime.internal.room.playback.updatedAtMs + 122_000,
+    );
+  });
+
+  it('measures a controller-first decode and replaces it when the file is far longer', async () => {
+    const context = await activatedRoom();
+    const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(null);
+    const { assetId, asset } = await completeReadyAsset(context, 'controller-first-floor');
+    await context.worker.assetDurationLookup?.promise;
+    expect(asset.duration).toBeUndefined();
+    probe.mockResolvedValue(130);
+    const report = async (durationSeconds: number) => {
+      const response = await context.worker.fetch(
+        jsonRequest(
+          `/media/${assetId}/duration`,
+          'POST',
+          { assetVersion: asset.version, byteLength: asset.byteLength, durationSeconds },
+          context.ownerCookie,
+        ),
+      );
+      expect(response.status).toBe(200);
+      await context.worker.assetDurationLookup?.promise;
+      return context.worker.room!.assets[assetId]!.duration;
+    };
+    expect(await report(100)).toEqual({
+      assetVersion: asset.version,
+      byteLength: asset.byteLength,
+      roomGeneration: 0,
+      durationSeconds: 130,
+      checkedAtMs: expect.any(Number),
+      source: 'server',
+      reader: fileDuration.PRO_ROOM_FILE_DURATION_READER,
+    });
+    expect(probe).toHaveBeenCalledTimes(2);
+    // The same rule now refuses the decode on arrival, without another read.
+    expect(await report(100)).toMatchObject({ source: 'server', durationSeconds: 130 });
+    expect(await report(125)).toMatchObject({
+      source: 'controller',
+      durationSeconds: 125,
+      measuredSeconds: 130,
+      reader: fileDuration.PRO_ROOM_FILE_DURATION_READER,
+    });
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(context.worker.room!.pendingAssetDurationProbes).toEqual([]);
+  });
+
+  it('replaces a far shorter READY decode with a file measurement that finishes later', async () => {
+    const context = await activatedRoom();
+    const realtime = installRealtimeRecorder(context);
+    const probe = vi.spyOn(fileDuration, 'readProRoomFileDuration').mockResolvedValue(null);
+    const { completeEnvelope } = await completeReadyAsset(context, 'ready-first-floor');
+    await context.worker.assetDurationLookup?.promise;
+    await replacePlaylist(
+      context,
+      [{ queueItemId: firstQueueItemId, name: 'decoded first', source: completeEnvelope.asset }],
+      'ready-first-floor',
+    );
+    let measure!: (value: number | null) => void;
+    probe.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          measure = resolve;
+        }),
+    );
+    const selectedResponse = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: realtime.internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+        },
+        context.ownerCookie,
+        'ready-first-floor-select',
+      ),
+    );
+    expect(selectedResponse.status).toBe(202);
+    const selected = await responseJson(selectedResponse);
+    const lookup = context.worker.playbackDurationLookup!.promise;
+    const ready = await context.worker.fetch(
+      jsonRequest(
+        `/playback/transitions/${selected.transition.transitionId}/ready`,
+        'POST',
+        {
+          basePlaybackRevision: selected.transition.basePlaybackRevision,
+          status: 'ready',
+          durationSeconds: 3,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(ready.status).toBe(200);
+    const updatedAtMs = realtime.internal.room.playback.updatedAtMs;
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(updatedAtMs + 3_000);
+    measure(120);
+    await lookup;
+    await vi.waitFor(() => expect(context.worker.room!.pendingAssetDurationProbes).toEqual([]));
+    expect(Object.values(realtime.internal.room.playbackDurations)).toEqual([
+      expect.objectContaining({ durationSeconds: 120, source: 'server' }),
+    ]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(updatedAtMs + 122_000);
+    // The read queued by the READY decode found the file already measured.
+    expect(probe).toHaveBeenCalledTimes(2);
   });
 
   it('reuses private asset duration after queue replacement, cache eviction and cold restart', async () => {
@@ -581,9 +845,8 @@ describe('PRO room server-authoritative playback', () => {
     const { assetId, asset, completeEnvelope } = await completeReadyAsset(
       context,
       'durable-duration',
-      4096,
-      { durationSeconds: 120 },
     );
+    await context.worker.assetDurationLookup?.promise;
     const identity = {
       queueItemId: firstQueueItemId,
       mediaKind: 'file' as const,
@@ -726,12 +989,9 @@ describe('PRO room server-authoritative playback', () => {
 
   it('rolls back a controller duration update when its storage commit fails', async () => {
     const context = await activatedRoom();
-    const { assetId, asset } = await completeReadyAsset(
-      context,
-      'failed-controller-duration',
-      4096,
-      { durationSeconds: 120 },
-    );
+    const { assetId, asset } = await completeReadyAsset(context, 'failed-controller-duration');
+    await context.worker.assetDurationLookup?.promise;
+    expect(context.worker.storeAssetDuration(asset, 120, 'server')).toBe(true);
     const before = structuredClone(asset.duration);
     vi.spyOn(context.state.storage, 'transaction').mockRejectedValueOnce(
       new Error('controller duration commit failure'),
@@ -845,15 +1105,13 @@ describe('PRO room server-authoritative playback', () => {
     const { assetId, asset, completeEnvelope } = await completeReadyAsset(
       context,
       'late-asset-probe',
-      4096,
-      { durationSeconds: 30 },
     );
+    await context.worker.assetDurationLookup?.promise;
     await replacePlaylist(
       context,
       [{ queueItemId: firstQueueItemId, name: 'old target', source: completeEnvelope.asset }],
       'late-asset-probe',
     );
-    delete asset.duration;
     let resolveProbe!: (value: number | null) => void;
     vi.spyOn(fileDuration, 'readProRoomFileDuration').mockImplementationOnce(
       () =>

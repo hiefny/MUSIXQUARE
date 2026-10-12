@@ -154,19 +154,54 @@ describe('trusted PRO YouTube duration metadata', () => {
   );
 
   it.each([
-    { items: [] },
     { items: [{ id: VIDEO_ID, status: { privacyStatus: 'private' } }] },
     { items: [{ id: VIDEO_ID, status: { privacyStatus: 'private', embeddable: false } }] },
-  ])(
-    'keeps missing or private videos uncertain rather than declaring them unplayable',
-    async (payload) => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => Response.json(payload)),
-      );
-      expect(await readResult()).toEqual({ videoId: VIDEO_ID, kind: 'unavailable' });
-    },
-  );
+  ])('keeps private videos uncertain rather than declaring them unplayable', async (payload) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(payload)),
+    );
+    expect(await readResult()).toEqual({ videoId: VIDEO_ID, kind: 'unavailable' });
+  });
+
+  it('marks only an empty successful answer as not found, which PRO must still confirm', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ items: [] })),
+    );
+    // Older PRO Workers read only `kind`; the additive reason keeps them on
+    // today's unavailable path during a rolling deploy or rollback.
+    expect(await readResult()).toEqual({
+      videoId: VIDEO_ID,
+      kind: 'unavailable',
+      reason: 'not-found',
+    });
+    expect(
+      await resolveProYouTubeDuration(
+        {
+          ...env,
+          PRO_YOUTUBE_METADATA: {
+            fetch: (request) => appWorker.fetch(request, env),
+          },
+        },
+        VIDEO_ID,
+      ),
+    ).toEqual({ kind: 'unavailable', reason: 'not-found' });
+  });
+
+  it.each([
+    [{ videoId: VIDEO_ID, kind: 'unavailable' }, { kind: 'unavailable' }],
+    [{ videoId: VIDEO_ID, kind: 'unavailable', reason: 'gone' }, { kind: 'unavailable' }],
+    [{ videoId: VIDEO_ID, kind: 'live', reason: 'not-found' }, { kind: 'live' }],
+    [{ videoId: VIDEO_ID, kind: 'retry', reason: 'not-found' }, { kind: 'retry' }],
+  ])('never infers not found from an older App or another kind (%j)', async (payload, expected) => {
+    expect(
+      await resolveProYouTubeDuration(
+        { ...env, PRO_YOUTUBE_METADATA: { fetch: async () => Response.json(payload) } },
+        VIDEO_ID,
+      ),
+    ).toEqual(expected);
+  });
 
   it.each([
     { embeddable: false },

@@ -3,6 +3,7 @@
 ## 범위와 코드
 
 - 코드 커밋: `f77617824c62eab6aa9c8f1c92bfb06facf4acf7`.
+- 취소 관측 리뷰 후속: `b7eca9aa0f56b2b0508b3415c11ecdb62184a0d9` (아래 별도 검증).
 - 시작 기준: `4806b1ca3a9b32ef97bec60ce4abba5ecde18906`.
 - Windows, Node **24.20.0**, Vitest **5.0.3**. 시간 경계는 실제 `sync.ts`와
   SharedClock을 검사하되 iframe·네트워크·시간 진행은 각 테스트에서 모사한다.
@@ -72,8 +73,8 @@ SharedClock의 60개/2분 풀, 유효 PONG 때의 age prune, min-RTT/동률 선�
 
 ## 검증
 
-아래 최종 검사는 코드 커밋 `f7761782`에서 실행했다. 이후 변경은 이 보고서와
-문서 색인·배포 기록의 미배포 항목뿐이다.
+아래 최초 수정 검사는 코드 커밋 `f7761782`에서 실행했다. 취소 관측 리뷰 후속의
+별도 결과는 다음 절에 기록한다.
 
 | 검사 | 결과·범위 |
 | --- | --- |
@@ -113,6 +114,40 @@ mock에 새 관측용 `getClockOffset`이 빠져 12개가 실패했다. `getHost
 200ms와 실제 200ms 지연의 보존, 양/음 수동 offset, clock 5/6ms와 wall 50/51ms
 경계, 예약 중 일시 변경·원복, 취소·연결 종료·미보정·NaN/Infinity를 포함한다.
 수정 전 RED와 수정 후 GREEN은 scratch에 보관한다.
+
+## 리뷰 후속: 취소된 시도의 eligible 기록
+
+코드 `b7eca9aa`에서 플레이어 조회 뒤 소유권 확인을 `calibration.learn()` 앞으로
+옮겼다. 이전 코드는 조회 중 취소된 시도에 eligible/nextLatency를 기록한 뒤,
+소유권 검사에서 저장을 막을 수 있었다. 소유권 검사 자체도 `getVideoData()`를
+호출하므로, 그 호출 뒤 정확한 attempt identity를 한 번 더 확인한다. 이후 learn과
+저장 사이에는 다른 플레이어 호출이나 비동기 경계가 없다.
+
+`sync-integration.test.ts`의
+`does not record eligible learning after reentrant cancellation during %s`는
+위치 조회와 마지막 소유권 조회 내부에서 각각 취소시키는 2개 핀이다. 두 경우 모두
+수정 전 eligible 기록 1개로 실패했고, 수정 뒤 eligible 기록 없음·상태와 저장값
+유지로 통과했다. 취소 사유의 새 sample을 쓰는 대신 학습 기록 전에 종료한다.
+일반적으로도 eligible은 유효한 학습 표본이지 localStorage 쓰기 성공 횟수는 아니다.
+같은 값의 no-op이나 저장소 접근 거절이 있을 수 있다.
+
+검토자가 찾지 못했던 단일 seek 핀은 같은 파일의
+`Standard rendezvous release-lateness calibration > learns only media delay: $scenario`다.
+코드 `b7eca9aa` 기준 선언 **2783행**, `seekTo` 호출 횟수 1 검사 **2819행**,
+`appliedCatchUpMs: 0` 검사 **2834행**이다. parameterized test라 개별 조건명만
+검색하면 호출 횟수 assertion이 다른 곳에 있는 것으로 보일 수 있다.
+
+- Windows / Node 24.20.0 / Vitest 5.0.3, 위 코드와 동일한 트리에서 YouTube·diagnostics
+  전체 **44파일 1,137 pass / 0 fail / 0 skip** (9.26초). 새 2개 핀 포함.
+- App·테스트 전체 타입 검사, 변경 파일 ESLint·Prettier 및 diff 검사 통과.
+- 전체 프로젝트 Vitest·빌드·브라우저 E2E·실기·원격 CI는 이 후속에서 다시 실행하지
+  않았다. 앞 절의 전체 통과는 `f7761782`에 대한 증거다.
+- 로그: `scratch/standard-c11-cancel-observation-red.log`,
+  `scratch/standard-c11-cancel-related-green.log`,
+  `scratch/standard-c11-cancel-{app-types,test-types,lint}.log`.
+- 5ms offset 게이트는 유지한다. 정상 min-RTT 선택 개선도 라운드를 제외할 수 있어,
+  현장에서는 eligible 대비 `clock-changed` 비율과 네 시점의 선택값을 함께 본다.
+  offset 차이를 drift에 반영하는 변경은 이번에 하지 않는다.
 
 ## 한계와 다음 배포
 

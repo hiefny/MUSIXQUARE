@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-12 (배포 SHA `9c924ee1`, Release `38192571743`) |
+| Last source review | 2026-10-13 (배포 SHA `72a6e780`, Release `38267400052`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,16 +28,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.10.1` / `v660` |
-| 마지막 프로덕션 변경 | 2026-10-12 10:42 KST, [Release 38192571743](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192571743) attempt 1 성공, `target=all`, Developer API D1 `false` |
-| 배포 main SHA | `9c924ee1` (PR [#303](https://github.com/hiefny/MUSIXQUARE/pull/303)). exact-main [CI 38192205201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192205201) attempt 1 |
-| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `9c924ee1` 적용. 런타임이 바뀐 것은 pro-room과 app(브라우저 번들 포함)이다. 운영 smoke 10개, 최종 배포 소유권, PRO generation ready, coherent production marker 확인. 새 비밀·바인딩·D1 스키마 변경 없음. PRO 저장소의 파일 길이 근거에 `reader`·`measuredSeconds` 필드가 추가되며 계약 marker는 없다 |
-| 복구 | 필요 없음. Release 38192571743의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 Production Release 실행 안의 job이다 |
-| 활성 복구 floor | PRO/App 선택형 입장 암호. `cloudflare/pro-room-entry-policy-contract-version.txt` = `pro-room-optional-entry-password-v1`. 이번 배포에서 floor 변경 없음. 이 계약 이전의 PRO/App 기준선으로는 복구하지 않는다. forward repair나 검증된 같은 시점 코드·데이터 복구를 쓰고, 계약을 아는 기준선으로의 일반 rollback은 가능하다. 8.10.0으로 되돌려도 새 길이 필드는 무시되거나 지워지고, 다시 앞으로 배포하면 그 사이 이전 판독기 값은 재생 때 다시 잰다 (§4) |
-| 검증 범위 | PR [CI 38180080843](https://github.com/hiefny/MUSIXQUARE/actions/runs/38180080843)·exact-main CI 각각 11개 job 성공(attempt 1). exact-main unit 544파일 12,004 pass / 0 fail / Linux에서 Windows 전용 1 skip, coverage 4종, Chromium candidate·critical gate 성공. 로컬 릴리스 SHA(`ed53d978`) 전체 unit 12,005 pass / 0 fail / 0 skip, Worker 2,475 pass, 타입·린트·포맷·build:checked·Worker 6종 번들 통과. 적대적 리뷰 3회(7·5·4건 모두 수정)와 P1–P3 출시 게이트(0건). 공개 GET에서 첫 화면 HTTP 200과 `bootstrap.js?cache=v660`, `/service-worker.js` HTTP 200과 `v660` 확인. 고객방에는 들어가거나 바꾸지 않았다. 실기·실제 고객방 확인은 §2에 남는다. [상세](design/pro-duration-hardening-2026-10-12.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 8.10.1 배포 뒤 [38192998504](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192998504) (2026-10-12 KST, source `9c924ee1`) 31 pass / 0 fail / 5 manual. 소스의 64개 바인딩 계약과 실제 제공 중인 모든 Worker 버전의 설정 일치 확인. 수동 5항목은 §2에 남는다 |
-| Full E2E | 매주 월 18:17 UTC. 2026-10-12 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 배포의 critical browser 검사와 별개로, 8.10.1 배포 SHA의 전체 E2E 실행은 없음 |
-| 의존성 | 이번 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등) 유지. 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포에 넣지 않았다. 2026-10-11 확인한 `npm audit`(전체·`--omit=dev`) 및 Dependabot alert는 0건. sharp 0.35.5 override 유지, TypeScript 6.1 이상·@types/node 25 이상은 Dependabot ignore. [상세](design/dependency-update-2026-10-11.md) |
+| App 버전 / SW 캐시 | `8.10.2` / `v661` |
+| 마지막 프로덕션 변경 | 2026-10-13 00:05:48 KST, [Release 38267400052](https://github.com/hiefny/MUSIXQUARE/actions/runs/38267400052) attempt 1 성공, `target=app`, Developer API D1 `false`. 기존 점검 모드 ON 00:01:12 → OFF 00:02:07, 공개 정상 응답 확인 뒤 00:03:15 배포 시작. 배포·운영 smoke 동안 OFF 유지 |
+| 배포 main SHA | `72a6e780c06fbd84aeb63c7abe2d1aed8f77795c` (PR [#305](https://github.com/hiefny/MUSIXQUARE/pull/305)). exact-main [CI 38264805590](https://github.com/hiefny/MUSIXQUARE/actions/runs/38264805590) attempt 1 성공 후보 재사용 |
+| Worker | App만 `72a6e780` 적용. App version `32c45761-9d66-467f-b272-bb495e80d3b1`, deployment `51e0c126-f126-431b-bf19-3f617d1836ec`, 100%. 나머지 5종(pro-room, signaling, remote-share, developer-api, developer-api-facade)은 `9c924ee1` 유지, 부분 배포 호환성 검사 통과. App generation·익명 계정 경계·PRO 공개 경계·Standard HTTPS 운영 smoke 4종과 최종 배포 소유권, coherent production marker 확인. 새 의존성·비밀·바인딩·D1 스키마·복구 floor 변경 없음. 기존 App/admin/auth D1 기준선은 멱등 적용·검증 |
+| 복구 | 필요 없음. Release 38267400052의 recovery job은 skip됐다. 변경 전 App deployment `8ccb6994-79f9-4df5-8423-50951810cad3`, version `30c691e2-c049-43fe-9408-a25f2624a010`(`9c924ee1`)가 불변 checkpoint로 보존됐다. checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약을 유지한다. 이번 배포에서 floor 변경 없음. PRO/App 선택형 암호 marker는 `pro-room-optional-entry-password-v1`. 계약을 모르는 이전 기준선으로 복구하지 않으며, 검증된 호환 기준선으로의 rollback은 가능하다. 기존 PRO 파일 길이 저장·판독과 쿠키 경계는 §4 및 정식 복구 절차를 따른다 |
+| 검증 범위 | 최종 PR [CI 38264015007](https://github.com/hiefny/MUSIXQUARE/actions/runs/38264015007)와 exact-main CI 각각 11개 job 성공. coverage 4종, 후보·critical browser gate 통과. 로컬 최종 런타임 SHA `89db0184`: 550파일 unit 12,354 pass / 0 fail / 0 skip, 후보 브라우저 17 pass, 별도 선택 Chromium 61 pass(일부 중복), 타입·린트·포맷·build:checked·Worker 6종 번들 통과. 이전 실패와 재검증 경과는 보고서에 보존했다. 배포 뒤 새 브라우저 첫 화면 정상, 공개 GET `/` 및 `/service-worker.js` HTTP 200과 v661 확인. 실음향·기존 설치 PWA의 갱신·실제 고객방은 §2에 남는다. [검증·배포](design/sync-maintenance-release-preparation-2026-10-12.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 [38267811978](https://github.com/hiefny/MUSIXQUARE/actions/runs/38267811978) (2026-10-13 KST, source `72a6e780`) 31 pass / 0 fail / 5 manual. 실제 제공 중인 Worker의 바인딩·도메인·비밀 이름 및 R2 정책 검사 통과. 수동 5항목은 §2에 남으며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 2026-10-13 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 릴리스의 exact-main 후보·critical browser 검사와 별개로, `72a6e780` 전체 Full E2E 실행은 없음 |
+| 의존성 | 이번 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. 2026-10-13 재조회한 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 여전히 열려 있으며 이번 배포에 포함하지 않았다. 최종 로컬 준비에서 취약점 0건·서명 482개·attestation 105개 검증, release 의존성 설치에서 취약점 0건. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -186,54 +186,37 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   추가하지 않는다. 준비 안내 후 사용자가 다시 누르는 정책을 유지한다. 이번은
   조사만 했고 런타임을 수정하지 않았다.
   [브라우저 실험·초기 timeout과 재시도 근거](design/standard-clock-browser-simulation-2026-10-12.md)
-- [ ] 일반방 YouTube C11(2026-10-12 로컬 수정, 미배포): `f7761782`에서 원래
-  deadline의 미보정 callback 지연을 학습 입력에서 제외했다. 계획·타이머 예약·
-  재생 호출·측정의 시계 변경도 학습에서 제외하며 기존 저장값은 초기화하지 않는다.
-  SharedClock 선택 변경·만료·재보정과 작업별 관측은 로컬 flight recorder에 추가했다.
-  Android 고정 출력 보정은 아래 2026-10-12 오너 실기 결정으로 후속 수정했다.
-  UA/플랫폼 모두 Linux인 데스크톱 모드를 터치만으로 추정하지 않으며 PRO 학습값
-  영속화도 보류한다. 후속 배포에는
-  App/SW 버전 갱신과 정상 exact-main 후보가 필요하다.
-  [수정·검증·남은 한계](design/standard-start-learning-repair-2026-10-12.md),
-  [수정 전 재현·판정](design/standard-start-review-2026-10-12.md)
-- [ ] PRO 시작 시계(2026-10-12 로컬 수정, 미배포): C2·C10a의 예약 오류를 작업별
-  시계 snapshot과 playing COMMIT 시계 확보로 막았다. C4의 늦은 응답은 다음 작업의
-  후보로만 보관한다. READY 미완료 중 조기 COMMIT이 PREPARE 대기를 이어받는 경로와
-  C11의 작은 callback 지연 학습 혼입도 수정했다. 원시 시계·실제 선택값·YouTube
-  관측 전용 표본을 기존 진단 복사에 추가했다. 리뷰 후 자연 소켓 단절이 이미 받은
-  COMMIT의 시계 lease를 거절하는 경로를 수정했다. 명시적 퇴장·소켓 교체의 폐기는
-  유지한다. 실제 현장 원인은 미확정이다.
-  C1/C7의 Android 고정 출력 보정은 아래 후속 수정으로 모든 playing 경로에 적용한다.
-  재개 startup 지연의 추가 학습은 여전히 별도 실측 대상이다.
-  초기에는 오너 요청으로 로컬 커밋만 남겼고, 현재 아래 점검 배포를 준비 중이다. 후속 배포에는
-  App/SW 버전 갱신과 정상 exact-main 후보가 필요하다.
-  [수정·검증·남은 한계](design/pro-start-clock-safety-2026-10-12.md),
-  [14개 후보 판정·재현·한계](design/pro-start-sync-candidate-validation-2026-10-12.md)
-- [ ] Android YouTube 출력 보정(2026-10-12 로컬 수정, 미배포): 오너가 Android
-  태블릿 2대·Galaxy 5대·Xiaomi에서 영상보다 음성이 250ms 늦음을 보고하고,
-  Android 고정 출력 기본값을 모든 재생 경로에 적용하기로 결정했다. PRO·일반방
-  모두 공통 재생 기준에 각 기기 자신의 +250ms와 수동값을 합성한다. 일반방 방장은
-  실제 적용한 로컬 보정을 빼고 공통 시각을 송신하여 게스트에게 전파하지 않는다.
-  시작·재개·시크·수동 싱크·초기화·정상 복구와 학습 분리를 로컬 검증했다.
-  실제 수정본의 기기 음향 정렬은 후속 실측 대상이다. UA와 UA-CH 모두 Linux로
-  숨기는 기기는 추측하지 않는다. 이전 코드와 capability v2가 같아 Android 방장에서
-  구·신 코드가 섞이면 zero-start가 ±250ms 어긋날 수 있다. 오너 결정(2026-10-12):
-  강제 버전 차단·호환 마이그레이션 없이 2026-10-13 00:00 KST 이후 점검 배포한다.
-  기존 탭 잔존과 점검 해제~배포 사이 재입장 가능성을 수용하며 새로고침을 안내한다.
-  점검이 사용자 0명 또는 같은 코드 실행을 보장한다는 뜻은 아니다.
-  [구현·검증·호환 한계](design/android-youtube-output-baseline-2026-10-12.md),
-  [점검 배포 결정·순서·검증](design/sync-maintenance-release-preparation-2026-10-12.md),
-  [수용한 전환기 한계](known-accepted.md#13-maintenance-cutover-without-client-version-admission)
-- [ ] 누적 App 릴리스 준비: 최신 8.10.1/v660 main을 통합했고 8.10.2/v661의
-  `89db0184`에서 `build:checked`가 통과했다. 진단을 방/데모 준비 경계로 옮기고
-  PRO 동기 송신 포트를 분리해 eager JS gzip 464,825 B / 468,160 B,
-  eager total gzip 537,909 B / 543,400 B로 기존 여유 검사를 충족했다.
-  용량 한도는 바꾸지 않았다. 새 수동 싱크 handoff 회귀와 테스트 완료 경계도
-  보완했다. 최종 로컬 전체 단위 12,354건, 후보 브라우저 17건, 선택 Chromium
-  61건이 모두 통과했다. PR #305의 초기 CI 11개 job과 자동 리뷰도 통과했으며,
-  최종 PR·exact-main CI는 별도로 완료해야 한다. 로컬/PR 검증이 정상
-  exact-main 릴리스 후보를 대신하지 않는다.
-  [현재 준비·검증 상태](design/sync-maintenance-release-preparation-2026-10-12.md)
+- [ ] 일반방 YouTube C11 현장 관측(8.10.2/v661 배포 뒤): 원래 deadline의
+      미보정 callback 지연과 계획·예약·호출·측정 사이 시계 변경을 학습 입력에서
+      제외하는 수정은 `72a6e780`, Release `38267400052`로 배포됐다. 기존 저장값은
+      초기화하지 않는다. 실제 세션에서 flight recorder의 eligible 대비
+      `clock-changed` 비율과 작업별 시계 선택값을 확인한다. UA/플랫폼 모두 Linux인
+      기기를 터치만으로 Android로 추정하지 않으며 PRO 학습값 영속화도 보류한다.
+      [수정·검증·한계](design/standard-start-learning-repair-2026-10-12.md),
+      [수정 전 재현·판정](design/standard-start-review-2026-10-12.md),
+      [배포 근거](design/sync-maintenance-release-preparation-2026-10-12.md)
+- [ ] PRO 시작 시계 현장 확인(8.10.2/v661 배포 뒤): 작업별 시계 snapshot,
+      playing COMMIT의 유효 시계 확보, 늦은 응답의 후보 보관, 조기 COMMIT 처리와
+      C11 callback 지연 학습 분리는 `72a6e780`, Release `38267400052`로 배포됐다.
+      자연 소켓 단절 중 이미 받은 COMMIT은 유지하고 명시적 퇴장·소켓 교체는 폐기한다.
+      실제 현장 오차의 원인은 아직 미확정이다. 원시 시계·실제 선택값·YouTube 관측
+      전용 표본을 현장에서 수집하고 재개 startup 지연은 독립 음향 측정과 함께 본다.
+      [수정·검증·한계](design/pro-start-clock-safety-2026-10-12.md),
+      [14개 후보 판정·재현·한계](design/pro-start-sync-candidate-validation-2026-10-12.md),
+      [배포 근거](design/sync-maintenance-release-preparation-2026-10-12.md)
+- [ ] Android YouTube 출력 정렬·혼합 버전 현장 확인(8.10.2/v661 배포 뒤):
+      오너가 Android 태블릿 2대·Galaxy 5대·Xiaomi에서 확인한 음성 250ms 지연을
+      기준으로 PRO·일반방 각 기기에 자신의 +250ms와 수동값을 합성하는 수정은
+      `72a6e780`, Release `38267400052`로 배포됐다. 일반방 방장은 실제 적용한
+      로컬 보정을 제외한 공통 시각을 송신한다. 실제 수정본의 음향 정렬은 실측 대상이다.
+      UA와 UA-CH 모두 Linux로 숨기는 기기는 추측하지 않는다. capability v2는
+      그대로여서 Android 방장에서 구·신 코드가 섞이면 zero-start가 ±250ms 어긋날
+      수 있다. 오너가 승인한 기존 점검 모드로 배포했고 강제 버전 차단·호환
+      마이그레이션은 추가하지 않았다. 기존 탭 잔존과 점검 해제 뒤 재입장을 수용했다.
+      점검이 사용자 0명이나 동일 코드 실행을 보장하지 않는다.
+      [구현·검증·호환 한계](design/android-youtube-output-baseline-2026-10-12.md),
+      [점검·배포 근거](design/sync-maintenance-release-preparation-2026-10-12.md),
+      [수용한 전환기 한계](known-accepted.md#13-maintenance-cutover-without-client-version-admission)
 - [ ] iPhone Safari/PWA 실기 재입장: 8.9.4의 이전 연결 안내와 "여기서 계속",
   같은 코드로 입장 실패 후 재시도를 확인한다. 종료 알림이 누락되면 마지막 생존
   확인 뒤 45초 동안 presence가 남을 수 있고 명시적 이어하기 정책은 유지한다.

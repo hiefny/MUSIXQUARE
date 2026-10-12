@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-10-12 |
+| Last source review | 2026-10-13 |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -93,23 +93,23 @@ runbooks. Neither belongs in a general setup document.
 - [동기화 점검 배포 준비 — 2026-10-12](design/sync-maintenance-release-preparation-2026-10-12.md) —
   최신 main 통합, 리뷰 보완, 초기 로딩 경계, 강제 버전 차단 없이 점검 후 배포하는
   오너 결정과 로컬 전체 단위 12,354건·후보 17건·선택 브라우저 61건의 검증.
-  로컬 준비 검증은 완료했으며 exact-main CI·프로덕션 배포 근거는 별도다.
+  exact-main CI 확인 뒤 2026-10-13 Release 38267400052로 8.10.2/v661 배포 완료, 운영 smoke 4종·사후 Drift Audit 통과. 실기 한계는 남는다.
 - [Android YouTube 공통 기준·기기별 출력 보정 — 2026-10-12](design/android-youtube-output-baseline-2026-10-12.md) —
   일반·PRO의 own 250 ms, 방장 수동값 격리, 곡 끝 처리와 로컬 검증.
-  실음향·구버전 혼용·릴리스 준비의 남은 한계를 구분한다. 미배포.
+  실음향·구버전 혼용의 남은 한계를 구분한다. 8.10.2/v661 배포 완료(위 점검 배포 기록).
 - [일반방 시계·학습 브라우저 실험 — 2026-10-12](design/standard-clock-browser-simulation-2026-10-12.md) —
   실제 일반방 P2P와 YouTube, 지연 통제 60회 및 실제 시계 모듈 150,400회 모형.
   초기 표본 교체 시 학습 제외와 안정 후 재개 확인, 제품 수정·배포 없음.
 - [일반방 랑데부 학습·시계 관측 수정 — 2026-10-12](design/standard-start-learning-repair-2026-10-12.md) —
   C11 timer 지연 제외, 계획·예약·호출·측정 시계 검사, SharedClock 선택 사유와
-  flight recorder 관측. 시간 경계·취소 관측 재현, 단일 seek 핀 위치와 로컬 검증, 미배포.
+  flight recorder 관측. 시간 경계·취소 관측 재현, 단일 seek 핀 위치와 로컬 검증. 8.10.2/v661 배포 완료(위 점검 배포 기록).
 - [일반방 시작 시계·학습 제안 재검증 — 2026-10-12](design/standard-start-review-2026-10-12.md) —
   C11 영속 학습 오염 9조건 재현, C13 감지 한계, 일반방 시계·파일 보정 경계,
   관측·QA 기준. 제품 수정 없이 로컬 검증.
 - [PRO 시작 시계·관측 수정 — 2026-10-12](design/pro-start-clock-safety-2026-10-12.md) —
   작업별 시계 snapshot, 미보정 COMMIT 차단, 늦은 READY 대기 분리, C11 callback
   지연 구분과 관측 전용 YouTube 표본. 리뷰 후 소켓 단절 중 확정된 시작을 보존하고
-  파일·YouTube 실제 적용 경로를 재검증. 로컬 수정·검증만, 미배포.
+  파일·YouTube 실제 적용 경로를 재검증. 8.10.2/v661 배포 완료(위 점검 배포 기록).
 - [PRO 시작 싱크 원인 후보 재검증 — 2026-10-12](design/pro-start-sync-candidate-validation-2026-10-12.md) —
   C1–C14 반박 검증, 시계 갱신·미보정 COMMIT 예약 결함 재현,
   YouTube 제어·파일 PCM 비교와 실기 측정 한계. 수정 전 분석 기록; 후속 수정은 위 보고서.

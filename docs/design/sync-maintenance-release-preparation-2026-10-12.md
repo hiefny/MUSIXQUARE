@@ -2,9 +2,9 @@
 
 ## Scope and owner decision
 
-Prepare App 8.10.2 / cache v661 from the accumulated PRO clock, Standard
+Prepared App 8.10.2 / cache v661 from the accumulated PRO clock, Standard
 rendezvous learning, and per-device Android YouTube output corrections. The
-current production baseline is 8.10.1 (`9c924ee1`), recorded by main `9fbe830e`.
+production baseline before this release was 8.10.1 (`9c924ee1`), recorded by main `9fbe830e`.
 That baseline's PRO duration hardening was merged into this branch as
 `7395b1d8`; its optional duration-report exception guard and regression test
 remain intact. No new Worker, binding, secret, D1 migration, or dependency is
@@ -87,7 +87,8 @@ exact-main CI release candidate; final repair results are recorded separately.
   All nine failures observed a ready bootstrap with zero failures/fallbacks but
   rejected its 51 steps against the old 52-step test contract. Moving recorder
   initialization into room/demo readiness removed that one bootstrap step.
-  The contract must be aligned and the browser run repeated.
+  This required aligning the contract and repeating the browser run, as recorded
+  immediately below.
 - After aligning the exact bootstrap contract (49 safe initializers plus I18n
   and SyncWorker), all 17 production-candidate browser cases passed on the same
   `6e03bc2d` artifact. Healthy bootstrap still rejects both too few and too many
@@ -140,10 +141,66 @@ Linux broad-unit merge: 550 files, 12,353 passed / 0 failed / 1 skipped; the ski
 is the existing Windows-only alternate-drive CLI case. Candidate browsers:
 17 passed; critical browsers: 22 passed. Coverage gates for broad, critical,
 Worker and release-tooling scopes passed. This PR result is not the required
-exact-main-SHA candidate. A documentation-only follow-up records final local
-browser results; its own final PR CI must complete before merge.
+exact-main-SHA candidate. The documentation-only follow-up recorded final local
+browser results. Its final [PR CI 38264015007](https://github.com/hiefny/MUSIXQUARE/actions/runs/38264015007)
+passed all 11 jobs before merge.
 GitHub's Codex review completed on `26094bc4` with a thumbs-up and no findings;
-the follow-up changes only this evidence and current preparation state.
+the follow-up changed only this evidence and the preparation state.
+
+## Production execution — 2026-10-13
+
+PR #305 merged as **`72a6e780c06fbd84aeb63c7abe2d1aed8f77795c`**. Its separate
+exact-main [CI 38264805590](https://github.com/hiefny/MUSIXQUARE/actions/runs/38264805590)
+passed all 11 jobs. Production used the immutable artifact
+`production-candidate-72a6e780c06fbd84aeb63c7abe2d1aed8f77795c-38264805590-1`;
+the local and PR results above remain distinct from that exact-main evidence.
+
+[Production Release 38267400052](https://github.com/hiefny/MUSIXQUARE/actions/runs/38267400052),
+attempt 1, succeeded with **`target=app`**, **`apply_developer_api_d1=false`**.
+All times in the following table are **2026-10-13 Asia/Seoul (UTC+09:00)**;
+the corresponding Actions timestamps are on 2026-10-12 UTC.
+
+| Time     | Observed operation                                                                                                   |
+| -------- | -------------------------------------------------------------------------------------------------------------------- |
+| 00:01:12 | Existing maintenance mode enabled; settled state verified.                                                           |
+| 00:02:07 | Maintenance disabled; settled state verified. Public responses were HTTP 200 with the previous v660 before dispatch. |
+| 00:03:15 | Production Release dispatched for the exact main candidate.                                                          |
+| 00:05:10 | App deployment created at 100% on the new Worker version.                                                            |
+| 00:05:37 | Final deployment ownership verification completed.                                                                   |
+| 00:05:48 | Release jobs completed successfully.                                                                                 |
+
+Maintenance stayed OFF throughout deployment and live smokes. The short drain
+did not establish zero users or evict every suspended/P2P client, and reopening
+before dispatch left the already accepted new-arrival window.
+
+- App **8.10.2 / cache v661** serves Worker version
+  `32c45761-9d66-467f-b272-bb495e80d3b1`, deployment
+  `51e0c126-f126-431b-bf19-3f617d1836ec`, at **100%** with exact message
+  `git:72a6e780c06fbd84aeb63c7abe2d1aed8f77795c`.
+- Partial-release compatibility and its pre-deploy recheck passed. The other
+  five Workers remain on `9c924ee16982f1fdb0bcb27fcd1008e2d1336947`; no backend
+  deployment or new schema, binding, secret, or dependency was introduced.
+  The App target applied and verified its existing idempotent D1 baselines.
+- All four live smoke steps passed: App generation and initial asset graph,
+  anonymous App account boundary, current PRO public boundary, and Standard
+  HTTPS signaling fallback. Final App ownership was verified and the coherent
+  production marker was persisted. Recovery was not required; its job skipped.
+- Post-release public root and service-worker requests returned HTTP 200 with
+  v661. A fresh browser loaded and rendered the public homepage. These checks
+  did not enter a customer room or measure physical audio synchronization.
+- Post-release [Operations Drift Audit 38267811978](https://github.com/hiefny/MUSIXQUARE/actions/runs/38267811978)
+  succeeded with **31 passed / 0 failed / 5 manual**. The workflow remains
+  active. The five manual controls still require human evidence; this result
+  does not mark them passed.
+- Run artifacts retain `final-verification-report.json`, the partial-release
+  compatibility reports, immutable recovery checkpoint, and
+  `production-committed.json`. The local inspection copy is under
+  `scratch/release-38267400052/artifacts/`.
+
+Android/iOS/Bluetooth acoustic alignment, masked-Android detection limits,
+mixed-version residuals, and the field-observation items in the release record
+remain unverified by this deployment. No automatic user-Sync retry, forced
+client replacement, or persisted PRO startup learning was added.
 
 ## Maintenance execution sequence
 

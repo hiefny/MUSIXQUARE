@@ -46,6 +46,32 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 확인된 후속 결함
 
+2026-10-13 오너가 아래 세 결함 수정과 제한된 서버 진단·배포를 승인했다.
+`agent/pro-admission-reliability`에서 8.10.5/v666, `target=all`, Developer API D1
+`false`로 준비 중이다. 새 의존성·비밀·바인딩·스키마·강제 갱신 없이 기존 floor를
+유지한다. 아직 운영 해결로 표시하지 않는다.
+[수정·검증·복구와 로그 한계](design/pro-admission-repair-2026-10-13.md)
+
+- [ ] PRO 정원 판정의 TTL 경계: handler 앞 prune 후 body/인증 처리 중 만료 경계를
+  넘으면 만료된 presence가 남은 Map으로 `ROOM_FULL`을 반환할 수 있다. 99개가
+  유효한 44,999ms에 prune, 45,001ms 판정에서 409, 즉시 새 요청은 정리 후 200을
+  현대 requestId 입장으로 당시·현재 소스에서 재현했다. 직전 정원 점유가 필요한
+  짧은 경계 문제이며 행사에서 12~30대였다는 관찰의 원인으로 확정하지 않는다.
+  [근거·한계](design/pro-event-report-verification-2026-10-13.md)
+- [ ] PRO 공유 registry 조회의 요청 수명: 최초 호출 취소 후 공유 pending이 남아
+  후속 요청까지 실패하는 경로를 실제 workerd 로컬 하니스에서 재현했다. 해당
+  원문은 행사 `d76b1432`와 현재 배포 `332600a9`에 동일하다. 운영 002026의
+  요청 컨텍스트 취소 경고·heartbeat timeout도 확인했으나 동일 원인으로 확정할
+  스택은 없다. 수정과 새 로그는 위 승인 범위에서 검증·배포 준비 중이다.
+  [근거·한계](design/pro-event-admission-deep-audit-2026-10-13.md)
+- [ ] PRO 기본 Peer 번호: 당시·현재 HTTP 핸들러에서 최대 live 4개인데도
+  `Peer 77`과 `Peer 101`이 생성되는 dormant 세션·계정 detach 조합을 재현했다.
+  101이 명단에 포함되면 새 기기 자신의 번호가 1이어도 HTTP 200 응답을 앱이
+  `INVALID_RESPONSE`로 거부한다. 단순 표시 문제에 그치지 않는다. 정원 판정은
+  번호와 별개이며 실제 `ROOM_FULL`은 live 100에서 확인했다. 행사 당시 이 조합
+  발생 여부는 미확정이다. live/dormant 번호 정책·서버/앱 계약 정리와 회귀 고정이 필요하다.
+  [근거·한계](design/pro-event-admission-deep-audit-2026-10-13.md)
+
 공지의 네 배포 대기 항목은 PR #309의 재현·회귀, exact-main CI, App·PRO를 포함한
 Release 38293505122 성공으로 닫았다. 관리자 초기 초안의 미관측 revision 채택과
 첫 조회 실패 후 초안 유실도 리뷰에서 재현·수정했다.

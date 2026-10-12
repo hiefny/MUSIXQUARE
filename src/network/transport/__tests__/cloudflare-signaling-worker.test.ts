@@ -6333,6 +6333,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
   });
 
   it('admits at most 100 equal PRO members', async () => {
+    const diagnosticLog = vi.spyOn(console, 'log').mockImplementation(() => {});
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
     await room.fetch(
@@ -6355,6 +6356,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       expect(lastServer().closed).toBe(false);
     }
 
+    expect(diagnosticLog).not.toHaveBeenCalled();
+
     await room.fetch(
       await proWsRequest({
         role: 'member',
@@ -6367,6 +6370,28 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_MEMBER_LIMIT_REACHED');
     expect(sent(rejected)[0]).toMatchObject({ message: 'ROOM_MEMBER_LIMIT_REACHED' });
     expect(coordinator.closed).toBe(false);
+    expect(diagnosticLog).toHaveBeenCalledTimes(1);
+    expect(diagnosticLog).toHaveBeenCalledWith({
+      diagnostic: 'pro_room',
+      schema: 1,
+      kind: 'event',
+      scope: 'signaling',
+      roomCode: '000001',
+      roomGeneration: 0,
+      versionId: null,
+      observedAtMs: expect.any(Number),
+      event: 'room_full',
+      reason: 'signaling_connections',
+      operation: null,
+      socketCount: 100,
+      ticketPresenceRevision: 1,
+      status: null,
+      retryAfterSeconds: null,
+    });
+    // No authoritative presence snapshot has arrived in this legacy-ticket
+    // scenario. Missing authority metrics must remain absent, not become zero.
+    // Exact keys above also exclude participant IDs, ticket JTIs and secrets.
+    diagnosticLog.mockRestore();
   });
 
   it('rehydrates at most 100 equal PRO members', () => {

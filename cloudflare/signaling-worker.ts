@@ -1,3 +1,4 @@
+import { ProRoomDiagnostics } from './pro-room-diagnostics.ts';
 import {
   deriveStandardRoomMemberId,
   verifyStandardRoomAccountAssertion,
@@ -475,7 +476,11 @@ interface StandardWsRateState extends JsonRecord {
 }
 
 interface PortableSignalingHandler {
-  fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response>;
+  fetch(
+    request: Request,
+    env: SignalingWorkerEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response>;
 }
 
 function isSafeInteger(value: unknown): value is number {
@@ -2475,6 +2480,12 @@ function standardHttpBridgeCloseTerminal(event: unknown): StandardHttpBridgeTerm
 }
 
 export class MusixquareRoom {
+  private readonly proAdmissionDiagnostics = new ProRoomDiagnostics(() => ({
+    scope: 'signaling',
+    roomCode: this.proRoomMeta?.roomId,
+    roomGeneration: this.proRoomMeta?.roomGeneration,
+    versionId: workerVersionFields(this.env).workerVersionId,
+  }));
   private readonly state: DurableObjectStatePort;
   private readonly env: SignalingEnvPort;
   private readonly standardHttpBridgeOnly: boolean;
@@ -6260,6 +6271,13 @@ export class MusixquareRoom {
       this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-full']);
       closeWithError(ws, 'room-full', 'ROOM_MEMBER_LIMIT_REACHED', 1008);
       this.recordMetric('pro_room_full');
+      this.proAdmissionDiagnostics.record('room_full', {
+        reason: 'signaling_connections',
+        socketCount: this.proMembers.size,
+        authorityTargetCount: this.proPresenceAuthority?.activeIncarnationIds.length,
+        authorityPresenceRevision: this.proPresenceAuthority?.presenceRevision,
+        ticketPresenceRevision: ticket.presenceRevision,
+      });
       return;
     }
 
@@ -8259,7 +8277,11 @@ export class MusixquareRoom {
 }
 
 const signalingHandler = {
-  async fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: SignalingWorkerEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response> {
     const url = new URL(request.url);
     const match = url.pathname.match(ROOM_PATH);
     const proMatch = url.pathname.match(PRO_ROOM_PATH);
@@ -8277,7 +8299,10 @@ const signalingHandler = {
     if (url.pathname.startsWith('/internal/')) {
       return json({ error: 'NOT_FOUND' }, 404);
     }
-    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    const maintenanceResponse = await gateServiceMaintenance(request, env, {
+      format: 'json',
+      context,
+    });
     if (maintenanceResponse) return maintenanceResponse;
     if (!match && !proMatch) {
       if (hostname === ALTERNATE_STANDARD_SIGNALING_HOST) {
@@ -8346,9 +8371,13 @@ const signalingHandler = {
 } satisfies PortableSignalingHandler;
 
 export default {
-  fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response> {
+  fetch(
+    request: Request,
+    env: SignalingWorkerEnvPort,
+    context?: { waitUntil(promise: Promise<unknown>): void },
+  ): Promise<Response> {
     return observeSignalingFailure(env, 'worker', 'fetch', () =>
-      signalingHandler.fetch(request, env),
+      signalingHandler.fetch(request, env, context),
     );
   },
 } satisfies PortableSignalingHandler;

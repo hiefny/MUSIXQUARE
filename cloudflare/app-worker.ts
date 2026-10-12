@@ -1,5 +1,6 @@
 // MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 import { handleProBotRequest } from './pro-bot.ts';
+import { reportProRoomFrontDiagnostic } from './pro-room-diagnostics.ts';
 import { parseAnnouncementExpiry } from './announcement-expiry.ts';
 import {
   handleProYouTubeDurationRequest,
@@ -352,7 +353,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.10.4';
+const ADMIN_ASSET_VERSION = '8.10.5';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1078,6 +1079,30 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       /^\d{8}$/.test(sessionCreateBody.pin)
     );
   })();
+  const diagnosticOperation = upstreamPath.endsWith('/sessions')
+    ? 'sessions'
+    : upstreamPath.endsWith('/heartbeat')
+      ? 'heartbeat'
+      : upstreamPath.endsWith('/presence/enter')
+        ? 'presence_enter'
+        : upstreamPath.endsWith('/presence/close')
+          ? 'presence_close'
+          : 'other';
+  const reportUpstreamFailure = (
+    reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body' | 'response',
+  ) => {
+    const timeout = reason === 'response_timeout' || reason === 'body_timeout';
+    reportProRoomFrontDiagnostic(
+      { scope: 'app', roomCode },
+      timeout ? 'upstream_timeout' : 'upstream_failure',
+      {
+        operation: diagnosticOperation,
+        reason:
+          reason === 'response_timeout' ? 'response' : reason === 'body_timeout' ? 'body' : reason,
+        status: 502,
+      },
+    );
+  };
   if (legacySessionCreate) {
     // Cached pre-v1 clients cannot safely synthesize an exactly-once key: an
     // IP/PIN/User-Agent surrogate would merge independent devices behind one
@@ -1090,6 +1115,7 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       );
       return withFacadeProRoomCookies(response, roomCode);
     } catch {
+      reportUpstreamFailure('fetch');
       return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
     }
   }
@@ -1099,11 +1125,15 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       (boundedRequest) => proRoomPublicApi.fetch(boundedRequest),
       new Request(upstreamUrl, upstreamInit),
       PRO_ROOM_SERVICE_RESPONSE_MAX_BYTES,
+      PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
+      reportUpstreamFailure,
     );
   } catch {
+    reportUpstreamFailure('fetch');
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
   }
   if (!upstream || !isValidUtf8(upstream.bytes)) {
+    if (upstream) reportUpstreamFailure('body');
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
   }
   const response = bufferedServiceResponse(
@@ -11267,13 +11297,17 @@ async function handleAdminServiceStatusHistory(request: Request, env: AppEnv) {
     : response;
 }
 
-async function handleAdminServiceStatus(request: Request, env: AppEnv) {
+async function handleAdminServiceStatus(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
   if (methodError) return methodError;
   if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
 
   if (request.method === 'GET' || request.method === 'HEAD') {
-    const state = await readServiceMaintenance(env, { fresh: true });
+    const state = await readServiceMaintenance(env, { fresh: true, context });
     if (state.controlUnavailable) {
       return json({ error: 'SERVICE_CONTROL_UNAVAILABLE' }, 503);
     }
@@ -11475,9 +11509,17 @@ function adminAnnouncementPayload(state: {
 
 async function readCanonicalAdminAnnouncementState(
   env: AppEnv,
-  { allowLegacyFallback = true, fresh = false } = {},
+  {
+    allowLegacyFallback = true,
+    fresh = false,
+    context,
+  }: {
+    allowLegacyFallback?: boolean;
+    fresh?: boolean;
+    context?: AppExecutionContext | undefined;
+  } = {},
 ) {
-  const controlled = await readAdminAnnouncementControl(env, { fresh });
+  const controlled = await readAdminAnnouncementControl(env, { fresh, context });
   if (controlled.status === 'ok') {
     const state = normalizeAnnouncementControlState(controlled.payload);
     if (!state) return { status: 'unavailable', state: null };
@@ -11516,13 +11558,17 @@ function announcementPublicPayload(value: unknown) {
   };
 }
 
-async function handleAdminAnnouncement(request: Request, env: AppEnv) {
+async function handleAdminAnnouncement(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
   if (methodError) return methodError;
   if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
 
   if (request.method === 'GET' || request.method === 'HEAD') {
-    const current = await readCanonicalAdminAnnouncementState(env, { fresh: true });
+    const current = await readCanonicalAdminAnnouncementState(env, { fresh: true, context });
     if (!current.state) {
       return json(
         {
@@ -11581,6 +11627,7 @@ async function handleAdminAnnouncement(request: Request, env: AppEnv) {
   const current = await readCanonicalAdminAnnouncementState(env, {
     allowLegacyFallback: false,
     fresh: true,
+    context,
   });
   if (!current.state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
@@ -11651,10 +11698,14 @@ async function handleAdminAnnouncement(request: Request, env: AppEnv) {
   return json({ ok: true, ...adminAnnouncementPayload(state) });
 }
 
-async function handlePublicAnnouncement(request: Request, env: AppEnv) {
+async function handlePublicAnnouncement(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
   if (methodError) return methodError;
-  const current = await readCanonicalAdminAnnouncementState(env);
+  const current = await readCanonicalAdminAnnouncementState(env, { context });
   if (!current.state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
   }
@@ -13581,10 +13632,19 @@ async function fetchServiceBindingResponse(
   request: Request,
   maxBytes: number,
   timeoutMs: number = PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
+  onFailure?: (reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body') => void,
 ) {
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let timedOut = false;
+  let readingBody = false;
+  const reportFailure = (reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body') => {
+    try {
+      onFailure?.(reason);
+    } catch {
+      /* Diagnostics cannot change the bounded response. */
+    }
+  };
   const operation = Promise.resolve()
     .then(() => fetcher(new Request(request, { signal: controller.signal })))
     .then(async (response) => {
@@ -13592,15 +13652,20 @@ async function fetchServiceBindingResponse(
         cancelResponseBody(response, 'SERVICE_RESPONSE_TIMEOUT');
         return null;
       }
+      readingBody = true;
       const bytes = await readResponseBodyLimited(response, maxBytes, controller.signal);
       return timedOut ? null : { response, bytes };
     })
     // A service binding may reject only after the timeout race has completed.
     // Normalize that late settlement so cleanup never becomes an unhandled task.
-    .catch(() => null);
+    .catch(() => {
+      if (!timedOut) reportFailure(readingBody ? 'body' : 'fetch');
+      return null;
+    });
   const timeout = new Promise<null>((resolve) => {
     timeoutId = setTimeout(() => {
       timedOut = true;
+      reportFailure(readingBody ? 'body_timeout' : 'response_timeout');
       controller.abort(new Error('SERVICE_RESPONSE_TIMEOUT'));
       resolve(null);
     }, timeoutMs);
@@ -15767,7 +15832,7 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
 export default {
   async scheduled(event: { cron?: unknown }, env: unknown, ctx: AppExecutionContext) {
     if (!isAppEnv(env)) throw new TypeError('App Worker environment unavailable');
-    const serviceStatus = await readServiceMaintenance(env);
+    const serviceStatus = await readServiceMaintenance(env, { context: ctx });
     if (serviceStatus.enabled) return;
 
     const cron = typeof event?.cron === 'string' ? event.cron : null;
@@ -15860,7 +15925,7 @@ export default {
         // promise. A wedged cross-Worker binding must never hold user traffic
         // open while the last canonical state remains usable.
         const refresh = new Promise<void>((resolve) => setTimeout(resolve, 0))
-          .then(() => readServiceMaintenance(env))
+          .then(() => readServiceMaintenance(env, { context: ctx }))
           .then(() => undefined)
           .catch(() => undefined);
         if (ctx) ctx.waitUntil(refresh);
@@ -16072,7 +16137,7 @@ export default {
       case '/api/cloudflare-realtime':
         return handleRealtime(request, env);
       case '/api/announcement/current':
-        return handlePublicAnnouncement(request, env);
+        return handlePublicAnnouncement(request, env, ctx);
       case '/api/admin/login':
         return handleAdminLogin(request, env);
       case '/api/admin/logout':
@@ -16082,7 +16147,7 @@ export default {
       case ADMIN_MAINTENANCE_PREVIEW_PATH:
         return handleAdminMaintenancePreview(request, env);
       case '/api/admin/service-status':
-        return handleAdminServiceStatus(request, env);
+        return handleAdminServiceStatus(request, env, ctx);
       case '/api/admin/service-status/history':
         return handleAdminServiceStatusHistory(request, env);
       case '/api/admin/metrics':
@@ -16092,7 +16157,7 @@ export default {
       case '/api/admin/articles/visibility':
         return withSoroVisibilityFailureResponse(handleAdminArticleVisibility(request, env));
       case '/api/admin/announcement':
-        return handleAdminAnnouncement(request, env);
+        return handleAdminAnnouncement(request, env, ctx);
       default:
         return withSoroVisibilityFailureResponse(serveStatic(request, env, ctx));
     }

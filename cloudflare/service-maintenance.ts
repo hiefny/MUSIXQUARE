@@ -185,6 +185,10 @@ export interface AdminAnnouncementUpdateInput {
 
 interface ServiceMaintenanceReadOptions {
   fresh?: boolean;
+  // Only execution-context-owned I/O can be shared across Worker requests.
+  // Reads without an owner retain completed-cache reuse but start independent
+  // bounded I/O on a miss, so cancellation cannot strand later callers.
+  context?: { waitUntil(promise: Promise<unknown>): void } | undefined;
 }
 
 export interface CachedServiceMaintenanceRead {
@@ -204,6 +208,8 @@ interface ServiceStatusCache {
   expiresAt: number;
   refresh: Promise<ServiceMaintenanceState> | null;
   refreshVersion: number;
+  readSequence: number;
+  settledReadSequence: number;
   version: number;
   mutationGeneration: number;
   activeMutationGeneration: number | null;
@@ -247,6 +253,8 @@ interface AdminAnnouncementCache {
   expiresAt: number;
   refresh: Promise<AdminAnnouncementControlResult> | null;
   refreshVersion: number;
+  readSequence: number;
+  settledReadSequence: number;
   version: number;
   mutationGeneration: number;
   activeMutationGeneration: number | null;
@@ -447,6 +455,8 @@ function serviceStatusCache(binding: ServiceControlBinding): ServiceStatusCache 
       expiresAt: 0,
       refresh: null,
       refreshVersion: -1,
+      readSequence: 0,
+      settledReadSequence: 0,
       version: 0,
       mutationGeneration: 0,
       activeMutationGeneration: null,
@@ -1107,6 +1117,7 @@ export async function readServiceMaintenance(
   if (options.fresh !== true && cache.value && cache.expiresAt > now) return cache.value;
   if (!cache.refresh || cache.refreshVersion !== cache.version) {
     const version = cache.version;
+    const readSequence = ++cache.readSequence;
     const refresh = fetchServiceMaintenanceState(binding)
       .then((value) => {
         const advanced = rememberCanonicalServiceStatus(cache, value);
@@ -1124,6 +1135,22 @@ export async function readServiceMaintenance(
           }
           return cache.value || unavailableServiceMaintenanceState();
         }
+        if (readSequence < cache.settledReadSequence) {
+          // Unowned reads may finish out of order. Keep a newer outcome and
+          // its expiry; an older failure must not close a recovered gate.
+          // Still remember authoritative revision advances, without opening
+          // an unavailable/uncertain gate from a superseded read.
+          if (
+            advanced &&
+            cache.value?.controlUnavailable !== true &&
+            cache.uncertainMutations.size === 0
+          )
+            cache.value = cache.canonicalValue;
+          return cache.value && cache.expiresAt > Date.now()
+            ? cache.value
+            : unavailableServiceMaintenanceState();
+        }
+        cache.settledReadSequence = readSequence;
         const canonical = value.controlUnavailable === true ? null : cache.canonicalValue || value;
         if (canonical) {
           for (const [generation, mutation] of cache.uncertainMutations) {
@@ -1147,10 +1174,14 @@ export async function readServiceMaintenance(
           cache.refreshVersion = -1;
         }
       });
-    cache.refresh = refresh;
-    cache.refreshVersion = version;
+    if (options.context) {
+      options.context.waitUntil(refresh);
+      cache.refresh = refresh;
+      cache.refreshVersion = version;
+    }
+    return refresh;
   }
-  return cache.refresh ?? unavailableServiceMaintenanceState();
+  return cache.refresh;
 }
 
 /**
@@ -1422,6 +1453,8 @@ function adminAnnouncementCache(binding: ServiceControlBinding): AdminAnnounceme
       expiresAt: 0,
       refresh: null,
       refreshVersion: -1,
+      readSequence: 0,
+      settledReadSequence: 0,
       version: 0,
       mutationGeneration: 0,
       activeMutationGeneration: null,
@@ -1577,6 +1610,7 @@ export async function readAdminAnnouncementControl(
   if (options.fresh !== true && cache.value && cache.expiresAt > now) return cache.value;
   if (!cache.refresh || cache.refreshVersion !== cache.version) {
     const version = cache.version;
+    const readSequence = ++cache.readSequence;
     const refresh = readSeparatedAdminAnnouncementControl(env)
       .then(({ result, sourcePriority }): AdminAnnouncementControlResult => {
         const advanced = rememberCanonicalAdminAnnouncement(cache, result, sourcePriority);
@@ -1587,6 +1621,13 @@ export async function readAdminAnnouncementControl(
           }
           return cache.value || { status: 'unavailable', payload: null };
         }
+        if (readSequence < cache.settledReadSequence) {
+          if (advanced && cache.value?.status === 'ok') cache.value = cache.canonicalValue;
+          return cache.value && cache.expiresAt > Date.now()
+            ? cache.value
+            : { status: 'unavailable', payload: null };
+        }
+        cache.settledReadSequence = readSequence;
         cache.value = result.status === 'ok' ? cache.canonicalValue || result : result;
         cache.expiresAt =
           Date.now() +
@@ -1604,10 +1645,14 @@ export async function readAdminAnnouncementControl(
           cache.refreshVersion = -1;
         }
       });
-    cache.refresh = refresh;
-    cache.refreshVersion = version;
+    if (options.context) {
+      options.context.waitUntil(refresh);
+      cache.refresh = refresh;
+      cache.refreshVersion = version;
+    }
+    return refresh;
   }
-  return cache.refresh ?? { status: 'unavailable', payload: null };
+  return cache.refresh;
 }
 
 export async function updateAdminAnnouncementControl(

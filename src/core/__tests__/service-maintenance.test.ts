@@ -891,12 +891,14 @@ describe('shared service-maintenance control', () => {
       });
     });
 
+    const context = { waitUntil: vi.fn() };
     const [left, right] = await Promise.all([
-      readServiceMaintenance(control.env),
-      readServiceMaintenance(control.env),
+      readServiceMaintenance(control.env, { context }),
+      readServiceMaintenance(control.env, { context }),
     ]);
     expect(left.revision).toBe(4);
     expect(right.revision).toBe(4);
+    expect(context.waitUntil).toHaveBeenCalledTimes(1);
     expect(control.fetch).toHaveBeenCalledTimes(1);
 
     expect((await readServiceMaintenance(control.env)).revision).toBe(4);
@@ -904,6 +906,201 @@ describe('shared service-maintenance control', () => {
     expect((await readServiceMaintenance(control.env, { fresh: true })).revision).toBe(5);
     expect(control.fetch).toHaveBeenCalledTimes(2);
   });
+
+  it.each([
+    ['maintenance', 'failure'],
+    ['maintenance', 'lower'],
+    ['maintenance', 'equal'],
+    ['announcement', 'failure'],
+    ['announcement', 'lower'],
+    ['announcement', 'equal'],
+  ] as const)(
+    'does not let an older unowned %s %s replace a newer successful read or extend its TTL',
+    async (kind, outcome) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const cacheTtl = kind === 'maintenance' ? 1_000 : 30_000;
+      let finishOlder!: (response: Response) => void;
+      const olderResponse = new Promise<Response>((resolve) => {
+        finishOlder = resolve;
+      });
+      const expected =
+        kind === 'maintenance'
+          ? activeState({ enabled: false, activatedAt: null })
+          : { status: 'ok', payload: announcementControlPayload(4) };
+      const control = serviceControlEnv(() =>
+        control.fetch.mock.calls.length === 1
+          ? olderResponse
+          : Response.json(
+              kind === 'maintenance' ? { serviceStatus: expected } : announcementControlPayload(4),
+            ),
+      );
+      const read = () =>
+        kind === 'maintenance'
+          ? readServiceMaintenance(control.env)
+          : readAdminAnnouncementControl(control.env);
+      const older = read();
+      await vi.waitFor(() => expect(control.fetch).toHaveBeenCalledTimes(1));
+      await expect(read()).resolves.toEqual(expected);
+      const cachedAt = Date.now();
+      vi.setSystemTime(cachedAt + cacheTtl - 1);
+      const oldRevision = outcome === 'lower' ? 3 : 4;
+      finishOlder(
+        outcome === 'failure'
+          ? Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 })
+          : Response.json(
+              kind === 'maintenance'
+                ? {
+                    serviceStatus: activeState({
+                      enabled: false,
+                      activatedAt: null,
+                      revision: oldRevision,
+                    }),
+                  }
+                : announcementControlPayload(oldRevision),
+            ),
+      );
+      await expect(older).resolves.toEqual(expected);
+      await expect(read()).resolves.toEqual(expected);
+      expect(control.fetch).toHaveBeenCalledTimes(2);
+      vi.setSystemTime(cachedAt + cacheTtl + 1);
+      await expect(read()).resolves.toEqual(expected);
+      expect(control.fetch).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it.each(['maintenance', 'announcement'] as const)(
+    'retains a higher canonical revision from an older unowned %s read',
+    async (kind) => {
+      let finishOlder!: (response: Response) => void;
+      const olderResponse = new Promise<Response>((resolve) => {
+        finishOlder = resolve;
+      });
+      const olderValue =
+        kind === 'maintenance' ? activeState({ revision: 5 }) : announcementControlPayload(5);
+      const newerValue =
+        kind === 'maintenance'
+          ? activeState({ enabled: false, activatedAt: null, revision: 4 })
+          : announcementControlPayload(4);
+      const control = serviceControlEnv(() =>
+        control.fetch.mock.calls.length === 1
+          ? olderResponse
+          : Response.json(kind === 'maintenance' ? { serviceStatus: newerValue } : newerValue),
+      );
+      const read = () =>
+        kind === 'maintenance'
+          ? readServiceMaintenance(control.env)
+          : readAdminAnnouncementControl(control.env);
+      const older = read();
+      await vi.waitFor(() => expect(control.fetch).toHaveBeenCalledTimes(1));
+      await expect(read()).resolves.toEqual(
+        kind === 'maintenance' ? newerValue : { status: 'ok', payload: newerValue },
+      );
+      finishOlder(
+        Response.json(kind === 'maintenance' ? { serviceStatus: olderValue } : olderValue),
+      );
+      const expected = kind === 'maintenance' ? olderValue : { status: 'ok', payload: olderValue };
+      await expect(older).resolves.toEqual(expected);
+      await expect(read()).resolves.toEqual(expected);
+    },
+  );
+
+  it.each(['maintenance', 'announcement'] as const)(
+    'does not reopen a newer unavailable %s outcome from an older higher-revision success',
+    async (kind) => {
+      let finishOlder!: (response: Response) => void;
+      const olderResponse = new Promise<Response>((resolve) => {
+        finishOlder = resolve;
+      });
+      const control = serviceControlEnv(() =>
+        control.fetch.mock.calls.length === 1
+          ? olderResponse
+          : Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 }),
+      );
+      const read = () =>
+        kind === 'maintenance'
+          ? readServiceMaintenance(control.env)
+          : readAdminAnnouncementControl(control.env);
+      const older = read();
+      await vi.waitFor(() => expect(control.fetch).toHaveBeenCalledTimes(1));
+      const unavailable = await read();
+      expect(unavailable).toMatchObject(
+        kind === 'maintenance'
+          ? { enabled: true, controlUnavailable: true }
+          : { status: 'unavailable' },
+      );
+      finishOlder(
+        Response.json(
+          kind === 'maintenance'
+            ? { serviceStatus: activeState({ revision: 5, enabled: false, activatedAt: null }) }
+            : announcementControlPayload(5),
+        ),
+      );
+      await expect(older).resolves.toEqual(unavailable);
+      await expect(read()).resolves.toEqual(unavailable);
+      expect(control.fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([
+    ['maintenance', 'failure'],
+    ['maintenance', 'higher'],
+    ['announcement', 'failure'],
+    ['announcement', 'higher'],
+  ] as const)(
+    'does not return expired %s cache from an older %s completion while a newer read is pending',
+    async (kind, outcome) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      let finishOlder!: (response: Response) => void;
+      let finishNewest!: (response: Response) => void;
+      const olderResponse = new Promise<Response>((resolve) => {
+        finishOlder = resolve;
+      });
+      const newestResponse = new Promise<Response>((resolve) => {
+        finishNewest = resolve;
+      });
+      const responseAtRevision = (revision: number) =>
+        Response.json(
+          kind === 'maintenance'
+            ? { serviceStatus: activeState({ revision, enabled: false, activatedAt: null }) }
+            : announcementControlPayload(revision),
+        );
+      const control = serviceControlEnv(() =>
+        control.fetch.mock.calls.length === 1
+          ? olderResponse
+          : control.fetch.mock.calls.length === 2
+            ? responseAtRevision(4)
+            : newestResponse,
+      );
+      const read = () =>
+        kind === 'maintenance'
+          ? readServiceMaintenance(control.env)
+          : readAdminAnnouncementControl(control.env);
+      const older = read();
+      await vi.waitFor(() => expect(control.fetch).toHaveBeenCalledTimes(1));
+      await read();
+      vi.setSystemTime(Date.now() + (kind === 'maintenance' ? 1_000 : 30_000));
+      const newest = read();
+      await vi.waitFor(() => expect(control.fetch).toHaveBeenCalledTimes(3));
+      finishOlder(
+        outcome === 'failure'
+          ? Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 })
+          : responseAtRevision(5),
+      );
+      await expect(older).resolves.toMatchObject(
+        kind === 'maintenance'
+          ? { enabled: true, controlUnavailable: true }
+          : { status: 'unavailable' },
+      );
+      finishNewest(responseAtRevision(4));
+      const expectedRevision = outcome === 'higher' ? 5 : 4;
+      await expect(newest).resolves.toMatchObject(
+        kind === 'maintenance'
+          ? { enabled: false, revision: expectedRevision }
+          : { status: 'ok', payload: { announcementState: { revision: expectedRevision } } },
+      );
+      expect(control.fetch).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it('never lets an older status read reopen maintenance after a mutation', async () => {
     const oldState = activeState({
@@ -1546,13 +1743,15 @@ describe('shared service-maintenance control', () => {
       return Response.json(announcementControlPayload(statusReads));
     });
 
+    const context = { waitUntil: vi.fn() };
     const [left, right] = await Promise.all([
-      readAdminAnnouncementControl(control.env),
-      readAdminAnnouncementControl(control.env),
+      readAdminAnnouncementControl(control.env, { context }),
+      readAdminAnnouncementControl(control.env, { context }),
     ]);
     expect(left).toEqual({ status: 'ok', payload: announcementControlPayload(1) });
     expect(right).toEqual(left);
     expect(statusReads).toBe(1);
+    expect(context.waitUntil).toHaveBeenCalledTimes(1);
     expect(control.fetch).toHaveBeenCalledTimes(1);
 
     await expect(readAdminAnnouncementControl(control.env)).resolves.toEqual(left);

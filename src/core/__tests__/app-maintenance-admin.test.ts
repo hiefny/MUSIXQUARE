@@ -4,6 +4,7 @@ import appWorker from '../../../cloudflare/app-worker.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+  ADMIN_ANNOUNCEMENT_STATUS_PATH,
   SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
@@ -134,12 +135,165 @@ async function login(env: Record<string, unknown>) {
   return response.headers.get('Set-Cookie')?.split(';')[0] || '';
 }
 
+function deferControlRead(control: ReturnType<typeof createServiceControl>, pathname: string) {
+  let resolveResponse: (response: Response) => void = () => undefined;
+  const response = new Promise<Response>((resolve) => {
+    resolveResponse = resolve;
+  });
+  const originalFetch = control.fetch.getMockImplementation();
+  if (!originalFetch) throw new Error('Missing control fixture implementation');
+  const read = vi.fn(() => response.then((value) => value.clone()));
+  control.fetch.mockImplementation((request: Request) =>
+    new URL(request.url).pathname === pathname ? read() : originalFetch(request),
+  );
+  return { read, resolve: resolveResponse };
+}
+
+function maintenanceStatusResponse(enabled: boolean) {
+  return new Response(null, {
+    headers: {
+      [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+      [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: enabled ? '1' : '0',
+      [SERVICE_CONTROL_STATUS_REVISION_HEADER]: '1',
+      [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: String(Date.now()),
+      [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: enabled ? String(Date.now()) : '',
+    },
+  });
+}
+
 afterEach(() => {
   clearServiceMaintenanceCacheForTests();
   vi.useRealTimers();
 });
 
 describe('app maintenance administration', () => {
+  it.each(['public', 'admin'] as const)(
+    'owns a delayed %s announcement read shared by a public request burst',
+    async (leader) => {
+      const control = createServiceControl();
+      const env = {
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      };
+      const cookie = await login(env);
+      // Keep the background maintenance refresh separate from announcement ownership.
+      const status = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/service-status', {
+          headers: { Cookie: cookie },
+        }),
+        env,
+      );
+      expect(status.status).toBe(200);
+      const delayed = deferControlRead(control, ADMIN_ANNOUNCEMENT_STATUS_PATH);
+      const waits: Promise<unknown>[] = [];
+      const context = {
+        waitUntil: vi.fn(function (this: unknown, promise: Promise<unknown>) {
+          expect(this).toBe(context);
+          waits.push(promise);
+        }),
+      };
+      const unauthorized = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/announcement'),
+        env,
+        context,
+      );
+      expect(unauthorized.status).toBe(401);
+      expect(delayed.read).not.toHaveBeenCalled();
+      expect(context.waitUntil).not.toHaveBeenCalled();
+
+      const first = appWorker.fetch(
+        new Request(
+          leader === 'admin'
+            ? 'https://musixquare.com/api/admin/announcement'
+            : 'https://musixquare.com/api/announcement/current',
+          { headers: leader === 'admin' ? { Cookie: cookie } : {} },
+        ),
+        env,
+        context,
+      );
+      await vi.waitFor(() => expect(context.waitUntil).toHaveBeenCalledOnce());
+      const followers = Array.from({ length: 7 }, () =>
+        appWorker.fetch(
+          new Request('https://musixquare.com/api/announcement/current'),
+          env,
+          context,
+        ),
+      );
+      const announcement = {
+        id: 'owned-announcement',
+        message: 'Shared public notice',
+        enabled: true,
+        expiresAt: null,
+        updatedAt: new Date().toISOString(),
+      };
+      delayed.resolve(
+        Response.json({
+          announcementState: {
+            revision: 1,
+            announcement,
+            history: [{ ...announcement, action: 'published' }],
+          },
+        }),
+      );
+      const [firstResponse, ...publicResponses] = await Promise.all([first, ...followers]);
+      expect(firstResponse.status).toBe(200);
+      if (leader === 'admin') {
+        await expect(firstResponse.json()).resolves.toMatchObject({ revision: 1, announcement });
+      }
+      for (const response of publicResponses) {
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({
+          enabled: true,
+          id: announcement.id,
+          message: announcement.message,
+          expiresAt: null,
+          revision: 1,
+        });
+      }
+      await Promise.all(waits);
+      expect(delayed.read).toHaveBeenCalledOnce();
+      expect(context.waitUntil).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('owns the authenticated maintenance read shared with scheduled events', async () => {
+    const control = createServiceControl(true);
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+    };
+    const cookie = await login(env);
+    const delayed = deferControlRead(control, SERVICE_CONTROL_STATUS_PATH);
+    const waits: Promise<unknown>[] = [];
+    const context = { waitUntil: vi.fn((promise: Promise<unknown>) => waits.push(promise)) };
+    const endpoint = 'https://musixquare.com/api/admin/service-status';
+    const unauthorized = await appWorker.fetch(new Request(endpoint), env, context);
+    expect(unauthorized.status).toBe(401);
+    expect(delayed.read).not.toHaveBeenCalled();
+    expect(context.waitUntil).not.toHaveBeenCalled();
+
+    const response = appWorker.fetch(
+      new Request(endpoint, { headers: { Cookie: cookie } }),
+      env,
+      context,
+    );
+    await vi.waitFor(() => expect(context.waitUntil).toHaveBeenCalledOnce());
+    const scheduled = Array.from({ length: 7 }, () =>
+      appWorker.scheduled({ cron: '* * * * *' }, env, context),
+    );
+    delayed.resolve(maintenanceStatusResponse(true));
+    const result = await response;
+    expect(result.status).toBe(200);
+    await expect(result.json()).resolves.toMatchObject({
+      serviceStatus: { enabled: true, revision: 1 },
+    });
+    await Promise.all([...scheduled, ...waits]);
+    expect(delayed.read).toHaveBeenCalledOnce();
+    expect(context.waitUntil).toHaveBeenCalledOnce();
+  });
+
   it('requires an admin session for read-only history, keeps it available during maintenance, and returns no-store records', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-08T12:00:00Z'));
@@ -223,12 +377,16 @@ describe('app maintenance administration', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(statusFetch).toHaveBeenCalledOnce();
     expect(statusFetch.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ method: 'HEAD' }));
+    // The detached launch and the shareable control read each retain their
+    // complete chain; later requests must reuse that owned in-flight read.
+    expect(waitUntil).toHaveBeenCalledTimes(2);
 
     const second = await appWorker.fetch(new Request('https://musixquare.com/favicon.ico'), env, {
       waitUntil,
     });
     expect(second.status).toBe(200);
-    expect(waitUntil).toHaveBeenCalledOnce();
+    expect(waitUntil).toHaveBeenCalledTimes(2);
+    expect(statusFetch).toHaveBeenCalledOnce();
   });
 
   it('applies a completed background maintenance refresh to the next public request', async () => {
@@ -465,12 +623,24 @@ describe('app maintenance administration', () => {
 
   it('does not enqueue scheduled data work while maintenance is active', async () => {
     const control = createServiceControl(true);
-    const waitUntil = vi.fn();
-    await appWorker.scheduled(
-      { cron: '* * * * *' },
-      { MUSIXQUARE_SERVICE_CONTROL: control.binding },
-      { waitUntil },
+    const delayed = deferControlRead(control, SERVICE_CONTROL_STATUS_PATH);
+    const waits: Promise<unknown>[] = [];
+    const waitUntil = vi.fn((promise: Promise<unknown>) => waits.push(promise));
+    const prepare = vi.fn();
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      MUSIXQUARE_AUTH_DB: { prepare },
+      MUSIXQUARE_ADMIN_DB: { prepare },
+    };
+    const events = Array.from({ length: 8 }, () =>
+      appWorker.scheduled({ cron: '0 */6 * * *' }, env, { waitUntil }),
     );
-    expect(waitUntil).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(delayed.read).toHaveBeenCalledOnce());
+    expect(waitUntil).toHaveBeenCalledOnce();
+    delayed.resolve(maintenanceStatusResponse(true));
+    await Promise.all([...events, ...waits]);
+    expect(delayed.read).toHaveBeenCalledOnce();
+    expect(waitUntil).toHaveBeenCalledOnce();
+    expect(prepare).not.toHaveBeenCalled();
   });
 });

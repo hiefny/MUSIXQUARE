@@ -285,7 +285,8 @@ describe('policy-page accordions', () => {
       'localStorage',
       'sessionStorage',
       'CacheStorage',
-      'Sampled, credential-free custom Cloudflare Worker logs',
+      'Credential-free custom Cloudflare Worker logs',
+      'Bounded PRO diagnostics may include the six-digit room code',
       'Automatic invocation logs that include request URLs',
       'automatic Worker traces are disabled for all six Worker deployments',
       'selected standalone production pages',
@@ -351,7 +352,9 @@ describe('policy-page accordions', () => {
       expect(logs).toMatch(/enabled = true/u);
       expect(logs).toMatch(/invocation_logs = false/u);
       expect(logs).toMatch(
-        config === signalingConfig ? /^head_sampling_rate = 1$/mu : /^head_sampling_rate = 0\.1$/mu,
+        [appConfig, proRoomConfig, signalingConfig].includes(config)
+          ? /^head_sampling_rate = 1$/mu
+          : /^head_sampling_rate = 0\.1$/mu,
       );
       expect(config).toMatch(/\[observability\.traces\]\s+enabled = false/u);
     }

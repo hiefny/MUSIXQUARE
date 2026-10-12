@@ -42,6 +42,11 @@ import type {
   ProRoomRole,
 } from './pro-room-permissions.ts';
 import type { RoomEffectsPatch, RoomEffectsState } from './pro-room-effects.ts';
+import {
+  ProRoomDiagnostics,
+  type ProRoomDiagnosticDetail,
+  type ProRoomDiagnosticEvent,
+} from './pro-room-diagnostics.ts';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
 import {
   PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS as ACTIVATION_CLAIM_MAX_LIFETIME_MS,
@@ -78,7 +83,8 @@ import {
   checkDeveloperMutationCredential,
   developerMutationScopes,
 } from './developer-api-credential.ts';
-import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.ts';
+import { readServiceMaintenance, serviceMaintenanceResponse } from './service-maintenance.ts';
+import { reportProRoomFrontDiagnostic } from './pro-room-diagnostics.ts';
 import {
   PRO_ROOM_FILE_DURATION_READER,
   readProRoomFileDuration,
@@ -986,6 +992,7 @@ const OWNER_TRANSFER_COMPLETED_REPLAY_TTL_MS = 10 * 60 * 1000;
 const OWNER_TRANSFER_COMPLETED_REPLAY_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const PRO_ROOM_REGISTRY_MAX_ITEMS = 1000;
 const PRO_ROOM_REGISTRY_REFRESH_MS = 5_000;
+const PRO_ROOM_REGISTRY_READ_TIMEOUT_MS = 2_000;
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const PIN_RE = /^\d{8}$/;
 const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9_-]{22}$/;
@@ -1357,12 +1364,20 @@ function isProRoomCode(value: unknown): value is string {
   return typeof value === 'string' && PRO_ROOM_CODE_RE.test(value);
 }
 
+interface ProRoomExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+class ProRoomRegistryReadTimeoutError extends Error {}
+
 interface ProRoomRegistryCache {
   registered: Map<string, number>;
   suspended: Map<string, number>;
   suspendedRechecks: Map<string, Promise<number | null>>;
   refreshedAtMs: number;
   refreshPromise: Promise<void> | null;
+  refreshVersion: number;
+  settledVersion: number;
 }
 
 const registryCacheByDb = new WeakMap<D1DatabasePort, ProRoomRegistryCache>();
@@ -1376,10 +1391,29 @@ function registryCacheFor(db: D1DatabasePort): ProRoomRegistryCache {
       suspendedRechecks: new Map<string, Promise<number | null>>(),
       refreshedAtMs: 0,
       refreshPromise: null,
+      refreshVersion: 0,
+      settledVersion: 0,
     };
     registryCacheByDb.set(db, cache);
   }
   return cache;
+}
+
+async function boundedRegistryRead<T>(read: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      read,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ProRoomRegistryReadTimeoutError('PRO_REGISTRY_READ_TIMEOUT')),
+          PRO_ROOM_REGISTRY_READ_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function recheckSuspendedRoomGeneration(
@@ -1387,48 +1421,64 @@ async function recheckSuspendedRoomGeneration(
   cache: ProRoomRegistryCache,
   roomCode: string,
   expectedGeneration: number,
+  context?: ProRoomExecutionContext,
+  versionId?: unknown,
 ): Promise<number | null> {
   const key = `${roomCode}:${expectedGeneration}`;
-  if (!cache.suspendedRechecks.has(key)) {
-    const recheck = (async () => {
-      try {
-        const statement = db
-          .prepare(
-            `SELECT room_generation, status FROM mxqr_pro_room_registry
-             WHERE room_code = ?1 LIMIT 1`,
-          )
-          .bind(roomCode);
-        const row =
-          typeof statement.first === 'function'
-            ? await statement.first()
-            : (await statement.all()).results?.[0] || null;
-        const generation = Number(row?.room_generation);
-        if (
-          row?.status === 'registered' &&
-          generation === expectedGeneration &&
-          cache.suspended.get(roomCode) === expectedGeneration
-        ) {
-          cache.suspended.delete(roomCode);
-          cache.registered.set(roomCode, expectedGeneration);
-          return expectedGeneration;
-        }
-        // A still-suspended row, a recycled generation, a missing row, and
-        // every other registry state remain closed at the public facade.
-        return null;
-      } catch {
-        return null;
+  const pending = cache.suspendedRechecks.get(key);
+  if (pending) return pending;
+  const suspended = cache.suspended;
+  const version = cache.refreshVersion;
+  const recheck = (async () => {
+    try {
+      const statement = db
+        .prepare(
+          `SELECT room_generation, status FROM mxqr_pro_room_registry
+           WHERE room_code = ?1 LIMIT 1`,
+        )
+        .bind(roomCode);
+      const row = await boundedRegistryRead(
+        typeof statement.first === 'function'
+          ? statement.first()
+          : statement.all().then((result) => result.results?.[0] || null),
+      );
+      const generation = Number(row?.room_generation);
+      if (
+        row?.status === 'registered' &&
+        generation === expectedGeneration &&
+        cache.refreshVersion === version &&
+        cache.suspended === suspended &&
+        (suspended.get(roomCode) === expectedGeneration ||
+          cache.registered.get(roomCode) === expectedGeneration)
+      ) {
+        cache.suspended.delete(roomCode);
+        cache.registered.set(roomCode, expectedGeneration);
+        return expectedGeneration;
       }
-    })();
+      // A still-suspended row, recycled generation, replaced snapshot, missing
+      // row, or unreadable registry stays closed at the public facade.
+      return null;
+    } catch (error) {
+      reportProRoomFrontDiagnostic({ scope: 'front', roomCode, versionId }, 'registry_failure', {
+        reason: error instanceof ProRoomRegistryReadTimeoutError ? 'timeout' : 'lookup',
+        operation: 'registry_lookup',
+        status: 404,
+      });
+      return null;
+    }
+  })().finally(() => {
+    if (cache.suspendedRechecks.get(key) === recheck) {
+      cache.suspendedRechecks.delete(key);
+    }
+  });
+  // A shared promise must outlive the request that created its I/O and
+  // continuations. Without an execution context, only completed values are
+  // reusable; an independent read is safer than sharing cancellable work.
+  if (context) {
+    context.waitUntil(recheck);
     cache.suspendedRechecks.set(key, recheck);
-    recheck
-      .finally(() => {
-        if (cache.suspendedRechecks.get(key) === recheck) {
-          cache.suspendedRechecks.delete(key);
-        }
-      })
-      .catch(() => undefined);
   }
-  return cache.suspendedRechecks.get(key) ?? null;
+  return recheck;
 }
 
 async function frontProvisionedRoomGeneration(
@@ -1436,6 +1486,7 @@ async function frontProvisionedRoomGeneration(
   env: ProRoomEnvPort,
   nowMs = Date.now(),
   allowSuspended = false,
+  context?: ProRoomExecutionContext,
 ): Promise<number | null> {
   const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
   // Local/test environments without the shared registry keep only the
@@ -1455,49 +1506,78 @@ async function frontProvisionedRoomGeneration(
     // this short-lived suspended cache. Re-read only this exact room before a
     // non-allowlisted request so the new owner never inherits a five-second
     // false 404, while a still-suspended/recycled/unreadable row stays closed.
-    return recheckSuspendedRoomGeneration(db, cache, roomCode, suspendedGeneration);
+    return recheckSuspendedRoomGeneration(
+      db,
+      cache,
+      roomCode,
+      suspendedGeneration,
+      context,
+      env.CF_VERSION_METADATA?.id,
+    );
   }
-  if (!cache.refreshPromise) {
-    cache.refreshPromise = (async () => {
-      const result = await db
-        .prepare(
-          `SELECT room_code, room_generation, status FROM mxqr_pro_room_registry
-           WHERE status IN ('registered', 'suspended')
-           ORDER BY room_code ASC LIMIT ?1`,
-        )
-        .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
-        .all();
-      const rows = Array.isArray(result?.results) ? result.results : [];
-      if (rows.length > PRO_ROOM_REGISTRY_MAX_ITEMS) {
-        throw new Error('PRO room registry exceeds its bounded cache capacity');
-      }
-      const registered = new Map<string, number>();
-      const suspended = new Map<string, number>();
-      for (const row of rows) {
-        const generation = Number(row?.room_generation);
-        if (isProRoomCode(row?.room_code) && isProRoomGeneration(generation)) {
-          if (row.status === 'registered') registered.set(row.room_code, generation);
-          else if (row.status === 'suspended') suspended.set(row.room_code, generation);
+  let refresh = cache.refreshPromise;
+  if (!refresh) {
+    const version = ++cache.refreshVersion;
+    refresh = (async () => {
+      try {
+        const result = await boundedRegistryRead(
+          db
+            .prepare(
+              `SELECT room_code, room_generation, status FROM mxqr_pro_room_registry
+             WHERE status IN ('registered', 'suspended')
+             ORDER BY room_code ASC LIMIT ?1`,
+            )
+            .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
+            .all(),
+        );
+        const rows = Array.isArray(result?.results) ? result.results : [];
+        if (rows.length > PRO_ROOM_REGISTRY_MAX_ITEMS) {
+          throw new Error('PRO room registry exceeds its bounded cache capacity');
         }
+        const registered = new Map<string, number>();
+        const suspended = new Map<string, number>();
+        for (const row of rows) {
+          const generation = Number(row?.room_generation);
+          if (isProRoomCode(row?.room_code) && isProRoomGeneration(generation)) {
+            if (row.status === 'registered') registered.set(row.room_code, generation);
+            else if (row.status === 'suspended') suspended.set(row.room_code, generation);
+          }
+        }
+        if (cache.refreshVersion !== version) return;
+        cache.registered = registered;
+        cache.suspended = suspended;
+        cache.refreshedAtMs = Date.now();
+        cache.settledVersion = version;
+      } catch (error) {
+        if (cache.refreshVersion !== version) return;
+        // Fail closed once the registry is bound. A stale positive result must
+        // not keep a permanently deleted room open during a D1 incident.
+        reportProRoomFrontDiagnostic(
+          { scope: 'front', roomCode, versionId: env.CF_VERSION_METADATA?.id },
+          'registry_failure',
+          {
+            reason: error instanceof ProRoomRegistryReadTimeoutError ? 'timeout' : 'refresh',
+            operation: 'registry_refresh',
+            status: 404,
+          },
+        );
+        cache.registered = new Map();
+        cache.suspended = new Map();
+        cache.refreshedAtMs = Date.now();
+        cache.settledVersion = version;
       }
-      cache.registered = registered;
-      cache.suspended = suspended;
-      cache.refreshedAtMs = Date.now();
     })().finally(() => {
-      cache.refreshPromise = null;
+      if (cache.refreshPromise === refresh) cache.refreshPromise = null;
     });
+    if (context) {
+      context.waitUntil(refresh);
+      cache.refreshPromise = refresh;
+    }
   }
-  try {
-    await cache.refreshPromise;
-  } catch (error) {
-    // Fail closed once the registry is bound. A stale positive result must not
-    // keep a permanently deleted room open during a D1 incident.
-    console.warn('[PRO registry] front-door refresh failed', error);
-    cache.registered = new Map();
-    cache.suspended = new Map();
-    cache.refreshedAtMs = Date.now();
-    return null;
-  }
+  await refresh;
+  // An unowned read can be overtaken by a newer, still-pending read. Its
+  // completion must not fall through to an expired positive snapshot.
+  if (cache.settledVersion !== cache.refreshVersion) return null;
   return (
     cache.registered.get(roomCode) ??
     (allowSuspended ? cache.suspended.get(roomCode) : undefined) ??
@@ -1576,25 +1656,6 @@ function boundedString(value: unknown, maxLength: number, allowEmpty = false): s
   const result = value.trim();
   if ((!allowEmpty && result.length === 0) || result.length > maxLength) return null;
   return result;
-}
-
-function generatedPeerOrdinal(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
-  const match = /^Peer ([1-9]\d*)$/i.exec(value.trim());
-  if (!match) return null;
-  const ordinal = Number(match[1]);
-  return Number.isSafeInteger(ordinal) && ordinal >= 1 && ordinal <= SESSION_MAX_ITEMS
-    ? ordinal
-    : null;
-}
-
-function isGeneratedPeerNamespaceDisplayName(value: unknown) {
-  if (typeof value !== 'string') return false;
-  const normalized = value.trim();
-  return (
-    normalized.toLowerCase() === DEFAULT_PEER_DISPLAY_NAME.toLowerCase() ||
-    /^Peer \d+$/i.test(normalized)
-  );
 }
 
 function validDeveloperActorName(value: unknown) {
@@ -3801,7 +3862,9 @@ async function createR2PresignedUrl({
 }
 
 class RoomStateCapacityError extends Error {
-  constructor() {
+  constructor(
+    readonly diagnosticReason: 'core' | 'session_receipt' | 'presence_close_receipt' = 'core',
+  ) {
     super('PRO room state exceeds its bounded storage budget');
     this.name = 'RoomStateCapacityError';
   }
@@ -4012,7 +4075,11 @@ function assertBoundedRoomState(room: ProRoomState) {
 }
 
 export default {
-  async fetch(request: Request, env: ProRoomEnvPort): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: ProRoomEnvPort,
+    context?: ProRoomExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/health' && request.method === 'GET') {
       const workerVersionId = env?.CF_VERSION_METADATA?.id;
@@ -4022,8 +4089,22 @@ export default {
         ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
       });
     }
-    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
-    if (maintenanceResponse) return maintenanceResponse;
+    const maintenance = await readServiceMaintenance(env, { context });
+    if (maintenance.enabled) {
+      if (maintenance.controlUnavailable === true) {
+        const code = url.pathname.match(/^\/v1\/rooms\/(\d{6})(?:\/|$)/)?.[1];
+        reportProRoomFrontDiagnostic(
+          {
+            scope: 'front',
+            roomCode: isProRoomCode(code) ? code : null,
+            versionId: env.CF_VERSION_METADATA?.id,
+          },
+          'maintenance_unavailable',
+          { operation: 'maintenance_gate', status: 503 },
+        );
+      }
+      return serviceMaintenanceResponse(request, maintenance, { format: 'json' });
+    }
     const origin = allowedOrigin(request, env);
     if (request.method === 'OPTIONS') {
       return origin
@@ -4053,6 +4134,7 @@ export default {
       env,
       Date.now(),
       ownerTransferPreparePath || bootstrapPath,
+      context,
     );
     if (roomGeneration === null) {
       return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
@@ -4120,6 +4202,12 @@ export default {
 } satisfies ProRoomWorkerHandler;
 
 export class MusixquareProRoom {
+  private readonly diagnostics = new ProRoomDiagnostics(() => ({
+    scope: 'room',
+    roomCode: this.room?.roomCode,
+    roomGeneration: this.room?.roomGeneration,
+    versionId: this.env.CF_VERSION_METADATA?.id,
+  }));
   readonly state: DurableObjectStatePort;
   readonly storage: DurableObjectStoragePort;
   readonly env: ProRoomEnvPort;
@@ -6113,9 +6201,17 @@ export class MusixquareProRoom {
       release = resolve;
     });
     await previous;
+    const runtimeBefore = this.room?.runtime;
     try {
-      return await callback();
+      const result = await callback();
+      if (runtimeBefore && this.room?.runtime !== runtimeBefore) {
+        const sleeping = this.room?.runtime === 'sleeping';
+        this.recordDiagnostic(sleeping ? 'room_sleep' : 'room_wake');
+        if (sleeping) this.diagnostics.flush('sleep');
+      }
+      return result;
     } finally {
+      this.diagnostics.flushIfDue();
       release();
     }
   }
@@ -6193,6 +6289,7 @@ export class MusixquareProRoom {
       if (error instanceof RoomStateCapacityError) {
         this.restoreInMemoryState(checkpoint);
         await this.persist();
+        this.recordDiagnostic('state_capacity', { reason: error.diagnosticReason, status: 409 });
         return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
       }
       if (rollbackStorageFailure && error instanceof RoomStateStorageCommitError) {
@@ -6885,8 +6982,18 @@ export class MusixquareProRoom {
   }
 
   async fetch(request: Request) {
-    const maintenanceResponse = await gateServiceMaintenance(request, this.env, { format: 'json' });
-    if (maintenanceResponse) return maintenanceResponse;
+    const maintenance = await readServiceMaintenance(this.env);
+    if (maintenance.enabled) {
+      if (maintenance.controlUnavailable === true) {
+        // Initialization has not necessarily run yet. The diagnostic provider
+        // leaves room fields null until this object has an established identity.
+        this.diagnostics.record('maintenance_unavailable', {
+          operation: 'maintenance_gate',
+          status: 503,
+        });
+      }
+      return serviceMaintenanceResponse(request, maintenance, { format: 'json' });
+    }
     // Normalization replaces mutable records, so it must share the same
     // serialization boundary as requests awaiting external service responses.
     if (!(await this.withMutation(() => this.ensureReady(request)))) {
@@ -7297,8 +7404,157 @@ export class MusixquareProRoom {
     return request.headers.get('x-mxqr-pro-entry-policy') === 'optional-v1';
   }
 
-  async withEntryPolicyResponse(request: Request, task: () => Promise<Response>) {
+  private recordDiagnostic(event: ProRoomDiagnosticEvent, detail: ProRoomDiagnosticDetail = {}) {
+    try {
+      if (!this.room) return;
+      const observedAtMs = Date.now();
+      const participants = Object.values(this.room.presence.participants).filter((participant) =>
+        this.isPresenceCurrent(participant, observedAtMs),
+      );
+      this.diagnostics.record(event, {
+        livePresence: participants.length,
+        residentPresence: Object.keys(this.room.presence.participants).length,
+        nonOwnerPresence: participants.filter(
+          (p) => this.room?.sessions[p.sessionHash]?.role !== 'owner',
+        ).length,
+        storedSessions: Object.keys(this.room.sessions).length,
+        sessionReceipts: Object.keys(this.room.sessionCreateIdempotency).length,
+        maxPeerOrdinal: participants.reduce(
+          (max, p) => Math.max(max, this.room?.sessions[p.sessionHash]?.peerOrdinal || 0),
+          0,
+        ),
+        ...detail,
+      });
+    } catch {
+      /* Observability is never part of admission authority. */
+    }
+  }
+
+  private async withAdmissionDiagnostics(request: Request, task: () => Promise<Response>) {
+    const suffix = new URL(request.url).pathname.slice(
+      `/v1/rooms/${this.activeRoom.roomCode}`.length,
+    );
+    const operation =
+      suffix === '/sessions'
+        ? 'sessions'
+        : suffix === '/presence/enter'
+          ? 'presence_enter'
+          : suffix === '/presence/close' || suffix === '/presence/current' || suffix === '/presence'
+            ? 'presence_close'
+            : suffix === '/sessions/current' || suffix === '/sessions/current/close'
+              ? 'session_close'
+              : suffix === '/presence/heartbeat'
+                ? 'heartbeat'
+                : null;
+    if (!operation) return task();
+    // Only admission needs an identity comparison. Heartbeats have no success
+    // log or snapshot scan; existing traffic merely flushes a pending summary.
+    const entering =
+      request.method === 'POST' && (operation === 'sessions' || operation === 'presence_enter');
+    const beforeAtMs = Date.now();
+    const before = entering
+      ? new Map(
+          Object.values(this.activeRoom.presence.participants)
+            .filter((participant) => this.isPresenceCurrent(participant, beforeAtMs))
+            .map((p) => [p.participantId, p.presenceIncarnationId]),
+        )
+      : null;
+    const stored = entering
+      ? new Set(Object.values(this.activeRoom.sessions).map((s) => s.participantId))
+      : null;
     const response = await task();
+    try {
+      if (!response.ok) {
+        // These handlers generate small, fixed error objects themselves. Never
+        // inspect request bodies/cookies or log the response's arbitrary text.
+        const body: unknown = await response.clone().json();
+        const code = body && typeof body === 'object' && 'error' in body ? body.error : null;
+        const event: ProRoomDiagnosticEvent | null =
+          code === 'ROOM_FULL'
+            ? 'room_full'
+            : code === 'PRESENCE_ACTIVE_ELSEWHERE'
+              ? 'presence_active_elsewhere'
+              : code === 'PRESENCE_IDENTITY_MISMATCH'
+                ? 'presence_identity_mismatch'
+                : code === 'ACCOUNT_MEMBER_CAPACITY_EXCEEDED'
+                  ? 'state_capacity'
+                  : null;
+        if (event)
+          this.recordDiagnostic(event, {
+            operation,
+            status: response.status,
+            ...(code === 'ACCOUNT_MEMBER_CAPACITY_EXCEEDED'
+              ? { reason: 'member_limit' as const }
+              : {}),
+          });
+      } else if (before && stored) {
+        const participants = Object.values(this.activeRoom.presence.participants);
+        const added = participants.find((p) => !before.has(p.participantId));
+        const replaced = participants.some(
+          (p) =>
+            before.has(p.participantId) && before.get(p.participantId) !== p.presenceIncarnationId,
+        );
+        this.recordDiagnostic(
+          added
+            ? stored.has(added.participantId)
+              ? 'presence_reenter'
+              : 'presence_join'
+            : replaced
+              ? 'presence_takeover'
+              : 'presence_replay',
+          { operation, status: response.status },
+        );
+        // Observe only numeric fields used by the server's public projection.
+        // This is evidence of an incompatible response, not browser telemetry.
+        const validNumber = (value: unknown, owner: boolean) =>
+          typeof value === 'number' &&
+          Number.isSafeInteger(value) &&
+          value >= (owner ? 0 : 1) &&
+          value <= PRESENCE_MAX_ITEMS;
+        if (
+          participants.some((p) => {
+            const session = this.activeRoom.sessions[p.sessionHash];
+            const projected =
+              p.memberDisplayNumber ??
+              session?.memberDisplayNumber ??
+              session?.peerOrdinal ??
+              (p.role === 'owner' ? 0 : null);
+            return !validNumber(projected, p.role === 'owner');
+          })
+        )
+          this.recordDiagnostic('snapshot_contract_invalid', {
+            operation,
+            reason: 'member_display_number',
+            status: response.status,
+          });
+        if (
+          participants.some((p) => {
+            const session = this.activeRoom.sessions[p.sessionHash];
+            return session && session.role !== 'owner' && !validNumber(session.peerOrdinal, false);
+          })
+        )
+          this.recordDiagnostic('snapshot_contract_invalid', {
+            operation,
+            reason: 'peer_ordinal',
+            status: response.status,
+          });
+      } else if (response.ok && (operation === 'presence_close' || operation === 'session_close')) {
+        this.recordDiagnostic(
+          operation === 'session_close' || suffix === '/presence/current'
+            ? 'presence_leave'
+            : 'presence_close',
+          { operation, status: response.status },
+        );
+        this.diagnostics.flush('close');
+      }
+    } catch {
+      /* Keep the original response even if diagnostic parsing fails. */
+    }
+    return response;
+  }
+
+  async withEntryPolicyResponse(request: Request, task: () => Promise<Response>) {
+    const response = await this.withAdmissionDiagnostics(request, task);
     if (
       !this.supportsOptionalEntryPassword(request) ||
       !response.ok ||
@@ -7366,10 +7622,16 @@ export class MusixquareProRoom {
         .map((record) => record.resetAtMs)
         .filter((value) => Number.isSafeInteger(value) && value > nowMs),
     );
+    const retryAfterSeconds = Number.isFinite(retryAtMs)
+      ? Math.max(1, Math.ceil((retryAtMs - nowMs) / 1000))
+      : 60;
+    this.recordDiagnostic('rate_limited', {
+      reason: 'ledger_capacity',
+      status: 429,
+      retryAfterSeconds,
+    });
     return errorResponse('RATE_LIMITED', 429, {
-      'retry-after': String(
-        Number.isFinite(retryAtMs) ? Math.max(1, Math.ceil((retryAtMs - nowMs) / 1000)) : 60,
-      ),
+      'retry-after': String(retryAfterSeconds),
     });
   }
 
@@ -9344,6 +9606,18 @@ export class MusixquareProRoom {
     const current = this.activeRoom.rateLimits[key];
     if (current && current.resetAtMs > now && current.count >= limit) {
       const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAtMs - now) / 1000));
+      this.recordDiagnostic('rate_limited', {
+        reason:
+          kind === 'pin-failure'
+            ? 'pin'
+            : kind === 'owner-recovery'
+              ? 'owner_recovery'
+              : kind === 'owner-transfer'
+                ? 'owner_transfer'
+                : 'control',
+        status: 429,
+        retryAfterSeconds,
+      });
       return errorResponse('RATE_LIMITED', 429, { 'retry-after': String(retryAfterSeconds) });
     }
     return null;
@@ -9390,8 +9664,15 @@ export class MusixquareProRoom {
     if (!current || current.resetAtMs <= nowMs || current.count < SESSION_ADMISSION_LIMIT) {
       return null;
     }
+    const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAtMs - nowMs) / 1000));
+    this.recordDiagnostic('rate_limited', {
+      operation: 'sessions',
+      reason: 'admission',
+      status: 429,
+      retryAfterSeconds,
+    });
     return errorResponse('RATE_LIMITED', 429, {
-      'retry-after': String(Math.max(1, Math.ceil((current.resetAtMs - nowMs) / 1000))),
+      'retry-after': String(retryAfterSeconds),
     });
   }
 
@@ -9493,83 +9774,17 @@ export class MusixquareProRoom {
       : { response: errorResponse('ACCOUNT_ASSERTION_INVALID', 401) };
   }
 
-  usedMemberDisplayNumbers() {
-    const used = new Set<number>();
-    for (const member of Object.values(this.activeRoom.accountMembers || {})) {
-      if (isSafeInteger(member.displayNumber) && member.displayNumber > 0) {
-        used.add(member.displayNumber);
-      }
-    }
-    for (const administrator of Object.values(this.activeRoom.anonymousAdministrators || {})) {
-      if (isSafeInteger(administrator.displayNumber) && administrator.displayNumber > 0) {
-        used.add(administrator.displayNumber);
-      }
-    }
-    for (const session of Object.values(this.activeRoom.sessions || {})) {
-      if (isSafeInteger(session.memberDisplayNumber) && session.memberDisplayNumber > 0) {
-        used.add(session.memberDisplayNumber);
-      }
-      if (isSafeInteger(session.peerOrdinal) && session.peerOrdinal > 0) {
-        used.add(session.peerOrdinal);
-      }
-    }
-    return used;
-  }
-
   physicalSlotGroupKey(session: RoomSession) {
     return typeof session.accountId === 'string'
       ? `account:${session.accountId}`
       : `member:${session.memberId}`;
   }
 
-  memberDisplayNumberReservations() {
-    const reservations = new Map<number, string>();
-    const reserve = (displayNumber: unknown, groupKey: string) => {
-      if (
-        isSafeInteger(displayNumber) &&
-        displayNumber > 0 &&
-        displayNumber <= SESSION_MAX_ITEMS &&
-        !reservations.has(displayNumber)
-      ) {
-        reservations.set(displayNumber, groupKey);
-      }
-    };
-    const liveSessionHashes = new Set(
-      Object.values(this.activeRoom.presence.participants || {}).map(
-        (participant) => participant.sessionHash,
-      ),
-    );
-    const sessions = Object.entries(this.activeRoom.sessions || {}).sort(
-      ([leftHash, left], [rightHash, right]) =>
-        Number(liveSessionHashes.has(rightHash)) - Number(liveSessionHashes.has(leftHash)) ||
-        (left.createdAtMs || 0) - (right.createdAtMs || 0) ||
-        String(left.participantId || '').localeCompare(String(right.participantId || '')) ||
-        leftHash.localeCompare(rightHash),
-    );
-    // A live presence epoch owns the visible numbering. Persistent authority
-    // records and dormant resume cookies may retain older numbers, but they
-    // cannot displace a participant that is currently shown as #1.
-    for (const [tokenHash, session] of sessions) {
-      if (session.role === 'owner' || !liveSessionHashes.has(tokenHash)) continue;
-      reserve(session.memberDisplayNumber, this.physicalSlotGroupKey(session));
-    }
-    for (const [accountId, member] of Object.entries(this.activeRoom.accountMembers || {})) {
-      reserve(member.displayNumber, `account:${accountId}`);
-    }
-    for (const [memberId, administrator] of Object.entries(
-      this.activeRoom.anonymousAdministrators || {},
-    )) {
-      reserve(administrator.displayNumber, `member:${memberId}`);
-    }
-    for (const [, session] of sessions) {
-      if (session.role === 'owner') continue;
-      reserve(session.memberDisplayNumber, this.physicalSlotGroupKey(session));
-    }
-    return reservations;
-  }
-
-  normalizeLoadedPhysicalSlotAssignments(canMigrateAnonymousIdentity = true) {
-    let anonymousIdentityChanged = false;
+  normalizeLoadedPhysicalSlotAssignments(canMigrateIdentity = true) {
+    if (!canMigrateIdentity) return false;
+    let changed = false;
+    const validOrdinal = (value: unknown): value is number =>
+      isSafeInteger(value) && value >= 1 && value <= PRESENCE_MAX_ITEMS;
     const liveSessionHashes = new Set(
       Object.values(this.activeRoom.presence.participants || {}).map(
         (participant) => participant.sessionHash,
@@ -9579,98 +9794,127 @@ export class MusixquareProRoom {
       .filter(([, session]) => session.role !== 'owner')
       .sort(
         ([leftHash, left], [rightHash, right]) =>
-          Number(liveSessionHashes.has(rightHash)) - Number(liveSessionHashes.has(leftHash)) ||
           (left.createdAtMs || 0) - (right.createdAtMs || 0) ||
           String(left.participantId || '').localeCompare(String(right.participantId || '')) ||
           leftHash.localeCompare(rightHash),
       );
-    const reservations = this.memberDisplayNumberReservations();
+    const liveGroups = new Map<string, RoomSession[]>();
+    for (const [hash, session] of sessions) {
+      if (!liveSessionHashes.has(hash)) continue;
+      const key = this.physicalSlotGroupKey(session);
+      const group = liveGroups.get(key) || [];
+      group.push(session);
+      liveGroups.set(key, group);
+    }
     const assigned = new Map<RoomSession, number>();
     const used = new Set<number>();
-
-    // Preserve durable unique assignments when they do not steal another
-    // member's canonical number. This keeps ordinary restarts byte-stable.
-    for (const [, session] of sessions) {
-      const preferred = session.peerOrdinal;
-      const groupKey = this.physicalSlotGroupKey(session);
-      const reservationOwner = isSafeInteger(preferred) ? reservations.get(preferred) : undefined;
-      if (
-        !isSafeInteger(preferred) ||
-        preferred < 1 ||
-        preferred > SESSION_MAX_ITEMS ||
-        used.has(preferred) ||
-        (reservationOwner !== undefined && reservationOwner !== groupKey)
-      ) {
-        continue;
+    const groupNumbers = new Map<string, number>();
+    const nextFree = () => {
+      for (let ordinal = 1; ordinal <= PRESENCE_MAX_ITEMS; ordinal += 1) {
+        if (!used.has(ordinal)) return ordinal;
       }
-      assigned.set(session, preferred);
+      return null;
+    };
+    // Each live member's visible number is backed by one of its live devices.
+    // Reserve representatives first so another device cannot steal that number.
+    // Dormant cookies and offline grants retain identity, but reserve no slots.
+    for (const [key, group] of liveGroups) {
+      const preferred = group[0]!.memberDisplayNumber;
+      if (!validOrdinal(preferred) || used.has(preferred)) continue;
+      groupNumbers.set(key, preferred);
       used.add(preferred);
     }
-
+    for (const [key, group] of liveGroups) {
+      let ordinal = groupNumbers.get(key);
+      if (ordinal === undefined) {
+        const preferred = group.find(
+          (session) => validOrdinal(session.peerOrdinal) && !used.has(session.peerOrdinal),
+        )?.peerOrdinal;
+        ordinal = validOrdinal(preferred) ? preferred : (nextFree() ?? undefined);
+        if (ordinal === undefined) continue;
+        groupNumbers.set(key, ordinal);
+        used.add(ordinal);
+      }
+      const representative = group.find((session) => session.peerOrdinal === ordinal) || group[0]!;
+      assigned.set(representative, ordinal);
+    }
+    for (const group of liveGroups.values()) {
+      for (const session of group) {
+        if (assigned.has(session)) continue;
+        const preferred = session.peerOrdinal;
+        if (!validOrdinal(preferred) || used.has(preferred)) continue;
+        assigned.set(session, preferred);
+        used.add(preferred);
+      }
+    }
+    for (const group of liveGroups.values()) {
+      for (const session of group) {
+        if (assigned.has(session)) continue;
+        const ordinal = nextFree();
+        if (ordinal === null) continue;
+        assigned.set(session, ordinal);
+        used.add(ordinal);
+      }
+    }
+    // Offline authorities can share historical labels with live members. The
+    // memberId, never this display label, is the grant/account identity. Repair
+    // old 101..128 labels without deleting permissions or retained identities.
+    for (const [accountId, member] of Object.entries(this.activeRoom.accountMembers || {})) {
+      const number =
+        member.role === 'owner'
+          ? 0
+          : (groupNumbers.get(`account:${accountId}`) ??
+            (validOrdinal(member.displayNumber) ? member.displayNumber : 1));
+      if (member.displayNumber !== number) changed = true;
+      member.displayNumber = number;
+    }
+    for (const [memberId, administrator] of Object.entries(
+      this.activeRoom.anonymousAdministrators || {},
+    )) {
+      const number =
+        groupNumbers.get(`member:${memberId}`) ??
+        (validOrdinal(administrator.displayNumber) ? administrator.displayNumber : 1);
+      const name = `${DEFAULT_PEER_DISPLAY_NAME} ${number}`;
+      if (administrator.displayNumber !== number || administrator.displayName !== name)
+        changed = true;
+      administrator.displayNumber = number;
+      administrator.displayName = name;
+    }
     for (const [, session] of sessions) {
-      if (assigned.has(session)) continue;
-      const groupKey = this.physicalSlotGroupKey(session);
-      const preferred = session.memberDisplayNumber;
-      const preferredOwner = isSafeInteger(preferred) ? reservations.get(preferred) : undefined;
-      let ordinal =
-        isSafeInteger(preferred) &&
-        preferred >= 1 &&
-        preferred <= SESSION_MAX_ITEMS &&
-        !used.has(preferred) &&
-        (preferredOwner === undefined || preferredOwner === groupKey)
-          ? preferred
-          : 1;
-      while (
-        ordinal <= SESSION_MAX_ITEMS &&
-        (used.has(ordinal) || (reservations.has(ordinal) && reservations.get(ordinal) !== groupKey))
-      ) {
-        ordinal += 1;
-      }
-      // A fully occupied legacy reservation table must not make an otherwise
-      // valid stored room unloadable. Physical uniqueness still takes priority.
-      if (ordinal > SESSION_MAX_ITEMS) {
-        ordinal = 1;
-        while (ordinal <= SESSION_MAX_ITEMS && used.has(ordinal)) ordinal += 1;
-      }
-      if (ordinal > SESSION_MAX_ITEMS) continue;
-      assigned.set(session, ordinal);
-      used.add(ordinal);
+      const ordinal =
+        assigned.get(session) ??
+        (validOrdinal(session.peerOrdinal)
+          ? session.peerOrdinal
+          : validOrdinal(session.memberDisplayNumber)
+            ? session.memberDisplayNumber
+            : 1);
+      const member = session.accountId ? this.activeRoom.accountMembers?.[session.accountId] : null;
+      const number = member?.displayNumber ?? ordinal;
+      const name = member?.displayName ?? `${DEFAULT_PEER_DISPLAY_NAME} ${ordinal}`;
+      if (
+        session.peerOrdinal !== ordinal ||
+        session.memberDisplayNumber !== number ||
+        session.displayName !== name
+      )
+        changed = true;
+      session.peerOrdinal = ordinal;
+      session.memberDisplayNumber = number;
+      session.displayName = name;
     }
-
-    let highestOrdinal = 0;
-    for (const [, session] of sessions) {
-      const ordinal = assigned.get(session);
-      if (!isSafeInteger(ordinal)) continue;
-      highestOrdinal = Math.max(highestOrdinal, ordinal);
-      if (!session.accountId) {
-        if (!canMigrateAnonymousIdentity) continue;
-        if (session.peerOrdinal !== ordinal) anonymousIdentityChanged = true;
-        session.peerOrdinal = ordinal;
-        if (session.memberDisplayNumber !== ordinal) anonymousIdentityChanged = true;
-        session.memberDisplayNumber = ordinal;
-        const canonicalDisplayName = `${DEFAULT_PEER_DISPLAY_NAME} ${ordinal}`;
-        if (session.displayName !== canonicalDisplayName) anonymousIdentityChanged = true;
-        session.displayName = canonicalDisplayName;
-        const administrator = this.activeRoom.anonymousAdministrators?.[session.memberId];
-        if (administrator) {
-          if (administrator.displayNumber !== ordinal) anonymousIdentityChanged = true;
-          administrator.displayNumber = ordinal;
-          if (administrator.displayName !== canonicalDisplayName) {
-            anonymousIdentityChanged = true;
-          }
-          administrator.displayName = canonicalDisplayName;
-        }
-      } else {
-        session.peerOrdinal = ordinal;
-      }
+    for (const session of Object.values(this.activeRoom.sessions || {})) {
+      if (session.role !== 'owner') continue;
+      if (session.memberDisplayNumber !== 0 || session.peerOrdinal !== undefined) changed = true;
+      session.memberDisplayNumber = 0;
+      delete session.peerOrdinal;
     }
-    if (highestOrdinal > 0) {
-      this.activeRoom.nextMemberDisplayNumber = Math.min(
-        SESSION_MAX_ITEMS + 1,
-        Math.max(this.activeRoom.nextMemberDisplayNumber || 1, highestOrdinal + 1),
-      );
-    }
-    return anonymousIdentityChanged;
+    this.activeRoom.nextMemberDisplayNumber = Math.min(
+      PRESENCE_MAX_ITEMS + 1,
+      Math.max(
+        this.activeRoom.nextMemberDisplayNumber || 1,
+        ...Array.from(used, (value) => value + 1),
+      ),
+    );
+    return changed;
   }
 
   nextAccountMemberDisplayNumber() {
@@ -9681,15 +9925,16 @@ export class MusixquareProRoom {
     return this.nextLivePhysicalDeviceOrdinal();
   }
 
-  livePhysicalDeviceOrdinals(excludedSession: RoomSession | null = null) {
+  livePhysicalDeviceOrdinals(excludedSession: RoomSession | null = null, nowMs?: number) {
     const used = new Set<number>();
     for (const participant of Object.values(this.activeRoom.presence.participants || {})) {
+      if (nowMs !== undefined && !this.isPresenceCurrent(participant, nowMs)) continue;
       const session = this.activeRoom.sessions?.[participant.sessionHash];
       if (!session || session === excludedSession || session.role === 'owner') continue;
       if (
         isSafeInteger(session.peerOrdinal) &&
         session.peerOrdinal >= 1 &&
-        session.peerOrdinal <= SESSION_MAX_ITEMS
+        session.peerOrdinal <= PRESENCE_MAX_ITEMS
       ) {
         used.add(session.peerOrdinal);
       }
@@ -9697,9 +9942,9 @@ export class MusixquareProRoom {
     return used;
   }
 
-  nextLivePhysicalDeviceOrdinal(excludedSession: RoomSession | null = null) {
-    const used = this.livePhysicalDeviceOrdinals(excludedSession);
-    for (let ordinal = 1; ordinal <= SESSION_MAX_ITEMS; ordinal += 1) {
+  nextLivePhysicalDeviceOrdinal(excludedSession: RoomSession | null = null, nowMs?: number) {
+    const used = this.livePhysicalDeviceOrdinals(excludedSession, nowMs);
+    for (let ordinal = 1; ordinal <= PRESENCE_MAX_ITEMS; ordinal += 1) {
       if (!used.has(ordinal)) return ordinal;
     }
     return null;
@@ -9711,7 +9956,7 @@ export class MusixquareProRoom {
       !departed.accountId ||
       !isSafeInteger(representativeOrdinal) ||
       representativeOrdinal < 1 ||
-      representativeOrdinal > SESSION_MAX_ITEMS
+      representativeOrdinal > PRESENCE_MAX_ITEMS
     ) {
       return false;
     }
@@ -9724,8 +9969,8 @@ export class MusixquareProRoom {
     }
     remaining.sort(
       (left, right) =>
-        (left.session.peerOrdinal || SESSION_MAX_ITEMS + 1) -
-          (right.session.peerOrdinal || SESSION_MAX_ITEMS + 1) ||
+        (left.session.peerOrdinal || PRESENCE_MAX_ITEMS + 1) -
+          (right.session.peerOrdinal || PRESENCE_MAX_ITEMS + 1) ||
         left.participant.joinedAtMs - right.participant.joinedAtMs ||
         left.participant.participantId.localeCompare(right.participant.participantId),
     );
@@ -9789,7 +10034,7 @@ export class MusixquareProRoom {
       session.displayName = `${DEFAULT_PEER_DISPLAY_NAME} ${peerOrdinal}`;
     }
     this.activeRoom.nextMemberDisplayNumber = Math.min(
-      SESSION_MAX_ITEMS + 1,
+      PRESENCE_MAX_ITEMS + 1,
       Math.max(this.activeRoom.nextMemberDisplayNumber || 1, peerOrdinal + 1),
     );
     return true;
@@ -9819,7 +10064,9 @@ export class MusixquareProRoom {
   ) {
     if (!session?.accountId) return null;
     const participant = this.activeRoom.presence.participants[session.participantId] || null;
-    let memberDisplayNumber = this.nextAccountMemberDisplayNumber();
+    const departed = participant ? { ...participant } : null;
+    let memberDisplayNumber =
+      this.nextAccountMemberDisplayNumber() ?? this.nextLivePhysicalDeviceOrdinal(session);
     if (memberDisplayNumber === null) {
       if (options.requireUniqueDisplayNumber === true) return null;
       // Revocation must never fail open merely because every display slot is
@@ -9860,6 +10107,8 @@ export class MusixquareProRoom {
       }
     }
     if (this.activeRoom.revision < Number.MAX_SAFE_INTEGER) this.activeRoom.revision += 1;
+    if (departed) this.reclaimLiveAccountRepresentativeOrdinal(departed);
+    this.normalizeLoadedAccountIdentity();
     return { participant, memberDisplayNumber };
   }
 
@@ -9867,6 +10116,7 @@ export class MusixquareProRoom {
     account: { accountId: string; nickname: string },
     role: ProRoomRole,
     nowMs: number,
+    attachingSession: RoomSession | null = null,
   ): AccountMemberWithId | null {
     if (!account) return null;
     let member = this.activeRoom.accountMembers[account.accountId] || null;
@@ -9886,7 +10136,13 @@ export class MusixquareProRoom {
         !this.reclaimOfflineAccountMember()
       )
         return null;
-      const displayNumber = linkingOwner || linkedOwner ? 0 : this.nextAccountMemberDisplayNumber();
+      const displayNumber =
+        linkingOwner || linkedOwner
+          ? 0
+          : this.nextLivePhysicalDeviceOrdinal(
+              attachingSession,
+              attachingSession ? undefined : Date.now(),
+            );
       if (displayNumber === null) return null;
       const memberId = linkingOwner || linkedOwner ? ownerMemberId : `member_${randomToken(18)}`;
       if (memberId === null) return null;
@@ -10896,10 +11152,11 @@ export class MusixquareProRoom {
     // Anonymous non-owner identities are always allocated by the server.
     // Account nicknames and the persisted owner identity remain authoritative
     // for their respective sessions.
+    // This is provisional until joinPresence prunes at its fresh admission
+    // instant and assigns the actual slot. Other identity mutations reserve
+    // every resident slot until cleanup, even if the clock advances mid-call.
     const peerOrdinal =
-      role === 'owner'
-        ? null
-        : this.nextPhysicalDeviceOrdinal(accountMember?.displayNumber ?? null);
+      role === 'owner' ? null : this.nextLivePhysicalDeviceOrdinal(null, Date.now());
     if (role !== 'owner' && peerOrdinal === null) return null;
     const resolvedDisplayName =
       !accountMember && role !== 'owner' && peerOrdinal !== null
@@ -10942,70 +11199,6 @@ export class MusixquareProRoom {
     return { token, tokenHash, session };
   }
 
-  peerOrdinalAssignments() {
-    const candidates = Object.entries(this.activeRoom.sessions)
-      .filter(([, session]) => {
-        return (
-          isGeneratedPeerNamespaceDisplayName(session.displayName) ||
-          (isSafeInteger(session.peerOrdinal) &&
-            session.peerOrdinal >= 1 &&
-            session.peerOrdinal <= SESSION_MAX_ITEMS)
-        );
-      })
-      .sort(
-        ([leftHash, left], [rightHash, right]) =>
-          left.createdAtMs - right.createdAtMs ||
-          left.participantId.localeCompare(right.participantId) ||
-          leftHash.localeCompare(rightHash),
-      );
-    const assigned = new Map<RoomSession, number>();
-    const used = new Set<number>();
-
-    // Preserve every valid durable assignment first. Exact legacy `Peer N`
-    // labels are also treated as reservations so a rolling deploy cannot hand
-    // the same visible identity to a new session.
-    for (const [, session] of candidates) {
-      const preferred =
-        isSafeInteger(session.peerOrdinal) &&
-        session.peerOrdinal >= 1 &&
-        session.peerOrdinal <= SESSION_MAX_ITEMS
-          ? session.peerOrdinal
-          : generatedPeerOrdinal(session.displayName);
-      if (preferred === null || used.has(preferred)) continue;
-      assigned.set(session, preferred);
-      used.add(preferred);
-    }
-
-    // Old sessions only stored the generic `Peer` placeholder. Give those
-    // sessions deterministic slots without making a browser the allocator.
-    for (const [, session] of candidates) {
-      if (assigned.has(session)) continue;
-      let ordinal = 1;
-      while (ordinal <= SESSION_MAX_ITEMS && used.has(ordinal)) ordinal += 1;
-      if (ordinal > SESSION_MAX_ITEMS) continue;
-      assigned.set(session, ordinal);
-      used.add(ordinal);
-    }
-    return assigned;
-  }
-
-  nextPhysicalDeviceOrdinal(preferred: number | null = null) {
-    const used = new Set(this.peerOrdinalAssignments().values());
-    if (
-      isSafeInteger(preferred) &&
-      preferred >= 1 &&
-      preferred <= SESSION_MAX_ITEMS &&
-      !used.has(preferred)
-    ) {
-      return preferred;
-    }
-    const reserved = this.usedMemberDisplayNumbers();
-    for (let ordinal = 1; ordinal <= SESSION_MAX_ITEMS; ordinal += 1) {
-      if (!used.has(ordinal) && !reserved.has(ordinal)) return ordinal;
-    }
-    return null;
-  }
-
   ensureSessionPeerIdentity(session: RoomSession) {
     const participant = this.activeRoom.presence.participants[session.participantId];
     if (!participant) {
@@ -11020,7 +11213,7 @@ export class MusixquareProRoom {
     const ordinal =
       isSafeInteger(preferred) &&
       preferred >= 1 &&
-      preferred <= SESSION_MAX_ITEMS &&
+      preferred <= PRESENCE_MAX_ITEMS &&
       !liveUsed.has(preferred)
         ? preferred
         : this.nextLivePhysicalDeviceOrdinal(session);
@@ -11778,8 +11971,33 @@ export class MusixquareProRoom {
    * example by an account detach) leaves up to 100 non-owner presences, and
    * the owner can then meet ROOM_FULL until somebody leaves.
    */
-  presenceAdmissionAvailable(role: ProRoomRole) {
-    const participants = Object.values(this.activeRoom.presence.participants);
+  isPresenceCurrent(participant: PresenceParticipant, nowMs: number) {
+    const session = this.activeRoom.sessions[participant.sessionHash];
+    return Boolean(
+      session &&
+      session.expiresAtMs > nowMs &&
+      session.authEpoch === this.activeRoom.authEpoch &&
+      session.roomGeneration === this.activeRoom.roomGeneration &&
+      participant.lastSeenAtMs + this.presenceTtlMs() > nowMs,
+    );
+  }
+
+  pruneExpiredPresence(nowMs: number) {
+    let changed = false;
+    for (const participant of Object.values(this.activeRoom.presence.participants)) {
+      if (!this.isPresenceCurrent(participant, nowMs)) {
+        changed = this.removePresence(participant.participantId, nowMs) || changed;
+      }
+    }
+    return changed;
+  }
+
+  presenceAdmissionAvailable(role: ProRoomRole, nowMs = Date.now()) {
+    // Body parsing, account verification and PIN hashing can cross a lease
+    // boundary after fetch's initial prune. Refusal must remain mutation-free.
+    const participants = Object.values(this.activeRoom.presence.participants).filter(
+      (participant) => this.isPresenceCurrent(participant, nowMs),
+    );
     if (participants.length >= PRESENCE_MAX_ITEMS) return false;
     if (role === 'owner') return true;
     const nonOwnerPresences = participants.filter(
@@ -11789,14 +12007,18 @@ export class MusixquareProRoom {
   }
 
   joinPresence(session: RoomSession, tokenHash: string, nowMs: number, devicePlatform = 'other') {
+    nowMs = Math.max(nowMs, Date.now());
     const existing = this.activeRoom.presence.participants[session.participantId];
-    if (existing) {
+    if (existing && this.isPresenceCurrent(existing, nowMs)) {
       existing.lastSeenAtMs = nowMs;
       existing.devicePlatform = devicePlatform;
       session.presenceIncarnationId = existing.presenceIncarnationId;
       return false;
     }
-    if (!this.presenceAdmissionAvailable(session.role)) return null;
+    if (!this.presenceAdmissionAvailable(session.role, nowMs)) return null;
+    // All successful callers commit this cleanup with the new presence under
+    // their existing mutation/storage rollback boundary.
+    this.pruneExpiredPresence(nowMs);
     if (!this.assignSessionPresenceIdentity(session)) return null;
     const wasSleeping = this.activeRoom.runtime === 'sleeping';
     const presenceIncarnationId = `presence_${randomToken(18)}`;
@@ -11871,8 +12093,9 @@ export class MusixquareProRoom {
     takeover = false,
     devicePlatform = 'other',
   ) {
+    nowMs = Math.max(nowMs, Date.now());
     const existing = this.activeRoom.presence.participants[session.participantId];
-    if (!existing) {
+    if (!existing || !this.isPresenceCurrent(existing, nowMs)) {
       return this.joinPresence(session, tokenHash, nowMs, devicePlatform) === null
         ? 'room-full'
         : 'entered';
@@ -13679,6 +13902,7 @@ export class MusixquareProRoom {
       session.accountLeaseExpiresAtMs > nowMs;
     const presenceCurrent =
       participant &&
+      this.isPresenceCurrent(participant, Date.now()) &&
       participant.sessionHash === record.sessionTokenHash &&
       participant.presenceIncarnationId === session.presenceIncarnationId &&
       participant.memberId === record.preservedOwnerMemberId &&
@@ -13697,8 +13921,8 @@ export class MusixquareProRoom {
       return errorResponse('OWNER_TRANSFER_COMMIT_SUPERSEDED', 409);
     }
     if (
-      !participant &&
-      Object.keys(this.activeRoom.presence.participants).length >= PRESENCE_MAX_ITEMS
+      (!participant || !this.isPresenceCurrent(participant, Date.now())) &&
+      !this.presenceAdmissionAvailable('owner')
     ) {
       return errorResponse('ROOM_FULL', 409);
     }
@@ -13711,7 +13935,7 @@ export class MusixquareProRoom {
     session.displayName = account.nickname;
     session.role = 'owner';
     this.commitOwnerAccountMember(accountMember);
-    if (participant) {
+    if (participant && this.isPresenceCurrent(participant, Date.now())) {
       participant.lastSeenAtMs = nowMs;
       participant.devicePlatform = devicePlatformFromRequest(request);
       this.activeRoom.presence.revision += 1;
@@ -14505,6 +14729,7 @@ export class MusixquareProRoom {
     const recoveringSession = await this.authenticate(request);
     const remainingPresence = Object.values(this.activeRoom.presence.participants).filter(
       (participant) =>
+        this.isPresenceCurrent(participant, Date.now()) &&
         participant.sessionHash !== recoveringSession?.tokenHash &&
         this.activeRoom.sessions[participant.sessionHash]?.role !== 'owner',
     ).length;
@@ -14672,7 +14897,8 @@ export class MusixquareProRoom {
           // second admission under the same logical request.
           return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
         }
-        if (!this.activeRoom.presence.participants[replaySession.participantId]) {
+        const replayPresence = this.activeRoom.presence.participants[replaySession.participantId];
+        if (!replayPresence || !this.isPresenceCurrent(replayPresence, Date.now())) {
           if (
             this.joinPresence(
               replaySession,
@@ -14734,7 +14960,9 @@ export class MusixquareProRoom {
         ) {
           return errorResponse('ROOM_STATE_INVALID', 503);
         }
-        if (!this.activeRoom.presence.participants[recoveredSession.participantId]) {
+        const recoveredPresence =
+          this.activeRoom.presence.participants[recoveredSession.participantId];
+        if (!recoveredPresence || !this.isPresenceCurrent(recoveredPresence, Date.now())) {
           if (
             this.joinPresence(
               recoveredSession,
@@ -14963,7 +15191,7 @@ export class MusixquareProRoom {
       auth.session.role === 'owner' || this.activeRoom.ownerAccountId === asserted.account.accountId
         ? 'owner'
         : 'member';
-    const accountMember = this.resolveAccountMember(asserted.account, role, nowMs);
+    const accountMember = this.resolveAccountMember(asserted.account, role, nowMs, auth.session);
     if (!accountMember) return errorResponse('ACCOUNT_MEMBER_CAPACITY_EXCEEDED', 409);
     const previousAnonymousMemberId = auth.session.accountId ? null : auth.session.memberId;
     if (previousAnonymousMemberId) {
@@ -14979,7 +15207,15 @@ export class MusixquareProRoom {
     auth.session.displayName = accountMember.displayName;
     auth.session.role = accountMember.role;
     auth.session.accountLeaseExpiresAtMs = this.accountIdentityLeaseExpiresAt(nowMs);
-    this.syncAccountMemberSessions(accountMember.accountId, accountMember);
+    // An offline grant's historical number may now belong to another member.
+    // Keep this admitted device's physical slot (or the account's existing live
+    // representative) before projecting the renewed identity into the response.
+    if (auth.session.role === 'owner') delete auth.session.peerOrdinal;
+    else this.ensureSessionPeerIdentity(auth.session);
+    this.syncAccountMemberSessions(
+      accountMember.accountId,
+      this.activeRoom.accountMembers[accountMember.accountId]!,
+    );
     this.activeRoom.presence.revision += 1;
     this.activeRoom.revision += 1;
     await this.persist();
@@ -16045,7 +16281,13 @@ export class MusixquareProRoom {
       // An unexpired receipt is a durable exactly-once fence. Never trade it
       // for availability: the outer mutation checkpoint rolls back the new
       // action and returns a bounded capacity response.
-      throw new RoomStateCapacityError();
+      throw new RoomStateCapacityError(
+        scope.startsWith(SESSION_CREATE_IDEMPOTENCY_SCOPE_PREFIX)
+          ? 'session_receipt'
+          : scope.endsWith(PRESENCE_CLOSE_IDEMPOTENCY_SCOPE_SUFFIX)
+            ? 'presence_close_receipt'
+            : 'core',
+      );
     }
     return records;
   }
@@ -16841,6 +17083,9 @@ export class MusixquareProRoom {
       }
       return false;
     }
+    const expiredPresenceCount = Object.values(this.activeRoom.presence.participants).filter(
+      (participant) => !this.isPresenceCurrent(participant, nowMs),
+    ).length;
     // This also migrates ready assets written before gcAfterMs existed and
     // repairs stale markers on assets that are referenced by the playlist.
     let playbackTransitionOutcome = null;
@@ -16893,11 +17138,7 @@ export class MusixquareProRoom {
         }
       }
     }
-    for (const participant of Object.values(this.activeRoom.presence.participants)) {
-      if (participant.lastSeenAtMs + this.presenceTtlMs() <= nowMs) {
-        changed = this.removePresence(participant.participantId, nowMs) || changed;
-      }
-    }
+    changed = this.pruneExpiredPresence(nowMs) || changed;
     changed = this.reconcilePlaybackDurationProbe(nowMs) || changed;
     // Repair legacy detachments that lost their session reference, and reclaim
     // ordinary identities once their final live or retained session is gone.
@@ -17091,6 +17332,9 @@ export class MusixquareProRoom {
     this.enqueuePlaybackOutcome(playbackTransitionOutcome, nowMs);
     if (changed) {
       await this.persist();
+      if (expiredPresenceCount > 0) {
+        this.recordDiagnostic('presence_expire', { affectedCount: expiredPresenceCount });
+      }
       this.systemAudioMigrationPending = false;
       this.effectsMigrationPending = false;
       this.queueModeMigrationPending = false;

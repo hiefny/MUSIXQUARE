@@ -2799,7 +2799,10 @@ const developerApiWorker = {
         requestId,
       );
     }
-    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    const maintenanceResponse = await gateServiceMaintenance(request, env, {
+      format: 'json',
+      context: context.waitUntil ? { waitUntil: context.waitUntil.bind(context) } : undefined,
+    });
     if (maintenanceResponse) return maintenanceResponse;
     try {
       return await handleApiRequest(request, env, context, requestId);
@@ -2817,7 +2820,7 @@ const developerApiWorker = {
     const nowMs = isSafeNonNegativeInteger(scheduledTime) ? scheduledTime : Date.now();
     context.waitUntil(
       (async () => {
-        if ((await readServiceMaintenance(env)).enabled) return;
+        if ((await readServiceMaintenance(env, { context })).enabled) return;
         await expireDeveloperApiKeys(env, nowMs);
       })(),
     );

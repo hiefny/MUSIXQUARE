@@ -624,6 +624,7 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
 const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
   '/src/core/sw-hard-reset.ts',
   '/src/demo/mode.ts',
+  '/src/diagnostics/sync-flight-recorder.ts',
   '/src/i18n/localized-app-head.ts',
   '/src/network/room-session-feature-runtime.ts',
   '/src/player/media-session.ts',
@@ -639,6 +640,7 @@ const DEFERRED_ENTRY_MODULES = [
   '/src/network/system-audio-guest.ts',
   '/src/network/system-audio-sfu.ts',
   '/src/pro-room/system-audio-service.ts',
+  '/src/pro-room/network-bridge.ts',
   '/src/player/media-session.ts',
   '/src/player/local-output-rejoin.ts',
   '/src/ui/connect.ts',

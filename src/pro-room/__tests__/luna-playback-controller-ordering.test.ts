@@ -6,6 +6,8 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { PlaylistItem, QueueItemId, RoomContext } from '../../types/index.ts';
 import type { ProRoomPlaybackCheckpoint, ProRoomSnapshot } from '../contracts.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
+import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import {
   ProRoomApiClient,
   type ProRoomPlaybackCommandResult,
@@ -149,6 +151,12 @@ function controllerPorts(
 }
 
 beforeEach(() => {
+  installProClockSnapshotMocks(serverClock);
+  // This suite's wire timestamps use a 10-second server epoch.
+  vi.spyOn(serverClock, 'getProRoomServerNow').mockReturnValue(10_000);
+  vi.spyOn(ServerProRoomNetworkBridge.prototype, 'waitForFreshClockCalibration').mockResolvedValue(
+    true,
+  );
   resetState();
   bus.clear();
   clearAllManagedTimers();

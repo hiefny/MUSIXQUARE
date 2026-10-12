@@ -40,6 +40,7 @@ import {
   type YouTubePlayerInstance,
 } from '../_state.ts';
 import { initYouTubeNativeControlAuthority } from '../native-control-authority.ts';
+import { setStandardHostYouTubeLocalStartTimelineReader } from '../local-offset.ts';
 import { initMediaSession } from '../../player/media-session.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -116,6 +117,7 @@ function emitNativePlay(player: FakePlayer): void {
 }
 
 beforeEach(() => {
+  setStandardHostYouTubeLocalStartTimelineReader(null);
   clearAllManagedTimers();
   bus.clear();
   resetState();
@@ -125,10 +127,28 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setStandardHostYouTubeLocalStartTimelineReader(null);
   clearAllManagedTimers();
 });
 
 describe('iframe-native YouTube PLAY authority', () => {
+  it('does not promote transient local-start states before a scheduled timer exists', () => {
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    const player = createPlayer();
+    installPausedYouTube(player);
+    const roomAction = vi.fn();
+    bus.on('youtube:auto-play', roomAction);
+    setStandardHostYouTubeLocalStartTimelineReader(() => 0.5);
+    emitNativePlay(player);
+    player.state = 2;
+    setPlaybackYouTubePaused();
+    expect(roomAction).not.toHaveBeenCalled();
+    setStandardHostYouTubeLocalStartTimelineReader(null);
+    emitNativePlay(player);
+    expect(roomAction).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ state: 1 }));
+  });
   it.each([
     { settlement: 'timer', pause: true },
     { settlement: 'paused callback', pause: true },

@@ -7,6 +7,7 @@
  * coordinator-free PRO endpoint without importing either topology.
  */
 import { MANUAL_SYNC_OFFSET_LIMIT_MS, MSG } from '../core/constants.ts';
+import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 import type {
   ProtocolMsg,
   YouTubeZeroStartAbortReason,
@@ -37,7 +38,7 @@ const YOUTUBE_ZERO_START_TIMING = Object.freeze({
   // still learn any real residual for subsequent runs.
   iosRelativeTimelineLeadMs: 0,
   androidRelativeTimelineLeadMs: 0,
-  androidAudibleOutputDelayMs: 250,
+  androidAudibleOutputDelayMs: getYouTubeAudibleOutputDelayMs('android'),
   androidTimelineCalibrationRate: 0.35,
   androidTimelineDeadbandMs: 15,
   androidCalibrationStabilityMs: 25,
@@ -146,6 +147,9 @@ interface YouTubeZeroStartPlaybackStartedEvent {
   startAtHost: number;
   eventErrorMs: number;
   callToPlayingMs: number;
+  /** Signed room position at the actual media observation, before zero clamping. */
+  canonicalPositionSec: number;
+  localPositionSec: number | null;
 }
 
 interface YouTubeZeroStartFallbackEvent {
@@ -348,7 +352,7 @@ function getYouTubeZeroStartTimelineBiasMs(platform: YouTubeZeroStartPlatform): 
 }
 
 function getYouTubeZeroStartAudibleOutputDelayMs(platform: YouTubeZeroStartPlatform): number {
-  return platform === 'android' ? YOUTUBE_ZERO_START_TIMING.androidAudibleOutputDelayMs : 0;
+  return getYouTubeAudibleOutputDelayMs(platform);
 }
 
 function getYouTubeZeroStartRelativeLead(
@@ -356,9 +360,10 @@ function getYouTubeZeroStartRelativeLead(
   hostPlatform: YouTubeZeroStartPlatform,
   learnedTimelineLeadMs?: number | null,
 ): { audibleBaseLeadMs: number; timelineLeadMs: number; totalLeadMs: number } {
-  const audibleBaseLeadMs =
-    getYouTubeZeroStartAudibleOutputDelayMs(guestPlatform) -
-    getYouTubeZeroStartAudibleOutputDelayMs(hostPlatform);
+  // Both endpoints follow the canonical room position. The host removes its
+  // own applied output advance before publishing that position, so the guest
+  // needs only its own output delay, never a guest-minus-host platform delta.
+  const audibleBaseLeadMs = getYouTubeZeroStartAudibleOutputDelayMs(guestPlatform);
   const seededTimelineLeadMs =
     getYouTubeZeroStartTimelineBiasMs(guestPlatform) -
     getYouTubeZeroStartTimelineBiasMs(hostPlatform);
@@ -782,6 +787,13 @@ class YouTubeZeroStartController {
       const commit = run.commit;
       if (commit) {
         const localReleaseAt = this.#hostTimeToLocal(commit.startAtHost);
+        let localPositionSec: number | null = null;
+        try {
+          const position = player.getCurrentTime();
+          if (Number.isFinite(position)) localPositionSec = position;
+        } catch {
+          // Keep the scheduled estimate when the media observation is unavailable.
+        }
         this.#deps.onPlaybackStarted?.({
           runId: run.runId,
           queueItemId: run.queueItemId,
@@ -792,6 +804,9 @@ class YouTubeZeroStartController {
           startAtHost: commit.startAtHost,
           eventErrorMs: playingAt - localReleaseAt,
           callToPlayingMs: playingAt - run.playCallAt,
+          canonicalPositionSec:
+            run.canonicalStartPositionSec + (this.#now() - localReleaseAt) / 1000,
+          localPositionSec,
         });
       }
       this.#emitState();
@@ -978,7 +993,11 @@ class YouTubeZeroStartController {
     const lead =
       role === 'guest'
         ? this.#relativeLead(localPlatform, message.hostPlatform)
-        : { audibleBaseLeadMs: 0, timelineLeadMs: 0, totalLeadMs: 0 };
+        : {
+            audibleBaseLeadMs: getYouTubeZeroStartAudibleOutputDelayMs(localPlatform),
+            timelineLeadMs: 0,
+            totalLeadMs: getYouTubeZeroStartAudibleOutputDelayMs(localPlatform),
+          };
 
     const desiredAudio = this.#deps.getDesiredAudioState?.();
     let originalMuted = typeof desiredAudio?.muted === 'boolean' ? desiredAudio.muted : undefined;
@@ -1624,10 +1643,7 @@ class YouTubeZeroStartController {
       MANUAL_SYNC_OFFSET_LIMIT_MS,
     );
     run.canonicalStartPositionSec = canonicalPositionSec;
-    const callAt =
-      localStartAt +
-      run.localStartDelayMs -
-      (this.#deps.getRole() === 'guest' ? run.releaseLeadMs : 0);
+    const callAt = localStartAt + run.localStartDelayMs - run.releaseLeadMs;
     run.phase = 'scheduled';
     run.commit = commit;
     this.#emitState();

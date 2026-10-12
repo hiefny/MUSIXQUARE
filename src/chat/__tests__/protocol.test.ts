@@ -51,7 +51,7 @@ vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('../../pro-room/network-bridge.ts', () => ({
+vi.mock('../../pro-room/realtime-sender.ts', () => ({
   sendProRoomRealtime: realtimeMocks.send,
 }));
 

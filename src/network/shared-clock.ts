@@ -12,6 +12,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { recordStandardStartObservation } from '../diagnostics/standard-start-observations.ts';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -20,10 +21,12 @@ const PING_EXPIRY_MS = 5_000;
 // Ignore sub-100ms wall/monotonic disagreement from coarse browser clocks.
 // Larger local discontinuities still require a corroborating host observation.
 const LOCAL_CLOCK_PRECISION_MS = 100;
+const SELECTION_COMPARISON_TOLERANCE_MS = 5;
 
 // ─── State ────────────────────────────────────────────────────────
 
 interface ClockSample {
+  sampleId: number;
   rtt: number;
   offset: number; // hostTime - localTime, corrected for half RTT
   timestamp: number;
@@ -31,6 +34,8 @@ interface ClockSample {
 }
 
 interface PendingPing {
+  /** Original wall timestamp for diagnostics; sentAt may be rebased by a later reply. */
+  originalSentAtMs: number;
   sentAt: number;
   monotonicSentAt: number;
 }
@@ -51,6 +56,92 @@ let _samples: ClockSample[] = [];
 let _bestOffset = 0;
 let _pongsReceived = 0;
 const _pendingPings = new Map<number, PendingPing>();
+// Diagnostic identities never leave this browser and never affect selection.
+let _sampleSequence = 0;
+let _clockEpoch = 0;
+let _selectedSample: ClockSample | null = null;
+
+function captureClockSelection() {
+  const sample = _isHostClock ? null : _selectedSample;
+  return {
+    sampleId: sample?.sampleId ?? null,
+    offsetMs: _isHostClock ? 0 : _bestOffset,
+    rttMs: sample?.rtt ?? null,
+    sampledAtMs: sample?.timestamp ?? null,
+    epoch: _clockEpoch,
+    isHostClock: _isHostClock,
+  };
+}
+
+function recordClockSelection(previous: ReturnType<typeof captureClockSelection>, reason: string) {
+  const selected = captureClockSelection();
+  // Equal-RTT arrivals still replace the sample, but identical estimates add no
+  // diagnostic information. Lifecycle/eviction causes remain visible.
+  if (
+    (reason === 'new-sample' || reason === 'equal-rtt') &&
+    previous.sampleId !== null &&
+    selected.offsetMs === previous.offsetMs &&
+    selected.rttMs === previous.rttMs
+  )
+    return;
+  const sameEpoch = previous.epoch === selected.epoch;
+  const comparable = sameEpoch && previous.rttMs !== null && selected.rttMs !== null;
+  const difference = Math.abs(selected.offsetMs - previous.offsetMs);
+  const uncertainty = ((previous.rttMs ?? 0) + (selected.rttMs ?? 0)) / 2;
+  const now = Date.now();
+  recordStandardStartObservation('clock-selection', {
+    reason,
+    previousSampleId: previous.sampleId,
+    selectedSampleId: selected.sampleId,
+    previousEpoch: previous.epoch,
+    epoch: selected.epoch,
+    previousIsHostClock: previous.isHostClock,
+    isHostClock: selected.isHostClock,
+    previousOffsetMs: previous.offsetMs,
+    selectedOffsetMs: selected.offsetMs,
+    previousRttMs: previous.rttMs,
+    selectedRttMs: selected.rttMs,
+    // An old wall-clock timestamp cannot be aged in a newly rebased epoch.
+    previousAgeMs:
+      sameEpoch && previous.sampledAtMs !== null ? Math.max(0, now - previous.sampledAtMs) : null,
+    selectedAgeMs: selected.sampledAtMs !== null ? Math.max(0, now - selected.sampledAtMs) : null,
+    sampleCount: _samples.length,
+    sameEpoch,
+    comparisonToleranceMs: SELECTION_COMPARISON_TOLERANCE_MS,
+    offsetDifferenceMs: comparable ? difference : null,
+    intervalGapMs: comparable ? Math.max(0, difference - uncertainty) : null,
+    disjointIntervals: comparable
+      ? difference > uncertainty + SELECTION_COMPARISON_TOLERANCE_MS
+      : null,
+  });
+}
+
+function recordClockContinuity(
+  ping: PendingPing,
+  hostTimeMs: number,
+  receivedAtMs: number,
+  receivedPerformanceMs: number,
+  localClockStepMs: number | null = null,
+) {
+  const wallElapsedMs = receivedAtMs - ping.sentAt;
+  const monotonicElapsedMs = receivedPerformanceMs - ping.monotonicSentAt;
+  recordStandardStartObservation('clock-continuity', {
+    reason: localClockStepMs === null ? 'wall-monotonic' : 'rebase',
+    epoch: _clockEpoch,
+    rawSentAtMs: ping.originalSentAtMs,
+    rawWallElapsedMs: receivedAtMs - ping.originalSentAtMs,
+    sentAtMs: ping.sentAt,
+    receivedAtMs,
+    hostTimeMs,
+    sentPerformanceMs: ping.monotonicSentAt,
+    receivedPerformanceMs,
+    wallElapsedMs,
+    monotonicElapsedMs,
+    localClockStepMs,
+    continuityToleranceMs: LOCAL_CLOCK_PRECISION_MS,
+    clockContinuitySuspect: Math.abs(wallElapsedMs - monotonicElapsedMs) > LOCAL_CLOCK_PRECISION_MS,
+  });
+}
 
 // ─── Getters ──────────────────────────────────────────────────────
 
@@ -115,7 +206,12 @@ export function getSharedClockDiagnostics(nowMs = Date.now()): SharedClockDiagno
  * Replaces startHostClock/stopHostClock.
  */
 export function setIsHostClock(value: boolean): void {
+  const previous = captureClockSelection();
   _isHostClock = value;
+  if (previous.isHostClock !== value) {
+    _clockEpoch += 1;
+    recordClockSelection(previous, 'host-role');
+  }
   if (value) log.info('[SharedClock] Host clock active');
 }
 
@@ -127,7 +223,11 @@ export function setIsHostClock(value: boolean): void {
  */
 export function registerPing(pingId: number): void {
   const now = Date.now();
-  _pendingPings.set(pingId, { sentAt: now, monotonicSentAt: performance.now() });
+  _pendingPings.set(pingId, {
+    originalSentAtMs: now,
+    sentAt: now,
+    monotonicSentAt: performance.now(),
+  });
 
   // Cleanup stale pings (>5s)
   for (const [id, ping] of _pendingPings) {
@@ -169,16 +269,21 @@ function rebaseLocalClockStep(
   // explain the host observation. Wait for an unambiguous fresh sample.
   if (Math.abs(observedHostNow - (expectedHostNow + step)) <= uncertainty) return;
 
+  const previous = captureClockSelection();
   for (const sample of _samples) {
     sample.timestamp += step;
     sample.offset -= step;
   }
   _bestOffset = best.offset;
+  _selectedSample = best;
   // Some outstanding pings were sent before the step, others after it.
   // Their own monotonic ages place each send in the new wall-clock epoch.
   for (const pending of _pendingPings.values()) {
     pending.sentAt = receivedAt - (monotonicReceivedAt - pending.monotonicSentAt);
   }
+  _clockEpoch += 1;
+  recordClockContinuity(ping, hostTime, receivedAt, monotonicReceivedAt, step);
+  recordClockSelection(previous, 'rebase');
 }
 
 // ─── Pong Processing (RTT/Offset Calculation) ────────────────────
@@ -187,8 +292,7 @@ function rebaseLocalClockStep(
  * Process a SYNC_PONG response: calculate RTT and clock offset.
  * Returns { rtt, offset } or null for an unknown, expired, or invalid reply.
  *
- * Contains the core calculation logic — no side effects beyond
- * updating internal sample buffer and best offset.
+ * Updates clock state and bounded local diagnostics; performs no transport.
  */
 export function processSyncPong(
   pingId: number,
@@ -212,7 +316,10 @@ export function processSyncPong(
   // An exchange spanning a wall-clock discontinuity can also be a stale
   // reply held across sleep where performance.now stopped. Neither RTT nor
   // host freshness is reliable; let the next fresh exchange calibrate it.
-  if (Math.abs(wallRtt - monotonicRtt) > LOCAL_CLOCK_PRECISION_MS) return null;
+  if (Math.abs(wallRtt - monotonicRtt) > LOCAL_CLOCK_PRECISION_MS) {
+    recordClockContinuity(ping, hostTime, receivedAt, monotonicReceivedAt);
+    return null;
+  }
   rebaseLocalClockStep(ping, hostTime, receivedAt, monotonicReceivedAt);
   const rtt = wallRtt;
   // Enforce expiry on receipt too: background timer throttling can prevent
@@ -237,6 +344,8 @@ export function processSyncPong(
   // first samples legitimately revise the offset.
   const STEP_THRESHOLD_MS = 2_000;
   const offsetUncertaintyMs = halfRtt + getClockBestRtt() / 2;
+  const previous = captureClockSelection();
+  let selectionReason = 'new-sample';
   if (
     _samples.length >= 3 &&
     Math.abs(offset - _bestOffset) > STEP_THRESHOLD_MS + offsetUncertaintyMs
@@ -245,9 +354,17 @@ export function processSyncPong(
       `[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms exceeds RTT uncertainty. Clock likely stepped, flushing samples`,
     );
     _samples = [];
+    _clockEpoch += 1;
+    selectionReason = 'clock-step';
   }
 
-  _samples.push({ rtt, offset, timestamp: receivedAt, monotonicTimestamp: monotonicReceivedAt });
+  _samples.push({
+    sampleId: ++_sampleSequence,
+    rtt,
+    offset,
+    timestamp: receivedAt,
+    monotonicTimestamp: monotonicReceivedAt,
+  });
 
   // Keep bounded by count AND age. Old samples' offsets become stale
   // because device clocks drift over time (mobile Date.now() can drift
@@ -255,12 +372,27 @@ export function processSyncPong(
   // months-old minimum-RTT sample's offset causes persistent rendezvous
   // desync that grows linearly with session duration.
   const AGE_LIMIT = 120_000; // 2 minutes — balances freshness vs sample pool
+  const selectedExpired =
+    _selectedSample !== null && receivedAt - _selectedSample.timestamp >= AGE_LIMIT;
   _samples = _samples.filter((s) => receivedAt - s.timestamp < AGE_LIMIT);
-  if (_samples.length > MAX_SAMPLES) _samples.shift();
+  const evicted = _samples.length > MAX_SAMPLES ? _samples.shift() : undefined;
 
   // Best offset = from the sample with lowest RTT (most accurate)
   const best = _samples.reduce((a, b) => (a.rtt < b.rtt ? a : b));
   _bestOffset = best.offset;
+  _selectedSample = best;
+  if (selectionReason !== 'clock-step') {
+    selectionReason = selectedExpired
+      ? 'expired'
+      : evicted?.sampleId === previous.sampleId
+        ? 'capacity'
+        : best.rtt === previous.rttMs
+          ? 'equal-rtt'
+          : 'new-sample';
+  }
+  if (best.sampleId !== previous.sampleId || previous.epoch !== _clockEpoch) {
+    recordClockSelection(previous, selectionReason);
+  }
 
   _pongsReceived++;
 
@@ -276,14 +408,24 @@ export function processSyncPong(
 /**
  * Reset all clock state. Called by sync.ts on session end / role change.
  */
-export function resetClockSamples(): void {
+function clearClockSamples(): void {
   _samples = [];
   _bestOffset = 0;
   _pongsReceived = 0;
   _pendingPings.clear();
+  _selectedSample = null;
+  _clockEpoch += 1;
+}
+
+export function resetClockSamples(): void {
+  const previous = captureClockSelection();
+  clearClockSamples();
+  recordClockSelection(previous, 'reset');
 }
 
 export function resetClockState(): void {
-  resetClockSamples();
+  const previous = captureClockSelection();
+  clearClockSamples();
   _isHostClock = false;
+  recordClockSelection(previous, 'reset');
 }

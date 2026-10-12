@@ -18,7 +18,8 @@ import {
 import { registerHandlers } from '../network/protocol.ts';
 import { broadcast, safeSend } from '../network/peer-state.ts';
 import { getRoomContext } from '../rooms/authority.ts';
-import { sendProRoomRealtime, type ProRealtimeRelayEnvelope } from '../pro-room/network-bridge.ts';
+import type { ProRealtimeRelayEnvelope } from '../pro-room/network-bridge.ts';
+import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { filterProfanity } from './profanity.ts';

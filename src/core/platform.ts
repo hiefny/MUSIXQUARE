@@ -23,11 +23,17 @@ export const IS_IOS: boolean =
   ((installNavigator.userAgentData?.platform ?? navigator.platform ?? '') === 'MacIntel' &&
     navigator.maxTouchPoints > 1);
 
-export const IS_ANDROID: boolean = /Android/i.test(navigator.userAgent);
+// Desktop-mode Android may hide its UA token while retaining an explicit
+// platform hint. Linux plus touch is not evidence of Android.
+export const IS_ANDROID: boolean =
+  !IS_IOS &&
+  (/Android/i.test(navigator.userAgent) || installNavigator.userAgentData?.platform === 'Android');
 
 export const IS_WINDOWS: boolean =
-  /Windows/i.test(navigator.userAgent) ||
-  /^Win/i.test(installNavigator.userAgentData?.platform ?? navigator.platform ?? '');
+  !IS_IOS &&
+  !IS_ANDROID &&
+  (/Windows/i.test(navigator.userAgent) ||
+    /^Win/i.test(installNavigator.userAgentData?.platform ?? navigator.platform ?? ''));
 
 const DEVICE_PLATFORMS = new Set<DevicePlatform>([
   'ios',

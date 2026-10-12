@@ -28,6 +28,8 @@ import {
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { handleProRoomTrackReorder } from '../media-hooks.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
+import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import {
   registerProPlaybackMediaEndpoint,
   registerProPlaybackCommandHandler,
@@ -174,11 +176,12 @@ function signalingAccess(): ProRoomSignalingAccess {
 }
 
 function prepareEvent(transitionId: string, basePlaybackRevision = 0): ProRoomPlaybackPrepareEvent {
+  const serverTimeMs = Date.now();
   return {
     type: 'pro-playback-prepare',
     transitionId,
-    serverTimeMs: 10_000,
-    deadlineAtMs: 13_000,
+    serverTimeMs,
+    deadlineAtMs: serverTimeMs + 3_000,
     basePlaybackRevision,
     target: playback(basePlaybackRevision + 1),
   };
@@ -189,11 +192,12 @@ function commitEvent(
   revision = 1,
   wireLeadMs = 0,
 ): ProRoomPlaybackCommitEvent {
+  const serverTimeMs = Date.now();
   return {
     type: 'pro-playback-commit',
     transitionId,
-    serverTimeMs: 10_100,
-    executeAtMs: 10_100 + wireLeadMs,
+    serverTimeMs,
+    executeAtMs: serverTimeMs + wireLeadMs,
     playback: playback(revision),
   };
 }
@@ -240,6 +244,11 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   let waitForClock: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
+    // Successful native calibration remains usable for subsequent non-fresh
+    // operations. Explicit fresh waits below still control failure/cancellation.
+    restoreSpies.push(
+      ...installProClockSnapshotMocks(serverClock, { retainSuccessfulAcquisition: true }),
+    );
     setDocumentVisibility('visible', false);
     resetState();
     prepareResult = 'ready';
@@ -3117,6 +3126,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     expect(waitForClock).toHaveBeenCalledWith({
       serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
       fallbackTimeoutMs: 1_000,
+      signal: expect.any(AbortSignal),
     });
     expect(commitMedia.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({

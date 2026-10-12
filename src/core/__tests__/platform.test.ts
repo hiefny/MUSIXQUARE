@@ -110,6 +110,7 @@ describe('Platform Detection', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    Reflect.deleteProperty(navigator, 'userAgentData');
     document.body.style.removeProperty('--desktop-ui-scale');
   });
 
@@ -237,6 +238,72 @@ describe('Platform Detection', () => {
       const { IS_ANDROID, getDevicePlatform } = await import('../platform.ts');
       expect(IS_ANDROID).toBe(true);
       expect(getDevicePlatform()).toBe('android');
+    });
+
+    it.each([
+      {
+        label: 'Android tablet with a desktop Linux UA and explicit Android hint',
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140',
+        platform: 'Linux x86_64',
+        hint: 'Android',
+        touchPoints: 10,
+        expected: 'android',
+      },
+      {
+        label: 'Android UA token even when the hint reports Linux',
+        userAgent: 'Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140',
+        platform: 'Linux armv8l',
+        hint: 'Linux',
+        touchPoints: 10,
+        expected: 'android',
+      },
+      {
+        label: 'touchscreen Linux with no Android evidence',
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140',
+        platform: 'Linux x86_64',
+        hint: 'Linux',
+        touchPoints: 10,
+        expected: 'linux',
+      },
+      {
+        label: 'touchscreen Linux without client hints',
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140',
+        platform: 'Linux x86_64',
+        hint: undefined,
+        touchPoints: 10,
+        expected: 'linux',
+      },
+      {
+        label: 'Windows tablet with an explicit Windows hint',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140',
+        platform: 'Win32',
+        hint: 'Windows',
+        touchPoints: 10,
+        expected: 'windows',
+      },
+      {
+        label: 'iPad desktop mode without client hints',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        platform: 'MacIntel',
+        hint: undefined,
+        touchPoints: 5,
+        expected: 'ios',
+      },
+    ])('classifies $label conservatively', async (input) => {
+      Object.defineProperties(navigator, {
+        userAgent: { value: input.userAgent, configurable: true },
+        platform: { value: input.platform, configurable: true },
+        maxTouchPoints: { value: input.touchPoints, configurable: true },
+        userAgentData: {
+          value: input.hint === undefined ? undefined : { platform: input.hint },
+          configurable: true,
+        },
+      });
+      const { IS_ANDROID, IS_IOS, IS_WINDOWS, getDevicePlatform } = await import('../platform.ts');
+      expect(IS_ANDROID).toBe(input.expected === 'android');
+      expect(IS_IOS).toBe(input.expected === 'ios');
+      expect(IS_WINDOWS).toBe(input.expected === 'windows');
+      expect(getDevicePlatform()).toBe(input.expected);
     });
 
     it('does not flag iOS as Android', async () => {

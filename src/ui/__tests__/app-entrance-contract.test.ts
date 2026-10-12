@@ -42,6 +42,18 @@ function target(selector: string): EntranceTarget | undefined {
 }
 
 describe('app entrance choreography contract', () => {
+  it('keeps the E2E bootstrap count aligned with eager initializers after deferring diagnostics', () => {
+    const initializers = [...appSource.matchAll(/safeInit\('([^']+)'/gu)].map((match) => match[1]);
+    expect(initializers).toHaveLength(49);
+    expect(new Set(initializers).size).toBe(49);
+    expect(initializers).not.toContain('SyncFlightRecorder');
+    expect(appSource).toContain("runBootstrapStepAsync(bootstrapReadiness, 'I18n'");
+    expect(appSource).toContain("bootstrapReadiness.recordSuccess('SyncWorker', 'worker')");
+    const helper = readFileSync(resolve('e2e/helpers/bootstrap.ts'), 'utf8');
+    const expectedCount = Number(helper.match(/EXPECTED_BOOTSTRAP_STEP_COUNT = (\d+)/u)?.[1]);
+    expect(expectedCount).toBe(initializers.length + 2);
+  });
+
   it('keeps the app chrome unpainted until onboarding owns the first visible frame', () => {
     const openingHtmlTag = appMarkup.match(/<html\b[^>]*>/u)?.[0] ?? '';
     expect(openingHtmlTag).toContain('class="setup-boot-block"');

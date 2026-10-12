@@ -23,6 +23,7 @@ import { initYouTube } from '../../youtube/player.ts';
 import { ProRoomApiClient } from '../api.ts';
 import type { ProRoomSnapshot } from '../contracts.ts';
 import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import { resetProPlaybackAuthorityHooks } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import {
@@ -174,7 +175,8 @@ describe('native YouTube adapter during PRO live-share join restoration', () => 
         resolveClock = resolve;
       });
       vi.spyOn(serverClock, 'isProRoomServerClockCalibrated').mockImplementation(() => calibrated);
-      vi.spyOn(serverClock, 'waitForFreshProRoomServerClockCalibration').mockImplementation(
+      installProClockSnapshotMocks(serverClock);
+      vi.spyOn(serverClock.proRoomServerBridge, 'waitForFreshClockCalibration').mockImplementation(
         () => clock,
       );
       configureProSystemAudioService(new ProRoomApiClient());

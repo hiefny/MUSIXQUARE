@@ -8,6 +8,8 @@
  * can never seek or otherwise mutate the currently playing iframe.
  */
 
+import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
+
 export type ProYouTubeLeadPlatform = 'ios' | 'android' | 'other';
 
 export const PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS = 800 as const;
@@ -68,12 +70,6 @@ type ProYouTubeLeadLearningResult =
       appliedTimelineDeltaMs: number;
     };
 
-const AUDIBLE_BASE_LEAD_MS: Readonly<Record<ProYouTubeLeadPlatform, number>> = Object.freeze({
-  ios: 0,
-  android: 250,
-  other: 0,
-});
-
 const GENERAL_STABILITY_LIMIT_MS = 60;
 const ANDROID_STABILITY_LIMIT_MS = 25;
 const GENERAL_EMA_RATE = 0.25;
@@ -120,12 +116,8 @@ function samplesHaveExpectedShape(round: Readonly<ProYouTubeLeadRound>): boolean
   );
 }
 
-export function getProYouTubeAudibleBaseLeadMs(platform: ProYouTubeLeadPlatform): number {
-  return AUDIBLE_BASE_LEAD_MS[platform];
-}
-
 function createProYouTubeLeadState(platform: ProYouTubeLeadPlatform): ProYouTubeLeadState {
-  const audibleBaseLeadMs = getProYouTubeAudibleBaseLeadMs(platform);
+  const audibleBaseLeadMs = getYouTubeAudibleOutputDelayMs(platform);
   return {
     platform,
     audibleBaseLeadMs,
@@ -147,7 +139,7 @@ function learnProYouTubeLead(
   round: Readonly<ProYouTubeLeadRound>,
 ): ProYouTubeLeadLearningResult {
   const state = copyState(current);
-  const audibleBaseLeadMs = getProYouTubeAudibleBaseLeadMs(state.platform);
+  const audibleBaseLeadMs = getYouTubeAudibleOutputDelayMs(state.platform);
   state.audibleBaseLeadMs = audibleBaseLeadMs;
   state.timelineLeadMs = clamp(
     Number.isFinite(state.timelineLeadMs) ? state.timelineLeadMs : 0,

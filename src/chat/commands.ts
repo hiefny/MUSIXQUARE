@@ -14,7 +14,7 @@ import { sendToHost } from '../network/peer.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { roomCapabilityRequiredMessage } from '../rooms/permission-feedback.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
-import { sendProRoomRealtime } from '../pro-room/network-bridge.ts';
+import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { t } from '../i18n/index.ts';
 import {
   addSystemChatMessage,

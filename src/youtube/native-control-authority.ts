@@ -30,7 +30,11 @@ import {
   setYtAutoplayIntent,
   type YouTubePlayerInstance,
 } from './_state.ts';
-import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, toCanonicalYouTubeTime } from './local-offset.ts';
+import {
+  isStandardHostYouTubeLocalStartPending,
+  PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
+  toCanonicalYouTubeTime,
+} from './local-offset.ts';
 import { isStandardHostManualOffsetTransactionPending } from './standard-host-manual-offset-gate.ts';
 import {
   classifyYouTubeStableStateOrigin,
@@ -99,6 +103,7 @@ function hasProtectedTransitionOwner(): boolean {
     isYtIndexing() ||
     isYtPriming() ||
     isYtPrimeBouncePending() ||
+    isStandardHostYouTubeLocalStartPending() ||
     isStandardHostManualOffsetTransactionPending() ||
     [
       PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,

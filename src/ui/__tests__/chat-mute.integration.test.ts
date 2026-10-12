@@ -19,7 +19,7 @@ vi.mock('../../core/log.ts', () => ({
 }));
 vi.mock('../../network/peer.ts', () => ({ broadcast: vi.fn(), sendToHost: vi.fn() }));
 vi.mock('../../pro-room/runtime.ts', () => ({ requestActiveProRoomBotCommand: pro.bot }));
-vi.mock('../../pro-room/network-bridge.ts', () => ({ sendProRoomRealtime: pro.send }));
+vi.mock('../../pro-room/realtime-sender.ts', () => ({ sendProRoomRealtime: pro.send }));
 vi.mock('../toast.ts', () => ({ showToast: vi.fn() }));
 vi.mock('../player-controls.ts', () => ({
   getRoleLabelByChannelMode: vi.fn(() => 'Left'),

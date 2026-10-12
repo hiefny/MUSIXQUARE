@@ -949,6 +949,224 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     return handle;
   }
 
+  async function createCompensatedHostEnd() {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState).mockReturnValue(0);
+    vi.mocked(player.getCurrentTime).mockReturnValue(120);
+    vi.mocked(player.getDuration).mockReturnValue(120);
+    vi.mocked(player.getPlaylistIndex!).mockReturnValue(-1);
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'A',
+        videoId: 'vidA000000A',
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    const handle = await createPlayerInYouTubeMode(player);
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    setPlaybackYouTubePlaying();
+    const offsets = await import('../local-offset.ts');
+    offsets.recordStandardHostYouTubeAutomaticOffset(0.25);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+    return { player, handle, offsets };
+  }
+
+  it('keeps a pending local start playing before its timer exists while UI follows canonical time', async () => {
+    const { player, handle, offsets } = await createCompensatedHostEnd();
+    vi.mocked(player.getPlayerState).mockReturnValue(2);
+    vi.mocked(player.getCurrentTime).mockReturnValue(0);
+    const timeUpdate = vi.fn();
+    bus.on('ui:time-update', timeUpdate);
+    offsets.setStandardHostYouTubeLocalStartTimelineReader(() => 0.5);
+    broadcastMock.mockClear();
+    try {
+      handle.fireStateChange(2);
+      expect(getState('playback.activity')).toBe('playing');
+      expect(broadcastMock).not.toHaveBeenCalled();
+      (await import('../iframe.ts')).updateYouTubeUIForTests();
+      expect(getState('playback.activity')).toBe('playing');
+      expect(timeUpdate).toHaveBeenCalledWith(expect.any(String), expect.any(String), 0.5, 120);
+      expect(broadcastMock).not.toHaveBeenCalled();
+    } finally {
+      offsets.setStandardHostYouTubeLocalStartTimelineReader(null);
+    }
+    handle.fireStateChange(2);
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it.each([0, 2])(
+    'holds automatic output ENDED until canonical end exactly once (repeat %s)',
+    async (repeatMode) => {
+      let monotonicNow = 10_000;
+      vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
+      const { player, handle, offsets } = await createCompensatedHostEnd();
+      setState('playlist.repeatMode', repeatMode);
+      const next = vi.fn();
+      const repeat = vi.fn();
+      const manual = vi.fn();
+      bus.on('playlist:next-track', next);
+      bus.on('youtube:auto-play', repeat);
+      bus.on('youtube:set-coordinator-manual-offset', manual);
+      handle.fireStateChange(0);
+      handle.fireStateChange(0);
+      const timer = offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER;
+      const release = lastTimerCallback(timer)!;
+      expect(release).toBeTypeOf('function');
+      expect(timerArmCount(timer)).toBe(1);
+      expect(setManagedTimerMock.mock.calls.find(([name]) => name === timer)?.[2]).toBe(250);
+      expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(true);
+      expect(offsets.toCanonicalYouTubeTime(120, 120)).toBeCloseTo(119.75);
+      expect(next).not.toHaveBeenCalled();
+      expect(repeat).not.toHaveBeenCalled();
+      expect(manual).not.toHaveBeenCalled();
+      expect(player.playVideo).not.toHaveBeenCalled();
+      monotonicNow += 100;
+      release();
+      expect(offsets.toCanonicalYouTubeTime(120, 120)).toBeCloseTo(119.85);
+      expect(next).not.toHaveBeenCalled();
+      expect(repeat).not.toHaveBeenCalled();
+      monotonicNow += 150;
+      lastTimerCallback(timer)?.();
+      release();
+      handle.fireStateChange(0);
+      expect(next).toHaveBeenCalledTimes(repeatMode === 0 ? 1 : 0);
+      expect(repeat).toHaveBeenCalledTimes(repeatMode === 2 ? 1 : 0);
+      expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(false);
+      expect(offsets.getStandardHostYouTubeAutomaticOffset()).toBe(0);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+    },
+  );
+
+  it.each([
+    'pause',
+    'seek',
+    'stop',
+    'session',
+    'queue',
+    'subindex',
+    'video',
+    'player',
+    'guest',
+    'load',
+  ] as const)('does not release a compensated host end after %s invalidates it', async (change) => {
+    let monotonicNow = 10_000;
+    vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
+    const { player, handle, offsets } = await createCompensatedHostEnd();
+    const next = vi.fn();
+    bus.on('playlist:next-track', next);
+    handle.fireStateChange(0);
+    const release = lastTimerCallback(offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER)!;
+    expect(release).toBeTypeOf('function');
+    if (change === 'pause') {
+      vi.mocked(player.getPlayerState).mockReturnValue(2);
+      handle.fireStateChange(2);
+    }
+    if (change === 'seek') offsets.clearStandardHostYouTubeEndHold();
+    if (change === 'stop') (await import('../../player/ownership.ts')).setPlaybackIdle();
+    if (change === 'session') (await import('../_state.ts')).incrementSessionId();
+    if (change === 'queue') setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    if (change === 'subindex') setState('youtube.currentSubIndex', 1);
+    if (change === 'video')
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidB000000B' });
+    if (change === 'player') (await import('../_state.ts')).setYouTubePlayer(createMockYtPlayer());
+    if (change === 'guest')
+      setState('network.hostConn', { peer: 'host', open: true } as DataConnection);
+    if (change === 'load')
+      (await import('../iframe.ts')).loadYouTubeVideo('vidB000000B', null, false);
+    monotonicNow += 300;
+    release();
+    expect(next).not.toHaveBeenCalled();
+    expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(false);
+  });
+
+  it.each([0, 0.25])(
+    'stops synthesizing a consumed end without suppressing the next occurrence (output %s)',
+    async (nextOutput) => {
+      let monotonicNow = 10_000;
+      vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
+      const { player, handle, offsets } = await createCompensatedHostEnd();
+      const { updateYouTubeUIForTests } = await import('../iframe.ts');
+      const next = vi.fn();
+      bus.on('playlist:next-track', next);
+      handle.fireStateChange(0);
+      monotonicNow += 250;
+      lastTimerCallback(offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER)!();
+      expect(next).toHaveBeenCalledOnce();
+      zeroStartFacade.handlePlayerState.mockClear();
+      for (let tick = 0; tick < 10; tick += 1) updateYouTubeUIForTests();
+      // This callback runs at the entry to the real state-change handler.
+      // A deduplicated queue event alone would not prove work stopped.
+      expect(zeroStartFacade.handlePlayerState).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledOnce();
+
+      // Replace the occurrence without a load callback clearing the old latch.
+      // Its consumed status must not quarantine this new video's real end.
+      setState('playlist.items', [
+        ...getState('playlist.items'),
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'B',
+          videoId: 'vidB000000B',
+          playlistId: null,
+        },
+      ]);
+      setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+      vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidB000000B' });
+      offsets.recordStandardHostYouTubeAutomaticOffset(nextOutput);
+      setState('sync.youtubeCoordinatorAppliedOffset', nextOutput);
+      updateYouTubeUIForTests();
+      expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledWith(0);
+      if (nextOutput > 0) {
+        expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(true);
+        expect(next).toHaveBeenCalledOnce();
+        monotonicNow += 250;
+        lastTimerCallback(offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER)!();
+      }
+      expect(next).toHaveBeenCalledTimes(2);
+      expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(false);
+    },
+  );
+
+  it('neutralizes a manual residual before holding the automatic output component', async () => {
+    const { handle, offsets } = await createCompensatedHostEnd();
+    setState('sync.youtubeLocalOffset', 0.4);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0.65);
+    const manual = vi.fn();
+    const next = vi.fn();
+    bus.on('youtube:set-coordinator-manual-offset', manual);
+    bus.on('playlist:next-track', next);
+    handle.fireStateChange(0);
+    expect(manual).toHaveBeenCalledExactlyOnceWith(0);
+    expect(next).not.toHaveBeenCalled();
+    expect(lastTimerCallback(offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER)).toBeUndefined();
+  });
+
+  it('uses canonical remaining time for native playlist preemption and preserves automatic output compensation', async () => {
+    const { player } = await createCompensatedHostEnd();
+    vi.mocked(player.getPlayerState).mockReturnValue(1);
+    vi.mocked(player.getPlaylistIndex!).mockReturnValue(0);
+    vi.mocked(player.getCurrentTime).mockReturnValue(119.3);
+    const nextInternal = vi.fn();
+    const manual = vi.fn();
+    bus.on('youtube:try-next-internal', nextInternal);
+    bus.on('youtube:set-coordinator-manual-offset', manual);
+    const { updateYouTubeUIForTests } = await import('../iframe.ts');
+    updateYouTubeUIForTests();
+    expect(nextInternal).not.toHaveBeenCalled();
+    expect(manual).not.toHaveBeenCalled();
+    vi.mocked(player.getCurrentTime).mockReturnValue(119.5);
+    updateYouTubeUIForTests();
+    expect(nextInternal).toHaveBeenCalledOnce();
+    expect(manual).not.toHaveBeenCalled();
+  });
+
   async function createCommittedProErrorObserver(canControl: boolean) {
     const player = createMockYtPlayer();
     const handle = await createPlayerInYouTubeMode(player);

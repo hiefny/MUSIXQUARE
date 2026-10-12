@@ -28,6 +28,7 @@ import {
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import { resolveProRoomRemovalTransition } from '../playlist-transition.ts';
 import * as proRoomClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 
 // Keep controller, authority fencing, playlist preparation and invalidation real.
 // The decode seam controls per-device outcomes without requiring a browser codec.
@@ -43,7 +44,10 @@ vi.mock('../../player/decode.ts', async (importOriginal) => ({
 vi.mock('../network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
   isProRoomServerClockCalibrated: () => true,
-  waitForFreshProRoomServerClockCalibration: vi.fn().mockResolvedValue(true),
+  proRoomServerBridge: { waitForFreshClockCalibration: vi.fn().mockResolvedValue(true) },
+  captureProRoomServerClockSnapshot: vi.fn(),
+  acquireProRoomServerClock: vi.fn(),
+  isProRoomClockSnapshotCurrent: vi.fn(),
 }));
 
 const ROOM = '000001';
@@ -186,6 +190,7 @@ function harness(initial = checkpoint()) {
 }
 
 beforeEach(() => {
+  installProClockSnapshotMocks(proRoomClock);
   resetProPlaybackAuthorityHooks();
   resetState();
   bus.clear();
@@ -1247,6 +1252,11 @@ describe('cancelled preparation recovery through runtime entry points', () => {
     const calibrated = vi
       .spyOn(proRoomClock, 'isProRoomServerClockCalibrated')
       .mockReturnValue(false);
+    // Recovery now requests an estimate instead of immediately returning on
+    // an uncalibrated clock. Keep that acquisition unavailable in this case.
+    vi.mocked(proRoomClock.proRoomServerBridge.waitForFreshClockCalibration).mockResolvedValueOnce(
+      false,
+    );
     const attempts = decoder.load.mock.calls.length;
     await h.controller.restorePersistedPlayback(snapshot(canonical));
     expect(decoder.load).toHaveBeenCalledTimes(attempts);

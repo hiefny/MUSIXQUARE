@@ -21,6 +21,7 @@ import { ProRoomAssetCache } from '../media-cache.ts';
 import { handleProRoomTrackRemoval, handleProRoomTrackReorder } from '../media-hooks.ts';
 import { ProRoomMediaTransfer } from '../media-transfer.ts';
 import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 
@@ -141,6 +142,7 @@ describe('PRO queue projection during persistent media preparation', { concurren
   let reportReady: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
+    installProClockSnapshotMocks(serverClock);
     canonical = roomSnapshot();
     cancelBody = vi.fn<(reason?: unknown) => void>();
     const cache = new ProRoomAssetCache(32);
@@ -247,7 +249,9 @@ describe('PRO queue projection during persistent media preparation', { concurren
     vi.spyOn(ServerProRoomNetworkBridge.prototype, 'disconnect').mockImplementation(() => {});
     vi.spyOn(serverClock, 'isProRoomServerClockCalibrated').mockReturnValue(true);
     vi.spyOn(serverClock, 'getProRoomServerNow').mockReturnValue(10_000);
-    vi.spyOn(serverClock, 'waitForFreshProRoomServerClockCalibration').mockResolvedValue(true);
+    vi.spyOn(serverClock.proRoomServerBridge, 'waitForFreshClockCalibration').mockResolvedValue(
+      true,
+    );
     vi.spyOn(audioEngine, 'initAudio').mockResolvedValue(undefined);
     vi.spyOn(audioContext, 'ensureRunning').mockResolvedValue(undefined);
     vi.spyOn(audioContext, 'getCurrentTime').mockReturnValue(10);

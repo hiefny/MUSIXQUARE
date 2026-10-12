@@ -17,11 +17,16 @@ import {
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
+import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 
 vi.mock('../network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
   isProRoomServerClockCalibrated: () => true,
-  waitForFreshProRoomServerClockCalibration: async () => true,
+  proRoomServerBridge: { waitForFreshClockCalibration: vi.fn().mockResolvedValue(true) },
+  captureProRoomServerClockSnapshot: vi.fn(),
+  acquireProRoomServerClock: vi.fn(),
+  isProRoomClockSnapshotCurrent: vi.fn(),
 }));
 
 const ROOM = '000001';
@@ -176,6 +181,7 @@ async function flush() {
 }
 
 beforeEach(() => {
+  installProClockSnapshotMocks(serverClock);
   vi.useFakeTimers();
   vi.setSystemTime(10000);
   resetState();

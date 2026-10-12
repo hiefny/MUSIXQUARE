@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const recorder = vi.hoisted(() => ({ prepare: vi.fn<() => Promise<void>>() }));
+vi.mock('../../diagnostics/sync-flight-recorder-loader.ts', () => ({
+  prepareSyncFlightRecorder: recorder.prepare,
+}));
+
+beforeEach(() => recorder.prepare.mockReset().mockResolvedValue(undefined));
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -14,6 +21,33 @@ afterEach(() => {
 });
 
 describe('room session feature loader', () => {
+  it('registers diagnostics before releasing the first room transport and preserves caller cancellation', async () => {
+    const diagnostics = deferred();
+    const { bus } = await import('../../core/events.ts');
+    const firstDecision = vi.fn();
+    recorder.prepare.mockImplementation(async () => {
+      await diagnostics.promise;
+      bus.on('sync:diagnostic-worker-tick', firstDecision);
+    });
+    vi.doMock('../room-session-feature-runtime.ts', () => ({}));
+    const { prepareRoomSessionFeatures } = await import('../room-session-feature-loader.ts');
+    expect(recorder.prepare).not.toHaveBeenCalled();
+    const controller = new AbortController();
+    const cancelled = prepareRoomSessionFeatures(controller.signal);
+    const enter = vi.fn(() => bus.emit('sync:diagnostic-worker-tick', 'first-frame'));
+    const room = prepareRoomSessionFeatures().then(enter);
+    await vi.dynamicImportSettled();
+    expect(enter).not.toHaveBeenCalled();
+
+    controller.abort();
+    await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+    diagnostics.resolve();
+    await room;
+    expect(enter).toHaveBeenCalledOnce();
+    expect(firstDecision).toHaveBeenCalledWith('first-frame');
+    expect(recorder.prepare).toHaveBeenCalledOnce();
+  });
+
   it('settles one aborted caller while the shared import continues for another caller', async () => {
     const evaluation = deferred();
     vi.doMock('../room-session-feature-runtime.ts', async () => {

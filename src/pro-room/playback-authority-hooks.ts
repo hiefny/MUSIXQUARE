@@ -338,9 +338,9 @@ export interface ProPlaybackPrepareRequest {
 /**
  * Participant-side scheduling policy for one canonical PRO playback commit.
  *
- * `zero-start` may use the measured platform audio-output lead. Ordinary
- * controls already target a running timeline and must follow the server clock
- * without that one-time compensation.
+ * Every playing path compensates fixed platform audio-output delay.
+ * `zero-start` additionally permits learned startup lead; ordinary controls
+ * follow the running server timeline without that startup-only correction.
  */
 export type ProPlaybackTimingMode = 'zero-start' | 'scheduled-control';
 

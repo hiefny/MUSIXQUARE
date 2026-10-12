@@ -6,6 +6,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import type { ProRoomPlaybackCheckpoint, ProRoomSnapshot } from '../contracts.ts';
 import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import {
   registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
@@ -107,6 +108,7 @@ function setup(
 }
 
 beforeEach(() => {
+  installProClockSnapshotMocks(serverClock);
   resetState();
   bus.clear();
   clearAllManagedTimers();
@@ -134,7 +136,7 @@ beforeEach(() => {
   vi.spyOn(systemAudioBridge, 'getProSystemAudioViewState').mockImplementation(() => view);
   vi.spyOn(serverClock, 'isProRoomServerClockCalibrated').mockReturnValue(true);
   vi.spyOn(serverClock, 'getProRoomServerNow').mockReturnValue(10_000);
-  vi.spyOn(serverClock, 'waitForFreshProRoomServerClockCalibration').mockResolvedValue(true);
+  vi.spyOn(serverClock.proRoomServerBridge, 'waitForFreshClockCalibration').mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -159,7 +161,7 @@ describe('PRO snapshot restoration and system audio ownership', () => {
       await vi.waitFor(() => expect(commit).toHaveBeenCalledOnce());
       expect(prepare).toHaveBeenCalledOnce();
       expect(commit).toHaveBeenCalledWith(expect.objectContaining({ state: 'paused' }));
-      expect(serverClock.waitForFreshProRoomServerClockCalibration).not.toHaveBeenCalled();
+      expect(serverClock.proRoomServerBridge.waitForFreshClockCalibration).not.toHaveBeenCalled();
     },
   );
 
@@ -171,7 +173,7 @@ describe('PRO snapshot restoration and system audio ownership', () => {
       await controller.restorePersistedPlayback(snapshot);
       expect(prepare).not.toHaveBeenCalled();
       expect(commit).not.toHaveBeenCalled();
-      expect(serverClock.waitForFreshProRoomServerClockCalibration).not.toHaveBeenCalled();
+      expect(serverClock.proRoomServerBridge.waitForFreshClockCalibration).not.toHaveBeenCalled();
     },
   );
 
@@ -240,7 +242,7 @@ describe('PRO snapshot restoration and system audio ownership', () => {
   it('does not revive a pre-share clock wait after live returns to idle', async () => {
     let finishClock!: (calibrated: boolean) => void;
     vi.mocked(serverClock.isProRoomServerClockCalibrated).mockReturnValue(false);
-    vi.mocked(serverClock.waitForFreshProRoomServerClockCalibration).mockImplementationOnce(
+    vi.mocked(serverClock.proRoomServerBridge.waitForFreshClockCalibration).mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           finishClock = resolve;
@@ -265,7 +267,9 @@ describe('PRO snapshot restoration and system audio ownership', () => {
     async (boundary) => {
       let finishClock!: (calibrated: boolean) => void;
       vi.mocked(serverClock.isProRoomServerClockCalibrated).mockReturnValue(false);
-      vi.mocked(serverClock.waitForFreshProRoomServerClockCalibration).mockImplementationOnce(
+      vi.mocked(
+        serverClock.proRoomServerBridge.waitForFreshClockCalibration,
+      ).mockImplementationOnce(
         () =>
           new Promise((resolve) => {
             finishClock = resolve;

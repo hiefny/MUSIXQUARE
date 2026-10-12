@@ -20,13 +20,19 @@ import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.t
 import { getYouTubePlayer, isLocalYouTubePaused, setYtAutoplayIntent } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
 import { createHostLocalRendezvous, type HostLocalRendezvous } from './standard-host-rendezvous.ts';
+import { getLocalYouTubeAudibleOutputDelayMs } from './play-latency.ts';
+import { cancelPendingYouTubeStartFromSync } from './player-runtime-bridge.ts';
 import {
   beginProCoordinatorYouTubeNudge,
   clearProCoordinatorYouTubeNudgeAnchor,
+  clearStandardHostYouTubeEndHold,
   getYouTubeManualOffsetEndpointIdentity,
   isProCoordinatorYouTubeEndpoint,
+  isStandardHostYouTubeEndHoldActive,
+  isStandardHostYouTubeLocalStartPending,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   resolveProCoordinatorYouTubeTarget,
+  recordStandardHostYouTubeAutomaticOffset,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
 } from './local-offset.ts';
@@ -76,6 +82,31 @@ interface StandardHostManualOffsetTransaction extends StandardHostManualOffsetId
 }
 
 let transaction: StandardHostManualOffsetTransaction | null = null;
+
+function outputDelaySeconds(active: StandardHostManualOffsetTransaction): number {
+  return active.playing ? getLocalYouTubeAudibleOutputDelayMs() / 1000 : 0;
+}
+
+function outputAwareTarget(
+  canonical: number,
+  requestedOffset: number,
+  duration: number,
+  output: number,
+) {
+  const target = resolveProCoordinatorYouTubeTarget(canonical, requestedOffset, duration);
+  if (output === 0) return { ...target, automaticOffset: 0 };
+  const ceiling = duration > 0 ? Math.max(target.localTime, duration - 0.05) : Infinity;
+  const localTime = Math.min(
+    Math.max(0, target.canonicalTime + target.requestedOffset + output),
+    ceiling,
+  );
+  return {
+    ...target,
+    localTime,
+    effectiveOffset: localTime - target.canonicalTime,
+    automaticOffset: localTime - target.localTime,
+  };
+}
 
 function clearTransactionRuntime(): void {
   transaction?.rendezvous?.cancel();
@@ -175,6 +206,8 @@ function finish(
     // Input limits constrain the requested nudge, not the measured seek
     // latency. Clamping this residual would move the room's canonical clock.
     setState('sync.youtubeCoordinatorAppliedOffset', appliedOffset);
+    if (!active.proTimeline)
+      recordStandardHostYouTubeAutomaticOffset(appliedOffset - requestedOffset);
     emitDisplay(canonicalTime, duration);
   });
 }
@@ -209,7 +242,7 @@ function armGate(active: StandardHostManualOffsetTransaction): void {
       if (active.phase === 'apply') beginRollback(active, 'gate-timeout');
       else scheduleVerification(active);
     },
-    GATE_TTL_MS,
+    GATE_TTL_MS + (active.playing ? Math.max(0, -active.requestedOffset) * 1000 : 0),
   );
 }
 
@@ -281,12 +314,18 @@ function beginRollback(active: StandardHostManualOffsetTransaction, reason: stri
     const duration = active.player.getDuration?.() || active.duration;
     const localTime = active.player.getCurrentTime();
     const canonicalTime = toCanonicalYouTubeTime(localTime, duration);
+    const rollbackTarget = outputAwareTarget(
+      canonicalTime,
+      0,
+      duration,
+      outputDelaySeconds(active),
+    );
     active.commandBaselineOffset = localTime - canonicalTime;
     if (shouldSupersedeDetachWithReload) {
       active.reloadAttempted = true;
       if (active.playing) {
         setYtAutoplayIntent(true);
-        active.player.loadVideoById(active.videoId, canonicalTime);
+        active.player.loadVideoById(active.videoId, rollbackTarget.localTime);
       } else if (active.player.cueVideoById) {
         active.player.cueVideoById(active.videoId, canonicalTime);
       } else {
@@ -294,7 +333,7 @@ function beginRollback(active: StandardHostManualOffsetTransaction, reason: stri
         active.player.pauseVideo?.();
       }
     } else {
-      active.player.seekTo(canonicalTime, true);
+      active.player.seekTo(rollbackTarget.localTime, true);
     }
     if (active.ownsPlayingPreparation) {
       setYtAutoplayIntent(true);
@@ -352,10 +391,11 @@ function verify(active: StandardHostManualOffsetTransaction): void {
     }
 
     if (active.phase === 'apply') {
-      const target = resolveProCoordinatorYouTubeTarget(
+      const target = outputAwareTarget(
         canonicalTime,
         active.requestedOffset,
         duration,
+        outputDelaySeconds(active),
       );
       if (
         shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
@@ -363,6 +403,7 @@ function verify(active: StandardHostManualOffsetTransaction): void {
           target.canonicalTime,
           duration,
           target.effectiveOffset,
+          target.automaticOffset,
         )
       ) {
         beginRollback(active, 'end-boundary');
@@ -448,7 +489,14 @@ function verify(active: StandardHostManualOffsetTransaction): void {
       return;
     }
 
-    const rollbackResidualIsZero = Math.abs(residualOffset) <= TARGET_TOLERANCE_SEC;
+    const rollbackTarget = outputAwareTarget(
+      canonicalTime,
+      0,
+      duration,
+      outputDelaySeconds(active),
+    );
+    const rollbackResidualIsZero =
+      Math.abs(residualOffset - rollbackTarget.effectiveOffset) <= TARGET_TOLERANCE_SEC;
     if (liveVideoIdentityReady && Number.isFinite(residualOffset)) {
       const sameResidual =
         active.lastObservedResidual !== null &&
@@ -469,7 +517,13 @@ function verify(active: StandardHostManualOffsetTransaction): void {
       ) {
         // A failed corrective command may leave a real residual. Recording only
         // a post-timeout stable residual preserves the canonical wire.
-        finish(active, 0, rollbackResidualIsZero ? 0 : residualOffset, canonicalTime, duration);
+        finish(
+          active,
+          0,
+          rollbackResidualIsZero ? rollbackTarget.effectiveOffset : residualOffset,
+          canonicalTime,
+          duration,
+        );
         return;
       }
     } else {
@@ -498,7 +552,7 @@ function verify(active: StandardHostManualOffsetTransaction): void {
         active.reloadAttempted = true;
         if (active.playing) {
           setYtAutoplayIntent(true);
-          player.loadVideoById(active.videoId, canonicalTime);
+          player.loadVideoById(active.videoId, rollbackTarget.localTime);
         } else if (player.cueVideoById) {
           player.cueVideoById(active.videoId, canonicalTime);
         } else {
@@ -506,7 +560,7 @@ function verify(active: StandardHostManualOffsetTransaction): void {
           player.pauseVideo?.();
         }
       } else {
-        player.seekTo(canonicalTime, true);
+        player.seekTo(rollbackTarget.localTime, true);
       }
       active.lastCommandAt = Date.now();
     }
@@ -529,6 +583,13 @@ function begin(lease: StandardHostManualOffsetLease): void {
   const duration = player.getDuration?.() || 0;
   const samePendingMedia = previous && hasHardIdentityData(previous);
   const playerState = player.getPlayerState?.() ?? -1;
+  const finishingAudibleTail = isStandardHostYouTubeEndHoldActive();
+  const awaitingLocalStart = isStandardHostYouTubeLocalStartPending();
+  const heldCanonicalPosition =
+    finishingAudibleTail || awaitingLocalStart
+      ? toCanonicalYouTubeTime(player.getCurrentTime(), duration)
+      : undefined;
+  clearStandardHostYouTubeEndHold();
   const proTimeline = isProCoordinatorYouTubeEndpoint()
     ? captureProRoomLocalPlaybackTimeline()
     : null;
@@ -544,27 +605,37 @@ function begin(lease: StandardHostManualOffsetLease): void {
     (proTimeline?.playing ??
       (samePendingMedia
         ? previous.playing
-        : playerState === 1 || (playerState === 3 && getState('playback.activity') === 'playing')));
+        : finishingAudibleTail ||
+          awaitingLocalStart ||
+          playerState === 1 ||
+          (playerState === 3 && getState('playback.activity') === 'playing')));
   const localTime = player.getCurrentTime();
   if (!Number.isFinite(localTime)) throw new Error('YouTube local position is unavailable');
   const canonicalTime = beginProCoordinatorYouTubeNudge(
     localTime,
     duration,
     playing,
-    proTimeline?.positionSeconds,
+    proTimeline?.positionSeconds ?? heldCanonicalPosition,
   );
-  const requestedTarget = resolveProCoordinatorYouTubeTarget(
+  const requestedTarget = outputAwareTarget(
     canonicalTime,
     lease.requestedOffsetSeconds,
     duration,
+    playing ? getLocalYouTubeAudibleOutputDelayMs() / 1000 : 0,
   );
   const target = shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
     requestedTarget.localTime,
     requestedTarget.canonicalTime,
     duration,
     requestedTarget.effectiveOffset,
+    requestedTarget.automaticOffset,
   )
-    ? resolveProCoordinatorYouTubeTarget(canonicalTime, 0, duration)
+    ? outputAwareTarget(
+        canonicalTime,
+        0,
+        duration,
+        playing ? getLocalYouTubeAudibleOutputDelayMs() / 1000 : 0,
+      )
     : requestedTarget;
   const liveIdentity = readIdentity(player);
   const identity =
@@ -622,7 +693,10 @@ function begin(lease: StandardHostManualOffsetLease): void {
     duration,
     playing,
     ownsPlayingPreparation:
-      playing && (lease.scheduled || !!(samePendingMedia && previous.ownsPlayingPreparation)),
+      playing &&
+      (lease.scheduled ||
+        awaitingLocalStart ||
+        !!(samePendingMedia && previous.ownsPlayingPreparation)),
     requiresPlaylistDetach:
       canReusePendingDetach ||
       (target.requestedOffset !== 0 &&
@@ -653,6 +727,10 @@ function begin(lease: StandardHostManualOffsetLease): void {
   armGate(next);
 
   try {
+    // Capture the advancing room clock before retiring the old negative-start
+    // wait. The new lease now owns playback, so its predecessor cannot release
+    // or broadcast after this offset has been applied.
+    if (awaitingLocalStart) cancelPendingYouTubeStartFromSync();
     if (lease.scheduled && playing && !inheritedPendingIdentity) {
       next.rendezvous = createHostLocalRendezvous({
         player,

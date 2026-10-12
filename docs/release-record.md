@@ -177,6 +177,63 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 후속 작업과 유지 결정
 
+- [ ] 일반방 YouTube zero-start 직후 Sync 준비 공백(2026-10-12 로컬 관측):
+  초기 프로토콜의 소유권은 풀렸지만 첫 일반 playback snapshot이 오기 전에
+  Sync를 누르면 "방장 재생 정보가 없음" 안내가 나오고 자동 재시도하지 않는다.
+  실제 Chromium에서 재현했으며 자연 heartbeat 수신 뒤 재클릭 포함 총 8회는
+  정상 진행됐다. C11 학습 게이트 거절이나 heartbeat 영구 중단은 아니다.
+  오너 결정(2026-10-12): 원하지 않는 시점에 재생을 흔들지 않도록 자동 재시도는
+  추가하지 않는다. 준비 안내 후 사용자가 다시 누르는 정책을 유지한다. 이번은
+  조사만 했고 런타임을 수정하지 않았다.
+  [브라우저 실험·초기 timeout과 재시도 근거](design/standard-clock-browser-simulation-2026-10-12.md)
+- [ ] 일반방 YouTube C11(2026-10-12 로컬 수정, 미배포): `f7761782`에서 원래
+  deadline의 미보정 callback 지연을 학습 입력에서 제외했다. 계획·타이머 예약·
+  재생 호출·측정의 시계 변경도 학습에서 제외하며 기존 저장값은 초기화하지 않는다.
+  SharedClock 선택 변경·만료·재보정과 작업별 관측은 로컬 flight recorder에 추가했다.
+  Android 고정 출력 보정은 아래 2026-10-12 오너 실기 결정으로 후속 수정했다.
+  UA/플랫폼 모두 Linux인 데스크톱 모드를 터치만으로 추정하지 않으며 PRO 학습값
+  영속화도 보류한다. 후속 배포에는
+  App/SW 버전 갱신과 정상 exact-main 후보가 필요하다.
+  [수정·검증·남은 한계](design/standard-start-learning-repair-2026-10-12.md),
+  [수정 전 재현·판정](design/standard-start-review-2026-10-12.md)
+- [ ] PRO 시작 시계(2026-10-12 로컬 수정, 미배포): C2·C10a의 예약 오류를 작업별
+  시계 snapshot과 playing COMMIT 시계 확보로 막았다. C4의 늦은 응답은 다음 작업의
+  후보로만 보관한다. READY 미완료 중 조기 COMMIT이 PREPARE 대기를 이어받는 경로와
+  C11의 작은 callback 지연 학습 혼입도 수정했다. 원시 시계·실제 선택값·YouTube
+  관측 전용 표본을 기존 진단 복사에 추가했다. 리뷰 후 자연 소켓 단절이 이미 받은
+  COMMIT의 시계 lease를 거절하는 경로를 수정했다. 명시적 퇴장·소켓 교체의 폐기는
+  유지한다. 실제 현장 원인은 미확정이다.
+  C1/C7의 Android 고정 출력 보정은 아래 후속 수정으로 모든 playing 경로에 적용한다.
+  재개 startup 지연의 추가 학습은 여전히 별도 실측 대상이다.
+  초기에는 오너 요청으로 로컬 커밋만 남겼고, 현재 아래 점검 배포를 준비 중이다. 후속 배포에는
+  App/SW 버전 갱신과 정상 exact-main 후보가 필요하다.
+  [수정·검증·남은 한계](design/pro-start-clock-safety-2026-10-12.md),
+  [14개 후보 판정·재현·한계](design/pro-start-sync-candidate-validation-2026-10-12.md)
+- [ ] Android YouTube 출력 보정(2026-10-12 로컬 수정, 미배포): 오너가 Android
+  태블릿 2대·Galaxy 5대·Xiaomi에서 영상보다 음성이 250ms 늦음을 보고하고,
+  Android 고정 출력 기본값을 모든 재생 경로에 적용하기로 결정했다. PRO·일반방
+  모두 공통 재생 기준에 각 기기 자신의 +250ms와 수동값을 합성한다. 일반방 방장은
+  실제 적용한 로컬 보정을 빼고 공통 시각을 송신하여 게스트에게 전파하지 않는다.
+  시작·재개·시크·수동 싱크·초기화·정상 복구와 학습 분리를 로컬 검증했다.
+  실제 수정본의 기기 음향 정렬은 후속 실측 대상이다. UA와 UA-CH 모두 Linux로
+  숨기는 기기는 추측하지 않는다. 이전 코드와 capability v2가 같아 Android 방장에서
+  구·신 코드가 섞이면 zero-start가 ±250ms 어긋날 수 있다. 오너 결정(2026-10-12):
+  강제 버전 차단·호환 마이그레이션 없이 2026-10-13 00:00 KST 이후 점검 배포한다.
+  기존 탭 잔존과 점검 해제~배포 사이 재입장 가능성을 수용하며 새로고침을 안내한다.
+  점검이 사용자 0명 또는 같은 코드 실행을 보장한다는 뜻은 아니다.
+  [구현·검증·호환 한계](design/android-youtube-output-baseline-2026-10-12.md),
+  [점검 배포 결정·순서·검증](design/sync-maintenance-release-preparation-2026-10-12.md),
+  [수용한 전환기 한계](known-accepted.md#13-maintenance-cutover-without-client-version-admission)
+- [ ] 누적 App 릴리스 준비: 최신 8.10.1/v660 main을 통합했고 8.10.2/v661의
+  `89db0184`에서 `build:checked`가 통과했다. 진단을 방/데모 준비 경계로 옮기고
+  PRO 동기 송신 포트를 분리해 eager JS gzip 464,825 B / 468,160 B,
+  eager total gzip 537,909 B / 543,400 B로 기존 여유 검사를 충족했다.
+  용량 한도는 바꾸지 않았다. 새 수동 싱크 handoff 회귀와 테스트 완료 경계도
+  보완했다. 최종 로컬 전체 단위 12,354건, 후보 브라우저 17건, 선택 Chromium
+  61건이 모두 통과했다. PR #305의 초기 CI 11개 job과 자동 리뷰도 통과했으며,
+  최종 PR·exact-main CI는 별도로 완료해야 한다. 로컬/PR 검증이 정상
+  exact-main 릴리스 후보를 대신하지 않는다.
+  [현재 준비·검증 상태](design/sync-maintenance-release-preparation-2026-10-12.md)
 - [ ] iPhone Safari/PWA 실기 재입장: 8.9.4의 이전 연결 안내와 "여기서 계속",
   같은 코드로 입장 실패 후 재시도를 확인한다. 종료 알림이 누락되면 마지막 생존
   확인 뒤 45초 동안 presence가 남을 수 있고 명시적 이어하기 정책은 유지한다.

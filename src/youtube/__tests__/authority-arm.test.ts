@@ -441,7 +441,7 @@ describe('YouTubeAuthorityArmController', () => {
   });
 
   it.each(['ios', 'android'] as const)(
-    'does not apply platform lead to a $platform scheduled control and still catches up a late target',
+    'applies only fixed output lead to a $platform scheduled control and catches up a late target',
     async (platform) => {
       const { controller, player } = makeHarness({ platform });
       await prepareReady(controller, 'resident', 10);
@@ -455,13 +455,15 @@ describe('YouTubeAuthorityArmController', () => {
         timelineLeadMs: 300,
       });
 
-      await vi.advanceTimersByTimeAsync(699);
+      const platformLeadMs = platform === 'android' ? 250 : 0;
+      await vi.advanceTimersByTimeAsync(699 - platformLeadMs);
       expect(count(player, 'playVideo')).toBe(playsBeforeCommit);
       await vi.advanceTimersByTimeAsync(1);
 
       await expect(committed).resolves.toMatchObject({
         status: 'applied',
-        platformLeadMs: 0,
+        platformLeadMs,
+        timelineLeadMs: 0,
         catchUpSeconds: 0.25,
       });
       expect(count(player, 'seekTo')).toBe(seekCount + 1);
@@ -471,6 +473,161 @@ describe('YouTubeAuthorityArmController', () => {
       ]);
     },
   );
+
+  it.each([
+    { timingMode: 'scheduled-control', delay: 0, hold: 0, learned: 300, advance: 250, wait: 0 },
+    { timingMode: 'scheduled-control', delay: 100, hold: 0, learned: 0, advance: 150, wait: 0 },
+    { timingMode: 'scheduled-control', delay: 0, hold: 100, learned: 0, advance: 150, wait: 0 },
+    { timingMode: 'scheduled-control', delay: 0, hold: 500, learned: 0, advance: 0, wait: 250 },
+    { timingMode: 'zero-start', delay: 200, hold: 0, learned: 100, advance: 50, wait: 0 },
+    { timingMode: 'zero-start', delay: 100, hold: 0, learned: -100, advance: 50, wait: 0 },
+  ] as const)(
+    'supplies only unscheduled fixed output by position ($timingMode/$delay/$hold/$learned)',
+    async ({ timingMode, delay, hold, learned, advance, wait }) => {
+      const { controller, player } = makeHarness({ platform: 'android' });
+      await prepareReady(controller, 'resident', 10);
+      const seeks = count(player, 'seekTo');
+      const plays = count(player, 'playVideo');
+      const startedAt = Date.now();
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: delay,
+        localStartDelayMs: hold,
+        timingMode,
+        timelineLeadMs: learned,
+      });
+      await vi.advanceTimersByTimeAsync(wait);
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        playCallAtMs: startedAt + wait,
+        scheduledLeadMs: delay + hold - wait,
+        outputPositionAdvanceMs: expect.closeTo(advance, 6),
+        targetSeconds: 10 + advance / 1000,
+      });
+      expect(count(player, 'playVideo')).toBe(plays + 1);
+      expect(count(player, 'seekTo')).toBe(seeks + (advance > 0 ? 1 : 0));
+    },
+  );
+
+  describe.each(['zero-start', 'scheduled-control'] as const)(
+    '%s output seek tolerance',
+    (timingMode) => {
+      it.each([1, 20, 40, 41, 50, 150, 250])(
+        'seeks only when the missing fixed output advance of %ims exceeds 40ms',
+        async (missingMs) => {
+          const { controller, player } = makeHarness({ platform: 'android' });
+          await prepareReady(controller, 'resident', 10);
+          const seeks = count(player, 'seekTo');
+          const plays = count(player, 'playVideo');
+          const committed = controller.commit({
+            ...identity,
+            executeDelayMs: 250 - missingMs,
+            timingMode,
+          });
+          await vi.advanceTimersByTimeAsync(0);
+
+          const appliedMs = missingMs > 40 ? missingMs : 0;
+          const ignoredMs = missingMs > 40 ? 0 : missingMs;
+          await expect(committed).resolves.toMatchObject({
+            status: 'applied',
+            platformLeadMs: 250,
+            scheduledLeadMs: 250 - missingMs,
+            outputPositionAdvanceMs: expect.closeTo(appliedMs, 6),
+            ignoredOutputPositionAdvanceMs: expect.closeTo(ignoredMs, 6),
+            targetSeconds: expect.closeTo(10 + appliedMs / 1000, 6),
+            catchUpSeconds: expect.closeTo(appliedMs / 1000, 6),
+          });
+          expect(count(player, 'seekTo')).toBe(seeks + (appliedMs > 0 ? 1 : 0));
+          expect(count(player, 'playVideo')).toBe(plays + 1);
+          expect(player.__currentTime).toBeCloseTo(10 + appliedMs / 1000, 6);
+        },
+      );
+    },
+  );
+
+  it.each([
+    { missingMs: 20, targetAdvanceMs: 250, callbackMs: 0, expectedMs: 250 },
+    { missingMs: 40, targetAdvanceMs: 250, callbackMs: 150, expectedMs: 400 },
+    { missingMs: 20, targetAdvanceMs: 0, callbackMs: 150, expectedMs: 150 },
+    { missingMs: 20, targetAdvanceMs: 20, callbackMs: 20, expectedMs: 0 },
+    { missingMs: 41, targetAdvanceMs: 250, callbackMs: 150, expectedMs: 441 },
+    { missingMs: 50, targetAdvanceMs: 250, callbackMs: 150, expectedMs: 450 },
+    { missingMs: 150, targetAdvanceMs: 250, callbackMs: 150, expectedMs: 550 },
+    { missingMs: 250, targetAdvanceMs: 250, callbackMs: 150, expectedMs: 650 },
+  ])(
+    'combines actual corrections into at most one seek without readding ignored fixed lead ($missingMs/$targetAdvanceMs/$callbackMs)',
+    async ({ missingMs, targetAdvanceMs, callbackMs, expectedMs }) => {
+      const { controller, player } = makeHarness({ platform: 'android' });
+      await prepareReady(controller, 'resident', 10);
+      const seeks = count(player, 'seekTo');
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 250 - missingMs,
+        targetSeconds: 10 + targetAdvanceMs / 1000,
+        timingMode: 'scheduled-control',
+      });
+      vi.setSystemTime(Date.now() + callbackMs);
+      await vi.advanceTimersByTimeAsync(0);
+
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        outputPositionAdvanceMs: expect.closeTo(missingMs > 40 ? missingMs : 0, 6),
+        ignoredOutputPositionAdvanceMs: expect.closeTo(missingMs > 40 ? 0 : missingMs, 6),
+        releaseLatenessMs: callbackMs > 40 ? callbackMs : 0,
+        rawReleaseLatenessMs: callbackMs,
+        targetSeconds: expect.closeTo(10 + expectedMs / 1000, 6),
+        catchUpSeconds: expect.closeTo(expectedMs / 1000, 6),
+      });
+      expect(count(player, 'seekTo')).toBe(seeks + (expectedMs > 0 ? 1 : 0));
+      expect(player.__currentTime).toBeCloseTo(10 + expectedMs / 1000, 6);
+    },
+  );
+
+  it.each([1, 20, 40, 41, 50])(
+    'uses the end-bounded fixed advance of %ims for the no-seek decision',
+    async (remainingMs) => {
+      const { controller, player } = makeHarness({ platform: 'android' });
+      player.getDuration = () => 10;
+      const target = 9.95 - remainingMs / 1000;
+      await prepareReady(controller, 'resident', target);
+      const seeks = count(player, 'seekTo');
+      const committed = controller.commit({
+        ...identity,
+        executeDelayMs: 0,
+        timingMode: 'scheduled-control',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      await expect(committed).resolves.toMatchObject({
+        status: 'applied',
+        platformLeadMs: 250,
+        scheduledLeadMs: 0,
+        outputPositionAdvanceMs: expect.closeTo(remainingMs > 40 ? remainingMs : 0, 6),
+        ignoredOutputPositionAdvanceMs: expect.closeTo(remainingMs > 40 ? 0 : remainingMs, 6),
+        targetSeconds: expect.closeTo(remainingMs > 40 ? 9.95 : target, 6),
+      });
+      expect(count(player, 'seekTo')).toBe(seeks + (remainingMs > 40 ? 1 : 0));
+      expect(player.__currentTime).toBeLessThan(10);
+    },
+  );
+
+  it('does not let fixed output compensation seek across the media end', async () => {
+    const { controller, player } = makeHarness({ platform: 'android' });
+    player.getDuration = () => 10;
+    await prepareReady(controller, 'resident', 9.9);
+    const committed = controller.commit({
+      ...identity,
+      executeDelayMs: 0,
+      timingMode: 'scheduled-control',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(committed).resolves.toMatchObject({
+      status: 'applied',
+      targetSeconds: 9.95,
+      outputPositionAdvanceMs: expect.closeTo(50, 6),
+    });
+    expect(player.__currentTime).toBeLessThan(10);
+  });
 
   it('runs a late iOS zero-start immediately without inventing platform lead', async () => {
     const { controller, player } = makeHarness({ platform: 'ios' });
@@ -518,7 +675,7 @@ describe('YouTubeAuthorityArmController', () => {
     { platform: 'other', timingMode: 'zero-start', localStartDelayMs: 250, lead: 0 },
     { platform: 'ios', timingMode: 'zero-start', localStartDelayMs: 250, lead: 0 },
     { platform: 'android', timingMode: 'zero-start', localStartDelayMs: 250, lead: 250 },
-    { platform: 'android', timingMode: 'scheduled-control', localStartDelayMs: 250, lead: 0 },
+    { platform: 'android', timingMode: 'scheduled-control', localStartDelayMs: 250, lead: 250 },
     { platform: 'other', timingMode: 'zero-start', localStartDelayMs: 9_999, lead: 0 },
   ] as const)(
     'preserves a negative manual offset using a local wait ($platform/$timingMode/$localStartDelayMs)',
@@ -676,6 +833,7 @@ describe('YouTubeAuthorityArmController', () => {
         timelineLeadMs: learned,
         localStartDelayMs: hold,
         releaseLatenessMs: 1_500,
+        rawReleaseLatenessMs: 1_500,
         targetSeconds: target + 1.5,
         catchUpSeconds: 1.5,
         callToPlayingMs: 0,
@@ -700,6 +858,7 @@ describe('YouTubeAuthorityArmController', () => {
       targetSeconds: 3,
       catchUpSeconds: 0.5,
       releaseLatenessMs: 1_500,
+      rawReleaseLatenessMs: 1_500,
     });
     expect(player.__currentTime).toBe(3);
     expect(
@@ -725,6 +884,7 @@ describe('YouTubeAuthorityArmController', () => {
       targetSeconds: 0,
       catchUpSeconds: 0,
       releaseLatenessMs: 0,
+      rawReleaseLatenessMs: 25,
     });
     expect(count(player, 'seekTo')).toBe(seeks);
   });

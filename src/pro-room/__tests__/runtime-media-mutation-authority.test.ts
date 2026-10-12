@@ -521,6 +521,10 @@ describe('PRO queued media mutations across authority changes', () => {
   it('aborts an active PUT and releases its reservation before a fresh grant uploads another file', async () => {
     holdFirstMutation = false;
     const requests: XMLHttpRequest[] = [];
+    const metadataProbes: Array<{
+      signal: AbortSignal | undefined;
+      finish: (duration: number | null) => void;
+    }> = [];
     const aborts = vi.fn();
     const deleted = vi.fn(async (input: { assetId: string }) => ({
       assetId: input.assetId,
@@ -538,6 +542,10 @@ describe('PRO queued media mutations across authority changes', () => {
     }));
     let reservationSequence = 0;
     const transfer = new ProRoomMediaTransfer({
+      probeDuration: (_file, signal) =>
+        new Promise<number | null>((finish) => {
+          metadataProbes.push({ signal, finish });
+        }),
       api: {
         endpoint: 'http://127.0.0.1:8789/api/pro-room',
         createMediaReservation: async () => ({
@@ -597,10 +605,22 @@ describe('PRO queued media mutations across authority changes', () => {
     expect(mutations).toHaveLength(0);
 
     await authority(true);
+    expect(metadataProbes).toHaveLength(1);
+    expect(metadataProbes[0]!.signal?.aborted).toBe(true);
+    metadataProbes[0]!.finish(null);
     expect(handleProRoomFiles([new File(['abcd'], 'fresh.flac')])).toBe(true);
     await vi.waitFor(() => expect(requests).toHaveLength(2));
     await vi.waitFor(() => expect(requests[1]!.send).toHaveBeenCalledOnce());
+    expect(metadataProbes).toHaveLength(2);
+    expect(metadataProbes[1]!.signal?.aborted).toBe(false);
     requests[1]!.onload?.call(requests[1]!, new ProgressEvent('load'));
+    await vi.advanceTimersByTimeAsync(0);
+    // PUT completion may precede the optional metadata result. Control that
+    // result explicitly instead of racing its real dynamic import against a
+    // zero-duration timer flush (the 250ms metadata tail is tested separately).
+    expect(completed).not.toHaveBeenCalled();
+    expect(mutations).toHaveLength(0);
+    metadataProbes[1]!.finish(null);
     await vi.advanceTimersByTimeAsync(0);
     expect(completed).toHaveBeenCalledOnce();
     expect(mutations).toHaveLength(1);

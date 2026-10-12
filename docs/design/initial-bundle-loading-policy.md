@@ -26,11 +26,12 @@ worker, or present the first usable application state. They are needed before
 the first signaling transport or PRO presence can deliver a system-audio
 frame, so a fire-and-forget import would not be a safe boundary.
 
-Demo mode is not a safe conditional boundary today. Its protocol handlers must
-exist before an incoming demo frame and its first-run prompt observes bootstrap
-state. Loading it unconditionally through `await import()` would reduce an HTML
-graph measurement without reducing readiness work, so demo remains eager and
-is counted honestly in the entry.
+At the time of the original decision, demo mode was not a safe conditional
+boundary. Its protocol handlers had to exist before an incoming demo frame and
+its first-run prompt observed bootstrap state. An unconditional `await import()`
+would only hide readiness work from the HTML graph measurement. The current
+lightweight demo bridge and its awaited runtime boundary are described in the
+2026-10-12 addendum below.
 
 ## Decision
 
@@ -216,13 +217,89 @@ hide eager work behind unconditional imports, or silently revise limits to
 make a failing build pass. Source line limits remain a separate policy in
 `source-complexity-ratchet.md`.
 
+### 2026-10-12 diagnostics and PRO realtime boundary addendum
+
+Source `89db0184` moves the sync flight recorder out of app bootstrap and into
+the existing room/demo readiness boundaries. This is conditional work: merely
+opening setup does not start an import. `prepareSyncFlightRecorder()` shares
+one initialization promise between both entry routes:
+
+- `prepareRoomSessionFeatures()` awaits the recorder alongside the room
+  listener runtime before a Standard transport or PRO presence can open.
+- The lightweight demo loader awaits the recorder alongside `demo/mode.ts`
+  before initializing that runtime and replaying the first deferred entry or
+  playback message. Its existing mailbox, connection identity, EXIT, and
+  supersession checks still decide whether that work is current.
+
+Cancellation settles the individual room caller without cancelling shared
+initialization needed by another caller. Recorder import or initialization
+failure remains an optional diagnostics failure: it is logged, does not prevent
+entry, and is retained for the document instead of repeatedly importing on
+later frames. Protocol-critical room listener failures still require reload.
+The recorder's sampling, clock observations, compensation values, retention,
+and privacy rules are unchanged. With successful initialization, the first
+room/playback events reach its listeners before entry readiness is released.
+
+The eager bootstrap ledger therefore has 51 steps: 49 synchronous wiring
+initializers, I18n, and SyncWorker. SyncFlightRecorder is the one removed eager
+initializer. A cached-navigation fallback adds its own ledger entry for 52
+total. Browser helpers retain exact counts, zero failures, and the isolated
+fallback requirement; they do not accept arbitrary ready step counts. The
+historical measurements above retain the counts observed at those revisions.
+
+The remaining eager PRO dependency came from three chat callers importing
+`sendProRoomRealtime` from the module that also implements the complete PRO
+socket and clock. `pro-room/realtime-sender.ts` now provides the small synchronous
+send port. Before the deferred bridge registers it, sending returns `false`,
+the same result as the previously eager but disconnected bridge. The bridge
+binds its singleton immediately after construction, before connection callbacks
+can publish readiness. The awaited room feature/recorder graph and PRO runtime
+load it before PRO entry can complete.
+
+The port delegates to the current singleton's existing `send` method. It does
+not open a socket, queue a payload, retry a submission, or turn a synchronous
+result into a promise. A replaced or closed socket is still handled by the
+bridge's existing lifecycle and send guards. Chat retains its existing failed
+submission UX; authorization and wire messages are unchanged.
+
+The flight recorder is a reviewed deferred app-shell root. Vite includes its
+static dependency closure, including the PRO bridge, in the deterministic
+service-worker installation manifest. Both the recorder and the PRO bridge
+are forbidden from re-entering the eager app graph. Offline installation still
+downloads these chunks; this change reduces initial document transfer and
+evaluation work, not total installation bytes. No chunk grouping, artificial
+unconditional import, source obfuscation, or budget increase was used.
+
+The local production-mode build for this source measured:
+
+| Metric                | Actual bytes | Unchanged 95% ceiling | Working room bytes |
+| --------------------- | -----------: | --------------------: | -----------------: |
+| Eager JavaScript gzip |      464,825 |               468,160 |              3,335 |
+| Eager total gzip      |      537,909 |               543,400 |              5,491 |
+
+The architectural limits and protected 5% reserve remain those in the
+2026-09-06 addendum. These are local build measurements, not an exact-main CI
+release candidate or a field latency guarantee. Focused boundary tests cover
+first-frame ordering, cancellation, deferred demo replacement, optional
+recorder failures, offline manifest membership, synchronous send rejection,
+the first PRO connected callback, socket replacement, and late close events.
+
+Reverting these source boundaries would restore eager dependencies and must
+also reconsider their graph guards and measured transfer budget; removing a
+guard alone is not a valid repair. A deployment rollback to an earlier runtime
+must follow the [production recovery procedure](../hotfix-procedure.md) and its
+active compatibility floor. This addendum does not authorize deployment or
+relax release-candidate requirements.
+
 ## Consequences
 
-Setup, local/offline recovery, demo protocol/UI, visualizer, file-drop, and
-accessibility bindings remain eager. The asynchronous seams are limited to the
-Connect surface, a network-session feature graph, and the shared optional Media
-Session integration started by demo or room entry. Standard and PRO entry
-points explicitly own network-listener readiness rather than relying on timing.
+Setup, the lightweight demo protocol bridge, visualizer, file-drop, and
+accessibility bindings remain eager. Reviewed implementation boundaries include
+Connect, room-session features, the demo runtime, optional Media Session and
+flight recording, and the existing deferred recovery/UI helpers. Standard and
+PRO entry points explicitly own network-listener and recorder readiness; demo
+entry owns runtime and recorder readiness. The synchronous PRO chat send port
+does not pull socket/clock implementation into setup or retain work for later.
 
 The service worker downloads the reviewed deferred chunks during app-shell
 installation. They do not block the document's eager transfer graph, but they

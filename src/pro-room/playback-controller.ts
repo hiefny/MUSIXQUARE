@@ -2,6 +2,7 @@ import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import type { QueueItemId } from '../types/index.ts';
 import {
   ProRoomApiError,
@@ -14,9 +15,12 @@ import {
 import type { ProRoomPlaybackCheckpoint, ProRoomSnapshot } from './contracts.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import {
+  acquireProRoomServerClock,
+  captureProRoomServerClockSnapshot,
   getProRoomServerNow,
+  isProRoomClockSnapshotCurrent,
   isProRoomServerClockCalibrated,
-  waitForFreshProRoomServerClockCalibration,
+  type ProRoomClockSnapshot,
 } from './network-bridge.ts';
 import {
   cancelProPlaybackPreparation,
@@ -50,10 +54,12 @@ const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
 const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
 const PLAYLIST_HYDRATION_PREPARE_RESERVE_MS = 500;
 const PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS = 1_000;
+const PLAYBACK_COMMIT_CLOCK_WAIT_MS = 700;
 const PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS = 700;
 const MEDIA_DURATION_REPORT_TIMEOUT_MS = 6_000;
 const MEDIA_DURATION_REPORT_RETRY_MS = 30_000;
 const MEDIA_DURATION_REPORT_CACHE_SIZE = 128;
+let clockRecoveryTimerSequence = 0;
 
 export interface ProRoomPlaybackPlaylistLease {
   readonly generation: number;
@@ -97,10 +103,18 @@ interface ProRoomPlaybackControllerPorts {
 interface ActiveServerPlaybackTransition {
   event: ProRoomPlaybackPrepareEvent;
   authority: ProPlaybackAuthorityToken;
-  preparation: ReturnType<typeof prepareProPlaybackAuthority>;
+  mediaPreparation: Promise<ProPlaybackPrepareResult>;
+  preparation: Promise<PlaybackPreparation>;
+  clockSnapshot: ProRoomClockSnapshot | null;
+  commitReceived: boolean;
   readyReportStarted: boolean;
   receivedAtMs: number;
   clockAbort: AbortController;
+}
+
+interface PlaybackPreparation {
+  media: ProPlaybackPrepareResult;
+  clock: ProRoomClockSnapshot | null;
 }
 
 type PlaybackCommitOwner = () => boolean;
@@ -269,6 +283,82 @@ function createImplementation(
     { status: 'pending' | 'succeeded' | 'failed'; retryAtMs: number }
   >();
   const durationReportRequests = new Set<AbortController>();
+  const clockRequests = new Map<AbortController, number>();
+  let clockRecoveryTimer: string | null = null;
+  let clockRecoveryRevision = -1;
+
+  function cancelClockRequests(beforeRevision = Number.POSITIVE_INFINITY): void {
+    for (const [controller, revision] of clockRequests) {
+      if (revision < beforeRevision) controller.abort();
+    }
+    if (clockRecoveryTimer !== null) clearManagedTimer(clockRecoveryTimer);
+    clockRecoveryTimer = null;
+  }
+
+  async function acquirePlaybackClock(input: {
+    revision: number;
+    purpose: 'prepare' | 'commit' | 'restore' | 'reconcile';
+    isCurrent: () => boolean;
+    timeoutMs: number;
+    fresh?: boolean;
+    serverDeadlineAtMs?: number;
+    signal?: AbortSignal;
+  }): Promise<ProRoomClockSnapshot | null> {
+    if (!input.isCurrent()) return null;
+    const linked = createRoomLinkedAbortController(ports.getRoomAbortSignal());
+    const abort = () => linked.controller.abort();
+    if (input.signal?.aborted) abort();
+    else input.signal?.addEventListener('abort', abort, { once: true });
+    clockRequests.set(linked.controller, input.revision);
+    try {
+      const clock = await acquireProRoomServerClock({
+        timeoutMs: input.timeoutMs,
+        signal: linked.controller.signal,
+        fresh: input.fresh,
+        serverDeadlineAtMs: input.serverDeadlineAtMs,
+      });
+      const valid =
+        !linked.controller.signal.aborted &&
+        input.isCurrent() &&
+        clock !== null &&
+        isProRoomClockSnapshotCurrent(clock);
+      recordProStartObservation('playback-clock', {
+        purpose: input.purpose,
+        revision: input.revision,
+        outcome: valid ? 'selected' : linked.controller.signal.aborted ? 'aborted' : 'timeout',
+        sampleId: clock?.sampleId ?? null,
+        generation: clock?.generation ?? null,
+        offsetMs: clock?.offsetMs ?? null,
+        rttMs: clock?.rttMs ?? null,
+        sampledAtMs: clock?.sampledAtMs ?? null,
+      });
+      return valid ? clock : null;
+    } finally {
+      input.signal?.removeEventListener('abort', abort);
+      linked.detach();
+      clockRequests.delete(linked.controller);
+    }
+  }
+
+  function retryClockRecovery(revision: number, isCurrent: () => boolean): void {
+    if (clockRecoveryRevision === revision || !isCurrent()) return;
+    clockRecoveryRevision = revision;
+    clockRecoveryTimer = `pro-playback-clock-recovery-${++clockRecoveryTimerSequence}`;
+    setManagedTimer(
+      clockRecoveryTimer,
+      () => {
+        clockRecoveryTimer = null;
+        if (!isCurrent()) return;
+        recordProStartObservation('playback-clock-retry', { revision, outcome: 'retry' });
+        // The regular heartbeat remains the bounded long-term recovery path.
+        // One early retry must not turn an unavailable clock into an HTTP loop.
+        void ports.runHeartbeat(true).catch((error) => {
+          log.warn('[PRO Playback] Clock recovery heartbeat failed', error);
+        });
+      },
+      250,
+    );
+  }
 
   function resetDurationReports(): void {
     durationReportGeneration += 1;
@@ -746,23 +836,15 @@ function createImplementation(
     if (transition.readyReportStarted) return;
     transition.readyReportStarted = true;
     void transition.preparation
-      .then(async (result) => {
-        if (state.activeTransition !== transition) return;
-        let status: 'ready' | 'failed' = 'failed';
-        if (result.status === 'ready') {
-          const elapsedSinceReceiptMs = Math.max(0, Date.now() - transition.receivedAtMs);
-          const fallbackTimeoutMs = Math.max(
-            0,
-            transition.event.deadlineAtMs - transition.event.serverTimeMs - elapsedSinceReceiptMs,
-          );
-          const calibrated = await waitForFreshProRoomServerClockCalibration({
-            serverDeadlineAtMs: transition.event.deadlineAtMs,
-            fallbackTimeoutMs,
-            signal: transition.clockAbort.signal,
-          });
-          if (state.activeTransition !== transition) return;
-          if (calibrated) status = 'ready';
-        }
+      .then(async ({ media: result, clock }) => {
+        if (state.activeTransition !== transition || transition.commitReceived) return;
+        const status =
+          result.status === 'ready' &&
+          clock &&
+          isProRoomClockSnapshotCurrent(clock) &&
+          Date.now() + clock.offsetMs <= transition.event.deadlineAtMs
+            ? 'ready'
+            : 'failed';
         try {
           const outcome = await ports.reportPlaybackTransitionReady({
             code: transition.authority.roomId,
@@ -918,6 +1000,7 @@ function createImplementation(
       return;
     }
     if (sameServerTransition(state.activeTransition, event)) return;
+    cancelClockRequests(event.target.revision);
     state.cancelledCheckpointRecovery = null;
 
     const replacedTransitionId = state.activeTransition?.event.transitionId ?? null;
@@ -938,17 +1021,40 @@ function createImplementation(
     const request = playbackPrepareRequest(authority, event.target);
     if (!request) return;
     const clockAbort = new AbortController();
-    const preparation = preparePlaybackAfterPlaylistHydration(
+    const mediaPreparation = preparePlaybackAfterPlaylistHydration(
       request,
       event,
       receivedAtMs,
       clockAbort.signal,
       () => state.activeTransition?.authority === authority && !clockAbort.signal.aborted,
     );
+    const preparation = mediaPreparation.then(async (media): Promise<PlaybackPreparation> => {
+      if (media.status !== 'ready') return { media, clock: null };
+      const clock = await acquirePlaybackClock({
+        revision: event.target.revision,
+        purpose: 'prepare',
+        isCurrent: () =>
+          state.activeTransition?.authority === authority && !clockAbort.signal.aborted,
+        timeoutMs: Math.max(
+          0,
+          event.deadlineAtMs - event.serverTimeMs - Math.max(0, Date.now() - receivedAtMs),
+        ),
+        fresh: true,
+        serverDeadlineAtMs: event.deadlineAtMs,
+        signal: clockAbort.signal,
+      });
+      if (state.activeTransition?.authority === authority) {
+        state.activeTransition.clockSnapshot = clock;
+      }
+      return { media, clock };
+    });
     const transition: ActiveServerPlaybackTransition = {
       event,
       authority,
+      mediaPreparation,
       preparation,
+      clockSnapshot: null,
+      commitReceived: false,
       readyReportStarted: false,
       receivedAtMs,
       clockAbort,
@@ -1005,21 +1111,30 @@ function createImplementation(
   function playbackCommitTiming(
     event: ProRoomPlaybackCommitEvent,
     receivedAtMs: number,
+    clock: ProRoomClockSnapshot | null,
   ): {
     positionSeconds: number;
     scheduleDelayMs: number;
+    signedDelayMs: number;
     timingMode: ProPlaybackTimingMode;
   } {
-    const nowMs = serverNowForFrame(event.serverTimeMs, receivedAtMs);
+    if (event.playback.state === 'playing' && !clock) {
+      throw new Error('PRO_PLAYBACK_CLOCK_UNAVAILABLE');
+    }
+    const nowMs = clock
+      ? Date.now() + clock.offsetMs
+      : serverNowForFrame(event.serverTimeMs, receivedAtMs);
+    const signedDelayMs = event.executeAtMs - nowMs;
     // Wire-compatible rollout marker: old clients treat 699ms as an ordinary
-    // future COMMIT instant. Refreshed clients grant platform lead only to this
-    // explicit marker; legacy, direct, and malformed timings fail safely as
-    // running-timeline controls.
+    // future COMMIT instant. Refreshed clients grant learned startup lead only
+    // to this explicit marker; all playing paths retain fixed output delay.
+    // Legacy, direct, and malformed timings remain running-timeline controls.
     const zeroStart =
       event.transitionId !== null &&
       event.executeAtMs - event.serverTimeMs === PRO_PLAYBACK_ZERO_START_WIRE_LEAD_MS;
     return {
-      scheduleDelayMs: Math.max(0, event.executeAtMs - nowMs),
+      scheduleDelayMs: Math.max(0, signedDelayMs),
+      signedDelayMs,
       timingMode: zeroStart ? 'zero-start' : 'scheduled-control',
       positionSeconds:
         event.playback.state === 'playing'
@@ -1073,6 +1188,7 @@ function createImplementation(
     roomCode: string,
     roomEpoch: number,
     isRequestCurrent: () => boolean,
+    clock: ProRoomClockSnapshot | null,
   ) {
     const playback = event.playback;
     if (playback.state === 'idle' || !playback.queueItemId) return null;
@@ -1084,7 +1200,10 @@ function createImplementation(
     );
     const request = playbackPrepareRequest(authority, playback);
     if (!request) return null;
-    const current = () => playbackCommitStillCurrent(event, generation, isRequestCurrent);
+    const current = () =>
+      playbackCommitStillCurrent(event, generation, isRequestCurrent) &&
+      (playback.state !== 'playing' || (clock !== null && isProRoomClockSnapshotCurrent(clock)));
+    if (!current()) return null;
     const reportRecoveredDuration = captureFileDurationReporter(request, current);
     let prepared: ProPlaybackPrepareResult;
     try {
@@ -1099,7 +1218,7 @@ function createImplementation(
       cancelProPlaybackPreparation(authority);
       throw error;
     }
-    if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) {
+    if (!current()) {
       cancelProPlaybackPreparation(authority);
       return null;
     }
@@ -1107,12 +1226,9 @@ function createImplementation(
       cancelProPlaybackPreparation(authority);
       if (prepared.reason === 'stale-authority') {
         const exactCheckpointIsCurrent = () => {
-          return (
-            playbackCommitStillCurrent(event, generation, isRequestCurrent) &&
-            canonicalCheckpointMatches(playback, roomCode, roomEpoch)
-          );
+          return current() && canonicalCheckpointMatches(playback, roomCode, roomEpoch);
         };
-        const timing = playbackCommitTiming(event, receivedAtMs);
+        const timing = playbackCommitTiming(event, receivedAtMs, clock);
         return recoverCancelledProPlaybackCheckpoint(
           {
             authority,
@@ -1126,13 +1242,13 @@ function createImplementation(
             youtubeVideoId: playback.youtubeVideoId,
             isCurrent: exactCheckpointIsCurrent,
           },
-          () => playbackCommitTiming(event, receivedAtMs),
+          () => playbackCommitTiming(event, receivedAtMs, clock),
           reportRecoveredDuration,
         );
       }
       return null;
     }
-    const timing = playbackCommitTiming(event, receivedAtMs);
+    const timing = playbackCommitTiming(event, receivedAtMs, clock);
     try {
       const result = await commitProPlaybackAuthority({
         authority,
@@ -1141,12 +1257,12 @@ function createImplementation(
         state: playback.state,
         positionSeconds: timing.positionSeconds,
         scheduleDelayMs: timing.scheduleDelayMs,
-        // Catch-up is already following a committed running checkpoint; applying
-        // the one-time zero-start lead here would move a late endpoint ahead.
+        // Catch-up follows a committed running checkpoint. Keep fixed audio
+        // output compensation, but never inherit learned startup-only lead.
         timingMode: 'scheduled-control',
         youtubeSubIndex: playback.youtubeSubIndex,
         youtubeVideoId: playback.youtubeVideoId,
-        isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
+        isCurrent: current,
       });
       if (
         result.status !== 'applied' ||
@@ -1167,8 +1283,16 @@ function createImplementation(
     generation: number,
     authority: ProPlaybackAuthorityToken,
     isRequestCurrent: () => boolean,
+    clock: ProRoomClockSnapshot | null,
   ): Promise<void> {
-    const timing = playbackCommitTiming(event, receivedAtMs);
+    const timing =
+      clock || event.playback.state !== 'playing'
+        ? playbackCommitTiming(event, receivedAtMs, clock)
+        : {
+            positionSeconds: event.playback.positionSeconds,
+            scheduleDelayMs: 0,
+            timingMode: 'scheduled-control' as const,
+          };
     await invalidateCommittedProPlaybackMedia({
       authority,
       committedPlaybackRevision: event.playback.revision,
@@ -1188,6 +1312,7 @@ function createImplementation(
     receivedAtMs: number,
     generation: number,
     isRequestCurrent: () => boolean,
+    initialClock: ProRoomClockSnapshot | null = null,
   ): Promise<void> {
     const context = getState('room.context');
     const playback = event.playback;
@@ -1205,7 +1330,8 @@ function createImplementation(
 
     state.highestKnownRevision = Math.max(state.highestKnownRevision, playback.revision);
     let authority: ProPlaybackAuthorityToken;
-    let preparation: ReturnType<typeof prepareProPlaybackAuthority> | null = null;
+    let preparation: Promise<PlaybackPreparation> | null = null;
+    let clock: ProRoomClockSnapshot | null = initialClock;
     let preparedFromMatchingTransition = false;
     let activeTransition = state.activeTransition;
     const matchesActiveTransition = !!(
@@ -1226,7 +1352,14 @@ function createImplementation(
     }
     if (matchesActiveTransition && activeTransition) {
       authority = activeTransition.authority;
-      preparation = activeTransition.preparation;
+      const transition = activeTransition;
+      // READY and COMMIT share media and the chosen estimate, but not their
+      // remaining wait budgets. An early COMMIT must not wait the entire
+      // PREPARE deadline before beginning its own bounded clock acquisition.
+      preparation = transition.mediaPreparation.then((media) => ({
+        media,
+        clock: transition.clockSnapshot,
+      }));
       preparedFromMatchingTransition = true;
     } else if (event.transitionId !== null && playback.queueItemId) {
       if (activeTransition) cancelProPlaybackPreparation(activeTransition.authority);
@@ -1244,16 +1377,53 @@ function createImplementation(
               isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
             },
             () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
-          )
+          ).then((media) => ({ media, clock: null }))
         : null;
     } else {
       authority = playbackAuthorityFor(context.roomId, context.epoch, playback.revision, null);
     }
 
+    const current = () => playbackCommitStillCurrent(event, generation, isRequestCurrent);
+    const currentWithClock = () =>
+      current() &&
+      (playback.state !== 'playing' || (clock !== null && isProRoomClockSnapshotCurrent(clock)));
+    const ensureClock = async (): Promise<boolean> => {
+      if (playback.state !== 'playing') return current();
+      if (clock && isProRoomClockSnapshotCurrent(clock)) return current();
+      clock = await acquirePlaybackClock({
+        revision: playback.revision,
+        purpose: 'commit',
+        isCurrent: current,
+        timeoutMs: PLAYBACK_COMMIT_CLOCK_WAIT_MS,
+      });
+      if (clock) return current();
+      if (!current()) return false;
+      if (activeTransition) clearServerPlaybackTransition(activeTransition);
+      cancelProPlaybackPreparation(authority);
+      await silenceUnappliedCanonicalRenderer(
+        event,
+        receivedAtMs,
+        generation,
+        authority,
+        isRequestCurrent,
+        null,
+      );
+      if (!current()) return false;
+      failLocalPlaybackUiControlsForRevision(
+        authority.roomId,
+        authority.roomEpoch,
+        playback.revision,
+      );
+      retryClockRecovery(playback.revision, current);
+      return false;
+    };
+
     if (preparation) {
       let prepared: ProPlaybackPrepareResult;
       try {
-        prepared = await preparation;
+        const result = await preparation;
+        prepared = result.media;
+        clock = result.clock ?? clock;
       } catch (error) {
         cancelProPlaybackPreparation(authority);
         throw error;
@@ -1262,6 +1432,7 @@ function createImplementation(
         cancelProPlaybackPreparation(authority);
         return;
       }
+      if (!(await ensureClock())) return;
       if (prepared.status !== 'ready') {
         if (activeTransition) clearServerPlaybackTransition(activeTransition);
         const catchup =
@@ -1274,6 +1445,7 @@ function createImplementation(
                 context.roomId,
                 context.epoch,
                 isRequestCurrent,
+                clock,
               );
         if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
         if (catchup?.status !== 'applied') {
@@ -1283,6 +1455,7 @@ function createImplementation(
             generation,
             authority,
             isRequestCurrent,
+            clock,
           );
           if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
           failLocalPlaybackUiControlsForRevision(context.roomId, context.epoch, playback.revision);
@@ -1309,8 +1482,20 @@ function createImplementation(
       }
     }
 
-    if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
-    const timing = playbackCommitTiming(event, receivedAtMs);
+    if (!(await ensureClock()) || !currentWithClock()) return;
+    const timing = playbackCommitTiming(event, receivedAtMs, clock);
+    recordProStartObservation('playback-clock', {
+      purpose: 'commit',
+      revision: playback.revision,
+      outcome: 'selected',
+      sampleId: clock?.sampleId ?? null,
+      generation: clock?.generation ?? null,
+      offsetMs: clock?.offsetMs ?? null,
+      rttMs: clock?.rttMs ?? null,
+      signedDelayMs: timing.signedDelayMs,
+      scheduleDelayMs: timing.scheduleDelayMs,
+      state: playback.state,
+    });
     let result: ProPlaybackCommitResult;
     try {
       result = await commitProPlaybackAuthority({
@@ -1323,7 +1508,7 @@ function createImplementation(
         timingMode: preparedFromMatchingTransition ? timing.timingMode : 'scheduled-control',
         youtubeSubIndex: playback.youtubeSubIndex,
         youtubeVideoId: playback.youtubeVideoId,
-        isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
+        isCurrent: currentWithClock,
       });
     } catch (error) {
       cancelProPlaybackPreparation(authority);
@@ -1353,6 +1538,7 @@ function createImplementation(
           context.roomId,
           context.epoch,
           isRequestCurrent,
+          clock,
         )) ?? result;
     }
 
@@ -1364,6 +1550,7 @@ function createImplementation(
         generation,
         authority,
         isRequestCurrent,
+        clock,
       );
       if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
       failLocalPlaybackUiControlsForRevision(context.roomId, context.epoch, playback.revision);
@@ -1398,6 +1585,7 @@ function createImplementation(
   function acceptPlaybackCommit(
     event: ProRoomPlaybackCommitEvent,
     isRequestCurrent: PlaybackCommitOwner = canonicalPlaybackCommitOwner,
+    clock: ProRoomClockSnapshot | null = null,
   ): void {
     const context = getState('room.context');
     if (
@@ -1448,7 +1636,14 @@ function createImplementation(
     state.highestKnownRevision = Math.max(state.highestKnownRevision, event.playback.revision);
     state.cancelledCheckpointRecovery = null;
     const generation = ++state.commitGeneration;
+    cancelClockRequests(event.playback.revision);
     const transition = state.activeTransition;
+    if (
+      transition?.event.transitionId === event.transitionId &&
+      transition.event.target.revision === event.playback.revision
+    ) {
+      transition.commitReceived = true;
+    }
     if (
       transition &&
       transition.event.target.revision <= event.playback.revision &&
@@ -1470,8 +1665,8 @@ function createImplementation(
     );
     const operation = state.commitTail
       .then(
-        () => applyPlaybackCommit(event, receivedAtMs, generation, isRequestCurrent),
-        () => applyPlaybackCommit(event, receivedAtMs, generation, isRequestCurrent),
+        () => applyPlaybackCommit(event, receivedAtMs, generation, isRequestCurrent, clock),
+        () => applyPlaybackCommit(event, receivedAtMs, generation, isRequestCurrent, clock),
       )
       .finally(() => {
         if (event.transitionId) settlePlaybackTransitionUi(event.transitionId);
@@ -1844,6 +2039,7 @@ function createImplementation(
     roomEpoch: number,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
     observedServerTimeMs = getProRoomServerNow(),
+    clock: ProRoomClockSnapshot | null = null,
   ): void {
     const context = getState('room.context');
     if (
@@ -1889,6 +2085,7 @@ function createImplementation(
         playback,
       },
       isRequestCurrent,
+      clock,
     );
   }
 
@@ -1913,31 +2110,35 @@ function createImplementation(
       return;
     }
     state.highestKnownRevision = Math.max(state.highestKnownRevision, snapshot.playback.revision);
+    const clock =
+      snapshot.playback.state === 'playing'
+        ? await acquirePlaybackClock({
+            revision: snapshot.playback.revision,
+            purpose: 'restore',
+            isCurrent: () => restoreIsCurrent() && ports.isPlaylistLeaseCurrent(lease),
+            timeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
+          })
+        : null;
+    if (snapshot.playback.state === 'playing' && !clock) return;
+    if (!restoreIsCurrent() || !ports.isPlaylistLeaseCurrent(lease)) return;
     if (snapshot.playback.revision === state.lastAppliedRevision) {
       await recoverCancelledAppliedPlaybackCheckpoint(
         snapshot.playback,
         snapshot.roomCode,
         snapshot.presence.coordinatorEpoch,
         restoreIsCurrent,
+        true,
+        clock,
       );
       return;
-    }
-    // Snapshots carry the checkpoint's update time, but no current server time.
-    // A late join can prepare media before its first socket clock response; do
-    // not synthesize a running COMMIT from the device's uncalibrated wall clock.
-    if (snapshot.playback.state === 'playing' && !isProRoomServerClockCalibrated()) {
-      const calibrated = await waitForFreshProRoomServerClockCalibration({
-        serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
-        fallbackTimeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
-        signal: ports.getRoomAbortSignal(),
-      });
-      if (!calibrated || !restoreIsCurrent() || !ports.isPlaylistLeaseCurrent(lease)) return;
     }
     await restorePlaybackCheckpoint(
       snapshot.playback,
       snapshot.roomCode,
       snapshot.presence.coordinatorEpoch,
       restoreIsCurrent,
+      clock ? Date.now() + clock.offsetMs : 0,
+      clock,
     );
   }
 
@@ -1968,13 +2169,14 @@ function createImplementation(
     roomEpoch: number,
     isRequestCurrent: PlaybackCommitOwner,
     allowFollowUp = true,
+    clock: ProRoomClockSnapshot | null = captureProRoomServerClockSnapshot(),
   ): Promise<ProPlaybackCommitResult | null> {
     const generation = state.commitGeneration;
     let flight: CancelledCheckpointRecoveryFlight | null = null;
     const isCurrent = () =>
       (flight === null || state.cancelledCheckpointRecovery === flight) &&
       isRequestCurrent() &&
-      (playback.state !== 'playing' || isProRoomServerClockCalibrated()) &&
+      (playback.state !== 'playing' || (clock !== null && isProRoomClockSnapshotCurrent(clock))) &&
       playbackReconciliationStillCurrent(playback, roomCode, roomEpoch, generation) &&
       canonicalCheckpointMatches(playback, roomCode, roomEpoch);
     if (!isCurrent() || playback.state === 'idle' || !playback.queueItemId) {
@@ -2004,6 +2206,7 @@ function createImplementation(
           roomEpoch,
           isRequestCurrent,
           false,
+          clock,
         );
       };
       return existing.promise.then(afterRecovery, () => afterRecovery(null));
@@ -2021,7 +2224,7 @@ function createImplementation(
       positionSeconds:
         playback.state === 'playing'
           ? playback.positionSeconds +
-            Math.max(0, getProRoomServerNow() - playback.updatedAtMs) / 1_000
+            Math.max(0, Date.now() + clock!.offsetMs - playback.updatedAtMs) / 1_000
           : playback.positionSeconds,
       scheduleDelayMs: 0,
     });
@@ -2073,9 +2276,11 @@ function createImplementation(
     rendezvous: boolean,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
     preparePaused = false,
+    clock: ProRoomClockSnapshot | null = captureProRoomServerClockSnapshot(),
   ): Promise<boolean> {
     if (
       !isRequestCurrent() ||
+      (playback.state === 'playing' && (!clock || !isProRoomClockSnapshotCurrent(clock))) ||
       playback.revision <= 0 ||
       playback.state === 'idle' ||
       !playback.queueItemId ||
@@ -2092,6 +2297,8 @@ function createImplementation(
       roomCode,
       roomEpoch,
       isRequestCurrent,
+      true,
+      clock,
     );
     if (cancelledRecovery && cancelledRecovery.status !== 'applied') return false;
     // The heartbeat can have started recovery under this request's owner. Wait
@@ -2116,15 +2323,14 @@ function createImplementation(
     // response or a clock value read only after fresh calibration. Never mix an
     // uncalibrated local wall clock into this server-timeline calculation: a
     // manually skewed device clock could otherwise seek hours away.
-    const serverNow = isProRoomServerClockCalibrated()
-      ? getProRoomServerNow()
-      : observedServerTimeMs;
+    const serverNow = clock ? Date.now() + clock.offsetMs : observedServerTimeMs;
     const canonicalPositionNow =
       playback.state === 'playing'
         ? playback.positionSeconds + Math.max(0, serverNow - playback.updatedAtMs) / 1_000
         : playback.positionSeconds;
     const isCurrent = () =>
       isRequestCurrent() &&
+      (playback.state !== 'playing' || (clock !== null && isProRoomClockSnapshotCurrent(clock))) &&
       playbackReconciliationStillCurrent(playback, roomCode, roomEpoch, generation);
     if (!isCurrent()) return false;
 
@@ -2157,7 +2363,7 @@ function createImplementation(
       // this endpoint rejoins the running timeline rather than hard-seeking at
       // an arbitrary response-arrival time.
       const leadMs = runningRendezvous ? PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS : 0;
-      const executeAtMs = getProRoomServerNow() + leadMs;
+      const executeAtMs = (clock ? Date.now() + clock.offsetMs : observedServerTimeMs) + leadMs;
       const rendezvousPosition =
         playback.state === 'playing'
           ? playback.positionSeconds + Math.max(0, executeAtMs - playback.updatedAtMs) / 1_000
@@ -2330,6 +2536,7 @@ function createImplementation(
         : null;
       if (options.youtubeOnly && item?.source.kind !== 'youtube') return false;
 
+      let clock: ProRoomClockSnapshot | null = null;
       if (playback.state === 'playing') {
         // Heartbeat snapshots intentionally omit a wall-clock field. Require a
         // fresh control-channel sample before extrapolating a running checkpoint;
@@ -2337,11 +2544,15 @@ function createImplementation(
         // The timeout is duration-based and therefore independent of a skewed
         // client Date clock.
         if (!requestStillCurrent()) return false;
-        const clockCalibrated = await waitForFreshProRoomServerClockCalibration({
+        clock = await acquirePlaybackClock({
+          revision: playback.revision,
+          purpose: 'reconcile',
+          isCurrent: requestStillCurrent,
+          timeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
+          fresh: true,
           serverDeadlineAtMs: Number.MAX_SAFE_INTEGER,
-          fallbackTimeoutMs: PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS,
         });
-        if (!requestStillCurrent() || !clockCalibrated) return false;
+        if (!requestStillCurrent() || !clock) return false;
       }
 
       if (playback.revision > state.lastAppliedRevision) {
@@ -2351,6 +2562,8 @@ function createImplementation(
           snapshot.roomCode,
           snapshot.presence.coordinatorEpoch,
           requestStillCurrent,
+          clock ? Date.now() + clock.offsetMs : 0,
+          clock,
         );
         if (!requestStillCurrent()) return false;
         const commit = state.commitInFlight.get(playback.revision);
@@ -2363,10 +2576,11 @@ function createImplementation(
         playback,
         snapshot.roomCode,
         snapshot.presence.coordinatorEpoch,
-        getProRoomServerNow(),
+        clock ? Date.now() + clock.offsetMs : 0,
         options.rendezvous,
         requestStillCurrent,
         options.preparePaused,
+        clock,
       );
     })().finally(() => {
       if (state.reconciliationInFlight !== flight) return;
@@ -2427,6 +2641,8 @@ function createImplementation(
   }
 
   function resetPlaylistRuntime(): void {
+    cancelClockRequests();
+    clockRecoveryRevision = -1;
     resetDurationReports();
     controlChannelGeneration += 1;
     controlChannelRecovering = false;
@@ -2454,6 +2670,8 @@ function createImplementation(
   }
 
   function stopLifecycle(): void {
+    cancelClockRequests();
+    clockRecoveryRevision = -1;
     resetDurationReports();
     controlChannelGeneration += 1;
     controlChannelRecovering = false;
@@ -2536,6 +2754,7 @@ function createImplementation(
   }
 
   function beginControlChannelRecovery(): number {
+    cancelClockRequests();
     controlChannelGeneration += 1;
     controlChannelRecovering = true;
     const transition = state.activeTransition;

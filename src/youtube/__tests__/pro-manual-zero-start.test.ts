@@ -4,11 +4,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import {
+  getProStartObservations,
+  resetProStartObservations,
+} from '../../diagnostics/pro-start-observations.ts';
 
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
+import type { ProRoomSignalingAccess } from '../../pro-room/api.ts';
 import { registerProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   createProPlaybackAuthorityToken,
@@ -22,6 +27,14 @@ import { ProRoomPlaybackController } from '../../pro-room/playback-controller.ts
 
 const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444' as QueueItemId;
 const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555' as QueueItemId;
+
+const platformUnderTest = vi.hoisted(() => ({ android: false }));
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_ANDROID() {
+    return platformUnderTest.android;
+  },
+}));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -54,7 +67,25 @@ vi.mock('../../audio/effects.ts', () => ({
 vi.mock('../../pro-room/network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
   isProRoomServerClockCalibrated: () => true,
-  waitForFreshProRoomServerClockCalibration: vi.fn().mockResolvedValue(true),
+  acquireProRoomServerClock: vi.fn(async () => ({
+    generation: 1,
+    sampleId: 1,
+    offsetMs: 0,
+    rttMs: 10,
+    sampledAtMs: Date.now(),
+    roundId: 1,
+    source: 'ready',
+  })),
+  captureProRoomServerClockSnapshot: () => ({
+    generation: 1,
+    sampleId: 1,
+    offsetMs: 0,
+    rttMs: 10,
+    sampledAtMs: Date.now(),
+    roundId: 1,
+    source: 'ready',
+  }),
+  isProRoomClockSnapshotCurrent: () => true,
 }));
 
 vi.mock('../../ui/player-controls.ts', () => ({
@@ -110,10 +141,12 @@ vi.mock('../../ui/dom.ts', () => ({
 }));
 
 beforeEach(() => {
+  platformUnderTest.android = false;
   vi.clearAllMocks();
   resetState();
   bus.clear();
   vi.useFakeTimers();
+  resetProStartObservations();
   registerProRoomMediaHooks(null);
   registerProPlaybackCommandHandler(null);
   resetProPlaybackAuthorityHooks();
@@ -311,6 +344,7 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
     authority: ReturnType<typeof createProPlaybackAuthorityToken>,
     positionSeconds = 0,
     scheduleDelayMs = 699,
+    timingMode: 'zero-start' | 'scheduled-control' = 'zero-start',
   ) => {
     canonicalBase = positionSeconds;
     canonicalAt = Date.now() + scheduleDelayMs;
@@ -321,13 +355,17 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
       state: 'playing',
       positionSeconds,
       scheduleDelayMs,
-      timingMode: 'zero-start',
+      timingMode,
       youtubeSubIndex: 0,
       youtubeVideoId: videoId,
       isCurrent: () => true,
     });
   };
-  const commitDirect = (positionSeconds: number, playbackState: 'playing' | 'paused' = 'playing') =>
+  const commitDirect = (
+    positionSeconds: number,
+    playbackState: 'playing' | 'paused' = 'playing',
+    scheduleDelayMs = 0,
+  ) =>
     applyProPlaybackYouTubeCommit({
       authority: createProPlaybackAuthorityToken({
         roomId: '000001',
@@ -339,7 +377,7 @@ async function createProEndpoint(participantKind: 'owner' | 'member' = 'member')
       queueItemId: queueId,
       state: playbackState,
       positionSeconds,
-      scheduleDelayMs: 0,
+      scheduleDelayMs,
       timingMode: 'scheduled-control',
       youtubeSubIndex: 0,
       youtubeVideoId: videoId,
@@ -403,6 +441,407 @@ function delayOneTimer(targetDelayMs: number, extraMs: number) {
 }
 
 describe('PRO manual offset across YouTube zero-start', () => {
+  it.each(['zero-start', 'scheduled-control'] as const)(
+    'keeps Android audible compensation out of canonical time and manual settings (%s)',
+    async (timingMode) => {
+      platformUnderTest.android = true;
+      const endpoint = await createProEndpoint();
+      const { authority, preparing } = endpoint.prepareNext(10);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await preparing;
+      const plays = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+      const pending = endpoint.commit(authority, 10, 700, timingMode);
+      await vi.advanceTimersByTimeAsync(449);
+      expect(endpoint.player.playVideo).toHaveBeenCalledTimes(plays);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toBe(true);
+      expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 6);
+      expect(
+        getProStartObservations().find((entry) => entry.kind === 'youtube-release')?.detail,
+      ).toMatchObject({
+        scheduledLeadMs: 250,
+        outputPositionAdvanceMs: 0,
+      });
+      await vi.advanceTimersByTimeAsync(250);
+      expect(endpoint.currentTime()).toBeCloseTo(10.25, 6);
+      expect(toCanonicalYouTubeTime(endpoint.currentTime(), 180)).toBeCloseTo(10, 6);
+      await vi.advanceTimersByTimeAsync(2_000);
+      const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+      expect(samples).toHaveLength(2);
+      expect(samples[0].detail.automaticOffsetSeconds).toBe(0.25);
+      expect(samples.every((entry) => Math.abs(Number(entry.detail.timelineDriftMs)) < 0.001)).toBe(
+        true,
+      );
+      if (timingMode === 'zero-start') {
+        expect(
+          samples.every((entry) => Math.abs(Number(entry.detail.learningDriftMs) - 250) < 0.001),
+        ).toBe(true);
+        const learning = getProStartObservations().find(
+          (entry) => entry.kind === 'youtube-learning',
+        );
+        expect(learning?.detail.nextTimelineLeadMs).toBe(0);
+      } else {
+        expect(samples.every((entry) => entry.detail.learningEnabled === false)).toBe(true);
+      }
+    },
+  );
+
+  it.each([0, 700])(
+    'compensates Android direct playback once with %i ms scheduling',
+    async (delayMs) => {
+      platformUnderTest.android = true;
+      const endpoint = await createProEndpoint();
+      endpoint.setTimelineLive(false);
+      setState('sync.youtubeLocalOffset', 0.5);
+      const pending = endpoint.commitDirect(10, 'playing', delayMs);
+      await vi.advanceTimersByTimeAsync(delayMs);
+      await expect(pending).resolves.toBe(true);
+      expect(endpoint.currentTime()).toBeCloseTo(10.75, 6);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.75, 6);
+      expect(toCanonicalYouTubeTime(endpoint.currentTime(), 180)).toBeCloseTo(10, 6);
+      await expect(endpoint.commitDirect(10)).resolves.toBe(true);
+      expect(endpoint.currentTime()).toBeCloseTo(10.75, 6);
+      await expect(endpoint.commitDirect(10, 'paused')).resolves.toBe(true);
+      expect(endpoint.currentTime()).toBeCloseTo(10.5, 6);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.5, 6);
+      expect(getState('sync.youtubeLocalOffset')).toBe(0.5);
+    },
+  );
+
+  it.each([
+    { offset: -0.1, wait: 0, local: 0.15 },
+    { offset: -0.5, wait: 250, local: 0 },
+    { offset: -9.999, wait: 9749, local: 0 },
+  ])(
+    'preserves Android direct negative manual offsets at zero ($offset)',
+    async ({ offset, wait, local }) => {
+      platformUnderTest.android = true;
+      const endpoint = await createProEndpoint();
+      endpoint.setTimelineLive(false);
+      setState('sync.youtubeLocalOffset', offset);
+      const pending = endpoint.commitDirect(0);
+      if (wait > 0) {
+        await vi.advanceTimersByTimeAsync(wait - 1);
+        expect(endpoint.player.getPlayerState()).toBe(2);
+        await vi.advanceTimersByTimeAsync(1);
+      } else await vi.advanceTimersByTimeAsync(0);
+      await expect(pending).resolves.toBe(true);
+      expect(endpoint.currentTime()).toBeCloseTo(local, 6);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset + 0.25, 6);
+      expect(getState('sync.youtubeLocalOffset')).toBe(offset);
+    },
+  );
+
+  it('adds Android fixed output outside the positive manual input limit', async () => {
+    platformUnderTest.android = true;
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    setState('sync.youtubeLocalOffset', 9.999);
+    await expect(endpoint.commitDirect(10)).resolves.toBe(true);
+    expect(endpoint.currentTime()).toBeCloseTo(20.249, 6);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(10.249, 6);
+    expect(getState('sync.youtubeLocalOffset')).toBe(9.999);
+    expect(toCanonicalYouTubeTime(endpoint.currentTime(), 180)).toBeCloseTo(10, 6);
+  });
+
+  it.each([
+    { offset: -0.1, wait: 0, local: 0.15 },
+    { offset: -0.5, wait: 250, local: 0 },
+    { offset: -9.999, wait: 9749, local: 0 },
+  ])(
+    'preserves Android prepared negative manual offsets at zero ($offset)',
+    async ({ offset, wait, local }) => {
+      platformUnderTest.android = true;
+      const endpoint = await createProEndpoint();
+      setState('sync.youtubeLocalOffset', offset);
+      const { authority, preparing } = endpoint.prepareNext();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await preparing;
+      const pending = endpoint.commit(authority, 0, 0, 'scheduled-control');
+      if (wait > 0) {
+        await vi.advanceTimersByTimeAsync(wait - 1);
+        expect(endpoint.player.getPlayerState()).toBe(2);
+        await vi.advanceTimersByTimeAsync(1);
+      } else await vi.advanceTimersByTimeAsync(0);
+      await expect(pending).resolves.toBe(true);
+      expect(endpoint.currentTime()).toBeCloseTo(local, 6);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset + 0.25, 6);
+      expect(getState('sync.youtubeLocalOffset')).toBe(offset);
+    },
+  );
+
+  it('does not learn away fixed Android output on successive perfectly aligned zero-starts', async () => {
+    platformUnderTest.android = true;
+    const endpoint = await createProEndpoint();
+    for (let round = 0; round < 2; round += 1) {
+      const { authority, preparing } = endpoint.prepareNext(10);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await preparing;
+      const pending = endpoint.commit(authority, 10, 700);
+      await vi.advanceTimersByTimeAsync(2_700);
+      await expect(pending).resolves.toBe(true);
+    }
+    const learning = getProStartObservations().filter((entry) => entry.kind === 'youtube-learning');
+    expect(learning).toHaveLength(2);
+    expect(learning.every((entry) => entry.detail.nextTimelineLeadMs === 0)).toBe(true);
+    expect(
+      getProStartObservations()
+        .filter((entry) => entry.kind === 'youtube-release')
+        .map((entry) => entry.detail.platformLeadMs),
+    ).toEqual([250, 250]);
+  });
+
+  it('preserves fixed Android output through manual offset edits and reset', async () => {
+    platformUnderTest.android = true;
+    const endpoint = await createProEndpoint();
+    for (const offset of [0.5, 9.999, 0]) {
+      bus.emit('youtube:set-coordinator-manual-offset', offset, 'committed');
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(getState('sync.youtubeLocalOffset')).toBe(offset);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset + 0.25, 6);
+      expect(toCanonicalYouTubeTime(endpoint.currentTime(), 180)).toBeCloseTo(
+        20 + (offset === 0.5 ? 5 : offset === 9.999 ? 10 : 15),
+        6,
+      );
+    }
+  });
+
+  it('retains fixed Android output when a failed manual edit rolls back', async () => {
+    platformUnderTest.android = true;
+    const endpoint = await createProEndpoint();
+    vi.mocked(endpoint.player.pauseVideo).mockImplementationOnce(() => {
+      throw new Error('pause failed');
+    });
+    bus.emit('youtube:set-coordinator-manual-offset', 0.5, 'committed');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 6);
+    expect(endpoint.player.getPlayerState()).toBe(1);
+  });
+
+  it('bounds Android direct output compensation before ENDED and retains the canonical checkpoint', async () => {
+    platformUnderTest.android = true;
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    await expect(endpoint.commitDirect(179.9)).resolves.toBe(true);
+    expect(endpoint.currentTime()).toBeCloseTo(179.95, 6);
+    expect(toCanonicalYouTubeTime(endpoint.currentTime(), 180)).toBeCloseTo(179.9, 6);
+    await expect(endpoint.commitDirect(180, 'paused')).resolves.toBe(true);
+    expect(endpoint.currentTime()).toBe(180);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBe(0);
+  });
+
+  it('finishes a confirmed scheduled YouTube COMMIT after an unexpected socket close', async () => {
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    const bridgeExports = await import('../../pro-room/network-bridge.ts');
+    const originalAcquire = vi
+      .mocked(bridgeExports.acquireProRoomServerClock)
+      .getMockImplementation()!;
+    const { ServerProRoomNetworkBridge } = await vi.importActual<
+      typeof import('../../pro-room/network-bridge.ts')
+    >('../../pro-room/network-bridge.ts');
+    const bridge = new ServerProRoomNetworkBridge();
+    type SocketEvent = { data?: string; reason?: string };
+    let socket!: ClockSocket;
+    class ClockSocket {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      static readonly instances: ClockSocket[] = [];
+      readyState = ClockSocket.CONNECTING;
+      readonly listeners = new Map<string, Set<(event: SocketEvent) => void>>();
+      constructor() {
+        ClockSocket.instances.push(this);
+      }
+      addEventListener(type: string, listener: (event: SocketEvent) => void) {
+        const listeners = this.listeners.get(type) ?? new Set();
+        listeners.add(listener);
+        this.listeners.set(type, listeners);
+      }
+      removeEventListener(type: string, listener: (event: SocketEvent) => void) {
+        this.listeners.get(type)?.delete(listener);
+      }
+      dispatch(type: string, event: SocketEvent = {}) {
+        if (type === 'open') this.readyState = ClockSocket.OPEN;
+        for (const listener of this.listeners.get(type) ?? []) listener(event);
+      }
+      send(raw: string) {
+        const frame = JSON.parse(raw);
+        if (frame.channel !== 'clock') return;
+        setTimeout(
+          () =>
+            this.dispatch('message', {
+              data: JSON.stringify({
+                type: 'pro-clock',
+                version: 1,
+                requestId: frame.payload.requestId,
+                clientSentAtMs: frame.payload.clientSentAtMs,
+                serverTimeMs: frame.payload.clientSentAtMs + 5,
+              }),
+            }),
+          10,
+        );
+      }
+      close() {
+        this.readyState = ClockSocket.CLOSED;
+        this.dispatch('close');
+      }
+    }
+    vi.stubGlobal('WebSocket', ClockSocket);
+    const transportWindow = window as Window & {
+      __MUSIXQUARE_TRANSPORT__?: Record<string, unknown>;
+    };
+    const previousTransport = transportWindow.__MUSIXQUARE_TRANSPORT__;
+    transportWindow.__MUSIXQUARE_TRANSPORT__ = {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+    };
+    const checkpoint = {
+      coordinatorEpoch: endpoint.roomEpoch,
+      revision: 2,
+      state: 'playing' as const,
+      queueItemId: QUEUE_ITEM_ID,
+      positionSeconds: 20,
+      updatedAtMs: Date.now(),
+      youtubeVideoId: 'VIDEOAAAAAA',
+      youtubeSubIndex: 0,
+    };
+    const canonical = {
+      roomCode: '000001',
+      revision: 2,
+      playlistRevision: 1,
+      playlist: [],
+      currentQueueItemId: QUEUE_ITEM_ID,
+      playback: checkpoint,
+      presence: { coordinatorEpoch: endpoint.roomEpoch },
+      viewer: { participantId: 'participant_00001', presenceIncarnationId: 'presence_0000000001' },
+    } as unknown as ProRoomSnapshot;
+    try {
+      const connecting = bridge.connect(canonical, {
+        ticket: `${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
+        expiresAtMs: Date.now() + 10_000,
+        role: 'member',
+        coordinatorEpoch: endpoint.roomEpoch,
+        presenceIncarnationId: 'presence_0000000001',
+        ticketSequence: 1,
+        pendingPlaybackTransition: null,
+      });
+      socket = ClockSocket.instances.at(-1)!;
+      socket.dispatch('open');
+      await connecting;
+      vi.mocked(bridgeExports.acquireProRoomServerClock).mockImplementation((options) =>
+        bridge.acquireClock(options),
+      );
+      vi.spyOn(bridgeExports, 'captureProRoomServerClockSnapshot').mockImplementation(() =>
+        bridge.captureClockSnapshot(),
+      );
+      vi.spyOn(bridgeExports, 'isProRoomClockSnapshotCurrent').mockImplementation((snapshot) =>
+        bridge.isClockSnapshotCurrent(snapshot),
+      );
+      vi.spyOn(bridgeExports, 'getProRoomServerNow').mockImplementation(() => bridge.serverNowMs);
+      vi.spyOn(bridgeExports, 'isProRoomServerClockCalibrated').mockImplementation(
+        () => bridge.clockCalibrated,
+      );
+      const iframe = await import('../iframe.ts');
+      const { applyProPlaybackYouTubeCommit } = await import('../player.ts');
+      const prepare = vi.fn<ProPlaybackMediaEndpoint['prepare']>(async (request) => {
+        const result = await iframe.prepareYouTubeAuthorityOccurrence({
+          authorityKey: getProPlaybackAuthorityKey(request.authority),
+          queueItemId: request.queueItemId,
+          videoId: request.youtubeVideoId!,
+          subIndex: 0,
+          positionSeconds: request.positionSeconds,
+        });
+        return result.ready
+          ? {
+              status: 'ready',
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              mediaKind: 'youtube',
+              durationSeconds: 180,
+              youtubeVideoId: request.youtubeVideoId!,
+              youtubeSubIndex: 0,
+            }
+          : {
+              status: 'failed',
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              reason: 'media-unavailable',
+            };
+      });
+      const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) =>
+        (await applyProPlaybackYouTubeCommit(request))
+          ? { status: 'applied', authority: request.authority }
+          : { status: 'failed', authority: request.authority, reason: 'media-unavailable' },
+      );
+      const invalidate = vi.fn(() => {
+        endpoint.player.pauseVideo?.();
+      });
+      registerProPlaybackMediaEndpoint({
+        prepare,
+        commit,
+        cancel: () => iframe.cancelYouTubeAuthorityPreparation(),
+        invalidateCommitted: invalidate,
+      });
+      const reportReady = vi.fn().mockResolvedValue('waiting');
+      const applied = vi.fn();
+      bus.on('sync:diagnostic-pro-checkpoint', applied);
+      const controller = new ProRoomPlaybackController({
+        isActive: () => true,
+        getCanonicalSnapshot: () => canonical,
+        getPlaylistSnapshot: () => canonical,
+        capturePlaylistLease: () => ({ generation: 1, roomCode: '000001' }),
+        isPlaylistLeaseCurrent: () => true,
+        getRoomAbortSignal: () => undefined,
+        subscribePlaylistProjection: () => () => undefined,
+        runHeartbeat: vi.fn().mockResolvedValue(undefined),
+        reportPlaybackTransitionReady: reportReady,
+        executePlaybackCommand: vi.fn(),
+        recoverTerminalSession: vi.fn().mockResolvedValue(undefined),
+      });
+      controllers.push(controller);
+      controller.acceptPrepare({
+        type: 'pro-playback-prepare',
+        transitionId: 'scheduled-close',
+        serverTimeMs: Date.now(),
+        deadlineAtMs: Date.now() + 3_000,
+        basePlaybackRevision: 1,
+        target: checkpoint,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(reportReady).toHaveBeenCalledWith(expect.objectContaining({ status: 'ready' }));
+      const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+      controller.acceptCommit({
+        type: 'pro-playback-commit',
+        transitionId: 'scheduled-close',
+        serverTimeMs: Date.now(),
+        executeAtMs: Date.now() + 700,
+        playback: checkpoint,
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(commit).toHaveBeenCalledOnce();
+      socket.close();
+      controller.beginControlChannelRecovery();
+      expect(bridge.connected).toBe(false);
+      expect(bridge.captureClockSnapshot()).toBeNull();
+      await vi.advanceTimersByTimeAsync(600);
+      // Exercise the actual arm and controller settlement, not just a mocked
+      // endpoint accepting a schedule request before the socket disappears.
+      expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore + 1);
+      expect.soft(applied).toHaveBeenCalledWith(expect.objectContaining({ revision: 2 }));
+      expect.soft(invalidate).not.toHaveBeenCalled();
+      expect.soft(endpoint.player.getPlayerState()).toBe(1);
+    } finally {
+      vi.mocked(bridgeExports.acquireProRoomServerClock).mockImplementation(originalAcquire);
+      bridge.disconnect();
+      if (previousTransport === undefined) delete transportWindow.__MUSIXQUARE_TRANSPORT__;
+      else transportWindow.__MUSIXQUARE_TRANSPORT__ = previousTransport;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(['prepared', 'direct'] as const)(
     'consumes a pending %s release on an actual member Media Session pause, then allows explicit resume',
     async (path) => {
@@ -667,12 +1106,21 @@ describe('PRO manual offset across YouTube zero-start', () => {
       await expect(committed).resolves.toBe(true);
       expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, offset), 3);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset, 3);
+      const release = getProStartObservations().find((entry) => entry.kind === 'youtube-release');
+      expect(release?.detail).toMatchObject({
+        localStartDelayMs: delayMs,
+        manualOffsetSeconds: offset,
+      });
       await vi.advanceTimersByTimeAsync(5_000);
       expect(toCanonicalYouTubeTime(endpoint.currentTime(), 180)).toBeCloseTo(
         5 + delayMs / 1000,
         3,
       );
       expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(offset, 3);
+      const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+      expect(samples).toHaveLength(2);
+      expect(samples[0].detail.elapsedSinceStartMs).toBe(800);
+      expect(samples[0].detail.timelineDriftMs).toBeCloseTo(0, 6);
     },
   );
 
@@ -733,8 +1181,139 @@ describe('PRO manual offset across YouTube zero-start', () => {
       await expect(committed).resolves.toBe(true);
       expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, canonical - 0.25), 3);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-0.25, 3);
+      expect(
+        getProStartObservations().find((entry) => entry.kind === 'youtube-release')?.detail,
+      ).toMatchObject({
+        path: 'direct',
+        timingMode: 'scheduled-control',
+        playingAckAtMs: null,
+        callToPlayingAckMs: null,
+        canonicalStartSeconds: canonical,
+        localStartDelayMs: delayMs,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+      expect(samples).toHaveLength(2);
+      expect(samples[0].detail).toMatchObject({
+        path: 'direct',
+        elapsedSinceStartMs: 800,
+        learningEnabled: false,
+        learningDriftMs: null,
+        eligible: true,
+      });
+      expect(samples[0].detail.timelineDriftMs).toBeCloseTo(0, 6);
     },
   );
+
+  it('records cancelled observation checkpoints when a direct control supersedes the arm', async () => {
+    const endpoint = await createProEndpoint();
+    const { authority, preparing } = endpoint.prepareNext();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await preparing;
+    const first = endpoint.commit(authority);
+    await vi.advanceTimersByTimeAsync(699);
+    await expect(first).resolves.toBe(true);
+    await expect(endpoint.commitDirect(10)).resolves.toBe(true);
+    await vi.advanceTimersByTimeAsync(3_000);
+    const observations = getProStartObservations();
+    expect(
+      observations.filter((entry) => entry.detail.reason === 'cancelled-pending'),
+    ).toHaveLength(2);
+    const samples = observations.filter((entry) => entry.kind === 'youtube-sample');
+    expect(samples).toHaveLength(2);
+    expect(samples.every((entry) => entry.detail.path === 'direct')).toBe(true);
+    expect(observations.filter((entry) => entry.kind === 'youtube-learning')).toEqual([
+      expect.objectContaining({
+        detail: expect.objectContaining({ learningEnabled: false, updated: false }),
+      }),
+    ]);
+  });
+
+  it('observes a late direct release against its original future deadline without learning', async () => {
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    const schedule = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementationOnce((callback, ms, ...args) =>
+      schedule(callback, Number(ms) + 80, ...args),
+    );
+    const startedAtMs = performance.now();
+    const committed = endpoint.commitDirect(10, 'playing', 700);
+    await vi.advanceTimersByTimeAsync(780);
+    await expect(committed).resolves.toBe(true);
+    expect(endpoint.currentTime()).toBeCloseTo(10.08, 6);
+    vi.mocked(endpoint.player.getCurrentTime).mockImplementation(
+      () => endpoint.currentTime() - 0.1,
+    );
+    await vi.advanceTimersByTimeAsync(2_000);
+    const observations = getProStartObservations();
+    expect(observations.find((entry) => entry.kind === 'youtube-release')?.detail).toMatchObject({
+      canonicalExecuteAtMs: startedAtMs + 700,
+      playCallAtMs: startedAtMs + 780,
+      playingAckAtMs: null,
+      rawReleaseLatenessMs: 80,
+      appliedReleaseLatenessMs: 80,
+    });
+    const samples = observations.filter((entry) => entry.kind === 'youtube-sample');
+    expect(samples.map((entry) => entry.detail.elapsedSinceStartMs)).toEqual([800, 2000]);
+    expect(samples[0].detail.timelineDriftMs).toBeCloseTo(-100, 6);
+    expect(samples[0].detail.learningDriftMs).toBeNull();
+    expect(observations.find((entry) => entry.kind === 'youtube-learning')?.detail).toMatchObject({
+      learningEnabled: false,
+      accepted: false,
+      updated: false,
+    });
+  });
+
+  it.each(['not-playing', 'invalid-position', 'identity-mismatch'] as const)(
+    'retains an invalid direct observation: %s',
+    async (reason) => {
+      const endpoint = await createProEndpoint();
+      endpoint.setTimelineLive(false);
+      await endpoint.commitDirect(10);
+      if (reason === 'not-playing') vi.mocked(endpoint.player.getPlayerState).mockReturnValue(3);
+      if (reason === 'invalid-position')
+        vi.mocked(endpoint.player.getCurrentTime).mockReturnValue(Number.NaN);
+      if (reason === 'identity-mismatch') setState('sync.youtubeLocalOffset', 0.2);
+      await vi.advanceTimersByTimeAsync(2_000);
+      const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+      expect(samples).toHaveLength(2);
+      expect(samples[0].detail).toMatchObject({
+        path: 'direct',
+        eligible: false,
+        reason,
+        learningEnabled: false,
+      });
+      if (reason === 'invalid-position') expect(samples[0].detail.rawPositionSeconds).toBeNull();
+    },
+  );
+
+  it('retains missed direct checkpoints after a long local hold at their actual sample times', async () => {
+    const endpoint = await createProEndpoint();
+    await endpoint.applyManual(-3);
+    endpoint.setTimelineLive(false);
+    const committed = endpoint.commitDirect(0);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await expect(committed).resolves.toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+    expect(samples).toHaveLength(2);
+    expect(samples.every((entry) => Number(entry.detail.elapsedSinceStartMs) >= 3_000)).toBe(true);
+    expect(samples.every((entry) => Number(entry.detail.checkpointLatenessMs) > 0)).toBe(true);
+    expect(samples[0].detail.timelineDriftMs).toBeCloseTo(0, 6);
+  });
+
+  it('cancels direct observation checkpoints when a newer pause arrives', async () => {
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    await endpoint.commitDirect(10);
+    await endpoint.commitDirect(10, 'paused');
+    await vi.advanceTimersByTimeAsync(3_000);
+    const observations = getProStartObservations();
+    expect(
+      observations.filter((entry) => entry.detail.reason === 'cancelled-pending'),
+    ).toHaveLength(2);
+    expect(observations.filter((entry) => entry.kind === 'youtube-sample')).toHaveLength(0);
+  });
 
   it('supersedes a delayed direct snapshot with a pause without replaying later', async () => {
     const endpoint = await createProEndpoint();

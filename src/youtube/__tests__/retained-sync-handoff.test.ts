@@ -244,7 +244,7 @@ it.each(
     sendMismatch(type, state);
 
     if (state === 1) {
-      expect(harness.player.loadVideoById).toHaveBeenCalledWith(SECOND_TARGET_VIDEO_ID);
+      expect(harness.player.loadVideoById).toHaveBeenCalledWith(SECOND_TARGET_VIDEO_ID, 12.25);
       expect(harness.player.cueVideoById).not.toHaveBeenCalled();
     } else {
       expect(harness.player.cueVideoById).toHaveBeenCalledWith(SECOND_TARGET_VIDEO_ID, 12.25);
@@ -325,7 +325,7 @@ it.each(
   vi.mocked(harness.player.cueVideoById!).mockClear();
   sendMismatch(type, state);
   if (state === 1)
-    expect(harness.player.loadVideoById).toHaveBeenCalledWith(SECOND_TARGET_VIDEO_ID);
+    expect(harness.player.loadVideoById).toHaveBeenCalledWith(SECOND_TARGET_VIDEO_ID, 12);
   else expect(harness.player.cueVideoById).toHaveBeenCalledWith(SECOND_TARGET_VIDEO_ID, 12);
   expect(controller.isTargetHandoffPending(harness.player)).toBe(false);
 });

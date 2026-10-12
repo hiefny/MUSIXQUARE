@@ -71,7 +71,7 @@ vi.mock('../../pro-room/runtime.ts', () => ({
   requestActiveProRoomBotCommand,
 }));
 
-vi.mock('../../pro-room/network-bridge.ts', () => ({
+vi.mock('../../pro-room/realtime-sender.ts', () => ({
   sendProRoomRealtime: proRealtimeMocks.send,
 }));
 

@@ -9,6 +9,10 @@ import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import { makeFakeYtPlayer } from './__helpers__/fake-yt-player.ts';
+import {
+  getProStartObservations,
+  resetProStartObservations,
+} from '../../diagnostics/pro-start-observations.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   createProPlaybackAuthorityToken,
@@ -19,6 +23,17 @@ import {
 
 const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444';
 const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555';
+
+const playbackPlatform = vi.hoisted(() => ({ android: false }));
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_ANDROID() {
+    return playbackPlatform.android;
+  },
+}));
+beforeEach(() => {
+  playbackPlatform.android = false;
+});
 
 function dataConnection(peer: string, send = vi.fn()): DataConnection {
   return {
@@ -140,6 +155,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.useFakeTimers();
+  resetProStartObservations();
   registerProRoomMediaHooks(null);
   registerProPlaybackCommandHandler(null);
   resetProPlaybackAuthorityHooks();
@@ -659,8 +675,275 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('Standard host own output compensation', () => {
+    async function installHost(manual = 0) {
+      const stateMod = await import('../_state.ts');
+      const localOffset = await import('../local-offset.ts');
+      const { cancelYtAutoSync } = await import('../player.ts');
+      cancelYtAutoSync();
+      localOffset.clearStandardHostYouTubeEndHold();
+      setPlaybackYouTubePlaying();
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '123456');
+      setState('setup.sessionStarted', true);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('sync.youtubeLocalOffset', manual);
+      setState('sync.youtubeCoordinatorAppliedOffset', 0);
+      localOffset.recordStandardHostYouTubeAutomaticOffset(0);
+      const player = makeFakeYtPlayer({ __videoId: 'VIDEO_ID_01', __state: 1 });
+      stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      stateMod.setYtLoadInProgress(false);
+      return player;
+    }
+
+    it.each(
+      [false, true].flatMap((android) =>
+        [-9.999, -0.4, 0, 0.4, 9.999].map((manual) => ({ android, manual })),
+      ),
+    )(
+      'keeps canonical 20 while the host plays with Android=$android manual=$manual',
+      async ({ android, manual }) => {
+        playbackPlatform.android = android;
+        const player = await installHost(manual);
+        const { scheduleYtAutoSync } = await import('../player.ts');
+        const { broadcast } = await import('../../network/peer.ts');
+        const { toCanonicalYouTubeTime, getStandardHostYouTubeAutomaticOffset } =
+          await import('../local-offset.ts');
+        const output = android ? 0.25 : 0;
+        scheduleYtAutoSync(20, { skipSeek: true });
+        const localTarget = 20 + manual + output;
+        // A ready 0-offset player may retain skipSeek; all actual local
+        // compensation must override it and seek exactly once.
+        if (manual + output !== 0) {
+          expect(player.__log.filter((call) => call.op === 'seekTo')).toEqual([
+            expect.objectContaining({ args: [localTarget, true] }),
+          ]);
+        } else {
+          player.__currentTime = 20;
+        }
+        expect(getState('sync.youtubeLocalOffset')).toBe(manual);
+        expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(manual + output, 8);
+        expect(getStandardHostYouTubeAutomaticOffset()).toBeCloseTo(output, 8);
+        expect(toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(20, 8);
+        expect(broadcast).toHaveBeenLastCalledWith(
+          expect.objectContaining({ type: MSG.YOUTUBE_STATE, state: 1, time: 20 }),
+        );
+        // Resume at the already canonical position must not add compensation twice.
+        scheduleYtAutoSync(toCanonicalYouTubeTime(player.getCurrentTime(), 300));
+        expect(player.getCurrentTime()).toBeCloseTo(localTarget, 8);
+        expect(toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(20, 8);
+      },
+    );
+
+    it('holds a negative start while canonical time advances and releases without changing manual input', async () => {
+      playbackPlatform.android = true;
+      const player = await installHost(-9.999);
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const { setManagedTimer } = await import('../../core/timers.ts');
+      const { toCanonicalYouTubeTime, isStandardHostYouTubeLocalStartPending } =
+        await import('../local-offset.ts');
+      scheduleYtAutoSync(0);
+      const release = vi
+        .mocked(setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-host-local-start')!;
+      expect(release[2]).toBeCloseTo(9749, 6);
+      expect(player.getPlayerState()).toBe(2);
+      expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(0);
+      vi.advanceTimersByTime(2000);
+      expect(toCanonicalYouTubeTime(0, 300)).toBeCloseTo(2, 8);
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(true);
+      vi.advanceTimersByTime(7749);
+      (release[1] as () => void)();
+      expect(player.getPlayerState()).toBe(1);
+      expect(getState('sync.youtubeLocalOffset')).toBe(-9.999);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-9.749, 8);
+      expect(toCanonicalYouTubeTime(0, 300)).toBeCloseTo(9.749, 8);
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
+    });
+
+    it.each(['pause', 'seek'] as const)(
+      'makes an obsolete negative release inert after %s',
+      async (action) => {
+        playbackPlatform.android = true;
+        const player = await installHost(-9.999);
+        const { initYouTube, scheduleYtAutoSync } = await import('../player.ts');
+        const { setManagedTimer } = await import('../../core/timers.ts');
+        const { toCanonicalYouTubeTime, isStandardHostYouTubeLocalStartPending } =
+          await import('../local-offset.ts');
+        (globalThis as unknown as { YT: unknown }).YT = { PlayerState: { PLAYING: 1, PAUSED: 2 } };
+        initYouTube();
+        scheduleYtAutoSync(0);
+        const release = vi
+          .mocked(setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1] as () => void;
+        vi.advanceTimersByTime(2000);
+        if (action === 'pause') bus.emit('youtube:toggle-play');
+        else scheduleYtAutoSync(30);
+        const calls = player.__log.length;
+        release();
+        expect(player.__log).toHaveLength(calls);
+        expect(player.getPlayerState()).toBe(action === 'pause' ? 2 : 1);
+        expect(toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(
+          action === 'pause' ? 2 : 30,
+          8,
+        );
+        expect(getState('sync.youtubeLocalOffset')).toBe(-9.999);
+        expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
+      },
+    );
+
+    it.each(
+      ['output-tail', 'negative-start'].flatMap((hold) =>
+        ['absolute', 'relative'].map((seek) => ({ hold, seek })),
+      ),
+    )('preserves playing intent when $seek seeking during $hold', async ({ hold, seek }) => {
+      playbackPlatform.android = true;
+      const player = await installHost(hold === 'negative-start' ? -9.999 : 0);
+      const { initYouTube, scheduleYtAutoSync } = await import('../player.ts');
+      const timers = await import('../../core/timers.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const offsets = await import('../local-offset.ts');
+      (globalThis as unknown as { YT: unknown }).YT = {
+        PlayerState: { PLAYING: 1, PAUSED: 2, ENDED: 0 },
+      };
+      initYouTube();
+      let oldLocalRelease: (() => void) | undefined;
+      if (hold === 'negative-start') {
+        scheduleYtAutoSync(0);
+        oldLocalRelease = vi
+          .mocked(timers.setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1] as () => void;
+        vi.advanceTimersByTime(2_000);
+        expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(true);
+      } else {
+        player.__currentTime = 300;
+        player.__state = 0;
+        setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+        offsets.recordStandardHostYouTubeAutomaticOffset(0.25);
+        offsets.beginStandardHostYouTubeEndHold(299.75, 300, () => player.__state === 0);
+        expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(true);
+      }
+      const before = offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300);
+      const relative = hold === 'negative-start' ? 30 : -30;
+      const expectedTarget = seek === 'absolute' ? 30 : before + relative;
+      vi.mocked(broadcast).mockClear();
+      vi.mocked(timers.setManagedTimer).mockClear();
+      if (seek === 'absolute') bus.emit('youtube:seek-to', expectedTarget);
+      else bus.emit('youtube:skip-time', relative);
+
+      expect(broadcast).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: MSG.YOUTUBE_STATE, state: 1, time: expectedTarget }),
+      );
+      expect(player.getPlayerState()).toBe(1);
+      expect(offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(
+        expectedTarget,
+        8,
+      );
+      expect(offsets.isStandardHostYouTubeEndHoldActive()).toBe(false);
+      expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(false);
+      expect(timers.clearManagedTimer).toHaveBeenCalledWith(
+        offsets.STANDARD_HOST_YOUTUBE_END_HOLD_TIMER,
+      );
+      const staleRendezvous = vi
+        .mocked(timers.setManagedTimer)
+        .mock.calls.find(([name]) => name === 'yt-auto-sync')![1] as () => void;
+      bus.emit('youtube:toggle-play');
+      const physicalCalls = player.__log.length;
+      const messages = vi.mocked(broadcast).mock.calls.length;
+      oldLocalRelease?.();
+      staleRendezvous();
+      expect(player.getPlayerState()).toBe(2);
+      expect(player.__log).toHaveLength(physicalCalls);
+      expect(broadcast).toHaveBeenCalledTimes(messages);
+    });
+
+    it('retires real legacy release callbacks when a manual edit takes over a negative start', async () => {
+      playbackPlatform.android = true;
+      const player = await installHost(-9.999);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'VIDEO_ID_01',
+          playlistId: null,
+          name: 'Video',
+        },
+      ]);
+      const { scheduleYtAutoSync } = await import('../player.ts');
+      const { beginStandardHostManualOffsetTransaction } =
+        await import('../standard-host-manual-offset-runtime.ts');
+      const offsets = await import('../local-offset.ts');
+      const timers = await import('../../core/timers.ts');
+      const actualTimers = await vi.importActual<typeof timers>('../../core/timers.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const hooks: import('../standard-host-manual-offset-gate.ts').StandardHostManualOffsetRuntimeHooks[] =
+        [];
+      let current = true;
+      vi.mocked(timers.setManagedTimer).mockImplementation(actualTimers.setManagedTimer);
+      vi.mocked(timers.clearManagedTimer).mockImplementation(actualTimers.clearManagedTimer);
+      vi.mocked(timers.getManagedTimer).mockImplementation(actualTimers.getManagedTimer);
+      try {
+        scheduleYtAutoSync(0);
+        const oldRelease = vi
+          .mocked(timers.setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-host-local-start')![1];
+        const oldBroadcast = vi
+          .mocked(timers.setManagedTimer)
+          .mock.calls.find(([name]) => name === 'yt-auto-sync')![1];
+        vi.advanceTimersByTime(1_000);
+        beginStandardHostManualOffsetTransaction({
+          generation: 1,
+          player: player as unknown as YouTubePlayerInstance,
+          requestedOffsetSeconds: 0,
+          priorRequestedOffset: -9.999,
+          priorAppliedOffset: -9.749,
+          scheduled: true,
+          isCurrent: () => current,
+          publishRequestedOffset: (value) => setState('sync.youtubeLocalOffset', value),
+          bindRuntimeHooks: (value) => {
+            hooks.push(value);
+            return true;
+          },
+          commit: (action) => {
+            action();
+            current = false;
+            return true;
+          },
+          restorePrevious: () => false,
+        });
+        expect(hooks[0].readPlaybackIntent()).toBe(true);
+        expect(offsets.isStandardHostYouTubeLocalStartPending()).toBe(false);
+        expect(offsets.toCanonicalYouTubeTime(player.getCurrentTime(), 300)).toBeCloseTo(1, 8);
+        expect(actualTimers.getManagedTimer('yt-host-local-start')).toBeNull();
+        expect(actualTimers.getManagedTimer('yt-auto-sync')).toBeNull();
+        const calls = player.__log.length;
+        const messages = vi.mocked(broadcast).mock.calls.length;
+        oldRelease();
+        oldBroadcast();
+        expect(player.__log).toHaveLength(calls);
+        expect(broadcast).toHaveBeenCalledTimes(messages);
+        expect(getState('sync.youtubeLocalOffset')).toBe(0);
+      } finally {
+        current = false;
+        hooks[0]?.reset();
+        actualTimers.clearAllManagedTimers();
+        vi.mocked(timers.setManagedTimer).mockReset();
+        vi.mocked(timers.clearManagedTimer).mockReset();
+        vi.mocked(timers.getManagedTimer).mockReset().mockReturnValue(null);
+      }
+    });
+  });
+
   describe('PRO participant canonical controls', () => {
-    it.each([
+    const observationCases: Array<{
+      scenario: string;
+      playbackLatencyMs: number;
+      nextReleaseDelayMs: number;
+      roomEpoch: number;
+      callbackDelayMs?: number;
+      timingMode?: 'zero-start' | 'scheduled-control';
+      ackDelayMs?: number;
+    }> = [
       { scenario: 'stable', playbackLatencyMs: 100, nextReleaseDelayMs: 675, roomEpoch: 7 },
       {
         scenario: 'collapsed callbacks',
@@ -680,13 +963,70 @@ describe('YouTube Player', () => {
         nextReleaseDelayMs: 700,
         roomEpoch: 10,
       },
-    ])(
+      {
+        scenario: 'uncorrected callback jitter',
+        playbackLatencyMs: 0,
+        nextReleaseDelayMs: 700,
+        roomEpoch: 11,
+        callbackDelayMs: 30,
+      },
+      {
+        scenario: 'uncorrected jitter plus real media latency',
+        playbackLatencyMs: 100,
+        nextReleaseDelayMs: 675,
+        roomEpoch: 12,
+        callbackDelayMs: 30,
+      },
+      {
+        scenario: 'caught-up callback delay',
+        playbackLatencyMs: 0,
+        nextReleaseDelayMs: 700,
+        roomEpoch: 13,
+        callbackDelayMs: 80,
+      },
+      {
+        scenario: 'caught-up delay plus real media latency',
+        playbackLatencyMs: 100,
+        nextReleaseDelayMs: 675,
+        roomEpoch: 14,
+        callbackDelayMs: 80,
+      },
+      {
+        scenario: 'scheduled-control observation only',
+        playbackLatencyMs: 100,
+        nextReleaseDelayMs: 700,
+        roomEpoch: 15,
+        timingMode: 'scheduled-control',
+      },
+      {
+        scenario: 'late PLAYING acknowledgement',
+        playbackLatencyMs: 100,
+        nextReleaseDelayMs: 700,
+        roomEpoch: 16,
+        ackDelayMs: 1_100,
+      },
+      {
+        scenario: 'changed manual offset',
+        playbackLatencyMs: 100,
+        nextReleaseDelayMs: 700,
+        roomEpoch: 17,
+      },
+    ];
+    it.each(observationCases)(
       'learns only from independent finite PRO observations: $scenario',
-      async ({ scenario, playbackLatencyMs, nextReleaseDelayMs, roomEpoch }) => {
+      async ({
+        scenario,
+        playbackLatencyMs,
+        nextReleaseDelayMs,
+        roomEpoch,
+        callbackDelayMs = 0,
+        timingMode = 'zero-start',
+        ackDelayMs = 0,
+      }) => {
         const stateMod = await import('../_state.ts');
         const { applyProPlaybackYouTubeCommit } = await import('../player.ts');
-        const { cancelYouTubeAuthorityPreparation, prepareYouTubeAuthorityOccurrence } =
-          await import('../iframe.ts');
+        const iframe = await import('../iframe.ts');
+        const { cancelYouTubeAuthorityPreparation, prepareYouTubeAuthorityOccurrence } = iframe;
         let muted = false;
         let volume = 60;
         let playerState = 2;
@@ -773,6 +1113,33 @@ describe('YouTube Player', () => {
           await expect(preparing).resolves.toMatchObject({ ready: true });
 
           const startedAtMs = performance.now();
+          if (basePlaybackRevision === 1 && callbackDelayMs > 0) {
+            const schedule = globalThis.setTimeout;
+            let delayed = false;
+            vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
+              if (!delayed && ms === 700) {
+                delayed = true;
+                return schedule(callback, ms + callbackDelayMs, ...args);
+              }
+              return schedule(callback, ms, ...args);
+            });
+          }
+          if (basePlaybackRevision === 1 && ackDelayMs > 0) {
+            const commit = iframe.commitYouTubeAuthorityOccurrence;
+            vi.spyOn(iframe, 'commitYouTubeAuthorityOccurrence').mockImplementationOnce(
+              async (request) => {
+                const result = await commit(request);
+                await new Promise((resolve) => setTimeout(resolve, ackDelayMs));
+                return result.status === 'applied'
+                  ? {
+                      ...result,
+                      playingAtMs: performance.now(),
+                      callToPlayingMs: result.callToPlayingMs + ackDelayMs,
+                    }
+                  : result;
+              },
+            );
+          }
           const applying = applyProPlaybackYouTubeCommit({
             authority,
             committedPlaybackRevision: basePlaybackRevision + 1,
@@ -780,7 +1147,7 @@ describe('YouTube Player', () => {
             state: 'playing',
             positionSeconds: 0,
             scheduleDelayMs: 700,
-            timingMode: 'zero-start',
+            timingMode: basePlaybackRevision === 1 ? timingMode : 'zero-start',
             youtubeSubIndex: 0,
             youtubeVideoId: 'video-1',
             isCurrent: () => true,
@@ -789,9 +1156,9 @@ describe('YouTube Player', () => {
         };
 
         const first = await run(1);
-        await vi.advanceTimersByTimeAsync(700);
+        await vi.advanceTimersByTimeAsync(700 + callbackDelayMs + ackDelayMs);
         await expect(first.applying).resolves.toBe(true);
-        expect(playCallsMs.at(-1)! - first.startedAtMs).toBe(700);
+        expect(playCallsMs.at(-1)! - first.startedAtMs).toBe(700 + callbackDelayMs);
 
         vi.mocked(player.getCurrentTime).mockClear();
         if (scenario === 'collapsed callbacks') {
@@ -802,7 +1169,7 @@ describe('YouTube Player', () => {
           await vi.advanceTimersByTimeAsync(2_000);
           clock.mockRestore();
         } else {
-          if (scenario !== 'stable') {
+          if (scenario === 'NaN media clock' || scenario === 'infinite media clock') {
             const earlyAtMs = first.startedAtMs + 700 + 800;
             vi.mocked(player.getCurrentTime).mockImplementation(() =>
               performance.now() === earlyAtMs
@@ -812,10 +1179,62 @@ describe('YouTube Player', () => {
                 : currentTime(),
             );
           }
+          if (scenario === 'changed manual offset') setState('sync.youtubeLocalOffset', 0.2);
           await vi.advanceTimersByTimeAsync(2_000);
         }
         // Canonical conversion must use the same validated raw observation.
-        expect(player.getCurrentTime).toHaveBeenCalledTimes(2);
+        expect(player.getCurrentTime).toHaveBeenCalledTimes(
+          scenario === 'changed manual offset' ? 0 : 2,
+        );
+        const observations = getProStartObservations();
+        const samples = observations.filter((entry) => entry.kind === 'youtube-sample');
+        expect(samples).toHaveLength(2);
+        const learning = observations.find((entry) => entry.kind === 'youtube-learning');
+        if (callbackDelayMs > 0) {
+          expect(
+            observations.find((entry) => entry.kind === 'youtube-release')?.detail,
+          ).toMatchObject({
+            rawReleaseLatenessMs: callbackDelayMs,
+            appliedReleaseLatenessMs: callbackDelayMs > 40 ? callbackDelayMs : 0,
+            uncorrectedCallbackLatenessMs: callbackDelayMs > 40 ? 0 : callbackDelayMs,
+            acknowledgementOnly: true,
+          });
+          expect(samples[0].detail.timelineDriftMs).toBeCloseTo(
+            -playbackLatencyMs - (callbackDelayMs > 40 ? 0 : callbackDelayMs),
+            6,
+          );
+          expect(samples[0].detail.learningDriftMs).toBeCloseTo(-playbackLatencyMs, 6);
+        }
+        if (timingMode === 'scheduled-control') {
+          expect(samples[0].detail).toMatchObject({
+            learningEnabled: false,
+            learningDriftMs: null,
+          });
+          expect(samples[0].detail.timelineDriftMs).toBeCloseTo(-100, 6);
+          expect(learning?.detail.reason).toBe('scheduled-control-observation-only');
+        }
+        if (ackDelayMs > 0) {
+          expect(samples[0].detail.elapsedSinceStartMs).toBeGreaterThanOrEqual(1_100);
+          expect(samples[0].detail.checkpointLatenessMs).toBeGreaterThanOrEqual(300);
+          expect(samples[1].detail.elapsedSinceStartMs).toBe(2_000);
+          expect(learning?.detail.reason).toBe('invalid-sample');
+        }
+        if (scenario === 'NaN media clock' || scenario === 'infinite media clock') {
+          expect(samples[0].detail).toMatchObject({
+            rawPositionSeconds: null,
+            timelineDriftMs: null,
+            reason: 'invalid-position',
+            eligible: false,
+          });
+        }
+        if (scenario === 'changed manual offset') {
+          expect(samples[0].detail).toMatchObject({
+            reason: 'identity-mismatch',
+            offsetMatches: false,
+            rawPositionSeconds: null,
+          });
+          setState('sync.youtubeLocalOffset', 0);
+        }
 
         const second = await run(3);
         const callsBeforeRelease = playCallsMs.length;
@@ -1198,7 +1617,140 @@ describe('YouTube Player', () => {
   });
 
   describe('external zero-start fallback after a local delay', () => {
-    async function installDelayedFallback(offset: number, unmuteDelayMs: number) {
+    it.each(
+      ['late-timer', 'late-playing-ack', 'late-media-start'].flatMap((delay) =>
+        [-9.999, -0.4, 0, 0.4, 9.999].map((manual) => ({ delay, manual })),
+      ),
+    )(
+      'records the actual host zero-start residual for $delay / manual $manual',
+      async ({ delay, manual }) => {
+        playbackPlatform.android = true;
+        const stateMod = await import('../_state.ts');
+        const playerMod = await import('../player.ts');
+        const controller = await import('../zero-start.ts');
+        const timers = await import('../../core/timers.ts');
+        const realTimers =
+          await vi.importActual<typeof import('../../core/timers.ts')>('../../core/timers.ts');
+        const clock = await import('../../network/shared-clock.ts');
+        const { safeSend } = await import('../../network/peer.ts');
+        const { toCanonicalYouTubeTime, getStandardHostYouTubeAutomaticOffset } =
+          await import('../local-offset.ts');
+        vi.mocked(timers.setManagedTimer).mockImplementation(realTimers.setManagedTimer);
+        vi.mocked(timers.clearManagedTimer).mockImplementation(realTimers.clearManagedTimer);
+        vi.mocked(timers.getManagedTimer).mockImplementation(realTimers.getManagedTimer);
+        vi.mocked(safeSend).mockReturnValue(true);
+        vi.setSystemTime(new Date('2026-10-12T00:00:00Z'));
+        const videoId = 'M7lc1UVf-VE';
+        const guestId = 'ready-output-guest';
+        setState('network.appRole', 'host');
+        setState('network.myId', 'output-host');
+        setState('network.sessionCode', '123456');
+        setState('setup.sessionStarted', true);
+        setState('network.activeHostConnByPeerId', new Map([[guestId, dataConnection(guestId)]]));
+        setState('sync.youtubeLocalOffset', manual);
+        setState('playlist.items', [
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            type: 'youtube',
+            videoId,
+            playlistId: null,
+            name: 'Host output',
+          },
+        ]);
+        setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+        setPlaybackYouTubePlaying();
+        const player = makeFakeYtPlayer({
+          __videoId: videoId,
+          __state: 2,
+          __advanceClock: true,
+          __autoPlayOnLoad: true,
+        });
+        player.__onStateChange = (event) => {
+          if (
+            delay === 'late-playing-ack' &&
+            event.data === 1 &&
+            controller.getYouTubeZeroStartSnapshot()?.phase === 'starting'
+          ) {
+            setTimeout(() => controller.handleYouTubeZeroStartPlayerState(event.data), 30);
+          } else {
+            controller.handleYouTubeZeroStartPlayerState(event.data);
+          }
+        };
+        const immediatePlay = player.playVideo;
+        player.playVideo = () => {
+          if (
+            delay === 'late-media-start' &&
+            controller.getYouTubeZeroStartSnapshot()?.phase === 'starting'
+          ) {
+            setTimeout(immediatePlay, 30);
+          } else immediatePlay();
+        };
+        stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+        stateMod.setYtLoadInProgress(false);
+        expect(stateMod.markYtPlayerReady(player as unknown as YouTubePlayerInstance)).toBe(true);
+        clock.resetClockState();
+        playerMod.initYouTube();
+        try {
+          expect(
+            controller.handleYouTubeZeroStartCapability(guestId, {
+              type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+              version: 2,
+              ready: true,
+              platform: 'other',
+            }),
+          ).toBe(true);
+          expect(
+            controller.beginYouTubeZeroStart({
+              queueItemId: QUEUE_ITEM_ID,
+              videoId,
+              subIndex: null,
+            }),
+          ).toBe(true);
+          for (
+            let i = 0;
+            i < 120 && controller.getYouTubeZeroStartSnapshot()?.phase !== 'scheduled';
+            i++
+          ) {
+            await vi.advanceTimersByTimeAsync(25);
+          }
+          expect(controller.getYouTubeZeroStartSnapshot()?.phase).toBe('scheduled');
+          const commit = vi
+            .mocked(safeSend)
+            .mock.calls.map(([, frame]) => frame)
+            .find((frame) => frame.type === MSG.YOUTUBE_ZERO_START_COMMIT);
+          if (!commit || commit.type !== MSG.YOUTUBE_ZERO_START_COMMIT)
+            throw new Error('Expected host COMMIT');
+          if (delay === 'late-timer') vi.setSystemTime(Date.now() + 30);
+          await vi.advanceTimersByTimeAsync(12_000);
+          const residual = manual + (delay === 'late-playing-ack' ? 0.25 : 0.22);
+          expect(player.getPlayerState()).toBe(1);
+          expect(getState('sync.youtubeLocalOffset')).toBe(manual);
+          expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(residual, 7);
+          expect(getStandardHostYouTubeAutomaticOffset()).toBeCloseTo(residual - manual, 7);
+          expect(toCanonicalYouTubeTime(player.getCurrentTime(), player.getDuration())).toBeCloseTo(
+            (Date.now() - commit.startAtHost) / 1000,
+            7,
+          );
+        } finally {
+          playerMod.stopYouTubeMode();
+          controller.resetYouTubeZeroStart();
+          realTimers.clearAllManagedTimers();
+          vi.mocked(timers.setManagedTimer).mockReset();
+          vi.mocked(timers.clearManagedTimer).mockReset();
+          vi.mocked(timers.getManagedTimer).mockReset().mockReturnValue(null);
+          vi.mocked(safeSend).mockReset();
+          stateMod.setYouTubePlayer(null);
+          clock.resetClockState();
+        }
+      },
+    );
+
+    async function installDelayedFallback(
+      offset: number,
+      unmuteDelayMs: number,
+      hostPlatform: 'android' | 'other' = 'other',
+      readyAfterMs = 0,
+    ) {
       const stateMod = await import('../_state.ts');
       const playerMod = await import('../player.ts');
       const controller = await import('../zero-start.ts');
@@ -1256,7 +1808,7 @@ describe('YouTube Player', () => {
           prepareAtHost,
           decisionAtHost: prepareAtHost + 2_300,
           startDeadlineAtHost: prepareAtHost + 3_000,
-          hostPlatform: 'other',
+          hostPlatform,
         }),
       ).toBe(true);
       expect(
@@ -1269,6 +1821,7 @@ describe('YouTube Player', () => {
         }),
       ).toBe(true);
 
+      if (readyAfterMs) await vi.advanceTimersByTimeAsync(readyAfterMs);
       const player = makeFakeYtPlayer({
         __videoId: videoId,
         __state: 2,
@@ -1296,6 +1849,7 @@ describe('YouTube Player', () => {
       return {
         player,
         playerMod,
+        prepareAtHost,
         releaseAfterMs: 1_000 - offset * 1_000,
         cleanup: () => {
           playerMod.stopYouTubeMode();
@@ -1310,6 +1864,38 @@ describe('YouTube Player', () => {
         },
       };
     }
+
+    it.each([
+      { android: true, host: 'other' as const, offset: 0, ready: 0 },
+      { android: false, host: 'android' as const, offset: 0, ready: 0 },
+      { android: true, host: 'android' as const, offset: 0, ready: 0 },
+      { android: true, host: 'other' as const, offset: -1, ready: 0 },
+      { android: true, host: 'other' as const, offset: 9.999, ready: 0 },
+      { android: false, host: 'android' as const, offset: -9.999, ready: 0 },
+      { android: true, host: 'other' as const, offset: 0, ready: 1_700 },
+      { android: false, host: 'android' as const, offset: 0, ready: 1_700 },
+    ])(
+      'keeps audible output aligned after external fallback $android/$host offset $offset ready $ready',
+      async ({ android, host, offset, ready }) => {
+        playbackPlatform.android = android;
+        const test = await installDelayedFallback(offset, 0, host, ready);
+        try {
+          await vi.advanceTimersByTimeAsync(13_000);
+          const plays = test.player.__log.filter(({ op }) => op === 'playVideo');
+          expect(plays).toHaveLength(1);
+          const guestOutputSeconds = android ? 0.25 : 0;
+          const canonical = (Date.now() - test.prepareAtHost - 1_000) / 1000;
+          expect(test.player.getCurrentTime() - guestOutputSeconds).toBeCloseTo(
+            canonical + offset,
+            5,
+          );
+          expect(getState('sync.youtubeLocalOffset')).toBe(offset);
+          expect(test.playerMod.isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+        } finally {
+          test.cleanup();
+        }
+      },
+    );
 
     it.each([0, -5, -9.999])(
       'allows asynchronous audio restoration after offset %s waits past preparation',

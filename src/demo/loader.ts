@@ -5,6 +5,7 @@ import { MSG } from '../core/constants.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { prepareSyncFlightRecorder } from '../diagnostics/sync-flight-recorder-loader.ts';
 import { t } from '../i18n/index.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -132,8 +133,8 @@ function processPending(): Promise<void> {
 }
 
 function loadRuntime(reconcileStartedSession: boolean): Promise<DemoRuntime> {
-  runtimeLoad ??= import('./mode.ts')
-    .then((loaded) => {
+  runtimeLoad ??= Promise.all([import('./mode.ts'), prepareSyncFlightRecorder()])
+    .then(([loaded]) => {
       loaded.initDemoMode({
         protocolHandlersRegistered: true,
         suppressFirstRunPrompt: suppressFirstRunPromptOnRuntimeInit,

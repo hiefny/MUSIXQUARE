@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
+import {
+  clearAllManagedTimers,
+  clearManagedTimer,
+  getManagedTimer,
+  setManagedTimer,
+} from '../../core/timers.ts';
 import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import {
@@ -12,7 +17,13 @@ import {
   repairStandardHostManualOffsetTransaction,
   resetStandardHostManualOffsetTransaction,
 } from '../standard-host-manual-offset-gate.ts';
-import { toCanonicalYouTubeTime } from '../local-offset.ts';
+import {
+  isStandardHostYouTubeLocalStartPending,
+  recordStandardHostYouTubeAutomaticOffset,
+  setStandardHostYouTubeLocalStartTimelineReader,
+  toCanonicalYouTubeTime,
+} from '../local-offset.ts';
+import { configureYouTubePlayerRuntimeHooks } from '../player-runtime-bridge.ts';
 import { registerProRoomLocalPlaybackTimeline } from '../../pro-room/local-playback-timeline.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
 import {
@@ -40,7 +51,11 @@ vi.mock('../zero-start.ts', () => ({
   isYouTubeZeroStartInFlight: vi.fn(() => false),
   isYouTubeZeroStartProtocolActive: vi.fn(() => false),
 }));
-vi.mock('../play-latency.ts', () => ({ getEffectiveYouTubePlayLatencyMs: () => 200 }));
+const latency = vi.hoisted(() => ({ output: 0 }));
+vi.mock('../play-latency.ts', () => ({
+  getEffectiveYouTubePlayLatencyMs: () => 200 + latency.output,
+  getLocalYouTubeAudibleOutputDelayMs: () => latency.output,
+}));
 vi.mock('../_state.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../_state.ts')>()),
   getYouTubePlayer: vi.fn(() => null),
@@ -188,6 +203,7 @@ function selectPlaylist(fixture: Fixture): void {
 }
 
 beforeEach(async () => {
+  latency.output = 0;
   await prepareStandardHostManualOffsetRuntimeForTests();
   resetStandardHostManualOffsetTransaction();
   clearAllManagedTimers();
@@ -217,6 +233,14 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setStandardHostYouTubeLocalStartTimelineReader(null);
+  configureYouTubePlayerRuntimeHooks({
+    cancelPendingAutoSync: () => undefined,
+    consumePendingAutoSyncOnReady: () => null,
+    isYouTubeZeroStartExternalFallbackActive: () => false,
+    isYouTubeZeroStartExternalFallbackPending: () => false,
+    setPendingAutoSyncOnReady: () => undefined,
+  });
   unregisterProTimeline?.();
   unregisterProTimeline = null;
   registerProPlaybackMediaEndpoint(null);
@@ -227,7 +251,78 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Standard-host local scheduled rendezvous', () => {
+describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)', (output) => {
+  beforeEach(() => {
+    latency.output = output;
+  });
+  it.each([0, -0.4])(
+    'hands a negative-start wait to a new manual offset %s without changing room time',
+    async (offset) => {
+      const fixture = makePlayer({ state: 2, position: 0 });
+      await installPlayer(fixture);
+      setState('sync.youtubeLocalOffset', -9.999);
+      setState('sync.youtubeCoordinatorAppliedOffset', -9.999 + output / 1000);
+      recordStandardHostYouTubeAutomaticOffset(output / 1000);
+      setStandardHostYouTubeLocalStartTimelineReader(() => (Date.now() - EPOCH) / 1000);
+      const oldRelease = vi.fn(() => {
+        fixture.player.seekTo(0, true);
+        fixture.player.playVideo();
+      });
+      const oldBroadcast = vi.fn();
+      setManagedTimer('yt-host-local-start', oldRelease, 9_999 - output);
+      setManagedTimer('yt-auto-sync', oldBroadcast, 11_999 - output);
+      const cancel = vi.fn(() => {
+        clearManagedTimer('yt-host-local-start');
+        clearManagedTimer('yt-auto-sync');
+        setStandardHostYouTubeLocalStartTimelineReader(null);
+      });
+      configureYouTubePlayerRuntimeHooks({
+        cancelPendingAutoSync: cancel,
+        consumePendingAutoSyncOnReady: () => null,
+        isYouTubeZeroStartExternalFallbackActive: () => false,
+        isYouTubeZeroStartExternalFallbackPending: () => false,
+        setPendingAutoSyncOnReady: () => undefined,
+      });
+      vi.advanceTimersByTime(1_000);
+      bus.emit('youtube:set-coordinator-manual-offset', offset, 'committed');
+
+      expect(fixture.player.pauseVideo).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(isStandardHostYouTubeLocalStartPending()).toBe(false);
+      expect(getManagedTimer('yt-host-local-start')).toBeNull();
+      expect(getManagedTimer('yt-auto-sync')).toBeNull();
+      expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(1, 5);
+      vi.advanceTimersByTime(100);
+      expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(2.6 + offset, true);
+      vi.advanceTimersByTime(11_900);
+      expect(oldRelease).not.toHaveBeenCalled();
+      expect(oldBroadcast).not.toHaveBeenCalled();
+      expect(fixture.player.playVideo).toHaveBeenCalledOnce();
+      expect(fixture.player.getPlayerState()).toBe(1);
+      expect(getState('sync.youtubeLocalOffset')).toBe(offset);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(
+        offset + output / 1000,
+        5,
+      );
+      expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(13, 5);
+      expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+    },
+  );
+  it('preserves the maximum negative manual hold while the room clock advances', async () => {
+    const fixture = makePlayer({ position: 0 });
+    await installPlayer(fixture);
+    bus.emit('youtube:set-coordinator-manual-offset', -9.999, 'committed');
+    vi.advanceTimersByTime(7_100);
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
+    expect(fixture.player.playVideo).not.toHaveBeenCalled();
+    expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(7.1, 5);
+    vi.advanceTimersByTime(4_500);
+    expect(fixture.player.playVideo).toHaveBeenCalledOnce();
+    expect(getState('sync.youtubeLocalOffset')).toBe(-9.999);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-9.999 + output / 1000, 5);
+    expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(11.6, 5);
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
+  });
   it.each([1, 3])(
     'rejoins the future canonical target while preserving playing intent from state %i',
     async (state) => {
@@ -248,16 +343,16 @@ describe('Standard-host local scheduled rendezvous', () => {
       expect(getState('playback.activity')).toBe('playing');
       broadcastYouTubeSync(true);
       expect(broadcast).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(599);
+      vi.advanceTimersByTime(599 - output);
       expect(fixture.player.playVideo).not.toHaveBeenCalled();
       vi.advanceTimersByTime(1);
       expect(fixture.commands.filter((command) => command.op === 'play')).toEqual([
-        { op: 'play', at: 1400, position: undefined },
+        { op: 'play', at: 1400 - output, position: undefined },
       ]);
       vi.advanceTimersByTime(1_000);
       expect(fixture.player.getPlayerState()).toBe(1);
       expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
-      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25 + output / 1000, 5);
       expect(getManagedTimer(PLAY_TIMER)).toBeNull();
       expect(getManagedTimer(VERIFY_TIMER)).toBeNull();
       expect(loading.mock.calls.at(-1)).toEqual([false, 'rendezvous']);
@@ -266,7 +361,7 @@ describe('Standard-host local scheduled rendezvous', () => {
         expect.objectContaining({
           type: MSG.YOUTUBE_SYNC,
           state: 1,
-          time: expect.closeTo(12.4, 5),
+          time: expect.closeTo(12.4 - output / 1000, 5),
         }),
       );
     },
@@ -297,7 +392,7 @@ describe('Standard-host local scheduled rendezvous', () => {
     expect(fixture.player.cueVideoById).toHaveBeenCalledOnce();
     expect(fixture.player.loadVideoById).not.toHaveBeenCalled();
     expect(getState('youtube.currentSubIndex')).toBe(0);
-    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25 + output / 1000, 5);
     expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
   });
 
@@ -318,19 +413,22 @@ describe('Standard-host local scheduled rendezvous', () => {
     vi.advanceTimersByTime(900);
     // The first plan's 1600 ms resume must not fire after the replacement.
     expect(fixture.player.playVideo).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(399);
+    vi.advanceTimersByTime(399 - output);
     expect(fixture.player.playVideo).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(fixture.commands.filter((command) => command.op === 'play')).toEqual([
-      { op: 'play', at: 2000, position: undefined },
+      { op: 'play', at: 2000 - output, position: undefined },
     ]);
     vi.advanceTimersByTime(1_000);
     expect(fixture.player.seekTo).toHaveBeenCalledTimes(2);
     expect(fixture.player.playVideo).toHaveBeenCalledOnce();
     expect(fixture.player.cueVideoById).toHaveBeenCalledOnce();
     expect(fixture.player.loadVideoById).not.toHaveBeenCalled();
-    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
-    expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(13, 5);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25 + output / 1000, 5);
+    expect(toCanonicalYouTubeTime(fixture.player.getCurrentTime(), 120)).toBeCloseTo(
+      13 - output / 1000,
+      5,
+    );
     expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
     expect(getManagedTimer(PLAY_TIMER)).toBeNull();
   });
@@ -364,7 +462,7 @@ describe('Standard-host local scheduled rendezvous', () => {
     vi.advanceTimersByTime(100);
     expect(getState('sync.youtubeLocalOffset')).toBe(0);
     const lastCommands = fixture.commands.slice(-2);
-    expect(lastCommands[0]).toEqual({ op: 'seek', at: 2600, position: 12.6 });
+    expect(lastCommands[0]).toEqual({ op: 'seek', at: 2600, position: 12.6 + output / 1000 });
     expect(lastCommands[1]).toEqual({ op: 'play', at: 2600, position: undefined });
     vi.advanceTimersByTime(4_000);
     const commandCount = fixture.commands.length;
@@ -385,7 +483,7 @@ describe('Standard-host local scheduled rendezvous', () => {
     // the obligation to resume the host that the retired round paused.
     bus.emit('youtube:set-coordinator-manual-offset', 0);
     expect(fixture.commands.slice(-2)).toEqual([
-      { op: 'seek', at: 500, position: 10.5 },
+      { op: 'seek', at: 500, position: 10.5 + output / 1000 },
       { op: 'play', at: 500, position: undefined },
     ]);
     expect(getManagedTimer(PLAY_TIMER)).toBeNull();
@@ -404,7 +502,10 @@ describe('Standard-host local scheduled rendezvous', () => {
     bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
     vi.advanceTimersByTime(100);
     expect(getState('sync.youtubeLocalOffset')).toBe(0);
-    expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(expect.closeTo(116.9, 5), true);
+    expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(
+      expect.closeTo(116.9 + output / 1000, 5),
+      true,
+    );
     expect(fixture.player.playVideo).toHaveBeenCalledOnce();
     expect(getManagedTimer(PLAY_TIMER)).toBeNull();
     vi.advanceTimersByTime(1_000);
@@ -423,13 +524,13 @@ describe('Standard-host local scheduled rendezvous', () => {
     vi.advanceTimersByTime(500);
     clearAllManagedTimers();
     repairStandardHostManualOffsetTransaction();
-    vi.advanceTimersByTime(899);
+    vi.advanceTimersByTime(899 - output);
     expect(fixture.player.playVideo).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
-    expect(fixture.commands.find((command) => command.op === 'play')?.at).toBe(1400);
+    expect(fixture.commands.find((command) => command.op === 'play')?.at).toBe(1400 - output);
     vi.advanceTimersByTime(1_000);
     expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
-    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25 + output / 1000, 5);
   });
 
   it.each(['nan', 'throw'] as const)(
@@ -455,7 +556,7 @@ describe('Standard-host local scheduled rendezvous', () => {
     expect(fixture.player.seekTo).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(getState('sync.youtubeLocalOffset')).toBe(0);
-    expect(fixture.player.seekTo).toHaveBeenCalledWith(12, true);
+    expect(fixture.player.seekTo).toHaveBeenCalledWith(12 + output / 1000, true);
     vi.advanceTimersByTime(5_000);
     const commandCount = fixture.commands.length;
     expect(commandCount).toBeLessThanOrEqual(10);
@@ -479,10 +580,14 @@ describe('Standard-host local scheduled rendezvous', () => {
   });
 });
 
-describe('PRO participant local scheduled offset', () => {
+describe.each([0, 250])('PRO participant local scheduled offset (output %ims)', (output) => {
+  beforeEach(() => {
+    latency.output = output;
+  });
   function enterPro(
     role: 'coordinator' | 'member' = 'member',
     playing = true,
+    positionSeconds = 10,
   ): { supersede(): void } {
     setState('room.context', {
       kind: 'pro',
@@ -503,7 +608,7 @@ describe('PRO participant local scheduled offset', () => {
         queueItemId: QUEUE_ID,
         youtubeVideoId: 'same-video',
         youtubeSubIndex: -1,
-        positionSeconds: 10,
+        positionSeconds,
         updatedAtMs: EPOCH,
       },
     } as ProRoomSnapshot;
@@ -534,7 +639,7 @@ describe('PRO participant local scheduled offset', () => {
       vi.advanceTimersByTime(100);
       expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(11.85, true);
       vi.advanceTimersByTime(2_300);
-      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
+      expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25 + output / 1000, 5);
       expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
       const { broadcast } = await import('../../network/peer.ts');
       expect(broadcast).not.toHaveBeenCalled();
@@ -554,8 +659,8 @@ describe('PRO participant local scheduled offset', () => {
     expect(fixture.player.seekTo).toHaveBeenCalledExactlyOnceWith(11.6, true);
     vi.advanceTimersByTime(2_300);
     expect(getState('sync.youtubeLocalOffset')).toBe(0);
-    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0, 5);
-    expect(fixture.player.getCurrentTime()).toBeCloseTo(12.4, 5);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(output / 1000, 5);
+    expect(fixture.player.getCurrentTime()).toBeCloseTo(12.4 + output / 1000, 5);
     expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
   });
 
@@ -606,7 +711,7 @@ describe('PRO participant local scheduled offset', () => {
       await installPlayer(fixture);
       setState('sync.youtubeCoordinatorAppliedOffset', 0.1);
       bus.emit('youtube:set-coordinator-manual-offset', 0.25, 'committed');
-      vi.advanceTimersByTime(pauseAt);
+      vi.advanceTimersByTime(Math.max(0, pauseAt - output));
       const { setLocalYouTubePaused } = await import('../_state.ts');
       setLocalYouTubePaused(true);
       fixture.player.pauseVideo();
@@ -733,6 +838,21 @@ describe('PRO participant local scheduled offset', () => {
     expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
     vi.advanceTimersByTime(2_000);
     expect(fixture.player.playVideo).toHaveBeenCalledOnce();
-    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25, 5);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(0.25 + output / 1000, 5);
+  });
+
+  it('preserves the maximum negative manual hold near media zero', async () => {
+    enterPro('member', true, 0);
+    const fixture = makePlayer({ position: 0 });
+    await installPlayer(fixture);
+    bus.emit('youtube:set-coordinator-manual-offset', -9.999, 'committed');
+    vi.advanceTimersByTime(7_100);
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(true);
+    expect(fixture.player.playVideo).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(4_500);
+    expect(fixture.player.playVideo).toHaveBeenCalledOnce();
+    expect(getState('sync.youtubeLocalOffset')).toBe(-9.999);
+    expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-9.999 + output / 1000, 5);
+    expect(isStandardHostManualOffsetTransactionPending()).toBe(false);
   });
 });

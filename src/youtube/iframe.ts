@@ -84,10 +84,18 @@ import {
   isStandardHostManualOffsetTransactionPending,
 } from './standard-host-manual-offset-gate.ts';
 import {
+  beginStandardHostYouTubeEndHold,
+  clearStandardHostYouTubeEndHold,
+  getStandardHostYouTubeAutomaticOffset,
+  getYouTubeManualOffsetEndpointIdentity,
+  isStandardHostYouTubeEndHoldActive,
+  isStandardHostYouTubeLocalStartPending,
   isStandardHostYouTubeManualOffsetEndpoint,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
+  recordStandardHostYouTubeAutomaticOffset,
   resolveProCoordinatorYouTubeTarget,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
+  STANDARD_HOST_YOUTUBE_END_HOLD_TIMER,
   toCanonicalYouTubeTime,
 } from './local-offset.ts';
 import {
@@ -591,6 +599,104 @@ function retryProEndedAtCanonicalBoundary(
   // another request on every UI tick, or advance a successor occurrence.
   retriedProEndedTimeline = { player, sessionId, isCurrent: timeline.isCurrent };
   routeCurrentProYouTubeObservation('ended');
+}
+
+interface StandardHostAutomaticEnd {
+  player: YouTubePlayerInstance;
+  sessionId: number;
+  endpoint: string | null;
+  queueItemId: string | null;
+  subIndex: number;
+  videoId: string;
+  phase: 'holding' | 'releasing' | 'consumed';
+}
+
+let standardHostAutomaticEnd: StandardHostAutomaticEnd | null = null;
+
+function clearStandardHostAutomaticEnd(): void {
+  standardHostAutomaticEnd = null;
+  clearStandardHostYouTubeEndHold();
+}
+
+function isCurrentStandardHostAutomaticEnd(end: StandardHostAutomaticEnd): boolean {
+  try {
+    return (
+      standardHostAutomaticEnd === end &&
+      getYouTubePlayer() === end.player &&
+      getCurrentSessionId() === end.sessionId &&
+      getYouTubeManualOffsetEndpointIdentity() === end.endpoint &&
+      isStandardHostYouTubeManualOffsetEndpoint() &&
+      isPlaybackPlayingYouTube() &&
+      getCurrentQueueItemId() === end.queueItemId &&
+      (getState('youtube.currentSubIndex') ?? -1) === end.subIndex &&
+      end.player.getVideoData?.()?.video_id === end.videoId &&
+      end.player.getPlayerState() === YT.PlayerState.ENDED
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Drain this speaker's output lead without retiring the room timeline early. */
+function consumeStandardHostAutomaticEnd(
+  player: YouTubePlayerInstance,
+  canonicalTime: number,
+  duration: number,
+): boolean {
+  const previous = standardHostAutomaticEnd;
+  if (previous) {
+    if (!isCurrentStandardHostAutomaticEnd(previous)) clearStandardHostAutomaticEnd();
+    else if (previous.phase === 'releasing') {
+      previous.phase = 'consumed';
+      return false;
+    } else if (previous.phase === 'consumed' || isStandardHostYouTubeEndHoldActive()) {
+      return true;
+    } else clearStandardHostAutomaticEnd();
+  }
+  if (
+    !Number.isFinite(duration) ||
+    duration <= 0 ||
+    getStandardHostYouTubeAutomaticOffset() <= 0 ||
+    canonicalTime >= duration - 0.001
+  )
+    return false;
+  const end: StandardHostAutomaticEnd = {
+    player,
+    sessionId: getCurrentSessionId(),
+    endpoint: getYouTubeManualOffsetEndpointIdentity(),
+    queueItemId: getCurrentQueueItemId(),
+    subIndex: getState('youtube.currentSubIndex') ?? -1,
+    videoId: player.getVideoData?.()?.video_id || '',
+    phase: 'holding',
+  };
+  standardHostAutomaticEnd = end;
+  beginStandardHostYouTubeEndHold(canonicalTime, duration, () =>
+    isCurrentStandardHostAutomaticEnd(end),
+  );
+  const release = (): void => {
+    if (end.phase !== 'holding') return;
+    if (!isCurrentStandardHostAutomaticEnd(end) || !isStandardHostYouTubeEndHoldActive()) {
+      if (standardHostAutomaticEnd === end) clearStandardHostAutomaticEnd();
+      return;
+    }
+    const remainingMs =
+      (duration - toCanonicalYouTubeTime(player.getCurrentTime(), duration)) * 1000;
+    if (remainingMs > 1) {
+      setManagedTimer(STANDARD_HOST_YOUTUBE_END_HOLD_TIMER, release, Math.ceil(remainingMs));
+      return;
+    }
+    clearStandardHostYouTubeEndHold();
+    recordStandardHostYouTubeAutomaticOffset(0);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0);
+    end.phase = 'releasing';
+    onYouTubePlayerStateChange({ data: YT.PlayerState.ENDED, target: player });
+  };
+  setManagedTimer(
+    STANDARD_HOST_YOUTUBE_END_HOLD_TIMER,
+    release,
+    Math.ceil((duration - canonicalTime) * 1000),
+  );
+  return true;
 }
 
 function clearSameVideoOccurrenceRestart(): void {
@@ -1581,6 +1687,7 @@ function isStaleReusedPlayerFeedback(player: YouTubePlayerInstance, state: numbe
 
 /** Retire outgoing work while keeping this video's iframe and buffer resident. */
 export function adoptResidentYouTubeOccurrence(videoId: string): void {
+  clearStandardHostAutomaticEnd();
   clearYouTubeCallbackSelection();
   const player = getYouTubePlayer();
   if (player) resetResidentYouTubeSync(player);
@@ -1597,6 +1704,7 @@ export function loadYouTubeVideo(
   opts: LoadYouTubeVideoOptions = {},
 ): void {
   subIndex = sanitizeRetainedPlaylistIndex(subIndex);
+  clearStandardHostAutomaticEnd();
   clearYouTubeCallbackSelection();
   const preparedSameVideoRestart = preparedSameVideoOccurrenceRestart;
   preparedSameVideoOccurrenceRestart = null;
@@ -2944,6 +3052,10 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   if (handleYouTubeAuthorityPlayerState(state)) return;
   if (handleYouTubeZeroStartPlayerState(state)) return;
   if (isYouTubeZeroStartExternalFallbackActiveFromIframe()) return;
+  // A negative local offset may intentionally keep this speaker paused after
+  // room playback has begun. The owner installs its reader before pauseVideo,
+  // including synchronous iframe callbacks before the timer has been armed.
+  if (isStandardHostYouTubeLocalStartPending()) return;
 
   if (!isPlaybackModeYouTube() && !indexing) return;
   if (staleReusedFeedback) return;
@@ -2954,6 +3066,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
     // restart. Only live progress beyond that physical end releases its latch.
     try {
       if (player.getPlayerState() !== YT.PlayerState.ENDED) {
+        clearStandardHostAutomaticEnd();
         consumedStandardHostRepeatOneEnd = null;
       }
     } catch {
@@ -3113,6 +3226,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
         log.debug('[YouTube] Neutralized early standard-host local end');
         return;
       }
+      if (consumeStandardHostAutomaticEnd(player, canonicalTime, duration)) return;
     }
     // Host: advance through sub-videos or fall through to next queue track.
     // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the
@@ -3342,6 +3456,23 @@ function updateYouTubeUI(): void {
 
     if (state === YT.PlayerState.ENDED) {
       retryProEndedAtCanonicalBoundary(player, currentTime, rawDuration);
+      if (
+        isStandardHostYouTubeManualOffsetEndpoint() &&
+        (standardHostAutomaticEnd || getStandardHostYouTubeAutomaticOffset() > 0)
+      ) {
+        // The boundary already ran for this exact occurrence. Its iframe can
+        // remain ENDED until the next load; avoid re-entering the handler on
+        // every UI tick without suppressing a replacement occurrence.
+        if (
+          standardHostAutomaticEnd?.phase === 'consumed' &&
+          isCurrentStandardHostAutomaticEnd(standardHostAutomaticEnd)
+        )
+          return;
+        onYouTubePlayerStateChange({ data: YT.PlayerState.ENDED, target: player });
+        // A completed boundary may synchronously load another occurrence.
+        // Never publish this outgoing tick over the successor's metadata/UI.
+        if (!isStandardHostYouTubeEndHoldActive()) return;
+      }
     }
 
     const canonicalTime = toCanonicalYouTubeTime(currentTime, rawDuration);
@@ -3467,7 +3598,7 @@ function updateYouTubeUI(): void {
     // single-video mode ourselves and keep guests in sync.
     const hostConn = getState('network.hostConn');
     if (!hostConn && playlistIdx !== -1 && state === 1 && _ifr.lastPreemptIdx !== playlistIdx) {
-      const timeRemaining = rawDuration - currentTime;
+      const timeRemaining = rawDuration - canonicalTime;
       if (rawDuration > 0 && timeRemaining <= 0.8 && timeRemaining > 0) {
         log.debug(
           `[YouTube] Pre-empting native auto-advance (remaining: ${timeRemaining.toFixed(2)}s)`,

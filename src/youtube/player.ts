@@ -371,10 +371,18 @@ import {
 } from './standard-host-manual-offset-gate.ts';
 import {
   clearProCoordinatorYouTubeNudgeAnchor,
+  clearStandardHostYouTubeEndHold,
+  getStandardHostYouTubeAutomaticOffset,
   isCanonicalYouTubeManualOffsetEndpoint,
+  isStandardHostYouTubeManualOffsetEndpoint,
+  isStandardHostYouTubeEndHoldActive,
+  isStandardHostYouTubeLocalStartPending,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   rebaseProCoordinatorYouTubeNudgeAnchor,
+  recordStandardHostYouTubeAutomaticOffset,
+  setStandardHostYouTubeLocalStartTimelineReader,
   resolveProCoordinatorYouTubeTarget,
+  resolveYouTubeAudiblePlaybackTarget,
   resolveYouTubePlaybackStartTarget,
   setYouTubeScheduledStartTimelineReader,
   shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
@@ -404,6 +412,7 @@ import {
   type YouTubeZeroStartWireMessage,
 } from './zero-start.ts';
 import { isYouTubeZeroStartSyncOwned } from './zero-start-ownership.ts';
+import { recordProStartObservation } from '../diagnostics/pro-start-observations.ts';
 import {
   PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS,
   PRO_YOUTUBE_LEAD_SAMPLE_LATE_MS,
@@ -411,6 +420,7 @@ import {
   type ProYouTubeLeadPlatform,
   type ProYouTubeLeadSample,
 } from './pro-lead-learner.ts';
+import { getYouTubeAudibleOutputDelayMs } from './output-latency.ts';
 
 import type { YTNamespace, YouTubePlayerInstance } from './_state.ts';
 declare const YT: YTNamespace;
@@ -498,7 +508,8 @@ function readCanonicalYouTubeTime(player: YouTubePlayerInstance): number {
 function resolveCoordinatorLocalTarget(
   player: YouTubePlayerInstance,
   canonicalTime: number,
-): { canonicalTime: number; localTime: number } {
+  playing = false,
+): { canonicalTime: number; localTime: number; localStartDelayMs?: number } {
   if (!isCanonicalYouTubeManualOffsetEndpoint()) {
     return { canonicalTime, localTime: canonicalTime };
   }
@@ -506,26 +517,35 @@ function resolveCoordinatorLocalTarget(
   // A room-level play/pause/seek supersedes a still-settling local nudge.
   // Its explicit canonical target is now the source of truth.
   clearProCoordinatorYouTubeNudgeAnchor();
+  clearStandardHostYouTubeEndHold();
   const duration = getYouTubeDuration(player);
-  const requestedTarget = resolveProCoordinatorYouTubeTarget(
-    canonicalTime,
-    getState('sync.youtubeLocalOffset') || 0,
-    duration,
-  );
+  const outputSeconds =
+    playing && isStandardHostYouTubeManualOffsetEndpoint()
+      ? getYouTubeAudibleOutputDelayMs(getYouTubeZeroStartPlatform()) / 1000
+      : 0;
+  const resolveTarget = (manualOffset: number) =>
+    playing
+      ? resolveYouTubeAudiblePlaybackTarget(canonicalTime, manualOffset, duration, outputSeconds)
+      : {
+          ...resolveProCoordinatorYouTubeTarget(canonicalTime, manualOffset, duration),
+          automaticOffset: 0,
+          localStartDelayMs: 0,
+        };
+  const requestedTarget = resolveTarget(getState('sync.youtubeLocalOffset') || 0);
   const shouldNeutralize = shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
     requestedTarget.localTime,
     requestedTarget.canonicalTime,
     duration,
     requestedTarget.effectiveOffset,
+    requestedTarget.automaticOffset,
   );
-  const target = shouldNeutralize
-    ? resolveProCoordinatorYouTubeTarget(canonicalTime, 0, duration)
-    : requestedTarget;
+  const target = shouldNeutralize ? resolveTarget(0) : requestedTarget;
   if (shouldNeutralize) {
     setState('sync.youtubeLocalOffset', 0);
     bus.emit('sync:display-update');
   }
   setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
+  recordStandardHostYouTubeAutomaticOffset(target.automaticOffset);
   return target;
 }
 
@@ -598,6 +618,8 @@ let youtubeAutoSyncGeneration = 0;
 function retireYouTubeAutoSync(): void {
   youtubeAutoSyncGeneration += 1;
   clearManagedTimer('yt-auto-sync');
+  clearManagedTimer('yt-host-local-start');
+  setStandardHostYouTubeLocalStartTimelineReader(null);
 }
 
 /**
@@ -694,21 +716,59 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   const targetState = overrides?.state ?? 1; // Default to PLAYING
   const subIndex = overrides?.subIndex ?? getState('youtube.currentSubIndex') ?? -1;
   const videoId = (overrides?.videoId ?? player.getVideoData?.()?.video_id) || '';
-  const resolvedTarget = resolveCoordinatorLocalTarget(player, targetTime);
+  const resolvedTarget = resolveCoordinatorLocalTarget(player, targetTime, targetState === 1);
   const canonicalTargetTime = resolvedTarget.canonicalTime;
   const localTargetTime = resolvedTarget.localTime;
+  const localStartDelayMs = targetState === 1 ? (resolvedTarget.localStartDelayMs ?? 0) : 0;
+  const localStartAtMs = performance.now();
+  if (localStartDelayMs > 0) {
+    setStandardHostYouTubeLocalStartTimelineReader(() =>
+      isCurrent()
+        ? canonicalTargetTime + Math.max(0, performance.now() - localStartAtMs) / 1000
+        : null,
+    );
+    player.pauseVideo?.();
+    if (!isCurrent()) return;
+  }
 
   // 1. Host: Execute action immediately
   const localOffsetRequiresSeek =
     isCanonicalYouTubeManualOffsetEndpoint() &&
     Math.abs(localTargetTime - canonicalTargetTime) > Number.EPSILON;
-  if ((!overrides?.skipSeek || localOffsetRequiresSeek) && canonicalTargetTime >= 0) {
+  if (
+    (!overrides?.skipSeek || localOffsetRequiresSeek || localStartDelayMs > 0) &&
+    canonicalTargetTime >= 0
+  ) {
     player.seekTo(localTargetTime, true);
     if (!isCurrent()) return;
   }
   if (targetState === 1) {
     setYtAutoplayIntent(true);
-    player.playVideo?.();
+    if (localStartDelayMs > 0) {
+      setManagedTimer(
+        'yt-host-local-start',
+        () => {
+          if (!isCurrent()) return;
+          const elapsedSeconds = Math.max(0, performance.now() - localStartAtMs) / 1000;
+          const releaseTarget = Math.max(0, elapsedSeconds - localStartDelayMs / 1000);
+          const automaticOffset = getStandardHostYouTubeAutomaticOffset();
+          if (releaseTarget > 0.04) player.seekTo(releaseTarget, true);
+          if (!isCurrent()) return;
+          setState(
+            'sync.youtubeCoordinatorAppliedOffset',
+            (releaseTarget > 0.04 ? releaseTarget : 0) - canonicalTargetTime - elapsedSeconds,
+          );
+          recordStandardHostYouTubeAutomaticOffset(
+            automaticOffset - (releaseTarget > 0.04 ? 0 : releaseTarget),
+          );
+          setStandardHostYouTubeLocalStartTimelineReader(null);
+          player.playVideo?.();
+        },
+        localStartDelayMs,
+      );
+    } else {
+      player.playVideo?.();
+    }
   } else if (targetState === 2) {
     player.pauseVideo?.();
   }
@@ -747,7 +807,8 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
   // old stage-2 timer alive would make guests receive a delayed PLAY snapshot
   // after the host had already paused.
   if (targetState !== 1) return;
-  const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
+  const waitMs =
+    localStartDelayMs + (overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS);
   setManagedTimer(
     'yt-auto-sync',
     () => {
@@ -798,7 +859,16 @@ function waitForProYouTubeCommit(ms: number): Promise<void> {
 }
 
 const proYouTubeLeadSession = new ProYouTubeLeadSession();
-const proYouTubeLeadCalibrationTimers = new Set<ReturnType<typeof globalThis.setTimeout>>();
+const proYouTubeLeadCalibrationTimers = new Map<
+  ReturnType<typeof globalThis.setTimeout>,
+  {
+    commitGeneration: number;
+    timingMode: 'zero-start' | 'scheduled-control';
+    path: 'prepared' | 'direct';
+    checkpointMs: number;
+    plannedSampleAtMs: number;
+  }
+>();
 let proYouTubeLeadSessionKey: string | null = null;
 let proYouTubeLeadVisibilityGeneration = 0;
 
@@ -809,7 +879,13 @@ if (typeof document !== 'undefined') {
 }
 
 function clearProYouTubeLeadCalibrationTimers(): void {
-  for (const timer of proYouTubeLeadCalibrationTimers) globalThis.clearTimeout(timer);
+  for (const [timer, observation] of proYouTubeLeadCalibrationTimers) {
+    globalThis.clearTimeout(timer);
+    recordProStartObservation('youtube-observation-skipped', {
+      ...observation,
+      reason: 'cancelled-pending',
+    });
+  }
   proYouTubeLeadCalibrationTimers.clear();
 }
 
@@ -834,6 +910,13 @@ function scheduleProYouTubeLeadCalibration(input: {
   canonicalExecuteAtMs: number;
   preparationGeneration: number;
   localOffsetSeconds: number;
+  timingMode: 'zero-start' | 'scheduled-control';
+  path: 'prepared' | 'direct';
+  learningEnabled: boolean;
+  /** Only callback delay not already added to the release target is removed from learning. */
+  uncorrectedCallbackLatenessMs: number;
+  /** Automatic timeline delta removed by local-to-canonical UI conversion. */
+  automaticOffsetSeconds: number;
 }): void {
   let earlySample: ProYouTubeLeadSample | null = null;
   const visibilityGeneration = proYouTubeLeadVisibilityGeneration;
@@ -845,10 +928,23 @@ function scheduleProYouTubeLeadCalibration(input: {
     const timer = globalThis.setTimeout(
       () => {
         proYouTubeLeadCalibrationTimers.delete(timer);
+        const sampledAtMs = performance.now();
+        const elapsedSinceStartMs = sampledAtMs - input.canonicalExecuteAtMs;
+        const predictedCanonical =
+          input.canonicalStartSeconds + Math.max(0, elapsedSinceStartMs) / 1_000;
         const room = getState('room.context');
         const currentPlayer = getYouTubePlayer();
-        const liveVideoId = currentPlayer?.getVideoData?.()?.video_id || '';
+        let liveVideoId = '';
+        let playerReadFailed = false;
+        try {
+          liveVideoId = currentPlayer?.getVideoData?.()?.video_id || '';
+        } catch {
+          playerReadFailed = true;
+        }
         const liveSubIndex = getState('youtube.currentSubIndex') ?? 0;
+        const revisionMatches = input.generation === proAuthorityYouTubeCommitGeneration;
+        const offsetMatches =
+          Math.abs((getState('sync.youtubeLocalOffset') || 0) - input.localOffsetSeconds) < 0.001;
         const visible =
           (typeof document === 'undefined' || document.visibilityState !== 'hidden') &&
           visibilityGeneration === proYouTubeLeadVisibilityGeneration;
@@ -856,49 +952,103 @@ function scheduleProYouTubeLeadCalibration(input: {
           room.kind === 'pro' &&
           `${room.roomId}:${room.epoch}` === input.sessionKey &&
           proYouTubeLeadSessionKey === input.sessionKey &&
-          input.generation === proAuthorityYouTubeCommitGeneration &&
+          revisionMatches &&
           input.preparationGeneration === getProYouTubeAuthorityPreparationGeneration() &&
           currentPlayer === input.player &&
           getCurrentQueueItemId() === input.queueItemId &&
           isPlaybackModeYouTube() &&
           liveVideoId === input.videoId &&
           (input.subIndex === null || liveSubIndex === input.subIndex) &&
-          Math.abs((getState('sync.youtubeLocalOffset') || 0) - input.localOffsetSeconds) < 0.001 &&
+          offsetMatches &&
           !isYtLoadInProgress() &&
           !getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)
         );
 
         let playerState = -1;
         let timelineDriftMs = Number.NaN;
-        let elapsedSinceStartMs = Number.NaN;
+        let rawPositionSeconds = Number.NaN;
+        let normalizedPositionSeconds = Number.NaN;
+        let nearEnd = false;
         try {
-          playerState = currentPlayer?.getPlayerState?.() ?? -1;
-          if (currentPlayer) {
-            const sampledAtMs = performance.now();
-            elapsedSinceStartMs = sampledAtMs - input.canonicalExecuteAtMs;
-            const predictedCanonical =
-              input.canonicalStartSeconds + Math.max(0, elapsedSinceStartMs) / 1_000;
+          // An invalidated observation must not inspect a replacement renderer.
+          if (currentPlayer && identityMatches) {
+            playerState = currentPlayer.getPlayerState?.() ?? -1;
             // Read the raw media clock once. Display-oriented normalization
             // turns invalid values into zero and cannot validate a sample.
-            const localPositionSeconds = currentPlayer.getCurrentTime?.();
+            rawPositionSeconds = currentPlayer.getCurrentTime?.();
             const duration = getYouTubeDuration(currentPlayer);
-            if (
-              Number.isFinite(localPositionSeconds) &&
-              !(duration > 0 && duration - predictedCanonical < 3)
-            ) {
-              timelineDriftMs =
-                (toCanonicalYouTubeTime(localPositionSeconds, duration) - predictedCanonical) *
-                1_000;
+            nearEnd = duration > 0 && duration - predictedCanonical < 3;
+            if (Number.isFinite(rawPositionSeconds)) {
+              normalizedPositionSeconds = toCanonicalYouTubeTime(rawPositionSeconds, duration);
+              if (!nearEnd) {
+                timelineDriftMs = (normalizedPositionSeconds - predictedCanonical) * 1_000;
+              }
             }
           }
         } catch {
-          // The pure learner rejects the non-finite observation below.
+          playerReadFailed = true;
         }
+
+        const reason = playerReadFailed
+          ? 'player-read-failed'
+          : !visible
+            ? 'hidden'
+            : !identityMatches
+              ? 'identity-mismatch'
+              : playerState !== 1
+                ? 'not-playing'
+                : !Number.isFinite(rawPositionSeconds)
+                  ? 'invalid-position'
+                  : nearEnd
+                    ? 'near-end'
+                    : 'eligible';
+        // Late callbacks left within the no-seek tolerance make measured drift
+        // more negative. Add only that uncorrected part back; a >40ms catch-up
+        // already moved the target and must never be counted a second time.
+        const learningDriftMs = playerReadFailed
+          ? Number.NaN
+          : timelineDriftMs +
+            input.automaticOffsetSeconds * 1000 +
+            input.uncorrectedCallbackLatenessMs;
+        const finiteMetric = (value: number) => (Number.isFinite(value) ? value : null);
+        recordProStartObservation('youtube-sample', {
+          commitGeneration: input.generation,
+          timingMode: input.timingMode,
+          path: input.path,
+          platform: input.platform,
+          checkpointMs,
+          plannedSampleAtMs: targetAtMs,
+          sampledAtMs,
+          elapsedSinceStartMs,
+          checkpointLatenessMs: Math.max(0, sampledAtMs - targetAtMs),
+          canonicalExecuteAtMs: input.canonicalExecuteAtMs,
+          canonicalStartSeconds: input.canonicalStartSeconds,
+          predictedCanonicalSeconds: predictedCanonical,
+          rawPositionSeconds: finiteMetric(rawPositionSeconds),
+          normalizedPositionSeconds: finiteMetric(normalizedPositionSeconds),
+          timelineDriftMs: finiteMetric(timelineDriftMs),
+          learningDriftMs: input.learningEnabled ? finiteMetric(learningDriftMs) : null,
+          manualOffsetSeconds: input.localOffsetSeconds,
+          appliedOffsetSeconds: getState('sync.youtubeCoordinatorAppliedOffset'),
+          automaticOffsetSeconds: input.automaticOffsetSeconds,
+          uncorrectedCallbackLatenessMs: input.uncorrectedCallbackLatenessMs,
+          learningEnabled: input.learningEnabled,
+          visible,
+          identityMatches,
+          revisionMatches,
+          offsetMatches,
+          playerState,
+          nearEnd,
+          playerReadFailed,
+          adStateKnown: false,
+          eligible: reason === 'eligible',
+          reason,
+        });
 
         const sample: ProYouTubeLeadSample = {
           checkpointMs,
           elapsedSinceStartMs,
-          timelineDriftMs,
+          timelineDriftMs: learningDriftMs,
           visible,
           // Only a normally advancing iframe is a valid timing reference.
           buffering: playerState !== 1,
@@ -906,7 +1056,7 @@ function scheduleProYouTubeLeadCalibration(input: {
           // identity is still rejected by the exact video fence above.
           adActive: false,
           identityMatches,
-          revisionMatches: input.generation === proAuthorityYouTubeCommitGeneration,
+          revisionMatches,
         };
         if (checkpointMs === PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS) {
           earlySample = sample;
@@ -914,9 +1064,37 @@ function scheduleProYouTubeLeadCalibration(input: {
         }
         if (!earlySample) return;
 
+        if (!input.learningEnabled) {
+          recordProStartObservation('youtube-learning', {
+            commitGeneration: input.generation,
+            timingMode: input.timingMode,
+            path: input.path,
+            learningEnabled: false,
+            reason:
+              input.timingMode === 'scheduled-control'
+                ? 'scheduled-control-observation-only'
+                : 'lead-clipped',
+            sampleGapMs: elapsedSinceStartMs - earlySample.elapsedSinceStartMs,
+            accepted: false,
+            updated: false,
+          });
+          return;
+        }
+
         const learned = proYouTubeLeadSession.learn(input.platform, {
           early: earlySample,
           late: sample,
+        });
+        recordProStartObservation('youtube-learning', {
+          commitGeneration: input.generation,
+          timingMode: input.timingMode,
+          path: input.path,
+          learningEnabled: true,
+          reason: learned.reason,
+          sampleGapMs: elapsedSinceStartMs - earlySample.elapsedSinceStartMs,
+          accepted: learned.accepted,
+          updated: learned.updated,
+          nextTimelineLeadMs: learned.state.timelineLeadMs,
         });
         if (learned.accepted) {
           log.debug('[PRO YouTube] Updated participant-local start timing', {
@@ -929,7 +1107,13 @@ function scheduleProYouTubeLeadCalibration(input: {
       },
       Math.max(0, targetAtMs - performance.now()),
     );
-    proYouTubeLeadCalibrationTimers.add(timer);
+    proYouTubeLeadCalibrationTimers.set(timer, {
+      commitGeneration: input.generation,
+      timingMode: input.timingMode,
+      path: input.path,
+      checkpointMs,
+      plannedSampleAtMs: targetAtMs,
+    });
   };
 
   scheduleSample(PRO_YOUTUBE_LEAD_SAMPLE_EARLY_MS);
@@ -1036,35 +1220,77 @@ export async function applyProPlaybackYouTubeCommit(
         committed.targetSeconds -
           target.canonicalTime -
           target.localStartDelayMs / 1000 -
-          committed.releaseLatenessMs / 1000,
+          committed.releaseLatenessMs / 1000 +
+          committed.scheduledLeadMs / 1000,
       );
       setPlaybackYouTubePlaying();
       bus.emit('ui:update-play-state', true);
+      const positiveLeadWasFullyScheduled =
+        request.scheduleDelayMs + target.localStartDelayMs >= Math.max(0, committed.releaseLeadMs);
+      const uncorrectedCallbackLatenessMs = Math.max(
+        0,
+        committed.rawReleaseLatenessMs - committed.releaseLatenessMs,
+      );
+      recordProStartObservation('youtube-release', {
+        commitGeneration: generation,
+        revision: request.committedPlaybackRevision,
+        timingMode: request.timingMode,
+        path: 'prepared',
+        platform,
+        originalCanonicalExecuteAtMs: canonicalExecuteAtMs,
+        canonicalExecuteAtMs: canonicalExecuteAtMs + target.localStartDelayMs,
+        canonicalStartSeconds: target.canonicalTime + target.localStartDelayMs / 1000,
+        scheduleDelayMs: request.scheduleDelayMs,
+        requestedTargetSeconds: target.localTime,
+        releasedTargetSeconds: committed.targetSeconds,
+        manualOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
+        appliedOffsetSeconds: getState('sync.youtubeCoordinatorAppliedOffset'),
+        playCallAtMs: committed.playCallAtMs,
+        playingAckAtMs: committed.playingAtMs,
+        callToPlayingAckMs: committed.callToPlayingMs,
+        acknowledgementOnly: true,
+        platformLeadMs: committed.platformLeadMs,
+        timelineLeadMs: committed.timelineLeadMs,
+        releaseLeadMs: committed.releaseLeadMs,
+        scheduledLeadMs: committed.scheduledLeadMs,
+        outputPositionAdvanceMs: committed.outputPositionAdvanceMs,
+        ignoredOutputPositionAdvanceMs: committed.ignoredOutputPositionAdvanceMs,
+        localStartDelayMs: committed.localStartDelayMs,
+        rawReleaseLatenessMs: committed.rawReleaseLatenessMs,
+        appliedReleaseLatenessMs: committed.releaseLatenessMs,
+        uncorrectedCallbackLatenessMs,
+        catchUpSeconds: committed.catchUpSeconds,
+        positiveLeadWasFullyScheduled,
+      });
       if (request.timingMode === 'zero-start') {
         log.debug('[PRO YouTube] Zero-start playback released', {
           platform,
           canonicalExecuteAtMs,
           ...committed,
         });
-        const positiveLeadWasFullyScheduled =
-          request.scheduleDelayMs + target.localStartDelayMs >=
-          Math.max(0, committed.releaseLeadMs);
-        if (positiveLeadWasFullyScheduled) {
-          scheduleProYouTubeLeadCalibration({
-            generation,
-            sessionKey: lead.sessionKey,
-            platform,
-            player,
-            queueItemId: request.queueItemId,
-            videoId: request.youtubeVideoId,
-            subIndex: request.youtubeSubIndex ?? null,
-            canonicalStartSeconds: target.canonicalTime + target.localStartDelayMs / 1000,
-            canonicalExecuteAtMs: canonicalExecuteAtMs + target.localStartDelayMs,
-            preparationGeneration: getProYouTubeAuthorityPreparationGeneration(),
-            localOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
-          });
-        }
       }
+      // Use the original execution instant even when PLAYING acknowledgement
+      // arrives after a checkpoint. Scheduled controls are observed only; they
+      // never train the zero-start lead or alter the current renderer.
+      scheduleProYouTubeLeadCalibration({
+        generation,
+        sessionKey: lead.sessionKey,
+        platform,
+        player,
+        queueItemId: request.queueItemId,
+        videoId: request.youtubeVideoId,
+        subIndex: request.youtubeSubIndex ?? null,
+        canonicalStartSeconds: target.canonicalTime + target.localStartDelayMs / 1000,
+        canonicalExecuteAtMs: canonicalExecuteAtMs + target.localStartDelayMs,
+        preparationGeneration: getProYouTubeAuthorityPreparationGeneration(),
+        localOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
+        timingMode: request.timingMode,
+        learningEnabled: request.timingMode === 'zero-start' && positiveLeadWasFullyScheduled,
+        path: 'prepared',
+        uncorrectedCallbackLatenessMs,
+        automaticOffsetSeconds:
+          (committed.scheduledLeadMs + committed.outputPositionAdvanceMs) / 1000,
+      });
       return true;
     } catch (error) {
       log.warn('[PRO Playback] Failed to release prepared YouTube occurrence', error);
@@ -1103,15 +1329,20 @@ export async function applyProPlaybackYouTubeCommit(
     if (request.youtubeVideoId && liveVideoId !== request.youtubeVideoId) return false;
 
     const duration = getYouTubeDuration(player);
+    const platform = getYouTubeZeroStartPlatform();
+    const outputDelayMs =
+      request.state === 'playing' ? getYouTubeAudibleOutputDelayMs(platform) : 0;
+    let localWait = 0;
     if (request.state === 'playing') {
       const initialPosition =
         (Number.isFinite(request.positionSeconds) ? Math.max(0, request.positionSeconds) : 0) +
         Math.max(0, performance.now() - scheduleDeadlineMs) / 1000;
-      const localWait = resolveYouTubePlaybackStartTarget(
+      const initialTarget = resolveYouTubePlaybackStartTarget(
         initialPosition,
         getState('sync.youtubeLocalOffset') || 0,
         duration,
-      ).localStartDelayMs;
+      );
+      localWait = Math.max(0, initialTarget.localStartDelayMs - outputDelayMs);
       if (localWait > 0) {
         setYtAutoplayIntent(false);
         player.pauseVideo?.();
@@ -1133,12 +1364,29 @@ export async function applyProPlaybackYouTubeCommit(
     }
     const setupLatenessSeconds =
       request.state === 'playing' ? Math.max(0, performance.now() - scheduleDeadlineMs) / 1_000 : 0;
-    const target = resolveProCoordinatorYouTubeTarget(
+    const manualTarget = resolveProCoordinatorYouTubeTarget(
       (Number.isFinite(request.positionSeconds) ? Math.max(0, request.positionSeconds) : 0) +
         setupLatenessSeconds,
       getState('sync.youtubeLocalOffset') || 0,
       duration,
     );
+    // Direct catch-up has no earlier release slot. Advance only the fixed
+    // output delay; a negative manual offset may consume part of that advance
+    // before media zero. Keep the requested manual value separate from the
+    // actual physical-to-canonical delta used by UI and native controls.
+    const compensatedTime = Math.max(
+      0,
+      manualTarget.canonicalTime + manualTarget.requestedOffset + outputDelayMs / 1000,
+    );
+    const outputCeiling =
+      duration > 0 ? Math.max(manualTarget.localTime, duration - 0.05) : Number.POSITIVE_INFINITY;
+    const localTime = Math.min(compensatedTime, outputCeiling, duration > 0 ? duration : Infinity);
+    const target = {
+      ...manualTarget,
+      localTime,
+      effectiveOffset: localTime - manualTarget.canonicalTime,
+    };
+    const automaticOffsetSeconds = target.effectiveOffset - manualTarget.requestedOffset;
     setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
     if (request.youtubeSubIndex !== undefined && request.youtubeSubIndex !== null) {
       setYouTubeSubIndex(request.youtubeSubIndex);
@@ -1156,9 +1404,69 @@ export async function applyProPlaybackYouTubeCommit(
 
     if (request.state === 'playing') {
       setYtAutoplayIntent(true);
+      const playCallAtMs = performance.now();
       player.playVideo?.();
+      const lead = proYouTubeLeadState(
+        request.authority.roomId,
+        request.authority.roomEpoch,
+        platform,
+      );
+      const canonicalStartSeconds = Number.isFinite(request.positionSeconds)
+        ? Math.max(0, request.positionSeconds)
+        : 0;
+      const callbackLatenessMs = Math.max(0, setupLatenessSeconds * 1000 - localWait);
+      // Direct controls have no PLAYING acknowledgement owner. Observe their
+      // media position against the original deadline without treating command
+      // return as acknowledgement or training zero-start compensation.
+      recordProStartObservation('youtube-release', {
+        commitGeneration: generation,
+        revision: request.committedPlaybackRevision,
+        timingMode: request.timingMode,
+        path: 'direct',
+        platform,
+        originalCanonicalExecuteAtMs: scheduleDeadlineMs,
+        canonicalExecuteAtMs: scheduleDeadlineMs,
+        canonicalStartSeconds,
+        scheduleDelayMs: delayMs,
+        requestedTargetSeconds: request.positionSeconds,
+        releasedTargetSeconds: target.localTime,
+        manualOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
+        appliedOffsetSeconds: target.effectiveOffset,
+        playCallAtMs,
+        playingAckAtMs: null,
+        callToPlayingAckMs: null,
+        acknowledgementOnly: true,
+        platformLeadMs: outputDelayMs,
+        timelineLeadMs: 0,
+        releaseLeadMs: outputDelayMs,
+        scheduledLeadMs: 0,
+        outputPositionAdvanceMs: automaticOffsetSeconds * 1000,
+        localStartDelayMs: localWait,
+        rawReleaseLatenessMs: callbackLatenessMs,
+        appliedReleaseLatenessMs: callbackLatenessMs,
+        uncorrectedCallbackLatenessMs: 0,
+        catchUpSeconds: setupLatenessSeconds,
+      });
       setPlaybackYouTubePlaying();
       bus.emit('ui:update-play-state', true);
+      scheduleProYouTubeLeadCalibration({
+        generation,
+        sessionKey: lead.sessionKey,
+        platform,
+        player,
+        queueItemId: request.queueItemId,
+        videoId: liveVideoId,
+        subIndex: request.youtubeSubIndex ?? null,
+        canonicalStartSeconds,
+        canonicalExecuteAtMs: scheduleDeadlineMs,
+        preparationGeneration: getProYouTubeAuthorityPreparationGeneration(),
+        localOffsetSeconds: getState('sync.youtubeLocalOffset') || 0,
+        timingMode: 'scheduled-control',
+        path: 'direct',
+        learningEnabled: false,
+        uncorrectedCallbackLatenessMs: 0,
+        automaticOffsetSeconds,
+      });
     } else {
       setYtAutoplayIntent(false);
       hideYouTubeTapToPlayGate();
@@ -1229,6 +1537,8 @@ function scheduleLateJoinRendezvousSync(
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(opts?: { silent?: boolean }): void {
+  clearStandardHostYouTubeEndHold();
+  recordStandardHostYouTubeAutomaticOffset(0);
   const ownerQueueItemId =
     getState('player.currentTrackMeta')?.queueItemId ?? getCurrentQueueItemId();
   // A participant-local pause proposal cannot settle against an iframe after
@@ -1561,10 +1871,12 @@ function seekYouTubeFromApp(player: YouTubePlayerInstance, seconds: number): voi
       return;
     }
     const state = player.getPlayerState?.() ?? -1;
-    // A pending rendezvous can report PAUSED while logically still playing.
+    // A speaker-local hold can report PAUSED or ENDED while the room plays.
     // Both relative skip and absolute seek must replace that pending target.
     const midSync =
       isYouTubeZeroStartSyncOwned() ||
+      isStandardHostYouTubeLocalStartPending() ||
+      isStandardHostYouTubeEndHoldActive() ||
       !!getManagedTimer('yt-auto-sync') ||
       isStandardHostManualOffsetTransactionPending();
     if (state === 1 || midSync) {
@@ -2010,6 +2322,8 @@ export function initYouTube(): void {
       // snapshot before the controller can reposition that same player.
       invalidateGuestYouTubeTimeline();
       retireYouTubeAutoSync();
+      clearStandardHostYouTubeEndHold();
+      recordStandardHostYouTubeAutomaticOffset(0);
       const queueItemId = selection.queueItemId;
       const videoId = selection.videoId;
       const subIndex = selection.subIndex;
@@ -2126,6 +2440,20 @@ export function initYouTube(): void {
       bus.emit('youtube:zero-start-readiness-changed');
     },
     onPlaybackStarted: (event) => {
+      if (getYouTubeZeroStartRole() === 'host') {
+        // Keep the committed clock independent from this speaker's release.
+        // A late PLAYING callback is not itself media startup latency: measure
+        // the media position against the signed canonical position instead.
+        const scheduledAdvance = (getYouTubeZeroStartSnapshot()?.releaseLeadMs ?? 0) / 1000;
+        const appliedOffset =
+          event.localPositionSec !== null
+            ? event.localPositionSec - event.canonicalPositionSec
+            : (getState('sync.youtubeCoordinatorAppliedOffset') || 0) + scheduledAdvance;
+        setState('sync.youtubeCoordinatorAppliedOffset', appliedOffset);
+        recordStandardHostYouTubeAutomaticOffset(
+          appliedOffset - (getState('sync.youtubeLocalOffset') || 0),
+        );
+      }
       log.debug('[YouTube ZeroStart] Playback released', {
         role: getYouTubeZeroStartRole(),
         platform: getYouTubeZeroStartPlatform(),
@@ -2137,6 +2465,9 @@ export function initYouTube(): void {
     onFallbackRequired: (event) => {
       if (getYouTubeZeroStartRole() !== 'guest') return;
       clearZeroStartExternalFallback();
+      // Recovery keeps this device's fixed baseline even when there is no time left
+      // for an early call; startup learning is deliberately not carried over.
+      const audibleLeadMs = getYouTubeZeroStartSnapshot()?.audibleBaseLeadMs ?? 0;
       const handedOffPlayer =
         event.targetLoadIssued || event.mediaAction === 'resident-reposition'
           ? event.handedOffPlayer
@@ -2151,8 +2482,11 @@ export function initYouTube(): void {
         event.reason === 'cohort-excluded' &&
         (event.targetLoadIssued === true || event.mediaAction === 'resident-reposition');
       const deadline = Date.now() + (canAdoptRemainingPrepareWindow ? 7_700 : 3_000);
-      const uncalibratedReleaseAt =
-        Date.now() + resolveZeroStartDelay(event.targetPositionSec ?? 0);
+      const uncalibratedHoldMs = Math.max(
+        0,
+        resolveZeroStartDelay(event.targetPositionSec ?? 0) - audibleLeadMs,
+      );
+      const uncalibratedReleaseAt = Date.now() + uncalibratedHoldMs;
       const context: YouTubeZeroStartTargetContext = {
         role: 'guest',
         queueItemId: event.queueItemId,
@@ -2316,7 +2650,7 @@ export function initYouTube(): void {
           if (!loadIssued) {
             loadIssued = true;
             player.mute();
-            player.loadVideoById(event.videoId, 0);
+            player.loadVideoById(event.videoId, resolveZeroStartLocalTarget(0, context));
           }
 
           const currentVideoId = player.getVideoData().video_id ?? '';
@@ -2372,7 +2706,7 @@ export function initYouTube(): void {
 
           const releaseWaitMs =
             event.startAtHost !== null && isClockCalibrated()
-              ? event.startAtHost + resolveZeroStartDelay(0) - getHostNow()
+              ? event.startAtHost + resolveZeroStartDelay(0) - audibleLeadMs - getHostNow()
               : uncalibratedReleaseAt - Date.now();
           if (releaseWaitMs > 0) {
             // The iframe recovered before the authoritative COMMIT deadline.
@@ -2404,13 +2738,13 @@ export function initYouTube(): void {
             return;
           }
 
-          const canonicalTarget = Math.max(
-            0,
-            event.startAtHost !== null && isClockCalibrated()
+          // Keep the signed canonical position until adding the fixed lead:
+          // a release 250ms before zero must seek to zero, not to +250ms.
+          const canonicalTarget =
+            (event.startAtHost !== null && isClockCalibrated()
               ? (getHostNow() - event.startAtHost) / 1_000
-              : (event.targetPositionSec ?? 0) +
-                  resolveZeroStartDelay(event.targetPositionSec ?? 0) / 1000,
-          );
+              : (event.targetPositionSec ?? 0) + uncalibratedHoldMs / 1000) +
+            audibleLeadMs / 1000;
           const localTarget = resolveZeroStartLocalTarget(canonicalTarget, context);
           player.pauseVideo();
           player.seekTo(localTarget, true);
@@ -3133,11 +3467,23 @@ export function initYouTube(): void {
     try {
       const state = player.getPlayerState();
       const currentTime = readCanonicalYouTubeTime(player);
+      const virtualHostPlaying =
+        isStandardHostYouTubeLocalStartPending() || isStandardHostYouTubeEndHoldActive();
       const settlingCoordinatorStillPlaying =
         isCanonicalYouTubeManualOffsetEndpoint() &&
         !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) &&
         isPlaybackPlayingYouTube();
-      if (state === YT.PlayerState.PLAYING || settlingCoordinatorStillPlaying) {
+      if (
+        state === YT.PlayerState.PLAYING ||
+        settlingCoordinatorStillPlaying ||
+        virtualHostPlaying
+      ) {
+        if (virtualHostPlaying) {
+          // Its iframe is still waiting at zero or has already reached ENDED.
+          // Resolve a real paused position before releasing the virtual clock.
+          scheduleYtAutoSync(currentTime, { state: 2 });
+          return;
+        }
         // PAUSE: immediate, no delay
         cancelYtAutoSync();
         markYtStateBroadcast();

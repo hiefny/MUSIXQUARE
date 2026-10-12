@@ -8,6 +8,11 @@ const demoRuntime = vi.hoisted(() => ({
   handleProtocolMessage: vi.fn(),
 }));
 const demoStorage = vi.hoisted(() => ({ hasAppUseRecord: vi.fn(() => false) }));
+const recorder = vi.hoisted(() => ({ prepare: vi.fn<() => Promise<void>>() }));
+
+vi.mock('../../diagnostics/sync-flight-recorder-loader.ts', () => ({
+  prepareSyncFlightRecorder: recorder.prepare,
+}));
 
 vi.mock('../mode.ts', () => ({
   initDemoMode: demoRuntime.init,
@@ -33,6 +38,7 @@ function enterMessage(index: number) {
 describe('demo runtime loader', () => {
   beforeEach(() => {
     vi.resetModules();
+    recorder.prepare.mockReset().mockResolvedValue(undefined);
     demoRuntime.init.mockReset();
     demoRuntime.reconcile.mockReset();
     demoRuntime.handleProtocolMessage.mockReset();
@@ -46,6 +52,60 @@ describe('demo runtime loader', () => {
   });
 
   afterEach(() => vi.useRealTimers());
+
+  it('waits for diagnostics before replaying the first local demo entry', async () => {
+    let ready!: () => void;
+    recorder.prepare.mockReturnValue(
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
+    );
+    const [{ bus }, { resetState }, { initDemoModeLoader }] = await Promise.all([
+      import('../../core/events.ts'),
+      import('../../core/state.ts'),
+      import('../loader.ts'),
+    ]);
+    bus.clear();
+    resetState();
+    initDemoModeLoader();
+    expect(recorder.prepare).not.toHaveBeenCalled();
+    const entries = vi.fn();
+    bus.on('demo:enter', entries);
+    bus.emit('demo:enter');
+    await vi.dynamicImportSettled();
+    expect(demoRuntime.init).not.toHaveBeenCalled();
+    expect(entries).toHaveBeenCalledOnce();
+    ready();
+    await vi.dynamicImportSettled();
+    expect(demoRuntime.init).toHaveBeenCalledOnce();
+    expect(entries).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves remote ENTER and PLAY while diagnostics loads, but retires an exited attempt', async () => {
+    let ready!: () => void;
+    recorder.prepare.mockReturnValue(
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
+    );
+    const { conn, send } = await guestLoader();
+    const staleEntry = send(enterMessage(0));
+    const stalePlay = send({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 });
+    await vi.dynamicImportSettled();
+    expect(demoRuntime.init).not.toHaveBeenCalled();
+    await send({ type: MSG.DEMO_EXIT });
+    const entry = enterMessage(1);
+    const play = { type: MSG.DEMO_PLAY, index: 1, time: 2, hostPlayAt: 3 };
+    const latestEntry = send(entry);
+    const latestPlay = send(play);
+    ready();
+    await Promise.all([staleEntry, stalePlay, latestEntry, latestPlay]);
+    expect(demoRuntime.init).toHaveBeenCalledOnce();
+    expect(demoRuntime.handleProtocolMessage.mock.calls).toEqual([
+      [entry, conn],
+      [play, conn],
+    ]);
+  });
 
   it('loads once and replays the first explicit demo entry', async () => {
     const [{ bus }, { resetState }, { initDemoModeLoader }] = await Promise.all([

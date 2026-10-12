@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [일반·PRO 동시 입장 시뮬레이션 — 2026-10-13](design/session-admission-burst-simulation-2026-10-13.md) —
+  실제 로컬 workerd·SQLite DO에서 동시 입장, 정원 초과, 암호·공유망, 재시도·재접속,
+  퇴장 후 자리 재사용을 검사한다. 반복 실행 명령과 fixture·실기기 한계를 기록한다.
+
 - [PRO 입장 복구·서버 진단 — 2026-10-13](design/pro-admission-repair-2026-10-13.md) —
   활성/휴면 번호 분리, TTL 경계 정원 판정, 공유 조회의 수명과 제한된 서버 진단.
   수정·검증·배포 근거와 과거 행사 원인을 확정할 수 없는 한계를 기록한다.

@@ -177,12 +177,15 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 후속 작업과 유지 결정
 
-- [ ] 일반방 YouTube C11(2026-10-12 재현, 미수정): 정밀 랑데부 play callback의
-  허용 지연이 `guestPlayLatency` 학습과 localStorage에 섞인다. 중립 모형에서
-  30ms 지연 → 9ms 저장, 150ms → 45ms 저장 및 상태 초기화 뒤 유지 확인.
-  원래 부호 있는 deadline의 지연과 시계 변경을 분리한 최소 수정이 필요하다.
-  C13은 UA/플랫폼 모두 Linux로 바뀌는 데스크톱 모드를 터치만으로 추정하지 않는다.
-  [재현·판정·검증 한계](design/standard-start-review-2026-10-12.md)
+- [ ] 일반방 YouTube C11(2026-10-12 로컬 수정, 미배포): `f7761782`에서 원래
+  deadline의 미보정 callback 지연을 학습 입력에서 제외했다. 계획·타이머 예약·
+  재생 호출·측정의 시계 변경도 학습에서 제외하며 기존 저장값은 초기화하지 않는다.
+  SharedClock 선택 변경·만료·재보정과 작업별 관측은 로컬 flight recorder에 추가했다.
+  실제 출력 지연과 C13은 실기 측정 뒤 결정한다. UA/플랫폼 모두 Linux인 데스크톱
+  모드를 터치만으로 추정하지 않으며 PRO 학습값 영속화도 보류한다. 후속 배포에는
+  App/SW 버전 갱신과 정상 exact-main 후보가 필요하다.
+  [수정·검증·남은 한계](design/standard-start-learning-repair-2026-10-12.md),
+  [수정 전 재현·판정](design/standard-start-review-2026-10-12.md)
 - [ ] PRO 시작 시계(2026-10-12 로컬 수정, 미배포): C2·C10a의 예약 오류를 작업별
   시계 snapshot과 playing COMMIT 시계 확보로 막았다. C4의 늦은 응답은 다음 작업의
   후보로만 보관한다. READY 미완료 중 조기 COMMIT이 PREPARE 대기를 이어받는 경로와

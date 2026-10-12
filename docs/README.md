@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [일반방 랑데부 학습·시계 관측 수정 — 2026-10-12](design/standard-start-learning-repair-2026-10-12.md) —
+  C11 timer 지연 제외, 계획·예약·호출·측정 시계 검사, SharedClock 선택 사유와
+  flight recorder 관측. 시간 경계 재현·회귀 및 로컬 검증, 미배포.
 - [일반방 시작 시계·학습 제안 재검증 — 2026-10-12](design/standard-start-review-2026-10-12.md) —
   C11 영속 학습 오염 9조건 재현, C13 감지 한계, 일반방 시계·파일 보정 경계,
   관측·QA 기준. 제품 수정 없이 로컬 검증.

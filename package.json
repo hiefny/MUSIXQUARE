@@ -120,7 +120,6 @@
     "security:audit": "npm audit --audit-level=high",
     "security:signatures": "npm audit signatures",
     "test": "vitest run",
-    "test:session-burst": "vitest run src/core/__tests__/standard-room-burst.test.ts src/core/__tests__/pro-room-burst.test.ts --maxWorkers=2 --reporter=verbose",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:coverage:critical": "vitest run --coverage --config vitest.critical.config.ts",

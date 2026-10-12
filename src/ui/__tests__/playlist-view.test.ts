@@ -315,8 +315,9 @@ describe('PRO upload rows', () => {
       expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
       expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
       expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
-      expect(spinner?.style.getPropertyValue('--material-elastic-spin-delay')).toMatch(/^-\d+ms$/);
-      expect(spinner?.style.getPropertyValue('--material-elastic-dash-delay')).toMatch(/^-\d+ms$/);
+      // The phase is `-(now % period)`; a zero remainder renders as `0ms`, not `-0ms`.
+      expect(spinner?.style.getPropertyValue('--material-elastic-spin-delay')).toMatch(/^-?\d+ms$/);
+      expect(spinner?.style.getPropertyValue('--material-elastic-dash-delay')).toMatch(/^-?\d+ms$/);
       expect(entry.querySelector('.type-icon')).toBeNull();
       const row = entry.querySelector('.pro-upload-row');
       expect(row?.lastElementChild).toBe(entry.querySelector('[data-pro-upload-action="cancel"]'));

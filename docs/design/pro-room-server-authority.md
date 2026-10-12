@@ -414,34 +414,61 @@ metadata bound to the immutable asset version, byte length and room generation;
 the bounded queue-occurrence cache is reconstructed from it when needed.
 YouTube evidence remains bound to the video/subindex and expires as before.
 
-New browser uploads inspect bounded local metadata alongside the PUT. Only an
-uploader with `playback.control` may persist the optional length; upload-only
-permission does not confer timing authority. Missing metadata, including
-Developer API uploads, queues one bounded server inspection. Existing rooms
-migrate verified queue evidence lazily and learn other lengths during playback
-inspection or authorized preparation, without reupload or playlist reset.
-Decoded controller evidence takes precedence over server evidence and upload
-headers. Neither a metadata timeout nor an unsupported format rejects an
-otherwise successful upload. Optional metadata is omitted near room-state
-capacity rather than making an existing room unloadable.
+Every completed upload, browser or Developer API, queues one bounded server
+inspection of the stored object. A browser may still send the length it read
+locally; it stays part of the completion receipt but is never timing evidence.
+Server lengths are stored with the reader version that measured them. Lengths
+from an older reader (8.9.5-8.10.0) and earlier client-supplied upload lengths
+count as absent: the playing file is measured again on its next playback, not
+in a deployment-wide sweep. Existing rooms otherwise learn lengths during
+playback inspection or authorized preparation, without reupload or playlist
+reset. Decoded controller evidence takes precedence over server evidence,
+except that a controller length more than 10% shorter than a server
+measurement of the same asset version is ignored, or replaced when the
+measurement arrives later; the measurement stays as a floor beneath accepted
+controller values. A decode reported before any current measurement queues one
+bounded server read; a decode stored by 8.10.0 without one gets that read when
+its file next plays or is prepared. A failed or timed-out object read is not an
+answer: it is not recorded as an unknown length, so the next decode report
+reads again, and a playing file's failed read is retried like a failed
+metadata lookup, after 5 s, 30 s and then every 5 minutes. That includes the
+read behind an 8.10.0 decode, and one the queue refused near state capacity;
+the alarm wakes an otherwise idle room for it. MP3 frame-count headers
+inconsistent with the audio span (after recognized ID3v1, APEv2, Lyrics3v2 and
+appended ID3v2.4 tags) and fragmented MP4 timelines remain unknown rather than
+too short. A CBR 'Info' count must itself span the audio to within one frame,
+at the exact average length of the first audio frame after the Info frame
+(FFmpeg writes a low-bitrate stream's Info frame at a higher bitrate). A VBR
+count needs a stream byte count within the 1/16 concatenation tolerance, and
+behind a leading ID3 tag larger than that tolerance, or without a byte count,
+it is replaced by the bounded frame scan. Known limit: a VBR count still
+accepts an appended part smaller than that tolerance. Neither a metadata
+timeout nor an unsupported format rejects an otherwise successful upload.
+Optional metadata is omitted near room-state capacity rather than making an
+existing room unloadable; a refused metadata answer still records its retry
+backoff, and withdraws an earlier "not found" answer as an applied one would.
 
 The next Durable Object alarm includes the canonical anchor's ending time.
 After pruning expired presence, the alarm advances through the same reducer,
 PREPARE/COMMIT, and durable broadcast outbox as authorized browser observations.
 Pending manual transitions, explicit pause, an empty room, and system audio
-suppress this timer. Server-parsed and upload-header lengths have two seconds of conservative
+suppress this timer. Server-parsed lengths have two seconds of conservative
 grace for container padding and YouTube duration rounding; controller-attested
 decoded file lengths do not need that grace. Browser ENDED can still settle
 the boundary sooner. A new seek/selection/repeat revision cannot inherit an old
 ending action, and the last participant's departure retains the existing
 sleep/freeze behavior.
 
-Live or unknown YouTube lengths, private/missing metadata, API failures, and
-files exceeding bounded metadata inspection do not become permission to skip.
-They retain the authorized observation path and bounded metadata retries.
-Only explicit server-verified non-embeddability or terminal upload failure is
-an automatic unavailability verdict; repeated unavailable targets are bounded
-so an entirely unplayable repeat queue becomes idle instead of cycling forever.
+Live or unknown YouTube lengths, a single missing-video answer, API failures,
+and files exceeding bounded metadata inspection do not become permission to
+skip. They retain the authorized observation path and metadata retries that
+back off to fifteen minutes (from one minute for live or unavailable answers;
+failed lookups first retry after 5 and 30 seconds). Explicit server-verified
+non-embeddability, terminal upload failure, or two YouTube "not found" answers
+(an empty result: deleted, or private to the key) from separate lookups at
+least a minute apart are automatic unavailability verdicts; a live stream never
+is. Repeated unavailable targets are bounded so an entirely unplayable repeat
+queue becomes idle instead of cycling forever.
 An old YouTube playlist without a traversal manifest ends in a canonical
 paused state when its next internal video cannot be resolved. No ordinary
 participant gains manual playback control. See the

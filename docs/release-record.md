@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-12 (배포 SHA `95e9092c`, Release `38165114764`) |
+| Last source review | 2026-10-12 (배포 SHA `9c924ee1`, Release `38192571743`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,15 +28,15 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.10.0` / `v659` |
-| 마지막 프로덕션 변경 | 2026-10-12 03:50 KST, [Release 38165114764](https://github.com/hiefny/MUSIXQUARE/actions/runs/38165114764) attempt 1 성공, `target=all`, Developer API D1 `false` |
-| 배포 main SHA | `95e9092c21d8facfeadf93cd2c0f4d2462dc39ee` (PR [#294](https://github.com/hiefny/MUSIXQUARE/pull/294)). exact-main [CI 38164204638](https://github.com/hiefny/MUSIXQUARE/actions/runs/38164204638) attempt 2. attempt 1은 unit 2/2에서 기존 시간 의존 테스트 1개(`playlist-view.test.ts`의 업로드 스피너 지연이 `now % 주기`가 0일 때 `-0ms` 대신 `0ms`)만 실패했고, 실패 job만 다시 실행해 11개 job이 모두 성공했다. 이 테스트는 8.10.0이 건드리지 않은 코드이고 8.10.1에서 고친다 |
-| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `95e9092c` 적용. 런타임이 바뀐 것은 signaling(3개 경로)과 app(66개 경로)뿐이다. 운영 smoke 10개, 최종 배포 소유권, PRO generation ready, coherent production marker 확인. 새 비밀·바인딩·D1 스키마 변경 없음. 새 시그널링 Durable Object 키 2개(`standard-room-pin-membership-v1`, `standard-room-pin-failures-v1`)는 계약 marker 없이 쓴다 |
-| 복구 | 필요 없음. Release 38165114764의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 Production Release 실행 안의 job이다 |
-| 활성 복구 floor | PRO/App 선택형 입장 암호. `cloudflare/pro-room-entry-policy-contract-version.txt` = `pro-room-optional-entry-password-v1`. 이번 배포에서 floor 변경 없음(`standard-room-pin-storage-contract-version.txt`는 `standard-room-pin-v2` 그대로). 이 계약 이전의 PRO/App 기준선으로는 복구하지 않는다. forward repair나 검증된 같은 시점 코드·데이터 복구를 쓰고, 계약을 아는 기준선으로의 일반 rollback은 가능하다 (§4) |
-| 검증 범위 | PR [CI 38163808826](https://github.com/hiefny/MUSIXQUARE/actions/runs/38163808826) 11개 job 성공(attempt 1). exact-main unit 544파일 11,742 pass / 0 fail / Linux에서 Windows 전용 1 skip(attempt 2 기준), coverage 4종, Chromium candidate·critical gate 성공. 로컬 병합 트리(`9f3245c2`) 전체 unit 11,743 pass / 0 fail / 0 skip과 타입·린트·포맷·build:checked 통과, 이후 탭 인계 문구 수정은 관련 490개 테스트로 확인했다. 공개 GET에서 첫 화면 HTTP 200과 `bootstrap.js?cache=v659`, `/service-worker.js` HTTP 200과 `v659` 확인. 고객방에는 들어가거나 바꾸지 않았다. 실기·네이티브 화자 검토는 §2에 남는다. [상세](design/release-8-10-0-merge-review-2026-10-12.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 8.10.0 배포 뒤 [38165659080](https://github.com/hiefny/MUSIXQUARE/actions/runs/38165659080) (2026-10-12 KST, source `95e9092c`) 31 pass / 0 fail / 5 manual. 소스의 64개 바인딩 계약과 실제 제공 중인 모든 Worker 버전의 설정 일치 확인. 수동 5항목은 §2에 남는다 |
-| Full E2E | 매주 월 18:17 UTC. 2026-10-12 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 배포의 critical browser 검사와 별개로, 8.10.0 배포 SHA의 전체 E2E 실행은 없음 |
+| App 버전 / SW 캐시 | `8.10.1` / `v660` |
+| 마지막 프로덕션 변경 | 2026-10-12 10:42 KST, [Release 38192571743](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192571743) attempt 1 성공, `target=all`, Developer API D1 `false` |
+| 배포 main SHA | `9c924ee1` (PR [#303](https://github.com/hiefny/MUSIXQUARE/pull/303)). exact-main [CI 38192205201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192205201) attempt 1 |
+| Worker | 6종(app, pro-room, signaling, remote-share, developer-api, developer-api-facade) 모두 `9c924ee1` 적용. 런타임이 바뀐 것은 pro-room과 app(브라우저 번들 포함)이다. 운영 smoke 10개, 최종 배포 소유권, PRO generation ready, coherent production marker 확인. 새 비밀·바인딩·D1 스키마 변경 없음. PRO 저장소의 파일 길이 근거에 `reader`·`measuredSeconds` 필드가 추가되며 계약 marker는 없다 |
+| 복구 | 필요 없음. Release 38192571743의 recovery job(`Preserve failed-release recovery boundary`)은 skip됐다. recovery는 Production Release 실행 안의 job이다 |
+| 활성 복구 floor | PRO/App 선택형 입장 암호. `cloudflare/pro-room-entry-policy-contract-version.txt` = `pro-room-optional-entry-password-v1`. 이번 배포에서 floor 변경 없음. 이 계약 이전의 PRO/App 기준선으로는 복구하지 않는다. forward repair나 검증된 같은 시점 코드·데이터 복구를 쓰고, 계약을 아는 기준선으로의 일반 rollback은 가능하다. 8.10.0으로 되돌려도 새 길이 필드는 무시되거나 지워지고, 다시 앞으로 배포하면 그 사이 이전 판독기 값은 재생 때 다시 잰다 (§4) |
+| 검증 범위 | PR [CI 38180080843](https://github.com/hiefny/MUSIXQUARE/actions/runs/38180080843)·exact-main CI 각각 11개 job 성공(attempt 1). exact-main unit 544파일 12,004 pass / 0 fail / Linux에서 Windows 전용 1 skip, coverage 4종, Chromium candidate·critical gate 성공. 로컬 릴리스 SHA(`ed53d978`) 전체 unit 12,005 pass / 0 fail / 0 skip, Worker 2,475 pass, 타입·린트·포맷·build:checked·Worker 6종 번들 통과. 적대적 리뷰 3회(7·5·4건 모두 수정)와 P1–P3 출시 게이트(0건). 공개 GET에서 첫 화면 HTTP 200과 `bootstrap.js?cache=v660`, `/service-worker.js` HTTP 200과 `v660` 확인. 고객방에는 들어가거나 바꾸지 않았다. 실기·실제 고객방 확인은 §2에 남는다. [상세](design/pro-duration-hardening-2026-10-12.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 8.10.1 배포 뒤 [38192998504](https://github.com/hiefny/MUSIXQUARE/actions/runs/38192998504) (2026-10-12 KST, source `9c924ee1`) 31 pass / 0 fail / 5 manual. 소스의 64개 바인딩 계약과 실제 제공 중인 모든 Worker 버전의 설정 일치 확인. 수동 5항목은 §2에 남는다 |
+| Full E2E | 매주 월 18:17 UTC. 2026-10-12 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 배포의 critical browser 검사와 별개로, 8.10.1 배포 SHA의 전체 E2E 실행은 없음 |
 | 의존성 | 이번 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288)(Mediabunny 1.61.3, Vite 8.3.3, Wrangler 4.148.0 등) 유지. 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포에 넣지 않았다. 2026-10-11 확인한 `npm audit`(전체·`--omit=dev`) 및 Dependabot alert는 0건. sharp 0.35.5 override 유지, TypeScript 6.1 이상·@types/node 25 이상은 Dependabot ignore. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
@@ -242,15 +242,15 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   등록 시 길이 확보와 기존 파일의 점진적 보완도 같은 실기 확인 대상이다.
   분석 불가 형식은 권한 기기의 준비 완료 전까지 미확정으로 남는다.
   [등록·보완 근거](design/pro-file-duration-registration-2026-10-12.md)
-- [ ] PRO 자동 넘김 후속 수정(8.10.1 예정, PRO Worker): 8.9.4–8.9.6 리뷰에서 나온
-  P3·P4. 연결 MP3의 낡은 Xing/VBRI 프레임 수와 조각난 MP4(`mvex`·`moof`)가 짧은
-  길이로 읽혀 컨트롤러가 없을 때 곡이 일찍 넘어갈 수 있다. 방 상태가 용량 한도에
-  닿아 자연 넘김이 롤백되거나, 재생 파일의 자산이 식별 검사에 실패하면 알람이 쉬지
-  않고 다시 울린다. 라이브·조회 불가 YouTube는 1분마다 다시 조회한다. 권한을 잃은
-  컨트롤러의 짧은 길이 보고가 남는다. 오너 결정(2026-10-12): 8.10.0을 먼저 배포하고(완료)
-  이 수정은 바로 다음 릴리스로 낸다. 삭제·비공개 YouTube 영상은 시간 간격을 둔 두
-  번의 "없음" 응답이 확인되면 건너뛴다.
-  [리뷰·처리](design/release-8-10-0-merge-review-2026-10-12.md)
+- [ ] PRO 자동 넘김 길이 판독(8.10.1 배포 뒤): 운영 PRO Worker 로그에서
+  `Automatic completion metadata unavailable`(특히 `METADATA_LOOKUP_FAILED`)와 YouTube
+  메타데이터 조회가 평소보다 늘지 않는지 본다. 8.9.5–8.10.0 판독기가 저장한 서버·업로드
+  길이는 재생 때 다시 재므로, 이어 붙인 MP3·조각난 MP4는 짧게 넘어가는 대신 컨트롤러가
+  준비할 때까지 곡 끝에서 멈출 수 있다(오너 규칙: 짧은 길이보다 미확정). 삭제·비공개
+  YouTube 영상은 60초 이상 떨어진 두 번의 "없음" 응답 뒤에만 건너뛴다. 남은 한계:
+  VBR 파일의 1/16 미만 이어 붙임은 FFmpeg처럼 감지하지 못하고, 16 MiB를 넘는 스캔
+  대상과 꼬리말 없는 ID3v2.3 뒤 태그는 미확정이다. 실기 확인은 위 "PRO 자율 재생 실기"
+  항목과 함께 한다. [상세](design/pro-duration-hardening-2026-10-12.md)
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
   포커스를 받는다. 8.7.8 이전부터 있던 문제다.
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전
@@ -378,6 +378,13 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   만료된다. 계약 marker는 없고 rollback floor도 바뀌지 않는다.
   [상세](design/standard-room-owner-pin-2026-10-11.md),
   [운영](../cloudflare/standard-room-pin-ops.md#rollback)
+- **PRO 파일 길이 근거(8.10.1 배포 뒤):** PRO Worker를 8.10.0으로 되돌려도 floor는
+  없다. 이전 Worker는 asset 길이 근거의 `reader`·`measuredSeconds`를 엄격히 검사하지
+  않아 다시 쓸 때까지 그대로 두고, 큐 캐시에서는 지운다. 되돌린 동안에는 이전 판독기와
+  업로드 길이가 다시 저장되어 이어 붙인 MP3·조각난 MP4가 짧게 읽힐 수 있다. 다시 앞으로
+  배포하면 그 값들은 `reader: 2`가 없으므로 재생 때 다시 잰다. App만 되돌리면 업로드
+  길이를 보내지만 새 Worker는 저장하지 않는다. 계약 marker는 없다.
+  [상세](design/pro-duration-hardening-2026-10-12.md#compatibility)
 
 ## 5. 갱신 방법
 

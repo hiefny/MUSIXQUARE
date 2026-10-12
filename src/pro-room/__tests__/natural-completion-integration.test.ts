@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PRO_ROOM_FILE_DURATION_READER } from '../../../cloudflare/pro-room-media-duration.ts';
 import { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
 
 const metadata = vi.hoisted(() => ({ file: vi.fn(), youtube: vi.fn() }));
-vi.mock('../../../cloudflare/pro-room-media-duration.ts', () => ({
+vi.mock('../../../cloudflare/pro-room-media-duration.ts', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   readProRoomFileDuration: metadata.file,
 }));
 vi.mock('../../../cloudflare/pro-youtube-duration.ts', () => ({
@@ -269,6 +271,21 @@ async function alarmAt(context: Context, at: number, keepListener = true) {
   await context.settle();
 }
 
+// Pad the core until `margin` more bytes would exceed the 1.2 MB state limit.
+function fillCore(context: Context, margin: number) {
+  const asset = context.room.assets[`asset_${SECOND}`]!;
+  asset.name = '';
+  const { playlist, ...core } = context.room;
+  const encoded = Buffer.byteLength(
+    JSON.stringify({
+      schemaVersion: 2,
+      core,
+      playlistOrder: playlist.map((item) => item.queueItemId),
+    }),
+  );
+  asset.name = 'x'.repeat(1200 * 1024 - encoded - margin);
+}
+
 async function reachEnd(context: Context) {
   const end = context.worker.naturalPlaybackEndAtMs();
   expect(end).not.toBeNull();
@@ -506,6 +523,125 @@ describe('PRO natural completion with ordinary listeners and no active controlle
     await alarmAt(context, end + 1);
     expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
   });
+
+  it('backs off a natural end refused by room state capacity instead of re-arming at once', async () => {
+    const context = await fixture();
+    await start(context);
+    await leaveOwner(context);
+    const end = context.worker.naturalPlaybackEndAtMs()!;
+    // Fill the bounded core so the successor PREPARE and its outbox cannot fit.
+    const asset = context.room.assets[`asset_${FIRST}`]!;
+    const { playlist, ...core } = context.room;
+    const encoded = Buffer.byteLength(
+      JSON.stringify({
+        schemaVersion: 2,
+        core,
+        playlistOrder: playlist.map((item) => item.queueItemId),
+      }),
+    );
+    asset.name = 'x'.repeat(1200 * 1024 - encoded - 256);
+    await context.worker.persist();
+    const playback = structuredClone(context.room.playback);
+    const delivered = context.broadcasts.length;
+    await alarmAt(context, end);
+    expect(context.room.pendingPlaybackTransition).toBeNull();
+    expect(context.room.playback).toEqual(playback);
+    expect(context.broadcasts).toHaveLength(delivered);
+    const retryAt = context.storage.alarm!;
+    expect(retryAt).toBeGreaterThanOrEqual(end + 30_000);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(retryAt);
+    // Ordinary requests prune too; they must not repeat the refused work.
+    const advance = vi.spyOn(context.worker, 'advanceCompletedPlayback');
+    vi.setSystemTime(end + 1_000);
+    await context.worker.prune(Date.now());
+    expect(advance).not.toHaveBeenCalled();
+    // Once capacity is available again, the retry completes the track. The
+    // rollback restored a cloned room, so read the current asset record.
+    delete context.room.assets[`asset_${FIRST}`]!.name;
+    await context.worker.persist();
+    expect(context.storage.alarm).toBe(retryAt);
+    await alarmAt(context, retryAt);
+    expect(advance).toHaveBeenCalledOnce();
+    expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
+  });
+
+  it('drops a capacity retry when the playback it was measured against changes', async () => {
+    const context = await fixture();
+    await start(context);
+    await leaveOwner(context);
+    const end = context.worker.naturalPlaybackEndAtMs()!;
+    const asset = context.room.assets[`asset_${FIRST}`]!;
+    const { playlist, ...core } = context.room;
+    const encoded = Buffer.byteLength(
+      JSON.stringify({
+        schemaVersion: 2,
+        core,
+        playlistOrder: playlist.map((item) => item.queueItemId),
+      }),
+    );
+    asset.name = 'x'.repeat(1200 * 1024 - encoded - 256);
+    await context.worker.persist();
+    await alarmAt(context, end);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeGreaterThanOrEqual(end + 30_000);
+    delete context.room.assets[`asset_${FIRST}`]!.name;
+    await command(context, { type: 'seek', positionSeconds: 1 });
+    await finishPrepare(context);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      context.room.playback.updatedAtMs + 3_000 + 2_000,
+    );
+  });
+
+  it.each([
+    // The reader rejects a failed object read or its lookup deadline.
+    [
+      'a failed file read quickly',
+      () => metadata.file.mockRejectedValueOnce(new Error('PRO_MEDIA_DURATION_PROBE_TIMEOUT')),
+      5_000,
+    ],
+    [
+      'an unknown file length after five minutes',
+      () => metadata.file.mockResolvedValueOnce(null),
+      300_000,
+    ],
+  ])('retries %s', async (_label, configure, delay) => {
+    configure();
+    const context = await fixture();
+    await start(context);
+    expect(metadata.file).toHaveBeenCalledOnce();
+    expect(context.room.playbackDurationProbe).toMatchObject({
+      attempts: 1,
+      retryAtMs: NOW + delay,
+    });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+  });
+
+  it.each(['version', 'deletion'] as const)(
+    'backs off a file probe whose asset fails its %s identity check instead of re-arming at once',
+    async (change) => {
+      const context = await fixture();
+      const asset = context.room.assets[`asset_${FIRST}`]!;
+      if (change === 'version') asset.version = 2; // The queue row still names version 1.
+      if (change === 'deletion')
+        asset.deletionPending = {
+          reason: 'orphan-gc',
+          originalStatus: 'ready',
+          requestedAtMs: NOW,
+          retryAtMs: NOW + 3_600_000,
+        };
+      await context.worker.persist();
+      await start(context);
+      await leaveOwner(context);
+      expect(metadata.file).not.toHaveBeenCalled();
+      expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+      const probe = context.room.playbackDurationProbe!;
+      expect(probe).toMatchObject({ attempts: 1 });
+      expect(probe.retryAtMs).toBeGreaterThanOrEqual(NOW + 5 * 60_000);
+      expect(context.storage.alarm).toBeGreaterThan(Date.now() + 1_000);
+      await alarmAt(context, Date.now() + 1_000);
+      expect(context.room.playbackDurationProbe).toEqual(probe);
+      expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+    },
+  );
 
   it('does not block a new selection on metadata I/O or apply the previous track result to it', async () => {
     let completeFile!: (duration: number | null) => void;
@@ -773,4 +909,532 @@ describe('PRO natural completion with ordinary listeners and no active controlle
       expect(context.room.pendingPlaybackTransition).toBeNull();
     },
   );
+});
+
+describe('PRO YouTube metadata backoff and confirmed missing videos', () => {
+  const notFound = { kind: 'unavailable', reason: 'not-found' } as const;
+
+  async function playingYouTube() {
+    const context = await fixture([youtubeItem(FIRST), fileItem(SECOND)]);
+    await start(context);
+    await leaveOwner(context);
+    return context;
+  }
+
+  async function nextLookup(context: Context) {
+    const at = context.room.playbackDurationProbe!.retryAtMs;
+    await alarmAt(context, at);
+    return at;
+  }
+
+  it.each([
+    [
+      'live',
+      () => metadata.youtube.mockResolvedValue({ kind: 'live' }),
+      [60_000, 120_000, 240_000, 480_000, 900_000, 900_000],
+    ],
+    [
+      'unavailable',
+      () => metadata.youtube.mockResolvedValue({ kind: 'unavailable' }),
+      [60_000, 120_000, 240_000, 480_000, 900_000, 900_000],
+    ],
+    // Failed lookups are not answers: they keep the quick first retries.
+    [
+      'retry',
+      () => metadata.youtube.mockResolvedValue({ kind: 'retry' }),
+      [5_000, 30_000, 240_000, 480_000, 900_000, 900_000],
+    ],
+    [
+      'failed',
+      () => metadata.youtube.mockRejectedValue(new Error('metadata network failure')),
+      [5_000, 30_000, 240_000, 480_000, 900_000, 900_000],
+    ],
+  ])(
+    'backs off %s lookups up to fifteen minutes without skipping',
+    async (_kind, configure, expected) => {
+      configure();
+      const context = await playingYouTube();
+      const delays = [context.room.playbackDurationProbe!.retryAtMs - NOW];
+      for (let lookup = 0; lookup < 5; lookup += 1) {
+        const at = await nextLookup(context);
+        delays.push(context.room.playbackDurationProbe!.retryAtMs - at);
+      }
+      expect(delays).toEqual(expected);
+      expect(metadata.youtube).toHaveBeenCalledTimes(6);
+      // Liveness alarms in between do not repeat the provider lookup.
+      await alarmAt(context, Date.now() + 60_000);
+      expect(metadata.youtube).toHaveBeenCalledTimes(6);
+      expect(context.room.playbackDurationProbe).not.toHaveProperty('notFoundAtMs');
+      expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+      expect(context.room.pendingPlaybackTransition).toBeNull();
+    },
+  );
+
+  it('skips a video YouTube reports missing only after a second answer a minute later', async () => {
+    metadata.youtube.mockResolvedValue(notFound);
+    const context = await playingYouTube();
+    expect(context.room.playbackDurationProbe).toMatchObject({ attempts: 1, notFoundAtMs: NOW });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+    // An early repeated answer is not a separate confirmation.
+    vi.setSystemTime(NOW + 59_000);
+    context.room.playbackDurationProbe!.retryAtMs = Date.now();
+    context.worker.startPlaybackDurationProbe();
+    await context.settle();
+    expect(context.room.playbackDurationProbe).toMatchObject({ attempts: 2, notFoundAtMs: NOW });
+    expect(context.room.playbackDurations).toEqual({});
+    context.room.playbackDurationProbe!.retryAtMs = NOW + 60_000;
+    await nextLookup(context);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+    expect(Object.values(context.room.playbackDurations)).toEqual([
+      expect.objectContaining({ durationSeconds: null, source: 'server' }),
+    ]);
+    // The existing unplayable path then skips to the next queue item.
+    await alarmAt(context, context.storage.alarm!);
+    expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
+    expect(context.room.automaticUnavailableSkips).toBe(1);
+  });
+
+  it.each([
+    ['a failed lookup', () => metadata.youtube.mockResolvedValueOnce({ kind: 'retry' }), true],
+    ['a thrown lookup', () => metadata.youtube.mockRejectedValueOnce(new Error('network')), true],
+    ['a live answer', () => metadata.youtube.mockResolvedValueOnce({ kind: 'live' }), false],
+    [
+      'an older App unavailable answer',
+      () => metadata.youtube.mockResolvedValueOnce({ kind: 'unavailable' }),
+      false,
+    ],
+  ])('treats %s between two not-found answers correctly', async (_label, between, confirms) => {
+    metadata.youtube.mockResolvedValueOnce(notFound);
+    between();
+    metadata.youtube.mockResolvedValue(notFound);
+    const context = await playingYouTube();
+    await nextLookup(context);
+    expect(context.room.playbackDurations).toEqual({});
+    await nextLookup(context);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+    if (confirms) {
+      expect(Object.values(context.room.playbackDurations)[0]?.durationSeconds).toBeNull();
+    } else {
+      // The withdrawn answer restarts the rule from this lookup.
+      expect(context.room.playbackDurations).toEqual({});
+      expect(context.room.playbackDurationProbe!.notFoundAtMs).toBe(Date.now());
+    }
+  });
+
+  it('keeps the first not-found answer across Durable Object eviction', async () => {
+    metadata.youtube.mockResolvedValue(notFound);
+    const context = await playingYouTube();
+    const retryAt = context.room.playbackDurationProbe!.retryAtMs;
+    context.worker = context.createWorker();
+    await context.worker.ready;
+    expect(context.room.playbackDurationProbe).toMatchObject({ notFoundAtMs: NOW });
+    await alarmAt(context, retryAt);
+    expect(Object.values(context.room.playbackDurations)[0]?.durationSeconds).toBeNull();
+  });
+
+  it.each([
+    ['malformed', 'soon'],
+    ['negative', -1],
+    ['future', NOW + 3_600_000],
+  ])('drops a %s stored not-found marker without discarding the probe', async (_label, value) => {
+    metadata.youtube.mockResolvedValue({ kind: 'live' });
+    const context = await playingYouTube();
+    const probe = structuredClone(context.room.playbackDurationProbe!);
+    (context.room.playbackDurationProbe as unknown as Record<string, unknown>).notFoundAtMs = value;
+    context.worker.normalizeLoadedPlaybackAuthority();
+    expect(context.room.playbackDurationProbe).toEqual(probe);
+  });
+
+  it('drops a not-found marker stored on a file probe', async () => {
+    metadata.file.mockResolvedValue(null);
+    const context = await fixture();
+    await start(context);
+    const probe = structuredClone(context.room.playbackDurationProbe!);
+    expect(probe.identity.mediaKind).toBe('file');
+    context.room.playbackDurationProbe!.notFoundAtMs = NOW;
+    context.worker.normalizeLoadedPlaybackAuthority();
+    expect(context.room.playbackDurationProbe).toEqual(probe);
+  });
+});
+
+describe('PRO file lengths stored before the current duration reader', () => {
+  // 8.9.5-8.10.0 stored server lengths from an MP3/MP4 reader that could
+  // undercount, and the uploading client's own reading, without a version.
+  async function restartWithUnversionedLengths(
+    source: 'server' | 'upload' | 'controller',
+    durationSeconds = 1,
+  ) {
+    const context = await fixture([fileItem(FIRST), fileItem(SECOND), fileItem(THIRD)]);
+    await start(context);
+    await leaveOwner(context);
+    expect(metadata.file).toHaveBeenCalledOnce();
+    const stored = context.storage.data.get('pro-room:v2:core') as { core: Room };
+    for (const queueItemId of [FIRST, SECOND, THIRD]) {
+      stored.core.assets[`asset_${queueItemId}`]!.duration = {
+        assetVersion: 1,
+        byteLength: 4096,
+        roomGeneration: 0,
+        durationSeconds,
+        checkedAtMs: NOW,
+        source: source as 'server',
+      };
+    }
+    const entries = Object.values(stored.core.playbackDurations);
+    expect(entries).toEqual([expect.objectContaining({ source: 'server' })]);
+    Object.assign(entries[0]!, { durationSeconds, source });
+    delete entries[0]!.reader;
+    context.worker = context.createWorker();
+    await context.worker.ready;
+    return context;
+  }
+
+  it.each(['server', 'upload'] as const)(
+    'measures the playing file again instead of ending it from an unversioned %s length',
+    async (source) => {
+      const context = await restartWithUnversionedLengths(source);
+      metadata.file.mockResolvedValue(30);
+      expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+      await alarmAt(context, Date.now() + 1_000);
+      expect(metadata.file).toHaveBeenCalledTimes(2);
+      expect(metadata.file.mock.calls[1]?.[1]).toBe(`fixture/asset_${FIRST}/object`);
+      expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+        durationSeconds: 30,
+        source: 'server',
+        reader: PRO_ROOM_FILE_DURATION_READER,
+      });
+      expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+        context.room.playback.updatedAtMs + 32_000,
+      );
+      expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+      // Other assets wait for their own playback instead of a deployment-wide sweep.
+      expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+      expect(context.room.assets[`asset_${SECOND}`]!.duration).toMatchObject({
+        durationSeconds: 1,
+        source,
+      });
+      await reachEnd(context);
+      await finishPrepare(context);
+      expect(context.room.playback.queueItemId).toBe(SECOND);
+      await context.settle();
+      expect(metadata.file).toHaveBeenCalledTimes(3);
+      expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+        context.room.playback.updatedAtMs + 32_000,
+      );
+    },
+  );
+
+  it('measures the playing file once behind an unversioned controller-decoded length', async () => {
+    const context = await restartWithUnversionedLengths('controller');
+    // 8.10.0 kept no measured floor beneath a decode. It still sets the end
+    // until the playing file's one bounded read finishes.
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(context.room.playback.updatedAtMs + 1_000);
+    metadata.file.mockResolvedValue(30);
+    await alarmAt(context, Date.now() + 500);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(metadata.file.mock.calls[1]?.[1]).toBe(`fixture/asset_${FIRST}/object`);
+    // The measurement refutes the far shorter decode and replaces it.
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 30,
+      source: 'server',
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(
+      context.room.playback.updatedAtMs + 32_000,
+    );
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+    // Other assets wait for their own playback instead of a deployment-wide sweep.
+    expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+    expect(context.room.assets[`asset_${SECOND}`]!.duration).toEqual(
+      expect.not.objectContaining({ reader: expect.anything() }),
+    );
+    await reachEnd(context);
+    expect(context.room.pendingPlaybackTransition?.target.queueItemId).toBe(SECOND);
+    expect(metadata.file).toHaveBeenCalledTimes(3);
+    expect(metadata.file.mock.calls[2]?.[1]).toBe(`fixture/asset_${SECOND}/object`);
+  });
+
+  it('does not read an unversioned controller length again after an unknown result', async () => {
+    const context = await restartWithUnversionedLengths('controller');
+    metadata.file.mockResolvedValue(null);
+    await alarmAt(context, Date.now() + 100);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    // Later persists and alarms neither repeat the read nor drop the decode.
+    await context.worker.persist();
+    await context.settle();
+    await alarmAt(context, Date.now() + 100);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(context.room.playback.updatedAtMs + 1_000);
+  });
+
+  it('keeps a measured floor beneath an unversioned controller length it confirms', async () => {
+    const context = await restartWithUnversionedLengths('controller', 100);
+    const end = context.room.playback.updatedAtMs + 100_000;
+    metadata.file.mockResolvedValue(95);
+    await alarmAt(context, Date.now() + 100);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 100,
+      source: 'controller',
+      measuredSeconds: 95,
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+    await context.worker.persist();
+    await context.settle();
+    await alarmAt(context, Date.now() + 10_000);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(end);
+  });
+
+  it('queues a read the queue refused near state capacity again after 5 s', async () => {
+    const context = await restartWithUnversionedLengths('controller', 100);
+    metadata.file.mockResolvedValue(130);
+    // Optional duration work keeps 8 KiB of headroom below the state limit.
+    fillCore(context, 4 * 1024);
+    const refusedAt = Date.now() + 100;
+    await alarmAt(context, refusedAt);
+    expect(context.room.pendingAssetDurationProbes ?? []).toEqual([]);
+    expect(metadata.file).toHaveBeenCalledOnce();
+    expect(context.storage.alarm).toBe(refusedAt + 5_000);
+    context.room.assets[`asset_${SECOND}`]!.name = '';
+    await alarmAt(context, context.storage.alarm!);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 130,
+      source: 'server',
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+  });
+
+  it('retries a failed read of an unversioned controller length after 5 s, then 30 s', async () => {
+    const context = await restartWithUnversionedLengths('controller', 100);
+    const end = context.room.playback.updatedAtMs + 100_000;
+    metadata.file.mockRejectedValue(new Error('R2 unavailable'));
+    const failedAt = Date.now() + 100;
+    await alarmAt(context, failedAt);
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    // A failed read is no answer: the decode still sets the end meanwhile,
+    // and a persist before the retry time does not repeat the read.
+    await context.worker.persist();
+    await context.settle();
+    expect(metadata.file).toHaveBeenCalledTimes(2);
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(end);
+    // No request arrives; the alarm alone wakes the room for each retry.
+    expect(context.storage.alarm).toBe(failedAt + 5_000);
+    await alarmAt(context, context.storage.alarm!);
+    expect(metadata.file).toHaveBeenCalledTimes(3);
+    expect(context.storage.alarm).toBe(failedAt + 35_000);
+    metadata.file.mockResolvedValue(95);
+    await alarmAt(context, context.storage.alarm!);
+    expect(metadata.file).toHaveBeenCalledTimes(4);
+    expect(context.room.assets[`asset_${FIRST}`]!.duration).toMatchObject({
+      durationSeconds: 100,
+      source: 'controller',
+      measuredSeconds: 95,
+      reader: PRO_ROOM_FILE_DURATION_READER,
+    });
+    expect(context.worker.naturalPlaybackEndAtMs()).toBe(end);
+    await alarmAt(context, failedAt + 60_000);
+    expect(metadata.file).toHaveBeenCalledTimes(4);
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+  });
+});
+
+describe('PRO metadata answers refused by room state capacity', () => {
+  type YouTubeAnswer = Awaited<ReturnType<typeof metadata.youtube>>;
+
+  async function answerInFullRoom(
+    answer: YouTubeAnswer,
+    margin: number,
+    { attempts = 0, notFoundAgoMs }: { attempts?: number; notFoundAgoMs?: number } = {},
+  ) {
+    let deliver!: (value: YouTubeAnswer) => void;
+    const context = await fixture([youtubeItem(FIRST), fileItem(SECOND)]);
+    await start(context);
+    expect(metadata.youtube).toHaveBeenCalledOnce();
+    // Start the next lookup with the requested attempt count and hold it open.
+    metadata.youtube.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        }),
+    );
+    context.room.playbackDurations = {};
+    context.room.playbackDurationProbe = {
+      identity: {
+        queueItemId: FIRST,
+        mediaKind: 'youtube',
+        youtubeVideoId: VIDEO_A,
+        youtubeSubIndex: 0,
+      },
+      attempts,
+      retryAtMs: Date.now(),
+      ...(notFoundAgoMs === undefined ? {} : { notFoundAtMs: Date.now() - notFoundAgoMs }),
+    };
+    context.worker.startPlaybackDurationProbe();
+    expect(context.worker.playbackDurationLookup).not.toBeNull();
+    fillCore(context, margin);
+    await context.worker.persist();
+    const before = structuredClone(context.room.playbackDurationProbe);
+    const at = Date.now();
+    deliver(answer);
+    await context.settle();
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    return { context, before: before!, at };
+  }
+
+  it('records the backoff alone when a finite answer does not fit', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      40,
+    );
+    expect(context.room.playbackDurations).toEqual({});
+    expect(context.room.playbackDurationProbe).toEqual({
+      ...before,
+      attempts: 1,
+      retryAtMs: at + 60_000,
+    });
+    const stored = context.storage.data.get('pro-room:v2:core') as { core: Room };
+    expect(stored.core.playbackDurationProbe).toEqual(context.room.playbackDurationProbe);
+    expect(context.storage.alarm).toBeGreaterThan(at + 10_000);
+    // The 10 s lookup watchdog no longer repeats the provider call.
+    await alarmAt(context, at + 10_000);
+    await alarmAt(context, at + 30_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+  });
+
+  it('keeps only an already stored not-found answer when the first one does not fit', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'unavailable', reason: 'not-found' },
+      10,
+    );
+    expect(before).not.toHaveProperty('notFoundAtMs');
+    expect(context.room.playbackDurationProbe).toEqual({
+      ...before,
+      attempts: 1,
+      retryAtMs: at + 60_000,
+    });
+    await alarmAt(context, at + 10_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a stored not-found answer when its confirming skip does not fit', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'unavailable', reason: 'not-found' },
+      40,
+      { notFoundAgoMs: 60_000 },
+    );
+    expect(before.notFoundAtMs).toBe(at - 60_000);
+    expect(context.room.playbackDurations).toEqual({});
+    expect(context.room.playbackDurationProbe).toEqual({
+      ...before,
+      attempts: 1,
+      retryAtMs: at + 60_000,
+    });
+    await alarmAt(context, at + 10_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds the backoff in memory when even the attempt count does not fit', async () => {
+    // Attempt 9 -> 10 adds one byte to an otherwise exactly full core.
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      0,
+      { attempts: 9 },
+    );
+    expect(context.room.playbackDurationProbe).toEqual(before);
+    expect(context.room.playbackDurations).toEqual({});
+    // Neither the next watchdog nor a direct start repeats the lookup.
+    await alarmAt(context, at + 10_000);
+    context.worker.startPlaybackDurationProbe();
+    expect(context.worker.playbackDurationLookup).toBeNull();
+    expect(context.storage.alarm).toBeGreaterThan(Date.now() + 1_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    // The full backoff (60 s x 2^4, capped at 15 minutes) then retries once.
+    await alarmAt(context, at + 900_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    ['finite', { kind: 'finite', durationSeconds: 5 }],
+    ['unplayable', { kind: 'unplayable' }],
+  ] as const)(
+    'withdraws a stored not-found answer when a %s answer does not fit',
+    async (_label, answer) => {
+      const { context, before, at } = await answerInFullRoom(answer, 30, {
+        notFoundAgoMs: 30_000,
+      });
+      expect(context.room.playbackDurations).toEqual({});
+      const { notFoundAtMs, ...withdrawn } = before;
+      expect(notFoundAtMs).toBe(at - 30_000);
+      expect(context.room.playbackDurationProbe).toEqual({
+        ...withdrawn,
+        attempts: 1,
+        retryAtMs: at + 60_000,
+      });
+      // With space again, one transient "not found" more than a minute after
+      // the withdrawn one restarts the two-answer rule instead of skipping.
+      context.room.assets[`asset_${SECOND}`]!.name = '';
+      metadata.youtube.mockResolvedValue({ kind: 'unavailable', reason: 'not-found' });
+      await alarmAt(context, at + 60_000);
+      expect(metadata.youtube).toHaveBeenCalledTimes(3);
+      expect(context.room.playbackDurations).toEqual({});
+      expect(context.room.playbackDurationProbe).toMatchObject({ notFoundAtMs: at + 60_000 });
+      expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
+    },
+  );
+
+  it.each([
+    [
+      'select of another item',
+      { type: 'select', queueItemId: SECOND, state: 'playing', positionSeconds: 0 },
+    ],
+    ['pause', { type: 'pause' }],
+  ] as const)('keeps a memory-only backoff across a refused %s', async (_label, input) => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      0,
+      { attempts: 9 },
+    );
+    vi.setSystemTime(at + 1_000);
+    for (let refusals = 0; refusals < 3; refusals += 1) {
+      // The command's own persist replaces or removes the probe before the
+      // capacity check refuses it; the rollback restores the stored probe.
+      const refused = await context.worker.withStateCapacityRollback(() =>
+        command(context, input, false),
+      );
+      expect(refused).toBeInstanceOf(Response);
+      expect((refused as Response).status).toBe(409);
+      await context.settle();
+    }
+    expect(context.room.playback).toMatchObject({ state: 'playing', queueItemId: FIRST });
+    expect(context.room.playbackDurationProbe).toEqual(before);
+    // The restored probe keeps the backoff it shadows: no provider lookup.
+    expect(context.worker.playbackDurationLookup).toBeNull();
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    await alarmAt(context, at + 900_000);
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+  });
+
+  it('drops a memory-only backoff when its probe is replaced by a fresh one', async () => {
+    const { context, before, at } = await answerInFullRoom(
+      { kind: 'finite', durationSeconds: 5 },
+      0,
+      { attempts: 9 },
+    );
+    expect(context.room.playbackDurationProbe).toEqual(before);
+    // The owner frees space, then pauses and resumes the same occurrence.
+    context.room.assets[`asset_${SECOND}`]!.name = '';
+    await command(context, { type: 'pause' });
+    expect(context.room.playbackDurationProbe).toBeNull();
+    vi.setSystemTime(at + 5_000);
+    await command(context, { type: 'play' });
+    // The new probe starts its own lookup instead of inheriting the backoff.
+    expect(metadata.youtube).toHaveBeenCalledTimes(3);
+    expect(Object.values(context.room.playbackDurations)).toEqual([
+      expect.objectContaining({ durationSeconds: 5, source: 'server' }),
+    ]);
+    expect(context.room.playbackDurationProbe).toBeNull();
+  });
 });

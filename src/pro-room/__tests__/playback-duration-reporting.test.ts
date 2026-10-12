@@ -101,6 +101,7 @@ function fixture() {
   const lease = { generation: 1, roomCode: ROOM };
   const abort = new AbortController();
   let current = true;
+  let failNextProjectionRead = false;
   const prepare = vi.fn<ProPlaybackMediaEndpoint['prepare']>(async (request) => ready(request));
   const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) => ({
     status: 'applied',
@@ -116,7 +117,11 @@ function fixture() {
   const controller = new ProRoomPlaybackController({
     isActive: () => current,
     getCanonicalSnapshot: () => snapshot,
-    getPlaylistSnapshot: () => snapshot,
+    getPlaylistSnapshot: () => {
+      if (!failNextProjectionRead) return snapshot;
+      failNextProjectionRead = false;
+      throw new Error('Injected projection read failure');
+    },
     capturePlaylistLease: () => lease,
     isPlaylistLeaseCurrent: (candidate) => candidate === lease && current,
     getRoomAbortSignal: () => abort.signal,
@@ -161,6 +166,9 @@ function fixture() {
     controller,
     event,
     commitEvent,
+    failNextProjectionRead: () => {
+      failNextProjectionRead = true;
+    },
     leave: () => {
       current = false;
       abort.abort();
@@ -229,6 +237,32 @@ describe('controller-only decoded file duration backfill', () => {
     expect(h.reportReady).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(6000);
     expect(h.report.mock.calls[0]![1]!.aborted).toBe(true);
+    expect(h.recover).not.toHaveBeenCalled();
+  });
+
+  it('keeps a successful preparation ready when the optional reporter throws', async () => {
+    const h = fixture();
+    let finish!: (result: ProPlaybackPrepareResult) => void;
+    h.prepare.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const event = h.event();
+    h.controller.acceptPrepare(event);
+    await flush();
+    // The reporter's synchronous currency check is the next projection read.
+    h.failNextProjectionRead();
+    finish(ready(h.prepare.mock.calls[0]![0]));
+    await flush();
+    expect(h.report).not.toHaveBeenCalled();
+    expect(h.reportReady).toHaveBeenCalledWith(
+      expect.objectContaining({ transitionId: event.transitionId, status: 'ready' }),
+    );
+    h.commitEvent(event);
+    await flush();
+    expect(h.commit).toHaveBeenCalledOnce();
     expect(h.recover).not.toHaveBeenCalled();
   });
 

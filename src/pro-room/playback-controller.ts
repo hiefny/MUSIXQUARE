@@ -507,7 +507,12 @@ function createImplementation(
   ): Promise<ProPlaybackPrepareResult> {
     const report = captureFileDurationReporter(request, isCurrent);
     return prepare(request).then((result) => {
-      report(result);
+      // Optional metadata reporting cannot fail a successful preparation.
+      try {
+        report(result);
+      } catch (error) {
+        log.warn('[PRO Playback] Could not report decoded file duration', error);
+      }
       return result;
     });
   }

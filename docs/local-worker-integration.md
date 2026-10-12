@@ -110,6 +110,21 @@ by their workflows and runbooks rather than duplicated here.
 
 ## Verification routes
 
+For simultaneous Standard/PRO room admission, run:
+
+```powershell
+npx vitest run --config vitest.burst.config.ts
+```
+
+These tests release virtual clients from a shared start barrier into local
+`workerd`, using the shipped handlers, real Durable Objects, and local storage.
+They check completed admission and signaling rather than only successful HTTP
+responses. Internet egress is blocked; no Cloudflare login or production secrets
+are needed. They are also included in the normal unit and Worker test suites.
+See the [scenario matrix and limits](design/session-admission-burst-simulation-2026-10-13.md).
+This does not measure real phones, audio synchronization, WebRTC connectivity,
+or production edge throughput.
+
 Use the smallest focused command while iterating:
 
 ```powershell

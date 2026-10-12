@@ -95,7 +95,9 @@ Worker coverage 최종 실행은 47파일 / 2,563 pass / 0 fail / 0 skip,
 (06:01:45 KST 시작, 467.47초)이다. 설치된 jq 경로를 명시해 로컬 jq 검사도
 실행했다. 초기 편집 중 실행에서 나온 6개 실패는 소스 수정 반영 및 배포 범위·
 coverage 목록·waitUntil 수명·bootstrap cache 참조 계약을 보완한 뒤 전부 통과했다.
-최종 코드 SHA·PR·exact-main CI·운영 smoke는 완료 후 아래에 기록한다.
+로컬 검증 소스는 `1d5e95e532936e585d9b91a1b4b0520d891c7485`이며, 해당
+committed HEAD에서 `build:checked`도 통과했다. 이후 이 문단의 근거 기록만 추가했다.
+PR·exact-main CI·운영 smoke는 완료 후 아래에 기록한다.
 
 배포 예정: 8.10.5 / v666, `target=all`, Developer API D1 적용 `false`.
 공통 점검 조회를 사용하는 Worker와 App/PRO/signaling 변경을 같이 배포한다.

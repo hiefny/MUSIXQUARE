@@ -20,6 +20,7 @@ import {
 } from '../pro-room/network-bridge.ts';
 import { getHostNow, getSharedClockDiagnostics } from '../network/shared-clock.ts';
 import { isStandardRoomRole } from '../rooms/authority.ts';
+import { getProStartObservations, resetProStartObservations } from './pro-start-observations.ts';
 
 const SAMPLE_INTERVAL_MS = 1_000;
 const MAX_SAMPLES = 20 * 60;
@@ -370,6 +371,7 @@ export function initSyncFlightRecorder(): void {
 }
 
 function resetSessionObservationState(): void {
+  resetProStartObservations();
   canonicalAnchor = null;
   lastWorkerTickAt = 0;
   lastSyncPongAt = 0;
@@ -452,15 +454,20 @@ export function markSyncFlightRecorderIncident(): void {
 }
 
 export function collectSyncFlightRecorderText(): string {
+  const proStartObservations = getProStartObservations();
   const lines = [
     'MUSIXQUARE SYNC FLIGHT RECORDER v1',
     `Generated: ${new Date().toISOString()}`,
-    `Retention: RAM-only, ${MAX_SAMPLES}s max | samples:${samples.length} events:${events.length}`,
+    `Retention: RAM-only, ${MAX_SAMPLES}s max | samples:${samples.length} events:${events.length} proStarts:${proStartObservations.length}`,
     'Privacy: no room code, peer id, nickname, title, filename, or raw queue id',
-    'Drift sign: positive = canonical timeline is ahead of local logical position',
+    'SAMPLES logicalDriftMs: positive = canonical timeline is ahead of local logical position',
+    'PRO START timelineDriftMs: positive = local YouTube canonical position is ahead of the predicted timeline',
     '',
     'EVENTS JSONL',
     ...events.map((event) => JSON.stringify(event)),
+    '',
+    'PRO START OBSERVATIONS JSONL (local generations, no raw identifiers)',
+    ...proStartObservations.map((observation) => JSON.stringify(observation)),
     '',
     'SAMPLES JSONL (oldest to newest)',
     ...samples.map((sample) => JSON.stringify(sample)),

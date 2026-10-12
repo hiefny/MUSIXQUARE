@@ -3,6 +3,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
+import {
+  getProStartObservations,
+  resetProStartObservations,
+} from '../../diagnostics/pro-start-observations.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import type { ProRoomSignalingAccess } from '../api.ts';
 import {
@@ -471,6 +475,7 @@ function createSnapshotPlaybackController(state: 'playing' | 'paused' = 'playing
 
 beforeEach(() => {
   resetState();
+  resetProStartObservations();
   FakeWebSocket.instances = [];
   vi.useFakeTimers();
   vi.setSystemTime(1_000);
@@ -773,7 +778,7 @@ describe('coordinator-free PRO server channel', () => {
     }
   });
 
-  it('uses an unchanged command response time while the first snapshot clock read is pending', async () => {
+  it('waits for a clock when an unchanged command overtakes the first snapshot clock read', async () => {
     vi.setSystemTime(9_000_000);
     resetProPlaybackAuthorityHooks();
     const bridge = proRoomServerBridge;
@@ -806,10 +811,15 @@ describe('coordinator-free PRO server channel', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(execute).toHaveBeenCalledOnce();
       expect(bridge.clockCalibrated).toBe(false);
+      expect(commit).not.toHaveBeenCalled();
+      for (const request of clockRequests(socket)) {
+        const sentAt = (request.payload as { clientSentAtMs: number }).clientSentAtMs;
+        answerClockRequest(socket, request, 12_000 - (Date.now() - sentAt) / 2);
+      }
+      await vi.advanceTimersByTimeAsync(0);
       expect(commit).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ positionSeconds: 25, scheduleDelayMs: 0 }),
       );
-      for (const request of clockRequests(socket)) answerClockRequest(socket, request, 12_000);
       await vi.advanceTimersByTimeAsync(220);
       await restoring;
       expect(commit).toHaveBeenCalledOnce();
@@ -881,10 +891,15 @@ describe('coordinator-free PRO server channel', () => {
       });
       await vi.advanceTimersByTimeAsync(0);
       expect(bridge.clockCalibrated).toBe(false);
+      expect(commit).not.toHaveBeenCalled();
+      for (const request of clockRequests(socket)) {
+        const sentAt = (request.payload as { clientSentAtMs: number }).clientSentAtMs;
+        answerClockRequest(socket, request, 12_000 - (Date.now() - sentAt) / 2);
+      }
+      await vi.advanceTimersByTimeAsync(0);
       expect(commit).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ committedPlaybackRevision: 2, positionSeconds: 60 }),
       );
-      for (const request of clockRequests(socket)) answerClockRequest(socket, request, 12_000);
       await vi.advanceTimersByTimeAsync(220);
       await restoring;
       expect(commit).toHaveBeenCalledOnce();
@@ -1417,5 +1432,299 @@ describe('coordinator-free PRO server channel', () => {
     expect(getState('network.connectedPeers')).toEqual([]);
     expect(getState('network.isOperator')).toBe(false);
     unsubscribe();
+  });
+});
+
+describe('leased PRO clock estimates', () => {
+  async function readyRound(bridge: ServerProRoomNetworkBridge, socket: FakeWebSocket) {
+    const pending = bridge.acquireClock({ fresh: true, timeoutMs: 1_000 });
+    const first = clockRequests(socket).at(-1)!;
+    await vi.advanceTimersByTimeAsync(20);
+    answerClockRequest(socket, first, Date.now() - 10);
+    await vi.advanceTimersByTimeAsync(60);
+    const second = clockRequests(socket).at(-1)!;
+    await vi.advanceTimersByTimeAsync(20);
+    answerClockRequest(socket, second, Date.now() - 10);
+    const selected = await pending;
+    expect(selected).not.toBeNull();
+    return selected!;
+  }
+
+  it.each([
+    { candidateOffsetMs: 100, disjointIntervals: false },
+    { candidateOffsetMs: 101, disjointIntervals: true },
+  ])(
+    'records both RTT bounds and the margin for candidate offset $candidateOffsetMs',
+    async (trace) => {
+      const bridge = new ServerProRoomNetworkBridge();
+      const socket = await openBridge(bridge);
+      try {
+        await vi.advanceTimersByTimeAsync(2_000);
+        const pending = bridge.acquireClock({ fresh: true, timeoutMs: 1_000 });
+        const first = clockRequests(socket).at(-1)!;
+        await vi.advanceTimersByTimeAsync(80);
+        const second = clockRequests(socket).at(-1)!;
+        await vi.advanceTimersByTimeAsync(80);
+        answerClockRequest(socket, first, 3_020);
+        await vi.advanceTimersByTimeAsync(60);
+        const leased = await pending;
+        await vi.advanceTimersByTimeAsync(10);
+        answerClockRequest(socket, second, 3_155 + trace.candidateOffsetMs);
+        expect(bridge.captureClockSnapshot()).toBe(leased);
+        expect(
+          getProStartObservations()
+            .filter((record) => record.kind === 'clock-selection')
+            .at(-1)?.detail,
+        ).toMatchObject({
+          confirmed: true,
+          selectedOffsetMs: -60,
+          selectedRttMs: 160,
+          bestCandidateOffsetMs: trace.candidateOffsetMs,
+          bestCandidateRttMs: 150,
+          comparisonToleranceMs: 5,
+          excessDistanceMs: trace.candidateOffsetMs + 60 - 75,
+          disjointIntervals: trace.disjointIntervals,
+        });
+        expect(bridge.isClockSnapshotCurrent(leased!)).toBe(true);
+      } finally {
+        bridge.disconnect();
+      }
+    },
+  );
+
+  it.each([50, 51])(
+    'records a %ims wall/monotonic difference without invalidating a lease',
+    async (differenceMs) => {
+      const bridge = new ServerProRoomNetworkBridge();
+      const socket = await openBridge(bridge);
+      const monotonic = vi.spyOn(performance, 'now').mockReturnValue(100);
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        const first = clockRequests(socket).at(-1)!;
+        await vi.advanceTimersByTimeAsync(20);
+        monotonic.mockReturnValue(120);
+        vi.setSystemTime(Date.now() + differenceMs);
+        answerClockRequest(socket, first, 1_010);
+        const leased = bridge.captureClockSnapshot();
+        expect(leased).not.toBeNull();
+        expect(
+          getProStartObservations()
+            .filter((record) => record.kind === 'clock-sample')
+            .at(-1)?.detail,
+        ).toMatchObject({
+          wallElapsedMs: 20 + differenceMs,
+          monotonicElapsedMs: 20,
+          continuityToleranceMs: 50,
+          clockContinuitySuspect: differenceMs > 50,
+        });
+        expect(bridge.isClockSnapshotCurrent(leased!)).toBe(true);
+      } finally {
+        monotonic.mockRestore();
+        bridge.disconnect();
+      }
+    },
+  );
+
+  it('keeps a READY decision immutable across a worse 30-second refresh and the five-second reuse boundary', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    try {
+      await vi.advanceTimersByTimeAsync(29_000);
+      const leased = await readyRound(bridge, socket);
+      expect(Object.isFrozen(leased)).toBe(true);
+      expect(leased.offsetMs).toBe(0);
+      await vi.advanceTimersByTimeAsync(900);
+      const refresh = clockRequests(socket).at(-1)!;
+      await vi.advanceTimersByTimeAsync(200);
+      answerClockRequest(socket, refresh, 31_010);
+      expect(bridge.captureClockSnapshot()).toBe(leased);
+      expect(bridge.clockDiagnostics).toMatchObject({ bestOffsetMs: 0, bestRttMs: 20 });
+      const requests = clockRequests(socket).length;
+      await vi.advanceTimersByTimeAsync(3_900);
+      expect(Date.now()).toBe(35_100);
+      await expect(bridge.acquireClock({ fresh: true, timeoutMs: 1_000 })).resolves.toBe(leased);
+      expect(clockRequests(socket)).toHaveLength(requests);
+      await vi.advanceTimersByTimeAsync(1);
+      const abort = new AbortController();
+      const renewed = bridge.acquireClock({ fresh: true, timeoutMs: 1_000, signal: abort.signal });
+      expect(clockRequests(socket)).toHaveLength(requests + 1);
+      expect(bridge.isClockSnapshotCurrent(leased)).toBe(true);
+      expect(leased.offsetMs).toBe(0);
+      abort.abort();
+      await expect(renewed).resolves.toBeNull();
+    } finally {
+      bridge.disconnect();
+    }
+  });
+
+  it('retains a successful round late reply as a future candidate without replacing the READY lease', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      const pending = bridge.acquireClock({ fresh: true, timeoutMs: 1_000 });
+      const first = clockRequests(socket).at(-1)!;
+      await vi.advanceTimersByTimeAsync(80);
+      const second = clockRequests(socket).at(-1)!;
+      await vi.advanceTimersByTimeAsync(80);
+      answerClockRequest(socket, first, 3_020);
+      await vi.advanceTimersByTimeAsync(60);
+      const leased = await pending;
+      expect(leased).toMatchObject({ offsetMs: -60, rttMs: 160, source: 'ready' });
+      await vi.advanceTimersByTimeAsync(10);
+      answerClockRequest(socket, second, 3_155);
+      expect(bridge.captureClockSnapshot()).toBe(leased);
+      await vi.advanceTimersByTimeAsync(4_991);
+      expect(bridge.captureClockSnapshot()).toMatchObject({
+        offsetMs: 0,
+        rttMs: 150,
+        source: 'ready-late',
+      });
+      expect(leased!.offsetMs).toBe(-60);
+      expect(bridge.isClockSnapshotCurrent(leased!)).toBe(true);
+    } finally {
+      bridge.disconnect();
+    }
+  });
+
+  it('ignores successful-round replies arriving after the bounded late-response lifetime', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      const pending = bridge.acquireClock({ fresh: true, timeoutMs: 1_000 });
+      const first = clockRequests(socket).at(-1)!;
+      await vi.advanceTimersByTimeAsync(180);
+      const late = clockRequests(socket).at(-1)!;
+      answerClockRequest(socket, first, 3_090);
+      await vi.advanceTimersByTimeAsync(40);
+      const leased = await pending;
+      await vi.advanceTimersByTimeAsync(5_001);
+      answerClockRequest(socket, late, 90_000);
+      expect(bridge.captureClockSnapshot()).toBe(leased);
+    } finally {
+      bridge.disconnect();
+    }
+  });
+
+  it('acquires the first existing connection reply without a duplicate request or READY selection delay', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    try {
+      const pending = bridge.acquireClock({ timeoutMs: 700 });
+      expect(clockRequests(socket)).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(0);
+      const first = clockRequests(socket).at(-1)!;
+      expect(clockRequests(socket)).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(20);
+      answerClockRequest(socket, first, 1_010);
+      const leased = await pending;
+      expect(leased).toMatchObject({ offsetMs: 0, rttMs: 20, source: 'connection' });
+      expect(clockRequests(socket)).toHaveLength(1);
+      expect(bridge.clockDiagnostics.readyCalibrationAgeMs).toBeNull();
+      await expect(bridge.acquireClock({ timeoutMs: 0 })).resolves.toBe(leased);
+    } finally {
+      bridge.disconnect();
+    }
+  });
+
+  it.each(['abort', 'timeout', 'disconnect', 'socket-close'] as const)(
+    'settles passive acquisition on %s without leaving a calibration round',
+    async (ending) => {
+      const bridge = new ServerProRoomNetworkBridge();
+      const socket = await openBridge(bridge);
+      try {
+        const abort = new AbortController();
+        const pending = bridge.acquireClock({ timeoutMs: 50, signal: abort.signal });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(clockRequests(socket)).toHaveLength(1);
+        if (ending === 'abort') abort.abort();
+        else if (ending === 'timeout') await vi.advanceTimersByTimeAsync(50);
+        else if (ending === 'socket-close') socket.dispatch('close');
+        else bridge.disconnect();
+        await expect(pending).resolves.toBeNull();
+        expect(bridge.clockDiagnostics.readyCalibrationAgeMs).toBeNull();
+      } finally {
+        bridge.disconnect();
+      }
+    },
+  );
+
+  it('keeps another passive waiter alive when one caller aborts', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    try {
+      const abort = new AbortController();
+      const cancelled = bridge.acquireClock({ timeoutMs: 700, signal: abort.signal });
+      const surviving = bridge.acquireClock({ timeoutMs: 700 });
+      await vi.advanceTimersByTimeAsync(0);
+      const first = clockRequests(socket).at(-1)!;
+      abort.abort();
+      await expect(cancelled).resolves.toBeNull();
+      await vi.advanceTimersByTimeAsync(20);
+      answerClockRequest(socket, first, 1_010);
+      await expect(surviving).resolves.toMatchObject({ offsetMs: 0 });
+    } finally {
+      bridge.disconnect();
+    }
+  });
+
+  it('invalidates leases and passive waits on socket replacement and rejects foreign-bridge leases', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      answerClockRequest(socket, clockRequests(socket).at(-1)!, 1_000);
+      const leased = bridge.captureClockSnapshot()!;
+      const foreign = new ServerProRoomNetworkBridge();
+      await openBridge(foreign);
+      expect(foreign.isClockSnapshotCurrent(leased)).toBe(false);
+      foreign.disconnect();
+      const opening = bridge.reconfigure(snapshot(), { ...access(), ticketSequence: 2 });
+      const nextSocket = FakeWebSocket.instances.at(-1)!;
+      nextSocket.dispatch('open');
+      await opening;
+      expect(bridge.isClockSnapshotCurrent(leased)).toBe(false);
+      const pending = bridge.acquireClock({ timeoutMs: 700 });
+      const replacing = bridge.reconfigure(snapshot(), { ...access(), ticketSequence: 3 });
+      await expect(pending).resolves.toBeNull();
+      FakeWebSocket.instances.at(-1)!.dispatch('open');
+      await replacing;
+      expect(bridge.captureClockSnapshot()).toBeNull();
+    } finally {
+      bridge.disconnect();
+    }
+  });
+
+  it('bounds candidate retention while a previously issued lease remains current', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const socket = await openBridge(bridge);
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      let firstLease;
+      for (let round = 0; round < 9; round += 1) {
+        const pending = bridge.acquireClock({ fresh: true, timeoutMs: 1_000 });
+        const first = clockRequests(socket).at(-1)!;
+        const firstRtt = round === 0 ? 2 : 20;
+        await vi.advanceTimersByTimeAsync(firstRtt);
+        answerClockRequest(socket, first, Date.now() - firstRtt / 2);
+        await vi.advanceTimersByTimeAsync(80 - firstRtt);
+        const second = clockRequests(socket).at(-1)!;
+        await vi.advanceTimersByTimeAsync(20);
+        answerClockRequest(socket, second, Date.now() - 10);
+        const lease = await pending;
+        if (round === 0) firstLease = lease;
+        await vi.advanceTimersByTimeAsync(5_001);
+      }
+      // The original 2ms sample is less than 60s old, but has left the 16-item cache.
+      expect(Date.now() - firstLease!.sampledAtMs).toBeLessThan(60_000);
+      expect(bridge.captureClockSnapshot()?.rttMs).toBe(20);
+      expect(bridge.isClockSnapshotCurrent(firstLease!)).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_001);
+      expect(bridge.captureClockSnapshot()).toBeNull();
+      expect(bridge.isClockSnapshotCurrent(firstLease!)).toBe(true);
+    } finally {
+      bridge.disconnect();
+    }
   });
 });

@@ -4,6 +4,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import {
+  getProStartObservations,
+  resetProStartObservations,
+} from '../../diagnostics/pro-start-observations.ts';
 
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { QueueItemId } from '../../types/index.ts';
@@ -54,7 +58,25 @@ vi.mock('../../audio/effects.ts', () => ({
 vi.mock('../../pro-room/network-bridge.ts', () => ({
   getProRoomServerNow: () => Date.now(),
   isProRoomServerClockCalibrated: () => true,
-  waitForFreshProRoomServerClockCalibration: vi.fn().mockResolvedValue(true),
+  acquireProRoomServerClock: vi.fn(async () => ({
+    generation: 1,
+    sampleId: 1,
+    offsetMs: 0,
+    rttMs: 10,
+    sampledAtMs: Date.now(),
+    roundId: 1,
+    source: 'ready',
+  })),
+  captureProRoomServerClockSnapshot: () => ({
+    generation: 1,
+    sampleId: 1,
+    offsetMs: 0,
+    rttMs: 10,
+    sampledAtMs: Date.now(),
+    roundId: 1,
+    source: 'ready',
+  }),
+  isProRoomClockSnapshotCurrent: () => true,
 }));
 
 vi.mock('../../ui/player-controls.ts', () => ({
@@ -114,6 +136,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.useFakeTimers();
+  resetProStartObservations();
   registerProRoomMediaHooks(null);
   registerProPlaybackCommandHandler(null);
   resetProPlaybackAuthorityHooks();
@@ -667,12 +690,21 @@ describe('PRO manual offset across YouTube zero-start', () => {
       await expect(committed).resolves.toBe(true);
       expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, offset), 3);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(offset, 3);
+      const release = getProStartObservations().find((entry) => entry.kind === 'youtube-release');
+      expect(release?.detail).toMatchObject({
+        localStartDelayMs: delayMs,
+        manualOffsetSeconds: offset,
+      });
       await vi.advanceTimersByTimeAsync(5_000);
       expect(toCanonicalYouTubeTime(endpoint.currentTime(), 180)).toBeCloseTo(
         5 + delayMs / 1000,
         3,
       );
       expect(getState('sync.youtubeLocalOffset')).toBeCloseTo(offset, 3);
+      const samples = getProStartObservations().filter((entry) => entry.kind === 'youtube-sample');
+      expect(samples).toHaveLength(2);
+      expect(samples[0].detail.elapsedSinceStartMs).toBe(800);
+      expect(samples[0].detail.timelineDriftMs).toBeCloseTo(0, 6);
     },
   );
 
@@ -733,8 +765,30 @@ describe('PRO manual offset across YouTube zero-start', () => {
       await expect(committed).resolves.toBe(true);
       expect(endpoint.currentTime()).toBeCloseTo(Math.max(0, canonical - 0.25), 3);
       expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(-0.25, 3);
+      expect(
+        getProStartObservations().find((entry) => entry.detail.reason === 'direct-no-ack')?.detail,
+      ).toMatchObject({ path: 'direct', timingMode: 'scheduled-control' });
     },
   );
+
+  it('records cancelled observation checkpoints when a direct control supersedes the arm', async () => {
+    const endpoint = await createProEndpoint();
+    const { authority, preparing } = endpoint.prepareNext();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await preparing;
+    const first = endpoint.commit(authority);
+    await vi.advanceTimersByTimeAsync(699);
+    await expect(first).resolves.toBe(true);
+    await expect(endpoint.commitDirect(10)).resolves.toBe(true);
+    await vi.advanceTimersByTimeAsync(3_000);
+    const observations = getProStartObservations();
+    expect(
+      observations.filter((entry) => entry.detail.reason === 'cancelled-pending'),
+    ).toHaveLength(2);
+    expect(observations.some((entry) => entry.detail.reason === 'direct-no-ack')).toBe(true);
+    expect(observations.filter((entry) => entry.kind === 'youtube-sample')).toHaveLength(0);
+    expect(observations.filter((entry) => entry.kind === 'youtube-learning')).toHaveLength(0);
+  });
 
   it('supersedes a delayed direct snapshot with a pause without replaying later', async () => {
     const endpoint = await createProEndpoint();

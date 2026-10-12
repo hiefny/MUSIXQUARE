@@ -17,6 +17,7 @@ import type { QueueItemId } from '../../types/index.ts';
 import type { ProRoomPlaybackCheckpoint, ProRoomSnapshot } from '../contracts.ts';
 import { registerProRoomMediaHooks } from '../media-hooks.ts';
 import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import {
   registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
@@ -68,6 +69,7 @@ function playback(queueItemId: QueueItemId | null, revision: number): ProRoomPla
 }
 
 beforeEach(() => {
+  installProClockSnapshotMocks(serverClock);
   resetState();
   bus.clear();
   clearAllManagedTimers();
@@ -105,7 +107,7 @@ beforeEach(() => {
   });
   vi.spyOn(serverClock, 'isProRoomServerClockCalibrated').mockReturnValue(true);
   vi.spyOn(serverClock, 'getProRoomServerNow').mockImplementation(() => serverNow);
-  vi.spyOn(serverClock, 'waitForFreshProRoomServerClockCalibration').mockResolvedValue(true);
+  vi.spyOn(serverClock.proRoomServerBridge, 'waitForFreshClockCalibration').mockResolvedValue(true);
   vi.spyOn(audioEngine, 'initAudio').mockResolvedValue(undefined);
   vi.spyOn(audioContext, 'ensureRunning').mockResolvedValue(undefined);
   vi.spyOn(audioContext, 'getCurrentTime').mockReturnValue(10);

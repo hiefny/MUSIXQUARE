@@ -676,6 +676,7 @@ describe('YouTubeAuthorityArmController', () => {
         timelineLeadMs: learned,
         localStartDelayMs: hold,
         releaseLatenessMs: 1_500,
+        rawReleaseLatenessMs: 1_500,
         targetSeconds: target + 1.5,
         catchUpSeconds: 1.5,
         callToPlayingMs: 0,
@@ -700,6 +701,7 @@ describe('YouTubeAuthorityArmController', () => {
       targetSeconds: 3,
       catchUpSeconds: 0.5,
       releaseLatenessMs: 1_500,
+      rawReleaseLatenessMs: 1_500,
     });
     expect(player.__currentTime).toBe(3);
     expect(
@@ -725,6 +727,7 @@ describe('YouTubeAuthorityArmController', () => {
       targetSeconds: 0,
       catchUpSeconds: 0,
       releaseLatenessMs: 0,
+      rawReleaseLatenessMs: 25,
     });
     expect(count(player, 'seekTo')).toBe(seeks);
   });

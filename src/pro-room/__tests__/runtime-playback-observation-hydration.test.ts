@@ -19,6 +19,8 @@ import {
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
+import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import {
   registerProPlaybackMediaEndpoint,
   routeProPlaybackCommand,
@@ -159,6 +161,7 @@ describe('PRO exact media observations across COMMIT and HTTP hydration', () => 
   let heartbeatCancelled: boolean;
 
   beforeEach(async () => {
+    installProClockSnapshotMocks(serverClock);
     resetState();
     canonical = snapshot();
     commands = [];

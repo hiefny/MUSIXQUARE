@@ -14,6 +14,8 @@ import {
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
+import * as serverClock from '../network-bridge.ts';
+import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import {
   registerProPlaybackMediaEndpoint,
   type ProPlaybackMediaEndpoint,
@@ -154,6 +156,7 @@ describe('PRO join playback while a system-audio track is still arriving', () =>
   const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>();
 
   beforeEach(() => {
+    installProClockSnapshotMocks(serverClock);
     resetState();
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     calibrated = false;

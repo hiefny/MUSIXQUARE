@@ -55,6 +55,28 @@ class FakeWebSocket {
   }
   send(data: string): void {
     this.sent.push(data);
+    const message = JSON.parse(data) as {
+      channel?: string;
+      payload?: { requestId: number; clientSentAtMs: number };
+    };
+    if (message.channel === 'clock' && message.payload) {
+      const { requestId, clientSentAtMs } = message.payload;
+      // Exercise the real bridge generation/clock lease across reconnects.
+      // These command-response tests model a reachable, calibrated server.
+      queueMicrotask(() => {
+        if (this.readyState !== FakeWebSocket.OPEN) return;
+        this.dispatch(
+          'message',
+          JSON.stringify({
+            type: 'pro-clock',
+            version: 1,
+            requestId,
+            clientSentAtMs,
+            serverTimeMs: Date.now(),
+          }),
+        );
+      });
+    }
   }
   close(): void {
     if (this.readyState !== FakeWebSocket.CLOSED) this.dispatch('close');
@@ -703,7 +725,12 @@ describe('PRO pending command responses across real channel recovery', () => {
       expect(ProRoomApiClient.prototype.closeSessionFenced).toHaveBeenCalled(),
     );
     expect(responseCancelled).toBe(true);
+    const commitsBeforeRejoin = commits.length;
     await joinProRoom({ code: ROOM, pin: '12345678' });
+    // The new session legitimately restores its playing checkpoint after its
+    // first clock response. Settle that work before testing the abandoned HTTP
+    // response; it must not be mistaken for revival of the old PREPARE.
+    await vi.waitFor(() => expect(commits).toHaveLength(commitsBeforeRejoin + 1));
     const count = prepared.length;
     finishResponse();
     await vi.advanceTimersByTimeAsync(10);

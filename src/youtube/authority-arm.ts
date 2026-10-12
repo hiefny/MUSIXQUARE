@@ -120,6 +120,8 @@ export type YouTubeAuthorityArmCommitResult =
       localStartDelayMs: number;
       /** Callback delay caught up at release; zero within the timer-jitter tolerance. */
       releaseLatenessMs: number;
+      /** Observed callback delay, including jitter left uncorrected by the seek tolerance. */
+      rawReleaseLatenessMs: number;
       /** Actual bounded seek target at release, before PLAYING acknowledgement latency. */
       targetSeconds: number;
       catchUpSeconds: number;
@@ -179,6 +181,7 @@ type ActiveRun = {
   localStartDelayMs: number;
   releaseAtMs: number;
   releaseLatenessMs: number;
+  rawReleaseLatenessMs: number;
   releaseTargetSeconds: number;
   catchUpSeconds: number;
 };
@@ -354,6 +357,7 @@ export class YouTubeAuthorityArmController {
         localStartDelayMs: 0,
         releaseAtMs: 0,
         releaseLatenessMs: 0,
+        rawReleaseLatenessMs: 0,
         releaseTargetSeconds: 0,
         catchUpSeconds: 0,
       };
@@ -687,6 +691,7 @@ export class YouTubeAuthorityArmController {
       // event. Retain the planned platform lead and manual hold, but catch up
       // only the extra callback delay instead of starting the old cue again.
       const callbackLatenessMs = Math.max(0, this.#now() - run.releaseAtMs);
+      run.rawReleaseLatenessMs = callbackLatenessMs;
       run.releaseLatenessMs =
         callbackLatenessMs > TIMING.catchUpToleranceMs ? callbackLatenessMs : 0;
       const callbackCatchUpSeconds = run.releaseLatenessMs / 1000;
@@ -739,6 +744,7 @@ export class YouTubeAuthorityArmController {
       releaseLeadMs: run.platformLeadMs + run.timelineLeadMs,
       localStartDelayMs: run.localStartDelayMs,
       releaseLatenessMs: run.releaseLatenessMs,
+      rawReleaseLatenessMs: run.rawReleaseLatenessMs,
       targetSeconds: run.releaseTargetSeconds,
       catchUpSeconds: run.catchUpSeconds,
     });

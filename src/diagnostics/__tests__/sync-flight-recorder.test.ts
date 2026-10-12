@@ -75,6 +75,7 @@ import {
   markSyncFlightRecorderIncident,
   resetSyncFlightRecorderForTests,
 } from '../sync-flight-recorder.ts';
+import { getProStartObservations, recordProStartObservation } from '../pro-start-observations.ts';
 
 const RAW_QUEUE_ID = '00000000-0000-4000-8000-0000000000aa';
 
@@ -125,6 +126,56 @@ afterEach(() => {
 });
 
 describe('sync flight recorder', () => {
+  it('exports sanitized PRO start observations without consuming them during sampling', () => {
+    startStandardGuest();
+    initSyncFlightRecorder();
+    recordProStartObservation('youtube-release', {
+      commitGeneration: 1,
+      platform: 'android',
+      rawReleaseLatenessMs: 30,
+      appliedReleaseLatenessMs: 0,
+      roomId: 'private-room',
+      queueItemId: RAW_QUEUE_ID,
+    });
+    captureSyncFlightRecorderSampleForTests();
+    markSyncFlightRecorderIncident();
+    const report = collectSyncFlightRecorderText();
+    expect(report).toContain('PRO START OBSERVATIONS JSONL');
+    expect(report).toContain('SAMPLES logicalDriftMs: positive = canonical timeline is ahead');
+    expect(report).toContain(
+      'PRO START timelineDriftMs: positive = local YouTube canonical position is ahead',
+    );
+    expect(report).toContain('"rawReleaseLatenessMs":30');
+    expect(report).toContain('"appliedReleaseLatenessMs":0');
+    expect(report).toContain('proStarts:1');
+    expect(report).not.toContain('private-room');
+    expect(report).not.toContain(RAW_QUEUE_ID);
+    expect(getProStartObservations()).toHaveLength(1);
+    expect(JSON.parse(report.trim().split('\n').at(-1) ?? '{}').room).toBe('standard');
+  });
+
+  it('clears PRO start observations on session boundaries and recorder disposal', () => {
+    initSyncFlightRecorder();
+    recordProStartObservation('clock-sample', { generation: 1 });
+    startStandardGuest();
+    expect(getProStartObservations()).toEqual([]);
+    recordProStartObservation('clock-sample', { generation: 2 });
+    setState('setup.sessionStarted', false);
+    expect(getProStartObservations()).toEqual([]);
+    recordProStartObservation('clock-sample', { generation: 3 });
+    resetSyncFlightRecorderForTests();
+    expect(getProStartObservations()).toEqual([]);
+  });
+
+  it('omits expired PRO start observations when copying the report', () => {
+    const monotonic = vi.spyOn(performance, 'now').mockReturnValue(0);
+    recordProStartObservation('clock-sample', { generation: 1 });
+    monotonic.mockReturnValue(20 * 60 * 1_000 + 1);
+    const report = collectSyncFlightRecorderText();
+    expect(report).toContain('proStarts:0');
+    expect(report).not.toContain('"kind":"clock-sample"');
+  });
+
   it.each(['host', 'guest'] as const)(
     'classifies a live Standard %s using its native session projection',
     (role) => {

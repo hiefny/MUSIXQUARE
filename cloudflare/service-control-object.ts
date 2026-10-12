@@ -1,4 +1,5 @@
 import { readBodyBytesLimited } from './pro-room-body.ts';
+import { parseAnnouncementExpiry } from './announcement-expiry.ts';
 import { hasExactKeys } from './pro-room-validation.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
@@ -838,12 +839,7 @@ function parseAdminAnnouncementMutationBody(value: unknown): AdminAnnouncementMu
   if (!isUnknownRecord(value)) return null;
   const keys = Object.keys(value);
   const message = typeof value.message === 'string' ? value.message.trim() : null;
-  const expiresAt =
-    value.expiresAt === null || value.expiresAt === ''
-      ? null
-      : typeof value.expiresAt === 'string' && !Number.isNaN(new Date(value.expiresAt).getTime())
-        ? new Date(value.expiresAt).toISOString()
-        : undefined;
+  const expiresAt = parseAnnouncementExpiry(value.expiresAt);
   const baseHistory = normalizedAdminAnnouncementHistory(value.baseHistory);
   if (
     keys.length !== 6 ||
@@ -1273,7 +1269,12 @@ export class MusixquareServiceControl {
           error: 'ADMIN_ANNOUNCEMENT_REVISION_CONFLICT',
         });
       }
-      if (expiresAt !== null && new Date(expiresAt).getTime() <= Date.now()) {
+      if (
+        body.enabled &&
+        message &&
+        expiresAt !== null &&
+        new Date(expiresAt).getTime() <= Date.now()
+      ) {
         return serviceControlJson({ error: 'EXPIRES_AT_IN_PAST' }, 400);
       }
 

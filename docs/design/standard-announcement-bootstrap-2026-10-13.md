@@ -134,3 +134,47 @@ on `61cedbc6` (2026-10-07); no entire auxiliary Full E2E run exists for
 `8d0d310c`. Dependency PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)
 was rechecked and remained open, outside this release. All other release-record
 open items remain unchanged.
+
+## Follow-up: withdrawing an already displayed notice — 2026-10-13
+
+The owner requested disabling the published notice and observing an existing
+Standard room for five minutes without reloading. This is a separate QA result,
+not a new production release or a reversal of the bootstrap fix above.
+
+- Reviewed/local test SHA: `967db779aa6c667202242b6892ce2ca51375b48f` (documentation
+  merge; runtime remains the deployed `8d0d310c`, App 8.10.3 / v662).
+- Environment: Windows, Codex in-app browser on the real public site; existing
+  Standard host page and its open chat drawer. No fixture, DOM mutation, timer
+  acceleration, navigation, reload, re-entry or notice dismissal was used.
+- Admin UI saved **Disabled at 2026-10-13 01:12:01 KST**. A separate public GET
+  `/api/announcement/current` returned HTTP 200 with `{"enabled":false}`.
+- At **01:17:21 KST**, over five minutes and twenty seconds later, the same
+  notice remained visible. The page reported `document.visibilityState` as
+  `visible` at the start and each observation. Screenshot retained locally:
+  `scratch/announcement-disabled-still-visible-2026-10-13.jpg`.
+- The four existing `src/ui/__tests__/announcement.test.ts` tests passed locally
+  with Node 24.20.0 (4 pass / 0 fail / 0 skip). They cover the five-minute update
+  timer, silent initial display, session cancellation and foreground behavior;
+  they do not assert withdrawal of an already displayed notice. Log:
+  `scratch/announcement-polling-2026-10-13.log`.
+
+Confirmed separate gap: `checkAnnouncement()` returns immediately when
+`shouldShowAnnouncement(payload)` is false. It emits no withdrawal event and
+does not hide the existing pinned banner. Bootstrap now initializes both the
+initial request and interval, but this existing renderer behavior is unchanged.
+The live experiment establishes that the banner persisted; browser network
+timing was not captured, so it does not independently prove the exact live
+poll request timestamp. Periodic execution is supported by the source and the
+existing deterministic tests, not by a claimed network capture.
+
+The consumer is shared by Standard and PRO rooms, so the same missing clear
+path exists in both. Only Standard was exercised live in this follow-up. Future
+repair must distinguish service announcements from room-owner notices because
+they share the pinned banner. It must also distinguish authoritative disabled
+state from an unavailable server read: `handlePublicAnnouncement()` currently
+falls back to an empty announcement and HTTP 200 when canonical state is absent.
+Blindly clearing on every `enabled:false` can therefore clear during an outage.
+
+The public notice is left disabled as requested. Runtime code and tests were
+not modified, and no deployment was performed in this follow-up. Withdrawal
+remains an open item in the release record.

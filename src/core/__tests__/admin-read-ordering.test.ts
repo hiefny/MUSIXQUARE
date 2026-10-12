@@ -295,6 +295,270 @@ describe('admin reads crossing a mutation', () => {
     },
   );
 
+  it.each(['before-first-body', 'after-first-body', 'while-first-body-pending'])(
+    'keeps an announcement draft typed %s while startup analytics finishes',
+    async (timing) => {
+      installDom();
+      document
+        .querySelector('[data-dashboard]')!
+        .insertAdjacentHTML(
+          'afterbegin',
+          '<button data-service-status-trigger>Service status</button>',
+        );
+      let metrics: ReturnType<typeof heldJson> | undefined;
+      let announcement: ReturnType<typeof heldJson> | undefined;
+      let gets = 0;
+      let revision = 1;
+      const writes: Array<Record<string, unknown>> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = String(input);
+          if (path === '/api/admin/session') return Response.json({ authenticated: true });
+          if (path === '/api/admin/service-status')
+            return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
+          if (path === '/api/admin/metrics' && !metrics) {
+            metrics = heldJson(
+              { cards: [], summary: {}, generatedAt: new Date().toISOString() },
+              init?.signal,
+            );
+            return metrics.response;
+          }
+          if (path === '/api/admin/announcement') {
+            if (init?.method === 'POST') {
+              writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+              revision += 1;
+            } else gets += 1;
+            const payload = {
+              revision,
+              announcement: writes.at(-1) || {
+                message: revision === 1 ? 'Saved notice' : 'Explicitly refreshed notice',
+                enabled: true,
+                expiresAt: null,
+              },
+              history: [],
+            };
+            if (timing !== 'after-first-body' && gets === 1 && !announcement) {
+              announcement = heldJson(payload, init?.signal);
+              return announcement.response;
+            }
+            return Response.json(payload);
+          }
+          return Response.json({ cards: [], summary: {}, rooms: [], campaigns: [], articles: [] });
+        }),
+      );
+      window.eval(adminScript);
+      await vi.waitFor(() => expect(metrics).toBeDefined());
+      document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!.click();
+      const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+      const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+      const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+      if (timing !== 'after-first-body') await vi.waitFor(() => expect(announcement).toBeDefined());
+      else await vi.waitFor(() => expect(message.value).toBe('Saved notice'));
+      message.value = 'Unsaved unique draft';
+      enabled.checked = false;
+      expires.value = '2032-04-05 12:34';
+      if (timing === 'while-first-body-pending') {
+        metrics!.finish();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(gets).toBe(1);
+      }
+      announcement?.finish();
+      await vi.waitFor(() =>
+        expect(document.querySelector('[data-announcement-status]')?.textContent).toBe('Active'),
+      );
+      if (timing !== 'while-first-body-pending') metrics!.finish();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(message.value).toBe('Unsaved unique draft');
+      expect(enabled.checked).toBe(false);
+      expect(expires.value).toBe('2032-04-05 12:34');
+      expect(gets).toBe(1);
+      expect(writes).toHaveLength(0);
+      if (timing !== 'after-first-body') {
+        // The preserved initial draft has never displayed a server revision.
+        // A successful GET alone must not authorize overwriting that notice.
+        document.querySelector<HTMLFormElement>('[data-announcement-form]')!.requestSubmit();
+        await vi.waitFor(() =>
+          expect(document.querySelector('[data-announcement-status]')?.textContent).toBe(
+            'Refresh the announcement before saving.',
+          ),
+        );
+        expect(writes).toHaveLength(0);
+        expect(message.value).toBe('Unsaved unique draft');
+      }
+      // The explicit refresh still replaces the draft and advances the CAS revision.
+      revision = 2;
+      document.querySelector<HTMLButtonElement>('[data-refresh]')!.click();
+      await vi.waitFor(() => expect(message.value).toBe('Explicitly refreshed notice'));
+      expect(enabled.checked).toBe(true);
+      expect(expires.value).toBe('');
+      document.querySelector<HTMLFormElement>('[data-announcement-form]')!.requestSubmit();
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
+      expect(writes[0]).toMatchObject({
+        expectedRevision: 2,
+        message: 'Explicitly refreshed notice',
+      });
+    },
+  );
+
+  it('keeps a draft through an initial failed read and tab retry until explicit refresh establishes its base', async () => {
+    installDom();
+    let gets = 0;
+    let failedRead: ReturnType<typeof heldJson> | undefined;
+    const writes: Array<Record<string, unknown>> = [];
+    const expiresAt = '2099-01-01T00:00:59.123Z';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/announcement') {
+          if (init?.method === 'POST')
+            writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          else if (++gets === 1) {
+            failedRead = heldJson(
+              { error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' },
+              init?.signal,
+            );
+            return new Response(failedRead.response.body, { status: 503 });
+          }
+          return Response.json({
+            revision: 7 + writes.length,
+            announcement: writes.at(-1) || {
+              message: 'Existing server notice',
+              enabled: true,
+              expiresAt,
+            },
+            history: [],
+          });
+        }
+        return Response.json({ cards: [], summary: {}, rooms: [], campaigns: [], articles: [] });
+      }),
+    );
+    window.eval(adminScript);
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false),
+    );
+    const tab = document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!;
+    const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+    const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+    const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+    const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
+    const form = document.querySelector<HTMLFormElement>('[data-announcement-form]')!;
+    tab.click();
+    await vi.waitFor(() => expect(failedRead).toBeDefined());
+    message.value = 'Draft entered during the failed request';
+    enabled.checked = false;
+    expires.value = '2032-04-05 12:34';
+    failedRead!.finish();
+    await vi.waitFor(() => expect(status.textContent).toContain('temporarily unavailable'));
+    tab.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(gets).toBe(1);
+    expect(message.value).toBe('Draft entered during the failed request');
+    expect(enabled.checked).toBe(false);
+    expect(expires.value).toBe('2032-04-05 12:34');
+    form.requestSubmit();
+    await vi.waitFor(() =>
+      expect(status.textContent).toBe('Refresh the announcement before saving.'),
+    );
+    expect(writes).toHaveLength(0);
+
+    // Only the explicit refresh replaces this draft with a displayed server base.
+    document.querySelector<HTMLButtonElement>('[data-refresh]')!.click();
+    await vi.waitFor(() => expect(message.value).toBe('Existing server notice'));
+    expect(gets).toBe(2);
+    expect(enabled.checked).toBe(true);
+    expect(expires.value).not.toBe('2032-04-05 12:34');
+    message.value = 'Reviewed message edit';
+    form.requestSubmit();
+    await vi.waitFor(() => {
+      expect(writes).toHaveLength(1);
+      expect(message.disabled).toBe(false);
+    });
+    expect(writes[0]).toMatchObject({
+      expectedRevision: 7,
+      message: 'Reviewed message edit',
+      enabled: true,
+      expiresAt,
+    });
+    expect(message.value).toBe('Reviewed message edit');
+    expect(status.textContent).toMatch(/^Active/);
+  });
+
+  it('keeps edits made after an explicit refresh starts and retains their original revision fence', async () => {
+    installDom();
+    let gets = 0;
+    let held: ReturnType<typeof heldJson> | undefined;
+    const writes: Array<Record<string, unknown>> = [];
+    const latest = {
+      revision: 2,
+      announcement: { message: 'Another session changed this', enabled: true, expiresAt: null },
+      history: [],
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/announcement') {
+          if (init?.method === 'POST') {
+            writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+            return Response.json(
+              { error: 'ADMIN_ANNOUNCEMENT_CONFLICT', ...latest },
+              { status: 409 },
+            );
+          }
+          if (++gets === 2) {
+            held = heldJson(latest, init?.signal);
+            return held.response;
+          }
+          return Response.json({
+            revision: 1,
+            announcement: { message: 'Saved notice', enabled: true, expiresAt: null },
+            history: [],
+          });
+        }
+        return Response.json({ cards: [], summary: {}, rooms: [], campaigns: [], articles: [] });
+      }),
+    );
+    window.eval(adminScript);
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false),
+    );
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!.click();
+    const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+    const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+    const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+    await vi.waitFor(() => expect(message.value).toBe('Saved notice'));
+    message.value = 'Draft being discarded by explicit refresh';
+    document.querySelector<HTMLButtonElement>('[data-refresh]')!.click();
+    await vi.waitFor(() => expect(held).toBeDefined());
+    message.value = 'New edits while refresh was pending';
+    enabled.checked = false;
+    expires.value = '2032-04-05 12:34';
+    held!.finish();
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-announcement-status]')?.textContent).toBe('Active'),
+    );
+    expect(message.value).toBe('New edits while refresh was pending');
+    expect(enabled.checked).toBe(false);
+    expect(expires.value).toBe('2032-04-05 12:34');
+    document.querySelector<HTMLFormElement>('[data-announcement-form]')!.requestSubmit();
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatchObject({
+      expectedRevision: 1,
+      message: 'New edits while refresh was pending',
+      enabled: false,
+    });
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-announcement-status]')?.textContent).toContain(
+        'changed in another session',
+      ),
+    );
+    expect(message.value).toBe('Another session changed this');
+  });
+
   it('preserves a saved announcement when an older refresh body finishes later', async () => {
     installDom();
     let gets = 0;

@@ -26,6 +26,7 @@ import {
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 import {
   readServiceMaintenance,
+  updateAdminAnnouncementControl,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_ENABLED_HEADER,
   SERVICE_CONTROL_STATUS_REVISION_HEADER,
@@ -5723,6 +5724,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       id: saved.announcement?.id,
       message: 'Maintenance starts in five minutes.',
       expiresAt: '2026-06-18T13:00:00.000Z',
+      revision: 1,
     });
 
     vi.setSystemTime(new Date('2026-06-18T13:00:01.000Z'));
@@ -5731,7 +5733,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       env,
     );
 
-    expect(await expired.json()).toEqual({ enabled: false });
+    expect(await expired.json()).toEqual({ enabled: false, revision: 1 });
 
     const replayAfterExpiry = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/announcement', {
@@ -6017,6 +6019,204 @@ describe('Cloudflare app worker admin dashboard', () => {
     });
   });
 
+  it.each([false, true])(
+    'validates announcement dates and permits disabling expired notices (legacy body: %s)',
+    async (legacyRequest) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+      const env = {
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
+      };
+      const login = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/login', {
+          method: 'POST',
+          headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.87' }),
+          body: JSON.stringify({ password: 'admin-password-strong' }),
+        }),
+        env,
+      );
+      expect(login.status).toBe(200);
+      const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+      const mutate = (enabled: boolean, expiresAt: unknown, revision: number) =>
+        appWorker.fetch(
+          new Request('https://musixquare.com/api/admin/announcement', {
+            method: 'POST',
+            headers: adminMutationHeaders({ Cookie: cookie }),
+            body: JSON.stringify({
+              message: 'Notice with an exact expiry',
+              enabled,
+              expiresAt,
+              ...(legacyRequest
+                ? {}
+                : {
+                    expectedRevision: revision,
+                    requestId: crypto.randomUUID(),
+                  }),
+            }),
+          }),
+          env,
+        );
+      for (const invalid of [
+        '2031-02-29T12:00:00Z',
+        '2032-02-30T12:00:00.123+09:00',
+        '2031-04-31T12:00Z',
+      ]) {
+        const response = await mutate(true, invalid, 0);
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({ error: 'INVALID_EXPIRES_AT' });
+      }
+      const expiresAt = '2032-02-29T12:00:01.234+09:00';
+      const saved = await mutate(true, expiresAt, 0);
+      expect(saved.status).toBe(200);
+      expect(await saved.json()).toMatchObject({
+        revision: 1,
+        announcement: { expiresAt: '2032-02-29T03:00:01.234Z', enabled: true },
+      });
+      // Refresh the session after advancing beyond the original expiry.
+      vi.setSystemTime(new Date('2032-02-29T03:00:02Z'));
+      const renewedLogin = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/login', {
+          method: 'POST',
+          headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.87' }),
+          body: JSON.stringify({ password: 'admin-password-strong' }),
+        }),
+        env,
+      );
+      const renewedCookie = renewedLogin.headers.get('Set-Cookie')?.split(';')[0] || '';
+      const disabled = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/announcement', {
+          method: 'POST',
+          headers: adminMutationHeaders({ Cookie: renewedCookie }),
+          body: JSON.stringify({
+            message: 'Notice with an exact expiry',
+            enabled: false,
+            expiresAt,
+            ...(legacyRequest ? {} : { expectedRevision: 1, requestId: crypto.randomUUID() }),
+          }),
+        }),
+        env,
+      );
+      expect(disabled.status).toBe(200);
+      expect(await disabled.json()).toMatchObject({
+        revision: 2,
+        active: false,
+        announcement: { enabled: false, expiresAt: '2032-02-29T03:00:01.234Z' },
+      });
+      const current = await appWorker.fetch(
+        new Request('https://musixquare.com/api/announcement/current'),
+        env,
+      );
+      expect(current.status).toBe(200);
+      expect(await current.json()).toEqual({ enabled: false, revision: 2 });
+    },
+  );
+
+  it('exposes canonical revisions across separate caches without publishing disabled notice content', async () => {
+    vi.useFakeTimers();
+    const now = Date.UTC(2030, 0, 1);
+    vi.setSystemTime(now);
+    const binding = createAnnouncementControlBinding();
+    const envA = { MUSIXQUARE_SERVICE_CONTROL: binding };
+    // Distinct namespace identities model two isolate-local caches reading the
+    // same underlying objects. A mutation only invalidates its caller's cache.
+    const envB = { MUSIXQUARE_SERVICE_CONTROL: { ...binding } };
+    const read = async (env: typeof envA) => {
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/announcement/current'),
+        env,
+      );
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    expect(await read(envB)).toEqual({ enabled: false, revision: 0 });
+    const input = {
+      message: 'New notice',
+      enabled: true,
+      expiresAt: null,
+      expectedRevision: 0,
+      requestId: 'announcement-cache-publish',
+      baseHistory: [],
+    };
+    expect(await updateAdminAnnouncementControl(envA, input)).toMatchObject({ status: 'ok' });
+    expect(await read(envA)).toMatchObject({ enabled: true, revision: 1, message: 'New notice' });
+    expect(await read(envB)).toEqual({ enabled: false, revision: 0 });
+    vi.setSystemTime(now + 31_000);
+    expect(await read(envB)).toMatchObject({ enabled: true, revision: 1, message: 'New notice' });
+    expect(
+      await updateAdminAnnouncementControl(envA, {
+        ...input,
+        enabled: false,
+        expectedRevision: 1,
+        requestId: 'announcement-cache-disable',
+      }),
+    ).toMatchObject({ status: 'ok' });
+    expect(await read(envA)).toEqual({ enabled: false, revision: 2 });
+  });
+
+  it('returns an uncacheable unavailable response during a healthy announcement mutation', async () => {
+    let releaseMutation!: () => void;
+    const pendingMutation = new Promise<void>((resolve) => {
+      releaseMutation = resolve;
+    });
+    let mutationCount = 0;
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(async (request) => {
+        if (new URL(request.url).pathname.endsWith('/admin-announcement/v1/state')) {
+          mutationCount += 1;
+          if (mutationCount === 2) await pendingMutation;
+        }
+      }),
+    };
+    const input = {
+      message: 'Current notice',
+      enabled: true,
+      expiresAt: null,
+      expectedRevision: 0,
+      requestId: 'announcement-current-before-mutation',
+      baseHistory: [],
+    };
+    expect(await updateAdminAnnouncementControl(env, input)).toMatchObject({ status: 'ok' });
+    const mutation = updateAdminAnnouncementControl(env, {
+      ...input,
+      message: 'Next notice',
+      expectedRevision: 1,
+      requestId: 'announcement-pending-mutation',
+    });
+    try {
+      await vi.waitFor(() => expect(mutationCount).toBe(2));
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/announcement/current'),
+        env,
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+      expect(await response.json()).toEqual({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' });
+    } finally {
+      releaseMutation();
+      await mutation;
+    }
+    const current = await appWorker.fetch(
+      new Request('https://musixquare.com/api/announcement/current'),
+      env,
+    );
+    expect(current.status).toBe(200);
+    expect(await current.json()).toMatchObject({ enabled: true, message: 'Next notice' });
+  });
+
+  it('does not label invalid legacy announcement storage as an explicit withdrawal', async () => {
+    const store = createKvStore();
+    await store.put('admin-announcement.json', '{invalid json');
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/announcement/current'),
+      { SORO_RSS_BACKUP: store },
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(await response.json()).toEqual({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' });
+  });
+
   it('never revives stale legacy KV when the configured announcement control is unavailable', async () => {
     const store = createKvStore();
     await store.put(
@@ -6076,7 +6276,11 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/announcement/current'),
       env,
     );
-    await expect(current.json()).resolves.toEqual({ enabled: false });
+    expect(current.status).toBe(503);
+    expect(current.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    await expect(current.json()).resolves.toEqual({
+      error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE',
+    });
   });
 
   it('rejects a control revision-zero sentinel with a latent expiry', async () => {
@@ -6211,7 +6415,11 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/announcement/current'),
       env,
     );
-    await expect(publicResponse.json()).resolves.toEqual({ enabled: false });
+    expect(publicResponse.status).toBe(503);
+    expect(publicResponse.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    await expect(publicResponse.json()).resolves.toEqual({
+      error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE',
+    });
   });
 
   it('registers PRO rooms and issues claims through the cross-script Durable Object binding', async () => {

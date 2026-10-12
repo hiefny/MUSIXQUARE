@@ -58,7 +58,7 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   `enabled:false`로 응답한다. 로컬에서 503/no-store로 구분하고 공개 revision을
   추가하여 오래된 isolate 캐시의 철회 응답도 차단했다. App·PRO Worker 동반 배포가
   필요하며 새 의존성·스키마·비밀·바인딩·마이그레이션은 없다.
-  오너가 8.10.4 / v663 배포를 승인했다. 두 대상 묶음이 없는 현행 workflow에서
+  오너가 8.10.4 / v664 배포를 승인했다. 두 대상 묶음이 없는 현행 workflow에서
   `target=all`, Developer API D1 `false`로 준비하며 공지는 비활성 상태를 유지한다.
   [로컬 수정·검증](design/announcement-repair-2026-10-13.md)
   [전체 감사 A01–A02](design/announcement-full-audit-2026-10-13.md)

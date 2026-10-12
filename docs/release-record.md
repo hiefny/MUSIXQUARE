@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-13 (배포 SHA `8d0d310c`, Release `38273449653`) |
+| Last source review | 2026-10-13 (배포 SHA `332600a9`, Release `38293505122`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,16 +28,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.10.3` / `v662` |
-| 마지막 프로덕션 변경 | 2026-10-13 00:55:32 KST, [Release 38273449653](https://github.com/hiefny/MUSIXQUARE/actions/runs/38273449653) attempt 1 성공, `target=app`, Developer API D1 `false`. 일반방 공지 초기화 수정. 점검 모드는 변경하지 않고 배포·운영 smoke 동안 OFF 유지 |
-| 배포 main SHA | `8d0d310c6ee8114722d199b5c8d9834088979ec5` (PR [#307](https://github.com/hiefny/MUSIXQUARE/pull/307)). exact-main [CI 38272698028](https://github.com/hiefny/MUSIXQUARE/actions/runs/38272698028) attempt 1 성공 후보 재사용 |
-| Worker | App만 `8d0d310c` 적용. App version `9ba8ecc6-af3e-4009-b6d0-d4857b0c3294`, deployment `15f11373-6155-4a5b-8563-664696d6f588`, 100%. 나머지 5종(pro-room, signaling, remote-share, developer-api, developer-api-facade)은 `9c924ee1` 유지, 부분 배포 호환성 검사 통과. App generation·자산·익명 계정 경계·PRO 공개 경계·Standard HTTPS 운영 smoke 4종 통과. 00:55:28 KST 최종 배포 소유권과 coherent production marker 확인. 새 의존성·비밀·바인딩·D1 스키마·복구 floor 변경 없음. 기존 App/admin/auth D1 기준선은 멱등 적용·검증 |
-| 복구 | 필요 없음. Release 38273449653의 recovery job은 skip됐다. 변경 전 App deployment `51e0c126-f126-431b-bf19-3f617d1836ec`, version `32c45761-9d66-467f-b272-bb495e80d3b1`(`72a6e780`, 8.10.2)가 불변 checkpoint로 보존됐다. 이 기준선으로 복구하면 일반방 공지 누락도 돌아온다. checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 8.10.3에서도 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약을 유지한다. floor 변경 없음. PRO/App 선택형 암호 marker는 `pro-room-optional-entry-password-v1`. 계약을 모르는 이전 기준선으로 복구하지 않으며, 검증된 호환 기준선으로의 rollback은 가능하다. 기존 PRO 파일 길이 저장·판독과 쿠키 경계는 §4 및 정식 복구 절차를 따른다 |
-| 검증 범위 | PR [CI 38271897913](https://github.com/hiefny/MUSIXQUARE/actions/runs/38271897913)와 exact-main CI 각각 11개 job 성공. coverage 4종, 후보·critical browser gate 통과. 로컬 최종 런타임 SHA `98c690cf`: 550파일 unit 12,354 pass / 0 fail / 0 skip, 변경하지 않은 production artifact 후보 브라우저 17 pass, 타입·린트·포맷·build:checked·Worker 정적 검사 통과. critical browser 8 pass는 같은 공지 구현의 bootstrap cache query 보완 전 결과이며 최종 소스는 exact-main CI에서 재검증했다. 최초 재현 실패와 cache mirror 누락 실패도 보고서에 보존했다. 00:58 KST 실제 운영 브라우저에서 UI로 기존 테스트방을 나와 새로고침한 뒤 v662 및 새 App 자산을 확인하고, 새 일반방의 고정 공지 표시를 screenshot으로 확인했다. 공개 GET `/`·`/service-worker.js` HTTP 200, 공지 enabled와 승인 문구 일치. 실음향·기존 설치 PWA의 갱신·실제 고객방은 §2에 남는다. [검증·배포](design/standard-announcement-bootstrap-2026-10-13.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 [38273786011](https://github.com/hiefny/MUSIXQUARE/actions/runs/38273786011) (2026-10-13 00:56:27 KST, source `8d0d310c`) 31 pass / 0 fail / 5 manual. 실제 제공 중인 Worker의 바인딩·도메인·비밀 이름 및 R2 정책 검사 통과. 수동 5항목은 §2에 남으며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 2026-10-13 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 릴리스의 exact-main 후보·critical browser 검사와 별개로, `8d0d310c` 전체 Full E2E 실행은 없음 |
-| 의존성 | 8.10.3 배포에서 의존성 변경 없음. 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. 2026-10-13 재조회한 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 여전히 열려 있으며 이번 배포에 포함하지 않았다. Release 38273449653 의존성 설치에서 취약점 0건. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
+| App 버전 / SW 캐시 | `8.10.4` / `v665` |
+| 마지막 프로덕션 변경 | 2026-10-13 03:54:42 KST, [Release 38293505122](https://github.com/hiefny/MUSIXQUARE/actions/runs/38293505122) attempt 1 성공, `target=all`, Developer API D1 `false`. 공지 철회·조회 계약·관리자 편집·전체보기 수정. 점검 OFF 및 공개 공지 비활성 상태 유지 |
+| 배포 main SHA | `332600a9a00fcaafccae884558b5fcf29f816f25` (PR [#309](https://github.com/hiefny/MUSIXQUARE/pull/309)). exact-main [CI 38292941681](https://github.com/hiefny/MUSIXQUARE/actions/runs/38292941681) attempt 1 성공 후보 재사용 |
+| Worker | 6종 모두 `332600a9` 단일 version 100%. App version `b6f7da30-6125-459d-8e59-8fee62308938`, deployment `a26c6db2-28c7-4ff4-94fa-6f7c89ff0c30`. PRO version `00f2387c-029d-48af-9e6d-e845d4dcb524`, deployment `00c5c594-e115-4edf-bc6c-b43645ff039b`. 나머지 식별자는 [배포 증거 표](design/announcement-repair-2026-10-13.md#프로덕션-배포--2026-10-13)에 기록했다. 03:54:33 KST 최종 배포 소유권, 03:54:35 generation ready, 03:54:38 coherent marker 영속화 확인. 운영 smoke 10종 성공. 새 의존성·비밀·바인딩·D1 스키마 없음. 기존 App/admin/auth 기준선은 멱등 적용·검증 |
+| 복구 | 필요 없음. Release 38293505122 recovery job은 skip됐다. 불변 checkpoint에 변경 전 App `8d0d310c` version `9ba8ecc6-af3e-4009-b6d0-d4857b0c3294`, deployment `15f11373-6155-4a5b-8563-664696d6f588` 및 나머지 5종 `9c924ee1` 식별자가 보존됐고 기존 floor를 지원하는 ancestor임을 확인했다. 이전 App 복구 시 공지 결함도 돌아오며, revision 없는 응답을 거부하는 새 클라이언트 탭은 새로고침해야 한다. checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지, 신규 floor 없음. PRO/App 암호 marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 계약을 모르는 이전 기준선으로 복구하지 않으며 검증된 호환 기준선으로 rollback 가능. 기존 PRO 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | 최종 PR [CI 38292044186](https://github.com/hiefny/MUSIXQUARE/actions/runs/38292044186)와 exact-main CI 각각 11개 job 성공. 각각 unit 552파일 / 12,446 pass / 0 fail / 1 skip(Windows 전용 경로 검사, 로컬 Windows에서 통과), 후보 browser 17 + critical 23 pass, coverage 4종 통과. 버전 bump 전 로컬 전체 unit 12,446 pass / 0 fail / 0 skip 및 리뷰 보완 후 관리자 47 pass. 최종 런타임 SHA `3240fc97`의 committed build:checked 성공; main tree는 해당 PR 최종 tree와 동일하다. 타입·린트·포맷·Worker guard 통과. 공개 `/`·SW HTTP 200/v665, 공지 HTTP 200 `enabled:false, revision:8` 확인. 운영 공지를 다시 게시하지 않아 실제 5분 철회·실기기 확인은 §2에 남는다. [수정·검증·배포](design/announcement-repair-2026-10-13.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 [38294123500](https://github.com/hiefny/MUSIXQUARE/actions/runs/38294123500) (2026-10-13 03:55:21 KST, source `332600a9`) 31 pass / 0 fail / 5 manual. Worker 바인딩·도메인·비밀 이름·R2 정책 자동 검사 통과. 수동 항목은 §2에 남으며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 2026-10-13 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 exact-main 후보·critical browser 검사와 별개로 `332600a9` 전체 Full E2E 실행은 없음 |
+| 의존성 | 8.10.4 의존성 변경 없음, 기존 그룹 업데이트 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 열려 있으며 이번 배포 제외. Release 38293505122 설치 취약점 0건. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -46,39 +46,20 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 확인된 후속 결함
 
-- [ ] 공지 철회: 8.10.3/v662 운영 일반방에서 2026-10-13 01:12:01 KST에
-  공지를 비활성화하고 새로고침 없이 01:17:21까지 기다렸지만 기존 배너가 남았다.
-  최초·반복 조회 초기화는 수정됐으나 `enabled:false` 응답에 대한 배너 철회가
-  공통 소비 코드에 없다. PRO도 코드상 같은 경로이며 실서비스 PRO 검증은 하지 않았다.
-  2026-10-13 로컬 수정은 방장 공지 보존과 서버 조회 실패/명시적 철회 구분을 함께
-  다뤘다. 공지는 비활성화 상태로 두었으며 추가 배포는 하지 않았다.
-  [로컬 수정·검증](design/announcement-repair-2026-10-13.md). 배포 후 확인은 남는다.
-  [실험·범위](design/standard-announcement-bootstrap-2026-10-13.md#follow-up-withdrawing-an-already-displayed-notice--2026-10-13)
-- [ ] 공지 조회 계약: 정상 저장 중이나 canonical 조회 불가 때 공개 API가 HTTP 200
-  `enabled:false`로 응답한다. 로컬에서 503/no-store로 구분하고 공개 revision을
-  추가하여 오래된 isolate 캐시의 철회 응답도 차단했다. App·PRO Worker 동반 배포가
-  필요하며 새 의존성·스키마·비밀·바인딩·마이그레이션은 없다.
-  오너가 8.10.4 / v665 배포를 승인했다. 두 대상 묶음이 없는 현행 workflow에서
-  `target=all`, Developer API D1 `false`로 준비하며 공지는 비활성 상태를 유지한다.
-  [로컬 수정·검증](design/announcement-repair-2026-10-13.md)
-  [전체 감사 A01–A02](design/announcement-full-audit-2026-10-13.md)
-- [ ] 관리자 공지 폼: 늦은 초기 조회의 초안 덮어쓰기, ISO/초 포함 불가능 날짜의
-  자동 정규화, 만료 초 단위 유실, 만료 공지 비활성화 거부를 로컬에서 재현했다.
-  UI와 서버의 중복 증상을 하나로 세어 4개 기능 결함이다. 로컬에서 수정했고
-  명시적 Refresh를 누른 뒤 새로 입력한 초안의 보존도 검증했다. 배포는 남는다.
-  [로컬 수정·검증](design/announcement-repair-2026-10-13.md)
-  [전체 감사 A03–A06](design/announcement-full-audit-2026-10-13.md)
-- [ ] 공지 UX: 3줄을 넘는 본문의 전체 읽기 경로 부재(소스 확인, 시각 재현 미완료),
-  초기 조회 실패 뒤 첫 interval 성공의 알림음 정책 불일치(로컬 재현).
-  로컬에서 전체보기 다이얼로그·분리된 배너 닫기와 초기 무음 정책을 수정했고
-  실제 브라우저 이미지 및 회귀 검증을 기록했다. 배포는 남는다.
-  [로컬 수정·검증](design/announcement-repair-2026-10-13.md)
-  PRO 방장 공지의 늦은 입장 복원은 별도 정책 확인이며 서비스 공지 결함에 합치지 않는다.
-  [전체 감사 A07–A08 및 모드 차이](design/announcement-full-audit-2026-10-13.md)
+공지의 네 배포 대기 항목은 PR #309의 재현·회귀, exact-main CI, App·PRO를 포함한
+Release 38293505122 성공으로 닫았다. 관리자 초기 초안의 미관측 revision 채택과
+첫 조회 실패 후 초안 유실도 리뷰에서 재현·수정했다.
+[해결 근거](design/announcement-repair-2026-10-13.md#프로덕션-배포--2026-10-13).
+PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비스 공지 수정에 포함하지 않았다.
 
 ### 실기기 확인
 
 사용자의 실제 기기가 필요하다. 브라우저 자동화 결과로 대신하지 않는다.
+
+- [ ] 8.10.4 공지: 새 클라이언트가 적용된 운영 일반방·PRO에서 게시 후 철회와 5분/
+  foreground 반영, 실제 iPhone Safari/PWA·VoiceOver 및 Android/TalkBack의 전체보기/
+  짧은 화면 스크롤·닫기. 이번에는 운영 공지를 재게시하지 않았고 기존 설치 PWA는
+  새로고침 전 구 코드가 남을 수 있다. [증거·한계](design/announcement-repair-2026-10-13.md)
 
 - [ ] 8.7.9 헤더 크로스페이드: iPhone Safari/PWA에서 로딩 시작·종료, 시크 직후
   탭 왕복. [상세](design/header-crossfade-2026-10-09.md)

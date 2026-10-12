@@ -140,3 +140,56 @@ tooling 설정으로 다시 검사했으며 코드 lint 실패로 숨기지 않�
 최종 관리자 표적 검사는 2파일 47 pass / 0 fail / 0 skip, classic TypeScript와
 tooling ESLint·Prettier도 통과했다. 수정 전 HEAD를 메모리에서 실행한 재현에서는
 실패 후 GET가 2회 나가고 초안이 기존 서버 문구로 바뀌어 보존 검사가 실패했다.
+
+## 프로덕션 배포 — 2026-10-13
+
+- 최종 런타임 커밋 `3240fc97e34a146227d0ed19a59e09c94e60089c`에서
+  `build:checked` 성공. PR [#309](https://github.com/hiefny/MUSIXQUARE/pull/309)를
+  squash 병합한 main은 `332600a9a00fcaafccae884558b5fcf29f816f25`이며 tree가 동일하다.
+- 최종 PR [CI 38292044186](https://github.com/hiefny/MUSIXQUARE/actions/runs/38292044186)와
+  exact-main [CI 38292941681](https://github.com/hiefny/MUSIXQUARE/actions/runs/38292941681)
+  각각 11개 job 성공. full unit 552파일 / **12,446 pass / 0 fail / 1 skip**,
+  broad·critical·Worker·tooling coverage, production candidate browser 17,
+  critical browser 23건 통과. skip은 Linux에서 제외하는 Windows 전용 voucher 파일
+  경로 검사(`pro-grant-campaign-cli.test.ts`)이며 앞선 로컬 Windows 전체 검사에서는
+  통과했다. 새 관리자 회귀 1건 때문에 전체 정의 수는 12,447건이다.
+- 원격 main 동일성을 확인한 뒤 성공한 exact-main 후보를
+  [Release 38293505122](https://github.com/hiefny/MUSIXQUARE/actions/runs/38293505122)
+  attempt 1이 재사용했다. `target=all`, Developer API D1 `false`.
+  **2026-10-13 03:54:42 KST 성공**, App **8.10.4 / cache v665**.
+- 배포 전 checkpoint와 최종 artifact의 checkpoint 바이트가 동일하다. 기존 App은
+  `8d0d310c`, 나머지 5종은 `9c924ee1`이었으며 모두 기존 floor를 지원하는 기준선이다.
+  recovery job은 실행할 필요가 없어 skip됐다. 데이터 백업이나 새 migration은 아니다.
+- PRO R2 CORS·PRO Worker·Remote Share·Signaling·Remote Share host assertion·
+  Developer API·App generation·익명 계정·App 배포 후 PRO 공개 경계·Standard HTTPS
+  fallback 운영 smoke **10종 성공**. App 자산 배포와 generation 응답도 검증했다.
+- 최종 배포 소유권 확인은 03:54:33.708 KST. generation은 새 SHA로 `ready`,
+  `ever_enabled=1`, 기존 floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지.
+  coherent marker는 03:54:37에 확정, 03:54:38에 artifact로 영속화됐다.
+  Signaling Custom Domain은 기존 연결 그대로 검증됐다.
+
+모든 Worker가 아래 단일 version **100%**, `git:332600a9a00fcaafccae884558b5fcf29f816f25`다.
+
+| Worker | Deployment ID | Version ID |
+| --- | --- | --- |
+| App | `a26c6db2-28c7-4ff4-94fa-6f7c89ff0c30` | `b6f7da30-6125-459d-8e59-8fee62308938` |
+| PRO | `00c5c594-e115-4edf-bc6c-b43645ff039b` | `00f2387c-029d-48af-9e6d-e845d4dcb524` |
+| Remote Share | `dc0ff044-3cb7-43b4-82a3-b48711335e6b` | `b632a9a0-5472-4ed9-8228-868b7fb502d2` |
+| Signaling | `d6198139-30d4-4241-a55c-6f52ccedcd82` | `7bc52ba3-feb8-4b4c-bf62-a69c20841305` |
+| Developer API facade | `6657d632-ed0c-4ab1-8db6-26ba3b46cb00` | `a9249c5f-5ef5-47e1-9b2b-8e18a3c72380` |
+| Developer API | `f3eaf8b8-bcdd-4276-af7d-8427389fe502` | `2b6adc1d-6415-4090-b29f-10228924ec9e` |
+
+공개 `/`와 `/service-worker.js`가 HTTP 200과 v665를 반환했다. 공지 API는
+HTTP 200 `{"enabled":false,"revision":8}`로 새 계약과 비활성 상태를 확인했다.
+점검 모드·공지 게시 상태는 바꾸지 않았다. 앞선 운영 배너를 다시 켜서 실제 5분
+철회를 반복하지 않았고, 기존 설치 PWA와 실기기 접근성 확인은 release-record §2에
+남긴다. unit·browser·운영 smoke가 실음향이나 이 실기기 확인을 대체하지 않는다.
+
+배포 후 [Operations Drift Audit 38294123500](https://github.com/hiefny/MUSIXQUARE/actions/runs/38294123500)
+도 성공했다. 03:55:21 KST 보고서: **31 pass / 0 fail / 5 manual**. 수동 항목을
+통과로 세지 않는다. 이번 최종 SHA의 전체 serial Full E2E는 실행하지 않았다.
+후보·critical browser gate와 혼동하지 않는다.
+
+릴리스 기록의 공지 배포 대기 4항목은 위 배포와 회귀 증거로 닫고, 실서비스
+5분 철회·PWA·실기기 한계를 별도 항목으로 유지했다. 후속 기록 PR은 문서만 바꾸며
+추가 Production Release를 실행하지 않는다.

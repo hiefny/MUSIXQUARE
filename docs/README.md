@@ -92,8 +92,9 @@ runbooks. Neither belongs in a general setup document.
 
 - [공지 철회·관리자 편집·전체보기 수정 — 2026-10-13](design/announcement-repair-2026-10-13.md) —
   공지 철회/조회 실패 구분, 오래된 서버 캐시 응답 차단, 관리자 초안·만료 처리,
-  긴 공지 전체보기와 초기 알림 정책의 로컬 수정·검증. 배포 전 단계이며
-  App과 Service Control DO를 소유하는 PRO Worker가 함께 후속 배포 대상이다.
+  긴 공지 전체보기와 초기 알림 정책, 리뷰에서 찾은 관리자 초기 초안 경계를 수정했다.
+  exact-main CI와 Release 38293505122로 8.10.4/v665 전체 Worker 배포 완료.
+  운영 smoke 10종·Drift Audit 통과, 실서비스 5분 철회·PWA·실기기 한계는 별도 기록.
 
 - [공지 전체 경로 감사 — 2026-10-13](design/announcement-full-audit-2026-10-13.md) —
   철회·조회 장애 구분·관리자 초안/만료 처리의 기능 결함 6개, 표시·알림 UX 2개를

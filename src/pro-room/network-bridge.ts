@@ -264,6 +264,8 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
   }
 
   get serverNowMs(): number {
+    // Without calibration this is only local wall time. Playback must acquire a
+    // clock lease or check clockCalibrated before treating it as server time.
     return Date.now() + (this.captureClockSnapshot()?.offsetMs ?? 0);
   }
 
@@ -325,11 +327,9 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
   }
 
   isClockSnapshotCurrent(snapshot: ProRoomClockSnapshot): boolean {
-    return (
-      this.connected &&
-      snapshot.generation === this.#generation &&
-      this.#clockSnapshotTokens.has(snapshot)
-    );
+    // Unexpected close preserves clocks already leased to admitted work.
+    // Explicit disconnect and socket replacement revoke them via generation.
+    return snapshot.generation === this.#generation && this.#clockSnapshotTokens.has(snapshot);
   }
 
   acquireClock(options: ProRoomClockAcquisitionOptions): Promise<ProRoomClockSnapshot | null> {

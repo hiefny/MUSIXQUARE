@@ -1669,6 +1669,40 @@ describe('leased PRO clock estimates', () => {
     }
   });
 
+  it.each(['leave', 'replacement'] as const)(
+    'preserves an issued lease across unexpected socket close until %s, while blocking new acquisition',
+    async (ending) => {
+      const bridge = new ServerProRoomNetworkBridge();
+      const socket = await openBridge(bridge);
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        answerClockRequest(socket, clockRequests(socket).at(-1)!, 1_000);
+        const leased = bridge.captureClockSnapshot()!;
+        expect(leased).toMatchObject({ offsetMs: 0 });
+        await vi.advanceTimersByTimeAsync(100);
+        socket.dispatch('close');
+        expect(bridge.connected).toBe(false);
+        expect(bridge.isClockSnapshotCurrent(leased)).toBe(true);
+        expect(bridge.captureClockSnapshot()).toBeNull();
+        await expect(bridge.acquireClock({ timeoutMs: 700 })).resolves.toBeNull();
+        await expect(bridge.acquireClock({ timeoutMs: 700, fresh: true })).resolves.toBeNull();
+        await vi.advanceTimersByTimeAsync(700);
+        expect(bridge.isClockSnapshotCurrent(leased)).toBe(true);
+        if (ending === 'leave') {
+          bridge.disconnect();
+        } else {
+          const opening = bridge.reconfigure(snapshot(), { ...access(), ticketSequence: 2 });
+          expect(bridge.isClockSnapshotCurrent(leased)).toBe(false);
+          FakeWebSocket.instances.at(-1)!.dispatch('open');
+          await opening;
+        }
+        expect(bridge.isClockSnapshotCurrent(leased)).toBe(false);
+      } finally {
+        bridge.disconnect();
+      }
+    },
+  );
+
   it('invalidates leases and passive waits on socket replacement and rejects foreign-bridge leases', async () => {
     const bridge = new ServerProRoomNetworkBridge();
     const socket = await openBridge(bridge);

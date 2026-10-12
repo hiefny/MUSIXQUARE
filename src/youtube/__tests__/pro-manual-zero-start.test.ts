@@ -13,6 +13,7 @@ import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import type { ProRoomSnapshot } from '../../pro-room/contracts.ts';
+import type { ProRoomSignalingAccess } from '../../pro-room/api.ts';
 import { registerProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   createProPlaybackAuthorityToken,
@@ -430,6 +431,216 @@ function delayOneTimer(targetDelayMs: number, extraMs: number) {
 }
 
 describe('PRO manual offset across YouTube zero-start', () => {
+  it('finishes a confirmed scheduled YouTube COMMIT after an unexpected socket close', async () => {
+    const endpoint = await createProEndpoint();
+    endpoint.setTimelineLive(false);
+    const bridgeExports = await import('../../pro-room/network-bridge.ts');
+    const originalAcquire = vi
+      .mocked(bridgeExports.acquireProRoomServerClock)
+      .getMockImplementation()!;
+    const { ServerProRoomNetworkBridge } = await vi.importActual<
+      typeof import('../../pro-room/network-bridge.ts')
+    >('../../pro-room/network-bridge.ts');
+    const bridge = new ServerProRoomNetworkBridge();
+    type SocketEvent = { data?: string; reason?: string };
+    let socket!: ClockSocket;
+    class ClockSocket {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      static readonly instances: ClockSocket[] = [];
+      readyState = ClockSocket.CONNECTING;
+      readonly listeners = new Map<string, Set<(event: SocketEvent) => void>>();
+      constructor() {
+        ClockSocket.instances.push(this);
+      }
+      addEventListener(type: string, listener: (event: SocketEvent) => void) {
+        const listeners = this.listeners.get(type) ?? new Set();
+        listeners.add(listener);
+        this.listeners.set(type, listeners);
+      }
+      removeEventListener(type: string, listener: (event: SocketEvent) => void) {
+        this.listeners.get(type)?.delete(listener);
+      }
+      dispatch(type: string, event: SocketEvent = {}) {
+        if (type === 'open') this.readyState = ClockSocket.OPEN;
+        for (const listener of this.listeners.get(type) ?? []) listener(event);
+      }
+      send(raw: string) {
+        const frame = JSON.parse(raw);
+        if (frame.channel !== 'clock') return;
+        setTimeout(
+          () =>
+            this.dispatch('message', {
+              data: JSON.stringify({
+                type: 'pro-clock',
+                version: 1,
+                requestId: frame.payload.requestId,
+                clientSentAtMs: frame.payload.clientSentAtMs,
+                serverTimeMs: frame.payload.clientSentAtMs + 5,
+              }),
+            }),
+          10,
+        );
+      }
+      close() {
+        this.readyState = ClockSocket.CLOSED;
+        this.dispatch('close');
+      }
+    }
+    vi.stubGlobal('WebSocket', ClockSocket);
+    const transportWindow = window as Window & {
+      __MUSIXQUARE_TRANSPORT__?: Record<string, unknown>;
+    };
+    const previousTransport = transportWindow.__MUSIXQUARE_TRANSPORT__;
+    transportWindow.__MUSIXQUARE_TRANSPORT__ = {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+    };
+    const checkpoint = {
+      coordinatorEpoch: endpoint.roomEpoch,
+      revision: 2,
+      state: 'playing' as const,
+      queueItemId: QUEUE_ITEM_ID,
+      positionSeconds: 20,
+      updatedAtMs: Date.now(),
+      youtubeVideoId: 'VIDEOAAAAAA',
+      youtubeSubIndex: 0,
+    };
+    const canonical = {
+      roomCode: '000001',
+      revision: 2,
+      playlistRevision: 1,
+      playlist: [],
+      currentQueueItemId: QUEUE_ITEM_ID,
+      playback: checkpoint,
+      presence: { coordinatorEpoch: endpoint.roomEpoch },
+      viewer: { participantId: 'participant_00001', presenceIncarnationId: 'presence_0000000001' },
+    } as unknown as ProRoomSnapshot;
+    try {
+      const connecting = bridge.connect(canonical, {
+        ticket: `${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
+        expiresAtMs: Date.now() + 10_000,
+        role: 'member',
+        coordinatorEpoch: endpoint.roomEpoch,
+        presenceIncarnationId: 'presence_0000000001',
+        ticketSequence: 1,
+        pendingPlaybackTransition: null,
+      });
+      socket = ClockSocket.instances.at(-1)!;
+      socket.dispatch('open');
+      await connecting;
+      vi.mocked(bridgeExports.acquireProRoomServerClock).mockImplementation((options) =>
+        bridge.acquireClock(options),
+      );
+      vi.spyOn(bridgeExports, 'captureProRoomServerClockSnapshot').mockImplementation(() =>
+        bridge.captureClockSnapshot(),
+      );
+      vi.spyOn(bridgeExports, 'isProRoomClockSnapshotCurrent').mockImplementation((snapshot) =>
+        bridge.isClockSnapshotCurrent(snapshot),
+      );
+      vi.spyOn(bridgeExports, 'getProRoomServerNow').mockImplementation(() => bridge.serverNowMs);
+      vi.spyOn(bridgeExports, 'isProRoomServerClockCalibrated').mockImplementation(
+        () => bridge.clockCalibrated,
+      );
+      const iframe = await import('../iframe.ts');
+      const { applyProPlaybackYouTubeCommit } = await import('../player.ts');
+      const prepare = vi.fn<ProPlaybackMediaEndpoint['prepare']>(async (request) => {
+        const result = await iframe.prepareYouTubeAuthorityOccurrence({
+          authorityKey: getProPlaybackAuthorityKey(request.authority),
+          queueItemId: request.queueItemId,
+          videoId: request.youtubeVideoId!,
+          subIndex: 0,
+          positionSeconds: request.positionSeconds,
+        });
+        return result.ready
+          ? {
+              status: 'ready',
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              mediaKind: 'youtube',
+              durationSeconds: 180,
+              youtubeVideoId: request.youtubeVideoId!,
+              youtubeSubIndex: 0,
+            }
+          : {
+              status: 'failed',
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              reason: 'media-unavailable',
+            };
+      });
+      const commit = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) =>
+        (await applyProPlaybackYouTubeCommit(request))
+          ? { status: 'applied', authority: request.authority }
+          : { status: 'failed', authority: request.authority, reason: 'media-unavailable' },
+      );
+      const invalidate = vi.fn(() => {
+        endpoint.player.pauseVideo?.();
+      });
+      registerProPlaybackMediaEndpoint({
+        prepare,
+        commit,
+        cancel: () => iframe.cancelYouTubeAuthorityPreparation(),
+        invalidateCommitted: invalidate,
+      });
+      const reportReady = vi.fn().mockResolvedValue('waiting');
+      const applied = vi.fn();
+      bus.on('sync:diagnostic-pro-checkpoint', applied);
+      const controller = new ProRoomPlaybackController({
+        isActive: () => true,
+        getCanonicalSnapshot: () => canonical,
+        getPlaylistSnapshot: () => canonical,
+        capturePlaylistLease: () => ({ generation: 1, roomCode: '000001' }),
+        isPlaylistLeaseCurrent: () => true,
+        getRoomAbortSignal: () => undefined,
+        subscribePlaylistProjection: () => () => undefined,
+        runHeartbeat: vi.fn().mockResolvedValue(undefined),
+        reportPlaybackTransitionReady: reportReady,
+        executePlaybackCommand: vi.fn(),
+        recoverTerminalSession: vi.fn().mockResolvedValue(undefined),
+      });
+      controllers.push(controller);
+      controller.acceptPrepare({
+        type: 'pro-playback-prepare',
+        transitionId: 'scheduled-close',
+        serverTimeMs: Date.now(),
+        deadlineAtMs: Date.now() + 3_000,
+        basePlaybackRevision: 1,
+        target: checkpoint,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(reportReady).toHaveBeenCalledWith(expect.objectContaining({ status: 'ready' }));
+      const playsBefore = vi.mocked(endpoint.player.playVideo).mock.calls.length;
+      controller.acceptCommit({
+        type: 'pro-playback-commit',
+        transitionId: 'scheduled-close',
+        serverTimeMs: Date.now(),
+        executeAtMs: Date.now() + 700,
+        playback: checkpoint,
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(commit).toHaveBeenCalledOnce();
+      socket.close();
+      controller.beginControlChannelRecovery();
+      expect(bridge.connected).toBe(false);
+      expect(bridge.captureClockSnapshot()).toBeNull();
+      await vi.advanceTimersByTimeAsync(600);
+      // Exercise the actual arm and controller settlement, not just a mocked
+      // endpoint accepting a schedule request before the socket disappears.
+      expect(endpoint.player.playVideo).toHaveBeenCalledTimes(playsBefore + 1);
+      expect.soft(applied).toHaveBeenCalledWith(expect.objectContaining({ revision: 2 }));
+      expect.soft(invalidate).not.toHaveBeenCalled();
+      expect.soft(endpoint.player.getPlayerState()).toBe(1);
+    } finally {
+      vi.mocked(bridgeExports.acquireProRoomServerClock).mockImplementation(originalAcquire);
+      bridge.disconnect();
+      if (previousTransport === undefined) delete transportWindow.__MUSIXQUARE_TRANSPORT__;
+      else transportWindow.__MUSIXQUARE_TRANSPORT__ = previousTransport;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(['prepared', 'direct'] as const)(
     'consumes a pending %s release on an actual member Media Session pause, then allows explicit resume',
     async (path) => {

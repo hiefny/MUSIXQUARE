@@ -46,6 +46,14 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 최근 해결 근거
 
+8.10.6 App-only 후속 수정은 배포 대기 중이다. `/clear` 서비스 공지 유실, 닫기 영역
+겹침, 자동 갱신 초안 유실, legacy 입력 정규화 불일치를 재현·수정했다. 실행 JS의
+App/cache 식별도 레코더에 추가한다. 관리자 초안은 자동 갱신에서 보존되지만 null
+revision 저장은 계속 차단하고, 수동 Refresh는 확인 후 폐기·서버 원본 재조회한다.
+기존 "첫 조회 실패 후 초안 유실 해결" 기록은 이 경계까지 보장한 것이 아니었다.
+신규 의존성·스키마·바인딩·비밀 없음. §1의 운영 값은 배포 성공 전까지 그대로다.
+[후속 수정·검증·복구 범위](design/announcement-review-followup-2026-10-13.md).
+
 PRO 정원 판정의 TTL 경계, 취소된 최초 요청에 묶인 공유 registry 조회 수명,
 휴면 세션·계정 detach에 따른 Peer 101 이상 생성과 클라이언트 응답 거부의 세
 확정 결함은 PR [#311](https://github.com/hiefny/MUSIXQUARE/pull/311)의 재현·회귀,
@@ -69,6 +77,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   foreground 반영, 실제 iPhone Safari/PWA·VoiceOver 및 Android/TalkBack의 전체보기/
   짧은 화면 스크롤·닫기. 이번에는 운영 공지를 재게시하지 않았고 기존 설치 PWA는
   새로고침 전 구 코드가 남을 수 있다. [증거·한계](design/announcement-repair-2026-10-13.md)
+  8.10.6 적용 후 호스트 `/clear`에도 서비스 공지가 남는지 함께 확인한다.
+  [후속 회귀·실기기 한계](design/announcement-review-followup-2026-10-13.md)
 
 - [ ] 8.7.9 헤더 크로스페이드: iPhone Safari/PWA에서 로딩 시작·종료, 시크 직후
   탭 왕복. [상세](design/header-crossfade-2026-10-09.md)

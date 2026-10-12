@@ -8136,6 +8136,8 @@
     flex: 1;
     min-width: 0;
     padding: 10px 16px;
+    /* Reserve dismiss space using the page direction, not the body's dir=auto. */
+    padding-inline-end: 40px;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -8170,7 +8172,6 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding-inline-end: 20px;
     margin-bottom: 4px;
   }
 

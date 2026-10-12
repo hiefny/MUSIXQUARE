@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [공지 외부 리뷰 후속 수정 — 2026-10-13](design/announcement-review-followup-2026-10-13.md) —
+  `/clear` 서비스 공지 소유권, RTL 닫기 영역, 관리자 초안 확인, legacy 정규화 및
+  플라이트 레코더 빌드 식별을 재현·수정하고 검증·배포 근거를 기록한다.
+
 - [일반·PRO 동시 입장 시뮬레이션 — 2026-10-13](design/session-admission-burst-simulation-2026-10-13.md) —
   실제 로컬 workerd·SQLite DO에서 동시 입장, 정원 초과, 암호·공유망, 재시도·재접속,
   퇴장 후 자리 재사용을 검사한다. 반복 실행 명령과 fixture·실기기 한계를 기록한다.

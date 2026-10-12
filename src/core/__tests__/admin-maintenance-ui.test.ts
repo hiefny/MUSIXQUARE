@@ -67,6 +67,98 @@ afterEach(() => {
 });
 
 describe('admin maintenance status UI', () => {
+  it.each(['pageshow', 'maintenance-resume', 'maintenance-settled'] as const)(
+    'preserves an announcement draft and its revision fence during %s',
+    async (refresh) => {
+      installDom();
+      let announcementRevision = 1;
+      let notice = 'Saved announcement';
+      let serviceStatus = { enabled: false, revision: 0, settlesAt: null as string | null };
+      let metricReads = 0;
+      const writes: Array<Record<string, unknown>> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), location.origin).pathname;
+          if (path === '/api/admin/session') return Response.json({ authenticated: true });
+          if (path === '/api/admin/service-status') {
+            if (init?.method === 'POST') {
+              serviceStatus = {
+                enabled: false,
+                revision: 2,
+                settlesAt:
+                  refresh === 'maintenance-settled'
+                    ? new Date(Date.now() + 100).toISOString()
+                    : null,
+              };
+            }
+            return Response.json({ serviceStatus });
+          }
+          if (path === '/api/admin/metrics') metricReads++;
+          if (path === '/api/admin/announcement') {
+            if (init?.method === 'POST') {
+              writes.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+              return Response.json(
+                {
+                  error: 'ADMIN_ANNOUNCEMENT_CONFLICT',
+                  revision: announcementRevision,
+                  announcement: { message: notice, enabled: true },
+                },
+                { status: 409 },
+              );
+            }
+            return Response.json({
+              revision: announcementRevision,
+              announcement: { message: notice, enabled: true },
+              history: [],
+            });
+          }
+          return Response.json({ cards: [], summary: {}, rooms: [], campaigns: [], articles: [] });
+        }),
+      );
+      window.eval(adminScript);
+      const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+      const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+      const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+      await vi.waitFor(() => expect(message.value).toBe('Saved announcement'));
+      message.value = 'Keep these unsaved edits';
+      enabled.checked = false;
+      expires.value = '2032-04-05T12:34';
+      announcementRevision = 2;
+      notice = 'Changed in another session';
+      const initialMetricReads = metricReads;
+      if (refresh === 'pageshow') {
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+      } else {
+        serviceStatus = { enabled: true, revision: 1, settlesAt: null };
+        document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!.click();
+        await vi.waitFor(() =>
+          expect(
+            document.querySelector('[data-service-status-trigger]')?.getAttribute('data-state'),
+          ).toBe('maintenance'),
+        );
+        document.querySelector<HTMLButtonElement>('[data-service-status-change]')!.click();
+        document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!.click();
+      }
+      await vi.waitFor(() => expect(metricReads).toBeGreaterThan(initialMetricReads));
+      await vi.waitFor(() =>
+        expect(document.querySelector('[data-updated-at]')?.textContent).toMatch(/^Updated /),
+      );
+      expect(message.value).toBe('Keep these unsaved edits');
+      expect(enabled.checked).toBe(false);
+      expect(expires.value).toBe('2032-04-05T12:34');
+      document.querySelector<HTMLFormElement>('[data-announcement-form]')!.requestSubmit();
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
+      expect(writes[0]).toMatchObject({
+        message: 'Keep these unsaved edits',
+        enabled: false,
+        expectedRevision: 1,
+      });
+      // A real conflict still follows the existing explicit mutation policy.
+      await vi.waitFor(() => expect(message.value).toBe('Changed in another session'));
+    },
+  );
+
   it.each(['expires', 'no-expiry', 'replaced', 'saving'] as const)(
     'keeps persisted announcement status current without overwriting its draft: %s',
     async (mode) => {

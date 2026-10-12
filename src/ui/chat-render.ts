@@ -681,6 +681,12 @@ function setPinnedNotice(
   if (drawer) drawer.classList.add('has-messages');
 }
 
+/** A room moderator can clear room notices, not withdraw a service announcement. */
+export function clearRoomPinnedNotice(): void {
+  if (pinnedNotice?.serviceId !== undefined) return;
+  clearPinnedNotice();
+}
+
 export function clearPinnedNotice(serviceId?: string): void {
   if (serviceId !== undefined && pinnedNotice?.serviceId !== serviceId) return;
   pinnedNotice = null;

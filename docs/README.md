@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Android YouTube 공통 기준·기기별 출력 보정 — 2026-10-12](design/android-youtube-output-baseline-2026-10-12.md) —
+  일반·PRO의 own 250 ms, 방장 수동값 격리, 곡 끝 처리와 로컬 검증.
+  실음향·구버전 혼용·릴리스 준비의 남은 한계를 구분한다. 미배포.
 - [일반방 시계·학습 브라우저 실험 — 2026-10-12](design/standard-clock-browser-simulation-2026-10-12.md) —
   실제 일반방 P2P와 YouTube, 지연 통제 60회 및 실제 시계 모듈 150,400회 모형.
   초기 표본 교체 시 학습 제외와 안정 후 재개 확인, 제품 수정·배포 없음.

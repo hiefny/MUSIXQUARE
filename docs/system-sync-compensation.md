@@ -2,7 +2,8 @@
 
 This table tracks per-platform sync compensation used by MUSIXQUARE.
 
-Last static source review: 2026-08-19
+Last YouTube compensation review: 2026-10-12 (local change, not yet deployed).
+Other compensation rows retain their individual review dates.
 
 ## Sign Convention
 
@@ -71,7 +72,7 @@ down the replacement.
 | Local file           | Android  |                   0 ms |              0 ms | No platform baseline confirmed yet.                                                                                                      | `src/player/transport.ts`                                                                                                                               | `getPlatformLocalFileOutputOffset()`                                                                                                                         | 2026-06-03   | Watch  |
 | Local file           | iOS      |                   0 ms |              0 ms | No platform baseline confirmed yet.                                                                                                      | `src/player/transport.ts`                                                                                                                               | `getPlatformLocalFileOutputOffset()`                                                                                                                         | 2026-06-03   | Watch  |
 | Local file           | macOS    |                   0 ms |              0 ms | No platform baseline confirmed yet.                                                                                                      | `src/player/transport.ts`                                                                                                                               | `getPlatformLocalFileOutputOffset()`                                                                                                                         | 2026-06-03   | Watch  |
-| YouTube              | Android  | play call 250 ms early |              0 ms | Android YouTube iframe audible output was observed late versus desktop/iOS.                                                              | `src/youtube/constants.ts`, `src/youtube/sync.ts`                                                                                                       | `ANDROID_YOUTUBE_PLAY_LATENCY_FLOOR_MS`, `getEffectiveYouTubePlayLatencyMs()`, `guestRendezvousSync()`                                                       | 2026-06-03   | Active |
+| YouTube | Android | own fixed output baseline +250 ms | 0 ms | Owner device tests reported 250 ms audio lag; app default, with startup latency separate. | `src/youtube/output-latency.ts`, `src/youtube/authority-arm.ts`, `src/youtube/sync.ts` | `getYouTubeAudibleOutputDelayMs()` | 2026-10-12 | Local, pending release |
 | YouTube              | Windows  |                   0 ms |              0 ms | No platform baseline confirmed yet.                                                                                                      | `src/youtube/sync.ts`                                                                                                                                   | `getEffectiveYouTubePlayLatencyMs()`, `guestRendezvousSync()`                                                                                                | 2026-06-03   | Watch  |
 | YouTube              | iOS      |                   0 ms |              0 ms | No platform baseline confirmed yet.                                                                                                      | `src/youtube/sync.ts`                                                                                                                                   | `getEffectiveYouTubePlayLatencyMs()`, `guestRendezvousSync()`                                                                                                | 2026-06-03   | Watch  |
 | YouTube              | macOS    |                   0 ms |              0 ms | No platform baseline confirmed yet.                                                                                                      | `src/youtube/sync.ts`                                                                                                                                   | `getEffectiveYouTubePlayLatencyMs()`, `guestRendezvousSync()`                                                                                                | 2026-06-03   | Watch  |
@@ -80,11 +81,47 @@ down the replacement.
 | System audio sharing | iOS      |                   0 ms |              0 ms | No platform-specific baseline confirmed; LAN-direct uses the browser default buffer, while P2P/SFU paths request the shared 500 ms hint. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts`, `src/network/pro-system-audio-sfu.ts`, `src/network/pro-system-audio-direct.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()`, `RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" })` | 2026-08-19   | Watch  |
 | System audio sharing | macOS    |                   0 ms |              0 ms | No platform-specific baseline confirmed; LAN-direct uses the browser default buffer, while P2P/SFU paths request the shared 500 ms hint. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts`, `src/network/pro-system-audio-sfu.ts`, `src/network/pro-system-audio-direct.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()`, `RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" })` | 2026-08-19   | Watch  |
 
+## YouTube output baseline
+
+The owner tested two Android tablets, five Galaxy devices and a Xiaomi device
+and reported audio 250 ms behind the YouTube media timeline. The 2026-10-12
+decision makes this an application default for detected Android on all playing
+paths, not a claim about every browser or output route. The value is defined once
+in `constants.ts` and read through `output-latency.ts`.
+
+- PRO follows the independent server timeline. Android schedules its release
+  250 ms early; if the available lead is shorter, only the missing fixed output
+  lead advances the media position. Learned startup lead remains separate and
+  is only applied on eligible zero-starts.
+- Standard also follows a canonical room position. Every device, including the
+  host, applies only its own output correction and its own manual setting. The
+  host subtracts its actually applied local delta before publishing room time;
+  changing that host's manual setting does not move the guests. No new platform
+  field is added to ordinary STATE/SYNC frames. The existing zero-start platform
+  field remains part of that protocol's startup calibration.
+- An Android Standard host can physically reach ENDED before the canonical
+  room position reaches the end. An occurrence-fenced hold drains that output
+  interval before normal next/repeat handling, while canonical time continues.
+  A new playback action cancels the obsolete hold.
+- Manual input remains unchanged, including its +/-9.999-second limit. Automatic
+  output correction is composed after the input clamp. Zero-position holds and
+  media-end guards remain necessary. Paused targets receive no output advance.
+- Calibration removes the known output contribution before learning startup
+  latency. Existing Standard stored estimates are not reset. PRO estimates
+  remain session-local.
+- Explicit Android UA or Android UA-CH is sufficient; Linux plus touch is not.
+  A device hiding Android in both sources cannot be identified reliably.
+  Mixed old/new clients are a release compatibility limit; local tests use the
+  new policy on both endpoints. See the linked implementation report.
+
 ## Notes
 
 Standard-host YouTube edits use the same device play-latency reader for a
 [host-only scheduled rendezvous](design/standard-host-youtube-manual-sync.md).
-This does not introduce a new platform compensation value.
+Both Standard and PRO edits retain this device's fixed output component. Startup
+learning remains separate. The local-to-canonical conversion removes the actual
+physical advance, including the automatic contribution, before exporting time.
+See [implementation and verification](design/android-youtube-output-baseline-2026-10-12.md).
 
 - Hidden compensation should stay separate from the user-facing manual sync value.
 - User-facing manual sync should remain a fine-tuning control, not the place where known platform defaults are stored.

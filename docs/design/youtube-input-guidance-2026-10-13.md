@@ -25,7 +25,8 @@
 ## 검증
 
 - 타입·전체 lint·format·Worker 문법/Developer API/D1/ops source guard 통과.
-- Chromium YouTube search interactions: 8 pass / 0 fail / 0 skip. 기존 키보드 순환,
+- Chromium YouTube search interactions: 8 pass / 0 fail / 0 skip (최초 코드
+  `1b875a92`, 이후 변경은 bootstrap cache URL 정렬뿐). 기존 키보드 순환,
   검색 로딩·빠른 추가·실패 복구에 URL 힌트와 입력 삭제 복원을 함께 확인했다.
 - 42개 locale 소스와 빌드된 42개 언어 HTML의 URL 힌트 일치 확인.
 - 최초 로컬 단위 실행은 다른 검사와 무제한 병렬로 겹쳐 553파일만 실행,
@@ -34,7 +35,23 @@
 - 첫 실행에서 발견한 실제 준비 누락은 index.html의 bootstrap cache URL(v667)이었다.
   canonical cache(v668)와 맞춰 수정했다. 최초 build:checked도 그 이전 HTML을 읽어
   app-shell 검사에서 실패했으므로 최종 커밋의 새 빌드를 별도로 요구한다.
-- 동시 worker 수를 4개로 제한한 전체 단위 검증과 최종 빌드 결과는 진행 중이다.
+- 최종 코드 `694fea1d`, `npm test -- --maxWorkers=4`: 558파일 모두 실행,
+  12,575 pass / 1 fail / 0 skip. 남은 실패는 release-deployment-state의 localized
+  build input 반복검사 30초 제한 초과(41.097초)였다. 그 파일을 단독으로
+  `--maxWorkers=1` 재실행해 101 pass / 0 fail / 0 skip을 확인했다. 시간 제한과
+  assertion은 바꾸지 않았다. 전체 실행 자체가 0 fail이었다고 주장하지 않는다.
+- 최초 실행의 PRO presence churn(45.934초) 실패는 heartbeat 없는 실시간 fixture가
+  presence TTL(45초)을 넘는 경로와 부합한다. 응답 body가 없어 당시 409의 세부
+  코드는 확정하지 못했다. Miniflare bad-port는 내부 Fetch의 제품 핸들러 이전
+  오류다. 이 PC 동적 TCP 1024–15000 범위에 Fetch 금지 포트가 포함되지만 당시
+  포트 번호는 로그에 없다. 두 항목 및 worker 시작 실패는 4-worker 전체 재실행에서
+  재현되지 않았다. OS 설정이나 제품 입장 정책은 바꾸지 않았다.
+- PR CI [38334816076](https://github.com/hiefny/MUSIXQUARE/actions/runs/38334816076),
+  head `02cf7e15`: 11 job 성공. 558파일 / 12,575 pass / 0 fail / 1 skip(Windows
+  전용 경로, 로컬 통과), 후보 browser 17 + critical 24 pass, coverage 4종 통과.
+  이 실행은 exact-main 후보가 아니다.
+- 최종 committed build:checked (`02cf7e15`, runtime `694fea1d`) 통과. app-shell
+  94 assets 검증, bootstrap cache URL v668 일치.
 
 로컬 실행은 Windows,
 Node `24.13.1` / npm `11.8.0`이며 CI의 고정 Node `24.20.0`과 다르다.

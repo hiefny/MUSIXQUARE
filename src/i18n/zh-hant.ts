@@ -372,8 +372,8 @@ const zhHant: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': '輸入 YouTube 連結',
   'youtube.enter_source': '輸入 YouTube 連結或搜尋詞',
-  'youtube.enter_link_prompt': '輸入 YouTube 搜尋詞或連結',
-  'youtube.enter_source_placeholder': 'YouTube 連結或搜尋詞',
+  'youtube.enter_link_prompt': '請輸入 YouTube 連結或搜尋詞',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': '一起看 YouTube',
   'youtube.ready': 'YouTube 已準備好！\n請按下播放鍵。',
   'youtube.thumbnail': 'YouTube 預覽縮圖',

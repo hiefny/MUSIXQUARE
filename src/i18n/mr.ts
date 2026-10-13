@@ -491,8 +491,8 @@ const mr: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube लिंक प्रविष्ट करा',
   'youtube.enter_source': 'YouTube लिंक किंवा शोध प्रविष्ट करा',
-  'youtube.enter_link_prompt': 'YouTube शोध संज्ञा किंवा लिंक प्रविष्ट करा',
-  'youtube.enter_source_placeholder': 'YouTube लिंक किंवा शोध शब्द',
+  'youtube.enter_link_prompt': 'YouTube लिंक किंवा शोध संज्ञा प्रविष्ट करा',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'YouTube एकत्र पाहा',
   'youtube.ready': 'YouTube तयार आहे!\nप्ले दाबा.',
   'youtube.thumbnail': 'YouTube पूर्वदृश्य थंबनेल',

@@ -503,8 +503,8 @@ const pl: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Wpisz link z YouTube',
   'youtube.enter_source': 'Wyszukaj materiał lub wpisz link z YouTube',
-  'youtube.enter_link_prompt': 'Wpisz hasło wyszukiwania lub link z YouTube',
-  'youtube.enter_source_placeholder': 'Link do YouTube lub wyszukiwanie',
+  'youtube.enter_link_prompt': 'Wpisz link z YouTube lub hasło wyszukiwania',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Wspólne oglądanie YouTube',
   'youtube.ready': 'YouTube jest gotowy!\nNaciśnij Odtwórz, aby rozpocząć.',
   'youtube.thumbnail': 'Miniatura podglądu wideo z YouTube',

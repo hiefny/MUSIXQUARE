@@ -394,8 +394,8 @@ const fr: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': 'Saisir un lien YouTube',
   'youtube.enter_source': 'Saisir un lien YouTube ou une recherche',
-  'youtube.enter_link_prompt': 'Saisissez une recherche ou un lien YouTube',
-  'youtube.enter_source_placeholder': 'Lien YouTube ou recherche',
+  'youtube.enter_link_prompt': 'Saisissez un lien YouTube ou une recherche',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Regarder YouTube ensemble',
   'youtube.ready': 'YouTube est prêt !\nAppuyez sur Lecture.',
   'youtube.thumbnail': 'Miniature d’aperçu YouTube',

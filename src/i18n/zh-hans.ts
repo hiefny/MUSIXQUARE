@@ -372,8 +372,8 @@ const zhHans: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': '输入 YouTube 链接',
   'youtube.enter_source': '输入 YouTube 链接或搜索词',
-  'youtube.enter_link_prompt': '输入 YouTube 搜索词或链接',
-  'youtube.enter_source_placeholder': 'YouTube 链接或搜索词',
+  'youtube.enter_link_prompt': '请输入 YouTube 链接或搜索词',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': '一起看 YouTube',
   'youtube.ready': 'YouTube 已准备好！\n请点击播放。',
   'youtube.thumbnail': 'YouTube 预览缩略图',

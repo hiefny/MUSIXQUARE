@@ -490,8 +490,8 @@ const tr: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube bağlantısı gir',
   'youtube.enter_source': 'YouTube bağlantısı veya arama terimi gir',
-  'youtube.enter_link_prompt': 'YouTube arama terimi veya bağlantısı gir',
-  'youtube.enter_source_placeholder': 'YouTube bağlantısı veya arama',
+  'youtube.enter_link_prompt': 'YouTube bağlantısı veya arama terimi gir',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'YouTube Birlikte İzleme',
   'youtube.ready': "YouTube hazır!\nOynat'a bas.",
   'youtube.thumbnail': 'YouTube Önizleme Görseli',

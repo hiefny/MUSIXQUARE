@@ -489,8 +489,8 @@ const fa: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'پیوند YouTube را وارد کنید',
   'youtube.enter_source': 'پیوند YouTube را وارد کنید یا جست‌وجو کنید',
-  'youtube.enter_link_prompt': 'عبارت جست‌وجو یا پیوند YouTube را وارد کنید',
-  'youtube.enter_source_placeholder': 'پیوند YouTube یا عبارت جست‌وجو',
+  'youtube.enter_link_prompt': 'پیوند YouTube یا عبارت جست‌وجو را وارد کنید',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'تماشای گروهی YouTube',
   'youtube.ready': 'YouTube آماده است!\nپخش را بزنید.',
   'youtube.thumbnail': 'تصویر بندانگشتی پیش‌نمایش YouTube',

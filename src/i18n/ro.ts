@@ -501,8 +501,8 @@ const ro: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Introdu linkul YouTube',
   'youtube.enter_source': 'Introdu un link YouTube sau caută',
-  'youtube.enter_link_prompt': 'Introdu un termen de căutare sau un link YouTube',
-  'youtube.enter_source_placeholder': 'Link YouTube sau căutare',
+  'youtube.enter_link_prompt': 'Introdu un link YouTube sau un termen de căutare',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Urmărește YouTube împreună cu ceilalți',
   'youtube.ready': 'YouTube este gata!\nApasă Redare.',
   'youtube.thumbnail': 'Miniatură de previzualizare YouTube',

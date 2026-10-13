@@ -504,8 +504,8 @@ const it: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Inserisci link di YouTube',
   'youtube.enter_source': 'Inserisci un link di YouTube o un termine di ricerca',
-  'youtube.enter_link_prompt': 'Inserisci un termine di ricerca o un link di YouTube',
-  'youtube.enter_source_placeholder': 'Link YouTube o ricerca',
+  'youtube.enter_link_prompt': 'Inserisci un link di YouTube o un termine di ricerca',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Guarda YouTube insieme',
   'youtube.ready': 'YouTube è pronto!\nPremi Riproduci per iniziare.',
   'youtube.thumbnail': 'Anteprima del video di YouTube',

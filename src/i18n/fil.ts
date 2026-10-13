@@ -510,8 +510,8 @@ const fil: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Ilagay ang link sa YouTube',
   'youtube.enter_source': 'Ilagay ang link sa YouTube o maghanap',
-  'youtube.enter_link_prompt': 'Maglagay ng salitang hahanapin o link sa YouTube',
-  'youtube.enter_source_placeholder': 'YouTube link o paghahanap',
+  'youtube.enter_link_prompt': 'Maglagay ng link sa YouTube o ng hahanapin',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Sabay-sabay na manood sa YouTube',
   'youtube.ready': 'Handa na ang YouTube!\nPindutin ang I-play.',
   'youtube.thumbnail': 'Thumbnail ng preview sa YouTube',

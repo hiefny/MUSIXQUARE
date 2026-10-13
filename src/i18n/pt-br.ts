@@ -392,8 +392,8 @@ const ptBr: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': 'Digite o link do YouTube',
   'youtube.enter_source': 'Digite um link ou termo de busca do YouTube',
-  'youtube.enter_link_prompt': 'Digite um termo de busca ou link do YouTube',
-  'youtube.enter_source_placeholder': 'Link do YouTube ou busca',
+  'youtube.enter_link_prompt': 'Digite um link ou termo de busca do YouTube',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Assistir ao YouTube juntos',
   'youtube.ready': 'YouTube está pronto!\nToque em Reproduzir.',
   'youtube.thumbnail': 'Miniatura de prévia do YouTube',

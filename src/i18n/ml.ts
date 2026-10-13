@@ -502,8 +502,8 @@ const ml: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube ലിങ്ക് നൽകുക',
   'youtube.enter_source': 'YouTube ലിങ്ക് നൽകുക അല്ലെങ്കിൽ തിരയുക',
-  'youtube.enter_link_prompt': 'YouTube തിരയൽ വാക്കോ ലിങ്കോ നൽകുക',
-  'youtube.enter_source_placeholder': 'YouTube ലിങ്ക് അല്ലെങ്കിൽ തിരയൽ വാക്ക്',
+  'youtube.enter_link_prompt': 'YouTube ലിങ്കോ തിരയൽ വാക്കോ നൽകുക',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'ഒരുമിച്ച് YouTube കാണുക',
   'youtube.ready': 'YouTube തയ്യാറാണ്!\nപ്ലേ അമർത്തുക.',
   'youtube.thumbnail': 'YouTube പ്രിവ്യൂ ലഘുചിത്രം',

@@ -497,8 +497,8 @@ const fi: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Anna YouTube-linkki',
   'youtube.enter_source': 'Anna YouTube-linkki tai hakusana',
-  'youtube.enter_link_prompt': 'Anna YouTube-hakusana tai -linkki',
-  'youtube.enter_source_placeholder': 'YouTube-linkki tai hakusana',
+  'youtube.enter_link_prompt': 'Anna YouTube-linkki tai hakusana',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Katso YouTubea yhdessä',
   'youtube.ready': 'YouTube on valmis!\nPaina Toista.',
   'youtube.thumbnail': 'YouTube-videon esikatselukuva',

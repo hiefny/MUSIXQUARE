@@ -501,8 +501,8 @@ const hu: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Add meg a YouTube-hivatkozást',
   'youtube.enter_source': 'Adj meg YouTube-hivatkozást, vagy keress',
-  'youtube.enter_link_prompt': 'Adj meg YouTube-keresőkifejezést vagy -hivatkozást',
-  'youtube.enter_source_placeholder': 'YouTube-link vagy keresőkifejezés',
+  'youtube.enter_link_prompt': 'Adj meg YouTube-hivatkozást vagy keresőkifejezést',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Közös YouTube-nézés',
   'youtube.ready': 'A YouTube készen áll!\nNyomd meg a Lejátszás gombot.',
   'youtube.thumbnail': 'YouTube előnézeti kép',

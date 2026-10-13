@@ -506,8 +506,8 @@ const el: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Εισαγάγετε σύνδεσμο YouTube',
   'youtube.enter_source': 'Εισαγάγετε σύνδεσμο YouTube ή πραγματοποιήστε αναζήτηση',
-  'youtube.enter_link_prompt': 'Εισαγάγετε όρο αναζήτησης ή σύνδεσμο YouTube',
-  'youtube.enter_source_placeholder': 'Σύνδεσμος YouTube ή αναζήτηση',
+  'youtube.enter_link_prompt': 'Εισαγάγετε σύνδεσμο YouTube ή όρο αναζήτησης',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Παρακολούθηση YouTube μαζί',
   'youtube.ready': 'Το YouTube είναι έτοιμο!\nΠατήστε Αναπαραγωγή.',
   'youtube.thumbnail': 'Μικρογραφία προεπισκόπησης YouTube',

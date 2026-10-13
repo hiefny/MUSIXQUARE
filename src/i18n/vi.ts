@@ -386,8 +386,8 @@ const vi: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': 'Nhập liên kết YouTube',
   'youtube.enter_source': 'Nhập liên kết YouTube hoặc từ khóa',
-  'youtube.enter_link_prompt': 'Nhập từ khóa tìm kiếm hoặc liên kết YouTube',
-  'youtube.enter_source_placeholder': 'Liên kết YouTube hoặc từ khóa',
+  'youtube.enter_link_prompt': 'Nhập liên kết YouTube hoặc từ khóa tìm kiếm',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Xem YouTube cùng nhau',
   'youtube.ready': 'YouTube đã sẵn sàng!\nNhấn Phát.',
   'youtube.thumbnail': 'Ảnh xem trước YouTube',

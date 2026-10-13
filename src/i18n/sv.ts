@@ -501,8 +501,8 @@ const sv: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Ange YouTube-länk',
   'youtube.enter_source': 'Ange YouTube-länk eller sök',
-  'youtube.enter_link_prompt': 'Ange ett sökord eller en länk för YouTube',
-  'youtube.enter_source_placeholder': 'YouTube-länk eller sökord',
+  'youtube.enter_link_prompt': 'Ange en YouTube-länk eller ett sökord',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Titta på YouTube tillsammans',
   'youtube.ready': 'YouTube är klart!\nTryck på Spela upp.',
   'youtube.thumbnail': 'Förhandsbild för YouTube',

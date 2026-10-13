@@ -491,8 +491,8 @@ const en: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Enter YouTube link',
   'youtube.enter_source': 'Enter YouTube link or search',
-  'youtube.enter_link_prompt': 'Enter a YouTube search term or link',
-  'youtube.enter_source_placeholder': 'YouTube link or search',
+  'youtube.enter_link_prompt': 'Enter a YouTube link or search term',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Watch YouTube together',
   'youtube.ready': 'YouTube is ready!\nPress Play.',
   'youtube.thumbnail': 'YouTube preview thumbnail',

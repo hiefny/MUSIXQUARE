@@ -500,8 +500,8 @@ const bg: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Въведи връзка към YouTube',
   'youtube.enter_source': 'Въведи връзка към YouTube или търси',
-  'youtube.enter_link_prompt': 'Въведи дума за търсене в YouTube или връзка',
-  'youtube.enter_source_placeholder': 'Връзка към YouTube или търсене',
+  'youtube.enter_link_prompt': 'Въведи връзка към YouTube или дума за търсене',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Гледайте YouTube заедно',
   'youtube.ready': 'YouTube е готов!\nНатисни „Пускане“.',
   'youtube.thumbnail': 'Миниатюра за преглед в YouTube',

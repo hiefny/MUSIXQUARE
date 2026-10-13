@@ -499,8 +499,8 @@ const cs: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Zadejte odkaz YouTube',
   'youtube.enter_source': 'Zadejte odkaz YouTube nebo vyhledávejte',
-  'youtube.enter_link_prompt': 'Zadejte hledaný výraz nebo odkaz YouTube',
-  'youtube.enter_source_placeholder': 'Odkaz na YouTube nebo hledaný výraz',
+  'youtube.enter_link_prompt': 'Zadejte odkaz YouTube nebo hledaný výraz',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Sledovat YouTube společně',
   'youtube.ready': 'YouTube je připraven!\nStiskněte Přehrát.',
   'youtube.thumbnail': 'Náhledový obrázek YouTube',

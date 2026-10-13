@@ -488,8 +488,8 @@ const gu: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube લિંક દાખલ કરો',
   'youtube.enter_source': 'YouTube લિંક અથવા શોધ દાખલ કરો',
-  'youtube.enter_link_prompt': 'YouTube શોધ શબ્દ અથવા લિંક દાખલ કરો',
-  'youtube.enter_source_placeholder': 'YouTube લિંક અથવા શોધ શબ્દ',
+  'youtube.enter_link_prompt': 'YouTube લિંક અથવા શોધ શબ્દ દાખલ કરો',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'સાથે YouTube જુઓ',
   'youtube.ready': 'YouTube તૈયાર છે!\nચલાવો બટન દબાવો.',
   'youtube.thumbnail': 'YouTube પૂર્વદર્શન થંબનેલ',

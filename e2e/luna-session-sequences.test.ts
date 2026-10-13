@@ -73,6 +73,91 @@ function trackSequencePage(page: Page): void {
   });
 }
 
+/** Test-only observation, reinstalled on navigation; never drives media or state. */
+async function installSequenceDiagnostics(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    type ObservedBus = { on: (event: string, listener: (value: unknown) => void) => unknown };
+    const win = window as unknown as Record<string, unknown>;
+    const diagnostic = {
+      timeOrigin: performance.timeOrigin,
+      busObserved: false,
+      mediaActionHookInstalled: false,
+      observerErrors: 0,
+      dropped: 0,
+      records: [] as Array<Record<string, unknown>>,
+    };
+    win.__lunaSequenceDiagnostics = diagnostic;
+    const record = (kind: string, detail: unknown, includeStack = false): void => {
+      try {
+        const get = win.__MUSIXQUARE_GET_STATE__ as ((path: string) => unknown) | undefined;
+        diagnostic.records.push({
+          kind,
+          wallMs: Date.now(),
+          monoMs: performance.now(),
+          detail: detail && typeof detail === 'object' ? { ...detail } : detail,
+          activity: get?.('playback.activity'),
+          lifecycle: get?.('playback.lifecycle'),
+          pausedAt: get?.('player.pausedAt'),
+          pendingPlayTime: get?.('playback.pendingPlayTime') ?? null,
+          queueItemId: get?.('playlist.currentQueueItemId'),
+          ...(includeStack
+            ? { stack: new Error('sequence observation').stack?.slice(0, 4_000) }
+            : {}),
+        });
+        if (diagnostic.records.length > 256) {
+          diagnostic.records.shift();
+          diagnostic.dropped += 1;
+        }
+      } catch {
+        diagnostic.observerErrors += 1;
+      }
+    };
+    const observed = new WeakSet<object>();
+    const observeBus = (candidate: unknown): void => {
+      if (!candidate || typeof candidate !== 'object' || observed.has(candidate)) return;
+      const bus = candidate as ObservedBus;
+      if (typeof bus.on !== 'function') return;
+      observed.add(bus);
+      bus.on('sync:diagnostic-standard-decision', (value) => record('sync-decision', value));
+      bus.on('state:playback.activity', (value) => record('activity', value, value === 'paused'));
+      diagnostic.busObserved = true;
+    };
+    // The E2E state hook publishes getState before bus; observe the real singleton
+    // as it becomes available, without replacing emit or adding readiness polling.
+    let bus = win.__MUSIXQUARE_BUS__;
+    Object.defineProperty(win, '__MUSIXQUARE_BUS__', {
+      configurable: true,
+      get: () => bus,
+      set(value: unknown) {
+        bus = value;
+        try {
+          observeBus(value);
+        } catch {
+          diagnostic.observerErrors += 1;
+        }
+      },
+    });
+    observeBus(bus);
+    try {
+      const session = navigator.mediaSession;
+      if (!session || typeof session.setActionHandler !== 'function') return;
+      const original = session.setActionHandler;
+      session.setActionHandler = function (action, handler) {
+        const observedHandler = handler
+          ? function (this: unknown, details: MediaSessionActionDetails) {
+              record('media-action', { action }, action === 'pause');
+              return Reflect.apply(handler, this, [details]);
+            }
+          : null;
+        return original.call(this, action, observedHandler);
+      };
+      diagnostic.mediaActionHookInstalled = true;
+    } catch {
+      diagnostic.observerErrors += 1;
+    }
+  });
+}
+
 async function newGuest(
   browser: Browser,
   code: string,
@@ -80,6 +165,7 @@ async function newGuest(
 ): Promise<SessionPages> {
   const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const page = await context.newPage();
+  await installSequenceDiagnostics(page);
   trackSequencePage(page);
   onCreated?.({ context, page });
   await injectPeerServer(page);
@@ -90,6 +176,7 @@ async function newGuest(
 async function createHost(browser: Browser): Promise<SessionPages> {
   const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const page = await context.newPage();
+  await installSequenceDiagnostics(page);
   trackSequencePage(page);
   await injectPeerServer(page);
   return { context, page };
@@ -235,7 +322,7 @@ async function captureSequenceFailurePage(page: Page) {
       return { diagnosticError: String(error) };
     }
   };
-  const [runtime, transport, pipeline] = await Promise.all([
+  const [runtime, transport, pipeline, diagnostic] = await Promise.all([
     capture(() => captureRuntimeSnapshot(page)),
     capture(() => captureHostLossDiagnostics(page)),
     capture(() =>
@@ -269,8 +356,13 @@ async function captureSequenceFailurePage(page: Page) {
         return Object.fromEntries(paths.map((path) => [path, get(path) ?? null]));
       }),
     ),
+    capture(() =>
+      page.evaluate(
+        () => (window as unknown as Record<string, unknown>).__lunaSequenceDiagnostics ?? null,
+      ),
+    ),
   ]);
-  return { closed: false, runtime, transport, pipeline, console, pageErrors };
+  return { closed: false, runtime, transport, pipeline, console, pageErrors, diagnostic };
 }
 
 async function seekHost(page: Page): Promise<number> {

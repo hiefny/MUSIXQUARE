@@ -64,6 +64,49 @@ Chromium·WebKit이다. 원격은 저장소 고정 Node 24.20.0 / npm 12.0.2를 
 `03df60f790a61c9cf3dec50254e0815001d01416`, build guard 후속은
 `ad66e0c94e604d3bfe38eafde847e56f19f2bf68`다. CI·배포 결과는 실행 완료 후 추가한다.
 
+후속 회귀 수정까지 포함한 최종 제품·테스트 source는
+`749f0a6ab53e130255bfac474397f77dabb30c20`이다. 최종 로컬 결과는 이 커밋을
+분리한 작업 폴더 또는 동일한 제품 파일의 원래 checkout에서 확인했다.
+
+| 최종 검사                             | 결과                                                                                                                                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows full unit, maxWorkers=4       | 558파일 / 12,581 pass / 0 fail / 0 skip, 469.47초                                                                                                     |
+| PR CI 38405389405                     | 11개 job 성공. broad unit 12,580 pass / 기존 Windows 전용 1 skip. 4종 coverage, 타입·린트·포맷·정책·production candidate 통과                         |
+| 로컬 committed build:checked          | 성공. 모든 기존 한도 유지, eager raw 1979.8 KiB / gzip 528.4 KiB, 최소 여유 5%                                                                        |
+| 로컬 production candidate / WebKit SW | 17 pass / 1 pass                                                                                                                                      |
+| 로컬 WebKit UI                        | 79 pass / 0 fail / 기존 플랫폼 3 skip, 3.5분                                                                                                          |
+| 로컬 Chromium 전체                    | 639 pass / 1 fail / 0 skip, 57.7분. seed 470021 재입장 뒤 host playing / guest paused 수렴 실패 조사 중                                               |
+| 원격 Full E2E 38405378201             | 전체 성공. Chromium 640 pass / 0 fail / 0 skip(1.0시간), WebKit 79 pass / 기존 3 skip, SW 1 pass, production R2 1 pass. 실제 배포 후보 CI와 별개      |
+| 로컬 실패 순서 진단 반복              | 제품·검사 조건 미변경, 상세 로그만 추가한 단독 20회 통과. 매회 새 브라우저라 전체 실행의 재사용 조건과 구분하며 최초 실패 원인 확정으로 간주하지 않음 |
+| 로컬 브라우저 재사용 진단 반복        | 기존 24순서×3회와 host-loss 1회, 총 73 pass / 0 fail / 0 skip(12.1분). 최초 실패 원인은 여전히 미확정                                                 |
+
+첫 로컬 full 실패는 퇴장·재입장 직후의 `seed 470021`에서 host가 PLAYING_AUDIO,
+guest가 PAUSED인 채 15초 수렴하지 않은 경우다. 입장·WebRTC·파일 수신은 끝났고
+권한/seek 단계 전이었다. `decodeFailureQueueItemId`는 count 0과 함께 정상 전송
+초기화에서도 설정되므로 디코딩 실패 근거가 아니다. 정상 guest도 lifecycle READY를
+유지한 채 재생할 수 있다. 앱 재생·전송 코드는 기준 main과 같고, CSS와의 직접
+인과는 확인하지 못했다. Media Session의 로컬 pause가 같은 모양을 만들 수 있지만
+최초 실행에 그 호출 기록이 없어 원인으로 단정하지 않는다. 사용자의 미디어 키
+조작 기억도 불확실하므로 근거로 삼지 않는다.
+
+검사 조건·시간 제한·테스트 수를 유지하며 기존 시나리오 검사에 페이지당 256개
+한도의 test-only 관측을 추가했다. 실제 Media Session callback, 재생 activity,
+공유 시계의 동기화 판단 사유를 실패 artifact에 남기고, bus.emit나 제품 상태를
+바꾸지 않는다. 이 최소 관측을 포함한 로컬 전체 640개를 다시 실행한다. 반복
+통과는 최초 실패 해결이나 실서비스 결함 확정으로 간주하지 않는다.
+
+최종 CSS로 확장한 360조건(337,320요소×70속성)은 276조건 완전 동일,
+84조건은 의도한 모션 속성 변경만 있었다. 비모션 스타일·기하 차이는 0이다.
+짧은 portrait 경계가 포함된 15개 viewport 회귀는 두 엔진에서 각각 3/3 통과했다.
+최종 추가 54상태와 데모 종료 9조건도 다시 비교해 위 허용된 숨김 nav 변화와
+정상 복귀를 확인했다. 정적 버튼 130개·동적 버튼 21종의 네 모서리 반경도
+두 엔진×3폭×2방향, 12조건에서 baseline과 일치했다.
+
+프로덕션 8.10.8의 공개 CSS `main-14Oy2XJP.css`와 최종 로컬 production CSS
+`main-DuLzNRbT.css`의 원문/gzip(level 9)은 247,976/40,869 B→314,673/43,053 B다.
+명시적인 계층을 Chromium 79용 specificity로 낮추는 비용이며 전송 증가는
+2,184 B다. 한도를 늘리지 않았고 이를 성능 개선이라고 주장하지 않는다.
+
 - 첫 full unit: 558파일, 12,575 pass / 5 fail / 0 skip. 세 건은 이동한 CSS를
   주석 경계로 자르던 검사와 누락된 bootstrap cache mirror를 수정했다. 나머지
   두 건은 Git 임시 저장소를 만드는 release/cache guard 테스트의 시간 초과였다.
@@ -80,7 +123,7 @@ Chromium·WebKit이다. 원격은 저장소 고정 Node 24.20.0 / npm 12.0.2를 
 - 앱 비교기는 기준 index/CSS를 사용한 정적 상태 비교다. 전환이 끝나기 전의
   일시적인 프레임을 제품 변화로 세지 않도록 baseline 자기 비교와 transition
   종료를 확인한다. 실제 네트워크·native fullscreen·미디어 출력을 검증하는
-  것으로 해석하지 않는다. 최종 비교 300조건×937요소, 70속성에서 형태·색·글꼴·
+  것으로 해석하지 않는다. 확장 전 비교 300조건×937요소, 70속성에서 형태·색·글꼴·
   가시성·기하 차이는 0이다. 220조건 완전 동일, 나머지 80조건은 의도된 모션
   속성 변경만 있다. 별도 54상태에서는 데모 중 숨김 nav의 transform/rect 변화
   3조건을 허용했다(opacity 0 / pointer-events none 유지). 데모 종료 9조건에서
@@ -106,8 +149,8 @@ Chromium·WebKit이다. 원격은 저장소 고정 Node 24.20.0 / npm 12.0.2를 
   artist 숨김 규칙이 base에 남아 `:not(:empty)`의 specificity를 이기지 못했다.
   숨김 규칙을 responsive로 이동했다. baseline과 수정본의 두 엔진·20개 관측에서
   700×400→390×700→390×720→390×721의 표시→숨김→숨김→표시가 일치했다.
-  초기 300조건은 portrait 최소 높이가 800px여서 이 경계를 놓쳤다. 경계 검사도
-  추가하고 전체 lane을 다시 실행한다. 첫 로컬 Chromium은 126/640에서 중단,
+  초기 300조건은 portrait 최소 높이가 800px여서 이 경계를 놓쳤다. 경계 검사를
+  추가해 360조건으로 확장하고 최종 전체 lane을 다시 실행했다. 첫 로컬 Chromium은 126/640에서 중단,
   첫 remote Full E2E `38404445180`도 취소했으며 통과로 세지 않는다. 후속 CSS
   커밋을 포함하기 위해 아직 미배포인 cache v670을 v671로 올렸다.
 

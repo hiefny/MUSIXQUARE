@@ -7,7 +7,7 @@
 `02ed24f3bfb2f0981bba78bcef7136674c9d5f65`다. 이 문서는 구현·검증이 진행되는
 동안 갱신하며, 완료된 검사와 아직 실행하지 않은 검사를 구분한다.
 
-- 예정 App `8.10.9` / SW `v670`, 배포 대상 `app`, Developer API D1 `false`.
+- 예정 App `8.10.9` / SW `v671`, 배포 대상 `app`, Developer API D1 `false`.
 - 의존성·스키마·비밀·바인딩·프로토콜·복구 floor 변경 없음.
 - Sync/Media 버튼을 공유 중지 버튼으로 합치는 제안은 이번 범위에 없다.
 - 기존 실기기 확인 항목은 유지한다. 브라우저 자동화는 실제 iPhone/PWA,
@@ -96,7 +96,20 @@ Chromium·WebKit이다. 원격은 저장소 고정 Node 24.20.0 / npm 12.0.2를 
 - 첫 committed production build는 legacy guard의 문자열 검색이 layer lowering의
   `:not(#\\#)` padding을 인식하지 못해 중단됐다. 생성된 그 토큰만 제거한 selector로
   검사하도록 고쳤다. 실제 `:has()`·누락 animation·물리 overlay edge 거부는 유지하고,
-  변환된 CSS에 대한 양성/음성 회귀를 추가했다. 최종 build 결과는 별도로 기록한다.
+  변환된 CSS에 대한 양성/음성 회귀를 추가했다. `ad66e0c9`의 committed build는
+  모든 guard와 기존 번들 한도를 통과했다(초기 raw 1979.7 KiB / gzip 528.4 KiB,
+  최소 여유 5% 유지). production candidate도 17 pass였다.
+- 첫 WebKit 전체 82건은 76 pass / 3 fail / 기존 플랫폼 3 skip이었다. auxiliary
+  두 건은 fixture의 viewport meta 누락으로 iPhone의 layout viewport가 980px가 된
+  검사 설정 문제였다. 실제 공개 페이지와 같은 meta를 추가해 세 브라우저 구성의
+  auxiliary 15/15를 확인했다. 나머지 한 건은 실제 CSS 회귀였다: 짧은 portrait의
+  artist 숨김 규칙이 base에 남아 `:not(:empty)`의 specificity를 이기지 못했다.
+  숨김 규칙을 responsive로 이동했다. baseline과 수정본의 두 엔진·20개 관측에서
+  700×400→390×700→390×720→390×721의 표시→숨김→숨김→표시가 일치했다.
+  초기 300조건은 portrait 최소 높이가 800px여서 이 경계를 놓쳤다. 경계 검사도
+  추가하고 전체 lane을 다시 실행한다. 첫 로컬 Chromium은 126/640에서 중단,
+  첫 remote Full E2E `38404445180`도 취소했으며 통과로 세지 않는다. 후속 CSS
+  커밋을 포함하기 위해 아직 미배포인 cache v670을 v671로 올렸다.
 
 ## 배포·복구
 

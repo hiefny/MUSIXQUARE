@@ -1898,14 +1898,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     display: block;
   }
 
-  /* Only a short portrait stack needs to sacrifice the subtitle row.
-     Landscape has enough horizontal room to keep TRACK / ARTIST visible. */
-  @media (max-width: 1279px) and (max-height: 720px) and (orientation: portrait) {
-    .track-artist {
-      display: none;
-    }
-  }
-
   /* The stage, metadata, and secondary groups share remaining height through
      auto margins. Narrow mobile adds a fourth share below secondary actions. */
   .track-box,
@@ -11427,6 +11419,14 @@ Safety is declared first because important layer precedence is reversed; its acc
 /* Responsive layout owns geometry. Component tokens describe shape; active playback/overlay/entrance states are defined separately. */
 
 @layer responsive {
+
+  /* Only a short portrait stack needs to sacrifice the subtitle row.
+     Landscape has enough horizontal room to keep TRACK / ARTIST visible. */
+  @media (max-width: 1279px) and (max-height: 720px) and (orientation: portrait) {
+    .track-artist {
+      display: none;
+    }
+  }
   @media (max-width: 719px) {
     html:not(.standalone) header,
     html:not(.standalone) .bottom-nav {

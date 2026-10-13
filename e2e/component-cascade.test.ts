@@ -21,6 +21,11 @@ const compiledCss = postcss([cascadeLayers(), isPseudoClass({ preserve: false })
 const viewports = [
   { width: 360, height: 800 },
   { width: 390, height: 844 },
+  { width: 390, height: 700 },
+  { width: 390, height: 640 },
+  { width: 390, height: 720 },
+  { width: 390, height: 721 },
+  { width: 700, height: 400 },
   { width: 720, height: 900 },
   { width: 844, height: 390 },
   { width: 1024, height: 768 },
@@ -58,6 +63,8 @@ for (const mode of [
             <div class="device-row" data-shape="pill">Device</div>
             <div class="device-subrow" data-shape="pill">Device details</div>
             <div class="list-empty-state" data-shape="pill">Empty</div>
+            <div class="track-artist" data-metadata="filled">Artist</div>
+            <div class="track-artist" data-metadata="empty"></div>
             <button class="ch-opt" data-shape="card">Choice</button>
             <button class="yt-search-result" data-shape="square">Search result</button>
             <button class="setup-qr-close" data-shape="square">Close camera</button>
@@ -100,9 +107,19 @@ for (const mode of [
           nav: radius(document.querySelector('.nav-item')!),
           mine: [...document.querySelectorAll('.mine .chat-youtube-btn')].map(radius),
           others: [...document.querySelectorAll('.others .chat-youtube-btn')].map(radius),
+          artist: getComputedStyle(document.querySelector('[data-metadata="filled"]')!).display,
+          emptyArtist: getComputedStyle(document.querySelector('[data-metadata="empty"]')!).display,
+          layoutWidth: window.innerWidth,
         };
       });
       const label = `${viewport.width}x${viewport.height}`;
+      expect(shapes.layoutWidth, `${label} uses the requested CSS viewport`).toBe(viewport.width);
+      expect(shapes.artist, `${label} retains the metadata visibility boundary`).toBe(
+        viewport.width <= 1279 && viewport.height <= 720 && viewport.height >= viewport.width
+          ? 'none'
+          : 'block',
+      );
+      expect(shapes.emptyArtist, `${label} keeps empty metadata hidden`).toBe('none');
       expect(shapes.pills, label).toHaveLength(13);
       for (const pill of shapes.pills) {
         expect(pill.radius, `${label} ${pill.component}`).toEqual(Array(4).fill('999px'));

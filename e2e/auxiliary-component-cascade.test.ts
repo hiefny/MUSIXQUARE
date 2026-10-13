@@ -15,9 +15,11 @@ if (!blogCss) throw new Error('Missing blog component styles');
 async function renderFixture(page: Page, css: string, body: string): Promise<void> {
   // These fixtures exercise the browser cascade with the production styles.
   // They do not need authenticated admin endpoints or the external blog feed.
+  // Match the public documents' viewport contract: without it mobile WebKit
+  // uses a 980px layout viewport even when the device viewport is 390px wide.
   await page.route('**/*', (route) => route.abort());
   await page.setContent(
-    `<!doctype html><html><head><style>${css}</style></head><body>${body}</body></html>`,
+    `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><style>${css}</style></head><body>${body}</body></html>`,
   );
 }
 

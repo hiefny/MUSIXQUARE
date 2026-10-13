@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   focus-repeat:
-    name: Focus timeline repeat (${{ matrix.os }})
+    name: Fixed focus timeline repeat (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -23,7 +23,7 @@ jobs:
       - name: Checkout the same application and test revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1771b0c5e0a4a0c6a5b4d23ff537c3f2956e5cd2
+          ref: 594fbc5dc9ca5f43e9f4a302cc0a420a81e9fa6a
           persist-credentials: false
       - name: Setup pinned Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1

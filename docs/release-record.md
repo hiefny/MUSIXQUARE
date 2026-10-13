@@ -1,12 +1,12 @@
 # 릴리스 기록 (현재 상태)
 
-| Field              | Value |
-| ------------------ | ----- |
-| Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
-| Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-14 (배포 SHA `16c6b219`, Release `38427573214`; 선행 실패·복구 `38426762796` 기록 유지) |
+| Field              | Value                                                                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
+| Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
+| Last source review | 2026-10-14 (배포 SHA `16c6b219`, Release `38427573214`; 선행 실패·복구 `38426762796` 기록 유지)                                                                                                                 |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
-| Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
+| Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
 QA를 시작하기 전과 main 병합·프로덕션 릴리스를 준비하기 전에 이 문서를 읽는다.
 아래 값은 표에 적힌 커밋과 확인일 기준이다. 배포 직전에는 실제 Git·CI·Cloudflare
@@ -46,26 +46,26 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### YouTube 목록·관리자 iframe 조작
 
-- [ ] App 8.10.10/v672 배포 대기: 일반방의 모든 목록 추가 경로·기존 부분
-  캐시가 서버 완결 manifest를 사용하도록 수정했다. PRO 재입장 시 유실되던
-  `youtubeVideoIds`는 원자적 로컬 투영으로 보존한다. Standard 관리자 iframe
-  재개 가드·직접 탐색 전달·프로그램 seek 콜백의 명령 오인을 보완했다.
-  실제 사용자 제보의 자연 반복/정지 경로 전체를 확정한 것은 아니다.
-  신규 의존성·스키마·비밀·바인딩·프로토콜 변경은 없으며 App 단독 배포,
-  Developer API D1 application=false 대상이다. 로컬·PR 검사는 exact-main CI
-  후보를 대신하지 않는다. 검증·공급자 한계·배포/복구 근거:
-  [수정 보고서](design/youtube-playlist-native-control-repair-2026-10-14.md),
-  [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
+- [ ] App 8.10.10/v673 배포 대기: 일반방의 모든 목록 추가 경로·기존 부분
+      캐시가 서버 완결 manifest를 사용하도록 수정했다. PRO 재입장 시 유실되던
+      `youtubeVideoIds`는 원자적 로컬 투영으로 보존한다. Standard 관리자 iframe
+      재개 가드·직접 탐색 전달·프로그램 seek 콜백의 명령 오인을 보완했다.
+      실제 사용자 제보의 자연 반복/정지 경로 전체를 확정한 것은 아니다.
+      신규 의존성·스키마·비밀·바인딩·프로토콜 변경은 없으며 App 단독 배포,
+      Developer API D1 application=false 대상이다. 로컬·PR 검사는 exact-main CI
+      후보를 대신하지 않는다. 검증·공급자 한계·배포/복구 근거:
+      [수정 보고서](design/youtube-playlist-native-control-repair-2026-10-14.md),
+      [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
 ### 로컬 E2E 재입장 관측
 
 - [ ] CSS 리팩터링의 최초 Windows 전체 실행에서 seed 470021의 재입장 뒤
-  guest가 PAUSED로 남은 1회는 원인 미확정이다. 단독 20회·브라우저 재사용
-  73회·로컬 재검사 640개·원격 640개는 통과했다. 2026-10-14 오너가 이력을
-  남기고 배포를 승인했다. OS 조작 가능성은 입증되지 않았으며 제품 결함 해결로
-  표기하지 않는다. 추후 재발 시 추가한 제한된 Media Session·activity·sync
-  진단 기록으로 판정한다.
-  [실패·재검사·한계](design/component-cascade-refactor-2026-10-13.md)
+      guest가 PAUSED로 남은 1회는 원인 미확정이다. 단독 20회·브라우저 재사용
+      73회·로컬 재검사 640개·원격 640개는 통과했다. 2026-10-14 오너가 이력을
+      남기고 배포를 승인했다. OS 조작 가능성은 입증되지 않았으며 제품 결함 해결로
+      표기하지 않는다. 추후 재발 시 추가한 제한된 Media Session·activity·sync
+      진단 기록으로 판정한다.
+      [실패·재검사·한계](design/component-cascade-refactor-2026-10-13.md)
 
 ### 최근 해결 근거
 
@@ -120,159 +120,159 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 사용자의 실제 기기가 필요하다. 브라우저 자동화 결과로 대신하지 않는다.
 
 - [ ] 8.10.4 공지: 새 클라이언트가 적용된 운영 일반방·PRO에서 게시 후 철회와 5분/
-  foreground 반영, 실제 iPhone Safari/PWA·VoiceOver 및 Android/TalkBack의 전체보기/
-  짧은 화면 스크롤·닫기. 이번에는 운영 공지를 재게시하지 않았고 기존 설치 PWA는
-  새로고침 전 구 코드가 남을 수 있다. [증거·한계](design/announcement-repair-2026-10-13.md)
-  8.10.6 적용 후 호스트 `/clear`에도 서비스 공지가 남는지 함께 확인한다.
-  [후속 회귀·실기기 한계](design/announcement-review-followup-2026-10-13.md)
+      foreground 반영, 실제 iPhone Safari/PWA·VoiceOver 및 Android/TalkBack의 전체보기/
+      짧은 화면 스크롤·닫기. 이번에는 운영 공지를 재게시하지 않았고 기존 설치 PWA는
+      새로고침 전 구 코드가 남을 수 있다. [증거·한계](design/announcement-repair-2026-10-13.md)
+      8.10.6 적용 후 호스트 `/clear`에도 서비스 공지가 남는지 함께 확인한다.
+      [후속 회귀·실기기 한계](design/announcement-review-followup-2026-10-13.md)
 
 - [ ] 8.7.9 헤더 크로스페이드: iPhone Safari/PWA에서 로딩 시작·종료, 시크 직후
-  탭 왕복. [상세](design/header-crossfade-2026-10-09.md)
+      탭 왕복. [상세](design/header-crossfade-2026-10-09.md)
 - [ ] 8.8.0: 실제 고객방의 소유권·암호 지정·변경·해제, 기존 열린 탭·설치 PWA의
-  새 코드 적용. [상세](design/pro-optional-entry-password-2026-10-10.md)
+      새 코드 적용. [상세](design/pro-optional-entry-password-2026-10-10.md)
 - [ ] 혼합 방(iPhone Safari/PWA + Android + Windows): 작은 곡 → 큰 MP3/FLAC/AAC
-  → 작은 곡, host와 guest가 서로 다른 엔진을 쓰는 경우.
+      → 작은 곡, host와 guest가 서로 다른 엔진을 쓰는 경우.
 - [ ] 장시간 세션: 시작, 빠른 시크, 이전/다음, 곡 끝 반복, 중간 참가, 프리로드
-  재정렬, 큰 수동 싱크, 네트워크 끊김·재참가, 잠금·복귀, 메모리 추세.
+      재정렬, 큰 수동 싱크, 네트워크 끊김·재참가, 잠금·복귀, 메모리 추세.
 - [ ] 시크 직후 약 2.3초 native PCM 차이(자동 회복). PLAY 수신 시 clock·anchor,
-  실제 오디오 시작, 회복 시간을 기록한다. 브라우저의 2.5초 수렴 허용치는 귀로
-  듣는 정렬 기준이 아니다. [상세](design/beta-final-qa-2026-10-04.md)
+      실제 오디오 시작, 회복 시간을 기록한다. 브라우저의 2.5초 수렴 허용치는 귀로
+      듣는 정렬 기준이 아니다. [상세](design/beta-final-qa-2026-10-04.md)
 - [ ] YouTube 첫 음 정렬(S01–S02, XS01–XS04): 일반·PRO, host·guest, 양·음 offset,
-  다음 곡·반복·중간 참가·취소, 실제 YouTube, iPhone Safari/PWA, Bluetooth.
-  [S01–S02](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27),
-  [XS01–XS04](design/extreme-manual-sync-repair-2026-09-27.md)
+      다음 곡·반복·중간 참가·취소, 실제 YouTube, iPhone Safari/PWA, Bluetooth.
+      [S01–S02](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27),
+      [XS01–XS04](design/extreme-manual-sync-repair-2026-09-27.md)
 - [ ] D01 PRO 공유 중 참가: 실제 SFU와 실기.
 - [ ] 계정: 기존 로그인 유지, 다른 탭의 새 로그인과 늦게 도착한 로그아웃·탈퇴
-  응답, 익명·로그인 입장, 계정 API. 실제 Google OAuth와 운영 HTTPS 쿠키로 확인한다.
+      응답, 익명·로그인 입장, 계정 API. 실제 Google OAuth와 운영 HTTPS 쿠키로 확인한다.
 - [ ] 리버브 10초 경계(일반방, PRO, API)와 데모 종료 뒤 표시되는 설정이 실제
-  효과와 같은지.
+      효과와 같은지.
 - [ ] 물리 키보드, 미디어 키, 실제 음향 출력(QA055 음향 테스트 포함).
 - [ ] PRO 암호 참여자 선택·퇴장 사유(8.9.0, 두 단계 대화상자는 8.9.4로 배포):
-  iPhone Safari/PWA와 Android에서 암호 지정·변경의 두 단계(암호 입력 뒤 "다음",
-  "현재 참여자를 어떻게 할까요?"의 "그대로 두기"(기본)·"모두 재입장", "이전"으로
-  돌아가도 입력한 암호 유지, 두 번 탭해도 바로 확인되지 않음), 소프트 키보드가
-  열린 1단계와 가로 모드 2단계에서 버튼이 보이는지, "다음"을 눌러도 제목이 제자리에
-  있는지, VoiceOver·TalkBack으로 행을 터치하면 행 전체가 선택 대상으로 잡히고
-  라벨·설명을 한 번씩 읽는지, 강퇴·기기 연결 끊기·암호 변경 안내 문구, 안내 뒤 홈
-  이동과 같은 탭에서 다시 열었을 때의 일반 입장, 320·360·390px과 가로 모드(중국어
-  줄바꿈 포함), RTL 배치를 확인한다.
-  [상세](design/pro-pin-member-choice-2026-10-11.md),
-  [두 단계](design/pro-pin-two-step-2026-10-11.md)
+      iPhone Safari/PWA와 Android에서 암호 지정·변경의 두 단계(암호 입력 뒤 "다음",
+      "현재 참여자를 어떻게 할까요?"의 "그대로 두기"(기본)·"모두 재입장", "이전"으로
+      돌아가도 입력한 암호 유지, 두 번 탭해도 바로 확인되지 않음), 소프트 키보드가
+      열린 1단계와 가로 모드 2단계에서 버튼이 보이는지, "다음"을 눌러도 제목이 제자리에
+      있는지, VoiceOver·TalkBack으로 행을 터치하면 행 전체가 선택 대상으로 잡히고
+      라벨·설명을 한 번씩 읽는지, 강퇴·기기 연결 끊기·암호 변경 안내 문구, 안내 뒤 홈
+      이동과 같은 탭에서 다시 열었을 때의 일반 입장, 320·360·390px과 가로 모드(중국어
+      줄바꿈 포함), RTL 배치를 확인한다.
+      [상세](design/pro-pin-member-choice-2026-10-11.md),
+      [두 단계](design/pro-pin-two-step-2026-10-11.md)
 - [ ] 일반방 방장 암호와 공통 암호 흐름(8.10.0 배포 뒤): iPhone Safari/PWA, Android,
-  Windows에서 두 방 종류 모두 1단계 버튼이 혼자일 때 "확인", 다른 기기가 있을 때
-  "다음"인지, 2단계 "그대로 두기"(기본)·"모두 재입장", 일반방 암호가 빈 칸에서
-  시작하고 "••••-••••"와 연필 버튼으로만 보이는지, VoiceOver·TalkBack이 점 대신
-  "암호 적용됨"을 읽는지 확인한다. "그대로 두기"로 남은 참여자가 백그라운드 전환,
-  네트워크 변경, 시그널링 재연결 뒤 새 암호 없이 ICE 재시작으로 회복되는지,
-  "모두 재입장" 뒤 참여자에게 "방장이 방 암호를 …" 안내가 한 번 뜨고 같은 방의 암호
-  입력 화면으로 가는지, 아직 갱신되지 않은 이전 App 참여자가 "강제퇴장" 문구를 보는지,
-  오답 20회 뒤 기다릴 시간이 분 단위로 보이는지, 강제 색상 모드(Windows 고대비 밝은·어두운
-  테마)에서 언어 목록과 선택된 행의 글자, 선택된 탭 아이콘, 켜진 암호 스위치가 보이고
-  초대 QR이 휴대폰 카메라로 스캔되는지, 320·360·390px, 가로 모드, RTL 배치를 함께 본다.
-  [상세](design/standard-room-owner-pin-2026-10-11.md)
+      Windows에서 두 방 종류 모두 1단계 버튼이 혼자일 때 "확인", 다른 기기가 있을 때
+      "다음"인지, 2단계 "그대로 두기"(기본)·"모두 재입장", 일반방 암호가 빈 칸에서
+      시작하고 "••••-••••"와 연필 버튼으로만 보이는지, VoiceOver·TalkBack이 점 대신
+      "암호 적용됨"을 읽는지 확인한다. "그대로 두기"로 남은 참여자가 백그라운드 전환,
+      네트워크 변경, 시그널링 재연결 뒤 새 암호 없이 ICE 재시작으로 회복되는지,
+      "모두 재입장" 뒤 참여자에게 "방장이 방 암호를 …" 안내가 한 번 뜨고 같은 방의 암호
+      입력 화면으로 가는지, 아직 갱신되지 않은 이전 App 참여자가 "강제퇴장" 문구를 보는지,
+      오답 20회 뒤 기다릴 시간이 분 단위로 보이는지, 강제 색상 모드(Windows 고대비 밝은·어두운
+      테마)에서 언어 목록과 선택된 행의 글자, 선택된 탭 아이콘, 켜진 암호 스위치가 보이고
+      초대 QR이 휴대폰 카메라로 스캔되는지, 320·360·390px, 가로 모드, RTL 배치를 함께 본다.
+      [상세](design/standard-room-owner-pin-2026-10-11.md)
 - [ ] 방·데모 중 업데이트 안내(8.10.0 배포 뒤; 기기가 `v659` 코드를 실행한 뒤 다음
-  캐시 업데이트가 와야 볼 수 있다):
-  iPhone Safari 탭, iPhone 홈 화면 PWA, Android Chrome(탭과 설치 앱), Windows·macOS
-  데스크톱에서 방장·참여자·PRO 방·데모 중 새 버전이 대기하면 대화상자 없이 채팅에
-  안내가 한 번만 뜨는지, 탭은 "페이지를 새로고침하면", 설치 앱은 "앱을 다시 열면"
-  문구인지, 다른 기기 채팅에는 뜨지 않는지, 다른 탭이 업데이트를 수락해도 방 탭이
-  새로고침되지 않고 같은 안내를 다시 띄우지 않는지, PRO 방에서 휴대폰을 45초 넘게
-  잠갔다가 깨워도(재입장) 대화상자가 뜨거나 새로고침되지 않는지, 방을 나와 설정
-  화면으로 돌아오면 업데이트 대화상자가 한 번 뜨는지("나중에" 뒤에는 다시 뜨지 않음)
-  확인한다. 대화상자는 Host·Join을 누르기 전 첫 설정 화면에서만 그대로다. 만들기·참여
-  화면(초대 링크 참여 포함)은 이미 방으로 보아 토스트가 뜨고, 방이 시작되면 채팅에
-  안내가 한 번 더 뜨는지 본다(오너 결정 2026-10-11). 우르두어 채팅 안내가 오른쪽
-  정렬로 보이는지도 본다.
-  [상세](design/in-room-update-prompt-2026-10-11.md)
+      캐시 업데이트가 와야 볼 수 있다):
+      iPhone Safari 탭, iPhone 홈 화면 PWA, Android Chrome(탭과 설치 앱), Windows·macOS
+      데스크톱에서 방장·참여자·PRO 방·데모 중 새 버전이 대기하면 대화상자 없이 채팅에
+      안내가 한 번만 뜨는지, 탭은 "페이지를 새로고침하면", 설치 앱은 "앱을 다시 열면"
+      문구인지, 다른 기기 채팅에는 뜨지 않는지, 다른 탭이 업데이트를 수락해도 방 탭이
+      새로고침되지 않고 같은 안내를 다시 띄우지 않는지, PRO 방에서 휴대폰을 45초 넘게
+      잠갔다가 깨워도(재입장) 대화상자가 뜨거나 새로고침되지 않는지, 방을 나와 설정
+      화면으로 돌아오면 업데이트 대화상자가 한 번 뜨는지("나중에" 뒤에는 다시 뜨지 않음)
+      확인한다. 대화상자는 Host·Join을 누르기 전 첫 설정 화면에서만 그대로다. 만들기·참여
+      화면(초대 링크 참여 포함)은 이미 방으로 보아 토스트가 뜨고, 방이 시작되면 채팅에
+      안내가 한 번 더 뜨는지 본다(오너 결정 2026-10-11). 우르두어 채팅 안내가 오른쪽
+      정렬로 보이는지도 본다.
+      [상세](design/in-room-update-prompt-2026-10-11.md)
 
 ### 원인을 모르는 관찰
 
 재현되면 원인과 함께 기록한다. 지금 예정된 조사는 없다.
 
 - [ ] 2026-10-11 Montpellier 행사 PRO 002026의 입장 실패 원인은 미확정이다.
-  Peer 번호는 동시 접속 수가 아니며 `Peer 77` 퇴장 메시지나 “100명처럼”이라는
-  관찰만으로 실제 `ROOM_FULL`·100명 동시 접속을 증명하지 못한다. 로컬에서
-  확인한 세 결함은 8.10.5로 수정했으나 행사 당시 어느 경로였는지 연결할 스택과
-  인원 기록은 없다. 새 서버 진단은 실패 사유·유효/잔류 presence·번호·시그널링
-  명단을 구분하지만, 상세 제한·메모리 요약·eviction/취소 손실·공급자 보존 한계가
-  있어 완전한 접속 원장이나 행사 당시의 소급 증거가 아니다.
-  [행사 근거·한계](design/pro-event-admission-deep-audit-2026-10-13.md),
-  [수정과 진단 계약](design/pro-admission-repair-2026-10-13.md)
+      Peer 번호는 동시 접속 수가 아니며 `Peer 77` 퇴장 메시지나 “100명처럼”이라는
+      관찰만으로 실제 `ROOM_FULL`·100명 동시 접속을 증명하지 못한다. 로컬에서
+      확인한 세 결함은 8.10.5로 수정했으나 행사 당시 어느 경로였는지 연결할 스택과
+      인원 기록은 없다. 새 서버 진단은 실패 사유·유효/잔류 presence·번호·시그널링
+      명단을 구분하지만, 상세 제한·메모리 요약·eviction/취소 손실·공급자 보존 한계가
+      있어 완전한 접속 원장이나 행사 당시의 소급 증거가 아니다.
+      [행사 근거·한계](design/pro-event-admission-deep-audit-2026-10-13.md),
+      [수정과 진단 계약](design/pro-admission-repair-2026-10-13.md)
 - [ ] 운영 R2 전송이 느리거나 끝나지 않음: 오너의 집 Wi-Fi(LAX 경로)에서만 보였고
-  앱 없이 native XHR로도 재현됐다. 핫스팟과 GitHub 원격 실행에서는 통과했다.
-  8.7.2 전체 검증의 첫 R2 8/9 실패도 같은 묶음이다. 2026-10-08 오너 요청으로
-  조사를 종료했다. 추측에 따른 제품 수정은 하지 않고, 이 관찰 때문에 120초
-  다운로드 검사나 90초 stall 정책을 완화하지 않는다.
-  [조사 종료 근거](design/full-verification-8.7.2-2026-10-07.md#최종-코드-심층-검토-및-조사-종료--2026-10-08)
+      앱 없이 native XHR로도 재현됐다. 핫스팟과 GitHub 원격 실행에서는 통과했다.
+      8.7.2 전체 검증의 첫 R2 8/9 실패도 같은 묶음이다. 2026-10-08 오너 요청으로
+      조사를 종료했다. 추측에 따른 제품 수정은 하지 않고, 이 관찰 때문에 120초
+      다운로드 검사나 90초 stall 정책을 완화하지 않는다.
+      [조사 종료 근거](design/full-verification-8.7.2-2026-10-07.md#최종-코드-심층-검토-및-조사-종료--2026-10-08)
 - [ ] legacy SW(R26): 첫 Refresh 승인 뒤 15초 동안 갱신이 안 된 1회. 재현되면
-  승인 → `SKIP_WAITING` → waiting worker → `controllerchange` → 새 문서 순서를
-  페이지 밖에서 로그로 남기고, 오래된 실기에서도 시도한다.
-  [상세](design/beta-30-round-repair-2026-10-07.md)
+      승인 → `SKIP_WAITING` → waiting worker → `controllerchange` → 새 문서 순서를
+      페이지 밖에서 로그로 남기고, 오래된 실기에서도 시도한다.
+      [상세](design/beta-30-round-repair-2026-10-07.md)
 - [ ] "claim 미보유" 안내 1회: 2026-10-09 계정 확인·닉네임 후속(`c3a313c9`)의 첫
-  dev Chromium 12케이스 실행에서 나왔고, 이후 dev 12·운영 12 실행에서는 나오지
-  않았다. HMR이나 환경 탓으로 단정하지 않는다.
-  [기록](beta-release-readiness-archive-2026-10-10.md#1-현재-상태)
+      dev Chromium 12케이스 실행에서 나왔고, 이후 dev 12·운영 12 실행에서는 나오지
+      않았다. HMR이나 환경 탓으로 단정하지 않는다.
+      [기록](beta-release-readiness-archive-2026-10-10.md#1-현재-상태)
 - [ ] 2026-10-08 이전 시그널링 Worker 예외(24시간 3건, 7일 10건)의 원인과 사용자
-  영향. `99f9103c`로 진단 로그를 배포했다.
-  [조사 runbook](../cloudflare/config-drift-ops.md#signaling-exception-investigation)
+      영향. `99f9103c`로 진단 로그를 배포했다.
+      [조사 runbook](../cloudflare/config-drift-ops.md#signaling-exception-investigation)
 
 ### 운영·보안
 
 - [ ] 일반방 방장 암호 운영 감시와 전환기 한계(8.10.0 배포 뒤): 관리자 대시보드
-  Operations 화면 Signals 패널의 Password lockouts(`guest_auth_rate_limited`, 최근
-  24시간)가 평소 0에 가까운지 본다. 주 신호는 Password failures(`guest_auth_failed`)나
-  Operations의 Password issues 카드 급증, 또는 신고다. 오답 제한은 방마다
-  네트워크(IPv4 주소, IPv6 /64) 256개까지 버킷을 두고, 표가 차 있으면 새 네트워크는
-  제한하지도 기록하지도 않는다(fail open). 주소를 많이 바꾸는 추측(IPv6로는 쉽다)은
-  제한되지 않으며 오너가 2026-10-11 결정 B로 이를 허용했다. 추측 공격이 보이면 게스트
-  암호 시도 앞에 봇 확인(예: Cloudflare Turnstile)이나 작업 증명을 검토한다. 전환기
-  한계: 캐시된 8.9.x 방장은 계속 무작위 암호를 만들고, 그 암호를 새로 만들었으면 남아
-  있던 참여자가 재연결 때 옛 암호를 보내 실패가 같은 주소 버킷에 쌓일 수 있다. 이전
-  App 참여자는 "모두 재입장"으로 내보내지면 "강제퇴장"을 보고, 새 오류 두 가지는 일반
-  입장 오류로 보인다(영구 인증 오류라 재연결 폭주는 없다). 이 첫 배포 때 이전
-  코드(`v657` 이하)를 실행 중이던 기기는 방 안에서도 예전 업데이트 대화상자를 한 번
-  본다. 다음 배포부터는 새 업데이트 안내 정책을 따른다. 되돌리기는 §4.
-  [상세](design/standard-room-owner-pin-2026-10-11.md),
-  [업데이트 안내](design/in-room-update-prompt-2026-10-11.md),
-  [운영](../cloudflare/standard-room-pin-ops.md),
-  [허용 위험](known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)
+      Operations 화면 Signals 패널의 Password lockouts(`guest_auth_rate_limited`, 최근
+      24시간)가 평소 0에 가까운지 본다. 주 신호는 Password failures(`guest_auth_failed`)나
+      Operations의 Password issues 카드 급증, 또는 신고다. 오답 제한은 방마다
+      네트워크(IPv4 주소, IPv6 /64) 256개까지 버킷을 두고, 표가 차 있으면 새 네트워크는
+      제한하지도 기록하지도 않는다(fail open). 주소를 많이 바꾸는 추측(IPv6로는 쉽다)은
+      제한되지 않으며 오너가 2026-10-11 결정 B로 이를 허용했다. 추측 공격이 보이면 게스트
+      암호 시도 앞에 봇 확인(예: Cloudflare Turnstile)이나 작업 증명을 검토한다. 전환기
+      한계: 캐시된 8.9.x 방장은 계속 무작위 암호를 만들고, 그 암호를 새로 만들었으면 남아
+      있던 참여자가 재연결 때 옛 암호를 보내 실패가 같은 주소 버킷에 쌓일 수 있다. 이전
+      App 참여자는 "모두 재입장"으로 내보내지면 "강제퇴장"을 보고, 새 오류 두 가지는 일반
+      입장 오류로 보인다(영구 인증 오류라 재연결 폭주는 없다). 이 첫 배포 때 이전
+      코드(`v657` 이하)를 실행 중이던 기기는 방 안에서도 예전 업데이트 대화상자를 한 번
+      본다. 다음 배포부터는 새 업데이트 안내 정책을 따른다. 되돌리기는 §4.
+      [상세](design/standard-room-owner-pin-2026-10-11.md),
+      [업데이트 안내](design/in-room-update-prompt-2026-10-11.md),
+      [운영](../cloudflare/standard-room-pin-ops.md),
+      [허용 위험](known-accepted.md#12-standard-room-owner-pins-kicks-and-guessing)
 - [ ] Drift Audit 수동 5항목: Worker zone routes, `/admin` Access+MFA, WAF rate
-  limit과 Worker/R2/D1 비용 알림, 두 번째 Git 배포 경로가 없음, main review·필수
-  체크 정책. 자동 감사가 통과해도 이 항목은 완료가 아니다.
+      limit과 Worker/R2/D1 비용 알림, 두 번째 Git 배포 경로가 없음, main review·필수
+      체크 정책. 자동 감사가 통과해도 이 항목은 완료가 아니다.
 - [ ] Daybreak 심층 보안 재실행 5건: R17-C01(QA073·QA075), QA094, QA109, QA086,
-  QA032. 계정 보안(FIDO2) 요구로 실행하지 못했다. 대신 있는 로컬 근거: 일반 모드
-  `44ef6a78` (43 pass), API key 수명 `2a6e4812` (8 pass, queue-mode·queue-add만;
-  media reserve/finish 동적 조합은 미실행), QA032 로컬 수신 경로 `fa33c660`
-  (434 pass; binary codec, 실제 WebRTC, live는 범위 밖).
-  [상세](design/beta-30-round-repair-2026-10-09.md#daybreak-보안-심화-재시도--2026-10-09)
+      QA032. 계정 보안(FIDO2) 요구로 실행하지 못했다. 대신 있는 로컬 근거: 일반 모드
+      `44ef6a78` (43 pass), API key 수명 `2a6e4812` (8 pass, queue-mode·queue-add만;
+      media reserve/finish 동적 조합은 미실행), QA032 로컬 수신 경로 `fa33c660`
+      (434 pass; binary codec, 실제 WebRTC, live는 범위 밖).
+      [상세](design/beta-30-round-repair-2026-10-09.md#daybreak-보안-심화-재시도--2026-10-09)
 - [ ] 전환기 한계(8.9.0 배포 뒤): 아직 갱신되지 않은 이전 App(8.8.0)은 퇴장
-  사유를 읽지 않는다. 강퇴되면 일반 "세션을
-  새로고침하고 있어요..."를 보여 주고, 공개방이면 시작 버튼 한 번으로 다시 들어올
-  수 있다. 그 App이 갱신될 때까지 남는다.
-  [상세](design/pro-pin-member-choice-2026-10-11.md)
+      사유를 읽지 않는다. 강퇴되면 일반 "세션을
+      새로고침하고 있어요..."를 보여 주고, 공개방이면 시작 버튼 한 번으로 다시 들어올
+      수 있다. 그 App이 갱신될 때까지 남는다.
+      [상세](design/pro-pin-member-choice-2026-10-11.md)
 - [ ] 호환·복구(8.9.0 배포 뒤): PRO Worker만 이전으로 되돌리면
-  기본값 "그대로 두기"가 400으로 거절되어 App이 "암호를 바꾸지 못했어요"를
-  보여 주고, "모두 재입장"(8.9.0은 "모두 다시 입장하게 하기")은 계속 동작한다.
-  새 floor는 없다(§4).
-  [상세](design/pro-pin-member-choice-2026-10-11.md)
+      기본값 "그대로 두기"가 400으로 거절되어 App이 "암호를 바꾸지 못했어요"를
+      보여 주고, "모두 재입장"(8.9.0은 "모두 다시 입장하게 하기")은 계속 동작한다.
+      새 floor는 없다(§4).
+      [상세](design/pro-pin-member-choice-2026-10-11.md)
 - [ ] PRO 공개방 입장 보호(8.9.0 배포 뒤): 실제 공개방에서
-  일반 입장·재입장·탭 닫기 후 복귀가 `RATE_LIMITED`나 `ROOM_FULL` 없이 되는지,
-  PRO Worker 로그에서 두 응답이 평소보다 늘지 않는지 확인한다. 입장 throttle
-  카운터는 Durable Object 메모리에만 있어 운영에서 직접 볼 수 없고, 주소별 키
-  파생(IPv4, IPv6 /64)은 front door 단위 테스트로만 검증했다.
-  [상세](design/pro-room-admission-protection-2026-10-11.md)
+      일반 입장·재입장·탭 닫기 후 복귀가 `RATE_LIMITED`나 `ROOM_FULL` 없이 되는지,
+      PRO Worker 로그에서 두 응답이 평소보다 늘지 않는지 확인한다. 입장 throttle
+      카운터는 Durable Object 메모리에만 있어 운영에서 직접 볼 수 없고, 주소별 키
+      파생(IPv4, IPv6 /64)은 front door 단위 테스트로만 검증했다.
+      [상세](design/pro-room-admission-protection-2026-10-11.md)
 
 ### 후속 작업과 유지 결정
 
 - [ ] 일반방 YouTube zero-start 직후 Sync 준비 공백(2026-10-12 로컬 관측):
-  초기 프로토콜의 소유권은 풀렸지만 첫 일반 playback snapshot이 오기 전에
-  Sync를 누르면 "방장 재생 정보가 없음" 안내가 나오고 자동 재시도하지 않는다.
-  실제 Chromium에서 재현했으며 자연 heartbeat 수신 뒤 재클릭 포함 총 8회는
-  정상 진행됐다. C11 학습 게이트 거절이나 heartbeat 영구 중단은 아니다.
-  오너 결정(2026-10-12): 원하지 않는 시점에 재생을 흔들지 않도록 자동 재시도는
-  추가하지 않는다. 준비 안내 후 사용자가 다시 누르는 정책을 유지한다. 이번은
-  조사만 했고 런타임을 수정하지 않았다.
-  [브라우저 실험·초기 timeout과 재시도 근거](design/standard-clock-browser-simulation-2026-10-12.md)
+      초기 프로토콜의 소유권은 풀렸지만 첫 일반 playback snapshot이 오기 전에
+      Sync를 누르면 "방장 재생 정보가 없음" 안내가 나오고 자동 재시도하지 않는다.
+      실제 Chromium에서 재현했으며 자연 heartbeat 수신 뒤 재클릭 포함 총 8회는
+      정상 진행됐다. C11 학습 게이트 거절이나 heartbeat 영구 중단은 아니다.
+      오너 결정(2026-10-12): 원하지 않는 시점에 재생을 흔들지 않도록 자동 재시도는
+      추가하지 않는다. 준비 안내 후 사용자가 다시 누르는 정책을 유지한다. 이번은
+      조사만 했고 런타임을 수정하지 않았다.
+      [브라우저 실험·초기 timeout과 재시도 근거](design/standard-clock-browser-simulation-2026-10-12.md)
 - [ ] 일반방 YouTube C11 현장 관측(8.10.2/v661 배포 뒤): 원래 deadline의
       미보정 callback 지연과 계획·예약·호출·측정 사이 시계 변경을 학습 입력에서
       제외하는 수정은 `72a6e780`, Release `38267400052`로 배포됐다. 기존 저장값은
@@ -305,30 +305,30 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       [점검·배포 근거](design/sync-maintenance-release-preparation-2026-10-12.md),
       [수용한 전환기 한계](known-accepted.md#13-maintenance-cutover-without-client-version-admission)
 - [ ] iPhone Safari/PWA 실기 재입장: 8.9.4의 이전 연결 안내와 "여기서 계속",
-  같은 코드로 입장 실패 후 재시도를 확인한다. 종료 알림이 누락되면 마지막 생존
-  확인 뒤 45초 동안 presence가 남을 수 있고 명시적 이어하기 정책은 유지한다.
-  42개 언어 문구·재시도 복원은 배포 완료했으며, 자동화가 실기 강제 종료를 대신하지
-  않는다. [PWA·배포 근거](design/pro-pwa-force-close-audit-2026-10-12.md),
-  [재시도 근거](design/pro-entry-retry-audit-2026-10-11.md)
+      같은 코드로 입장 실패 후 재시도를 확인한다. 종료 알림이 누락되면 마지막 생존
+      확인 뒤 45초 동안 presence가 남을 수 있고 명시적 이어하기 정책은 유지한다.
+      42개 언어 문구·재시도 복원은 배포 완료했으며, 자동화가 실기 강제 종료를 대신하지
+      않는다. [PWA·배포 근거](design/pro-pwa-force-close-audit-2026-10-12.md),
+      [재시도 근거](design/pro-entry-retry-audit-2026-10-11.md)
 - [ ] PRO 자율 재생 실기: 재생 권한 기기 절전·퇴장 후 일반 참여자만 남은 방에서
-  파일·YouTube·플레이리스트 서브인덱스의 연속 전환, 전원 퇴장·복귀를 확인한다.
-  서버 자연 종료 경로를 추가했으며, 길이를 검증할 수 없는 파일·라이브·조회가
-  불확실한 YouTube는 임의 종료하지 않는다. 실기 확인은 자동화로 대신하지 않는다.
-  [구현·검증·한계](design/pro-autonomous-playback-2026-10-12.md)
-  등록 시 길이 확보와 기존 파일의 점진적 보완도 같은 실기 확인 대상이다.
-  분석 불가 형식은 권한 기기의 준비 완료 전까지 미확정으로 남는다.
-  [등록·보완 근거](design/pro-file-duration-registration-2026-10-12.md)
+      파일·YouTube·플레이리스트 서브인덱스의 연속 전환, 전원 퇴장·복귀를 확인한다.
+      서버 자연 종료 경로를 추가했으며, 길이를 검증할 수 없는 파일·라이브·조회가
+      불확실한 YouTube는 임의 종료하지 않는다. 실기 확인은 자동화로 대신하지 않는다.
+      [구현·검증·한계](design/pro-autonomous-playback-2026-10-12.md)
+      등록 시 길이 확보와 기존 파일의 점진적 보완도 같은 실기 확인 대상이다.
+      분석 불가 형식은 권한 기기의 준비 완료 전까지 미확정으로 남는다.
+      [등록·보완 근거](design/pro-file-duration-registration-2026-10-12.md)
 - [ ] PRO 자동 넘김 길이 판독(8.10.1 배포 뒤): 운영 PRO Worker 로그에서
-  `Automatic completion metadata unavailable`(특히 `METADATA_LOOKUP_FAILED`)와 YouTube
-  메타데이터 조회가 평소보다 늘지 않는지 본다. 8.9.5–8.10.0 판독기가 저장한 서버·업로드
-  길이는 재생 때 다시 재므로, 이어 붙인 MP3·조각난 MP4는 짧게 넘어가는 대신 컨트롤러가
-  준비할 때까지 곡 끝에서 멈출 수 있다(오너 규칙: 짧은 길이보다 미확정). 삭제·비공개
-  YouTube 영상은 60초 이상 떨어진 두 번의 "없음" 응답 뒤에만 건너뛴다. 남은 한계:
-  VBR 파일의 1/16 미만 이어 붙임은 FFmpeg처럼 감지하지 못하고, 16 MiB를 넘는 스캔
-  대상과 꼬리말 없는 ID3v2.3 뒤 태그는 미확정이다. 실기 확인은 위 "PRO 자율 재생 실기"
-  항목과 함께 한다. [상세](design/pro-duration-hardening-2026-10-12.md)
+      `Automatic completion metadata unavailable`(특히 `METADATA_LOOKUP_FAILED`)와 YouTube
+      메타데이터 조회가 평소보다 늘지 않는지 본다. 8.9.5–8.10.0 판독기가 저장한 서버·업로드
+      길이는 재생 때 다시 재므로, 이어 붙인 MP3·조각난 MP4는 짧게 넘어가는 대신 컨트롤러가
+      준비할 때까지 곡 끝에서 멈출 수 있다(오너 규칙: 짧은 길이보다 미확정). 삭제·비공개
+      YouTube 영상은 60초 이상 떨어진 두 번의 "없음" 응답 뒤에만 건너뛴다. 남은 한계:
+      VBR 파일의 1/16 미만 이어 붙임은 FFmpeg처럼 감지하지 못하고, 16 MiB를 넘는 스캔
+      대상과 꼬리말 없는 ID3v2.3 뒤 태그는 미확정이다. 실기 확인은 위 "PRO 자율 재생 실기"
+      항목과 함께 한다. [상세](design/pro-duration-hardening-2026-10-12.md)
 - [ ] 접근성: 숨겨진 비활성 YouTube 패널의 전체화면 버튼이 역방향 키보드
-  포커스를 받는다. 8.7.8 이전부터 있던 문제다.
+      포커스를 받는다. 8.7.8 이전부터 있던 문제다.
 - 조건부 감시(리버브): 지금은 모든 검증기가 decay를 10초로 제한한다. 8.7.0 이전
   30초 상한 때 Developer API로 저장된 10초 초과 값이 PRO 저장소에 남아 있으면,
   재로드 검증이 effects 전체를 기본값으로 돌린다. 오너가 실제 API 사용자를 확인한

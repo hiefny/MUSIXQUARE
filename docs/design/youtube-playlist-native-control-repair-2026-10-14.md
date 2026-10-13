@@ -5,8 +5,9 @@
 The owner authorized implementation and production deployment after the
 [read-only investigation](youtube-playlist-native-control-audit-2026-10-14.md).
 The implementation starts from `1964828e34587214ec3f98bee7a2cf4392a36768`.
-Final implementation commit: `ef1cfef729f6109bb619cbb4380e94f7ee6ba4d8`.
-Final release evidence is recorded below when available. App **8.10.10**, service-worker cache **v672**; deployment scope
+Initial reviewed implementation: `ef1cfef729f6109bb619cbb4380e94f7ee6ba4d8`.
+The first-focus follow-up and its final source identity are recorded below.
+Final release evidence is recorded below when available. App **8.10.10**, service-worker cache **v673**; deployment scope
 is **App**, with Developer API D1 application **false**.
 
 No dependency, schema, binding, secret, wire protocol or room admission change.
@@ -141,6 +142,31 @@ Physical YouTube keyboard/media-key behavior, ads, mobile WebViews, audible
 alignment and every video in the user's playlist are not covered by synthetic
 provider tests. Full 640-case E2E is not claimed; exact-main CI remains the
 production release gate, independently of local and PR results.
+
+### First-focus review follow-up
+
+PR #323's automated review found a valid P2: clearing every position sample
+outside iframe focus loses the baseline when the user's first click both enters
+the player and seeks. A new unit test reproduced the incorrect pause/play
+requests before the fix. The observer now retains a recent, same-occurrence
+baseline while the document is foreground, requiring the exact iframe's focus
+only when promoting a discontinuity to a host seek request. Actual window focus
+loss still resets the baseline, including a blur/return between polling ticks.
+The parent-window blur produced by entering a child iframe does not reset it
+while `document.hasFocus()` remains true.
+
+Independent Chromium and WebKit focus probes confirmed that distinction. Five
+native-control suites pass **56 tests / 0 fail / 0 skip**; pins include first
+focus plus seek, an unfocused jump followed by later focus, and background-window
+reset. The browser regression removes its former focused warm-up and uses one
+actual iframe click to produce focus and the provider discontinuity together.
+An attempted browser RED run used a production build without the test bus and
+failed in setup; it is not counted as regression evidence. The unit RED is valid.
+The follow-up is commit `44f73b6f`, which advances the covering cache epoch to
+v673; no published commit is amended. Its two-tab Chromium regression passes
+**2 tests / 0 fail / 0 skip** in 50.3 s, including first-click focus plus seek,
+exactly one host seek and both participants returning to playing. Final
+committed build and full-unit results are recorded below.
 
 ## Release and recovery
 

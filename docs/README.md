@@ -92,7 +92,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [YouTube popup focus repair — 2026-10-13](design/youtube-popup-focus-repair-2026-10-13.md) —
   자연 실패의 타이머·focus·키 이벤트로 후반 Tab 경합 원인을 확인하고 초기 focus
-  fallback을 수정했다. 관련 단위 197개·원격 두 OS 각 30회 통과, 전체 검증·배포는 대기 중이다.
+  fallback을 수정했다. 로컬·원격 전체 Chromium 각 627개와 exact-main CI를 통과하고
+  8.10.8/v669로 배포했다. 반복검사의 타이머 경계 한계와 단위 회귀 근거를 함께 기록한다.
 
 - [YouTube keyboard focus remote diagnostic — 2026-10-13](design/youtube-focus-linux-diagnostic-2026-10-13.md) —
   같은 코드의 Ubuntu·Windows 반복 검사에서 최초 focus 실패를 재현했다.

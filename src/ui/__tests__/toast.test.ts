@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { readFile } from 'node:fs/promises';
+import { parse as parseCss } from 'postcss';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
@@ -513,7 +514,7 @@ describe('header loader layout contract', () => {
         /#main-header \.material-elastic-spinner,\s*#main-header \.header-loading-spinner\s*\{([^}]*)\}/,
       )?.[1] ?? '';
 
-    expect(headerSpinnerRules).toMatch(/display:\s*none\s*!important;/);
+    expect(headerSpinnerRules).toMatch(/display:\s*none\s*;/);
     expect(stylesheet).not.toMatch(/header\.loading \.header-loading-spinner/);
   });
 
@@ -545,27 +546,27 @@ describe('header loader layout contract', () => {
       parsed.querySelector('#header-loading-text > .header-loading-text-content')?.textContent,
     ).toBe('Loading...');
 
-    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
-    const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
-    expect(compactStart).toBeGreaterThanOrEqual(0);
-    expect(compactEnd).toBeGreaterThan(compactStart);
+    const compactRules: string[] = [];
+    parseCss(stylesheet).walkAtRules('media', (rule) => {
+      if (rule.params === '(min-width: 720px) and (max-width: 1279px)') {
+        compactRules.push(rule.toString());
+      }
+    });
+    expect(compactRules.length).toBeGreaterThan(0);
 
-    const baseLoaderRules =
-      stylesheet.slice(0, compactStart).match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
-    const compactStyles = stylesheet.slice(compactStart, compactEnd);
+    const baseLoaderRules = stylesheet.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+    const compactStyles = compactRules.join('\n');
     const compactLoaderRules =
       compactStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(baseLoaderRules).toMatch(/left:\s*calc\(24px \+ var\(--safe-left\)\);/);
     expect(baseLoaderRules).toMatch(/right:\s*calc\(24px \+ var\(--safe-right\)\);/);
     expect(baseLoaderRules).toMatch(/width:\s*auto;/);
-    expect(compactLoaderRules).toMatch(/top:\s*calc\(10px \+ var\(--safe-top\)\)\s*!important;/);
-    expect(compactLoaderRules).toMatch(/left:\s*29px\s*!important;/);
-    expect(compactLoaderRules).toMatch(
-      /right:\s*calc\(16px \+ var\(--safe-right\)\)\s*!important;/,
-    );
-    expect(compactLoaderRules).toMatch(/width:\s*auto\s*!important;/);
-    expect(compactLoaderRules).toMatch(/height:\s*54px\s*!important;/);
+    expect(compactLoaderRules).toMatch(/top:\s*calc\(10px \+ var\(--safe-top\)\)\s*;/);
+    expect(compactLoaderRules).toMatch(/left:\s*29px\s*;/);
+    expect(compactLoaderRules).toMatch(/right:\s*calc\(16px \+ var\(--safe-right\)\)\s*;/);
+    expect(compactLoaderRules).toMatch(/width:\s*auto\s*;/);
+    expect(compactLoaderRules).toMatch(/height:\s*54px\s*;/);
     expect(compactLoaderRules).toMatch(/line-height:\s*18px;/);
     expect(compactLoaderRules).toMatch(/white-space:\s*nowrap;/);
     expect(compactLoaderRules).toMatch(/overflow-wrap:\s*normal;/);
@@ -574,7 +575,7 @@ describe('header loader layout contract', () => {
     // moving through the sidebar's clipped top edge keeps the swap on the
     // logo rail.
     expect(compactStyles.match(/\n\s*header\s*\{([^}]*)\}/)?.[1] ?? '').toMatch(
-      /overflow:\s*hidden\s*!important;/,
+      /overflow:\s*hidden\s*;/,
     );
     expect(compactLoaderRules).toMatch(/transform:\s*translateY\(-100%\);/);
     expect(compactLoaderRules).not.toMatch(/transform:\s*translateY\(100%\);/);

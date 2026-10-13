@@ -174,7 +174,7 @@ describe('app entrance choreography contract', () => {
 
   it('keeps compact navigation on the same stagger and reduced motion immediate', () => {
     expect(appStylesheet).toMatch(
-      /\.bottom-nav\.app-entrance\.app-entrance-up\s*\{[\s\S]*?opacity 0\.6s[\s\S]*?transform 0\.8s[\s\S]*?transition-delay: var\(--entrance-delay, 0ms\) !important;/u,
+      /\.app-entrance\s*\{[\s\S]*?opacity 0\.6s[\s\S]*?transform 0\.8s[\s\S]*?transition-delay: var\(--entrance-delay, 0ms\);/u,
     );
     expect(appStylesheet).toMatch(
       /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.app-entrance,[\s\S]*?\.bottom-nav\.app-entrance\.app-entrance-up\s*\{[\s\S]*?transition:\s*none !important;[\s\S]*?transition-delay:\s*0ms !important;/u,
@@ -182,11 +182,9 @@ describe('app entrance choreography contract', () => {
     expect(appStylesheet).toMatch(
       /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.chat-drawer\.app-chat-entrance\s*\{\s*animation:\s*none !important;/u,
     );
-    const bootEntranceRule = appStylesheet.match(
-      /html\.is-booting \.app-entrance\s*\{([^}]*)\}/u,
-    )?.[1];
-    expect(bootEntranceRule).toContain('transform 0.8s');
-    expect(bootEntranceRule).not.toMatch(/^\s*opacity:/mu);
+    // Deliberate entrance uses the component transition; the startup guard
+    // excludes it instead of creating an important transition competition.
+    expect(appStylesheet).toMatch(/html\.is-booting :not\(\.app-entrance\)/u);
   });
 
   it('reconciles desktop-only targets while onboarding crosses the breakpoint', () => {

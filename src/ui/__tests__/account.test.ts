@@ -2613,7 +2613,7 @@ describe('optional account UI', () => {
     expect(titleEditRules).toContain('max-width: 100%');
     expect(titleEditRules).toContain('min-height: 44px');
     expect(titleEditRules).toContain('display: inline-flex');
-    expect(titleEditRules).toContain('border-radius: 999px');
+    expect(titleEditRules).toContain('border-radius: var(--radius-pill)');
     expect(titleEditFocusRules).toContain('outline: 2px solid var(--primary)');
     expect(titleEditFocusRules).toContain('outline-offset: 2px');
     expect(titleEditFocusRules).not.toContain('outline-offset: 6px');
@@ -2655,7 +2655,7 @@ describe('optional account UI', () => {
     expect(adaptiveFullRules).toContain('flex-basis: 100%');
     expect(accountCloseRules).toContain('width: 100%');
     expect(deleteRules).toContain('min-height: 54px');
-    expect(deleteRules).toContain('border-radius: 18px');
+    expect(deleteRules).toContain('border-radius: var(--radius-pill)');
     expect(deleteRules).not.toContain('grid-column: 1 / -1');
     expect(stylesheet).toContain('@media (max-height: 350px)');
     expect(stylesheet).toContain(

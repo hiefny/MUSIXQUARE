@@ -176,7 +176,7 @@ export function startGuestFlow(): void {
 
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) {
-    sliderArea.style.display = 'none';
+    sliderArea.hidden = true;
   }
 
   setState('network.myDeviceLabel', t('common.guest'));

@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Component pill and cascade refactor — 2026-10-13](design/component-cascade-refactor-2026-10-13.md) —
+  Component-owned shape, presentation layer precedence, retained safety guards,
+  and browser comparison/release evidence.
 - [YouTube popup focus repair — 2026-10-13](design/youtube-popup-focus-repair-2026-10-13.md) —
   자연 실패의 타이머·focus·키 이벤트로 후반 Tab 경합 원인을 확인하고 초기 focus
   fallback을 수정했다. 로컬·원격 전체 Chromium 각 627개와 exact-main CI를 통과하고

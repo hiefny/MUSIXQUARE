@@ -132,11 +132,13 @@ describe('legacy smart-TV app compatibility', () => {
     await expect(
       transformAppCssForLegacyBrowsers('@layer base { .value { color: revert-layer; } }'),
     ).rejects.toThrow('Legacy CSS transform warning');
-    await expect(
-      transformAppCssForLegacyBrowsers(
-        '@layer base, desktop; @layer desktop { .value { color: red !important; } }',
-      ),
-    ).rejects.toThrow('desktop layer cannot contain !important');
+    for (const layer of ['desktop', 'components', 'responsive', 'states']) {
+      await expect(
+        transformAppCssForLegacyBrowsers(
+          `@layer base, ${layer}; @layer ${layer} { .value { color: red !important; } }`,
+        ),
+      ).rejects.toThrow(`${layer} layer cannot contain !important`);
+    }
   });
 
   it('installs the missing Chromium 79 DOM and listener primitives before app startup', async () => {

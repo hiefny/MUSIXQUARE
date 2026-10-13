@@ -491,6 +491,7 @@
         color 0.2s,
         border-color 0.2s;
       text-align: center;
+      border-radius: 0;
     }
 
     .subtab-pill:hover {
@@ -925,7 +926,7 @@
       min-height: 56px;
       height: auto;
       padding: 10px 16px;
-      border-radius: 20px;
+      border-radius: var(--radius-pill);
       justify-content: center;
       align-items: center;
     }
@@ -945,45 +946,47 @@
   }
 } /* end @layer desktop */
 
-/* These base components use viewport units outside cascade layers. Once the
-   desktop dashboard is transformed, give them the same inverse viewport so
-   dialogs and full-screen flows are enlarged exactly once. */
-@media (min-width: 1280px) {
-  /* This must remain unlayered so it can override the shared unlayered
-     `.flex-1` utility without relying on cross-layer !important semantics. */
-  .play-action-buttons .file-select-btn {
-    width: 160px;
-    min-width: 160px;
-    flex: none;
-  }
+/* The transformed desktop dashboard exposes an inverse viewport token. Shared components and responsive geometry consume that token so dialogs and full-screen flows are scaled exactly once. */
 
-  .dialog.account-dialog,
-  .dialog.administrator-permissions-dialog {
-    max-height: calc(var(--desktop-viewport-height) - 48px);
-  }
+@layer components {
+  @media (min-width: 1280px) {
+    /* The action width shares the components layer with .flex-1, so this component selector owns its desktop flex behavior without important. */
+    .play-action-buttons .file-select-btn {
+      width: 160px;
+      min-width: 160px;
+      flex: none;
+    }
 
-  .onboarding-overlay {
-    max-height: var(--desktop-viewport-height) !important;
-  }
+    .dialog.account-dialog,
+    .dialog.administrator-permissions-dialog {
+      max-height: calc(var(--desktop-viewport-height) - 48px);
+    }
 
-  .onboarding-overlay .setup-card.full-screen {
-    height: var(--desktop-viewport-height) !important;
-    max-height: var(--desktop-viewport-height) !important;
-  }
+    .demo-mobile-shell {
+      height: var(--desktop-viewport-height);
+      min-height: var(--desktop-viewport-height);
+    }
 
-  .onboarding-overlay .setup-mobile-view {
-    max-height: var(--desktop-viewport-height) !important;
-  }
-
-  .demo-mobile-shell {
-    height: var(--desktop-viewport-height);
-    min-height: var(--desktop-viewport-height);
-  }
-
-  /* Fake fullscreen must use the physical viewport and therefore temporarily
+    /* Fake fullscreen must use the physical viewport and therefore temporarily
      opts out of dashboard density scaling. */
-  body.has-fake-fullscreen {
-    --desktop-ui-scale: 1;
-    --desktop-layout-ratio: 1;
+    body.has-fake-fullscreen {
+      --desktop-ui-scale: 1;
+      --desktop-layout-ratio: 1;
+    }
+  }
+}
+
+@layer responsive {
+  @media (min-width: 1280px) {
+    .onboarding-overlay {
+      max-height: var(--desktop-viewport-height);
+    }
+    .onboarding-overlay .setup-card.full-screen {
+      height: var(--desktop-viewport-height);
+      max-height: var(--desktop-viewport-height);
+    }
+    .onboarding-overlay .setup-mobile-view {
+      max-height: var(--desktop-viewport-height);
+    }
   }
 }

@@ -357,7 +357,9 @@ function initSetupOverlay(): void {
   incrementHostCodeFlowId();
   setPendingAutoJoinCode(null); // Clear auto-join code when returning to onboarding
   const sliderArea = setupEl('ob-slider-area');
-  if (sliderArea) sliderArea.style.display = 'block';
+  // Visibility belongs to the setup flow; CSS chooses block on mobile and
+  // flex after this same carousel is moved into the desktop diagram panel.
+  if (sliderArea) sliderArea.hidden = false;
 
   // Single transition for the role/code/join→welcome swap so the
   // four DOM flips snapshot together instead of aborting each other.

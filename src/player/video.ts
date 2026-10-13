@@ -53,7 +53,7 @@ type WebKitFullscreenDocument = Document & {
  * wrapper is parked offscreen. Mobile browsers can otherwise keep the wrapper
  * (or its iframe) as the active fullscreen element after local-file playback
  * takes ownership, leaving the app chrome inaccessible. Fake fullscreen must
- * be cleared too because its `!important` layout rules override parking.
+ * be cleared too so its viewport layout cannot remain active while parking.
  */
 export function exitYouTubeFullscreen(): void {
   const ytContainer = document.getElementById('youtube-player-container');

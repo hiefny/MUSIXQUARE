@@ -1,4 +1,7 @@
-@layer base, desktop;
+/* Cascade ownership: base components < desktop variants < shared utilities < responsive layout < active states.
+Safety is declared first because important layer precedence is reversed; its accessibility and recovery guards must win. */
+
+@layer safety, base, desktop, components, responsive, states;
 
 @layer base {
   :root {
@@ -41,6 +44,7 @@
     --radius-l: 32px;
     --radius-m: 20px;
     --radius-s: 14px;
+    --radius-pill: 999px;
     --font-primary: 'Pretendard';
     --font-sans-ui:
       var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -243,7 +247,7 @@
     left: 50%;
     width: 72px;
     height: 6px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: #fff;
     transform: translate(-50%, -50%);
   }
@@ -321,6 +325,7 @@
 
   /* Text-field clear affordances are out-of-flow siblings so they stay in the
      editor's modal/accessibility tree without changing grid/flex sizing. */
+  /* Intentional priority: runtime measures the component padding before reserving the clear-button hit area. These two reservations must win over editor-specific padding, including inline integration styles; ordinary field geometry remains component-owned. */
   .clearable-editor-active {
     padding-inline-end: calc(
       var(--clearable-editor-base-padding-inline-end, 0px) +
@@ -348,7 +353,7 @@
     justify-content: center;
     padding: 0;
     border: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -675,9 +680,9 @@
 
   /* initPlatform() keeps transitions and backdrop filters off while initial
      viewport and safe-area measurements settle. */
-  html.is-booting *,
-  html.is-booting *::before,
-  html.is-booting *::after {
+  html.is-booting :not(.app-entrance),
+  html.is-booting :not(.app-entrance)::before,
+  html.is-booting :not(.app-entrance)::after {
     transition: none !important;
   }
 
@@ -720,46 +725,6 @@
     pointer-events: none !important;
     transition: none !important;
     animation: none !important;
-  }
-
-  /* ── App Entrance Animation ────────────────────────────────────── */
-  .app-entrance {
-    opacity: 0 !important;
-    transition:
-      opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) !important;
-    transition-delay: var(--entrance-delay, 0ms) !important;
-  }
-
-  /* The boot guard suppresses incidental startup transitions on Android.
-     Entrance targets are hidden behind setup, so preserve their deliberate
-     reveal without increasing the specificity of the opacity state. */
-  html.is-booting .app-entrance {
-    transition:
-      opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) !important;
-    transition-delay: var(--entrance-delay, 0ms) !important;
-  }
-
-  .app-entrance.app-entrance-down {
-    transform: translateY(-20px) !important;
-  }
-
-  .app-entrance.app-entrance-up {
-    transform: translateY(20px) !important;
-  }
-
-  .app-entrance.app-entrance-right {
-    transform: translateX(-30px) !important;
-  }
-
-  .app-entrance.app-entrance-left {
-    transform: translateX(30px) !important;
-  }
-
-  .app-entrance.app-entered {
-    opacity: 1 !important;
-    transform: none !important;
   }
 
   /* --- Header --- */
@@ -942,6 +907,7 @@
     transition:
       color 0.18s ease,
       transform 0.18s ease;
+    border-radius: var(--radius-pill);
   }
 
   .volume-icon-button:active {
@@ -1055,6 +1021,7 @@
     align-items: center;
     cursor: pointer;
     user-select: none;
+    border-radius: var(--radius-pill);
   }
 
   .logo-svg {
@@ -1160,10 +1127,11 @@
   }
 
   .setup-greeting-heading {
+    --setup-heading-margin: 0px;
     /* This is the welcome step title, so it intentionally inherits the exact
        same responsive h2 typography as the following setup screens. */
     height: 1.2em;
-    margin: 0 !important;
+    margin: 0;
   }
 
   .setup-language-button {
@@ -1178,7 +1146,7 @@
     gap: 8px;
     flex: 0 0 auto;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--text-sub);
     font: inherit;
@@ -1278,7 +1246,7 @@
      accidental or pre-JS spinner markup out of every responsive header. */
   #main-header .material-elastic-spinner,
   #main-header .header-loading-spinner {
-    display: none !important;
+    display: none;
   }
 
   /* Apply ellipsis to a real flex child. Direct text becomes an anonymous
@@ -1297,11 +1265,6 @@
   header.loading .header-default-content {
     transform: translateY(-150%);
     opacity: 0;
-  }
-
-  header.loading .header-loading-text {
-    transform: translateY(0);
-    opacity: 1;
   }
 
   /* Keep loader status visually stable on phones. Long translated messages
@@ -1337,7 +1300,7 @@
     -webkit-backdrop-filter: none;
     color: var(--text-sub);
     padding: 6px 14px;
-    border-radius: 100px;
+    border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1530,26 +1493,6 @@
   }
 
   /* Host: media source button → red "stop sharing" style */
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) {
-    background: rgba(255, 59, 48, 0.08) !important;
-    color: #ff3b30 !important;
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) svg {
-    fill: #ff3b30 !important;
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) span {
-    color: #ff3b30 !important;
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest):hover {
-    background: rgba(255, 59, 48, 0.12) !important;
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest):active {
-    background: rgba(255, 59, 48, 0.18) !important;
-  }
 
   /* Playlist: blur + overlay */
   body.mode-system-audio #tab-playlist .playlist-list {
@@ -1621,7 +1564,7 @@
            target without affecting layout. */
     margin: -4px 0;
     /* 36px visible circle inside 44px touch target */
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1959,7 +1902,7 @@
      Landscape has enough horizontal room to keep TRACK / ARTIST visible. */
   @media (max-width: 1279px) and (max-height: 720px) and (orientation: portrait) {
     .track-artist {
-      display: none !important;
+      display: none;
     }
   }
 
@@ -2085,7 +2028,7 @@
     opacity: 0;
     transform: scale(1);
     filter: none;
-    box-shadow: none !important;
+    box-shadow: none;
     transition:
       transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
       filter 0.2s,
@@ -2101,7 +2044,7 @@
     opacity: 0;
     transform: scale(1);
     filter: none;
-    box-shadow: none !important;
+    box-shadow: none;
     transition:
       transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
       filter 0.2s,
@@ -2112,14 +2055,14 @@
   input[type='range'].is-dragging::-webkit-slider-thumb {
     transform: scale(1);
     filter: none;
-    box-shadow: none !important;
+    box-shadow: none;
   }
 
   input[type='range']:active::-moz-range-thumb,
   input[type='range'].is-dragging::-moz-range-thumb {
     transform: scale(1);
     filter: none;
-    box-shadow: none !important;
+    box-shadow: none;
   }
 
   .time-info {
@@ -2225,6 +2168,7 @@
     padding: 8px;
     opacity: 0.8;
     transition: opacity 0.2s;
+    border-radius: var(--radius-pill);
   }
 
   .ctrl-btn:active {
@@ -2250,7 +2194,7 @@
   .play-fab {
     width: 64px;
     height: 64px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: var(--play-fab-bg-idle);
     color: var(--bg);
     border: none;
@@ -2345,7 +2289,7 @@
     padding: 14px 16px;
     min-height: var(--list-row-height);
     box-sizing: border-box;
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
     gap: 16px;
@@ -2460,7 +2404,7 @@
     flex-basis: 44px;
     background: transparent;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     color: var(--text-muted);
     cursor: grab;
     touch-action: none;
@@ -2601,7 +2545,7 @@
     gap: 8px;
     min-width: 0;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: var(--radius-pill);
   }
 
   .track-name:focus-visible {
@@ -2742,7 +2686,7 @@
 
   .sub-track-item {
     padding: 8px 12px;
-    border-radius: var(--radius-s);
+    border-radius: var(--radius-pill);
     font-size: 13px;
     color: var(--text-sub);
     cursor: pointer;
@@ -2810,7 +2754,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     cursor: pointer;
     transition:
       color 0.2s ease,
@@ -2983,7 +2927,7 @@
     flex-shrink: 0;
     background: none;
     border: none;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     cursor: pointer;
     opacity: 1;
     transition:
@@ -3068,7 +3012,7 @@
     color: #fff;
     background: var(--primary-filled);
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     box-shadow: none;
     opacity: 0;
     visibility: hidden;
@@ -3109,6 +3053,7 @@
       background 0.15s ease,
       opacity 0.15s ease,
       transform 0.15s ease;
+    border-radius: var(--radius-pill);
   }
 
   .playlist-selection-action svg {
@@ -3168,7 +3113,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: rgba(255, 255, 255, 0.2);
     color: #fff;
     font-size: 11px;
@@ -3250,7 +3195,7 @@
     height: 28px;
     flex: 0 0 48px;
     border: none;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     padding: 3px;
     cursor: pointer;
@@ -3287,6 +3232,8 @@
   .room-password-toggle[aria-pressed='true'] {
     background: rgba(var(--primary-rgb), 0.18);
   }
+
+  /* The pressed state remains authoritative over the imperative toggle renderer until that renderer is removed; this is a state/inline ownership guard, not a radius or color override. */
 
   .room-password-toggle[aria-pressed='true'] .room-password-toggle-knob {
     background: var(--primary);
@@ -3330,7 +3277,7 @@
     width: 36px;
     height: 36px;
     border: none;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -3456,6 +3403,7 @@
     transition:
       color 0.2s ease,
       background-color 0.2s ease;
+    border-radius: var(--radius-pill);
   }
 
   .settings-sync-indicator[hidden] {
@@ -3779,7 +3727,7 @@
     color: white;
     border: none;
     padding: 0 24px;
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-pill);
     font-weight: 700;
     cursor: pointer;
   }
@@ -3800,7 +3748,7 @@
        playlist rows while preserving the 32px disclosure/action controls. */
     min-height: var(--list-row-height);
     box-sizing: border-box;
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-pill);
     background: transparent;
     transition: background 0.2s;
     border-bottom: 1px solid transparent;
@@ -3894,7 +3842,7 @@
     padding: 8px 12px;
     min-height: 44px;
     box-sizing: border-box;
-    border-radius: var(--radius-s);
+    border-radius: var(--radius-pill);
     font-size: 13px;
     color: var(--text-sub);
     cursor: default;
@@ -4002,6 +3950,7 @@
       background 0.15s ease,
       color 0.15s ease,
       transform 0.15s ease;
+    border-radius: var(--radius-pill);
   }
 
   .administrator-action-button svg {
@@ -4040,7 +3989,7 @@
   .d-op-btn {
     font-size: 11px;
     padding: 4px 10px;
-    border-radius: 100px;
+    border-radius: var(--radius-pill);
     border: 1px solid transparent;
     background: var(--surface-2);
     color: var(--text-muted);
@@ -4060,7 +4009,7 @@
     height: 32px;
     padding: 0;
     border: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--text-muted);
   }
@@ -4109,7 +4058,7 @@
     flex-shrink: 0;
     background: none;
     border: none;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     cursor: pointer;
     opacity: 1;
     transition:
@@ -4200,7 +4149,7 @@
     padding: 0;
     margin-top: 24px;
     border: none;
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     background: rgba(0, 122, 255, 0.08);
     color: #007aff;
     font-size: 15px;
@@ -4238,7 +4187,7 @@
     padding: 0;
     margin-top: 12px;
     border: none;
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     background: rgba(255, 59, 48, 0.08);
     color: #ff3b30;
     font-size: 15px;
@@ -4321,7 +4270,7 @@
     box-sizing: border-box;
     margin: 0;
     border: none;
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-sub);
     font-size: 15px;
@@ -4420,6 +4369,9 @@
   .settings-subtab-nav {
     display: none;
   }
+  .subtab-pill {
+    border-radius: 0;
+  }
 
   /* Mobile stacks every settings sub-panel in one scroll view. */
   .settings-subtab-panel {
@@ -4472,13 +4424,6 @@
     margin-top: 8px;
   }
 
-  .legal-desc {
-    font-size: 12px !important;
-    line-height: 1.6 !important;
-    color: var(--text-sub) !important;
-    opacity: 0.8;
-  }
-
   .help-title svg {
     display: block;
     flex: none;
@@ -4491,16 +4436,17 @@
     fill: var(--primary-filled);
   }
 
-  @media (forced-colors: active) {
-    .help-question-icon-cutout {
-      fill: Highlight;
-    }
-  }
-
   .help-desc {
     font-size: 14px;
     color: var(--text-sub);
     line-height: 1.6;
+  }
+
+  .legal-desc {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-sub);
+    opacity: 0.8;
   }
 
   .help-list {
@@ -4603,6 +4549,7 @@
     cursor: pointer;
     transition: color 0.2s;
     color: #6b7684;
+    border-radius: 0;
   }
 
   .nav-item svg {
@@ -4912,6 +4859,7 @@
     font-weight: 650;
     text-align: start;
     cursor: pointer;
+    border-radius: var(--radius-pill);
   }
 
   .administrator-permission-row:hover,
@@ -4956,7 +4904,7 @@
     width: 42px;
     height: 24px;
     flex: 0 0 42px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     transition: background 0.18s ease;
   }
@@ -5035,7 +4983,7 @@
     margin: 0;
     padding: 0 10px 0 12px;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -5183,7 +5131,7 @@
     align-items: center;
     gap: 10px;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: #ffffff;
     box-shadow: none;
     color: #1f1f1f;
@@ -5294,7 +5242,7 @@
   .account-delete-button {
     min-height: 54px;
     border: 1px solid transparent;
-    border-radius: 18px;
+    border-radius: var(--radius-pill);
     background: rgba(239, 68, 68, 0.1);
     color: #ef4444;
     font-family: inherit;
@@ -6055,7 +6003,7 @@
     justify-content: space-between;
     gap: 16px;
     border: 1px solid transparent;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--text-main);
     font-family: inherit;
@@ -6212,7 +6160,7 @@
     border: 1px solid var(--glass-border);
     background: var(--surface-2);
     color: var(--text-main);
-    border-radius: 18px;
+    border-radius: var(--radius-pill);
     min-height: 54px;
     padding: 0 28px;
     font-size: 15px;
@@ -6233,7 +6181,7 @@
     border: none;
     background: var(--primary-filled);
     color: #fff;
-    border-radius: 18px;
+    border-radius: var(--radius-pill);
     min-height: 54px;
     padding: 0 28px;
     font-size: 15px;
@@ -6284,15 +6232,6 @@
     z-index: 1;
   }
 
-  /* A full-height mobile chat sits above the app header so its drag handle
-     remains reachable. Full-screen setup/media overlays must still win the
-     stacking order if one opens while chat is visible. */
-  body:has(#setup-overlay.active) .chat-drawer,
-  body:has(#media-source-overlay.active) .chat-drawer,
-  body:has(#youtube-url-overlay.active) .chat-drawer {
-    z-index: 1000 !important;
-  }
-
   /* Hide mobile bottom navigation to prevent peeking in PWA mode */
   body:has(#setup-overlay.active) .bottom-nav,
   body:has(#media-source-overlay.active) .bottom-nav,
@@ -6313,27 +6252,6 @@
     pointer-events: none;
     z-index: 1;
     transform: translateY(20px);
-  }
-
-  body.demo-chrome-hiding .bottom-nav {
-    opacity: 0 !important;
-    pointer-events: none !important;
-    transform: translateY(20px) !important;
-    transition:
-      opacity 0.28s ease,
-      transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
-    transition-delay: 0ms !important;
-  }
-
-  body.mode-demo header,
-  body.mode-demo .bottom-nav {
-    opacity: 0 !important;
-    pointer-events: none !important;
-    z-index: 1 !important;
-  }
-
-  body.mode-demo .bottom-nav {
-    transform: translateY(20px) !important;
   }
 
   /* Mobile setup uses one column; desktop.css promotes it to a split layout. */
@@ -6538,7 +6456,7 @@
     padding: 0;
     width: 8px;
     height: 8px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: var(--surface-3);
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -6547,7 +6465,7 @@
   .ob-dot.active {
     background: var(--primary);
     width: 24px;
-    border-radius: 12px;
+    border-radius: var(--radius-pill);
   }
 
   /* --- Onboarding nav row: dots + mini arrows --- */
@@ -6589,7 +6507,7 @@
     padding: 0;
     margin: 0;
     cursor: pointer;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     transition:
       color 0.2s,
       background 0.15s;
@@ -6643,7 +6561,7 @@
   .btn-ob-secondary {
     flex: 1;
     height: 56px;
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
@@ -6661,7 +6579,7 @@
     width: 56px;
     min-width: 56px;
     height: 56px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-sub);
     display: flex;
@@ -6728,7 +6646,7 @@
       opacity 0.2s;
     flex: 1;
     height: 56px;
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
   }
 
   .btn-ob-text-link:active {
@@ -6756,7 +6674,7 @@
   .setup-header-text h2 {
     font-size: 24px;
     font-weight: var(--font-weight-display);
-    margin-bottom: 8px;
+    margin-bottom: var(--setup-heading-margin, 8px);
     letter-spacing: -0.03em;
     color: var(--text-main);
     line-height: 1.2;
@@ -7033,7 +6951,7 @@
     height: 100%;
     padding: 0;
     border: 0;
-    border-radius: 0 !important;
+    border-radius: 0;
     background: transparent;
     cursor: pointer;
   }
@@ -7339,6 +7257,7 @@
 
   .list-empty-state {
     padding: 20px;
+    border-radius: var(--radius-pill);
   }
 
   .chat-group {
@@ -7806,6 +7725,7 @@
       color 0.2s ease,
       transform 0.2s,
       opacity 0.2s;
+    border-radius: var(--radius-pill);
   }
 
   /* Lights up in blue when input is not empty */
@@ -7844,7 +7764,7 @@
     /* The secondary area's auto margin owns spacing from the transport group. */
     margin-top: 0;
     background: var(--play-action-surface);
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     cursor: pointer;
     transition:
       background 0.2s,
@@ -7948,7 +7868,10 @@
 
   /* Slide-up Chat Drawer */
   .chat-drawer {
-    --chat-snap-height: calc(var(--app-height, 100dvh) * 0.5);
+    --chat-snap-height: var(
+      --chat-drawer-default-snap-height,
+      calc(var(--app-height, 100dvh) * 0.5)
+    );
     --chat-offset-y: 0px;
     position: fixed;
     left: 0;
@@ -8020,6 +7943,8 @@
       transition: none !important;
     }
 
+    /* The custom scrollbar writes inline opacity while observing scroll. Hide that independently scheduled track throughout the drawer drag/snap ownership window. */
+
     .chat-drawer:is(.is-dragging, .is-snapping) .cscroll-track {
       opacity: 0 !important;
     }
@@ -8081,7 +8006,7 @@
     border: none;
     width: 32px;
     height: 32px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -8139,7 +8064,7 @@
     /* Reserve dismiss space using the page direction, not the body's dir=auto. */
     padding-inline-end: 40px;
     border: 0;
-    border-radius: 0;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: inherit;
     font: inherit;
@@ -8157,7 +8082,7 @@
     display: grid;
     place-items: center;
     border: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: transparent;
     cursor: pointer;
   }
@@ -8256,7 +8181,7 @@
     height: 36px;
     min-height: 36px;
     min-width: 36px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background-color: var(--text-main);
     color: var(--bg);
     border: none;
@@ -8712,7 +8637,7 @@
     flex: 3;
     height: 44px;
     border: none;
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-main);
     font-size: 13px;
@@ -8745,7 +8670,7 @@
     flex: 1;
     height: 52px;
     border: none;
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-pill);
     font-size: 14px;
     font-weight: 700;
     cursor: pointer;
@@ -8957,7 +8882,7 @@
     width: 44px;
     height: 44px;
     border: none;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: var(--text-main);
     color: var(--bg);
     display: grid;
@@ -9012,7 +8937,7 @@
     min-width: 0;
     height: 44px;
     margin-block: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--text-main);
     color: var(--bg);
     pointer-events: auto;
@@ -9076,7 +9001,7 @@
     width: 40px;
     height: 44px;
     padding: 0;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: inherit;
     opacity: 1;
@@ -9135,7 +9060,7 @@
     flex: 0 0 32px;
     width: 32px;
     height: 44px;
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     color: inherit;
   }
 
@@ -9549,7 +9474,7 @@
     height: var(--demo-step-dot-size);
     min-height: var(--demo-step-dot-size);
     border: 1px solid transparent;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-sub);
     backdrop-filter: none;
@@ -9619,7 +9544,7 @@
   }
 
   .demo-step-nav button.is-collapsing {
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
   }
 
   .demo-step-nav button.is-collapsing span {
@@ -9803,13 +9728,6 @@
       font-size: clamp(14px, 1.05vw, 15.5px);
     }
 
-    body.demo-mobile.viz-spectrum .demo-visualizer-slot .vinyl-wrapper {
-      height: clamp(170px, min(62%, 48vh), 440px) !important;
-      max-height: 100% !important;
-      margin: 0 !important;
-      align-self: center;
-    }
-
     .demo-step-nav {
       --demo-step-nav-side: clamp(14px, 2.4vw, 32px);
       --demo-step-dot-size: clamp(46px, 6.2vh, 52px);
@@ -9893,7 +9811,7 @@
 
   /* Media Source Button Enhancements */
   #media-source-overlay .file-select-btn-large {
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
@@ -9924,7 +9842,7 @@
     margin-top: auto;
     gap: 10px;
     background: var(--play-action-surface);
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     padding: 0 20px;
     border: 2px solid transparent;
     cursor: pointer;
@@ -10023,7 +9941,7 @@
     min-width: 42px;
     height: 20px;
     padding: 0 10px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: rgba(255, 255, 255, 0.08);
     color: var(--text-sub);
     font-size: 11px;
@@ -10230,10 +10148,6 @@
       color: #ff0033;
     }
 
-    body.mode-system-audio #btn-media-source:not(.sys-audio-guest):hover:not(:active) {
-      background: rgba(255, 59, 48, 0.08) !important;
-    }
-
     [data-theme='light'] .chat-preview-btn:hover:not(:active),
     [data-theme='light'] .file-select-btn:hover:not(:active) {
       background: var(--play-action-surface);
@@ -10255,23 +10169,6 @@
   :focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
-  }
-
-  /* ─── Safari Browser Fallback (Solid Colors) ─────────────────── */
-  /* Only apply on mobile portrait or narrow viewports (< 720px).
-       This prevents interference with the wide dashboard sidebar transparency. */
-  @media (max-width: 719px) {
-    html:not(.standalone) header,
-    html:not(.standalone) .bottom-nav {
-      background: var(--surface-1) !important;
-      backdrop-filter: none !important;
-      -webkit-backdrop-filter: none !important;
-    }
-
-    html[data-theme='light']:not(.standalone) header,
-    html[data-theme='light']:not(.standalone) .bottom-nav {
-      background: #ffffff !important;
-    }
   }
 
   /* ─── Accessibility: Reduced Motion ─────────────────────────── */
@@ -10314,580 +10211,10 @@
     }
   }
 
-  /* ─── Compact Landscape Layout ────────────────────────────── */
-  /* Level 2: sidebar dashboard — width 720px–1279px */
-  @media (min-width: 720px) and (max-width: 1279px) {
-    /* ── Sidebar (header) — right side ── */
-    header {
-      width: calc(200px + var(--safe-right)) !important;
-      height: var(--app-height, 100dvh) !important;
-      min-height: var(--app-height, 100dvh) !important;
-      right: 0 !important;
-      left: auto !important;
-      top: 0 !important;
-      bottom: 0 !important;
-      flex-direction: column !important;
-      justify-content: flex-start !important;
-      padding: 29px 16px 16px !important;
-      padding-inline-end: calc(16px + var(--safe-right)) !important;
-      border-inline-start: none !important;
-      border-inline-end: none !important;
-      background: var(--surface-1) !important;
-      z-index: 2501 !important;
-      border-bottom: none !important;
-      overflow: hidden !important;
-    }
-
-    /* Logo: compact, centered */
-    .header-content-wrapper {
-      width: 100% !important;
-      height: auto !important;
-      margin-bottom: 0 !important;
-      flex-shrink: 0 !important;
-      justify-content: center !important;
-      align-items: center !important;
-    }
-
-    /* Standard and PRO rooms both use one-line wordmarks, so the compact
-       sidebar preserves the same vertical rhythm in either room type. */
-    #app-logo {
-      flex-direction: row;
-      align-items: center;
-    }
-
-    /* The shorter MXQR PRO wordmark would drift 14.67px inward when centered
-       in the same 168px rail as MUSIXQUARE. Preserve the standard wordmark's
-       29px optical left edge so the logo and sidebar navigation share one axis. */
-    html[data-pro-room] #app-logo {
-      align-self: flex-start;
-      margin-inline-start: 13px;
-    }
-
-    /* Hide header behind setup overlay */
-    body:has(#setup-overlay.active) header,
-    body.overlay-open:has(#setup-overlay.active) header {
-      pointer-events: none !important;
-      opacity: 0 !important;
-    }
-
-    /* Disable loading animation on role badge only */
-    header.loading .header-right.header-default-content {
-      transform: none !important;
-      opacity: 1 !important;
-    }
-
-    /* Role badge area: push to sidebar bottom */
-    .header-right.header-default-content {
-      transition: none !important;
-      margin-top: auto !important;
-      flex-shrink: 0 !important;
-      width: 100% !important;
-      padding-inline-start: 13px !important; /* 29 - header 16px padding (from sidebar left edge) */
-      padding-bottom: 13px !important; /* 29 - header 16px padding */
-    }
-
-    .header-loading-text {
-      top: calc(10px + var(--safe-top)) !important;
-      left: 29px !important;
-      right: calc(16px + var(--safe-right)) !important;
-      width: auto !important;
-      height: 54px !important;
-      line-height: 18px;
-      white-space: nowrap;
-      overflow-wrap: normal;
-      /* In compact landscape the header is the full-height sidebar, so the
-         base downward exit remains visible below the 54px logo rail and
-         crosses the navigation. Return the status through the clipped top
-         edge instead; the loading state still overrides this with translateY(0). */
-      transform: translateY(-100%);
-    }
-
-    /* ── Tab navigation: centered between logo and role badge ── */
-    .bottom-nav {
-      position: fixed !important;
-      top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
-      transform: translateY(-50%) !important;
-      bottom: auto !important;
-      left: auto !important;
-      right: 0 !important;
-      width: calc(200px + var(--safe-right)) !important;
-      height: auto !important;
-      flex-direction: column !important;
-      justify-content: flex-start !important;
-      padding: 8px 12px 8px 20px !important;
-      padding-inline-end: calc(20px + var(--safe-right)) !important;
-      background: transparent !important;
-      backdrop-filter: none !important;
-      -webkit-backdrop-filter: none !important;
-      border: none !important;
-      z-index: 2502 !important;
-      box-shadow: none !important;
-      border-radius: 0 !important;
-      transition:
-        transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
-        opacity 0.3s ease !important;
-    }
-
-    .bottom-nav::before {
-      display: none !important;
-    }
-
-    /* Override overlay hiding: keep sidebar position */
-    body:has(#setup-overlay.active) .bottom-nav,
-    body:has(#media-source-overlay.active) .bottom-nav,
-    body:has(#youtube-url-overlay.active) .bottom-nav,
-    body.overlay-open .bottom-nav {
-      opacity: 0 !important;
-      pointer-events: none !important;
-      z-index: 2502 !important;
-      transform: translateY(-50%) translateX(30px) !important;
-    }
-
-    /* Override entrance animations: slide from right, keep Y centering */
-    .bottom-nav.app-entrance.app-entrance-up {
-      transform: translateY(-50%) translateX(30px) !important;
-      transition:
-        opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
-        transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) !important;
-      transition-delay: var(--entrance-delay, 0ms) !important;
-    }
-
-    .bottom-nav.app-entrance.app-entered {
-      transform: translateY(-50%) !important;
-    }
-
-    .bottom-nav button {
-      width: 100% !important;
-      height: 40px !important;
-      display: flex !important;
-      flex-direction: row !important;
-      align-items: center !important;
-      justify-content: flex-start !important;
-      padding: 0 12px !important;
-      gap: 10px !important;
-      border-radius: 10px !important;
-      transform: none !important;
-      background: transparent !important;
-    }
-
-    .bottom-nav button.active {
-      background: transparent !important;
-      color: var(--primary) !important;
-    }
-
-    .bottom-nav button svg {
-      width: 18px !important;
-      height: 18px !important;
-    }
-
-    .bottom-nav button span {
-      display: block !important;
-      font-size: 13px !important;
-      font-weight: 600 !important;
-      color: inherit !important;
-    }
-
-    /* ── Content area — left side ── */
-    .tab-content.active {
-      overflow-y: auto !important;
-      display: block !important;
-      position: fixed !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: calc(100% - (200px + var(--safe-right))) !important;
-      height: var(--app-height, 100dvh) !important;
-      z-index: 90 !important;
-      background: var(--bg);
-      padding: 16px 24px 8px 24px !important;
-      padding-inline-start: calc(24px + var(--safe-left)) !important;
-      box-sizing: border-box;
-      border-radius: 0 !important;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    /* Prevent nested scroll conflict: parent .tab-content scrolls in landscape */
-    .tab-body {
-      overflow: visible !important;
-      height: auto !important;
-      padding-bottom: 8px !important;
-    }
-
-    /* Playlist keeps its own scroll owner so the floating selection pill and
-       reorder auto-scroll stay anchored inside the left content pane. */
-    #tab-playlist.active {
-      display: flex !important;
-      flex-direction: column !important;
-      overflow: hidden !important;
-    }
-
-    #tab-playlist > .tab-body {
-      flex: 1 1 auto !important;
-      min-height: 0 !important;
-      height: auto !important;
-      overflow-y: auto !important;
-      scroll-padding-bottom: 0 !important;
-    }
-
-    #tab-playlist > .playlist-selection-pill {
-      left: calc(var(--safe-left) + 24px);
-      right: 24px;
-      bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
-    }
-
-    .playback-stage {
-      /* Stage, metadata, and secondary actions own the three free-height shares. */
-      --visualizer-content-block-size: max(160px, min(55vw, 40vh, 320px));
-      margin: auto auto 0 !important;
-    }
-
-    .play-secondary-area {
-      padding-bottom: 8px !important;
-    }
-
-    /* Tighten section spacing */
-    .ob-actions {
-      padding-bottom: 8px !important;
-    }
-
-    #tab-play .tab-body {
-      /* The fixed tab pane remains the scroll owner, but its flex-column body
-         must fill at least the pane's content box so auto margins can divide
-         any remaining landscape height. Taller content still expands and
-         scrolls through the parent. */
-      min-height: 100% !important;
-      padding-top: 0 !important;
-      padding-bottom: 44px !important;
-    }
-
-    /* ── Chat drawer ── */
-    .chat-drawer {
-      --chat-snap-height: var(--app-height, 100dvh);
-      left: 0 !important;
-      width: calc(100% - (200px + var(--safe-right))) !important;
-      height: var(--chat-live-height, var(--chat-snap-height)) !important;
-      max-height: calc(var(--app-height, 100dvh) + 22px) !important;
-      min-height: 0 !important;
-      border-radius: 0 !important;
-      z-index: 3000 !important;
-      padding-inline-start: var(--safe-left) !important;
-      bottom: 0 !important;
-    }
-
-    .chat-drawer[data-chat-snap='half'] {
-      border-top-left-radius: 20px !important;
-      border-top-right-radius: 20px !important;
-      padding-top: var(--chat-live-safe-top, 0px) !important;
-    }
-
-    .chat-drawer[data-chat-snap='full'] {
-      border-radius: 0 !important;
-      padding-top: var(--chat-live-safe-top, var(--safe-top)) !important;
-    }
-
-    .chat-drawer.open {
-      transform: translateY(var(--chat-offset-y)) !important;
-    }
-
-    .chat-drawer-header {
-      display: flex !important;
-      justify-content: center !important;
-      padding: 16px 20px !important;
-    }
-
-    .chat-drawer-title,
-    .chat-drawer-close {
-      display: none !important;
-    }
-
-    /* ── Scrollbar ── */
-    /* Only viewport-owned tracks need the sidebar inset. Nested tracks are
-       already positioned against their own content pane; offsetting those a
-       second time moves them left by exactly the 200px sidebar width. */
-    body > .cscroll-track {
-      left: auto !important;
-      right: calc(200px + var(--safe-right)) !important;
-    }
-
-    #youtube-url-overlay .setup-join-area > .cscroll-track {
-      right: calc(200px + var(--safe-right) + 56px) !important;
-    }
-
-    .language-list-frame > .cscroll-track {
-      right: -4px !important;
-    }
-
-    /* chat-drawer.transform creates a new containing block for the
-           position:fixed track inside it, so the rule above (which targets
-           viewport-anchored tracks) ends up offsetting from the drawer's
-           own right edge — pushing the scrollbar to the middle of the
-           screen by exactly the sidebar width. The drawer's right edge is
-           already adjacent to the sidebar, so right:0 puts the track
-           where the user expects (just inside the chat panel). */
-    .chat-drawer .cscroll-track {
-      right: 0 !important;
-    }
-
-    /* ── Overlays: only cover content area, keep sidebar visible ── */
-    #media-source-overlay,
-    #youtube-url-overlay {
-      left: 0 !important;
-      width: calc(100% - (200px + var(--safe-right))) !important;
-      padding-inline-start: var(--safe-left) !important;
-      padding-top: 8px !important;
-      height: var(--app-height, 100dvh) !important;
-      max-height: var(--app-height, 100dvh) !important;
-      min-height: var(--app-height, 100dvh) !important;
-      overflow-y: hidden !important;
-      background: var(--bg) !important;
-    }
-
-    #media-source-overlay .setup-header-text,
-    #youtube-url-overlay .setup-header-text {
-      margin-top: 0 !important;
-      margin-bottom: 12px !important;
-    }
-
-    /* Card grid: header row with close button aligned */
-    #media-source-overlay .onboarding-card {
-      display: grid !important;
-      grid-template-columns: 1fr auto !important;
-      grid-template-rows: auto 1fr !important;
-      align-items: start !important;
-    }
-
-    #media-source-overlay .setup-header-text {
-      grid-column: 1 !important;
-      grid-row: 1 !important;
-    }
-
-    #media-source-overlay .ob-actions {
-      grid-column: 2 !important;
-      grid-row: 1 !important;
-      padding: 0 28px 0 0 !important;
-      margin: 0 !important;
-      background: transparent !important;
-      border: none !important;
-      width: auto !important;
-      align-self: start !important;
-      margin-top: 0 !important;
-    }
-
-    #media-source-overlay .setup-slot-list {
-      grid-column: 1 / -1 !important;
-      grid-row: 2 !important;
-      align-self: stretch !important;
-      min-height: 0 !important;
-      overflow-y: auto !important;
-    }
-
-    #media-source-overlay #btn-close-media-popup {
-      width: 40px !important;
-      height: 40px !important;
-      min-width: 0 !important;
-      padding: 0 !important;
-      border-radius: 50% !important;
-      background: var(--surface-2) !important;
-      color: var(--text-sub) !important;
-      font-size: 0 !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      position: relative !important;
-      transition:
-        background 0.15s,
-        color 0.15s !important;
-    }
-
-    @media (hover: hover) {
-      #media-source-overlay #btn-close-media-popup:hover {
-        background: var(--surface-3) !important;
-        color: var(--text-main) !important;
-      }
-    }
-
-    #media-source-overlay #btn-close-media-popup > span {
-      display: none;
-    }
-
-    #media-source-overlay #btn-close-media-popup > svg {
-      display: block;
-      width: 20px;
-      height: 20px;
-      flex-shrink: 0;
-      fill: currentColor;
-      stroke: currentColor;
-      stroke-width: 0.5;
-      stroke-linejoin: round;
-    }
-
-    /* Keep sidebar & nav visible behind overlays */
-    body:has(#media-source-overlay.active) header,
-    body:has(#youtube-url-overlay.active) header {
-      z-index: 2501 !important;
-    }
-
-    body:has(#media-source-overlay.active) .bottom-nav,
-    body:has(#youtube-url-overlay.active) .bottom-nav {
-      opacity: 1 !important;
-      pointer-events: auto !important;
-      z-index: 2502 !important;
-      transform: translateY(-50%) !important;
-    }
-
-    /* A browser-owned landscape toolbar leaves current iPhones around 342px
-       tall. The five labelled tabs still fit once the decorative wordmark rail
-       yields its space, so preserve their labels through that common viewport
-       instead of entering icon-only mode immediately. */
-    @media (max-height: 370px) {
-      html:not(.keyboard-open) #app-logo {
-        display: none !important;
-      }
-
-      html:not(.keyboard-open) .bottom-nav {
-        top: calc((var(--app-height, 100dvh) - 54px) / 2) !important;
-      }
-    }
-
-    /* ── Super-Compact Landscape (≤ 300px height) ──
-           Guarded with html:not(.keyboard-open) so the soft keyboard shrinking
-           the viewport doesn't trigger this compact layout transformation,
-           which would cause layout recalculation explosion. */
-    @media (max-height: 300px) {
-      /* The icon-only row frees enough vertical space to restore the brand.
-         Keep it visible through ordinary super-compact landscape sizes. */
-      html:not(.keyboard-open) #app-logo {
-        display: flex !important;
-      }
-
-      /* Hide 'Help' tab in super-compact mode */
-      html:not(.keyboard-open) #nav-guide {
-        display: none !important;
-      }
-
-      /* Shift to horizontal icon-only layout */
-      html:not(.keyboard-open) .bottom-nav {
-        flex-direction: row !important;
-        justify-content: space-evenly !important; /* Distribute icons across the sidebar width */
-        padding: 0 8px !important;
-        padding-inline-end: calc(8px + var(--safe-right)) !important;
-        width: calc(200px + var(--safe-right)) !important;
-        top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
-        gap: 0 !important;
-        left: auto !important;
-        right: 0 !important;
-      }
-
-      html:not(.keyboard-open) .bottom-nav button {
-        width: 40px !important;
-        min-width: 40px !important;
-        height: 40px !important;
-        justify-content: center !important;
-        padding: 0 !important;
-        border-radius: 12px !important;
-      }
-
-      html:not(.keyboard-open) .bottom-nav button span {
-        display: none !important;
-      }
-
-      html:not(.keyboard-open) .bottom-nav button svg {
-        width: 19px !important;
-        height: 19px !important;
-        margin: 0 !important;
-      }
-
-      /* Dashboard bottom area: badge on left, help on right */
-      html:not(.keyboard-open) .header-right {
-        justify-content: space-between !important;
-        padding-inline-start: 13px !important;
-        padding-inline-end: 0 !important;
-        width: 100% !important;
-      }
-
-      /* Compact landscape exposes Help beside the role badge. */
-      html:not(.keyboard-open) .header-help-btn {
-        display: flex !important;
-        background: transparent !important;
-        color: var(--text-sub) !important;
-        border: none !important;
-        width: 40px !important;
-        height: 40px !important;
-        border-radius: 12px !important;
-        align-items: center !important;
-        justify-content: center !important;
-        margin-inline-start: 0 !important;
-        /* Match the 29px visual inset used by the compact sidebar. */
-        margin-inline-end: 13px !important;
-        transition:
-          color 0.15s,
-          background 0.15s !important;
-        cursor: pointer !important;
-        padding: 0 !important;
-      }
-
-      /* Active state: when the guide (help) tab is currently visible */
-      html:not(.keyboard-open) body:has(#tab-guide.active) .header-help-btn {
-        color: var(--primary) !important;
-      }
-
-      html:not(.keyboard-open) .header-help-btn:active {
-        background: var(--surface-2) !important;
-      }
-
-      html:not(.keyboard-open) .header-help-btn svg {
-        width: 19px !important;
-        height: 19px !important;
-        margin: 0 !important;
-      }
-    }
-
-    /* Only a practically unusable sliver of viewport gives up the logo a
-       second time. Once it does, reclaim the former logo rail as well so the
-       icon row is centred in all space above the bottom role controls. */
-    @media (max-height: 180px) {
-      html:not(.keyboard-open) #app-logo {
-        display: none !important;
-      }
-
-      html:not(.keyboard-open) .bottom-nav {
-        top: calc((var(--app-height, 100dvh) - 54px) / 2) !important;
-        /* JS publishes --app-height on the next animation frame after a
-           resize. Modern dynamic viewport units cap that one-frame stale
-           value immediately; older engines keep the compatible line above. */
-        top: calc((min(var(--app-height, 100vh), 100dvh) - 54px) / 2) !important;
-      }
-    }
-  }
-
-  /* iPad PWA portrait reports a valid safe-area top while using the
-     tablet sidebar layout. The sidebar rules above intentionally reset
-     top padding for landscape, so restore only portrait's real inset. */
-  @media (min-width: 720px) and (max-width: 1279px) and (orientation: portrait) {
-    html.ios-standalone header {
-      padding-top: calc(29px + var(--safe-top)) !important;
-    }
-
-    html.ios-standalone .tab-content.active {
-      padding-top: calc(16px + var(--safe-top)) !important;
-    }
-
-    html.ios-standalone .chat-drawer[data-chat-snap='full'] {
-      padding-top: var(--safe-top) !important;
-    }
-
-    html.ios-standalone #media-source-overlay,
-    html.ios-standalone #youtube-url-overlay {
-      padding-top: calc(8px + var(--safe-top)) !important;
-    }
-
-    html.ios-standalone #setup-overlay .desktop-step-header {
-      padding-top: calc(var(--setup-head-py) + var(--safe-top)) !important;
-    }
-  }
-
   /* Hide the super-compact help button in all other modes */
   .header-help-btn {
     display: none;
+    border-radius: var(--radius-pill);
   }
   /* ── Setup Overlay: Unified 2-Column Layout ──────────────────────
        Shared between mobile landscape and desktop.
@@ -10896,7 +10223,6 @@
        ─────────────────────────────────────────────────────────────── */
   @media (min-width: 720px) {
     #setup-overlay {
-      /* ── Dimension tokens (landscape defaults) ── */
       --setup-panel-w: 320px;
       --setup-px: 28px;
       --setup-px-end: 28px;
@@ -10927,249 +10253,6 @@
       --setup-actions-top: 8px;
       --setup-actions-bottom: 16px;
       --setup-panel-bg: var(--surface-1);
-
-      left: 0 !important;
-      width: 100% !important;
-      padding: 0 !important;
-    }
-
-    #setup-overlay .setup-card.full-screen {
-      display: grid !important;
-      grid-template-columns: 1fr var(--setup-panel-w) !important;
-      grid-template-rows: 1fr !important;
-      overflow: hidden !important;
-      border-radius: 0 !important;
-      border: none !important;
-      background: transparent !important;
-      padding: 0 !important;
-    }
-
-    /* Left column: brand / diagram */
-    #setup-desktop-brand {
-      display: flex !important;
-      flex: 1 !important;
-      background: var(--bg) !important;
-      flex-direction: column !important;
-      justify-content: flex-start !important;
-      align-items: flex-start !important;
-      text-align: left !important;
-      padding-inline-start: var(--safe-left) !important;
-      color: var(--text-main) !important;
-      position: relative !important;
-      overflow: hidden !important;
-    }
-
-    #setup-desktop-brand .brand-content {
-      display: none !important;
-    }
-
-    .desktop-step-header {
-      display: block !important;
-      padding: var(--setup-head-py) var(--setup-head-px) 0 !important;
-      width: 100% !important;
-      z-index: 2 !important;
-    }
-
-    .desktop-step-header .logo-svg {
-      height: var(--setup-logo-h) !important;
-      width: auto !important;
-      margin: 0 !important;
-    }
-
-    .desktop-step-header .setup-brand-greeting-stage {
-      margin-top: 0 !important;
-      margin-bottom: var(--setup-h2-mb) !important;
-    }
-
-    .desktop-step-header .setup-brand-greeting-stage > .logo-welcome {
-      transform: translateY(var(--setup-logo-mt));
-    }
-
-    .desktop-step-header .setup-greeting-heading {
-      margin: 0 !important;
-    }
-
-    .desktop-step-header h2 {
-      font-size: var(--setup-h2) !important;
-      font-weight: var(--font-weight-display) !important;
-      letter-spacing: -0.03em !important;
-      color: var(--text-main) !important;
-      margin-bottom: var(--setup-h2-mb) !important;
-      line-height: 1.2 !important;
-    }
-
-    .desktop-step-header p {
-      font-size: var(--setup-p) !important;
-      color: var(--text-sub) !important;
-      opacity: 0.75 !important;
-      line-height: var(--setup-p-lh) !important;
-    }
-
-    .desktop-diagram-area {
-      display: flex !important;
-      flex: 1 !important;
-      width: 100% !important;
-      align-items: center !important;
-      justify-content: center !important;
-      padding: var(--setup-diagram-pad) !important;
-      position: relative !important;
-      overflow: visible !important;
-    }
-
-    /* Hide headers from right panel (mirrored to left) */
-    #setup-overlay .setup-mobile-view .setup-header-text {
-      display: none !important;
-    }
-
-    /* Right column: interactive panel */
-    #setup-overlay .setup-mobile-view {
-      width: var(--setup-panel-w) !important;
-      min-width: var(--setup-panel-w) !important;
-      background: var(--setup-panel-bg) !important;
-      height: 100% !important;
-      padding: 0 !important;
-      overflow-y: auto !important;
-      display: flex !important;
-      flex-direction: column !important;
-      justify-content: center !important;
-    }
-
-    /* Content areas: center vertically */
-    #setup-overlay #setup-welcome-area,
-    #setup-overlay #setup-code-area,
-    #setup-overlay #setup-join-area,
-    #setup-overlay #setup-auto-join-area,
-    #setup-overlay #setup-role-area {
-      flex: 1 !important;
-      flex-direction: column !important;
-      justify-content: center !important;
-      align-items: stretch !important;
-    }
-
-    /* Content padding inside right panel */
-    .setup-mobile-view > div:not(.ob-actions):not(.setup-header-pill):not(.cscroll-track) {
-      padding-inline-start: var(--setup-px) !important;
-      padding-inline-end: var(--setup-px-end) !important;
-    }
-
-    /* Actions bar at bottom of right column */
-    #setup-overlay .setup-mobile-view .ob-actions {
-      background: var(--setup-panel-bg) !important;
-      padding: var(--setup-actions-top) var(--setup-px-end) var(--setup-actions-bottom)
-        var(--setup-px) !important;
-      border-top: none !important;
-      margin-top: auto !important;
-      flex-shrink: 0 !important;
-    }
-
-    /* ── Diagram containers ── */
-    .desktop-diagram-area .setup-graphic-container {
-      width: 100% !important;
-      max-width: none !important;
-      max-height: none !important;
-      height: auto !important;
-      min-height: 0 !important;
-      margin: 0 !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-    }
-
-    .desktop-diagram-area .setup-graphic-svg {
-      max-width: var(--setup-svg-max) !important;
-      width: 100% !important;
-      height: auto !important;
-    }
-
-    .desktop-diagram-area .setup-guide-unified {
-      width: 100% !important;
-      display: flex !important;
-      flex-direction: column !important;
-      align-items: center !important;
-      gap: var(--setup-guide-gap) !important;
-      margin: 0 !important;
-      margin-top: var(--setup-guide-mt) !important;
-    }
-
-    .desktop-diagram-area .setup-host-invite-stage {
-      width: 100% !important;
-      margin: 0 !important;
-    }
-
-    .desktop-diagram-area .setup-guest-qr-stage {
-      width: min(360px, 40vw, 48vh) !important;
-      width: min(360px, 40vw, 48dvh) !important;
-      margin: 0 !important;
-    }
-
-    .desktop-diagram-area .setup-host-qr {
-      width: min(360px, 40vw, 48vh);
-      width: min(360px, 40vw, 48dvh);
-    }
-
-    .desktop-diagram-area .setup-qr-scan-button,
-    .desktop-diagram-area .setup-qr-camera {
-      width: 84%;
-    }
-
-    .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
-      max-width: var(--setup-guide-svg-max) !important;
-      height: var(--setup-guide-svg-h) !important;
-    }
-
-    .desktop-diagram-area .setup-unified-item .setup-inner-desc {
-      font-size: var(--setup-guide-desc) !important;
-    }
-
-    /* ── Onboarding slider in left panel ── */
-    .desktop-diagram-area #ob-slider-area {
-      width: 100% !important;
-      display: flex !important;
-      flex-direction: column !important;
-      align-items: center !important;
-      justify-content: center !important;
-    }
-
-    .desktop-diagram-area .ob-slider-viewport {
-      width: var(--setup-slider-w) !important;
-    }
-
-    .desktop-diagram-area .ob-nav-row {
-      margin-top: var(--setup-nav-mt) !important;
-    }
-
-    .desktop-diagram-area .ob-icon-circle {
-      width: var(--setup-icon) !important;
-      height: var(--setup-icon) !important;
-      margin-bottom: 3px !important;
-    }
-
-    .desktop-diagram-area .ob-icon-circle svg {
-      width: var(--setup-icon-svg) !important;
-      height: var(--setup-icon-svg) !important;
-    }
-
-    .desktop-diagram-area .ob-slide .ob-title {
-      font-size: var(--setup-ob-title) !important;
-      margin-bottom: var(--setup-ob-title-mb) !important;
-    }
-
-    .desktop-diagram-area .ob-slide .ob-desc {
-      font-size: var(--setup-ob-desc) !important;
-      line-height: 1.5 !important;
-    }
-
-    .desktop-diagram-area .ob-nav-arrow {
-      display: var(--setup-nav-arrow) !important;
-    }
-
-    .desktop-diagram-area .ob-dot {
-      width: 8px !important;
-      height: 8px !important;
-    }
-
-    .desktop-diagram-area .ob-dot.active {
-      width: 24px !important;
     }
   }
   .fullscreen-btn {
@@ -11181,7 +10264,7 @@
     color: white;
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+    border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -11214,64 +10297,6 @@
     fill: currentColor;
   }
 
-  /* Fake Fullscreen for Mobile Devices (when native API is blocked) */
-  body.has-fake-fullscreen header {
-    display: none !important;
-  }
-  body.has-fake-fullscreen .bottom-nav {
-    display: none !important;
-  }
-
-  body.has-fake-fullscreen .tab-content.active {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100vw !important;
-    height: 100dvh !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    transform: none !important;
-    z-index: 99999 !important;
-    /* Disable touch scroll container which creates buggy containing blocks on iOS */
-    -webkit-overflow-scrolling: auto !important;
-  }
-
-  body.has-fake-fullscreen .tab-body {
-    position: static !important;
-    width: 100vw !important;
-    height: 100dvh !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: hidden !important;
-  }
-
-  .video-wrapper.fake-fullscreen {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    height: 100dvh !important;
-    z-index: 100000 !important;
-    background-color: black !important;
-    border-radius: 0 !important;
-    margin: 0 !important;
-    /* Override base .video-wrapper constraints */
-    aspect-ratio: auto !important;
-    max-width: none !important;
-    padding: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
-
-  .video-wrapper:fullscreen,
-  .video-wrapper:-webkit-full-screen {
-    border-radius: 0 !important;
-  }
-
   .video-wrapper.fake-fullscreen .fullscreen-btn {
     z-index: 100001;
     bottom: 24px;
@@ -11279,1025 +10304,961 @@
   }
 }
 
-/* end @layer base */
+/* Shared components and CSP-safe utilities. This explicit layer preserves the former unlayered precedence over base and desktop. */
 
-/* Script-aware fallback for user/external text. Kept outside @layer base so
+@layer components {
+  /* end @layer base */
+
+  /* Script-aware fallback for user/external text. Kept outside @layer base so
    these explicit rendering-boundary classes can override component stacks
    without !important. The primary app font remains first for Latin/Korean UI text;
    only confidently detected, lazily loaded script shards are inserted. */
-.user-text-font.user-text-font {
-  font-family:
-    var(--font-primary),
-    var(--user-text-font-ar, '__MXQR_USER_TEXT_AR__'),
-    var(--user-text-font-he, '__MXQR_USER_TEXT_HE__'),
-    var(--user-text-font-hi, '__MXQR_USER_TEXT_HI__'),
-    var(--user-text-font-bn, '__MXQR_USER_TEXT_BN__'),
-    var(--user-text-font-ta, '__MXQR_USER_TEXT_TA__'),
-    var(--user-text-font-te, '__MXQR_USER_TEXT_TE__'),
-    var(--user-text-font-gu, '__MXQR_USER_TEXT_GU__'),
-    var(--user-text-font-kn, '__MXQR_USER_TEXT_KN__'),
-    var(--user-text-font-ml, '__MXQR_USER_TEXT_ML__'),
-    var(--user-text-font-pa, '__MXQR_USER_TEXT_PA__'),
-    var(--user-text-font-el, '__MXQR_USER_TEXT_EL__'),
-    var(--user-text-font-ru, '__MXQR_USER_TEXT_RU__'),
-    var(--user-text-font-th, '__MXQR_USER_TEXT_TH__'),
-    var(--user-text-font-ja, '__MXQR_USER_TEXT_JA__'),
-    var(--user-text-font-zh-hans, '__MXQR_USER_TEXT_ZH_HANS__'),
-    var(--user-text-font-zh-hant, '__MXQR_USER_TEXT_ZH_HANT__'),
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-}
+  .user-text-font.user-text-font {
+    font-family:
+      var(--font-primary),
+      var(--user-text-font-ar, '__MXQR_USER_TEXT_AR__'),
+      var(--user-text-font-he, '__MXQR_USER_TEXT_HE__'),
+      var(--user-text-font-hi, '__MXQR_USER_TEXT_HI__'),
+      var(--user-text-font-bn, '__MXQR_USER_TEXT_BN__'),
+      var(--user-text-font-ta, '__MXQR_USER_TEXT_TA__'),
+      var(--user-text-font-te, '__MXQR_USER_TEXT_TE__'),
+      var(--user-text-font-gu, '__MXQR_USER_TEXT_GU__'),
+      var(--user-text-font-kn, '__MXQR_USER_TEXT_KN__'),
+      var(--user-text-font-ml, '__MXQR_USER_TEXT_ML__'),
+      var(--user-text-font-pa, '__MXQR_USER_TEXT_PA__'),
+      var(--user-text-font-el, '__MXQR_USER_TEXT_EL__'),
+      var(--user-text-font-ru, '__MXQR_USER_TEXT_RU__'),
+      var(--user-text-font-th, '__MXQR_USER_TEXT_TH__'),
+      var(--user-text-font-ja, '__MXQR_USER_TEXT_JA__'),
+      var(--user-text-font-zh-hans, '__MXQR_USER_TEXT_ZH_HANS__'),
+      var(--user-text-font-zh-hant, '__MXQR_USER_TEXT_ZH_HANT__'),
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      sans-serif;
+  }
 
-.user-text-font-ar {
-  --user-text-font-ar: 'Noto Sans Arabic';
-}
+  .user-text-font-ar {
+    --user-text-font-ar: 'Noto Sans Arabic';
+  }
 
-.user-text-font-he {
-  --user-text-font-he: 'Noto Sans Hebrew';
-}
+  .user-text-font-he {
+    --user-text-font-he: 'Noto Sans Hebrew';
+  }
 
-.user-text-font-hi {
-  --user-text-font-hi: 'Noto Sans Devanagari';
-}
+  .user-text-font-hi {
+    --user-text-font-hi: 'Noto Sans Devanagari';
+  }
 
-.user-text-font-bn {
-  --user-text-font-bn: 'Noto Sans Bengali';
-}
+  .user-text-font-bn {
+    --user-text-font-bn: 'Noto Sans Bengali';
+  }
 
-.user-text-font-ta {
-  --user-text-font-ta: 'Noto Sans Tamil';
-}
+  .user-text-font-ta {
+    --user-text-font-ta: 'Noto Sans Tamil';
+  }
 
-.user-text-font-te {
-  --user-text-font-te: 'Noto Sans Telugu';
-}
+  .user-text-font-te {
+    --user-text-font-te: 'Noto Sans Telugu';
+  }
 
-.user-text-font-gu {
-  --user-text-font-gu: 'Noto Sans Gujarati';
-}
+  .user-text-font-gu {
+    --user-text-font-gu: 'Noto Sans Gujarati';
+  }
 
-.user-text-font-kn {
-  --user-text-font-kn: 'Noto Sans Kannada';
-}
+  .user-text-font-kn {
+    --user-text-font-kn: 'Noto Sans Kannada';
+  }
 
-.user-text-font-ml {
-  --user-text-font-ml: 'Noto Sans Malayalam';
-}
+  .user-text-font-ml {
+    --user-text-font-ml: 'Noto Sans Malayalam';
+  }
 
-.user-text-font-pa {
-  --user-text-font-pa: 'Noto Sans Gurmukhi';
-}
+  .user-text-font-pa {
+    --user-text-font-pa: 'Noto Sans Gurmukhi';
+  }
 
-.user-text-font-el {
-  --user-text-font-el: 'Noto Sans';
-}
+  .user-text-font-el {
+    --user-text-font-el: 'Noto Sans';
+  }
 
-.user-text-font-ru {
-  --user-text-font-ru: 'Noto Sans';
-}
+  .user-text-font-ru {
+    --user-text-font-ru: 'Noto Sans';
+  }
 
-.user-text-font-th {
-  --user-text-font-th: 'Noto Sans Thai';
-}
+  .user-text-font-th {
+    --user-text-font-th: 'Noto Sans Thai';
+  }
 
-.user-text-font-ja {
-  --user-text-font-ja: 'Noto Sans JP';
-}
+  .user-text-font-ja {
+    --user-text-font-ja: 'Noto Sans JP';
+  }
 
-.user-text-font-zh-hans {
-  --user-text-font-zh-hans: 'Noto Sans SC';
-}
+  .user-text-font-zh-hans {
+    --user-text-font-zh-hans: 'Noto Sans SC';
+  }
 
-.user-text-font-zh-hant {
-  --user-text-font-zh-hant: 'Noto Sans TC';
-}
+  .user-text-font-zh-hant {
+    --user-text-font-zh-hant: 'Noto Sans TC';
+  }
 
-/* ─── FOUC guard ──────────────────────────────────────────────
+  /* ─── FOUC guard ──────────────────────────────────────────────
    fouc-cleanup.js adds .fouc-loaded after style.css parses and --bg resolves.
    Unlayered rules so they take precedence over the body rules inside
    @layer base. This file itself is the stylesheet whose load gates the
    reveal — style.css cannot be parsed without these rules existing,
    so the [opacity:0] default applies before first paint. */
 
-/* Chromium 79 treats the inert property as an expando. Keep pointer input
+  /* Chromium 79 treats the inert property as an expando. Keep pointer input
    outside the active overlay disabled while the runtime focus guard supplies
    the corresponding keyboard/remote fallback. */
-[inert] {
-  pointer-events: none !important;
-}
 
-body {
-  opacity: 0;
-  transition: opacity 0.15s ease-out;
-}
+  body {
+    opacity: 0;
+    transition: opacity 0.15s ease-out;
+  }
 
-body.fouc-loaded {
-  opacity: 1;
-}
-
-/* With scripting disabled, the classic cleanup cannot add .fouc-loaded.
-   Browsers parse the noscript child only in that mode, making this a
-   CSS-only escape hatch without revealing the scripted shell early. */
-body:has(> noscript .noscript-fallback) {
-  opacity: 1;
-}
-
-@keyframes setup-boot-body-fail-open {
-  to {
+  body.fouc-loaded {
     opacity: 1;
   }
-}
 
-@keyframes setup-boot-failure-reveal {
-  to {
+  /* With scripting disabled, the classic cleanup cannot add .fouc-loaded.
+   Browsers parse the noscript child only in that mode, making this a
+   CSS-only escape hatch without revealing the scripted shell early. */
+  body:has(> noscript .noscript-fallback) {
+    opacity: 1;
+  }
+
+  @keyframes setup-boot-body-fail-open {
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes setup-boot-failure-reveal {
+    to {
+      visibility: visible;
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+
+  /* This parser-owned fallback remains effective when a newly deployed HTML
+   document is controlled by an older service worker/cache generation. Normal
+   setup removes setup-boot-block and cancels both delayed zero-motion changes. */
+
+  .bootstrap-failure {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
+      calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
+    color: var(--text);
+    text-align: center;
+    background: var(--bg);
+  }
+
+  html.setup-boot-block body > .bootstrap-failure {
+    display: flex;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  html.setup-boot-failed .bootstrap-failure {
+    display: flex;
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
   }
-}
 
-/* This parser-owned fallback remains effective when a newly deployed HTML
-   document is controlled by an older service worker/cache generation. Normal
-   setup removes setup-boot-block and cancels both delayed zero-motion changes. */
-html.setup-boot-block body {
-  animation: setup-boot-body-fail-open 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;
-}
+  .bootstrap-failure strong {
+    font-size: 22px;
+  }
 
-.bootstrap-failure {
-  position: fixed;
-  inset: 0;
-  z-index: 12000;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
-    calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
-  color: var(--text);
-  text-align: center;
-  background: var(--bg);
-}
+  .bootstrap-failure p {
+    margin: 0;
+    color: var(--text-sub);
+    line-height: 1.6;
+  }
 
-html.setup-boot-block body > .bootstrap-failure {
-  display: flex;
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
-  animation: setup-boot-failure-reveal 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;
-}
+  .bootstrap-failure button {
+    min-width: 160px;
+    min-height: 48px;
+    padding: 0 24px;
+    border: 0;
+    border-radius: var(--radius-pill);
+    color: #fff;
+    font: inherit;
+    font-weight: 700;
+    background: var(--primary);
+    cursor: pointer;
+  }
 
-html.setup-boot-failed .bootstrap-failure {
-  display: flex;
-  visibility: visible;
-  opacity: 1;
-  pointer-events: auto;
-  animation: none !important;
-}
-
-.bootstrap-failure strong {
-  font-size: 22px;
-}
-
-.bootstrap-failure p {
-  margin: 0;
-  color: var(--text-sub);
-  line-height: 1.6;
-}
-
-.bootstrap-failure button {
-  min-width: 160px;
-  min-height: 48px;
-  padding: 0 24px;
-  border: 0;
-  border-radius: 999px;
-  color: #fff;
-  font: inherit;
-  font-weight: 700;
-  background: var(--primary);
-  cursor: pointer;
-}
-
-/* ─── Viewport-safe height clamps ──────────────────────────────
+  /* ─── Viewport-safe height clamps ──────────────────────────────
    iOS standalone (PWA) is excluded from the body clamp because CSS units
    (100%, 100dvh) exclude safe-area-inset-top — platform.ts handles it via
    JS instead. */
-html:not(.ios-standalone) body {
-  max-height: var(--app-height, 100dvh) !important;
-}
 
-/* Generic overlays (setup / media / YouTube URL) */
-.onboarding-overlay {
-  max-height: var(--app-height, 100dvh) !important;
-}
+  /* Generic overlays (setup / media / YouTube URL) */
 
-.onboarding-overlay .setup-card.full-screen {
-  height: var(--app-height, 100dvh) !important;
-  max-height: var(--app-height, 100dvh) !important;
-}
+  /* ─── noscript fallback ──────────────────────────────────────── */
+  .noscript-fallback {
+    padding: 16px;
+    background: #111;
+    color: #fff;
+    font-family:
+      system-ui,
+      -apple-system,
+      Segoe UI,
+      Roboto,
+      sans-serif;
+  }
 
-.onboarding-overlay .setup-mobile-view {
-  max-height: var(--app-height, 100dvh) !important;
-  overflow-y: auto;
-}
-
-/* ─── noscript fallback ──────────────────────────────────────── */
-.noscript-fallback {
-  padding: 16px;
-  background: #111;
-  color: #fff;
-  font-family:
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    sans-serif;
-}
-
-/* ─── CSP-safe utility classes ─────────────────────────────────
+  /* ─── CSP-safe utility classes ─────────────────────────────────
    Named classes keep static presentation out of style attributes so the
    production CSP does not need `style-src 'unsafe-inline'`. */
 
-/* Stereo / top-of-tab "invite code mini display" cluster (#tab-play, etc) */
-.invite-meta-cluster {
-  appearance: none;
-  -webkit-appearance: none;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  text-align: end;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.invite-meta-cluster:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 3px;
-  border-radius: var(--radius-s);
-}
-
-.invite-meta-label {
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--text-sub);
-  letter-spacing: 0.1em;
-  margin-bottom: 2px;
-  text-align: end;
-}
-
-.invite-meta-value {
-  font-size: 16px;
-  font-weight: var(--font-weight-display);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.1em;
-  text-align: end;
-}
-
-/* Compact setup-role hint such as "(중앙)". */
-.role-hint-label {
-  font-size: 10px;
-  color: var(--text-sub);
-  font-weight: normal;
-  margin-inline-start: 4px;
-}
-
-/* SVG color utilities used by inline icons */
-.svg-stroke-primary {
-  stroke: var(--primary);
-  stroke-width: 2;
-}
-
-.svg-fill-sub-08 {
-  fill: var(--text-sub);
-  stroke: none;
-  opacity: 0.8;
-}
-
-.svg-fill-sub-05 {
-  fill: var(--text-sub);
-  stroke: none;
-  opacity: 0.5;
-}
-
-.svg-stroke-divider {
-  stroke: var(--surface-3);
-  stroke-width: 1;
-}
-
-.svg-overflow-visible {
-  overflow: visible;
-}
-
-/* Tab header layout (one-line spread + center) */
-.tab-header-spread {
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 0;
-}
-
-.tab-header-spread-pad {
-  justify-content: space-between;
-  align-items: center;
-}
-
-/* Header right side: flex row */
-.flex-row-center {
-  display: flex;
-  align-items: center;
-}
-
-.flex-row-gap-8 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* play-action-buttons row */
-.play-actions-row {
-  display: flex;
-  gap: 12px;
-}
-
-.flex-1 {
-  flex: 1;
-}
-
-.h-70 {
-  height: 70px;
-}
-
-.text-10 {
-  font-size: 10px;
-}
-
-/* Hidden file input for file picker (kept tabbable but visually offscreen) */
-.visually-offscreen {
-  position: absolute;
-  left: -9999px;
-  top: 0;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
-}
-
-/* Tab body anchor for absolutely-positioned children */
-.tab-body-anchor {
-  position: relative;
-}
-
-/* Onboarding welcome wrapper */
-.setup-welcome-wrap {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-/* Wordmark + onboarding decorative svg */
-.wordmark-decor {
-  height: auto;
-  aspect-ratio: 2.2;
-  margin-bottom: 24px;
-  background: transparent;
-  max-height: 180px;
-  margin-inline-start: -28px;
-  margin-inline-end: -28px;
-  width: calc(100% + 56px);
-}
-
-/* Generic divider used in onboarding cards */
-.divider-narrow {
-  margin: 8px auto 32px;
-  width: calc(100% - 64px);
-}
-
-.divider-narrower {
-  margin: 24px 0 24px;
-  width: calc(100% - 88px);
-  align-self: center;
-}
-
-/* YouTube preview thumb (16:9) */
-.yt-preview-thumb {
-  width: 100%;
-  border-radius: 4px;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  background: #000;
-}
-
-/* Setup-card stack tweaks */
-.setup-card-tight {
-  padding: 0;
-  margin-top: 0;
-}
-
-.setup-card-mt-8 {
-  margin-top: 8px;
-}
-
-.setup-card-mt-8-row {
-  margin-top: 8px;
-  display: flex;
-  gap: 10px;
-}
-
-.setup-mt-0 {
-  margin-top: 0;
-}
-
-#youtube-url-overlay .setup-join-area {
-  text-align: start;
-}
-
-/* YouTube preview text rows */
-.yt-preview-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-main);
-  margin: 0;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.yt-preview-meta {
-  font-size: 11px;
-  color: var(--text-sub);
-  text-align: start;
-  margin: 4px 0 0 0;
-  font-weight: 600;
-}
-
-/* Onboarding slider strip block (id=ob-slider-area) */
-.ob-slider-block {
-  display: block;
-  width: 100%;
-  position: relative;
-  flex: 1;
-}
-
-/* Setup areas start hidden; the setup controller activates one at a time. */
-.setup-area-block {
-  width: 100%;
-}
-
-.setup-area-block.is-relative {
-  position: relative;
-}
-
-/* Active code-input appearance */
-.code-input-active {
-  border-bottom: 2px solid transparent;
-  opacity: 1;
-  -webkit-text-fill-color: var(--text-main);
-  color: var(--text-main);
-}
-
-/* YouTube query/link editor follows the chat composer interaction pattern. */
-.yt-search-input-wrapper {
-  position: relative;
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  border-bottom: 2px solid var(--surface-3);
-  transition: border-bottom-color 0.2s ease;
-}
-
-.yt-search-input-wrapper:focus-within {
-  border-bottom-color: var(--primary);
-}
-
-.yt-search-input-wrapper .yt-intro-text {
-  flex: 1;
-  width: auto;
-  min-width: 0;
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: normal;
-  line-height: 20px;
-  text-align: start;
-  padding: 12px 4px 10px;
-  border-bottom: 0;
-  align-self: stretch;
-}
-
-.yt-search-input-wrapper .yt-intro-text:focus {
-  border-bottom-color: transparent;
-}
-
-.yt-search-submit-btn {
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--surface-3);
-  cursor: default;
-  opacity: 1;
-  box-shadow: none;
-  transition:
-    color 0.2s ease,
-    opacity 0.2s ease,
-    transform 0.2s ease;
-}
-
-.yt-search-submit-btn:not(:disabled) {
-  color: var(--primary);
-  cursor: pointer;
-}
-
-.yt-search-submit-btn:not(:disabled):active {
-  transform: scale(0.92);
-  opacity: 0.8;
-}
-
-.yt-search-submit-btn svg {
-  width: 24px;
-  height: 24px;
-  fill: currentColor;
-  pointer-events: none;
-}
-
-.yt-search-submit-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-  border-radius: 50%;
-}
-
-/* Hidden preview card container that JS toggles to flex */
-.yt-preview-card {
-  position: relative;
-  width: 100%;
-  display: grid;
-  grid-template-columns: 1fr;
-  background: var(--surface-2);
-  border-radius: 0;
-  margin-top: 10px;
-  padding: 14px;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.yt-preview-card[hidden] {
-  display: none;
-}
-
-.yt-preview-card .setup-card-mt-8 {
-  min-width: 0;
-  margin-top: 0;
-}
-
-.yt-search-results {
-  --yt-search-fade-size: 34px;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  width: 100%;
-  max-height: min(42vh, 360px);
-  margin-top: 10px;
-  overflow-y: auto;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  overflow-x: hidden;
-  transition: mask-image 0.16s ease;
-}
-
-.yt-search-results.can-scroll-down {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    #000 0,
-    #000 calc(100% - var(--yt-search-fade-size)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    #000 0,
-    #000 calc(100% - var(--yt-search-fade-size)),
-    transparent 100%
-  );
-}
-
-.yt-search-results.can-scroll-up {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 var(--yt-search-fade-size),
-    #000 100%
-  );
-  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--yt-search-fade-size), #000 100%);
-}
-
-.yt-search-results.can-scroll-up.can-scroll-down {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 var(--yt-search-fade-size),
-    #000 calc(100% - var(--yt-search-fade-size)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 var(--yt-search-fade-size),
-    #000 calc(100% - var(--yt-search-fade-size)),
-    transparent 100%
-  );
-}
-
-.yt-search-results[hidden] {
-  display: none;
-}
-
-#youtube-url-overlay .setup-join-area > .cscroll-track {
-  right: 56px;
-}
-
-@media (min-width: 1280px) {
-  #youtube-url-overlay .setup-join-area > .cscroll-track {
-    right: 40px;
+  /* Stereo / top-of-tab "invite code mini display" cluster (#tab-play, etc) */
+  .invite-meta-cluster {
+    appearance: none;
+    -webkit-appearance: none;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: end;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    -webkit-tap-highlight-color: transparent;
+    border-radius: var(--radius-pill);
   }
-}
 
-.yt-search-result {
-  position: relative;
-  width: 100%;
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-main);
-  padding: 10px 12px;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    background 0.16s ease,
-    transform 0.16s ease;
-}
+  .invite-meta-cluster:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+    border-radius: var(--radius-pill);
+  }
 
-.yt-search-result + .yt-search-result {
-  border-top: 1px solid var(--divider);
-}
+  .invite-meta-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-sub);
+    letter-spacing: 0.1em;
+    margin-bottom: 2px;
+    text-align: end;
+  }
 
-.yt-search-result:focus-visible {
-  background: var(--surface-3);
-  outline: none;
-}
+  .invite-meta-value {
+    font-size: 16px;
+    font-weight: var(--font-weight-display);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.1em;
+    text-align: end;
+  }
 
-@media (hover: hover) {
-  .yt-search-result:hover {
+  /* Compact setup-role hint such as "(중앙)". */
+  .role-hint-label {
+    font-size: 10px;
+    color: var(--text-sub);
+    font-weight: normal;
+    margin-inline-start: 4px;
+  }
+
+  /* SVG color utilities used by inline icons */
+  .svg-stroke-primary {
+    stroke: var(--primary);
+    stroke-width: 2;
+  }
+
+  .svg-fill-sub-08 {
+    fill: var(--text-sub);
+    stroke: none;
+    opacity: 0.8;
+  }
+
+  .svg-fill-sub-05 {
+    fill: var(--text-sub);
+    stroke: none;
+    opacity: 0.5;
+  }
+
+  .svg-stroke-divider {
+    stroke: var(--surface-3);
+    stroke-width: 1;
+  }
+
+  .svg-overflow-visible {
+    overflow: visible;
+  }
+
+  /* Tab header layout (one-line spread + center) */
+  .tab-header-spread {
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 0;
+  }
+
+  .tab-header-spread-pad {
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* Header right side: flex row */
+  .flex-row-center {
+    display: flex;
+    align-items: center;
+  }
+
+  .flex-row-gap-8 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* play-action-buttons row */
+  .play-actions-row {
+    display: flex;
+    gap: 12px;
+  }
+
+  .flex-1 {
+    flex: 1;
+  }
+
+  .h-70 {
+    height: 70px;
+  }
+
+  .text-10 {
+    font-size: 10px;
+  }
+
+  /* Hidden file input for file picker (kept tabbable but visually offscreen) */
+  .visually-offscreen {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+  }
+
+  /* Tab body anchor for absolutely-positioned children */
+  .tab-body-anchor {
+    position: relative;
+  }
+
+  /* Onboarding welcome wrapper */
+  .setup-welcome-wrap {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  /* Wordmark + onboarding decorative svg */
+  .wordmark-decor {
+    height: auto;
+    aspect-ratio: 2.2;
+    margin-bottom: 24px;
+    background: transparent;
+    max-height: 180px;
+    margin-inline-start: -28px;
+    margin-inline-end: -28px;
+    width: calc(100% + 56px);
+  }
+
+  /* Generic divider used in onboarding cards */
+  .divider-narrow {
+    margin: 8px auto 32px;
+    width: calc(100% - 64px);
+  }
+
+  .divider-narrower {
+    margin: 24px 0 24px;
+    width: calc(100% - 88px);
+    align-self: center;
+  }
+
+  /* YouTube preview thumb (16:9) */
+  .yt-preview-thumb {
+    width: 100%;
+    border-radius: 4px;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    background: #000;
+  }
+
+  /* Setup-card stack tweaks */
+  .setup-card-tight {
+    padding: 0;
+    margin-top: 0;
+  }
+
+  .setup-card-mt-8 {
+    margin-top: 8px;
+  }
+
+  .setup-card-mt-8-row {
+    margin-top: 8px;
+    display: flex;
+    gap: 10px;
+  }
+
+  .setup-mt-0 {
+    margin-top: 0;
+  }
+
+  #youtube-url-overlay .setup-join-area {
+    text-align: start;
+  }
+
+  /* YouTube preview text rows */
+  .yt-preview-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin: 0;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .yt-preview-meta {
+    font-size: 11px;
+    color: var(--text-sub);
+    text-align: start;
+    margin: 4px 0 0 0;
+    font-weight: 600;
+  }
+
+  /* Onboarding slider strip block (id=ob-slider-area) */
+  .ob-slider-block {
+    display: block;
+    width: 100%;
+    position: relative;
+    flex: 1;
+  }
+
+  /* Setup areas start hidden; the setup controller activates one at a time. */
+  .setup-area-block {
+    width: 100%;
+  }
+
+  .setup-area-block.is-relative {
+    position: relative;
+  }
+
+  /* Active code-input appearance */
+  .code-input-active {
+    border-bottom: 2px solid transparent;
+    opacity: 1;
+    -webkit-text-fill-color: var(--text-main);
+    color: var(--text-main);
+  }
+
+  /* YouTube query/link editor follows the chat composer interaction pattern. */
+  .yt-search-input-wrapper {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    border-bottom: 2px solid var(--surface-3);
+    transition: border-bottom-color 0.2s ease;
+  }
+
+  .yt-search-input-wrapper:focus-within {
+    border-bottom-color: var(--primary);
+  }
+
+  .yt-search-input-wrapper .yt-intro-text {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: normal;
+    line-height: 20px;
+    text-align: start;
+    padding: 12px 4px 10px;
+    border-bottom: 0;
+    align-self: stretch;
+  }
+
+  .yt-search-input-wrapper .yt-intro-text:focus {
+    border-bottom-color: transparent;
+  }
+
+  .yt-search-submit-btn {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--surface-3);
+    cursor: default;
+    opacity: 1;
+    box-shadow: none;
+    transition:
+      color 0.2s ease,
+      opacity 0.2s ease,
+      transform 0.2s ease;
+    border-radius: var(--radius-pill);
+  }
+
+  .yt-search-submit-btn:not(:disabled) {
+    color: var(--primary);
+    cursor: pointer;
+  }
+
+  .yt-search-submit-btn:not(:disabled):active {
+    transform: scale(0.92);
+    opacity: 0.8;
+  }
+
+  .yt-search-submit-btn svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    pointer-events: none;
+  }
+
+  .yt-search-submit-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+    border-radius: var(--radius-pill);
+  }
+
+  /* Hidden preview card container that JS toggles to flex */
+  .yt-preview-card {
+    position: relative;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+    background: var(--surface-2);
+    border-radius: 0;
+    margin-top: 10px;
+    padding: 14px;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .yt-preview-card[hidden] {
+    display: none;
+  }
+
+  .yt-preview-card .setup-card-mt-8 {
+    min-width: 0;
+    margin-top: 0;
+  }
+
+  .yt-search-results {
+    --yt-search-fade-size: 34px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+    max-height: min(42vh, 360px);
+    margin-top: 10px;
+    overflow-y: auto;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow-x: hidden;
+    transition: mask-image 0.16s ease;
+  }
+
+  .yt-search-results.can-scroll-down {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - var(--yt-search-fade-size)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - var(--yt-search-fade-size)),
+      transparent 100%
+    );
+  }
+
+  .yt-search-results.can-scroll-up {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--yt-search-fade-size),
+      #000 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--yt-search-fade-size),
+      #000 100%
+    );
+  }
+
+  .yt-search-results.can-scroll-up.can-scroll-down {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--yt-search-fade-size),
+      #000 calc(100% - var(--yt-search-fade-size)),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 var(--yt-search-fade-size),
+      #000 calc(100% - var(--yt-search-fade-size)),
+      transparent 100%
+    );
+  }
+
+  .yt-search-results[hidden] {
+    display: none;
+  }
+
+  #youtube-url-overlay .setup-join-area > .cscroll-track {
+    right: 56px;
+  }
+
+  @media (min-width: 1280px) {
+    #youtube-url-overlay .setup-join-area > .cscroll-track {
+      right: 40px;
+    }
+  }
+
+  .yt-search-result {
+    position: relative;
+    width: 100%;
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-main);
+    padding: 10px 12px;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition:
+      border-color 0.16s ease,
+      background 0.16s ease,
+      transform 0.16s ease;
+  }
+
+  .yt-search-result + .yt-search-result {
+    border-top: 1px solid var(--divider);
+  }
+
+  .yt-search-result:focus-visible {
     background: var(--surface-3);
     outline: none;
   }
-}
 
-.yt-search-result.selected {
-  background: var(--surface-2);
-}
-
-.yt-search-result.selected .yt-search-title {
-  color: var(--primary);
-}
-
-.yt-search-result:active {
-  transform: scale(0.99);
-}
-
-.yt-search-thumb {
-  width: 84px;
-  aspect-ratio: 16 / 9;
-  border-radius: 4px;
-  object-fit: cover;
-  background: #000;
-}
-
-.yt-search-meta {
-  min-width: 0;
-  /* Keep row geometry stable without separating a short title from its channel. */
-  min-height: calc(13px * 2.7 + 4px + 11px * 1.3);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-}
-
-.yt-search-title {
-  color: var(--text-main);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.yt-search-channel {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.yt-search-skeleton {
-  pointer-events: none;
-  cursor: default;
-}
-
-.yt-search-skeleton .yt-skeleton-block {
-  animation: yt-search-skeleton-pulse 1.6s ease-in-out infinite;
-}
-
-.yt-search-skeleton .yt-search-thumb {
-  background: var(--surface-3);
-}
-
-.yt-search-skeleton .yt-search-title {
-  min-height: 2.7em;
-  background-image:
-    linear-gradient(var(--surface-3), var(--surface-3)),
-    linear-gradient(var(--surface-3), var(--surface-3));
-  background-size:
-    90% 0.75em,
-    65% 0.75em;
-  background-position:
-    left 0.3em,
-    left 1.65em;
-  background-repeat: no-repeat;
-}
-
-.yt-search-skeleton .yt-search-channel {
-  height: 1.3em;
-  background: linear-gradient(var(--surface-3), var(--surface-3)) left center / 42% 0.75em no-repeat;
-}
-
-[dir='rtl'] .yt-search-skeleton .yt-search-title {
-  background-position:
-    right 0.3em,
-    right 1.65em;
-}
-
-[dir='rtl'] .yt-search-skeleton .yt-search-channel {
-  background-position: right center;
-}
-
-@keyframes yt-search-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 0.25;
+  @media (hover: hover) {
+    .yt-search-result:hover {
+      background: var(--surface-3);
+      outline: none;
+    }
   }
-  50% {
+
+  .yt-search-result.selected {
+    background: var(--surface-2);
+  }
+
+  .yt-search-result.selected .yt-search-title {
+    color: var(--primary);
+  }
+
+  .yt-search-result:active {
+    transform: scale(0.99);
+  }
+
+  .yt-search-thumb {
+    width: 84px;
+    aspect-ratio: 16 / 9;
+    border-radius: 4px;
+    object-fit: cover;
+    background: #000;
+  }
+
+  .yt-search-meta {
+    min-width: 0;
+    /* Keep row geometry stable without separating a short title from its channel. */
+    min-height: calc(13px * 2.7 + 4px + 11px * 1.3);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .yt-search-title {
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .yt-search-channel {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .yt-search-skeleton {
+    pointer-events: none;
+    cursor: default;
+  }
+
+  .yt-search-skeleton .yt-skeleton-block {
+    animation: yt-search-skeleton-pulse 1.6s ease-in-out infinite;
+  }
+
+  .yt-search-skeleton .yt-search-thumb {
+    background: var(--surface-3);
+  }
+
+  .yt-search-skeleton .yt-search-title {
+    min-height: 2.7em;
+    background-image:
+      linear-gradient(var(--surface-3), var(--surface-3)),
+      linear-gradient(var(--surface-3), var(--surface-3));
+    background-size:
+      90% 0.75em,
+      65% 0.75em;
+    background-position:
+      left 0.3em,
+      left 1.65em;
+    background-repeat: no-repeat;
+  }
+
+  .yt-search-skeleton .yt-search-channel {
+    height: 1.3em;
+    background: linear-gradient(var(--surface-3), var(--surface-3)) left center / 42% 0.75em
+      no-repeat;
+  }
+
+  [dir='rtl'] .yt-search-skeleton .yt-search-title {
+    background-position:
+      right 0.3em,
+      right 1.65em;
+  }
+
+  [dir='rtl'] .yt-search-skeleton .yt-search-channel {
+    background-position: right center;
+  }
+
+  @keyframes yt-search-skeleton-pulse {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .yt-search-skeleton .yt-skeleton-block {
+      animation: none;
+      opacity: 0.7;
+    }
+  }
+
+  /* Smaller preview meta line (channel / duration), distinct from yt-preview-meta */
+  .yt-preview-channel {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 4px 0 0 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* "Watch together" button: 1.5x flex grow, dimmed while disabled */
+  .yt-play-btn-flex15 {
+    flex: 1.5;
     opacity: 0.5;
   }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .yt-search-skeleton .yt-skeleton-block {
-    animation: none;
-    opacity: 0.7;
-  }
-}
-
-/* Smaller preview meta line (channel / duration), distinct from yt-preview-meta */
-.yt-preview-channel {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin: 4px 0 0 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* "Watch together" button: 1.5x flex grow, dimmed while disabled */
-.yt-play-btn-flex15 {
-  flex: 1.5;
-  opacity: 0.5;
-}
-
-/* ─── Debug Memory Overlay ─────────────────────────────────────
+  /* ─── Debug Memory Overlay ─────────────────────────────────────
  * /debug memory creates this full-screen, dismissible diagnostics surface.
  */
-.debug-memory-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 99999;
-  background: rgba(0, 0, 0, 0.88);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  /* Column layout so live-updating graphs always sit at the bottom of the
+  .debug-memory-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(0, 0, 0, 0.88);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    /* Column layout so live-updating graphs always sit at the bottom of the
        viewport rather than below a long, scrolling text snapshot. */
-  display: flex;
-  flex-direction: column;
-  /* Reserve room for the absolute-positioned bottom hint so the graphs
+    display: flex;
+    flex-direction: column;
+    /* Reserve room for the absolute-positioned bottom hint so the graphs
        don't render under it. */
-  padding: max(env(safe-area-inset-top, 20px), 20px) 12px
-    calc(max(env(safe-area-inset-bottom, 20px), 20px) + 22px) 12px;
-  box-sizing: border-box;
-  overflow: hidden;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-  user-select: text;
-  -webkit-user-select: text;
-}
+    padding: max(env(safe-area-inset-top, 20px), 20px) 12px
+      calc(max(env(safe-area-inset-bottom, 20px), 20px) + 22px) 12px;
+    box-sizing: border-box;
+    overflow: hidden;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: text;
+    -webkit-user-select: text;
+  }
 
-.debug-memory-content {
-  color: #e8e8e8;
-  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
-  font-size: 11px;
-  line-height: 1.45;
-  white-space: pre;
-  margin: 0 0 8px;
-  padding: 14px 16px;
-  max-width: 100%;
-  /* Take all remaining vertical space; if text exceeds, scroll INSIDE the
+  .debug-memory-content {
+    color: #e8e8e8;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre;
+    margin: 0 0 8px;
+    padding: 14px 16px;
+    max-width: 100%;
+    /* Take all remaining vertical space; if text exceeds, scroll INSIDE the
        pre so graphs stay pinned to the bottom of the viewport. */
-  flex: 1 1 auto;
-  overflow: auto;
-  -webkit-text-size-adjust: 100%;
-  text-rendering: optimizeLegibility;
-  pointer-events: none;
-}
+    flex: 1 1 auto;
+    overflow: auto;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    pointer-events: none;
+  }
 
-/* Hidden onboarding support surface. It reuses the debug overlay shell but is
+  /* Hidden onboarding support surface. It reuses the debug overlay shell but is
  * intentionally static: diagnostics refresh only after an explicit tap. */
-.onboarding-diagnostics-overlay {
-  cursor: default;
-}
+  .onboarding-diagnostics-overlay {
+    cursor: default;
+  }
 
-.onboarding-diagnostics-content {
-  margin-bottom: 10px;
-  pointer-events: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  touch-action: pan-y;
-}
+  .onboarding-diagnostics-content {
+    margin-bottom: 10px;
+    pointer-events: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    touch-action: pan-y;
+  }
 
-.onboarding-diagnostics-status {
-  flex: 0 0 auto;
-  min-height: 18px;
-  padding: 0 8px 8px;
-  color: #b9c0ca;
-  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
-  font-size: 10px;
-  line-height: 1.4;
-}
+  .onboarding-diagnostics-status {
+    flex: 0 0 auto;
+    min-height: 18px;
+    padding: 0 8px 8px;
+    color: #b9c0ca;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 10px;
+    line-height: 1.4;
+  }
 
-.onboarding-diagnostics-actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 8px;
-  padding: 0 8px;
-}
+  .onboarding-diagnostics-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
+    padding: 0 8px;
+  }
 
-.onboarding-diagnostics-action {
-  min-width: 0;
-  min-height: 42px;
-  flex: 1 1 0;
-  border: 1px solid rgba(255, 255, 255, 0.32);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #f4f4f4;
-  font:
-    600 11px/1 'SF Mono',
-    ui-monospace,
-    Menlo,
-    Consolas,
-    'Courier New',
-    monospace;
-  letter-spacing: 0.06em;
-  touch-action: manipulation;
-}
+  .onboarding-diagnostics-action {
+    min-width: 0;
+    min-height: 42px;
+    flex: 1 1 0;
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    border-radius: var(--radius-pill);
+    background: rgba(255, 255, 255, 0.1);
+    color: #f4f4f4;
+    font:
+      600 11px/1 'SF Mono',
+      ui-monospace,
+      Menlo,
+      Consolas,
+      'Courier New',
+      monospace;
+    letter-spacing: 0.06em;
+    touch-action: manipulation;
+  }
 
-.onboarding-diagnostics-action:disabled {
-  opacity: 0.45;
-}
+  .onboarding-diagnostics-action:disabled {
+    opacity: 0.45;
+  }
 
-.debug-memory-graphs {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 8px;
-  /* Click-through so tap-to-close still works over the graph area. */
-  pointer-events: none;
-}
+  .debug-memory-graphs {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 8px;
+    /* Click-through so tap-to-close still works over the graph area. */
+    pointer-events: none;
+  }
 
-.debug-memory-graph-row {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  height: 60px;
-}
+  .debug-memory-graph-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    height: 60px;
+  }
 
-.debug-memory-graph-label {
-  width: 64px;
-  flex: 0 0 64px;
-  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.2;
-  align-self: center;
-}
+  .debug-memory-graph-label {
+    width: 64px;
+    flex: 0 0 64px;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    align-self: center;
+  }
 
-.debug-memory-graph {
-  flex: 1 1 auto;
-  height: 100%;
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: 4px;
-  /* JS sets the backing-store size on mount + resize; CSS controls
+  .debug-memory-graph {
+    flex: 1 1 auto;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    /* JS sets the backing-store size on mount + resize; CSS controls
        displayed size. width auto lets flex own the dimension. */
-  width: auto;
-  display: block;
-}
-
-.debug-memory-hint {
-  position: absolute;
-  bottom: max(env(safe-area-inset-bottom, 16px), 16px);
-  left: 50%;
-  transform: translateX(-50%);
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 11px;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  pointer-events: none;
-}
-
-/* Global button shape policy: card-like choice buttons, navigation tabs,
-   underline-style subtabs, and segmented-control pieces keep their framed
-   shape; every other real button uses a pill/capsule hit surface. */
-button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
-    .yt-search-result
-  ):not(.chat-youtube-btn):not(.language-option):not(.setup-qr-scan-button):not(
-    #youtube-ios-sync-overlay
-  ) {
-  border-radius: 999px !important;
-}
-
-.bottom-nav button.nav-item {
-  border-radius: 0 !important;
-}
-
-.settings-subtab-nav > button.subtab-pill {
-  border-radius: 0 !important;
-}
-
-@media (min-width: 720px) and (max-width: 1279px) {
-  .bottom-nav button.nav-item {
-    border-radius: 10px !important;
-  }
-}
-
-/* List-like interactive/display surfaces follow the same capsule language as
-   buttons, while media frames, dialogs, thumbnails, and setting cards keep
-   their own shapes. */
-.track-item,
-.sub-track-item,
-.device-row,
-.device-subrow,
-.list-empty-state {
-  border-radius: 999px !important;
-}
-
-/* The setup entrance is intentionally exempt from Android's boot transition
-   suppression, but reduced-motion must still disable every entrance path. */
-@media (prefers-reduced-motion: reduce) {
-  .app-entrance,
-  html.is-booting .app-entrance,
-  .bottom-nav.app-entrance.app-entrance-up {
-    transition: none !important;
-    transition-delay: 0ms !important;
+    width: auto;
+    display: block;
   }
 
-  .chat-drawer.app-chat-entrance {
-    animation: none !important;
+  .debug-memory-hint {
+    position: absolute;
+    bottom: max(env(safe-area-inset-bottom, 16px), 16px);
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    pointer-events: none;
   }
-}
 
-/* --------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------
    OS contrast preferences
 
    `data-contrast='more'` is the local/debug override for the same color-only
@@ -12307,84 +11268,7 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
    palette.
    -------------------------------------------------------------------------- */
 
-html[data-contrast='more'] {
-  --bg: #000000;
-  --surface-1: #0a0a0a;
-  --surface-2: #1f1f1f;
-  --surface-3: #4d4d4d;
-  --divider: #262626;
-  --primary: #8ab4ff;
-  --primary-rgb: 138, 180, 255;
-  --primary-filled: #0047a8;
-  --success-filled: #006b3c;
-  --danger-filled: #a4001d;
-  --warning-filled: #6b4100;
-  --youtube-filled: #a4001d;
-  --text-main: #ffffff;
-  --text-sub: #f2f2f2;
-  --text-muted: #d0d0d0;
-  --range-fill-idle: rgba(255, 255, 255, 0.9);
-  --range-fill-active: #ffffff;
-  --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
-  --play-fab-bg-active: #ffffff;
-  --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
-  --control-active: rgba(var(--primary-rgb), 0.28);
-  --control-danger: rgba(176, 0, 32, 0.24);
-  --control-danger-hover: rgba(176, 0, 32, 0.34);
-  --glass-bg: var(--surface-1);
-  --glass-border: #262626;
-  --scrollbar-thumb: rgba(255, 255, 255, 0.65);
-  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.85);
-  --scrollbar-thumb-active: #ffffff;
-}
-
-html[data-theme='light'][data-contrast='more'] {
-  --bg: #f2f2f2;
-  --surface-1: #ffffff;
-  --surface-2: #d4d4d4;
-  --surface-3: #a8a8a8;
-  --divider: #d4d6d8;
-  --primary: #0047a8;
-  --primary-rgb: 0, 71, 168;
-  --text-main: #000000;
-  --text-sub: #111111;
-  --text-muted: #333333;
-  --range-fill-idle: rgba(0, 0, 0, 0.88);
-  --range-fill-active: #000000;
-  --play-fab-bg-idle: rgba(0, 0, 0, 0.94);
-  --play-fab-bg-active: #000000;
-  --play-fab-bg-disabled: rgba(0, 0, 0, 0.42);
-  --glass-bg: var(--surface-1);
-  --glass-border: #d4d6d8;
-  --scrollbar-thumb: rgba(0, 0, 0, 0.65);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.85);
-  --scrollbar-thumb-active: #000000;
-}
-
-html[data-contrast='more'] :is(.tab-action-btn.active, .tab-action-btn.active-one) {
-  color: #000000;
-}
-
-html[data-contrast='more'] :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
-  background: var(--primary);
-}
-
-html[data-theme='light'][data-contrast='more']
-  :is(.tab-action-btn.active, .tab-action-btn.active-one) {
-  color: #ffffff;
-}
-
-html[data-theme='light'][data-contrast='more']
-  :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
-  background: var(--primary-filled);
-}
-
-html[data-contrast='more'] .tab-action-btn.active-one::after {
-  color: var(--primary-filled);
-}
-
-@media (prefers-contrast: more) {
-  html:not([data-contrast='normal']) {
+  html[data-contrast='more'] {
     --bg: #000000;
     --surface-1: #0a0a0a;
     --surface-2: #1f1f1f;
@@ -12415,7 +11299,7 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --scrollbar-thumb-active: #ffffff;
   }
 
-  html[data-theme='light']:not([data-contrast='normal']) {
+  html[data-theme='light'][data-contrast='more'] {
     --bg: #f2f2f2;
     --surface-1: #ffffff;
     --surface-2: #d4d4d4;
@@ -12438,29 +11322,1133 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --scrollbar-thumb-active: #000000;
   }
 
-  html:not([data-contrast='normal']) :is(.tab-action-btn.active, .tab-action-btn.active-one) {
+  html[data-contrast='more'] :is(.tab-action-btn.active, .tab-action-btn.active-one) {
     color: #000000;
   }
 
-  html:not([data-contrast='normal'])
-    :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
+  html[data-contrast='more'] :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
     background: var(--primary);
   }
 
-  html[data-theme='light']:not([data-contrast='normal'])
+  html[data-theme='light'][data-contrast='more']
     :is(.tab-action-btn.active, .tab-action-btn.active-one) {
     color: #ffffff;
   }
 
-  html[data-theme='light']:not([data-contrast='normal'])
+  html[data-theme='light'][data-contrast='more']
     :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
     background: var(--primary-filled);
   }
 
-  html:not([data-contrast='normal']) .tab-action-btn.active-one::after {
+  html[data-contrast='more'] .tab-action-btn.active-one::after {
     color: var(--primary-filled);
   }
+
+  @media (prefers-contrast: more) {
+    html:not([data-contrast='normal']) {
+      --bg: #000000;
+      --surface-1: #0a0a0a;
+      --surface-2: #1f1f1f;
+      --surface-3: #4d4d4d;
+      --divider: #262626;
+      --primary: #8ab4ff;
+      --primary-rgb: 138, 180, 255;
+      --primary-filled: #0047a8;
+      --success-filled: #006b3c;
+      --danger-filled: #a4001d;
+      --warning-filled: #6b4100;
+      --youtube-filled: #a4001d;
+      --text-main: #ffffff;
+      --text-sub: #f2f2f2;
+      --text-muted: #d0d0d0;
+      --range-fill-idle: rgba(255, 255, 255, 0.9);
+      --range-fill-active: #ffffff;
+      --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
+      --play-fab-bg-active: #ffffff;
+      --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
+      --control-active: rgba(var(--primary-rgb), 0.28);
+      --control-danger: rgba(176, 0, 32, 0.24);
+      --control-danger-hover: rgba(176, 0, 32, 0.34);
+      --glass-bg: var(--surface-1);
+      --glass-border: #262626;
+      --scrollbar-thumb: rgba(255, 255, 255, 0.65);
+      --scrollbar-thumb-hover: rgba(255, 255, 255, 0.85);
+      --scrollbar-thumb-active: #ffffff;
+    }
+
+    html[data-theme='light']:not([data-contrast='normal']) {
+      --bg: #f2f2f2;
+      --surface-1: #ffffff;
+      --surface-2: #d4d4d4;
+      --surface-3: #a8a8a8;
+      --divider: #d4d6d8;
+      --primary: #0047a8;
+      --primary-rgb: 0, 71, 168;
+      --text-main: #000000;
+      --text-sub: #111111;
+      --text-muted: #333333;
+      --range-fill-idle: rgba(0, 0, 0, 0.88);
+      --range-fill-active: #000000;
+      --play-fab-bg-idle: rgba(0, 0, 0, 0.94);
+      --play-fab-bg-active: #000000;
+      --play-fab-bg-disabled: rgba(0, 0, 0, 0.42);
+      --glass-bg: var(--surface-1);
+      --glass-border: #d4d6d8;
+      --scrollbar-thumb: rgba(0, 0, 0, 0.65);
+      --scrollbar-thumb-hover: rgba(0, 0, 0, 0.85);
+      --scrollbar-thumb-active: #000000;
+    }
+
+    html:not([data-contrast='normal']) :is(.tab-action-btn.active, .tab-action-btn.active-one) {
+      color: #000000;
+    }
+
+    html:not([data-contrast='normal'])
+      :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
+      background: var(--primary);
+    }
+
+    html[data-theme='light']:not([data-contrast='normal'])
+      :is(.tab-action-btn.active, .tab-action-btn.active-one) {
+      color: #ffffff;
+    }
+
+    html[data-theme='light']:not([data-contrast='normal'])
+      :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
+      background: var(--primary-filled);
+    }
+
+    html:not([data-contrast='normal']) .tab-action-btn.active-one::after {
+      color: var(--primary-filled);
+    }
+  }
 }
+
+/* Responsive layout owns geometry. Component tokens describe shape; active playback/overlay/entrance states are defined separately. */
+
+@layer responsive {
+  @media (max-width: 719px) {
+    html:not(.standalone) header,
+    html:not(.standalone) .bottom-nav {
+      background: var(--surface-1);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    html[data-theme='light']:not(.standalone) header,
+    html[data-theme='light']:not(.standalone) .bottom-nav {
+      background: #ffffff;
+    }
+  }
+  /* Compact sidebar geometry: 720–1279px, with independent short-height variants. Navigation/overlay visibility is owned by states below. */
+  @media (min-width: 720px) and (max-width: 1279px) {
+    /* ── Sidebar (header) — right side ── */
+    header {
+      width: calc(200px + var(--safe-right));
+      height: var(--app-height, 100dvh);
+      min-height: var(--app-height, 100dvh);
+      right: 0;
+      left: auto;
+      top: 0;
+      bottom: 0;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding: 29px 16px 16px;
+      padding-inline-end: calc(16px + var(--safe-right));
+      border-inline-start: none;
+      border-inline-end: none;
+      background: var(--surface-1);
+      z-index: 2501;
+      border-bottom: none;
+      overflow: hidden;
+    }
+
+    /* Logo: compact, centered */
+    .header-content-wrapper {
+      width: 100%;
+      height: auto;
+      margin-bottom: 0;
+      flex-shrink: 0;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* Standard and PRO rooms both use one-line wordmarks, so the compact
+       sidebar preserves the same vertical rhythm in either room type. */
+    #app-logo {
+      flex-direction: row;
+      align-items: center;
+    }
+
+    /* The shorter MXQR PRO wordmark would drift 14.67px inward when centered
+       in the same 168px rail as MUSIXQUARE. Preserve the standard wordmark's
+       29px optical left edge so the logo and sidebar navigation share one axis. */
+    html[data-pro-room] #app-logo {
+      align-self: flex-start;
+      margin-inline-start: 13px;
+    }
+
+    /* Role badge area: push to sidebar bottom */
+    .header-right.header-default-content {
+      transition: none;
+      margin-top: auto;
+      flex-shrink: 0;
+      width: 100%;
+      padding-inline-start: 13px; /* 29 - header 16px padding (from sidebar left edge) */
+      padding-bottom: 13px; /* 29 - header 16px padding */
+    }
+
+    .header-loading-text {
+      top: calc(10px + var(--safe-top));
+      left: 29px;
+      right: calc(16px + var(--safe-right));
+      width: auto;
+      height: 54px;
+      line-height: 18px;
+      white-space: nowrap;
+      overflow-wrap: normal;
+      /* In compact landscape the header is the full-height sidebar, so the
+         base downward exit remains visible below the 54px logo rail and
+         crosses the navigation. Return the status through the clipped top
+         edge instead; the loading state still overrides this with translateY(0). */
+      transform: translateY(-100%);
+    }
+
+    /* ── Tab navigation: centered between logo and role badge ── */
+    .bottom-nav {
+      --app-entrance-up-transform: translateY(-50%) translateX(30px);
+      --app-entered-transform: translateY(-50%);
+      position: fixed;
+      top: calc((45px + var(--app-height, 100dvh) - 54px) / 2);
+      transform: translateY(-50%);
+      bottom: auto;
+      left: auto;
+      right: 0;
+      width: calc(200px + var(--safe-right));
+      height: auto;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding: 8px 12px 8px 20px;
+      padding-inline-end: calc(20px + var(--safe-right));
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border: none;
+      z-index: 2502;
+      box-shadow: none;
+      border-radius: 0;
+      transition:
+        transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+        opacity 0.3s ease;
+    }
+
+    .bottom-nav::before {
+      display: none;
+    }
+
+    .bottom-nav button {
+      width: 100%;
+      height: 40px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 0 12px;
+      gap: 10px;
+      border-radius: 10px;
+      transform: none;
+      background: transparent;
+    }
+
+    .bottom-nav button.active {
+      background: transparent;
+      color: var(--primary);
+    }
+
+    .bottom-nav button svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .bottom-nav button span {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: inherit;
+    }
+
+    /* ── Content area — left side ── */
+    .tab-content.active {
+      overflow-y: auto;
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: calc(100% - (200px + var(--safe-right)));
+      height: var(--app-height, 100dvh);
+      z-index: 90;
+      background: var(--bg);
+      padding: 16px 24px 8px 24px;
+      padding-inline-start: calc(24px + var(--safe-left));
+      box-sizing: border-box;
+      border-radius: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Prevent nested scroll conflict: parent .tab-content scrolls in landscape */
+    .tab-body {
+      overflow: visible;
+      height: auto;
+      padding-bottom: 8px;
+    }
+
+    /* Playlist keeps its own scroll owner so the floating selection pill and
+       reorder auto-scroll stay anchored inside the left content pane. */
+    #tab-playlist.active {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #tab-playlist > .tab-body {
+      --tab-fullscreen-height: auto;
+      --tab-fullscreen-overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      height: auto;
+      overflow-y: auto;
+      scroll-padding-bottom: 0;
+    }
+
+    #tab-playlist > .playlist-selection-pill {
+      left: calc(var(--safe-left) + 24px);
+      right: 24px;
+      bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    }
+
+    .playback-stage {
+      /* Stage, metadata, and secondary actions own the three free-height shares. */
+      --visualizer-content-block-size: max(160px, min(55vw, 40vh, 320px));
+      margin: auto auto 0;
+    }
+
+    .play-secondary-area {
+      padding-bottom: 8px;
+    }
+
+    /* Tighten section spacing */
+    .ob-actions {
+      padding-bottom: 8px;
+    }
+
+    #tab-play .tab-body {
+      --tab-fullscreen-padding-bottom: 44px;
+      /* The fixed tab pane remains the scroll owner, but its flex-column body
+         must fill at least the pane's content box so auto margins can divide
+         any remaining landscape height. Taller content still expands and
+         scrolls through the parent. */
+      min-height: 100%;
+      padding-top: 0;
+      padding-bottom: 44px;
+    }
+
+    /* ── Chat drawer ── */
+    .chat-drawer {
+      --chat-drawer-default-snap-height: var(--app-height, 100dvh);
+      left: 0;
+      width: calc(100% - (200px + var(--safe-right)));
+      height: var(--chat-live-height, var(--chat-snap-height));
+      max-height: calc(var(--app-height, 100dvh) + 22px);
+      min-height: 0;
+      border-radius: 0;
+      z-index: 3000;
+      padding-inline-start: var(--safe-left);
+      bottom: 0;
+    }
+
+    .chat-drawer[data-chat-snap='half'] {
+      border-top-left-radius: 20px;
+      border-top-right-radius: 20px;
+      padding-top: var(--chat-live-safe-top, 0px);
+    }
+
+    .chat-drawer[data-chat-snap='full'] {
+      border-radius: 0;
+      padding-top: var(--chat-live-safe-top, var(--safe-top));
+    }
+
+    .chat-drawer.open {
+      transform: translateY(var(--chat-offset-y));
+    }
+
+    .chat-drawer-header {
+      display: flex;
+      justify-content: center;
+      padding: 16px 20px;
+    }
+
+    .chat-drawer-title,
+    .chat-drawer-close {
+      display: none;
+    }
+
+    /* ── Scrollbar ── */
+    /* Only viewport-owned tracks need the sidebar inset. Nested tracks are
+       already positioned against their own content pane; offsetting those a
+       second time moves them left by exactly the 200px sidebar width. */
+    body > .cscroll-track {
+      left: auto;
+      right: calc(200px + var(--safe-right));
+    }
+
+    #youtube-url-overlay .setup-join-area > .cscroll-track {
+      right: calc(200px + var(--safe-right) + 56px);
+    }
+
+    .language-list-frame > .cscroll-track {
+      right: -4px;
+    }
+
+    /* chat-drawer.transform creates a new containing block for the
+           position:fixed track inside it, so the rule above (which targets
+           viewport-anchored tracks) ends up offsetting from the drawer's
+           own right edge — pushing the scrollbar to the middle of the
+           screen by exactly the sidebar width. The drawer's right edge is
+           already adjacent to the sidebar, so right:0 puts the track
+           where the user expects (just inside the chat panel). */
+    .chat-drawer .cscroll-track {
+      right: 0;
+    }
+
+    /* ── Overlays: only cover content area, keep sidebar visible ── */
+    #media-source-overlay,
+    #youtube-url-overlay {
+      left: 0;
+      width: calc(100% - (200px + var(--safe-right)));
+      padding-inline-start: var(--safe-left);
+      padding-top: 8px;
+      height: var(--app-height, 100dvh);
+      max-height: var(--app-height, 100dvh);
+      min-height: var(--app-height, 100dvh);
+      overflow-y: hidden;
+      background: var(--bg);
+    }
+
+    #media-source-overlay .setup-header-text,
+    #youtube-url-overlay .setup-header-text {
+      margin-top: 0;
+      margin-bottom: 12px;
+    }
+
+    /* Card grid: header row with close button aligned */
+    #media-source-overlay .onboarding-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto 1fr;
+      align-items: start;
+    }
+
+    #media-source-overlay .setup-header-text {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    #media-source-overlay .ob-actions {
+      grid-column: 2;
+      grid-row: 1;
+      padding: 0 28px 0 0;
+      margin: 0;
+      background: transparent;
+      border: none;
+      width: auto;
+      align-self: start;
+      margin-top: 0;
+    }
+
+    #media-source-overlay .setup-slot-list {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      align-self: stretch;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    #media-source-overlay #btn-close-media-popup {
+      width: 40px;
+      height: 40px;
+      min-width: 0;
+      padding: 0;
+      border-radius: 50%;
+      background: var(--surface-2);
+      color: var(--text-sub);
+      font-size: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      transition:
+        background 0.15s,
+        color 0.15s;
+    }
+
+    @media (hover: hover) {
+      #media-source-overlay #btn-close-media-popup:hover {
+        background: var(--surface-3);
+        color: var(--text-main);
+      }
+    }
+
+    #media-source-overlay #btn-close-media-popup > span {
+      display: none;
+    }
+
+    #media-source-overlay #btn-close-media-popup > svg {
+      display: block;
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      fill: currentColor;
+      stroke: currentColor;
+      stroke-width: 0.5;
+      stroke-linejoin: round;
+    }
+
+    /* A browser-owned landscape toolbar leaves current iPhones around 342px
+       tall. The five labelled tabs still fit once the decorative wordmark rail
+       yields its space, so preserve their labels through that common viewport
+       instead of entering icon-only mode immediately. */
+    @media (max-height: 370px) {
+      html:not(.keyboard-open) #app-logo {
+        display: none;
+      }
+
+      html:not(.keyboard-open) .bottom-nav {
+        top: calc((var(--app-height, 100dvh) - 54px) / 2);
+      }
+    }
+
+    /* ── Super-Compact Landscape (≤ 300px height) ──
+           Guarded with html:not(.keyboard-open) so the soft keyboard shrinking
+           the viewport doesn't trigger this compact layout transformation,
+           which would cause layout recalculation explosion. */
+    @media (max-height: 300px) {
+      /* The icon-only row frees enough vertical space to restore the brand.
+         Keep it visible through ordinary super-compact landscape sizes. */
+      html:not(.keyboard-open) #app-logo {
+        display: flex;
+      }
+
+      /* Hide 'Help' tab in super-compact mode */
+      html:not(.keyboard-open) #nav-guide {
+        display: none;
+      }
+
+      /* Shift to horizontal icon-only layout */
+      html:not(.keyboard-open) .bottom-nav {
+        flex-direction: row;
+        justify-content: space-evenly; /* Distribute icons across the sidebar width */
+        padding: 0 8px;
+        padding-inline-end: calc(8px + var(--safe-right));
+        width: calc(200px + var(--safe-right));
+        top: calc((45px + var(--app-height, 100dvh) - 54px) / 2);
+        gap: 0;
+        left: auto;
+        right: 0;
+      }
+
+      html:not(.keyboard-open) .bottom-nav button {
+        width: 40px;
+        min-width: 40px;
+        height: 40px;
+        justify-content: center;
+        padding: 0;
+        border-radius: 12px;
+      }
+
+      html:not(.keyboard-open) .bottom-nav button span {
+        display: none;
+      }
+
+      html:not(.keyboard-open) .bottom-nav button svg {
+        width: 19px;
+        height: 19px;
+        margin: 0;
+      }
+
+      /* Dashboard bottom area: badge on left, help on right */
+      html:not(.keyboard-open) .header-right {
+        justify-content: space-between;
+        padding-inline-start: 13px;
+        padding-inline-end: 0;
+        width: 100%;
+      }
+
+      /* Compact landscape exposes Help beside the role badge. */
+      html:not(.keyboard-open) .header-help-btn {
+        display: flex;
+        background: transparent;
+        color: var(--text-sub);
+        border: none;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        align-items: center;
+        justify-content: center;
+        margin-inline-start: 0;
+        /* Match the 29px visual inset used by the compact sidebar. */
+        margin-inline-end: 13px;
+        transition:
+          color 0.15s,
+          background 0.15s;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      /* Active state: when the guide (help) tab is currently visible */
+
+      html:not(.keyboard-open) .header-help-btn:active {
+        background: var(--surface-2);
+      }
+
+      html:not(.keyboard-open) .header-help-btn svg {
+        width: 19px;
+        height: 19px;
+        margin: 0;
+      }
+    }
+
+    /* Only a practically unusable sliver of viewport gives up the logo a
+       second time. Once it does, reclaim the former logo rail as well so the
+       icon row is centred in all space above the bottom role controls. */
+    @media (max-height: 180px) {
+      html:not(.keyboard-open) #app-logo {
+        display: none;
+      }
+
+      html:not(.keyboard-open) .bottom-nav {
+        top: calc((var(--app-height, 100dvh) - 54px) / 2);
+        /* JS publishes --app-height on the next animation frame after a
+           resize. Modern dynamic viewport units cap that one-frame stale
+           value immediately; older engines keep the compatible line above. */
+        top: calc((min(var(--app-height, 100vh), 100dvh) - 54px) / 2);
+      }
+    }
+  }
+  /* iPad standalone portrait uses the sidebar layout but still needs its real top safe-area inset. */
+  @media (min-width: 720px) and (max-width: 1279px) and (orientation: portrait) {
+    html.ios-standalone header {
+      padding-top: calc(29px + var(--safe-top));
+    }
+
+    html.ios-standalone .tab-content.active {
+      padding-top: calc(16px + var(--safe-top));
+    }
+
+    html.ios-standalone .chat-drawer[data-chat-snap='full'] {
+      padding-top: var(--safe-top);
+    }
+
+    html.ios-standalone #media-source-overlay,
+    html.ios-standalone #youtube-url-overlay {
+      padding-top: calc(8px + var(--safe-top));
+    }
+
+    html.ios-standalone #setup-overlay .desktop-step-header {
+      padding-top: calc(var(--setup-head-py) + var(--safe-top));
+    }
+  }
+  @media (min-width: 720px) {
+    #setup-overlay {
+      /* ── Dimension tokens (landscape defaults) ── */
+
+      left: 0;
+      width: 100%;
+      padding: 0;
+    }
+
+    #setup-overlay .setup-card.full-screen {
+      display: grid;
+      grid-template-columns: 1fr var(--setup-panel-w);
+      grid-template-rows: 1fr;
+      overflow: hidden;
+      border-radius: 0;
+      border: none;
+      background: transparent;
+      padding: 0;
+    }
+
+    /* Left column: brand / diagram */
+    #setup-desktop-brand {
+      display: flex;
+      flex: 1;
+      background: var(--bg);
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: flex-start;
+      text-align: left;
+      padding-inline-start: var(--safe-left);
+      color: var(--text-main);
+      position: relative;
+      overflow: hidden;
+    }
+
+    #setup-desktop-brand .brand-content {
+      display: none;
+    }
+
+    .desktop-step-header {
+      display: block;
+      padding: var(--setup-head-py) var(--setup-head-px) 0;
+      width: 100%;
+      z-index: 2;
+    }
+
+    .desktop-step-header .logo-svg {
+      height: var(--setup-logo-h);
+      width: auto;
+      margin: 0;
+    }
+
+    .desktop-step-header .setup-brand-greeting-stage {
+      margin-top: 0;
+      margin-bottom: var(--setup-h2-mb);
+    }
+
+    .desktop-step-header .setup-brand-greeting-stage > .logo-welcome {
+      transform: translateY(var(--setup-logo-mt));
+    }
+
+    .desktop-step-header h2 {
+      font-size: var(--setup-h2);
+      font-weight: var(--font-weight-display);
+      letter-spacing: -0.03em;
+      color: var(--text-main);
+      margin-bottom: var(--setup-heading-margin, var(--setup-h2-mb));
+      line-height: 1.2;
+    }
+
+    .desktop-step-header p {
+      font-size: var(--setup-p);
+      color: var(--text-sub);
+      opacity: 0.75;
+      line-height: var(--setup-p-lh);
+    }
+
+    .desktop-diagram-area {
+      display: flex;
+      flex: 1;
+      width: 100%;
+      align-items: center;
+      justify-content: center;
+      padding: var(--setup-diagram-pad);
+      position: relative;
+      overflow: visible;
+    }
+
+    /* Hide headers from right panel (mirrored to left) */
+    #setup-overlay .setup-mobile-view .setup-header-text {
+      display: none;
+    }
+
+    /* Right column: interactive panel */
+    #setup-overlay .setup-mobile-view {
+      width: var(--setup-panel-w);
+      min-width: var(--setup-panel-w);
+      background: var(--setup-panel-bg);
+      height: 100%;
+      padding: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    /* Content areas: center vertically */
+    #setup-overlay #setup-welcome-area,
+    #setup-overlay #setup-code-area,
+    #setup-overlay #setup-join-area,
+    #setup-overlay #setup-auto-join-area,
+    #setup-overlay #setup-role-area {
+      flex: 1;
+      flex-direction: column;
+      justify-content: center;
+      align-items: stretch;
+    }
+
+    /* Content padding inside right panel */
+    .setup-mobile-view > div:not(.ob-actions):not(.setup-header-pill):not(.cscroll-track) {
+      padding-inline-start: var(--setup-px);
+      padding-inline-end: var(--setup-px-end);
+    }
+
+    /* Actions bar at bottom of right column */
+    #setup-overlay .setup-mobile-view .ob-actions {
+      background: var(--setup-panel-bg);
+      padding: var(--setup-actions-top) var(--setup-px-end) var(--setup-actions-bottom)
+        var(--setup-px);
+      border-top: none;
+      margin-top: auto;
+      flex-shrink: 0;
+    }
+
+    /* ── Diagram containers ── */
+    .desktop-diagram-area .setup-graphic-container {
+      width: 100%;
+      max-width: none;
+      max-height: none;
+      height: auto;
+      min-height: 0;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .desktop-diagram-area .setup-graphic-svg {
+      max-width: var(--setup-svg-max);
+      width: 100%;
+      height: auto;
+    }
+
+    .desktop-diagram-area .setup-guide-unified {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--setup-guide-gap);
+      margin: 0;
+      margin-top: var(--setup-guide-mt);
+    }
+
+    .desktop-diagram-area .setup-host-invite-stage {
+      width: 100%;
+      margin: 0;
+    }
+
+    .desktop-diagram-area .setup-guest-qr-stage {
+      width: min(360px, 40vw, 48vh);
+      width: min(360px, 40vw, 48dvh);
+      margin: 0;
+    }
+
+    .desktop-diagram-area .setup-host-qr {
+      width: min(360px, 40vw, 48vh);
+      width: min(360px, 40vw, 48dvh);
+    }
+
+    .desktop-diagram-area .setup-qr-scan-button,
+    .desktop-diagram-area .setup-qr-camera {
+      width: 84%;
+    }
+
+    .desktop-diagram-area .setup-guide-unified .setup-graphic-svg {
+      max-width: var(--setup-guide-svg-max);
+      height: var(--setup-guide-svg-h);
+    }
+
+    .desktop-diagram-area .setup-unified-item .setup-inner-desc {
+      font-size: var(--setup-guide-desc);
+    }
+
+    /* ── Onboarding slider in left panel ── */
+    .desktop-diagram-area #ob-slider-area {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .desktop-diagram-area .ob-slider-viewport {
+      width: var(--setup-slider-w);
+    }
+
+    .desktop-diagram-area .ob-nav-row {
+      margin-top: var(--setup-nav-mt);
+    }
+
+    .desktop-diagram-area .ob-icon-circle {
+      width: var(--setup-icon);
+      height: var(--setup-icon);
+      margin-bottom: 3px;
+    }
+
+    .desktop-diagram-area .ob-icon-circle svg {
+      width: var(--setup-icon-svg);
+      height: var(--setup-icon-svg);
+    }
+
+    .desktop-diagram-area .ob-slide .ob-title {
+      font-size: var(--setup-ob-title);
+      margin-bottom: var(--setup-ob-title-mb);
+    }
+
+    .desktop-diagram-area .ob-slide .ob-desc {
+      font-size: var(--setup-ob-desc);
+      line-height: 1.5;
+    }
+
+    .desktop-diagram-area .ob-nav-arrow {
+      display: var(--setup-nav-arrow);
+    }
+
+    .desktop-diagram-area .ob-dot {
+      width: 8px;
+      height: 8px;
+    }
+
+    .desktop-diagram-area .ob-dot.active {
+      width: 24px;
+    }
+  }
+
+  @media (min-width: 720px) {
+    body.demo-mobile.viz-spectrum .demo-visualizer-slot .vinyl-wrapper {
+      height: clamp(170px, min(62%, 48vh), 440px);
+      max-height: 100%;
+      margin: 0;
+      align-self: center;
+    }
+  }
+  html:not(.ios-standalone) body {
+    max-height: var(--app-height, 100dvh);
+  }
+  .onboarding-overlay {
+    max-height: var(--app-height, 100dvh);
+  }
+
+  .onboarding-overlay .setup-card.full-screen {
+    height: var(--app-height, 100dvh);
+    max-height: var(--app-height, 100dvh);
+  }
+
+  .onboarding-overlay .setup-mobile-view {
+    max-height: var(--app-height, 100dvh);
+    overflow-y: auto;
+  }
+}
+
+/* Active UI states own presentation while mounted: playback mode, entrance, overlay stacking, demo chrome and fullscreen. */
+
+@layer states {
+  /* The setup controller owns visibility; responsive rules own block/flex layout. */
+  .ob-slider-block[hidden] {
+    display: none;
+  }
+  header.loading .header-loading-text {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) {
+    background: rgba(255, 59, 48, 0.08);
+    color: #ff3b30;
+  }
+
+  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) svg {
+    fill: #ff3b30;
+  }
+
+  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) span {
+    color: #ff3b30;
+  }
+
+  body.mode-system-audio #btn-media-source:not(.sys-audio-guest):hover {
+    background: rgba(255, 59, 48, 0.12);
+  }
+
+  body.mode-system-audio #btn-media-source:not(.sys-audio-guest):active {
+    background: rgba(255, 59, 48, 0.18);
+  }
+  @media (hover: none), (pointer: coarse) {
+    body.mode-system-audio #btn-media-source:not(.sys-audio-guest):hover:not(:active) {
+      background: rgba(255, 59, 48, 0.08);
+    }
+  }
+  /* Entrance motion owns opacity/transform while the class is present. Sidebar layout supplies centering tokens; the boot guard explicitly excludes these deliberate entrance targets, and reduced motion disables them in safety. */
+  .app-entrance {
+    opacity: 0;
+    transition:
+      opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--entrance-delay, 0ms);
+  }
+
+  .app-entrance.app-entrance-down {
+    transform: translateY(-20px);
+  }
+
+  .app-entrance.app-entrance-up {
+    transform: var(--app-entrance-up-transform, translateY(20px));
+  }
+
+  .app-entrance.app-entrance-right {
+    transform: translateX(-30px);
+  }
+
+  .app-entrance.app-entrance-left {
+    transform: translateX(30px);
+  }
+
+  .app-entrance.app-entered {
+    opacity: 1;
+    transform: var(--app-entered-transform, none);
+  }
+  /* A full-height chat must remain below full-screen setup/media overlays, irrespective of responsive drawer geometry. */
+  body:has(#setup-overlay.active) .chat-drawer,
+  body:has(#media-source-overlay.active) .chat-drawer,
+  body:has(#youtube-url-overlay.active) .chat-drawer {
+    z-index: 1000;
+  }
+
+  body.demo-chrome-hiding .bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(20px);
+    transition:
+      opacity 0.28s ease,
+      transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-delay: 0ms;
+  }
+
+  body.mode-demo header,
+  body.mode-demo .bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  body.mode-demo .bottom-nav {
+    transform: translateY(20px);
+  }
+  @media (min-width: 720px) and (max-width: 1279px) {
+    body:has(#setup-overlay.active) header,
+    body.overlay-open:has(#setup-overlay.active) header {
+      pointer-events: none;
+      opacity: 0;
+    }
+    header.loading .header-right.header-default-content {
+      transform: none;
+      opacity: 1;
+    }
+    body:has(#setup-overlay.active) .bottom-nav,
+    body:has(#media-source-overlay.active) .bottom-nav,
+    body:has(#youtube-url-overlay.active) .bottom-nav,
+    body.overlay-open .bottom-nav {
+      opacity: 0;
+      pointer-events: none;
+      z-index: 2502;
+      transform: translateY(-50%) translateX(30px);
+    }
+    body:has(#media-source-overlay.active) header,
+    body:has(#youtube-url-overlay.active) header {
+      z-index: 2501;
+    }
+    body:has(#media-source-overlay.active) .bottom-nav,
+    body:has(#youtube-url-overlay.active) .bottom-nav {
+      opacity: 1;
+      pointer-events: auto;
+      z-index: 2502;
+      transform: translateY(-50%);
+    }
+    @media (max-height: 300px) {
+      html:not(.keyboard-open) body:has(#tab-guide.active) .header-help-btn {
+        color: var(--primary);
+      }
+    }
+  }
+  /* Browser-fullscreen fallback owns the physical viewport and temporarily replaces the normal tab/video geometry. */
+  body.has-fake-fullscreen .bottom-nav {
+    display: none;
+  }
+
+  body.has-fake-fullscreen .tab-content.active {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    padding: 0;
+    margin: 0;
+    transform: none;
+    z-index: 99999;
+    /* Disable touch scroll container which creates buggy containing blocks on iOS */
+    -webkit-overflow-scrolling: auto;
+  }
+
+  body.has-fake-fullscreen .tab-body {
+    position: static;
+    width: 100vw;
+    height: var(--tab-fullscreen-height, 100dvh);
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    overflow-y: var(--tab-fullscreen-overflow-y, hidden);
+    padding-bottom: var(--tab-fullscreen-padding-bottom, 0px);
+  }
+
+  .video-wrapper.fake-fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 100000;
+    background-color: black;
+    border-radius: 0;
+    margin: 0;
+    /* Override base .video-wrapper constraints */
+    aspect-ratio: auto;
+    max-width: none;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .video-wrapper:fullscreen,
+  .video-wrapper:-webkit-full-screen {
+    border-radius: 0;
+  }
+  body.has-fake-fullscreen header {
+    display: none;
+  }
+}
+
+/* Intentional important guards only: inert fallback, bootstrap recovery and reduced motion. Ordinary layout and decoration never enter this layer. */
+
+@layer safety {
+  [inert] {
+    pointer-events: none !important;
+  }
+  html.setup-boot-block body {
+    animation: setup-boot-body-fail-open 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;
+  }
+
+  html.setup-boot-block body > .bootstrap-failure {
+    animation: setup-boot-failure-reveal 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;
+  }
+
+  html.setup-boot-failed .bootstrap-failure {
+    animation: none !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .app-entrance,
+    html.is-booting .app-entrance,
+    .bottom-nav.app-entrance.app-entrance-up {
+      transition: none !important;
+      transition-delay: 0ms !important;
+    }
+
+    .chat-drawer.app-chat-entrance {
+      animation: none !important;
+    }
+  }
+}
+
+/* System color ownership is intentionally unlayered: normal OS-palette declarations (icon fill and QR opt-out included) must outrank every presentation layer. The explicit important declarations below protect focus, selection and disabled controls. */
 
 @media (forced-colors: active) {
   :root {
@@ -12726,5 +12714,9 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
   .qr-svg path {
     stroke: #ffffff !important;
     fill: #ffffff !important;
+  }
+
+  .help-question-icon-cutout {
+    fill: Highlight;
   }
 }

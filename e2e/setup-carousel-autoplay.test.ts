@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
+import { injectPeerServer } from './helpers/peer-server.ts';
+import { useAnonymousAccountSession } from './helpers/context-factory.ts';
 
 const AUTOPLAY_DWELL_MS = 6_000;
 const FIRST_DWELL_MS = 3_000;
@@ -113,6 +115,49 @@ async function dispatchTouch(viewport: Locator, startX: number, endX: number): P
 }
 
 test.describe('setup carousel unobtrusive autoplay', () => {
+  test('restores the centered carousel after host and guest Back and breakpoint changes', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await injectPeerServer(page);
+    await useAnonymousAccountSession(page);
+    await openSetupCarousel(page);
+
+    const slider = page.locator('#ob-slider-area');
+    const expectDesktopCarousel = async () => {
+      await expect(page.locator('#desktop-diagram-area > #ob-slider-area')).toBeVisible();
+      await expect(slider).toHaveCSS('display', 'flex');
+      expect(await slider.evaluate((element) => element.style.display)).toBe('');
+      await expect
+        .poll(() =>
+          slider.evaluate((element) => {
+            const area = element.getBoundingClientRect();
+            const viewport = element.querySelector('.ob-slider-viewport')!.getBoundingClientRect();
+            return Math.abs(area.x + area.width / 2 - (viewport.x + viewport.width / 2));
+          }),
+        )
+        .toBeLessThan(1);
+    };
+
+    await expectDesktopCarousel();
+    for (const role of ['host', 'guest']) {
+      await page.locator(`#btn-setup-${role}`).click();
+      await expect(slider).toHaveJSProperty('hidden', true);
+      await expect(slider).toBeHidden();
+      await expect(page.locator('#btn-setup-back')).toBeVisible();
+      await page.locator('#btn-setup-back').click();
+      await expect(slider).toHaveJSProperty('hidden', false);
+      await expectDesktopCarousel();
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('#setup-welcome-area > #ob-slider-area')).toBeVisible();
+    await expect(slider).toHaveCSS('display', 'block');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expectDesktopCarousel();
+  });
+
   test('advances after three visible seconds, then keeps six-second reading intervals through wrapping', async ({
     page,
   }) => {

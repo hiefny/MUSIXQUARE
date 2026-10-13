@@ -529,8 +529,11 @@
                 <span class="lab">32 · radius-l</span>
               </div>
               <div class="radii-unit">
-                <div class="chip" style="width: 120px; height: 48px; border-radius: 999px"></div>
-                <span class="lab">999 · capsule recipe</span>
+                <div
+                  class="chip"
+                  style="width: 120px; height: 48px; border-radius: var(--radius-pill)"
+                ></div>
+                <span class="lab">999 · radius-pill</span>
               </div>
             </div>
           </div>
@@ -1307,9 +1310,7 @@
                 <div class="app-loading-header-progress" aria-hidden="true"></div>
                 <span class="editorial-wordmark app-loading-header-logo" aria-hidden="true"></span>
                 <span class="app-loading-header-status" aria-hidden="true">Loading...</span>
-                <span class="app-loading-header-badge" aria-hidden="true">
-                  HOST
-                </span>
+                <span class="app-loading-header-badge" aria-hidden="true"> HOST </span>
               </div>
             </div>
           </div>
@@ -1528,6 +1529,10 @@
           <div class="token-row">
             <span class="tok">--radius-s / m / l</span><span class="val">14 / 20 / 32px</span
             ><span class="use">Small controls, choice cards, and overlays</span>
+          </div>
+          <div class="token-row">
+            <span class="tok">--radius-pill</span><span class="val">999px</span
+            ><span class="use">Capsule buttons and interactive list rows</span>
           </div>
           <div class="token-row">
             <span class="tok">--list-row-height</span><span class="val">56px</span

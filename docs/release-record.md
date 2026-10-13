@@ -45,6 +45,14 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### App 8.10.9 준비
+
+- [ ] 컴포넌트 pill 토큰·CSS cascade 정리를 `app` / Developer API D1 `false`로
+  준비 중이다. 캐시는 `v670`, 새 의존성·스키마·비밀·바인딩·프로토콜·복구 floor는
+  없다. 사용자 배포 승인 범위에 포함되며, 최종 검증·exact-main CI·정식 배포가
+  완료되기 전에는 §1의 운영 버전을 변경하지 않는다.
+  [범위·전후 비교·검증](design/component-cascade-refactor-2026-10-13.md)
+
 ### 최근 해결 근거
 
 YouTube 최초 focus 검사와 후반 Tab 실패 항목은 PR #319, exact-main `dc69bda0`의

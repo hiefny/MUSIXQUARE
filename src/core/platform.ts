@@ -640,8 +640,8 @@ function endBootingPhase(): void {
  * Call once at app bootstrap.
  */
 export function initPlatform(): void {
-  // Suppress all transitions/animations during boot to prevent layout shaking.
-  // CSS html.is-booting * { transition: none !important } handles the rest.
+  // The CSS boot guard suppresses ordinary transitions to prevent shaking;
+  // deliberate entrance targets and reduced-motion guards are handled separately.
   try {
     const root = document.documentElement;
     root.classList.add('is-booting');

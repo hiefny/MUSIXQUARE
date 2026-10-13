@@ -2874,6 +2874,11 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* The single-column component layout owns its child placement. */
+  .component-grid > * {
+    grid-column: auto;
+  }
+
   .action-row {
     align-items: center;
     flex-wrap: nowrap;

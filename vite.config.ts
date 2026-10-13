@@ -51,11 +51,16 @@ function legacyCssPlugins() {
       postcssPlugin: 'musixquare-guard-legacy-layer-contract',
       Once(root) {
         root.walkAtRules('layer', (layer) => {
-          if (layer.params.trim() !== 'desktop') return;
+          const name = layer.params.trim();
+          // Presentation ownership follows normal layer precedence. A new
+          // important override would invert that order and recreate the
+          // specificity debt this boundary is intended to prevent. Explicit
+          // accessibility, input and boot safeguards live in base/safety.
+          if (!['desktop', 'components', 'responsive', 'states'].includes(name)) return;
           layer.walkDecls((declaration) => {
             if (declaration.important) {
               throw new Error(
-                `Legacy CSS desktop layer cannot contain !important: ${declaration.prop}`,
+                `Legacy CSS ${name} layer cannot contain !important: ${declaration.prop}`,
               );
             }
           });

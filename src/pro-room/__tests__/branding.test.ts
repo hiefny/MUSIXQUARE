@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { readFile } from 'node:fs/promises';
+import { parse as parseCss } from 'postcss';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
@@ -155,11 +156,14 @@ describe('PRO room branding', () => {
 
   it('yields either wordmark before collapsing the compact sidebar labels', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
-    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
-    const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
-    expect(compactStart).toBeGreaterThanOrEqual(0);
-    expect(compactEnd).toBeGreaterThan(compactStart);
-    const compactSidebarStyles = stylesheet.slice(compactStart, compactEnd);
+    const compactRules: string[] = [];
+    parseCss(stylesheet).walkAtRules('media', (rule) => {
+      if (rule.params === '(min-width: 720px) and (max-width: 1279px)') {
+        compactRules.push(rule.toString());
+      }
+    });
+    expect(compactRules.length).toBeGreaterThan(0);
+    const compactSidebarStyles = compactRules.join('\n');
 
     expect(compactSidebarStyles).toMatch(
       /#app-logo\s*{\s*flex-direction:\s*row;\s*align-items:\s*center;/,
@@ -168,7 +172,7 @@ describe('PRO room branding', () => {
       /html\[data-pro-room\]\s+#app-logo\s*\{\s*align-self:\s*flex-start;\s*margin-inline-start:\s*13px;/,
     );
     expect(compactSidebarStyles).toMatch(
-      /@media\s*\(max-height:\s*370px\)[\s\S]*?html:not\(\.keyboard-open\) #app-logo\s*\{\s*display:\s*none\s*!important;/,
+      /@media\s*\(max-height:\s*370px\)[\s\S]*?html:not\(\.keyboard-open\) #app-logo\s*\{\s*display:\s*none\s*;/,
     );
     expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*300px\)/);
     expect(compactSidebarStyles.indexOf('@media (max-height: 370px)')).toBeLessThan(

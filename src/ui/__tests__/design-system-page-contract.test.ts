@@ -762,15 +762,17 @@ describe('public design-system page contract', () => {
     expect(copy).not.toMatch(/24[×x]24 viewbox, single path/iu);
   });
 
-  it('does not advertise design-page recipes as production tokens', () => {
+  it('documents the production pill token while keeping example-only scales separate', () => {
     const advertisedTokens = [...designDocument.querySelectorAll('.tokens .tok')].map((token) =>
       (token.textContent ?? '').trim(),
     );
 
-    expect(advertisedTokens).not.toContain('--radius-pill');
+    const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+    expect(advertisedTokens).toContain('--radius-pill');
+    expect(customPropertyValue(designTokenStylesheet, '--radius-pill')).toBe('999px');
+    expect(customPropertyValue(appStylesheet, '--radius-pill')).toBe('999px');
     expect(advertisedTokens.some((token) => /^--space-/u.test(token))).toBe(false);
     expect(advertisedTokens.some((token) => /^--(?:ease|dur)-/u.test(token))).toBe(false);
-    expect(designTokenStylesheet).not.toMatch(/^\s*--radius-pill\s*:/mu);
     expect(designTokenStylesheet).toMatch(
       /Documentation-only scale aliases[\s\S]*not production :root tokens/iu,
     );

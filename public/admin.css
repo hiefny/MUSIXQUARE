@@ -507,7 +507,8 @@ p {
   margin: 0;
 }
 
-.pro-grant-campaign-panel button {
+/* Panel defaults yield to campaign cards and shared input affordances. */
+.pro-grant-campaign-panel :where(button) {
   display: inline-flex;
   min-height: 36px;
   align-items: center;
@@ -641,27 +642,27 @@ p {
 
 .pro-grant-campaign-item {
   position: relative;
-  display: grid !important;
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
-  min-height: 72px !important;
+  min-height: 72px;
   justify-items: start;
   gap: 3px 8px;
-  border-radius: var(--radius) !important;
-  padding: 12px 13px !important;
-  background: var(--surface-2) !important;
-  color: var(--text-main) !important;
+  border-radius: var(--radius);
+  padding: 12px 13px;
+  background: var(--surface-2);
+  color: var(--text-main);
   text-align: left;
   transition: background 180ms ease;
-  white-space: normal !important;
+  white-space: normal;
 }
 
 .pro-grant-campaign-item:hover {
-  background: rgba(var(--primary-rgb), 0.04) !important;
+  background: rgba(var(--primary-rgb), 0.04);
 }
 
 .pro-grant-campaign-item[aria-pressed='true'] {
-  background: rgba(var(--primary-rgb), 0.08) !important;
+  background: rgba(var(--primary-rgb), 0.08);
 }
 
 .pro-grant-campaign-item > strong {
@@ -674,7 +675,7 @@ p {
   white-space: nowrap;
 }
 
-.pro-grant-campaign-item > span:not(.pro-grant-campaign-item-state) {
+.pro-grant-campaign-item > :where(span:not(.pro-grant-campaign-item-state)) {
   grid-column: 1 / -1;
   color: var(--text-muted);
   font-size: 11px;
@@ -705,7 +706,7 @@ p {
 }
 
 .pro-grant-campaign-pending {
-  color: var(--warn) !important;
+  color: var(--warn);
 }
 
 .pro-grant-campaign-empty {
@@ -1562,8 +1563,9 @@ p {
   line-height: 1.2;
 }
 
-.pro-room-transfer-form > p,
-.pro-room-owner-detach-form > p {
+/* Copy defaults yield to the note and error components below. */
+.pro-room-transfer-form > :where(p),
+.pro-room-owner-detach-form > :where(p) {
   color: var(--text-sub);
   font-size: 13px;
   line-height: 1.55;
@@ -1605,15 +1607,15 @@ p {
 .pro-room-owner-detach-note {
   border-left: 2px solid rgba(var(--primary-rgb), 0.55);
   padding-left: 11px;
-  color: var(--text-muted) !important;
-  font-size: 11px !important;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .pro-room-transfer-error,
 .pro-room-owner-detach-error {
   min-height: 1.4em;
-  color: var(--fail) !important;
-  font-size: 12px !important;
+  color: var(--fail);
+  font-size: 12px;
 }
 
 .pro-room-transfer-actions,
@@ -2770,6 +2772,7 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+/* Semantic visibility wins over each component's flex/grid display. */
 [hidden] {
   display: none !important;
 }
@@ -3107,6 +3110,7 @@ p {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Accessibility policy overrides component transition declarations. */
   * {
     transition: none !important;
   }
@@ -3435,7 +3439,8 @@ p {
   }
 }
 
-/* Text-field clear affordances stay beside their editors for dialog and keyboard ownership. */
+/* This cross-component decorator reserves its measured button space even when an
+   input owns more-specific or inline padding. Preserve that priority contract. */
 .clearable-editor-active {
   padding-inline-end: calc(
     var(--clearable-editor-base-padding-inline-end, 0px) +

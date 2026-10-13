@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { parse as parseCss } from 'postcss';
 import { describe, expect, it } from 'vitest';
 
 const relativeLuminance = (hex: string): number => {
@@ -94,7 +95,11 @@ describe('OS contrast accessibility styles', () => {
     const forcedStart = css.indexOf('@media (forced-colors: active)', prefersStart);
     const coreCss = css.slice(0, css.indexOf("html[data-contrast='more']"));
     const manualCss = css.slice(css.indexOf("html[data-contrast='more']"), prefersStart);
-    const prefersCss = css.slice(prefersStart, forcedStart);
+    const contrastMedia: string[] = [];
+    parseCss(css).walkAtRules('media', (rule) => {
+      if (rule.params === '(prefers-contrast: more)') contrastMedia.push(rule.toString());
+    });
+    const prefersCss = contrastMedia.join('\n');
     const forcedCss = css.slice(forcedStart);
     const structuralDeclaration =
       /^\s*(?:border(?:-[\w-]+)?|box-shadow|filter|opacity|outline(?:-[\w-]+)?|text-decoration(?:-[\w-]+)?|transform):/mu;

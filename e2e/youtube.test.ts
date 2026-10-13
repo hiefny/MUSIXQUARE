@@ -10,12 +10,14 @@ import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import { installFakeYt } from './helpers/fake-yt.ts';
 import {
   navigateToTab,
+  navigateToSubtab,
   readState,
   readPlaybackProjection,
   waitForClass,
   waitForPlaylistCount,
   waitForPlaybackProjection,
   waitForPlaybackProjectionIn,
+  waitForState,
 } from './helpers/wait.ts';
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
@@ -217,6 +219,78 @@ test.describe('YouTube Integration', () => {
     await expect(subNames).toHaveCount(YT_PLAYLIST_VIDEO_IDS.length);
     await expect(subNames.first()).toHaveText('MUSIXQUARE E2E Video', { timeout: 10_000 });
   });
+
+  for (const entry of ['host chat', 'administrator input'] as const) {
+    test(`${entry} preserves a complete playlist and advances from video 200 to 201`, async () => {
+      const videoIds = Array.from(
+        { length: 201 },
+        (_, index) => `v${String(index).padStart(10, '0')}`,
+      );
+      await pair.hostPage.route(/\/api\/youtube-playlist-manifest(?:\?|$)/, (route) =>
+        route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            playlistId: YT_PLAYLIST_ID,
+            videoId: videoIds[0],
+            videoIds,
+            title: 'Complete playlist beyond the iframe window',
+          }),
+        }),
+      );
+      if (entry === 'administrator input') {
+        await navigateToTab(pair.hostPage, 'settings');
+        await navigateToSubtab(pair.hostPage, 'connect');
+        await pair.hostPage.locator('.d-op-btn:visible').first().click();
+        await waitForState(pair.guestPage, 'network.isOperator', true);
+        await submitYouTubeUrl(pair.guestPage, YT_PLAYLIST);
+      } else {
+        await pair.hostPage.evaluate((url) => {
+          const bus = (
+            window as unknown as {
+              __MUSIXQUARE_BUS__: { emit: (type: string, ...args: unknown[]) => void };
+            }
+          ).__MUSIXQUARE_BUS__;
+          bus.emit('youtube:load-from-chat', url);
+        }, YT_PLAYLIST);
+      }
+      for (const page of [pair.hostPage, pair.guestPage]) {
+        await expect
+          .poll(async () => {
+            const map = (await readState(page, 'youtube.subItemsMap')) as Record<
+              string,
+              { ids: string[] }
+            >;
+            return map[YT_PLAYLIST_ID]?.ids;
+          })
+          .toEqual(videoIds);
+      }
+      await navigateToTab(pair.hostPage, 'playlist');
+      const video200 = pair.hostPage.locator('#playlist-ui .sub-track-item[data-sub-index="199"]');
+      if (!(await video200.isVisible())) {
+        await pair.hostPage.locator('#playlist-ui .playlist-entry .expand-toggle').first().click();
+      }
+      await video200.click();
+      await waitForState(pair.hostPage, 'youtube.currentSubIndex', 199);
+      await waitForState(pair.guestPage, 'youtube.currentSubIndex', 199);
+      await navigateToTab(pair.hostPage, 'play');
+      await pair.hostPage.locator('#btn-next').click();
+      await waitForState(pair.hostPage, 'youtube.currentSubIndex', 200);
+      await waitForState(pair.guestPage, 'youtube.currentSubIndex', 200);
+      await expect
+        .poll(async () => {
+          return pair.guestPage.evaluate(() => {
+            const player = (
+              window as unknown as {
+                __fakeYtLastPlayer?: { getVideoData: () => { video_id: string } };
+              }
+            ).__fakeYtLastPlayer;
+            return player?.getVideoData().video_id;
+          });
+        })
+        .toBe(videoIds[200]);
+      await waitForPlaylistCount(pair.hostPage, 1);
+    });
+  }
 
   test('selecting an uploaded local audio track leaves YouTube ownership', async () => {
     await submitYouTubeUrl(pair.hostPage, YT_VIDEO);

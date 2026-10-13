@@ -1949,8 +1949,8 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     const handle = installYtNamespace(player);
     initYouTube();
     wireStopAllMediaChain();
-    // File-mode room adds a YouTube playlist → deferred-navigation arms an
-    // indexing session (≤1 cached sub-items) and constructs the player.
+    // The retained low-level iframe indexer still fences errors. Standard
+    // additions use the complete manifest API rather than this partial view.
     setPlaybackFilePlaying();
     setState('playlist.items', [
       {
@@ -1962,7 +1962,8 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
       },
     ]);
     setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
-    bus.emit('youtube:load', 'vidEntry000', 'PL_BROKEN', QUEUE_ITEM_ID, false, 0);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    loadYouTubeVideo('vidEntry000', 'PL_BROKEN', false, 0, { indexingCallback: vi.fn() });
     expect(stateMod.isYtIndexing()).toBe(true);
 
     const nextTrack = vi.fn();

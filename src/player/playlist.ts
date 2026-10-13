@@ -10,6 +10,10 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { batchSetState as publishPreloadPromotion, getState, setState } from '../core/state.ts';
 import { getPlaylistSubItems } from '../youtube/queue-manifest.ts';
+import {
+  cancelStandardPlaylistSelection,
+  prepareStandardPlaylistSelection,
+} from '../youtube/standard-playlist.ts';
 import { MSG, WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST } from '../core/constants.ts';
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../core/timers.ts';
@@ -706,6 +710,7 @@ export async function playTrack(
   subIndex?: number,
   options: PlayTrackOptions = {},
 ): Promise<void> {
+  cancelStandardPlaylistSelection();
   if (
     deferStandardHostManualNavigation('track selection', () =>
       playTrack(queueItemId, subIndex, options),
@@ -718,6 +723,21 @@ export async function playTrack(
   const item = indexHint >= 0 ? playlist[indexHint] : null;
   if (!item) {
     if (playlist.length === 0) showToast(t('toast.no_tracks'));
+    return;
+  }
+
+  // An old iframe-derived cache may stop at 200 IDs. Resolve before selecting
+  // or stopping any media, so an unavailable manifest leaves playback intact.
+  if (
+    item.type === 'youtube' &&
+    item.playlistId &&
+    getRoomContext().kind === 'standard' &&
+    !getState('network.hostConn') &&
+    getPlaylistSubItems(item)?.manifestComplete !== true
+  ) {
+    await prepareStandardPlaylistSelection(queueItemId, () =>
+      playTrack(queueItemId, subIndex, options),
+    );
     return;
   }
 
@@ -1143,7 +1163,7 @@ export async function playTrack(
       const resolvedSubIndex = requestedTrackSubIndex ?? 0;
       const broadcastVideoId = (hostIds && hostIds[resolvedSubIndex]) || (item.videoId ?? null);
       const hasIndexedManifest = Boolean(
-        item.playlistId && hostIds && (hostEntry?.manifestComplete === true || hostIds.length > 1),
+        item.playlistId && hostIds && hostEntry?.manifestComplete === true,
       );
       // A populated manifest already gives us the exact sub-video. Keep the
       // playlistId on queue/meta/network state for navigation, but do not pass

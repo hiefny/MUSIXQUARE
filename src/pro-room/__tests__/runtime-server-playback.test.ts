@@ -8,6 +8,9 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { getManagedTimer } from '../../core/timers.ts';
 import { capturePlaylistQueueModeState } from '../../player/playlist.ts';
+import { createPlaylistSnapshot } from '../../player/queue-model.ts';
+import { updateSubItemIds } from '../../youtube/_state.ts';
+import { getPlaylistSubItems } from '../../youtube/queue-manifest.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import { t } from '../../i18n/index.ts';
 import * as toastUi from '../../ui/toast.ts';
@@ -40,6 +43,7 @@ import {
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
 import { ProRoomPlaybackController } from '../playback-controller.ts';
+import { ProRoomSessionController } from '../session-controller.ts';
 import { requestProRoomTransportRecovery } from '../transport-recovery.ts';
 import { captureProRoomLocalPlaybackTimeline } from '../local-playback-timeline.ts';
 import { refreshProSystemAudioState } from '../system-audio-service.ts';
@@ -363,6 +367,120 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     registerProPlaybackMediaEndpoint(null);
     for (const spy of restoreSpies.splice(0).reverse()) spy.mockRestore();
     resetState();
+  });
+
+  function savedYouTubePlaylists(): ProRoomSnapshot {
+    return {
+      ...snapshot(),
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          name: 'Earlier saved occurrence',
+          source: {
+            kind: 'youtube',
+            videoId: VIDEO_ID,
+            playlistId: 'PL_SHARED_SAVED',
+            videoIds: [VIDEO_ID, ADDED_VIDEO_ID],
+          },
+        },
+        {
+          queueItemId: ADDED_QUEUE_ITEM_ID,
+          name: 'Later saved occurrence',
+          source: {
+            kind: 'youtube',
+            videoId: VIDEO_ID,
+            playlistId: 'PL_SHARED_SAVED',
+            videoIds: [VIDEO_ID, 'jNQXAC9IVRw'],
+          },
+        },
+      ],
+    };
+  }
+
+  it('restores saved YouTube manifests atomically on a cache-empty PRO reentry', async () => {
+    const saved = savedYouTubePlaylists();
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(saved);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(saved);
+    // A just-added playlist has this preview cache, hiding a lost local manifest.
+    updateSubItemIds('PL_SHARED_SAVED', [VIDEO_ID, ADDED_VIDEO_ID], { manifestComplete: true });
+    for (let reentry = 0; reentry < 2; reentry++) {
+      requestProRoomLeave();
+      await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+      setState('youtube.subItemsMap', {}); // A new document has no preview cache.
+      const observed: unknown[] = [];
+      const unsubscribe = bus.on('state:playlist.items', () => {
+        const items = getState('playlist.items');
+        if (!items.length) return;
+        observed.push({
+          manifests: items.map((item) => item.youtubeVideoIds),
+          revision: getState('playlist.revision'),
+          current: getState('playlist.currentQueueItemId'),
+        });
+      });
+      try {
+        await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      } finally {
+        unsubscribe();
+      }
+      expect(observed).toEqual([
+        {
+          manifests: [
+            [VIDEO_ID, ADDED_VIDEO_ID],
+            [VIDEO_ID, 'jNQXAC9IVRw'],
+          ],
+          revision: 2,
+          current: null,
+        },
+      ]);
+      expect(getState('youtube.subItemsMap')['PL_SHARED_SAVED']).toBeUndefined();
+      expect(getState('playlist.items').map((item) => getPlaylistSubItems(item)?.ids)).toEqual([
+        [VIDEO_ID, ADDED_VIDEO_ID],
+        [VIDEO_ID, 'jNQXAC9IVRw'],
+      ]);
+      // The local projection must not expand the ordinary room's wire format.
+      expect(createPlaylistSnapshot().list.every((item) => !('youtubeVideoIds' in item))).toBe(
+        true,
+      );
+    }
+  });
+
+  it('preserves occurrence manifests through snapshot reorder, stale replies and cache eviction', async () => {
+    const saved = savedYouTubePlaylists();
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockResolvedValue(saved);
+    acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+    await vi.waitFor(() => expect(getState('playlist.revision')).toBe(2));
+    const reordered = {
+      ...saved,
+      revision: 3,
+      playlistRevision: 3,
+      playlist: [...saved.playlist].reverse(),
+    };
+    heartbeat.mockResolvedValue(reordered);
+    acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+    await vi.waitFor(() => expect(getState('playlist.revision')).toBe(3));
+    const acceptedItems = getState('playlist.items');
+    expect(acceptedItems.map((item) => getPlaylistSubItems(item)?.ids)).toEqual([
+      [VIDEO_ID, 'jNQXAC9IVRw'],
+      [VIDEO_ID, ADDED_VIDEO_ID],
+    ]);
+
+    const acceptance = vi.spyOn(ProRoomSessionController.prototype, 'heartbeat');
+    restoreSpies.push(acceptance);
+    heartbeat.mockResolvedValue(saved);
+    acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+    await vi.waitFor(() => expect(acceptance).toHaveBeenCalled());
+    await expect(acceptance.mock.results.at(-1)?.value).rejects.toThrow('PRO_ROOM_SNAPSHOT_STALE');
+    expect(getState('playlist.revision')).toBe(3);
+    expect(getState('playlist.items')).toBe(acceptedItems);
+    for (let index = 0; index < 50; index++) updateSubItemIds(`PL_OTHER_${index}`, [VIDEO_ID]);
+    expect(getState('youtube.subItemsMap')[`pro-queue:${QUEUE_ITEM_ID}`]).toBeUndefined();
+    expect(getState('playlist.items').map((item) => getPlaylistSubItems(item)?.ids)).toEqual([
+      [VIDEO_ID, 'jNQXAC9IVRw'],
+      [VIDEO_ID, ADDED_VIDEO_ID],
+    ]);
   });
 
   it('projects optional entry protection from canonical snapshots and ignores older policy', async () => {

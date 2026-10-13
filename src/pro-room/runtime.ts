@@ -43,7 +43,7 @@ import {
   type ProRoomSettingsSyncSnapshot,
   type RoomEffectsState,
 } from '../core/room-effects.ts';
-import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
+import { applyPlaylistProjection, moveQueueItemBefore } from '../player/queue-model.ts';
 import { liveAudioBufferPcmBytes, setPendingRecoveryTarget } from '../player/_state.ts';
 import {
   isAudioDecodeAdmissionError,
@@ -59,7 +59,7 @@ import { schedulePreload } from '../storage/preload.ts';
 import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import { resolveYouTubePlaylistManifest } from '../youtube/search.ts';
 import { hasRoomCapability, resetRoomContext, setRoomContext } from '../rooms/authority.ts';
-import type { PlaylistItem, PlaylistWireItem, QueueItemId, RoomContext } from '../types/index.ts';
+import type { PlaylistItem, QueueItemId, RoomContext } from '../types/index.ts';
 import {
   parseProQueueAdditionFrame,
   type ProQueueAdditionFrame,
@@ -612,19 +612,6 @@ function scheduleLegacyYouTubeManifestUpgrades(
   }
 }
 
-function playlistWireItems(items: readonly PlaylistItem[]): PlaylistWireItem[] {
-  return items.map((item) => ({
-    queueItemId: item.queueItemId,
-    type: item.type,
-    name: item.name,
-    ...(item.title === undefined ? {} : { title: item.title }),
-    ...(item.artist === undefined ? {} : { artist: item.artist }),
-    ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
-    videoId: item.videoId,
-    playlistId: item.playlistId,
-  }));
-}
-
 function attachCachedFiles(snapshot: ProRoomSnapshot): void {
   if (!mediaTransfer) return;
   const sourceById = new Map(snapshot.playlist.map((item) => [item.queueItemId, item]));
@@ -778,13 +765,13 @@ async function applyProjectedPlaylist(
       ? { removedCurrent: false, successorQueueItemId: null }
       : resolveProRoomRemovalTransition(previousItems, playlist, previousCurrent, null);
     const payload = {
-      list: playlistWireItems(playlist),
+      list: playlist,
       // The room revision, unlike playlistRevision, also advances when the
       // selected item changes. It is therefore the safe legacy queue clock.
       revision: snapshot.revision,
       currentQueueItemId: projectedCurrent,
     };
-    const outcome = applyPlaylistSnapshot(payload, firstProjection ? 'rebase' : 'monotonic');
+    const outcome = applyPlaylistProjection(payload, firstProjection ? 'rebase' : 'monotonic');
     if (outcome === 'invalid' || outcome === 'stale' || outcome === 'conflict') {
       throw new Error(`PRO_ROOM_PLAYLIST_PROJECTION_${outcome.toUpperCase()}`);
     }

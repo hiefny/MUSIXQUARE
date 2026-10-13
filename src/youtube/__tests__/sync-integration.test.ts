@@ -4647,7 +4647,7 @@ describe('YouTube Sync — Regression Integration', () => {
         },
       ] as never);
       setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
-      setState('youtube.subItemsMap', { PL_NAV: { ids, titles: [] } });
+      setState('youtube.subItemsMap', { PL_NAV: { ids, titles: [], manifestComplete: true } });
     }
 
     it('hands next sub-video selection to the canonical playlist occurrence loader', async () => {

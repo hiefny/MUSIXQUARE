@@ -230,6 +230,12 @@ export const DURATION_CACHE_EPSILON = 0.05;
  *  player UX: "back" means "restart" if > 3s into the track). */
 export const PREV_TRACK_RESTART_THRESHOLD_SEC = 3;
 
+// ─── Complete Playlist Acquisition ────────────────────────────────────
+
+/** Includes capability acquisition and the complete paginated manifest body.
+ *  Operator mutation feedback must outlive this host-side preparation. */
+export const YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS = 60_000;
+
 // ─── oEmbed Title Fetch ──────────────────────────────────────────────
 
 export const OEMBED_CACHE_MAX = 100;

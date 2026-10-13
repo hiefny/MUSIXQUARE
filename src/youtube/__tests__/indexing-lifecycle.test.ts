@@ -81,6 +81,7 @@ vi.mock('../search.ts', () => ({
   isYouTubeLiveUrl: vi.fn(() => false),
   getYouTubeInputIntent: vi.fn(() => ({ kind: 'invalid-url' })),
   getPrefetchedYouTubePlaylistManifest: vi.fn(() => null),
+  resolveYouTubePlaylistManifest: vi.fn(),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
   clearYouTubeInputState: vi.fn(),
@@ -248,10 +249,9 @@ afterEach(() => {
   delete (window as unknown as { onYouTubeIframeAPIReady?: unknown }).onYouTubeIframeAPIReady;
 });
 
-/** Arm an indexing session via the deferred-playlist-navigation flow
- *  ('youtube:load' with <= 1 cached sub-items). Returns nothing — callers
- *  assert on module state / mocks. */
-async function armIndexingViaDeferredNavigation(
+/** Exercise the retained low-level iframe indexing lifecycle directly. Standard
+ * queue additions/navigation no longer trust its partial list as complete. */
+async function armNativeIndexing(
   videoId: string,
   playlistId: string,
   autoplay = false,
@@ -274,7 +274,11 @@ async function armIndexingViaDeferredNavigation(
   setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
   initYouTube();
   wireStopAllMediaChain();
-  bus.emit('youtube:load', videoId, playlistId, YOUTUBE_QUEUE_ITEM_ID, autoplay, subIndex);
+  const { loadYouTubeVideo } = await import('../iframe.ts');
+  const { updateSubItemIds } = await import('../_state.ts');
+  loadYouTubeVideo(videoId, playlistId, autoplay, subIndex, {
+    indexingCallback: (ids) => updateSubItemIds(playlistId, ids),
+  });
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -429,7 +433,7 @@ describe('YouTube indexing session lifecycle', () => {
     const { stopYouTubeMode } = await import('../player.ts');
     installYtNamespace(createMockYtPlayer());
 
-    await armIndexingViaDeferredNavigation('vidEntry', 'PL_EXIT');
+    await armNativeIndexing('vidEntry', 'PL_EXIT');
     expect(stateMod.isYtIndexing()).toBe(true);
 
     showLoaderMock.mockClear();
@@ -449,7 +453,7 @@ describe('YouTube indexing session lifecycle', () => {
     const stateMod = await import('../_state.ts');
     installYtNamespace(createMockYtPlayer());
 
-    await armIndexingViaDeferredNavigation('vidEntry', 'PL_ARM');
+    await armNativeIndexing('vidEntry', 'PL_ARM');
 
     // Clear-then-arm runs AFTER the player:stop-all-media transient stop, so
     // the session armed for this load must still be live once the load returns.
@@ -477,7 +481,7 @@ describe('YouTube indexing session lifecycle', () => {
     ] satisfies PlaylistItem[]);
     setState('playlist.currentQueueItemId', FILE_QUEUE_ITEM_ID);
 
-    await armIndexingViaDeferredNavigation('vidEntry', 'PL_MID');
+    await armNativeIndexing('vidEntry', 'PL_MID');
     expect(stateMod.isYtIndexing()).toBe(true);
 
     stopYouTubeMode(); // user-driven mode exit mid-index
@@ -498,46 +502,42 @@ describe('YouTube indexing session lifecycle', () => {
     );
   });
 
-  it('happy path: deferred navigation from file mode indexes, completes, and lands on the requested sub-index', async () => {
+  it('deferred navigation acquires a complete server manifest without cueing a native playlist', async () => {
     const stateMod = await import('../_state.ts');
-    const player = createMockYtPlayer(['a', 'b', 'c']);
-    const yt = installYtNamespace(player);
-
+    const { initYouTube } = await import('../player.ts');
+    const { resolveYouTubePlaylistManifest } = await import('../search.ts');
+    const player = createMockYtPlayer(['partial']);
+    installYtNamespace(player);
+    vi.mocked(resolveYouTubePlaylistManifest).mockResolvedValueOnce({
+      playlistId: 'PL_HAPPY',
+      videoId: 'a',
+      videoIds: ['a', 'b', 'c'],
+      title: 'Playlist',
+    });
     setPlaybackFilePlaying();
     setState('playlist.items', [
       {
         queueItemId: YOUTUBE_QUEUE_ITEM_ID,
         type: 'youtube',
-        videoId: 'vidA',
+        videoId: 'a',
         playlistId: 'PL_HAPPY',
         name: 'Playlist',
       },
-    ] satisfies PlaylistItem[]);
+    ]);
     setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
-
-    await armIndexingViaDeferredNavigation('vidA', 'PL_HAPPY', true, 1);
-    expect(stateMod.isYtIndexing()).toBe(true);
-    // The transient stop's sub-index reset (-1) must be healed by the cue
-    // branch before CUED arrives.
-    expect(getState('youtube.currentSubIndex')).toBe(0);
-    expect(player.cuePlaylist).not.toHaveBeenCalled(); // fresh create cues via playerVars
-
-    yt.fireStateChange(5); // CUED → first poll (sync) → schedules step 2
-    lastTimerCallback('yt-indexing-poll')?.(); // step 2: count stabilized → onComplete
-
-    // Callback consumed the IDs and navigated to the requested sub-index.
-    expect(getState('youtube.subItemsMap')['PL_HAPPY']?.ids).toEqual(['a', 'b', 'c']);
-    expect(broadcastMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MSG.YOUTUBE_PLAYLIST_INFO,
-        playlistId: 'PL_HAPPY',
-        ids: ['a', 'b', 'c'],
-      }),
+    initYouTube();
+    wireStopAllMediaChain();
+    bus.emit('youtube:load', 'a', 'PL_HAPPY', YOUTUBE_QUEUE_ITEM_ID, false, 1);
+    await vi.waitFor(() => expect(stateMod.getYouTubePlayer()).toBe(player));
+    expect(getState('youtube.subItemsMap').PL_HAPPY).toMatchObject({
+      ids: ['a', 'b', 'c'],
+      manifestComplete: true,
+    });
+    expect(window.YT?.Player).toHaveBeenCalledWith(
+      'youtube-player',
+      expect.objectContaining({ videoId: 'b' }),
     );
-    expect(player.loadVideoById).toHaveBeenCalledWith('b');
-    expect(getState('youtube.currentSubIndex')).toBe(1);
-    expect(getState('playlist.items')[0].isExpanded).toBe(true);
-    // Session fully released after completion.
+    expect(player.cuePlaylist).not.toHaveBeenCalled();
     expect(stateMod.isYtIndexing()).toBe(false);
   });
 
@@ -562,6 +562,7 @@ describe('YouTube indexing session lifecycle', () => {
     setState('youtube.subItemsMap', {
       PL_CACHED: {
         ids: ['cachedFirst', 'cachedSecond', 'cachedThird'],
+        manifestComplete: true,
         titles: [],
       },
     });
@@ -645,19 +646,12 @@ describe('YouTube indexing session lifecycle', () => {
     expect(player.cuePlaylist).not.toHaveBeenCalled();
   });
 
-  it('index-before-add: pasted playlist with a non-empty idle queue auto-plays after indexing (isIdle contract)', async () => {
+  it('adds a complete playlist to a non-empty idle queue without taking over playback', async () => {
     const stateMod = await import('../_state.ts');
     const { initYouTube } = await import('../player.ts');
-    const { getYouTubeInputIntent } = await import('../search.ts');
-    const { showToast } = await import('../../ui/toast.ts');
-    const player = createMockYtPlayer(['iba1', 'iba2', 'iba3']);
-    const yt = installYtNamespace(player);
-
-    // Non-empty queue while IDLE (tracks loaded, never played): the
-    // `(isCompatIdle() && playlistWasEmpty)` term of _addYouTubeToPlaylist's
-    // isIdle is false, so the takeover below rides exclusively on the
-    // `|| isYtIndexing()` term — the index-then-autoplay contract. It only
-    // holds because the poll clears the session AFTER the callback runs.
+    const { getYouTubeInputIntent, resolveYouTubePlaylistManifest } = await import('../search.ts');
+    const player = createMockYtPlayer(['partial']);
+    installYtNamespace(player);
     setState('playlist.items', [
       {
         queueItemId: FILE_QUEUE_ITEM_ID,
@@ -666,8 +660,7 @@ describe('YouTube indexing session lifecycle', () => {
         videoId: null,
         playlistId: null,
       },
-    ] satisfies PlaylistItem[]);
-
+    ]);
     const url = 'https://www.youtube.com/watch?v=ibaEntry000&list=PL_IBA';
     const input = document.createElement('div');
     input.id = 'youtube-url-input';
@@ -680,38 +673,26 @@ describe('YouTube indexing session lifecycle', () => {
       playlistId: 'PL_IBA',
       query: null,
     });
-
+    vi.mocked(resolveYouTubePlaylistManifest).mockResolvedValueOnce({
+      playlistId: 'PL_IBA',
+      videoId: 'iba1',
+      videoIds: ['iba1', 'iba2', 'iba3'],
+      title: 'Playlist',
+    });
     initYouTube();
     wireStopAllMediaChain();
     bus.emit('youtube:load-from-input');
-
-    // The second arm site (index-before-add) routes through the same
-    // clear-then-arm step inside loadYouTubeVideo.
-    expect(stateMod.isYtIndexing()).toBe(true);
-    expect(showLoaderMock).toHaveBeenCalledWith(true, 'youtube.indexing_playlist');
-
-    yt.fireStateChange(5); // CUED → first poll (sync) → schedules step 2
-    lastTimerCallback('yt-indexing-poll')?.(); // step 2: count stabilized → onComplete
-
-    // The callback added the playlist and TOOK OVER playback (not queued):
-    // currentQueueItemId points at the new entry and the host broadcast
-    // YOUTUBE_PLAY in single-video mode (playlistId nulled, entry video only).
-    expect(getState('youtube.subItemsMap')['PL_IBA']?.ids).toEqual(['iba1', 'iba2', 'iba3']);
-    expect(getState('playlist.items')).toHaveLength(2);
-    const addedQueueItemId = getState('playlist.items')[1]?.queueItemId;
-    expect(getState('playlist.currentQueueItemId')).toBe(addedQueueItemId);
-    expect(showToast).not.toHaveBeenCalledWith('youtube.added_to_playlist');
-    expect(broadcastMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MSG.YOUTUBE_PLAY,
-        videoId: 'iba1',
-        playlistId: null,
-        queueItemId: addedQueueItemId,
-      }),
+    await vi.waitFor(() => expect(getState('playlist.items')).toHaveLength(2));
+    expect(getState('youtube.subItemsMap').PL_IBA).toMatchObject({
+      ids: ['iba1', 'iba2', 'iba3'],
+      manifestComplete: true,
+    });
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+    expect(showToastMock).toHaveBeenCalledWith('youtube.added_to_playlist');
+    expect(broadcastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.YOUTUBE_PLAY }),
     );
-    // Session fully released after completion: the callback's own nested load
-    // cleared it (clear-then-arm), and the poll's guarded post-callback clear
-    // must not clobber anything armed during the callback.
+    expect(player.cuePlaylist).not.toHaveBeenCalled();
     expect(stateMod.isYtIndexing()).toBe(false);
   });
 
@@ -720,7 +701,7 @@ describe('YouTube indexing session lifecycle', () => {
     const player = createMockYtPlayer(['x1', 'x2']);
     const yt = installYtNamespace(player);
 
-    await armIndexingViaDeferredNavigation('vidEntry', 'PL_STALE');
+    await armNativeIndexing('vidEntry', 'PL_STALE');
     expect(stateMod.isYtIndexing()).toBe(true);
 
     // User pastes a plain video mid-index: mode is youtube + player is live,
@@ -754,7 +735,7 @@ describe('YouTube indexing session lifecycle', () => {
     const player = createMockYtPlayer(['r1', 'r2']);
     const yt = installYtNamespace(player);
 
-    await armIndexingViaDeferredNavigation('vidEntry', 'PL_RETAIN');
+    await armNativeIndexing('vidEntry', 'PL_RETAIN');
     expect(stateMod.isYtIndexing()).toBe(true);
 
     // The exact room occurrence is parked on the owned silent prime while the
@@ -782,7 +763,7 @@ describe('YouTube indexing session lifecycle', () => {
     const stateMod = await import('../_state.ts');
     // No window.YT: the script attempt itself must own a real bounded deadline;
     // managed outer timers are mocked in this suite and cannot rescue it.
-    await armIndexingViaDeferredNavigation('vidEntry', 'PL_TIMEOUT');
+    await armNativeIndexing('vidEntry', 'PL_TIMEOUT');
     expect(stateMod.isYtIndexing()).toBe(true);
     expect(stateMod.isYtScriptLoading()).toBe(true);
 
@@ -798,7 +779,7 @@ describe('YouTube indexing session lifecycle', () => {
 
   it('recovers from a hung script and fences late settlement away from the retry', async () => {
     const stateMod = await import('../_state.ts');
-    await armIndexingViaDeferredNavigation('vidEntry', 'PL_HUNG');
+    await armNativeIndexing('vidEntry', 'PL_HUNG');
     const firstScript = document.querySelector<HTMLScriptElement>(
       'script[src*="youtube.com/iframe_api"]',
     );
@@ -810,7 +791,8 @@ describe('YouTube indexing session lifecycle', () => {
     expect(stateMod.isYtScriptLoading()).toBe(false);
 
     showToastMock.mockClear();
-    bus.emit('youtube:load', 'retryVideo', 'PL_RETRY', YOUTUBE_QUEUE_ITEM_ID, false, 0);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    loadYouTubeVideo('retryVideo', 'PL_RETRY', false, 0, { indexingCallback: vi.fn() });
     const secondScript = document.querySelector<HTMLScriptElement>(
       'script[src*="youtube.com/iframe_api"]',
     );
@@ -847,13 +829,16 @@ describe('YouTube indexing session lifecycle', () => {
     const yt = installYtNamespace(player);
 
     // Arm S1 and let its first poll step get scheduled.
-    await armIndexingViaDeferredNavigation('e1', 'PL_1');
+    await armNativeIndexing('e1', 'PL_1');
     yt.fireStateChange(5);
     const stalePollStep = lastTimerCallback('yt-indexing-poll');
     expect(stalePollStep).toBeDefined();
 
     // Arm S2 over the live S1 (reuse branch → clear-then-arm replaces it).
-    bus.emit('youtube:load', 'e2', 'PL_2', YOUTUBE_QUEUE_ITEM_ID, false, 0);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    loadYouTubeVideo('e2', 'PL_2', false, 0, {
+      indexingCallback: (ids) => stateMod.updateSubItemIds('PL_2', ids),
+    });
     expect(stateMod.isYtIndexing()).toBe(true);
     // The replacement's loader must be live (not stomped by the S1 clear).
     const lastLoaderCall = showLoaderMock.mock.calls[showLoaderMock.mock.calls.length - 1];

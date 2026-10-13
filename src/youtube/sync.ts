@@ -1,3 +1,4 @@
+import { setYouTubeNativeControlHostAdActive } from './native-control-authority.ts';
 /**
  * MUSIXQUARE — YouTube Sync
  *
@@ -652,6 +653,7 @@ export function resetAdDetection(): void {
   _rt.lastHostSyncTime = null;
   _rt.hostTimeStaleCount = 0;
   _rt.hostAdPauseActive = false;
+  setYouTubeNativeControlHostAdActive(false);
 }
 
 /** Suppress drift correction + state sync for the given duration.
@@ -1010,6 +1012,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         if (_rt.hostTimeStaleCount >= HOST_AD_STALE_THRESHOLD) {
           if (!_rt.hostAdPauseActive) {
             _rt.hostAdPauseActive = true;
+            setYouTubeNativeControlHostAdActive(true);
             if (player.pauseVideo) player.pauseVideo();
             showToast(t('toast.host_ad'));
             log.debug('[YouTube Sync] Host ad detected. Pausing guest');
@@ -1021,6 +1024,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         // Host time is moving again
         if (_rt.hostAdPauseActive) {
           _rt.hostAdPauseActive = false;
+          setYouTubeNativeControlHostAdActive(false);
           resumeAfterHostAd = true;
           // The ordinary state-recovery path below restores the audible target.
           log.debug('[YouTube Sync] Host ad ended');
@@ -1034,6 +1038,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       _rt.lastHostSyncTime = null;
       if (_rt.hostAdPauseActive) {
         _rt.hostAdPauseActive = false;
+        setYouTubeNativeControlHostAdActive(false);
       }
     }
 

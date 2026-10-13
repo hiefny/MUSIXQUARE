@@ -16,7 +16,7 @@
  *   - Real iframe startup adds network latency to every test.
  *
  * The stub handles: playVideo, pauseVideo, stopVideo, seekTo, loadVideoById,
- * loadPlaylist, playVideoAt, nextVideo, previousVideo, setVolume, destroy,
+ * loadPlaylist, cuePlaylist, playVideoAt, nextVideo, previousVideo, setVolume, destroy,
  * and all the getter APIs the app uses. onReady fires after a 20ms delay to
  * model iframe lazy initialization.
  */
@@ -253,6 +253,21 @@ const FAKE_YT_INIT = `
       }
       self.__playlistIdx = idx || 0;
       self.__currentTime = Number.isFinite(start) ? start : 0;
+    };
+    self.cuePlaylist = function(playlist, idx, start) {
+      if (self.__destroyed) return;
+      pushLog('cuePlaylist', [playlist, idx, start], self);
+      ++self.__transitionGeneration;
+      if (Array.isArray(playlist)) {
+        self.__playlist = playlist;
+      } else if (playlist && playlist.list) {
+        self.__playlist = Array.isArray(playlist.list) ? playlist.list : [playlist.list];
+      }
+      self.__playlistIdx = Number.isFinite(idx) ? idx : (playlist && playlist.index) || 0;
+      self.__videoId = self.__playlist[self.__playlistIdx] || self.__videoId;
+      var objectStart = playlist && typeof playlist === 'object' ? playlist.startSeconds : undefined;
+      self.__currentTime = Number.isFinite(start) ? start : Number.isFinite(objectStart) ? objectStart : 0;
+      applyState(self, 5, true);
     };
     self.playVideoAt = function(idx) {
       if (self.__destroyed) return;

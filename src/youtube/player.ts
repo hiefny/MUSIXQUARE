@@ -18,6 +18,12 @@ import { getPlaylistSubItems, getPlaylistSubItemsKey } from './queue-manifest.ts
 import { MSG } from '../core/constants.ts';
 import { OrderedCommitLane } from '../core/ordered-commit-lane.ts';
 import { SessionScope } from '../core/session-scope.ts';
+import {
+  createStandardPlaylistScope,
+  resolveCompleteStandardPlaylist,
+  cancelStandardPlaylistSelection,
+  prepareStandardPlaylistSelection,
+} from './standard-playlist.ts';
 import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import {
@@ -277,7 +283,6 @@ import {
   getPrefetchedYouTubePlaylistManifest,
   getSelectedYouTubeSearchResult,
   searchYouTubeFromInput,
-  resolveYouTubePlaylistEntry,
   resolveYouTubePlaylistManifest,
   clearYouTubeInputState,
   fetchPlaylistSubTitles,
@@ -1740,12 +1745,6 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
 
 // ─── Sub-Video Navigation Helper ───────────────────────────────────
 
-function canReadSettledNativePlaylist(): boolean {
-  // cuePlaylist is asynchronous: until indexing/loading settles, getPlaylist
-  // can still contain IDs from the previous playlist in this retained iframe.
-  return !isYtIndexing() && !isYtLoadInProgress();
-}
-
 /**
  * Single-video navigation using the host-snapshotted subItemsMap.
  * The resolved occurrence is handed back to playlist.ts so manual navigation
@@ -1753,17 +1752,14 @@ function canReadSettledNativePlaylist(): boolean {
  * Calling loadVideoById here bypasses that handoff and lets stale iframe
  * callbacks alternate between a playable video and a black frame.
  *
- * If the subItemsMap is empty, tries emergency population from
- * `player.getPlaylist()` so that fast Next/Prev clicks work before the
- * background snapshot/fetcher fires.
+ * Legacy partial caches are repaired from the complete server manifest before
+ * deciding whether Next leaves the current playlist.
  */
 function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => void): void {
   if (isStandardHostManualOffsetTransactionPending()) {
     callback(false);
     return;
   }
-  const player = getYouTubePlayer();
-
   try {
     const currentTrack = getQueueItemById(getCurrentQueueItemId());
     const pid = currentTrack?.playlistId as string;
@@ -1772,52 +1768,31 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
       return;
     }
 
-    let subData = getPlaylistSubItems(currentTrack);
-
+    const subData = getPlaylistSubItems(currentTrack);
     if (
-      (!subData || !subData.ids.length) &&
-      !currentTrack.youtubeVideoIds &&
-      player?.getPlaylist &&
-      canReadSettledNativePlaylist()
+      getRoomContext().kind === 'standard' &&
+      !getState('network.hostConn') &&
+      subData?.manifestComplete !== true
     ) {
-      const ids = player.getPlaylist() || [];
-      if (ids.length > 0) {
-        updateSubItemIds(pid, ids);
-        subData = { ids, titles: [] }; // Locally use for this tick
-      }
+      // The outer queue tests this callback synchronously. Own the intent now,
+      // then re-enter the whole navigation once complete so its true boundary
+      // (including leaving this playlist) is evaluated exactly once.
+      callback(true);
+      void prepareStandardPlaylistSelection(currentTrack.queueItemId, () => {
+        if (direction === 1) bus.emit('playlist:next-track');
+        else bus.emit('playlist:prev-track');
+      }).catch((error) => {
+        log.warn('[YouTube] Playlist navigation failed:', error);
+      });
+      return;
     }
 
     const idx = getState('youtube.currentSubIndex') ?? -1;
     const targetIdx = idx + direction;
-    let inBounds =
+    const inBounds =
       direction === 1
         ? idx >= 0 && !!subData?.ids && idx < subData.ids.length - 1
         : idx > 0 && !!subData?.ids;
-
-    // Fallback: about to fall off the end forward, but the iframe may have
-    // lazily populated more items since the initial indexing snapshot.
-    // Re-read getPlaylist() and retry if the cached list was truncated.
-    if (
-      !inBounds &&
-      !currentTrack.youtubeVideoIds &&
-      direction === 1 &&
-      player?.getPlaylist &&
-      canReadSettledNativePlaylist()
-    ) {
-      try {
-        const freshIds = player.getPlaylist() || [];
-        if (freshIds.length > (subData?.ids?.length ?? 0)) {
-          log.info(
-            `[YouTube] navigate refresh: ${subData?.ids?.length ?? 0} -> ${freshIds.length} items`,
-          );
-          updateSubItemIds(pid, freshIds);
-          subData = { ids: freshIds, titles: subData?.titles || [] };
-          inBounds = idx >= 0 && idx < freshIds.length - 1;
-        }
-      } catch (e) {
-        log.debug('[YouTube] navigate refresh error:', e);
-      }
-    }
 
     if (inBounds && subData?.ids) {
       const targetVideoId = subData.ids[targetIdx];
@@ -2925,6 +2900,7 @@ export function initYouTube(): void {
         videoId: string;
         playlistId: string | null;
         title: string;
+        videoIds?: string[];
       }
     | {
         ok: false;
@@ -3004,13 +2980,14 @@ export function initYouTube(): void {
       return Promise.resolve({ ok: false, code: 'invalid-source' });
     }
 
-    if (!videoId && playlistId) {
-      return resolveYouTubePlaylistEntry(playlistId, signal)
+    if (playlistId) {
+      return resolveCompleteStandardPlaylist(playlistId, signal)
         .then((entry) => ({
           ok: true as const,
-          videoId: entry.videoId,
+          videoId: videoId && entry.videoIds.includes(videoId) ? videoId : entry.videoId,
           playlistId,
           title: data.title === data.sourceUrl ? entry.title : data.title,
+          videoIds: [...entry.videoIds],
         }))
         .catch((error): PreparedStandardOperatorYouTubeAdd => {
           if (signal.aborted) return { ok: false, code: 'cancelled' };
@@ -3049,12 +3026,16 @@ export function initYouTube(): void {
         sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'unauthorized');
         return;
       }
+      if (resolved.playlistId && resolved.videoIds) {
+        updateSubItemIds(resolved.playlistId, resolved.videoIds, { manifestComplete: true });
+      }
       _addYouTubeToPlaylist(
         resolved.videoId,
         resolved.playlistId,
         resolved.title,
         data.sourceUrl,
         actorName,
+        resolved.videoIds,
       );
       if (!isLiveStandardOperatorConnection(conn, roomCode)) return;
       settleStandardQueueMutationRequest(conn, data.requestId, { outcome: 'applied' });
@@ -3238,9 +3219,22 @@ export function initYouTube(): void {
   // Bus event handlers from other modules
   bus.on('youtube:stop-mode', (opts) => stopYouTubeMode(opts));
 
-  bus.on('youtube:restore-room-playback', (payload) => {
+  bus.on('youtube:restore-room-playback', async (payload) => {
     const hostConn = getState('network.hostConn');
     if (hostConn) return;
+
+    cancelStandardPlaylistSelection();
+    const restoreItem = getQueueItemById(payload.queueItemId);
+    if (
+      getRoomContext().kind === 'standard' &&
+      restoreItem?.playlistId &&
+      getPlaylistSubItems(restoreItem)?.manifestComplete !== true
+    ) {
+      await prepareStandardPlaylistSelection(payload.queueItemId, () => {
+        bus.emit('youtube:restore-room-playback', payload);
+      });
+      return;
+    }
 
     const playlistId = payload.playlistId ?? null;
     const subIndex = Math.max(0, payload.subIndex ?? 0);
@@ -3311,113 +3305,37 @@ export function initYouTube(): void {
 
   bus.on('youtube:load', (videoId, playlistId, queueItemId, autoplay, subIndex) => {
     if (queueItemId !== getCurrentQueueItemId()) return;
-    // Deferred-playlist navigation: when a playlist row was added to the
-    // queue while the iframe was busy with another track, its sub-items
-    // were never indexed. Navigating into it now needs the proper indexing
-    // flow with polling — going through plain loadYouTubeVideo would land
-    // on the createYouTubePlayer scrape path whose CUED handler reads
-    // getPlaylist() once and gives up with an empty list, leaving the
-    // iframe stranded in CUED with the loader still up.
-    //
-    // Treat <= 1 cached IDs as "not yet indexed". _addYouTubeToPlaylist
-    // pre-populates the map with the entry-point videoId alone (single-item
-    // placeholder so the row's expansion UI isn't empty), which a strict
-    // empty-check would mistake for a fully indexed list. Real indexed
-    // playlists land at length >= 2 (any genuinely-1-item playlist will
-    // simply re-index on each navigation — wasteful but harmless).
     const playlistIdStr = playlistId as string | null;
     const cachedEntry = playlistIdStr
       ? getPlaylistSubItems(getQueueItemById(queueItemId))
       : undefined;
     const cachedIds = cachedEntry?.ids || [];
-    const hasIndexedManifest =
-      !!playlistIdStr && (cachedEntry?.manifestComplete === true || cachedIds.length > 1);
-    const needsIndex = !!playlistIdStr && !hasIndexedManifest;
-
-    if (needsIndex) {
-      log.info(`[YouTube] Deferred playlist navigation. Indexing ${playlistIdStr} before play`);
-      const loadIndexedVideo = (resolvedVideoId: string, resolvedSubIndex: number): void => {
-        // Indexing and the resolved video are one selection, but the physical
-        // load replaces its session. Carry only an intent still owned by the
-        // indexing session; a pause, stop, or newer selection must stay canceled.
+    const hasIndexedManifest = !!playlistIdStr && cachedEntry?.manifestComplete === true;
+    if (
+      playlistIdStr &&
+      !hasIndexedManifest &&
+      getRoomContext().kind === 'standard' &&
+      !getState('network.hostConn')
+    ) {
+      // Defensive internal/restore seam. Ordinary playTrack repairs before
+      // selecting, and all new additions already carry a complete manifest.
+      void prepareStandardPlaylistSelection(queueItemId, () => {
+        if (queueItemId !== getCurrentQueueItemId()) return;
         const pending =
           _pendingAutoSyncOnReady && pendingAutoSyncMatchesCurrentOwner()
             ? (_pendingAutoSyncOptions ?? {})
             : null;
-        loadYouTubeVideo(resolvedVideoId, null, autoplay as boolean, resolvedSubIndex);
+        bus.emit('youtube:load', videoId, playlistId, queueItemId, autoplay, subIndex);
         if (pending) {
+          const ids = getPlaylistSubItems(getQueueItemById(queueItemId))?.ids || [];
+          const resolvedSubIndex = ids[subIndex ?? 0] ? (subIndex ?? 0) : 0;
           setPendingAutoSyncOnReady(true, {
             ...pending,
-            videoId: resolvedVideoId,
+            videoId: ids[resolvedSubIndex],
             subIndex: resolvedSubIndex,
           });
         }
-        // Title fetching belongs to the resolved load, after any stop boundary.
-        populateSubItemsForQueueItem(queueItemId);
-      };
-      const indexingCallback = (ids: string[]): void => {
-        if (queueItemId !== getCurrentQueueItemId() || !getQueueItemById(queueItemId)) return;
-        showLoader(false);
-        if (!ids || ids.length === 0) {
-          log.warn(
-            `[YouTube] Deferred indexing returned no IDs for ${playlistIdStr}. Falling back to entry-point video`,
-          );
-          showToast(t('youtube.fetch_failed'));
-          // Fallback: load the entry-point videoId in single-video mode so
-          // the user can at least play that one track. The playlist row
-          // stays in the queue but its sub-items list will remain empty
-          // until a subsequent successful index attempt.
-          loadIndexedVideo(videoId as string, 0);
-          return;
-        }
-        log.info(`[YouTube] Deferred indexing complete: ${ids.length} items for ${playlistIdStr}`);
-        updateSubItemIds(playlistIdStr!, ids);
-
-        // Broadcast the freshly indexed IDs to every guest. Without this,
-        // the guests are stuck on the single-item placeholder that
-        // playlist.ts's initial YOUTUBE_PLAYLIST_INFO broadcast carried
-        // (sent before the host had indexed): host saw the full sub-item
-        // list after navigating, every guest in the room saw just one row.
-        // Titles fill in lazily via per-item YOUTUBE_SUB_TITLE_UPDATE as
-        // the host plays through the videos. _triggerPlaylistSnapshot has
-        // its own broadcast for the heartbeat-driven snapshot path, but
-        // its `subMap empty` guard skips after our updateSubItemIds above.
-        const hostConn = getState('network.hostConn');
-        if (!hostConn) {
-          const subMap = getState('youtube.subItemsMap') || {};
-          const titles = subMap[playlistIdStr!]?.titles || [];
-          broadcast({
-            type: MSG.YOUTUBE_PLAYLIST_INFO,
-            playlistId: playlistIdStr,
-            ids,
-            titles,
-          });
-        }
-
-        // Expand the row (the deferred-add path left it collapsed because the
-        // pre-populated single-item placeholder wasn't a real index).
-        // Title population resumes after the physical iframe handoff below.
-        const currentPlaylist = getState('playlist.items') || [];
-        const actualIdx = findQueueItemIndex(queueItemId, currentPlaylist);
-        if (actualIdx !== -1) {
-          const updatedPlaylist = [...currentPlaylist];
-          updatedPlaylist[actualIdx] = { ...updatedPlaylist[actualIdx], isExpanded: true };
-          setState('playlist.items', updatedPlaylist);
-        }
-
-        const targetSubIdx = (subIndex as number) ?? 0;
-        const targetVideoId = ids[targetSubIdx] ?? ids[0];
-        // Re-enter loadYouTubeVideo with playlistId=null — the cued playlist
-        // is replaced with a single-video load. Sub-item navigation works
-        // from here on because subItemsMap is populated.
-        loadIndexedVideo(targetVideoId, targetSubIdx);
-      };
-      // Trigger the iframe to cue the playlist. loadYouTubeVideo arms the
-      // indexing session (and shows its loader) itself, AFTER the transient
-      // stop, so the session stays scoped to this load. createYouTubePlayer's
-      // (needsScrape || indexing) branch fires cuePlaylist, then onPlayerStateChange's
-      // CUED handler routes to _pollIndexingPlaylist which fires the callback above.
-      loadYouTubeVideo(videoId as string, playlistIdStr, false, 0, { indexingCallback });
+      }).catch((error) => log.warn('[YouTube] Deferred playlist selection failed:', error));
       return;
     }
 
@@ -4107,6 +4025,53 @@ export function initYouTube(): void {
     return queueItemId;
   }
 
+  const resolvingStandardPlaylists = new Map<string, SessionScope>();
+  function resolveAndAddStandardPlaylist(
+    playlistId: string,
+    title: string,
+    sourceUrl: string,
+    requestedVideoId: string | null,
+  ): void {
+    if (!canAppendPlaylistItems()) {
+      showToast(t('playlist.queue_full'));
+      return;
+    }
+    if (resolvingStandardPlaylists.has(playlistId)) return;
+    const scope = createStandardPlaylistScope();
+    if (scope.aborted) return;
+    resolvingStandardPlaylists.set(playlistId, scope);
+    const loaderId = `youtube-standard-playlist:${++_proPlaylistResolutionSequence}`;
+    showLoader(true, t('youtube.fetching_info'), loaderId);
+    scope.own(() => {
+      if (resolvingStandardPlaylists.get(playlistId) === scope) {
+        resolvingStandardPlaylists.delete(playlistId);
+      }
+      showLoader(false, undefined, loaderId);
+    });
+    void resolveCompleteStandardPlaylist(playlistId, scope.signal)
+      .then((manifest) => {
+        if (scope.aborted) return;
+        if (!canAppendPlaylistItems()) {
+          showToast(t('playlist.queue_full'));
+          return;
+        }
+        _addPrefetchedPlaylistFromGesture(
+          playlistId,
+          requestedVideoId,
+          title,
+          sourceUrl,
+          manifest,
+          () => !scope.aborted,
+        );
+      })
+      .catch((error) => {
+        if (scope.aborted) return;
+        log.warn('[YouTube] Standard playlist manifest resolution failed:', error);
+        showToast(t('youtube.fetch_failed'));
+      })
+      .finally(() => scope.dispose());
+  }
+
   function _resolveAndAddProPlaylist(
     playlistId: string,
     title: string,
@@ -4237,6 +4202,7 @@ export function initYouTube(): void {
     title: string,
     sourceUrl: string,
     manifest: YouTubePlaylistManifest,
+    isCurrent: () => boolean = () => true,
   ): boolean {
     if (manifest.playlistId !== playlistId || manifest.videoIds.length === 0) {
       return false;
@@ -4248,6 +4214,7 @@ export function initYouTube(): void {
     if (!concreteVideoId || !videoIds.includes(concreteVideoId)) return false;
 
     updateSubItemIds(playlistId, videoIds, { manifestComplete: true });
+    if (!isCurrent()) return false;
     const resolvedTitle = title && title !== sourceUrl ? title : manifest.title;
     _addYouTubeToPlaylist(
       concreteVideoId,
@@ -4305,7 +4272,7 @@ export function initYouTube(): void {
     let videoId = intent.videoId;
     let playlistId = intent.playlistId;
     let sourceUrl = rawInput;
-    let titleText = rawInput;
+    let titleText: string;
 
     if (intent.kind === 'search-query') {
       const selected = getSelectedYouTubeSearchResult(rawInput);
@@ -4382,47 +4349,11 @@ export function initYouTube(): void {
       return;
     }
 
-    // Index-before-Add flow for new playlists — only when IDLE. Indexing
-    // takes over the iframe (loadYouTubeVideo fires player:stop-all-media
-    // unconditionally), which would kill local-audio playback and break
-    // the "Add to Queue" contract the button label promises. When
-    // something's already playing, defer: add the playlist with just the
-    // entry-point videoId, and let playTrack() in playlist.ts handle the
-    // real indexing when the user actually plays it. Users pasting a
-    // YouTube URL with an auto-attached `&list=PL...` parameter (very
-    // common from YouTube share links) hit this path — previously the
-    // playlist silently overrode the currently playing local file.
-    const subMap = getState('youtube.subItemsMap') || {};
-    const playbackIsIdle = isCompatIdle();
-    if (playlistId && !subMap[playlistId]?.ids?.length && playbackIsIdle) {
-      log.info(
-        `[YouTube Index] New playlist detected: ${playlistId}. Starting sequential indexing...`,
-      );
-
-      const indexingCallback = (ids: string[]): void => {
-        showLoader(false);
-        if (!ids || ids.length === 0) {
-          showToast(t('youtube.fetch_failed'));
-          return;
-        }
-        log.info(
-          `[YouTube Index] Indexing complete! Captured ${ids.length} items. Adding to queue.`,
-        );
-        updateSubItemIds(playlistId!, ids);
-
-        // _addYouTubeToPlaylist already selects, expands, and starts title
-        // population after the iframe handoff. A delayed second populate used
-        // to abort and restart that fresh request 250 ms later.
-        _addYouTubeToPlaylist(ids[0], playlistId, titleText, sourceUrl);
-      };
-
-      // Trigger the player to index (via cuePlaylist in iframe.ts).
-      // loadYouTubeVideo arms the indexing session + loader itself
-      // (clear-then-arm), keeping the session scoped to this load.
-      loadYouTubeVideo(videoId, playlistId, false, 0, { indexingCallback });
-    } else {
-      _addYouTubeToPlaylist(videoId, playlistId, titleText, sourceUrl);
+    if (playlistId) {
+      resolveAndAddStandardPlaylist(playlistId, titleText, sourceUrl, videoId);
+      return;
     }
+    _addYouTubeToPlaylist(videoId, null, titleText, sourceUrl);
   });
 
   // YouTube refresh display (from tab switch)
@@ -4533,14 +4464,11 @@ export function initYouTube(): void {
     });
   });
 
+  const resolvingStandardSubItems = new Map<QueueItemId, SessionScope>();
   // Populate sub-items when expanding a YouTube playlist entry
   bus.on('youtube:populate-sub-items', (playlistId, queueItemId) => {
     if (!playlistId) return;
 
-    let ids: string[] = [];
-    const player = getYouTubePlayer();
-
-    // 1. Try to get IDs from current player if it matches the requested playlist
     const currentItem = getQueueItemById(queueItemId);
 
     // A persisted PRO snapshot already supplies the complete immutable list.
@@ -4564,24 +4492,43 @@ export function initYouTube(): void {
     }
 
     if (
-      player?.getPlaylist &&
-      canReadSettledNativePlaylist() &&
-      queueItemId === getCurrentQueueItemId() &&
-      currentItem?.playlistId === playlistId
+      getRoomContext().kind === 'standard' &&
+      !getState('network.hostConn') &&
+      currentItem?.playlistId === playlistId &&
+      getPlaylistSubItems(currentItem)?.manifestComplete !== true
     ) {
-      try {
-        ids = player.getPlaylist() || [];
-      } catch (e) {
-        log.debug('[YouTube] getPlaylist() not ready:', e);
-      }
-    }
-
-    // 2. Initial map setup
-    if (ids.length > 0) {
-      const subMap = getState('youtube.subItemsMap') || {};
-      if (!subMap[playlistId]?.ids?.length) {
-        updateSubItemIds(playlistId, ids);
-      }
+      if (resolvingStandardSubItems.has(queueItemId)) return;
+      const scope = createStandardPlaylistScope();
+      if (scope.aborted) return;
+      resolvingStandardSubItems.set(queueItemId, scope);
+      scope.own(() => {
+        if (resolvingStandardSubItems.get(queueItemId) === scope)
+          resolvingStandardSubItems.delete(queueItemId);
+      });
+      scope.own(
+        bus.on('state:playlist.items', () => {
+          if (getQueueItemById(queueItemId)?.playlistId !== playlistId) scope.dispose();
+        }),
+      );
+      void resolveCompleteStandardPlaylist(playlistId, scope.signal)
+        .then((manifest) => {
+          if (scope.aborted || getQueueItemById(queueItemId)?.playlistId !== playlistId) return;
+          updateSubItemIds(playlistId, manifest.videoIds, { manifestComplete: true });
+          broadcast({
+            type: MSG.YOUTUBE_PLAYLIST_INFO,
+            playlistId,
+            ids: manifest.videoIds,
+            titles: getState('youtube.subItemsMap')[playlistId]?.titles || [],
+          });
+          bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
+        })
+        .catch((error) => {
+          if (scope.aborted) return;
+          log.warn('[YouTube] Complete sub-item acquisition failed:', error);
+          showToast(t('youtube.fetch_failed'));
+        })
+        .finally(() => scope.dispose());
+      return;
     }
 
     // 3. Trigger background title fetcher (All roles)
@@ -4644,7 +4591,11 @@ export function initYouTube(): void {
 
     if (playlistId && _resolveAndAddProPlaylist(playlistId, url, url, videoId)) return;
 
-    _addYouTubeToPlaylist(videoId, playlistId, url, url);
+    if (playlistId) {
+      resolveAndAddStandardPlaylist(playlistId, url, url, videoId);
+      return;
+    }
+    _addYouTubeToPlaylist(videoId, null, url, url);
   });
 
   // Host: Send YouTube state to newly connected peer (late-join bootstrap)

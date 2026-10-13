@@ -21,6 +21,7 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import type { QueueItemId } from '../types/index.ts';
 import {
   getYouTubePlayer,
+  getCurrentSessionId,
   getYtAutoplayIntent,
   isYtIndexing,
   isYtLoadInProgress,
@@ -41,12 +42,17 @@ import {
   clearYouTubeStableControlExpectations,
   expectYouTubeStableActivity,
   instrumentYouTubeStableControls,
+  canObserveYouTubeNativeSeek,
+  getYouTubeControlRevision,
+  isYouTubeProgrammaticSeekPending,
+  observeYouTubeProgrammaticSeekState,
   type YouTubeStableActivity,
 } from './native-control-origin.ts';
 import {
   decideNativeYouTubeControlRoute,
   type NativeYouTubeMediaAction,
 } from './native-control-policy.ts';
+import { getLocalYouTubeAudibleOutputDelayMs } from './play-latency.ts';
 
 const RECENT_NATIVE_ACTION_MS = 2_500;
 const LOCAL_REJOIN_FALLBACK_MS = 250;
@@ -67,6 +73,37 @@ let scope: BusScope | null = null;
 let previousActivity: PlaybackActivityValue = getState('playback.activity');
 let recentNativeAction: RecentNativeAction | null = null;
 let pendingLocalRejoin: PendingLocalRejoin | null = null;
+interface PositionSample {
+  player: YouTubePlayerInstance;
+  queueItemId: QueueItemId;
+  sessionId: number;
+  videoId: string;
+  subIndex: number | null;
+  revision: number;
+  position: number;
+  duration: number;
+  state: number;
+  manualOffset: number;
+  outputOffset: number;
+  connection: object;
+  at: number;
+  wallAt: number;
+}
+let positionSample: PositionSample | null = null;
+let nativeSeek: { player: YouTubePlayerInstance; state: number; expiresAt: number } | null = null;
+let seekFeedback: { player: YouTubePlayerInstance; state: number } | null = null;
+let hostAdActive = false;
+
+function resetNativeSeekObservation(): void {
+  positionSample = null;
+  nativeSeek = null;
+  seekFeedback = null;
+}
+
+export function setYouTubeNativeControlHostAdActive(active: boolean): void {
+  if (hostAdActive !== active) positionSample = null;
+  hostAdActive = active;
+}
 
 function stableActivity(value: PlaybackActivityValue): YouTubeStableActivity | null {
   if (value === 'playing' || value === 'paused') return value;
@@ -145,8 +182,8 @@ function playerMatchesCurrentOccurrence(
 }
 
 /**
- * Preserve a trusted OS/headset PLAY long enough for PRO room authority
- * to observe and promote it. PRO pause commits deliberately leave
+ * Preserve a trusted OS/headset PLAY long enough for room authority
+ * to observe and promote it. Canonical pause commands deliberately leave
  * `ytAutoplayIntent=false`; without this pre-guard seam the iframe's
  * PLAYING callback immediately pauses back before playback activity can
  * reach the native-control authority listener.
@@ -155,15 +192,19 @@ function playerMatchesCurrentOccurrence(
  * queue occurrence may cross the guard. Application-owned play/load/cue
  * transitions retain the existing pause-back behaviour.
  */
-export function preserveNativeProControllerPlayBeforeAutoplayGuard(
+export function preserveNativeControllerPlayBeforeAutoplayGuard(
   player: YouTubePlayerInstance,
 ): boolean {
   if (
     getYtAutoplayIntent() ||
     getState('playback.mode') !== 'youtube' ||
-    getRoomContext().kind !== 'pro' ||
+    (getRoomContext().kind === 'standard' &&
+      !!getState('network.hostConn') &&
+      !getState('network.hostConn')?.open) ||
     !hasRoomCapability('playback.control') ||
     getYouTubePlayer() !== player ||
+    !canObserveYouTubeNativeSeek(player) ||
+    (seekFeedback?.player === player && seekFeedback.state === 1) ||
     hasProtectedTransitionOwner()
   ) {
     return false;
@@ -174,8 +215,125 @@ export function preserveNativeProControllerPlayBeforeAutoplayGuard(
   if (classifyYouTubeStableStateOrigin(player, 'playing') !== 'native') return false;
 
   setYtAutoplayIntent(true);
-  log.info('[YouTube Native Control] Preserved native PRO PLAY through autoplay guard');
+  log.info('[YouTube Native Control] Preserved native controller PLAY through autoplay guard');
   return true;
+}
+
+export function observeYouTubeNativeControlState(
+  player: YouTubePlayerInstance,
+  state: number,
+): void {
+  seekFeedback = null;
+  const programmatic = observeYouTubeProgrammaticSeekState(player, state);
+  const nativePending = nativeSeek?.player === player && performance.now() <= nativeSeek.expiresAt;
+  const nativePositionChange = observeYouTubeNativeControlPosition(player, programmatic);
+  if (programmatic || nativePending || nativePositionChange) seekFeedback = { player, state };
+  // Preserve this callback's origin above before relinquishing the operation.
+  if ((nativePending || nativePositionChange) && state === nativeSeek?.state) nativeSeek = null;
+}
+
+/** There is no cross-origin iframe seek event. Only infer a deliberate jump
+ * while that exact visible iframe has keyboard/pointer focus, between nearby
+ * samples of the same occurrence. Ambiguous gaps/ads/owned operations reset
+ * the baseline instead of moving the room. */
+export function observeYouTubeNativeControlPosition(
+  player: YouTubePlayerInstance,
+  programmaticCallback = false,
+): boolean {
+  const hostConn = getState('network.hostConn');
+  const focused = document.activeElement;
+  if (
+    getRoomContext().kind !== 'standard' ||
+    !hostConn?.open ||
+    !hasRoomCapability('playback.control') ||
+    getYouTubePlayer() !== player ||
+    getState('playback.mode') !== 'youtube' ||
+    document.hidden ||
+    hostAdActive ||
+    !(focused instanceof HTMLIFrameElement) ||
+    !focused.closest('#youtube-player-container') ||
+    hasProtectedTransitionOwner() ||
+    !canObserveYouTubeNativeSeek(player) ||
+    programmaticCallback ||
+    isYouTubeProgrammaticSeekPending(player)
+  ) {
+    positionSample = null;
+    return false;
+  }
+  try {
+    const queueItemId = getCurrentQueueItemId();
+    const videoId = player.getVideoData?.()?.video_id || '';
+    const state = player.getPlayerState();
+    const position = player.getCurrentTime();
+    const duration = player.getDuration();
+    if (
+      !queueItemId ||
+      !videoId ||
+      !playerMatchesCurrentOccurrence(player, queueItemId) ||
+      ![1, 2, 3].includes(state) ||
+      !Number.isFinite(position) ||
+      !Number.isFinite(duration) ||
+      duration <= 0
+    ) {
+      positionSample = null;
+      return false;
+    }
+    const previous = positionSample;
+    const manualOffset = getState('sync.youtubeLocalOffset') || 0;
+    const stableState = state === 3 ? (previous?.state ?? 3) : state;
+    const sample: PositionSample = {
+      player,
+      queueItemId,
+      sessionId: getCurrentSessionId(),
+      videoId,
+      subIndex: getState('youtube.currentSubIndex'),
+      revision: getYouTubeControlRevision(player),
+      position,
+      duration,
+      state: stableState,
+      manualOffset,
+      outputOffset:
+        manualOffset + (stableState === 1 ? getLocalYouTubeAudibleOutputDelayMs() / 1000 : 0),
+      connection: hostConn,
+      at: performance.now(),
+      wallAt: Date.now(),
+    };
+    positionSample = sample;
+    if (
+      !previous ||
+      previous.player !== player ||
+      previous.connection !== hostConn ||
+      previous.queueItemId !== queueItemId ||
+      previous.sessionId !== sample.sessionId ||
+      previous.videoId !== videoId ||
+      previous.subIndex !== sample.subIndex ||
+      previous.revision !== sample.revision ||
+      previous.manualOffset !== manualOffset ||
+      Math.abs(previous.duration - duration) > 0.5 ||
+      ![1, 2].includes(previous.state)
+    )
+      return false;
+    const elapsed = sample.at - previous.at;
+    if (elapsed < 0 || elapsed > 1_500 || Math.abs(sample.wallAt - previous.wallAt - elapsed) > 50)
+      return false;
+    const expected = previous.position + (previous.state === 1 ? elapsed / 1000 : 0);
+    if (Math.abs(position - expected) <= 1.5) return false;
+    // Keep this participant's manual/Android output lead out of room time.
+    // Use the pre-jump stable sample, not a transient seek PAUSED callback.
+    const target = Math.max(0, Math.min(position - previous.outputOffset, duration));
+    nativeSeek =
+      state === previous.state
+        ? null
+        : { player, state: previous.state, expiresAt: performance.now() + 1_000 };
+    setLocalYouTubePaused(false);
+    const sent = safeSend(hostConn, { type: MSG.REQUEST_SEEK, time: target, queueItemId });
+    if (!sent) nativeSeek = null;
+    else log.info('[YouTube Native Control] Requested standard-room seek');
+    return sent;
+  } catch {
+    positionSample = null;
+    return false;
+  }
 }
 
 function readCanonicalPosition(player: YouTubePlayerInstance): number {
@@ -304,12 +462,17 @@ function handlePlaybackActivity(nextActivity: unknown): void {
   const player = getYouTubePlayer();
   const queueItemId = getCurrentQueueItemId();
   if (!player || !queueItemId) return;
+  // An uninstrumentable seek method cannot distinguish correction feedback
+  // from iframe input. Keep the app's explicit controls as the safe path.
+  if (!canObserveYouTubeNativeSeek(player)) return;
 
   const origin = classifyYouTubeStableStateOrigin(player, next);
   if (origin === 'programmatic') {
     if (next === 'paused' && pendingLocalRejoin?.player === player) flushPendingLocalRejoin();
     return;
   }
+  if (seekFeedback?.player === player && seekFeedback.state === (next === 'playing' ? 1 : 2))
+    return;
   if (origin === 'unsupported' || hasProtectedTransitionOwner()) return;
   if (!playerMatchesCurrentOccurrence(player, queueItemId)) return;
 
@@ -322,6 +485,14 @@ export function initYouTubeNativeControlAuthority(): void {
   previousActivity = getState('playback.activity');
   recentNativeAction = null;
   pendingLocalRejoin = null;
+  positionSample = null;
+  nativeSeek = null;
+  seekFeedback = null;
+  hostAdActive = false;
+  document.removeEventListener('visibilitychange', resetNativeSeekObservation);
+  document.addEventListener('visibilitychange', resetNativeSeekObservation);
+  window.removeEventListener('blur', resetNativeSeekObservation);
+  window.addEventListener('blur', resetNativeSeekObservation);
   clearManagedTimer(LOCAL_REJOIN_TIMER);
 
   scope.on('youtube:player-ready', handlePlayerReady);
@@ -331,6 +502,9 @@ export function initYouTubeNativeControlAuthority(): void {
     clearManagedTimer(LOCAL_REJOIN_TIMER);
   });
   scope.on('state:playback.mode', () => {
+    positionSample = null;
+    nativeSeek = null;
+    seekFeedback = null;
     const player = getYouTubePlayer();
     if (getState('playback.mode') !== 'youtube') {
       clearYouTubeStableControlExpectations(player);
@@ -341,6 +515,16 @@ export function initYouTubeNativeControlAuthority(): void {
       ensureCurrentPlayerInstrumented();
     }
     previousActivity = getState('playback.activity');
+  });
+  scope.on('state:playlist.currentQueueItemId', () => {
+    positionSample = null;
+    nativeSeek = null;
+    seekFeedback = null;
+    clearYouTubeStableControlExpectations(getYouTubePlayer());
+  });
+  scope.on('state:sync.youtubeLocalOffset', () => {
+    resetNativeSeekObservation();
+    clearYouTubeStableControlExpectations(getYouTubePlayer());
   });
   scope.on('state:playback.activity', handlePlaybackActivity);
   ensureCurrentPlayerInstrumented();

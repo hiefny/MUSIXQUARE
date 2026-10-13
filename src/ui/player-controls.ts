@@ -711,7 +711,26 @@ function openYouTubePopup(returnFocus?: HTMLElement | null): void {
     }
     clearYouTubeInputState();
     const input = getUiElement('youtube-url-input') as HTMLElement | null;
-    if (input) setManagedTimer('yt-url-focus', () => input.focus(), 100);
+    if (input && overlay) {
+      setManagedTimer(
+        'yt-url-focus',
+        () => {
+          if (
+            !input.isConnected ||
+            !overlay.classList.contains('active') ||
+            overlay.closest('[inert]')
+          )
+            return;
+          // The modal stack may already have focused the input, and the user
+          // may have moved on. Only fill an unassigned initial focus slot.
+          const active = document.activeElement;
+          if (!active || active === document.body || active === overlay) {
+            input.focus({ preventScroll: true });
+          }
+        },
+        100,
+      );
+    }
   });
 }
 

@@ -103,7 +103,7 @@ const it: Record<I18nKey, string> = {
   'nav.connect': 'Connetti',
   'nav.playlist_compact': 'Playlist',
   'nav.connect_compact': 'Connetti',
-  'nav.settings_compact': 'Impostazioni',
+  'nav.settings_compact': 'Opzioni',
   'nav.go_home': 'Vai alla schermata principale',
 
   // ─── Player ──────────────────────────────────────────────────────

@@ -218,7 +218,7 @@ const es: Record<I18nKey, string> = {
   'player.sync_compact': 'Sinc.',
   'player.syncing_compact': 'Sinc.…',
   'player.play_media': 'Reproducir contenido',
-  'player.play_media_compact': 'Contenido',
+  'player.play_media_compact': 'Medios',
   'player.play_media_action': 'Reproducir contenido',
   'player.add_media': 'Añadir contenido',
   'player.play_start': 'Añadir a la cola',

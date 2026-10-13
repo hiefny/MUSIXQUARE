@@ -103,8 +103,8 @@ const uk: Record<I18nKey, string> = {
   'nav.help': 'Довідка',
   'nav.connect': 'Підключення',
   'nav.playlist_compact': 'Плейліст',
-  'nav.connect_compact': 'Підключення',
-  'nav.settings_compact': 'Налаштування',
+  'nav.connect_compact': 'Зв’язок',
+  'nav.settings_compact': 'Параметри',
   'nav.go_home': 'Перейти на головну',
 
   // ─── Програвач ───────────────────────────────────────────────────

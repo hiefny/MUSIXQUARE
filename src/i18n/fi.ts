@@ -104,7 +104,7 @@ const fi: Record<I18nKey, string> = {
   'nav.help': 'Ohje',
   'nav.connect': 'Yhteys',
   'nav.playlist_compact': 'Soittolista',
-  'nav.connect_compact': 'Yhteys',
+  'nav.connect_compact': 'Yhdistä',
   'nav.settings_compact': 'Asetukset',
   'nav.go_home': 'Siirry aloitukseen',
 

@@ -105,7 +105,7 @@ const ptBr: Record<I18nKey, string> = {
   'nav.connect': 'Conectar',
   'nav.playlist_compact': 'Playlist',
   'nav.connect_compact': 'Conectar',
-  'nav.settings_compact': 'Config.',
+  'nav.settings_compact': 'Ajustes',
   'nav.go_home': 'Ir para o início',
 
   // Role
@@ -216,7 +216,7 @@ const ptBr: Record<I18nKey, string> = {
   'player.repeat_mode': 'Alterar modo de repetição',
   'player.shuffle_mode': 'Alterar modo aleatório',
   'player.sync_compact': 'Sinc.',
-  'player.syncing_compact': 'Sinc…',
+  'player.syncing_compact': 'Sinc.…',
   'player.play_media': 'Reproduzir mídia',
   'player.play_media_compact': 'Mídia',
   'player.play_media_action': 'Reproduzir mídia',

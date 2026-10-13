@@ -106,7 +106,7 @@ const de: Record<I18nKey, string> = {
   'nav.connect': 'Verbinden',
   'nav.playlist_compact': 'Playlist',
   'nav.connect_compact': 'Verbinden',
-  'nav.settings_compact': 'Einstellungen',
+  'nav.settings_compact': 'Optionen',
   'nav.go_home': 'Zur Startseite',
 
   // Role

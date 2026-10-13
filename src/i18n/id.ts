@@ -103,7 +103,7 @@ const id: Record<I18nKey, string> = {
   'nav.settings': 'Pengaturan',
   'nav.help': 'Bantuan',
   'nav.connect': 'Hubungkan',
-  'nav.playlist_compact': 'Daftar putar',
+  'nav.playlist_compact': 'Daftar',
   'nav.connect_compact': 'Hubungkan',
   'nav.settings_compact': 'Pengaturan',
   'nav.go_home': 'Ke Beranda',

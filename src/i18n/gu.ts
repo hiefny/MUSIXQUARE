@@ -104,7 +104,7 @@ const gu: Record<I18nKey, string> = {
   'nav.help': 'મદદ',
   'nav.connect': 'જોડાણ',
   'nav.playlist_compact': 'પ્લેલિસ્ટ',
-  'nav.connect_compact': 'જોડાણ',
+  'nav.connect_compact': 'જોડાવો',
   'nav.settings_compact': 'સેટિંગ્સ',
   'nav.go_home': 'મુખ્ય પાને જાઓ',
 

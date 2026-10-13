@@ -104,7 +104,7 @@ const ml: Record<I18nKey, string> = {
   'nav.help': 'സഹായം',
   'nav.connect': 'ബന്ധിപ്പിക്കുക',
   'nav.playlist_compact': 'പ്ലേലിസ്റ്റ്',
-  'nav.connect_compact': 'കണക്റ്റ്',
+  'nav.connect_compact': 'ചേരുക',
   'nav.settings_compact': 'സെറ്റിംഗ്സ്',
   'nav.go_home': 'ഹോമിലേക്ക് പോകുക',
 
@@ -126,7 +126,7 @@ const ml: Record<I18nKey, string> = {
   'player.sync_compact': 'സിങ്ക്',
   'player.syncing_compact': 'സിങ്ക്…',
   'player.play_media': 'മീഡിയ പ്ലേ ചെയ്യുക',
-  'player.play_media_compact': 'മീഡിയ',
+  'player.play_media_compact': 'ഉറവിടം',
   'player.play_media_action': 'മീഡിയ പ്ലേ ചെയ്യുക',
   'player.add_media': 'മീഡിയ ചേർക്കുക',
   'player.play_start': 'ക്യൂവിൽ ചേർക്കുക',

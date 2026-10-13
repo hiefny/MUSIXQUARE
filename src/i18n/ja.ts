@@ -103,7 +103,7 @@ const ja: Record<I18nKey, string> = {
   'nav.settings': '設定',
   'nav.help': 'ヘルプ',
   'nav.connect': '接続',
-  'nav.playlist_compact': 'プレイリスト',
+  'nav.playlist_compact': '再生リスト',
   'nav.connect_compact': '接続',
   'nav.settings_compact': '設定',
   'nav.go_home': 'ホームへ移動',

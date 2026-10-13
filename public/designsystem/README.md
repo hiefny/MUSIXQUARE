@@ -142,8 +142,10 @@ Playlist/Chat, and Settings occupy a three-column dashboard.
 ## Components and interaction
 
 - Most buttons and interactive list rows use pill or capsule hit surfaces.
-  Card-like choices, navigation tabs, and underlined subtabs keep their own
-  geometry.
+  Their component rules declare `border-radius: var(--radius-pill)` directly.
+  Card-like choices, navigation tabs, underlined subtabs, and grouped chat
+  bubbles keep their own geometry; do not turn `--radius-m` into a pill or add
+  a global button shape override.
 - Press feedback is compact and immediate; avoid long decorative motion.
 - Use `:focus-visible` and retain semantic buttons, labels, and ARIA state.
 - `aria-disabled` is intentional on controls that must remain clickable to
@@ -153,6 +155,31 @@ Playlist/Chat, and Settings occupy a three-column dashboard.
 - Chat bubbles group adjacent messages by sender; embedded YouTube cards own
   their own bubble surface.
 - Respect `prefers-reduced-motion` for every new animation.
+
+### CSS ownership
+
+`css/app.css` imports the entire app cascade before the legacy browser build
+lowers its layers. Keep the order declared in `css/style.css`:
+
+- `base`: tokens and the default component definitions.
+- `desktop`: the wide dashboard's component variants.
+- `components`: shared utilities, supplementary components, and RTL rules.
+- `responsive`: viewport-specific layout changes.
+- `states`: entrance, demo, overlay, and fullscreen states.
+
+The `safety` layer is declared **before** these layers because `!important`
+layer precedence runs in reverse. It protects accessibility and recovery
+behavior. Existing base guards also protect boot, input, dragging, and editor
+clear-button space; their comments explain the priority requirement.
+The final `forced-colors` block stays unlayered: its normal icon paint rules
+must override ordinary components alongside its important system colors.
+
+Do not use `!important` to give ordinary layout or decoration priority. The
+build rejects it in the four presentation layers after `base`. Put a default
+in its component rule, a viewport variation in `responsive`, or a transient
+behavior in `states`. Public editorial and administration pages own their
+separate component styles and follow the same rule: keep forced priority for
+explicit safety and accessibility contracts, with a reason beside the rule.
 
 ## Iconography and brand assets
 

@@ -54,7 +54,7 @@
   align-items: center;
   padding: 6px 14px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary-filled, var(--primary));
   color: #fff;
   cursor: pointer;
@@ -148,7 +148,7 @@
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-main);
   cursor: pointer;
@@ -179,7 +179,7 @@
   justify-content: center;
   gap: 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary-filled, var(--primary));
   color: #fff;
   cursor: pointer;
@@ -229,7 +229,7 @@
 
 .mq-badge {
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 10px;
@@ -348,14 +348,14 @@
   position: relative;
   height: 6px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
 }
 
 .mq-seek-bar > i {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--range-fill-idle);
 }
 
@@ -382,7 +382,7 @@
   align-items: center;
   gap: 16px;
   padding: 14px 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   transition: background 0.2s;
 }
@@ -410,7 +410,7 @@
   place-items: center;
   margin: -8px -10px;
   padding: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-muted);
 }
 
@@ -499,7 +499,7 @@
   place-items: center;
   margin: -8px -10px;
   padding: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-muted);
 }
 
@@ -620,7 +620,7 @@ svg.stroke-icon {
   gap: 8px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--control-danger, rgba(255, 59, 48, 0.09));
   color: var(--danger-filled, #ef4444);
   cursor: pointer;
@@ -693,7 +693,7 @@ svg.stroke-icon {
 .mq-start .demo {
   padding: 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-sub);
   cursor: pointer;
@@ -790,7 +790,7 @@ svg.stroke-icon {
   gap: 12px;
   min-height: 56px;
   padding: 10px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .mq-device .dot {
@@ -808,7 +808,7 @@ svg.stroke-icon {
 
 .mq-device .role {
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 10px;
@@ -829,7 +829,7 @@ svg.stroke-icon {
 
 .mq-toast {
   padding: 14px 28px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   animation: mq-toast-in 0.2s var(--ease-out);
   background: var(--surface-1);
   color: var(--text-main);

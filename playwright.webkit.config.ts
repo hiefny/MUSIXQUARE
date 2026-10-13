@@ -21,6 +21,8 @@ export default defineConfig({
     'wordmark-reveal.test.ts',
     'rtl-player-layout.test.ts',
     'rtl-settings-layout.test.ts',
+    'component-cascade.test.ts',
+    'auxiliary-component-cascade.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

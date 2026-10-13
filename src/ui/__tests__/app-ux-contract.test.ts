@@ -737,16 +737,16 @@ describe('app UX markup contract', () => {
     );
   });
 
-  it('keeps the QR scanner and iOS YouTube tap gate rectangular under the global pill policy', () => {
-    const globalButtonShapeRule = appStylesheet.match(
-      /button:not\(\.ch-opt\)[\s\S]*?\{\s*border-radius:\s*999px\s*!important;\s*\}/,
-    )?.[0];
-    const normalizedGlobalButtonShapeRule = globalButtonShapeRule?.replace(/\s+/gu, '');
+  it('lets components own their shape without a global button exclusion list', () => {
     const scannerShapeRules = declarationsForSelector('.setup-qr-scan-button');
 
-    expect(globalButtonShapeRule).toBeDefined();
-    expect(normalizedGlobalButtonShapeRule).toContain(':not(.setup-qr-scan-button)');
-    expect(normalizedGlobalButtonShapeRule).toContain(':not(#youtube-ios-sync-overlay)');
+    expect(appStylesheet).not.toMatch(/button:not\(\.ch-opt\)/u);
+    expect(appStylesheet).toMatch(/--radius-pill:\s*999px\s*;/u);
+    for (const selector of ['.file-select-btn', '.accent-action-btn', '.leave-session-btn']) {
+      expect(declarationsForSelector(selector).join('\n'), selector).toMatch(
+        /border-radius:\s*var\(--radius-pill\)\s*;/u,
+      );
+    }
     expect(scannerShapeRules.some((rule) => /border-radius:\s*0\s*;/u.test(rule))).toBe(true);
     expect(youtubeIframeSource).toMatch(
       /overlay\.style\.cssText\s*=\s*`[\s\S]*?border:0;border-radius:0;padding:0;/u,

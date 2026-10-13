@@ -2357,7 +2357,7 @@ describe('admin PRO room operations dashboard', () => {
       /@media \(max-width: 560px\)[\s\S]*\.pro-grant-campaign-actions button,[\s\S]*width: 100%;/,
     );
     expect(adminStyles).toMatch(
-      /\.pro-grant-campaign-item\[aria-pressed='true'\][\s\S]*?background: rgba\(var\(--primary-rgb\), 0\.08\) !important;/,
+      /\.pro-grant-campaign-item\[aria-pressed='true'\][\s\S]*?background: rgba\(var\(--primary-rgb\), 0\.08\);/,
     );
     expect(adminStyles).not.toMatch(
       /\.pro-grant-campaign-item\[aria-pressed='true'\][^{]*\{[^}]*box-shadow: inset/,

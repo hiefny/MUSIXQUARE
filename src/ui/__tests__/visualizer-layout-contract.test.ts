@@ -47,7 +47,7 @@ describe('visualizer layout contract', () => {
       /\.track-box,\s*\.play-secondary-area\s*\{[\s\S]*?margin-top:\s*auto;/u,
     );
     expect(stylesheet).toMatch(
-      /@media \(max-width: 1279px\) and \(max-height: 720px\) and \(orientation: portrait\)\s*\{\s*\.track-artist\s*\{\s*display:\s*none !important;/u,
+      /@media \(max-width: 1279px\) and \(max-height: 720px\) and \(orientation: portrait\)\s*\{\s*\.track-artist\s*\{\s*display:\s*none;/u,
     );
     expect(stylesheet).toMatch(/\.controls-area\s*\{\s*padding-top:\s*12px;/u);
     expect(stylesheet).toMatch(
@@ -80,7 +80,7 @@ describe('visualizer layout contract', () => {
     expect(desktopStylesheet).toMatch(/\.controls-area\s*\{\s*padding-top:\s*12px;/u);
     expect(desktopStylesheet).toMatch(/\.video-wrapper\s*\{[\s\S]*?border-radius:\s*16px;/u);
     expect(stylesheet).toMatch(
-      /\.video-wrapper:fullscreen,[\s\S]*?\.video-wrapper:-webkit-full-screen\s*\{[\s\S]*?border-radius:\s*0 !important;/u,
+      /\.video-wrapper:fullscreen,[\s\S]*?\.video-wrapper:-webkit-full-screen\s*\{[\s\S]*?border-radius:\s*0;/u,
     );
     expect(stylesheet).toMatch(/\.playback-stage\s*\{[\s\S]*?margin:\s*auto auto 0;/u);
   });

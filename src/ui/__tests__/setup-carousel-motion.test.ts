@@ -813,6 +813,6 @@ describe('setup recovery accessibility', () => {
 
     const centeredAreaRules = stylesheet.slice(desktopSetupStart, desktopSetupEnd);
     expect(centeredAreaRules).toContain('#setup-overlay #setup-auto-join-area');
-    expect(centeredAreaRules).toContain('justify-content: center !important');
+    expect(centeredAreaRules).toContain('justify-content: center;');
   });
 });

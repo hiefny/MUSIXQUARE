@@ -98,6 +98,9 @@ describe('host setup recovery', () => {
 
     startHostFlow();
 
+    const carousel = document.getElementById('ob-slider-area')!;
+    expect(carousel.hidden).toBe(true);
+    expect(carousel.style.display).toBe('');
     expect(mocks.createSession).toHaveBeenCalledOnce();
     expect(mocks.actions[1]).toMatchObject({
       id: 'btn-setup-confirm',

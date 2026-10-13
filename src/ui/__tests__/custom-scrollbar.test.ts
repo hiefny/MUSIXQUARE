@@ -9,6 +9,7 @@
  * scrollbars without a post-rotation settled re-layout.
  */
 import { readFile } from 'node:fs/promises';
+import { parse as parseCss } from 'postcss';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -1202,17 +1203,20 @@ describe('compact-landscape scrollbar ownership contract', () => {
 
   it('applies the sidebar inset only to viewport-owned tracks', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
-    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
-    const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
-    expect(compactStart).toBeGreaterThanOrEqual(0);
-    expect(compactEnd).toBeGreaterThan(compactStart);
-    const compactStyles = stylesheet.slice(compactStart, compactEnd);
+    const compactRules: string[] = [];
+    parseCss(stylesheet).walkAtRules('media', (rule) => {
+      if (rule.params === '(min-width: 720px) and (max-width: 1279px)') {
+        compactRules.push(rule.toString());
+      }
+    });
+    expect(compactRules.length).toBeGreaterThan(0);
+    const compactStyles = compactRules.join('\n');
 
     expect(compactStyles).toMatch(
-      /body\s*>\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*!important;/s,
+      /body\s*>\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*;/s,
     );
     expect(compactStyles).not.toMatch(
-      /(?:^|})\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*!important;/s,
+      /(?:^|})\s*\.cscroll-track\s*\{[^}]*right:\s*calc\(200px \+ var\(--safe-right\)\)\s*;/s,
     );
   });
 
@@ -1256,7 +1260,7 @@ describe('compact-landscape scrollbar ownership contract', () => {
     expect(mediaList?.hasAttribute('data-custom-scroll')).toBe(true);
     expect(mediaList?.hasAttribute('data-custom-scroll-contained')).toBe(true);
     expect(stylesheet).toMatch(
-      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*align-self:\s*stretch\s*!important;[^}]*overflow-y:\s*auto\s*!important;/s,
+      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*align-self:\s*stretch\s*;[^}]*overflow-y:\s*auto\s*;/s,
     );
     expect(stylesheet).not.toMatch(
       /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*flex:\s*1(?:\s|;)/s,

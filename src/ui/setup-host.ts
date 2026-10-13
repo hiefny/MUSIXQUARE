@@ -94,7 +94,7 @@ export function startHostFlow(): void {
 
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) {
-    sliderArea.style.display = 'none';
+    sliderArea.hidden = true;
   }
 
   startHostCodeFlow(DEFAULT_SETUP_ROLE);

@@ -190,6 +190,9 @@ describe('guest setup recovery', () => {
       );
       mocks.pendingAutoCode = invite ? '123456' : null;
       startGuestFlow();
+      const carousel = document.getElementById('ob-slider-area')!;
+      expect(carousel.hidden).toBe(true);
+      expect(carousel.style.display).toBe('');
       const input = document.getElementById('setup-join-code') as HTMLInputElement;
       input.value = '123456';
       const start = document.getElementById('btn-setup-confirm') as HTMLButtonElement;

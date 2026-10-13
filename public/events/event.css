@@ -83,10 +83,12 @@ a:focus-visible {
   outline-offset: 3px;
 }
 
+/* Semantic visibility wins over each component's flex/grid display. */
 [hidden] {
   display: none !important;
 }
 
+/* Keep assistive labels visually hidden regardless of component geometry. */
 .sr-only {
   position: absolute !important;
   width: 1px !important;
@@ -635,6 +637,7 @@ html[data-theme='light'] .google-button {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* User motion preferences take precedence over all component animations. */
   *,
   *::before,
   *::after {
@@ -646,7 +649,8 @@ html[data-theme='light'] .google-button {
   }
 }
 
-/* Text-field clear affordances stay beside their editors for dialog and keyboard ownership. */
+/* This cross-component decorator reserves its measured button space even when an
+   input owns more-specific or inline padding. Preserve that priority contract. */
 .clearable-editor-active {
   padding-inline-end: calc(
     var(--clearable-editor-base-padding-inline-end, 0px) +

@@ -741,7 +741,7 @@ code {
 
 [data-animate] > * {
   opacity: 0;
-  transform: translateY(16px);
+  transform: var(--editorial-reveal-transform, translateY(16px));
   transition:
     opacity 800ms var(--ease-out),
     transform 800ms var(--ease-out);
@@ -749,7 +749,7 @@ code {
 
 [data-animate].is-visible > * {
   opacity: 1;
-  transform: translateY(0);
+  transform: var(--editorial-reveal-transform, translateY(0));
 }
 
 [data-animate].is-visible > *:nth-child(1) {
@@ -932,11 +932,6 @@ code {
     grid-template-columns: 1fr;
   }
 
-  .grid-2 > *,
-  .grid-3 > * {
-    grid-column: auto !important;
-  }
-
   .editorial-page footer,
   .lp-footer__inner {
     flex-direction: column;
@@ -1057,6 +1052,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* User motion preferences take precedence over all component animations. */
   *,
   *::before,
   *::after {
@@ -1072,6 +1068,6 @@ code {
 
   [data-animate] > * {
     opacity: 1;
-    transform: none;
+    transform: var(--editorial-reveal-transform, none);
   }
 }

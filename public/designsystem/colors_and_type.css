@@ -54,6 +54,7 @@
   --radius-s: 14px;
   --radius-m: 20px;
   --radius-l: 32px;
+  --radius-pill: 999px;
 
   /* ── Solid-chrome compatibility aliases ───────── */
   --glass-bg: var(--surface-1);

@@ -72,7 +72,10 @@ afterEach(() => {
 });
 
 describe('standard queue mutation result fence', () => {
-  it('reports a silent legacy host without retrying the mutation', () => {
+  it.each([
+    'https://www.youtube.com/watch?v=a1B2c3D4e5F',
+    'https://www.youtube.com/playlist?list=PLtest',
+  ])('reports a silent legacy host without retrying %s', (sourceUrl) => {
     const conn = connection('host');
     configureGuest(conn);
     const failures: Array<[string, string | null]> = [];
@@ -80,7 +83,7 @@ describe('standard queue mutation result fence', () => {
       failures.push([reason, code]);
     });
 
-    expect(sendStandardQueueMutationRequest(addYoutubeRequest())).toBe(true);
+    expect(sendStandardQueueMutationRequest({ ...addYoutubeRequest(), sourceUrl })).toBe(true);
     expect(conn.send).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(standardQueueMutationTimingForTests.acceptTimeoutMs);
@@ -119,7 +122,7 @@ describe('standard queue mutation result fence', () => {
       },
       conn,
     );
-    vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
+    vi.advanceTimersByTime(standardQueueMutationTimingForTests.youtubeAddSettleTimeoutMs + 1);
 
     expect(failures).not.toHaveBeenCalled();
     expect(getState('playlist.items')).toEqual([]);
@@ -128,15 +131,21 @@ describe('standard queue mutation result fence', () => {
     unsubscribe();
   });
 
-  it('times out a host that accepted but never settled', async () => {
+  it('keeps the short settlement bound for a remove that never settles', async () => {
     const conn = connection('host');
     configureGuest(conn);
+    setState('network.standardRoomCapabilities', ['queue.mutate']);
     const failures: Array<[string, string | null]> = [];
     const unsubscribe = bus.on('standard-room:queue-mutation-failed', (reason, code) => {
       failures.push([reason, code]);
     });
 
-    sendStandardQueueMutationRequest(addYoutubeRequest());
+    sendStandardQueueMutationRequest({
+      type: MSG.REQUEST_PLAYLIST_REMOVE,
+      requestId: REQUEST_ID,
+      baseRevision: 0,
+      queueItemIds: [QUEUE_ITEM_ID],
+    });
     await handleData(
       {
         type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
@@ -154,6 +163,145 @@ describe('standard queue mutation result fence', () => {
     unsubscribe();
   });
 
+  it.each([
+    'https://www.youtube.com/playlist?list=PLtest',
+    'https://www.youtube.com/watch?v=a1B2c3D4e5F',
+  ])('accepts one late YouTube addition after manifest work for %s', async (sourceUrl) => {
+    const conn = connection('host');
+    configureGuest(conn);
+    const failures = vi.fn();
+    const refresh = vi.fn();
+    const stopFailure = bus.on('standard-room:queue-mutation-failed', failures);
+    const stopRefresh = bus.on('playlist:refresh-requested', refresh);
+    try {
+      expect(sendStandardQueueMutationRequest({ ...addYoutubeRequest(), sourceUrl })).toBe(true);
+      vi.advanceTimersByTime(2_400);
+      await handleData(
+        {
+          type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+          requestId: REQUEST_ID,
+          phase: 'accepted',
+          outcome: null,
+          revision: 0,
+          code: null,
+        },
+        conn,
+      );
+      // A video addition shares the host's arrival-ordered commit lane with
+      // preceding playlists. Both must survive the complete manifest budget.
+      vi.advanceTimersByTime(60_000);
+      expect(failures).not.toHaveBeenCalled();
+      await handleData(
+        {
+          type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+          requestId: REQUEST_ID,
+          phase: 'settled',
+          outcome: 'applied',
+          revision: 1,
+          code: null,
+        },
+        conn,
+      );
+      // A repeated terminal response cannot replace the first settlement.
+      await handleData(
+        {
+          type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+          requestId: REQUEST_ID,
+          phase: 'settled',
+          outcome: 'rejected',
+          revision: 1,
+          code: 'resolution-failed',
+        },
+        conn,
+      );
+      vi.advanceTimersByTime(65_001);
+      expect(failures).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
+      expect(conn.send).toHaveBeenCalledTimes(1);
+      expect(getState('playlist.items')).toEqual([]);
+      expect(getState('playlist.revision')).toBe(0);
+    } finally {
+      stopFailure();
+      stopRefresh();
+    }
+  });
+
+  it('bounds a silent accepted playlist at 65 seconds without restarting on duplicate ACKs', async () => {
+    const conn = connection('host');
+    configureGuest(conn);
+    const failures = vi.fn();
+    const refresh = vi.fn();
+    const stopFailure = bus.on('standard-room:queue-mutation-failed', failures);
+    const stopRefresh = bus.on('playlist:refresh-requested', refresh);
+    const accepted: ProtocolMsg<typeof MSG.OPERATOR_QUEUE_MUTATION_RESULT> = {
+      type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+      requestId: REQUEST_ID,
+      phase: 'accepted',
+      outcome: null,
+      revision: 0,
+      code: null,
+    };
+    try {
+      sendStandardQueueMutationRequest({
+        ...addYoutubeRequest(),
+        sourceUrl: 'https://www.youtube.com/playlist?list=PLtest',
+      });
+      await handleData(accepted, conn);
+      vi.advanceTimersByTime(64_999);
+      await handleData(accepted, conn);
+      expect(failures).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(failures).toHaveBeenCalledExactlyOnceWith('settle-timeout', null);
+      await handleData({ ...accepted, phase: 'settled', outcome: 'applied', revision: 1 }, conn);
+      vi.advanceTimersByTime(65_001);
+      expect(failures).toHaveBeenCalledTimes(1);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(conn.send).toHaveBeenCalledTimes(1);
+    } finally {
+      stopFailure();
+      stopRefresh();
+    }
+  });
+
+  it.each(['connection', 'room', 'authority'] as const)(
+    'cancels the long YouTube settlement and ignores a late result on %s loss',
+    async (reason) => {
+      const conn = connection('host');
+      configureGuest(conn);
+      const failures = vi.fn();
+      const stopFailure = bus.on('standard-room:queue-mutation-failed', failures);
+      const accepted: ProtocolMsg<typeof MSG.OPERATOR_QUEUE_MUTATION_RESULT> = {
+        type: MSG.OPERATOR_QUEUE_MUTATION_RESULT,
+        requestId: REQUEST_ID,
+        phase: 'accepted',
+        outcome: null,
+        revision: 0,
+        code: null,
+      };
+      try {
+        sendStandardQueueMutationRequest({
+          ...addYoutubeRequest(),
+          sourceUrl: 'https://www.youtube.com/playlist?list=PLtest',
+        });
+        await handleData(accepted, conn);
+        vi.advanceTimersByTime(20_000);
+        if (reason === 'connection') setState('network.hostConn', null);
+        if (reason === 'room')
+          setState('room.context', { ...getState('room.context'), kind: 'pro' });
+        if (reason === 'authority') setState('network.isOperator', false);
+        await handleData(
+          { ...accepted, phase: 'settled', outcome: 'rejected', code: 'unauthorized' },
+          conn,
+        );
+        vi.advanceTimersByTime(65_001);
+        expect(failures).not.toHaveBeenCalled();
+        expect(conn.send).toHaveBeenCalledTimes(1);
+      } finally {
+        stopFailure();
+      }
+    },
+  );
+
   it('silently cancels pending feedback when the authority connection changes', () => {
     const conn = connection('host');
     configureGuest(conn);
@@ -162,7 +310,7 @@ describe('standard queue mutation result fence', () => {
 
     sendStandardQueueMutationRequest(addYoutubeRequest());
     setState('network.hostConn', null);
-    vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
+    vi.advanceTimersByTime(standardQueueMutationTimingForTests.youtubeAddSettleTimeoutMs + 1);
 
     expect(failures).not.toHaveBeenCalled();
     unsubscribe();
@@ -176,7 +324,7 @@ describe('standard queue mutation result fence', () => {
 
     sendStandardQueueMutationRequest(addYoutubeRequest());
     setState('network.isOperator', false);
-    vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
+    vi.advanceTimersByTime(standardQueueMutationTimingForTests.youtubeAddSettleTimeoutMs + 1);
 
     expect(failures).not.toHaveBeenCalled();
     unsubscribe();
@@ -190,14 +338,14 @@ describe('standard queue mutation result fence', () => {
 
     sendStandardQueueMutationRequest(addYoutubeRequest());
     initStandardQueueMutationAuthority();
-    vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
+    vi.advanceTimersByTime(standardQueueMutationTimingForTests.youtubeAddSettleTimeoutMs + 1);
 
     expect(failures).not.toHaveBeenCalled();
 
     configureGuest(conn);
     expect(sendStandardQueueMutationRequest(addYoutubeRequest())).toBe(true);
     setState('network.hostConn', null);
-    vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
+    vi.advanceTimersByTime(standardQueueMutationTimingForTests.youtubeAddSettleTimeoutMs + 1);
 
     expect(failures).not.toHaveBeenCalled();
     unsubscribe();

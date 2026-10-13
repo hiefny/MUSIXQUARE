@@ -33,7 +33,7 @@ import {
 } from '../_state.ts';
 import {
   initYouTubeNativeControlAuthority,
-  preserveNativeProControllerPlayBeforeAutoplayGuard,
+  preserveNativeControllerPlayBeforeAutoplayGuard,
 } from '../native-control-authority.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -134,7 +134,7 @@ describe('PRO iframe-native PLAY before the autoplay guard', () => {
     // OS/headset changes the iframe internally, bypassing wrapped JS methods.
     player.state = 1;
 
-    expect(preserveNativeProControllerPlayBeforeAutoplayGuard(player)).toBe(true);
+    expect(preserveNativeControllerPlayBeforeAutoplayGuard(player)).toBe(true);
     expect(getYtAutoplayIntent()).toBe(true);
 
     // This is the normal projection performed later in the iframe callback.
@@ -154,7 +154,7 @@ describe('PRO iframe-native PLAY before the autoplay guard', () => {
     // The instrumented method arms a programmatic PLAY expectation.
     player.playVideo();
 
-    expect(preserveNativeProControllerPlayBeforeAutoplayGuard(player)).toBe(false);
+    expect(preserveNativeControllerPlayBeforeAutoplayGuard(player)).toBe(false);
     expect(getYtAutoplayIntent()).toBe(false);
     expect(mocks.routeProPlaybackCommand).not.toHaveBeenCalled();
   });
@@ -164,7 +164,7 @@ describe('PRO iframe-native PLAY before the autoplay guard', () => {
     installPausedYouTube(player, []);
     player.state = 1;
 
-    expect(preserveNativeProControllerPlayBeforeAutoplayGuard(player)).toBe(false);
+    expect(preserveNativeControllerPlayBeforeAutoplayGuard(player)).toBe(false);
     expect(getYtAutoplayIntent()).toBe(false);
     expect(mocks.routeProPlaybackCommand).not.toHaveBeenCalled();
   });

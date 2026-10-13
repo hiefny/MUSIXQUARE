@@ -27,16 +27,15 @@ import {
   OEMBED_INITIAL_BATCH_SIZE,
   OEMBED_BACKGROUND_THROTTLE_MS,
   OEMBED_PREVIEW_DEBOUNCE_MS,
+  YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS,
 } from './constants.ts';
 import { fetchWithTimeout, normalizeExternalTitle } from './oembed.ts';
 import { applyUserTextFontFallback } from '../ui/user-text-font.ts';
 import { cancelResponseBody, readBoundedJsonResponse } from '../core/request-lifetime.ts';
 
 const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
-const YOUTUBE_PLAYLIST_ENTRY_ENDPOINT = '/api/youtube-playlist-entry';
 const YOUTUBE_PLAYLIST_MANIFEST_ENDPOINT = '/api/youtube-playlist-manifest';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
-const YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS = 60_000;
 const YOUTUBE_CONTROL_RESPONSE_MAX_BYTES = 256 * 1024;
 const YOUTUBE_OEMBED_RESPONSE_MAX_BYTES = 64 * 1024;
 const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
@@ -256,63 +255,6 @@ export async function fetchYouTubeSearchResults(
   );
   searchCacheSet(normalizedQuery, results);
   return results;
-}
-
-export async function resolveYouTubePlaylistEntry(
-  playlistId: string,
-  externalSignal?: AbortSignal,
-): Promise<YouTubePlaylistEntry> {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(playlistId)) {
-    throw new Error('Invalid YouTube playlist ID');
-  }
-
-  const endpoint = `${YOUTUBE_PLAYLIST_ENTRY_ENDPOINT}?playlistId=${encodeURIComponent(playlistId)}`;
-  const response = await fetchWithTimeout(
-    endpoint,
-    YOUTUBE_SEARCH_TIMEOUT_MS,
-    externalSignal,
-    { headers: { Accept: 'application/json' } },
-    'youtube-search',
-  );
-  if (!response.ok) {
-    let payload: YouTubeSearchErrorPayload = {};
-    try {
-      payload = (await readBoundedJsonResponse(
-        response,
-        YOUTUBE_CONTROL_RESPONSE_MAX_BYTES,
-      )) as YouTubeSearchErrorPayload;
-    } catch {
-      /* malformed error bodies are reported using the HTTP status */
-    }
-    const reason = payload.reason || payload.error || 'unknown';
-    throw new Error(`YouTube playlist resolution HTTP ${response.status} (${reason})`);
-  }
-
-  const value: unknown = await readBoundedJsonResponse(
-    response,
-    YOUTUBE_CONTROL_RESPONSE_MAX_BYTES,
-  );
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Invalid YouTube playlist resolution response');
-  }
-  const payload = value as Record<string, unknown>;
-  const keys = Object.keys(payload).sort();
-  const title = typeof payload.title === 'string' ? normalizeExternalTitle(payload.title) : '';
-  if (
-    keys.length !== 3 ||
-    keys[0] !== 'playlistId' ||
-    keys[1] !== 'title' ||
-    keys[2] !== 'videoId' ||
-    payload.playlistId !== playlistId ||
-    typeof payload.videoId !== 'string' ||
-    !/^[A-Za-z0-9_-]{11}$/.test(payload.videoId) ||
-    !title ||
-    title.length > 300
-  ) {
-    throw new Error('Invalid YouTube playlist resolution response');
-  }
-
-  return { playlistId, videoId: payload.videoId, title };
 }
 
 export async function resolveYouTubePlaylistManifest(
@@ -721,7 +663,7 @@ function prefetchPreviewPlaylistManifest(
     .catch((error: unknown) => {
       if (!signal.aborted) {
         log.warn(
-          '[YouTube Preview] Playlist manifest prefetch failed; using iframe fallback:',
+          '[YouTube Preview] Playlist manifest prefetch failed; submit will retry complete manifest acquisition:',
           error,
         );
       }
@@ -908,7 +850,7 @@ export function fetchYouTubePreview(url: string): void {
           if (!isCurrentPreview() || manifestResult === 'aborted') return;
           if (manifestResult === 'timeout') {
             log.info(
-              `[YouTube Preview] Playlist manifest prefetch exceeded ${YOUTUBE_PLAYLIST_PREVIEW_BUDGET_MS}ms; enabling iframe fallback.`,
+              `[YouTube Preview] Playlist manifest prefetch exceeded ${YOUTUBE_PLAYLIST_PREVIEW_BUDGET_MS}ms; enabling submit-time manifest acquisition.`,
             );
           }
         }

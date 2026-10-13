@@ -1,6 +1,6 @@
 /**
  * @vitest-environment jsdom
- * Real playlist selection, YouTube load listener, and native indexing callbacks.
+ * Real playlist selection, YouTube load listener, and complete manifest acquisition.
  * Only external peers, metadata requests, and timer scheduling are controlled.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -68,6 +68,7 @@ vi.mock('../search.ts', () => ({
   isYouTubeLiveUrl: vi.fn(() => false),
   getYouTubeInputIntent: vi.fn(() => ({ kind: 'invalid-url' })),
   getPrefetchedYouTubePlaylistManifest: vi.fn(() => null),
+  resolveYouTubePlaylistManifest: vi.fn(),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
   clearYouTubeInputState: vi.fn(),
@@ -162,7 +163,10 @@ interface YtTestHandle {
   fireStateChange: (state: number) => void;
 }
 
-function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
+function installYtNamespace(
+  player: YouTubePlayerInstance,
+  onCreate?: (videoId: string) => void,
+): YtTestHandle {
   let capturedOnReady: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnStateChange:
     ((event: { data: number; target: YouTubePlayerInstance }) => void) | undefined;
@@ -170,12 +174,14 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
     Player: vi.fn(function (
       _target: string,
       options: {
+        videoId?: string;
         events: {
           onReady?: (event: { target: YouTubePlayerInstance }) => void;
           onStateChange?: (event: { data: number; target: YouTubePlayerInstance }) => void;
         };
       },
     ) {
+      if (options.videoId) onCreate?.(options.videoId);
       capturedOnStateChange = options.events.onStateChange;
       capturedOnReady = options.events.onReady;
       return player;
@@ -263,7 +269,9 @@ async function selectPlaylist({
   vi.mocked(player.cueVideoById!).mockImplementation((videoId) => {
     nativeVideoId = videoId;
   });
-  const yt = installYtNamespace(player);
+  const yt = installYtNamespace(player, (videoId) => {
+    nativeVideoId = videoId;
+  });
   const autoplay = vi.fn();
   setState('playlist.items', [
     {
@@ -279,41 +287,49 @@ async function selectPlaylist({
   initYouTube();
   wireStopAllMediaChain();
   bus.on('youtube:auto-play', autoplay);
-  await playTrack(YOUTUBE_QUEUE_ITEM_ID, subIndex, { explicitPlaybackIntent: explicit });
-  expect(log.error).not.toHaveBeenCalled();
-  expect(broadcastMock).toHaveBeenCalledWith(
-    expect.objectContaining({ type: MSG.YOUTUBE_PLAY, autoplay: false }),
-  );
-  expect(getPendingAutoSyncOnReadyForTests()).toBe(explicit);
-  yt.fireReady();
-  yt.fireStateChange(5);
-  return { player, yt, autoplay, state, log, getPendingAutoSyncOnReadyForTests };
+  const { resolveYouTubePlaylistManifest } = await import('../search.ts');
+  let resolve!: (value: import('../search.ts').YouTubePlaylistManifest) => void;
+  let reject!: (error: Error) => void;
+  if (!indexed)
+    vi.mocked(resolveYouTubePlaylistManifest).mockReturnValue(
+      new Promise((yes, no) => {
+        resolve = yes;
+        reject = no;
+      }),
+    );
+  const selecting = playTrack(YOUTUBE_QUEUE_ITEM_ID, subIndex, {
+    explicitPlaybackIntent: explicit,
+  });
+  const finish = async () => {
+    if (!indexed)
+      resolve({ playlistId: PLAYLIST, videoId: ids[0], videoIds: ids, title: 'Playlist' });
+    await selecting;
+    if (state.getYouTubePlayer()) {
+      yt.fireReady();
+      yt.fireStateChange(5);
+      lastTimerCallback('yt-pending-auto-sync-ready')?.();
+    }
+  };
+  return {
+    player,
+    yt,
+    autoplay,
+    state,
+    log,
+    getPendingAutoSyncOnReadyForTests,
+    finish,
+    reject,
+    selecting,
+  };
 }
 
-function finishIndexing(h: Awaited<ReturnType<typeof selectPlaylist>>) {
-  expect(h.state.isYtIndexing()).toBe(true);
-  const initialSession = h.state.getCurrentSessionId();
-  for (let step = 0; h.state.isYtIndexing() && step < 16; step += 1) {
-    const poll = lastTimerCallback('yt-indexing-poll');
-    expect(poll).toBeTypeOf('function');
-    poll!();
-  }
-  expect(h.state.isYtIndexing()).toBe(false);
-  expect(h.state.getCurrentSessionId()).toBeGreaterThan(initialSession);
-  lastTimerCallback('yt-same-video-occurrence-handoff')?.();
-  h.yt.fireStateChange(5);
-  lastTimerCallback('yt-pending-auto-sync-ready')?.();
-  expect(h.log.error).not.toHaveBeenCalled();
-}
-
-describe('actual playTrack intent through deferred native playlist indexing', () => {
+describe('actual playTrack intent through deferred complete playlist acquisition', () => {
   it.each([
     { label: 'entry video', ids: [ENTRY, SECOND], subIndex: 0, target: ENTRY },
     { label: 'another resolved sub-video', ids: [ENTRY, SECOND], subIndex: 1, target: SECOND },
-    { label: 'empty-list fallback', ids: [], subIndex: 0, target: ENTRY },
   ])('keeps explicit synchronized play through $label', async ({ ids, subIndex, target }) => {
     const h = await selectPlaylist({ ids, subIndex });
-    finishIndexing(h);
+    await h.finish();
     expect(h.autoplay).toHaveBeenCalledTimes(1);
     expect(h.autoplay).toHaveBeenCalledWith(
       expect.objectContaining({ zeroStart: true, targetTime: 0, videoId: target, subIndex }),
@@ -333,34 +349,46 @@ describe('actual playTrack intent through deferred native playlist indexing', ()
 
   it('keeps the already-indexed explicit playback path', async () => {
     const h = await selectPlaylist({ indexed: true });
+    await h.finish();
     expect(h.autoplay).toHaveBeenCalledTimes(1);
     expect(h.player.playVideo).toHaveBeenCalledTimes(1);
     expect(h.log.error).not.toHaveBeenCalled();
   });
 
-  it('keeps ordinary first-entry indexing paused until a later explicit play', async () => {
+  it('keeps ordinary first-entry acquisition paused until a later explicit play', async () => {
     const h = await selectPlaylist({ explicit: false });
-    finishIndexing(h);
+    await h.finish();
     expect(h.autoplay).not.toHaveBeenCalled();
     expect(h.player.playVideo).not.toHaveBeenCalled();
     expect(h.getPendingAutoSyncOnReadyForTests()).toBe(false);
   });
 
-  it('does not restore a paused intent when its indexing finishes', async () => {
+  it('does not restore a paused intent when its manifest arrives', async () => {
     const h = await selectPlaylist();
     bus.emit('youtube:set-local-paused', true);
     expect(h.getPendingAutoSyncOnReadyForTests()).toBe(false);
-    finishIndexing(h);
+    await h.finish();
     expect(h.autoplay).not.toHaveBeenCalled();
     expect(h.player.playVideo).not.toHaveBeenCalled();
   });
 
-  it('does not revive a stopped indexing session from its queued poll', async () => {
+  it('does not fall back to a partial iframe playlist when the complete manifest fails', async () => {
     const h = await selectPlaylist();
-    const oldPoll = lastTimerCallback('yt-indexing-poll');
+    h.reject(new Error('unavailable'));
+    await h.selecting;
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+    expect(h.state.getYouTubePlayer()).toBeNull();
+    expect(h.autoplay).not.toHaveBeenCalled();
+    expect(broadcastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.YOUTUBE_PLAY }),
+    );
+  });
+
+  it('does not revive a stopped acquisition from its late manifest response', async () => {
+    const h = await selectPlaylist();
     bus.emit('youtube:stop-mode');
     const stoppedSession = h.state.getCurrentSessionId();
-    oldPoll!();
+    await h.finish();
     expect(h.state.getCurrentSessionId()).toBe(stoppedSession);
     expect(h.getPendingAutoSyncOnReadyForTests()).toBe(false);
     expect(h.autoplay).not.toHaveBeenCalled();
@@ -369,7 +397,6 @@ describe('actual playTrack intent through deferred native playlist indexing', ()
 
   it('preserves a different row selection against the old indexing completion', async () => {
     const h = await selectPlaylist();
-    const oldPoll = lastTimerCallback('yt-indexing-poll');
     const nextId = '88888888-8888-4888-8888-888888888888';
     setState('playlist.items', [
       ...getState('playlist.items'),
@@ -378,8 +405,7 @@ describe('actual playTrack intent through deferred native playlist indexing', ()
     const { playTrack } = await import('../../player/playlist.ts');
     await playTrack(nextId, 0, { explicitPlaybackIntent: true });
     const nextSession = h.state.getCurrentSessionId();
-    oldPoll!();
-    h.yt.fireStateChange(5);
+    await h.finish();
     expect(getState('playlist.currentQueueItemId')).toBe(nextId);
     expect(h.state.getCurrentSessionId()).toBe(nextSession);
     expect(h.autoplay).toHaveBeenCalledTimes(1);

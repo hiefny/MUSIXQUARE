@@ -1767,7 +1767,11 @@ describe('playTrack YouTube auto-rendezvous', () => {
       setState('playlist.items', otherItem ? [current, target] : [current]);
       selectIndex(0);
       setState('youtube.subItemsMap', {
-        [target.playlistId!]: { ids: [target.videoId!, 'TARGET_NEXT'], titles: ['First', 'Next'] },
+        [target.playlistId!]: {
+          ids: [target.videoId!, 'TARGET_NEXT'],
+          titles: ['First', 'Next'],
+          manifestComplete: true,
+        },
       });
       setState('youtube.currentSubIndex', 0);
       setYouTubePlayer({
@@ -1930,6 +1934,56 @@ describe('playTrack YouTube auto-rendezvous', () => {
     });
   });
 
+  it('repairs an old 200-item manifest before selecting its 201st video', async () => {
+    const search = await import('../../youtube/search.ts');
+    const ids = Array.from({ length: 248 }, (_, i) => `video${String(i).padStart(6, '0')}`);
+    const old = youtubeItem('Playing', 'OLD_VIDEO01');
+    const target = youtubeItem('Full', ids[0], 'PL_REPAIR');
+    setState('playlist.items', [old, target]);
+    selectIndex(0);
+    setPlaybackYouTubePlaying();
+    setState('youtube.subItemsMap', { PL_REPAIR: { ids: ids.slice(0, 200), titles: [] } });
+    let finish!: (value: import('../../youtube/search.ts').YouTubePlaylistManifest) => void;
+    vi.spyOn(search, 'resolveYouTubePlaylistManifest').mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    const selecting = playTrack(target.queueItemId, 200);
+    expect(getState('playlist.currentQueueItemId')).toBe(old.queueItemId);
+    expect(getState('playback.activity')).toBe('playing');
+    expect(load).not.toHaveBeenCalled();
+    finish({ playlistId: 'PL_REPAIR', videoId: ids[0], videoIds: ids, title: 'Full' });
+    await selecting;
+    expect(getState('playlist.currentQueueItemId')).toBe(target.queueItemId);
+    expect(load).toHaveBeenCalledWith(ids[200], null, target.queueItemId, false, 200);
+    expect(getState('youtube.subItemsMap').PL_REPAIR.ids).toHaveLength(248);
+  });
+
+  it('does not stop or select a legacy partial playlist when its manifest is unavailable', async () => {
+    const search = await import('../../youtube/search.ts');
+    vi.spyOn(search, 'resolveYouTubePlaylistManifest').mockRejectedValueOnce(
+      new Error('unavailable'),
+    );
+    const old = youtubeItem('Playing', 'OLD_VIDEO01');
+    const target = youtubeItem('Full', 'TARGETVIDEO', 'PL_REPAIR_FAILURE');
+    const queue = [old, target];
+    setState('playlist.items', queue);
+    selectIndex(0);
+    setPlaybackYouTubePlaying();
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    const stop = vi.spyOn(transport, 'stopAllMedia');
+    await playTrack(target.queueItemId);
+    expect(getState('playlist.currentQueueItemId')).toBe(old.queueItemId);
+    expect(getState('playlist.items')).toBe(queue);
+    expect(getState('playback.activity')).toBe('playing');
+    expect(load).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
   it('broadcasts the requested YouTube playlist sub-index on playTrack', async () => {
     const send = vi.fn();
     const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
@@ -1945,6 +1999,7 @@ describe('playTrack YouTube auto-rendezvous', () => {
       'playlist-1': {
         ids: ['firstVideo', 'secondVideo'],
         titles: ['First', 'Second'],
+        manifestComplete: true,
       },
     });
 

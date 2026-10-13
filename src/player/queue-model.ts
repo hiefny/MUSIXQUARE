@@ -24,6 +24,10 @@ interface PlaylistSnapshot {
   currentQueueItemId: QueueItemId | null;
 }
 
+interface PlaylistProjection extends Omit<PlaylistSnapshot, 'list'> {
+  list: readonly PlaylistItem[];
+}
+
 type PlaylistSnapshotApplyOutcome =
   'rebased' | 'applied' | 'duplicate' | 'stale' | 'conflict' | 'invalid';
 
@@ -230,11 +234,20 @@ function equalPlaylistSnapshots(a: PlaylistSnapshot, b: PlaylistSnapshot): boole
   );
 }
 
-function commitParsedPlaylistSnapshot(snapshot: PlaylistSnapshot): void {
+function commitParsedPlaylistSnapshot(
+  snapshot: PlaylistSnapshot,
+  projection?: readonly PlaylistItem[],
+): void {
   // Queue, selection, and revision form one authority boundary. Observers must
   // never see a new list paired with the previous session's selection/revision.
   batchSetState({
-    'playlist.items': snapshot.list.map(clonePlaylistWireItem),
+    'playlist.items': snapshot.list.map((item, index) => {
+      const manifest = projection?.[index]?.youtubeVideoIds;
+      return {
+        ...clonePlaylistWireItem(item),
+        ...(manifest ? { youtubeVideoIds: [...manifest] } : {}),
+      };
+    }),
     'playlist.currentQueueItemId': snapshot.currentQueueItemId,
     'playlist.revision': snapshot.revision,
   });
@@ -246,22 +259,59 @@ export function applyPlaylistSnapshot(
 ): PlaylistSnapshotApplyOutcome {
   const snapshot = parsePlaylistSnapshot(value);
   if (!snapshot) return 'invalid';
+  return applyParsedPlaylistSnapshot(snapshot, mode);
+}
 
+/**
+ * Apply an already validated server projection, preserving its local manifest
+ * in the same queue/selection/revision commit. This is not a wire parser:
+ * ordinary room snapshots continue to strip local-only fields in both directions.
+ */
+export function applyPlaylistProjection(
+  value: PlaylistProjection,
+  mode: PlaylistSnapshotApplyMode = 'monotonic',
+): PlaylistSnapshotApplyOutcome {
+  const snapshot = parsePlaylistSnapshot({ ...value, list: serializePlaylistItems(value.list) });
+  if (!snapshot) return 'invalid';
+  return applyParsedPlaylistSnapshot(snapshot, mode, value.list);
+}
+
+function applyParsedPlaylistSnapshot(
+  snapshot: PlaylistSnapshot,
+  mode: PlaylistSnapshotApplyMode,
+  projection?: readonly PlaylistItem[],
+): PlaylistSnapshotApplyOutcome {
   if (mode === 'rebase') {
     // Without an explicit room-instance identity, a new DataConnection cannot
     // prove that an equal-looking snapshot belongs to the previous authority.
     // Recommit and clean the media boundary even when canonical fields match.
-    commitParsedPlaylistSnapshot(snapshot);
+    commitParsedPlaylistSnapshot(snapshot, projection);
     return 'rebased';
   }
 
   const currentRevision = getState('playlist.revision');
   if (snapshot.revision < currentRevision) return 'stale';
   if (snapshot.revision === currentRevision) {
-    return equalPlaylistSnapshots(snapshot, createPlaylistSnapshot()) ? 'duplicate' : 'conflict';
+    const currentItems = getState('playlist.items');
+    const sameManifests =
+      !projection ||
+      projection.every((item, index) => {
+        const next = item.youtubeVideoIds;
+        const current = currentItems[index]?.youtubeVideoIds;
+        return (
+          next === current ||
+          (!!next &&
+            !!current &&
+            next.length === current.length &&
+            next.every((videoId, subIndex) => videoId === current[subIndex]))
+        );
+      });
+    return equalPlaylistSnapshots(snapshot, createPlaylistSnapshot()) && sameManifests
+      ? 'duplicate'
+      : 'conflict';
   }
 
-  commitParsedPlaylistSnapshot(snapshot);
+  commitParsedPlaylistSnapshot(snapshot, projection);
   return 'applied';
 }
 

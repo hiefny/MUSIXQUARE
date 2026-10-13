@@ -109,7 +109,11 @@ import {
   isYouTubeZeroStartExternalFallbackActiveFromIframe,
   setPendingAutoSyncOnReadyFromIframe,
 } from './player-runtime-bridge.ts';
-import { preserveNativeProControllerPlayBeforeAutoplayGuard } from './native-control-authority.ts';
+import {
+  observeYouTubeNativeControlState,
+  observeYouTubeNativeControlPosition,
+  preserveNativeControllerPlayBeforeAutoplayGuard,
+} from './native-control-authority.ts';
 import { applyYouTubeCaptionPolicy } from './caption-policy.ts';
 import {
   RetainedYouTubePlayerController,
@@ -3060,6 +3064,8 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   if (!isPlaybackModeYouTube() && !indexing) return;
   if (staleReusedFeedback) return;
 
+  observeYouTubeNativeControlState(player, state);
+
   if (state !== YT.PlayerState.ENDED) {
     cancelGuestEndedFallback();
     // Repeated ENDED callbacks must not keep replacing the pending host
@@ -3102,10 +3108,10 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
       }
     }
 
-    // A PRO administrator's OS/headset PLAY reaches the iframe before
+    // A controller's iframe/OS/headset PLAY reaches the iframe before
     // MUSIXQUARE playback state. Preserve only a proven native PLAY so
     // the authority listener can promote it instead of pause-backing it.
-    preserveNativeProControllerPlayBeforeAutoplayGuard(player);
+    preserveNativeControllerPlayBeforeAutoplayGuard(player);
 
     // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).
     if (!getYtAutoplayIntent()) {
@@ -3453,6 +3459,8 @@ function updateYouTubeUI(): void {
     const rawDuration = player.getDuration?.() || 0;
     const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;
+
+    observeYouTubeNativeControlPosition(player);
 
     if (state === YT.PlayerState.ENDED) {
       retryProEndedAtCanonicalBoundary(player, currentTime, rawDuration);
@@ -3989,7 +3997,10 @@ export function clearSnapshotRetries(): void {
 }
 
 function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
-  if (getQueueItemById(getCurrentQueueItemId())?.youtubeVideoIds) {
+  if (
+    getQueueItemById(getCurrentQueueItemId())?.youtubeVideoIds ||
+    getState('youtube.subItemsMap')[pid]?.manifestComplete === true
+  ) {
     _snapshotRetryCounts.delete(pid);
     return;
   }

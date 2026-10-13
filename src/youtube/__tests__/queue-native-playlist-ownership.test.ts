@@ -6,6 +6,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initPlaylist, playTrack } from '../../player/playlist.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePaused } from '../../player/ownership.ts';
 import { initYouTube } from '../player.ts';
+import * as search from '../search.ts';
 import {
   getYtIndexingSession,
   markYtPlayerReady,
@@ -102,7 +103,7 @@ beforeEach(() => {
   setState('playlist.items', [a, b]);
   setState('playlist.currentQueueItemId', A_ID);
   setState('youtube.subItemsMap', {
-    [A_PLAYLIST]: { ids: [...A_VIDEOS], titles: [] },
+    [A_PLAYLIST]: { ids: [...A_VIDEOS], titles: [], manifestComplete: true },
     [B_PLAYLIST]: { ids: [B_VIDEOS[0]], titles: [] },
   });
   setState('youtube.currentSubIndex', 0);
@@ -114,80 +115,60 @@ afterEach(() => {
   bus.emit('youtube:stop-mode', { silent: true });
   clearAllManagedTimers();
   resetYouTubeModuleState();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
 
-async function removeAWhileBRequestsItsNativePlaylist(playlistOnly = false) {
-  const { cuePlaylist, player, fake } = makeResidentPlayer(false);
-  let ready!: () => void;
-  vi.stubGlobal('YT', {
-    Player: function (
-      _element: string,
-      options: {
-        events: {
-          onReady: (event: { target: YouTubePlayerInstance }) => void;
-          onStateChange: NonNullable<typeof fake.__onStateChange>;
-        };
-      },
-    ) {
-      ready = () => options.events.onReady({ target: player });
-      fake.__onStateChange = options.events.onStateChange;
-      return player;
-    },
-    PlayerState: { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 },
+async function removeAWhileBRequestsItsManifest(playlistOnly = false) {
+  const { cuePlaylist, player, fake } = makeResidentPlayer();
+  let resolve!: (manifest: search.YouTubePlaylistManifest) => void;
+  const pending = new Promise<search.YouTubePlaylistManifest>((yes) => {
+    resolve = yes;
   });
+  vi.spyOn(search, 'resolveYouTubePlaylistManifest').mockReturnValue(pending);
   setState('youtube.subItemsMap', {
-    [A_PLAYLIST]: { ids: [A_VIDEOS[0]], titles: [] },
+    [A_PLAYLIST]: { ids: [...A_VIDEOS], titles: [], manifestComplete: true },
     [B_PLAYLIST]: { ids: playlistOnly ? [] : [B_VIDEOS[0]], titles: [] },
   });
-  if (playlistOnly) {
+  if (playlistOnly)
     setState(
       'playlist.items',
       getState('playlist.items').map((item) =>
         item.queueItemId === B_ID ? { ...item, videoId: null } : item,
       ),
     );
-  }
-  await playTrack(A_ID, 0);
-  ready();
-  expect(cuePlaylist).toHaveBeenLastCalledWith(expect.objectContaining({ list: A_PLAYLIST }));
-  // Native A has produced its first complete API snapshot. The real indexer
-  // now waits 300 ms for a second stable sample before accepting that list.
-  fake.__setState(5);
-  expect(getYtIndexingSession()?.playlistId).toBe(A_PLAYLIST);
-  expect(getState('youtube.subItemsMap')[A_PLAYLIST].ids).toEqual([A_VIDEOS[0]]);
   bus.emit('playlist:remove-tracks', [A_ID]);
   expect(getState('playlist.currentQueueItemId')).toBe(B_ID);
-  expect(cuePlaylist).toHaveBeenCalledWith(expect.objectContaining({ list: B_PLAYLIST }));
-  expect(getYtIndexingSession()?.playlistId).toBe(B_PLAYLIST);
+  expect(cuePlaylist).not.toHaveBeenCalled();
+  expect(getYtIndexingSession()).toBeNull();
   expect(player.getPlaylist?.()).toEqual(A_VIDEOS);
-  return { fake, player, cuePlaylist };
+  const finish = async () => {
+    resolve({ playlistId: B_PLAYLIST, videoId: B_VIDEOS[0], videoIds: [...B_VIDEOS], title: 'B' });
+    await vi.advanceTimersByTimeAsync(1);
+  };
+  return { fake, player, cuePlaylist, finish };
 }
 
 describe('native playlist cache ownership during queue replacement', () => {
   it('does not store the deleted row playlist under its pending successor after a fast Next', async () => {
-    await removeAWhileBRequestsItsNativePlaylist();
+    await removeAWhileBRequestsItsManifest();
     bus.emit('playlist:next-track');
     await vi.advanceTimersByTimeAsync(1);
     expect(getState('youtube.subItemsMap')[B_PLAYLIST].ids).toEqual([B_VIDEOS[0]]);
   });
 
-  it('does not populate an empty successor from the old native cache while indexing', async () => {
-    await removeAWhileBRequestsItsNativePlaylist(true);
+  it('does not populate an empty successor from the old native cache while acquiring its complete manifest', async () => {
+    await removeAWhileBRequestsItsManifest(true);
     bus.emit('youtube:populate-sub-items', B_PLAYLIST, B_ID);
     await vi.advanceTimersByTimeAsync(1);
     expect(getState('youtube.subItemsMap')[B_PLAYLIST].ids).toEqual([]);
   });
 
-  it('accepts the successor native list after indexing completes and navigates its own next video', async () => {
-    const { fake } = await removeAWhileBRequestsItsNativePlaylist();
-    fake.__playlist = [...B_VIDEOS];
-    fake.__videoId = B_VIDEOS[0];
-    fake.__playlistIdx = 0;
-    fake.__setState(5);
-    await vi.advanceTimersByTimeAsync(301);
+  it('accepts the successor native list after manifest acquisition completes and navigates its own next video', async () => {
+    const { fake, finish } = await removeAWhileBRequestsItsManifest();
+    await finish();
     expect(getYtIndexingSession()).toBeNull();
     expect(getState('youtube.subItemsMap')[B_PLAYLIST].ids).toEqual(B_VIDEOS);
     bus.emit('playlist:next-track');
@@ -207,8 +188,14 @@ describe('native playlist cache ownership during queue replacement', () => {
     expect(getState('player.currentTrackMeta')?.queueItemId).toBe(A_ID);
   });
 
-  it('keeps the settled native fallback when the current cached list is truncated', async () => {
+  it('repairs a truncated cache from the server rather than the retained native list', async () => {
     const { fake } = makeResidentPlayer();
+    vi.spyOn(search, 'resolveYouTubePlaylistManifest').mockResolvedValueOnce({
+      playlistId: A_PLAYLIST,
+      videoId: A_VIDEOS[0],
+      videoIds: [...A_VIDEOS],
+      title: 'A',
+    });
     setState('youtube.subItemsMap', {
       [A_PLAYLIST]: { ids: [A_VIDEOS[0]], titles: [] },
     });
@@ -220,4 +207,65 @@ describe('native playlist cache ownership during queue replacement', () => {
     expect(getState('youtube.currentSubIndex')).toBe(1);
     expect(fake.getVideoData().video_id).toBe(A_VIDEOS[1]);
   });
+
+  it('owns Next synchronously while repairing 200 IDs, then plays the 201st without leaving the row', async () => {
+    const ids = Array.from({ length: 248 }, (_, i) => `video${String(i).padStart(6, '0')}`);
+    const { fake } = makeResidentPlayer();
+    fake.__videoId = ids[199];
+    setState('youtube.currentSubIndex', 199);
+    setState('youtube.subItemsMap', { [A_PLAYLIST]: { ids: ids.slice(0, 200), titles: [] } });
+    let finish!: (manifest: search.YouTubePlaylistManifest) => void;
+    vi.spyOn(search, 'resolveYouTubePlaylistManifest').mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    bus.emit('playlist:next-track');
+    expect(getState('playlist.currentQueueItemId')).toBe(A_ID);
+    expect(getState('youtube.currentSubIndex')).toBe(199);
+    finish({ playlistId: A_PLAYLIST, videoId: ids[0], videoIds: ids, title: 'A' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getState('playlist.currentQueueItemId')).toBe(A_ID);
+    expect(getState('youtube.currentSubIndex')).toBe(200);
+    expect(fake.getVideoData().video_id).toBe(ids[200]);
+  });
+
+  it.each(['next', 'previous'] as const)(
+    're-enters outer %s navigation at the true complete-manifest boundary',
+    async (direction) => {
+      const { fake } = makeResidentPlayer();
+      const currentId = direction === 'next' ? A_ID : B_ID;
+      const otherId = direction === 'next' ? B_ID : A_ID;
+      const playlistId = direction === 'next' ? A_PLAYLIST : B_PLAYLIST;
+      const ids = direction === 'next' ? A_VIDEOS : B_VIDEOS;
+      setState(
+        'playlist.items',
+        getState('playlist.items').map((item) =>
+          item.queueItemId === otherId ? { ...item, playlistId: null } : item,
+        ),
+      );
+      setState('playlist.currentQueueItemId', currentId);
+      const subIndex = direction === 'next' ? 1 : 0;
+      fake.__videoId = ids[subIndex];
+      fake.__currentTime = 0;
+      setState('youtube.currentSubIndex', subIndex);
+      setState('youtube.subItemsMap', { [playlistId]: { ids: [...ids], titles: [] } });
+      let finish!: (manifest: search.YouTubePlaylistManifest) => void;
+      vi.spyOn(search, 'resolveYouTubePlaylistManifest').mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const chosen: unknown[] = [];
+      const dispose = bus.on('state:playlist.currentQueueItemId', (id) => chosen.push(id));
+      if (direction === 'next') bus.emit('playlist:next-track');
+      else bus.emit('playlist:prev-track');
+      expect(getState('playlist.currentQueueItemId')).toBe(currentId);
+      finish({ playlistId, videoId: ids[0], videoIds: [...ids], title: 'Full' });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(getState('playlist.currentQueueItemId')).toBe(otherId);
+      expect(chosen.filter((id) => id === otherId)).toHaveLength(1);
+      dispose();
+    },
+  );
 });

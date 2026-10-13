@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [YouTube playlist and native administrator repair — 2026-10-14](design/youtube-playlist-native-control-repair-2026-10-14.md) —
+  Complete Standard manifests, atomic PRO reentry projection, native control
+  ownership and browser/release evidence with provider limitations.
+- [YouTube 목록·관리자 iframe 조작 조사 — 2026-10-14](design/youtube-playlist-native-control-audit-2026-10-14.md) —
+  일반방 부분 목록 채택, PRO 재입장 투영 유실, 관리자 iframe 재개·탐색 경로를
+  조사했다. 실제 공급자 관측과 합성 피드백 재현의 한계를 구분하며 제품 수정·배포는 없다.
 - [Component pill and cascade refactor — 2026-10-13](design/component-cascade-refactor-2026-10-13.md) —
   Component-owned shape, presentation layer precedence, retained safety guards,
   and browser comparison/release evidence.

@@ -5,10 +5,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
-import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import { setPlaybackFilePlaying, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 import { makeFakeYtPlayer } from './__helpers__/fake-yt-player.ts';
+import * as searchFixture from '../search.ts';
 import {
   getProStartObservations,
   resetProStartObservations,
@@ -100,11 +101,6 @@ vi.mock('../search.ts', () => ({
   getPrefetchedYouTubePlaylistManifest: vi.fn(() => null),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
-  resolveYouTubePlaylistEntry: vi.fn(async (playlistId: string, _signal?: AbortSignal) => ({
-    playlistId,
-    videoId: 'RESOLVED001',
-    title: 'Resolved first video',
-  })),
   resolveYouTubePlaylistManifest: vi.fn(async (playlistId: string) => ({
     playlistId,
     videoId: 'RESOLVED001',
@@ -152,6 +148,15 @@ vi.mock('../../ui/dom.ts', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(searchFixture.extractYouTubePlaylistId).mockReset().mockReturnValue(null);
+  vi.mocked(searchFixture.resolveYouTubePlaylistManifest)
+    .mockReset()
+    .mockImplementation(async (playlistId) => ({
+      playlistId,
+      videoId: 'RESOLVED001',
+      videoIds: ['RESOLVED001', 'RESOLVED002'],
+      title: 'Resolved first video',
+    }));
   resetState();
   bus.clear();
   vi.useFakeTimers();
@@ -1506,6 +1511,9 @@ describe('YouTube Player', () => {
         },
       ] satisfies PlaylistItem[]);
       setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('youtube.subItemsMap', {
+        'playlist-1': { ids: ['video-1', 'video-2'], titles: [], manifestComplete: true },
+      });
       setState('room.context', {
         kind: 'standard',
         roomId: '123456',
@@ -2742,6 +2750,169 @@ describe('YouTube Player', () => {
       expect(getState('playlist.items')).toEqual([]);
     });
 
+    it('resolves the complete 248-item manifest before adding without a preview cache', async () => {
+      const search = await import('../search.ts');
+      const ids = Array.from(
+        { length: 248 },
+        (_, index) => `video${String(index).padStart(6, '0')}`,
+      );
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = 'https://www.youtube.com/playlist?list=PL_COMPLETE';
+      document.body.appendChild(input);
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValueOnce({
+        kind: 'playlist-url',
+        raw: input.textContent,
+        videoId: null,
+        playlistId: 'PL_COMPLETE',
+        query: null,
+      });
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockResolvedValueOnce({
+        playlistId: 'PL_COMPLETE',
+        videoId: ids[0],
+        videoIds: ids,
+        title: 'Complete playlist',
+      });
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      bus.emit('youtube:load-from-input');
+      await vi.waitFor(() => expect(getState('playlist.items')).toHaveLength(1));
+      expect(getState('youtube.subItemsMap').PL_COMPLETE).toMatchObject({
+        ids,
+        manifestComplete: true,
+      });
+      const peer = await import('../../network/peer.ts');
+      expect(peer.broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_PLAYLIST_INFO,
+          ids,
+        }),
+      );
+    });
+
+    it.each(['input', 'chat'] as const)(
+      'acquires a watch+list manifest via %s without interrupting existing playback',
+      async (path) => {
+        const search = await import('../search.ts');
+        const ids = Array.from(
+          { length: 248 },
+          (_, index) => `video${String(index).padStart(6, '0')}`,
+        );
+        const sourceUrl = `https://www.youtube.com/watch?v=${ids[201]}&list=PL_BACKGROUND`;
+        let finish!: (value: import('../search.ts').YouTubePlaylistManifest) => void;
+        vi.mocked(search.resolveYouTubePlaylistManifest).mockReturnValueOnce(
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+        );
+        vi.mocked(search.extractYouTubePlaylistId).mockReturnValueOnce('PL_BACKGROUND');
+        setState('playlist.items', [
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            type: 'file',
+            name: 'Playing.mp3',
+            videoId: null,
+            playlistId: null,
+          },
+        ]);
+        setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+        setPlaybackFilePlaying();
+        const stop = vi.fn();
+        bus.on('player:stop-all-media', stop);
+        const { initYouTube } = await import('../player.ts');
+        initYouTube();
+        if (path === 'input') {
+          const input = document.createElement('div');
+          input.id = 'youtube-url-input';
+          input.textContent = sourceUrl;
+          document.body.appendChild(input);
+          vi.mocked(search.getYouTubeInputIntent).mockReturnValueOnce({
+            kind: 'video-url',
+            raw: sourceUrl,
+            videoId: ids[201],
+            playlistId: 'PL_BACKGROUND',
+            query: null,
+          });
+          bus.emit('youtube:load-from-input');
+        } else bus.emit('youtube:load-from-chat', sourceUrl);
+        expect(getState('playlist.items')).toHaveLength(1);
+        expect(getState('playlist.currentQueueItemId')).toBe(QUEUE_ITEM_ID);
+        expect(stop).not.toHaveBeenCalled();
+        finish({
+          playlistId: 'PL_BACKGROUND',
+          videoId: ids[0],
+          videoIds: ids,
+          title: 'Full playlist',
+        });
+        await vi.waitFor(() => expect(getState('playlist.items')).toHaveLength(2));
+        expect(getState('playlist.items')[1]).toMatchObject({
+          videoId: ids[201],
+          playlistId: 'PL_BACKGROUND',
+        });
+        expect(getState('youtube.subItemsMap').PL_BACKGROUND).toMatchObject({
+          ids,
+          manifestComplete: true,
+        });
+        expect(getState('playlist.currentQueueItemId')).toBe(QUEUE_ITEM_ID);
+        expect(getState('playback.activity')).toBe('playing');
+        expect(stop).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not add a partial row on manifest failure and allows an explicit chat retry', async () => {
+      const search = await import('../search.ts');
+      vi.mocked(search.extractYouTubePlaylistId).mockReturnValue('PL_RETRY_ADD');
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockRejectedValueOnce(
+        new Error('unavailable'),
+      );
+      const { showToast } = await import('../../ui/toast.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      const source = 'https://www.youtube.com/playlist?list=PL_RETRY_ADD';
+      bus.emit('youtube:load-from-chat', source);
+      await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('youtube.fetch_failed'));
+      expect(getState('playlist.items')).toEqual([]);
+      expect(getState('youtube.subItemsMap').PL_RETRY_ADD).toBeUndefined();
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockResolvedValueOnce({
+        playlistId: 'PL_RETRY_ADD',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA'],
+        title: 'Retry',
+      });
+      bus.emit('youtube:load-from-chat', source);
+      await vi.waitFor(() => expect(getState('playlist.items')).toHaveLength(1));
+    });
+
+    it('deduplicates pending Standard adds and drops late results when the room changes', async () => {
+      const search = await import('../search.ts');
+      vi.mocked(search.extractYouTubePlaylistId).mockReturnValue('PL_CANCEL_ADD');
+      let finish!: (value: import('../search.ts').YouTubePlaylistManifest) => void;
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      const source = 'https://www.youtube.com/playlist?list=PL_CANCEL_ADD';
+      bus.emit('youtube:load-from-chat', source);
+      bus.emit('youtube:load-from-chat', source);
+      expect(search.resolveYouTubePlaylistManifest).toHaveBeenCalledOnce();
+      const signal = vi.mocked(search.resolveYouTubePlaylistManifest).mock.calls[0][1]!;
+      setState('network.sessionCode', '654321');
+      expect(signal.aborted).toBe(true);
+      finish({
+        playlistId: 'PL_CANCEL_ADD',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA'],
+        title: 'Stale',
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(getState('playlist.items')).toEqual([]);
+      expect(getState('youtube.subItemsMap').PL_CANCEL_ADD).toBeUndefined();
+    });
+
     it('consumes a prefetched playlist manifest synchronously on the submit gesture', async () => {
       const input = document.createElement('div');
       input.id = 'youtube-url-input';
@@ -3007,7 +3178,6 @@ describe('YouTube Player', () => {
           ['FIRSTVID001', 'SELECTED001', 'THIRDVIDEO1'],
         );
       });
-      expect(search.resolveYouTubePlaylistEntry).not.toHaveBeenCalled();
       expect(getState('youtube.subItemsMap')['PL_PERSISTENT_SELECTED']?.ids).toEqual([
         'FIRSTVID001',
         'SELECTED001',
@@ -3402,62 +3572,82 @@ describe('YouTube Player', () => {
       expect(getState('playlist.items')).toHaveLength(1);
     });
 
-    it('resolves a concrete entry before publishing a playlist-only operator add', async () => {
-      const send = vi.fn();
-      const conn = { peer: 'operator-2', open: true, send } as unknown as DataConnection;
-      setState('network.appRole', 'host');
-      setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
-      setState('network.connectedPeers', [
-        {
-          id: conn.peer,
-          slot: 1,
-          label: 'Operator',
-          conn,
-          isOp: true,
-          preloadedQueueItemIds: new Set(),
-          status: 'connected',
-          isDataTarget: true,
-          joinOrder: 1,
-          connectionType: 'local',
-          lastHeartbeat: Date.now(),
-        },
-      ]);
-      const search = await import('../search.ts');
-      vi.mocked(search.extractYouTubePlaylistId).mockReturnValue('PL_OPERATOR');
-      vi.mocked(search.resolveYouTubePlaylistEntry).mockResolvedValue({
-        playlistId: 'PL_OPERATOR',
-        videoId: 'RESOLVED001',
-        title: 'Resolved first video',
-      });
-      const protocol = await import('../../network/protocol.ts');
-      const { initYouTube } = await import('../player.ts');
-      initYouTube();
-      const handlers = vi.mocked(protocol.registerHandlers).mock.calls.at(-1)?.[0] as Record<
-        string,
-        ((data: Record<string, unknown>, conn: DataConnection) => void) | undefined
-      >;
-
-      handlers[MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]?.(
-        {
-          type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
-          requestId: '77777777-7777-4777-8777-777777777777',
-          baseRevision: 0,
-          sourceUrl: 'https://www.youtube.com/playlist?list=PL_OPERATOR',
-          title: 'https://www.youtube.com/playlist?list=PL_OPERATOR',
-        },
-        conn,
-      );
-
-      await vi.waitFor(() => {
-        expect(getState('playlist.items')).toEqual([
-          expect.objectContaining({
-            type: 'youtube',
-            videoId: 'RESOLVED001',
-            playlistId: 'PL_OPERATOR',
-          }),
+    it.each([false, true])(
+      'resolves all 248 IDs for an operator playlist add, with video=%s',
+      async (withVideo) => {
+        const ids = [
+          'RESOLVED001',
+          ...Array.from({ length: 247 }, (_, i) => `video${String(i).padStart(6, '0')}`),
+        ];
+        const requestedId = withVideo ? ids[201] : ids[0];
+        const sourceUrl = withVideo
+          ? `https://www.youtube.com/watch?v=${requestedId}&list=PL_OPERATOR`
+          : 'https://www.youtube.com/playlist?list=PL_OPERATOR';
+        const send = vi.fn();
+        const conn = { peer: 'operator-2', open: true, send } as unknown as DataConnection;
+        setState('network.appRole', 'host');
+        setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+        setState('network.connectedPeers', [
+          {
+            id: conn.peer,
+            slot: 1,
+            label: 'Operator',
+            conn,
+            isOp: true,
+            preloadedQueueItemIds: new Set(),
+            status: 'connected',
+            isDataTarget: true,
+            joinOrder: 1,
+            connectionType: 'local',
+            lastHeartbeat: Date.now(),
+          },
         ]);
-      });
-    });
+        const search = await import('../search.ts');
+        vi.mocked(search.extractYouTubePlaylistId).mockReturnValue('PL_OPERATOR');
+        vi.mocked(search.resolveYouTubePlaylistManifest).mockResolvedValue({
+          playlistId: 'PL_OPERATOR',
+          videoId: 'RESOLVED001',
+          videoIds: ids,
+          title: 'Resolved first video',
+        });
+        const protocol = await import('../../network/protocol.ts');
+        const { initYouTube } = await import('../player.ts');
+        initYouTube();
+        const handlers = vi.mocked(protocol.registerHandlers).mock.calls.at(-1)?.[0] as Record<
+          string,
+          ((data: Record<string, unknown>, conn: DataConnection) => void) | undefined
+        >;
+
+        handlers[MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]?.(
+          {
+            type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+            requestId: '77777777-7777-4777-8777-777777777777',
+            baseRevision: 0,
+            sourceUrl,
+            title: sourceUrl,
+          },
+          conn,
+        );
+
+        await vi.waitFor(() => {
+          expect(getState('playlist.items')).toEqual([
+            expect.objectContaining({
+              type: 'youtube',
+              videoId: requestedId,
+              playlistId: 'PL_OPERATOR',
+            }),
+          ]);
+        });
+        expect(search.resolveYouTubePlaylistManifest).toHaveBeenCalledWith(
+          'PL_OPERATOR',
+          expect.any(AbortSignal),
+        );
+        expect(getState('youtube.subItemsMap').PL_OPERATOR).toMatchObject({
+          ids,
+          manifestComplete: true,
+        });
+      },
+    );
 
     it('serializes operator YouTube additions in request-arrival order', async () => {
       const conn = {
@@ -3487,8 +3677,13 @@ describe('YouTube Player', () => {
       vi.mocked(search.extractYouTubePlaylistId).mockImplementation((url: string) =>
         url.includes('list=PL_SERIAL') ? 'PL_SERIAL' : null,
       );
-      let resolveFirst!: (entry: { playlistId: string; videoId: string; title: string }) => void;
-      vi.mocked(search.resolveYouTubePlaylistEntry).mockReturnValue(
+      let resolveFirst!: (entry: {
+        playlistId: string;
+        videoId: string;
+        title: string;
+        videoIds: string[];
+      }) => void;
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockReturnValue(
         new Promise((resolve) => {
           resolveFirst = resolve;
         }),
@@ -3528,6 +3723,7 @@ describe('YouTube Player', () => {
       resolveFirst({
         playlistId: 'PL_SERIAL',
         videoId: 'RESOLVED001',
+        videoIds: ['RESOLVED001', 'RESOLVED002'],
         title: 'Resolved first video',
       });
 
@@ -3568,7 +3764,7 @@ describe('YouTube Player', () => {
         url.includes('list=PL_OLD_ROOM') ? 'PL_OLD_ROOM' : null,
       );
       let oldRoomSignal: AbortSignal | undefined;
-      vi.mocked(search.resolveYouTubePlaylistEntry).mockImplementation(
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockImplementation(
         (_playlistId, signal) =>
           new Promise((_resolve, reject) => {
             oldRoomSignal = signal;
@@ -3641,7 +3837,7 @@ describe('YouTube Player', () => {
         url.includes('list=PL_STALE') ? 'PL_STALE' : null,
       );
       let staleSignal: AbortSignal | undefined;
-      vi.mocked(search.resolveYouTubePlaylistEntry).mockImplementation(
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockImplementation(
         (_playlistId, signal) =>
           new Promise((_resolve, reject) => {
             staleSignal = signal;
@@ -3747,7 +3943,7 @@ describe('YouTube Player', () => {
         url.includes('list=PL_REVOKED') ? 'PL_REVOKED' : null,
       );
       let revokedSignal: AbortSignal | undefined;
-      vi.mocked(search.resolveYouTubePlaylistEntry).mockImplementation(
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockImplementation(
         (_playlistId, signal) =>
           new Promise((_resolve, reject) => {
             revokedSignal = signal;
@@ -3847,7 +4043,7 @@ describe('YouTube Player', () => {
       const search = await import('../search.ts');
       vi.mocked(search.extractYouTubePlaylistId).mockReturnValue('PL_STALE');
       let rejectResolution!: (error: Error) => void;
-      vi.mocked(search.resolveYouTubePlaylistEntry).mockReturnValue(
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockReturnValue(
         new Promise((_resolve, reject) => {
           rejectResolution = reject;
         }),
@@ -4247,6 +4443,7 @@ describe('YouTube Player', () => {
         'playlist-1': {
           ids: ['firstVideo', 'secondVideo'],
           titles: ['First', 'Second'],
+          manifestComplete: true,
         },
       });
 

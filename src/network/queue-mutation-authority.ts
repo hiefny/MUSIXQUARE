@@ -14,6 +14,7 @@ import { SessionScope } from '../core/session-scope.ts';
 import { getState } from '../core/state.ts';
 import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../rooms/authority.ts';
 import type { DataConnection, ProtocolMsg, RoomCapability } from '../types/index.ts';
+import { YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS } from '../youtube/constants.ts';
 import { safeSend } from './peer-state.ts';
 import { registerHandler } from './protocol.ts';
 
@@ -21,6 +22,11 @@ const MAX_REQUESTS_PER_CONNECTION = 256;
 const MAX_PENDING_GUEST_REQUESTS = 64;
 const ACCEPT_TIMEOUT_MS = 2_500;
 const SETTLE_TIMEOUT_MS = 12_000;
+// All YouTube additions share an arrival-ordered commit lane, so even a
+// single video may wait behind a playlist. Preparations run concurrently;
+// their 60s budget does not accumulate. Leave one ACK-sized transit margin
+// on each side without extending remove/reorder or the initial host ACK.
+const YOUTUBE_ADD_SETTLE_TIMEOUT_MS = YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS + ACCEPT_TIMEOUT_MS * 2;
 
 type QueueMutationResult = ProtocolMsg<typeof MSG.OPERATOR_QUEUE_MUTATION_RESULT>;
 export type StandardQueueMutationResultCode = NonNullable<QueueMutationResult['code']>;
@@ -317,7 +323,9 @@ export function sendStandardQueueMutationRequest(message: StandardQueueMutationR
   scope.timer(
     settleTimerKey(message.requestId),
     () => failGuestMutation(message.requestId, 'settle-timeout'),
-    SETTLE_TIMEOUT_MS,
+    message.type === MSG.REQUEST_PLAYLIST_ADD_YOUTUBE
+      ? YOUTUBE_ADD_SETTLE_TIMEOUT_MS
+      : SETTLE_TIMEOUT_MS,
   );
 
   if (safeSend(conn, message)) return true;
@@ -389,4 +397,5 @@ export function initStandardQueueMutationAuthority(): void {
 export const standardQueueMutationTimingForTests = {
   acceptTimeoutMs: ACCEPT_TIMEOUT_MS,
   settleTimeoutMs: SETTLE_TIMEOUT_MS,
+  youtubeAddSettleTimeoutMs: YOUTUBE_ADD_SETTLE_TIMEOUT_MS,
 } as const;

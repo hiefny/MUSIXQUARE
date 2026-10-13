@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { PlaylistItem, PlaylistWireItem, QueueItemId } from '../../types/index.ts';
 import {
+  applyPlaylistProjection,
   applyPlaylistSnapshot,
   commitPlaylistItems,
   createPlaylistSnapshot,
@@ -189,6 +190,66 @@ describe('queue model', () => {
 
     expect(applyPlaylistSnapshot(emptyRevisionZero, 'rebase')).toBe('rebased');
     expect(applyPlaylistSnapshot(emptyRevisionZero)).toBe('duplicate');
+  });
+
+  it('copies projected manifests locally without accepting or serializing them on the wire', () => {
+    const item: PlaylistItem = {
+      queueItemId: QID_A,
+      type: 'youtube',
+      name: 'Saved playlist',
+      videoId: 'dQw4w9WgXcQ',
+      playlistId: 'PL_SAVED',
+      youtubeVideoIds: ['dQw4w9WgXcQ', 'M7lc1UVf-VE'],
+      isExpanded: true,
+    };
+    expect(applyPlaylistProjection({ list: [item], revision: 2, currentQueueItemId: QID_A })).toBe(
+      'applied',
+    );
+    expect(getState('playlist.items')[0]?.youtubeVideoIds).toEqual(item.youtubeVideoIds);
+    expect(getState('playlist.items')[0]?.youtubeVideoIds).not.toBe(item.youtubeVideoIds);
+    expect(getState('playlist.items')[0]?.isExpanded).toBeUndefined();
+    item.youtubeVideoIds![1] = 'jNQXAC9IVRw';
+    expect(getState('playlist.items')[0]?.youtubeVideoIds).toEqual(['dQw4w9WgXcQ', 'M7lc1UVf-VE']);
+    const wire = createPlaylistSnapshot();
+    expect(wire.list[0]).not.toHaveProperty('youtubeVideoIds');
+
+    expect(
+      applyPlaylistSnapshot({
+        ...wire,
+        revision: 3,
+        list: [{ ...wire.list[0], youtubeVideoIds: ['dQw4w9WgXcQ', 'jNQXAC9IVRw'] }],
+      }),
+    ).toBe('applied');
+    expect(getState('playlist.items')[0]).not.toHaveProperty('youtubeVideoIds');
+  });
+
+  it('fences local manifest-only conflicts and stale projections while allowing an authority rebase', () => {
+    const item: PlaylistItem = {
+      queueItemId: QID_A,
+      type: 'youtube',
+      name: 'Saved playlist',
+      videoId: 'dQw4w9WgXcQ',
+      playlistId: 'PL_SAVED',
+      youtubeVideoIds: ['dQw4w9WgXcQ', 'M7lc1UVf-VE'],
+    };
+    const original = { list: [item], revision: 2, currentQueueItemId: QID_A };
+    expect(applyPlaylistProjection(original)).toBe('applied');
+    const acceptedItems = getState('playlist.items');
+    expect(applyPlaylistProjection(original)).toBe('duplicate');
+    const changed = {
+      ...original,
+      list: [{ ...item, youtubeVideoIds: ['dQw4w9WgXcQ', 'jNQXAC9IVRw'] }],
+    };
+    expect(applyPlaylistProjection(changed)).toBe('conflict');
+    expect(applyPlaylistProjection({ ...changed, revision: 1 })).toBe('stale');
+    expect(applyPlaylistProjection({ ...changed, currentQueueItemId: QID_B })).toBe('invalid');
+    expect(getState('playlist.items')).toBe(acceptedItems);
+    expect(getState('playlist.revision')).toBe(2);
+    expect(applyPlaylistProjection({ ...changed, revision: 0 }, 'rebase')).toBe('rebased');
+    expect(getState('playlist.items')[0]?.youtubeVideoIds).toEqual(
+      changed.list[0]?.youtubeVideoIds,
+    );
+    expect(getState('playlist.revision')).toBe(0);
   });
 
   it('increments revision once per commit and preserves current identity through reorder', () => {

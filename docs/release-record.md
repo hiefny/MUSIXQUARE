@@ -53,6 +53,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   완료되기 전에는 §1의 운영 버전을 변경하지 않는다.
   [범위·전후 비교·검증](design/component-cascade-refactor-2026-10-13.md)
 
+### 로컬 E2E 재입장 관측
+
+- [ ] CSS 리팩터링의 최초 Windows 전체 실행에서 seed 470021의 재입장 뒤
+  guest가 PAUSED로 남은 1회는 원인 미확정이다. 단독 20회·브라우저 재사용
+  73회·로컬 재검사 640개·원격 640개는 통과했다. 2026-10-14 오너가 이력을
+  남기고 배포를 승인했다. OS 조작 가능성은 입증되지 않았으며 제품 결함 해결로
+  표기하지 않는다. 추후 재발 시 추가한 제한된 Media Session·activity·sync
+  진단 기록으로 판정한다.
+  [실패·재검사·한계](design/component-cascade-refactor-2026-10-13.md)
+
 ### 최근 해결 근거
 
 YouTube 최초 focus 검사와 후반 Tab 실패 항목은 PR #319, exact-main `dc69bda0`의

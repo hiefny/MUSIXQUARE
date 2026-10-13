@@ -30,6 +30,7 @@ import {
 import { showToast } from '../toast.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { initSettings } from '../settings.ts';
+import { __resetModalStackForTests } from '../dom.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
@@ -1010,6 +1011,107 @@ describe('local file picker hint', () => {
     expect((document.getElementById('file-input') as HTMLInputElement).accept).toBe(
       '.mp3,.wav,.flac,.m4a,.aac,.ogg,.oga,.opus,.webm,.aif,.aiff,.caf,audio/*',
     );
+  });
+});
+
+describe('YouTube popup initial focus', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    __resetModalStackForTests();
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    __resetModalStackForTests();
+    vi.useRealTimers();
+  });
+
+  function setup() {
+    document.body.innerHTML = `
+      <button id="btn-media-source">Media</button>
+      <div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
+        <button id="btn-local-file">Local file</button>
+        <button id="btn-youtube-source">YouTube</button>
+      </div>
+      <div id="youtube-url-overlay" role="dialog" aria-modal="true" tabindex="-1">
+        <div id="youtube-url-input" contenteditable="true" tabindex="0"></div>
+        <button id="youtube-search-btn" disabled>Search</button>
+        <button id="youtube-play-btn" disabled>Add</button>
+        <button id="btn-yt-cancel">Cancel</button>
+      </div>
+    `;
+    setState('network.appRole', 'host');
+    setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
+    initPlayerControls();
+    return {
+      opener: document.getElementById('btn-media-source') as HTMLButtonElement,
+      local: document.getElementById('btn-local-file') as HTMLButtonElement,
+      youtube: document.getElementById('btn-youtube-source') as HTMLButtonElement,
+      overlay: document.getElementById('youtube-url-overlay') as HTMLElement,
+      input: document.getElementById('youtube-url-input') as HTMLElement,
+      cancel: document.getElementById('btn-yt-cancel') as HTMLButtonElement,
+    };
+  }
+
+  function pressTab(target: HTMLElement): void {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+    );
+  }
+
+  function openFromKeyboard(elements: ReturnType<typeof setup>): void {
+    elements.opener.focus();
+    elements.opener.click();
+    vi.advanceTimersByTime(0);
+    expect(document.activeElement).toBe(elements.local);
+    pressTab(elements.local);
+    expect(document.activeElement).toBe(elements.youtube);
+    elements.youtube.click();
+    // The real modal stack can focus the editable before the delayed fallback.
+    expect(document.activeElement).toBe(elements.input);
+  }
+
+  it('preserves Tab navigation when the delayed initial focus becomes due', () => {
+    const elements = setup();
+    openFromKeyboard(elements);
+    vi.advanceTimersByTime(50);
+
+    pressTab(elements.input);
+    expect(document.activeElement).toBe(elements.cancel);
+    vi.advanceTimersByTime(50);
+    expect(document.activeElement).toBe(elements.cancel);
+
+    pressTab(elements.cancel);
+    expect(document.activeElement).toBe(elements.input);
+  });
+
+  it.each(['body', 'overlay'] as const)(
+    'still initializes the editable when focus remains on the %s',
+    (target) => {
+      const elements = setup();
+      // A pointer activation need not focus the source button first.
+      elements.youtube.click();
+      if (target === 'overlay') elements.overlay.focus();
+      expect(document.activeElement).toBe(target === 'body' ? document.body : elements.overlay);
+
+      vi.advanceTimersByTime(100);
+
+      expect(document.activeElement).toBe(elements.input);
+    },
+  );
+
+  it('keeps the restored opener focused after closing before the delayed focus', async () => {
+    const elements = setup();
+    openFromKeyboard(elements);
+    vi.advanceTimersByTime(50);
+
+    elements.cancel.click();
+    await Promise.resolve();
+    expect(elements.overlay.classList.contains('active')).toBe(false);
+    expect(document.activeElement).toBe(elements.opener);
+
+    vi.advanceTimersByTime(100);
+    expect(document.activeElement).toBe(elements.opener);
   });
 });
 

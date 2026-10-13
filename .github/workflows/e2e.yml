@@ -1,106 +1,162 @@
 name: Full E2E
 
-# Temporary diagnostic branch only. No production access or deployment.
+# The complete Playwright suite is intentionally separate from the production
+# release gate. It runs weekly at 03:17 KST every Tuesday and remains available
+# on demand.
+# The Chromium suite runs serially because its tests share a signaling server.
+# A production-live large-room smoke runs in the same weekly/manual workflow but
+# is explicitly non-blocking because it depends on deployed signaling and R2.
+
 on:
+  schedule:
+    # GitHub cron is UTC. Monday 18:17 UTC runs at Tuesday 03:17 KST;
+    # the off-minute start also avoids the busiest top-of-hour scheduling window.
+    - cron: '17 18 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: musixquare-full-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  focus-repeat:
-    name: Fixed focus timeline repeat (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    defaults:
-      run:
-        shell: bash
+  e2e:
+    runs-on: ubuntu-latest
+    # Every step has its own diagnostic bound. The 211-minute step budget
+    # leaves nine minutes for runner transitions and cancellation cleanup.
+    timeout-minutes: 220
+
     steps:
-      - name: Checkout the same application and test revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 594fbc5dc9ca5f43e9f4a302cc0a420a81e9fa6a
-          persist-credentials: false
-      - name: Setup pinned Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      - name: Checkout
+        timeout-minutes: 3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        timeout-minutes: 3
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: npm
-      - name: Install pinned dependencies
+
+      - name: Install dependencies with pinned npm
+        timeout-minutes: 10
         run: corepack npm ci
-      - name: Build unchanged application
+
+      - name: Build E2E bundle
+        timeout-minutes: 10
         run: npm run build:e2e
-      - name: Install Chromium
+
+      - name: Install Playwright Browsers
+        timeout-minutes: 15
         run: npx playwright install --with-deps chromium
-      - name: Instrument event order without changing application logic
-        run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const file = 'e2e/youtube-search-interactions.test.ts';
-          let source = fs.readFileSync(file, 'utf8');
-          const marker = '    trackPageErrors(page);';
-          const init = `    await page.addInitScript(() => {
-                const events: unknown[] = [];
-                (window as any).__focusTimeline = events;
-                const active = () => document.activeElement?.id || document.activeElement?.tagName;
-                const record = (kind: string, details: object = {}) => {
-                  events.push({ at: performance.now(), kind, active: active(), ...details });
-                  if (events.length > 400) events.shift();
-                };
-                for (const type of ['focusin', 'focusout', 'keydown', 'keyup']) {
-                  document.addEventListener(type, (event) => {
-                    record(type, { target: (event.target as HTMLElement)?.id, key: (event as KeyboardEvent).key, shift: (event as KeyboardEvent).shiftKey });
-                  }, true);
-                }
-                const originalFocus = HTMLElement.prototype.focus;
-                HTMLElement.prototype.focus = function (...args) {
-                  if (['youtube-url-input', 'btn-yt-cancel', 'btn-local-file', 'btn-youtube-source'].includes(this.id)) {
-                    record('focus-call', { target: this.id, stack: new Error().stack });
-                  }
-                  return originalFocus.apply(this, args);
-                };
-                const originalTimeout = window.setTimeout;
-                window.setTimeout = function (callback: TimerHandler, delay?: number, ...args: unknown[]) {
-                  if (delay !== 100 || typeof callback !== 'function') return originalTimeout(callback, delay, ...args);
-                  const callbackSource = String(callback);
-                  const stack = new Error().stack;
-                  record('timer-100-set', { callbackSource, stack });
-                  return originalTimeout(() => {
-                    record('timer-100-fire', { callbackSource, stack });
-                    callback(...args);
-                  }, delay);
-                } as typeof window.setTimeout;
-              });
-          `;
-          if (!source.includes(marker)) throw new Error('init marker missing');
-          source = source.replace(marker, init + marker);
-          const hookMarker = '  test.afterEach(async ({ page }) => {';
-          const hook = `  test.afterEach(async ({ page }, testInfo) => {
-              await testInfo.attach('focus-timeline', {
-                body: JSON.stringify(await page.evaluate(() => (window as any).__focusTimeline), null, 2),
-                contentType: 'application/json',
-              });
-            });
-          `;
-          if (!source.includes(hookMarker)) throw new Error('hook marker missing');
-          fs.writeFileSync(file, source.replace(hookMarker, hook + hookMarker));
-          NODE
-      - name: Repeat state-aware keyboard entry 30 times without retries
-        run: npx playwright test e2e/youtube-search-interactions.test.ts --project=chromium --grep 'keeps the empty editable input' --repeat-each=30 --retries=0 --reporter=line,html,json
-        env:
-          PLAYWRIGHT_JSON_OUTPUT_NAME: focus-results.json
-          PLAYWRIGHT_HTML_OPEN: never
-      - name: Save evidence including failures
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+
+      - name: Full E2E tests
+        timeout-minutes: 165
+        run: npx playwright test --reporter=line,html
+
+      - name: Upload failure artifacts
+        timeout-minutes: 5
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: focus-timeline-${{ matrix.os }}-${{ github.run_id }}
+          name: full-e2e-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            focus-results.json
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  webkit-mobile:
+    runs-on: ubuntu-latest
+    # The explicit 74-minute step budget leaves six minutes for runner
+    # transitions and cancellation cleanup.
+    timeout-minutes: 80
+
+    steps:
+      - name: Checkout
+        timeout-minutes: 3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        timeout-minutes: 3
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        timeout-minutes: 8
+        run: corepack npm ci
+
+      - name: Build E2E bundle
+        timeout-minutes: 10
+        run: npm run build:e2e
+
+      - name: Install WebKit
+        timeout-minutes: 15
+        run: npx playwright install --with-deps webkit
+
+      - name: Targeted iPhone WebKit smoke
+        timeout-minutes: 20
+        run: npx playwright test --config=playwright.webkit.config.ts --reporter=line
+
+      - name: Production WebKit Service Worker lifecycle smoke
+        timeout-minutes: 10
+        run: npm run test:e2e:webkit-service-worker
+
+      - name: Upload WebKit failure artifacts
+        timeout-minutes: 5
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: webkit-mobile-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  production-large-room:
+    name: Production large-room R2 smoke
+    runs-on: ubuntu-latest
+    # This is real production monitoring, not a release/PR gate. Keep failures
+    # visible in the job while allowing the weekly/manual workflow to continue.
+    continue-on-error: true
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        timeout-minutes: 3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        timeout-minutes: 3
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        timeout-minutes: 8
+        run: corepack npm ci
+
+      - name: Install Chromium
+        timeout-minutes: 7
+        run: npx playwright install --with-deps chromium
+
+      - name: Run production 9-local-guest R2 smoke
+        timeout-minutes: 5
+        run: npx playwright test --config=playwright.production-live.config.ts --reporter=line,html
+
+      - name: Upload production-live failure artifacts
+        timeout-minutes: 4
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: production-large-room-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
             playwright-report/
             test-results/
           if-no-files-found: warn

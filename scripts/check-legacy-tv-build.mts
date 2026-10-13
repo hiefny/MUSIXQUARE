@@ -71,16 +71,20 @@ export function assertLegacyCss(css: string): void {
   let hasLegacyBootBodyFallback = false;
   let hasLegacyBootFailureFallback = false;
   root.walkRules((rule) => {
+    // Layer lowering can insert its impossible-ID specificity padding on
+    // any compound selector. Ignore only that generated token when locating
+    // the required boot surfaces; keep real selectors and :has() intact.
+    const selector = rule.selector.replaceAll(':not(#\\#)', '');
     if (
-      rule.selector.includes('html.setup-boot-block body') &&
-      !rule.selector.includes(':has(') &&
+      selector.includes('html.setup-boot-block body') &&
+      !selector.includes(':has(') &&
       rule.nodes.some((node) => node.type === 'decl' && node.prop === 'animation')
     ) {
       hasLegacyBootBodyFallback = true;
     }
     if (
-      /body\s*>\s*\.bootstrap-failure/u.test(rule.selector) &&
-      !rule.selector.includes(':has(') &&
+      /body\s*>\s*\.bootstrap-failure/u.test(selector) &&
+      !selector.includes(':has(') &&
       rule.nodes.some((node) => node.type === 'decl' && node.prop === 'display')
     ) {
       hasLegacyBootFailureFallback = true;
@@ -92,7 +96,12 @@ export function assertLegacyCss(css: string): void {
 
   let hasPhysicalOverlayEdges = false;
   root.walkRules((rule) => {
-    if (!rule.selectors.includes('.file-drop-feedback')) return;
+    if (
+      !rule.selectors.some(
+        (selector) => selector.replaceAll(':not(#\\#)', '') === '.file-drop-feedback',
+      )
+    )
+      return;
     const edges = new Map(
       rule.nodes.flatMap((node) =>
         node.type === 'decl' ? [[node.prop, node.value] as const] : [],
@@ -112,7 +121,8 @@ export function assertLegacyCss(css: string): void {
     'body.fouc-loaded',
     'body.overlay-open .bottom-nav',
   ]) {
-    if (!css.includes(sentinel)) throw new Error(`Built CSS lost legacy sentinel: ${sentinel}`);
+    if (!css.replaceAll(':not(#\\#)', '').includes(sentinel))
+      throw new Error(`Built CSS lost legacy sentinel: ${sentinel}`);
   }
 }
 

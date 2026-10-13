@@ -35,6 +35,34 @@ describe('legacy smart-TV app compatibility', () => {
     );
   });
 
+  it('finds legacy boot and overlay guards after layer-specificity lowering', async () => {
+    const transformed = await transformAppCssForLegacyBrowsers(`
+      @layer safety, base, components, states;
+      @layer base {
+        :root{--bg:#fff}
+        .onboarding-overlay{position:fixed}
+        body.fouc-loaded{opacity:1}
+        .file-drop-feedback{top:0;bottom:0;left:0;right:0}
+      }
+      @layer components { body > .bootstrap-failure{display:block} }
+      @layer states { body.overlay-open .bottom-nav{display:none} }
+      @layer safety { html.setup-boot-block body{animation:boot 1s !important} }
+    `);
+    expect(transformed).toContain(':not(#\\#)');
+    expect(() => assertLegacyCss(transformed)).not.toThrow();
+    expect(() => assertLegacyCss(transformed.replace('animation:', 'color:'))).toThrow(
+      'selector-safe delayed boot failure',
+    );
+    expect(() =>
+      assertLegacyCss(
+        transformed.replaceAll('html.setup-boot-block', 'html:has(.setup-boot-block)'),
+      ),
+    ).toThrow('selector-safe delayed boot failure');
+    expect(() => assertLegacyCss(transformed.replace('right:0', 'right:1px'))).toThrow(
+      'physical fullscreen overlay edges',
+    );
+  });
+
   it('builds the app, CSS, and first-paint cleanup for the Chromium 79 floor', () => {
     const config = createViteConfig({});
     expect(LEGACY_APP_BROWSER_TARGET).toBe('chrome79');

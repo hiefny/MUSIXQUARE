@@ -3,7 +3,7 @@
 | 항목 | 값 |
 | --- | --- |
 | 상태 | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.11` / 서비스 워커 캐시 `v674` 예정 |
-| 검증 코드 | 코드 커밋 `CODE_SHA` (branch `agent/i18n-quality-update-2026-10`, base main `5eb25dc6`) |
+| 검증 코드 | 코드 커밋 `818c87bca6c944859efb21bcb46c699d8695d576` (branch `agent/i18n-quality-update-2026-10`, base main `5eb25dc6`) |
 | 환경 | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다 |
 | 범위 | App 범위만: `src/i18n/*.ts` 42개, `browser/classic-runtime/landing-i18n.ts`(About), `browser/classic-runtime/account-complete.ts`, `index.html`·`.workshop/landing/landing.html` 영어 폴백, i18n 테스트 3개, 번역 가이드. Worker·D1·스키마·시크릿 변경 없음 |
 | 조사 근거 | 2026-10-13 전수 조사(42로케일 리뷰어 + 영어↔한국어 정합, 내부 폴더 `docs/private/i18n-quality-survey-2026-10-13/`, 저장소 밖 보관) |

@@ -44,6 +44,19 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### YouTube 목록·관리자 iframe 조작
+
+- [ ] App 8.10.10/v672 배포 대기: 일반방의 모든 목록 추가 경로·기존 부분
+  캐시가 서버 완결 manifest를 사용하도록 수정했다. PRO 재입장 시 유실되던
+  `youtubeVideoIds`는 원자적 로컬 투영으로 보존한다. Standard 관리자 iframe
+  재개 가드·직접 탐색 전달·프로그램 seek 콜백의 명령 오인을 보완했다.
+  실제 사용자 제보의 자연 반복/정지 경로 전체를 확정한 것은 아니다.
+  신규 의존성·스키마·비밀·바인딩·프로토콜 변경은 없으며 App 단독 배포,
+  Developer API D1 application=false 대상이다. 로컬·PR 검사는 exact-main CI
+  후보를 대신하지 않는다. 검증·공급자 한계·배포/복구 근거:
+  [수정 보고서](design/youtube-playlist-native-control-repair-2026-10-14.md),
+  [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
+
 ### 로컬 E2E 재입장 관측
 
 - [ ] CSS 리팩터링의 최초 Windows 전체 실행에서 seed 470021의 재입장 뒤

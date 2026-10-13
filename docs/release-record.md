@@ -152,25 +152,22 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 재현되면 원인과 함께 기록한다. 지금 예정된 조사는 없다.
 
 - [ ] 변경 전 main `4854e392`의 Full E2E [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)
-  (2026-10-13 10:46:21 KST 완료)에서 serial 626 pass / 1 fail. 실패는
-  `e2e/youtube-search-interactions.test.ts:80` test의 입력 조작 전 최초 focus
-  확인(원본 90행)이다. 원본 snapshot은 미디어 선택 팝업에 남아 있으며 실제
-  activeElement는 미수집이다. 고정 `4ca74b24`의 원격 A 반복
-  [38338822645](https://github.com/hiefny/MUSIXQUARE/actions/runs/38338822645)는
-  Ubuntu 9 pass / 21 fail, Windows 12 pass / 18 fail(각 0 skip / 0 retry).
-  39회 모두 최초 focus에서 실패했고 실패 후 local-file focus·YouTube overlay
-  `display:none`을 확인했다. Linux 전용 문제는 아니다. 준비 확인·실제 Tab 진입 B
-  [38339571035](https://github.com/hiefny/MUSIXQUARE/actions/runs/38339571035)의
-  Ubuntu는 30 pass / 0 fail, Windows는 27 pass / 3 fail(각 0 skip / 0 retry).
-  최초 진입은 60회 모두 통과했지만 Windows 3회는 후반 마지막 Tab 뒤 input
-  focus 확인(원래 106행)에서 실패, cancel focus·overlay `display:flex`였다.
-  초기 검사 절차 부족과 후반 실패를 구분한다. 후반은 100ms input focus 타이머와
-  Tab 경합이 후보지만 타이머·focusin 로그 없이 원인이나 해결을 확정하지 않는다.
-  두 진단 실행은 완료됐다. 사용자 PC의 `6b159667` 5회 통과는
-  원격 hosted Windows와 동일 환경이 아니다. 제품·main 테스트 수정이나 배포는
-  하지 않았으며 수정 여부는 다음 사용자 결정으로 남긴다.
-  [반복 설계·현재 결과·한계](design/youtube-focus-linux-diagnostic-2026-10-13.md),
-  [로그·재검증·한계](design/youtube-input-guidance-2026-10-13.md#기존-full-e2e의-미확정-관찰)
+  의 YouTube 최초 focus 실패와 후속 Windows Tab 실패: 원인 확인·수정 후
+  검증·배포 대기. 검사 진입은 `1771b0c5`에서 팝업 준비·최초 focus 확인 후 실제
+  Tab으로 바꿨다. 자연 실패 계측
+  [38355671404](https://github.com/hiefny/MUSIXQUARE/actions/runs/38355671404)는
+  Ubuntu 30 pass, Windows 27 pass / 3 fail. 세 실패 모두 Cancel 상태의 100ms
+  timer-fire → 해당 stack의 input.focus → 입력창에서 마지막 Tab → Cancel로
+  연결돼 지연 초기 focus가 사용자 이동을 덮어쓴 원인을 확인했다.
+  `594fbc5d`는 focus가 body·overlay에 남아 있을 때만 초기 fallback을 적용한다.
+  신규 단위 4개 수정 전 1 fail / 3 pass, 수정 후 관련 파일 197 pass.
+  App `8.10.8` / `v669`, `target=app`, D1 `false`, 새 의존성·스키마·비밀·바인딩·
+  프로토콜·복구 floor 없음. 수정 후 원격 반복
+  [38356696388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356696388)는
+  Ubuntu·Windows 각 30 pass / 0 fail / 0 skip / 0 retry다. 로컬·원격 전체 검증·
+  exact-main 후보·배포는 pending이며 항목을 닫지 않는다.
+  [원인·수정·검증 상태](design/youtube-popup-focus-repair-2026-10-13.md),
+  [이전 진단과 당시 한계](design/youtube-focus-linux-diagnostic-2026-10-13.md)
 - [ ] 2026-10-11 Montpellier 행사 PRO 002026의 입장 실패 원인은 미확정이다.
   Peer 번호는 동시 접속 수가 아니며 `Peer 77` 퇴장 메시지나 “100명처럼”이라는
   관찰만으로 실제 `ROOM_FULL`·100명 동시 접속을 증명하지 못한다. 로컬에서

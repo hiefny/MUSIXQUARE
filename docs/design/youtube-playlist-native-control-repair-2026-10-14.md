@@ -6,9 +6,12 @@ The owner authorized implementation and production deployment after the
 [read-only investigation](youtube-playlist-native-control-audit-2026-10-14.md).
 The implementation starts from `1964828e34587214ec3f98bee7a2cf4392a36768`.
 Initial reviewed implementation: `ef1cfef729f6109bb619cbb4380e94f7ee6ba4d8`.
-The first-focus follow-up and its final source identity are recorded below.
-Final release evidence is recorded below when available. App **8.10.10**, service-worker cache **v673**; deployment scope
-is **App**, with Developer API D1 application **false**.
+Final product follow-up: `44f73b6f`; the reviewed PR head including its evidence is
+`1646742f87cc5b25061a644cba80b9eff9363c63`. Merged main and release candidate:
+`414ce19dc153f5115a0ffab01e739af1469312ad`.
+App **8.10.10**, service-worker cache **v673**; deployment scope is **App**, with
+Developer API D1 application **false**. Production release succeeded; final
+deployment and recovery evidence is recorded below.
 
 No dependency, schema, binding, secret, wire protocol or room admission change.
 No new maintenance, announcement or force-update policy. Existing clients need
@@ -117,8 +120,9 @@ local signaling and application transport. No customer room is modified.
   workers to four; no test is omitted and no timeout budget is relaxed.
 - Full unit: **560 files / 12,635 pass / 0 fail / 0 skip**, 439.05 s,
   `npm test -- --maxWorkers=4` on preliminary commit `08962c03`. The single
-  subsequent compatibility expression change is described below; exact-main CI
-  validates the final source with the repository-pinned toolchain.
+  subsequent compatibility expression change and first-focus follow-up are
+  described below. This preliminary run is superseded by the final local and
+  exact-main results, without omitting its earlier failures.
 - Full typecheck, lint, format; Worker syntax, API/D1/operations policy; import
   graph (0 cycles), event pairing, dead exports, source complexity, Standard hot
   path, room authority, chunk pump and lifecycle guards all pass. No baseline
@@ -132,10 +136,10 @@ local signaling and application transport. No customer room is modified.
 - The first committed-HEAD checked build correctly rejected a newly used
   `Array.at(-1)` for the Chromium 79 floor. It was replaced with equivalent
   `array[array.length - 1]` access (including the empty-array case), with no
-  polyfill or target/guard relaxation. The amended final implementation is
+  polyfill or target/guard relaxation. The amended implementation at that checkpoint is
   `ef1cfef7`; five native-control suites then passed **39 tests / 0 fail / 0 skip**.
   The pre-compatibility hash is a local pre-amend test snapshot, not a published
-  release candidate. Committed-HEAD `npm run build:checked` on the final source: **pass**, including
+  release candidate. Committed-HEAD `npm run build:checked` at that checkpoint: **pass**, including
   legacy TV, v672 history coverage, app-shell, production security and bundle gates.
 
 Physical YouTube keyboard/media-key behavior, ads, mobile WebViews, audible
@@ -168,13 +172,64 @@ v673; no published commit is amended. Its two-tab Chromium regression passes
 exactly one host seek and both participants returning to playing. Final
 committed build and full-unit results are recorded below.
 
+### Final local, PR and exact-main verification
+
+On Windows, final product source `44f73b6f` passed the full unit suite:
+**560 files / 12,639 pass / 0 fail / 0 skip**, 407.81 s. Final
+`build:checked`, full typecheck, lint and formatting checks all passed. The
+first-focus follow-up's **56 native-control unit tests** and **2 Chromium E2E
+tests** (50.3 s) passed as recorded above. These focused browser checks do not
+constitute a rerun of the full 640-case suite.
+
+[PR #323](https://github.com/hiefny/MUSIXQUARE/pull/323) passed its final
+[CI 38443740614](https://github.com/hiefny/MUSIXQUARE/actions/runs/38443740614)
+at head `1646742f87cc5b25061a644cba80b9eff9363c63` after the automated P2 review
+finding was fixed. The merged main commit
+`414ce19dc153f5115a0ffab01e739af1469312ad` then passed its independent push
+[CI 38444452325](https://github.com/hiefny/MUSIXQUARE/actions/runs/38444452325):
+**11 jobs successful**, with **560 unit files / 12,638 pass / 0 fail / 1
+Windows-only skip** on the remote Linux runner. Candidate browser **17 pass**,
+critical release paths **24 pass**, all coverage gates and the required static
+and build checks passed. The platform skip is distinct from a failure and from
+the final local run, which exercised all 12,639 unit cases without skips.
+
+Only this successful exact-main push CI is the production release candidate;
+neither the local results nor the successful PR run substitutes for it.
+
 ## Release and recovery
 
-Pending: reviewed PR, successful exact-main CI candidate, immutable App artifact,
-Production Release workflow, live smokes and final deployment ownership.
-Do not interpret this preparation as a deployed repair.
+[Production Release 38445343194](https://github.com/hiefny/MUSIXQUARE/actions/runs/38445343194)
+attempt 1 **succeeded** for main `414ce19dc153f5115a0ffab01e739af1469312ad`,
+`target=app`, `apply_developer_api_d1=false`. The deploy job completed at
+**2026-10-14 03:18:32 KST**. It reused the immutable artifact from exact-main
+CI 38444452325 without rebuilding. No announcement or maintenance setting changed.
 
-The normal workflow captures the compatible previous App deployment before
-mutation. No data down-migration is needed; restoring that checkpoint restores
-the known playlist/native-control defects. Preserve existing permanent recovery
-floors and record any failed release or rollback separately in release history.
+- App version `82ee1552-156e-42cb-b0ce-07beb4bb9d61`, deployment
+  `0f8a39b1-6d67-4163-8087-cae8898ad688`, single version at 100%.
+- Final ownership was `verified` at 03:18:27.605 KST, with the exact Git message;
+  the durable production-committed marker records that SHA and target `app`.
+- Unselected Workers remain on `08df0606`; the five-Worker compatibility recheck
+  completed at 03:17:48.162 KST. Existing compatibility and recovery floors remain.
+- App generation, anonymous account/capability boundaries, PRO public boundary
+  and Standard HTTPS signaling smokes passed: **4 pass / 6 scope skips**.
+- The immutable recovery checkpoint was captured at 03:17:05.849 KST: previous
+  App `16c6b219`, version `3fec8fb1-9fbd-4fb4-a054-640c7d3f2e74`, deployment
+  `e2be8a0a-f346-42e1-a11f-51a2b7df3667`. `app-before.json` SHA-256:
+  `74bebc274a1ed4d1cb8822fa5ac679ecd5a7cd9ffafadc6918d73344672980d4`.
+  No rollback was needed; recovery job skipped. This is a compatible code
+  recovery boundary, not a user-data backup. Restoring it restores the known
+  playlist/native-control defects; no down-migration is required.
+
+An in-app-browser tab opened before deployment showed bootstrap v671, then
+received the normal update dialog. Clicking its refresh button loaded v673 and
+`main-CV5tWieX.js`, restored the normal room-creation/join screen and produced no
+captured error logs. A newly opened tab in the same browser profile also showed
+v673, the normal setup screen and no captured error logs. A cache-bypassing HTTP
+read of `service-worker.js` returned 200 and v673. These are shell/update checks,
+not customer-room participation, a clean-profile matrix or physical YouTube
+keyboard/media-key validation.
+
+Post-deployment [Operations Drift Audit 38445906220](https://github.com/hiefny/MUSIXQUARE/actions/runs/38445906220)
+succeeded. Its report at 03:20:48.382 KST is `automated-checks-passed`:
+**31 pass / 0 fail / 5 manual-only**. Manual checks remain open and are not
+counted as passed. The audit workflow remains active.

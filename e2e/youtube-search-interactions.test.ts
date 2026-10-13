@@ -83,7 +83,12 @@ test.describe('YouTube search loading and quick add', () => {
     const opener = page.locator('#btn-media-source');
     await opener.focus();
     await page.keyboard.press('Enter');
-    await page.locator('#btn-youtube-source').focus();
+    const sourceOverlay = page.locator('#media-source-overlay');
+    await expect(sourceOverlay).toHaveClass(/\bactive\b/);
+    await expect(sourceOverlay).toBeVisible();
+    await expect(page.locator('#btn-local-file')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#btn-youtube-source')).toBeFocused();
     await page.keyboard.press('Enter');
     const input = page.locator('#youtube-url-input');
     const cancel = page.locator('#btn-yt-cancel');

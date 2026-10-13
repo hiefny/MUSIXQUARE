@@ -169,6 +169,7 @@ function registeredLoad(id = QUEUE_ITEM_ID, videoId = 'vidA000000A', autoplay = 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   clearAllManagedTimers();
   resetState();
   bus.clear();
@@ -364,6 +365,51 @@ describe('Standard operator native iframe integration', () => {
     });
   });
 
+  it('promotes the first iframe interaction when focus and seek arrive together', () => {
+    const h = readyOperator(1);
+    h.poll(); // Recent media baseline before the user enters the provider frame.
+    h.focus();
+    window.dispatchEvent(new Event('blur')); // Parent window loses focus to its iframe.
+    h.setTime(50);
+    h.emit(3);
+    h.emit(2);
+    h.emit(1);
+    expect(
+      vi
+        .mocked(safeSend)
+        .mock.calls.map(([, frame]) => frame)
+        .filter((frame) => frame.type.startsWith('request-')),
+    ).toEqual([{ type: MSG.REQUEST_SEEK, time: 50, queueItemId: QUEUE_ITEM_ID }]);
+  });
+
+  it('does not promote an unfocused jump when the iframe is focused later', () => {
+    const h = readyOperator(1);
+    h.poll();
+    h.setTime(50);
+    h.poll();
+    h.focus();
+    h.emit(3);
+    h.emit(1);
+    expect(
+      vi.mocked(safeSend).mock.calls.filter(([, frame]) => frame.type === MSG.REQUEST_SEEK),
+    ).toEqual([]);
+  });
+
+  it('drops the baseline when the browser window loses focus even without a background poll', () => {
+    const h = readyOperator(1);
+    h.poll();
+    vi.mocked(document.hasFocus).mockReturnValue(false);
+    window.dispatchEvent(new Event('blur'));
+    vi.mocked(document.hasFocus).mockReturnValue(true);
+    h.focus();
+    h.setTime(50);
+    h.emit(3);
+    h.emit(1);
+    expect(
+      vi.mocked(safeSend).mock.calls.filter(([, frame]) => frame.type === MSG.REQUEST_SEEK),
+    ).toEqual([]);
+  });
+
   it.each([1, 2] as const)(
     'keeps manual and Android output compensation local during native seek from state %s',
     (state) => {
@@ -391,6 +437,7 @@ describe('Standard operator native iframe integration', () => {
     'empty-video',
     'long-gap',
     'visibility',
+    'background-window',
     'manual-offset',
     'host-ad',
     'clock-step',
@@ -404,6 +451,7 @@ describe('Standard operator native iframe integration', () => {
     if (reason === 'empty-video') h.setVideoId('');
     if (reason === 'long-gap') vi.advanceTimersByTime(2_000);
     if (reason === 'visibility') document.dispatchEvent(new Event('visibilitychange'));
+    if (reason === 'background-window') vi.mocked(document.hasFocus).mockReturnValue(false);
     if (reason === 'manual-offset') setState('sync.youtubeLocalOffset', 10);
     if (reason === 'host-ad') setYouTubeNativeControlHostAdActive(true);
     if (reason === 'clock-step') vi.setSystemTime(Date.now() + 5_000);

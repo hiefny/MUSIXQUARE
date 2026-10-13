@@ -116,18 +116,40 @@ test.describe('YouTube iframe administrator controls', () => {
       frame.srcdoc = '<button>Player controls</button>';
       document.getElementById('youtube-player-container')!.append(frame);
     });
-    await pair.guestPage.frameLocator('#native-control-fixture').locator('button').focus();
-    await expect(pair.guestPage.locator('#native-control-fixture')).toBeFocused();
-    const focusedAt = (await readFakeYtSnapshot(pair.guestPage))!.currentTime;
-    await expect
-      .poll(async () => (await readFakeYtSnapshot(pair.guestPage))?.currentTime ?? 0)
-      .toBeGreaterThan(focusedAt + 1);
-
+    await pair.guestPage.frameLocator('#native-control-fixture').locator('button').waitFor();
+    await pair.guestPage.evaluate(() => {
+      const frame = document.getElementById('native-control-fixture') as HTMLIFrameElement;
+      frame.contentDocument!.querySelector('button')!.addEventListener('click', () => {
+        const w = window as unknown as {
+          __fakeYtLastPlayer: {
+            getCurrentTime(): number;
+            __setCurrentTime(time: number): void;
+            __setState(state: number): void;
+          };
+          __nativeFirstSeek?: { before: number; focused: boolean };
+        };
+        const player = w.__fakeYtLastPlayer;
+        w.__nativeFirstSeek = {
+          before: player.getCurrentTime(),
+          focused: document.hasFocus() && document.activeElement === frame,
+        };
+        // First pointer interaction both enters the iframe and changes media
+        // position. There is no focused warm-up sample before the raw callback.
+        player.__setCurrentTime(w.__nativeFirstSeek.before + 10);
+        player.__setState(3);
+        player.__setState(1);
+      });
+    });
+    await expect(pair.guestPage.locator('#native-control-fixture')).not.toBeFocused();
     await clearFakeYtLog(pair.hostPage);
-    const beforeSeek = (await readFakeYtSnapshot(pair.guestPage))!.currentTime;
-    // A provider-owned discontinuity: bypass the app's instrumented seekTo().
-    await controlFakeYt(pair.guestPage, { currentTime: beforeSeek + 10, state: 3 });
-    await controlFakeYt(pair.guestPage, { state: 1 });
+    await pair.guestPage.frameLocator('#native-control-fixture').locator('button').click();
+    const firstSeek = await pair.guestPage.evaluate(
+      () =>
+        (window as unknown as { __nativeFirstSeek: { before: number; focused: boolean } })
+          .__nativeFirstSeek,
+    );
+    expect(firstSeek.focused).toBe(true);
+    const beforeSeek = firstSeek.before;
     await expect
       .poll(async () => (await readFakeYtSnapshot(pair.hostPage))?.currentTime ?? 0)
       .toBeGreaterThan(beforeSeek + 8);

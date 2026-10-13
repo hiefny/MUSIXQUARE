@@ -100,6 +100,11 @@ function resetNativeSeekObservation(): void {
   seekFeedback = null;
 }
 
+function handleNativeSeekWindowBlur(): void {
+  // Focusing a child iframe blurs this window while the document stays focused.
+  if (!document.hasFocus()) resetNativeSeekObservation();
+}
+
 export function setYouTubeNativeControlHostAdActive(active: boolean): void {
   if (hostAdActive !== active) positionSample = null;
   hostAdActive = active;
@@ -232,16 +237,15 @@ export function observeYouTubeNativeControlState(
   if ((nativePending || nativePositionChange) && state === nativeSeek?.state) nativeSeek = null;
 }
 
-/** There is no cross-origin iframe seek event. Only infer a deliberate jump
- * while that exact visible iframe has keyboard/pointer focus, between nearby
- * samples of the same occurrence. Ambiguous gaps/ads/owned operations reset
- * the baseline instead of moving the room. */
+/** There is no cross-origin iframe seek event. Keep a recent baseline before
+ * the first click enters the iframe, but only promote a jump while that exact
+ * visible iframe has focus. Ambiguous gaps/ads/owned operations reset the
+ * baseline instead of moving the room. */
 export function observeYouTubeNativeControlPosition(
   player: YouTubePlayerInstance,
   programmaticCallback = false,
 ): boolean {
   const hostConn = getState('network.hostConn');
-  const focused = document.activeElement;
   if (
     getRoomContext().kind !== 'standard' ||
     !hostConn?.open ||
@@ -249,9 +253,8 @@ export function observeYouTubeNativeControlPosition(
     getYouTubePlayer() !== player ||
     getState('playback.mode') !== 'youtube' ||
     document.hidden ||
+    !document.hasFocus() ||
     hostAdActive ||
-    !(focused instanceof HTMLIFrameElement) ||
-    !focused.closest('#youtube-player-container') ||
     hasProtectedTransitionOwner() ||
     !canObserveYouTubeNativeSeek(player) ||
     programmaticCallback ||
@@ -318,6 +321,9 @@ export function observeYouTubeNativeControlPosition(
       return false;
     const expected = previous.position + (previous.state === 1 ? elapsed / 1000 : 0);
     if (Math.abs(position - expected) <= 1.5) return false;
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLIFrameElement) || !focused.closest('#youtube-player-container'))
+      return false;
     // Keep this participant's manual/Android output lead out of room time.
     // Use the pre-jump stable sample, not a transient seek PAUSED callback.
     const target = Math.max(0, Math.min(position - previous.outputOffset, duration));
@@ -491,8 +497,8 @@ export function initYouTubeNativeControlAuthority(): void {
   hostAdActive = false;
   document.removeEventListener('visibilitychange', resetNativeSeekObservation);
   document.addEventListener('visibilitychange', resetNativeSeekObservation);
-  window.removeEventListener('blur', resetNativeSeekObservation);
-  window.addEventListener('blur', resetNativeSeekObservation);
+  window.removeEventListener('blur', handleNativeSeekWindowBlur);
+  window.addEventListener('blur', handleNativeSeekWindowBlur);
   clearManagedTimer(LOCAL_REJOIN_TIMER);
 
   scope.on('youtube:player-ready', handlePlayerReady);

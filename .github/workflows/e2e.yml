@@ -23,7 +23,7 @@ jobs:
       - name: Checkout the same application and test revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1771b0c5
+          ref: 1771b0c5e0a4a0c6a5b4d23ff537c3f2956e5cd2
           persist-credentials: false
       - name: Setup pinned Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1

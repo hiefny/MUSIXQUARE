@@ -7,7 +7,7 @@
 `02ed24f3bfb2f0981bba78bcef7136674c9d5f65`다. 이 문서는 구현·검증이 진행되는
 동안 갱신하며, 완료된 검사와 아직 실행하지 않은 검사를 구분한다.
 
-- 예정 App `8.10.9` / SW `v671`, 배포 대상 `app`, Developer API D1 `false`.
+- 배포 App `8.10.9` / SW `v671`, 배포 대상 `app`, Developer API D1 `false`.
 - 의존성·스키마·비밀·바인딩·프로토콜·복구 floor 변경 없음.
 - Sync/Media 버튼을 공유 중지 버튼으로 합치는 제안은 이번 범위에 없다.
 - 기존 실기기 확인 항목은 유지한다. 브라우저 자동화는 실제 iPhone/PWA,
@@ -105,7 +105,15 @@ trace·AudioContext 상태·Media Session 호출 기록이 없으므로 더 구�
 
 2026-10-14 오너는 이 미확정 이력을 남기고 배포하도록 명시적으로 승인했다.
 OS 조작 가능성은 가설로만 유지하며, 최초 실행에서 OS 또는 사용자의 조작이
-확인됐다고 기록하지 않는다. 마지막 후보 대조 검사는 배포와 별도로 진행한다.
+확인됐다고 기록하지 않는다. 오너가 요청한 마지막 원인 대조는 정상 대조 1개와
+등록된 Media Session pause 콜백을 정확히 한 번 주입한 대조 1개, 총 2 pass
+(54.7초)로 완료했다. 각 0~16초의 17개 표본에서 정상 대조는 host·guest 모두
+PLAYING_AUDIO였고, 주입 대조는 host PLAYING_AUDIO / guest PAUSED를 유지했다.
+주입 대조의 local-pause 판정은 17회였으며, 전송 READY·33개 chunk·연결 정상·
+decode failure count 0으로 최초 실패와 같은 관측 범주를 만들었다. 자연 발생한
+native action은 0회였다. 이 결과는 pause 경로가 증상을 만들 수 있다는 대조이며
+최초 실패의 OS/사용자 원인을 입증하지 않는다. 추가 원인 조사는 이 대조로 마친다.
+자료는 로컬 `scratch/component-cascade-audit/final-media-pause-control`에 보존했다.
 
 최종 CSS로 확장한 360조건(337,320요소×70속성)은 276조건 완전 동일,
 84조건은 의도한 모션 속성 변경만 있었다. 비모션 스타일·기하 차이는 0이다.
@@ -168,8 +176,83 @@ OS 조작 가능성은 가설로만 유지하며, 최초 실행에서 OS 또는 
 
 ## 배포·복구
 
-아직 배포하지 않았다. 로컬·PR 결과와 exact-main CI 후보를 구분하고, 최종
-main SHA CI가 성공한 다음 정식 Production Release로 App만 배포한다. 복구가
-필요하면 배포 workflow가 보존한 호환 기준선을 사용한다. 이 변경에 데이터
-마이그레이션은 없으며 이전 App으로 복구하면 이전 cascade와 알려진 UI 문제가
-돌아온다. 배포 후 버전·캐시·smoke·소유권 및 릴리스 기록을 갱신한다.
+PR [#321](https://github.com/hiefny/MUSIXQUARE/pull/321)은 main
+`16c6b2196139c206f881c4457237cc36b1c44fe6`으로 병합됐다. exact-main
+[CI 38425972188](https://github.com/hiefny/MUSIXQUARE/actions/runs/38425972188)
+attempt 1은 11개 job 모두 성공했다. unit 558파일·12,580 pass·기존 Windows 전용
+1 skip, candidate browser 17 pass·critical browser 24 pass 및 coverage 4종을
+확인했다. 로컬·PR·별도 Full E2E 결과를 이 배포 후보와 혼동하지 않는다.
+
+### 첫 배포 실패와 복구 — 2026-10-14
+
+[Release 38426762796](https://github.com/hiefny/MUSIXQUARE/actions/runs/38426762796)
+attempt 1, `app` / Developer API D1 `false`의 `Deploy validated candidate` job은
+01:02:33 KST에 실패로 완료됐다. 불변 후보 검증·기존 D1 baseline·부분 배포
+호환성은 통과했지만, App 배포 직후 record 검사가 기존 version을 읽어 중단했다.
+새 제품의 운영 smoke 4종, 최종 소유권 확인과 coherent marker 저장은 실행하지
+않았으므로 성공으로 세지 않는다. 다음 시각은 모두 2026-10-14 KST다.
+
+| 시각 / 증거                        | 관측                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 01:01:47.996588 새 deployment 생성 | deployment `52bb58f9-8575-4bc0-97d2-37ca12df5cf4`, version `26ab934f-fa6d-4e30-a59c-4682b46561e5`, `git:16c6b2196139c206f881c4457237cc36b1c44fe6`, 100%                                                                                                                                                    |
+| 01:01:51.833 Wrangler deploy 완료  | 위 새 version ID를 출력하고 정상 종료                                                                                                                                                                                                                                                                      |
+| 01:01:53.113 최초 status / record  | `deployments/app.json`이 기존 deployment `2a9b03b7-b5b5-4eed-98e8-cbcf7af75dad` / version `b790efb9-3c18-451b-b29b-9f437fe25f04`를 반환. `app-before.json`과 SHA-256 `d51dad725d55a33b5d61d35bc82726d85ccfbffb212fc02b6ed4b62d4d99f1f3`까지 동일. `changed:false`, `ownedByRelease:false`로 안전 검사 실패 |
+| 복구 직전 조회 2회                 | `app-rollback-current.json`과 `app-rollback-current-ownership-confirmation.json`은 모두 새 deployment/version·후보 git·100%를 확인. 새 배포가 생성되지 않았다는 해석은 배제됨                                                                                                                              |
+| 01:01:59.506561 rollback 생성      | 기존 version `b790efb9-3c18-451b-b29b-9f437fe25f04` / git `dc69bda0`를 deployment `96fe15ac-037d-4228-86ce-b9c7a8587811`로 복구                                                                                                                                                                            |
+| 01:02:03.643 job 내 복구 검증      | Worker `verified-baseline`, paired Worker/R2 boundary `verified`                                                                                                                                                                                                                                           |
+| 01:03:18.082 독립 recovery         | `already-restored`, 기존 version·rollback deployment·100%를 다시 확인. paired boundary `verified`, 01:03:19.628 Worker floor `verified`·`rollback-compatible`·forward repair 대상 0. 독립 job은 01:03:55 성공 완료                                                                                         |
+| 복구 후 공개 검사                  | `service-worker.js` HTTP 200 / cache v669 확인                                                                                                                                                                                                                                                             |
+
+확정한 실패 원인은 **새 배포 직후 status 경로가 이전 배포를 반환했고, 단회 record
+판정이 이를 거절했다는 것**이다. Wrangler 4.148.0의 status는 deployment 목록의
+첫 항목을 출력한다. API 원문 전체·응답 헤더를 보존하지 않았으므로 조회 최신성,
+캐시 또는 목록 순서 중 더 세부적인 원인은 구분하지 못한다. 앱 코드 실패나 새
+배포 생성 실패라고 단정하지 않는다. record/소유권 안전 검사는 우회하거나
+완화하지 않았으며, 복구 직전 두 조회는 새 배포를 확인해 롤백 소유권을 검증했다.
+
+불변 checkpoint는 이전 App `dc69bda07ff2ffe614d0e34a9d0d5657da65676b`,
+version `b790efb9-3c18-451b-b29b-9f437fe25f04`, deployment
+`2a9b03b7-b5b5-4eed-98e8-cbcf7af75dad`를 보존한다. 새 의존성·스키마·비밀·
+바인딩·프로토콜·복구 floor 변경은 없다. checkpoint는 사용자 데이터 백업이 아니며,
+기존 D1 baseline 적용을 파괴적인 down migration으로 되돌리지 않는다. 이전 App으로
+복구하면 이전 cascade와 알려진 UI 문제가 돌아온다.
+
+실행의 `production-deployments-16c6b2196139c206f881c4457237cc36b1c44fe6-38426762796-1`
+및 불변 recovery checkpoint artifact, 별도 recovery job의 산출물이 원본 증거다.
+로컬 사본은 `scratch/component-cascade-audit/release-38426762796/`와 그 아래
+`independent-recovery/`에 보존했다. 실패·복구는 릴리스 이력에 이 실행의 한 행으로
+남기며 독립 recovery가 새 rollback을 실행한 것으로 중복 집계하지 않는다.
+
+### 동일 후보 재시도 성공 — 2026-10-14
+
+[Release 38427573214](https://github.com/hiefny/MUSIXQUARE/actions/runs/38427573214)
+attempt 1은 동일 main `16c6b219` / exact-main CI `38425972188`의 immutable
+후보를 수정·재빌드 없이 재사용했다. `app` / Developer API D1 `false`로 실행해
+배포 job이 01:07:41 KST에 성공했고 복구 job은 skip됐다. 이전 실패의 재시도
+attempt가 아니라 별도 실행이므로 릴리스 이력에도 별도의 한 행을 남긴다.
+
+| 항목                | 최종 근거                                                                                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 운영 App / 캐시     | 8.10.9 / v671                                                                                                                                                                                                                                              |
+| 최종 App            | version `3fec8fb1-9fbd-4fb4-a054-640c7d3f2e74`, deployment `e2be8a0a-f346-42e1-a11f-51a2b7df3667`, 후보 git `16c6b219`, 100%                                                                                                                               |
+| record·최종 소유권  | 01:07:11.258 KST `changed:true` / `ownedByRelease:true`; 01:07:35.676 KST `final-verification-report.json`의 deployment/version/message 전부 일치·`verified`                                                                                               |
+| coherent marker     | `production-committed.json`의 commit `16c6b2196139c206f881c4457237cc36b1c44fe6`, target `app`. 별도 commit artifact 저장 단계 성공                                                                                                                         |
+| 운영 smoke          | App generation·익명 App 계정 경계·현재 PRO 공개 경로·Standard HTTPS signaling 4종 성공. 범위 밖 6종 skip이며 성공 수에 넣지 않음                                                                                                                           |
+| 미선택 Worker       | PRO·remote-share·signaling·Developer API facade/API 모두 `08df0606` 유지. 01:06:58.516 KST 배포 identity와 호환성 재검증 `compatible`                                                                                                                      |
+| 새 불변 복구 기준선 | App `dc69bda0`, version `b790efb9-3c18-451b-b29b-9f437fe25f04`, 첫 실행의 rollback deployment `96fe15ac-037d-4228-86ce-b9c7a8587811`. checkpoint/최종 산출물의 before 파일 SHA-256 `78809ebcc7aaa9e9cd1978b7a0483b7b13ca759f9bd7902f19ef14c294d836e1` 일치 |
+| 공개 응답           | `/` HTTP 200·CSS `main-DuLzNRbT.css`, `service-worker.js` HTTP 200 / cache v671 확인                                                                                                                                                                       |
+| 공개 fresh Chromium | `/` en-US 1440px, `/ko/` ko-KR 390px, `/ar/` ar 390px의 3조합 모두 HTTP 200·`#btn-setup-host` 표시·JS pageerror 0. pill 토큰과 실제 버튼 반경 999px·새 CSS 일치, ar RTL 확인. 설정 화면만 보고 방에는 입장하지 않음                                        |
+| 배포 후 운영 감사   | [38427999913](https://github.com/hiefny/MUSIXQUARE/actions/runs/38427999913) 성공. 01:08:35.901 KST report `automated-checks-passed`, 31 pass / 0 fail / 5 manual-only. 수동 항목을 통과로 세지 않음                                                       |
+
+원본은 실행의 `production-deployments-16c6b2196139c206f881c4457237cc36b1c44fe6-38427573214-1`,
+`production-recovery-checkpoint-16c6b2196139c206f881c4457237cc36b1c44fe6-38427573214-1`,
+`production-commit-16c6b2196139c206f881c4457237cc36b1c44fe6-38427573214-1` artifact다.
+로컬 사본은 `scratch/component-cascade-audit/release-38427573214/`에 있다.
+두 실행 사이에 제품·release guard 변경이나 안전 검사 우회는 없었다. 재시도 성공은
+첫 조회의 세부 원인 규명이나 재발 방지를 입증하지 않는다. 기록 PR은 배포 입력을
+바꾸지 않으며 이 기록만으로 추가 Production Release를 실행하지 않는다.
+공개 브라우저 자료는 `scratch/component-cascade-audit/public-fresh-smoke.json`,
+운영 감사 자료는 `scratch/component-cascade-audit/ops-drift-38427999913/`에 있다.
+이미 열린 구 클라이언트의 갱신 경로·실기기·스크린리더를 이번 공개 확인으로
+검증한 것은 아니며 기존 열린 항목을 유지한다. 배포 status 재조회 완화는 이번
+코드에 추가하지 않았고, 추가 배포 반복이나 운영 변경 없이 관측 한계로 남긴다.

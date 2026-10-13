@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — append-only 릴리스 로그 |
 | Applies to         | 프로덕션 배포와 롤백 (`Production Release` 실행, 로컬 emergency deploy, CLI rollback) |
-| Last source review | 2026-10-13 |
+| Last source review | 2026-10-14 |
 | Executable sources | [Production Release](../.github/workflows/release.yml), [Release Recovery](../.github/workflows/release-recovery.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts) |
 | Related documents  | [현재 릴리스 기록](release-record.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md) |
 
@@ -62,6 +62,8 @@
 | 2026-10-13 08:03 | 8.10.6 / v667 | app | `f0ea308b` | [#314](https://github.com/hiefny/MUSIXQUARE/pull/314) | [38319913652](https://github.com/hiefny/MUSIXQUARE/actions/runs/38319913652) | 성공 (attempt 1) | 공지 `/clear` 소유권·닫기 hit-area·관리자 초안 갱신·legacy 정규화 및 레코더 빌드 식별 수정. exact-main CI 11 jobs, 운영 smoke 4종, App 100% 소유권·미선택 5 Worker 호환성·coherent marker 확인. Drift Audit 31 pass / 0 fail / 5 manual. 점검 OFF·공지 비활성 유지, 신규 의존성·스키마·비밀·바인딩·복구 floor 없음 | [재검증·배포 근거](design/announcement-review-followup-2026-10-13.md) |
 | 2026-10-13 11:29 | 8.10.7 / v668 | app | `6b159667` | [#316](https://github.com/hiefny/MUSIXQUARE/pull/316) | [38336912131](https://github.com/hiefny/MUSIXQUARE/actions/runs/38336912131) | 성공 (attempt 1) | 42개 언어 YouTube 내부 URL 힌트·아래 링크/검색어 안내 및 입력 삭제 뒤 안내 복원. exact-main CI 11 jobs, 운영 smoke 4종 pass / 범위 밖 6종 skip, App 100% 소유권·미선택 5 Worker 호환성·coherent marker 확인. Drift Audit 31 pass / 0 fail / 5 manual. 점검 OFF·공지 비활성 유지, 신규 의존성·스키마·비밀·바인딩·프로토콜·복구 floor 없음. 변경 전 Full E2E 최초 focus 실패는 미확정 관찰 유지 | [검증·배포·관찰](design/youtube-input-guidance-2026-10-13.md) |
 | 2026-10-13 16:51 | 8.10.8 / v669 | app | `dc69bda0` | [#319](https://github.com/hiefny/MUSIXQUARE/pull/319) | [38365146388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365146388) | 성공 (attempt 1) | YouTube 지연 초기 focus의 사용자 Tab 이동 덮어쓰기 수정과 E2E 진입 순서 보완. 자연 실패 인과·단위 RED→GREEN·로컬/원격 Chromium 각 627 pass·WebKit 및 exact-main CI 11 jobs 확인. 운영 smoke 4 pass / 범위 밖 6 skip, App 100% 소유권·5 Worker 호환성·coherent marker 검증. Drift Audit 31 pass / 0 fail / 5 manual. 점검 OFF·공지 비활성 유지, 신규 의존성·스키마·비밀·바인딩·프로토콜·복구 floor 없음 | [원인·검증·배포](design/youtube-popup-focus-repair-2026-10-13.md) |
+| 2026-10-14 01:02 | 8.10.9 / v671 → 8.10.8 / v669 복구 | app | `16c6b219` | [#321](https://github.com/hiefny/MUSIXQUARE/pull/321) | [38426762796](https://github.com/hiefny/MUSIXQUARE/actions/runs/38426762796) | 실패·자동 복구 확인 (attempt 1) | 새 App 배포 생성 뒤 최초 status가 이전 배포를 반환하여 record 안전 검사에서 중단. 후보 운영 smoke·coherent marker 미실행. 기존 App version으로 rollback하고 독립 recovery의 Worker/R2·호환 floor 재검증 및 공개 SW v669 확인. 조회 세부 원인은 미정이며 앱 결함으로 단정하지 않음 | [조회 경계·복구 증거](design/component-cascade-refactor-2026-10-13.md#배포복구) |
+| 2026-10-14 01:07 | 8.10.9 / v671 | app | `16c6b219` | [#321](https://github.com/hiefny/MUSIXQUARE/pull/321) | [38427573214](https://github.com/hiefny/MUSIXQUARE/actions/runs/38427573214) | 성공 (attempt 1, 별도 실행으로 재시도) | 동일 exact-main CI 후보로 컴포넌트 pill 소유권·CSS cascade·접근성 우선순위·관리자 clear 버튼·welcome 슬라이더 정리 배포. 운영 smoke 4 pass / 범위 밖 6 skip, App 100% 최종 소유권·미선택 5 Worker 호환성·coherent marker·공개 CSS/SW v671 확인. 선행 실패 및 미확정 로컬 seed 470021 이력 유지. 신규 의존성·스키마·비밀·바인딩·프로토콜·복구 floor 없음 | [검증·실패·배포·복구](design/component-cascade-refactor-2026-10-13.md#배포복구) |
 
 ## 이 표 밖의 기록
 

@@ -2,21 +2,29 @@
 
 ## 현재 상태와 범위
 
-**원인 확인·수정 완료, 전체 검증·배포 대기.** Windows 자연 실패 3건의 타이머·
+**원인 확인·수정·로컬·원격 검증 및 App 8.10.8 배포 완료.** Windows 자연 실패 3건의 타이머·
 포커스·키 이벤트 순서를 수집해 원인을 확인하고 수정했다. 로컬 전체 unit·정적
-검사·production candidate, 원격 두 OS 반복·Full E2E 및 PR CI는 통과했다. 로컬 전체
-Chromium과 exact-main CI 후보·배포는 아직 완료되지 않았다. 원격 반복의 100ms
-경계 검증 한계는 아래에 따로 기록하며 진행 중인 결과를 통과로 간주하지 않는다.
+검사·production candidate·Chromium·WebKit, 원격 두 OS 반복·Full E2E와 최종
+PR CI, exact-main CI를 통과한 뒤 2026-10-13 16:51:42 KST에 App 배포 job을
+완료했다. 운영 소유권·호환성·smoke와 배포 후 Drift Audit도 확인했다. 원격 반복의
+100ms 경계 검증 한계와 기존 플랫폼 skip은 아래에 따로 기록한다.
 
 - E2E 진입 순서 수정: `1771b0c5e0a4a0c6a5b4d23ff537c3f2956e5cd2`.
 - 제품 수정·관련 단위 회귀 코드: `594fbc5dc9ca5f43e9f4a302cc0a420a81e9fa6a`.
 - 원격 전체검증 source `c2495f66c22a7cc2bd3391fddefc44bf0494024a`는 위 제품·
   테스트 코드와 같고 임시 진단 workflow를 원본 Full E2E로 복원한 커밋이다.
-- App `8.10.8` / SW cache `v669`, 예정 배포 범위 `app`, Developer API D1 `false`.
+- 로컬 Chromium 검증 App·테스트는 `834719b895e3667aa17e0b5f99bf78bccd47d41f`이며,
+  실행 중 문서만 바꾼 `e8a22f2c`를 커밋했다. 뒤이은 WebKit 실행과 production SW
+  재빌드는 `e8a22f2c`에서 진행했다. 제품·테스트 코드는 모두 `594fbc5d`와 같다.
+- PR [#319](https://github.com/hiefny/MUSIXQUARE/pull/319)는 2026-10-13
+  07:43:02 UTC(16:43:02 KST)에 main `dc69bda07ff2ffe614d0e34a9d0d5657da65676b`로
+  병합됐고, 이 exact-main SHA의 CI 후보로 배포했다.
+- App `8.10.8` / SW cache `v669`, 배포 범위 `app`, Developer API D1 `false`.
   새 의존성·스키마·비밀·바인딩·프로토콜·복구 floor 변경은 없다.
 - 사용자 요청은 진입 순서 수정과 Windows 후반 실패의 원인 확인·수정,
   로컬·원격 검증 통과 후 제품 변경 배포다. 원인이 불명확하면 중단하고 배포하지
-  않는 조건이었다. 원인 확인 뒤에도 남은 검증이 끝날 때까지 배포하지 않는다.
+  않는 조건이었다. 자연 실패의 원인과 수정 효과를 확인하고 필요한 검증을 마친 뒤
+  배포했다.
 - 이전 A/B와 그 당시의 미확정 판단은
   [원격 진단 보고서](youtube-focus-linux-diagnostic-2026-10-13.md)에 보존한다.
   이 문서는 뒤이어 확보한 인과 증거와 수정 결과다.
@@ -86,7 +94,7 @@ OS 자체를 결함 원인으로 단정하거나 모든 포커스 문제의 원�
 독립 읽기 전용 리뷰에서 추가 finding은 없었다. 이 결과는 전체 unit·브라우저
 검증이나 exact-main 배포 후보를 대신하지 않는다.
 
-## 검증 결과와 남은 단계
+## 검증 결과와 한계
 
 | 범위 | 코드·환경 | 결과 |
 | --- | --- | --- |
@@ -99,10 +107,14 @@ OS 자체를 결함 원인으로 단정하거나 모든 포커스 문제의 원�
 | 로컬 정적 검사·build | 수정 후 코드, Windows | typecheck·lint·format·guards·build:checked 통과 |
 | 로컬 전체 unit | 동일 제품 코드, Windows, `maxWorkers=2`, jq 경로 명시 | 558파일 / 12,580 pass / 0 fail / 0 skip, 492.97초 |
 | 로컬 production candidate browser | build:checked 산출물, Windows | 17 pass / 0 fail, 33.8초 |
-| 로컬 전체 Chromium | 동일 제품 코드, 627개 검사 | 진행 중, pending |
+| 로컬 전체 Chromium | `834719b8`, Windows | 627 pass / 0 fail / 0 skip, 54.0분 |
+| 로컬 WebKit UI | `e8a22f2c`, 동일 제품·테스트 코드, Windows | 66 pass / 0 fail / 기존 플랫폼 3 skip, 2.6분 |
+| 로컬 production WebKit SW | `e8a22f2c`, 동일 제품·테스트 코드, Windows | 1 pass / 0 fail, 9.1초 |
 | 원격 Full E2E | `c2495f66`; [38356792927](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356792927) | 최종 success; Chromium 627 pass / 0 fail / 0 skip(54.7분), WebKit UI 66 pass / 3 skip, SW 1 pass, 운영 R2 1 pass |
-| PR CI | head `834719b8`, PR merge checkout `2e968bf7`; [38357542283](https://github.com/hiefny/MUSIXQUARE/actions/runs/38357542283) | 11 jobs 성공; 아래 상세 집계 |
-| exact-main 후보·Production Release | App `8.10.8` / `v669` | pending, 아직 배포하지 않음 |
+| 이전 PR CI 상세 근거 | head `834719b8`, PR merge checkout `2e968bf7`; [38357542283](https://github.com/hiefny/MUSIXQUARE/actions/runs/38357542283) | 11 jobs 성공; 아래 상세 집계 |
+| 최종 PR CI | head `e8a22f2c`; [38363135227](https://github.com/hiefny/MUSIXQUARE/actions/runs/38363135227) | 11 jobs 성공; unit 12,579 pass / 0 fail / Windows 전용 1 skip |
+| exact-main CI 후보 | `dc69bda0`; [38364448487](https://github.com/hiefny/MUSIXQUARE/actions/runs/38364448487) | 11 jobs 성공; unit 558파일 / 12,579 pass / 0 fail / Windows 전용 1 skip; candidate browser 17 pass, critical browser 24 pass |
+| Production Release | `dc69bda0`, App `8.10.8` / `v669`; [38365146388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365146388) | attempt 1 성공, `app` / D1 `false`; 2026-10-13 16:51:42 KST 배포 job 완료 |
 
 원격은 Node `24.20.0`·저장소 lockfile과 Playwright Chromium을 사용한다. 수정 후
 반복도 동일 SHA를 checkout한 임시 runner에서 계측을 추가했으며, 제품 동작·기존
@@ -117,14 +129,17 @@ Ubuntu 62.4–93.2ms). 따라서 정상 진입·입력·Tab·닫기 흐름의 �
 시점에 Cancel focus를 보존하는 경계는 수정 전 RED → 수정 후 GREEN인 단위
 회귀가 직접 검증한다.
 
-PR CI는 unit 두 shard의 5,976 + 6,603 pass를 합쳐 558파일 / 12,579 pass /
+이전 PR CI 38357542283은 unit 두 shard의 5,976 + 6,603 pass를 합쳐 558파일 / 12,579 pass /
 0 fail / 1 skip이다. skip은 `pro-grant-campaign-cli.test.ts`의
 `rejects another drive before reading or creating an artifact`로 Windows 전용이며,
 로컬 Windows 전체 실행에서는 포함돼 통과했다. production candidate browser는
 17 pass, critical browser는 24 pass다. build:checked의 app-shell 94 assets와
 v669, Worker 6종 번들도 통과했다. 이 PR 결과는 exact-main 후보가 아니다.
+최종 PR CI와 exact-main CI도 11개 job을 모두 통과했으며, exact-main unit은 같은
+5,976 + 6,603 pass와 Windows 전용 1 skip을 확인했다. exact-main의 candidate
+17개와 critical browser 24개도 통과했다.
 
-| CI coverage | Statements | Branches | Functions | Lines |
+| CI 38357542283 coverage | Statements | Branches | Functions | Lines |
 | --- | --- | --- | --- | --- |
 | Broad | 86.97% | 81.01% | 91.54% | 90.56% |
 | Critical | 82.01% | 77.02% | 88.06% | 86.09% |
@@ -132,18 +147,48 @@ v669, Worker 6종 번들도 통과했다. 이 PR 결과는 exact-main 후보가 
 | Tooling | 78.23% | 73.78% | 87.09% | 80.10% |
 
 네 coverage gate 모두 통과했다. profile별 unit은 전체 unit과 겹치므로 통과 수에
-더하지 않는다. 원격 WebKit의 기존 3 skip은 desktop entrance timing, 모바일에서
+더하지 않는다. 로컬·원격 WebKit의 기존 3 skip은 desktop entrance timing, 모바일에서
 숨은 carousel 화살표, touch-only 환경의 hover 조건이다. SW lifecycle은 별도로
-1 pass다. 운영 R2 smoke는 현재 배포를 검사하므로 새 제품 코드의 검증을 대신하지
+1 pass다. 운영 R2 smoke는 실행 당시 운영 배포를 검사했으므로 새 제품 코드의 검증을 대신하지
 않는다. 전체 Chromium 627 pass는 별도 job 로그로 확인했으며 2026-10-13
-07:23:07 UTC(16:23:07 KST)에 검사가 끝났다. 로컬 전체 Chromium은 아직 실행 중이다.
+07:23:07 UTC(16:23:07 KST)에 검사가 끝났다. 로컬 전체 검증 스크립트도 최종 성공했고
+Chromium 627개와 WebKit UI·production SW 결과를 각 로그에서 확인했다.
 
 로컬 최초 format·build의 `guard:index-hreflang` 실패는 버전 교체 스크립트가 파일을
 CRLF로 다시 쓴 데서 발생했다. LF로 복원한 뒤 format과 build:checked를 통과했고
 Git blob 내용 변화는 없었다. 확인한 원인은 작업 파일의 줄바꿈이며 추가 제품 결함으로
 분류하지 않는다. 처음 실패한 실행을 통과로 바꾸지 않고 복원 후 결과를 구분한다.
 
-## 증거와 복구
+## 프로덕션 배포와 복구
+
+[Release 38365146388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365146388)은
+exact-main `dc69bda07ff2ffe614d0e34a9d0d5657da65676b`의 성공 CI 후보를 사용했다.
+App version은 `b790efb9-3c18-451b-b29b-9f437fe25f04`, deployment는
+`2a9b03b7-b5b5-4eed-98e8-cbcf7af75dad`이며 단일 version 100%다.
+16:51:38.697 KST에 App 최종 소유권을 확인했고, 16:51:39.409 KST에 coherent
+production marker를 영속화했다. 미선택 Worker 5종은 `08df0606`을 유지하며
+부분 배포 호환성 재검증을 통과했다.
+
+운영 smoke는 App generation, 익명 계정 경계, PRO 공개 경로, Standard HTTPS
+signaling 4종 성공 / 범위 밖 6종 skip이다. 공개 en·ko·ar·it·pl·ru와 SW는
+HTTP 200 및 v669를 확인했고, 공지는 `enabled:false, revision:8`을 유지했다.
+점검·공지를 변경하지 않았다. 배포 후
+[Operations Drift Audit 38365435739](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365435739)은
+16:52:38 KST에 성공했다. 16:52:27.713 KST에 생성한 보고서의 checks는
+31 pass / 0 fail / 5 manual-only다. 수동 항목은 자동 통과로 취급하지 않는다.
+
+복구 job은 skip됐고 롤백하지 않았다. 변경 전 App `6b159667`, version
+`434ad128-8f40-44cb-a1f7-8325eb16796b`, deployment
+`6a182693-ba52-4e85-a22c-5f5cd65e2a77`를 불변 checkpoint에 보존했다.
+checkpoint와 최종 산출물의 `app-before.json`은 SHA-256
+`feb6586e54e28fd2b8d4e35c47261f90272f35d4f0aa19422d16db289fd5aca5`로 일치한다.
+이 호환 App으로 복구하면 지연 초기 focus가 사용자 Tab 이동을 덮어쓰는 문제가
+돌아온다. checkpoint는 사용자 데이터 백업이 아니며 새 의존성·스키마·비밀·바인딩·
+프로토콜·복구 floor 변경이나 down migration은 없다. 현재 운영 기준은
+[릴리스 기록 §1](../release-record.md#1-현재-운영-상태)에 반영했다.
+후속 문서 기록 PR은 별도 App 배포를 요구하지 않는다.
+
+## 증거
 
 - 자연 실패 원본: `scratch/focus-linux-audit/windows-timeline/failure-6.json`,
   `failure-20.json`, `failure-23.json`; 같은 폴더의 `focus-results.json`과 HTML report.
@@ -156,7 +201,12 @@ Git blob 내용 변화는 없었다. 확인한 원인은 작업 파일의 줄바
 - PR CI 원본: `scratch/focus-linux-audit/ci-unit-1.log`, `ci-unit-2.log`,
   `ci-browser.log`, `ci-candidate.log`, `ci-coverage-{broad,critical,workers,tooling}.log`.
 - 원격 전체 Chromium 로그: `scratch/focus-linux-audit/remote-e2e-full.log`.
-- 현재 운영 배포·복구 기준선은 [릴리스 기록 §1](../release-record.md#1-현재-운영-상태)을
-  유지한다. 변경은 App UI 초기 focus에 한정된다. 이전 호환 App으로 복구하면
-  지연 초기 focus가 사용자 Tab 이동을 덮어쓰는 문제가 돌아온다. 데이터·서버
-  계약 변경이나 down migration은 없다.
+- 로컬 전체 브라우저 로그: `scratch/focus-linux-audit/local-e2e-full.log`,
+  `local-webkit.log`, `local-webkit-sw.log`.
+- 배포 원본: `scratch/focus-linux-audit/release-artifacts/deployments/app-state.json`,
+  `final-verification-report.json`, `partial-release-compatibility-recheck.json`.
+- 복구 기준선: `scratch/focus-linux-audit/checkpoint/app-before.json`과
+  `scratch/focus-linux-audit/release-artifacts/deployments/app-before.json`.
+- coherent marker: `scratch/focus-linux-audit/production-commit/production-committed.json`.
+- 배포 후 점검: `scratch/focus-linux-audit/public-verification.json`,
+  `scratch/focus-linux-audit/drift/report.json`.

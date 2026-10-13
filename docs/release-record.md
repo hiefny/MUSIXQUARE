@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-13 (배포 SHA `6b159667`, Release `38336912131`) |
+| Last source review | 2026-10-13 (배포 SHA `dc69bda0`, Release `38365146388`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,16 +28,16 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.10.7` / `v668` |
-| 마지막 프로덕션 변경 | 2026-10-13 11:29:05 KST, [Release 38336912131](https://github.com/hiefny/MUSIXQUARE/actions/runs/38336912131) attempt 1 성공, `target=app`, Developer API D1 `false`. 42개 언어 YouTube 입력 힌트를 URL 예시로 바꾸고 아래 안내를 링크·검색어 순서로 통일, 입력 전체 삭제 뒤 같은 안내 복원. 점검 OFF·공개 공지 비활성 유지 |
-| 배포 main SHA | `6b15966714a2aca1a66d7e6315815ccd7049303f` (PR [#316](https://github.com/hiefny/MUSIXQUARE/pull/316)). exact-main [CI 38336374232](https://github.com/hiefny/MUSIXQUARE/actions/runs/38336374232) attempt 1 성공 후보 재사용 |
-| Worker | App은 `6b159667`, version `434ad128-8f40-44cb-a1f7-8325eb16796b`, deployment `6a182693-ba52-4e85-a22c-5f5cd65e2a77`, 단일 version 100%. 미선택 Worker 5종은 `08df0606` 유지 및 부분 배포 호환성 재검증. 11:28:59.960 KST App 최종 소유권 확인, 11:29:00 KST coherent marker 영속화 완료. 선택된 운영 smoke 4종 성공, 범위 밖 6종 skip. 새 의존성·스키마·비밀·바인딩·프로토콜 없음. 기존 App/admin/auth 기준선 멱등 적용·검증. [상세 증거](design/youtube-input-guidance-2026-10-13.md) |
-| 복구 | 필요 없음. 실패 복구 job은 skip됐다. 불변 checkpoint에 변경 전 App `f0ea308b`, version `2b4d2b20-bf09-46b3-a60a-8aafb4765da8`, deployment `d0754fbd-b17d-4658-9f3c-83612374aee3` 보존. before 파일 SHA-256은 배포 전 checkpoint와 최종 산출물에서 `80d52e5fdc00008a779f074768598079d7d0f9d89e3777277b453ff54b52b554`로 일치. 검증된 호환 기준선으로 복구하면 중복·역순 힌트와 빈 입력의 링크 전용 안내가 돌아온다. checkpoint는 사용자 데이터 백업이 아니며 down migration 없음 |
-| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 8.10.7 신규 floor 없음. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 계약을 모르는 기준선으로 복구하지 않으며 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | PR [CI 38335861259](https://github.com/hiefny/MUSIXQUARE/actions/runs/38335861259)와 exact-main CI 각각 11개 job 성공. 각각 unit 558파일 / 12,575 pass / 0 fail / 1 skip(Windows 전용 경로, 로컬 통과), 후보 browser 17 + critical 24 pass, coverage 4종 통과. 로컬 4-worker 전체 unit은 12,575 pass / 1 timeout / 0 skip, 해당 파일 단독 재실행 101 pass. 타입·린트·포맷·Worker guard·committed build:checked 통과. 공개 en·ko·ar·it·pl·ru HTTP 200에서 URL 힌트·올바른 안내와 v668, SW HTTP 200/v668, 공지 HTTP 200 `enabled:false, revision:8` 확인. 운영 공지 게시·철회나 점검 변경, 실기기/스크린리더 검사는 하지 않았다. [검증·한계](design/youtube-input-guidance-2026-10-13.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38337144261](https://github.com/hiefny/MUSIXQUARE/actions/runs/38337144261) (2026-10-13 11:30:30 KST 완료, source `6b159667`) 성공. report.json(11:30:09.445 KST)의 checks는 31 pass / 0 fail / 5 manual-only. 수동 항목은 §2에 유지하며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 변경 전 main `4854e392` 실행 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967) (2026-10-13 10:46:21 KST 완료)은 serial 626 pass / 1 fail: YouTube 키보드 검사 최초 focus 실패. WebKit·large R2 job은 성공했으나 smoke 범위 산출물을 상세 검증하지 않았다. 현재 `6b159667`의 같은 키보드 검사 로컬 5회는 통과했지만 전체 Full E2E 실행이나 간헐 원인 해결 증거는 아니다. §2 관찰로 유지 |
-| 의존성 | 8.10.7 의존성 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지, 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포 제외하고 봇 브랜치를 보존한다. 설치 취약점·서명 검사는 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
+| App 버전 / SW 캐시 | `8.10.8` / `v669` |
+| 마지막 프로덕션 변경 | 2026-10-13 16:51:42 KST 배포 job 완료, [Release 38365146388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365146388) attempt 1 성공, `target=app`, Developer API D1 `false`. YouTube 팝업의 지연 초기 focus가 사용자 Tab 이동을 덮어쓰는 경합 수정 및 E2E 미디어 선택 팝업 진입 순서 수정. 점검 OFF·공개 공지 비활성 유지 |
+| 배포 main SHA | `dc69bda07ff2ffe614d0e34a9d0d5657da65676b` (PR [#319](https://github.com/hiefny/MUSIXQUARE/pull/319)). exact-main [CI 38364448487](https://github.com/hiefny/MUSIXQUARE/actions/runs/38364448487) 성공 후보 재사용 |
+| Worker | App은 `dc69bda0`, version `b790efb9-3c18-451b-b29b-9f437fe25f04`, deployment `2a9b03b7-b5b5-4eed-98e8-cbcf7af75dad`, 단일 version 100%. 미선택 Worker 5종은 `08df0606` 유지 및 부분 배포 호환성 재검증. 16:51:38.697 KST App 최종 소유권 확인, coherent production marker 영속화 확인. App generation·익명 계정 경계·PRO 공개 경로·Standard HTTPS signaling 운영 smoke 4종 성공, 범위 밖 6종 skip. 새 의존성·스키마·비밀·바인딩·프로토콜 없음. [상세 증거](design/youtube-popup-focus-repair-2026-10-13.md) |
+| 복구 | 필요 없음. 실패 복구 job은 skip됐다. 불변 checkpoint에 변경 전 App `6b159667`, version `434ad128-8f40-44cb-a1f7-8325eb16796b`, deployment `6a182693-ba52-4e85-a22c-5f5cd65e2a77` 보존. before 파일 SHA-256은 배포 전 checkpoint와 최종 산출물에서 `feb6586e54e28fd2b8d4e35c47261f90272f35d4f0aa19422d16db289fd5aca5`로 일치. 검증된 호환 기준선으로 복구하면 지연 초기 focus가 사용자 이동을 덮어쓰는 문제가 돌아온다. checkpoint는 사용자 데이터 백업이 아니며 down migration 없음 |
+| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 8.10.8 신규 floor 없음. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 계약을 모르는 기준선으로 복구하지 않으며 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | 최종 PR [CI 38363135227](https://github.com/hiefny/MUSIXQUARE/actions/runs/38363135227)와 exact-main CI 각각 11개 job 성공, unit 558파일 / 12,579 pass / 0 fail / Windows 전용 1 skip. 로컬 unit 12,580 pass / 0 fail / 0 skip, 타입·린트·포맷·guards·committed build:checked·candidate browser 17 pass. PR browser 17 + critical 24 pass와 coverage 4종 통과. 원격 키보드 반복은 두 OS 각 30 pass지만 모두 100ms 전 닫혀 타이머 경계는 단위 RED→GREEN으로 검증했다. 공개 en·ko·ar·it·pl·ru와 SW HTTP 200/v669, 공지 `enabled:false, revision:8` 확인. 점검·공지 변경 및 실기기/스크린리더 검사는 하지 않았다. [재현·검증·한계](design/youtube-popup-focus-repair-2026-10-13.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38365435739](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365435739) (2026-10-13 16:52:38 KST 완료) 성공. report.json(16:52:27.713 KST)의 checks는 31 pass / 0 fail / 5 manual-only. 수동 항목은 §2에 유지하며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 이번 제품·테스트 코드와 같은 source `c2495f66`의 [38356792927](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356792927) 성공: Chromium 627 pass / 0 fail / 0 skip(54.7분, 2026-10-13 16:23:07 KST 검사 종료), WebKit UI 66 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 로컬 동일 코드도 Chromium 627 pass, WebKit UI 66 pass / 3 skip, SW 1 pass. 원격 전체 실행과 exact-main CI 후보를 구분하며 운영 R2는 실행 당시 배포를 검사했다 |
+| 의존성 | 8.10.8 의존성 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지, 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포 제외하고 봇 브랜치를 보존한다. 설치 취약점·서명 검사는 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
 
 
 ## 2. 열린 확인 항목
@@ -47,10 +47,18 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 ### 최근 해결 근거
 
+YouTube 최초 focus 검사와 후반 Tab 실패 항목은 PR #319, exact-main `dc69bda0`의
+CI 38364448487 및 Release 38365146388 성공으로 닫았다. 진입 검사는 준비 상태와
+실제 Tab 이동을 확인하도록 바꿨고, 자연 실패 세 건의 timer-fire·focus stack·키
+이벤트로 확인한 100ms 초기 focus 경합은 `594fbc5d`에서 수정했다. 타이머 경계의
+단위 RED→GREEN, 로컬·원격 전체 Chromium 627 pass와 WebKit 결과를 확보했다.
+두 OS 반복 60회는 모두 100ms 전 닫힌 정상 흐름 검증이라는 한계를 유지한다.
+[원인·수정·검증·배포 근거](design/youtube-popup-focus-repair-2026-10-13.md).
+
 8.10.7 YouTube 입력 안내 배포 준비는 PR #316, exact-main `6b159667`의 CI
 38336374232와 Release 38336912131 성공으로 닫았다. 42개 언어의 URL 힌트·아래
 링크/검색어 안내·입력 삭제 뒤 복원을 수정하고 공개 6언어 응답을 확인했다.
-변경 전 Full E2E에서 발견한 최초 키보드 focus 실패는 아래 관찰로 남긴다.
+변경 전 Full E2E에서 발견한 최초 키보드 focus 실패는 위 8.10.8 근거로 후속 해결했다.
 [검증·배포·복구 근거](design/youtube-input-guidance-2026-10-13.md).
 
 8.10.6 App-only 후속 수정은 PR #314, exact-main `f0ea308b`의 CI 38319346829와
@@ -151,23 +159,6 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 
 재현되면 원인과 함께 기록한다. 지금 예정된 조사는 없다.
 
-- [ ] 변경 전 main `4854e392`의 Full E2E [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)
-  의 YouTube 최초 focus 실패와 후속 Windows Tab 실패: 원인 확인·수정 후
-  검증·배포 대기. 검사 진입은 `1771b0c5`에서 팝업 준비·최초 focus 확인 후 실제
-  Tab으로 바꿨다. 자연 실패 계측
-  [38355671404](https://github.com/hiefny/MUSIXQUARE/actions/runs/38355671404)는
-  Ubuntu 30 pass, Windows 27 pass / 3 fail. 세 실패 모두 Cancel 상태의 100ms
-  timer-fire → 해당 stack의 input.focus → 입력창에서 마지막 Tab → Cancel로
-  연결돼 지연 초기 focus가 사용자 이동을 덮어쓴 원인을 확인했다.
-  `594fbc5d`는 focus가 body·overlay에 남아 있을 때만 초기 fallback을 적용한다.
-  신규 단위 4개 수정 전 1 fail / 3 pass, 수정 후 관련 파일 197 pass.
-  App `8.10.8` / `v669`, `target=app`, D1 `false`, 새 의존성·스키마·비밀·바인딩·
-  프로토콜·복구 floor 없음. 수정 후 원격 반복
-  [38356696388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356696388)는
-  Ubuntu·Windows 각 30 pass / 0 fail / 0 skip / 0 retry다. 로컬·원격 전체 검증·
-  exact-main 후보·배포는 pending이며 항목을 닫지 않는다.
-  [원인·수정·검증 상태](design/youtube-popup-focus-repair-2026-10-13.md),
-  [이전 진단과 당시 한계](design/youtube-focus-linux-diagnostic-2026-10-13.md)
 - [ ] 2026-10-11 Montpellier 행사 PRO 002026의 입장 실패 원인은 미확정이다.
   Peer 번호는 동시 접속 수가 아니며 `Peer 77` 퇴장 메시지나 “100명처럼”이라는
   관찰만으로 실제 `ROOM_FULL`·100명 동시 접속을 증명하지 못한다. 로컬에서

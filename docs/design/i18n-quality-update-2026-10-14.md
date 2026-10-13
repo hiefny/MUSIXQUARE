@@ -2,8 +2,8 @@
 
 | 항목 | 값 |
 | --- | --- |
-| 상태 | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.11` / 서비스 워커 캐시 `v674` 예정 |
-| 검증 코드 | 코드 커밋 `818c87bca6c944859efb21bcb46c699d8695d576` (branch `agent/i18n-quality-update-2026-10`, base main `5eb25dc6`) |
+| 상태 | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.11` / 서비스 워커 캐시 `v675` 예정 |
+| 검증 코드 | 코드 커밋 `818c87bca6c944859efb21bcb46c699d8695d576`(1차, 캐시 v674) → `4580c2024b38f8526eb4b5d7886ef0bcee550016`(compact 라벨 복원, 사전 최종). 그 뒤 마지막 커밋이 캐시를 v675로 올린다(SW 캐시 가드는 마지막 앱 변경 뒤의 bump를 요구). branch `agent/i18n-quality-update-2026-10`, base main `5eb25dc6` |
 | 환경 | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다 |
 | 범위 | App 범위만: `src/i18n/*.ts` 42개, `browser/classic-runtime/landing-i18n.ts`(About), `browser/classic-runtime/account-complete.ts`, `index.html`·`.workshop/landing/landing.html` 영어 폴백, i18n 테스트 3개, 번역 가이드. Worker·D1·스키마·시크릿 변경 없음 |
 | 조사 근거 | 2026-10-13 전수 조사(42로케일 리뷰어 + 영어↔한국어 정합, 내부 폴더 `docs/private/i18n-quality-survey-2026-10-13/`, 저장소 밖 보관) |
@@ -11,7 +11,7 @@
 ## 1. 무엇을 바꿨나
 
 조사에서 나온 제안 1,772건을 오너 결정(§2)으로 걸러 적용했다. base main 대비 최종
-차이는 **app·About 사전 값 1,742건**(app 1,534·About 208; 영어 49·한국어 29)이며, 이 중
+차이는 **app·About 사전 값 1,718건**(app 1,510·About 208; 영어 49·한국어 29)이며, 이 중
 70건은 `...en` 스프레드 때문에 영어가 노출되던 PRO 활성화 키의 신규 번역이다. 사전
 밖의 복수형 27건과 계정 완료 페이지 8건은 별도다.
 
@@ -23,6 +23,7 @@
 | 계정 로그인 완료 페이지 | 8 | `account-complete.ts` 튜플 |
 | `<bdi>` 태그 복구(`player.play_speakers_html`) | 3 | fr·ja·tr. 적용 도구가 마크업 변경을 거부해 AST로 직접 교체 |
 | 토스트 50자 상한 보정(§6) | 14 | 12건 축약 재작성 + 2건 base 복원 |
+| compact 라벨 base 복원(§7) | 24 | `*_compact` 탭·플레이어 라벨 23건(17로케일) + bg `pro.use_this_tab`. CI 레이아웃 게이트 실패 뒤 복원 |
 | 영어 폴백 동기화 | index.html 12곳, landing.html 11곳 | `data-i18n`·`data-i18n-html`·aria-label 폴백이 사전과 같아야 하는 테스트 계약 |
 
 주요 결과:
@@ -78,20 +79,39 @@ bg `toast.host_sync_requested` 복원 근거: 리뷰어는 "синхрон"→"�
 사전은 "синхрон" 13회 대 "синхронизация" 3회로 짧은 형이 다수라 상한과 일관성 모두 base가
 낫다.
 
-## 7. 검증
+## 7. CI 레이아웃 게이트 실패와 compact 라벨 복원
+
+첫 CI(PR #325, run 38453666388)에서 Critical browser gate의 `e2e/adaptive-actions.test.ts`가
+2건 실패했다. de `nav.settings_compact`("Optionen"→"Einstellungen")이 320px·200% 텍스트의
+하단 탭에 말줄임 없이 들어가지 않았고, el `player.play_media_compact`("Μέσα"→"Πολυμέσα")가
+두 줄을 넘겼다. 이 스펙은 43키(다이얼로그 버튼 31·하단 탭 5·compact 플레이어 4·초대 3)를
+42개 로케일 전부 측정하고 첫 실패에서 멈추므로 로컬에서 반복 실행했고, kn·ml
+`player.play_media_compact`가 추가로 드러났다. 둘은 글자 수가 같거나 짧은데도 모음 기호
+때문에 렌더 폭이 커졌다. Indic 문자에서는 글자 수가 레이아웃의 대리 지표가 아니다.
+
+처리: 이번 업데이트가 바꾼 `*_compact` 값 23건(17로케일)을 전부 base로 복원했고, 길이만
+늘어난 bg `pro.use_this_tab`("Продължи тук"→"Продължаване тук")도 복원했다(24건, 커밋
+`4580c202`). compact 키는 2026-09-06 42언어×4폭 감사로 맞춘 값이므로 앞으로도 base보다
+길어지는 제안은 받지 않는다. 다이얼로그 버튼 31키의 변경(he·fa·gu·mr·fi의 Revoke≠Cancel
+수정, ta `account.logout` 등)은 단어 경계 줄바꿈 범위 안이라 스펙을 통과해 유지했다.
+복원 뒤 스펙은 5/5 통과.
+
+## 8. 검증
 
 | 명령 | 결과 |
 | --- | --- |
-| `npx vitest run src/i18n/__tests__` + 영향받은 UI 테스트 4파일 | 31 files, 581 passed, 0 failed, 0 skipped (토스트 보정 뒤 재실행) |
+| `npx vitest run src/i18n/__tests__` + 영향받은 UI 테스트 4파일 | 31 files, 581 passed, 0 failed, 0 skipped (토스트 보정·compact 복원 뒤 재실행) |
 | `npm run typecheck` | pass |
-| `npm run format:check` | pass |
+| `npm run format:check` | pass (compact 복원 뒤 재확인) |
 | `npm run lint` | pass |
-| `npm test` | 560 files, 12,637 passed / 2 failed. 실패 2건(`release-deployment-state`, `sw-cache-version-guard`)은 빌드와 동시 실행 중 발생했고 단독 재실행 141/141 통과. 그 전 실행의 `pro-room-burst` workerd `fetch failed` 1건도 단독 재실행 7/7 통과 |
-| `npm run build:checked` | pass (8.10.11, v674, prod-security·font·sw-app-shell 가드 통과) |
-| e2e 레이아웃 스펙 (`dialog-locale-layout`, `about-page-layout`, `rtl-player-layout`, `rtl-settings-layout`), chromium, 8.10.11 빌드 산출물 | 30 passed, 0 failed (24.4s) |
+| `npm test` | 560 files, 12,637 passed / 2 failed. 실패 2건(`release-deployment-state`, `sw-cache-version-guard`)은 빌드와 동시 실행 중 발생했고 단독 재실행 141/141 통과. 그 전 실행의 `pro-room-burst` workerd `fetch failed` 1건도 단독 재실행 7/7 통과. compact 복원은 main과 같은 값으로 되돌린 것이라 재실행하지 않았다 |
+| `npm run build:checked` | 1차 pass (8.10.11, v674, prod-security·font·sw-app-shell 가드 통과). compact 복원·v675 bump 커밋 뒤 재빌드 pass (8.10.11, v675, 같은 가드 통과) |
+| e2e 레이아웃 스펙 (`dialog-locale-layout`, `about-page-layout`, `rtl-player-layout`, `rtl-settings-layout`), chromium, 1차 빌드 산출물 | 30 passed, 0 failed (24.4s) |
+| e2e `adaptive-actions`(Critical browser gate 재현), chromium, 소스 사전 직접 측정 | 복원 전 2 failed(CI와 동일) → 복원 뒤 5 passed |
+| CI Critical browser gate (1차 커밋) | 24 중 22 passed, 2 failed(§7). 나머지 10개 잡은 전부 pass |
 
-한계: 리뷰어는 LLM이며 원어민 인증이 아니다. 2026-09-06 감사 방식의 42언어×4폭 자동 레이아웃 재측정은 하지 않았다. 바뀐 긴 문자열은 대부분 다이얼로그·설명문이며 줄바꿈 가능한 컨테이너에 있다. 배포 뒤 실제 화면 확인 항목을 릴리스 기록에 남겼다.
+한계: 리뷰어는 LLM이며 원어민 인증이 아니다. 2026-09-06 감사 방식의 42언어×4폭 자동 레이아웃 재측정은 하지 않았고, CI 게이트가 측정하는 43키 밖의 라벨은 §7과 같은 렌더 폭 문제가 남아 있을 수 있다. 바뀐 긴 문자열은 대부분 다이얼로그·설명문이며 줄바꿈 가능한 컨테이너에 있다. 배포 뒤 실제 화면 확인 항목을 릴리스 기록에 남겼다.
 
-## 8. 복구
+## 9. 복구
 
-번역·폴백·테스트와 릴리스 식별자(8.10.11/v674)만 바뀌었고 런타임 로직은 그대로다. 문제가 있으면 이전 App 버전으로 되돌리면 되고, 새 floor는 없다.
+번역·폴백·테스트와 릴리스 식별자(8.10.11/v675)만 바뀌었고 런타임 로직은 그대로다. 문제가 있으면 이전 App 버전으로 되돌리면 되고, 새 floor는 없다.

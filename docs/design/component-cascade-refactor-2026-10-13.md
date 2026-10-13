@@ -58,26 +58,45 @@ layer 네 개에는 0개다.
 
 ## 검증 기록
 
-실행 환경은 Windows, 저장소 고정 Node/npm, Playwright Chromium/WebKit이다.
-아래 결과는 기준 SHA 이후 작업 트리에 대한 중간 결과이며 최종 source SHA와
-CI·배포 결과는 실행 완료 후 추가한다.
+로컬 실행 환경은 Windows / Node 24.13.1 / npm 11.8.0 / Playwright
+Chromium·WebKit이다. 원격은 저장소 고정 Node 24.20.0 / npm 12.0.2를 사용하므로
+환경을 동일하다고 주장하지 않는다. 제품·회귀 source는
+`03df60f790a61c9cf3dec50254e0815001d01416`, build guard 후속은
+`ad66e0c94e604d3bfe38eafde847e56f19f2bf68`다. CI·배포 결과는 실행 완료 후 추가한다.
 
 - 첫 full unit: 558파일, 12,575 pass / 5 fail / 0 skip. 세 건은 이동한 CSS를
   주석 경계로 자르던 검사와 누락된 bootstrap cache mirror를 수정했다. 나머지
   두 건은 Git 임시 저장소를 만드는 release/cache guard 테스트의 시간 초과였다.
   제한을 늘리지 않고 worker 수를 제한한 관련 5파일 재실행은 197 pass였다.
-  전체 재실행으로 최종 결과를 확인한다.
-- 타입 검사 통과. focused contracts 114 pass. lint·format·full unit 최종 확인 중.
+  전체를 `--maxWorkers=4`로 다시 실행해 558파일 / 12,580 pass / 0 fail / 0 skip,
+  430.44초를 확인했다. 이후 carousel 변경 관련 71개 및 legacy guard 8개도 통과했다.
+- 타입·린트·포맷·Worker 정책 검사 통과. focused contracts 114 pass. 최종 carousel
+  소스와 E2E 타입·린트·포맷도 재확인했다.
 - 공개 보조 페이지 전후 계산 스타일 비교: 96조건에서 차이 0. Chromium/WebKit,
   390/720/900/1440px, admin/blog/about/design, normal/active/reduced 조합이다.
   동적 관리자 clear 버튼의 의도적인 색상 수정은 별도 동작 검사로 확인했다.
+  이 96조건은 공유 디자인 CSS를 baseline으로 고정한 보조 페이지 격리 비교이며
+  events 페이지나 이번 공유 디자인 토큰 변경 전체의 동등성 증거는 아니다.
 - 앱 비교기는 기준 index/CSS를 사용한 정적 상태 비교다. 전환이 끝나기 전의
   일시적인 프레임을 제품 변화로 세지 않도록 baseline 자기 비교와 transition
   종료를 확인한다. 실제 네트워크·native fullscreen·미디어 출력을 검증하는
-  것으로 해석하지 않는다.
+  것으로 해석하지 않는다. 최종 비교 300조건×937요소, 70속성에서 형태·색·글꼴·
+  가시성·기하 차이는 0이다. 220조건 완전 동일, 나머지 80조건은 의도된 모션
+  속성 변경만 있다. 별도 54상태에서는 데모 중 숨김 nav의 transform/rect 변화
+  3조건을 허용했다(opacity 0 / pointer-events none 유지). 데모 종료 9조건에서
+  기존 visible 배치·opacity 1·pointer-events auto로 회복했다. baseline 자기 비교는
+  90/90 동일했다. 교정 전 초기 comparator 결과는 증거에서 제외한다.
 - 지속 회귀는 component-cascade와 auxiliary-component-cascade E2E로 남긴다.
   모달 이미지 캡처는 native ViewTransition 종료 후 수행하며 제품 transition을
   생략하지 않는다. 새 검사는 Chromium 전체 및 WebKit 대상 목록에 포함한다.
+- 새 carousel 실제 앱 핀 Chromium/WebKit 2/2 및 최종 component WebKit 7/7 통과.
+  Chromium 모달 검사는 실제 로컬 PeerJS 방 입장, WebKit 모달 검사는 기존
+  WebKit smoke와 같은 bootstrap/host-state hook으로 준비한다. WebKit에서 일반방
+  네트워크 입장까지 검증했다고 주장하지 않는다. 강제 색상 E2E는 Chromium 한정이다.
+- 첫 committed production build는 legacy guard의 문자열 검색이 layer lowering의
+  `:not(#\\#)` padding을 인식하지 못해 중단됐다. 생성된 그 토큰만 제거한 selector로
+  검사하도록 고쳤다. 실제 `:has()`·누락 animation·물리 overlay edge 거부는 유지하고,
+  변환된 CSS에 대한 양성/음성 회귀를 추가했다. 최종 build 결과는 별도로 기록한다.
 
 ## 배포·복구
 

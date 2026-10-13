@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [YouTube keyboard focus remote diagnostic — 2026-10-13](design/youtube-focus-linux-diagnostic-2026-10-13.md) —
+  같은 코드의 Ubuntu·Windows 반복 검사에서 최초 focus 실패를 재현했다.
+  준비 확인·실제 Tab 진입은 60회 통과했지만 전체 비교는 57 pass / 후반 Tab 3 fail이다.
+  제품·main 테스트 수정이나 배포 없이 결과와 해석 한계를 기록한다.
+
 - [YouTube input guidance — 2026-10-13](design/youtube-input-guidance-2026-10-13.md)
 
 - [공지 외부 리뷰 후속 수정 — 2026-10-13](design/announcement-review-followup-2026-10-13.md) —

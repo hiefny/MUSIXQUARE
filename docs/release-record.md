@@ -153,11 +153,23 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 
 - [ ] 변경 전 main `4854e392`의 Full E2E [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)
   (2026-10-13 10:46:21 KST 완료)에서 serial 626 pass / 1 fail. 실패는
-  `e2e/youtube-search-interactions.test.ts:80`의 입력 조작 전 최초 focus 확인이다.
-  source popup의 비동기 View Transition·0ms 최초 action focus와 검사의 즉시
-  programmatic focus/Enter 간 경쟁을 의심하지만 원인은 확정하지 못했다.
-  현재 `6b159667`의 같은 검사(입력 삭제·Tab 순환 포함) 로컬 5회는 통과했으며
-  간헐 실패 해결이나 전체 Full E2E 통과 증거가 아니다.
+  `e2e/youtube-search-interactions.test.ts:80` test의 입력 조작 전 최초 focus
+  확인(원본 90행)이다. 원본 snapshot은 미디어 선택 팝업에 남아 있으며 실제
+  activeElement는 미수집이다. 고정 `4ca74b24`의 원격 A 반복
+  [38338822645](https://github.com/hiefny/MUSIXQUARE/actions/runs/38338822645)는
+  Ubuntu 9 pass / 21 fail, Windows 12 pass / 18 fail(각 0 skip / 0 retry).
+  39회 모두 최초 focus에서 실패했고 실패 후 local-file focus·YouTube overlay
+  `display:none`을 확인했다. Linux 전용 문제는 아니다. 준비 확인·실제 Tab 진입 B
+  [38339571035](https://github.com/hiefny/MUSIXQUARE/actions/runs/38339571035)의
+  Ubuntu는 30 pass / 0 fail, Windows는 27 pass / 3 fail(각 0 skip / 0 retry).
+  최초 진입은 60회 모두 통과했지만 Windows 3회는 후반 마지막 Tab 뒤 input
+  focus 확인(원래 106행)에서 실패, cancel focus·overlay `display:flex`였다.
+  초기 검사 절차 부족과 후반 실패를 구분한다. 후반은 100ms input focus 타이머와
+  Tab 경합이 후보지만 타이머·focusin 로그 없이 원인이나 해결을 확정하지 않는다.
+  두 진단 실행은 완료됐다. 사용자 PC의 `6b159667` 5회 통과는
+  원격 hosted Windows와 동일 환경이 아니다. 제품·main 테스트 수정이나 배포는
+  하지 않았으며 수정 여부는 다음 사용자 결정으로 남긴다.
+  [반복 설계·현재 결과·한계](design/youtube-focus-linux-diagnostic-2026-10-13.md),
   [로그·재검증·한계](design/youtube-input-guidance-2026-10-13.md#기존-full-e2e의-미확정-관찰)
 - [ ] 2026-10-11 Montpellier 행사 PRO 002026의 입장 실패 원인은 미확정이다.
   Peer 번호는 동시 접속 수가 아니며 `Peer 77` 퇴장 메시지나 “100명처럼”이라는

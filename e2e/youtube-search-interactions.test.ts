@@ -88,6 +88,14 @@ test.describe('YouTube search loading and quick add', () => {
     const input = page.locator('#youtube-url-input');
     const cancel = page.locator('#btn-yt-cancel');
     await expect(input).toBeFocused();
+    await expect(input).toHaveAttribute('data-placeholder', 'https://youtube.com/…');
+    const status = page.locator('#youtube-preview-status');
+    const idleText = await status.textContent();
+    await input.fill('Gangnam Style');
+    await expect(status).toHaveAttribute('data-i18n', 'youtube.search_prompt');
+    await input.fill('');
+    await expect(status).toHaveAttribute('data-i18n', 'youtube.enter_link_prompt');
+    await expect(status).toHaveText(idleText!);
     await page.keyboard.press('Tab');
     await expect(cancel).toBeFocused();
     await page.keyboard.press('Shift+Tab');

@@ -394,8 +394,8 @@ const de: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': 'YouTube-Link eingeben',
   'youtube.enter_source': 'YouTube-Link oder Suchbegriff eingeben',
-  'youtube.enter_link_prompt': 'YouTube-Suchbegriff oder Link eingeben',
-  'youtube.enter_source_placeholder': 'YouTube-Link oder Suchbegriff',
+  'youtube.enter_link_prompt': 'YouTube-Link oder Suchbegriff eingeben',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'YouTube gemeinsam ansehen',
   'youtube.ready': 'YouTube ist bereit!\nDrücke auf Wiedergabe.',
   'youtube.thumbnail': 'YouTube-Vorschaubild',

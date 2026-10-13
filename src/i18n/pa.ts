@@ -495,8 +495,8 @@ const pa: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube ਲਿੰਕ ਦਾਖਲ ਕਰੋ',
   'youtube.enter_source': 'YouTube ਲਿੰਕ ਜਾਂ ਖੋਜ ਦਾਖਲ ਕਰੋ',
-  'youtube.enter_link_prompt': 'YouTube ਖੋਜ ਸ਼ਬਦ ਜਾਂ ਲਿੰਕ ਦਾਖਲ ਕਰੋ',
-  'youtube.enter_source_placeholder': 'YouTube ਲਿੰਕ ਜਾਂ ਖੋਜ ਸ਼ਬਦ',
+  'youtube.enter_link_prompt': 'YouTube ਲਿੰਕ ਜਾਂ ਖੋਜ ਸ਼ਬਦ ਦਾਖਲ ਕਰੋ',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'ਇਕੱਠੇ YouTube ਵੇਖੋ',
   'youtube.ready': 'YouTube ਤਿਆਰ ਹੈ!\nਚਲਾਓ ਬਟਨ ਦਬਾਓ।',
   'youtube.thumbnail': 'YouTube ਝਲਕ ਥੰਬਨੇਲ',

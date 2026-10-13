@@ -493,8 +493,8 @@ const hi: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube लिंक दर्ज करें',
   'youtube.enter_source': 'YouTube लिंक या खोज दर्ज करें',
-  'youtube.enter_link_prompt': 'YouTube पर खोजने के लिए शब्द या लिंक दर्ज करें',
-  'youtube.enter_source_placeholder': 'YouTube लिंक या खोज शब्द',
+  'youtube.enter_link_prompt': 'YouTube लिंक या खोजने के लिए शब्द दर्ज करें',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'साथ में YouTube देखें',
   'youtube.ready': 'YouTube तैयार है!\nचलाएँ दबाएँ।',
   'youtube.thumbnail': 'YouTube प्रीव्यू थंबनेल',

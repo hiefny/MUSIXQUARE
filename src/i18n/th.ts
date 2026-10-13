@@ -484,8 +484,8 @@ const th: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'ใส่ลิงก์ YouTube',
   'youtube.enter_source': 'ใส่ลิงก์ YouTube หรือคำค้นหา',
-  'youtube.enter_link_prompt': 'ใส่คำค้นหาหรือลิงก์ YouTube',
-  'youtube.enter_source_placeholder': 'ลิงก์ YouTube หรือคำค้นหา',
+  'youtube.enter_link_prompt': 'ใส่ลิงก์ YouTube หรือคำค้นหา',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'ดู YouTube ด้วยกัน',
   'youtube.ready': 'YouTube พร้อมแล้ว!\nกดเล่น',
   'youtube.thumbnail': 'ภาพตัวอย่าง YouTube',

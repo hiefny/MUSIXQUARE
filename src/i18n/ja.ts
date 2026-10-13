@@ -389,8 +389,8 @@ const ja: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': 'YouTubeリンクを入力',
   'youtube.enter_source': 'YouTubeリンクまたは検索語を入力',
-  'youtube.enter_link_prompt': 'YouTubeの検索語またはリンクを入力してください',
-  'youtube.enter_source_placeholder': 'YouTubeリンクまたは検索語',
+  'youtube.enter_link_prompt': 'YouTubeリンクまたは検索語を入力してください',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'YouTubeを一緒に見る',
   'youtube.ready': 'YouTubeの準備ができました！\n再生ボタンを押してください。',
   'youtube.thumbnail': 'YouTubeプレビューサムネイル',

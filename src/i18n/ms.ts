@@ -504,8 +504,8 @@ const ms: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Masukkan pautan YouTube',
   'youtube.enter_source': 'Masukkan pautan YouTube atau buat carian',
-  'youtube.enter_link_prompt': 'Masukkan istilah carian atau pautan YouTube',
-  'youtube.enter_source_placeholder': 'Pautan YouTube atau istilah carian',
+  'youtube.enter_link_prompt': 'Masukkan pautan YouTube atau istilah carian',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Tonton YouTube bersama',
   'youtube.ready': 'YouTube sudah sedia!\nTekan Main.',
   'youtube.thumbnail': 'Imej kecil pratonton YouTube',

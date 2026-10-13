@@ -393,8 +393,8 @@ const id: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': 'Masukkan tautan YouTube',
   'youtube.enter_source': 'Masukkan tautan YouTube atau kata pencarian',
-  'youtube.enter_link_prompt': 'Masukkan kata pencarian atau tautan YouTube',
-  'youtube.enter_source_placeholder': 'Link YouTube atau kata pencarian',
+  'youtube.enter_link_prompt': 'Masukkan tautan YouTube atau kata pencarian',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Tonton YouTube bersama',
   'youtube.ready': 'YouTube siap!\nTekan Putar.',
   'youtube.thumbnail': 'Gambar mini pratinjau YouTube',

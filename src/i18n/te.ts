@@ -497,8 +497,8 @@ const te: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube లింక్‌ను నమోదు చేయి',
   'youtube.enter_source': 'YouTube లింక్ లేదా సెర్చ్‌ను నమోదు చేయి',
-  'youtube.enter_link_prompt': 'YouTube సెర్చ్ పదం లేదా లింక్‌ను నమోదు చేయి',
-  'youtube.enter_source_placeholder': 'YouTube లింక్ లేదా సెర్చ్ పదం',
+  'youtube.enter_link_prompt': 'YouTube లింక్ లేదా సెర్చ్ పదాన్ని నమోదు చేయండి',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'కలిసి YouTube చూడండి',
   'youtube.ready': 'YouTube సిద్ధంగా ఉంది!\nప్లే నొక్కండి.',
   'youtube.thumbnail': 'YouTube ప్రివ్యూ థంబ్‌నెయిల్',

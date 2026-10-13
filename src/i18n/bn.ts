@@ -493,8 +493,8 @@ const bn: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube লিংক লিখুন',
   'youtube.enter_source': 'YouTube লিংক বা সার্চ লিখুন',
-  'youtube.enter_link_prompt': 'YouTube-এ খোঁজার শব্দ বা লিংক লিখুন',
-  'youtube.enter_source_placeholder': 'YouTube লিংক বা খোঁজার শব্দ',
+  'youtube.enter_link_prompt': 'YouTube লিংক বা খোঁজার শব্দ লিখুন',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'একসঙ্গে YouTube দেখুন',
   'youtube.ready': 'YouTube প্রস্তুত!\nচালান চাপুন।',
   'youtube.thumbnail': 'YouTube প্রিভিউ থাম্বনেইল',

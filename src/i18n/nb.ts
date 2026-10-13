@@ -498,8 +498,8 @@ const nb: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Skriv inn YouTube-lenke',
   'youtube.enter_source': 'Skriv inn YouTube-lenke, eller søk',
-  'youtube.enter_link_prompt': 'Skriv inn et søkeord eller en lenke til YouTube',
-  'youtube.enter_source_placeholder': 'YouTube-lenke eller søkeord',
+  'youtube.enter_link_prompt': 'Skriv inn en YouTube-lenke eller et søkeord',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Se YouTube sammen',
   'youtube.ready': 'YouTube er klar!\nTrykk på Spill av.',
   'youtube.thumbnail': 'Forhåndsvisningsbilde fra YouTube',

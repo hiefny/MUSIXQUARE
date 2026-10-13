@@ -484,8 +484,8 @@ const he: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'הזנת קישור YouTube',
   'youtube.enter_source': 'הזנת קישור YouTube או חיפוש',
-  'youtube.enter_link_prompt': 'יש להזין ביטוי חיפוש או קישור של YouTube',
-  'youtube.enter_source_placeholder': 'קישור ל-YouTube או ביטוי חיפוש',
+  'youtube.enter_link_prompt': 'יש להזין קישור YouTube או ביטוי חיפוש',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'צפייה משותפת ב-YouTube',
   'youtube.ready': 'YouTube מוכן!\nלחצו על הפעלה.',
   'youtube.thumbnail': 'תמונה ממוזערת לתצוגה מקדימה של YouTube',

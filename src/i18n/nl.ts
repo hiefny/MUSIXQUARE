@@ -507,8 +507,8 @@ const nl: Record<I18nKey, string> = {
   // YouTube
   'youtube.enter_link': 'YouTube-link invoeren',
   'youtube.enter_source': 'YouTube-link of zoekterm invoeren',
-  'youtube.enter_link_prompt': 'Voer een YouTube-zoekterm of link in',
-  'youtube.enter_source_placeholder': 'YouTube-link of zoekterm',
+  'youtube.enter_link_prompt': 'Voer een YouTube-link of zoekterm in',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Samen YouTube kijken',
   'youtube.ready': 'YouTube is klaar!\nDruk op Afspelen.',
   'youtube.thumbnail': 'YouTube-voorbeeldminiatuur',

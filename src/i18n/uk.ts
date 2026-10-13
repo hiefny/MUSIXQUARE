@@ -499,8 +499,8 @@ const uk: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Введіть посилання YouTube',
   'youtube.enter_source': 'Введіть посилання YouTube або пошуковий запит',
-  'youtube.enter_link_prompt': 'Введіть пошуковий запит або посилання YouTube',
-  'youtube.enter_source_placeholder': 'Посилання на YouTube або пошук',
+  'youtube.enter_link_prompt': 'Введіть посилання YouTube або пошуковий запит',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Дивитися YouTube разом',
   'youtube.ready': 'YouTube готовий!\nНатисніть «Відтворити».',
   'youtube.thumbnail': 'Мініатюра попереднього перегляду YouTube',

@@ -500,8 +500,8 @@ const ru: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Введите ссылку на YouTube',
   'youtube.enter_source': 'Поиск материала или ссылка на YouTube',
-  'youtube.enter_link_prompt': 'Введите запрос поиска или ссылку на YouTube',
-  'youtube.enter_source_placeholder': 'Ссылка на YouTube или поиск',
+  'youtube.enter_link_prompt': 'Введите ссылку на YouTube или поисковый запрос',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Совместный просмотр YouTube',
   'youtube.ready': 'YouTube готов!\nНажмите «Воспроизвести», чтобы начать.',
   'youtube.thumbnail': 'Превью-картинка видео на YouTube',

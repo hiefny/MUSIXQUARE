@@ -481,8 +481,8 @@ const ar: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'أدخل رابط YouTube',
   'youtube.enter_source': 'أدخل رابط YouTube أو ابحث',
-  'youtube.enter_link_prompt': 'أدخل عبارة بحث أو رابطًا على YouTube',
-  'youtube.enter_source_placeholder': 'رابط YouTube أو عبارة بحث',
+  'youtube.enter_link_prompt': 'أدخل رابط YouTube أو عبارة بحث',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'مشاهدة YouTube معًا',
   'youtube.ready': 'YouTube جاهز!\nاضغط تشغيل.',
   'youtube.thumbnail': 'صورة معاينة YouTube',

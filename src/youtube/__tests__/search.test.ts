@@ -412,7 +412,14 @@ describe('YouTube input i18n state', () => {
 
     setLanguageMode('en');
 
-    expect(status?.textContent).toBe('Enter a YouTube search term or link');
+    expect(status?.textContent).toBe('Enter a YouTube link or search term');
+
+    const idleText = status?.textContent;
+    fetchYouTubePreview('Gangnam Style');
+    expect(status?.getAttribute('data-i18n')).toBe('youtube.search_prompt');
+    fetchYouTubePreview('');
+    expect(status?.getAttribute('data-i18n')).toBe('youtube.enter_link_prompt');
+    expect(status?.textContent).toBe(idleText);
   });
 });
 

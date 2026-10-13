@@ -489,8 +489,8 @@ const ur: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube لنک درج کریں',
   'youtube.enter_source': 'YouTube لنک درج کریں یا تلاش کریں',
-  'youtube.enter_link_prompt': 'YouTube کی تلاش یا لنک درج کریں',
-  'youtube.enter_source_placeholder': 'YouTube لنک یا تلاش',
+  'youtube.enter_link_prompt': 'YouTube لنک یا تلاش درج کریں',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'YouTube ساتھ دیکھیں',
   'youtube.ready': 'YouTube تیار ہے!\nچلائیں دبائیں۔',
   'youtube.thumbnail': 'YouTube پیش منظر کی تصویر',

@@ -499,8 +499,8 @@ const da: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Indtast YouTube-link',
   'youtube.enter_source': 'Indtast YouTube-link eller søg',
-  'youtube.enter_link_prompt': 'Indtast et søgeord eller link til YouTube',
-  'youtube.enter_source_placeholder': 'YouTube-link eller søgeord',
+  'youtube.enter_link_prompt': 'Indtast et YouTube-link eller et søgeord',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Se YouTube sammen',
   'youtube.ready': 'YouTube er klar!\nTryk på Afspil.',
   'youtube.thumbnail': 'Forhåndsvisningsbillede fra YouTube',

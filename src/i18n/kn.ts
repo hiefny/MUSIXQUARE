@@ -499,8 +499,8 @@ const kn: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube ಲಿಂಕ್ ನಮೂದಿಸಿ',
   'youtube.enter_source': 'YouTube ಲಿಂಕ್ ಅಥವಾ ಹುಡುಕಾಟ ನಮೂದಿಸಿ',
-  'youtube.enter_link_prompt': 'YouTube ಹುಡುಕಾಟ ಪದ ಅಥವಾ ಲಿಂಕ್ ನಮೂದಿಸಿ',
-  'youtube.enter_source_placeholder': 'YouTube ಲಿಂಕ್ ಅಥವಾ ಹುಡುಕಾಟ ಪದ',
+  'youtube.enter_link_prompt': 'YouTube ಲಿಂಕ್ ಅಥವಾ ಹುಡುಕಾಟ ಪದ ನಮೂದಿಸಿ',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'ಒಟ್ಟಿಗೆ YouTube ವೀಕ್ಷಿಸಿ',
   'youtube.ready': 'YouTube ಸಿದ್ಧವಾಗಿದೆ!\nಪ್ಲೇ ಬಟನ್ ಒತ್ತಿರಿ.',
   'youtube.thumbnail': 'YouTube ಮುನ್ನೋಟ ಥಂಬ್‌ನೇಲ್',

@@ -508,8 +508,8 @@ const ta: Record<I18nKey, string> = {
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube இணைப்பை உள்ளிடு',
   'youtube.enter_source': 'YouTube இணைப்பு அல்லது தேடலை உள்ளிடு',
-  'youtube.enter_link_prompt': 'YouTube தேடல் சொல்லை அல்லது இணைப்பை உள்ளிடு',
-  'youtube.enter_source_placeholder': 'YouTube இணைப்பு அல்லது தேடல் சொல்',
+  'youtube.enter_link_prompt': 'YouTube இணைப்பு அல்லது தேடல் சொல்லை உள்ளிடவும்',
+  'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'YouTube-ஐ ஒன்றாகப் பாருங்கள்',
   'youtube.ready': 'YouTube தயாராக உள்ளது!\nஇயக்கு என்பதை அழுத்தவும்.',
   'youtube.thumbnail': 'YouTube முன்னோட்டச் சிறுபடம்',

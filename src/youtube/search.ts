@@ -777,7 +777,7 @@ export function fetchYouTubePreview(url: string): void {
     abortSearch();
     clearSearchResults();
     hidePreviewCard();
-    setStatus('youtube.enter_link_placeholder');
+    setStatus('youtube.enter_link_prompt');
     setYouTubePrimaryButton(false);
     setYouTubeSearchButton(false);
     return;

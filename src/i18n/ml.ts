@@ -104,7 +104,7 @@ const ml: Record<I18nKey, string> = {
   'nav.help': 'സഹായം',
   'nav.connect': 'ബന്ധിപ്പിക്കുക',
   'nav.playlist_compact': 'പ്ലേലിസ്റ്റ്',
-  'nav.connect_compact': 'ചേരുക',
+  'nav.connect_compact': 'കണക്റ്റ്',
   'nav.settings_compact': 'സെറ്റിംഗ്സ്',
   'nav.go_home': 'ഹോമിലേക്ക് പോകുക',
 
@@ -126,14 +126,14 @@ const ml: Record<I18nKey, string> = {
   'player.sync_compact': 'സിങ്ക്',
   'player.syncing_compact': 'സിങ്ക്…',
   'player.play_media': 'മീഡിയ പ്ലേ ചെയ്യുക',
-  'player.play_media_compact': 'ഉറവിടം',
+  'player.play_media_compact': 'മീഡിയ',
   'player.play_media_action': 'മീഡിയ പ്ലേ ചെയ്യുക',
   'player.add_media': 'മീഡിയ ചേർക്കുക',
   'player.play_start': 'ക്യൂവിൽ ചേർക്കുക',
   'player.select_media': 'പ്ലേ ചെയ്യാനുള്ള മീഡിയ തിരഞ്ഞെടുക്കുക',
   'player.play_together': 'സിങ്കിൽ പ്ലേ ചെയ്യുക',
   'player.play_speakers': 'സ്പീക്കറായി ഉപയോഗിക്കുക',
-  'player.auto_sync_label': 'സ്വയം (ms)',
+  'player.auto_sync_label': 'ഓട്ടോ സിങ്ക് (ms)',
   'player.manual_sync_label': 'മാനുവൽ സിങ്ക് (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ const ml: Record<I18nKey, string> = {
   'connect.administrator_revoke_title': 'അഡ്മിൻ അനുമതി പിൻവലിക്കണോ?',
   'connect.administrator_revoke_message': '{{name}}-ന്റെ അഡ്മിൻ അനുമതികൾ പിൻവലിക്കണോ?',
   'connect.permissions_title': '{{name}}-ന്റെ അനുമതികൾ',
-  'connect.permission_media_add': 'മീഡിയ നിയന്ത്രിക്കുക',
+  'connect.permission_media_add': 'മീഡിയ കൈകാര്യം ചെയ്യുക',
   'connect.permission_playback_control': 'പ്ലേബാക്ക് നിയന്ത്രണം',
   'connect.permission_members_kick': 'അംഗങ്ങളെ പുറത്താക്കുക',
   'connect.permission_chat_notice': 'ചാറ്റിൽ അറിയിപ്പുകൾ പോസ്റ്റ് ചെയ്യുക',
@@ -276,7 +276,7 @@ const ml: Record<I18nKey, string> = {
   'connect.kick_member_message': '{{name}} ആയി ബന്ധിപ്പിച്ച എല്ലാ ഡിവൈസുകളും നീക്കണോ?',
   'connect.device_toggle': '{{name}}-ന്റെ ബന്ധിപ്പിച്ച ഡിവൈസുകൾ വികസിപ്പിക്കുക/ചുരുക്കുക',
   'connect.device_label': '{{platform}} ഡിവൈസ് ({{code}})',
-  'connect.platform_other': 'മറ്റുള്ളവ',
+  'connect.platform_other': 'മറ്റ്',
   'connect.current_device': 'നിലവിലെ ഡിവൈസ്',
   'connect.no_session': 'ആദ്യം ഒരു സെഷൻ ആരംഭിക്കുക',
   'connect.generating_qr': 'QR കോഡ് സൃഷ്ടിക്കുന്നു...',
@@ -507,7 +507,7 @@ const ml: Record<I18nKey, string> = {
   'youtube.watch_together': 'ഒരുമിച്ച് YouTube കാണുക',
   'youtube.ready': 'YouTube തയ്യാറാണ്!\nപ്ലേ അമർത്തുക.',
   'youtube.thumbnail': 'YouTube പ്രിവ്യൂ ലഘുചിത്രം',
-  'youtube.load_fail': 'YouTube API ലോഡ് ചെയ്യാനായില്ല.\nനിങ്ങളുടെ ബന്ധം പരിശോധിക്കുക!',
+  'youtube.load_fail': 'YouTube API ലോഡ് ചെയ്യാനായില്ല.\nനിങ്ങളുടെ ഇന്റർനെറ്റ് ബന്ധം പരിശോധിക്കുക!',
   'youtube.video_unavailable': 'വീഡിയോ ലഭ്യമല്ല; അടുത്ത ട്രാക്കിലേക്ക് പോകുന്നു',
   'youtube.load_timeout': 'YouTube ലോഡ് ചെയ്യാനുള്ള സമയം കഴിഞ്ഞു.\nവീണ്ടും ശ്രമിക്കുക.',
   'youtube.invalid_link': 'YouTube ലിങ്ക് അസാധുവാണ്',
@@ -577,7 +577,7 @@ const ml: Record<I18nKey, string> = {
   'toast.virtual_effects_off': 'എല്ലാ വിർച്വൽ ഇഫക്റ്റുകളും ഓഫാണ്',
   'toast.host_only': 'ഹോസ്റ്റിന് മാത്രമേ ഇത് പ്രവർത്തിപ്പിക്കാനാകൂ.',
   'toast.host_only_media': 'ഹോസ്റ്റിന് മാത്രമേ മീഡിയ ചേർക്കാനാകൂ.',
-  'toast.media_management_required': 'മീഡിയ നിയന്ത്രണ അനുമതി ആവശ്യമാണ്.',
+  'toast.media_management_required': 'മീഡിയ കൈകാര്യം ചെയ്യാനുള്ള അനുമതി ആവശ്യമാണ്.',
   'toast.playback_control_required': 'പ്ലേബാക്ക് നിയന്ത്രണ അനുമതി ആവശ്യമാണ്.',
   'toast.member_management_required': 'അംഗങ്ങളെ പുറത്താക്കാനുള്ള അനുമതി ആവശ്യമാണ്.',
   'toast.chat_notice_required': 'ചാറ്റ് അറിയിപ്പുകൾ പോസ്റ്റ് ചെയ്യാനുള്ള അനുമതി ആവശ്യമാണ്.',
@@ -606,7 +606,7 @@ const ml: Record<I18nKey, string> = {
   'toast.file_ready': 'നിങ്ങളുടെ ഫയൽ തയ്യാറാണ്!\nപ്ലേ അമർത്തുക.',
   'toast.host_sync_not_recommended': 'അതിഥി ഡിവൈസിൽ സിങ്ക് ക്രമീകരിക്കുക',
   'toast.host_sync_requested':
-    'കൃത്യതയുള്ള സിങ്ക് അഭ്യർത്ഥിച്ചു.\nഅതിഥി ഡിവൈസിൽ സ്വമേധയുള്ള സിങ്ക് ക്രമീകരിക്കുക.',
+    'കൃത്യതയുള്ള സിങ്ക് അഭ്യർത്ഥിച്ചു.\nഅതിഥി ഡിവൈസിൽ മാനുവൽ സിങ്ക് ക്രമീകരിക്കുക.',
   'toast.sync_not_in_system_audio': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ മോഡിൽ സിങ്ക് ലഭ്യമല്ല',
   'toast.sync_not_ready': 'ഇതുവരെ തയ്യാറായിട്ടില്ല.\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'toast.sync_no_media':
@@ -666,7 +666,7 @@ const ml: Record<I18nKey, string> = {
   'transfer.receiving_0pct': 'സ്വീകരിക്കുന്നു... 0%',
   'transfer.check_conn_type': 'ബന്ധത്തിന്റെ തരം പരിശോധിക്കുന്നു...',
   'transfer.preload_pending': 'മുൻകൂട്ടി ലോഡ് ചെയ്യാൻ കാത്തിരിക്കുന്നു: {{name}}',
-  'transfer.waiting_recovery': 'വീണ്ടെടുക്കൽ കാത്തിരിക്കുന്നു: {{name}}',
+  'transfer.waiting_recovery': 'വീണ്ടെടുക്കലിനായി കാത്തിരിക്കുന്നു: {{name}}',
   'transfer.preparing_name': 'തയ്യാറാക്കുന്നു: {{name}}',
   'transfer.recovery_failed': 'ഫയൽ വീണ്ടെടുക്കൽ പരാജയപ്പെട്ടു.\nവീണ്ടും ശ്രമിക്കുക.',
 
@@ -733,7 +733,7 @@ const ml: Record<I18nKey, string> = {
   'dialog.sw_update_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്. അപ്‌ഡേറ്റ് ചെയ്യാൻ പുതുക്കുക.',
   'dialog.feature_refresh_title': 'പുതുക്കേണ്ടതുണ്ട്',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE അപ്‌ഡേറ്റ് ചെയ്‌തിട്ടുണ്ട്. സാധാരണ പോലെ ഉപയോഗിക്കുന്നത് തുടരാൻ പേജ് പുതുക്കുക.',
+    'MUSIXQUARE അപ്‌ഡേറ്റ് ചെയ്തിട്ടുണ്ട്. സാധാരണ പോലെ ഉപയോഗിക്കുന്നത് തുടരാൻ പേജ് പുതുക്കുക.',
   'dialog.reconnect_ask': 'വീണ്ടും ബന്ധിപ്പിക്കണോ?',
   'dialog.reconnect': 'വീണ്ടും ബന്ധിപ്പിക്കുക',
   'dialog.go_back': 'തിരികെ പോകുക',
@@ -756,18 +756,17 @@ const ml: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO റൂം സജീവമാക്കുക',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_title': 'ഈ PRO റൂമിനായി ഒരു അക്കൗണ്ട് തിരഞ്ഞെടുക്കുക',
+  'pro.activation_account_message': 'ഈ റൂം “{{name}}” അക്കൗണ്ടിൽ രജിസ്റ്റർ ചെയ്യണോ?',
+  'pro.activation_account_login_message': 'ഈ റൂം രജിസ്റ്റർ ചെയ്യേണ്ട അക്കൗണ്ടിൽ സൈൻ ഇൻ ചെയ്യുക.',
+  'pro.activation_account_continue': 'തുടരുക',
+  'pro.activation_account_switch': 'മറ്റൊരു അക്കൗണ്ട്',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'നിങ്ങളുടെ അക്കൗണ്ട് സ്ഥിരീകരിക്കാനായില്ല. അൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക.',
+  'pro.activation_complete': 'രജിസ്ട്രേഷൻ പൂർത്തിയാക്കുക',
   'pro.activation_message': 'ഈ റൂമിന് പുതിയ 8 അക്ക പാസ്‌വേഡ് സജ്ജമാക്കുക.',
   'pro.activation_pin_same': 'താൽക്കാലിക പാസ്‌വേഡിൽ നിന്ന് വ്യത്യസ്തമായത് തിരഞ്ഞെടുക്കുക.',
-  'pro.claim_retry_title': 'PRO ലിങ്ക് വീണ്ടും ശ്രമിക്കണോ?',
+  'pro.claim_retry_title': 'PRO ലിങ്ക് ഉപയോഗിച്ച് വീണ്ടും ശ്രമിക്കണോ?',
   'pro.claim_retry_message':
     'ബന്ധം തടസ്സപ്പെട്ടു. ലിങ്ക് ഈ സ്ക്രീനിൽ സുരക്ഷിതമായി സൂക്ഷിച്ചിട്ടുണ്ട്; അതിനാൽ വീണ്ടും ശ്രമിക്കാം.',
   'pro.claim_unavailable_title': 'ഈ ലിങ്ക് ഇനി ഉപയോഗിക്കാനാകില്ല',
@@ -789,7 +788,7 @@ const ml: Record<I18nKey, string> = {
     'ഈ അക്കൗണ്ട് PRO റൂം ലിങ്ക് പരിധിയിലെത്തി. നിലവിലുള്ള ഒരു ലിങ്ക് നീക്കിയ ശേഷം പുതിയത് അഭ്യർത്ഥിക്കുക.',
   'pro.claim_failed_title': 'ഈ അഭ്യർത്ഥന പൂർത്തിയാക്കാനായില്ല',
   'pro.claim_failed_message':
-    'സുരക്ഷയ്ക്കായി ഈ ലിങ്ക് വീണ്ടും ശ്രമിച്ചില്ല. പുതിയ ലിങ്കിനായി റൂം അഡ്മിനോട് ആവശ്യപ്പെടുക.',
+    'സുരക്ഷയ്ക്കായി ഈ ലിങ്ക് ഉപയോഗിച്ച് വീണ്ടും ശ്രമിച്ചില്ല. പുതിയ ലിങ്കിനായി റൂം അഡ്മിനോട് ആവശ്യപ്പെടുക.',
   'pro.transfer_title': 'PRO റൂമിന്റെ ഉടമസ്ഥത ഏറ്റെടുക്കുക',
   'pro.transfer_message':
     'ഈ റൂമിന് പുതിയ 8 അക്ക പാസ്‌വേഡ് സജ്ജമാക്കുക. ഇത് പൂർത്തിയാകുമ്പോൾ മുൻ ഉടമയുടെ പ്രവേശനം പിൻവലിക്കും.',
@@ -860,7 +859,7 @@ const ml: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ബന്ധിപ്പിക്കാൻ ഹോസ്റ്റിൽ നിന്നുള്ള <strong>6 അക്ക കോഡ്</strong> നൽകുക.<ul class="help-list"><li><strong>ഹോസ്റ്റ്:</strong> “റൂം സൃഷ്ടിക്കുക” → കോഡ് പരിശോധിക്കുക</li><li><strong>പങ്കാളി:</strong> “റൂമിൽ ചേരുക” → കോഡ് നൽകുക</li><li><strong>ഹോസ്റ്റ് ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾക്ക്</strong> ബന്ധിപ്പിക്കാം.</li></ul>',
   'player.play_speakers_html':
-    'ഓരോ പങ്കാളിയും ഒരു <strong>റോൾ (ഔട്ട്‌പുട്ട് ചാനൽ)</strong> തിരഞ്ഞെടുക്കുന്നു.<ul class="help-list"><li><strong>മധ്യം:</strong> സ്റ്റീരിയോ (ഡിഫോൾട്ട്) ഔട്ട്‌പുട്ട്</li><li><strong>ഇടത്:</strong> <bdi dir="ltr">L</bdi> ചാനൽ ഔട്ട്‌പുട്ട്</li><li><strong>വലത്:</strong> <bdi dir="ltr">R</bdi> ചാനൽ ഔട്ട്‌പുട്ട്</li><li><strong>സബ്‌വൂഫർ:</strong> താഴ്ന്ന ആവൃത്തി മിക്സ് ഔട്ട്‌പുട്ട്</li></ul><strong>ക്രമീകരണങ്ങളിൽ</strong> എപ്പോൾ വേണമെങ്കിലും റോളുകൾ മാറ്റാം.',
+    'ഓരോ പങ്കാളിയും ഒരു <strong>റോൾ (ഔട്ട്‌പുട്ട് ചാനൽ)</strong> തിരഞ്ഞെടുക്കുന്നു.<ul class="help-list"><li><strong>മധ്യ സ്പീക്കർ:</strong> സ്റ്റീരിയോ (ഡിഫോൾട്ട്) ഔട്ട്‌പുട്ട്</li><li><strong>ഇടത് സ്പീക്കർ:</strong> <bdi dir="ltr">L</bdi> ചാനൽ ഔട്ട്‌പുട്ട്</li><li><strong>വലത് സ്പീക്കർ:</strong> <bdi dir="ltr">R</bdi> ചാനൽ ഔട്ട്‌പുട്ട്</li><li><strong>സബ്‌വൂഫർ:</strong> താഴ്ന്ന ആവൃത്തി മിക്സ് ഔട്ട്‌പുട്ട്</li></ul><strong>ക്രമീകരണങ്ങളിൽ</strong> എപ്പോൾ വേണമെങ്കിലും റോളുകൾ മാറ്റാം.',
   'player.play_media_action_html':
     'ഹോസ്റ്റിന് 3 ഓപ്ഷനുകളുണ്ട്.<ul class="help-list"><li><strong>ലോക്കൽ ഫയൽ ലോഡ് ചെയ്യുക:</strong> നിങ്ങളുടെ ഡിവൈസിൽ നിന്ന് സംഗീതം തിരഞ്ഞെടുക്കുക. കൃത്യമായ സിങ്ക് പിന്തുണയ്ക്കുന്നു</li><li><strong>ഒരുമിച്ച് YouTube:</strong> വീഡിയോകളും പ്ലേലിസ്റ്റുകളും പിന്തുണയ്ക്കുന്നു. ചാനൽ വേർതിരിക്കലോ ഓഡിയോ ഇഫക്റ്റുകളോ ഇല്ല</li><li><strong>സിസ്റ്റം ഓഡിയോ പങ്കിടൽ:</strong> ഹോസ്റ്റ് കമ്പ്യൂട്ടറിൽ Chromium അടിസ്ഥാനമാക്കിയുള്ള ബ്രൗസർ ഉപയോഗിക്കുമ്പോൾ ലഭ്യമാണ്</li></ul>',
   'help.need_help_html':
@@ -868,7 +867,7 @@ const ml: Record<I18nKey, string> = {
   'chat.peer_connected': '{{name}} ചേർന്നു',
   'chat.tracks_added': '{{name}} {{count}} ട്രാക്കുകൾ ചേർത്തു',
   'chat.track_added_named': '{{name}} 1 ട്രാക്ക് ചേർത്തു: {{title}}',
-  'chat.tracks_added_named': '{{name}} {{title}} ഉൾപ്പെടെ {{count}} ട്രാക്കുകൾ ചേർത്തു',
+  'chat.tracks_added_named': '{{name}} {{count}} ട്രാക്കുകൾ ചേർത്തു: {{title}} ഉൾപ്പെടെ',
   'chat.peer_disconnected': '{{name}} പുറത്തുപോയി',
   'chat.participant_connection_unstable_recovering':
     '{{name}}-ന്റെ ബന്ധം അസ്ഥിരമാണ്. വീണ്ടെടുക്കാൻ ശ്രമിക്കുന്നു.',
@@ -908,7 +907,7 @@ const ml: Record<I18nKey, string> = {
   'system_audio.stopped': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ അവസാനിച്ചു.\nപ്ലേലിസ്റ്റ് തുടരുന്നു.',
   'system_audio.host_channel_locked': 'സിസ്റ്റം ഓഡിയോ പങ്കിടുമ്പോൾ റോളുകൾ മാറ്റാനാകില്ല.',
   'system_audio.effects_guest_only':
-    'സിസ്റ്റം ഓഡിയോ സജീവമാണ്.\nശബ്ദ ഇഫക്റ്റുകൾ അതിഥി ഡിവൈസുകളിൽ മാത്രം ബാധകമാണ്.',
+    'സിസ്റ്റം ഓഡിയോ സജീവമാണ്.\nഓഡിയോ ഇഫക്റ്റുകൾ അതിഥി ഡിവൈസുകളിൽ മാത്രം ബാധകമാണ്.',
   'system_audio.desktop_only':
     'Chromium അടിസ്ഥാനമാക്കിയുള്ള ബ്രൗസർ (Chrome, Edge മുതലായവ) ഉപയോഗിക്കുന്ന കമ്പ്യൂട്ടറുകളിൽ മാത്രമേ ലഭ്യമാകൂ.',
   'system_audio.receive_failed':
@@ -925,7 +924,7 @@ const ml: Record<I18nKey, string> = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'സേവന കുറിപ്പുകൾ',
   'legal.content_html':
-    '<strong>സ്വകാര്യതാ നയം</strong><br><span data-legal-standard-storage>ഒരേ നെറ്റ്‌വർക്കിൽ, സെഷനിലെ ഭൂരിഭാഗം ഉള്ളടക്കവും ഡിവൈസുകൾക്കിടയിൽ നേരിട്ട് കൈമാറുന്നു. റൂമിന്റെ പ്രവർത്തനം, പ്രാമാണീകരണം, പുനഃബന്ധിപ്പിക്കൽ എന്നിവയ്ക്കുള്ള ഡാറ്റ സിഗ്നലിംഗ് സർവർ കുറച്ചുസമയം മാത്രമാണ് പ്രോസസ് ചെയ്യുന്നത്; ചില റിമോട്ട് അല്ലെങ്കിൽ വലിയ സെഷനുകളിലെ ഡാറ്റ Cloudflare വഴിയാണ് പോകുന്നത്. റിമോട്ട് ഫയലുകൾ സ്വകാര്യ Cloudflare സ്റ്റോറേജിൽ പരമാവധി 24 മണിക്കൂർ സൂക്ഷിക്കും; റൂമിലെ പങ്കാളികൾക്ക് മാത്രമാണ് താൽക്കാലിക ഡൗൺലോഡ് പ്രവേശനം ലഭിക്കുന്നത്. സേവനം നൽകാനും പ്രവർത്തിപ്പിക്കാനും സുരക്ഷിതമാക്കാനും വേണ്ടിയേ MUSIXQUARE ഡാറ്റ ആക്‌സസ് ചെയ്യുകയോ വിശകലനം ചെയ്യുകയോ സൂക്ഷിക്കുകയോ ചെയ്യൂ.</span><span data-legal-pro-storage>PRO റൂമുകളുടെ പ്രവർത്തനത്തിന് ആവശ്യമായ സെഷൻ, അംഗങ്ങൾ, പ്ലേലിസ്റ്റ്, പ്ലേബാക്ക്, അപ്‌ലോഡ് നിലകൾ Cloudflare-ൽ സൂക്ഷിക്കുന്നു. യഥാർത്ഥ പ്ലേലിസ്റ്റ് ഫയലുകൾ സ്വകാര്യ Cloudflare സ്റ്റോറേജിൽ തുടരും; റൂമിലെ പങ്കാളികൾക്ക് മാത്രമേ ഹ്രസ്വകാല URL-കൾ വഴി അവ ഡൗൺലോഡ് ചെയ്യാനാകൂ. റൂം അഡ്മിൻ അവ പ്ലേലിസ്റ്റിൽ നിന്ന് നീക്കുമ്പോഴോ സേവന നടത്തിപ്പുകാരൻ റൂം ഡാറ്റ ഇല്ലാതാക്കുമ്പോഴോ ഫയലുകൾ മായ്ക്കപ്പെടും. സേവനം നൽകാനും പ്രവർത്തിപ്പിക്കാനും സുരക്ഷിതമാക്കാനും വേണ്ടിയേ MUSIXQUARE ഡാറ്റ ആക്‌സസ് ചെയ്യുകയോ വിശകലനം ചെയ്യുകയോ സൂക്ഷിക്കുകയോ ചെയ്യൂ.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">കൂടുതലറിയുക</a><br><br><strong>പകർപ്പവകാശ അറിയിപ്പ്</strong><br>MUSIXQUARE വഴി പങ്കിടുന്ന ഉള്ളടക്കത്തിന്റെ അവകാശം ബന്ധപ്പെട്ട അവകാശ ഉടമകൾക്കാണ്. സിസ്റ്റം ഓഡിയോ പങ്കിടലും ഫയൽ പങ്കിടലും വ്യക്തിപരമായ ഉപയോഗത്തിനുള്ളതാണ്. പകർപ്പവകാശമുള്ള ഉള്ളടക്കം അനുമതിയില്ലാതെ വിതരണം ചെയ്യുന്നതിനോ പൊതുവായി സംപ്രേഷണം ചെയ്യുന്നതിനോ ഉപയോക്താക്കളാണ് ഉത്തരവാദികൾ. YouTube പങ്കിടൽ ഔദ്യോഗിക പ്ലേബാക്ക് രീതിയാണ് ഉപയോഗിക്കുന്നത്; കാഴ്ചകളുടെയും അവകാശങ്ങളുടെയും കൈകാര്യം ആ സേവനത്തിന്റെ നയങ്ങളും അവകാശ ഉടമയുടെ ക്രമീകരണങ്ങളും അനുസരിച്ചായിരിക്കും. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">കൂടുതലറിയുക</a><br><br><strong>നിരാകരണം</strong><br>MUSIXQUARE സൗജന്യമായാണ് നൽകുന്നത്. ചില സവിശേഷതകൾ YouTube, Cloudflare തുടങ്ങിയ ബാഹ്യ സേവനങ്ങളെ ആശ്രയിക്കുന്നതിനാൽ ആ സേവനങ്ങൾ മാറുകയോ ഓഫ്‌ലൈനാകുകയോ ചെയ്താൽ താൽക്കാലിക പരിമിതികൾ ഉണ്ടാകാം. നെറ്റ്‌വർക്ക്, ബ്രൗസർ നയം, ഡിവൈസിന്റെ പ്രകടനം എന്നിവയെ ആശ്രയിച്ച് തത്സമയ ഓഡിയോ സിങ്കിന്റെയും റിമോട്ട് പങ്കിടലിന്റെയും ഗുണനിലവാരം വലിയ തോതിൽ മാറാം. Wi-Fi ഉപയോഗിക്കാത്തപ്പോൾ മൊബൈൽ ഡാറ്റ നിരക്കുകൾ ബാധകമായേക്കാം. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">കൂടുതലറിയുക</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ആമുഖം</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ചരിത്രം</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ഡിസൈൻ</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">വിവർത്തനം</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>സ്വകാര്യതാ നയം</strong><br><span data-legal-standard-storage>ഒരേ നെറ്റ്‌വർക്കിൽ, സെഷനിലെ ഭൂരിഭാഗം ഉള്ളടക്കവും ഡിവൈസുകൾക്കിടയിൽ നേരിട്ട് കൈമാറുന്നു. റൂമിന്റെ പ്രവർത്തനം, പ്രാമാണീകരണം, പുനഃബന്ധിപ്പിക്കൽ എന്നിവയ്ക്കുള്ള ഡാറ്റ മാത്രമാണ് സിഗ്നലിംഗ് സർവർ കുറച്ചുസമയം പ്രോസസ് ചെയ്യുന്നത്; ചില റിമോട്ട് അല്ലെങ്കിൽ വലിയ സെഷനുകളിലെ ഡാറ്റ Cloudflare വഴിയാണ് പോകുന്നത്. റിമോട്ട് ഫയലുകൾ സ്വകാര്യ Cloudflare സ്റ്റോറേജിൽ പരമാവധി 24 മണിക്കൂർ സൂക്ഷിക്കും; റൂമിലെ പങ്കാളികൾക്ക് മാത്രമാണ് താൽക്കാലിക ഡൗൺലോഡ് പ്രവേശനം ലഭിക്കുന്നത്. സേവനം നൽകാനും പ്രവർത്തിപ്പിക്കാനും സുരക്ഷിതമാക്കാനും വേണ്ടിയേ MUSIXQUARE ഡാറ്റ ആക്‌സസ് ചെയ്യുകയോ വിശകലനം ചെയ്യുകയോ സൂക്ഷിക്കുകയോ ചെയ്യൂ.</span><span data-legal-pro-storage>PRO റൂമുകളുടെ പ്രവർത്തനത്തിന് ആവശ്യമായ സെഷൻ, അംഗങ്ങൾ, പ്ലേലിസ്റ്റ്, പ്ലേബാക്ക്, അപ്‌ലോഡ് നിലകൾ Cloudflare-ൽ സൂക്ഷിക്കുന്നു. യഥാർത്ഥ പ്ലേലിസ്റ്റ് ഫയലുകൾ സ്വകാര്യ Cloudflare സ്റ്റോറേജിൽ തുടരും; റൂമിലെ പങ്കാളികൾക്ക് മാത്രമേ ഹ്രസ്വകാല URL-കൾ വഴി അവ ഡൗൺലോഡ് ചെയ്യാനാകൂ. റൂം അഡ്മിൻ അവ പ്ലേലിസ്റ്റിൽ നിന്ന് നീക്കുമ്പോഴോ സേവന നടത്തിപ്പുകാരൻ റൂം ഡാറ്റ ഇല്ലാതാക്കുമ്പോഴോ ഫയലുകൾ മായ്ക്കപ്പെടും. സേവനം നൽകാനും പ്രവർത്തിപ്പിക്കാനും സുരക്ഷിതമാക്കാനും വേണ്ടിയേ MUSIXQUARE ഡാറ്റ ആക്‌സസ് ചെയ്യുകയോ വിശകലനം ചെയ്യുകയോ സൂക്ഷിക്കുകയോ ചെയ്യൂ.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">കൂടുതലറിയുക</a><br><br><strong>പകർപ്പവകാശ അറിയിപ്പ്</strong><br>MUSIXQUARE വഴി പങ്കിടുന്ന ഉള്ളടക്കത്തിന്റെ അവകാശം ബന്ധപ്പെട്ട അവകാശ ഉടമകൾക്കാണ്. സിസ്റ്റം ഓഡിയോ പങ്കിടലും ഫയൽ പങ്കിടലും വ്യക്തിപരമായ ഉപയോഗത്തിനുള്ളതാണ്. പകർപ്പവകാശമുള്ള ഉള്ളടക്കം അനുമതിയില്ലാതെ വിതരണം ചെയ്യുന്നതിനോ പൊതുവായി സംപ്രേഷണം ചെയ്യുന്നതിനോ ഉപയോക്താക്കളാണ് ഉത്തരവാദികൾ. YouTube പങ്കിടൽ ഔദ്യോഗിക പ്ലേബാക്ക് രീതിയാണ് ഉപയോഗിക്കുന്നത്; കാഴ്ചകളുടെയും അവകാശങ്ങളുടെയും കൈകാര്യം ആ സേവനത്തിന്റെ നയങ്ങളും അവകാശ ഉടമയുടെ ക്രമീകരണങ്ങളും അനുസരിച്ചായിരിക്കും. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">കൂടുതലറിയുക</a><br><br><strong>നിരാകരണം</strong><br>MUSIXQUARE സൗജന്യമായാണ് നൽകുന്നത്. ചില സവിശേഷതകൾ YouTube, Cloudflare തുടങ്ങിയ ബാഹ്യ സേവനങ്ങളെ ആശ്രയിക്കുന്നതിനാൽ ആ സേവനങ്ങൾ മാറുകയോ ഓഫ്‌ലൈനാകുകയോ ചെയ്താൽ താൽക്കാലിക പരിമിതികൾ ഉണ്ടാകാം. നെറ്റ്‌വർക്ക്, ബ്രൗസർ നയം, ഡിവൈസിന്റെ പ്രകടനം എന്നിവയെ ആശ്രയിച്ച് തത്സമയ ഓഡിയോ സിങ്കിന്റെയും റിമോട്ട് പങ്കിടലിന്റെയും ഗുണനിലവാരം വലിയ തോതിൽ മാറാം. Wi-Fi ഉപയോഗിക്കാത്തപ്പോൾ മൊബൈൽ ഡാറ്റ നിരക്കുകൾ ബാധകമായേക്കാം. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">കൂടുതലറിയുക</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ആമുഖം</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ചരിത്രം</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ഡിസൈൻ</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">വിവർത്തനം</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default ml;
@@ -947,7 +946,7 @@ export const pluralMessages = {
     one: '{{name}} {{count}} ട്രാക്ക് ചേർത്തു',
   },
   'chat.tracks_added_named': {
-    one: '{{name}} {{title}} ഉൾപ്പെടെ {{count}} ട്രാക്ക് ചേർത്തു',
+    one: '{{name}} {{count}} ട്രാക്ക് ചേർത്തു: {{title}} ഉൾപ്പെടെ',
   },
   'toast.added_tracks': {
     one: '{{count}} ട്രാക്ക് ചേർത്തു',

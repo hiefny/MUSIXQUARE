@@ -56,7 +56,7 @@ const nl: Record<I18nKey, string> = {
   'account.privacy': 'Privacy',
   'account.unavailable': 'Inloggen is tijdelijk niet beschikbaar. Je kunt zonder account doorgaan.',
   'account.account_title': 'Account',
-  'account.stats_sessions_label': 'Sessies waaraan je deelnam',
+  'account.stats_sessions_label': 'Bijgewoonde sessies',
   'account.stats_listening_label': 'Luistertijd',
   'account.stats_tracks_label': 'Afgespeelde media',
   'account.stats_count_value': '{{count}}',
@@ -105,8 +105,8 @@ const nl: Record<I18nKey, string> = {
   'nav.connect': 'Verbinden',
   'nav.playlist_compact': 'Lijst',
   'nav.connect_compact': 'Verbinden',
-  'nav.settings_compact': 'Opties',
-  'nav.go_home': 'Naar de startpagina',
+  'nav.settings_compact': 'Instellingen',
+  'nav.go_home': 'Naar het startscherm',
 
   // Player
   'player.no_media': 'Er wordt niets afgespeeld',
@@ -121,18 +121,18 @@ const nl: Record<I18nKey, string> = {
   'player.prev_track': 'Vorige track',
   'player.next_track': 'Volgende track',
   'player.repeat_mode': 'Herhaalmodus wijzigen',
-  'player.shuffle_mode': 'Willekeurige volgorde wijzigen',
+  'player.shuffle_mode': 'Willekeurige volgorde aan/uit',
   'player.sync_compact': 'Sync',
   'player.syncing_compact': 'Sync…',
   'player.play_media': 'Media afspelen',
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Media afspelen',
   'player.add_media': 'Media toevoegen',
-  'player.play_start': 'Toevoegen aan wachtrij',
+  'player.play_start': 'Toevoegen aan afspeellijst',
   'player.select_media': 'Kies media om af te spelen',
   'player.play_together': 'Synchroon afspelen',
   'player.play_speakers': 'Als luidspreker gebruiken',
-  'player.auto_sync_label': 'Auto (ms)',
+  'player.auto_sync_label': 'Automatisch (ms)',
   'player.manual_sync_label': 'Handmatige synchronisatie (ms)',
 
   // Playlist
@@ -163,9 +163,9 @@ const nl: Record<I18nKey, string> = {
   'transfer.host_busy': 'De host verwerkt een ander bestand. Probeer het zo opnieuw.',
 
   // Role
-  'role.center': 'Centrale luidspreker',
+  'role.center': 'Middenluidspreker',
   'role.left': 'Linkerluidspreker',
-  'role.right': 'Luidspreker rechts',
+  'role.right': 'Rechterluidspreker',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Plaats dit apparaat in het midden',
   'role.left_placement': 'Plaats dit apparaat links',
@@ -186,13 +186,13 @@ const nl: Record<I18nKey, string> = {
   'settings.virtual_effect_surround': 'Surroundgeluid',
   'settings.language_desc': 'Kies een taal of volg de systeemtaal.',
   'settings.theme_desc': 'Kies een licht of donker thema.',
-  'player.visualizer_mode_hint': 'Kies hoe het geluid wordt weergegeven.',
+  'player.visualizer_mode_hint': 'Kies hoe het geluid wordt gevisualiseerd.',
   'settings.ui_sounds_desc':
     'Schakel meldings-, binnenkomst-, vertrek- en aanraakgeluiden in of uit.',
   'settings.reverb_desc': 'Pas de galm en resonantie van het geluid aan.',
   'settings.eq_desc': 'Pas de klankkleur aan. Gebruik dit samen met de volumeregeling.',
   'settings.surround_desc': 'Vergroot de scheiding voor een ruimtelijker geluid.',
-  'settings.bass_desc': 'Maakt lage frequenties aan voor meer impact.',
+  'settings.bass_desc': 'Synthetiseert lage frequenties voor meer impact.',
   'settings.exciter_desc': 'Genereert ultrahoge frequenties voor meer helderheid.',
   'settings.role_center_desc':
     'Dit apparaat dient als middenluidspreker.\nPlaats het in het midden.',
@@ -210,7 +210,7 @@ const nl: Record<I18nKey, string> = {
   'settings.language_select': 'Kiezen',
   'settings.language_system': 'Systeem',
   'settings.language_dialog_title': 'Taal kiezen',
-  'settings.help_translate': 'Help vertalen',
+  'settings.help_translate': 'Help mee vertalen',
   'settings.language_select_aria': 'Taallijst openen',
   'settings.language_system_aria': 'Systeemtaal gebruiken',
   'settings.advanced_audio': 'Geavanceerde audio',
@@ -307,7 +307,7 @@ const nl: Record<I18nKey, string> = {
   'connect.signaling_exhausted':
     'De kamerserver reageert niet.\nNieuwe deelnemers kunnen geen verbinding maken.',
   'connect.signaling_exhausted_pro':
-    'De kamerserver reageert niet. Nieuwe deelnemers en live-updates zijn beperkt.',
+    'De kamerserver reageert niet. Nieuwe deelnames en live-updates zijn beperkt.',
   'connect.signaling_retry': 'Opnieuw proberen',
   'connect.signaling_restart': 'Kamer opnieuw starten',
   'connect.signaling_new_room': 'Nieuwe kamer starten',
@@ -321,9 +321,9 @@ const nl: Record<I18nKey, string> = {
   'demo.prompt_cta': 'Rondleiding starten',
   'demo.prompt_later': 'Later',
   'demo.try_later_toast': 'Je kunt dit altijd proberen via de Help-tab.',
-  'demo.track_info': 'Nummerinfo',
+  'demo.track_info': 'Trackinfo',
   'demo.exit': 'Demo afsluiten',
-  'demo.credit': 'Demonummer',
+  'demo.credit': 'Demotrack',
   'demo.role_title': 'Rol van dit apparaat instellen',
   'demo.effects_title': 'Effecten proberen',
   'demo.reverb': 'Galm',
@@ -336,7 +336,7 @@ const nl: Record<I18nKey, string> = {
   'demo.step_connect': '1. Verbinden',
   'demo.step_role': '2. Rol instellen',
   'demo.step_effects': '3. Audio-effecten',
-  'demo.step_finish': '4. Demo verlaten',
+  'demo.step_finish': '4. Demo afsluiten',
   'demo.session_title': 'Je kamer: {{code}}',
   'demo.session_subtitle': 'Je kunt altijd nog een apparaat uitnodigen.',
   'demo.session_body_connected':
@@ -344,10 +344,10 @@ const nl: Record<I18nKey, string> = {
   'demo.session_body_alone': 'Alleen dit apparaat speelt nu af.\nNodig nu een ander apparaat uit.',
   'demo.effects_step_title': 'Stel je ideale geluid samen.',
   'demo.effects_step_subtitle':
-    'Je kunt deze geavanceerde akoestiek later altijd verfijnen in Instellingen.',
+    'Je kunt deze geavanceerde audio-effecten later altijd verfijnen in Instellingen.',
   'demo.finish_step_title': 'Je bent klaar!',
   'demo.finish_step_subtitle': 'Ga terug naar de app en speel samen af.',
-  'demo.track_list_label': 'Demonummerlijst',
+  'demo.track_list_label': 'Demotracklijst',
   'demo.host_only_exit': 'Alleen de host kan hierop drukken.',
   'demo.external_playback_stopped':
     'De demo heeft de huidige YouTube- of systeemaudioweergave gestopt.',
@@ -378,7 +378,7 @@ const nl: Record<I18nKey, string> = {
 
   // Help
   'help.need_help': 'Hulp nodig?',
-  'help.install_app': 'Web-app installeren',
+  'help.install_app': 'Webapp installeren',
   'help.local_recommended': 'Lokaal netwerk aanbevolen',
   'help.connect_all_wifi': 'Verbindingen op hetzelfde netwerk zijn het betrouwbaarst',
   'help.local_file': 'Lokaal bestand kiezen',
@@ -387,7 +387,7 @@ const nl: Record<I18nKey, string> = {
   'help.youtube_no_effects':
     'In YouTube-modus zijn rolinstellingen en audio-effecten niet beschikbaar.',
   'help.media_synced_detail':
-    'Het gekozen medium wordt tegelijk afgespeeld op alle verbonden apparaten.',
+    'De gekozen media worden tegelijk afgespeeld op alle verbonden apparaten.',
   'help.wifi_hotspot': 'Een hotspot kan iedereen ook op hetzelfde netwerk zetten',
 
   // Chat
@@ -402,15 +402,15 @@ const nl: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'De chat is vergrendeld',
   'chat.cmd_unfrozen': 'De chat is ontgrendeld',
   'chat.cmd_frozen_blocked': 'De chat is momenteel vergrendeld',
-  'chat.cmd_muted': '{{name}} is gedempt in de chat',
+  'chat.cmd_muted': '{{name}} kan geen chatberichten meer sturen',
   'chat.cmd_unmuted': '{{name}} kan weer chatberichten sturen',
   'chat.cmd_clear': 'Chat is gewist',
   'chat.cmd_filter_on': 'Scheldwoordenfilter aan',
   'chat.cmd_filter_off': 'Scheldwoordenfilter uit',
   'chat.cmd_slowmode_on': 'Langzame modus: {{sec}} seconden tussen berichten',
   'chat.cmd_slowmode_off': 'Langzame modus uit',
-  'chat.cmd_slowmode_wait': 'Wacht {{sec}} seconden voordat je verstuurt',
-  'chat.cmd_notice_prefix': 'Melding',
+  'chat.cmd_slowmode_wait': 'Wacht {{sec}} seconden voordat je een bericht verstuurt',
+  'chat.cmd_notice_prefix': 'Aankondiging',
   'chat.system_sender': 'SYSTEEM',
   'chat.bot_unavailable': 'De BOT is alleen beschikbaar in PRO-kamers',
   'chat.bot_processing': 'BOT verwerkt het verzoek...',
@@ -422,7 +422,7 @@ const nl: Record<I18nKey, string> = {
     'Limiet voor BOT-verzoeken bereikt. Probeer het over {{duration}} opnieuw',
   'chat.decode_skip_system_message': 'Track overgeslagen: niet ondersteund op sommige apparaten.',
   'chat.large_track_playback_system_message':
-    'Dit nummer is erg groot, waardoor er tijdens het gebruik vertragingen kunnen optreden.',
+    'Deze track is erg groot, waardoor er tijdens het gebruik vertragingen kunnen optreden.',
   'chat.large_local_track_system_message':
     'Deze track neemt erg veel ruimte in en kan mogelijk niet op alle apparaten worden afgespeeld.',
   'chat.device_track_unavailable_system_message':
@@ -441,12 +441,12 @@ const nl: Record<I18nKey, string> = {
     'Limiet voor delen op afstand bereikt.\nLokaal delen van bestanden blijft beschikbaar.',
   'chat.remote_upload_failed_system_message':
     'Upload van een bestand op afstand mislukt.\nDeelnemers op afstand moeten het zo opnieuw proberen.',
-  'chat.pinned_close': 'Melding sluiten',
+  'chat.pinned_close': 'Aankondiging sluiten',
   'chat.cmd_whisper_from': 'Privébericht van {{name}}',
   'chat.cmd_whisper_to': 'Privébericht aan {{name}}',
   'chat.cmd_target_not_found': 'Deelnemer niet gevonden: {{target}}',
   'chat.cmd_no_permission': 'Je hebt geen toestemming',
-  'chat.cmd_nick_changed': 'Naam gewijzigd naar {{name}}',
+  'chat.cmd_nick_changed': 'Naam gewijzigd in {{name}}',
   'chat.cmd_already_op': '{{name}} is al beheerder',
   'chat.cmd_not_op': '{{name}} is geen beheerder',
   'chat.cmd_help_title': 'Beschikbare opdrachten',
@@ -479,12 +479,12 @@ const nl: Record<I18nKey, string> = {
   'chat.cmd_d_freeze': 'Chat vergrendelen',
   'chat.cmd_d_slowmode': 'Langzame modus',
   'chat.cmd_d_w': 'Privébericht',
-  'chat.cmd_d_notice': 'Melding',
+  'chat.cmd_d_notice': 'Aankondiging',
   'chat.cmd_d_nick': 'Bijnaam wijzigen',
   'chat.cmd_d_kick': 'Apparaat verwijderen',
   'chat.cmd_d_op': 'Beheerder maken',
   'chat.cmd_d_deop': 'Beheerdersrechten intrekken',
-  'chat.cmd_d_mute': 'Apparaat in de chat dempen',
+  'chat.cmd_d_mute': 'Chat van apparaat beperken',
   'chat.cmd_d_unmute': 'Chat van apparaat vrijgeven',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Systeemdebug-info',
@@ -523,7 +523,7 @@ const nl: Record<I18nKey, string> = {
   'youtube.fetch_failed': 'Video-info kon niet worden geladen',
   'youtube.enter_link_toast': 'Voer een YouTube-link in',
   'youtube.open_link': 'YouTube-link openen',
-  'youtube.tap_to_play': 'DRUK OM AF TE SPELEN',
+  'youtube.tap_to_play': 'TIK OM AF TE SPELEN',
   'youtube.added_to_playlist': 'Toegevoegd aan afspeellijst',
   'youtube.loading_large_playlist': 'Grote afspeellijst laden...',
   'youtube.indexing_playlist': 'Items in de afspeellijst analyseren...',
@@ -585,7 +585,7 @@ const nl: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Toestemming voor chataankondigingen vereist.',
   'toast.room_owner_required': 'Alleen de kamereigenaar kan dit wijzigen.',
   'toast.system_audio_owner_required':
-    'Je kunt alleen audio delen vanuit het tabblad dat de ruimte heeft geopend.',
+    'Je kunt alleen audio delen vanuit het tabblad dat de kamer heeft geopend.',
   'toast.host_only_youtube': 'Alleen de host kan YouTube-links toevoegen.',
   'toast.host_only_control': 'Alleen de host kan dit bedienen',
   'toast.host_setting_required': 'Alleen de host kan deze instelling wijzigen',
@@ -600,11 +600,11 @@ const nl: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Geen ondersteunde audiobestanden gevonden.',
   'toast.sync_reset': 'Synchronisatiecorrectie teruggezet',
   'toast.stop_sent': 'Stopverzoek verzonden',
-  'toast.hprecision_sync': 'Nauwkeurige synchronisatie: audio voorbereiden...',
+  'toast.hprecision_sync': 'Nauwkeurige synchronisatie: audio voorbereiden…',
   'toast.file_ready': 'Je bestand is klaar!\nDruk op Afspelen.',
-  'toast.host_sync_not_recommended': 'Pas de synchronisatie aan op een deelnemerapparaat',
+  'toast.host_sync_not_recommended': 'Pas synchronisatie aan op een deelnemersapparaat',
   'toast.host_sync_requested':
-    'Nauwkeurige synchronisatie aangevraagd.\nPas de handmatige synchronisatie aan op een deelnemerapparaat.',
+    'Nauwkeurige synchronisatie aangevraagd.\nPas de handmatige synchronisatie aan op een deelnemersapparaat.',
   'toast.sync_not_in_system_audio':
     'Synchronisatie is niet beschikbaar tijdens het delen van systeemaudio',
   'toast.sync_not_ready': 'Nog niet klaar.\nProbeer het zo opnieuw',
@@ -621,7 +621,7 @@ const nl: Record<I18nKey, string> = {
   'toast.yt_host_sync_sent': 'Signaal voor automatische synchronisatie naar deelnemers gestuurd',
   'toast.yt_manual_sync_prompt':
     'Automatische synchronisatie is zojuist geprobeerd.\nPas de waarde nu aan als je nog vertraging merkt',
-  'toast.playlist_ended': 'Het laatste medium is afgelopen',
+  'toast.playlist_ended': 'Het laatste item is afgelopen',
   'toast.operator_required': 'Alleen beheerders kunnen globale instellingen wijzigen',
   'toast.connection_closing': 'Verbinding verloren, instelling niet gesynchroniseerd',
   'toast.host_changed_setting': 'Instellingen zijn gewijzigd',
@@ -630,22 +630,22 @@ const nl: Record<I18nKey, string> = {
   'toast.receiving_pct': 'Ontvangen... {{pct}}%',
 
   // Transfer and remote sharing
-  'transfer.demo_loading': 'Demonummer laden vanaf server...',
-  'transfer.demo_loaded': 'Demonummer klaar.',
+  'transfer.demo_loading': 'Demotrack laden vanaf server...',
+  'transfer.demo_loaded': 'Demotrack klaar.',
   'transfer.demo_load_fail': 'Demo laden mislukt:',
-  'transfer.demo_loading_short': 'Demonummer laden...',
+  'transfer.demo_loading_short': 'Demotrack laden...',
   'transfer.file_requesting': 'Bestand aanvragen...',
-  'transfer.file_sending': 'Bestand versturen...',
+  'transfer.file_sending': 'Bestand versturen…',
   'transfer.file_wait': 'Wachten op bestand...\nEven geduld',
-  'transfer.preload_done': 'Vooraf geladen bestand gebruiken!',
+  'transfer.preload_done': 'Vooraf geladen bestand wordt gebruikt!',
   'transfer.preload_waiting': 'Wachten tot vooraf laden klaar is...',
   'share.remote.uploading': 'Bestand uploaden...',
   'share.remote.upload_ready': 'Delen op afstand is klaar',
   'share.remote.waiting': 'Wachten op gedeeld bestand...',
-  'share.remote.downloading': 'Extern bestand downloaden...',
-  'share.remote.upload_failed': 'Extern delen mislukt: {{msg}}',
-  'share.remote.download_failed': 'Extern bestand downloaden mislukt: {{msg}}',
-  'share.remote.timeout': 'Extern delen duurde te lang',
+  'share.remote.downloading': 'Gedeeld bestand downloaden...',
+  'share.remote.upload_failed': 'Delen op afstand mislukt: {{msg}}',
+  'share.remote.download_failed': 'Gedeeld bestand downloaden mislukt: {{msg}}',
+  'share.remote.timeout': 'Delen op afstand duurde te lang',
   'share.remote.too_large': 'Bestand te groot (max. 200 MB)',
   'share.remote.network_error': 'Netwerkfout tijdens delen op afstand',
   'share.remote.rate_limited': 'Te veel uploads voor delen op afstand.\nProbeer het zo opnieuw',
@@ -653,13 +653,13 @@ const nl: Record<I18nKey, string> = {
   'share.remote.auth_failed':
     'Autorisatie voor delen op afstand mislukt.\nControleer de Worker-instellingen',
   'share.remote.expired': 'De link naar het gedeelde bestand is verlopen.\nDeel het opnieuw.',
-  'share.remote.unavailable': 'Extern delen mislukt.\nProbeer het zo opnieuw.',
+  'share.remote.unavailable': 'Delen op afstand mislukt.\nProbeer het zo opnieuw.',
   'transfer.preload_fail': 'Afspelen van het vooraf geladen bestand mislukt; opnieuw laden',
   'transfer.download_finishing': 'Download afronden...',
   'transfer.preparation_delayed': 'De voorbereiding duurt langer...\nHerstel aanvragen bij de host',
   'transfer.receiving_0pct': 'Ontvangen... 0%',
   'transfer.check_conn_type': 'Verbindingstype controleren...',
-  'transfer.preload_pending': 'Wachten op preload: {{name}}',
+  'transfer.preload_pending': 'Wachten op vooraf laden: {{name}}',
   'transfer.waiting_recovery': 'Wachten op herstel: {{name}}',
   'transfer.preparing_name': 'Voorbereiden: {{name}}',
   'transfer.recovery_failed': 'Bestandsherstel mislukt.\nProbeer opnieuw.',
@@ -681,7 +681,7 @@ const nl: Record<I18nKey, string> = {
   'error.session_handshake_failed':
     'De verbinding met de kamer kon niet worden voltooid. Vernieuw de pagina op beide apparaten en probeer het opnieuw.',
   'error.host_unreachable': 'De host lijkt de kamer te hebben verlaten',
-  'error.host_disconnected': 'Verbinding met host verbroken',
+  'error.host_disconnected': 'Verbinding met de host verbroken',
   'error.host_conn_error': 'Er is een fout opgetreden bij verbinden met de host',
   'error.connect_failed': 'Verbinding mislukt',
   'error.peer_not_ready': 'De verbinding tussen de apparaten is nog niet klaar',
@@ -704,7 +704,7 @@ const nl: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Bestanden delen in een grote kamer',
   'dialog.large_room_file.message':
-    'Op hetzelfde netwerk is directe bestandsoverdracht stabiel voor maximaal 8 deelnemerapparaten, exclusief de host. In grotere lokale kamers kunnen bestanden via Cloudflare R2 worden verdeeld.\n\nDoorgaan?',
+    'Op hetzelfde netwerk is directe bestandsoverdracht stabiel voor maximaal 8 deelnemersapparaten, exclusief de host. In grotere lokale kamers kunnen bestanden via Cloudflare R2 worden verdeeld.\n\nDoorgaan?',
   'dialog.continue': 'Doorgaan',
   'dialog.file_drop.title': 'Lokale bestanden toevoegen',
   'dialog.file_drop.message': '{{count}} bestanden toevoegen?',
@@ -752,11 +752,20 @@ const nl: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO-kamer activeren',
-  'pro.activation_message': 'Stel een nieuw numeriek wachtwoord van 8 cijfers in voor deze kamer.',
+  'pro.activation_account_title': 'Kies een account voor deze PRO-kamer',
+  'pro.activation_account_message': 'Deze kamer registreren op het account “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Log in met het account waarop je deze kamer wilt registreren.',
+  'pro.activation_account_continue': 'Doorgaan',
+  'pro.activation_account_switch': 'Ander account',
+  'pro.activation_account_unavailable':
+    'We konden je account niet verifiëren. Probeer het zo opnieuw.',
+  'pro.activation_complete': 'Registratie voltooien',
+  'pro.activation_message': 'Stel een nieuw wachtwoord van 8 cijfers in voor deze kamer.',
   'pro.activation_pin_same': 'Kies een ander wachtwoord dan het tijdelijke.',
   'pro.claim_retry_title': 'PRO-link opnieuw proberen?',
   'pro.claim_retry_message':
-    'De verbinding werd onderbroken. De link wordt alleen op dit scherm veilig bewaard, zodat je opnieuw kunt proberen.',
+    'De verbinding werd onderbroken. De link wordt veilig op dit scherm bewaard, zodat je het opnieuw kunt proberen.',
   'pro.claim_unavailable_title': 'Deze link kan niet meer worden gebruikt',
   'pro.claim_login_title': 'Log eerst in',
   'pro.claim_login_button': 'Inloggen',
@@ -840,7 +849,7 @@ const nl: Record<I18nKey, string> = {
 
   // HTML help blocks
   'help.install_app_html':
-    'Vind je MUSIXQUARE handig? Je kunt het als app installeren.<ul class="help-list"><li><strong>iOS:</strong> Delen -&gt; Zet op beginscherm</li><li><strong>Android:</strong> Menu -&gt; App installeren</li><li><strong>Windows:</strong> Installatie-icoon in de adresbalk</li><li><strong>macOS:</strong> Delen -&gt; Voeg toe aan Dock</li></ul>',
+    'Vind je MUSIXQUARE handig? Je kunt het als app installeren.<ul class="help-list"><li><strong>iOS:</strong> Delen → Zet op beginscherm</li><li><strong>Android:</strong> Menu → App installeren</li><li><strong>Windows:</strong> Installatie-icoon in de adresbalk</li><li><strong>macOS:</strong> Delen → Voeg toe aan Dock</li></ul>',
   'help.local_recommended_html':
     'Audio delen is het stabielst op hetzelfde netwerk.<ul class="help-list"><li>Deelnemers op afstand kunnen dezelfde functies gebruiken.</li><li>Deelnemers op afstand gebruiken Cloudflare-routes, waardoor de vertraging kan toenemen of de ontvangst kan mislukken, afhankelijk van het netwerk.</li><li>Een VPN of beperkt netwerk kan de verbinding instabiel maken.</li></ul>',
   'setup.how_to_connect_html':
@@ -865,8 +874,8 @@ const nl: Record<I18nKey, string> = {
 
   // System audio sharing
   'system_audio.button': 'Systeemaudio',
-  'system_audio.sharing': 'Systeemaudio delen',
-  'system_audio.receiving': 'Systeemaudio ontvangen',
+  'system_audio.sharing': 'Systeemaudio wordt gedeeld',
+  'system_audio.receiving': 'Systeemaudio wordt ontvangen',
   'system_audio.owner_active': '{{name}} deelt systeemaudio.',
   'system_audio.owner_preparing': '{{name}} bereidt het delen van systeemaudio voor.',
   'system_audio.pro_preparing': 'Het delen van systeemaudio wordt voorbereid.',
@@ -885,7 +894,7 @@ const nl: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Rollen wijzigen kan niet tijdens het delen van systeemaudio.',
   'system_audio.effects_guest_only':
-    'Systeemaudio is actief.\nGeluidseffecten gelden alleen voor deelnemerapparaten.',
+    'Systeemaudio is actief.\nAudio-effecten gelden alleen voor deelnemersapparaten.',
   'system_audio.desktop_only':
     'Alleen beschikbaar op computers met een Chromium-browser (Chrome, Edge enz.).',
   'system_audio.receive_failed':
@@ -900,7 +909,7 @@ const nl: Record<I18nKey, string> = {
     'Het delen van systeemaudio is na 2 uur\nautomatisch gestopt.',
 
   // Legal
-  'legal.title': 'Servicenotities',
+  'legal.title': 'Service-informatie',
   'legal.content_html':
     '<strong>Privacybeleid</strong><br><span data-legal-standard-storage>Binnen hetzelfde netwerk gaat sessie-inhoud meestal direct tussen apparaten. De signaleringsserver verwerkt gegevens voor kamerbeheer, authenticatie en herverbinding slechts kort; bij sessies op afstand of grote sessies gaan sommige gegevens via Cloudflare. Bestanden die op afstand worden gedeeld, staan maximaal 24 uur in privéopslag van Cloudflare; alleen kamerdeelnemers mogen ze tijdelijk downloaden. MUSIXQUARE raadpleegt, analyseert of bewaart gegevens alleen om de dienst te leveren, beheren en beveiligen.</span><span data-legal-pro-storage>PRO-kamers bewaren op Cloudflare de voor beheer nodige sessie-, leden-, afspeellijst-, afspeel- en uploadstatus. Originele afspeellijstbestanden staan in privéopslag van Cloudflare; alleen kamerdeelnemers kunnen ze via kort geldige URL’s downloaden. Ze worden verwijderd als een kamerbeheerder ze uit de afspeellijst haalt of de exploitant de kamergegevens wist. MUSIXQUARE raadpleegt, analyseert of bewaart gegevens alleen om de dienst te leveren, beheren en beveiligen.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Auteursrecht</strong><br>Inhoud die via MUSIXQUARE wordt gedeeld, blijft eigendom van de betreffende rechthebbenden. Systeemaudio delen en bestanden delen zijn bedoeld voor persoonlijk gebruik. Gebruikers zijn verantwoordelijk voor ongeautoriseerde verspreiding of openbare doorgifte van auteursrechtelijk beschermde inhoud. YouTube-delen gebruikt de officiële afspeelmethode; weergaven en rechtenafhandeling volgen het beleid van die dienst en de instellingen van rechthebbenden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE wordt gratis aangeboden. Sommige functies zijn afhankelijk van externe diensten zoals YouTube of Cloudflare, dus tijdelijke beperkingen kunnen optreden als die diensten wijzigen of offline gaan. Realtime-audiosynchronisatie en de kwaliteit van delen op afstand kunnen sterk verschillen per netwerk, browserbeleid en apparaatprestaties. Buiten Wi-Fi kunnen kosten voor mobiele data gelden. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Meer informatie</a><br><br><strong>&copy; 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Over ons</a> &middot; <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Geschiedenis</a> &middot; <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Vertalen</a> &middot; <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> &middot; <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };

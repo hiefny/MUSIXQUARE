@@ -20,12 +20,12 @@ const ja: Record<I18nKey, string> = {
   'common.close': '閉じる',
   'common.reset': 'リセット',
   'common.clear_input': '入力内容を消去',
-  'common.refresh': '更新',
+  'common.refresh': '再読み込み',
   'common.retry': '再試行',
   'common.later': '後で',
   'common.next': '次へ',
   'common.start': '開始',
-  'common.info': '情報',
+  'common.info': 'お知らせ',
   'common.stay': 'このまま残る',
   'common.leave': '退出',
   'common.granted': '付与済み',
@@ -103,7 +103,7 @@ const ja: Record<I18nKey, string> = {
   'nav.settings': '設定',
   'nav.help': 'ヘルプ',
   'nav.connect': '接続',
-  'nav.playlist_compact': '再生リスト',
+  'nav.playlist_compact': 'プレイリスト',
   'nav.connect_compact': '接続',
   'nav.settings_compact': '設定',
   'nav.go_home': 'ホームへ移動',
@@ -233,7 +233,7 @@ const ja: Record<I18nKey, string> = {
   'playlist.reorder_handle': '{{title}}の順序を変更、現在{{position}}番目',
   'playlist.reorder_position': '{{title}}、全{{total}}件中{{position}}番目',
   'playlist.repeat_all': '全トラックのリピートが有効です',
-  'playlist.repeat_one': '現在のトラックをリピートします',
+  'playlist.repeat_one': '現在のトラックのリピートが有効です',
   'playlist.repeat_off': 'リピートは無効です',
   'playlist.shuffle_on': 'シャッフルが有効です',
   'playlist.shuffle_off': 'シャッフルは無効です',
@@ -249,7 +249,7 @@ const ja: Record<I18nKey, string> = {
   'playlist.video_fallback': '読み込み中...',
   'playlist.track_fallback': 'トラック{{idx}}',
   'playlist.deferred_load_hint': '再生すると全トラック情報を読み込みます',
-  'playlist.host_update_required': 'このルームを管理している端末を更新してください。',
+  'playlist.host_update_required': 'このルームを管理しているデバイスを更新してください。',
   'playlist.queue_full': 'プレイリストがいっぱいです。',
   'playlist.mutation_retry': 'プレイリストが変更されました。もう一度お試しください。',
   'transfer.host_busy':
@@ -296,7 +296,7 @@ const ja: Record<I18nKey, string> = {
     'ホストがルームのパスワードを設定しました。パスワードを入力すると、もう一度参加できます。',
   'connect.pin_changed_removed_message':
     'ホストがルームのパスワードを変更しました。新しいパスワードを入力すると、もう一度参加できます。',
-  'connect.signaling_healthy': '接続サーバーは正常です',
+  'connect.signaling_healthy': 'ルームサーバーは正常です',
   'connect.signaling_recovering': '再接続中…',
   'connect.signaling_failed': 'サーバー接続に失敗しました',
   'connect.signaling_recover_action': '再接続',
@@ -344,7 +344,7 @@ const ja: Record<I18nKey, string> = {
   'demo.effects_step_title': 'より豊かな音に整えましょう。',
   'demo.effects_step_subtitle': 'あとで設定から細かく調整できます。',
   'demo.finish_step_title': '準備完了です！',
-  'demo.finish_step_subtitle': 'さっそく参加して、みんなで一緒に再生しましょう！',
+  'demo.finish_step_subtitle': 'さっそくアプリに戻って、みんなで一緒に再生しましょう！',
   'demo.track_list_label': 'デモトラック一覧',
   'demo.host_only_exit': 'ホストだけが押せます。',
   'demo.external_playback_stopped':
@@ -444,7 +444,7 @@ const ja: Record<I18nKey, string> = {
   'share.remote.upload_failed': 'リモートファイル共有に失敗しました：{{msg}}',
   'share.remote.download_failed': 'リモートファイルのダウンロードに失敗しました：{{msg}}',
   'share.remote.timeout': 'リモートファイル共有がタイムアウトしました',
-  'share.remote.too_large': 'ファイルが大きすぎます（最大200 MB）',
+  'share.remote.too_large': 'ファイルが大きすぎます（最大200MB）',
   'share.remote.network_error': 'リモート共有中にネットワークエラーが発生しました',
   'share.remote.rate_limited':
     'リモート共有のアップロードが多すぎます。\nしばらくしてからお試しください',
@@ -466,14 +466,14 @@ const ja: Record<I18nKey, string> = {
   'system_audio.button': 'システムオーディオ',
   'system_audio.sharing': 'システムオーディオ共有中',
   'system_audio.receiving': 'システムオーディオ受信中',
-  'system_audio.owner_active': '{{name}}さんがシステムオーディオを共有しています。',
-  'system_audio.owner_preparing': '{{name}}さんがシステムオーディオ共有の準備をしています。',
+  'system_audio.owner_active': '{{name}}がシステムオーディオを共有しています。',
+  'system_audio.owner_preparing': '{{name}}がシステムオーディオ共有の準備をしています。',
   'system_audio.pro_preparing': 'システムオーディオ共有の準備をしています。',
   'system_audio.pro_publish_failed': 'システムオーディオ共有を開始できませんでした。',
   'system_audio.coordinator_update_required':
-    'システムオーディオを共有するには、このルームを管理している端末を更新してください。',
+    'システムオーディオを共有するには、このルームを管理しているデバイスを更新してください。',
   'system_audio.connection_unstable':
-    '{{name}}さんのシステムオーディオ接続が不安定です。\n復旧を試みています。',
+    '{{name}}のシステムオーディオ接続が不安定です。\n復旧を試みています。',
   'system_audio.capture_denied': 'オーディオ共有がキャンセルされました。',
   'system_audio.no_audio_track': '「音声を共有」が有効ではありません。\nもう一度お試しください。',
   'system_audio.stop': '共有を停止',
@@ -492,7 +492,7 @@ const ja: Record<I18nKey, string> = {
     'システムオーディオ受信は2時間で停止しました。\n引き続き聴くにはルームに再参加してください。',
   'system_audio.device_limit': 'システムオーディオはホストを含む最大{{count}}台で\n共有できます。',
   'system_audio.device_limit_stopped':
-    '接続端末が{{count}}台を超えたため、\nシステムオーディオ共有を終了しました。',
+    '接続デバイスが{{count}}台を超えたため、\nシステムオーディオ共有を終了しました。',
   'system_audio.duration_limit_stopped': 'システムオーディオ共有は2時間後に\n自動終了しました。',
 
   // Toast
@@ -533,8 +533,8 @@ const ja: Record<I18nKey, string> = {
   'toast.playback_control_required': '再生操作権限が必要です。',
   'toast.member_management_required': 'メンバーを退出させる権限が必要です。',
   'toast.chat_notice_required': 'チャットのお知らせ投稿権限が必要です。',
-  'toast.room_owner_required': '変更できるのはルーム所有者だけです。',
-  'toast.system_audio_owner_required': '部屋を直接開いたタブからのみ共有できます。',
+  'toast.room_owner_required': '変更できるのはルームのオーナーだけです。',
+  'toast.system_audio_owner_required': 'ルームを直接開いたタブからのみ共有できます。',
   'toast.host_only_youtube': 'YouTubeリンクを追加できるのはホストだけです。',
   'toast.host_only_control': '操作できるのはホストだけです',
   'toast.host_setting_required': 'この設定を変更できるのはホストだけです',
@@ -587,11 +587,11 @@ const ja: Record<I18nKey, string> = {
   'error.session_create_fail': 'ルームを作成できませんでした',
   'error.network_generic': 'ネットワークエラーが発生しました',
   'error.peer_app_version_mismatch':
-    '{{name}}さんはアプリのバージョンが異なるため参加できません。両方の端末でページを再読み込みしてください。',
+    '{{name}}はアプリのバージョンが異なるため参加できません。両方のデバイスでページを再読み込みしてください。',
   'error.app_version_mismatch':
-    'アプリのバージョンが一致しません。両方の端末でページを再読み込みして、もう一度お試しください。',
+    'アプリのバージョンが一致しません。両方のデバイスでページを再読み込みして、もう一度お試しください。',
   'error.session_handshake_failed':
-    'セッションへの接続を完了できませんでした。両方の端末でページを再読み込みして、もう一度お試しください。',
+    'セッションへの接続を完了できませんでした。両方のデバイスでページを再読み込みして、もう一度お試しください。',
   'error.host_unreachable': 'ホストがルームを退出したようです',
   'error.host_disconnected': 'ホストとの接続が切れました',
   'error.host_conn_error': 'ホストへの接続中にエラーが発生しました',
@@ -618,7 +618,7 @@ const ja: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': '大人数ルームでのファイル共有',
   'dialog.large_room_file.message':
-    '同じネットワークでは、ホストを除くゲスト端末8台まで直接ファイル転送が安定します。より大規模なローカルルームでは、ファイルがCloudflare R2経由で配信される場合があります。\n\n続行しますか？',
+    '同じネットワークでは、ホストを除く参加者のデバイス8台まで直接ファイル転送が安定します。より大規模なローカルルームでは、ファイルがCloudflare R2経由で配信される場合があります。\n\n続行しますか？',
   'dialog.continue': '続行',
   'dialog.file_drop.title': 'ローカルファイルを追加',
   'dialog.file_drop.message': '{{count}}個のファイルを追加しますか？',
@@ -629,9 +629,9 @@ const ja: Record<I18nKey, string> = {
   'dialog.leaving_session': 'ルームを退出中...',
   'dialog.refreshing_session': 'セッションを再読み込みしています...',
   'dialog.background_resume_title': 'アプリが一時的にバックグラウンドへ移動しました',
-  'dialog.audio_recovery_title': 'オーディオが一時停止しました',
+  'dialog.audio_recovery_title': 'オーディオが一時的に止まりました',
   'dialog.audio_recovery_message':
-    'バックグラウンドから戻った後、このデバイスのオーディオを復旧できませんでした。ルームへの接続を維持したまま、MUSIXQUARE がこのデバイスの音を合わせ直します。',
+    'バックグラウンドから戻った後、このデバイスのオーディオを復旧できませんでした。ルームへの接続を維持したまま、MUSIXQUAREがこのデバイスの音を合わせ直します。',
   'dialog.audio_recovery_action': 'オーディオを復旧',
   'dialog.background_resume_message':
     '同期がずれたり音が出ない場合は、アプリを完全に閉じて開き直してください。',
@@ -667,6 +667,14 @@ const ja: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PROルームを有効化',
+  'pro.activation_account_title': 'このPROルームを登録するアカウント',
+  'pro.activation_account_message': 'アカウント「{{name}}」にこのルームを登録しますか？',
+  'pro.activation_account_login_message': 'このルームを登録するアカウントでログインしてください。',
+  'pro.activation_account_continue': '続行',
+  'pro.activation_account_switch': '別のアカウント',
+  'pro.activation_account_unavailable':
+    'アカウント情報を確認できませんでした。しばらくしてからもう一度お試しください。',
+  'pro.activation_complete': '登録完了',
   'pro.activation_message': 'このルームで使う新しい8桁のパスワードを設定してください。',
   'pro.activation_pin_same': '仮パスワードとは異なるパスワードを設定してください。',
   'pro.claim_retry_title': 'PROリンクでもう一度試しますか？',
@@ -746,7 +754,7 @@ const ja: Record<I18nKey, string> = {
   'pro.upload.batch_progress': 'トラックをアップロード中：{{current}}/{{total}}',
   'pro.upload.batch_failed_title': '一部のトラックをアップロードできませんでした',
   'pro.upload.batch_failed_message':
-    'リクエストされた{{total}}曲のうち{{failed}}曲をアップロードできませんでした。',
+    'リクエストされた{{total}}件のトラックのうち{{failed}}件をアップロードできませんでした。',
   'pro.upload.cancel_file': '{{name}}のアップロードをキャンセル',
   'pro.upload.confirming_file': '{{name}}のアップロードを完了しています',
   'pro.downloading': 'ファイルを読み込み中...',
@@ -786,7 +794,7 @@ const ja: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     '一部のデバイスで再生できないため、次のトラックへスキップします。',
   'chat.large_track_playback_system_message':
-    'このトラックは非常に大きいため、操作に時間がかかることがあります。',
+    'このトラックは非常に大きいため、使用中に遅延が発生することがあります。',
   'chat.large_local_track_system_message':
     'このトラックはファイルサイズが非常に大きいため、一部のデバイスでは再生できない場合があります。',
   'chat.device_track_unavailable_system_message':
@@ -876,9 +884,9 @@ const ja: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ルームを作成」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>ホストを含む<strong>最大100台</strong>まで接続できます。</li></ul>',
   'player.play_speakers_html':
-    '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>中央:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> Lチャンネル出力</li><li><strong>右:</strong> Rチャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
+    '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>中央スピーカー:</strong> ステレオ（標準）出力</li><li><strong>左スピーカー:</strong> <bdi dir="ltr">L</bdi>チャンネル出力</li><li><strong>右スピーカー:</strong> <bdi dir="ltr">R</bdi>チャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
   'player.play_media_action_html':
-    'ホストには3つの選択肢があります。<ul class="help-list"><li><strong>ローカルファイルを読み込む:</strong> デバイス内の音楽を選択。高精度同期に対応</li><li><strong>YouTubeを一緒に視聴:</strong> 動画とプレイリストに対応。チャンネル分離とオーディオ効果は無効</li><li><strong>システムオーディオ共有:</strong> ホストがパソコン上のChromium系ブラウザ（Chrome、Edgeなど）を使っている場合に利用可能</li></ul>',
+    'ホストには3つの選択肢があります。<ul class="help-list"><li><strong>ローカルファイルを読み込む:</strong> デバイス内の音楽を選択。高精度同期に対応</li><li><strong>YouTubeを一緒に見る:</strong> 動画とプレイリストに対応。チャンネル分離とオーディオ効果は無効</li><li><strong>システムオーディオ共有:</strong> ホストがパソコン上のChromium系ブラウザ（Chrome、Edgeなど）を使っている場合に利用可能</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>コードを入力しても接続できない:</strong> コードを確認して、しばらくしてからもう一度お試しください。会社、学校、VPNのネットワークでは接続が制限される場合があります。</li><li><strong>接続が不安定:</strong> ローカル参加者はルーターの近くに移動し、リモート参加者は安定したインターネット接続を使用してください。</li><li><strong>その他の問題:</strong> ネットワーク状態を確認し、すべてのデバイスでアプリを再起動してください。質問がある場合は<a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>を確認するか、最下部のメールアドレスからお問い合わせください。</li></ul>',
   'setup.brand_tagline_html': 'いつでもどこでも一緒に聴く<br>完璧なサウンド体験',
@@ -889,7 +897,7 @@ const ja: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     '各デバイスに役割を設定します。<br>左右の音を分けて再生し、<br>ウーファーで深い低音を感じられます。',
   'setup.advanced_audio_desc_html':
-    'ホストの設定に合わせて<br>リバーブ、EQ、バーチャル効果などを<br>システム全体に適用できます。',
+    'ホストの設定に合わせて<br>リバーブ、EQ、バーチャルエフェクトなどを<br>システム全体に適用できます。',
   'youtube.enter_link_desc_html': '公開されている動画またはプレイリストのみ再生できます。',
   'legal.title': 'サービス利用に関する注意',
   'legal.content_html':

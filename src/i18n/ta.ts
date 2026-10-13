@@ -64,7 +64,7 @@ const ta: Record<I18nKey, string> = {
   'account.stats_minutes_value': '{{minutes}} நிமிடம்',
   'account.stats_hours_minutes_value': '{{hours}} மணி {{minutes}} நிமிடம்',
   'account.change_nickname': 'புனைப்பெயரை மாற்று',
-  'account.logout': 'வெளியேறு',
+  'account.logout': 'கணக்கிலிருந்து வெளியேறு',
   'account.delete_account': 'கணக்கை நீக்கு',
   'account.nickname_title': 'புனைப்பெயரை அமை',
   'account.nickname_message': 'MUSIXQUARE-இல் பயன்படுத்தவுள்ள புனைப்பெயரைத் தேர்வுசெய்யுங்கள்.',
@@ -96,16 +96,16 @@ const ta: Record<I18nKey, string> = {
   'common.system': 'சிஸ்டம்',
   'common.unknown': 'தெரியாதது',
   'common.youtube_video': 'YouTube வீடியோ',
-  'common.peer': 'பியர்',
+  'common.peer': 'பங்கேற்பாளர்',
 
   // ─── Navigation ──────────────────────────────────────────────────
   'nav.home': 'முகப்பு',
   'nav.playlist': 'பிளேலிஸ்ட்',
   'nav.settings': 'அமைப்புகள்',
   'nav.help': 'உதவி',
-  'nav.connect': 'இணை',
+  'nav.connect': 'இணைப்பு',
   'nav.playlist_compact': 'பட்டியல்',
-  'nav.connect_compact': 'இணை',
+  'nav.connect_compact': 'இணைப்பு',
   'nav.settings_compact': 'அமைப்பு',
   'nav.go_home': 'முகப்புக்குச் செல்',
 
@@ -124,14 +124,14 @@ const ta: Record<I18nKey, string> = {
   'player.next_track': 'அடுத்த டிராக்',
   'player.repeat_mode': 'மீளியக்க முறையை மாற்று',
   'player.shuffle_mode': 'கலக்கு முறையை மாற்று',
-  'player.sync_compact': 'சின்க்',
-  'player.syncing_compact': 'சின்க்',
+  'player.sync_compact': 'ஒத்திசை',
+  'player.syncing_compact': 'ஒத்திசைவு…',
   'player.play_media': 'மீடியாவை இயக்கு',
   'player.play_media_compact': 'மீடியா',
   'player.play_media_action': 'மீடியாவை இயக்கு',
   'player.add_media': 'மீடியாவைச் சேர்',
   'player.play_start': 'வரிசையில் சேர்',
-  'player.select_media': 'இயக்க வேண்டிய மீடியாவைத் தேர்ந்தெடு',
+  'player.select_media': 'இயக்க வேண்டிய மீடியாவைத் தேர்ந்தெடுக்கவும்',
   'player.play_together': 'ஒத்திசைத்து இயக்கு',
   'player.play_speakers': 'ஸ்பீக்கராகப் பயன்படுத்து',
   'player.auto_sync_label': 'தானாக (ms)',
@@ -196,9 +196,9 @@ const ta: Record<I18nKey, string> = {
   'settings.reverb_desc': 'ஒலியின் ரீவர்ப் மற்றும் அதிர்வைச் சரிசெய்யுங்கள்.',
   'settings.eq_desc':
     'ஒலியின் தொனியைச் சரிசெய்யுங்கள். ஒலியளவுக் கட்டுப்பாட்டுடன் இதைப் பயன்படுத்துங்கள்.',
-  'settings.surround_desc': 'சூழ்ந்த ஒலி அனுபவத்திற்காக சேனல்களின் பிரிவை அதிகரிக்கவும்.',
-  'settings.bass_desc': 'அதிக தாக்கத்திற்காகக் குறைந்த அதிர்வெண்களைச் செயற்கையாக உருவாக்கவும்.',
-  'settings.exciter_desc': 'தெளிவை அதிகரிக்க மிக உயர்ந்த அதிர்வெண்களை உருவாக்கவும்.',
+  'settings.surround_desc': 'சூழ்ந்த ஒலி அனுபவத்திற்காகச் சேனல்களின் பிரிவை அதிகரிக்கும்.',
+  'settings.bass_desc': 'அதிகத் தாக்கத்திற்காகக் குறைந்த அதிர்வெண்களைச் செயற்கையாக உருவாக்கும்.',
+  'settings.exciter_desc': 'தெளிவை அதிகரிக்க மிக உயர்ந்த அதிர்வெண்களை உருவாக்கும்.',
   'settings.role_center_desc':
     'இந்தச் சாதனம் நடு ஸ்பீக்கராகச் செயல்படுகிறது.\nஇதை நடுவில் வைக்கவும்.',
   'settings.role_left_desc':
@@ -254,7 +254,7 @@ const ta: Record<I18nKey, string> = {
   'connect.rename_reserved': 'இந்தப் புனைப்பெயர் ஒதுக்கப்பட்டுள்ளது.',
   'connect.rename_profanity': 'பொருத்தமற்ற சொற்கள் கண்டறியப்பட்டன.',
   'settings.devices_title': 'இணைக்கப்பட்ட சாதனங்கள்',
-  'settings.invite_share': 'அழைத்து பகிர்',
+  'settings.invite_share': 'அழைப்பு மற்றும் பகிர்வு',
   'settings.subtab.general': 'பொது',
   'settings.subtab.audio': 'ஆடியோ',
   'settings.subtab.connect': 'இணைப்பு',
@@ -293,7 +293,7 @@ const ta: Record<I18nKey, string> = {
   'connect.link_copied': 'அழைப்பு இணைப்பு நகலெடுக்கப்பட்டது',
   'connect.room_password_title': 'சேரக் கடவுச்சொல் தேவை',
   'connect.room_password_toggle_aria': 'அறைக் கடவுச்சொல் தேவையை மாற்று',
-  'connect.room_password_on': 'கடவுச்சொல் பயன்படுத்தப்பட்டது',
+  'connect.room_password_on': 'கடவுச்சொல் நடைமுறையில் உள்ளது',
   'connect.room_password_invalid': '8 இலக்கங்களை உள்ளிடவும்',
   'connect.room_password_disabled': 'பங்கேற்பாளர்களுக்கு இனி அறைக் கடவுச்சொல் தேவையில்லை',
   'connect.room_password_apply_pending':
@@ -301,7 +301,7 @@ const ta: Record<I18nKey, string> = {
   'connect.pin_enabled_removed_message':
     'ஹோஸ்ட் அறைக் கடவுச்சொல்லை அமைத்துள்ளார். மீண்டும் சேர அதை உள்ளிடவும்.',
   'connect.pin_changed_removed_message':
-    'ஹோஸ்ட் அறைக் கடவுச்சொல்லை மாற்றியுள்ளார். மீண்டும் சேர புதிய கடவுச்சொல்லை உள்ளிடவும்.',
+    'ஹோஸ்ட் அறைக் கடவுச்சொல்லை மாற்றியுள்ளார். மீண்டும் சேரப் புதிய கடவுச்சொல்லை உள்ளிடவும்.',
   'connect.signaling_healthy': 'அறை சர்வர் ஆன்லைனில் உள்ளது',
   'connect.signaling_recovering': 'மீண்டும் இணைக்கிறது…',
   'connect.signaling_failed': 'சர்வர் இணைப்பு தோல்வியடைந்தது',
@@ -425,7 +425,7 @@ const ta: Record<I18nKey, string> = {
   'chat.bot_completed': 'BOT கோரிக்கை நிறைவடைந்தது',
   'chat.bot_failed': 'BOT-ஆல் கோரிக்கையை முடிக்க முடியவில்லை',
   'chat.bot_added_tracks': 'BOT சேர்த்த டிராக்குகள்: {{count}}',
-  'chat.bot_added_and_playing': 'BOT {{count}} டிராக்குகளைச் சேர்த்தது. பிளேபேக் தொடங்கியது',
+  'chat.bot_added_and_playing': 'BOT சேர்த்த டிராக்குகள்: {{count}}. பிளேபேக் தொடங்கியது',
   'chat.bot_rate_limited':
     'BOT கோரிக்கை வரம்பை எட்டிவிட்டது. {{duration}} காத்திருந்து மீண்டும் முயலவும்',
   'chat.decode_skip_system_message':
@@ -437,9 +437,9 @@ const ta: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'இந்தச் சாதனத்தால் தற்போதைய டிராக்கை இயக்க முடியாது.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்த பக்கத்தை மீண்டும் ஏற்றவும்.',
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்தப் பக்கத்தை மீண்டும் ஏற்றவும்.',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்த பயன்பாட்டை மீண்டும் திறக்கவும்.',
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்தப் பயன்பாட்டை மீண்டும் திறக்கவும்.',
   'chat.system_audio_started_system_message':
     'சிஸ்டம் ஆடியோ பகிர்வு தொடங்கியது. ஹோஸ்ட் மற்றும் விருந்தினர் சாதனங்களுக்கு இடையிலான சிறிய தாமதம் இயல்பானது. எதிரொலியைத் தவிர்க்க ஹோஸ்ட் சாதனத்தின் ஒலியளவைக் குறைக்கப் பரிந்துரைக்கிறோம்.',
   'chat.system_audio_stopped_system_message':
@@ -450,18 +450,18 @@ const ta: Record<I18nKey, string> = {
     'தொலைநிலைப் பகிர்வு வரம்பை எட்டிவிட்டது.\nஉள்ளூர் கோப்புப் பகிர்வு இன்னும் கிடைக்கிறது.',
   'chat.remote_upload_failed_system_message':
     'தொலைநிலைக் கோப்புப் பதிவேற்றம் தோல்வியடைந்தது.\nதொலைநிலைப் பங்கேற்பாளர்கள் சிறிது நேரத்தில் மீண்டும் முயலவும்.',
-  'chat.pinned_close': 'அறிவிப்பை அகற்று',
+  'chat.pinned_close': 'அறிவிப்பை மூடு',
   'chat.cmd_whisper_from': '{{name}} அனுப்பிய தனிச் செய்தி',
-  'chat.cmd_whisper_to': '{{name}}-க்கு தனிச் செய்தி',
+  'chat.cmd_whisper_to': '{{name}}-க்குத் தனிச் செய்தி',
   'chat.cmd_target_not_found': 'இலக்கு கிடைக்கவில்லை: {{target}}',
   'chat.cmd_no_permission': 'உங்களுக்கு அனுமதி இல்லை',
   'chat.cmd_nick_changed': 'பெயர் {{name}} என மாற்றப்பட்டது',
   'chat.cmd_already_op': '{{name}} ஏற்கனவே நிர்வாகியாக உள்ளார்',
   'chat.cmd_not_op': '{{name}} நிர்வாகி அல்ல',
   'chat.cmd_help_title': 'கிடைக்கும் கட்டளைகள்',
-  'chat.cmd_help_target_hint': '* [சாதனம்] என்பது தனிப்பட்ட எண் (எ.கா. #1)',
+  'chat.cmd_help_target_hint': '* [சாதனம்] என்பது தனித்துவமான எண் (எ.கா. #1)',
   'chat.cmd_unknown': 'தெரியாத கட்டளை: /{{cmd}}',
-  'chat.cmd_usage': 'பயன்பாடு: {{usage}}',
+  'chat.cmd_usage': 'பயன்படுத்தும் முறை: {{usage}}',
   'chat.cmd_users_title': 'இணைக்கப்பட்ட பயனர்கள்',
   'chat.cmd_users_me': 'நான்',
 
@@ -496,7 +496,7 @@ const ta: Record<I18nKey, string> = {
   'chat.cmd_d_op': 'நிர்வாகி அனுமதியை வழங்கு',
   'chat.cmd_d_deop': 'நிர்வாகி அனுமதியைத் திரும்பப் பெறு',
   'chat.cmd_d_mute': 'சாதன அரட்டையைக் கட்டுப்படுத்து',
-  'chat.cmd_d_unmute': 'சாதன அரட்டையை மீட்டமை',
+  'chat.cmd_d_unmute': 'சாதன அரட்டைக் கட்டுப்பாட்டை நீக்கு',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'சிஸ்டம் பிழைத்திருத்தத் தகவல்',
   'chat.debug_copied':
@@ -549,13 +549,13 @@ const ta: Record<I18nKey, string> = {
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
   'toast.device_connected': '{{name}} இணைந்தார்',
-  'toast.device_disconnected': '{{name}} இணைப்பைத் துண்டித்தார்',
+  'toast.device_disconnected': '{{name}}-இன் இணைப்பு துண்டிக்கப்பட்டது',
   'toast.device_conn_error': '{{name}} இணைப்பில் பிழை',
   'toast.device_kicked': '{{name}} நீக்கப்பட்டார்',
   'toast.remote_decode_device_wait':
     'ஒரு சாதனத்தால் இந்த டிராக்கை டிகோட் செய்ய முடியவில்லை. மற்றவர்களுக்கு பிளேபேக் தொடர்கிறது.',
   'toast.invite_code': 'அழைப்புக் குறியீடு: {{code}}',
-  'toast.invite_code_info': '{{count}} இணைந்துள்ளன | குறியீடு {{code}}',
+  'toast.invite_code_info': 'இணைந்த சாதனங்கள்: {{count}} | குறியீடு {{code}}',
   'toast.added_tracks': '{{count}} டிராக்குகள் சேர்க்கப்பட்டன',
   'toast.preparing': 'தயாராகிறது: {{name}}',
   'toast.file_save_error': 'கோப்பைச் சேமிப்பதில் பிழை: {{name}}',
@@ -739,7 +739,7 @@ const ta: Record<I18nKey, string> = {
   'dialog.sw_update_msg': 'புதிய பதிப்பு தயாராக உள்ளது. புதுப்பிக்க மீண்டும் ஏற்றவும்.',
   'dialog.feature_refresh_title': 'மீண்டும் ஏற்ற வேண்டும்',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE புதுப்பிக்கப்பட்டுள்ளது. வழக்கம்போல் தொடர்ந்து பயன்படுத்த பக்கத்தை மீண்டும் ஏற்றவும்.',
+    'MUSIXQUARE புதுப்பிக்கப்பட்டுள்ளது. வழக்கம்போல் தொடர்ந்து பயன்படுத்தப் பக்கத்தை மீண்டும் ஏற்றவும்.',
   'dialog.reconnect_ask': 'மீண்டும் இணைக்க விரும்புகிறீர்களா?',
   'dialog.reconnect': 'மீண்டும் இணை',
   'dialog.go_back': 'திரும்பிச் செல்',
@@ -762,15 +762,15 @@ const ta: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO அறையைச் செயல்படுத்து',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'இந்த PRO அறைக்கான கணக்கைத் தேர்வுசெய்யவும்',
+  'pro.activation_account_message': 'இந்த அறையை “{{name}}” கணக்கில் பதிவுசெய்யவா?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'இந்த அறையைப் பதிவுசெய்ய விரும்பும் கணக்கில் உள்நுழையவும்.',
+  'pro.activation_account_continue': 'தொடர்',
+  'pro.activation_account_switch': 'வேறொரு கணக்கு',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'உங்கள் கணக்கைச் சரிபார்க்க முடியவில்லை. சிறிது நேரத்தில் மீண்டும் முயலவும்.',
+  'pro.activation_complete': 'பதிவை நிறைவு செய்',
   'pro.activation_message': 'இந்த அறைக்கு புதிய 8 இலக்கக் கடவுச்சொல்லை அமைக்கவும்.',
   'pro.activation_pin_same': 'தற்காலிகக் கடவுச்சொல்லிலிருந்து வேறுபட்ட ஒன்றைத் தேர்வுசெய்யவும்.',
   'pro.claim_retry_title': 'PRO இணைப்பை மீண்டும் முயலவா?',
@@ -830,7 +830,7 @@ const ta: Record<I18nKey, string> = {
     'அறை உரிமையாளர் இந்த அறைக்குக் கடவுச்சொல் அமைத்துள்ளார். மீண்டும் சேர அதை உள்ளிடவும்.',
   'pro.pin_changed_removed_title': 'அறைக் கடவுச்சொல் மாறியது',
   'pro.pin_changed_removed_message':
-    'அறை உரிமையாளர் அறைக் கடவுச்சொல்லை மாற்றியுள்ளார். மீண்டும் சேர புதிய கடவுச்சொல்லை உள்ளிடவும்.',
+    'அறை உரிமையாளர் அறைக் கடவுச்சொல்லை மாற்றியுள்ளார். மீண்டும் சேரப் புதிய கடவுச்சொல்லை உள்ளிடவும்.',
   'pro.removed_title': 'நீங்கள் அறையிலிருந்து நீக்கப்பட்டீர்கள்',
   'pro.removed_message':
     'அறை உரிமையாளர் அல்லது ஒரு நிர்வாகி உங்களை இந்த அறையிலிருந்து நீக்கியுள்ளார்.',
@@ -848,11 +848,11 @@ const ta: Record<I18nKey, string> = {
   'pro.active_tab_title': 'முந்தைய இணைப்பு இன்னும் உள்ளது',
   'pro.active_tab_message': 'இங்கே தொடர்ந்தால் முந்தைய இணைப்பு துண்டிக்கப்படும்.',
   'pro.active_tab_replaced': 'இந்த PRO அறை ஏற்கனவே வேறொரு தாவலில் திறந்துள்ளது',
-  'pro.use_this_tab': 'இங்கே தொடரவும்',
+  'pro.use_this_tab': 'இங்கே தொடர்',
   'pro.upload.batch_progress': 'டிராக்குகள் பதிவேற்றப்படுகின்றன {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'சில டிராக்குகளைப் பதிவேற்ற முடியவில்லை',
   'pro.upload.batch_failed_message':
-    'நீங்கள் கோரிய {{total}} டிராக்குகளில் {{failed}} டிராக்குகளைப் பதிவேற்ற முடியவில்லை.',
+    'நீங்கள் கோரிய {{total}} டிராக்குகளில் {{failed}}-ஐப் பதிவேற்ற முடியவில்லை.',
   'pro.upload.cancel_file': '{{name}} பதிவேற்றத்தை ரத்துசெய்',
   'pro.upload.confirming_file': '{{name}} பதிவேற்றம் முடிக்கப்படுகிறது',
   'pro.downloading': 'கோப்பு ஏற்றப்படுகிறது...',
@@ -867,7 +867,7 @@ const ta: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'இணைக்க ஹோஸ்ட் வழங்கிய <strong>6 இலக்கக் குறியீட்டை</strong> உள்ளிடவும்.<ul class="help-list"><li><strong>ஹோஸ்ட்:</strong> “அறையை உருவாக்கு” → குறியீட்டைப் பார்</li><li><strong>பங்கேற்பாளர்:</strong> “அறையில் சேர்” → குறியீட்டை உள்ளிடு</li><li>ஹோஸ்ட் உட்பட அதிகபட்சம் <strong>100 சாதனங்கள்</strong> இணையலாம்.</li></ul>',
   'player.play_speakers_html':
-    'ஒவ்வொரு பங்கேற்பாளரும் ஒரு <strong>பங்கை (வெளியீட்டுச் சேனல்)</strong> தேர்வுசெய்வார்.<ul class="help-list"><li><strong>நடு:</strong> ஸ்டீரியோ (இயல்புநிலை) வெளியீடு</li><li><strong>இடது (Left):</strong> <bdi dir="ltr">L</bdi> சேனல் வெளியீடு</li><li><strong>வலது (Right):</strong> <bdi dir="ltr">R</bdi> சேனல் வெளியீடு</li><li><strong>சப்வூஃபர்:</strong> குறைந்த அதிர்வெண் மிக்ஸ் வெளியீடு</li></ul><strong>அமைப்புகளில்</strong> எப்போது வேண்டுமானாலும் பங்கை மாற்றலாம்.',
+    'ஒவ்வொரு பங்கேற்பாளரும் ஒரு <strong>பங்கை (வெளியீட்டுச் சேனல்)</strong> தேர்வுசெய்வார்.<ul class="help-list"><li><strong>நடு ஸ்பீக்கர்:</strong> ஸ்டீரியோ (இயல்புநிலை) வெளியீடு</li><li><strong>இடது ஸ்பீக்கர்:</strong> <bdi dir="ltr">L</bdi> சேனல் வெளியீடு</li><li><strong>வலது ஸ்பீக்கர்:</strong> <bdi dir="ltr">R</bdi> சேனல் வெளியீடு</li><li><strong>சப்வூஃபர்:</strong> குறைந்த அதிர்வெண் மிக்ஸ் வெளியீடு</li></ul><strong>அமைப்புகளில்</strong> எப்போது வேண்டுமானாலும் பங்கை மாற்றலாம்.',
   'player.play_media_action_html':
     'ஹோஸ்டுக்கு 3 விருப்பங்கள் உள்ளன.<ul class="help-list"><li><strong>உள்ளூர் கோப்பை ஏற்று:</strong> உங்கள் சாதனத்திலிருந்து இசையைத் தேர்வுசெய்யுங்கள். துல்லிய ஒத்திசைவு ஆதரிக்கப்படுகிறது</li><li><strong>YouTube-ஐ ஒன்றாகப் பார்:</strong> வீடியோக்களும் பிளேலிஸ்ட்களும் ஆதரிக்கப்படுகின்றன. சேனல் பிரிப்பும் ஆடியோ விளைவுகளும் கிடையாது</li><li><strong>சிஸ்டம் ஆடியோ பகிர்வு:</strong> ஹோஸ்ட் கணினியில் Chromium சார்ந்த உலாவியைப் பயன்படுத்தும்போது கிடைக்கும்</li></ul>',
   'help.need_help_html':
@@ -891,8 +891,7 @@ const ta: Record<I18nKey, string> = {
     'ஒவ்வொரு சாதனத்தின் பங்கையும் அமைக்கவும்.<br>இடது மற்றும் வலது ஆடியோவைத் தனித்தனியாக இயக்கி<br>வூஃபரின் ஆழமான பேஸை உணருங்கள்.',
   'setup.advanced_audio_desc_html':
     'ரீவர்ப், EQ, விர்ச்சுவல் விளைவுகள் மற்றும்<br>பலவற்றை முழு சிஸ்டத்திலும்<br>ஹோஸ்ட் அமைப்புகளுடன் பொருத்துங்கள்.',
-  'youtube.enter_link_desc_html':
-    'பொதுவான வீடியோக்கள் அல்லது பிளேலிஸ்ட்களை மட்டுமே இயக்க முடியும்.',
+  'youtube.enter_link_desc_html': 'பொது வீடியோக்கள் அல்லது பிளேலிஸ்ட்களை மட்டுமே இயக்க முடியும்.',
 
   // ─── System Audio Sharing ────────────────────────────────────────
   'system_audio.button': 'சிஸ்டம் ஆடியோ',
@@ -915,7 +914,7 @@ const ta: Record<I18nKey, string> = {
   'system_audio.stopped': 'சிஸ்டம் ஆடியோ பகிர்வு முடிந்தது.\nபிளேலிஸ்ட் மீண்டும் தொடங்குகிறது.',
   'system_audio.host_channel_locked': 'சிஸ்டம் ஆடியோ பகிர்வின்போது பங்குகளை மாற்ற முடியாது.',
   'system_audio.effects_guest_only':
-    'சிஸ்டம் ஆடியோ இயங்குகிறது.\nஒலி விளைவுகள் விருந்தினர் சாதனங்களுக்கு மட்டுமே பயன்படுத்தப்படும்.',
+    'சிஸ்டம் ஆடியோ இயங்குகிறது.\nஆடியோ விளைவுகள் விருந்தினர் சாதனங்களுக்கு மட்டுமே பயன்படுத்தப்படும்.',
   'system_audio.desktop_only':
     'Chromium சார்ந்த உலாவியை (Chrome, Edge போன்றவை) பயன்படுத்தும் கணினிகளில் மட்டுமே கிடைக்கும்.',
   'system_audio.receive_failed':

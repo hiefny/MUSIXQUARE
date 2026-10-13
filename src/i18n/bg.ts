@@ -10,7 +10,7 @@ import type { I18nKey } from './ko.ts';
 const bg: Record<I18nKey, string> = {
   'app.search_title': 'MUSIXQUARE',
   'app.search_description':
-    'Превърнете телефоните, таблетите и компютрите в една синхронизирана безжична аудиосистема. Възпроизвеждайте заедно музика, съдържание от YouTube и системен звук направо в браузъра. Не е необходима инсталация.',
+    'Превърни телефоните, таблетите и компютрите в една синхронизирана безжична аудиосистема. Възпроизвеждай заедно музика, съдържание от YouTube и системен звук направо в браузъра. Не е необходима инсталация.',
 
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
@@ -130,7 +130,7 @@ const bg: Record<I18nKey, string> = {
   'player.play_start': 'Добавяне към опашката',
   'player.select_media': 'Избери медия за възпроизвеждане',
   'player.play_together': 'Синхронно възпроизвеждане',
-  'player.play_speakers': 'Използване като говорител',
+  'player.play_speakers': 'Използване като тонколона',
   'player.auto_sync_label': 'Автоматично (ms)',
   'player.manual_sync_label': 'Ръчна синхронизация (ms)',
 
@@ -162,9 +162,9 @@ const bg: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хостът обработва друг файл. Опитай отново след малко.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Централен говорител',
-  'role.left': 'Ляв говорител',
-  'role.right': 'Десен говорител',
+  'role.center': 'Централна тонколона',
+  'role.left': 'Лява тонколона',
+  'role.right': 'Дясна тонколона',
   'role.subwoofer': 'Субуфер',
   'role.center_placement': 'Постави устройството в центъра',
   'role.left_placement': 'Постави устройството отляво',
@@ -189,13 +189,13 @@ const bg: Record<I18nKey, string> = {
   'settings.ui_sounds_desc':
     'Включи или изключи звуците за известия, присъединяване, напускане и докосване.',
   'settings.reverb_desc': 'Регулирай реверберацията и резонанса на звука.',
-  'settings.eq_desc': 'Регулирай тоналността. Използвай заедно с контрола на силата на звука.',
+  'settings.eq_desc': 'Регулирай тембъра на звука. Използвай заедно с контрола на силата на звука.',
   'settings.surround_desc': 'Увеличи разделението за по-обгръщащ звук.',
   'settings.bass_desc': 'Синтезирай ниски честоти за по-силен ефект.',
   'settings.exciter_desc': 'Генерирай ултрависоки честоти за по-голяма яснота.',
-  'settings.role_center_desc': 'Това устройство е централен говорител.\nПостави го в центъра.',
-  'settings.role_left_desc': 'Това устройство е ляв говорител.\nПостави го отляво.',
-  'settings.role_right_desc': 'Това устройство е десен говорител.\nПостави го отдясно.',
+  'settings.role_center_desc': 'Това устройство е централна тонколона.\nПостави го в центъра.',
+  'settings.role_left_desc': 'Това устройство е лява тонколона.\nПостави го отляво.',
+  'settings.role_right_desc': 'Това устройство е дясна тонколона.\nПостави го отдясно.',
   'settings.role_subwoofer_desc':
     'Това устройство е субуфер.\nПостави го там, където басът се разпространява добре.',
   'settings.dark': 'Тъмна',
@@ -206,7 +206,7 @@ const bg: Record<I18nKey, string> = {
   'settings.language_select': 'Избиране',
   'settings.language_system': 'Системен',
   'settings.language_dialog_title': 'Избор на език',
-  'settings.help_translate': 'Помогнете с превода',
+  'settings.help_translate': 'Помогни с превода',
   'settings.language_select_aria': 'Отваряне на списъка с езици',
   'settings.language_system_aria': 'Използване на системния език',
   'settings.advanced_audio': 'Разширени звукови настройки',
@@ -266,7 +266,7 @@ const bg: Record<I18nKey, string> = {
   'connect.permission_media_add': 'Управление на медията',
   'connect.permission_playback_control': 'Управление на възпроизвеждането',
   'connect.permission_members_kick': 'Премахване на участници',
-  'connect.permission_chat_notice': 'Публикуване на съобщения в чата',
+  'connect.permission_chat_notice': 'Публикуване на известия в чата',
   'connect.permission_inherited': 'Включено',
   'connect.kick_member_message': 'Да се премахнат ли всички устройства, свързани като {{name}}?',
   'connect.device_toggle': 'Разгъване/свиване на свързаните устройства на {{name}}',
@@ -411,7 +411,7 @@ const bg: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Бавният режим е изключен',
   'chat.cmd_slowmode_wait': 'Изчакай {{sec}} сек преди изпращане',
   'chat.cmd_notice_prefix': 'Известие',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': 'СИСТЕМА',
   'chat.bot_unavailable': 'Ботът е достъпен само в PRO стаи',
   'chat.bot_processing': 'BOT обработва заявката...',
   'chat.bot_completed': 'Заявката към BOT е изпълнена',
@@ -423,19 +423,19 @@ const bg: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'Песента се пропуска: форматът не се поддържа от някои устройства.',
   'chat.large_track_playback_system_message':
-    'Този запис е много голям, затова може да има забавяния при използването му.',
+    'Файлът на тази песен е много голям, затова може да има забавяния при използването му.',
   'chat.large_local_track_system_message':
     'Файлът на тази песен е много голям и може да не се възпроизведе на някои устройства.',
   'chat.device_track_unavailable_system_message':
     'Това устройство не може да възпроизведе текущата песен.',
   'chat.update_available_tab_system_message':
-    'Има нова версия на MUSIXQUARE. Влиза в сила, когато опресниш страницата.',
+    'Има нова версия на MUSIXQUARE. Ще се приложи, когато опресниш страницата.',
   'chat.update_available_app_system_message':
-    'Има нова версия на MUSIXQUARE. Влиза в сила, когато отвориш приложението отново.',
+    'Има нова версия на MUSIXQUARE. Ще се приложи, когато отвориш приложението отново.',
   'chat.system_audio_started_system_message':
     'Споделянето на системен звук започна. Леко закъснение между устройствата на хоста и гостите е нормално. Препоръчваме да намалиш звука на устройството на хоста, за да избегнеш ехо.',
   'chat.system_audio_stopped_system_message':
-    'Споделянето на системен звук приключи. Хостът може отново да увеличи звука, за да използва това устройство като говорител.',
+    'Споделянето на системен звук приключи. Хостът може отново да увеличи звука, за да използва това устройство като тонколона.',
   'chat.remote_upload_limited_system_message':
     'Лимитът за качване на файлове е достигнат.\nОтдалечените участници трябва да опитат по-късно.',
   'chat.remote_storage_quota_system_message':
@@ -451,7 +451,7 @@ const bg: Record<I18nKey, string> = {
   'chat.cmd_already_op': '{{name}} вече е администратор',
   'chat.cmd_not_op': '{{name}} не е администратор',
   'chat.cmd_help_title': 'Налични команди',
-  'chat.cmd_help_target_hint': '* [device] е уникален номер (например #1)',
+  'chat.cmd_help_target_hint': '* [устройство] е уникален номер (например #1)',
   'chat.cmd_unknown': 'Неизвестна команда: /{{cmd}}',
   'chat.cmd_usage': 'Употреба: {{usage}}',
   'chat.cmd_users_title': 'Свързани потребители',
@@ -460,20 +460,20 @@ const bg: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
-  'chat.cmd_u_bot': '/bot [request]',
+  'chat.cmd_u_bot': '/bot [заявка]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
-  'chat.cmd_u_slowmode': '/slowmode [seconds]',
-  'chat.cmd_u_w': '/w [device] [message]',
-  'chat.cmd_u_whisper': '/whisper [device] [message]',
-  'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [new name]',
-  'chat.cmd_u_kick': '/kick [device]',
-  'chat.cmd_u_op': '/op [device]',
-  'chat.cmd_u_deop': '/deop [device]',
-  'chat.cmd_u_mute': '/mute [device]',
-  'chat.cmd_u_unmute': '/unmute [device]',
+  'chat.cmd_u_slowmode': '/slowmode [секунди]',
+  'chat.cmd_u_w': '/w [устройство] [съобщение]',
+  'chat.cmd_u_whisper': '/whisper [устройство] [съобщение]',
+  'chat.cmd_u_notice': '/notice [съобщение]',
+  'chat.cmd_u_nick': '/nick [ново име]',
+  'chat.cmd_u_kick': '/kick [устройство]',
+  'chat.cmd_u_op': '/op [устройство]',
+  'chat.cmd_u_deop': '/deop [устройство]',
+  'chat.cmd_u_mute': '/mute [устройство]',
+  'chat.cmd_u_unmute': '/unmute [устройство]',
   'chat.cmd_d_help': 'Списък с команди',
   'chat.cmd_d_users': 'Преглед на свързаните потребители',
   'chat.cmd_d_bot': 'Заявка към AI за управление на плейлиста',
@@ -557,7 +557,7 @@ const bg: Record<I18nKey, string> = {
   'toast.op_status': 'Разрешението „{{label}}“ е {{status}}',
   'toast.file_read_error': 'Грешка при четенето на файла: {{name}}',
   'toast.host_ended_connection': 'Хостът прекрати връзката',
-  'toast.announcement_available': 'Ново съобщение.\nПровери панела за чат.',
+  'toast.announcement_available': 'Ново известие.\nПровери панела за чат.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Копирането е неуспешно',
@@ -577,10 +577,10 @@ const bg: Record<I18nKey, string> = {
   'toast.media_management_required': 'Необходимо е разрешение за управление на медията.',
   'toast.playback_control_required': 'Необходимо е разрешение за управление на възпроизвеждането.',
   'toast.member_management_required': 'Необходимо е разрешение за премахване на участници.',
-  'toast.chat_notice_required': 'Необходимо е разрешение за публикуване на съобщения в чата.',
+  'toast.chat_notice_required': 'Необходимо е разрешение за публикуване на известия в чата.',
   'toast.room_owner_required': 'Само собственикът на стаята може да промени това.',
   'toast.system_audio_owner_required':
-    'Можете да споделяте аудио само от раздела, който е отворил стаята.',
+    'Можеш да споделяш звук само от раздела, в който е отворена стаята.',
   'toast.host_only_youtube': 'Само хостът може да добавя връзки към YouTube.',
   'toast.host_only_control': 'Само хостът може да управлява това',
   'toast.host_setting_required': 'Само хостът може да промени тази настройка',
@@ -620,7 +620,7 @@ const bg: Record<I18nKey, string> = {
   'toast.yt_manual_sync_prompt':
     'Току-що бе направен опит за автоматичен синхрон.\nАко все още усещаш закъснение, настрой стойността сега',
   'toast.playlist_ended': 'Последният медиен елемент приключи',
-  'toast.operator_required': 'Само администраторите могат да променят общите настройки',
+  'toast.operator_required': 'Само администраторите могат да променят глобалните настройки',
   'toast.connection_closing': 'Връзката е прекъсната; настройката не е синхронизирана',
   'toast.host_changed_setting': 'Настройките бяха променени',
   'toast.session_mismatch': 'Сесиите не съвпадат.\nПрехвърлянето на файла ще се повтори.',
@@ -650,7 +650,7 @@ const bg: Record<I18nKey, string> = {
     'Твърде много качвания за отдалечено споделяне.\nОпитай отново след малко',
   'share.remote.quota_reached': 'Лимитът за съхранение при отдалечено споделяне е достигнат',
   'share.remote.auth_failed':
-    'Упълномощаването за отдалечено споделяне е неуспешно.\nПровери настройките на Worker',
+    'Удостоверяването за отдалечено споделяне е неуспешно.\nПровери настройките на Worker',
   'share.remote.expired': 'Връзката към отдалечения файл е изтекла.\nСподели го отново.',
   'share.remote.unavailable': 'Отдалеченото споделяне е неуспешно.\nОпитай отново след малко.',
   'transfer.preload_fail':
@@ -714,7 +714,7 @@ const bg: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'Приложението за кратко премина във фонов режим',
   'dialog.audio_recovery_title': 'Звукът спря неочаквано',
   'dialog.audio_recovery_message':
-    'Звукът на това устройство не се възстанови след връщане от фонов режим. Стаята ще остане свързана, докато MUSIXQUARE подравни отново звука на устройството.',
+    'Звукът на това устройство не се възстанови след връщане от фонов режим. Стаята остава свързана, а MUSIXQUARE ще подравни отново звука на устройството.',
   'dialog.audio_recovery_action': 'Възстановяване на звука',
   'dialog.background_resume_message':
     'Ако синхронът е нарушен или няма звук, затвори напълно приложението и го отвори отново.',
@@ -744,26 +744,26 @@ const bg: Record<I18nKey, string> = {
   'dialog.room_password_rate_limited_later':
     'Въведе грешна парола твърде много пъти. Опитай отново след малко.',
   'dialog.session_lost_msg':
-    'Приложението е заспало или е загубило връзка, затова останалите устройства вече са се изключили. Рестартирай, за да започнеш нова сесия.',
+    'Приложението е заспало или е загубило връзка, затова останалите устройства вече са отпаднали от сесията. Рестартирай, за да започнеш нова сесия.',
   'dialog.session_lost_btn': 'Рестартиране',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Активиране на PRO стая',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Избери профил за тази PRO стая',
+  'pro.activation_account_message': 'Да регистрираме ли тази стая към профила „{{name}}“?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Влез в профила, към който искаш да регистрираш тази стая.',
+  'pro.activation_account_continue': 'Продължаване',
+  'pro.activation_account_switch': 'Друг профил',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Не успяхме да потвърдим профила ти. Опитай отново след малко.',
+  'pro.activation_complete': 'Завършване на регистрацията',
   'pro.activation_message': 'Задай нова 8-цифрена парола за тази стая.',
   'pro.activation_pin_same': 'Избери парола, различна от временната.',
   'pro.claim_retry_title': 'Да опитаме ли отново с PRO връзката?',
   'pro.claim_retry_message':
-    'Връзката бе прекъсната. Линкът се пази сигурно на този екран, така че можеш да опиташ отново.',
+    'Свързването бе прекъснато. Връзката се пази сигурно на този екран, така че можеш да опиташ отново.',
   'pro.claim_unavailable_title': 'Тази връзка вече не може да се използва',
   'pro.claim_login_title': 'Първо влез в профила си',
   'pro.claim_login_button': 'Вход',
@@ -812,7 +812,7 @@ const bg: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Всички трябва да влязат отново. Препоръчително е, ако искаш да премахнеш непознатите наведнъж.',
   'pro.pin_keep_unavailable':
-    'Паролата не е променена. В момента хората не могат да останат в стаята. Опитай отново по-късно или избери „Всички влизат отново“.',
+    'Паролата не е променена. В момента опцията „Всички остават“ не е достъпна. Опитай отново по-късно или избери „Всички влизат отново“.',
   'pro.pin_enabled_removed_title': 'Стаята вече има парола',
   'pro.pin_enabled_removed_message':
     'Собственикът на стаята зададе парола за тази стая. Въведи я, за да влезеш отново.',
@@ -834,7 +834,7 @@ const bg: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Останала е предишна връзка',
   'pro.active_tab_message': 'Ако продължиш тук, предишната връзка ще бъде прекъсната.',
   'pro.active_tab_replaced': 'Тази PRO стая вече е отворена в друг раздел',
-  'pro.use_this_tab': 'Продължи тук',
+  'pro.use_this_tab': 'Продължаване тук',
   'pro.upload.batch_progress': 'Качване на песни: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Някои песни не бяха качени',
   'pro.upload.batch_failed_message': 'Неуспешно качени песни от заявените {{total}}: {{failed}}.',
@@ -852,7 +852,7 @@ const bg: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'За да се свържеш, въведи <strong>6-цифрения код</strong> от хоста.<ul class="help-list"><li><strong>Хост:</strong> „Създаване на стая“ → преглед на кода</li><li><strong>Участник:</strong> „Присъединяване към стая“ → въвеждане на кода</li><li>Могат да се свържат до <strong>100 устройства, включително хостът</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Всеки участник избира <strong>роля (изходен канал)</strong>.<ul class="help-list"><li><strong>Център (Center):</strong> стерео изход (по подразбиране)</li><li><strong>Ляво (Left):</strong> изход на <bdi dir="ltr">L</bdi> канал</li><li><strong>Дясно (Right):</strong> изход на <bdi dir="ltr">R</bdi> канал</li><li><strong>Субуфер:</strong> смесен нискочестотен изход</li></ul>Можеш да променяш ролите по всяко време в <strong>Настройки</strong>.',
+    'Всеки участник избира <strong>роля (изходен канал)</strong>.<ul class="help-list"><li><strong>Централна тонколона:</strong> стерео изход (по подразбиране)</li><li><strong>Лява тонколона:</strong> изход на <bdi dir="ltr">L</bdi> канал</li><li><strong>Дясна тонколона:</strong> изход на <bdi dir="ltr">R</bdi> канал</li><li><strong>Субуфер:</strong> смесен нискочестотен изход</li></ul>Можеш да променяш ролите по всяко време в <strong>Настройки</strong>.',
   'player.play_media_action_html':
     'Хостът има 3 възможности.<ul class="help-list"><li><strong>Зареждане на локален файл:</strong> избор на музика от устройството. Поддържа прецизен синхрон</li><li><strong>YouTube заедно:</strong> поддържа видеоклипове и плейлисти. Няма разделяне по канали или звукови ефекти</li><li><strong>Споделяне на системен звук:</strong> достъпно, когато хостът използва браузър, базиран на Chromium, на компютър</li></ul>',
   'help.need_help_html':
@@ -875,7 +875,7 @@ const bg: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Задай роля на всяко устройство.<br>Възпроизведи поотделно левия и десния канал<br>и усети плътния бас от уфера.',
   'setup.advanced_audio_desc_html':
-    'Синхронизирай настройките на хоста<br>за реверберация, EQ, виртуални ефекти<br>и още параметри в цялата система.',
+    'Синхронизирай настройките на хоста<br>за реверберация, еквалайзер, виртуални ефекти<br>и още параметри в цялата система.',
   'youtube.enter_link_desc_html':
     'Могат да се възпроизвеждат само публични видеоклипове или плейлисти.',
 

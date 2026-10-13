@@ -169,8 +169,8 @@ describe('count-sensitive translations', () => {
       'Alex a adăugat 20 de piste, inclusiv Prima',
     );
 
-    // These labels deliberately put the count after a neutral plural label.
-    expect(t('playlist.delete_selected', { count: 1 })).toBe('Șterge pistele selectate: 1');
+    // The singular has its own form; the plural label keeps the count after a neutral noun.
+    expect(t('playlist.delete_selected', { count: 1 })).toBe('Șterge 1 pistă selectată');
     expect(t('toast.unsupported_files_excluded', { count: 20 })).toBe(
       'Fișiere neacceptate omise: 20',
     );
@@ -303,7 +303,7 @@ describe('count-sensitive translations', () => {
 
     const cases = [
       ['playlist.delete_selected', { count: 2 }, 'ลบ 2 รายการที่เลือก'],
-      ['connect.device_list', { count: 2 }, 'อุปกรณ์เชื่อมต่อ 2 เครื่อง'],
+      ['connect.device_list', { count: 2 }, 'อุปกรณ์ที่เชื่อมต่อ 2 เครื่อง'],
       ['connect.administrator_list', { count: 2 }, 'ผู้ดูแล 2 คน'],
       [
         'demo.session_body_connected',
@@ -333,7 +333,7 @@ describe('count-sensitive translations', () => {
     const cases = [
       ['playlist.delete_selected', { count: 2 }, 'Hapus 2 media terpilih'],
       ['connect.device_list', { count: 2 }, '2 perangkat tersambung'],
-      ['connect.administrator_list', { count: 2 }, '2 administrator'],
+      ['connect.administrator_list', { count: 2 }, '2 admin'],
       [
         'demo.session_body_connected',
         { count: 2 },
@@ -364,7 +364,7 @@ describe('count-sensitive translations', () => {
     const t = await loadTranslator('tr-TR');
 
     const cases = [
-      ['playlist.delete_selected', { count: 2 }, 'Seçilen 2 parçayı sil'],
+      ['playlist.delete_selected', { count: 2 }, 'Seçilen 2 medyayı sil'],
       ['connect.device_list', { count: 2 }, '2 bağlı cihaz'],
       ['connect.administrator_list', { count: 2 }, '2 yönetici'],
       [

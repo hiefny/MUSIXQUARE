@@ -157,7 +157,7 @@
       'বন্ধ করুন',
       'bn-BD',
       'সাইন-ইন বাতিল করা হয়েছে।',
-      'সাইন-ইন করা যায়নি। আবার চেষ্টা করুন।',
+      'সাইন ইন করা যায়নি। আবার চেষ্টা করুন।',
     ],
     ta: [
       'உள்நுழைவு முடிந்தது. இப்போது இந்தச் சாளரத்தை மூடலாம்.',
@@ -293,11 +293,11 @@
       'Det var ikke muligt at logge ind. Prøv igen.',
     ],
     nb: [
-      'Påloggingen er fullført. Du kan lukke dette vinduet.',
+      'Innloggingen er fullført. Du kan lukke dette vinduet.',
       'Lukk',
       'nb-NO',
-      'Påloggingen ble avbrutt.',
-      'Kunne ikke logge på. Prøv igjen.',
+      'Innloggingen ble avbrutt.',
+      'Kunne ikke logge inn. Prøv igjen.',
     ],
     fi: [
       'Kirjautuminen onnistui. Voit sulkea tämän ikkunan.',
@@ -310,15 +310,15 @@
       'A bejelentkezés befejeződött. Bezárhatod ezt az ablakot.',
       'Bezárás',
       'hu-HU',
-      'A bejelentkezést megszakították.',
+      'A bejelentkezés megszakadt.',
       'Nem sikerült bejelentkezni. Próbáld újra.',
     ],
     bg: [
-      'Влизането е завършено. Можете да затворите този прозорец.',
+      'Входът е завършен. Можеш да затвориш този прозорец.',
       'Затваряне',
       'bg-BG',
-      'Влизането беше отменено.',
-      'Неуспешно влизане. Опитайте отново.',
+      'Входът бе отменен.',
+      'Входът не бе успешен. Опитай отново.',
     ],
   };
 

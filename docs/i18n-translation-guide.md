@@ -63,6 +63,14 @@ is missing** — so a complete file must define every key.
 6. **Keep ALL-CAPS** only where the target script has letter case (Latin,
    Cyrillic). Caseless scripts (CJK, Thai) ignore it. Caps source values:
    `youtube.tap_to_play` = "TAP TO PLAY", `chat.system_sender` = "SYSTEM".
+7. **Keep toast lines within 50 characters.** `src/ui/toast.ts` cuts each
+   line of a toast at 50 code points and appends `…`; the full text survives
+   only as a tooltip. This applies to every `toast.*` key and to any other key
+   that reaches `showToast` or `bus.emit('ui:show-toast')` (for example
+   `transfer.*`, `system_audio.*`, `error.*`, `share.remote.*`, and the
+   `player.seek_unavailable_*` family). Count a `{{placeholder}}` at its
+   realistic rendered width, not at the template's width. Do not lengthen a
+   toast that already fits; shorten the wording instead (decided 2026-10-14).
 
 ---
 
@@ -105,8 +113,10 @@ is missing** — so a complete file must define every key.
   `settings.subwoofer_cutoff` control a low-pass cutoff on the subwoofer path.
   Translate “cutoff frequency”; do not claim a complementary crossover that the
   audio graph does not implement.
-- **Decimals:** follow your locale's separator in prose, but keep unit tokens
-  intact (`0.1s`, `20.0kHz`, `20Hz`).
+- **Decimals:** follow your locale's separator (`0,1 s`, `20,0 kHz` in German,
+  Spanish, Italian, Portuguese, Polish, …) and keep the unit symbol itself
+  intact (`s`, `Hz`, `kHz`, `dB`, `ms`, `%`). Decided 2026-10-14; earlier
+  wording asked to keep the whole token unchanged.
 
 ---
 

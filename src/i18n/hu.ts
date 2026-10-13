@@ -33,7 +33,7 @@ const hu: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Automatikus diaváltás szüneteltetése',
   'common.message': 'Üzenet',
   'common.mix': 'Keverés',
-  'common.wait': 'Várj...',
+  'common.wait': 'Egy pillanat...',
   'common.guest': 'Résztvevő',
   'common.help': 'Súgó',
   'common.increase': 'Növelés',
@@ -61,7 +61,7 @@ const hu: Record<I18nKey, string> = {
   'account.stats_count_value': '{{count}}',
   'account.stats_seconds_value': '{{seconds}} mp',
   'account.stats_minutes_value': '{{minutes}} perc',
-  'account.stats_hours_minutes_value': '{{hours}} ó {{minutes}} perc',
+  'account.stats_hours_minutes_value': '{{hours}} óra {{minutes}} perc',
   'account.change_nickname': 'Becenév módosítása',
   'account.logout': 'Kijelentkezés',
   'account.delete_account': 'Fiók törlése',
@@ -78,7 +78,7 @@ const hu: Record<I18nKey, string> = {
   'account.delete_confirm_message':
     'A becenév, a bejelentkezési munkamenetek és a fiókhoz kapcsolódó szobajogosultságok törlődnek. A szobában megosztott tartalomra az adott szoba megőrzési szabályzata vonatkozik.',
   'account.delete_pending':
-    'A fiók törlése folyamatban van. A PRO-jogosultságok biztonságosan eltávolításra kerülnek, a törlés pedig automatikusan befejeződik.',
+    'A fiók törlése folyamatban van. A PRO-jogosultságokat biztonságosan eltávolítjuk, a törlés pedig automatikusan befejeződik.',
   'common.previous': 'Vissza',
   'common.next_desc': 'Tovább',
   'common.volume_percent': 'Hangerő: {{val}}%',
@@ -90,7 +90,7 @@ const hu: Record<I18nKey, string> = {
   'common.connected': 'Csatlakoztatva',
   'common.disconnected': 'Leválasztva',
   'common.revoke': 'Visszavonás',
-  'common.grant': 'Megadás',
+  'common.grant': 'Jog megadása',
   'common.system': 'Rendszer',
   'common.unknown': 'Ismeretlen',
   'common.youtube_video': 'YouTube-videó',
@@ -108,7 +108,7 @@ const hu: Record<I18nKey, string> = {
   'nav.go_home': 'Ugrás a kezdőlapra',
 
   // ─── Player ──────────────────────────────────────────────────────
-  'player.no_media': 'Nincs lejátszott média',
+  'player.no_media': 'Nem szól semmi',
   'player.select_file_hint': 'Válassz fájlt, vagy ellenőrizd a lejátszási listát',
   'player.play_pause': 'Lejátszás/szünet',
   'player.visualizer': 'Hangmegjelenítő',
@@ -146,7 +146,7 @@ const hu: Record<I18nKey, string> = {
   'playlist.shuffle_on': 'Véletlenszerű lejátszás bekapcsolva',
   'playlist.shuffle_off': 'Véletlenszerű lejátszás kikapcsolva',
   'playlist.empty_hint': 'Még nincs média.',
-  'playlist.loading_info': 'Számadatok betöltése...',
+  'playlist.loading_info': 'A szám adatainak betöltése...',
   'playlist.sub_load_failed': 'Nem sikerült betölteni a videó adatait',
   'playlist.remove_title': 'Eltávolítás a lejátszási listáról',
   'playlist.select_for_deletion': '{{title}} kijelölése törlésre',
@@ -268,7 +268,7 @@ const hu: Record<I18nKey, string> = {
   'connect.permission_playback_control': 'Lejátszás vezérlése',
   'connect.permission_members_kick': 'Résztvevők eltávolítása',
   'connect.permission_chat_notice': 'Közlemények közzététele a csevegésben',
-  'connect.permission_inherited': 'Tartalmazva',
+  'connect.permission_inherited': 'Alapból jár',
   'connect.kick_member_message': 'Eltávolítod az összes {{name}} néven csatlakoztatott eszközt?',
   'connect.device_toggle': '{{name}} csatlakoztatott eszközeinek kibontása vagy összecsukása',
   'connect.device_label': '{{platform}} eszköz ({{code}})',
@@ -338,8 +338,7 @@ const hu: Record<I18nKey, string> = {
   'demo.session_subtitle': 'Bármikor meghívhatsz egy másik eszközt.',
   'demo.session_body_connected':
     'Jelenleg {{count}} eszköz csatlakozik.\nÁllíts be mindegyikhez egy szerepet.',
-  'demo.session_body_alone':
-    'Jelenleg csak ez az eszköz játszik le.\nHívj meg most egy másik eszközt.',
+  'demo.session_body_alone': 'Jelenleg csak ez az eszköz szól.\nHívj meg most egy másik eszközt.',
   'demo.effects_step_title': 'Alakítsd ki a prémium hangzást.',
   'demo.effects_step_subtitle':
     'Ezeket a speciális akusztikai beállításokat bármikor finomhangolhatod a Beállításokban.',
@@ -354,7 +353,7 @@ const hu: Record<I18nKey, string> = {
   'setup.what_sound': 'Mit játsszon le ez az eszköz?',
   'setup.change_later': 'Ezt bármikor módosíthatod a Beállításokban.',
   'setup.welcome_title': 'Üdvözlünk',
-  'setup.join_session_subtitle': 'A {{code}} kódú munkamenethez készülsz csatlakozni.',
+  'setup.join_session_subtitle': 'Csatlakozni készülsz ehhez a munkamenethez: {{code}}.',
   'setup.select_role': 'Válassz szerepet',
   'setup.select_role_alt': 'Válassz szerepet',
   'setup.greeting': 'Szia!',
@@ -411,7 +410,7 @@ const hu: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Lassú mód kikapcsolva',
   'chat.cmd_slowmode_wait': 'Várj {{sec}} másodpercet a küldés előtt',
   'chat.cmd_notice_prefix': 'Közlemény',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': 'RENDSZER',
   'chat.bot_unavailable': 'A BOT csak PRO-szobákban érhető el',
   'chat.bot_processing': 'A BOT dolgozik a kérésen...',
   'chat.bot_completed': 'A BOT-kérés teljesült',
@@ -423,7 +422,7 @@ const hu: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'A szám kihagyva: egyes eszközök nem támogatják ezt a formátumot.',
   'chat.large_track_playback_system_message':
-    'Ez a szám nagyon nagy, ezért használat közben késések fordulhatnak elő.',
+    'Ennek a számnak nagyon nagy a fájlmérete, ezért használat közben késések fordulhatnak elő.',
   'chat.large_local_track_system_message':
     'A szám fájlja nagyon nagy, ezért egyes eszközökön nem biztos, hogy lejátszható.',
   'chat.device_track_unavailable_system_message':
@@ -451,7 +450,7 @@ const hu: Record<I18nKey, string> = {
   'chat.cmd_already_op': '{{name}} már adminisztrátor',
   'chat.cmd_not_op': '{{name}} nem adminisztrátor',
   'chat.cmd_help_title': 'Elérhető parancsok',
-  'chat.cmd_help_target_hint': '* A [device] egyedi szám (például #1)',
+  'chat.cmd_help_target_hint': '* Az [eszköz] egyedi szám (például #1)',
   'chat.cmd_unknown': 'Ismeretlen parancs: /{{cmd}}',
   'chat.cmd_usage': 'Használat: {{usage}}',
   'chat.cmd_users_title': 'Csatlakoztatott felhasználók',
@@ -461,20 +460,20 @@ const hu: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
-  'chat.cmd_u_bot': '/bot [request]',
+  'chat.cmd_u_bot': '/bot [kérés]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
-  'chat.cmd_u_slowmode': '/slowmode [seconds]',
-  'chat.cmd_u_w': '/w [device] [message]',
-  'chat.cmd_u_whisper': '/whisper [device] [message]',
-  'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [new name]',
-  'chat.cmd_u_kick': '/kick [device]',
-  'chat.cmd_u_op': '/op [device]',
-  'chat.cmd_u_deop': '/deop [device]',
-  'chat.cmd_u_mute': '/mute [device]',
-  'chat.cmd_u_unmute': '/unmute [device]',
+  'chat.cmd_u_slowmode': '/slowmode [másodperc]',
+  'chat.cmd_u_w': '/w [eszköz] [üzenet]',
+  'chat.cmd_u_whisper': '/whisper [eszköz] [üzenet]',
+  'chat.cmd_u_notice': '/notice [üzenet]',
+  'chat.cmd_u_nick': '/nick [új név]',
+  'chat.cmd_u_kick': '/kick [eszköz]',
+  'chat.cmd_u_op': '/op [eszköz]',
+  'chat.cmd_u_deop': '/deop [eszköz]',
+  'chat.cmd_u_mute': '/mute [eszköz]',
+  'chat.cmd_u_unmute': '/unmute [eszköz]',
   'chat.cmd_d_help': 'Parancslista',
   'chat.cmd_d_users': 'Csatlakoztatott felhasználók megtekintése',
   'chat.cmd_d_bot': 'A lejátszási lista kezelése AI segítségével',
@@ -495,7 +494,7 @@ const hu: Record<I18nKey, string> = {
   'chat.debug_copied':
     'A hibakeresési adatok kimásolva.\nHa hibát találtál, küldd el őket a fejlesztőnek.',
   'chat.seek_to': 'Ugrás ide: {{time}}',
-  'chat.copied': 'Csevegés kimásolva',
+  'chat.copied': 'Üzenet kimásolva',
   'chat.copy_hint': 'Az üzenet másolásához nyomd meg az Entert',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -511,7 +510,7 @@ const hu: Record<I18nKey, string> = {
   'youtube.load_timeout': 'A YouTube betöltése túllépte az időkorlátot.\nPróbáld újra.',
   'youtube.invalid_link': 'Érvénytelen YouTube-hivatkozás',
   'youtube.effects_disabled':
-    'Nézzétek együtt a YouTube-ot.\nA speciális hangeffektusok ki vannak kapcsolva.',
+    'Közös YouTube-nézés.\nA speciális hangeffektusok ki vannak kapcsolva.',
   'youtube.enter_link_placeholder': 'Adj meg videó- vagy lejátszásilista-hivatkozást',
   'youtube.enter_source_toast': 'Adj meg YouTube-hivatkozást vagy keresőkifejezést',
   'youtube.fetching_info': 'Videóadatok betöltése...',
@@ -579,10 +578,10 @@ const hu: Record<I18nKey, string> = {
   'toast.media_management_required': 'Médiakezelési jogosultság szükséges.',
   'toast.playback_control_required': 'Lejátszásvezérlési jogosultság szükséges.',
   'toast.member_management_required': 'Résztvevő-eltávolítási jogosultság szükséges.',
-  'toast.chat_notice_required': 'Csevegési közlemény közzétételi joga szükséges.',
+  'toast.chat_notice_required': 'Közlemény közzétételéhez jogosultság szükséges.',
   'toast.room_owner_required': 'Ezt csak a szobatulajdonos módosíthatja.',
   'toast.system_audio_owner_required':
-    'Csak abból a lapból oszthat meg hangot, amelyik megnyitotta a szobát.',
+    'Csak arról a lapról oszthatsz meg hangot, amelyik megnyitotta a szobát.',
   'toast.host_only_youtube': 'YouTube-hivatkozást csak a házigazda adhat hozzá.',
   'toast.host_only_control': 'Ezt csak a házigazda vezérelheti',
   'toast.host_setting_required': 'Ezt a beállítást csak a házigazda módosíthatja',
@@ -686,7 +685,7 @@ const hu: Record<I18nKey, string> = {
   'error.host_disconnected': 'Megszakadt a kapcsolat a házigazdával',
   'error.host_conn_error': 'Hiba történt a házigazdához való csatlakozáskor',
   'error.connect_failed': 'A csatlakozás sikertelen',
-  'error.peer_not_ready': 'A partnerkapcsolat még nem áll készen',
+  'error.peer_not_ready': 'Az eszközök közötti kapcsolat még nem áll készen',
   'error.network_init_failed': 'A hálózat inicializálása sikertelen',
   'error.no_host_id': 'Nem található házigazda-azonosító',
   'error.peer_unavailable': 'A munkamenet nem található.\nEllenőrizd újra a kódot.',
@@ -751,15 +750,15 @@ const hu: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO-szoba aktiválása',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Válassz fiókot ehhez a PRO-szobához',
+  'pro.activation_account_message': 'Regisztrálod ezt a szobát a következő fiókhoz: „{{name}}”?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Jelentkezz be azzal a fiókkal, amelyhez ezt a szobát regisztrálni szeretnéd.',
+  'pro.activation_account_continue': 'Folytatás',
+  'pro.activation_account_switch': 'Másik fiók',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Nem sikerült ellenőrizni a fiókodat. Próbáld újra hamarosan.',
+  'pro.activation_complete': 'Regisztráció befejezése',
   'pro.activation_message': 'Állíts be új, nyolcjegyű jelszót ehhez a szobához.',
   'pro.activation_pin_same': 'Válassz az ideiglenestől eltérő jelszót.',
   'pro.claim_retry_title': 'Újrapróbálod a PRO-hivatkozást?',
@@ -781,7 +780,7 @@ const hu: Record<I18nKey, string> = {
     'Ez a szoba másik fiókhoz tartozik. Ha módosítanod kell, kérj tulajdonjog-átruházást egy adminisztrátortól.',
   'pro.claim_account_capacity_title': 'Ehhez a fiókhoz nem társítható több szoba',
   'pro.claim_account_capacity_message':
-    'A fiók elérte a társítható PRO-szobák korlátját. Távolíts el egy meglévő társítást, majd kérj újat.',
+    'A fiók elérte a társítható PRO-szobák korlátját. Távolíts el egy meglévő társítást, majd kérj új hivatkozást.',
   'pro.claim_failed_title': 'A kérés nem teljesíthető',
   'pro.claim_failed_message':
     'Biztonsági okokból a hivatkozást nem próbáltuk újra. Kérj új hivatkozást a szoba adminisztrátorától.',
@@ -853,7 +852,7 @@ const hu: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'A kapcsolódáshoz add meg a házigazdától kapott <strong>hatjegyű kódot</strong>.<ul class="help-list"><li><strong>Házigazda:</strong> „Szoba létrehozása” → kód megtekintése</li><li><strong>Résztvevő:</strong> „Csatlakozás szobához” → kód megadása</li><li>Legfeljebb <strong>100 eszköz csatlakozhat a házigazdával együtt</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Minden résztvevő kiválaszt egy <strong>szerepet (kimeneti csatornát)</strong>.<ul class="help-list"><li><strong>Közép:</strong> sztereó (alapértelmezett) kimenet</li><li><strong>Bal (Left):</strong> <bdi dir="ltr">L</bdi> csatorna kimenete</li><li><strong>Jobb (Right):</strong> <bdi dir="ltr">R</bdi> csatorna kimenete</li><li><strong>Mélynyomó:</strong> kevert mélyfrekvenciás kimenet</li></ul>A szerepek bármikor módosíthatók a <strong>Beállításokban</strong>.',
+    'Minden résztvevő kiválaszt egy <strong>szerepet (kimeneti csatornát)</strong>.<ul class="help-list"><li><strong>Középső hangszóró:</strong> sztereó (alapértelmezett) kimenet</li><li><strong>Bal hangszóró:</strong> <bdi dir="ltr">L</bdi> csatorna kimenete</li><li><strong>Jobb hangszóró:</strong> <bdi dir="ltr">R</bdi> csatorna kimenete</li><li><strong>Mélynyomó:</strong> kevert mélyfrekvenciás kimenet</li></ul>A szerepek bármikor módosíthatók a <strong>Beállításokban</strong>.',
   'player.play_media_action_html':
     'A házigazdának 3 lehetősége van.<ul class="help-list"><li><strong>Helyi fájl betöltése:</strong> zene kiválasztása az eszközről. Támogatja a pontos szinkronizálást</li><li><strong>Közös YouTube-nézés:</strong> videók és lejátszási listák támogatása. Nincs csatornaszétválasztás vagy hangeffektus</li><li><strong>Rendszerhang megosztása:</strong> akkor érhető el, ha a házigazda Chromium-alapú böngészőt használ számítógépen</li></ul>',
   'help.need_help_html':
@@ -876,7 +875,7 @@ const hu: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Állítsd be minden eszköz szerepét.<br>Játszd le külön a bal és jobb csatornát,<br>és érezd a mélynyomó erőteljes basszusát.',
   'setup.advanced_audio_desc_html':
-    'Hangold össze a házigazda beállításait<br>zengetéssel, hangszínszabályzóval, virtuális effektusokkal<br>és más lehetőségekkel az egész rendszerben.',
+    'A házigazda beállításai szerint<br>zengetés, hangszínszabályzó, virtuális effektusok<br>és még sok más érvényesül az egész rendszerben.',
   'youtube.enter_link_desc_html': 'Csak nyilvános videók vagy lejátszási listák játszhatók le.',
 
   // ─── System Audio Sharing ─────────────────────────────────────

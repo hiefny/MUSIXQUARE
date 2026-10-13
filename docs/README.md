@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [42개 로케일 번역 품질 업데이트 — 2026-10-14](design/i18n-quality-update-2026-10-14.md) —
+  전수 조사 제안을 오너 결정으로 걸러 사전 값 1,742건 변경(PRO 활성화 7키 신규 번역
+  70건 포함), 복수형·계정 페이지·`<bdi>` 복구, 토스트 50자 상한 보정, 영어 폴백 동기화.
+  App 범위(8.10.11/v674), 점검 안내는 Worker 후속.
 - [YouTube playlist and native administrator repair — 2026-10-14](design/youtube-playlist-native-control-repair-2026-10-14.md) —
   Complete Standard manifests, atomic PRO reentry projection, native control
   ownership and browser/release evidence with provider limitations.

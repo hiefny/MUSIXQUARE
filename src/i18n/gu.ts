@@ -19,7 +19,7 @@ const gu: Record<I18nKey, string> = {
   'common.close': 'બંધ કરો',
   'common.reset': 'મૂળ સ્થિતિમાં લાવો',
   'common.clear_input': 'લખાણ સાફ કરો',
-  'common.refresh': 'ફરી લોડ કરો',
+  'common.refresh': 'રિફ્રેશ કરો',
   'common.retry': 'ફરી પ્રયાસ કરો',
   'common.later': 'પછી',
   'common.next': 'આગળ',
@@ -30,7 +30,7 @@ const gu: Record<I18nKey, string> = {
   'common.granted': 'મંજૂર',
   'common.revoked': 'રદ',
   'common.stop': 'રોકો',
-  'common.pause': 'વિરામ આપો',
+  'common.pause': 'થોભાવો',
   'setup.carousel_pause': 'સ્લાઇડનું આપમેળે ફરવાનું થોભાવો',
   'common.message': 'સંદેશ',
   'common.mix': 'મિશ્રણ',
@@ -90,7 +90,7 @@ const gu: Record<I18nKey, string> = {
   'common.woofer': 'વૂફર',
   'common.connected': 'જોડાયેલ',
   'common.disconnected': 'જોડાણ તૂટ્યું',
-  'common.revoke': 'રદ કરો',
+  'common.revoke': 'પરવાનગી રદ કરો',
   'common.grant': 'મંજૂરી આપો',
   'common.system': 'સિસ્ટમ',
   'common.unknown': 'અજ્ઞાત',
@@ -102,16 +102,16 @@ const gu: Record<I18nKey, string> = {
   'nav.playlist': 'પ્લેલિસ્ટ',
   'nav.settings': 'સેટિંગ્સ',
   'nav.help': 'મદદ',
-  'nav.connect': 'જોડાવો',
+  'nav.connect': 'જોડાણ',
   'nav.playlist_compact': 'પ્લેલિસ્ટ',
-  'nav.connect_compact': 'જોડાવો',
+  'nav.connect_compact': 'જોડાણ',
   'nav.settings_compact': 'સેટિંગ્સ',
   'nav.go_home': 'મુખ્ય પાને જાઓ',
 
   // ─── Player ──────────────────────────────────────────────────────
   'player.no_media': 'કોઈ મીડિયા ચાલી રહ્યું નથી',
   'player.select_file_hint': 'ફાઇલ પસંદ કરો અથવા પ્લેલિસ્ટ તપાસો',
-  'player.play_pause': 'ચલાવો/વિરામ',
+  'player.play_pause': 'ચલાવો/થોભાવો',
   'player.visualizer': 'ઑડિયો વિઝ્યુઅલાઇઝર',
   'player.seek': 'પ્લેબૅકનું સ્થાન બદલો',
   'player.seek_unavailable_system_audio':
@@ -122,7 +122,7 @@ const gu: Record<I18nKey, string> = {
   'player.prev_track': 'પાછલો ટ્રૅક',
   'player.next_track': 'આગળનો ટ્રૅક',
   'player.repeat_mode': 'પુનરાવર્તન મોડ બદલો',
-  'player.shuffle_mode': 'આડેધડ ક્રમનો મોડ બદલો',
+  'player.shuffle_mode': 'શફલ મોડ બદલો',
   'player.sync_compact': 'સિંક',
   'player.syncing_compact': 'સિંક…',
   'player.play_media': 'મીડિયા ચલાવો',
@@ -144,8 +144,8 @@ const gu: Record<I18nKey, string> = {
   'playlist.repeat_all': 'બધા ટ્રૅકનું પુનરાવર્તન ચાલુ',
   'playlist.repeat_one': 'હાલના ટ્રૅકનું પુનરાવર્તન ચાલુ',
   'playlist.repeat_off': 'પુનરાવર્તન બંધ',
-  'playlist.shuffle_on': 'આડેધડ ક્રમ ચાલુ',
-  'playlist.shuffle_off': 'આડેધડ ક્રમ બંધ',
+  'playlist.shuffle_on': 'શફલ ચાલુ',
+  'playlist.shuffle_off': 'શફલ બંધ',
   'playlist.empty_hint': 'હજી કોઈ મીડિયા નથી.',
   'playlist.loading_info': 'ટ્રૅકની માહિતી લોડ થઈ રહી છે...',
   'playlist.sub_load_failed': 'વિડિયોની માહિતી લોડ થઈ શકી નથી',
@@ -159,9 +159,9 @@ const gu: Record<I18nKey, string> = {
   'playlist.track_fallback': 'ટ્રૅક {{idx}}',
   'playlist.deferred_load_hint': 'ટ્રૅકની સંપૂર્ણ યાદી લોડ કરવા ચલાવો',
   'playlist.host_update_required': 'આ રૂમ સંભાળતું ડિવાઇસ અપડેટ કરો.',
-  'playlist.queue_full': 'પ્લેલિસ્ટ ભરાઈ ગયું છે.',
-  'playlist.mutation_retry': 'પ્લેલિસ્ટ બદલાયું છે. ફરી પ્રયાસ કરો.',
-  'transfer.host_busy': 'હોસ્ટ બીજી ફાઇલ પર પ્રક્રિયા કરી રહ્યો છે. થોડી વારમાં ફરી પ્રયાસ કરો.',
+  'playlist.queue_full': 'પ્લેલિસ્ટ ભરાઈ ગઈ છે.',
+  'playlist.mutation_retry': 'પ્લેલિસ્ટ બદલાઈ છે. ફરી પ્રયાસ કરો.',
+  'transfer.host_busy': 'હોસ્ટ બીજી ફાઇલ પર પ્રક્રિયા કરી રહ્યા છે. થોડી વારમાં ફરી પ્રયાસ કરો.',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'મધ્ય સ્પીકર',
@@ -263,7 +263,7 @@ const gu: Record<I18nKey, string> = {
   'connect.administrator_revoke_title': 'સંચાલક પરવાનગી રદ કરવી છે?',
   'connect.administrator_revoke_message': '{{name}} ની સંચાલક પરવાનગીઓ રદ કરવી છે?',
   'connect.permissions_title': '{{name}} ની પરવાનગીઓ',
-  'connect.permission_media_add': 'મીડિયા સંભાળો',
+  'connect.permission_media_add': 'મીડિયા સંચાલન',
   'connect.permission_playback_control': 'પ્લેબૅક નિયંત્રણ',
   'connect.permission_members_kick': 'સભ્યોને દૂર કરો',
   'connect.permission_chat_notice': 'ચૅટ સૂચનાઓ પોસ્ટ કરો',
@@ -288,7 +288,7 @@ const gu: Record<I18nKey, string> = {
   'connect.room_password_on': 'પાસવર્ડ લાગુ કર્યો',
   'connect.room_password_invalid': '8 અંકો દાખલ કરો',
   'connect.room_password_disabled': 'સહભાગીઓને હવે રૂમના પાસવર્ડની જરૂર નથી',
-  'connect.room_password_apply_pending': 'કનેક્શન પાછું આવે ત્યારે નવો પાસવર્ડ લાગુ થશે.',
+  'connect.room_password_apply_pending': 'જોડાણ પાછું આવે ત્યારે નવો પાસવર્ડ લાગુ થશે.',
   'connect.pin_enabled_removed_message':
     'હોસ્ટે રૂમનો પાસવર્ડ સેટ કર્યો છે. ફરી જોડાવા માટે તે દાખલ કરો.',
   'connect.pin_changed_removed_message':
@@ -296,7 +296,7 @@ const gu: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'રૂમ સર્વર ઑનલાઇન છે',
   'connect.signaling_recovering': 'ફરી જોડાઈ રહ્યું છે…',
   'connect.signaling_failed': 'સર્વર જોડાણ નિષ્ફળ',
-  'connect.signaling_recover_action': 'ફરી જોડાવો',
+  'connect.signaling_recover_action': 'ફરી જોડાઓ',
   'connect.signaling_recovery_wait': 'રૂમ સર્વર ફરી તપાસી રહ્યા છીએ.',
   'connect.signaling_reconnecting': 'રૂમ સર્વર સાથે ફરી જોડાઈ રહ્યું છે · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'રૂમ સર્વરનું જોડાણ પુનઃસ્થાપિત થયું.',
@@ -328,7 +328,7 @@ const gu: Record<I18nKey, string> = {
   'demo.role_bass_short': 'બેસ',
   'demo.role_center_short': 'મધ્ય',
   'demo.step_nav_label': 'ડેમોના પગલાં',
-  'demo.step_connect': '1. જોડાવો',
+  'demo.step_connect': '1. ડિવાઇસ જોડો',
   'demo.step_role': '2. ભૂમિકા નક્કી કરો',
   'demo.step_effects': '3. ઑડિયો ઇફેક્ટ',
   'demo.step_finish': '4. ડેમો બંધ કરો',
@@ -364,7 +364,7 @@ const gu: Record<I18nKey, string> = {
   'setup.camera_unavailable': 'કૅમેરો શરૂ થઈ શક્યો નથી',
   'setup.camera_stream_stalled':
     'કૅમેરાનું પૂર્વદર્શન શરૂ થયું નથી.\nબ્રાઉઝરમાં ખોલો અથવા કોડ દાખલ કરો.',
-  'setup.connect_devices': 'શરૂ કરવા તમારા અન્ય ડિવાઇસ જોડાવો.',
+  'setup.connect_devices': 'શરૂ કરવા તમારા અન્ય ડિવાઇસ જોડો.',
   'setup.enter_code_connect': 'આમંત્રણ કોડ',
   'setup.last_step': 'ચાલો, શરૂ કરીએ!',
   'setup.joining': 'જોડાઈ રહ્યું છે...',
@@ -544,7 +544,7 @@ const gu: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} પરવાનગી {{status}}',
   'toast.file_read_error': 'ફાઇલ વાંચવામાં ભૂલ: {{name}}',
   'toast.host_ended_connection': 'હોસ્ટે જોડાણ બંધ કર્યું છે',
-  'toast.announcement_available': 'નવી જાહેરાત છે.\nચૅટ પૅનલ તપાસો.',
+  'toast.announcement_available': 'નવી સૂચના છે.\nચૅટ પૅનલ તપાસો.',
   'toast.copy_failed': 'કૉપિ થઈ શક્યું નથી',
   'toast.email_copied': 'ઈમેલ સરનામું કૉપિ થયું!',
   'toast.settings_sync_enabled': 'સેટિંગ્સ સિંક ચાલુ છે',
@@ -586,7 +586,7 @@ const gu: Record<I18nKey, string> = {
   'toast.hprecision_sync': 'ઉચ્ચ-ચોકસાઈ સિંક: ઑડિયો તૈયાર થઈ રહ્યો છે…',
   'toast.file_ready': 'તમારી ફાઇલ તૈયાર છે!\nચલાવો બટન દબાવો.',
   'toast.host_sync_not_recommended': 'મહેમાન ડિવાઇસ પર સિંક ગોઠવો',
-  'toast.host_sync_requested': 'અતિચોક્કસ સિંકની વિનંતી થઈ.\nમહેમાન ડિવાઇસ પર હાથેથી સિંક ગોઠવો.',
+  'toast.host_sync_requested': 'અતિચોક્કસ સિંકની વિનંતી થઈ.\nમહેમાન ડિવાઇસ પર મેન્યુઅલ સિંક ગોઠવો.',
   'toast.sync_not_in_system_audio': 'સિસ્ટમ ઑડિયો શેરિંગ મોડમાં સિંક ઉપલબ્ધ નથી',
   'toast.sync_not_ready': 'હજી તૈયાર નથી.\nથોડી વારમાં ફરી પ્રયાસ કરો',
   'toast.sync_no_media': 'સિંક કરવા કોઈ મીડિયા નથી.\nપહેલા ચલાવવા માટે કંઈક પસંદ કરો',
@@ -595,7 +595,7 @@ const gu: Record<I18nKey, string> = {
   'toast.yt_sync_done': 'સિંક પૂર્ણ',
   'toast.yt_rendezvous_start': 'હોસ્ટ સાથે ગોઠવી રહ્યા છીએ...',
   'toast.yt_rendezvous_done': 'સિંક પૂર્ણ',
-  'toast.yt_rendezvous_host_paused': 'હોસ્ટે વિરામ આપ્યો છે; ફક્ત પ્લેબૅકનું સ્થાન ગોઠવ્યું',
+  'toast.yt_rendezvous_host_paused': 'હોસ્ટે થોભાવ્યું છે; ફક્ત પ્લેબૅકનું સ્થાન ગોઠવ્યું',
   'toast.yt_rendezvous_no_data': 'હોસ્ટનો પ્લેબૅક ડેટા હજી નથી; થોડી વારમાં ફરી પ્રયાસ કરો',
   'toast.yt_rendezvous_timeout': 'સિંક નિષ્ફળ; થોડી વારમાં ફરી પ્રયાસ કરો',
   'toast.yt_host_sync_sent': 'સહભાગીઓને આપમેળે-સિંક સિગ્નલ મોકલ્યો',
@@ -661,7 +661,7 @@ const gu: Record<I18nKey, string> = {
   'error.session_handshake_failed':
     'સત્રનું જોડાણ પૂર્ણ થઈ શક્યું નથી. બંને ડિવાઇસ રિફ્રેશ કરી ફરી પ્રયાસ કરો.',
   'error.host_unreachable': 'લાગે છે કે હોસ્ટે સત્ર છોડી દીધું છે',
-  'error.host_disconnected': 'હોસ્ટનું જોડાણ તૂટ્યું',
+  'error.host_disconnected': 'હોસ્ટ સાથેનું જોડાણ તૂટ્યું',
   'error.host_conn_error': 'હોસ્ટ સાથે જોડાતાં ભૂલ થઈ',
   'error.connect_failed': 'જોડાણ નિષ્ફળ',
   'error.peer_not_ready': 'પીઅર જોડાણ હજી તૈયાર નથી',
@@ -672,7 +672,7 @@ const gu: Record<I18nKey, string> = {
   'error.network_issue': 'નેટવર્કમાં સમસ્યા છે.\nતમારું ઇન્ટરનેટ જોડાણ તપાસો.',
   'error.signal_server_fail':
     'સિગ્નલિંગ સર્વર સુધી પહોંચી શકાતું નથી.\nથોડી વારમાં ફરી પ્રયાસ કરો.',
-  'error.server_disconnected': 'સર્વરનું જોડાણ તૂટ્યું.',
+  'error.server_disconnected': 'સર્વર સાથેનું જોડાણ તૂટ્યું.',
   'error.session_id_unavailable': 'સત્ર ID ઉપલબ્ધ નથી.\nફરી પ્રયાસ કરો.',
   'error.webrtc_failed': 'WebRTC જોડાણ નિષ્ફળ.\nતમારા બ્રાઉઝરની સેટિંગ્સ તપાસો.',
   'error.browser_unsupported':
@@ -701,7 +701,7 @@ const gu: Record<I18nKey, string> = {
   'dialog.background_resume_sync_fallback_message':
     'સિંક બરાબર ન હોય અથવા ઑડિયો ન ચાલે તો ઍપ સંપૂર્ણ બંધ કરી ફરી ખોલો.',
   'dialog.got_it': 'સમજાયું',
-  'dialog.continue_using': 'આગળ વધો',
+  'dialog.continue_using': 'વાપરવાનું ચાલુ રાખો',
   'dialog.leave_session': 'બહાર નીકળો',
   'dialog.sw_update_title': 'અપડેટ',
   'dialog.sw_update_msg': 'નવી આવૃત્તિ તૈયાર છે. અપડેટ કરવા રિફ્રેશ કરો.',
@@ -709,7 +709,7 @@ const gu: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE અપડેટ થયું છે. સામાન્ય રીતે વાપરવાનું ચાલુ રાખવા રિફ્રેશ કરો.',
   'dialog.reconnect_ask': 'ફરી જોડાવું છે?',
-  'dialog.reconnect': 'ફરી જોડાવો',
+  'dialog.reconnect': 'ફરી જોડાઓ',
   'dialog.go_back': 'પાછા જાઓ',
   'dialog.step_next': 'આગળ',
   'dialog.step_back': 'પાછળ',
@@ -729,15 +729,14 @@ const gu: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO રૂમ સક્રિય કરો',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_title': 'આ PRO રૂમ માટે ખાતું પસંદ કરો',
+  'pro.activation_account_message': 'આ રૂમ “{{name}}” ખાતામાં નોંધાવવો છે?',
+  'pro.activation_account_login_message': 'આ રૂમ જે ખાતામાં નોંધાવવો હોય તે ખાતાથી સાઇન ઇન કરો.',
+  'pro.activation_account_continue': 'આગળ વધો',
+  'pro.activation_account_switch': 'બીજું ખાતું',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'તમારું ખાતું ચકાસી શકાયું નથી. થોડી વારમાં ફરી પ્રયાસ કરો.',
+  'pro.activation_complete': 'નોંધણી પૂર્ણ કરો',
   'pro.activation_message': 'આ રૂમ માટે નવો 8-અંકનો પાસવર્ડ નક્કી કરો.',
   'pro.activation_pin_same': 'કામચલાઉ પાસવર્ડથી જુદો પાસવર્ડ પસંદ કરો.',
   'pro.claim_retry_title': 'PRO લિંક ફરી અજમાવવી છે?',
@@ -759,7 +758,7 @@ const gu: Record<I18nKey, string> = {
     'આ રૂમ બીજા ખાતા સાથે જોડાયેલો છે. તેને બદલવો હોય તો માલિકી હસ્તાંતરિત કરવા સંચાલકને કહો.',
   'pro.claim_account_capacity_title': 'આ ખાતું બીજો રૂમ જોડી શકતું નથી',
   'pro.claim_account_capacity_message':
-    'આ ખાતાએ PRO રૂમ લિંકની મર્યાદા મેળવી લીધી છે. હાલની એક લિંક દૂર કરો, પછી નવી લિંક માગો.',
+    'આ ખાતું PRO રૂમ લિંકની મર્યાદા સુધી પહોંચી ગયું છે. હાલની એક લિંક દૂર કરો, પછી નવી લિંક માગો.',
   'pro.claim_failed_title': 'આ વિનંતી પૂર્ણ થઈ શકી નથી',
   'pro.claim_failed_message':
     'સુરક્ષા માટે આ લિંકનો ફરી પ્રયાસ થયો નથી. રૂમના સંચાલક પાસેથી નવી લિંક માગો.',
@@ -801,7 +800,7 @@ const gu: Record<I18nKey, string> = {
   'pro.removed_title': 'તમને રૂમમાંથી દૂર કરવામાં આવ્યા',
   'pro.removed_message': 'રૂમના માલિક અથવા કોઈ સંચાલકે તમને આ રૂમમાંથી દૂર કર્યા છે.',
   'pro.device_removed_message':
-    'તમારા એકાઉન્ટમાં સાઇન ઇન કરેલા બીજા ડિવાઇસે આ ડિવાઇસને રૂમમાંથી ડિસ્કનેક્ટ કર્યું છે.',
+    'તમારા ખાતામાં સાઇન ઇન કરેલા બીજા ડિવાઇસે આ ડિવાઇસનું રૂમ સાથેનું જોડાણ બંધ કર્યું છે.',
   'pro.owner_only': 'આ ફક્ત રૂમનો માલિક કરી શકે છે.',
   'pro.connect_failed': 'PRO રૂમ સાથે જોડાઈ શકાયું નથી.',
   'pro.room_full': 'આ PRO રૂમ ભરાઈ ગયો છે',
@@ -831,7 +830,7 @@ const gu: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'જોડાવા માટે હોસ્ટનો <strong>6-અંકનો કોડ</strong> દાખલ કરો.<ul class="help-list"><li><strong>હોસ્ટ:</strong> “રૂમ બનાવો” → કોડ તપાસો</li><li><strong>સહભાગી:</strong> “રૂમમાં જોડાઓ” → કોડ દાખલ કરો</li><li><strong>હોસ્ટ સહિત વધુમાં વધુ 100 ડિવાઇસ</strong> જોડાઈ શકે છે.</li></ul>',
   'player.play_speakers_html':
-    'દરેક સહભાગી એક <strong>ભૂમિકા (આઉટપુટ ચૅનલ)</strong> પસંદ કરે છે.<ul class="help-list"><li><strong>મધ્ય:</strong> સ્ટીરિયો (મૂળભૂત) આઉટપુટ</li><li><strong>ડાબું:</strong> <bdi dir="ltr">L</bdi> ચૅનલ આઉટપુટ</li><li><strong>જમણું:</strong> <bdi dir="ltr">R</bdi> ચૅનલ આઉટપુટ</li><li><strong>સબવૂફર:</strong> ઓછી આવર્તનનું મિશ્રિત આઉટપુટ</li></ul><strong>સેટિંગ્સ</strong>માં ભૂમિકા ગમે ત્યારે બદલી શકો છો.',
+    'દરેક સહભાગી એક <strong>ભૂમિકા (આઉટપુટ ચૅનલ)</strong> પસંદ કરે છે.<ul class="help-list"><li><strong>મધ્ય સ્પીકર:</strong> સ્ટીરિયો (મૂળભૂત) આઉટપુટ</li><li><strong>ડાબું સ્પીકર:</strong> <bdi dir="ltr">L</bdi> ચૅનલ આઉટપુટ</li><li><strong>જમણું સ્પીકર:</strong> <bdi dir="ltr">R</bdi> ચૅનલ આઉટપુટ</li><li><strong>સબવૂફર:</strong> ઓછી આવર્તનનું મિશ્રિત આઉટપુટ</li></ul><strong>સેટિંગ્સ</strong>માં ભૂમિકા ગમે ત્યારે બદલી શકો છો.',
   'player.play_media_action_html':
     'હોસ્ટ પાસે 3 વિકલ્પ છે.<ul class="help-list"><li><strong>સ્થાનિક ફાઇલ લોડ કરો:</strong> તમારા ડિવાઇસમાંથી સંગીત પસંદ કરો. ચોક્કસ સિંક સમર્થિત</li><li><strong>સાથે YouTube:</strong> વિડિયો અને પ્લેલિસ્ટ સમર્થિત. ચૅનલ વિભાજન કે ઑડિયો ઇફેક્ટ નથી</li><li><strong>સિસ્ટમ ઑડિયો શેરિંગ:</strong> હોસ્ટ કમ્પ્યુટર પર Chromium-આધારિત બ્રાઉઝર વાપરે ત્યારે ઉપલબ્ધ</li></ul>',
   'help.need_help_html':
@@ -892,7 +891,7 @@ const gu: Record<I18nKey, string> = {
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'સેવા વિશેની નોંધ',
   'legal.content_html':
-    '<strong>ગોપનીયતા નીતિ</strong><br><span data-legal-standard-storage>એક જ નેટવર્ક પર સત્રની મોટાભાગની સામગ્રી સીધી ડિવાઇસ વચ્ચે જાય છે. સિગ્નલિંગ સર્વર રૂમનું સંચાલન, પ્રમાણીકરણ અને ફરી જોડાવાનો ડેટા ફક્ત થોડા સમય માટે પ્રક્રિયા કરે છે; કેટલાક દૂરસ્થ અથવા મોટા સત્રનો ડેટા Cloudflare મારફતે જાય છે. દૂરસ્થ ફાઇલો ખાનગી Cloudflare સંગ્રહમાં વધુમાં વધુ 24 કલાક રાખવામાં આવે છે; ફક્ત રૂમના સહભાગીઓને કામચલાઉ ડાઉનલોડ પ્રવેશ મળે છે. MUSIXQUARE ડેટા સુધી ફક્ત સેવા પૂરી પાડવા, ચલાવવા અને સુરક્ષિત રાખવા માટે જ પહોંચે છે, તેનું વિશ્લેષણ કરે છે અથવા તેને જાળવે છે.</span><span data-legal-pro-storage>PRO રૂમ ચલાવવા જરૂરી સત્ર, સભ્ય, પ્લેલિસ્ટ, પ્લેબૅક અને અપલોડની સ્થિતિ Cloudflare પર સંગ્રહાય છે. મૂળ પ્લેલિસ્ટ ફાઇલો ખાનગી Cloudflare સંગ્રહમાં રહે છે; ફક્ત રૂમના સહભાગીઓ ટૂંકા સમય માટે માન્ય URL દ્વારા તેને ડાઉનલોડ કરી શકે છે. રૂમનો સંચાલક પ્લેલિસ્ટમાંથી ફાઇલ દૂર કરે અથવા સેવા સંચાલક રૂમનો ડેટા કાઢી નાખે ત્યારે ફાઇલો ભૂંસી નાખવામાં આવે છે. MUSIXQUARE ડેટા સુધી ફક્ત સેવા પૂરી પાડવા, ચલાવવા અને સુરક્ષિત રાખવા માટે જ પહોંચે છે, તેનું વિશ્લેષણ કરે છે અથવા તેને જાળવે છે.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">વધુ જાણો</a><br><br><strong>કૉપિરાઇટ સૂચના</strong><br>MUSIXQUARE દ્વારા શેર કરેલી સામગ્રી તેના સંબંધિત હકધારકોની છે. સિસ્ટમ ઑડિયો શેરિંગ અને ફાઇલ શેરિંગ વ્યક્તિગત ઉપયોગ માટે છે. કૉપિરાઇટ ધરાવતી સામગ્રીનું અનધિકૃત વિતરણ અથવા જાહેર પ્રસારણ કરવાની જવાબદારી વપરાશકર્તાની છે. YouTube શેરિંગ અધિકૃત પ્લેબૅક પદ્ધતિ વાપરે છે અને જોવાયાની સંખ્યા તથા હકોનું સંચાલન તે સેવાની નીતિઓ અને હકધારકની સેટિંગ્સ પ્રમાણે થાય છે. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">વધુ જાણો</a><br><br><strong>અસ્વીકરણ</strong><br>MUSIXQUARE નિઃશુલ્ક આપવામાં આવે છે. કેટલીક સુવિધાઓ YouTube અથવા Cloudflare જેવી બાહ્ય સેવાઓ પર આધાર રાખે છે, તેથી એ સેવાઓ બદલાય કે ઑફલાઇન થાય તો કામચલાઉ મર્યાદાઓ આવી શકે છે. નેટવર્ક, બ્રાઉઝરની નીતિ અને ડિવાઇસની કાર્યક્ષમતા પ્રમાણે રિઅલ-ટાઇમ ઑડિયો સિંક અને દૂરસ્થ શેરિંગની ગુણવત્તામાં ઘણો ફેર પડી શકે છે. Wi-Fi વપરાતું ન હોય ત્યારે મોબાઇલ ડેટા શુલ્ક લાગી શકે છે. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">વધુ જાણો</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">પરિચય</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ઇતિહાસ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ડિઝાઇન</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">અનુવાદ</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>ગોપનીયતા નીતિ</strong><br><span data-legal-standard-storage>એક જ નેટવર્ક પર સત્રની મોટાભાગની સામગ્રી સીધી ડિવાઇસ વચ્ચે જાય છે. સિગ્નલિંગ સર્વર રૂમનું સંચાલન, પ્રમાણીકરણ અને ફરી જોડાવાના ડેટા પર ફક્ત થોડા સમય માટે પ્રક્રિયા કરે છે; કેટલાક દૂરસ્થ અથવા મોટા સત્રનો ડેટા Cloudflare મારફતે જાય છે. દૂરસ્થ ફાઇલો ખાનગી Cloudflare સંગ્રહમાં વધુમાં વધુ 24 કલાક રાખવામાં આવે છે; ફક્ત રૂમના સહભાગીઓને કામચલાઉ ડાઉનલોડ પ્રવેશ મળે છે. MUSIXQUARE સેવા પૂરી પાડવા, ચલાવવા અને સુરક્ષિત રાખવા સિવાય બીજા કોઈ હેતુ માટે ડેટા જોતું, તેનું વિશ્લેષણ કરતું કે તેને જાળવતું નથી.</span><span data-legal-pro-storage>PRO રૂમ ચલાવવા જરૂરી સત્ર, સભ્ય, પ્લેલિસ્ટ, પ્લેબૅક અને અપલોડની સ્થિતિ Cloudflare પર સંગ્રહાય છે. મૂળ પ્લેલિસ્ટ ફાઇલો ખાનગી Cloudflare સંગ્રહમાં રહે છે; ફક્ત રૂમના સહભાગીઓ ટૂંકા સમય માટે માન્ય URL દ્વારા તેને ડાઉનલોડ કરી શકે છે. રૂમનો સંચાલક પ્લેલિસ્ટમાંથી ફાઇલ દૂર કરે અથવા સેવા સંચાલક રૂમનો ડેટા કાઢી નાખે ત્યારે ફાઇલો ભૂંસી નાખવામાં આવે છે. MUSIXQUARE સેવા પૂરી પાડવા, ચલાવવા અને સુરક્ષિત રાખવા સિવાય બીજા કોઈ હેતુ માટે ડેટા જોતું, તેનું વિશ્લેષણ કરતું કે તેને જાળવતું નથી.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">વધુ જાણો</a><br><br><strong>કૉપિરાઇટ સૂચના</strong><br>MUSIXQUARE દ્વારા શેર કરેલી સામગ્રી તેના સંબંધિત હકધારકોની છે. સિસ્ટમ ઑડિયો શેરિંગ અને ફાઇલ શેરિંગ વ્યક્તિગત ઉપયોગ માટે છે. કૉપિરાઇટ ધરાવતી સામગ્રીનું અનધિકૃત વિતરણ અથવા જાહેર પ્રસારણ કરવાની જવાબદારી વપરાશકર્તાની છે. YouTube શેરિંગ અધિકૃત પ્લેબૅક પદ્ધતિ વાપરે છે અને જોવાયાની સંખ્યા તથા હકોનું સંચાલન તે સેવાની નીતિઓ અને હકધારકની સેટિંગ્સ પ્રમાણે થાય છે. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">વધુ જાણો</a><br><br><strong>અસ્વીકરણ</strong><br>MUSIXQUARE નિઃશુલ્ક આપવામાં આવે છે. કેટલીક સુવિધાઓ YouTube અથવા Cloudflare જેવી બાહ્ય સેવાઓ પર આધાર રાખે છે, તેથી એ સેવાઓ બદલાય કે ઑફલાઇન થાય તો કામચલાઉ મર્યાદાઓ આવી શકે છે. નેટવર્ક, બ્રાઉઝરની નીતિ અને ડિવાઇસની કાર્યક્ષમતા પ્રમાણે રિઅલ-ટાઇમ ઑડિયો સિંક અને દૂરસ્થ શેરિંગની ગુણવત્તામાં ઘણો ફેર પડી શકે છે. Wi-Fi વપરાતું ન હોય ત્યારે મોબાઇલ ડેટા શુલ્ક લાગી શકે છે. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">વધુ જાણો</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">પરિચય</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ઇતિહાસ</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ડિઝાઇન</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">અનુવાદ</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default gu;

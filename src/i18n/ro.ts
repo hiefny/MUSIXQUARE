@@ -34,7 +34,7 @@ const ro: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Oprește temporar schimbarea automată a diapozitivelor',
   'common.message': 'Mesaj',
   'common.mix': 'Mixaj',
-  'common.wait': 'Așteaptă...',
+  'common.wait': 'Un moment...',
   'common.guest': 'Invitat',
   'common.help': 'Ajutor',
   'common.increase': 'Mărește',
@@ -45,16 +45,16 @@ const ro: Record<I18nKey, string> = {
   'common.off': 'Oprit',
 
   // ─── Cont ────────────────────────────────────────────────────────
-  'account.login_title': 'Conectează-te',
-  'account.login_cancelled': 'Conectarea a fost anulată.',
-  'account.login_failed': 'Nu te-ai putut conecta. Încearcă din nou.',
+  'account.login_title': 'Autentifică-te',
+  'account.login_cancelled': 'Autentificarea a fost anulată.',
+  'account.login_failed': 'Autentificarea nu a reușit. Încearcă din nou.',
   'account.welcome_back': 'Bine ai revenit,\n{{name}}',
   'account.login_message':
-    'Conectează-te cu Google pentru a-ți păstra pseudonimul în toate camerele. Poți continua fără să te conectezi.',
+    'Autentifică-te cu Google pentru a-ți păstra pseudonimul în toate camerele. Poți continua fără să te autentifici.',
   'account.google_continue': 'Continuă cu Google',
   'account.terms': 'Termeni',
   'account.privacy': 'Confidențialitate',
-  'account.unavailable': 'Conectarea este indisponibilă temporar. Poți continua fără ea.',
+  'account.unavailable': 'Autentificarea este indisponibilă temporar. Poți continua fără ea.',
   'account.account_title': 'Cont',
   'account.stats_sessions_label': 'Sesiuni accesate',
   'account.stats_listening_label': 'Timp de ascultare',
@@ -115,7 +115,7 @@ const ro: Record<I18nKey, string> = {
   'player.visualizer': 'Vizualizator audio',
   'player.seek': 'Derulare',
   'player.seek_unavailable_system_audio':
-    'Nu poți derula cât timp este distribuit sunetul sistemului',
+    'Nu poți derula cât timp este partajat sunetul sistemului',
   'player.volume': 'Reglează volumul',
   'player.toggle_mute': 'Activează sau dezactivează sunetul',
   'player.fullscreen': 'Activează sau dezactivează ecranul complet',
@@ -275,12 +275,12 @@ const ro: Record<I18nKey, string> = {
   'connect.kick_member_message': 'Elimini toate dispozitivele conectate cu numele {{name}}?',
   'connect.device_toggle': 'Extinde/restrânge dispozitivele conectate pentru {{name}}',
   'connect.device_label': 'Dispozitiv {{platform}} ({{code}})',
-  'connect.platform_other': 'Altul',
+  'connect.platform_other': 'de alt tip',
   'connect.current_device': 'Dispozitivul actual',
   'connect.no_session': 'Pornește mai întâi o sesiune',
   'connect.generating_qr': 'Se generează codul QR...',
   'connect.kick_title': 'Elimină dispozitivul',
-  'connect.kick_message': 'Elimini pe {{name}} din sesiune?',
+  'connect.kick_message': 'Elimini dispozitivul {{name}} din sesiune?',
   'connect.kick_yes': 'Elimină',
   'connect.kick_no': 'Nu',
   'connect.kicked_title': 'Ai fost eliminat',
@@ -365,11 +365,11 @@ const ro: Record<I18nKey, string> = {
   'setup.enter_host_code': 'Introdu codul de invitație',
   'setup.enter_host_code_alt': 'Scanează codul QR sau introdu codul.',
   'setup.scan_qr': 'Apasă pentru scanare',
-  'setup.camera_permission_denied': 'Accesul la cameră este refuzat',
-  'setup.camera_not_found': 'Nu s-a găsit nicio cameră utilizabilă',
-  'setup.camera_unavailable': 'Camera nu a putut fi pornită',
+  'setup.camera_permission_denied': 'Accesul la camera foto este refuzat',
+  'setup.camera_not_found': 'Nu s-a găsit nicio cameră foto utilizabilă',
+  'setup.camera_unavailable': 'Camera foto nu a putut fi pornită',
   'setup.camera_stream_stalled':
-    'Previzualizarea camerei nu a pornit.\nDeschide în browser sau introdu codul.',
+    'Previzualizarea camerei foto nu a pornit.\nDeschide în browser sau introdu codul.',
   'setup.connect_devices': 'Conectează celelalte dispozitive pentru a începe.',
   'setup.enter_code_connect': 'Cod de invitație',
   'setup.last_step': 'Să începem!',
@@ -413,7 +413,7 @@ const ro: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Modul lent este dezactivat',
   'chat.cmd_slowmode_wait': 'Așteaptă {{sec}} secunde înainte de a trimite',
   'chat.cmd_notice_prefix': 'Anunț',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': 'SISTEM',
   'chat.bot_unavailable': 'BOT este disponibil numai în camerele PRO',
   'chat.bot_processing': 'BOT procesează cererea...',
   'chat.bot_completed': 'Cererea BOT a fost finalizată',
@@ -424,7 +424,7 @@ const ro: Record<I18nKey, string> = {
     'Ai atins limita de cereri BOT. Așteaptă {{duration}} și încearcă din nou',
   'chat.decode_skip_system_message': 'Pista este omisă: format neacceptat pe unele dispozitive.',
   'chat.large_track_playback_system_message':
-    'Această piesă este foarte mare, așa că pot apărea întârzieri în timpul utilizării.',
+    'Fișierul acestei piste este foarte mare, așa că pot apărea întârzieri în timpul utilizării.',
   'chat.large_local_track_system_message':
     'Fișierul acestei piste este foarte mare și este posibil să nu fie redat pe unele dispozitive.',
   'chat.device_track_unavailable_system_message': 'Acest dispozitiv nu poate reda pista curentă.',
@@ -433,13 +433,13 @@ const ro: Record<I18nKey, string> = {
   'chat.update_available_app_system_message':
     'Este disponibilă o versiune nouă a MUSIXQUARE. Redeschide aplicația pentru a o folosi.',
   'chat.system_audio_started_system_message':
-    'Partajarea sunetului sistemului a început. O mică latență între dispozitivele gazdă și oaspete este normală. Îți recomandăm să reduci volumul dispozitivului gazdă pentru a evita ecoul.',
+    'Partajarea sunetului sistemului a început. O mică latență între dispozitivul gazdă și dispozitivele invitate este normală. Îți recomandăm să reduci volumul dispozitivului gazdă pentru a evita ecoul.',
   'chat.system_audio_stopped_system_message':
     'Partajarea sunetului sistemului s-a încheiat. Gazdă, poți mări din nou volumul dispozitivului, pentru ca acesta să poată funcționa din nou ca difuzor.',
   'chat.remote_upload_limited_system_message':
-    'Ai atins limita de încărcare a fișierelor.\nParticipanții de la distanță trebuie să încerce din nou mai târziu.',
+    'S-a atins limita de încărcare a fișierelor.\nParticipanții de la distanță trebuie să încerce din nou mai târziu.',
   'chat.remote_storage_quota_system_message':
-    'Ai atins limita de partajare la distanță.\nPartajarea fișierelor locale este în continuare disponibilă.',
+    'S-a atins limita de partajare la distanță.\nPartajarea fișierelor locale este în continuare disponibilă.',
   'chat.remote_upload_failed_system_message':
     'Încărcarea fișierului la distanță a eșuat.\nParticipanții de la distanță trebuie să încerce din nou în curând.',
   'chat.pinned_close': 'Închide anunțul',
@@ -461,23 +461,23 @@ const ro: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
-  'chat.cmd_u_bot': '/bot [request]',
+  'chat.cmd_u_bot': '/bot [cerere]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
-  'chat.cmd_u_slowmode': '/slowmode [seconds]',
-  'chat.cmd_u_w': '/w [device] [message]',
-  'chat.cmd_u_whisper': '/whisper [device] [message]',
-  'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [new name]',
-  'chat.cmd_u_kick': '/kick [device]',
-  'chat.cmd_u_op': '/op [device]',
-  'chat.cmd_u_deop': '/deop [device]',
-  'chat.cmd_u_mute': '/mute [device]',
-  'chat.cmd_u_unmute': '/unmute [device]',
+  'chat.cmd_u_slowmode': '/slowmode [secunde]',
+  'chat.cmd_u_w': '/w [dispozitiv] [mesaj]',
+  'chat.cmd_u_whisper': '/whisper [dispozitiv] [mesaj]',
+  'chat.cmd_u_notice': '/notice [mesaj]',
+  'chat.cmd_u_nick': '/nick [nume nou]',
+  'chat.cmd_u_kick': '/kick [dispozitiv]',
+  'chat.cmd_u_op': '/op [dispozitiv]',
+  'chat.cmd_u_deop': '/deop [dispozitiv]',
+  'chat.cmd_u_mute': '/mute [dispozitiv]',
+  'chat.cmd_u_unmute': '/unmute [dispozitiv]',
   'chat.cmd_d_help': 'Lista comenzilor',
   'chat.cmd_d_users': 'Vezi utilizatorii conectați',
-  'chat.cmd_d_bot': 'Cere-i AI să gestioneze lista de redare',
+  'chat.cmd_d_bot': 'Cere AI-ului să gestioneze lista de redare',
   'chat.cmd_d_clear': 'Șterge istoricul chatului',
   'chat.cmd_d_filter': 'Filtru de limbaj nepotrivit',
   'chat.cmd_d_freeze': 'Blochează chatul',
@@ -495,7 +495,7 @@ const ro: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Informațiile de depanare au fost copiate.\nTrimite-le dezvoltatorului dacă ai găsit o eroare.',
   'chat.seek_to': 'Mergi la {{time}}',
-  'chat.copied': 'Chat copiat',
+  'chat.copied': 'Mesaj copiat',
   'chat.copy_hint': 'Apasă Enter pentru a copia acest mesaj din chat',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -548,7 +548,7 @@ const ro: Record<I18nKey, string> = {
   'toast.remote_decode_device_wait':
     'Un dispozitiv nu a putut decoda această pistă. Redarea continuă pe celelalte dispozitive.',
   'toast.invite_code': 'Cod de invitație: {{code}}',
-  'toast.invite_code_info': '{{count}} conectate | Cod {{code}}',
+  'toast.invite_code_info': 'Dispozitive conectate: {{count}} | Cod {{code}}',
   'toast.added_tracks': '{{count}} piste adăugate',
   'toast.preparing': 'Se pregătește: {{name}}',
   'toast.file_save_error': 'Eroare la salvarea fișierului: {{name}}',
@@ -598,15 +598,15 @@ const ro: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Nu există fișiere audio compatibile de adăugat.',
   'dialog.large_room_file.title': 'Partajarea fișierelor într-o cameră mare',
   'dialog.large_room_file.message':
-    'În aceeași rețea, transferul direct de fișiere este stabil pentru cel mult 8 dispozitive oaspete, fără a include gazda. În camerele locale mai mari, fișierele pot fi distribuite prin Cloudflare R2.\n\nContinui?',
+    'În aceeași rețea, transferul direct de fișiere este stabil pentru cel mult 8 dispozitive invitate, fără a include gazda. În camerele locale mai mari, fișierele pot fi distribuite prin Cloudflare R2.\n\nContinui?',
   'dialog.continue': 'Continuă',
   'toast.sync_reset': 'Decalajul de sincronizare a fost resetat',
   'toast.stop_sent': 'Cererea de oprire a fost trimisă',
   'toast.hprecision_sync': 'Sincronizare de înaltă precizie: se pregătește sunetul…',
   'toast.file_ready': 'Fișierul este gata!\nApasă Redare.',
-  'toast.host_sync_not_recommended': 'Reglează sincronizarea pe un dispozitiv oaspete',
+  'toast.host_sync_not_recommended': 'Reglează sincronizarea pe un dispozitiv invitat',
   'toast.host_sync_requested':
-    'S-a solicitat sincronizarea de precizie.\nReglează sincronizarea manuală pe un dispozitiv oaspete.',
+    'S-a solicitat sincronizarea de precizie.\nReglează sincronizarea manuală pe un dispozitiv invitat.',
   'toast.sync_not_in_system_audio':
     'Sincronizarea nu este disponibilă în modul de partajare a sunetului sistemului',
   'toast.sync_not_ready': 'Încă nu este gata.\nÎncearcă din nou peste câteva momente',
@@ -722,7 +722,7 @@ const ro: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'Aplicația a trecut pentru scurt timp în fundal',
   'dialog.audio_recovery_title': 'Sunetul s-a întrerupt neașteptat',
   'dialog.audio_recovery_message':
-    'Sunetul acestui dispozitiv nu și-a revenit după revenirea din fundal. Camera va rămâne conectată cât timp MUSIXQUARE realiniază sunetul dispozitivului.',
+    'Sunetul acestui dispozitiv nu a fost restabilit după revenirea din fundal. Camera va rămâne conectată cât timp MUSIXQUARE realiniază sunetul dispozitivului.',
   'dialog.audio_recovery_action': 'Restabilește sunetul',
   'dialog.background_resume_message':
     'Dacă sincronizarea nu mai este corectă sau sunetul nu pornește, închide complet aplicația și deschide-o din nou.',
@@ -758,15 +758,15 @@ const ro: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Activează camera PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Alege un cont pentru această cameră PRO',
+  'pro.activation_account_message': 'Înregistrezi această cameră în contul „{{name}}”?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Autentifică-te în contul în care vrei să înregistrezi această cameră.',
+  'pro.activation_account_continue': 'Continuă',
+  'pro.activation_account_switch': 'Alt cont',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Contul nu a putut fi verificat. Încearcă din nou în curând.',
+  'pro.activation_complete': 'Finalizează înregistrarea',
   'pro.activation_message': 'Setează o parolă nouă din 8 cifre pentru această cameră.',
   'pro.activation_pin_same': 'Alege o parolă diferită de cea temporară.',
   'pro.claim_retry_title': 'Încerci din nou linkul PRO?',
@@ -827,7 +827,7 @@ const ro: Record<I18nKey, string> = {
   'pro.pin_changed_removed_title': 'Parola camerei s-a schimbat',
   'pro.pin_changed_removed_message':
     'Proprietarul camerei a schimbat parola camerei. Introdu parola nouă ca să intri din nou.',
-  'pro.removed_title': 'Eliminare din cameră',
+  'pro.removed_title': 'Ai fost eliminat din cameră',
   'pro.removed_message':
     'Proprietarul camerei sau un administrator te-a eliminat din această cameră.',
   'pro.device_removed_message':
@@ -845,8 +845,7 @@ const ro: Record<I18nKey, string> = {
   'pro.use_this_tab': 'Continuă aici',
   'pro.upload.batch_progress': 'Se încarcă pistele {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Unele piste nu au putut fi încărcate',
-  'pro.upload.batch_failed_message':
-    'Nu au putut fi încărcate {{failed}} dintre cele {{total}} de piste solicitate.',
+  'pro.upload.batch_failed_message': 'Piste neîncărcate: {{failed}} din {{total}} solicitate.',
   'pro.upload.cancel_file': 'Anulează încărcarea fișierului {{name}}',
   'pro.upload.confirming_file': 'Se finalizează încărcarea fișierului {{name}}',
   'pro.downloading': 'Se încarcă fișierul...',
@@ -861,7 +860,7 @@ const ro: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Introdu <strong>codul din 6 cifre</strong> primit de la gazdă pentru a te conecta.<ul class="help-list"><li><strong>Gazdă:</strong> „Creează o cameră” → verifică codul</li><li><strong>Participant:</strong> „Intră într-o cameră” → introdu codul</li><li>Se pot conecta până la <strong>100 de dispozitive, inclusiv gazda</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Fiecare participant selectează un <strong>rol (canal de ieșire)</strong>.<ul class="help-list"><li><strong>Centru:</strong> ieșire stereo (implicită)</li><li><strong>Stânga (Left):</strong> ieșire pe canalul <bdi dir="ltr">L</bdi></li><li><strong>Dreapta (Right):</strong> ieșire pe canalul <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> ieșire mixtă de joasă frecvență</li></ul>Poți schimba oricând rolurile din <strong>Setări</strong>.',
+    'Fiecare participant selectează un <strong>rol (canal de ieșire)</strong>.<ul class="help-list"><li><strong>Difuzor central:</strong> ieșire stereo (implicită)</li><li><strong>Difuzor stânga:</strong> ieșire pe canalul <bdi dir="ltr">L</bdi></li><li><strong>Difuzor dreapta:</strong> ieșire pe canalul <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> ieșire mixtă de joasă frecvență</li></ul>Poți schimba oricând rolurile din <strong>Setări</strong>.',
   'player.play_media_action_html':
     'Gazda are 3 opțiuni.<ul class="help-list"><li><strong>Încarcă un fișier local:</strong> alege muzică de pe dispozitiv. Acceptă sincronizare precisă</li><li><strong>YouTube împreună:</strong> acceptă videoclipuri și liste de redare. Fără separarea canalelor sau efecte audio</li><li><strong>Partajarea sunetului sistemului:</strong> disponibilă când gazda folosește pe computer un browser bazat pe Chromium</li></ul>',
   'help.need_help_html':
@@ -874,7 +873,7 @@ const ro: Record<I18nKey, string> = {
   'chat.participant_connection_unstable_recovering':
     'Conexiunea lui {{name}} este instabilă. Se încearcă restabilirea.',
   'chat.empty_html': 'Nu există încă mesaje.<br>Trimite primul mesaj!',
-  'chat.msg_truncated': 'Mesaj limitat la {{max}} caractere',
+  'chat.msg_truncated': 'Mesaj limitat la {{max}} de caractere',
   'chat.scroll_to_bottom': 'Derulează până jos',
   'setup.brand_tagline_html': 'Ascultă împreună, oriunde<br>Experiența sonoră desăvârșită',
   'setup.invite_share_desc_html':
@@ -898,7 +897,7 @@ const ro: Record<I18nKey, string> = {
   'system_audio.coordinator_update_required':
     'Actualizează dispozitivul care gestionează camera pentru a partaja sunetul sistemului.',
   'system_audio.connection_unstable':
-    'Conexiunea pentru sunetul sistemului a lui {{name}} este instabilă.\nSe încearcă reconectarea.',
+    'Conexiunea lui {{name}} pentru sunetul sistemului este instabilă.\nSe încearcă reconectarea.',
   'system_audio.capture_denied': 'Partajarea sunetului a fost anulată.',
   'system_audio.no_audio_track':
     'Opțiunea „Partajează sunetul” nu a fost activată.\nÎncearcă din nou.',
@@ -910,7 +909,7 @@ const ro: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Rolurile nu pot fi schimbate în timpul partajării sunetului sistemului.',
   'system_audio.effects_guest_only':
-    'Sunetul sistemului este activ.\nEfectele sonore se aplică numai dispozitivelor oaspete.',
+    'Sunetul sistemului este activ.\nEfectele sonore se aplică numai dispozitivelor invitate.',
   'system_audio.desktop_only':
     'Disponibil numai pe computere care folosesc un browser bazat pe Chromium (Chrome, Edge etc.).',
   'system_audio.receive_failed':
@@ -933,6 +932,8 @@ const ro: Record<I18nKey, string> = {
 export default ro;
 
 export const pluralMessages = {
+  'toast.unsupported_files_excluded': { one: 'Fișier neacceptat omis: {{count}}' },
+  'playlist.delete_selected': { one: 'Șterge {{count}} pistă selectată' },
   'connect.device_list': {
     one: '{{count}} dispozitiv conectat',
     other: '{{count}} de dispozitive conectate',

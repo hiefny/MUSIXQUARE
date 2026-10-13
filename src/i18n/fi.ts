@@ -28,7 +28,7 @@ const fi: Record<I18nKey, string> = {
   'common.stay': 'Jää',
   'common.leave': 'Poistu',
   'common.granted': 'myönnetty',
-  'common.revoked': 'peruutettu',
+  'common.revoked': 'peruttu',
   'common.stop': 'Pysäytä',
   'common.pause': 'Keskeytä',
   'setup.carousel_pause': 'Keskeytä diojen automaattinen vaihtuminen',
@@ -90,7 +90,7 @@ const fi: Record<I18nKey, string> = {
   'common.woofer': 'Bassokaiutin',
   'common.connected': 'Yhdistetty',
   'common.disconnected': 'Yhteys katkaistu',
-  'common.revoke': 'Peruuta',
+  'common.revoke': 'Peru oikeudet',
   'common.grant': 'Myönnä',
   'common.system': 'Järjestelmä',
   'common.unknown': 'Tuntematon',
@@ -102,9 +102,9 @@ const fi: Record<I18nKey, string> = {
   'nav.playlist': 'Soittolista',
   'nav.settings': 'Asetukset',
   'nav.help': 'Ohje',
-  'nav.connect': 'Yhdistä',
+  'nav.connect': 'Yhteys',
   'nav.playlist_compact': 'Soittolista',
-  'nav.connect_compact': 'Yhdistä',
+  'nav.connect_compact': 'Yhteys',
   'nav.settings_compact': 'Asetukset',
   'nav.go_home': 'Siirry aloitukseen',
 
@@ -204,7 +204,7 @@ const fi: Record<I18nKey, string> = {
   'settings.light': 'Vaalea',
   'player.visualizer_circular': 'Ympyrä',
   'player.visualizer_spectrum': 'Spektri',
-  'settings.language': 'Kieliasetukset',
+  'settings.language': 'Kieli · Language',
   'settings.language_select': 'Valitse',
   'settings.language_system': 'Järjestelmä',
   'settings.language_dialog_title': 'Valitse kieli',
@@ -245,7 +245,7 @@ const fi: Record<I18nKey, string> = {
   'settings.invite_code': 'Kutsukoodi',
   'settings.leave_session': 'Poistu istunnosta',
   'connect.rename_reserved': 'Tämä nimimerkki on varattu.',
-  'connect.rename_profanity': 'Havaittiin sopimattomia sanoja.',
+  'connect.rename_profanity': 'Nimimerkissä on sopimattomia sanoja.',
   'settings.devices_title': 'Yhdistetyt laitteet',
   'settings.invite_share': 'Kutsu ja jaa',
   'settings.subtab.general': 'Yleiset',
@@ -271,9 +271,9 @@ const fi: Record<I18nKey, string> = {
   'connect.permission_inherited': 'Sisältyy',
   'connect.kick_member_message': 'Poistetaanko kaikki nimellä {{name}} yhdistetyt laitteet?',
   'connect.device_toggle': 'Laajenna tai supista käyttäjän {{name}} yhdistetyt laitteet',
-  'connect.device_label': '{{platform}}-laite ({{code}})',
+  'connect.device_label': 'Laite: {{platform}} ({{code}})',
   'connect.platform_other': 'Muu',
-  'connect.current_device': 'Nykyinen laite',
+  'connect.current_device': 'Tämä laite',
   'connect.no_session': 'Aloita ensin istunto',
   'connect.generating_qr': 'Luodaan QR-koodia…',
   'connect.kick_title': 'Poista laite',
@@ -308,7 +308,7 @@ const fi: Record<I18nKey, string> = {
     'Huonepalvelin ei vastaa. Uusien osallistujien liittyminen ja reaaliaikaiset päivitykset ovat rajoitettuja.',
   'connect.signaling_retry': 'Yritä uudelleen',
   'connect.signaling_restart': 'Käynnistä istunto uudelleen',
-  'connect.signaling_new_room': 'Aloita uusi huone',
+  'connect.signaling_new_room': 'Luo uusi huone',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'Luo huone',
@@ -551,7 +551,7 @@ const fi: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Puretaan ääntä…',
   'toast.preparing_next': 'Valmistellaan seuraavaa kappaletta… ({{name}})',
   'toast.preparing_next_pct': 'Valmistellaan seuraavaa kappaletta… {{pct}} %',
-  'toast.op_status': '{{label}}-oikeus: {{status}}',
+  'toast.op_status': 'Oikeus ”{{label}}” {{status}}',
   'toast.file_read_error': 'Tiedoston lukuvirhe: {{name}}',
   'toast.host_ended_connection': 'Isäntä päätti yhteyden',
   'toast.announcement_available': 'Uusi ilmoitus.\nTarkista chat-paneeli.',
@@ -607,10 +607,10 @@ const fi: Record<I18nKey, string> = {
   'toast.host_ad': 'Isäntä näyttää katsovan mainosta',
   'toast.yt_sync_start': 'Synkronoidaan…',
   'toast.yt_sync_done': 'Synkronointi valmis',
-  'toast.yt_rendezvous_start': 'Kohdistetaan isäntään…',
+  'toast.yt_rendezvous_start': 'Synkronoidaan isännän kanssa…',
   'toast.yt_rendezvous_done': 'Synkronointi valmis',
   'toast.yt_rendezvous_host_paused':
-    'Isännän toisto on keskeytetty, vain toistokohta kohdistettiin',
+    'Isännän toisto on keskeytetty, joten vain toistokohta synkronoitiin',
   'toast.yt_rendezvous_no_data':
     'Isännän toistotietoja ei ole vielä. Yritä hetken kuluttua uudelleen',
   'toast.yt_rendezvous_timeout': 'Synkronointi epäonnistui. Yritä hetken kuluttua uudelleen',
@@ -709,7 +709,7 @@ const fi: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'Sovellus siirtyi hetkeksi taustalle',
   'dialog.audio_recovery_title': 'Ääni keskeytyi odottamatta',
   'dialog.audio_recovery_message':
-    'Tämän laitteen ääni ei palautunut taustalta palaamisen jälkeen. Huoneyhteys säilyy, kun MUSIXQUARE kohdistaa laitteen äänen uudelleen.',
+    'Tämän laitteen ääni ei palautunut taustalta palaamisen jälkeen. Huoneyhteys säilyy, kun MUSIXQUARE synkronoi laitteen äänen uudelleen.',
   'dialog.audio_recovery_action': 'Palauta ääni',
   'dialog.background_resume_message':
     'Jos synkronointi ei toimi tai ääntä ei kuulu, sulje sovellus kokonaan ja avaa se uudelleen.',
@@ -744,15 +744,15 @@ const fi: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivoi PRO-huone',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Valitse tili tälle PRO-huoneelle',
+  'pro.activation_account_message': 'Rekisteröidäänkö tämä huone tilille ”{{name}}”?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Kirjaudu tilille, johon haluat rekisteröidä tämän huoneen.',
+  'pro.activation_account_continue': 'Jatka',
+  'pro.activation_account_switch': 'Toinen tili',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Tilisi tietoja ei voitu tarkistaa. Yritä hetken kuluttua uudelleen.',
+  'pro.activation_complete': 'Viimeistele rekisteröinti',
   'pro.activation_message': 'Aseta huoneelle uusi 8-numeroinen salasana.',
   'pro.activation_pin_same': 'Valitse väliaikaisesta salasanasta poikkeava salasana.',
   'pro.claim_retry_title': 'Yritetäänkö PRO-linkkiä uudelleen?',
@@ -801,12 +801,12 @@ const fi: Record<I18nKey, string> = {
   'pro.pin_members_title': 'Mitä nykyisille osallistujille tehdään?',
   'pro.pin_members_keep': 'Pidä kaikki',
   'pro.pin_members_keep_detail':
-    'Vain laitteiden, jotka liittyvät uudelleen tai ensimmäistä kertaa, täytyy antaa salasana.',
+    'Salasana kysytään vain laitteilta, jotka liittyvät uudelleen tai ensimmäistä kertaa.',
   'pro.pin_members_reenter': 'Kaikki liittyvät uudelleen',
   'pro.pin_members_reenter_detail':
     'Kaikkien on liityttävä uudelleen. Suositeltavaa, jos haluat poistaa tuntemattomat kerralla.',
   'pro.pin_keep_unavailable':
-    'Salasanaa ei vaihdettu. Ihmisiä ei voi juuri nyt pitää huoneessa. Yritä myöhemmin uudelleen tai valitse ”Kaikki liittyvät uudelleen”.',
+    'Salasanaa ei vaihdettu. Juuri nyt sitä ei voi vaihtaa niin, että kaikki pysyvät huoneessa. Yritä myöhemmin uudelleen tai valitse ”Kaikki liittyvät uudelleen”.',
   'pro.pin_enabled_removed_title': 'Huoneelle asetettiin salasana',
   'pro.pin_enabled_removed_message':
     'Huoneen omistaja asetti huoneelle salasanan. Anna se, niin voit liittyä uudelleen.',
@@ -836,7 +836,7 @@ const fi: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Peru tiedoston {{name}} lähetys',
   'pro.upload.confirming_file': 'Viimeistellään tiedoston {{name}} lähetystä',
   'pro.downloading': 'Ladataan tiedostoa…',
-  'pro.quota_exceeded': 'Tämän PRO-huoneen 1 GB:n tallennustilaraja on täynnä.',
+  'pro.quota_exceeded': 'Tämän PRO-huoneen 1 GB:n tallennustila on täynnä.',
   'pro.file_too_large': 'Tiedosto ylittää tiedostokohtaisen 200 MB:n rajan.',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
@@ -847,7 +847,7 @@ const fi: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Muodosta yhteys antamalla isännältä saamasi <strong>6-numeroinen koodi</strong>.<ul class="help-list"><li><strong>Isäntä:</strong> ”Luo huone” → tarkista koodi</li><li><strong>Osallistuja:</strong> ”Liity huoneeseen” → anna koodi</li><li>Yhteyden voi muodostaa enintään <strong>100 laitetta isäntä mukaan lukien</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Jokainen osallistuja valitsee <strong>roolin (lähtökanavan)</strong>.<ul class="help-list"><li><strong>Keski:</strong> Stereoääni (oletus)</li><li><strong>Vasen:</strong> <bdi dir="ltr">L</bdi>-kanavan ääni</li><li><strong>Oikea:</strong> <bdi dir="ltr">R</bdi>-kanavan ääni</li><li><strong>Bassokaiutin:</strong> Matalien taajuuksien miksaus</li></ul>Rooleja voi vaihtaa milloin tahansa <strong>Asetuksissa</strong>.',
+    'Jokainen osallistuja valitsee <strong>roolin (lähtökanavan)</strong>.<ul class="help-list"><li><strong>Keskikaiutin:</strong> Stereoääni (oletus)</li><li><strong>Vasen kaiutin:</strong> <bdi dir="ltr">L</bdi>-kanavan ääni</li><li><strong>Oikea kaiutin:</strong> <bdi dir="ltr">R</bdi>-kanavan ääni</li><li><strong>Bassokaiutin:</strong> Matalien taajuuksien miksaus</li></ul>Rooleja voi vaihtaa milloin tahansa <strong>Asetuksissa</strong>.',
   'player.play_media_action_html':
     'Isännällä on kolme vaihtoehtoa.<ul class="help-list"><li><strong>Lataa paikallinen tiedosto:</strong> Valitse musiikkia laitteeltasi. Tarkka synkronointi on tuettu</li><li><strong>YouTube yhdessä:</strong> Tukee videoita ja soittolistoja. Ei kanavajakoa tai äänitehosteita</li><li><strong>Järjestelmän äänen jakaminen:</strong> Käytettävissä, kun isäntä käyttää tietokoneella Chromium-pohjaista selainta</li></ul>',
   'help.need_help_html':

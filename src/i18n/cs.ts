@@ -16,7 +16,7 @@ const cs: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Zrušit',
   'common.close': 'Zavřít',
-  'common.reset': 'Obnovit',
+  'common.reset': 'Resetovat',
   'common.clear_input': 'Vymazat zadaný text',
   'common.refresh': 'Načíst znovu',
   'common.retry': 'Zkusit znovu',
@@ -32,8 +32,8 @@ const cs: Record<I18nKey, string> = {
   'common.pause': 'Pozastavit',
   'setup.carousel_pause': 'Pozastavit automatické přepínání snímků',
   'common.message': 'Zpráva',
-  'common.mix': 'Poměr',
-  'common.wait': 'Čekejte...',
+  'common.mix': 'Mix',
+  'common.wait': 'Počkejte prosím...',
   'common.guest': 'Účastník',
   'common.help': 'Nápověda',
   'common.increase': 'Zvýšit',
@@ -177,7 +177,7 @@ const cs: Record<I18nKey, string> = {
   'settings.ui_sounds': 'Zvuky rozhraní',
   'settings.sync_settings': 'Synchronizace nastavení',
   'settings.sync_settings_desc':
-    'Zařízení s touto volbou synchronizují hlasitost a zvukové efekty.',
+    'Zařízení, která mají tuto volbu zapnutou, si navzájem synchronizují hlasitost a zvukové efekty.',
   'settings.virtual_effects_title': 'Virtuální efekty',
   'settings.virtual_effects_desc':
     'Použije na zvuk syntetizované efekty. Mohou způsobit výrazné zkreslení.',
@@ -218,11 +218,11 @@ const cs: Record<I18nKey, string> = {
   'settings.rvb_advanced': 'Pokročilé',
   'settings.rvb_off': 'Vypnuto',
   'settings.reverb_mix': 'Poměr dozvuku',
-  'settings.reverb_decay': 'Délka dozvuku',
+  'settings.reverb_decay': 'Doba dozvuku',
   'settings.reverb_predelay': 'Předzpoždění dozvuku',
   'settings.reverb_lowcut': 'Ořez nízkých frekvencí dozvuku',
   'settings.reverb_highcut': 'Ořez vysokých frekvencí dozvuku',
-  'settings.decay_time': 'Doba doznívání',
+  'settings.decay_time': 'Doba dozvuku',
   'settings.predelay': 'Předzpoždění',
 
   'settings.eq_title': 'Ekvalizér',
@@ -320,7 +320,7 @@ const cs: Record<I18nKey, string> = {
   'demo.prompt_later': 'Později',
   'demo.try_later_toast': 'Prohlídku můžete kdykoli spustit na kartě Nápověda.',
   'demo.track_info': 'Informace o skladbě',
-  'demo.exit': 'Ukončit demo',
+  'demo.exit': 'Ukončit ukázku',
   'demo.credit': 'Ukázková skladba',
   'demo.role_title': 'Nastavte roli tohoto zařízení',
   'demo.effects_title': 'Vyzkoušejte efekty',
@@ -410,13 +410,13 @@ const cs: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Pomalý režim je vypnut',
   'chat.cmd_slowmode_wait': 'Před odesláním počkejte {{sec}} s',
   'chat.cmd_notice_prefix': 'Oznámení',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': 'SYSTÉM',
   'chat.bot_unavailable': 'BOT je dostupný pouze v místnostech PRO',
   'chat.bot_processing': 'BOT zpracovává požadavek...',
   'chat.bot_completed': 'Požadavek BOT byl dokončen',
   'chat.bot_failed': 'BOT nemohl požadavek dokončit',
-  'chat.bot_added_tracks': 'Skladby přidané BOT: {{count}}',
-  'chat.bot_added_and_playing': 'Skladby přidané BOT: {{count}}. Přehrávání bylo spuštěno',
+  'chat.bot_added_tracks': 'BOT přidal skladby: {{count}}',
+  'chat.bot_added_and_playing': 'BOT přidal skladby: {{count}}. Přehrávání bylo spuštěno',
   'chat.bot_rate_limited':
     'Byl dosažen limit požadavků BOT. Počkejte {{duration}} a zkuste to znovu',
   'chat.decode_skip_system_message':
@@ -431,11 +431,11 @@ const cs: Record<I18nKey, string> = {
   'chat.update_available_app_system_message':
     'Je k dispozici nová verze MUSIXQUARE. Projeví se po opětovném otevření aplikace.',
   'chat.system_audio_started_system_message':
-    'Sdílení systémového zvuku bylo spuštěno. Mírné zpoždění mezi zařízením hostitele a zařízeními účastníků je běžné. Doporučujeme ztlumit zařízení hostitele, aby nevznikala ozvěna.',
+    'Sdílení systémového zvuku bylo spuštěno. Mírné zpoždění mezi zařízením hostitele a zařízeními účastníků je běžné. Doporučujeme snížit hlasitost zařízení hostitele, aby nevznikala ozvěna.',
   'chat.system_audio_stopped_system_message':
     'Sdílení systémového zvuku skončilo. Hostitel může znovu zvýšit hlasitost svého zařízení, aby mohlo opět fungovat jako reproduktor.',
   'chat.remote_upload_limited_system_message':
-    'Byl dosažen limit nahrávání souborů.\nVzdálení účastníci to musí zkusit později.',
+    'Byl dosažen limit nahrávání souborů.\nVzdálení účastníci by to měli zkusit později.',
   'chat.remote_storage_quota_system_message':
     'Byl dosažen limit vzdáleného sdílení.\nSdílení místních souborů je stále dostupné.',
   'chat.remote_upload_failed_system_message':
@@ -449,7 +449,7 @@ const cs: Record<I18nKey, string> = {
   'chat.cmd_already_op': '{{name}} už má oprávnění správce',
   'chat.cmd_not_op': '{{name}} nemá oprávnění správce',
   'chat.cmd_help_title': 'Dostupné příkazy',
-  'chat.cmd_help_target_hint': '* [device] je jedinečné číslo (např. #1)',
+  'chat.cmd_help_target_hint': '* [zařízení] je jedinečné číslo (např. #1)',
   'chat.cmd_unknown': 'Neznámý příkaz: /{{cmd}}',
   'chat.cmd_usage': 'Použití: {{usage}}',
   'chat.cmd_users_title': 'Připojení uživatelé',
@@ -459,20 +459,20 @@ const cs: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
-  'chat.cmd_u_bot': '/bot [request]',
+  'chat.cmd_u_bot': '/bot [požadavek]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
-  'chat.cmd_u_slowmode': '/slowmode [seconds]',
-  'chat.cmd_u_w': '/w [device] [message]',
-  'chat.cmd_u_whisper': '/whisper [device] [message]',
-  'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [new name]',
-  'chat.cmd_u_kick': '/kick [device]',
-  'chat.cmd_u_op': '/op [device]',
-  'chat.cmd_u_deop': '/deop [device]',
-  'chat.cmd_u_mute': '/mute [device]',
-  'chat.cmd_u_unmute': '/unmute [device]',
+  'chat.cmd_u_slowmode': '/slowmode [sekundy]',
+  'chat.cmd_u_w': '/w [zařízení] [zpráva]',
+  'chat.cmd_u_whisper': '/whisper [zařízení] [zpráva]',
+  'chat.cmd_u_notice': '/notice [zpráva]',
+  'chat.cmd_u_nick': '/nick [nové jméno]',
+  'chat.cmd_u_kick': '/kick [zařízení]',
+  'chat.cmd_u_op': '/op [zařízení]',
+  'chat.cmd_u_deop': '/deop [zařízení]',
+  'chat.cmd_u_mute': '/mute [zařízení]',
+  'chat.cmd_u_unmute': '/unmute [zařízení]',
   'chat.cmd_d_help': 'Seznam příkazů',
   'chat.cmd_d_users': 'Zobrazit připojené uživatele',
   'chat.cmd_d_bot': 'Požádat AI o správu seznamu skladeb',
@@ -533,7 +533,7 @@ const cs: Record<I18nKey, string> = {
   'network.cant_join': 'Relaci se nepodařilo najít.\nZkontrolujte síť.',
   'network.session_full': 'Místnost je plná',
   'network.session_full_detail':
-    'V této místnosti už je připojeno maximálních 100 zařízení včetně hostitele.',
+    'V této místnosti už je připojen maximální počet 100 zařízení včetně hostitele.',
   'network.op_granted': 'Oprávnění správce bylo uděleno.',
   'network.op_revoked': 'Oprávnění správce bylo odebráno.',
 
@@ -684,7 +684,7 @@ const cs: Record<I18nKey, string> = {
   'error.host_disconnected': 'Spojení s hostitelem bylo přerušeno',
   'error.host_conn_error': 'Při připojování k hostiteli došlo k chybě',
   'error.connect_failed': 'Připojení se nezdařilo',
-  'error.peer_not_ready': 'Připojení peer zatím není připraveno',
+  'error.peer_not_ready': 'Připojení peer-to-peer zatím není připraveno',
   'error.network_init_failed': 'Inicializace sítě se nezdařila',
   'error.no_host_id': 'ID hostitele nebylo nalezeno',
   'error.peer_unavailable': 'Relaci se nepodařilo najít.\nZnovu zkontrolujte kód.',
@@ -723,7 +723,7 @@ const cs: Record<I18nKey, string> = {
   'dialog.continue_using': 'Pokračovat',
   'dialog.leave_session': 'Odejít',
   'dialog.sw_update_title': 'Aktualizace',
-  'dialog.sw_update_msg': 'Je připravena nová verze. Aktualizujte ji načtením stránky znovu.',
+  'dialog.sw_update_msg': 'Je připravena nová verze. Pro aktualizaci načtěte stránku znovu.',
   'dialog.feature_refresh_title': 'Je potřeba načíst stránku znovu',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE byl aktualizován. Chcete-li ho dál normálně používat, načtěte stránku znovu.',
@@ -748,15 +748,14 @@ const cs: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivovat místnost PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Vyberte účet pro tuto místnost PRO',
+  'pro.activation_account_message': 'Zaregistrovat tuto místnost k účtu „{{name}}“?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
-  'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Přihlaste se k účtu, ke kterému chcete tuto místnost zaregistrovat.',
+  'pro.activation_account_continue': 'Pokračovat',
+  'pro.activation_account_switch': 'Jiný účet',
+  'pro.activation_account_unavailable': 'Účet se nepodařilo ověřit. Zkuste to za chvíli znovu.',
+  'pro.activation_complete': 'Dokončit registraci',
   'pro.activation_message': 'Nastavte pro tuto místnost nové osmimístné heslo.',
   'pro.activation_pin_same': 'Zvolte jiné heslo než dočasné.',
   'pro.claim_retry_title': 'Zkusit odkaz PRO znovu?',
@@ -835,7 +834,7 @@ const cs: Record<I18nKey, string> = {
   'pro.upload.batch_progress': 'Nahrávání skladeb {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Některé skladby se nepodařilo nahrát',
   'pro.upload.batch_failed_message':
-    'Nahrávání se nezdařilo. Neúspěšné soubory: {{failed}} / celkem: {{total}}.',
+    'Nepodařilo se nahrát {{failed}} z {{total}} požadovaných skladeb.',
   'pro.upload.cancel_file': 'Zrušit nahrávání souboru {{name}}',
   'pro.upload.confirming_file': 'Dokončuje se nahrávání souboru {{name}}',
   'pro.downloading': 'Načítá se soubor...',
@@ -861,7 +860,7 @@ const cs: Record<I18nKey, string> = {
   'chat.tracks_added_named': '{{name}} – přidáno skladeb: {{count}}, včetně {{title}}',
   'chat.peer_disconnected': 'Odpojeno: {{name}}',
   'chat.participant_connection_unstable_recovering':
-    'Připojení uživatele {{name}} je nestabilní. Probíhá pokus o obnovení.',
+    'Připojení účastníka {{name}} je nestabilní. Probíhá pokus o obnovení.',
   'chat.empty_html': 'Zatím tu nejsou žádné zprávy.<br>Pošlete první zprávu!',
   'chat.msg_truncated': 'Zpráva byla zkrácena na {{max}} znaků',
   'chat.scroll_to_bottom': 'Posunout dolů',
@@ -873,7 +872,7 @@ const cs: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Nastavte roli každého zařízení.<br>Přehrávejte levý a pravý kanál samostatně<br>a vnímejte hluboké basy z wooferu.',
   'setup.advanced_audio_desc_html':
-    'Sjednoťte nastavení hostitele v celém systému<br>pomocí dozvuku, ekvalizéru, virtuálních efektů<br>a dalších možností.',
+    'Sjednoťte celý systém podle nastavení hostitele:<br>dozvuk, ekvalizér, virtuální efekty<br>a další možnosti.',
   'youtube.enter_link_desc_html': 'Přehrávat lze pouze veřejná videa nebo seznamy videí.',
 
   // ─── System Audio Sharing ─────────────────────────────────────

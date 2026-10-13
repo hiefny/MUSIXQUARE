@@ -115,7 +115,7 @@ const el: Record<I18nKey, string> = {
   'player.visualizer': 'Απεικόνιση ήχου',
   'player.seek': 'Μετακίνηση στη χρονική θέση',
   'player.seek_unavailable_system_audio':
-    'Η μετακίνηση δεν είναι διαθέσιμη κατά την κοινοποίηση ήχου συστήματος',
+    'Η μετακίνηση της θέσης αναπαραγωγής δεν είναι διαθέσιμη κατά την κοινοποίηση ήχου συστήματος',
   'player.volume': 'Ρύθμιση έντασης',
   'player.toggle_mute': 'Εναλλαγή σίγασης',
   'player.fullscreen': 'Εναλλαγή πλήρους οθόνης',
@@ -126,7 +126,7 @@ const el: Record<I18nKey, string> = {
   'player.sync_compact': 'Συγχρ.',
   'player.syncing_compact': 'Συγχρ…',
   'player.play_media': 'Αναπαραγωγή πολυμέσων',
-  'player.play_media_compact': 'Μέσα',
+  'player.play_media_compact': 'Πολυμέσα',
   'player.play_media_action': 'Αναπαραγωγή πολυμέσων',
   'player.add_media': 'Προσθήκη πολυμέσων',
   'player.play_start': 'Προσθήκη στην ουρά',
@@ -193,7 +193,7 @@ const el: Record<I18nKey, string> = {
   'settings.reverb_desc': 'Ρυθμίστε την αντήχηση και τον συντονισμό του ήχου.',
   'settings.eq_desc': 'Ρυθμίστε τη χροιά του ήχου μαζί με την ένταση.',
   'settings.surround_desc': 'Αυξάνει τον διαχωρισμό για πιο καθηλωτικό ήχο.',
-  'settings.bass_desc': 'Συνθέτει χαμηλές συχνότητες για μεγαλύτερη ένταση.',
+  'settings.bass_desc': 'Συνθέτει χαμηλές συχνότητες για πιο δυναμικό ήχο.',
   'settings.exciter_desc': 'Δημιουργεί πολύ υψηλές συχνότητες για μεγαλύτερη καθαρότητα.',
   'settings.role_center_desc':
     'Αυτή η συσκευή λειτουργεί ως κεντρικό ηχείο.\nΤοποθετήστε τη στο κέντρο.',
@@ -280,7 +280,7 @@ const el: Record<I18nKey, string> = {
   'connect.no_session': 'Ξεκινήστε πρώτα μια συνεδρία',
   'connect.generating_qr': 'Δημιουργία κωδικού QR...',
   'connect.kick_title': 'Αφαίρεση συσκευής',
-  'connect.kick_message': 'Να αφαιρεθεί το {{name}} από τη συνεδρία;',
+  'connect.kick_message': 'Να αφαιρεθεί η συσκευή {{name}} από τη συνεδρία;',
   'connect.kick_yes': 'Αφαίρεση',
   'connect.kick_no': 'Όχι',
   'connect.kicked_title': 'Η συσκευή αφαιρέθηκε',
@@ -298,7 +298,7 @@ const el: Record<I18nKey, string> = {
     'Ο οικοδεσπότης όρισε κωδικό πρόσβασης για το δωμάτιο. Εισαγάγετέ τον για να συνδεθείτε ξανά.',
   'connect.pin_changed_removed_message':
     'Ο οικοδεσπότης άλλαξε τον κωδικό πρόσβασης του δωματίου. Εισαγάγετε τον νέο κωδικό για να συνδεθείτε ξανά.',
-  'connect.signaling_healthy': 'Ο διακομιστής δωματίου είναι online',
+  'connect.signaling_healthy': 'Ο διακομιστής δωματίου λειτουργεί κανονικά',
   'connect.signaling_recovering': 'Επανασύνδεση…',
   'connect.signaling_failed': 'Η σύνδεση με τον διακομιστή απέτυχε',
   'connect.signaling_recover_action': 'Επανασύνδεση',
@@ -323,7 +323,7 @@ const el: Record<I18nKey, string> = {
   'demo.prompt_later': 'Αργότερα',
   'demo.try_later_toast': 'Μπορείτε να τη δοκιμάσετε οποιαδήποτε στιγμή από την καρτέλα Βοήθεια.',
   'demo.track_info': 'Πληροφορίες κομματιού',
-  'demo.exit': 'Έξοδος από την επίδειξη',
+  'demo.exit': 'Έξοδος από την περιήγηση',
   'demo.credit': 'Δοκιμαστικό κομμάτι',
   'demo.role_title': 'Ορίστε τον ρόλο αυτής της συσκευής',
   'demo.effects_title': 'Δοκιμάστε τα εφέ',
@@ -337,7 +337,7 @@ const el: Record<I18nKey, string> = {
   'demo.step_connect': '1. Σύνδεση',
   'demo.step_role': '2. Ορισμός ρόλου',
   'demo.step_effects': '3. Ηχητικά εφέ',
-  'demo.step_finish': '4. Έξοδος από την επίδειξη',
+  'demo.step_finish': '4. Έξοδος από την περιήγηση',
   'demo.session_title': 'Το δωμάτιό σας: {{code}}',
   'demo.session_subtitle': 'Μπορείτε να προσκαλέσετε άλλη συσκευή οποιαδήποτε στιγμή.',
   'demo.session_body_connected':
@@ -406,8 +406,8 @@ const el: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'Η συνομιλία κλειδώθηκε',
   'chat.cmd_unfrozen': 'Η συνομιλία ξεκλειδώθηκε',
   'chat.cmd_frozen_blocked': 'Η συνομιλία είναι κλειδωμένη αυτή τη στιγμή',
-  'chat.cmd_muted': 'Το {{name}} δεν μπορεί πλέον να στέλνει μηνύματα',
-  'chat.cmd_unmuted': 'Το {{name}} μπορεί να στέλνει ξανά μηνύματα',
+  'chat.cmd_muted': 'Η αποστολή μηνυμάτων δεν επιτρέπεται πλέον για {{name}}',
+  'chat.cmd_unmuted': 'Η αποστολή μηνυμάτων επιτρέπεται ξανά για {{name}}',
   'chat.cmd_clear': 'Η συνομιλία εκκαθαρίστηκε',
   'chat.cmd_filter_on': 'Το φίλτρο ακατάλληλων λέξεων ενεργοποιήθηκε',
   'chat.cmd_filter_off': 'Το φίλτρο ακατάλληλων λέξεων απενεργοποιήθηκε',
@@ -415,7 +415,7 @@ const el: Record<I18nKey, string> = {
   'chat.cmd_slowmode_off': 'Η αργή λειτουργία απενεργοποιήθηκε',
   'chat.cmd_slowmode_wait': 'Περιμένετε {{sec}} δευτ. πριν από την αποστολή',
   'chat.cmd_notice_prefix': 'Ανακοίνωση',
-  'chat.system_sender': 'SYSTEM',
+  'chat.system_sender': 'ΣΥΣΤΗΜΑ',
   'chat.bot_unavailable': 'Το BOT είναι διαθέσιμο μόνο σε δωμάτια PRO',
   'chat.bot_processing': 'Το BOT επεξεργάζεται το αίτημα...',
   'chat.bot_completed': 'Το αίτημα BOT ολοκληρώθηκε',
@@ -450,13 +450,13 @@ const el: Record<I18nKey, string> = {
   'chat.pinned_close': 'Κλείσιμο ανακοίνωσης',
   'chat.cmd_whisper_from': 'Ιδιωτικό μήνυμα από {{name}}',
   'chat.cmd_whisper_to': 'Ιδιωτικό μήνυμα προς {{name}}',
-  'chat.cmd_target_not_found': 'Ο στόχος δεν βρέθηκε: {{target}}',
+  'chat.cmd_target_not_found': 'Δεν βρέθηκε η συσκευή: {{target}}',
   'chat.cmd_no_permission': 'Δεν διαθέτετε το απαιτούμενο δικαίωμα',
   'chat.cmd_nick_changed': 'Το όνομα άλλαξε σε {{name}}',
   'chat.cmd_already_op': 'Υπάρχουν ήδη δικαιώματα διαχειριστή για {{name}}',
   'chat.cmd_not_op': 'Δεν υπάρχουν δικαιώματα διαχειριστή για {{name}}',
   'chat.cmd_help_title': 'Διαθέσιμες εντολές',
-  'chat.cmd_help_target_hint': '* Το [device] είναι ένας μοναδικός αριθμός (π.χ. #1)',
+  'chat.cmd_help_target_hint': '* Ως [συσκευή] εισαγάγετε τον μοναδικό αριθμό της (π.χ. #1)',
   'chat.cmd_unknown': 'Άγνωστη εντολή: /{{cmd}}',
   'chat.cmd_usage': 'Χρήση: {{usage}}',
   'chat.cmd_users_title': 'Συνδεδεμένοι χρήστες',
@@ -466,20 +466,20 @@ const el: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
-  'chat.cmd_u_bot': '/bot [request]',
+  'chat.cmd_u_bot': '/bot [αίτημα]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
-  'chat.cmd_u_slowmode': '/slowmode [seconds]',
-  'chat.cmd_u_w': '/w [device] [message]',
-  'chat.cmd_u_whisper': '/whisper [device] [message]',
-  'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [new name]',
-  'chat.cmd_u_kick': '/kick [device]',
-  'chat.cmd_u_op': '/op [device]',
-  'chat.cmd_u_deop': '/deop [device]',
-  'chat.cmd_u_mute': '/mute [device]',
-  'chat.cmd_u_unmute': '/unmute [device]',
+  'chat.cmd_u_slowmode': '/slowmode [δευτερόλεπτα]',
+  'chat.cmd_u_w': '/w [συσκευή] [μήνυμα]',
+  'chat.cmd_u_whisper': '/whisper [συσκευή] [μήνυμα]',
+  'chat.cmd_u_notice': '/notice [μήνυμα]',
+  'chat.cmd_u_nick': '/nick [νέο όνομα]',
+  'chat.cmd_u_kick': '/kick [συσκευή]',
+  'chat.cmd_u_op': '/op [συσκευή]',
+  'chat.cmd_u_deop': '/deop [συσκευή]',
+  'chat.cmd_u_mute': '/mute [συσκευή]',
+  'chat.cmd_u_unmute': '/unmute [συσκευή]',
   'chat.cmd_d_help': 'Λίστα εντολών',
   'chat.cmd_d_users': 'Προβολή συνδεδεμένων χρηστών',
   'chat.cmd_d_bot': 'Αίτημα στην AI για διαχείριση της λίστας αναπαραγωγής',
@@ -513,7 +513,7 @@ const el: Record<I18nKey, string> = {
   'youtube.thumbnail': 'Μικρογραφία προεπισκόπησης YouTube',
   'youtube.load_fail': 'Δεν ήταν δυνατή η φόρτωση του API YouTube.\nΕλέγξτε τη σύνδεσή σας!',
   'youtube.video_unavailable': 'Το βίντεο δεν είναι διαθέσιμο, μετάβαση στο επόμενο κομμάτι',
-  'youtube.load_timeout': 'Η φόρτωση του YouTube έληξε.\nΔοκιμάστε ξανά.',
+  'youtube.load_timeout': 'Λήξη χρονικού ορίου φόρτωσης του YouTube.\nΔοκιμάστε ξανά.',
   'youtube.invalid_link': 'Μη έγκυρος σύνδεσμος YouTube',
   'youtube.effects_disabled':
     'Παρακολουθήστε YouTube μαζί.\nΤα προηγμένα ηχητικά εφέ είναι απενεργοποιημένα.',
@@ -587,9 +587,9 @@ const el: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Απαιτείται δικαίωμα δημοσίευσης ανακοινώσεων συνομιλίας.',
   'toast.room_owner_required': 'Μόνο ο κάτοχος του δωματίου μπορεί να το αλλάξει.',
   'toast.system_audio_owner_required':
-    'Μπορείτε να μοιραστείτε ήχο μόνο από την καρτέλα που άνοιξε το δωμάτιο.',
+    'Μπορείτε να κοινοποιήσετε ήχο μόνο από την καρτέλα που άνοιξε το δωμάτιο.',
   'toast.host_only_youtube': 'Μόνο ο οικοδεσπότης μπορεί να προσθέσει συνδέσμους YouTube.',
-  'toast.host_only_control': 'Μόνο ο οικοδεσπότης μπορεί να το ελέγξει',
+  'toast.host_only_control': 'Μόνο ο οικοδεσπότης μπορεί να το χειριστεί',
   'toast.host_setting_required': 'Μόνο ο οικοδεσπότης μπορεί να αλλάξει αυτή τη ρύθμιση',
   'toast.host_only_file': 'Μόνο ο οικοδεσπότης μπορεί να προσθέσει αρχεία',
   'toast.no_tracks': 'Δεν υπάρχουν κομμάτια για αναπαραγωγή',
@@ -681,11 +681,11 @@ const el: Record<I18nKey, string> = {
   'error.audio_decode_fail': 'Η αποκωδικοποίηση ήχου απέτυχε!',
   'error.audio_memory': 'Φόρτωση ήχου στη μνήμη...',
   'error.all_tracks_failed': 'Δεν υπάρχουν κομμάτια με δυνατότητα αναπαραγωγής στη λίστα.',
-  'error.audio_engine_prepare': 'Δεν ήταν δυνατή η προετοιμασία της μονάδας ήχου',
+  'error.audio_engine_prepare': 'Δεν ήταν δυνατή η προετοιμασία της μηχανής ήχου',
   'error.session_create_fail': 'Δεν ήταν δυνατή η δημιουργία συνεδρίας',
   'error.network_generic': 'Παρουσιάστηκε σφάλμα δικτύου',
   'error.peer_app_version_mismatch':
-    'Το {{name}} δεν μπορεί να συνδεθεί επειδή οι εκδόσεις της εφαρμογής δεν ταιριάζουν. Ανανεώστε και τις δύο συσκευές.',
+    'Η σύνδεση δεν είναι δυνατή για {{name}} επειδή οι εκδόσεις της εφαρμογής δεν ταιριάζουν. Ανανεώστε και τις δύο συσκευές.',
   'error.app_version_mismatch':
     'Οι εκδόσεις της εφαρμογής δεν ταιριάζουν. Ανανεώστε και τις δύο συσκευές και δοκιμάστε ξανά.',
 
@@ -695,7 +695,7 @@ const el: Record<I18nKey, string> = {
   'error.host_disconnected': 'Η σύνδεση με τον οικοδεσπότη διακόπηκε',
   'error.host_conn_error': 'Παρουσιάστηκε σφάλμα κατά τη σύνδεση με τον οικοδεσπότη',
   'error.connect_failed': 'Η σύνδεση απέτυχε',
-  'error.peer_not_ready': 'Η σύνδεση peer δεν είναι ακόμα έτοιμη',
+  'error.peer_not_ready': 'Η σύνδεση των συσκευών δεν είναι ακόμα έτοιμη',
   'error.network_init_failed': 'Η αρχικοποίηση δικτύου απέτυχε',
   'error.no_host_id': 'Δεν βρέθηκε ID οικοδεσπότη',
   'error.peer_unavailable': 'Δεν βρέθηκε η συνεδρία.\nΕλέγξτε ξανά τον κωδικό.',
@@ -718,7 +718,7 @@ const el: Record<I18nKey, string> = {
   'dialog.file_drop.title': 'Προσθήκη τοπικών αρχείων',
   'dialog.file_drop.message': 'Προσθήκη αρχείων: {{count}};',
   'dialog.file_drop.unsupported_notice':
-    'Δεν θα προστεθούν μη υποστηριζόμενα αρχεία. Πλήθος: {{count}}.',
+    'Μη υποστηριζόμενα αρχεία που δεν θα προστεθούν: {{count}}.',
   'dialog.return_home_title': 'Αποχώρηση από τη συνεδρία',
   'dialog.return_home_msg': 'Επιστροφή στην οθόνη έναρξης;',
   'dialog.return_home_detail': 'Θα αποσυνδεθείτε από την τρέχουσα συνεδρία.',
@@ -749,7 +749,8 @@ const el: Record<I18nKey, string> = {
   'dialog.room_password_title': 'Εισαγάγετε κωδικό πρόσβασης δωματίου',
   'dialog.room_password_msg': 'Απαιτείται κωδικός πρόσβασης για συμμετοχή σε αυτό το δωμάτιο.',
   'dialog.room_password_retry_msg': 'Ο κωδικός πρόσβασης δεν ταιριάζει. Δοκιμάστε ξανά.',
-  'dialog.room_password_timeout_msg': 'Η σύνδεση έληξε. Εισαγάγετε ξανά τον κωδικό πρόσβασης.',
+  'dialog.room_password_timeout_msg':
+    'Έληξε το χρονικό όριο σύνδεσης. Εισαγάγετε ξανά τον κωδικό πρόσβασης.',
   'dialog.room_password_placeholder': 'Οκταψήφιος κωδικός πρόσβασης',
   'dialog.room_password_rate_limited':
     'Εισαγάγατε λάθος κωδικό πρόσβασης πάρα πολλές φορές. Δοκιμάστε ξανά σε {{count}} λεπ.',
@@ -762,15 +763,15 @@ const el: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Ενεργοποίηση δωματίου PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Επιλέξτε λογαριασμό για αυτό το δωμάτιο PRO',
+  'pro.activation_account_message': 'Να καταχωριστεί αυτό το δωμάτιο στον λογαριασμό «{{name}}»;',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Συνδεθείτε στον λογαριασμό στον οποίο θέλετε να καταχωριστεί αυτό το δωμάτιο.',
+  'pro.activation_account_continue': 'Συνέχεια',
+  'pro.activation_account_switch': 'Άλλος λογαριασμός',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Δεν ήταν δυνατή η επαλήθευση του λογαριασμού σας. Δοκιμάστε ξανά σε λίγο.',
+  'pro.activation_complete': 'Ολοκλήρωση καταχώρισης',
   'pro.activation_message': 'Ορίστε νέο οκταψήφιο κωδικό πρόσβασης για αυτό το δωμάτιο.',
   'pro.activation_pin_same': 'Επιλέξτε διαφορετικό κωδικό από τον προσωρινό.',
   'pro.claim_retry_title': 'Νέα δοκιμή του συνδέσμου PRO;',
@@ -783,7 +784,7 @@ const el: Record<I18nKey, string> = {
     'Συνδεθείτε με τον λογαριασμό που θα κατέχει αυτό το δωμάτιο PRO και ολοκληρώστε τη ρύθμιση ψευδωνύμου. Όσο συνεχίζετε, ο σύνδεσμος διατηρείται μόνο στη μνήμη αυτής της καρτέλας.',
   'pro.claim_popup_blocked_message':
     'Ο φυλλομετρητής απέκλεισε το παράθυρο σύνδεσης. Επιτρέψτε τα αναδυόμενα παράθυρα για το MUSIXQUARE και δοκιμάστε ξανά.',
-  'pro.claim_existing_account_title': 'Συνδεθείτε με τον συνδεδεμένο λογαριασμό',
+  'pro.claim_existing_account_title': 'Συνδεθείτε με τον καθορισμένο λογαριασμό',
   'pro.claim_existing_account_message':
     'Αυτός ο σύνδεσμος αντιστοιχεί σε λογαριασμό MUSIXQUARE που έχει ήδη ψευδώνυμο. Επιλέξτε τον λογαριασμό Google που έχει οριστεί για αυτόν τον σύνδεσμο.',
   'pro.claim_choose_account_button': 'Επιλογή άλλου λογαριασμού',
@@ -792,7 +793,7 @@ const el: Record<I18nKey, string> = {
     'Αυτό το δωμάτιο είναι συνδεδεμένο με άλλον λογαριασμό. Αν χρειάζεται αλλαγή, ζητήστε από έναν διαχειριστή να μεταβιβάσει την κυριότητα.',
   'pro.claim_account_capacity_title': 'Αυτός ο λογαριασμός δεν μπορεί να συνδέσει άλλο δωμάτιο',
   'pro.claim_account_capacity_message':
-    'Αυτός ο λογαριασμός έφτασε το όριο συνδεδεμένων δωματίων PRO. Αφαιρέστε μια υπάρχουσα σύνδεση και ζητήστε νέα.',
+    'Αυτός ο λογαριασμός έφτασε το όριο συνδεδεμένων δωματίων PRO. Αφαιρέστε μια υπάρχουσα σύνδεση και ζητήστε νέο σύνδεσμο.',
   'pro.claim_failed_title': 'Δεν ήταν δυνατή η ολοκλήρωση του αιτήματος',
   'pro.claim_failed_message':
     'Για λόγους ασφαλείας, ο σύνδεσμος δεν χρησιμοποιήθηκε ξανά. Ζητήστε νέο σύνδεσμο από τον διαχειριστή δωματίου.',
@@ -816,7 +817,7 @@ const el: Record<I18nKey, string> = {
   'pro.pin_changed': 'Ο κωδικός πρόσβασης δωματίου άλλαξε.',
   'pro.pin_enable_title': 'Ορισμός κωδικού πρόσβασης δωματίου',
   'pro.pin_enabled': 'Ο κωδικός πρόσβασης δωματίου ορίστηκε.',
-  'pro.pin_members_title': 'Τι να γίνει με τους τρέχοντες συμμετέχοντες;',
+  'pro.pin_members_title': 'Τι να γίνει με τα τρέχοντα μέλη;',
   'pro.pin_members_keep': 'Να μείνουν όλοι',
   'pro.pin_members_keep_detail':
     'Μόνο οι συσκευές που συνδέονται ξανά ή για πρώτη φορά θα χρειαστεί να εισαγάγουν τον κωδικό πρόσβασης.',
@@ -824,7 +825,7 @@ const el: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Όλοι θα πρέπει να συνδεθούν ξανά. Συνιστάται για να αφαιρέσετε με μία κίνηση άτομα που δεν γνωρίζετε.',
   'pro.pin_keep_unavailable':
-    'Ο κωδικός πρόσβασης δεν άλλαξε. Δεν είναι δυνατό να παραμείνουν τα άτομα στο δωμάτιο αυτή τη στιγμή. Δοκιμάστε ξανά αργότερα ή επιλέξτε «Όλοι συνδέονται ξανά».',
+    'Ο κωδικός πρόσβασης δεν άλλαξε. Η επιλογή «Να μείνουν όλοι» δεν είναι διαθέσιμη αυτή τη στιγμή. Δοκιμάστε ξανά αργότερα ή επιλέξτε «Όλοι συνδέονται ξανά».',
   'pro.pin_enabled_removed_title': 'Ορίστηκε κωδικός πρόσβασης δωματίου',
   'pro.pin_enabled_removed_message':
     'Ο κάτοχος του δωματίου όρισε κωδικό πρόσβασης για αυτό το δωμάτιο. Εισαγάγετέ τον για να συνδεθείτε ξανά.',
@@ -850,7 +851,7 @@ const el: Record<I18nKey, string> = {
   'pro.upload.batch_progress': 'Αποστολή κομματιών {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Δεν ήταν δυνατή η αποστολή ορισμένων κομματιών',
   'pro.upload.batch_failed_message':
-    'Η αποστολή απέτυχε. Αποτυχημένα αρχεία: {{failed}} / σύνολο: {{total}}.',
+    'Δεν ήταν δυνατή η αποστολή {{failed}} από τα {{total}} κομμάτια που ζητήσατε.',
   'pro.upload.cancel_file': 'Ακύρωση αποστολής του {{name}}',
   'pro.upload.confirming_file': 'Ολοκλήρωση αποστολής του {{name}}',
   'pro.downloading': 'Φόρτωση αρχείου...',
@@ -865,15 +866,16 @@ const el: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Για σύνδεση, εισαγάγετε τον <strong>εξαψήφιο κωδικό</strong> του οικοδεσπότη.<ul class="help-list"><li><strong>Οικοδεσπότης:</strong> «Δημιουργία δωματίου» → προβολή κωδικού</li><li><strong>Μέλος:</strong> «Συμμετοχή σε δωμάτιο» → εισαγωγή κωδικού</li><li>Μπορούν να συνδεθούν έως <strong>100 συσκευές μαζί με τον οικοδεσπότη</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Κάθε μέλος επιλέγει έναν <strong>ρόλο (κανάλι εξόδου)</strong>.<ul class="help-list"><li><strong>Κέντρο:</strong> στερεοφωνική έξοδος (προεπιλογή)</li><li><strong>Αριστερό (Left):</strong> έξοδος καναλιού <bdi dir="ltr">L</bdi></li><li><strong>Δεξί (Right):</strong> έξοδος καναλιού <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> μικτή έξοδος χαμηλών συχνοτήτων</li></ul>Μπορείτε να αλλάξετε ρόλους οποιαδήποτε στιγμή στις <strong>Ρυθμίσεις</strong>.',
+    'Κάθε μέλος επιλέγει έναν <strong>ρόλο (κανάλι εξόδου)</strong>.<ul class="help-list"><li><strong>Κεντρικό ηχείο:</strong> στερεοφωνική έξοδος (προεπιλογή)</li><li><strong>Αριστερό ηχείο:</strong> έξοδος καναλιού <bdi dir="ltr">L</bdi></li><li><strong>Δεξί ηχείο:</strong> έξοδος καναλιού <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> μικτή έξοδος χαμηλών συχνοτήτων</li></ul>Μπορείτε να αλλάξετε ρόλους οποιαδήποτε στιγμή στις <strong>Ρυθμίσεις</strong>.',
   'player.play_media_action_html':
     'Ο οικοδεσπότης έχει 3 επιλογές.<ul class="help-list"><li><strong>Φόρτωση τοπικού αρχείου:</strong> επιλέξτε μουσική από τη συσκευή. Υποστηρίζεται ακριβής συγχρονισμός</li><li><strong>YouTube μαζί:</strong> υποστηρίζονται βίντεο και λίστες αναπαραγωγής. Χωρίς διαχωρισμό καναλιών ή ηχητικά εφέ</li><li><strong>Κοινοποίηση ήχου συστήματος:</strong> διαθέσιμη όταν ο οικοδεσπότης χρησιμοποιεί φυλλομετρητή βασισμένο στο Chromium σε υπολογιστή</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Εισαγάγατε τον κωδικό αλλά δεν μπορείτε να συνδεθείτε:</strong> ελέγξτε τον κωδικό και δοκιμάστε ξανά σε λίγο. Εταιρικά, σχολικά δίκτυα ή VPN ενδέχεται να περιορίζουν τη σύνδεση.</li><li><strong>Ασταθής σύνδεση:</strong> τα τοπικά μέλη μπορούν να πλησιάσουν τον δρομολογητή, ενώ τα απομακρυσμένα μέλη πρέπει να χρησιμοποιούν σταθερή σύνδεση στο διαδίκτυο.</li><li><strong>Άλλα προβλήματα:</strong> ελέγξτε την κατάσταση δικτύου και επανεκκινήστε την εφαρμογή σε όλες τις συσκευές. Για ερωτήσεις, ανατρέξτε στις <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Συχνές ερωτήσεις</a> ή επικοινωνήστε μαζί μας μέσω του email στο κάτω μέρος.</li></ul>',
   'chat.peer_connected': 'Συνδέθηκε: {{name}}',
-  'chat.tracks_added': '{{name}}: κομμάτια που προστέθηκαν: {{count}}',
-  'chat.track_added_named': '{{name}}: προστέθηκε κομμάτι: {{title}}',
-  'chat.tracks_added_named': '{{name}}: κομμάτια που προστέθηκαν: {{count}}, μαζί με το {{title}}',
+  'chat.tracks_added': 'Κομμάτια που προστέθηκαν από {{name}}: {{count}}',
+  'chat.track_added_named': 'Κομμάτι που προστέθηκε από {{name}}: {{title}}',
+  'chat.tracks_added_named':
+    'Κομμάτια που προστέθηκαν από {{name}}: {{count}}, μεταξύ των οποίων το {{title}}',
   'chat.peer_disconnected': 'Αποσυνδέθηκε: {{name}}',
   'chat.participant_connection_unstable_recovering':
     'Η σύνδεση για {{name}} είναι ασταθής. Γίνεται προσπάθεια αποκατάστασης.',
@@ -895,8 +897,8 @@ const el: Record<I18nKey, string> = {
   'system_audio.button': 'Ήχος συστήματος',
   'system_audio.sharing': 'Κοινοποίηση ήχου συστήματος',
   'system_audio.receiving': 'Λήψη ήχου συστήματος',
-  'system_audio.owner_active': 'Το {{name}} κοινοποιεί ήχο συστήματος.',
-  'system_audio.owner_preparing': 'Το {{name}} προετοιμάζει την κοινοποίηση ήχου συστήματος.',
+  'system_audio.owner_active': 'Κοινοποίηση ήχου συστήματος από {{name}}.',
+  'system_audio.owner_preparing': 'Προετοιμασία κοινοποίησης ήχου συστήματος από {{name}}.',
   'system_audio.pro_preparing': 'Προετοιμασία κοινοποίησης ήχου συστήματος.',
   'system_audio.pro_publish_failed': 'Δεν ήταν δυνατή η έναρξη κοινοποίησης ήχου συστήματος.',
   'system_audio.coordinator_update_required':
@@ -932,7 +934,7 @@ const el: Record<I18nKey, string> = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Πληροφορίες υπηρεσίας',
   'legal.content_html':
-    '<strong>Πολιτική απορρήτου</strong><br><span data-legal-standard-storage>Στο ίδιο δίκτυο, το μεγαλύτερο μέρος του περιεχομένου της συνεδρίας μεταδίδεται απευθείας μεταξύ των συσκευών. Ο διακομιστής σηματοδοσίας επεξεργάζεται μόνο προσωρινά δεδομένα λειτουργίας του δωματίου, ελέγχου ταυτότητας και επανασύνδεσης· ορισμένα δεδομένα απομακρυσμένων ή μεγάλων συνεδριών μεταδίδονται μέσω Cloudflare. Τα απομακρυσμένα αρχεία διατηρούνται έως 24 ώρες σε ιδιωτικό χώρο αποθήκευσης Cloudflare· μόνο τα μέλη του δωματίου αποκτούν προσωρινή πρόσβαση λήψης. Το MUSIXQUARE αποκτά πρόσβαση, αναλύει ή διατηρεί δεδομένα μόνο για την παροχή, λειτουργία και προστασία της υπηρεσίας.</span><span data-legal-pro-storage>Τα δωμάτια PRO αποθηκεύουν στο Cloudflare την κατάσταση συνεδρίας, μελών, λίστας αναπαραγωγής, αναπαραγωγής και αποστολών που απαιτείται για τη λειτουργία. Τα αρχικά αρχεία της λίστας παραμένουν σε ιδιωτικό χώρο αποθήκευσης Cloudflare· μόνο τα μέλη του δωματίου μπορούν να τα κατεβάσουν μέσω URL μικρής διάρκειας. Τα αρχεία διαγράφονται όταν ένας διαχειριστής τα αφαιρέσει από τη λίστα ή όταν ο υπεύθυνος λειτουργίας διαγράψει τα δεδομένα του δωματίου. Το MUSIXQUARE αποκτά πρόσβαση, αναλύει ή διατηρεί δεδομένα μόνο για την παροχή, λειτουργία και προστασία της υπηρεσίας.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μάθετε περισσότερα</a><br><br><strong>Ειδοποίηση πνευματικών δικαιωμάτων</strong><br>Το περιεχόμενο που κοινοποιείται μέσω MUSIXQUARE ανήκει στους αντίστοιχους κατόχους δικαιωμάτων. Η κοινοποίηση ήχου συστήματος και αρχείων προορίζεται για προσωπική χρήση. Οι χρήστες είναι υπεύθυνοι για μη εξουσιοδοτημένη διανομή ή δημόσια μετάδοση περιεχομένου που προστατεύεται από πνευματικά δικαιώματα. Η κοινοποίηση YouTube χρησιμοποιεί την επίσημη μέθοδο αναπαραγωγής, ενώ οι προβολές και η διαχείριση δικαιωμάτων ακολουθούν τις πολιτικές της υπηρεσίας και τις ρυθμίσεις των κατόχων δικαιωμάτων. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μάθετε περισσότερα</a><br><br><strong>Αποποίηση ευθύνης</strong><br>Το MUSIXQUARE παρέχεται δωρεάν. Ορισμένες λειτουργίες βασίζονται σε εξωτερικές υπηρεσίες όπως το YouTube ή το Cloudflare, επομένως ενδέχεται να υπάρξουν προσωρινοί περιορισμοί αν αυτές αλλάξουν ή τεθούν εκτός λειτουργίας. Η ποιότητα συγχρονισμού ήχου σε πραγματικό χρόνο και απομακρυσμένης κοινοποίησης μπορεί να διαφέρει σημαντικά ανάλογα με το δίκτυο, την πολιτική του φυλλομετρητή και την απόδοση της συσκευής. Ενδέχεται να ισχύουν χρεώσεις δεδομένων κινητής όταν δεν χρησιμοποιείται Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μάθετε περισσότερα</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Σχετικά</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Ιστορικό</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Σχεδίαση</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μετάφραση</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Πολιτική απορρήτου</strong><br><span data-legal-standard-storage>Στο ίδιο δίκτυο, το μεγαλύτερο μέρος του περιεχομένου της συνεδρίας μεταδίδεται απευθείας μεταξύ των συσκευών. Ο διακομιστής σηματοδοσίας επεξεργάζεται προσωρινά μόνο δεδομένα λειτουργίας του δωματίου, ελέγχου ταυτότητας και επανασύνδεσης· ορισμένα δεδομένα απομακρυσμένων ή μεγάλων συνεδριών μεταδίδονται μέσω Cloudflare. Τα απομακρυσμένα αρχεία διατηρούνται έως 24 ώρες σε ιδιωτικό χώρο αποθήκευσης Cloudflare· μόνο τα μέλη του δωματίου αποκτούν προσωρινή πρόσβαση λήψης. Το MUSIXQUARE αποκτά πρόσβαση, αναλύει ή διατηρεί δεδομένα μόνο για την παροχή, λειτουργία και προστασία της υπηρεσίας.</span><span data-legal-pro-storage>Τα δωμάτια PRO αποθηκεύουν στο Cloudflare την κατάσταση συνεδρίας, μελών, λίστας αναπαραγωγής, αναπαραγωγής και αποστολών που απαιτείται για τη λειτουργία. Τα αρχικά αρχεία της λίστας παραμένουν σε ιδιωτικό χώρο αποθήκευσης Cloudflare· μόνο τα μέλη του δωματίου μπορούν να τα κατεβάσουν μέσω URL μικρής διάρκειας. Τα αρχεία διαγράφονται όταν ένας διαχειριστής τα αφαιρέσει από τη λίστα ή όταν ο υπεύθυνος λειτουργίας διαγράψει τα δεδομένα του δωματίου. Το MUSIXQUARE αποκτά πρόσβαση, αναλύει ή διατηρεί δεδομένα μόνο για την παροχή, λειτουργία και προστασία της υπηρεσίας.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μάθετε περισσότερα</a><br><br><strong>Ειδοποίηση πνευματικών δικαιωμάτων</strong><br>Το περιεχόμενο που κοινοποιείται μέσω MUSIXQUARE ανήκει στους αντίστοιχους κατόχους δικαιωμάτων. Η κοινοποίηση ήχου συστήματος και αρχείων προορίζεται για προσωπική χρήση. Οι χρήστες είναι υπεύθυνοι για μη εξουσιοδοτημένη διανομή ή δημόσια μετάδοση περιεχομένου που προστατεύεται από πνευματικά δικαιώματα. Η κοινοποίηση YouTube χρησιμοποιεί την επίσημη μέθοδο αναπαραγωγής, ενώ οι προβολές και η διαχείριση δικαιωμάτων ακολουθούν τις πολιτικές της υπηρεσίας και τις ρυθμίσεις των κατόχων δικαιωμάτων. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μάθετε περισσότερα</a><br><br><strong>Αποποίηση ευθύνης</strong><br>Το MUSIXQUARE παρέχεται δωρεάν. Ορισμένες λειτουργίες βασίζονται σε εξωτερικές υπηρεσίες όπως το YouTube ή το Cloudflare, επομένως ενδέχεται να υπάρξουν προσωρινοί περιορισμοί αν αυτές αλλάξουν ή τεθούν εκτός λειτουργίας. Η ποιότητα συγχρονισμού ήχου σε πραγματικό χρόνο και απομακρυσμένης κοινοποίησης μπορεί να διαφέρει σημαντικά ανάλογα με το δίκτυο, την πολιτική του φυλλομετρητή και την απόδοση της συσκευής. Ενδέχεται να ισχύουν χρεώσεις δεδομένων κινητής όταν δεν χρησιμοποιείται Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μάθετε περισσότερα</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Σχετικά</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Ιστορικό</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Σχεδίαση</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Μετάφραση</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default el;

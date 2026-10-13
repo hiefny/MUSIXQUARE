@@ -49,14 +49,14 @@ const de: Record<I18nKey, string> = {
   'account.login_failed': 'Anmeldung fehlgeschlagen. Versuche es erneut.',
   'account.welcome_back': 'Willkommen zurück\n{{name}}',
   'account.login_message':
-    'Melde dich mit Google an, um deinen Nickname in allen Räumen zu behalten. Du kannst MUSIXQUARE auch ohne Anmeldung weiter nutzen.',
+    'Melde dich mit Google an, um deinen Nickname in allen Räumen zu behalten. Du kannst auch ohne Anmeldung weitermachen.',
   'account.google_continue': 'Mit Google fortfahren',
   'account.terms': 'Nutzungsbedingungen',
   'account.privacy': 'Datenschutz',
   'account.unavailable':
     'Die Anmeldung ist vorübergehend nicht verfügbar. Du kannst ohne sie fortfahren.',
   'account.account_title': 'Konto',
-  'account.stats_sessions_label': 'Beigetretene Räume',
+  'account.stats_sessions_label': 'Besuchte Räume',
   'account.stats_listening_label': 'Hörzeit',
   'account.stats_tracks_label': 'Abgespielte Medien',
   'account.stats_count_value': '{{count}}',
@@ -74,7 +74,7 @@ const de: Record<I18nKey, string> = {
   'account.nickname_whitespace':
     'Nicknames dürfen keine Leerzeichen oder unsichtbaren Zeichen enthalten.',
   'account.nickname_taken': 'Dieser Nickname ist bereits vergeben.',
-  'account.nickname_saved': 'Nickname zu {{name}} geändert.',
+  'account.nickname_saved': 'Nickname in {{name}} geändert.',
   'account.action_failed': 'Das Konto konnte nicht aktualisiert werden. Versuche es später erneut.',
   'account.delete_confirm_title': 'Konto löschen?',
   'account.delete_confirm_message':
@@ -106,7 +106,7 @@ const de: Record<I18nKey, string> = {
   'nav.connect': 'Verbinden',
   'nav.playlist_compact': 'Playlist',
   'nav.connect_compact': 'Verbinden',
-  'nav.settings_compact': 'Optionen',
+  'nav.settings_compact': 'Einstellungen',
   'nav.go_home': 'Zur Startseite',
 
   // Role
@@ -182,8 +182,8 @@ const de: Record<I18nKey, string> = {
   'settings.surround_title': 'Virtueller Surround',
   'settings.bass_title': 'Virtueller Bass',
   'settings.exciter_title': 'Virtuelle Höhen',
-  'settings.subwoofer_adjust': 'Subwoofer-Cutoff',
-  'settings.subwoofer_cutoff': 'Grenzfrequenz',
+  'settings.subwoofer_adjust': 'Subwoofer-Grenzfrequenz',
+  'settings.subwoofer_cutoff': 'Subwoofer-Grenzfrequenz',
   'settings.default_0pct': 'Standard 0%',
   'settings.default_01s': 'Standard 0,1 s',
   'settings.default_20khz': 'Standard 20,0 kHz',
@@ -191,7 +191,7 @@ const de: Record<I18nKey, string> = {
   'settings.default_5s': 'Standard 5,0 s',
   'settings.invite_code': 'Einladungscode',
   'settings.leave_session': 'Raum verlassen',
-  'connect.rename_reserved': 'Dieser Spitzname ist reserviert.',
+  'connect.rename_reserved': 'Dieser Nickname ist reserviert.',
   'connect.rename_profanity': 'Der Nickname enthält unzulässige Begriffe.',
   'settings.devices_title': 'Verbundene Geräte',
   'settings.invite_share': 'Einladen & Teilen',
@@ -221,7 +221,7 @@ const de: Record<I18nKey, string> = {
   'player.play_media_compact': 'Medien',
   'player.play_media_action': 'Medien abspielen',
   'player.add_media': 'Medien hinzufügen',
-  'player.play_start': 'In die Warteschlange',
+  'player.play_start': 'Zur Warteschlange hinzufügen',
   'player.select_media': 'Medium zum Abspielen auswählen',
   'player.play_together': 'Synchrone Wiedergabe',
   'player.play_speakers': 'Als Lautsprecher nutzen',
@@ -251,8 +251,8 @@ const de: Record<I18nKey, string> = {
   'playlist.track_fallback': 'Titel {{idx}}',
   'playlist.deferred_load_hint': 'Abspielen, um die vollständige Titelliste zu laden',
   'playlist.host_update_required': 'Aktualisiere das Gerät, das diesen Raum verwaltet.',
-  'playlist.queue_full': 'Die Wiedergabeliste ist voll.',
-  'playlist.mutation_retry': 'Die Wiedergabeliste wurde geändert. Bitte versuche es erneut.',
+  'playlist.queue_full': 'Die Playlist ist voll.',
+  'playlist.mutation_retry': 'Die Playlist wurde geändert. Bitte versuche es erneut.',
   'transfer.host_busy':
     'Der Host verarbeitet gerade eine andere Datei. Bitte versuche es gleich noch einmal.',
 
@@ -274,7 +274,7 @@ const de: Record<I18nKey, string> = {
   'connect.permission_inherited': 'Enthalten',
   'connect.kick_member_message': 'Alle als {{name}} verbundenen Geräte entfernen?',
   'connect.device_toggle': 'Verbundene Geräte von {{name}} ein-/ausklappen',
-  'connect.device_label': '{{platform}}-Gerät ({{code}})',
+  'connect.device_label': 'Gerät ({{platform}}, {{code}})',
   'connect.platform_other': 'Sonstiges',
   'connect.current_device': 'Dieses Gerät',
   'connect.no_session': 'Starte zuerst einen Raum',
@@ -401,7 +401,7 @@ const de: Record<I18nKey, string> = {
   'youtube.thumbnail': 'YouTube-Vorschaubild',
   'youtube.load_fail': 'YouTube-API konnte nicht geladen werden.\nPrüfe deine Verbindung!',
   'youtube.video_unavailable': 'Video nicht verfügbar, springe zum nächsten Titel',
-  'youtube.load_timeout': 'YouTube-Laden hat zu lange gedauert.\nBitte erneut versuchen.',
+  'youtube.load_timeout': 'Das Laden von YouTube hat zu lange gedauert.\nBitte erneut versuchen.',
   'youtube.invalid_link': 'Ungültiger YouTube-Link',
   'youtube.effects_disabled':
     'YouTube gemeinsam ansehen.\nErweiterte Audioeffekte sind deaktiviert.',
@@ -430,16 +430,16 @@ const de: Record<I18nKey, string> = {
   'network.session_full': 'Der Raum ist voll',
   'network.session_full_detail':
     'In diesem Raum sind bereits 100 Geräte verbunden, einschließlich des Hosts.',
-  'network.op_granted': 'Administratorberechtigung erteilt.',
-  'network.op_revoked': 'Administratorberechtigung entzogen.',
+  'network.op_granted': 'Administratorrechte erteilt.',
+  'network.op_revoked': 'Administratorrechte entzogen.',
 
   // Transfer
   'transfer.demo_loading': 'Demo-Titel wird vom Server geladen...',
   'transfer.demo_loaded': 'Demo-Titel bereit.',
-  'transfer.demo_load_fail': 'Demo-Laden fehlgeschlagen:',
+  'transfer.demo_load_fail': 'Demo konnte nicht geladen werden:',
   'transfer.demo_loading_short': 'Demo-Titel wird geladen...',
   'transfer.file_requesting': 'Datei wird angefordert...',
-  'transfer.file_sending': 'Datei wird gesendet...',
+  'transfer.file_sending': 'Datei wird gesendet…',
   'transfer.file_wait': 'Warten auf Datei...\nBitte kurz warten',
   'transfer.preload_done': 'Vorab geladene Datei wird verwendet!',
   'transfer.preload_waiting': 'Warten auf Abschluss des Vorladens...',
@@ -505,7 +505,8 @@ const de: Record<I18nKey, string> = {
     'Systemaudio unterstützt bis zu {{count}} Geräte.\nDer Host zählt mit.',
   'system_audio.device_limit_stopped':
     'Systemaudio-Freigabe beendet.\nMehr als {{count}} Geräte sind verbunden.',
-  'system_audio.duration_limit_stopped': 'Systemaudio wurde nach 2 Stunden\nautomatisch beendet.',
+  'system_audio.duration_limit_stopped':
+    'Systemaudio-Freigabe wurde nach 2 Stunden\nautomatisch beendet.',
 
   // Toast
   'toast.device_connected': '{{name}} verbunden',
@@ -562,7 +563,7 @@ const de: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Keine unterstützten Audiodateien gefunden.',
   'toast.sync_reset': 'Sync-Versatz zurückgesetzt',
   'toast.stop_sent': 'Stoppanfrage gesendet',
-  'toast.hprecision_sync': 'Präzisionssynchronisierung: Audio wird vorbereitet...',
+  'toast.hprecision_sync': 'Präzisionssynchronisierung: Audio wird vorbereitet…',
   'toast.file_ready': 'Deine Datei ist bereit!\nDrücke auf Wiedergabe.',
   'toast.host_sync_not_recommended': 'Sync auf einem Teilnehmergerät anpassen',
   'toast.host_sync_requested':
@@ -574,7 +575,7 @@ const de: Record<I18nKey, string> = {
   'toast.host_ad': 'Der Host scheint eine Werbung anzusehen',
   'toast.yt_sync_start': 'Synchronisierung...',
   'toast.yt_sync_done': 'Synchronisierung abgeschlossen',
-  'toast.yt_rendezvous_start': 'Ausrichtung am Host...',
+  'toast.yt_rendezvous_start': 'Abgleich mit dem Host...',
   'toast.yt_rendezvous_done': 'Synchronisierung abgeschlossen',
   'toast.yt_rendezvous_host_paused':
     'Die Wiedergabe des Hosts ist pausiert; nur die Position wurde angeglichen',
@@ -682,7 +683,16 @@ const de: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO-Raum aktivieren',
-  'pro.activation_message': 'Lege ein neues 8-stelliges numerisches Passwort für diesen Raum fest.',
+  'pro.activation_account_title': 'Konto für diesen PRO-Raum wählen',
+  'pro.activation_account_message': 'Diesen Raum für das Konto „{{name}}“ registrieren?',
+  'pro.activation_account_login_message':
+    'Melde dich mit dem Konto an, für das du diesen Raum registrieren möchtest.',
+  'pro.activation_account_continue': 'Fortfahren',
+  'pro.activation_account_switch': 'Anderes Konto',
+  'pro.activation_account_unavailable':
+    'Dein Konto konnte nicht überprüft werden. Bitte versuche es gleich noch einmal.',
+  'pro.activation_complete': 'Registrierung abschließen',
+  'pro.activation_message': 'Lege ein neues 8-stelliges Passwort für diesen Raum fest.',
   'pro.activation_pin_same': 'Wähle ein anderes Passwort als das vorläufige.',
   'pro.claim_retry_title': 'PRO-Link erneut versuchen?',
   'pro.claim_retry_message':
@@ -696,22 +706,22 @@ const de: Record<I18nKey, string> = {
     'Dein Browser hat das Anmeldefenster blockiert. Erlaube Pop-ups für MUSIXQUARE und versuche es erneut.',
   'pro.claim_existing_account_title': 'Mit dem verknüpften Konto anmelden',
   'pro.claim_existing_account_message':
-    'Dieser Link ist an ein MUSIXQUARE-Konto gebunden, das bereits einen Nicknamen hat. Wähle das für diesen Link angegebene Google-Konto aus.',
+    'Dieser Link ist an ein MUSIXQUARE-Konto gebunden, das bereits einen Nickname hat. Wähle das für diesen Link angegebene Google-Konto aus.',
   'pro.claim_choose_account_button': 'Anderes Konto wählen',
   'pro.claim_account_conflict_title': 'Dieses Konto kann den Raum nicht verwenden',
   'pro.claim_account_conflict_message':
-    'Dieser Raum ist mit einem anderen Konto verknüpft. Bitte einen Administrator um eine Eigentumsübertragung, wenn du das ändern möchtest.',
+    'Dieser Raum ist mit einem anderen Konto verknüpft. Wende dich für eine Eigentumsübertragung an einen Administrator, wenn du das ändern möchtest.',
   'pro.claim_account_capacity_title': 'Dieses Konto kann keinen weiteren Raum verknüpfen',
   'pro.claim_account_capacity_message':
     'Das Limit für verknüpfte PRO-Räume ist erreicht. Entferne eine bestehende Verknüpfung und fordere einen neuen Link an.',
   'pro.claim_failed_title': 'Die Anfrage konnte nicht abgeschlossen werden',
   'pro.claim_failed_message':
-    'Aus Sicherheitsgründen wurde die Anfrage nicht automatisch wiederholt. Bitte den Raumadministrator um einen neuen Link.',
+    'Aus Sicherheitsgründen wurde die Anfrage nicht automatisch wiederholt. Frag den Raumadministrator nach einem neuen Link.',
   'pro.transfer_title': 'PRO-Raum übernehmen',
   'pro.transfer_message':
     'Lege ein neues 8-stelliges Passwort fest. Danach wird der Zugriff des bisherigen Besitzers widerrufen.',
   'pro.new_link_message':
-    'Der Link ist abgelaufen oder wurde bereits verwendet. Bitte bei Bedarf einen Administrator um einen neuen Link.',
+    'Der Link ist abgelaufen oder wurde bereits verwendet. Frag bei Bedarf einen Administrator nach einem neuen Link.',
   'pro.not_ready_title': 'Dieser PRO-Raum ist noch nicht bereit',
   'pro.not_ready_message': 'Der Raumbesitzer muss ihn zuerst aktivieren.',
   'pro.suspended_title': 'Dieser PRO-Raum ist derzeit nicht verfügbar',
@@ -727,7 +737,7 @@ const de: Record<I18nKey, string> = {
   'pro.pin_changed': 'Raumpasswort wurde geändert.',
   'pro.pin_enable_title': 'Raumpasswort festlegen',
   'pro.pin_enabled': 'Raumpasswort wurde festgelegt.',
-  'pro.pin_members_title': 'Was soll mit den aktuellen Teilnehmenden passieren?',
+  'pro.pin_members_title': 'Was soll mit den aktuellen Teilnehmern passieren?',
   'pro.pin_members_keep': 'Alle bleiben',
   'pro.pin_members_keep_detail':
     'Nur Geräte, die erneut oder zum ersten Mal beitreten, müssen das Passwort eingeben.',
@@ -780,7 +790,7 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'Chat wurde gesperrt',
   'chat.cmd_unfrozen': 'Chat wurde entsperrt',
   'chat.cmd_frozen_blocked': 'Chat ist derzeit gesperrt',
-  'chat.cmd_muted': '{{name}} wurde im Chat stummgeschaltet',
+  'chat.cmd_muted': '{{name}} kann keine Chatnachrichten mehr senden',
   'chat.cmd_unmuted': '{{name}} kann wieder Chatnachrichten senden',
   'chat.cmd_clear': 'Chat wurde gelöscht',
   'chat.cmd_filter_on': 'Schimpfwortfilter aktiviert',
@@ -788,7 +798,7 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_slowmode_on': 'Langsammodus: {{sec}} Sekunden zwischen Nachrichten',
   'chat.cmd_slowmode_off': 'Langsammodus deaktiviert',
   'chat.cmd_slowmode_wait': 'Warte {{sec}} Sekunden vor dem Senden',
-  'chat.cmd_notice_prefix': 'Hinweis',
+  'chat.cmd_notice_prefix': 'Ankündigung',
   'chat.system_sender': 'SYSTEM',
   'chat.bot_unavailable': 'Der BOT ist nur in PRO-Räumen verfügbar',
   'chat.bot_processing': 'BOT bearbeitet die Anfrage...',
@@ -819,12 +829,12 @@ const de: Record<I18nKey, string> = {
     'Limit für die netzwerkübergreifende Freigabe erreicht.\nLokale Dateien können weiterhin geteilt werden.',
   'chat.remote_upload_failed_system_message':
     'Datei-Upload über ein anderes Netzwerk fehlgeschlagen.\nDie betroffenen Teilnehmer sollten es gleich erneut versuchen.',
-  'chat.pinned_close': 'Hinweis schließen',
+  'chat.pinned_close': 'Ankündigung schließen',
   'chat.cmd_whisper_from': 'Private Nachricht von {{name}}',
   'chat.cmd_whisper_to': 'Private Nachricht an {{name}}',
-  'chat.cmd_target_not_found': 'Empfänger nicht gefunden: {{target}}',
+  'chat.cmd_target_not_found': 'Ziel nicht gefunden: {{target}}',
   'chat.cmd_no_permission': 'Du hast keine Berechtigung',
-  'chat.cmd_nick_changed': 'Nickname zu {{name}} geändert',
+  'chat.cmd_nick_changed': 'Nickname in {{name}} geändert',
   'chat.cmd_already_op': '{{name}} ist bereits Administrator',
   'chat.cmd_not_op': '{{name}} ist kein Administrator',
   'chat.cmd_help_title': 'Verfügbare Befehle',
@@ -857,7 +867,7 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_d_freeze': 'Chat sperren',
   'chat.cmd_d_slowmode': 'Langsammodus',
   'chat.cmd_d_w': 'Private Nachricht',
-  'chat.cmd_d_notice': 'Hinweis',
+  'chat.cmd_d_notice': 'Ankündigung',
   'chat.cmd_d_nick': 'Nickname ändern',
   'chat.cmd_d_kick': 'Gerät entfernen',
   'chat.cmd_d_op': 'Administratorrechte erteilen',
@@ -884,7 +894,7 @@ const de: Record<I18nKey, string> = {
   'help.install_app_html':
     'Gefällt dir MUSIXQUARE? Du kannst es als App installieren.<ul class="help-list"><li><strong>iOS:</strong> Teilen → Zum Home-Bildschirm hinzufügen</li><li><strong>Android:</strong> Menü → App installieren</li><li><strong>Windows:</strong> Installationssymbol in der Adressleiste</li><li><strong>macOS:</strong> Teilen → Zum Dock hinzufügen</li></ul>',
   'help.local_recommended_html':
-    'Audiofreigabe ist im selben Netzwerk am stabilsten.<ul class="help-list"><li>Teilnehmer aus anderen Netzwerken können dieselben Funktionen nutzen.</li><li>Ihre Verbindungen laufen über Cloudflare, daher kann je nach Netzwerk die Latenz steigen oder der Empfang fehlschlagen.</li><li>Ein VPN oder ein eingeschränktes Netzwerk kann die Verbindung instabil machen.</li></ul>',
+    'Audiofreigabe ist im selben Netzwerk am stabilsten.<ul class="help-list"><li>Teilnehmer aus anderen Netzwerken können dieselben Funktionen nutzen.</li><li>Deren Verbindungen laufen über Cloudflare, daher kann je nach Netzwerk die Latenz steigen oder der Empfang fehlschlagen.</li><li>Ein VPN oder ein eingeschränktes Netzwerk kann die Verbindung instabil machen.</li></ul>',
   'setup.how_to_connect_html':
     'Gib den <strong>6-stelligen Code</strong> des Hosts ein, um dich zu verbinden.<ul class="help-list"><li><strong>Host:</strong> „Raum erstellen“ → Code prüfen</li><li><strong>Teilnehmer:</strong> „Einem Raum beitreten“ → Code eingeben</li><li>Es können sich bis zu <strong>100 Geräte einschließlich des Hosts</strong> verbinden.</li></ul>',
   'player.play_speakers_html':

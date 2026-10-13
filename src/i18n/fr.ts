@@ -29,14 +29,14 @@ const fr: Record<I18nKey, string> = {
   'common.stay': 'Rester',
   'common.leave': 'Quitter',
   'common.granted': 'accordé',
-  'common.revoked': 'révoqué',
+  'common.revoked': 'retiré',
   'common.stop': 'Arrêter',
   'common.pause': 'Pause',
   'setup.carousel_pause': 'Suspendre la rotation automatique des diapositives',
   'common.message': 'Message',
   'common.mix': 'Mixage',
   'common.wait': 'Veuillez patienter…',
-  'common.guest': 'Invité',
+  'common.guest': 'Participant',
   'common.help': 'Aide',
   'common.increase': 'Augmenter',
   'common.decrease': 'Diminuer',
@@ -161,7 +161,7 @@ const fr: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Audio spatial',
   'settings.reverb_title': 'Réverbération',
   'settings.rvb_studio': 'Studio',
-  'settings.rvb_arena': 'Arène',
+  'settings.rvb_arena': 'Salle de concert',
   'settings.rvb_advanced': 'Avancé',
   'settings.rvb_off': 'Désactivé',
   'settings.reverb_mix': 'Dosage de la réverbération',
@@ -179,7 +179,7 @@ const fr: Record<I18nKey, string> = {
   'settings.lowpass': 'Filtre passe-bas',
   'settings.highpass': 'Filtre passe-haut',
   'settings.surround_title': 'Surround virtuel',
-  'settings.bass_title': 'Basses virtuelles',
+  'settings.bass_title': 'Graves virtuels',
   'settings.exciter_title': 'Aigus virtuels',
   'settings.subwoofer_adjust': 'Coupure du caisson de basses',
   'settings.subwoofer_cutoff': 'Fréquence de coupure du caisson de basses',
@@ -201,7 +201,7 @@ const fr: Record<I18nKey, string> = {
 
   // Player
   'player.no_media': 'Aucun média en cours de lecture',
-  'player.select_file_hint': 'Sélectionnez un fichier ou consultez la liste de lecture',
+  'player.select_file_hint': 'Sélectionnez un fichier ou consultez la playlist',
   'player.play_pause': 'Lecture/Pause',
   'player.visualizer': 'Visualiseur audio',
   'player.seek': 'Régler la position de lecture',
@@ -215,20 +215,20 @@ const fr: Record<I18nKey, string> = {
   'player.repeat_mode': 'Changer le mode de répétition',
   'player.shuffle_mode': 'Changer le mode aléatoire',
   'player.sync_compact': 'Synchro',
-  'player.syncing_compact': 'Sync…',
+  'player.syncing_compact': 'Synchro…',
   'player.play_media': 'Lire le média',
   'player.play_media_compact': 'Média',
   'player.play_media_action': 'Lire le média',
   'player.add_media': 'Ajouter un média',
   'player.play_start': 'Ajouter à la file d’attente',
   'player.select_media': 'Sélectionnez le média à lire',
-  'player.play_together': 'Lecture synchrone',
+  'player.play_together': 'Lecture synchronisée',
   'player.play_speakers': 'Utiliser comme enceinte',
   'player.auto_sync_label': 'Auto (ms)',
   'player.manual_sync_label': 'Synchronisation manuelle (ms)',
 
   // Playlist
-  'playlist.toggle': 'Afficher/masquer la liste de lecture',
+  'playlist.toggle': 'Afficher/masquer la playlist',
   'playlist.jump_to_current': 'Aller à la piste en cours de lecture',
   'playlist.reorder_handle': 'Réorganiser {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} sur {{total}}',
@@ -250,8 +250,8 @@ const fr: Record<I18nKey, string> = {
   'playlist.track_fallback': 'Piste {{idx}}',
   'playlist.deferred_load_hint': 'Lancez la lecture pour charger la liste complète',
   'playlist.host_update_required': 'Mettez à jour l’appareil qui gère ce salon.',
-  'playlist.queue_full': 'La liste de lecture est pleine.',
-  'playlist.mutation_retry': 'La liste de lecture a changé. Réessayez.',
+  'playlist.queue_full': 'La playlist est pleine.',
+  'playlist.mutation_retry': 'La playlist a changé. Réessayez.',
   'transfer.host_busy': 'L’hôte traite un autre fichier. Veuillez réessayer dans un instant.',
 
   // Connect
@@ -321,16 +321,16 @@ const fr: Record<I18nKey, string> = {
   'demo.prompt_later': 'Plus tard',
   'demo.try_later_toast':
     'Vous pouvez commencer la visite quand vous le souhaitez depuis l’onglet Aide.',
-  'demo.track_info': 'Infos de piste',
+  'demo.track_info': 'Infos sur la piste',
   'demo.exit': 'Terminer la visite',
   'demo.credit': 'Piste de démo',
   'demo.role_title': 'Définir le rôle de cet appareil',
   'demo.effects_title': 'Essayer les effets',
   'demo.reverb': 'Réverbération',
-  'demo.bass_boost': 'Renfort des basses',
+  'demo.bass_boost': 'Renfort des graves',
   'demo.treble_boost': 'Renfort des aigus',
   'demo.surround': 'Surround',
-  'demo.role_bass_short': 'Basses',
+  'demo.role_bass_short': 'Graves',
   'demo.role_center_short': 'Centre',
   'demo.step_nav_label': 'Étapes de la démo',
   'demo.step_connect': '1. Connexion',
@@ -375,7 +375,7 @@ const fr: Record<I18nKey, string> = {
   'setup.enter_code_connect': 'Code d’invitation',
   'setup.last_step': 'C’est parti !',
   'setup.joining': 'Connexion au salon…',
-  'setup.six_digit_enter': 'Saisissez le numéro à 6 chiffres',
+  'setup.six_digit_enter': 'Saisissez le code à 6 chiffres',
 
   // Help
   'help.need_help': 'Besoin d’aide ?',
@@ -449,7 +449,7 @@ const fr: Record<I18nKey, string> = {
   'share.remote.downloading': 'Téléchargement du fichier partagé à distance…',
   'share.remote.upload_failed': 'Échec du partage du fichier à distance : {{msg}}',
   'share.remote.download_failed': 'Échec du téléchargement du fichier partagé à distance : {{msg}}',
-  'share.remote.timeout': 'Le partage du fichier à distance a expiré',
+  'share.remote.timeout': 'Délai du partage de fichier à distance dépassé',
   'share.remote.too_large': 'Fichier trop volumineux (200 Mo max)',
   'share.remote.network_error': 'Erreur réseau pendant le partage à distance',
   'share.remote.rate_limited':
@@ -486,7 +486,7 @@ const fr: Record<I18nKey, string> = {
   'system_audio.stop': 'Arrêter le partage',
   'system_audio.stop_compact': 'Arrêter',
   'system_audio.started':
-    'L’audio système peut avoir une légère latence.\nBaissez le volume source si possible.',
+    'L’audio système peut présenter une légère latence.\nBaissez au maximum le volume de la source.',
   'system_audio.stopped': 'Partage de l’audio système terminé.\nReprise de la playlist.',
   'system_audio.host_channel_locked':
     'Impossible de changer de rôle pendant le partage de l’audio système.',
@@ -520,7 +520,7 @@ const fr: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Décodage audio…',
   'toast.preparing_next': 'Préparation de la piste suivante… ({{name}})',
   'toast.preparing_next_pct': 'Préparation de la piste suivante… {{pct}} %',
-  'toast.op_status': 'Droit de {{label}} {{status}}',
+  'toast.op_status': 'Droit « {{label}} » {{status}}',
   'toast.file_read_error': 'Erreur de lecture du fichier : {{name}}',
   'toast.host_ended_connection': 'L’hôte a mis fin à la connexion',
   'toast.announcement_available': 'Nouvelle annonce.\nConsultez le chat.',
@@ -575,7 +575,7 @@ const fr: Record<I18nKey, string> = {
   'toast.yt_rendezvous_done': 'Synchronisation terminée',
   'toast.yt_rendezvous_host_paused': 'L’hôte est en pause ; seule la position a été alignée',
   'toast.yt_rendezvous_no_data':
-    'Aucune donnée de lecture de l’hôte pour l’instant. Réessayez dans un instant',
+    'Aucune donnée de lecture de l’hôte pour le moment. Réessayez dans un instant',
   'toast.yt_rendezvous_timeout': 'Échec de la synchronisation. Réessayez dans un instant',
   'toast.yt_host_sync_sent': 'Signal de synchronisation automatique envoyé aux participants',
   'toast.yt_manual_sync_prompt':
@@ -614,7 +614,7 @@ const fr: Record<I18nKey, string> = {
   'error.host_left': 'L’hôte semble avoir quitté le salon',
   'error.network_issue': 'Il y a un problème réseau.\nVérifiez votre connexion Internet.',
   'error.signal_server_fail':
-    'Impossible de joindre le serveur de signalisation.\nRéessayez bientôt.',
+    'Impossible de joindre le serveur de signalisation.\nRéessayez dans un instant.',
   'error.server_disconnected': 'Déconnecté du serveur.',
   'error.session_id_unavailable': 'L’identifiant du salon est indisponible.\nVeuillez réessayer.',
   'error.webrtc_failed': 'Échec de la connexion WebRTC.\nVérifiez les réglages du navigateur.',
@@ -643,7 +643,7 @@ const fr: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'L’application est brièvement passée en arrière-plan',
   'dialog.audio_recovery_title': 'Le son s’est interrompu de façon inattendue',
   'dialog.audio_recovery_message':
-    'Le son de cet appareil n’a pas repris après le retour depuis l’arrière-plan. La connexion à la salle restera active pendant que MUSIXQUARE resynchronise le son de cet appareil.',
+    'Le son de cet appareil n’a pas repris après le retour depuis l’arrière-plan. La connexion au salon restera active pendant que MUSIXQUARE resynchronise le son de cet appareil.',
   'dialog.audio_recovery_action': 'Rétablir le son',
   'dialog.background_resume_message':
     'Si la synchronisation est décalée ou si aucun son n’est diffusé, fermez complètement l’application puis rouvrez-la.',
@@ -661,7 +661,7 @@ const fr: Record<I18nKey, string> = {
   'dialog.reconnect': 'Se reconnecter',
   'dialog.go_back': 'Retour',
   'dialog.step_next': 'Suivant',
-  'dialog.step_back': 'Retour',
+  'dialog.step_back': 'Précédent',
   'dialog.room_password_title': 'Saisir le mot de passe du salon',
   'dialog.room_password_msg': 'Un mot de passe est requis pour rejoindre ce salon.',
   'dialog.room_password_retry_msg': 'Ce mot de passe ne correspond pas. Réessayez.',
@@ -678,6 +678,15 @@ const fr: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Activer le salon PRO',
+  'pro.activation_account_title': 'Choisir un compte pour ce salon PRO',
+  'pro.activation_account_message': 'Enregistrer ce salon sur le compte « {{name}} » ?',
+  'pro.activation_account_login_message':
+    'Connectez-vous au compte sur lequel vous souhaitez enregistrer ce salon.',
+  'pro.activation_account_continue': 'Continuer',
+  'pro.activation_account_switch': 'Autre compte',
+  'pro.activation_account_unavailable':
+    'Impossible de vérifier votre compte. Réessayez dans un instant.',
+  'pro.activation_complete': 'Terminer l’enregistrement',
   'pro.activation_message': 'Définissez un nouveau mot de passe à 8 chiffres pour ce salon.',
   'pro.activation_pin_same': 'Choisissez un mot de passe différent du mot de passe temporaire.',
   'pro.claim_retry_title': 'Réessayer avec le lien PRO ?',
@@ -726,7 +735,7 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_members_title': 'Que faire des participants actuels ?',
   'pro.pin_members_keep': 'Garder tout le monde',
   'pro.pin_members_keep_detail':
-    'Seuls les appareils qui rejoignent de nouveau le salon ou pour la première fois devront saisir le mot de passe.',
+    'Seuls les appareils qui reviennent dans le salon ou le rejoignent pour la première fois devront saisir le mot de passe.',
   'pro.pin_members_reenter': 'Tout le monde revient',
   'pro.pin_members_reenter_detail':
     'Tout le monde devra rejoindre de nouveau le salon. Recommandé pour retirer d’un coup les personnes que vous ne connaissez pas.',
@@ -738,9 +747,9 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_changed_removed_title': 'Mot de passe du salon modifié',
   'pro.pin_changed_removed_message':
     'Le propriétaire du salon a modifié le mot de passe. Saisissez le nouveau mot de passe pour rejoindre de nouveau le salon.',
-  'pro.removed_title': 'Accès au salon retiré',
+  'pro.removed_title': 'Expulsé du salon',
   'pro.removed_message':
-    'Le propriétaire du salon ou un administrateur a mis fin à votre accès à ce salon.',
+    'Le propriétaire du salon ou un administrateur vous a expulsé de ce salon.',
   'pro.device_removed_message':
     'Un autre appareil connecté à votre compte a déconnecté cet appareil du salon.',
   'pro.owner_only': 'Seul le propriétaire du salon peut le faire.',
@@ -752,7 +761,7 @@ const fr: Record<I18nKey, string> = {
     'Trop de tentatives pour rejoindre le salon. Réessayez dans {{count}} minutes.',
   'pro.join_rate_limited_later':
     'Trop de tentatives pour rejoindre le salon. Réessayez dans quelques instants.',
-  'pro.active_tab_title': 'Il reste une connexion précédente',
+  'pro.active_tab_title': 'Une connexion précédente est toujours active',
   'pro.active_tab_message': 'Continuer ici mettra fin à la connexion précédente.',
   'pro.active_tab_replaced': 'Ce salon PRO est déjà ouvert dans un autre onglet',
   'pro.use_this_tab': 'Continuer ici',
@@ -798,7 +807,7 @@ const fr: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'Piste ignorée : format non pris en charge sur certains appareils.',
   'chat.large_track_playback_system_message':
-    'Ce morceau est très volumineux. Des délais peuvent donc survenir lors de son utilisation.',
+    'Cette piste est très volumineuse. Des ralentissements peuvent donc survenir pendant son utilisation.',
   'chat.large_local_track_system_message':
     'Cette piste est très volumineuse et risque de ne pas être lue sur certains appareils.',
   'chat.device_track_unavailable_system_message':
@@ -841,14 +850,14 @@ const fr: Record<I18nKey, string> = {
   'chat.cmd_u_w': '/w [appareil] [message]',
   'chat.cmd_u_whisper': '/whisper [appareil] [message]',
   'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [nouveau nom]',
+  'chat.cmd_u_nick': '/nick [nouveau pseudo]',
   'chat.cmd_u_kick': '/kick [appareil]',
   'chat.cmd_u_op': '/op [appareil]',
   'chat.cmd_u_deop': '/deop [appareil]',
   'chat.cmd_u_mute': '/mute [appareil]',
   'chat.cmd_u_unmute': '/unmute [appareil]',
   'chat.cmd_d_help': 'Liste des commandes',
-  'chat.cmd_d_users': 'Voir les utilisateurs connectés',
+  'chat.cmd_d_users': 'Voir les participants connectés',
   'chat.cmd_d_bot': 'Demander à l’IA de gérer la playlist',
   'chat.cmd_d_clear': 'Effacer l’historique du chat',
   'chat.cmd_d_filter': 'Filtre des propos grossiers',
@@ -860,8 +869,8 @@ const fr: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'Expulser l’appareil',
   'chat.cmd_d_op': 'Accorder les droits d’administrateur',
   'chat.cmd_d_deop': 'Retirer les droits d’administrateur',
-  'chat.cmd_d_mute': 'Mettre un appareil en sourdine dans le chat',
-  'chat.cmd_d_unmute': 'Réactiver un appareil dans le chat',
+  'chat.cmd_d_mute': 'Restreindre le chat d’un appareil',
+  'chat.cmd_d_unmute': 'Rétablir le chat d’un appareil',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Informations de débogage système',
   'chat.debug_copied':
@@ -886,7 +895,7 @@ const fr: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Saisissez le <strong>code à 6 chiffres</strong> de l’hôte pour vous connecter.<ul class="help-list"><li><strong>Hôte :</strong> « Créer un salon » → vérifier le code</li><li><strong>Participant :</strong> « Rejoindre un salon » → saisir le code</li><li>Jusqu’à <strong>100 appareils, hôte compris</strong>, peuvent se connecter.</li></ul>',
   'player.play_speakers_html':
-    'Chaque participant sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie du canal G</li><li><strong>Droite :</strong> sortie du canal D</li><li><strong>Caisson de basses :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Réglages</strong>.',
+    'Chaque participant sélectionne un <strong>rôle (canal de sortie)</strong>.<ul class="help-list"><li><strong>Centre :</strong> sortie stéréo (par défaut)</li><li><strong>Gauche :</strong> sortie du canal <bdi dir="ltr">G</bdi></li><li><strong>Droite :</strong> sortie du canal <bdi dir="ltr">D</bdi></li><li><strong>Caisson de basses :</strong> sortie mixée des basses fréquences</li></ul>Vous pouvez changer de rôle à tout moment dans les <strong>Réglages</strong>.',
   'player.play_media_action_html':
     'L’hôte dispose de 3 options.<ul class="help-list"><li><strong>Charger un fichier local :</strong> choisissez de la musique sur votre appareil. Synchronisation précise prise en charge</li><li><strong>YouTube ensemble :</strong> vidéos et playlists prises en charge. Pas de séparation des canaux ni d’effets audio</li><li><strong>Partage de l’audio système :</strong> disponible lorsque l’hôte utilise un navigateur pour ordinateur basé sur Chromium</li></ul>',
   'help.need_help_html':
@@ -899,7 +908,7 @@ const fr: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Définissez le rôle de chaque appareil.<br>Lisez les canaux gauche et droit séparément<br>et profitez de graves profonds avec le caisson de basses.',
   'setup.advanced_audio_desc_html':
-    'Synchronisez les réglages de l’hôte<br>avec de la réverbération, un égaliseur, des effets virtuels<br>et bien plus encore sur tout le système.',
+    'Appliquez les réglages de l’hôte<br>(réverbération, égaliseur, effets virtuels, etc.)<br>à l’ensemble du système.',
   'youtube.enter_link_desc_html': 'Seules les vidéos ou playlists publiques peuvent être lues.',
   'legal.title': 'Informations sur le service',
   'legal.content_html':

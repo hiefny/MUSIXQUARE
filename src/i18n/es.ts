@@ -13,7 +13,7 @@ const es: Record<I18nKey, string> = {
 
   'app.search_title': 'MUSIXQUARE',
   'app.search_description':
-    'Convierte teléfonos, tabletas y ordenadores en un único sistema de audio inalámbrico y sincronizado. Disfruta junto a otros de música, YouTube y el audio del sistema en el navegador, sin instalar nada.',
+    'Convierte teléfonos, tabletas y computadoras en un único sistema de audio inalámbrico y sincronizado. Disfruta junto a otros de música, YouTube y el audio del sistema en el navegador, sin instalar nada.',
   // Common
   'common.ok': 'Aceptar',
   'common.cancel': 'Cancelar',
@@ -26,7 +26,7 @@ const es: Record<I18nKey, string> = {
   'common.next': 'Siguiente',
   'common.start': 'Comenzar',
   'common.info': 'Información',
-  'common.stay': 'Permanecer',
+  'common.stay': 'Quedarse',
   'common.leave': 'Salir',
   'common.granted': 'concedido',
   'common.revoked': 'revocado',
@@ -49,14 +49,14 @@ const es: Record<I18nKey, string> = {
   'account.login_failed': 'No se pudo iniciar sesión. Inténtalo de nuevo.',
   'account.welcome_back': 'Qué bueno verte de nuevo\n{{name}}',
   'account.login_message':
-    'Inicia sesión con Google para conservar tu apodo entre salas. Puedes seguir usando MUSIXQUARE sin iniciar sesión.',
+    'Inicia sesión con Google para conservar tu apodo entre salas. Puedes continuar sin iniciar sesión.',
   'account.google_continue': 'Continuar con Google',
   'account.terms': 'Términos',
   'account.privacy': 'Privacidad',
   'account.unavailable':
     'El inicio de sesión no está disponible temporalmente. Puedes continuar sin él.',
   'account.account_title': 'Cuenta',
-  'account.stats_sessions_label': 'Sesiones en las que participaste',
+  'account.stats_sessions_label': 'Salas en las que participaste',
   'account.stats_listening_label': 'Tiempo de escucha',
   'account.stats_tracks_label': 'Contenido reproducido',
   'account.stats_count_value': '{{count}}',
@@ -70,7 +70,7 @@ const es: Record<I18nKey, string> = {
   'account.nickname_message': 'Elige el apodo que usarás en MUSIXQUARE.',
   'account.nickname_placeholder': 'Apodo',
   'account.nickname_hint': 'Usa hasta 12 caracteres.',
-  'account.nickname_required': 'Introduce un apodo.',
+  'account.nickname_required': 'Ingresa un apodo.',
   'account.nickname_whitespace': 'El apodo no puede contener espacios ni caracteres invisibles.',
   'account.nickname_taken': 'Ese apodo ya está en uso.',
   'account.nickname_saved': 'Apodo cambiado a {{name}}.',
@@ -94,7 +94,7 @@ const es: Record<I18nKey, string> = {
   'common.grant': 'Conceder',
   'common.system': 'Sistema',
   'common.unknown': 'Desconocido',
-  'common.youtube_video': 'Vídeo de YouTube',
+  'common.youtube_video': 'Video de YouTube',
   'common.peer': 'Participante',
 
   // Navigation
@@ -162,7 +162,7 @@ const es: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Audio espacial',
   'settings.reverb_title': 'Reverberación',
   'settings.rvb_studio': 'Estudio',
-  'settings.rvb_arena': 'Arena',
+  'settings.rvb_arena': 'Estadio',
   'settings.rvb_advanced': 'Avanzado',
   'settings.rvb_off': 'Desactivado',
   'settings.reverb_mix': 'Mezcla de reverberación',
@@ -180,10 +180,10 @@ const es: Record<I18nKey, string> = {
   'settings.lowpass': 'Paso bajo',
   'settings.highpass': 'Paso alto',
   'settings.surround_title': 'Sonido envolvente virtual',
-  'settings.bass_title': 'Bajos virtuales',
+  'settings.bass_title': 'Graves virtuales',
   'settings.exciter_title': 'Agudos virtuales',
   'settings.subwoofer_adjust': 'Corte del subwoofer',
-  'settings.subwoofer_cutoff': 'Frecuencia de corte',
+  'settings.subwoofer_cutoff': 'Frecuencia de corte del subwoofer',
   'settings.default_0pct': 'Predeterminado 0%',
   'settings.default_01s': 'Predeterminado 0,1 s',
   'settings.default_20khz': 'Predeterminado 20,0 kHz',
@@ -218,7 +218,7 @@ const es: Record<I18nKey, string> = {
   'player.sync_compact': 'Sinc.',
   'player.syncing_compact': 'Sinc.…',
   'player.play_media': 'Reproducir contenido',
-  'player.play_media_compact': 'Medios',
+  'player.play_media_compact': 'Contenido',
   'player.play_media_action': 'Reproducir contenido',
   'player.add_media': 'Añadir contenido',
   'player.play_start': 'Añadir a la cola',
@@ -240,7 +240,7 @@ const es: Record<I18nKey, string> = {
   'playlist.shuffle_off': 'Aleatorio desactivado',
   'playlist.empty_hint': 'Aún no hay contenido.',
   'playlist.loading_info': 'Cargando información de la pista...',
-  'playlist.sub_load_failed': 'No se pudo cargar la información del vídeo',
+  'playlist.sub_load_failed': 'No se pudo cargar la información del video',
   'playlist.remove_title': 'Eliminar de la lista de reproducción',
   'playlist.select_for_deletion': 'Seleccionar {{title}} para eliminar',
   'playlist.deselect_for_deletion': 'Deseleccionar {{title}}',
@@ -280,24 +280,24 @@ const es: Record<I18nKey, string> = {
   'connect.no_session': 'Crea una sala primero',
   'connect.generating_qr': 'Generando código QR...',
   'connect.kick_title': 'Expulsar dispositivo',
-  'connect.kick_message': '¿Expulsar {{name}} de la sala?',
+  'connect.kick_message': '¿Expulsar a {{name}} de la sala?',
   'connect.kick_yes': 'Expulsar',
   'connect.kick_no': 'No',
   'connect.kicked_title': 'Te han expulsado',
   'connect.kicked_message': 'El anfitrión te expulsó de la sala.',
   'connect.copy_invite_link': 'Copiar enlace',
   'connect.link_copied': 'Enlace de invitación copiado',
-  'connect.room_password_title': 'Pedir contraseña',
+  'connect.room_password_title': 'Exigir contraseña para entrar',
   'connect.room_password_toggle_aria': 'Cambiar requisito de contraseña de la sala',
   'connect.room_password_on': 'Contraseña aplicada',
-  'connect.room_password_invalid': 'Introduce 8 dígitos',
+  'connect.room_password_invalid': 'Ingresa 8 dígitos',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
   'connect.room_password_apply_pending':
     'La nueva contraseña se aplicará cuando se recupere la conexión.',
   'connect.pin_enabled_removed_message':
-    'El anfitrión definió una contraseña para la sala. Introdúcela para volver a unirte.',
+    'El anfitrión definió una contraseña para la sala. Ingrésala para volver a unirte.',
   'connect.pin_changed_removed_message':
-    'El anfitrión cambió la contraseña de la sala. Introduce la nueva contraseña para volver a unirte.',
+    'El anfitrión cambió la contraseña de la sala. Ingresa la nueva contraseña para volver a unirte.',
   'connect.signaling_healthy': 'Servidor de la sala disponible',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falló la conexión con el servidor',
@@ -351,7 +351,7 @@ const es: Record<I18nKey, string> = {
   'demo.finish_step_title': '¡Todo listo!',
   'demo.finish_step_subtitle': 'Ya puedes empezar a reproducir en sincronía.',
   'demo.track_list_label': 'Lista de pistas demo',
-  'demo.host_only_exit': 'Solo el anfitrión puede pulsar esto.',
+  'demo.host_only_exit': 'Solo el anfitrión puede tocar esto.',
   'demo.external_playback_stopped':
     'El modo demo detuvo la reproducción actual de YouTube o audio del sistema.',
   'setup.how_to_connect': 'Cómo conectar',
@@ -364,11 +364,11 @@ const es: Record<I18nKey, string> = {
   'setup.select_role_alt': 'Selecciona un rol',
   'setup.greeting': '¡Hola!',
   'setup.hello_select_role': 'Crea una sala o únete a una.',
-  'setup.enter_code': 'Introduce el código de invitación de 6 dígitos',
-  'setup.enter_host_code': 'Introduce el código de invitación',
-  'setup.enter_host_code_alt': 'Escanea el código QR o introduce el código.',
+  'setup.enter_code': 'Ingresa el código de invitación de 6 dígitos',
+  'setup.enter_host_code': 'Ingresa el código de invitación',
+  'setup.enter_host_code_alt': 'Escanea el código QR o ingresa el código.',
   'setup.scan_qr': 'Toca para escanear',
-  'setup.camera_permission_denied': 'No tienes permiso para usar la cámara',
+  'setup.camera_permission_denied': 'Permiso de cámara denegado',
   'setup.camera_not_found': 'No se encontró una cámara disponible',
   'setup.camera_unavailable': 'No se pudo iniciar la cámara',
   'setup.camera_stream_stalled':
@@ -377,7 +377,7 @@ const es: Record<I18nKey, string> = {
   'setup.enter_code_connect': 'Código de invitación',
   'setup.last_step': '¡Empecemos!',
   'setup.joining': 'Entrando...',
-  'setup.six_digit_enter': 'Introduce el número de 6 dígitos',
+  'setup.six_digit_enter': 'Ingresa el número de 6 dígitos',
 
   // Help
   'help.need_help': '¿Necesitas ayuda?',
@@ -393,35 +393,35 @@ const es: Record<I18nKey, string> = {
   'help.wifi_hotspot': 'Un punto de acceso también puede ponerlos a todos en la misma red',
 
   // YouTube
-  'youtube.enter_link': 'Introduce un enlace de YouTube',
-  'youtube.enter_source': 'Introduce un enlace de YouTube o una búsqueda',
-  'youtube.enter_link_prompt': 'Introduce un enlace de YouTube o una búsqueda',
+  'youtube.enter_link': 'Ingresa un enlace de YouTube',
+  'youtube.enter_source': 'Ingresa un enlace de YouTube o una búsqueda',
+  'youtube.enter_link_prompt': 'Ingresa un enlace de YouTube o una búsqueda',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Ver YouTube juntos',
-  'youtube.ready': '¡YouTube está listo!\nPulsa Reproducir.',
+  'youtube.ready': '¡YouTube está listo!\nToca Reproducir.',
   'youtube.thumbnail': 'Miniatura de vista previa de YouTube',
   'youtube.load_fail': 'No se pudo cargar la API de YouTube.\n¡Revisa tu conexión!',
-  'youtube.video_unavailable': 'Video no disponible, saltando a la siguiente pista',
+  'youtube.video_unavailable': 'Vídeo no disponible, saltando a la siguiente pista',
   'youtube.load_timeout': 'Se agotó el tiempo de carga de YouTube.\nInténtalo de nuevo.',
   'youtube.invalid_link': 'Enlace de YouTube no válido',
   'youtube.effects_disabled':
     'Ver YouTube juntos.\nLos efectos de audio avanzados están desactivados.',
-  'youtube.enter_link_placeholder': 'Introduce un enlace de vídeo o lista de reproducción',
-  'youtube.enter_source_toast': 'Introduce un enlace de YouTube o una búsqueda',
-  'youtube.fetching_info': 'Cargando información del vídeo...',
-  'youtube.fetch_failed': 'No se pudo cargar la información del vídeo',
-  'youtube.enter_link_toast': 'Introduce un enlace de YouTube',
+  'youtube.enter_link_placeholder': 'Ingresa un enlace de video o lista de reproducción',
+  'youtube.enter_source_toast': 'Ingresa un enlace de YouTube o una búsqueda',
+  'youtube.fetching_info': 'Cargando información del video...',
+  'youtube.fetch_failed': 'No se pudo cargar la información del video',
+  'youtube.enter_link_toast': 'Ingresa un enlace de YouTube',
   'youtube.open_link': 'Abrir enlace de YouTube',
-  'youtube.tap_to_play': 'PULSA PARA REPRODUCIR',
+  'youtube.tap_to_play': 'TOCA PARA REPRODUCIR',
   'youtube.added_to_playlist': 'Añadido a la lista de reproducción',
   'youtube.loading_large_playlist': 'Cargando una lista de reproducción grande...',
   'youtube.indexing_playlist': 'Analizando elementos de la lista de reproducción...',
   'youtube.search_button': 'Buscar',
-  'youtube.search_prompt': 'Pulsa Intro o Buscar para encontrar vídeos',
+  'youtube.search_prompt': 'Presiona Enter o Buscar para encontrar videos',
   'youtube.searching': 'Buscando en YouTube...',
-  'youtube.search_no_results': 'No se encontraron vídeos',
+  'youtube.search_no_results': 'No se encontraron videos',
   'youtube.search_failed': 'La búsqueda de YouTube no está disponible',
-  'youtube.search_selected': 'El vídeo seleccionado está listo para añadir',
+  'youtube.search_selected': 'El video seleccionado está listo para añadir',
   'youtube.search_results': 'Resultados de búsqueda de YouTube',
   'youtube.live_sync_warning':
     'Las emisiones en directo son difíciles de sincronizar con precisión.',
@@ -498,7 +498,7 @@ const es: Record<I18nKey, string> = {
   'system_audio.effects_guest_only':
     'Audio del sistema activo.\nLos efectos solo se aplican a los dispositivos de los participantes.',
   'system_audio.desktop_only':
-    'Solo está disponible en ordenadores con navegadores basados en Chromium (Chrome, Edge, etc.).',
+    'Solo está disponible en computadoras con navegadores basados en Chromium (Chrome, Edge, etc.).',
   'system_audio.receive_failed':
     'No se pudo recibir el audio del sistema.\nPide al anfitrión que vuelva a compartirlo.',
   'system_audio.remote_receive_limit':
@@ -556,7 +556,7 @@ const es: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Solo el anfitrión puede cambiar este ajuste',
   'toast.host_only_file': 'Solo el anfitrión puede añadir archivos',
   'toast.no_tracks': 'No hay pistas para reproducir',
-  'toast.add_media_to_play': 'Agrega contenido para reproducir',
+  'toast.add_media_to_play': 'Añade contenido para reproducir',
   'toast.no_invite_code': 'Aún no hay código de invitación',
   'toast.invite_code_settings': 'Comparte el enlace de invitación desde la pestaña Conectar.',
   'toast.click_copy_invite': 'Haz clic para copiar el código de invitación',
@@ -566,7 +566,7 @@ const es: Record<I18nKey, string> = {
   'toast.sync_reset': 'Desfase de sincronización restablecido',
   'toast.stop_sent': 'Solicitud de detención enviada',
   'toast.hprecision_sync': 'Sincronización de alta precisión: preparando audio...',
-  'toast.file_ready': '¡Tu archivo está listo!\nPulsa Reproducir.',
+  'toast.file_ready': '¡Tu archivo está listo!\nToca Reproducir.',
   'toast.host_sync_not_recommended': 'Ajusta la sincronización en un dispositivo participante',
   'toast.host_sync_requested':
     'Sincronización precisa solicitada.\nAjusta la sincronización manual en un dispositivo participante.',
@@ -609,7 +609,7 @@ const es: Record<I18nKey, string> = {
   'error.app_version_mismatch':
     'Las versiones de la aplicación no coinciden. Recarga la página en ambos dispositivos e inténtalo de nuevo.',
   'error.session_handshake_failed':
-    'No se pudo completar la conexión a la sesión. Recarga la página en ambos dispositivos e inténtalo de nuevo.',
+    'No se pudo completar la conexión a la sala. Recarga la página en ambos dispositivos e inténtalo de nuevo.',
   'error.host_unreachable': 'Parece que el anfitrión salió de la sala',
   'error.host_disconnected': 'Desconectado del anfitrión',
   'error.host_conn_error': 'Ocurrió un error al conectar con el anfitrión',
@@ -630,7 +630,7 @@ const es: Record<I18nKey, string> = {
   'error.ssl_required': 'Se requiere una conexión segura (HTTPS).',
   'error.room_password_required': 'Esta sala requiere contraseña.',
   'error.room_password_invalid': 'La contraseña de la sala no coincide.',
-  'error.room_password_auth_timeout': 'La red está inestable.\nVuelve a introducir la contraseña.',
+  'error.room_password_auth_timeout': 'La red es inestable.\nVuelve a introducir la contraseña.',
 
   // Dialog
   'dialog.large_room_file.title': 'Compartir archivos en una sala grande',
@@ -655,34 +655,43 @@ const es: Record<I18nKey, string> = {
   'dialog.background_resume_sync_fallback_message':
     'Si la sincronización falla o no hay audio, cierra la app por completo y ábrela de nuevo.',
   'dialog.got_it': 'De acuerdo',
-  'dialog.continue_using': 'Seguir',
+  'dialog.continue_using': 'Continuar',
   'dialog.leave_session': 'Salir',
   'dialog.sw_update_title': 'Actualización',
   'dialog.sw_update_msg': 'Hay una nueva versión lista. Actualiza para aplicarla.',
   'dialog.feature_refresh_title': 'Es necesario actualizar la página',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE se ha actualizado. Actualiza la página para seguir usándolo con normalidad.',
+    'MUSIXQUARE se actualizó. Actualiza la página para seguir usándolo con normalidad.',
   'dialog.reconnect_ask': '¿Quieres reconectar?',
   'dialog.reconnect': 'Reconectar',
   'dialog.go_back': 'Volver',
   'dialog.step_next': 'Siguiente',
   'dialog.step_back': 'Atrás',
-  'dialog.room_password_title': 'Introducir contraseña de la sala',
+  'dialog.room_password_title': 'Ingresar contraseña de la sala',
   'dialog.room_password_msg': 'Se requiere contraseña para unirse a esta sala.',
   'dialog.room_password_retry_msg': 'La contraseña no coincide. Inténtalo de nuevo.',
   'dialog.room_password_timeout_msg':
-    'Se agotó el tiempo de conexión. Vuelve a introducir la contraseña.',
+    'Se agotó el tiempo de conexión. Vuelve a ingresar la contraseña.',
   'dialog.room_password_placeholder': 'Contraseña de 8 dígitos',
   'dialog.room_password_rate_limited':
-    'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en {{count}} minutos.',
+    'Ingresaste una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en {{count}} minutos.',
   'dialog.room_password_rate_limited_later':
-    'Has introducido una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en un rato.',
+    'Ingresaste una contraseña incorrecta demasiadas veces. Vuelve a intentarlo en un rato.',
   'dialog.session_lost_msg':
     'La app se suspendió o perdió conexión, así que los demás dispositivos ya se desconectaron. Reinicia para crear una sala nueva.',
   'dialog.session_lost_btn': 'Reiniciar',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Activar sala PRO',
+  'pro.activation_account_title': 'Elige una cuenta para esta sala PRO',
+  'pro.activation_account_message': '¿Registrar esta sala en la cuenta “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Inicia sesión con la cuenta en la que quieres registrar esta sala.',
+  'pro.activation_account_continue': 'Continuar',
+  'pro.activation_account_switch': 'Otra cuenta',
+  'pro.activation_account_unavailable':
+    'No se pudo verificar tu cuenta. Inténtalo de nuevo en un momento.',
+  'pro.activation_complete': 'Completar registro',
   'pro.activation_message': 'Define una nueva contraseña numérica de 8 dígitos para esta sala.',
   'pro.activation_pin_same': 'Elige una contraseña distinta de la temporal.',
   'pro.claim_retry_title': '¿Reintentar el enlace PRO?',
@@ -719,9 +728,9 @@ const es: Record<I18nKey, string> = {
   'pro.suspended_message': 'Pide ayuda al propietario.',
   'pro.loading': 'Cargando sala PRO...',
   'pro.reconnecting': 'Reconectando...',
-  'pro.resume_tap': 'Pulsa para reanudar la reproducción',
+  'pro.resume_tap': 'Toca para reanudar la reproducción',
   'pro.pin_title': 'Contraseña de la sala',
-  'pro.pin_message': 'Introduce la contraseña de 8 dígitos de esta sala PRO.',
+  'pro.pin_message': 'Ingresa la contraseña de 8 dígitos de esta sala PRO.',
   'pro.pin_retry_message': 'La contraseña no es correcta. Inténtalo de nuevo.',
   'pro.pin_change_title': 'Cambiar contraseña',
   'pro.pin_change_message': 'Define una nueva contraseña de 8 dígitos.',
@@ -744,7 +753,7 @@ const es: Record<I18nKey, string> = {
   'pro.pin_changed_removed_message':
     'El propietario de la sala cambió la contraseña. Introduce la nueva contraseña para volver a entrar.',
   'pro.removed_title': 'Ya no estás en esta sala',
-  'pro.removed_message': 'El propietario de la sala o un administrador te sacó de esta sala.',
+  'pro.removed_message': 'El propietario de la sala o un administrador te expulsó de esta sala.',
   'pro.device_removed_message':
     'Otro dispositivo con tu cuenta iniciada desconectó este dispositivo de la sala.',
   'pro.owner_only': 'Solo el propietario puede hacer eso.',
@@ -763,8 +772,8 @@ const es: Record<I18nKey, string> = {
   'pro.upload.batch_failed_title': 'No se pudieron subir algunas pistas',
   'pro.upload.batch_failed_message':
     'No se pudieron subir {{failed}} de las {{total}} pistas solicitadas.',
-  'pro.upload.cancel_file': 'Cancelar la carga de {{name}}',
-  'pro.upload.confirming_file': 'Finalizando la carga de {{name}}',
+  'pro.upload.cancel_file': 'Cancelar la subida de {{name}}',
+  'pro.upload.confirming_file': 'Finalizando la subida de {{name}}',
   'pro.downloading': 'Cargando archivo...',
   'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de almacenamiento de 1 GB.',
   'pro.file_too_large': 'Este archivo supera el límite de 200 MB por archivo.',
@@ -779,7 +788,7 @@ const es: Record<I18nKey, string> = {
   'chat.start': '¡Escribe algo para empezar!',
   'chat.muted_placeholder': 'No puedes enviar mensajes en este chat',
   'chat.cmd_frozen': 'El chat está bloqueado',
-  'chat.cmd_unfrozen': 'El chat se ha desbloqueado',
+  'chat.cmd_unfrozen': 'El chat se desbloqueó',
   'chat.cmd_frozen_blocked': 'El chat está bloqueado actualmente',
   'chat.cmd_muted': '{{name}} ya no puede enviar mensajes',
   'chat.cmd_unmuted': '{{name}} puede volver a enviar mensajes',
@@ -872,7 +881,7 @@ const es: Record<I18nKey, string> = {
     'Información de depuración copiada.\nEnvíala al desarrollador si has encontrado un error.',
   'chat.seek_to': 'Ir a {{time}}',
   'chat.copied': 'Mensaje de chat copiado',
-  'chat.copy_hint': 'Pulsa Intro para copiar este mensaje de chat',
+  'chat.copy_hint': 'Presiona Enter para copiar este mensaje de chat',
   'chat.peer_connected': '{{name}} se unió',
   'chat.tracks_added': '{{name}} añadió {{count}} pistas',
   'chat.track_added_named': '{{name}} añadió 1 pista: {{title}}',
@@ -894,7 +903,7 @@ const es: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Cada participante selecciona un <strong>rol (canal de salida)</strong>.<ul class="help-list"><li><strong>Centro:</strong> salida estéreo predeterminada</li><li><strong>Izquierda:</strong> salida del canal <bdi dir="ltr">L</bdi></li><li><strong>Derecha:</strong> salida del canal <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> salida de mezcla de bajas frecuencias</li></ul>Puedes cambiar roles cuando quieras en <strong>Ajustes</strong>.',
   'player.play_media_action_html':
-    'El anfitrión tiene 3 opciones.<ul class="help-list"><li><strong>Cargar archivo local:</strong> elige música del dispositivo. Admite sincronización precisa</li><li><strong>YouTube juntos:</strong> vídeos y listas de reproducción compatibles. Sin separación de canales ni efectos de audio</li><li><strong>Compartir audio del sistema:</strong> disponible cuando el anfitrión usa un ordenador con un navegador basado en Chromium (Chrome, Edge, etc.)</li></ul>',
+    'El anfitrión tiene 3 opciones.<ul class="help-list"><li><strong>Cargar archivo local:</strong> elige música del dispositivo. Admite sincronización precisa</li><li><strong>YouTube juntos:</strong> videos y listas de reproducción compatibles. Sin separación de canales ni efectos de audio</li><li><strong>Compartir audio del sistema:</strong> disponible cuando el anfitrión usa una computadora con un navegador basado en Chromium (Chrome, Edge, etc.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Has introducido el código, pero no se conecta:</strong> revisa el código e inténtalo de nuevo en un momento. Las redes de empresas, centros educativos o VPN pueden restringir la conexión.</li><li><strong>Conexión inestable:</strong> los participantes locales deberían acercarse al router y los remotos usar una conexión estable.</li><li><strong>Otros problemas:</strong> revisa el estado de la red y reinicia la aplicación en todos los dispositivos. Si tienes preguntas, consulta las <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contáctanos mediante el correo al final de la página.</li></ul>',
   'setup.brand_tagline_html':
@@ -902,14 +911,14 @@ const es: Record<I18nKey, string> = {
   'setup.invite_share_desc_html':
     'Conecta varios dispositivos de forma inalámbrica<br>para crear un gran sistema de audio.<br>Usa un código de invitación de 6 dígitos para conectarte.',
   'setup.play_together_desc_html':
-    'Cuando el anfitrión reproduce contenido,<br>todos los dispositivos conectados suenan sincronizados.<br>Pulsa el botón de sincronización para alinearlos.',
+    'Cuando el anfitrión reproduce contenido,<br>todos los dispositivos conectados suenan sincronizados.<br>Toca el botón de sincronización para alinearlos.',
   'setup.spatial_audio_desc_html':
     'Define el rol de cada dispositivo.<br>Reproduce audio izquierdo y derecho por separado<br>y siente graves profundos con el woofer.',
   'setup.advanced_audio_desc_html':
     'Replica los ajustes del anfitrión<br>con reverberación, EQ, efectos virtuales<br>y más en todo el sistema.',
   'youtube.enter_link_desc_html':
-    'Solo se pueden reproducir vídeos o listas de reproducción públicos.',
-  'legal.title': 'Notas del servicio',
+    'Solo se pueden reproducir videos o listas de reproducción públicos.',
+  'legal.title': 'Información del servicio',
   'legal.content_html':
     '<strong>Política de privacidad</strong><br><span data-legal-standard-storage>En la misma red, la mayoría del contenido de sesión va directo entre dispositivos. El servidor de señalización solo procesa brevemente datos de operación de sala, autenticación y reconexión; algunos datos de sesiones remotas o grandes van por Cloudflare. Los archivos remotos se guardan hasta 24 h en almacenamiento privado de Cloudflare; solo participantes de la sala tienen permiso temporal de descarga. MUSIXQUARE accede a datos, los analiza o conserva solo para prestar, operar y proteger el servicio.</span><span data-legal-pro-storage>Las salas PRO guardan en Cloudflare el estado necesario para operar: sesión, miembros, lista de reproducción, reproducción y cargas. Los archivos originales de la lista se conservan en almacenamiento privado de Cloudflare; solo participantes de la sala pueden descargarlos mediante URL de corta duración. Se borran si un administrador los retira de la lista o el operador elimina los datos de la sala. MUSIXQUARE accede a datos, los analiza o conserva solo para prestar, operar y proteger el servicio.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>Aviso de copyright</strong><br>El contenido compartido mediante MUSIXQUARE pertenece a sus respectivos titulares. Compartir audio del sistema y archivos está pensado para uso personal. Los usuarios son responsables de cualquier distribución o transmisión pública no autorizada de contenido protegido. El contenido de YouTube se reproduce mediante el método oficial de reproducción, y las visualizaciones y la gestión de derechos se rigen por las políticas de ese servicio y la configuración de sus titulares. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>Descargo de responsabilidad</strong><br>MUSIXQUARE se ofrece gratis. Algunas funciones dependen de servicios externos como YouTube o Cloudflare, por lo que pueden ocurrir limitaciones temporales si esos servicios cambian o dejan de estar disponibles. La sincronización de audio en tiempo real y la calidad del uso compartido remoto pueden variar mucho según la red, las políticas del navegador y el rendimiento del dispositivo. Pueden aplicarse cargos de datos móviles si no usas Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Más información</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Acerca de</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Historia</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Diseño</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Traducir</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };

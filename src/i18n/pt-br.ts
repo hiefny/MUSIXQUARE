@@ -54,7 +54,7 @@ const ptBr: Record<I18nKey, string> = {
   'account.terms': 'Termos',
   'account.privacy': 'Privacidade',
   'account.unavailable':
-    'O login está temporariamente indisponível. Você pode continuar sem uma conta.',
+    'O login está temporariamente indisponível. Você pode continuar sem fazer login.',
   'account.account_title': 'Conta',
   'account.stats_sessions_label': 'Salas acessadas',
   'account.stats_listening_label': 'Tempo de escuta',
@@ -64,7 +64,7 @@ const ptBr: Record<I18nKey, string> = {
   'account.stats_minutes_value': '{{minutes}} min',
   'account.stats_hours_minutes_value': '{{hours}} h {{minutes}} min',
   'account.change_nickname': 'Alterar apelido',
-  'account.logout': 'Sair',
+  'account.logout': 'Sair da conta',
   'account.delete_account': 'Excluir conta',
   'account.nickname_title': 'Definir apelido',
   'account.nickname_message': 'Escolha o apelido que você usará no MUSIXQUARE.',
@@ -105,7 +105,7 @@ const ptBr: Record<I18nKey, string> = {
   'nav.connect': 'Conectar',
   'nav.playlist_compact': 'Playlist',
   'nav.connect_compact': 'Conectar',
-  'nav.settings_compact': 'Ajustes',
+  'nav.settings_compact': 'Config.',
   'nav.go_home': 'Ir para o início',
 
   // Role
@@ -216,7 +216,7 @@ const ptBr: Record<I18nKey, string> = {
   'player.repeat_mode': 'Alterar modo de repetição',
   'player.shuffle_mode': 'Alterar modo aleatório',
   'player.sync_compact': 'Sinc.',
-  'player.syncing_compact': 'Sinc.…',
+  'player.syncing_compact': 'Sinc…',
   'player.play_media': 'Reproduzir mídia',
   'player.play_media_compact': 'Mídia',
   'player.play_media_action': 'Reproduzir mídia',
@@ -274,7 +274,7 @@ const ptBr: Record<I18nKey, string> = {
   'connect.kick_member_message': 'Remover todos os dispositivos conectados como {{name}}?',
   'connect.device_toggle': 'Mostrar/ocultar dispositivos de {{name}}',
   'connect.device_label': 'Dispositivo {{platform}} ({{code}})',
-  'connect.platform_other': 'Outra',
+  'connect.platform_other': 'Outro',
   'connect.current_device': 'Este dispositivo',
   'connect.no_session': 'Crie uma sala primeiro',
   'connect.generating_qr': 'Gerando código QR...',
@@ -378,13 +378,14 @@ const ptBr: Record<I18nKey, string> = {
 
   // Help
   'help.need_help': 'Precisa de ajuda?',
-  'help.install_app': 'Instalar aplicativo da web',
+  'help.install_app': 'Instalar como app',
   'help.local_recommended': 'Rede local recomendada',
   'help.connect_all_wifi': 'Conexões na mesma rede são as mais confiáveis',
   'help.local_file': 'Escolher arquivo local',
   'help.load_local': 'Carregar arquivo local',
   'help.youtube_compat': 'YouTube',
-  'help.youtube_no_effects': 'No modo YouTube, funções e efeitos de áudio ficam indisponíveis.',
+  'help.youtube_no_effects':
+    'No modo YouTube, a configuração de função dos dispositivos e os efeitos de áudio ficam indisponíveis.',
   'help.media_synced_detail':
     'A mídia selecionada é reproduzida ao mesmo tempo em todos os dispositivos conectados.',
   'help.wifi_hotspot': 'Um hotspot também pode colocar todos na mesma rede',
@@ -395,7 +396,7 @@ const ptBr: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Digite um link ou termo de busca do YouTube',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Assistir ao YouTube juntos',
-  'youtube.ready': 'YouTube está pronto!\nToque em Reproduzir.',
+  'youtube.ready': 'O YouTube está pronto!\nToque em Reproduzir.',
   'youtube.thumbnail': 'Miniatura de prévia do YouTube',
   'youtube.load_fail': 'Falha ao carregar a API do YouTube.\nVerifique sua conexão!',
   'youtube.video_unavailable': 'Vídeo indisponível, pulando para a próxima faixa',
@@ -437,7 +438,7 @@ const ptBr: Record<I18nKey, string> = {
   'transfer.demo_load_fail': 'Falha ao carregar demo:',
   'transfer.demo_loading_short': 'Carregando faixa demo...',
   'transfer.file_requesting': 'Solicitando arquivo...',
-  'transfer.file_sending': 'Enviando arquivo...',
+  'transfer.file_sending': 'Enviando arquivo…',
   'transfer.file_wait': 'Aguardando arquivo...\nSó um momento',
   'transfer.preload_done': 'Usando arquivo pré-carregado!',
   'transfer.preload_waiting': 'Aguardando o pré-carregamento terminar...',
@@ -492,7 +493,7 @@ const ptBr: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Não é possível mudar as funções durante o compartilhamento de áudio do sistema.',
   'system_audio.effects_guest_only':
-    'Compartilhando áudio do sistema.\nOs efeitos sonoros se aplicam apenas aos dispositivos dos participantes.',
+    'Compartilhando áudio do sistema.\nOs efeitos de áudio se aplicam apenas aos dispositivos dos participantes.',
   'system_audio.desktop_only':
     'Disponível apenas em computadores com navegador baseado no Chromium (Chrome, Edge etc.).',
   'system_audio.receive_failed':
@@ -560,7 +561,7 @@ const ptBr: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Não há arquivos de áudio compatíveis para adicionar.',
   'toast.sync_reset': 'Compensação de sincronização redefinida',
   'toast.stop_sent': 'Solicitação para parar enviada',
-  'toast.hprecision_sync': 'Sincronização de alta precisão: preparando áudio...',
+  'toast.hprecision_sync': 'Sincronização de alta precisão: preparando áudio…',
   'toast.file_ready': 'Seu arquivo está pronto!\nToque em Reproduzir.',
   'toast.host_sync_not_recommended': 'Ajuste a sincronização em um dispositivo participante',
   'toast.host_sync_requested':
@@ -622,7 +623,7 @@ const ptBr: Record<I18nKey, string> = {
   'error.session_id_unavailable': 'ID da sala indisponível.\nTente novamente.',
   'error.webrtc_failed': 'Falha na conexão WebRTC.\nVerifique as configurações do navegador.',
   'error.browser_unsupported':
-    'Este navegador não faz conexões em tempo real.\nTente Chrome ou Safari.',
+    'Este navegador não suporta conexões em tempo real.\nTente Chrome ou Safari.',
   'error.ssl_required': 'Uma conexão segura (HTTPS) é necessária.',
   'error.room_password_required': 'Esta sala exige senha.',
   'error.room_password_invalid': 'A senha da sala não confere.',
@@ -655,7 +656,7 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.continue_using': 'Continuar',
   'dialog.leave_session': 'Sair',
   'dialog.sw_update_title': 'Atualização',
-  'dialog.sw_update_msg': 'Uma nova versão está pronta. Atualize para aplicar.',
+  'dialog.sw_update_msg': 'Uma nova versão está pronta. Atualize a página para aplicar.',
   'dialog.feature_refresh_title': 'É preciso atualizar a página',
   'dialog.feature_refresh_msg':
     'O MUSIXQUARE foi atualizado. Atualize a página para continuar usando normalmente.',
@@ -679,13 +680,21 @@ const ptBr: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Ativar sala PRO',
+  'pro.activation_account_title': 'Escolha uma conta para esta sala PRO',
+  'pro.activation_account_message': 'Registrar esta sala na conta “{{name}}”?',
+  'pro.activation_account_login_message': 'Entre com a conta em que você quer registrar esta sala.',
+  'pro.activation_account_continue': 'Continuar',
+  'pro.activation_account_switch': 'Outra conta',
+  'pro.activation_account_unavailable':
+    'Não foi possível verificar sua conta. Tente novamente em instantes.',
+  'pro.activation_complete': 'Concluir registro',
   'pro.activation_message': 'Defina uma nova senha numérica de 8 dígitos para esta sala.',
   'pro.activation_pin_same': 'Escolha uma senha diferente da temporária.',
   'pro.claim_retry_title': 'Tentar o link PRO novamente?',
   'pro.claim_retry_message':
     'A conexão foi interrompida. O link continua armazenado com segurança nesta tela, então você pode tentar novamente.',
   'pro.claim_unavailable_title': 'Este link não pode mais ser usado',
-  'pro.claim_login_title': 'Entre primeiro',
+  'pro.claim_login_title': 'Faça login primeiro',
   'pro.claim_login_button': 'Entrar',
   'pro.claim_login_message':
     'Entre com a conta que será proprietária desta sala PRO e conclua a configuração do apelido. O link fica somente na memória desta aba.',
@@ -695,7 +704,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.claim_existing_account_message':
     'Este link está vinculado a uma conta do MUSIXQUARE que já tem apelido. Escolha a conta do Google indicada para este link.',
   'pro.claim_choose_account_button': 'Escolher outra conta',
-  'pro.claim_account_conflict_title': 'Esta conta não pode usar a sala',
+  'pro.claim_account_conflict_title': 'Esta conta não pode usar esta sala',
   'pro.claim_account_conflict_message':
     'Esta sala está vinculada a outra conta. Se precisar mudar, peça a um administrador para transferir a propriedade.',
   'pro.claim_account_capacity_title': 'Esta conta não pode vincular outra sala',

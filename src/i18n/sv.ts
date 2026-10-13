@@ -88,7 +88,7 @@ const sv: Record<I18nKey, string> = {
   'common.original': 'Original',
   'common.left': 'Vänster',
   'common.right': 'Höger',
-  'common.woofer': 'Baselement',
+  'common.woofer': 'Woofer',
   'common.connected': 'Ansluten',
   'common.disconnected': 'Frånkopplad',
   'common.revoke': 'Återkalla',
@@ -141,8 +141,8 @@ const sv: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Gå till spåret som spelas',
   'playlist.reorder_handle': 'Flytta {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} av {{total}}',
-  'playlist.repeat_all': 'Upprepa alla spår är aktiverat',
-  'playlist.repeat_one': 'Upprepa aktuellt spår är aktiverat',
+  'playlist.repeat_all': 'Upprepning av alla spår är aktiverad',
+  'playlist.repeat_one': 'Upprepning av aktuellt spår är aktiverad',
   'playlist.repeat_off': 'Upprepning är avstängd',
   'playlist.shuffle_on': 'Blandning är aktiverad',
   'playlist.shuffle_off': 'Blandning är avstängd',
@@ -191,7 +191,7 @@ const sv: Record<I18nKey, string> = {
   'settings.ui_sounds_desc':
     'Slå på eller av ljud för aviseringar, anslutning, frånkoppling och tryck.',
   'settings.reverb_desc': 'Justera ljudets efterklang och resonans.',
-  'settings.eq_desc': 'Justera ljudets ton. Använd tillsammans med volymkontrollen.',
+  'settings.eq_desc': 'Justera ljudets klang. Använd tillsammans med volymkontrollen.',
   'settings.surround_desc': 'Öka separationen för ett mer omslutande ljud.',
   'settings.bass_desc': 'Syntetisera låga frekvenser för större kraft.',
   'settings.exciter_desc': 'Skapa ultrahöga frekvenser för större tydlighet.',
@@ -248,7 +248,7 @@ const sv: Record<I18nKey, string> = {
   'settings.invite_code': 'Inbjudningskod',
   'settings.leave_session': 'Lämna sessionen',
   'connect.rename_reserved': 'Det här smeknamnet är reserverat.',
-  'connect.rename_profanity': 'Olämpliga ord upptäcktes.',
+  'connect.rename_profanity': 'Smeknamnet innehåller olämpliga ord.',
   'settings.devices_title': 'Anslutna enheter',
   'settings.invite_share': 'Bjud in och dela',
   'settings.subtab.general': 'Allmänt',
@@ -489,7 +489,7 @@ const sv: Record<I18nKey, string> = {
   'chat.cmd_d_op': 'Bevilja administratörsbehörighet',
   'chat.cmd_d_deop': 'Återkalla administratörsbehörighet',
   'chat.cmd_d_mute': 'Begränsa enhetens chatt',
-  'chat.cmd_d_unmute': 'Återställ enhetens chatt',
+  'chat.cmd_d_unmute': 'Häv enhetens chattbegränsning',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Systemets felsökningsinformation',
   'chat.debug_copied':
@@ -508,7 +508,7 @@ const sv: Record<I18nKey, string> = {
   'youtube.thumbnail': 'Förhandsbild för YouTube',
   'youtube.load_fail': 'Det gick inte att läsa in API:t för YouTube.\nKontrollera anslutningen!',
   'youtube.video_unavailable': 'Videon är inte tillgänglig, hoppar till nästa spår',
-  'youtube.load_timeout': 'Tidsgränsen för YouTube löpte ut.\nFörsök igen.',
+  'youtube.load_timeout': 'Det tog för lång tid att läsa in YouTube.\nFörsök igen.',
   'youtube.invalid_link': 'Ogiltig YouTube-länk',
   'youtube.effects_disabled':
     'Titta på YouTube tillsammans.\nAvancerade ljudeffekter är avstängda.',
@@ -611,7 +611,7 @@ const sv: Record<I18nKey, string> = {
   'toast.host_ad': 'Värden verkar titta på en annons',
   'toast.yt_sync_start': 'Synkar…',
   'toast.yt_sync_done': 'Synkroniseringen är klar',
-  'toast.yt_rendezvous_start': 'Anpassar till värden…',
+  'toast.yt_rendezvous_start': 'Synkar med värden…',
   'toast.yt_rendezvous_done': 'Synkroniseringen är klar',
   'toast.yt_rendezvous_host_paused': 'Värden har pausat, bara positionen anpassades',
   'toast.yt_rendezvous_no_data':
@@ -634,7 +634,7 @@ const sv: Record<I18nKey, string> = {
   'transfer.demo_loading_short': 'Läser in demospår…',
   'transfer.file_requesting': 'Begär filen…',
   'transfer.file_sending': 'Skickar filen…',
-  'transfer.file_wait': 'Väntar på filen…\nVänta',
+  'transfer.file_wait': 'Väntar på filen…\nEtt ögonblick',
   'transfer.preload_done': 'Använder den förinlästa filen!',
   'transfer.preload_waiting': 'Väntar på att förinläsningen ska slutföras…',
   // Remote file sharing (R2-backed transfer)
@@ -751,20 +751,20 @@ const sv: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivera PRO-rum',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Välj ett konto för PRO-rummet',
+  'pro.activation_account_message': 'Vill du registrera rummet på kontot ”{{name}}”?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Logga in med det konto som du vill registrera rummet på.',
+  'pro.activation_account_continue': 'Fortsätt',
+  'pro.activation_account_switch': 'Annat konto',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Det gick inte att verifiera ditt konto. Försök igen om en liten stund.',
+  'pro.activation_complete': 'Slutför registreringen',
   'pro.activation_message': 'Ange ett nytt 8-siffrigt lösenord för rummet.',
   'pro.activation_pin_same': 'Välj ett annat lösenord än det tillfälliga.',
   'pro.claim_retry_title': 'Försöka med PRO-länken igen?',
   'pro.claim_retry_message':
-    'Anslutningen avbröts. Länken finns kvar på den här skärmen så att du kan försöka igen på ett säkert sätt.',
+    'Anslutningen avbröts. Länken finns säkert kvar på den här skärmen, så du kan försöka igen.',
   'pro.claim_unavailable_title': 'Länken kan inte längre användas',
   'pro.claim_login_title': 'Logga in först',
   'pro.claim_login_button': 'Logga in',
@@ -811,7 +811,7 @@ const sv: Record<I18nKey, string> = {
     'Bara enheter som går med igen eller för första gången behöver ange lösenordet.',
   'pro.pin_members_reenter': 'Alla går med igen',
   'pro.pin_members_reenter_detail':
-    'Alla måste gå med igen. Rekommenderas om du vill ta bort personer du inte känner på en gång.',
+    'Alla måste gå med igen. Rekommenderas om du vill ta bort alla okända personer på en gång.',
   'pro.pin_keep_unavailable':
     'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller välj ”Alla går med igen”.',
   'pro.pin_enabled_removed_title': 'Rummet har fått ett lösenord',
@@ -853,7 +853,7 @@ const sv: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Ange värdens <strong>6-siffriga kod</strong> för att ansluta.<ul class="help-list"><li><strong>Värd:</strong> ”Skapa ett rum” → kontrollera koden</li><li><strong>Deltagare:</strong> ”Anslut till ett rum” → ange koden</li><li>Upp till <strong>100 enheter inklusive värden</strong> kan ansluta.</li></ul>',
   'player.play_speakers_html':
-    'Varje deltagare väljer en <strong>roll (utgångskanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (standard)</li><li><strong>Vänster:</strong> <bdi dir="ltr">L</bdi>-kanal</li><li><strong>Höger:</strong> <bdi dir="ltr">R</bdi>-kanal</li><li><strong>Subwoofer:</strong> Mix av låga frekvenser</li></ul>Du kan när som helst ändra roller under <strong>Inställningar</strong>.',
+    'Varje deltagare väljer en <strong>roll (utgångskanal)</strong>.<ul class="help-list"><li><strong>Centerhögtalare:</strong> Stereo (standard)</li><li><strong>Vänster högtalare:</strong> <bdi dir="ltr">L</bdi>-kanal</li><li><strong>Höger högtalare:</strong> <bdi dir="ltr">R</bdi>-kanal</li><li><strong>Subwoofer:</strong> Mix av låga frekvenser</li></ul>Du kan när som helst ändra roller under <strong>Inställningar</strong>.',
   'player.play_media_action_html':
     'Värden har 3 alternativ.<ul class="help-list"><li><strong>Läs in lokal fil:</strong> Välj musik på enheten. Noggrann synkronisering stöds</li><li><strong>YouTube tillsammans:</strong> Videor och spellistor stöds. Kanalseparering och ljudeffekter stöds inte</li><li><strong>Dela systemljud:</strong> Tillgängligt när värden använder en Chromium-baserad webbläsare på en dator</li></ul>',
   'help.need_help_html':

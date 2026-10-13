@@ -939,7 +939,7 @@ describe('connect i18n refresh', () => {
     kickButtons[0]?.click();
 
     expect(mockedShowDialog).toHaveBeenCalledWith({
-      title: '강제퇴장 시키기',
+      title: '강제퇴장시키기',
       message: 'Friend 님과 연결된 모든 기기를 내보낼까요?',
       buttonText: '내보내기',
       secondaryText: '취소',
@@ -1545,7 +1545,7 @@ describe('member-level connection and administrator UI', () => {
     kickPhysicalDeviceButton?.click();
 
     expect(mockedShowDialog).toHaveBeenCalledWith({
-      title: '강제퇴장 시키기',
+      title: '강제퇴장시키기',
       message: 'iOS 기기 (A7F2)를 내보낼까요?',
       buttonText: '내보내기',
       secondaryText: '취소',

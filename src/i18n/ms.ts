@@ -10,7 +10,7 @@ import type { I18nKey } from './ko.ts';
 const ms: Record<I18nKey, string> = {
   'app.search_title': 'MUSIXQUARE',
   'app.search_description':
-    'Jadikan telefon, tablet dan komputer sebagai satu sistem audio tanpa wayar yang terselaras. Mainkan muzik, YouTube dan audio sistem bersama-sama dalam pelayar tanpa pemasangan.',
+    'Jadikan telefon, tablet dan komputer sebagai satu sistem audio tanpa wayar yang disegerakkan. Mainkan muzik, YouTube dan audio sistem bersama-sama dalam pelayar tanpa pemasangan.',
 
   // ─── Umum ────────────────────────────────────────────────────────
   'common.ok': 'OK',
@@ -49,7 +49,7 @@ const ms: Record<I18nKey, string> = {
   'account.login_failed': 'Tidak dapat log masuk. Sila cuba lagi.',
   'account.welcome_back': 'Selamat kembali\n{{name}}',
   'account.login_message':
-    'Log masuk dengan Google untuk mengekalkan nama panggilan anda antara bilik. Anda boleh meneruskan tanpa log masuk.',
+    'Log masuk dengan Google untuk mengekalkan nama panggilan anda di semua bilik. Anda boleh meneruskan tanpa log masuk.',
   'account.google_continue': 'Teruskan dengan Google',
   'account.terms': 'Terma',
   'account.privacy': 'Privasi',
@@ -96,7 +96,7 @@ const ms: Record<I18nKey, string> = {
   'common.system': 'Sistem',
   'common.unknown': 'Tidak diketahui',
   'common.youtube_video': 'Video YouTube',
-  'common.peer': 'Rakan',
+  'common.peer': 'Peserta',
 
   // ─── Navigasi ────────────────────────────────────────────────────
   'nav.home': 'Utama',
@@ -274,7 +274,7 @@ const ms: Record<I18nKey, string> = {
   'connect.permission_members_kick': 'Keluarkan ahli',
   'connect.permission_chat_notice': 'Siarkan notis sembang',
   'connect.permission_inherited': 'Disertakan',
-  'connect.kick_member_message': 'Alih keluar semua peranti yang disambungkan sebagai {{name}}?',
+  'connect.kick_member_message': 'Keluarkan semua peranti yang disambungkan sebagai {{name}}?',
   'connect.device_toggle': 'Kembangkan/runtuhkan peranti yang disambungkan untuk {{name}}',
   'connect.device_label': 'Peranti {{platform}} ({{code}})',
   'connect.platform_other': 'Lain-lain',
@@ -282,11 +282,11 @@ const ms: Record<I18nKey, string> = {
   'connect.no_session': 'Mulakan sesi terlebih dahulu',
   'connect.generating_qr': 'Menjana kod QR...',
   'connect.kick_title': 'Keluarkan peranti',
-  'connect.kick_message': 'Alih keluar {{name}} daripada sesi?',
+  'connect.kick_message': 'Keluarkan {{name}} daripada sesi?',
   'connect.kick_yes': 'Keluarkan',
   'connect.kick_no': 'Tidak',
   'connect.kicked_title': 'Dikeluarkan',
-  'connect.kicked_message': 'Anda telah dialih keluar daripada sesi oleh hos.',
+  'connect.kicked_message': 'Anda telah dikeluarkan daripada sesi oleh hos.',
   'connect.copy_invite_link': 'Salin pautan jemputan',
   'connect.link_copied': 'Pautan jemputan disalin',
   'connect.room_password_title': 'Wajibkan kata laluan untuk menyertai',
@@ -343,7 +343,7 @@ const ms: Record<I18nKey, string> = {
   'demo.session_title': 'Bilik anda: {{code}}',
   'demo.session_subtitle': 'Anda boleh menjemput peranti lain pada bila-bila masa.',
   'demo.session_body_connected':
-    '{{count}} peranti sedang disambungkan.\nTetapkan peranan bagi setiap peranti.',
+    '{{count}} peranti kini disambungkan.\nTetapkan peranan bagi setiap peranti.',
   'demo.session_body_alone':
     'Hanya peranti ini sedang memainkan audio.\nJemput peranti lain sekarang.',
   'demo.effects_step_title': 'Hasilkan bunyi premium anda.',
@@ -561,7 +561,7 @@ const ms: Record<I18nKey, string> = {
   'toast.op_status': 'Kebenaran {{label}} {{status}}',
   'toast.file_read_error': 'Ralat membaca fail: {{name}}',
   'toast.host_ended_connection': 'Hos telah menamatkan sambungan',
-  'toast.announcement_available': 'Pengumuman baharu.\nSemak panel sembang.',
+  'toast.announcement_available': 'Notis baharu.\nSemak panel sembang.',
 
   // ─── Pemberitahuan statik ────────────────────────────────────────
   'toast.copy_failed': 'Tidak dapat menyalin',
@@ -618,7 +618,7 @@ const ms: Record<I18nKey, string> = {
   'toast.yt_sync_done': 'Penyegerakan selesai',
   'toast.yt_rendezvous_start': 'Menyelaraskan dengan hos...',
   'toast.yt_rendezvous_done': 'Penyegerakan selesai',
-  'toast.yt_rendezvous_host_paused': 'Hos dijeda, hanya posisi diselaraskan',
+  'toast.yt_rendezvous_host_paused': 'Hos dijeda, hanya kedudukan diselaraskan',
   'toast.yt_rendezvous_no_data': 'Belum ada data main balik hos, cuba lagi sebentar nanti',
   'toast.yt_rendezvous_timeout': 'Penyegerakan gagal, sila cuba lagi sebentar nanti',
   'toast.yt_host_sync_sent': 'Isyarat penyegerakan automatik dihantar kepada peserta',
@@ -689,7 +689,7 @@ const ms: Record<I18nKey, string> = {
   'error.host_disconnected': 'Terputus daripada hos',
   'error.host_conn_error': 'Ralat berlaku semasa menyambung kepada hos',
   'error.connect_failed': 'Sambungan gagal',
-  'error.peer_not_ready': 'Sambungan rakan belum sedia',
+  'error.peer_not_ready': 'Sambungan peranti belum sedia',
   'error.network_init_failed': 'Rangkaian gagal dimulakan',
   'error.no_host_id': 'ID hos tidak ditemui',
   'error.peer_unavailable': 'Tidak dapat menemui sesi.\nSila semak kod sekali lagi.',
@@ -750,21 +750,21 @@ const ms: Record<I18nKey, string> = {
   'dialog.room_password_rate_limited_later':
     'Anda telah memasukkan kata laluan yang salah terlalu banyak kali. Cuba lagi sebentar nanti.',
   'dialog.session_lost_msg':
-    'Aplikasi telah tidur atau kehilangan sambungan, jadi peranti lain sudah terputus. Mulakan semula untuk memulakan sesi baharu.',
+    'Aplikasi memasuki mod tidur atau kehilangan sambungan, jadi peranti lain sudah terputus. Mulakan semula untuk membuka sesi baharu.',
   'dialog.session_lost_btn': 'Mulakan semula',
 
   // ─── Bilik PRO ───────────────────────────────────────────────────
   'pro.activation_title': 'Aktifkan bilik PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Pilih akaun untuk bilik PRO ini',
+  'pro.activation_account_message': 'Daftarkan bilik ini di bawah akaun “{{name}}”?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Log masuk dengan akaun yang anda mahu gunakan untuk mendaftarkan bilik ini.',
+  'pro.activation_account_continue': 'Teruskan',
+  'pro.activation_account_switch': 'Akaun lain',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Tidak dapat mengesahkan akaun anda. Sila cuba lagi sebentar nanti.',
+  'pro.activation_complete': 'Selesaikan pendaftaran',
   'pro.activation_message': 'Tetapkan kata laluan 8 digit baharu untuk bilik ini.',
   'pro.activation_pin_same': 'Pilih kata laluan yang berbeza daripada kata laluan sementara.',
   'pro.claim_retry_title': 'Cuba pautan PRO sekali lagi?',
@@ -816,7 +816,7 @@ const ms: Record<I18nKey, string> = {
     'Hanya peranti yang menyertai semula atau menyertai buat kali pertama perlu memasukkan kata laluan.',
   'pro.pin_members_reenter': 'Semua menyertai semula',
   'pro.pin_members_reenter_detail':
-    'Semua orang perlu menyertai semula. Disyorkan untuk mengeluarkan orang yang Anda tidak kenali sekali gus.',
+    'Semua orang perlu menyertai semula. Disyorkan untuk mengeluarkan orang yang tidak anda kenali sekali gus.',
   'pro.pin_keep_unavailable':
     'Kata laluan tidak ditukar. Buat masa ini, orang dalam bilik tidak dapat dikekalkan. Cuba lagi kemudian atau pilih “Semua menyertai semula”.',
   'pro.pin_enabled_removed_title': 'Bilik kini mempunyai kata laluan',
@@ -826,9 +826,9 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_changed_removed_message':
     'Pemilik bilik telah menukar kata laluan bilik. Masukkan kata laluan baharu untuk menyertai semula.',
   'pro.removed_title': 'Anda dikeluarkan daripada bilik ini',
-  'pro.removed_message': 'Pemilik bilik atau pentadbir telah mengeluarkan Anda daripada bilik ini.',
+  'pro.removed_message': 'Pemilik bilik atau pentadbir telah mengeluarkan anda daripada bilik ini.',
   'pro.device_removed_message':
-    'Peranti lain yang dilog masuk ke akaun Anda telah memutuskan sambungan peranti ini daripada bilik.',
+    'Peranti lain yang log masuk ke akaun anda telah memutuskan sambungan peranti ini daripada bilik.',
   'pro.owner_only': 'Hanya pemilik bilik boleh melakukan tindakan itu.',
   'pro.connect_failed': 'Tidak dapat menyambung ke bilik PRO.',
   'pro.room_full': 'Bilik PRO ini sudah penuh',
@@ -908,7 +908,7 @@ const ms: Record<I18nKey, string> = {
   'system_audio.stopped': 'Perkongsian audio sistem telah tamat.\nMenyambung semula senarai main.',
   'system_audio.host_channel_locked': 'Peranan tidak boleh ditukar semasa audio sistem dikongsi.',
   'system_audio.effects_guest_only':
-    'Audio sistem aktif.\nKesan bunyi hanya digunakan pada peranti tetamu.',
+    'Audio sistem aktif.\nKesan audio hanya digunakan pada peranti tetamu.',
   'system_audio.desktop_only':
     'Hanya tersedia pada komputer yang menggunakan pelayar berasaskan Chromium (Chrome, Edge dan sebagainya).',
   'system_audio.receive_failed':

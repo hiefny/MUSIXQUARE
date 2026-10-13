@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-13 (배포 SHA `f0ea308b`, Release `38319913652`) |
+| Last source review | 2026-10-13 (배포 SHA `6b159667`, Release `38336912131`) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -28,30 +28,30 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
 
 | 항목 | 값 |
 | ---- | -- |
-| App 버전 / SW 캐시 | `8.10.6` / `v667` |
-| 마지막 프로덕션 변경 | 2026-10-13 08:03:44 KST, [Release 38319913652](https://github.com/hiefny/MUSIXQUARE/actions/runs/38319913652) attempt 1 성공, `target=app`, Developer API D1 `false`. 서비스 공지 소유권·닫기 영역·관리자 초안 갱신·legacy 정규화와 진단 빌드 식별 수정. 점검 OFF, 공개 공지 비활성 유지 |
-| 배포 main SHA | `f0ea308b06cfe76953ca96a2d604a3c826ab50c5` (PR [#314](https://github.com/hiefny/MUSIXQUARE/pull/314)). exact-main [CI 38319346829](https://github.com/hiefny/MUSIXQUARE/actions/runs/38319346829) attempt 1 성공 후보 재사용 |
-| Worker | App은 `f0ea308b`, version `2b4d2b20-bf09-46b3-a60a-8aafb4765da8`, deployment `d0754fbd-b17d-4658-9f3c-83612374aee3`, 단일 version 100%. 미선택 Worker 5종은 `08df0606` 유지 및 부분 배포 호환성 재검증. 08:03:37.362 KST App 최종 소유권 확인, 08:03:38.700 KST coherent marker 영속화 완료. App generation·익명 계정 경계·PRO 공개 경로·Standard HTTPS signaling 운영 smoke 4종 성공. 새 의존성·스키마·비밀·바인딩 없음. 기존 App/admin/auth 기준선 멱등 적용·검증. [상세 증거](design/announcement-review-followup-2026-10-13.md) |
-| 복구 | 필요 없음. 실패 복구 job은 skip됐다. 불변 checkpoint에 변경 전 App `08df0606`, version `9fbfe1e2-4179-4981-961a-622dbbc66ff3`, deployment `2748e487-a6d7-491c-9d55-667f04f52cca` 보존. before 파일 SHA-256이 배포 전 checkpoint와 최종 산출물에서 같음. 검증된 호환 기준선으로 복구 가능하나 이번 공지·초안 결함과 진단 헤더 공백이 돌아온다. checkpoint는 사용자 데이터 백업이 아니며 down migration 없음 |
-| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 8.10.6 신규 floor 없음. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 계약을 모르는 기준선으로 복구하지 않으며 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | PR [CI 38318757632](https://github.com/hiefny/MUSIXQUARE/actions/runs/38318757632)와 exact-main CI 각각 11개 job 성공. 각각 unit 558파일 / 12,575 pass / 0 fail / 1 skip(Windows 전용 경로, 로컬 통과), 후보 browser 17 + critical 24 pass, coverage 4종 통과. 코드 `8d93f269`의 로컬 unit 12,576 pass / 0 fail / 0 skip, 타입·린트·포맷·Worker guard·committed build:checked 성공. 공개 `/`·SW HTTP 200/v667, 공지 HTTP 200 `enabled:false, revision:8` 확인. 운영 공지 게시·철회나 점검 변경, 실기기/스크린리더 검사는 하지 않았다. [재현·검증·한계](design/announcement-review-followup-2026-10-13.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38320203496](https://github.com/hiefny/MUSIXQUARE/actions/runs/38320203496) (2026-10-13 08:05:11 KST 완료, source `f0ea308b`) 성공. report.json(08:04:55.999 KST)의 checks는 31 pass / 0 fail / 5 manual-only. 수동 항목은 §2에 유지하며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 2026-10-13 재조회한 main ref 마지막 실행은 [37595231001](https://github.com/hiefny/MUSIXQUARE/actions/runs/37595231001) (`61cedbc6`, 2026-10-07 수동). 이번 후보·critical browser와 별개로 `f0ea308b` 전체 serial Full E2E 실행은 없음 |
-| 의존성 | 8.10.6 의존성 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지, 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포 제외하고 봇 브랜치를 보존한다. 설치 취약점·서명 검사는 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
+| App 버전 / SW 캐시 | `8.10.7` / `v668` |
+| 마지막 프로덕션 변경 | 2026-10-13 11:29:05 KST, [Release 38336912131](https://github.com/hiefny/MUSIXQUARE/actions/runs/38336912131) attempt 1 성공, `target=app`, Developer API D1 `false`. 42개 언어 YouTube 입력 힌트를 URL 예시로 바꾸고 아래 안내를 링크·검색어 순서로 통일, 입력 전체 삭제 뒤 같은 안내 복원. 점검 OFF·공개 공지 비활성 유지 |
+| 배포 main SHA | `6b15966714a2aca1a66d7e6315815ccd7049303f` (PR [#316](https://github.com/hiefny/MUSIXQUARE/pull/316)). exact-main [CI 38336374232](https://github.com/hiefny/MUSIXQUARE/actions/runs/38336374232) attempt 1 성공 후보 재사용 |
+| Worker | App은 `6b159667`, version `434ad128-8f40-44cb-a1f7-8325eb16796b`, deployment `6a182693-ba52-4e85-a22c-5f5cd65e2a77`, 단일 version 100%. 미선택 Worker 5종은 `08df0606` 유지 및 부분 배포 호환성 재검증. 11:28:59.960 KST App 최종 소유권 확인, 11:29:00 KST coherent marker 영속화 완료. 선택된 운영 smoke 4종 성공, 범위 밖 6종 skip. 새 의존성·스키마·비밀·바인딩·프로토콜 없음. 기존 App/admin/auth 기준선 멱등 적용·검증. [상세 증거](design/youtube-input-guidance-2026-10-13.md) |
+| 복구 | 필요 없음. 실패 복구 job은 skip됐다. 불변 checkpoint에 변경 전 App `f0ea308b`, version `2b4d2b20-bf09-46b3-a60a-8aafb4765da8`, deployment `d0754fbd-b17d-4658-9f3c-83612374aee3` 보존. before 파일 SHA-256은 배포 전 checkpoint와 최종 산출물에서 `80d52e5fdc00008a779f074768598079d7d0f9d89e3777277b453ff54b52b554`로 일치. 검증된 호환 기준선으로 복구하면 중복·역순 힌트와 빈 입력의 링크 전용 안내가 돌아온다. checkpoint는 사용자 데이터 백업이 아니며 down migration 없음 |
+| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 8.10.7 신규 floor 없음. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 계약을 모르는 기준선으로 복구하지 않으며 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | PR [CI 38335861259](https://github.com/hiefny/MUSIXQUARE/actions/runs/38335861259)와 exact-main CI 각각 11개 job 성공. 각각 unit 558파일 / 12,575 pass / 0 fail / 1 skip(Windows 전용 경로, 로컬 통과), 후보 browser 17 + critical 24 pass, coverage 4종 통과. 로컬 4-worker 전체 unit은 12,575 pass / 1 timeout / 0 skip, 해당 파일 단독 재실행 101 pass. 타입·린트·포맷·Worker guard·committed build:checked 통과. 공개 en·ko·ar·it·pl·ru HTTP 200에서 URL 힌트·올바른 안내와 v668, SW HTTP 200/v668, 공지 HTTP 200 `enabled:false, revision:8` 확인. 운영 공지 게시·철회나 점검 변경, 실기기/스크린리더 검사는 하지 않았다. [검증·한계](design/youtube-input-guidance-2026-10-13.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38337144261](https://github.com/hiefny/MUSIXQUARE/actions/runs/38337144261) (2026-10-13 11:30:30 KST 완료, source `6b159667`) 성공. report.json(11:30:09.445 KST)의 checks는 31 pass / 0 fail / 5 manual-only. 수동 항목은 §2에 유지하며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 변경 전 main `4854e392` 실행 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967) (2026-10-13 10:46:21 KST 완료)은 serial 626 pass / 1 fail: YouTube 키보드 검사 최초 focus 실패. WebKit·large R2 job은 성공했으나 smoke 범위 산출물을 상세 검증하지 않았다. 현재 `6b159667`의 같은 키보드 검사 로컬 5회는 통과했지만 전체 Full E2E 실행이나 간헐 원인 해결 증거는 아니다. §2 관찰로 유지 |
+| 의존성 | 8.10.7 의존성 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지, 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포 제외하고 봇 브랜치를 보존한다. 설치 취약점·서명 검사는 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
 
 
 ## 2. 열린 확인 항목
-
-- 배포 준비: App `8.10.7` / cache `v668`, 42개 언어 YouTube 입력 힌트는 URL 예시,
-  아래 안내는 링크·검색어로 통일하고 입력 전체 삭제 뒤 같은 안내로 복원한다.
-  `target=app`, Developer API D1 `false`, 새 의존성·스키마·비밀·바인딩·프로토콜·복구
-  floor 변경 없음. 오너가 수정·배포 승인. exact-main 후보와 배포 완료는 아직 미확인.
-  [검증·배포 근거](design/youtube-input-guidance-2026-10-13.md)
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
 ### 최근 해결 근거
+
+8.10.7 YouTube 입력 안내 배포 준비는 PR #316, exact-main `6b159667`의 CI
+38336374232와 Release 38336912131 성공으로 닫았다. 42개 언어의 URL 힌트·아래
+링크/검색어 안내·입력 삭제 뒤 복원을 수정하고 공개 6언어 응답을 확인했다.
+변경 전 Full E2E에서 발견한 최초 키보드 focus 실패는 아래 관찰로 남긴다.
+[검증·배포·복구 근거](design/youtube-input-guidance-2026-10-13.md).
 
 8.10.6 App-only 후속 수정은 PR #314, exact-main `f0ea308b`의 CI 38319346829와
 Release 38319913652 성공으로 닫았다. `/clear` 서비스 공지 유실, 닫기 영역 겹침,
@@ -151,6 +151,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 
 재현되면 원인과 함께 기록한다. 지금 예정된 조사는 없다.
 
+- [ ] 변경 전 main `4854e392`의 Full E2E [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)
+  (2026-10-13 10:46:21 KST 완료)에서 serial 626 pass / 1 fail. 실패는
+  `e2e/youtube-search-interactions.test.ts:80`의 입력 조작 전 최초 focus 확인이다.
+  source popup의 비동기 View Transition·0ms 최초 action focus와 검사의 즉시
+  programmatic focus/Enter 간 경쟁을 의심하지만 원인은 확정하지 못했다.
+  현재 `6b159667`의 같은 검사(입력 삭제·Tab 순환 포함) 로컬 5회는 통과했으며
+  간헐 실패 해결이나 전체 Full E2E 통과 증거가 아니다.
+  [로그·재검증·한계](design/youtube-input-guidance-2026-10-13.md#기존-full-e2e의-미확정-관찰)
 - [ ] 2026-10-11 Montpellier 행사 PRO 002026의 입장 실패 원인은 미확정이다.
   Peer 번호는 동시 접속 수가 아니며 `Peer 77` 퇴장 메시지나 “100명처럼”이라는
   관찰만으로 실제 `ROOM_FULL`·100명 동시 접속을 증명하지 못한다. 로컬에서

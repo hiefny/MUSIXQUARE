@@ -4,7 +4,7 @@
 | ------------------ | ----- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다 |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준 |
-| Last source review | 2026-10-13 (배포 SHA `dc69bda0`, Release `38365146388`) |
+| Last source review | 2026-10-14 (배포 SHA `16c6b219`, Release `38427573214`; 선행 실패·복구 `38426762796` 기록 유지) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md) |
 
@@ -26,32 +26,23 @@ gh run list --workflow e2e.yml --branch main --limit 3
 Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매주 바뀌므로 위
 명령으로 다시 조회하고, 이 표의 값을 그대로 믿지 않는다.
 
-| 항목 | 값 |
-| ---- | -- |
-| App 버전 / SW 캐시 | `8.10.8` / `v669` |
-| 마지막 프로덕션 변경 | 2026-10-13 16:51:42 KST 배포 job 완료, [Release 38365146388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365146388) attempt 1 성공, `target=app`, Developer API D1 `false`. YouTube 팝업의 지연 초기 focus가 사용자 Tab 이동을 덮어쓰는 경합 수정 및 E2E 미디어 선택 팝업 진입 순서 수정. 점검 OFF·공개 공지 비활성 유지 |
-| 배포 main SHA | `dc69bda07ff2ffe614d0e34a9d0d5657da65676b` (PR [#319](https://github.com/hiefny/MUSIXQUARE/pull/319)). exact-main [CI 38364448487](https://github.com/hiefny/MUSIXQUARE/actions/runs/38364448487) 성공 후보 재사용 |
-| Worker | App은 `dc69bda0`, version `b790efb9-3c18-451b-b29b-9f437fe25f04`, deployment `2a9b03b7-b5b5-4eed-98e8-cbcf7af75dad`, 단일 version 100%. 미선택 Worker 5종은 `08df0606` 유지 및 부분 배포 호환성 재검증. 16:51:38.697 KST App 최종 소유권 확인, coherent production marker 영속화 확인. App generation·익명 계정 경계·PRO 공개 경로·Standard HTTPS signaling 운영 smoke 4종 성공, 범위 밖 6종 skip. 새 의존성·스키마·비밀·바인딩·프로토콜 없음. [상세 증거](design/youtube-popup-focus-repair-2026-10-13.md) |
-| 복구 | 필요 없음. 실패 복구 job은 skip됐다. 불변 checkpoint에 변경 전 App `6b159667`, version `434ad128-8f40-44cb-a1f7-8325eb16796b`, deployment `6a182693-ba52-4e85-a22c-5f5cd65e2a77` 보존. before 파일 SHA-256은 배포 전 checkpoint와 최종 산출물에서 `feb6586e54e28fd2b8d4e35c47261f90272f35d4f0aa19422d16db289fd5aca5`로 일치. 검증된 호환 기준선으로 복구하면 지연 초기 focus가 사용자 이동을 덮어쓰는 문제가 돌아온다. checkpoint는 사용자 데이터 백업이 아니며 down migration 없음 |
-| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 8.10.8 신규 floor 없음. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 계약을 모르는 기준선으로 복구하지 않으며 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | 최종 PR [CI 38363135227](https://github.com/hiefny/MUSIXQUARE/actions/runs/38363135227)와 exact-main CI 각각 11개 job 성공, unit 558파일 / 12,579 pass / 0 fail / Windows 전용 1 skip. 로컬 unit 12,580 pass / 0 fail / 0 skip, 타입·린트·포맷·guards·committed build:checked·candidate browser 17 pass. PR browser 17 + critical 24 pass와 coverage 4종 통과. 원격 키보드 반복은 두 OS 각 30 pass지만 모두 100ms 전 닫혀 타이머 경계는 단위 RED→GREEN으로 검증했다. 공개 en·ko·ar·it·pl·ru와 SW HTTP 200/v669, 공지 `enabled:false, revision:8` 확인. 점검·공지 변경 및 실기기/스크린리더 검사는 하지 않았다. [재현·검증·한계](design/youtube-popup-focus-repair-2026-10-13.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38365435739](https://github.com/hiefny/MUSIXQUARE/actions/runs/38365435739) (2026-10-13 16:52:38 KST 완료) 성공. report.json(16:52:27.713 KST)의 checks는 31 pass / 0 fail / 5 manual-only. 수동 항목은 §2에 유지하며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 이번 제품·테스트 코드와 같은 source `c2495f66`의 [38356792927](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356792927) 성공: Chromium 627 pass / 0 fail / 0 skip(54.7분, 2026-10-13 16:23:07 KST 검사 종료), WebKit UI 66 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 로컬 동일 코드도 Chromium 627 pass, WebKit UI 66 pass / 3 skip, SW 1 pass. 원격 전체 실행과 exact-main CI 후보를 구분하며 운영 R2는 실행 당시 배포를 검사했다 |
-| 의존성 | 8.10.8 의존성 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지, 열린 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포 제외하고 봇 브랜치를 보존한다. 설치 취약점·서명 검사는 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
-
+| 항목                   | 값                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App 버전 / SW 캐시     | `8.10.9` / `v671`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 마지막 프로덕션 변경   | 2026-10-14 01:07:41 KST 배포 job 완료, [Release 38427573214](https://github.com/hiefny/MUSIXQUARE/actions/runs/38427573214) attempt 1 성공, `target=app`, Developer API D1 `false`. 컴포넌트 pill 소유권·CSS cascade·축소 모션·강제 색상·관리자 clear 버튼·welcome 슬라이더 정리. 선행 [38426762796](https://github.com/hiefny/MUSIXQUARE/actions/runs/38426762796)는 status의 이전 배포 응답으로 안전 검사 실패 후 자동·독립 복구를 확인했으며 이력에서 숨기지 않는다. 점검·공지 변경 없음                                                                                                                                                                                                                                 |
+| 배포 main SHA          | `16c6b2196139c206f881c4457237cc36b1c44fe6` (PR [#321](https://github.com/hiefny/MUSIXQUARE/pull/321)). exact-main [CI 38425972188](https://github.com/hiefny/MUSIXQUARE/actions/runs/38425972188) attempt 1 성공 후보를 수정·재빌드 없이 정식 재사용했다. 후속 기록 PR의 SHA는 배포 SHA가 아니다                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Worker                 | App version `3fec8fb1-9fbd-4fb4-a054-640c7d3f2e74`, deployment `e2be8a0a-f346-42e1-a11f-51a2b7df3667`, 단일 version 100%. 01:07:35.676 KST 최종 소유권 `verified`, exact SHA·target의 coherent production marker 영속화 확인. 미선택 Worker 5종은 `08df0606` 유지, 01:06:58.516 KST 부분 배포 호환성 재검증. App generation·익명 계정 경계·PRO 공개 경로·Standard HTTPS signaling 운영 smoke 4 pass / 범위 밖 6 skip. [배포·복구 증거](design/component-cascade-refactor-2026-10-13.md#배포복구)                                                                                                                                                                                                                            |
+| 복구                   | 최종 성공 실행은 복구 불필요·recovery job skip. 불변 checkpoint는 변경 전 App `dc69bda0`, version `b790efb9-3c18-451b-b29b-9f437fe25f04`, 선행 rollback deployment `96fe15ac-037d-4228-86ce-b9c7a8587811`를 보존한다. before 파일 SHA-256은 checkpoint와 최종 배포 산출물 모두 `78809ebcc7aaa9e9cd1978b7a0483b7b13ca759f9bd7902f19ef14c294d836e1`. 이 호환 기준선으로 복구하면 이전 cascade·알려진 UI 문제가 돌아온다. checkpoint는 사용자 데이터 백업이 아니며 down migration 없음. 선행 실패·자동 rollback·독립 복구 근거는 상세 보고서와 이력의 별도 1행에 보존                                                                                                                                                          |
+| 활성 복구 floor        | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 이번 릴리스 신규 floor 없음. 성공 checkpoint의 기존 App Git 계보·generation/entitlement/developer authority 인식 확인. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다                                                                                                                                                                                                                                                                                                              |
+| 검증 범위              | exact-main CI 11 jobs 성공, unit 558파일 / 12,580 pass / Windows 전용 1 skip, candidate browser 17 + critical 24 pass, coverage 4종·정적·빌드 통과. 로컬 unit 12,581 pass / 0 fail / 0 skip. CSS 전후 360조건의 비모션 차이 0과 151버튼×12조건 반경 일치, 보조 페이지 96조건 비교 확인. 공개 `/`·`/ko/`·`/ar/` fresh Chromium 3조합 HTTP 200·입장 전 설정 버튼 표시·pageerror 0·pill 999px·새 CSS `main-DuLzNRbT.css` 및 ar RTL 확인, service-worker.js HTTP 200/v671. 실제 방 입장·이미 열린 구 클라이언트·실기기·스크린리더 재검사는 하지 않았다. 최초 seed 470021 실패 원인은 미확정이며 Media Session pause 대조 2 pass도 최초 OS 원인 입증이 아니다. [범위·실패·한계](design/component-cascade-refactor-2026-10-13.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38427999913](https://github.com/hiefny/MUSIXQUARE/actions/runs/38427999913) 성공. 2026-10-14 01:08:35.901 KST report는 `automated-checks-passed`, 31 pass / 0 fail / 5 manual-only다. 수동 항목은 §2에 유지하며 통과로 간주하지 않는다                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Full E2E               | 매주 월 18:17 UTC. 원격 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)은 Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 제품 입력이 같은 E2E 진단 후속 `85414247`의 로컬 전체도 640 pass / 0 fail / 0 skip(55.6분), WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail은 별도 미확정 이력으로 보존한다. 원격 전체 실행과 exact-main CI 후보를 구분하며 운영 R2는 실행 당시 배포를 검사했다                                                                                                                                                                                                                            |
+| 의존성                 | 이번 8.10.9의 의존성·스키마·비밀·바인딩·프로토콜 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지, 그룹 PR [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 이번 배포 제외하고 봇 브랜치를 보존한다. 설치 취약점·서명 검사는 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md)                                                                                                                                                                                                                                                                                               |
 
 ## 2. 열린 확인 항목
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
-
-### App 8.10.9 준비
-
-- [ ] 컴포넌트 pill 토큰·CSS cascade 정리를 `app` / Developer API D1 `false`로
-  준비 중이다. 캐시는 `v671`, 새 의존성·스키마·비밀·바인딩·프로토콜·복구 floor는
-  없다. 사용자 배포 승인 범위에 포함되며, 최종 검증·exact-main CI·정식 배포가
-  완료되기 전에는 §1의 운영 버전을 변경하지 않는다.
-  [범위·전후 비교·검증](design/component-cascade-refactor-2026-10-13.md)
 
 ### 로컬 E2E 재입장 관측
 
@@ -64,6 +55,14 @@ Drift Audit, Full E2E, 의존성 행은 기록 시점의 값이다. 매일·매�
   [실패·재검사·한계](design/component-cascade-refactor-2026-10-13.md)
 
 ### 최근 해결 근거
+
+App 8.10.9/v671 준비는 PR #321, exact-main `16c6b219`의 CI 38425972188 및
+Release 38427573214의 운영 smoke 4종·최종 소유권·coherent marker 확인으로
+닫았다. 선행 Release 38426762796의 오래된 status 응답·자동 rollback과 독립
+복구도 같은 보고서와 릴리스 이력에 보존한다. 조회의 세부 원인은 미정이고
+소유권 안전 검사는 유지했다. 최초 로컬 seed 470021 실패와 실기기 확인은
+해결한 것으로 처리하지 않는다.
+[구현·검증·실패·배포·복구](design/component-cascade-refactor-2026-10-13.md).
 
 YouTube 최초 focus 검사와 후반 Tab 실패 항목은 PR #319, exact-main `dc69bda0`의
 CI 38364448487 및 Release 38365146388 성공으로 닫았다. 진입 검사는 준비 상태와

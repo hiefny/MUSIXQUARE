@@ -3,14 +3,15 @@
 ## 현재 상태와 범위
 
 **원인 확인·수정 완료, 전체 검증·배포 대기.** Windows 자연 실패 3건의 타이머·
-포커스·키 이벤트 순서를 수집해 원인을 확인하고 수정했다. 관련 단위 파일과 수정
-뒤 원격 Ubuntu·Windows 각 30회 반복은 통과했다. 로컬·원격 전체 검증과
-exact-main CI 후보·배포는 아직 완료되지 않았다. 진행 중인 결과를 통과로 간주하지 않는다.
+포커스·키 이벤트 순서를 수집해 원인을 확인하고 수정했다. 로컬 전체 unit·정적
+검사·production candidate, 원격 두 OS 반복·Full E2E 및 PR CI는 통과했다. 로컬 전체
+Chromium과 exact-main CI 후보·배포는 아직 완료되지 않았다. 원격 반복의 100ms
+경계 검증 한계는 아래에 따로 기록하며 진행 중인 결과를 통과로 간주하지 않는다.
 
 - E2E 진입 순서 수정: `1771b0c5e0a4a0c6a5b4d23ff537c3f2956e5cd2`.
 - 제품 수정·관련 단위 회귀 코드: `594fbc5dc9ca5f43e9f4a302cc0a420a81e9fa6a`.
-- 원격 전체검증 source `c2495f66`은 위 제품·테스트 코드와 같고 임시 진단
-  workflow를 원본 Full E2E로 복원한 커밋이다.
+- 원격 전체검증 source `c2495f66c22a7cc2bd3391fddefc44bf0494024a`는 위 제품·
+  테스트 코드와 같고 임시 진단 workflow를 원본 Full E2E로 복원한 커밋이다.
 - App `8.10.8` / SW cache `v669`, 예정 배포 범위 `app`, Developer API D1 `false`.
   새 의존성·스키마·비밀·바인딩·프로토콜·복구 floor 변경은 없다.
 - 사용자 요청은 진입 순서 수정과 Windows 후반 실패의 원인 확인·수정,
@@ -34,6 +35,10 @@ local-file focus를 확인한 뒤 실제 Tab으로 YouTube 버튼으로 이동�
 Windows는 27 pass / 3 fail이며 둘 다 skip·flaky는 0이었다. Windows JSON report
 소요는 118,910.365ms다. 로컬 Windows의 계측 baseline은 30회 모두 통과했으므로
 사용자 PC와 GitHub-hosted Windows 결과를 같은 환경으로 보지 않는다.
+
+최초 계측 실행 [38355563510](https://github.com/hiefny/MUSIXQUARE/actions/runs/38355563510)은
+8자리 SHA ref checkout에서 실패해 테스트를 실행하지 못했고, 40자리 SHA로 고정한
+38355671404에서 실제 계측을 진행했다.
 
 계측은 원래 타이머·focus 호출을 실행하면서 호출 stack과 `performance.now()` 시각,
 `focusin/out`, `keydown/up`을 기록했다. 의도적인 지연이나 강제 타이머 발화 없이
@@ -90,10 +95,13 @@ OS 자체를 결함 원인으로 단정하거나 모든 포커스 문제의 원�
 | 새 단위 회귀의 수정 전 실행 | 로컬 Windows, 4개 | 1 fail / 3 pass |
 | 수정 후 관련 단위 파일 | `594fbc5d`, 로컬 Windows | 197 pass / 0 fail |
 | 수정 후 원격 반복 | `594fbc5d`, Ubuntu·Windows, OS별 30회; [38356696388](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356696388) | 최종 success; 각 30 pass / 0 fail / 0 skip / 0 flaky / 0 retry |
-| 로컬 정적 검사 | 수정 후 코드, Windows | typecheck·lint·format 통과 |
-| 로컬 전체 unit | 수정 후 코드, Windows, 2 workers | 실행 중, pending |
-| 원격 Full E2E | `c2495f66`; [38356792927](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356792927) | WebKit·운영 R2 job 성공, 전체 Chromium 진행 중; workflow 최종 결과 pending |
-| 나머지 로컬 전체검증·PR CI | 최종 코드 | pending |
+| 수정 후 로컬 반복 | 동일 제품 코드, Windows, 30회 | 30 pass / 0 fail, 56.5초 |
+| 로컬 정적 검사·build | 수정 후 코드, Windows | typecheck·lint·format·guards·build:checked 통과 |
+| 로컬 전체 unit | 동일 제품 코드, Windows, `maxWorkers=2`, jq 경로 명시 | 558파일 / 12,580 pass / 0 fail / 0 skip, 492.97초 |
+| 로컬 production candidate browser | build:checked 산출물, Windows | 17 pass / 0 fail, 33.8초 |
+| 로컬 전체 Chromium | 동일 제품 코드, 627개 검사 | 진행 중, pending |
+| 원격 Full E2E | `c2495f66`; [38356792927](https://github.com/hiefny/MUSIXQUARE/actions/runs/38356792927) | 최종 success; Chromium 627 pass / 0 fail / 0 skip(54.7분), WebKit UI 66 pass / 3 skip, SW 1 pass, 운영 R2 1 pass |
+| PR CI | head `834719b8`, PR merge checkout `2e968bf7`; [38357542283](https://github.com/hiefny/MUSIXQUARE/actions/runs/38357542283) | 11 jobs 성공; 아래 상세 집계 |
 | exact-main 후보·Production Release | App `8.10.8` / `v669` | pending, 아직 배포하지 않음 |
 
 원격은 Node `24.20.0`·저장소 lockfile과 Playwright Chromium을 사용한다. 수정 후
@@ -102,9 +110,38 @@ assertion·timeout·retry 기준을 완화하지 않는다. 최종 전체검증�
 기록하고, 실패·skip을 통과 수에 합치지 않는다. 실기기·물리 키보드나 실제 YouTube
 서비스의 검증을 이번 자동화 결과로 주장하지 않는다.
 
-수정 후 원격 반복 JSON 소요는 Ubuntu 61,503ms, Windows 69,670ms다. 운영 R2
-smoke는 현재 배포를 검사하므로 새 제품 코드의 검증을 대신하지 않는다. WebKit·R2
-job 성공을 전체 Chromium이나 workflow 전체 통과로 확장하지 않는다.
+수정 후 원격 반복 JSON 소요는 Ubuntu 61,503ms, Windows 69,670ms다. **이 60회는
+모두 100ms 타이머가 발화하기 전에 Escape로 팝업을 닫았다**(Windows 67.9–97.0ms,
+Ubuntu 62.4–93.2ms). 따라서 정상 진입·입력·Tab·닫기 흐름의 회귀 증거이며, 반복
+통과만으로 100ms 시점의 focus 보호 분기가 실행됐다고 주장하지 않는다. 타이머
+시점에 Cancel focus를 보존하는 경계는 수정 전 RED → 수정 후 GREEN인 단위
+회귀가 직접 검증한다.
+
+PR CI는 unit 두 shard의 5,976 + 6,603 pass를 합쳐 558파일 / 12,579 pass /
+0 fail / 1 skip이다. skip은 `pro-grant-campaign-cli.test.ts`의
+`rejects another drive before reading or creating an artifact`로 Windows 전용이며,
+로컬 Windows 전체 실행에서는 포함돼 통과했다. production candidate browser는
+17 pass, critical browser는 24 pass다. build:checked의 app-shell 94 assets와
+v669, Worker 6종 번들도 통과했다. 이 PR 결과는 exact-main 후보가 아니다.
+
+| CI coverage | Statements | Branches | Functions | Lines |
+| --- | --- | --- | --- | --- |
+| Broad | 86.97% | 81.01% | 91.54% | 90.56% |
+| Critical | 82.01% | 77.02% | 88.06% | 86.09% |
+| Worker | 85.45% | 82.25% | 93.42% | 89.89% |
+| Tooling | 78.23% | 73.78% | 87.09% | 80.10% |
+
+네 coverage gate 모두 통과했다. profile별 unit은 전체 unit과 겹치므로 통과 수에
+더하지 않는다. 원격 WebKit의 기존 3 skip은 desktop entrance timing, 모바일에서
+숨은 carousel 화살표, touch-only 환경의 hover 조건이다. SW lifecycle은 별도로
+1 pass다. 운영 R2 smoke는 현재 배포를 검사하므로 새 제품 코드의 검증을 대신하지
+않는다. 전체 Chromium 627 pass는 별도 job 로그로 확인했으며 2026-10-13
+07:23:07 UTC(16:23:07 KST)에 검사가 끝났다. 로컬 전체 Chromium은 아직 실행 중이다.
+
+로컬 최초 format·build의 `guard:index-hreflang` 실패는 버전 교체 스크립트가 파일을
+CRLF로 다시 쓴 데서 발생했다. LF로 복원한 뒤 format과 build:checked를 통과했고
+Git blob 내용 변화는 없었다. 확인한 원인은 작업 파일의 줄바꿈이며 추가 제품 결함으로
+분류하지 않는다. 처음 실패한 실행을 통과로 바꾸지 않고 복원 후 결과를 구분한다.
 
 ## 증거와 복구
 
@@ -116,6 +153,9 @@ job 성공을 전체 Chromium이나 workflow 전체 통과로 확장하지 않�
 - 수정 후 반복 workflow 사본: `scratch/focus-linux-audit/workflow-fixed.yml`.
 - 수정 후 원격 반복 원본: `scratch/focus-linux-audit/linux-fixed/focus-results.json`,
   `scratch/focus-linux-audit/windows-fixed/focus-results.json`.
+- PR CI 원본: `scratch/focus-linux-audit/ci-unit-1.log`, `ci-unit-2.log`,
+  `ci-browser.log`, `ci-candidate.log`, `ci-coverage-{broad,critical,workers,tooling}.log`.
+- 원격 전체 Chromium 로그: `scratch/focus-linux-audit/remote-e2e-full.log`.
 - 현재 운영 배포·복구 기준선은 [릴리스 기록 §1](../release-record.md#1-현재-운영-상태)을
   유지한다. 변경은 App UI 초기 focus에 한정된다. 이전 호환 App으로 복구하면
   지연 초기 focus가 사용자 Tab 이동을 덮어쓰는 문제가 돌아온다. 데이터·서버

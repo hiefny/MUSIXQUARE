@@ -424,7 +424,6 @@
 
     .chat-drawer-header {
       cursor: default;
-      touch-action: auto;
     }
 
     .chat-drawer-header::before {

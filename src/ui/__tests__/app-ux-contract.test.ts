@@ -421,6 +421,12 @@ describe('app UX markup contract', () => {
     expect(platformSource).toContain("'gesturechange'");
     expect(platformSource).toContain("'gestureend'");
     expect(platformSource).toContain('preventIOSPinchZoom();');
+    expect(declarationsForSelector('*').join('\n')).toMatch(
+      /touch-action:\s*manipulation\s*;/u,
+    );
+    for (const selector of ['html', 'body', '*']) {
+      expect(declarationsForSelector(selector).join('\n')).not.toMatch(/touch-action:\s*none\b/u);
+    }
   });
 
   it('keeps Space as the only unmodified single-key playback shortcut', () => {

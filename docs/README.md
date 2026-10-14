@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Shared app double-tap policy — 2026-10-14](design/shared-touch-policy-2026-10-14.md) —
+  Common touch default preserving existing zoom locks, inner scrolling and
+  component gestures. App 8.10.16/v682; iOS 17.6.1 physical PWA verification remains open.
 - [System audio sender action surface — 2026-10-14](design/system-audio-sharing-actions-2026-10-14.md) —
   Sender-only merged Stop Sharing control, stable hover motion, room/demo CSS
   readiness, accessibility and 42-locale layout verification. App 8.10.14/v680.

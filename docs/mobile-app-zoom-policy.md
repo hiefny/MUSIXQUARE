@@ -18,7 +18,7 @@ outside this policy unless they explicitly adopt it.
 
 ## Runtime contract
 
-The main app must keep both layers below:
+The main app must keep the layers below:
 
 1. `index.html` declares `minimum-scale=1`, `maximum-scale=1`, and
    `user-scalable=no` in its viewport metadata.
@@ -26,10 +26,28 @@ The main app must keep both layers below:
    `gesturestart`, `gesturechange`, and `gestureend` during the one-time app
    bootstrap. This is required because supported Safari/WebView variants do
    not apply viewport scaling restrictions consistently.
+3. The app's base reset sets `* { touch-action: manipulation; }` without
+   `!important`. This common default suppresses browser double-tap zoom before
+   a gesture begins, including unavailable controls and controls inside nested
+   scrollers. Native panning stays enabled. More-specific component `pan-y` and
+   `none` rules retain slider/drag ownership. **Manipulation alone allows pinch**;
+   the unchanged metadata and iOS gesture cancellation still prevent it.
+   No per-button cancellation or synthetic click is required. Standalone
+   document pages do not load this app stylesheet.
+
+WebKit explicitly uses `manipulation` to suppress double-tap gestures; a bare
+`pan-x pan-y` is not an equivalent WebKit workaround. A common element default
+also avoids relying on propagation through native scroll boundaries. See
+[WebKit tapping behavior](https://webkit.org/blog/5610/more-responsive-tapping-on-ios/)
+and its [gesture recognizer predicate](https://github.com/WebKit/WebKit/commit/1448205ae3fa).
+The policy does not reach inside an embedded YouTube browsing context or disable
+text selection/ordinary control activation. The shared default suppresses
+double-tap zoom where it applies; specialized gesture rules remain component-owned.
+It does not repair an already-displaced iOS keyboard viewport.
 
 Do not replace this contract with a global `touch-action: none`; that would
 also suppress scrolling and application-owned gestures. Do not remove only one
-of the two layers and assume the remaining layer covers every supported mobile
+of the layers and assume the remaining layers cover every supported mobile
 browser.
 
 The executable contract in
@@ -61,3 +79,8 @@ Android device verification.
   model.
 - The policy was explicitly restored on 2026-08-12 after real mobile use
   confirmed that page zoom degraded the application experience.
+- On 2026-10-14 the owner requested shared double-tap protection after an
+  iOS 17.6.1 installed PWA shifted by a keyboard-sized area following room-code
+  entry and double taps on unavailable transport controls. The shared CSS
+  default complements the existing locks. Resolution of that exact native PWA
+  symptom still requires the affected physical device.

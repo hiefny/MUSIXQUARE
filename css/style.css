@@ -305,6 +305,11 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   * {
     box-sizing: border-box;
+    /* Shared double-tap policy, including inside nested native scrollers.
+       Keep native panning; component pan-y/none rules retain gesture ownership.
+       Pinch prevention still belongs to viewport metadata + the iOS gesture
+       guard: manipulation by itself allows pinch. No per-button cancellation. */
+    touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     -webkit-user-select: none;

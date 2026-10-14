@@ -1,5 +1,6 @@
 import { expect, test, type CDPSession, type Locator, type Page } from '@playwright/test';
 import { E2E_APP_ORIGIN } from './config.ts';
+import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { useAnonymousAccountSession } from './helpers/context-factory.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
@@ -20,6 +21,29 @@ async function openHost(page: Page): Promise<string> {
   await injectPeerServer(page);
   await useAnonymousAccountSession(page);
   return setupHostAndStart(page);
+}
+
+async function openWebKitRoleFixture(page: Page, role: 'host' | 'guest'): Promise<void> {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await injectPeerServer(page);
+  await useAnonymousAccountSession(page);
+  await page.goto('/');
+  await waitForBootstrapReady(page);
+  // The Windows Playwright WebKit build has no PeerJS WebRTC transport. Match
+  // webkit-mobile-smoke's initialized-app fixture: seed only the session role
+  // and dismiss setup, preserving production authority/renderers/handlers.
+  // Chromium above/below covers actual room creation and room-code joining.
+  await page.evaluate((role) => {
+    const runtime = window as typeof window & {
+      __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
+      __MUSIXQUARE_BUS__: { emit(type: string, ...args: unknown[]): void };
+    };
+    runtime.__MUSIXQUARE_SET_STATE__('network.appRole', role);
+    runtime.__MUSIXQUARE_SET_STATE__('setup.sessionStarted', true);
+    document.getElementById('setup-overlay')?.classList.remove('active');
+    document.body.classList.remove('overlay-open');
+    runtime.__MUSIXQUARE_BUS__.emit('setup:app-entrance');
+  }, role);
 }
 
 async function viewportSnapshot(page: Page) {
@@ -73,8 +97,10 @@ async function doubleTapUnavailable(page: Page, id: string): Promise<void> {
 test('unavailable host and guest controls keep tap feedback without changing the viewport', async ({
   page,
   browser,
+  browserName,
 }) => {
-  const code = await openHost(page);
+  const code = browserName === 'webkit' ? null : await openHost(page);
+  if (browserName === 'webkit') await openWebKitRoleFixture(page, 'host');
   await doubleTapUnavailable(page, 'play-btn');
 
   const guestContext = await browser.newContext({
@@ -84,12 +110,16 @@ test('unavailable host and guest controls keep tap feedback without changing the
   });
   try {
     const guest = await guestContext.newPage();
-    await guest.emulateMedia({ reducedMotion: 'reduce' });
-    await injectPeerServer(guest);
-    await useAnonymousAccountSession(guest);
-    // Uses the real room-code entry and join flow. Desktop automation does not
-    // provide the physical iOS software keyboard, despite editable focus.
-    await setupGuest(guest, code);
+    if (code === null) {
+      await openWebKitRoleFixture(guest, 'guest');
+    } else {
+      await guest.emulateMedia({ reducedMotion: 'reduce' });
+      await injectPeerServer(guest);
+      await useAnonymousAccountSession(guest);
+      // Chromium uses real room-code entry and joining. Desktop automation
+      // does not provide the physical iOS keyboard, despite editable focus.
+      await setupGuest(guest, code);
+    }
     for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
       await doubleTapUnavailable(guest, id);
     }
@@ -145,6 +175,29 @@ async function swipeScroller(page: Page, cdp: CDPSession, scroller: Locator): Pr
   const box = await scroller.boundingBox();
   if (!box) throw new Error('Scroll surface has no touch target');
   const start = { x: box.x + box.width / 2, y: box.y + box.height * 0.75 };
+  const readHitTarget = () =>
+    scroller.evaluate((element, point) => {
+      const hit = document.elementFromPoint(point.x, point.y);
+      return {
+        scroller: element.id || element.className,
+        point,
+        hit: hit ? `${hit.tagName}#${hit.id}.${hit.className}` : null,
+        receivesTouch: hit !== null && element.contains(hit),
+      };
+    }, start);
+  const initialHit = await readHitTarget();
+  // The tab's active class commits before its native View Transition ends.
+  // Raw CDP bypasses Locator actionability: a contact begun against the
+  // transition snapshot cannot switch to the scroller midway through a swipe.
+  await expect
+    .poll(async () => (await readHitTarget()).receivesTouch, {
+      message: 'The native swipe must start on the scroller, after tab snapshots release input',
+    })
+    .toBe(true);
+  await test.info().attach(`native-swipe-${initialHit.scroller}`, {
+    body: JSON.stringify({ box, initialHit, readyHit: await readHitTarget() }, null, 2),
+    contentType: 'application/json',
+  });
   await touchStroke(page, cdp, start, { x: start.x, y: start.y - Math.min(150, box.height / 2) });
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(30);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
@@ -154,7 +207,8 @@ test('nested playlist and chat keep scrolling while range and drag surfaces keep
   page,
   browserName,
 }) => {
-  await openHost(page);
+  if (browserName === 'webkit') await openWebKitRoleFixture(page, 'host');
+  else await openHost(page);
   await page.evaluate(() => {
     const runtime = window as typeof window & {
       __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;

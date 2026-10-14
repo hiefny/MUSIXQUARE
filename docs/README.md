@@ -92,10 +92,12 @@ runbooks. Neither belongs in a general setup document.
 
 - [Shared app double-tap policy — 2026-10-14](design/shared-touch-policy-2026-10-14.md) —
   Common touch default preserving existing zoom locks, inner scrolling and
-  component gestures. App 8.10.16/v682; iOS 17.6.1 physical PWA verification remains open.
+  component gestures. App 8.10.16/v682; affected iOS 17.6.1 PWA displacement and
+  scroll/volume/reorder checks confirmed by the owner. Broader device/update limits remain.
 - [System audio sender action surface — 2026-10-14](design/system-audio-sharing-actions-2026-10-14.md) —
   Sender-only merged Stop Sharing control, stable hover motion, room/demo CSS
-  readiness, accessibility and 42-locale layout verification. App 8.10.14/v680.
+  readiness, accessibility and 42-locale layout verification. App 8.10.14/v680;
+  optional-motion failure and shared gap-token follow-ups recorded on 2026-10-14.
 - [입장 대기·장황 버튼 라벨 축약 — 2026-10-14](design/short-wait-labels-2026-10-14.md) —
   `common.wait`·`setup.joining` 28건과 2026-10-13 길이 조사의 장황 버튼 25키 222건을 칩·2버튼 행
   ≤14자, 전폭 ≤22자 관용구로 축약(31키·250건). 8.10.15/v681,

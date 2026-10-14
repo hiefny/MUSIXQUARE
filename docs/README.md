@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [System audio sender action surface — 2026-10-14](design/system-audio-sharing-actions-2026-10-14.md) —
+  Sender-only merged Stop Sharing control, stable hover motion, room/demo CSS
+  readiness, accessibility and 42-locale layout verification. App 8.10.13/v679.
 - [점검 안내 번역 14건·숨은 YouTube 패널 접근성 수정 — 2026-10-14](design/maintenance-copy-and-a11y-release-2026-10-14.md) —
   Worker 6종 공유 점검 안내 문구 14개 로케일 관용구 수정, 화면 밖에 주차된 YouTube 래퍼
   `inert`로 역방향 키보드 포커스 차단. 8.10.12/v678, Production Release `target=all`.

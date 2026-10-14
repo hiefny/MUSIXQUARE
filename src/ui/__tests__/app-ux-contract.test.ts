@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 let appDocument: Document;
 let appSource: string;
 let appStylesheet: string;
+let playbackActionsStylesheet: string;
 let desktopStylesheet: string;
 let settingsSource: string;
 let appRuntimeSource: string;
@@ -33,6 +34,7 @@ beforeAll(() => {
   appSource = readFileSync(resolve('index.html'), 'utf8');
   appDocument = new DOMParser().parseFromString(appSource, 'text/html');
   appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+  playbackActionsStylesheet = readFileSync(resolve('css/playback-actions.css'), 'utf8');
   desktopStylesheet = readFileSync(resolve('css/desktop.css'), 'utf8');
   settingsSource = readFileSync(resolve('src/ui/settings.ts'), 'utf8');
   appRuntimeSource = readFileSync(resolve('src/app.ts'), 'utf8');
@@ -208,11 +210,20 @@ describe('app UX markup contract', () => {
     expect(fileInput?.hidden).toBe(true);
     expect(mediaSourceOverlay?.contains(fileInput)).toBe(true);
     expect(systemAudio?.hasAttribute('aria-describedby')).toBe(false);
-    expect(mainSync?.querySelector('span')?.getAttribute('data-i18n')).toBe('player.sync_compact');
-    expect(mainSync?.getAttribute('data-i18n-aria-label')).toBe('common.sync');
-    expect(mainMedia?.querySelector('span')?.getAttribute('data-i18n')).toBe(
-      'player.play_media_compact',
+    expect(mainSync?.querySelector('.play-action-label')?.getAttribute('data-i18n')).toBe(
+      'player.sync_compact',
     );
+    expect(mainSync?.getAttribute('data-i18n-aria-label')).toBe('common.sync');
+    expect(
+      mainMedia
+        ?.querySelector('.play-action-media-content .play-action-label')
+        ?.getAttribute('data-i18n'),
+    ).toBe('player.play_media_compact');
+    expect(
+      mainMedia
+        ?.querySelector('.play-action-stop-content .play-action-label')
+        ?.getAttribute('data-i18n'),
+    ).toBe('system_audio.stop');
     expect(mainMedia?.getAttribute('data-i18n-aria-label')).toBe('player.play_media');
     for (const [id, fullKey] of compactNavLabels) {
       const navButton = appDocument.getElementById(id);
@@ -222,11 +233,15 @@ describe('app UX markup contract', () => {
     expect(appStylesheet).toMatch(
       /\.file-select-btn\s*\{[\s\S]*?height:\s*72px;[\s\S]*?padding:\s*0 20px;/u,
     );
-    expect(appStylesheet).toMatch(
-      /#btn-sync,\s*\n\s*#btn-media-source\s*\{[\s\S]*?min-height:\s*56px;[\s\S]*?height:\s*auto;[\s\S]*?padding:\s*10px 14px;/u,
+    expect(playbackActionsStylesheet).toMatch(
+      /\.play-action-buttons :is\(#btn-sync, #btn-media-source\)\s*\{[^}]*min-height:\s*56px;[^}]*height:\s*auto;[^}]*padding:\s*0;/u,
     );
-    expect(desktopStylesheet).toMatch(
-      /@media \(min-width:\s*1280px\)\s*\{[\s\S]*?\.play-action-buttons \.file-select-btn\s*\{[\s\S]*?width:\s*160px;[\s\S]*?min-width:\s*160px;[\s\S]*?flex:\s*none;/u,
+    expect(playbackActionsStylesheet).toMatch(
+      /\.play-actions-row\s*\{[^}]*--play-action-padding-x:\s*14px;[^}]*--play-action-icon-size:\s*20px;/u,
+    );
+    expect(desktopStylesheet).toMatch(/\.play-action-buttons\s*\{[^}]*width:\s*332px;/u);
+    expect(playbackActionsStylesheet).toMatch(
+      /\.play-action-buttons\s*\{[^}]*--play-action-padding-x:\s*16px;[^}]*--play-action-icon-size:\s*22px;/u,
     );
   });
 

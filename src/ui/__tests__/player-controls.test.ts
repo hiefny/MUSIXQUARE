@@ -31,6 +31,8 @@ import { showToast } from '../toast.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { initSettings } from '../settings.ts';
 import { __resetModalStackForTests } from '../dom.ts';
+import { createSharingActionMotion } from '../sharing-action-motion.ts';
+import { registerSharingActionMotion } from '../sharing-action-motion-port.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
@@ -136,6 +138,7 @@ vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
 }));
 
 beforeEach(() => {
+  registerSharingActionMotion(createSharingActionMotion);
   __resetAccountStateForTests();
   resetState();
   bus.clear();
@@ -1738,11 +1741,13 @@ describe('initPlayerControls playback mode rendering', () => {
       <button id="btn-prev"></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-next"></button>
-      <button
-        id="btn-media-source"
-        aria-label="Play media"
-        data-i18n-aria-label="player.play_media"
-      ><span data-i18n="player.play_media_compact">Media</span></button>
+      <div class="play-action-buttons">
+        <button id="btn-sync"><span class="play-action-sync-content"><svg></svg><span class="play-action-label" data-i18n="player.sync_compact">Sync</span></span></button>
+        <button id="btn-media-source" aria-label="Play media" data-i18n-aria-label="player.play_media">
+          <span class="play-action-media-content" aria-hidden="true"><svg></svg><span class="play-action-label" data-i18n="player.play_media_compact">Media</span></span>
+          <span class="play-action-stop-content" aria-hidden="true"><svg></svg><span class="play-action-label" data-i18n="system_audio.stop">Stop sharing</span></span>
+        </button>
+      </div>
       <div class="vinyl-wrapper" aria-busy="false"><canvas id="visualizerCanvas"></canvas></div>
       <div class="video-wrapper" aria-busy="false">
         <div id="youtube-player-container"></div>
@@ -1770,22 +1775,28 @@ describe('initPlayerControls playback mode rendering', () => {
 
   it('renders the current playback mode immediately and stays reactive afterward', () => {
     renderPlaybackControls();
+    setActiveStandardHost();
     setPlaybackSystemAudioPlaying();
 
     initPlayerControls();
 
     const icon = document.querySelector('#play-btn path');
     const mediaBtn = document.getElementById('btn-media-source');
-    const mediaLabel = mediaBtn?.querySelector('span');
+    const actions = document.querySelector('.play-action-buttons');
+    const mediaLabel = mediaBtn?.querySelector('.play-action-media-content .play-action-label');
+    const stopLabel = mediaBtn?.querySelector('.play-action-stop-content .play-action-label');
 
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
-    expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop_compact');
+    expect(actions?.getAttribute('data-sharing')).toBe('true');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media_compact');
+    expect(stopLabel?.textContent).toBe(t('system_audio.stop'));
     expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('system_audio.stop');
     expect(mediaBtn?.getAttribute('aria-label')).toBe(t('system_audio.stop'));
 
     setPlaybackIdle();
 
     expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    expect(actions?.getAttribute('data-sharing')).toBe('false');
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media_compact');
     expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('player.play_media');
     expect(mediaBtn?.getAttribute('aria-label')).toBe(t('player.play_media'));
@@ -1809,18 +1820,107 @@ describe('initPlayerControls playback mode rendering', () => {
 
     initPlayerControls();
     const mediaBtn = document.getElementById('btn-media-source');
-    const mediaLabel = mediaBtn?.querySelector('span');
-    expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop_compact');
+    const actions = document.querySelector('.play-action-buttons');
+    const sync = document.getElementById('btn-sync') as HTMLButtonElement;
+    const mediaLabel = mediaBtn?.querySelector('.play-action-media-content .play-action-label');
+    expect(actions?.getAttribute('data-sharing')).toBe('true');
+    expect(sync.disabled).toBe(true);
+    expect(
+      mediaBtn?.querySelector('.play-action-stop-content .play-action-label')?.textContent,
+    ).toBe(t('system_audio.stop'));
     expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('system_audio.stop');
     expect(mediaBtn?.getAttribute('aria-label')).toBe(t('system_audio.stop'));
 
     proSystemAudio.view.isLocalOwner = false;
     bus.emit('pro-system-audio:state-changed', { ...proSystemAudio.view }, null);
 
+    expect(actions?.getAttribute('data-sharing')).toBe('false');
+    expect(sync.disabled).toBe(false);
+    expect(sync.hasAttribute('inert')).toBe(false);
     expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media_compact');
     expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('player.play_media');
     expect(mediaBtn?.getAttribute('aria-label')).toBe(t('player.play_media'));
     expect(mediaBtn?.classList.contains('sys-audio-guest')).toBe(true);
+  });
+
+  it('merges only for the Standard sender, keeps the existing stop action, and restores on room exit', () => {
+    renderPlaybackControls();
+    setActiveStandardHost();
+    initPlayerControls();
+    const actions = document.querySelector('.play-action-buttons');
+    const sync = document.getElementById('btn-sync') as HTMLButtonElement;
+    const media = document.getElementById('btn-media-source') as HTMLButtonElement;
+    const stop = vi.fn();
+    bus.on('system-audio:stop', stop);
+    sync.focus();
+    media.classList.add('attention-hint');
+
+    setPlaybackSystemAudioPlaying();
+
+    expect(actions?.getAttribute('data-sharing')).toBe('true');
+    expect(document.activeElement).toBe(media);
+    expect(sync.disabled).toBe(true);
+    expect(sync.getAttribute('aria-hidden')).toBe('true');
+    expect(sync.querySelector('svg')).not.toBeNull();
+    expect(media.classList.contains('attention-hint')).toBe(false);
+    media.click();
+    expect(stop).toHaveBeenCalledTimes(1);
+
+    setState('network.appRole', 'idle');
+
+    expect(actions?.getAttribute('data-sharing')).toBe('false');
+    expect(sync.disabled).toBe(false);
+    expect(sync.hasAttribute('aria-hidden')).toBe(false);
+    expect(media.getAttribute('aria-label')).toBe(t('player.play_media'));
+  });
+
+  it('does not merge for a receiver or turn a disconnected Standard guest into a sender', () => {
+    renderPlaybackControls();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+    setPlaybackSystemAudioPlaying();
+    initPlayerControls();
+    const actions = document.querySelector('.play-action-buttons');
+    const sync = document.getElementById('btn-sync') as HTMLButtonElement;
+    const media = document.getElementById('btn-media-source') as HTMLButtonElement;
+    const stop = vi.fn();
+    bus.on('system-audio:stop', stop);
+
+    for (const connection of [makeConnection('host-1'), null]) {
+      setState('network.hostConn', connection);
+      expect(actions?.getAttribute('data-sharing')).toBe('false');
+      expect(sync.disabled).toBe(false);
+      expect(sync.getAttribute('aria-disabled')).toBe('true');
+      expect(media.getAttribute('aria-disabled')).toBe('true');
+      sync.click();
+      expect(showToast).toHaveBeenLastCalledWith(t('toast.sync_not_in_system_audio'));
+      media.click();
+    }
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the full stop copy without destroying either content layer or restarting the morph', async () => {
+    renderPlaybackControls();
+    setActiveStandardHost();
+    setPlaybackSystemAudioPlaying();
+    initPlayerControls();
+    const media = document.getElementById('btn-media-source')!;
+    const stopLabel = media.querySelector('.play-action-stop-content .play-action-label')!;
+    const mediaLabel = media.querySelector('.play-action-media-content .play-action-label')!;
+    const previousLanguage = getResolvedLanguage();
+    try {
+      await setLanguageMode('ko');
+      bus.emit('i18n:changed', 'ko');
+      expect(stopLabel.textContent).toBe(t('system_audio.stop'));
+      expect(mediaLabel.textContent).toBe(t('player.play_media_compact'));
+      expect(media.getAttribute('aria-label')).toBe(t('system_audio.stop'));
+      expect(media.querySelectorAll('svg')).toHaveLength(2);
+      expect(document.querySelector('.play-action-buttons')?.hasAttribute('data-morphing')).toBe(
+        false,
+      );
+    } finally {
+      await setLanguageMode(previousLanguage);
+    }
   });
 
   it('uses playback mode for YouTube play-state events', () => {

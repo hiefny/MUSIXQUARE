@@ -4,7 +4,8 @@ import {
   cleanupContexts,
   useAnonymousAccountSession,
 } from './helpers/context-factory.ts';
-import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
+import { injectPeerServer } from './helpers/peer-server.ts';
 import { uploadFixtures } from './helpers/file-upload.ts';
 import { readQueueSnapshot, waitForCurrentQueueItemId } from './helpers/queue-state.ts';
 import {
@@ -27,6 +28,76 @@ import {
 } from './helpers/youtube-source.ts';
 
 const TRANSPORT_CONTROLS = ['btn-prev', 'play-btn', 'btn-next'] as const;
+
+test('sharing surfaces do not acquire hover merely by expanding under a stationary pointer', async ({
+  page,
+}, testInfo) => {
+  await injectPeerServer(page);
+  await installSyntheticSystemAudio(page);
+  await useAnonymousAccountSession(page);
+  await setupHostAndStart(page);
+  await navigateToTab(page, 'play');
+  const row = page.locator('.play-action-buttons');
+  const media = page.locator('#btn-media-source');
+  const sync = page.locator('#btn-sync');
+  await sync.hover();
+  const syncBox = await sync.boundingBox();
+  if (!syncBox) throw new Error('Sync must be visible before sharing');
+  const leftPoint = { x: syncBox.x + syncBox.width / 2, y: syncBox.y + syncBox.height / 2 };
+
+  await media.click();
+  // Opening by pointer schedules focus onto the dialog itself. Wait for that
+  // handoff before selecting a keyboard target, otherwise it can steal Enter.
+  await expect(page.locator('#media-source-overlay')).toBeFocused();
+  await page.locator('#btn-system-audio').focus();
+  await expect(page.locator('#btn-system-audio')).toBeFocused();
+  await page.mouse.move(leftPoint.x, leftPoint.y);
+  await page.keyboard.press('Enter');
+  await expect(row).toHaveAttribute('data-sharing', 'true');
+  await expect(row).not.toHaveAttribute('data-morphing', 'true');
+  const stopContent = media.locator('.play-action-stop-content');
+  await expect(stopContent).toBeVisible();
+  await expect(stopContent).toHaveCSS('opacity', '1');
+  await expect(stopContent.locator('.play-action-label')).toHaveText('Stop Sharing');
+  await expect(stopContent.locator('.play-action-label')).toHaveCSS('color', 'rgb(255, 59, 48)');
+  await expect(stopContent.locator('svg')).toHaveCSS('fill', 'rgb(255, 59, 48)');
+  // Some engines retain the old :hover target until pointer movement; others
+  // update it as geometry changes. The visible surface must be stable in both.
+  const colors = await row.evaluate((element) => {
+    const probe = document.createElement('span');
+    element.appendChild(probe);
+    const resolve = (token: string) => {
+      probe.style.backgroundColor = `var(${token})`;
+      return getComputedStyle(probe).backgroundColor;
+    };
+    const result = {
+      stop: resolve('--play-action-stop-surface'),
+      normal: resolve('--play-action-surface'),
+      hover: resolve('--surface-3'),
+    };
+    probe.remove();
+    return result;
+  });
+  await expect(media).toHaveCSS('background-color', colors.stop);
+  await page.screenshot({ path: testInfo.outputPath('sharing-expanded.png') });
+
+  // Click the newly expanded half. On split this same physical point becomes
+  // Sync; it must not flash a hover surface until the pointer actually moves.
+  await page.mouse.click(leftPoint.x, leftPoint.y);
+  await expect(row).toHaveAttribute('data-sharing', 'false');
+  await expect(row).not.toHaveAttribute('data-morphing', 'true');
+  await expect(media).toHaveCSS('background-color', colors.normal);
+  await expect(sync).toHaveCSS('background-color', colors.normal);
+  await page.screenshot({ path: testInfo.outputPath('sharing-restored.png') });
+  await page.mouse.move(leftPoint.x + 2, leftPoint.y);
+  await expect(row).not.toHaveAttribute('data-hover-locked', 'true');
+  // No track remains after stopping this capture-only session: Sync retains
+  // its existing unavailable explanation and therefore its resting surface.
+  await expect(sync).toHaveAttribute('aria-disabled', 'true');
+  await expect(sync).toHaveCSS('background-color', colors.normal);
+  await media.hover();
+  await expect(media).toHaveCSS('background-color', colors.hover);
+});
 
 type PendingPickerWindow = Window & {
   __releasePendingSystemAudioPicker?: () => void;
@@ -65,6 +136,14 @@ test('system audio disables keyboard transport and restores controls after shari
       readControlAvailability(host),
       readControlAvailability(guest),
     ]);
+    const actionRows = [host, guest].map((page) => page.locator('.play-action-buttons'));
+    const initialActionWidths = await Promise.all(
+      [host, guest].map((page) =>
+        page
+          .locator('#btn-media-source')
+          .evaluate((button) => button.getBoundingClientRect().width),
+      ),
+    );
 
     await host.locator('#btn-media-source').click();
     await host.locator('#btn-system-audio').click();
@@ -72,6 +151,51 @@ test('system audio disables keyboard transport and restores controls after shari
     await expect
       .poll(async () => (await readSyntheticSystemAudio(guest)).liveAudioReceivers)
       .toBe(1);
+
+    // Only the local publisher owns the merged stop action. A receiver keeps
+    // both explanatory controls, including the keyboard-accessible Sync toast.
+    await expect(actionRows[0]!).toHaveAttribute('data-sharing', 'true');
+    await expect(actionRows[1]!).toHaveAttribute('data-sharing', 'false');
+    const hostSync = host.locator('#btn-sync');
+    const hostMedia = host.locator('#btn-media-source');
+    await expect(hostSync).toBeDisabled();
+    await expect(hostSync).toHaveAttribute('inert', '');
+    await expect(hostSync).toHaveAttribute('aria-hidden', 'true');
+    await expect(hostMedia.locator('.play-action-stop-content .play-action-label')).toHaveAttribute(
+      'data-i18n',
+      'system_audio.stop',
+    );
+    await expect(hostMedia).toHaveAccessibleName(
+      (await hostMedia.locator('.play-action-stop-content .play-action-label').innerText()).trim(),
+    );
+    await expect
+      .poll(() =>
+        hostMedia.evaluate((button) => {
+          const row = button.closest('.play-action-buttons')!;
+          return Math.abs(button.getBoundingClientRect().width - row.getBoundingClientRect().width);
+        }),
+      )
+      .toBeLessThanOrEqual(0.75);
+    await expect
+      .poll(() =>
+        guest
+          .locator('#btn-media-source')
+          .evaluate((button) => button.getBoundingClientRect().width),
+      )
+      .toBeCloseTo(initialActionWidths[1]!, 1);
+    await hostMedia.focus();
+    await hostSync.focus();
+    await expect(hostMedia).toBeFocused();
+    const guestSync = guest.locator('#btn-sync');
+    await expect(guestSync).toHaveJSProperty('disabled', false);
+    await expect(guestSync).toHaveAttribute('aria-disabled', 'true');
+    await expect(guestSync).toHaveAttribute('title', /\S/);
+    await expect(guest.locator('#btn-media-source')).toHaveAttribute('aria-disabled', 'true');
+    await expect(guest.locator('.play-action-media-content')).toHaveCSS('opacity', '1');
+    await guestSync.focus();
+    await expect(guestSync).toBeFocused();
+    await guest.keyboard.press('Enter');
+    await expect(guest.locator('#manual-sync-overlay')).not.toHaveClass(/show/);
 
     for (const page of [host, guest]) {
       for (const id of TRANSPORT_CONTROLS) {
@@ -97,9 +221,23 @@ test('system audio disables keyboard transport and restores controls after shari
     expect(await readState(guest, 'systemAudio.isReceiving')).toBe(true);
     expect((await readSyntheticSystemAudio(guest)).liveAudioReceivers).toBe(1);
 
-    await host.locator('#btn-media-source').click();
+    // The combined surface must preserve the original button's native
+    // keyboard activation rather than depending on a pointer-only overlay.
+    await hostMedia.focus();
+    await host.keyboard.press('Enter');
     await expect.poll(async () => (await readSyntheticSystemAudio(host)).activeCaptures).toBe(0);
     await expect.poll(() => readState(guest, 'systemAudio.isReceiving')).toBe(false);
+    await expect(actionRows[0]!).toHaveAttribute('data-sharing', 'false');
+    await expect(hostSync).toHaveJSProperty('disabled', false);
+    await expect(hostSync).not.toHaveAttribute('inert', '');
+    await expect(hostSync).not.toHaveAttribute('aria-hidden', 'true');
+    await expect
+      .poll(() => hostMedia.evaluate((button) => button.getBoundingClientRect().width))
+      .toBeCloseTo(initialActionWidths[0]!, 1);
+    await hostSync.focus();
+    await expect(hostSync).toBeFocused();
+    await host.keyboard.press('Tab');
+    await expect(hostMedia).toBeFocused();
     await expect
       .poll(() => Promise.all([readControlAvailability(host), readControlAvailability(guest)]))
       .toEqual(baseline);
@@ -191,6 +329,11 @@ test('remote YouTube selection supersedes a pending system audio picker', async 
       });
     }
     expect(await readState(guest, 'systemAudio.isReceiving')).toBe(false);
+    for (const page of [host, guest]) {
+      await expect(page.locator('.play-action-buttons')).toHaveAttribute('data-sharing', 'false');
+      await expect(page.locator('#btn-sync')).toHaveJSProperty('disabled', false);
+      await expect(page.locator('#btn-sync')).not.toHaveAttribute('inert', '');
+    }
   } finally {
     await cleanupContexts(pair);
   }

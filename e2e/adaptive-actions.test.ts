@@ -5,6 +5,10 @@ import { APP_DICTIONARIES as LOCALES } from '../src/i18n/catalogs.ts';
 import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
 
 const APP_STYLES = readFileSync(resolve('css/style.css'), 'utf8');
+const DESKTOP_STYLES = readFileSync(resolve('css/desktop.css'), 'utf8');
+const ROOM_STYLES = readFileSync(resolve('css/playback-actions.css'), 'utf8');
+const RTL_STYLES = readFileSync(resolve('css/rtl.css'), 'utf8');
+const APP_MARKUP = readFileSync(resolve('index.html'), 'utf8');
 const FONT_ORIGIN = 'https://layout-fonts.test';
 const FONT_STYLESHEETS = [
   'css/pretendard.css',
@@ -66,7 +70,7 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
     sync: (dictionary as Record<string, string>)['player.sync_compact'],
     syncing: (dictionary as Record<string, string>)['player.syncing_compact'],
     media: (dictionary as Record<string, string>)['player.play_media_compact'],
-    stop: (dictionary as Record<string, string>)['system_audio.stop_compact'],
+    stop: (dictionary as Record<string, string>)['system_audio.stop'],
   },
   nav: [
     (dictionary as Record<string, string>)['nav.home'],
@@ -89,8 +93,13 @@ type ActionMetrics = {
   scrollHeight: number;
 };
 
-async function installLayoutProbe(page: Page, markup: string): Promise<void> {
-  await page.setViewportSize({ width: 320, height: 800 });
+async function installLayoutProbe(
+  page: Page,
+  markup: string,
+  options: { viewportWidth?: number; direction?: 'ltr' | 'rtl' } = {},
+): Promise<void> {
+  const viewportWidth = options.viewportWidth ?? 320;
+  await page.setViewportSize({ width: viewportWidth, height: 800 });
   // Serve the same font CSS and bytes as the app without a preview server.
   // Unicode ranges keep the browser from downloading unused Noto shards.
   await page.route(`${FONT_ORIGIN}/**`, async (route) => {
@@ -106,12 +115,16 @@ async function installLayoutProbe(page: Page, markup: string): Promise<void> {
     });
   });
   await page.setContent(`
+    <!doctype html>
     ${FONT_STYLESHEETS.map((file) => `<link rel="stylesheet" href="${FONT_ORIGIN}/${file}">`).join('\n')}
     <style>
       ${APP_STYLES}
+      ${DESKTOP_STYLES}
+      ${RTL_STYLES}
+      ${ROOM_STYLES}
       html,
       body {
-        width: 320px;
+        width: ${viewportWidth}px;
         margin: 0;
       }
 
@@ -144,8 +157,18 @@ async function installLayoutProbe(page: Page, markup: string): Promise<void> {
         margin: 0 24px;
       }
 
-      .text-200.locale-player-actions .file-select-btn span {
+      .text-200.locale-player-actions .play-action-label,
+      .text-200.locale-merged-player-actions .play-action-label {
         font-size: 30px;
+      }
+
+      /* The application reserves 24px on each mobile side and two 160px
+         action slots plus a 12px gap on desktop. Keep the authored button
+         subtree and its cascade; only supply its surrounding panel's width. */
+      .locale-merged-player-actions {
+        width: ${viewportWidth < 1280 ? viewportWidth - 48 : 332}px;
+        max-width: none;
+        margin: 0;
       }
 
       .text-200 button,
@@ -156,6 +179,9 @@ async function installLayoutProbe(page: Page, markup: string): Promise<void> {
     </style>
     ${markup}
   `);
+  await page.evaluate((direction) => {
+    document.documentElement.dir = direction;
+  }, options.direction ?? 'ltr');
   await waitForLayoutFonts(page);
 }
 
@@ -599,65 +625,84 @@ test.describe('content-based adaptive action groups', () => {
   test('keeps every compact player action contained at the real 320px width', async ({ page }) => {
     await installLayoutProbe(page, '<main id="player-action-probes"></main>');
     const localesWithFonts = await localizedActionsWithFonts(page);
-    await page.evaluate((locales) => {
-      const root = document.getElementById('player-action-probes')!;
+    await page.evaluate(
+      ({ locales, markup }) => {
+        const root = document.getElementById('player-action-probes')!;
+        const authored = new DOMParser().parseFromString(markup, 'text/html');
+        const authoredRow = authored.querySelector<HTMLElement>('.play-action-buttons')!;
 
-      for (const locale of locales) {
-        const section = document.createElement('section');
-        section.className = 'locale-player-probe';
-        section.lang = locale.htmlLang;
-        section.style.setProperty('--font-sans', locale.fontFamily);
-        section.style.fontFamily = locale.fontFamily;
+        for (const locale of locales) {
+          const section = document.createElement('section');
+          section.className = 'locale-player-probe';
+          section.lang = locale.htmlLang;
+          section.style.setProperty('--font-sans', locale.fontFamily);
+          section.style.fontFamily = locale.fontFamily;
 
-        for (const [scale, className] of [
-          ['normal', ''],
-          ['200', ' text-200'],
-        ] as const) {
-          for (const [pairIndex, labels] of [
-            [0, [locale.player.sync, locale.player.media]],
-            [1, [locale.player.syncing, locale.player.stop]],
+          for (const [scale, className] of [
+            ['normal', ''],
+            ['200', ' text-200'],
           ] as const) {
-            const row = document.createElement('div');
-            row.className = `play-action-buttons play-actions-row locale-player-actions${className}`;
-            row.dataset.scale = scale;
+            for (const [pairIndex, labels] of [
+              [0, [locale.player.sync, locale.player.media]],
+              [1, [locale.player.syncing, locale.player.media]],
+            ] as const) {
+              const row = authoredRow.cloneNode(true) as HTMLElement;
+              row.classList.add('locale-player-actions');
+              if (className) row.classList.add('text-200');
+              row.dataset.scale = scale;
+              row.style.setProperty('--play-action-slot-width', '130px');
+              row.querySelector<HTMLElement>(
+                '.play-action-stop-content .play-action-label',
+              )!.textContent = locale.player.stop;
 
-            for (const [buttonIndex, label] of labels.entries()) {
-              const button = document.createElement('button');
-              button.className = 'file-select-btn file-select-btn-large flex-1';
-              button.id = buttonIndex === 0 ? 'btn-sync' : 'btn-media-source';
-              button.dataset.probe = `${locale.code}-${scale}-${pairIndex}-${buttonIndex}`;
-              const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-              icon.setAttribute('viewBox', '0 0 24 24');
-              const text = document.createElement('span');
-              text.textContent = label;
-              button.append(icon, text);
-              row.appendChild(button);
+              for (const [buttonIndex, label] of labels.entries()) {
+                const button = row.querySelector<HTMLButtonElement>(
+                  buttonIndex === 0 ? '#btn-sync' : '#btn-media-source',
+                )!;
+                button.dataset.probe = `${locale.code}-${scale}-${pairIndex}-${buttonIndex}`;
+                button.querySelector<HTMLElement>(
+                  buttonIndex === 0
+                    ? '.play-action-sync-content .play-action-label'
+                    : '.play-action-media-content .play-action-label',
+                )!.textContent = label;
+              }
+              section.appendChild(row);
             }
-            section.appendChild(row);
           }
+          root.appendChild(section);
         }
-        root.appendChild(section);
-      }
-    }, localesWithFonts);
+      },
+      { locales: localesWithFonts, markup: APP_MARKUP },
+    );
     await waitForLayoutFonts(page);
 
     const playerActions = await page
       .locator('.locale-player-actions > button')
       .evaluateAll((buttons) =>
         buttons.map((button) => {
-          const label = button.querySelector<HTMLElement>('span')!;
+          const label = button.querySelector<HTMLElement>(
+            button.id === 'btn-sync'
+              ? '.play-action-sync-content .play-action-label'
+              : '.play-action-media-content .play-action-label',
+          )!;
           const buttonRect = button.getBoundingClientRect();
           const labelRect = label.getBoundingClientRect();
+          const content = label.parentElement!;
+          const iconRect = content.querySelector('svg')!.getBoundingClientRect();
           const lineHeight = Number.parseFloat(getComputedStyle(label).lineHeight);
           return {
             id: button.dataset.probe ?? 'unknown',
             scale: button.parentElement?.dataset.scale,
             buttonWidth: buttonRect.width,
             buttonHeight: buttonRect.height,
-            buttonClientWidth: button.clientWidth,
             buttonClientHeight: button.clientHeight,
-            buttonScrollWidth: button.scrollWidth,
             buttonScrollHeight: button.scrollHeight,
+            buttonOverflowX: getComputedStyle(button).overflowX,
+            contentOpacity: getComputedStyle(content).opacity,
+            iconLeft: iconRect.left,
+            iconRight: iconRect.right,
+            iconTop: iconRect.top,
+            iconBottom: iconRect.bottom,
             labelLeft: labelRect.left,
             labelRight: labelRect.right,
             labelTop: labelRect.top,
@@ -678,10 +723,23 @@ test.describe('content-based adaptive action groups', () => {
 
     for (const action of playerActions) {
       expect(action.buttonWidth, `${action.id} must use the real 130px slot`).toBe(130);
-      expect(
-        action.buttonScrollWidth,
-        `${action.id} button must not overflow horizontally`,
-      ).toBeLessThanOrEqual(action.buttonClientWidth);
+      // The transparent full-row stop frame deliberately extends beyond the
+      // split media button. Judge the visible icon and label, while preserving
+      // the clipping boundary that keeps that outgoing frame offscreen.
+      expect(action.buttonOverflowX, `${action.id} must clip its inactive frame`).toBe('hidden');
+      expect(action.contentOpacity, `${action.id} compact content must be visible`).toBe('1');
+      expect(action.iconLeft, `${action.id} icon must stay inside`).toBeGreaterThanOrEqual(
+        action.buttonLeft - 0.5,
+      );
+      expect(action.iconRight, `${action.id} icon must stay inside`).toBeLessThanOrEqual(
+        action.buttonRight + 0.5,
+      );
+      expect(action.iconTop, `${action.id} icon must stay inside`).toBeGreaterThanOrEqual(
+        action.buttonTop - 0.5,
+      );
+      expect(action.iconBottom, `${action.id} icon must stay inside`).toBeLessThanOrEqual(
+        action.buttonBottom + 0.5,
+      );
       expect(
         action.buttonScrollHeight,
         `${action.id} button must grow instead of clipping`,
@@ -723,4 +781,247 @@ test.describe('content-based adaptive action groups', () => {
       }
     }
   });
+
+  test('CSS hover and pressed selectors preserve the locked sharing surface', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await installLayoutProbe(page, '<main id="hover-action-probe"></main>');
+    await page.evaluate((markup) => {
+      const authored = new DOMParser().parseFromString(markup, 'text/html');
+      const row = authored.querySelector<HTMLElement>('.play-action-buttons')!;
+      row.classList.add('locale-merged-player-actions');
+      row.dataset.hoverLocked = 'true';
+      row.style.setProperty('--play-action-slot-width', '130px');
+      // This isolated CSS contract deliberately supplies the controller's
+      // lock state. A distinct target exposes specificity regressions even
+      // when the theme's resting and hover surfaces are visually similar.
+      row.style.setProperty('--motion-media-bg', 'rgb(13, 27, 41)');
+      document.getElementById('hover-action-probe')!.appendChild(row);
+    }, APP_MARKUP);
+    const row = page.locator('.play-action-buttons');
+    const media = page.locator('#btn-media-source');
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate((value) => {
+        document.documentElement.dataset.theme = value;
+      }, theme);
+      for (const sharing of [true, false]) {
+        await row.evaluate((element, value) => {
+          (element as HTMLElement).dataset.sharing = String(value);
+        }, sharing);
+        await expect(media).toHaveCSS('width', `${sharing ? 272 : 130}px`);
+        // Chromium can retain stale hover after geometry moves underneath a
+        // stationary pointer. Move out and back so this test truly exercises
+        // the competing :hover rule; the runtime test covers stationary input.
+        await page.mouse.move(319, 790);
+        await media.hover({ position: { x: 20, y: 20 } });
+        // Match the qualified selector used by the component. A bare :hover
+        // or :active excludes non-links in this layout fixture's quirks mode.
+        await expect
+          .poll(() => media.evaluate((element) => element.matches('#btn-media-source:hover')))
+          .toBe(true);
+        await expect(media).toHaveCSS('background-color', 'rgb(13, 27, 41)');
+        await page.mouse.down();
+        try {
+          await expect
+            .poll(() => media.evaluate((element) => element.matches('#btn-media-source:active')))
+            .toBe(true);
+          await expect(media).toHaveCSS('background-color', 'rgb(13, 27, 41)');
+        } finally {
+          await page.mouse.up();
+        }
+      }
+    }
+    await row.evaluate((element) => {
+      delete (element as HTMLElement).dataset.hoverLocked;
+    });
+    await expect(media).not.toHaveCSS('background-color', 'rgb(13, 27, 41)');
+  });
+
+  for (const viewportWidth of [320, 1440]) {
+    for (const direction of ['ltr', 'rtl'] as const) {
+      test(`contains every full stop-sharing label at ${viewportWidth}px ${direction} and 200% text`, async ({
+        page,
+      }) => {
+        // This is an authored-DOM layout probe, not a PRO transport test.
+        // The runtime test exercises real capture and the local-owner gate;
+        // here we exercise both ends of the same CSS state without motion.
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await installLayoutProbe(page, '<main id="merged-action-probes"></main>', {
+          viewportWidth,
+          direction,
+        });
+        const localesWithFonts = await localizedActionsWithFonts(page);
+        await page.evaluate(
+          ({ locales, markup, rowWidth }) => {
+            const root = document.getElementById('merged-action-probes')!;
+            const authored = new DOMParser().parseFromString(markup, 'text/html');
+            const authoredRow = authored.querySelector<HTMLElement>('.play-action-buttons')!;
+            for (const locale of locales) {
+              const section = document.createElement('section');
+              section.lang = locale.htmlLang;
+              section.style.setProperty('--font-sans', locale.fontFamily);
+              section.style.fontFamily = locale.fontFamily;
+              for (const scale of ['normal', '200']) {
+                const row = authoredRow.cloneNode(true) as HTMLElement;
+                row.classList.add('locale-merged-player-actions');
+                if (scale === '200') row.classList.add('text-200');
+                row.dataset.probe = `${locale.code}-${scale}`;
+                row.dataset.sharing = 'true';
+                row.style.setProperty('--play-action-slot-width', `${(rowWidth - 12) / 2}px`);
+                const sync = row.querySelector<HTMLButtonElement>('#btn-sync')!;
+                sync.disabled = true;
+                sync.inert = true;
+                sync.setAttribute('aria-hidden', 'true');
+                sync.querySelector<HTMLElement>('.play-action-label')!.textContent =
+                  locale.player.sync;
+                row.querySelector<HTMLElement>(
+                  '.play-action-media-content .play-action-label',
+                )!.textContent = locale.player.media;
+                row.querySelector<HTMLElement>(
+                  '.play-action-stop-content .play-action-label',
+                )!.textContent = locale.player.stop;
+                section.appendChild(row);
+              }
+              root.appendChild(section);
+            }
+          },
+          {
+            locales: localesWithFonts,
+            markup: APP_MARKUP,
+            rowWidth: viewportWidth < 1280 ? viewportWidth - 48 : 332,
+          },
+        );
+        await waitForLayoutFonts(page);
+
+        const layouts = await page.locator('.locale-merged-player-actions').evaluateAll((rows) =>
+          rows.map((row) => {
+            const button = row.querySelector<HTMLButtonElement>('#btn-media-source')!;
+            const content = button.querySelector<HTMLElement>('.play-action-stop-content')!;
+            const label = content.querySelector<HTMLElement>('.play-action-label')!;
+            const sync = row.querySelector<HTMLButtonElement>('#btn-sync')!;
+            const box = button.getBoundingClientRect();
+            const rowBox = row.getBoundingClientRect();
+            const labelBox = label.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const textBox = range.getBoundingClientRect();
+            const style = getComputedStyle(label);
+            const timing = Array.from(
+              row.querySelectorAll<HTMLElement>('button, button > span'),
+            ).map((element) => {
+              const elementStyle = getComputedStyle(element);
+              const milliseconds = (value: string) =>
+                Number.parseFloat(value) * (value.trim().endsWith('ms') ? 1 : 1000);
+              return {
+                durationMs: Math.max(
+                  ...elementStyle.transitionDuration.split(',').map(milliseconds),
+                ),
+                delayMs: Math.max(...elementStyle.transitionDelay.split(',').map(milliseconds)),
+              };
+            });
+            return {
+              id: (row as HTMLElement).dataset.probe,
+              button: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+              row: { left: rowBox.left, right: rowBox.right },
+              label: {
+                left: labelBox.left,
+                right: labelBox.right,
+                top: labelBox.top,
+                bottom: labelBox.bottom,
+              },
+              text: {
+                left: textBox.left,
+                right: textBox.right,
+                top: textBox.top,
+                bottom: textBox.bottom,
+              },
+              scrollWidth: label.scrollWidth,
+              clientWidth: label.clientWidth,
+              scrollHeight: label.scrollHeight,
+              clientHeight: label.clientHeight,
+              textOverflow: style.textOverflow,
+              visible: getComputedStyle(content).opacity,
+              syncUnavailable: sync.disabled && sync.inert,
+              timing,
+            };
+          }),
+        );
+        expect(layouts).toHaveLength(LOCALIZED_ACTIONS.length * 2);
+        for (const layout of layouts) {
+          expect(Math.abs(layout.button.left - layout.row.left), layout.id).toBeLessThanOrEqual(
+            0.75,
+          );
+          expect(Math.abs(layout.button.right - layout.row.right), layout.id).toBeLessThanOrEqual(
+            0.75,
+          );
+          expect(layout.visible, layout.id).toBe('1');
+          expect(layout.syncUnavailable, layout.id).toBe(true);
+          for (const timing of layout.timing) {
+            // The global motion-safety rule uses a nonzero 0.01ms duration to
+            // preserve completion events. No visible duration or label delay
+            // may survive reduced motion; allow only numeric conversion noise.
+            expect(timing.durationMs, layout.id).toBeLessThanOrEqual(0.010001);
+            expect(timing.delayMs, layout.id).toBe(0);
+          }
+          expect(layout.textOverflow, layout.id).not.toBe('ellipsis');
+          expect(layout.scrollWidth, layout.id).toBeLessThanOrEqual(layout.clientWidth);
+          expect(layout.scrollHeight, layout.id).toBeLessThanOrEqual(layout.clientHeight);
+          for (const rect of [layout.label, layout.text]) {
+            expect(rect.left, layout.id).toBeGreaterThanOrEqual(layout.button.left - 0.75);
+            expect(rect.right, layout.id).toBeLessThanOrEqual(layout.button.right + 0.75);
+            expect(rect.top, layout.id).toBeGreaterThanOrEqual(layout.button.top - 0.75);
+            expect(rect.bottom, layout.id).toBeLessThanOrEqual(layout.button.bottom + 0.75);
+          }
+        }
+
+        // Let the global 0.01ms completion event settle without sleeping for a
+        // normal animation. The computed duration/delay assertions above keep
+        // this poll from accidentally accepting a full-length transition.
+        await page.locator('.locale-merged-player-actions').evaluateAll((rows) => {
+          for (const row of rows) {
+            (row as HTMLElement).dataset.sharing = 'false';
+            const sync = row.querySelector<HTMLButtonElement>('#btn-sync')!;
+            sync.disabled = false;
+            sync.inert = false;
+            sync.removeAttribute('aria-hidden');
+          }
+        });
+        const expectedSlot = ((viewportWidth < 1280 ? viewportWidth - 48 : 332) - 12) / 2;
+        await expect
+          .poll(() =>
+            page
+              .locator('.locale-merged-player-actions')
+              .evaluateAll(
+                (rows, slot) =>
+                  rows.every((row) =>
+                    Array.from(row.querySelectorAll('button')).every(
+                      (button) => Math.abs(button.getBoundingClientRect().width - slot) < 0.05,
+                    ),
+                  ),
+                expectedSlot,
+              ),
+          )
+          .toBe(true);
+        const split = await page.locator('.locale-merged-player-actions').evaluateAll((rows) =>
+          rows.map((row) => {
+            const sync = row.querySelector<HTMLElement>('#btn-sync')!.getBoundingClientRect();
+            const media = row
+              .querySelector<HTMLElement>('#btn-media-source')!
+              .getBoundingClientRect();
+            return {
+              id: (row as HTMLElement).dataset.probe,
+              sync: { left: sync.left, right: sync.right, width: sync.width },
+              media: { left: media.left, right: media.right, width: media.width },
+            };
+          }),
+        );
+        for (const row of split) {
+          expect(row.sync.width, row.id).toBeCloseTo(expectedSlot, 1);
+          expect(row.media.width, row.id).toBeCloseTo(expectedSlot, 1);
+          const gap =
+            direction === 'rtl' ? row.sync.left - row.media.right : row.media.left - row.sync.right;
+          expect(gap, row.id).toBeCloseTo(12, 1);
+        }
+      });
+    }
+  }
 });

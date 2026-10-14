@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { serviceMaintenancePreviewResponse } from '../cloudflare/service-maintenance.ts';
 
-const KOREAN_MAINTENANCE_COPY = '안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.';
+const KOREAN_MAINTENANCE_COPY =
+  '안전한 서비스를 위해 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.';
 const ACCESSIBLE_HEADLINE = 'MUSIXQUARE is temporarily unavailable.';
 const WORDMARK_ASPECT_RATIO = 214 / 26;
 const EDGE_TOLERANCE_PX = 1;

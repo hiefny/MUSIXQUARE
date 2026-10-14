@@ -1,0 +1,63 @@
+# 점검 안내 번역 14건·숨은 YouTube 패널 접근성 수정 — 2026-10-14
+
+| 항목 | 값 |
+| --- | --- |
+| 상태 | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v676`, Production Release `target=all` 예정 |
+| 검증 코드 | 코드 커밋 `CODE_SHA` (branch `agent/maintenance-copy-a11y-8.10.12`, base main `14f72b77`) |
+| 환경 | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다 |
+| 범위 | `cloudflare/service-maintenance.ts`(Worker 6종 공유 모듈) 점검 안내 14개 로케일 문구, `src/player/video.ts` 주차된 YouTube 래퍼 `inert`, 테스트 핀 4곳과 단위 테스트 1개 추가, 릴리스 식별자. D1·스키마·시크릿·바인딩·프로토콜 변경 없음 |
+| 근거 | 2026-10-13 번역 전수 조사의 점검 안내 제안 14건([보고서 §3](i18n-quality-update-2026-10-14.md)), release-record §2 접근성 항목(8.7.8 이전부터 존재) |
+
+## 1. 점검 안내 문구
+
+`service-maintenance.ts`의 `localizedDescriptions` 14개 로케일을 조사 제안대로 바꿨다. 42개
+로케일 중 나머지 28개는 제안이 없어 그대로다. 방향은 "서비스를 확인/검사 중"이라는 직역을
+각 언어의 점검 안내 관용구(유지보수 중)로 바꾸는 것이다.
+
+| 로케일 | 변경 |
+| --- | --- |
+| en | "We’re carrying out a service check." → "We’re carrying out maintenance to keep the service safe." |
+| ko | "안전한 서비스 점검을 진행 중이에요." → "안전한 서비스를 위해 점검을 진행 중이에요." |
+| bg | 존댓말 "Опитайте" → 앱 전체의 반말 "Опитай" |
+| fi·hu·it·nb·sv·tr·pt-br·zh-hans·zh-hant | 검사(check) → 유지보수(maintenance) 관용구 |
+| ms | "sebentar lagi" 중복 → 앱 전체 표현 "sebentar nanti" |
+| th | 어색한 연어 "ตรวจสอบบริการ" → "ตรวจสอบระบบ" 관용구 |
+
+이 모듈은 app·signaling·pro-room·remote-share·developer-api·developer-api-facade Worker가 모두
+번들하므로 App만 배포하면 Worker 응답의 점검 문구가 어긋난다. 그래서 Production Release는
+`target=all`이다. 핀 테스트는 ko(`app-maintenance-admin`, `service-maintenance`, e2e
+`maintenance-inline-logo`), pt-br, nb의 문구만 새 값으로 바꿨고 검사하는 동작은 그대로다.
+
+## 2. 숨은 YouTube 패널 접근성
+
+YouTube 모드를 벗어나면 `updateBodyModeClass`가 iframe이 남은 `.video-wrapper`를
+`display:flex` + `position:fixed; left:-9999px`로 화면 밖에 주차한다(iframe을 `display:none`으로
+떼면 iOS 제스처 unlock이 풀리기 때문에 의도된 설계). 그 결과 래퍼 안의 전체화면 버튼이 DOM에
+남아 Shift+Tab 역방향 포커스를 받았다. 수정: 모드가 YouTube가 아니면 래퍼에 `inert`와
+`aria-hidden="true"`를 주고, YouTube 모드가 되면 둘 다 제거한다. `inert`는 렌더링을 유지하고
+플레이어 postMessage API를 막지 않으므로 보존된 iframe과 iOS prime 흐름에는 영향이 없다고
+판단한다. 로딩 오버레이가 `#youtube-player-container`에 거는 `inert`와는 다른 요소라 충돌하지
+않는다.
+
+단위 테스트 `video.test.ts`에 "주차된 래퍼는 inert, YouTube 모드 복귀 시 해제"를 핀했다.
+
+## 3. 검증
+
+| 명령 | 결과 |
+| --- | --- |
+| 영향받은 테스트 6파일(`video`, `player-controls`, `service-maintenance`, `app-maintenance-admin`, `auxiliary-service-maintenance`, `locale-surfaces`) | 317 passed, 0 failed |
+| `npm run typecheck` | pass |
+| `npm run lint` | pass |
+| `npm run format:check` | pass |
+| `npm test` | 560 files, 12,638 passed / 2 failed. 실패 2건(`release-deployment-state`, `tooling-eslint-config`)은 typecheck·lint와 동시 실행 중 발생했고 단독 재실행 119/119 통과 |
+| `npm run build:checked` | BUILD_RESULT |
+| e2e `maintenance-inline-logo` (chromium, 새 빌드) | E2E_RESULT |
+
+한계: 역방향 포커스는 jsdom 단위 테스트로 속성만 핀했고 실제 브라우저의 Tab 순서는 e2e
+`adaptive-actions`·`rtl-player-layout`의 기존 포커스 검사에 기댄다. iOS에서 `inert` 래퍼가
+prime 흐름에 영향이 없는지는 기존 iOS 실기 항목과 함께 본다.
+
+## 4. 복구
+
+번역 문구·접근성 속성·릴리스 식별자만 바뀌었다. Worker 6종이 같은 SHA로 배포되며 새 floor는
+없다. 문제가 있으면 직전 App·Worker(8.10.11, `7be28951`)로 되돌린다.

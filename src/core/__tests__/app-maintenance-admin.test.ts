@@ -557,7 +557,7 @@ describe('app maintenance administration', () => {
     expect(page.headers.get('Cache-Control')).toContain('no-store');
     expect(page.headers.get('Content-Language')).toBe('ko');
     expect(pageBody).toContain('MUSIXQUARE is temporarily unavailable.');
-    expect(pageBody).toContain('안전한 서비스 점검을 진행 중이에요.');
+    expect(pageBody).toContain('안전한 서비스를 위해 점검을 진행 중이에요.');
     expect(pageBody).toBe(previewBody);
 
     const activePreviewHead = await appWorker.fetch(

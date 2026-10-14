@@ -106,6 +106,18 @@ function updateBodyModeClass(mode: PlaybackModeValue): void {
   const ytWrapper = ytContainer?.closest('.video-wrapper') as HTMLElement | null;
   if (!wantYouTube) exitYouTubeFullscreen();
 
+  // Outside YouTube mode the wrapper is parked offscreen (a retained iframe
+  // must stay rendered), so its fullscreen button would still take reverse
+  // keyboard focus. Make the whole wrapper inert and hidden from assistive
+  // technology until YouTube mode owns it again. Inert does not detach the
+  // iframe or block the player's postMessage API, so the retained player and
+  // the iOS prime flow are unaffected.
+  if (ytWrapper) {
+    ytWrapper.toggleAttribute('inert', !wantYouTube);
+    if (wantYouTube) ytWrapper.removeAttribute('aria-hidden');
+    else ytWrapper.setAttribute('aria-hidden', 'true');
+  }
+
   if (body.classList.contains('mode-youtube') !== wantYouTube) {
     body.classList.toggle('mode-youtube', wantYouTube);
   }

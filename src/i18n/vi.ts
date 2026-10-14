@@ -34,7 +34,7 @@ const vi: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Tạm dừng chuyển trang chiếu tự động',
   'common.message': 'Tin nhắn',
   'common.mix': 'Tỷ lệ trộn',
-  'common.wait': 'Vui lòng chờ...',
+  'common.wait': 'Chờ chút...',
   'common.guest': 'Khách',
   'common.help': 'Trợ giúp',
   'common.increase': 'Tăng',
@@ -368,7 +368,7 @@ const vi: Record<I18nKey, string> = {
   'setup.connect_devices': 'Giờ hãy kết nối các thiết bị khác.',
   'setup.enter_code_connect': 'Mã mời',
   'setup.last_step': 'Hãy bắt đầu!',
-  'setup.joining': 'Đang tham gia...',
+  'setup.joining': 'Đang vào...',
   'setup.six_digit_enter': 'Vui lòng nhập số gồm 6 chữ số',
 
   // Help
@@ -628,7 +628,7 @@ const vi: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Âm thanh đã dừng ngoài ý muốn',
   'dialog.audio_recovery_message':
     'Âm thanh của thiết bị này không khôi phục sau khi quay lại từ nền. Phòng vẫn được kết nối trong khi MUSIXQUARE đồng bộ lại âm thanh của thiết bị này.',
-  'dialog.audio_recovery_action': 'Khôi phục âm thanh',
+  'dialog.audio_recovery_action': 'Bật âm thanh',
   'dialog.background_resume_message':
     'Nếu đồng bộ bị lệch hoặc âm thanh không phát, hãy đóng hẳn ứng dụng rồi mở lại.',
   'dialog.background_resume_sync_fallback_message':
@@ -685,7 +685,7 @@ const vi: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Đăng nhập bằng tài khoản đã liên kết',
   'pro.claim_existing_account_message':
     'Liên kết này được gắn với một tài khoản MUSIXQUARE đã có biệt danh. Hãy chọn tài khoản Google được chỉ định cho liên kết này.',
-  'pro.claim_choose_account_button': 'Chọn tài khoản khác',
+  'pro.claim_choose_account_button': 'Tài khoản khác',
   'pro.claim_account_conflict_title': 'Tài khoản này không thể sử dụng phòng',
   'pro.claim_account_conflict_message':
     'Phòng này được liên kết với tài khoản khác. Nếu cần thay đổi, hãy yêu cầu quản trị viên chuyển quyền sở hữu.',
@@ -744,7 +744,7 @@ const vi: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Kết nối trước vẫn còn',
   'pro.active_tab_message': 'Tiếp tục tại đây sẽ ngắt kết nối trước đó.',
   'pro.active_tab_replaced': 'Phòng PRO này đã được mở trong thẻ khác',
-  'pro.use_this_tab': 'Tiếp tục tại đây',
+  'pro.use_this_tab': 'Tiếp tục ở đây',
   'pro.upload.batch_progress': 'Đang tải các bản nhạc lên {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Không thể tải lên một số bản nhạc',
   'pro.upload.batch_failed_message':

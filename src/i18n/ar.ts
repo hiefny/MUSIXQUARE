@@ -33,7 +33,7 @@ const ar: Record<I18nKey, string> = {
   'setup.carousel_pause': 'إيقاف التنقل التلقائي بين الشرائح مؤقتًا',
   'common.message': 'رسالة',
   'common.mix': 'المزج',
-  'common.wait': 'يرجى الانتظار...',
+  'common.wait': 'لحظة...',
   'common.guest': 'ضيف',
   'common.help': 'مساعدة',
   'common.increase': 'زيادة',
@@ -50,7 +50,7 @@ const ar: Record<I18nKey, string> = {
   'account.welcome_back': 'مرحبًا بعودتك\n{{name}}',
   'account.login_message':
     'سجّل الدخول باستخدام Google للاحتفاظ باسمك المستعار في جميع الغرف. ويمكنك المتابعة من دون تسجيل الدخول.',
-  'account.google_continue': 'المتابعة باستخدام Google',
+  'account.google_continue': 'المتابعة عبر Google',
   'account.terms': 'الشروط',
   'account.privacy': 'الخصوصية',
   'account.unavailable': 'تسجيل الدخول غير متاح مؤقتًا. يمكنك المتابعة من دونه.',
@@ -126,7 +126,7 @@ const ar: Record<I18nKey, string> = {
   'player.play_media_compact': 'وسائط',
   'player.play_media_action': 'تشغيل الوسائط',
   'player.add_media': 'إضافة وسائط',
-  'player.play_start': 'إضافة إلى قائمة التشغيل',
+  'player.play_start': 'إضافة إلى القائمة',
   'player.select_media': 'اختر وسائط لتشغيلها',
   'player.play_together': 'تشغيل متزامن',
   'player.play_speakers': 'استخدام الجهاز كمكبر صوت',
@@ -161,9 +161,9 @@ const ar: Record<I18nKey, string> = {
   'transfer.host_busy': 'يعالج المضيف ملفًا آخر. حاول مجددًا بعد قليل.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'مكبر الصوت المركزي',
-  'role.left': 'مكبر الصوت الأيسر',
-  'role.right': 'مكبر الصوت الأيمن',
+  'role.center': 'سماعة وسطى',
+  'role.left': 'سماعة يسرى',
+  'role.right': 'سماعة يمنى',
   'role.subwoofer': 'مضخم الصوت',
   'role.center_placement': 'ضع الجهاز في الوسط',
   'role.left_placement': 'ضع الجهاز على اليسار',
@@ -317,7 +317,7 @@ const ar: Record<I18nKey, string> = {
   'demo.effects_title': 'جرّب المؤثرات',
   'demo.reverb': 'الصدى',
   'demo.bass_boost': 'تعزيز الجهير',
-  'demo.treble_boost': 'تعزيز الترددات العالية',
+  'demo.treble_boost': 'تعزيز الحدة',
   'demo.surround': 'الصوت المحيطي',
   'demo.role_bass_short': 'جهير',
   'demo.role_center_short': 'وسط',
@@ -358,7 +358,7 @@ const ar: Record<I18nKey, string> = {
   'setup.connect_devices': 'صِل أجهزتك الأخرى للبدء.',
   'setup.enter_code_connect': 'رمز الدعوة',
   'setup.last_step': 'لنبدأ!',
-  'setup.joining': 'جارٍ الانضمام...',
+  'setup.joining': 'الانضمام...',
   'setup.six_digit_enter': 'أدخل الرقم المؤلف من 6 خانات',
 
   // ─── Help ────────────────────────────────────────────────────────

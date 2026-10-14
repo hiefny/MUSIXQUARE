@@ -33,7 +33,7 @@ const cs: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Pozastavit automatické přepínání snímků',
   'common.message': 'Zpráva',
   'common.mix': 'Mix',
-  'common.wait': 'Počkejte prosím...',
+  'common.wait': 'Chvilku...',
   'common.guest': 'Účastník',
   'common.help': 'Nápověda',
   'common.increase': 'Zvýšit',
@@ -163,9 +163,9 @@ const cs: Record<I18nKey, string> = {
   'transfer.host_busy': 'Hostitel zpracovává jiný soubor. Zkuste to za chvíli.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Středový reproduktor',
-  'role.left': 'Levý reproduktor',
-  'role.right': 'Pravý reproduktor',
+  'role.center': 'Středový',
+  'role.left': 'Levý',
+  'role.right': 'Pravý',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Umístěte zařízení doprostřed',
   'role.left_placement': 'Umístěte zařízení vlevo',
@@ -771,7 +771,7 @@ const cs: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Přihlaste se pomocí propojeného účtu',
   'pro.claim_existing_account_message':
     'Tento odkaz je svázán s účtem MUSIXQUARE, který už má přezdívku. Zvolte účet Google určený pro tento odkaz.',
-  'pro.claim_choose_account_button': 'Zvolit jiný účet',
+  'pro.claim_choose_account_button': 'Jiný účet',
   'pro.claim_account_conflict_title': 'Tento účet nemůže místnost použít',
   'pro.claim_account_conflict_message':
     'Tato místnost je propojena s jiným účtem. Pokud potřebujete účet změnit, požádejte správce o převod vlastnictví.',

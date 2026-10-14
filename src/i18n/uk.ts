@@ -50,7 +50,7 @@ const uk: Record<I18nKey, string> = {
   'account.welcome_back': 'З поверненням,\n{{name}}',
   'account.login_message':
     'Увійдіть через Google, щоб зберігати свій псевдонім у різних кімнатах. Можна продовжити без входу.',
-  'account.google_continue': 'Продовжити через Google',
+  'account.google_continue': 'Увійти через Google',
   'account.terms': 'Умови',
   'account.privacy': 'Конфіденційність',
   'account.unavailable': 'Вхід тимчасово недоступний. Можна продовжити без нього.',
@@ -63,8 +63,8 @@ const uk: Record<I18nKey, string> = {
   'account.stats_minutes_value': '{{minutes}} хв',
   'account.stats_hours_minutes_value': '{{hours}} год {{minutes}} хв',
   'account.change_nickname': 'Змінити псевдонім',
-  'account.logout': 'Вийти з облікового запису',
-  'account.delete_account': 'Видалити обліковий запис',
+  'account.logout': 'Вийти',
+  'account.delete_account': 'Видалити акаунт',
   'account.nickname_title': 'Задати псевдонім',
   'account.nickname_message': 'Виберіть псевдонім, який використовуватимете в MUSIXQUARE.',
   'account.nickname_placeholder': 'Псевдонім',
@@ -163,7 +163,7 @@ const uk: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хост обробляє інший файл. Спробуйте трохи пізніше.',
 
   // ─── Роль ────────────────────────────────────────────────────────
-  'role.center': 'Центральний динамік',
+  'role.center': 'Центральний',
   'role.left': 'Лівий динамік',
   'role.right': 'Правий динамік',
   'role.subwoofer': 'Сабвуфер',
@@ -283,7 +283,7 @@ const uk: Record<I18nKey, string> = {
   'connect.kick_no': 'Ні',
   'connect.kicked_title': 'Вас вилучено',
   'connect.kicked_message': 'Хост вилучив вас із сеансу.',
-  'connect.copy_invite_link': 'Копіювати посилання-запрошення',
+  'connect.copy_invite_link': 'Копіювати запрошення',
   'connect.link_copied': 'Посилання-запрошення скопійовано',
   'connect.room_password_title': 'Вимагати пароль для приєднання',
   'connect.room_password_toggle_aria': 'Увімкнути або вимкнути пароль кімнати',
@@ -298,7 +298,7 @@ const uk: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Сервер кімнати працює',
   'connect.signaling_recovering': 'Повторне підключення…',
   'connect.signaling_failed': 'Не вдалося підключитися до сервера',
-  'connect.signaling_recover_action': 'Підключитися знову',
+  'connect.signaling_recover_action': 'Перепідключити',
   'connect.signaling_recovery_wait': 'Повторна перевірка сервера кімнати.',
   'connect.signaling_reconnecting': 'Повторне підключення до сервера кімнати · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Підключення до сервера кімнати відновлено.',
@@ -325,8 +325,8 @@ const uk: Record<I18nKey, string> = {
   'demo.role_title': 'Задайте роль цього пристрою',
   'demo.effects_title': 'Спробуйте ефекти',
   'demo.reverb': 'Реверберація',
-  'demo.bass_boost': 'Підсилення басів',
-  'demo.treble_boost': 'Підсилення високих частот',
+  'demo.bass_boost': 'Підсилення НЧ',
+  'demo.treble_boost': 'Підсилення ВЧ',
   'demo.surround': 'Об’ємний звук',
   'demo.role_bass_short': 'Бас',
   'demo.role_center_short': 'Центр',
@@ -334,7 +334,7 @@ const uk: Record<I18nKey, string> = {
   'demo.step_connect': '1. Підключення',
   'demo.step_role': '2. Вибір ролі',
   'demo.step_effects': '3. Звукові ефекти',
-  'demo.step_finish': '4. Завершення демонстрації',
+  'demo.step_finish': '4. Завершити тур',
   'demo.session_title': 'Ваша кімната: {{code}}',
   'demo.session_subtitle': 'Інший пристрій можна запросити будь-коли.',
   'demo.session_body_connected':
@@ -380,7 +380,7 @@ const uk: Record<I18nKey, string> = {
   'help.local_recommended': 'Рекомендовано локальну мережу',
   'help.connect_all_wifi': 'Найнадійніше працюють підключення в одній мережі',
   'help.local_file': 'Вибрати локальний файл',
-  'help.load_local': 'Завантажити локальний файл',
+  'help.load_local': 'Локальний файл',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'У режимі YouTube налаштування ролей і звукові ефекти недоступні.',
   'help.media_synced_detail':
@@ -728,7 +728,7 @@ const uk: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE оновлено. Щоб і далі нормально ним користуватися, оновіть сторінку.',
   'dialog.reconnect_ask': 'Підключитися знову?',
-  'dialog.reconnect': 'Підключитися знову',
+  'dialog.reconnect': 'Перепідключити',
   'dialog.go_back': 'Назад',
   'dialog.step_next': 'Далі',
   'dialog.step_back': 'Назад',
@@ -753,7 +753,7 @@ const uk: Record<I18nKey, string> = {
   'pro.activation_account_login_message':
     'Увійдіть в обліковий запис, на який хочете зареєструвати цю кімнату.',
   'pro.activation_account_continue': 'Продовжити',
-  'pro.activation_account_switch': 'Інший обліковий запис',
+  'pro.activation_account_switch': 'Інший акаунт',
   'pro.activation_account_unavailable':
     'Не вдалося перевірити обліковий запис. Спробуйте ще раз трохи згодом.',
   'pro.activation_complete': 'Завершити реєстрацію',
@@ -772,7 +772,7 @@ const uk: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Увійдіть у пов’язаний обліковий запис',
   'pro.claim_existing_account_message':
     'Це посилання прив’язано до облікового запису MUSIXQUARE, у якому вже є псевдонім. Виберіть обліковий запис Google, призначений для цього посилання.',
-  'pro.claim_choose_account_button': 'Вибрати інший обліковий запис',
+  'pro.claim_choose_account_button': 'Інший акаунт',
   'pro.claim_account_conflict_title': 'Цей обліковий запис не може використовувати кімнату',
   'pro.claim_account_conflict_message':
     'Кімнату пов’язано з іншим обліковим записом. Щоб змінити його, попросіть адміністратора передати право власності.',

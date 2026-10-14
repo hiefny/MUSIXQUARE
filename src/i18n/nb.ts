@@ -164,9 +164,9 @@ const nb: Record<I18nKey, string> = {
   'transfer.host_busy': 'Verten behandler en annen fil. Prøv igjen snart.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Senterhøyttaler',
-  'role.left': 'Venstre høyttaler',
-  'role.right': 'Høyre høyttaler',
+  'role.center': 'Senter',
+  'role.left': 'Venstre',
+  'role.right': 'Høyre',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Plasser enheten i midten',
   'role.left_placement': 'Plasser enheten til venstre',
@@ -284,7 +284,7 @@ const nb: Record<I18nKey, string> = {
   'connect.kick_no': 'Nei',
   'connect.kicked_title': 'Fjernet',
   'connect.kicked_message': 'Verten har fjernet deg fra økten.',
-  'connect.copy_invite_link': 'Kopier invitasjonslenke',
+  'connect.copy_invite_link': 'Kopier invitasjon',
   'connect.link_copied': 'Invitasjonslenken er kopiert',
   'connect.room_password_title': 'Krev passord for å delta',
   'connect.room_password_toggle_aria': 'Slå krav om rompassord av eller på',
@@ -300,7 +300,7 @@ const nb: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Romserveren er på nett',
   'connect.signaling_recovering': 'Kobler til på nytt…',
   'connect.signaling_failed': 'Tilkoblingen til serveren mislyktes',
-  'connect.signaling_recover_action': 'Koble til på nytt',
+  'connect.signaling_recover_action': 'Tilkoble igjen',
   'connect.signaling_recovery_wait': 'Sjekker romserveren på nytt.',
   'connect.signaling_reconnecting': 'Kobler til romserveren på nytt · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Tilkoblingen til romserveren er gjenopprettet.',
@@ -326,8 +326,8 @@ const nb: Record<I18nKey, string> = {
   'demo.role_title': 'Angi rollen til denne enheten',
   'demo.effects_title': 'Prøv effekter',
   'demo.reverb': 'Romklang',
-  'demo.bass_boost': 'Bassforsterkning',
-  'demo.treble_boost': 'Diskantforsterkning',
+  'demo.bass_boost': 'Mer bass',
+  'demo.treble_boost': 'Mer diskant',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Senter',
@@ -710,7 +710,7 @@ const nb: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Lyden ble uventet satt på pause',
   'dialog.audio_recovery_message':
     'Lyden på denne enheten ble ikke gjenopprettet etter at appen kom tilbake fra bakgrunnen. Rommet forblir tilkoblet mens MUSIXQUARE synkroniserer lyden på denne enheten på nytt.',
-  'dialog.audio_recovery_action': 'Gjenopprett lyd',
+  'dialog.audio_recovery_action': 'Slå på lyd',
   'dialog.background_resume_message':
     'Lukk appen helt og åpne den igjen hvis synkroniseringen ikke virker, eller lyden ikke spilles av.',
   'dialog.background_resume_sync_fallback_message':
@@ -724,7 +724,7 @@ const nb: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE er oppdatert. Oppdater siden for å fortsette å bruke det som vanlig.',
   'dialog.reconnect_ask': 'Vil du koble til på nytt?',
-  'dialog.reconnect': 'Koble til på nytt',
+  'dialog.reconnect': 'Tilkoble igjen',
   'dialog.go_back': 'Gå tilbake',
   'dialog.step_next': 'Neste',
   'dialog.step_back': 'Tilbake',
@@ -767,7 +767,7 @@ const nb: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Logg inn med den tilknyttede kontoen',
   'pro.claim_existing_account_message':
     'Denne lenken er knyttet til en MUSIXQUARE-konto som allerede har et kallenavn. Velg Google-kontoen som er angitt for lenken.',
-  'pro.claim_choose_account_button': 'Velg en annen konto',
+  'pro.claim_choose_account_button': 'Annen konto',
   'pro.claim_account_conflict_title': 'Denne kontoen kan ikke bruke dette rommet',
   'pro.claim_account_conflict_message':
     'Dette rommet er knyttet til en annen konto. Be en administrator om å overføre eierskapet hvis det må endres.',

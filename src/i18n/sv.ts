@@ -164,9 +164,9 @@ const sv: Record<I18nKey, string> = {
   'transfer.host_busy': 'Värden bearbetar en annan fil. Försök igen snart.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Centerhögtalare',
-  'role.left': 'Vänster högtalare',
-  'role.right': 'Höger högtalare',
+  'role.center': 'Center',
+  'role.left': 'Vänster',
+  'role.right': 'Höger',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Placera enheten i mitten',
   'role.left_placement': 'Placera enheten till vänster',
@@ -286,7 +286,7 @@ const sv: Record<I18nKey, string> = {
   'connect.kick_no': 'Nej',
   'connect.kicked_title': 'Borttagen',
   'connect.kicked_message': 'Värden har tagit bort dig från sessionen.',
-  'connect.copy_invite_link': 'Kopiera inbjudningslänk',
+  'connect.copy_invite_link': 'Kopiera inbjudan',
   'connect.link_copied': 'Inbjudningslänken har kopierats',
   'connect.room_password_title': 'Kräv lösenord för att ansluta',
   'connect.room_password_toggle_aria': 'Slå på eller av krav på rumslösenord',
@@ -328,8 +328,8 @@ const sv: Record<I18nKey, string> = {
   'demo.role_title': 'Ange enhetens roll',
   'demo.effects_title': 'Prova effekter',
   'demo.reverb': 'Efterklang',
-  'demo.bass_boost': 'Basförstärkning',
-  'demo.treble_boost': 'Diskantförstärkning',
+  'demo.bass_boost': 'Mer bas',
+  'demo.treble_boost': 'Mer diskant',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Center',
@@ -775,7 +775,7 @@ const sv: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Logga in med det länkade kontot',
   'pro.claim_existing_account_message':
     'Länken är knuten till ett MUSIXQUARE-konto som redan har ett smeknamn. Välj det Google-konto som anges för länken.',
-  'pro.claim_choose_account_button': 'Välj ett annat konto',
+  'pro.claim_choose_account_button': 'Annat konto',
   'pro.claim_account_conflict_title': 'Kontot kan inte använda det här rummet',
   'pro.claim_account_conflict_message':
     'Rummet är länkat till ett annat konto. Be en administratör överföra ägarskapet om du behöver ändra det.',

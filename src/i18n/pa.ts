@@ -34,7 +34,7 @@ const pa: Record<I18nKey, string> = {
   'setup.carousel_pause': 'ਸਲਾਈਡਾਂ ਦਾ ਆਪਣੇ ਆਪ ਘੁੰਮਣਾ ਰੋਕੋ',
   'common.message': 'ਸੁਨੇਹਾ',
   'common.mix': 'ਮਿਸ਼ਰਣ',
-  'common.wait': 'ਕਿਰਪਾ ਕਰਕੇ ਉਡੀਕ ਕਰੋ...',
+  'common.wait': 'ਉਡੀਕ ਕਰੋ...',
   'common.guest': 'ਮਹਿਮਾਨ',
   'common.help': 'ਮਦਦ',
   'common.increase': 'ਵਧਾਓ',

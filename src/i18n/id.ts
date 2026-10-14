@@ -34,7 +34,7 @@ const id: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Jeda rotasi slide otomatis',
   'common.message': 'Pesan',
   'common.mix': 'Campuran',
-  'common.wait': 'Mohon tunggu...',
+  'common.wait': 'Sebentar...',
   'common.guest': 'Peserta',
   'common.help': 'Bantuan',
   'common.increase': 'Naikkan',
@@ -49,7 +49,7 @@ const id: Record<I18nKey, string> = {
   'account.welcome_back': 'Senang bertemu lagi\n{{name}}',
   'account.login_message':
     'Masuk dengan Google agar nama panggilan tetap sama di setiap ruang. Anda tetap dapat melanjutkan tanpa masuk.',
-  'account.google_continue': 'Lanjutkan dengan Google',
+  'account.google_continue': 'Lanjut dengan Google',
   'account.terms': 'Ketentuan',
   'account.privacy': 'Privasi',
   'account.unavailable':
@@ -300,7 +300,7 @@ const id: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Server ruang online',
   'connect.signaling_recovering': 'Menghubungkan ulang…',
   'connect.signaling_failed': 'Koneksi server gagal',
-  'connect.signaling_recover_action': 'Hubungkan ulang',
+  'connect.signaling_recover_action': 'Sambung ulang',
   'connect.signaling_recovery_wait': 'Memeriksa kembali server ruang.',
   'connect.signaling_reconnecting': 'Menghubungkan kembali ke server ruang · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Koneksi server ruang telah pulih.',
@@ -754,7 +754,7 @@ const id: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Koneksi sebelumnya masih tersisa',
   'pro.active_tab_message': 'Melanjutkan di sini akan memutus koneksi sebelumnya.',
   'pro.active_tab_replaced': 'Ruang PRO ini sudah terbuka di tab lain',
-  'pro.use_this_tab': 'Lanjutkan di sini',
+  'pro.use_this_tab': 'Lanjut di sini',
   'pro.upload.batch_progress': 'Mengunggah media {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Beberapa media tidak dapat diunggah',
   'pro.upload.batch_failed_message':

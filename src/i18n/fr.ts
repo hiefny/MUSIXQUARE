@@ -35,7 +35,7 @@ const fr: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Suspendre la rotation automatique des diapositives',
   'common.message': 'Message',
   'common.mix': 'Mixage',
-  'common.wait': 'Veuillez patienter…',
+  'common.wait': 'Un instant…',
   'common.guest': 'Participant',
   'common.help': 'Aide',
   'common.increase': 'Augmenter',
@@ -110,9 +110,9 @@ const fr: Record<I18nKey, string> = {
   'nav.go_home': 'Aller à l’accueil',
 
   // Role
-  'role.center': 'Enceinte centrale',
-  'role.left': 'Enceinte gauche',
-  'role.right': 'Enceinte droite',
+  'role.center': 'Centre',
+  'role.left': 'Gauche',
+  'role.right': 'Droite',
   'role.subwoofer': 'Caisson de basses',
   'role.center_placement': 'Placez l’appareil au centre',
   'role.left_placement': 'Placez l’appareil à gauche',
@@ -161,7 +161,7 @@ const fr: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Audio spatial',
   'settings.reverb_title': 'Réverbération',
   'settings.rvb_studio': 'Studio',
-  'settings.rvb_arena': 'Salle de concert',
+  'settings.rvb_arena': 'Arène',
   'settings.rvb_advanced': 'Avancé',
   'settings.rvb_off': 'Désactivé',
   'settings.reverb_mix': 'Dosage de la réverbération',
@@ -220,7 +220,7 @@ const fr: Record<I18nKey, string> = {
   'player.play_media_compact': 'Média',
   'player.play_media_action': 'Lire le média',
   'player.add_media': 'Ajouter un média',
-  'player.play_start': 'Ajouter à la file d’attente',
+  'player.play_start': 'Ajouter à la liste',
   'player.select_media': 'Sélectionnez le média à lire',
   'player.play_together': 'Lecture synchronisée',
   'player.play_speakers': 'Utiliser comme enceinte',
@@ -283,7 +283,7 @@ const fr: Record<I18nKey, string> = {
   'connect.kick_no': 'Non',
   'connect.kicked_title': 'Appareil expulsé',
   'connect.kicked_message': 'L’hôte a déconnecté cet appareil du salon.',
-  'connect.copy_invite_link': 'Copier le lien d’invitation',
+  'connect.copy_invite_link': 'Copier l’invitation',
   'connect.link_copied': 'Lien d’invitation copié',
   'connect.room_password_title': 'Exiger un mot de passe pour rejoindre le salon',
   'connect.room_password_toggle_aria': 'Activer/désactiver le mot de passe du salon',
@@ -327,8 +327,8 @@ const fr: Record<I18nKey, string> = {
   'demo.role_title': 'Définir le rôle de cet appareil',
   'demo.effects_title': 'Essayer les effets',
   'demo.reverb': 'Réverbération',
-  'demo.bass_boost': 'Renfort des graves',
-  'demo.treble_boost': 'Renfort des aigus',
+  'demo.bass_boost': 'Plus de graves',
+  'demo.treble_boost': 'Plus d’aigus',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Graves',
   'demo.role_center_short': 'Centre',
@@ -374,7 +374,7 @@ const fr: Record<I18nKey, string> = {
   'setup.connect_devices': 'Connectez vos autres appareils pour commencer.',
   'setup.enter_code_connect': 'Code d’invitation',
   'setup.last_step': 'C’est parti !',
-  'setup.joining': 'Connexion au salon…',
+  'setup.joining': 'Connexion…',
   'setup.six_digit_enter': 'Saisissez le code à 6 chiffres',
 
   // Help
@@ -383,7 +383,7 @@ const fr: Record<I18nKey, string> = {
   'help.local_recommended': 'Réseau local recommandé',
   'help.connect_all_wifi': 'Les connexions sur le même réseau sont les plus fiables',
   'help.local_file': 'Choisir un fichier local',
-  'help.load_local': 'Charger un fichier local',
+  'help.load_local': 'Charger fichier local',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'En mode YouTube, les réglages de rôle et les effets audio ne sont pas disponibles.',
@@ -644,7 +644,7 @@ const fr: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Le son s’est interrompu de façon inattendue',
   'dialog.audio_recovery_message':
     'Le son de cet appareil n’a pas repris après le retour depuis l’arrière-plan. La connexion au salon restera active pendant que MUSIXQUARE resynchronise le son de cet appareil.',
-  'dialog.audio_recovery_action': 'Rétablir le son',
+  'dialog.audio_recovery_action': 'Rétablir audio',
   'dialog.background_resume_message':
     'Si la synchronisation est décalée ou si aucun son n’est diffusé, fermez complètement l’application puis rouvrez-la.',
   'dialog.background_resume_sync_fallback_message':
@@ -702,7 +702,7 @@ const fr: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Connectez-vous avec le compte lié',
   'pro.claim_existing_account_message':
     'Ce lien est associé à un compte MUSIXQUARE qui possède déjà un pseudo. Choisissez le compte Google indiqué pour ce lien.',
-  'pro.claim_choose_account_button': 'Choisir un autre compte',
+  'pro.claim_choose_account_button': 'Autre compte',
   'pro.claim_account_conflict_title': 'Ce compte ne peut pas utiliser ce salon',
   'pro.claim_account_conflict_message':
     'Ce salon est lié à un autre compte. Pour changer de propriétaire, demandez à un administrateur d’en transférer la propriété.',

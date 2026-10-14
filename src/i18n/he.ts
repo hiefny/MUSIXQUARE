@@ -361,7 +361,7 @@ const he: Record<I18nKey, string> = {
   'setup.connect_devices': 'כדי להתחיל, חברו את המכשירים הנוספים.',
   'setup.enter_code_connect': 'קוד הזמנה',
   'setup.last_step': 'מתחילים!',
-  'setup.joining': 'מתבצעת הצטרפות...',
+  'setup.joining': 'הצטרפות...',
   'setup.six_digit_enter': 'יש להזין את המספר בן 6 הספרות',
 
   // ─── Help ────────────────────────────────────────────────────────

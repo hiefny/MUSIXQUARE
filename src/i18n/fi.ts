@@ -20,7 +20,7 @@ const fi: Record<I18nKey, string> = {
   'common.reset': 'Palauta',
   'common.clear_input': 'Tyhjennä kenttä',
   'common.refresh': 'Päivitä',
-  'common.retry': 'Yritä uudelleen',
+  'common.retry': 'Yritä taas',
   'common.later': 'Myöhemmin',
   'common.next': 'Seuraava',
   'common.start': 'Aloita',
@@ -298,7 +298,7 @@ const fi: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Huonepalvelin on käytettävissä',
   'connect.signaling_recovering': 'Yhdistetään uudelleen…',
   'connect.signaling_failed': 'Palvelinyhteys epäonnistui',
-  'connect.signaling_recover_action': 'Yhdistä uudelleen',
+  'connect.signaling_recover_action': 'Yhdistä taas',
   'connect.signaling_recovery_wait': 'Tarkistetaan huonepalvelin uudelleen.',
   'connect.signaling_reconnecting': 'Yhdistetään uudelleen huonepalvelimeen · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Yhteys huonepalvelimeen palautui.',
@@ -306,7 +306,7 @@ const fi: Record<I18nKey, string> = {
     'Huonepalvelin ei vastaa.\nUudet osallistujat eivät voi muodostaa yhteyttä.',
   'connect.signaling_exhausted_pro':
     'Huonepalvelin ei vastaa. Uusien osallistujien liittyminen ja reaaliaikaiset päivitykset ovat rajoitettuja.',
-  'connect.signaling_retry': 'Yritä uudelleen',
+  'connect.signaling_retry': 'Yritä taas',
   'connect.signaling_restart': 'Käynnistä istunto uudelleen',
   'connect.signaling_new_room': 'Luo uusi huone',
 
@@ -325,8 +325,8 @@ const fi: Record<I18nKey, string> = {
   'demo.role_title': 'Aseta tämän laitteen rooli',
   'demo.effects_title': 'Kokeile tehosteita',
   'demo.reverb': 'Kaiku',
-  'demo.bass_boost': 'Basson korostus',
-  'demo.treble_boost': 'Diskantin korostus',
+  'demo.bass_boost': 'Lisäbasso',
+  'demo.treble_boost': 'Lisädiskantti',
   'demo.surround': 'Tilaääni',
   'demo.role_bass_short': 'Basso',
   'demo.role_center_short': 'Keski',
@@ -380,7 +380,7 @@ const fi: Record<I18nKey, string> = {
   'help.local_recommended': 'Lähiverkkoa suositellaan',
   'help.connect_all_wifi': 'Saman verkon yhteydet ovat luotettavimpia',
   'help.local_file': 'Valitse paikallinen tiedosto',
-  'help.load_local': 'Lataa paikallinen tiedosto',
+  'help.load_local': 'Paikallinen tiedosto',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'YouTube-tilassa rooliasetukset ja äänitehosteet eivät ole käytettävissä.',
@@ -724,7 +724,7 @@ const fi: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE on päivittynyt. Päivitä sivu, jotta voit jatkaa sen käyttöä normaalisti.',
   'dialog.reconnect_ask': 'Haluatko muodostaa yhteyden uudelleen?',
-  'dialog.reconnect': 'Yhdistä uudelleen',
+  'dialog.reconnect': 'Yhdistä taas',
   'dialog.go_back': 'Palaa takaisin',
   'dialog.step_next': 'Seuraava',
   'dialog.step_back': 'Takaisin',
@@ -739,7 +739,7 @@ const fi: Record<I18nKey, string> = {
     'Annoit väärän salasanan liian monta kertaa. Yritä hetken kuluttua uudelleen.',
   'dialog.session_lost_msg':
     'Sovellus siirtyi lepotilaan tai menetti yhteyden, joten muiden laitteiden yhteydet ovat jo katkenneet. Aloita uusi istunto käynnistämällä uudelleen.',
-  'dialog.session_lost_btn': 'Käynnistä uudelleen',
+  'dialog.session_lost_btn': 'Aloita alusta',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivoi PRO-huone',
@@ -768,7 +768,7 @@ const fi: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Kirjaudu linkitetyllä tilillä',
   'pro.claim_existing_account_message':
     'Tämä linkki on sidottu MUSIXQUARE-tiliin, jolla on jo nimimerkki. Valitse tälle linkille määritetty Google-tili.',
-  'pro.claim_choose_account_button': 'Valitse toinen tili',
+  'pro.claim_choose_account_button': 'Toinen tili',
   'pro.claim_account_conflict_title': 'Tämä tili ei voi käyttää tätä huonetta',
   'pro.claim_account_conflict_message':
     'Huone on linkitetty toiseen tiliin. Jos haluat vaihtaa tilin, pyydä ylläpitäjää siirtämään omistajuus.',

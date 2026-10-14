@@ -64,7 +64,7 @@ const ro: Record<I18nKey, string> = {
   'account.stats_minutes_value': '{{minutes}} min',
   'account.stats_hours_minutes_value': '{{hours}} h {{minutes}} min',
   'account.change_nickname': 'Schimbă pseudonimul',
-  'account.logout': 'Deconectează-te',
+  'account.logout': 'Deconectare',
   'account.delete_account': 'Șterge contul',
   'account.nickname_title': 'Alege un pseudonim',
   'account.nickname_message': 'Alege pseudonimul pe care îl vei folosi în MUSIXQUARE.',
@@ -164,9 +164,9 @@ const ro: Record<I18nKey, string> = {
   'transfer.host_busy': 'Gazda procesează alt fișier. Încearcă din nou în curând.',
 
   // ─── Rol ─────────────────────────────────────────────────────────
-  'role.center': 'Difuzor central',
+  'role.center': 'Central',
   'role.left': 'Difuzor stânga',
-  'role.right': 'Difuzor dreapta',
+  'role.right': 'Dreapta',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Așază dispozitivul în centru',
   'role.left_placement': 'Așază dispozitivul în stânga',
@@ -285,7 +285,7 @@ const ro: Record<I18nKey, string> = {
   'connect.kick_no': 'Nu',
   'connect.kicked_title': 'Ai fost eliminat',
   'connect.kicked_message': 'Gazda te-a eliminat din sesiune.',
-  'connect.copy_invite_link': 'Copiază linkul de invitație',
+  'connect.copy_invite_link': 'Copiază invitația',
   'connect.link_copied': 'Linkul de invitație a fost copiat',
   'connect.room_password_title': 'Solicită parolă la intrare',
   'connect.room_password_toggle_aria': 'Activează sau dezactivează parola camerei',
@@ -321,14 +321,14 @@ const ro: Record<I18nKey, string> = {
   'demo.prompt_cta': 'Începe turul',
   'demo.prompt_later': 'Mai târziu',
   'demo.try_later_toast': 'Poți încerca oricând din fila Ajutor.',
-  'demo.track_info': 'Informații despre pistă',
+  'demo.track_info': 'Info pistă',
   'demo.exit': 'Ieși din demonstrație',
   'demo.credit': 'Pistă demonstrativă',
   'demo.role_title': 'Setează rolul acestui dispozitiv',
   'demo.effects_title': 'Încearcă efectele',
   'demo.reverb': 'Reverberație',
-  'demo.bass_boost': 'Amplificare bas',
-  'demo.treble_boost': 'Amplificare înalte',
+  'demo.bass_boost': 'Bas intens',
+  'demo.treble_boost': 'Înalte intense',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Centru',
@@ -336,7 +336,7 @@ const ro: Record<I18nKey, string> = {
   'demo.step_connect': '1. Conectare',
   'demo.step_role': '2. Setează rolul',
   'demo.step_effects': '3. Efecte audio',
-  'demo.step_finish': '4. Încheie demonstrația',
+  'demo.step_finish': '4. Încheie turul',
   'demo.session_title': 'Camera ta: {{code}}',
   'demo.session_subtitle': 'Poți invita oricând un alt dispozitiv.',
   'demo.session_body_connected':
@@ -373,7 +373,7 @@ const ro: Record<I18nKey, string> = {
   'setup.connect_devices': 'Conectează celelalte dispozitive pentru a începe.',
   'setup.enter_code_connect': 'Cod de invitație',
   'setup.last_step': 'Să începem!',
-  'setup.joining': 'Se conectează...',
+  'setup.joining': 'Conectare...',
   'setup.six_digit_enter': 'Introdu numărul din 6 cifre',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ const ro: Record<I18nKey, string> = {
   'help.local_recommended': 'Se recomandă rețeaua locală',
   'help.connect_all_wifi': 'Conexiunile în aceeași rețea sunt cele mai stabile',
   'help.local_file': 'Alege un fișier local',
-  'help.load_local': 'Încarcă un fișier local',
+  'help.load_local': 'Încarcă fișier local',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'În modul YouTube, setările rolurilor și efectele audio nu sunt disponibile.',
@@ -723,7 +723,7 @@ const ro: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Sunetul s-a întrerupt neașteptat',
   'dialog.audio_recovery_message':
     'Sunetul acestui dispozitiv nu a fost restabilit după revenirea din fundal. Camera va rămâne conectată cât timp MUSIXQUARE realiniază sunetul dispozitivului.',
-  'dialog.audio_recovery_action': 'Restabilește sunetul',
+  'dialog.audio_recovery_action': 'Reia sunetul',
   'dialog.background_resume_message':
     'Dacă sincronizarea nu mai este corectă sau sunetul nu pornește, închide complet aplicația și deschide-o din nou.',
   'dialog.background_resume_sync_fallback_message':

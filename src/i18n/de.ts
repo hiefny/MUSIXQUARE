@@ -21,7 +21,7 @@ const de: Record<I18nKey, string> = {
   'common.reset': 'Zurücksetzen',
   'common.clear_input': 'Eingabe löschen',
   'common.refresh': 'Aktualisieren',
-  'common.retry': 'Erneut versuchen',
+  'common.retry': 'Wiederholen',
   'common.later': 'Später',
   'common.next': 'Weiter',
   'common.start': 'Starten',
@@ -35,7 +35,7 @@ const de: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Automatischen Folienwechsel pausieren',
   'common.message': 'Nachricht',
   'common.mix': 'Mix',
-  'common.wait': 'Einen Moment...',
+  'common.wait': 'Moment...',
   'common.guest': 'Gast',
   'common.help': 'Hilfe',
   'common.increase': 'Erhöhen',
@@ -110,9 +110,9 @@ const de: Record<I18nKey, string> = {
   'nav.go_home': 'Zur Startseite',
 
   // Role
-  'role.center': 'Center-Lautsprecher',
-  'role.left': 'Linker Lautsprecher',
-  'role.right': 'Rechter Lautsprecher',
+  'role.center': 'Center',
+  'role.left': 'Links',
+  'role.right': 'Rechts',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Platziere das Gerät in der Mitte',
   'role.left_placement': 'Platziere das Gerät links',
@@ -221,7 +221,7 @@ const de: Record<I18nKey, string> = {
   'player.play_media_compact': 'Medien',
   'player.play_media_action': 'Medien abspielen',
   'player.add_media': 'Medien hinzufügen',
-  'player.play_start': 'Zur Warteschlange hinzufügen',
+  'player.play_start': 'Zur Wiedergabeliste',
   'player.select_media': 'Medium zum Abspielen auswählen',
   'player.play_together': 'Synchrone Wiedergabe',
   'player.play_speakers': 'Als Lautsprecher nutzen',
@@ -285,7 +285,7 @@ const de: Record<I18nKey, string> = {
   'connect.kick_no': 'Nein',
   'connect.kicked_title': 'Entfernt',
   'connect.kicked_message': 'Du wurdest vom Host aus dem Raum entfernt.',
-  'connect.copy_invite_link': 'Einladungslink kopieren',
+  'connect.copy_invite_link': 'Einladung kopieren',
   'connect.link_copied': 'Einladungslink kopiert',
   'connect.room_password_title': 'Raumpasswort verlangen',
   'connect.room_password_toggle_aria': 'Raumpasswort-Anforderung umschalten',
@@ -310,7 +310,7 @@ const de: Record<I18nKey, string> = {
     'Der Raumserver antwortet nicht.\nNeue Teilnehmer können sich nicht verbinden.',
   'connect.signaling_exhausted_pro':
     'Der Raumserver antwortet nicht. Neue Beitritte und Live-Aktualisierungen sind eingeschränkt.',
-  'connect.signaling_retry': 'Erneut versuchen',
+  'connect.signaling_retry': 'Wiederholen',
   'connect.signaling_restart': 'Raum neu starten',
   'connect.signaling_new_room': 'Neuen Raum starten',
 
@@ -329,8 +329,8 @@ const de: Record<I18nKey, string> = {
   'demo.role_title': 'Rolle dieses Geräts festlegen',
   'demo.effects_title': 'Effekte ausprobieren',
   'demo.reverb': 'Hall',
-  'demo.bass_boost': 'Bassverstärkung',
-  'demo.treble_boost': 'Höhenverstärkung',
+  'demo.bass_boost': 'Bassboost',
+  'demo.treble_boost': 'Höhenboost',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Mitte',
@@ -649,7 +649,7 @@ const de: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Die Audiowiedergabe wurde unerwartet angehalten',
   'dialog.audio_recovery_message':
     'Die Audiowiedergabe dieses Geräts konnte nach der Rückkehr aus dem Hintergrund nicht wiederhergestellt werden. Die Raumverbindung bleibt bestehen, während MUSIXQUARE den Ton dieses Geräts neu ausrichtet.',
-  'dialog.audio_recovery_action': 'Audio wiederherstellen',
+  'dialog.audio_recovery_action': 'Ton aktivieren',
   'dialog.background_resume_message':
     'Wenn Sync nicht stimmt oder kein Audio spielt, schließe die App vollständig und öffne sie erneut.',
   'dialog.background_resume_sync_fallback_message':
@@ -663,7 +663,7 @@ const de: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE wurde aktualisiert. Lade die Seite neu, um es wie gewohnt weiter zu nutzen.',
   'dialog.reconnect_ask': 'Möchtest du dich erneut verbinden?',
-  'dialog.reconnect': 'Erneut verbinden',
+  'dialog.reconnect': 'Neu verbinden',
   'dialog.go_back': 'Zurück',
   'dialog.step_next': 'Weiter',
   'dialog.step_back': 'Zurück',
@@ -707,7 +707,7 @@ const de: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Mit dem verknüpften Konto anmelden',
   'pro.claim_existing_account_message':
     'Dieser Link ist an ein MUSIXQUARE-Konto gebunden, das bereits einen Nickname hat. Wähle das für diesen Link angegebene Google-Konto aus.',
-  'pro.claim_choose_account_button': 'Anderes Konto wählen',
+  'pro.claim_choose_account_button': 'Anderes Konto',
   'pro.claim_account_conflict_title': 'Dieses Konto kann den Raum nicht verwenden',
   'pro.claim_account_conflict_message':
     'Dieser Raum ist mit einem anderen Konto verknüpft. Wende dich für eine Eigentumsübertragung an einen Administrator, wenn du das ändern möchtest.',
@@ -767,7 +767,7 @@ const de: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Eine vorherige Verbindung besteht noch',
   'pro.active_tab_message': 'Wenn du hier fortfährst, wird die vorherige Verbindung getrennt.',
   'pro.active_tab_replaced': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
-  'pro.use_this_tab': 'Hier fortfahren',
+  'pro.use_this_tab': 'Hier weiter',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',
   'pro.upload.batch_failed_message':

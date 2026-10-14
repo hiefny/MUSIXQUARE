@@ -22,7 +22,7 @@ const nl: Record<I18nKey, string> = {
   'common.reset': 'Resetten',
   'common.clear_input': 'Invoer wissen',
   'common.refresh': 'Vernieuwen',
-  'common.retry': 'Opnieuw proberen',
+  'common.retry': 'Opnieuw',
   'common.later': 'Later',
   'common.next': 'Volgende',
   'common.start': 'Starten',
@@ -128,7 +128,7 @@ const nl: Record<I18nKey, string> = {
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Media afspelen',
   'player.add_media': 'Media toevoegen',
-  'player.play_start': 'Toevoegen aan afspeellijst',
+  'player.play_start': 'Toevoegen aan lijst',
   'player.select_media': 'Kies media om af te spelen',
   'player.play_together': 'Synchroon afspelen',
   'player.play_speakers': 'Als luidspreker gebruiken',
@@ -163,9 +163,9 @@ const nl: Record<I18nKey, string> = {
   'transfer.host_busy': 'De host verwerkt een ander bestand. Probeer het zo opnieuw.',
 
   // Role
-  'role.center': 'Middenluidspreker',
-  'role.left': 'Linkerluidspreker',
-  'role.right': 'Rechterluidspreker',
+  'role.center': 'Midden',
+  'role.left': 'Links',
+  'role.right': 'Rechts',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Plaats dit apparaat in het midden',
   'role.left_placement': 'Plaats dit apparaat links',
@@ -284,7 +284,7 @@ const nl: Record<I18nKey, string> = {
   'connect.kick_no': 'Nee',
   'connect.kicked_title': 'Verwijderd',
   'connect.kicked_message': 'De host heeft je uit de kamer verwijderd.',
-  'connect.copy_invite_link': 'Uitnodigingslink kopiëren',
+  'connect.copy_invite_link': 'Uitnodiging kopiëren',
   'connect.link_copied': 'Uitnodigingslink gekopieerd',
   'connect.room_password_title': 'Wachtwoord vereisen',
   'connect.room_password_toggle_aria': 'Kamerwachtwoord in- of uitschakelen',
@@ -300,7 +300,7 @@ const nl: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Kamerserver online',
   'connect.signaling_recovering': 'Opnieuw verbinden…',
   'connect.signaling_failed': 'Serververbinding mislukt',
-  'connect.signaling_recover_action': 'Opnieuw verbinden',
+  'connect.signaling_recover_action': 'Herverbinden',
   'connect.signaling_recovery_wait': 'De kamerserver wordt opnieuw gecontroleerd.',
   'connect.signaling_reconnecting': 'Opnieuw verbinden met de kamerserver · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Verbinding met de kamerserver hersteld.',
@@ -308,7 +308,7 @@ const nl: Record<I18nKey, string> = {
     'De kamerserver reageert niet.\nNieuwe deelnemers kunnen geen verbinding maken.',
   'connect.signaling_exhausted_pro':
     'De kamerserver reageert niet. Nieuwe deelnames en live-updates zijn beperkt.',
-  'connect.signaling_retry': 'Opnieuw proberen',
+  'connect.signaling_retry': 'Opnieuw',
   'connect.signaling_restart': 'Kamer opnieuw starten',
   'connect.signaling_new_room': 'Nieuwe kamer starten',
 
@@ -328,7 +328,7 @@ const nl: Record<I18nKey, string> = {
   'demo.effects_title': 'Effecten proberen',
   'demo.reverb': 'Galm',
   'demo.bass_boost': 'Bas versterken',
-  'demo.treble_boost': 'Hoge tonen versterken',
+  'demo.treble_boost': 'Treble boost',
   'demo.surround': 'Surroundgeluid',
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Midden',
@@ -719,7 +719,7 @@ const nl: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'De audio is onverwacht gepauzeerd',
   'dialog.audio_recovery_message':
     'De audio van dit apparaat is niet hersteld na terugkeer uit de achtergrond. De kamer blijft verbonden terwijl MUSIXQUARE het geluid van dit apparaat opnieuw uitlijnt.',
-  'dialog.audio_recovery_action': 'Audio herstellen',
+  'dialog.audio_recovery_action': 'Herstel audio',
   'dialog.background_resume_message':
     'Als de synchronisatie niet klopt of er geen audio wordt afgespeeld, sluit je de app volledig en open je hem opnieuw.',
   'dialog.background_resume_sync_fallback_message':
@@ -733,7 +733,7 @@ const nl: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE is bijgewerkt. Vernieuw de pagina om het normaal te blijven gebruiken.',
   'dialog.reconnect_ask': 'Opnieuw verbinden?',
-  'dialog.reconnect': 'Opnieuw verbinden',
+  'dialog.reconnect': 'Herverbinden',
   'dialog.go_back': 'Terug',
   'dialog.step_next': 'Volgende',
   'dialog.step_back': 'Terug',
@@ -748,7 +748,7 @@ const nl: Record<I18nKey, string> = {
     'Je hebt te vaak een verkeerd wachtwoord ingevoerd. Probeer het straks opnieuw.',
   'dialog.session_lost_msg':
     'De app ging in de slaapstand of verloor de verbinding, waardoor de andere apparaten al zijn losgekoppeld. Start opnieuw om een nieuwe kamer te maken.',
-  'dialog.session_lost_btn': 'Opnieuw starten',
+  'dialog.session_lost_btn': 'Herstarten',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'PRO-kamer activeren',
@@ -776,7 +776,7 @@ const nl: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Log in met het gekoppelde account',
   'pro.claim_existing_account_message':
     'Deze link is gekoppeld aan een MUSIXQUARE-account dat al een bijnaam heeft. Kies het Google-account dat voor deze link is opgegeven.',
-  'pro.claim_choose_account_button': 'Ander account kiezen',
+  'pro.claim_choose_account_button': 'Ander account',
   'pro.claim_account_conflict_title': 'Dit account kan deze kamer niet gebruiken',
   'pro.claim_account_conflict_message':
     'Deze kamer is aan een ander account gekoppeld. Vraag een beheerder om het eigenaarschap over te dragen als je dit wilt wijzigen.',

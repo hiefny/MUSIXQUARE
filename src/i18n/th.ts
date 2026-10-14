@@ -361,7 +361,7 @@ const th: Record<I18nKey, string> = {
   'setup.connect_devices': 'ตอนนี้มาเชื่อมต่ออุปกรณ์อื่นกัน',
   'setup.enter_code_connect': 'รหัสเชิญ',
   'setup.last_step': 'พร้อมจะเริ่มแล้วหรือยัง?',
-  'setup.joining': 'กำลังเข้าร่วมห้อง...',
+  'setup.joining': 'กำลังเข้าร่วม...',
   'setup.six_digit_enter': 'ใส่ตัวเลข 6 หลัก',
 
   // ─── Help ────────────────────────────────────────────────────────

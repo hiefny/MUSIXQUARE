@@ -48,7 +48,7 @@ const ru: Record<I18nKey, string> = {
   'account.welcome_back': 'С возвращением\n{{name}}',
   'account.login_message':
     'Войдите через Google, чтобы сохранить псевдоним во всех комнатах. MUSIXQUARE можно продолжать использовать без входа.',
-  'account.google_continue': 'Продолжить через Google',
+  'account.google_continue': 'Войти через Google',
   'account.terms': 'Условия',
   'account.privacy': 'Конфиденциальность',
   'account.unavailable': 'Вход временно недоступен. Вы можете продолжить без аккаунта.',
@@ -162,7 +162,7 @@ const ru: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хост обрабатывает другой файл. Повторите попытку чуть позже.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Центральный динамик',
+  'role.center': 'Центральный',
   'role.left': 'Левый динамик',
   'role.right': 'Правый динамик',
   'role.subwoofer': 'Сабвуфер',
@@ -299,7 +299,7 @@ const ru: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Сервер комнаты доступен',
   'connect.signaling_recovering': 'Переподключение…',
   'connect.signaling_failed': 'Не удалось подключиться к серверу',
-  'connect.signaling_recover_action': 'Переподключиться',
+  'connect.signaling_recover_action': 'Переподключить',
   'connect.signaling_recovery_wait': 'Повторная проверка сервера комнаты.',
   'connect.signaling_reconnecting': 'Повторное подключение к серверу комнаты · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Подключение к серверу комнаты восстановлено.',
@@ -327,7 +327,7 @@ const ru: Record<I18nKey, string> = {
   'demo.effects_title': 'Попробовать звуковые эффекты',
   'demo.reverb': 'Реверберация',
   'demo.bass_boost': 'Усиление басов',
-  'demo.treble_boost': 'Усиление высоких частот',
+  'demo.treble_boost': 'Усиление ВЧ',
   'demo.surround': 'Объёмный звук',
   'demo.role_bass_short': 'Басы',
   'demo.role_center_short': 'Центр',
@@ -382,7 +382,7 @@ const ru: Record<I18nKey, string> = {
   'help.connect_all_wifi':
     'Соединение наиболее стабильно, когда все устройства находятся в одной локальной сети',
   'help.local_file': 'Выбрать локальный файл',
-  'help.load_local': 'Загрузить локальный файл',
+  'help.load_local': 'Открыть локальный файл',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'В режиме YouTube настройки ролей и звуковые эффекты недоступны.',
   'help.media_synced_detail':
@@ -719,7 +719,7 @@ const ru: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Воспроизведение звука приостановилось',
   'dialog.audio_recovery_message':
     'После возврата из фонового режима звук на этом устройстве не восстановился. Подключение к комнате сохранится, а MUSIXQUARE заново настроит звук только на этом устройстве.',
-  'dialog.audio_recovery_action': 'Восстановить звук',
+  'dialog.audio_recovery_action': 'Включить звук',
   'dialog.background_resume_message':
     'Если синхронизация сбилась или звук не воспроизводится, полностью закройте приложение и откройте его снова.',
   'dialog.background_resume_sync_fallback_message':
@@ -733,7 +733,7 @@ const ru: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'Вышло обновление MUSIXQUARE. Чтобы и дальше пользоваться им как обычно, обновите страницу.',
   'dialog.reconnect_ask': 'Хотите подключиться заново?',
-  'dialog.reconnect': 'Подключить заново',
+  'dialog.reconnect': 'Переподключить',
   'dialog.go_back': 'Назад',
   'dialog.step_next': 'Далее',
   'dialog.step_back': 'Назад',
@@ -777,7 +777,7 @@ const ru: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Войдите в связанный аккаунт',
   'pro.claim_existing_account_message':
     'Эта ссылка привязана к аккаунту MUSIXQUARE, в котором уже задан псевдоним. Выберите аккаунт Google, указанный для этой ссылки.',
-  'pro.claim_choose_account_button': 'Выбрать другой аккаунт',
+  'pro.claim_choose_account_button': 'Другой аккаунт',
   'pro.claim_account_conflict_title': 'Этот аккаунт не может использовать комнату',
   'pro.claim_account_conflict_message':
     'Эта комната связана с другим аккаунтом. Чтобы изменить владельца, запросите перенос у администратора.',
@@ -838,7 +838,7 @@ const ru: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Сохранилось предыдущее подключение',
   'pro.active_tab_message': 'Если продолжить здесь, предыдущее подключение будет завершено.',
   'pro.active_tab_replaced': 'Эта PRO-комната уже открыта в другой вкладке',
-  'pro.use_this_tab': 'Продолжить здесь',
+  'pro.use_this_tab': 'Продолжить тут',
   'pro.upload.batch_progress': 'Загрузка треков {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Некоторые треки не удалось загрузить',
   'pro.upload.batch_failed_message':

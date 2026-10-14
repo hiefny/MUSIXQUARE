@@ -19,7 +19,7 @@ const ur: Record<I18nKey, string> = {
   'common.reset': 'ری سیٹ کریں',
   'common.clear_input': 'اندراج صاف کریں',
   'common.refresh': 'ریفریش کریں',
-  'common.retry': 'دوبارہ کوشش کریں',
+  'common.retry': 'دوبارہ کوشش',
   'common.later': 'بعد میں',
   'common.next': 'اگلا',
   'common.start': 'شروع کریں',
@@ -33,7 +33,7 @@ const ur: Record<I18nKey, string> = {
   'setup.carousel_pause': 'سلائیڈز کی خودکار تبدیلی عارضی طور پر روکیں',
   'common.message': 'پیغام',
   'common.mix': 'مکس',
-  'common.wait': 'براہ کرم انتظار کریں...',
+  'common.wait': 'انتظار کریں...',
   'common.guest': 'مہمان',
   'common.help': 'مدد',
   'common.increase': 'بڑھائیں',
@@ -50,7 +50,7 @@ const ur: Record<I18nKey, string> = {
   'account.welcome_back': 'دوبارہ خوش آمدید\n{{name}}',
   'account.login_message':
     'تمام کمروں میں اپنا عرفی نام برقرار رکھنے کے لیے Google سے سائن ان کریں۔ آپ سائن ان کیے بغیر بھی جاری رکھ سکتے ہیں۔',
-  'account.google_continue': 'Google کے ساتھ جاری رکھیں',
+  'account.google_continue': 'Google سے جاری رکھیں',
   'account.terms': 'شرائط',
   'account.privacy': 'رازداری',
   'account.unavailable': 'سائن ان عارضی طور پر دستیاب نہیں۔ آپ اس کے بغیر بھی جاری رکھ سکتے ہیں۔',
@@ -295,14 +295,14 @@ const ur: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'کمرے کا سرور آن لائن ہے',
   'connect.signaling_recovering': 'دوبارہ منسلک ہو رہا ہے…',
   'connect.signaling_failed': 'سرور سے کنکشن ناکام ہوا',
-  'connect.signaling_recover_action': 'دوبارہ منسلک کریں',
+  'connect.signaling_recover_action': 'دوبارہ جوڑیں',
   'connect.signaling_recovery_wait': 'کمرے کا سرور دوبارہ چیک کیا جا رہا ہے۔',
   'connect.signaling_reconnecting': 'کمرے کے سرور سے دوبارہ کنکشن ہو رہا ہے · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'کمرے کے سرور سے کنکشن بحال ہو گیا۔',
   'connect.signaling_exhausted': 'کمرے کا سرور جواب نہیں دے رہا۔\nنئے شرکا منسلک نہیں ہو سکتے۔',
   'connect.signaling_exhausted_pro':
     'کمرے کا سرور جواب نہیں دے رہا۔ نئے شرکا اور براہ راست اپ ڈیٹس محدود ہیں۔',
-  'connect.signaling_retry': 'دوبارہ کوشش کریں',
+  'connect.signaling_retry': 'دوبارہ کوشش',
   'connect.signaling_restart': 'سیشن دوبارہ شروع کریں',
   'connect.signaling_new_room': 'نیا کمرہ شروع کریں',
 
@@ -365,7 +365,7 @@ const ur: Record<I18nKey, string> = {
   'setup.connect_devices': 'شروع کرنے کے لیے اپنے دوسرے آلات منسلک کریں۔',
   'setup.enter_code_connect': 'دعوتی کوڈ',
   'setup.last_step': 'آئیے شروع کریں!',
-  'setup.joining': 'شامل ہو رہے ہیں...',
+  'setup.joining': 'شمولیت...',
   'setup.six_digit_enter': '6 ہندسوں کا نمبر درج کریں',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -713,7 +713,7 @@ const ur: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'اب MUSIXQUARE اپ ڈیٹ ہو چکا ہے۔ معمول کے مطابق استعمال جاری رکھنے کے لیے ریفریش کریں۔',
   'dialog.reconnect_ask': 'دوبارہ منسلک ہونا چاہتے ہیں؟',
-  'dialog.reconnect': 'دوبارہ منسلک کریں',
+  'dialog.reconnect': 'دوبارہ جوڑیں',
   'dialog.go_back': 'واپس جائیں',
   'dialog.step_next': 'اگلا',
   'dialog.step_back': 'پچھلا',
@@ -729,7 +729,7 @@ const ur: Record<I18nKey, string> = {
     'آپ نے کئی بار غلط پاس ورڈ درج کیا ہے۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔',
   'dialog.session_lost_msg':
     'ایپ سلیپ میں چلی گئی یا کنکشن کھو بیٹھی، اس لیے دوسرے آلات پہلے ہی منقطع ہو چکے ہیں۔ نیا سیشن شروع کرنے کے لیے دوبارہ شروع کریں۔',
-  'dialog.session_lost_btn': 'دوبارہ شروع کریں',
+  'dialog.session_lost_btn': 'دوبارہ شروع',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO کمرہ فعال کریں',
@@ -758,7 +758,7 @@ const ur: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'منسلک اکاؤنٹ سے سائن ان کریں',
   'pro.claim_existing_account_message':
     'یہ لنک ایسے MUSIXQUARE اکاؤنٹ سے منسلک ہے جس کا عرفی نام پہلے ہی موجود ہے۔ اس لنک کے لیے مخصوص Google اکاؤنٹ منتخب کریں۔',
-  'pro.claim_choose_account_button': 'دوسرا اکاؤنٹ منتخب کریں',
+  'pro.claim_choose_account_button': 'دوسرا اکاؤنٹ',
   'pro.claim_account_conflict_title': 'یہ اکاؤنٹ اس کمرے کو استعمال نہیں کر سکتا',
   'pro.claim_account_conflict_message':
     'یہ کمرہ دوسرے اکاؤنٹ سے منسلک ہے۔ اگر اسے بدلنا ہو تو کسی منتظم سے ملکیت منتقل کرنے کو کہیں۔',
@@ -819,7 +819,7 @@ const ur: Record<I18nKey, string> = {
   'pro.active_tab_title': 'پچھلا کنکشن باقی ہے',
   'pro.active_tab_message': 'یہاں جاری رکھنے سے پچھلا کنکشن منقطع ہو جائے گا۔',
   'pro.active_tab_replaced': 'یہ PRO کمرہ پہلے ہی دوسرے ٹیب میں کھلا ہے',
-  'pro.use_this_tab': 'یہاں جاری رکھیں',
+  'pro.use_this_tab': 'یہیں جاری',
   'pro.upload.batch_progress': 'ٹریک اپ لوڈ ہو رہے ہیں {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'کچھ ٹریک اپ لوڈ نہیں ہو سکے',
   'pro.upload.batch_failed_message':

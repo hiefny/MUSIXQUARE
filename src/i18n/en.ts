@@ -758,7 +758,7 @@ const en: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Sign in with the linked account',
   'pro.claim_existing_account_message':
     'This link is bound to a MUSIXQUARE account that already has a nickname. Choose the Google account specified for this link.',
-  'pro.claim_choose_account_button': 'Choose another account',
+  'pro.claim_choose_account_button': 'Another account',
   'pro.claim_account_conflict_title': "This account can't use this room",
   'pro.claim_account_conflict_message':
     'This room is linked to another account. Ask an administrator to transfer ownership if you need to change it.',

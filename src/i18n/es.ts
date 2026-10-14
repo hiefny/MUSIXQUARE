@@ -109,9 +109,9 @@ const es: Record<I18nKey, string> = {
   'nav.go_home': 'Ir al inicio',
 
   // Role
-  'role.center': 'Altavoz central',
-  'role.left': 'Altavoz izquierdo',
-  'role.right': 'Altavoz derecho',
+  'role.center': 'Central',
+  'role.left': 'Izquierdo',
+  'role.right': 'Derecho',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Coloca el dispositivo en el centro',
   'role.left_placement': 'Coloca el dispositivo a la izquierda',
@@ -323,14 +323,14 @@ const es: Record<I18nKey, string> = {
   'demo.prompt_cta': 'Iniciar recorrido',
   'demo.prompt_later': 'Más tarde',
   'demo.try_later_toast': 'Puedes comenzar el recorrido cuando quieras desde la pestaña Ayuda.',
-  'demo.track_info': 'Información de la pista',
+  'demo.track_info': 'Info de la pista',
   'demo.exit': 'Salir de la demo',
   'demo.credit': 'Pista demo',
   'demo.role_title': 'Configura el rol de este dispositivo',
   'demo.effects_title': 'Probar efectos',
   'demo.reverb': 'Reverberación',
-  'demo.bass_boost': 'Realce de graves',
-  'demo.treble_boost': 'Realce de agudos',
+  'demo.bass_boost': 'Más graves',
+  'demo.treble_boost': 'Agudos extra',
   'demo.surround': 'Sonido envolvente',
   'demo.role_bass_short': 'Graves',
   'demo.role_center_short': 'Centro',
@@ -649,7 +649,7 @@ const es: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'El audio se pausó inesperadamente',
   'dialog.audio_recovery_message':
     'El audio de este dispositivo no se recuperó al volver del segundo plano. La sala seguirá conectada mientras MUSIXQUARE vuelve a sincronizar el sonido de este dispositivo.',
-  'dialog.audio_recovery_action': 'Restaurar audio',
+  'dialog.audio_recovery_action': 'Activar audio',
   'dialog.background_resume_message':
     'Si la sincronización falla o no hay audio, cierra la app por completo y ábrela de nuevo.',
   'dialog.background_resume_sync_fallback_message':
@@ -707,7 +707,7 @@ const es: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Inicia sesión con la cuenta vinculada',
   'pro.claim_existing_account_message':
     'Este enlace está vinculado a una cuenta de MUSIXQUARE que ya tiene apodo. Elige la cuenta de Google indicada para este enlace.',
-  'pro.claim_choose_account_button': 'Elegir otra cuenta',
+  'pro.claim_choose_account_button': 'Otra cuenta',
   'pro.claim_account_conflict_title': 'Esta cuenta no puede usar la sala',
   'pro.claim_account_conflict_message':
     'Esta sala está vinculada a otra cuenta. Si necesitas cambiarla, solicita al administrador una transferencia de propiedad.',

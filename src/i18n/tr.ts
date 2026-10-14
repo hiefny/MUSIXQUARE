@@ -420,9 +420,9 @@ const tr: Record<I18nKey, string> = {
     'Bu medyanın boyutu çok büyük, bu yüzden bazı cihazlarda oynatılamayabilir.',
   'chat.device_track_unavailable_system_message': 'Bu cihaz mevcut medyayı oynatamıyor.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE’in yeni bir sürümü var. Geçerli olması için sayfayı yenile.',
+    'MUSIXQUARE’in yeni bir sürümü var.\nGeçerli olması için sayfayı yenile.',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE’in yeni bir sürümü var. Geçerli olması için uygulamayı yeniden aç.',
+    'MUSIXQUARE’in yeni bir sürümü var.\nGeçerli olması için uygulamayı yeniden aç.',
   'chat.system_audio_started_system_message':
     'Sistem sesi paylaşımı başladı. Oda sahibinin cihazıyla katılımcı cihazları arasında hafif gecikme olması normaldir. Yankıyı önlemek için oda sahibinin cihaz sesini kısması önerilir.',
   'chat.system_audio_stopped_system_message':
@@ -712,10 +712,10 @@ const tr: Record<I18nKey, string> = {
   'dialog.continue_using': 'Devam et',
   'dialog.leave_session': 'Ayrıl',
   'dialog.sw_update_title': 'Yeni Güncelleme',
-  'dialog.sw_update_msg': 'Yeni bir sürüm hazır. Güncellemek için sayfayı yenile.',
+  'dialog.sw_update_msg': 'Yeni bir sürüm hazır.\nGüncellemek için sayfayı yenile.',
   'dialog.feature_refresh_title': 'Yenileme gerekli',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE güncellendi. Normal şekilde kullanmaya devam etmek için sayfayı yenile.',
+    'MUSIXQUARE güncellendi.\nNormal şekilde kullanmaya devam etmek için sayfayı yenile.',
   'dialog.reconnect_ask': 'Yeniden bağlanmayı denemek istiyor musun?',
   'dialog.reconnect': 'Yeniden Bağlan',
   'dialog.go_back': 'Geri',

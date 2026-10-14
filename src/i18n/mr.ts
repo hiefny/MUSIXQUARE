@@ -424,9 +424,9 @@ const mr: Record<I18nKey, string> = {
     'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो कदाचित प्ले होणार नाही.',
   'chat.device_track_unavailable_system_message': 'हे डिव्हाइस सध्याचा ट्रॅक प्ले करू शकत नाही.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे. लागू करण्यासाठी पेज रीफ्रेश करा.',
+    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे.\nलागू करण्यासाठी पेज रीफ्रेश करा.',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे. लागू करण्यासाठी अ‍ॅप पुन्हा उघडा.',
+    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे.\nलागू करण्यासाठी अ‍ॅप पुन्हा उघडा.',
   'chat.system_audio_started_system_message':
     'सिस्टम ऑडिओ शेअरिंग सुरू झाले आहे. होस्ट आणि अतिथी डिव्हाइसदरम्यान थोडा विलंब होणे सामान्य आहे. प्रतिध्वनी टाळण्यासाठी होस्ट डिव्हाइसचा आवाज कमी ठेवण्याची शिफारस केली जाते.',
   'chat.system_audio_stopped_system_message':
@@ -712,10 +712,10 @@ const mr: Record<I18nKey, string> = {
   'dialog.continue_using': 'पुढे जा',
   'dialog.leave_session': 'बाहेर पडा',
   'dialog.sw_update_title': 'अद्ययावत करा',
-  'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे. अद्ययावत करण्यासाठी रीफ्रेश करा.',
+  'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे.\nअद्ययावत करण्यासाठी रीफ्रेश करा.',
   'dialog.feature_refresh_title': 'रीफ्रेश करणे आवश्यक आहे',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE अद्ययावत झाले आहे. नेहमीप्रमाणे वापरणे सुरू ठेवण्यासाठी रीफ्रेश करा.',
+    'MUSIXQUARE अद्ययावत झाले आहे.\nनेहमीप्रमाणे वापरणे सुरू ठेवण्यासाठी रीफ्रेश करा.',
   'dialog.reconnect_ask': 'पुन्हा कनेक्ट करायचे?',
   'dialog.reconnect': 'पुन्हा कनेक्ट करा',
   'dialog.go_back': 'मागे जा',

@@ -420,9 +420,9 @@ const fa: Record<I18nKey, string> = {
     'حجم فایل این قطعه بسیار زیاد است و ممکن است در بعضی دستگاه‌ها پخش نشود.',
   'chat.device_track_unavailable_system_message': 'این دستگاه نمی‌تواند قطعهٔ فعلی را پخش کند.',
   'chat.update_available_tab_system_message':
-    'نسخهٔ جدید MUSIXQUARE آماده است. برای اعمال آن، صفحه را تازه‌سازی کنید.',
+    'نسخهٔ جدید MUSIXQUARE آماده است.\nبرای اعمال آن، صفحه را تازه‌سازی کنید.',
   'chat.update_available_app_system_message':
-    'نسخهٔ جدید MUSIXQUARE آماده است. برای اعمال آن، برنامه را دوباره باز کنید.',
+    'نسخهٔ جدید MUSIXQUARE آماده است.\nبرای اعمال آن، برنامه را دوباره باز کنید.',
   'chat.system_audio_started_system_message':
     'اشتراک‌گذاری صدای سیستم آغاز شد. کمی تأخیر میان دستگاه میزبان و مهمان‌ها طبیعی است. برای جلوگیری از پژواک، صدای دستگاه میزبان را کم کنید.',
   'chat.system_audio_stopped_system_message':
@@ -711,10 +711,10 @@ const fa: Record<I18nKey, string> = {
   'dialog.continue_using': 'ادامه',
   'dialog.leave_session': 'خروج',
   'dialog.sw_update_title': 'به‌روزرسانی',
-  'dialog.sw_update_msg': 'نسخهٔ جدید آماده است. برای به‌روزرسانی، تازه‌سازی کنید.',
+  'dialog.sw_update_msg': 'نسخهٔ جدید آماده است.\nبرای به‌روزرسانی، تازه‌سازی کنید.',
   'dialog.feature_refresh_title': 'تازه‌سازی صفحه لازم است',
   'dialog.feature_refresh_msg':
-    'برنامهٔ MUSIXQUARE به‌روزرسانی شده است. برای ادامهٔ استفادهٔ عادی از آن، صفحه را تازه‌سازی کنید.',
+    'برنامهٔ MUSIXQUARE به‌روزرسانی شده است.\nبرای ادامهٔ استفادهٔ عادی از آن، صفحه را تازه‌سازی کنید.',
   'dialog.reconnect_ask': 'دوباره متصل می‌شوید؟',
   'dialog.reconnect': 'اتصال دوباره',
   'dialog.go_back': 'بازگشت',

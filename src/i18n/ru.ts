@@ -430,9 +430,9 @@ const ru: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'На этом устройстве нельзя воспроизвести текущий материал.',
   'chat.update_available_tab_system_message':
-    'Доступна новая версия MUSIXQUARE. Обновите страницу, чтобы применить её.',
+    'Доступна новая версия MUSIXQUARE.\nОбновите страницу, чтобы применить её.',
   'chat.update_available_app_system_message':
-    'Доступна новая версия MUSIXQUARE. Откройте приложение заново, чтобы применить её.',
+    'Доступна новая версия MUSIXQUARE.\nОткройте приложение заново, чтобы применить её.',
   'chat.system_audio_started_system_message':
     'Трансляция системного звука запущена. Возможна небольшая задержка между хостом и участниками. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
   'chat.system_audio_stopped_system_message':
@@ -729,10 +729,10 @@ const ru: Record<I18nKey, string> = {
   'dialog.continue_using': 'Продолжить',
   'dialog.leave_session': 'Выйти',
   'dialog.sw_update_title': 'Новое обновление',
-  'dialog.sw_update_msg': 'Доступна новая версия. Обновите страницу для применения.',
+  'dialog.sw_update_msg': 'Доступна новая версия.\nОбновите страницу для применения.',
   'dialog.feature_refresh_title': 'Нужно обновить страницу',
   'dialog.feature_refresh_msg':
-    'Вышло обновление MUSIXQUARE. Чтобы и дальше пользоваться им как обычно, обновите страницу.',
+    'Вышло обновление MUSIXQUARE.\nЧтобы и дальше пользоваться им как обычно, обновите страницу.',
   'dialog.reconnect_ask': 'Хотите подключиться заново?',
   'dialog.reconnect': 'Переподключить',
   'dialog.go_back': 'Назад',

@@ -434,9 +434,9 @@ const it: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Questo dispositivo non riesce a riprodurre la traccia corrente.',
   'chat.update_available_tab_system_message':
-    'È disponibile una nuova versione di MUSIXQUARE. Aggiorna la pagina per applicarla.',
+    'È disponibile una nuova versione di MUSIXQUARE.\nAggiorna la pagina per applicarla.',
   'chat.update_available_app_system_message':
-    'È disponibile una nuova versione di MUSIXQUARE. Riapri l’app per applicarla.',
+    'È disponibile una nuova versione di MUSIXQUARE.\nRiapri l’app per applicarla.',
   'chat.system_audio_started_system_message':
     'La condivisione dell’audio di sistema è iniziata. Un leggero ritardo tra il dispositivo dell’host e quelli dei partecipanti è normale. Per evitare l’eco, consigliamo all’host di abbassare il volume del proprio dispositivo.',
   'chat.system_audio_stopped_system_message':
@@ -736,10 +736,10 @@ const it: Record<I18nKey, string> = {
   'dialog.continue_using': 'Continua',
   'dialog.leave_session': 'Esci',
   'dialog.sw_update_title': 'Nuovo aggiornamento',
-  'dialog.sw_update_msg': 'È disponibile una nuova versione. Aggiorna la pagina per applicarla.',
+  'dialog.sw_update_msg': 'È disponibile una nuova versione.\nAggiorna la pagina per applicarla.',
   'dialog.feature_refresh_title': 'È necessario aggiornare la pagina',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE è stato aggiornato. Aggiorna la pagina per continuare a usarlo normalmente.',
+    'MUSIXQUARE è stato aggiornato.\nAggiorna la pagina per continuare a usarlo normalmente.',
   'dialog.reconnect_ask': 'Vuoi provare a riconnetterti?',
   'dialog.reconnect': 'Riconnetti',
   'dialog.go_back': 'Indietro',

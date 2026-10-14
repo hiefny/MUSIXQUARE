@@ -428,9 +428,9 @@ const te: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది. దీన్ని వర్తింపజేయడానికి పేజీని రిఫ్రెష్ చేయండి.',
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది.\nదీన్ని వర్తింపజేయడానికి పేజీని రిఫ్రెష్ చేయండి.',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది. దీన్ని వర్తింపజేయడానికి యాప్‌ను మళ్లీ తెరవండి.',
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది.\nదీన్ని వర్తింపజేయడానికి యాప్‌ను మళ్లీ తెరవండి.',
   'chat.system_audio_started_system_message':
     'సిస్టమ్ ఆడియో షేరింగ్ ప్రారంభమైంది. హోస్ట్, అతిథి పరికరాల మధ్య కొద్దిపాటి ఆలస్యం సాధారణం. ప్రతిధ్వనిని నివారించడానికి హోస్ట్ పరికరం వాల్యూమ్‌ను తగ్గించాలని సిఫార్సు చేస్తున్నాం.',
   'chat.system_audio_stopped_system_message':
@@ -720,10 +720,10 @@ const te: Record<I18nKey, string> = {
   'dialog.continue_using': 'కొనసాగించు',
   'dialog.leave_session': 'బయటకు వెళ్లు',
   'dialog.sw_update_title': 'అప్‌డేట్',
-  'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది. అప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
+  'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nఅప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
   'dialog.feature_refresh_title': 'రిఫ్రెష్ చేయాలి',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE అప్‌డేట్ అయింది. ఎప్పటిలాగే ఉపయోగించడం కొనసాగించడానికి రిఫ్రెష్ చేయండి.',
+    'MUSIXQUARE అప్‌డేట్ అయింది.\nఎప్పటిలాగే ఉపయోగించడం కొనసాగించడానికి రిఫ్రెష్ చేయండి.',
   'dialog.reconnect_ask': 'మళ్లీ కనెక్ట్ కావాలా?',
   'dialog.reconnect': 'మళ్లీ కనెక్ట్ చేయి',
   'dialog.go_back': 'వెనక్కి వెళ్లు',

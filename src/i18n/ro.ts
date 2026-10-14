@@ -430,9 +430,9 @@ const ro: Record<I18nKey, string> = {
     'Fișierul acestei piste este foarte mare și este posibil să nu fie redat pe unele dispozitive.',
   'chat.device_track_unavailable_system_message': 'Acest dispozitiv nu poate reda pista curentă.',
   'chat.update_available_tab_system_message':
-    'Este disponibilă o versiune nouă a MUSIXQUARE. Reîncarcă pagina pentru a o folosi.',
+    'Este disponibilă o versiune nouă a MUSIXQUARE.\nReîncarcă pagina pentru a o folosi.',
   'chat.update_available_app_system_message':
-    'Este disponibilă o versiune nouă a MUSIXQUARE. Redeschide aplicația pentru a o folosi.',
+    'Este disponibilă o versiune nouă a MUSIXQUARE.\nRedeschide aplicația pentru a o folosi.',
   'chat.system_audio_started_system_message':
     'Partajarea sunetului sistemului a început. O mică latență între dispozitivul gazdă și dispozitivele invitate este normală. Îți recomandăm să reduci volumul dispozitivului gazdă pentru a evita ecoul.',
   'chat.system_audio_stopped_system_message':
@@ -733,10 +733,10 @@ const ro: Record<I18nKey, string> = {
   'dialog.continue_using': 'Continuă',
   'dialog.leave_session': 'Părăsește',
   'dialog.sw_update_title': 'Actualizare',
-  'dialog.sw_update_msg': 'Este disponibilă o versiune nouă. Reîncarcă pentru actualizare.',
+  'dialog.sw_update_msg': 'Este disponibilă o versiune nouă.\nReîncarcă pentru actualizare.',
   'dialog.feature_refresh_title': 'Este necesară reîncărcarea',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE a fost actualizat. Reîncarcă pagina pentru a-l folosi în continuare normal.',
+    'MUSIXQUARE a fost actualizat.\nReîncarcă pagina pentru a-l folosi în continuare normal.',
   'dialog.reconnect_ask': 'Vrei să te reconectezi?',
   'dialog.reconnect': 'Reconectează',
   'dialog.go_back': 'Înapoi',

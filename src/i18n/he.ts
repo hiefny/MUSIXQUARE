@@ -415,9 +415,9 @@ const he: Record<I18nKey, string> = {
     'הקובץ של הרצועה גדול מאוד וייתכן שלא יתנגן בחלק מהמכשירים.',
   'chat.device_track_unavailable_system_message': 'המכשיר הזה לא יכול לנגן את הרצועה הנוכחית.',
   'chat.update_available_tab_system_message':
-    'זמינה גרסה חדשה של MUSIXQUARE. יש לרענן את הדף כדי להחיל אותה.',
+    'זמינה גרסה חדשה של MUSIXQUARE.\nיש לרענן את הדף כדי להחיל אותה.',
   'chat.update_available_app_system_message':
-    'זמינה גרסה חדשה של MUSIXQUARE. יש לפתוח מחדש את האפליקציה כדי להחיל אותה.',
+    'זמינה גרסה חדשה של MUSIXQUARE.\nיש לפתוח מחדש את האפליקציה כדי להחיל אותה.',
   'chat.system_audio_started_system_message':
     'שיתוף שמע המערכת התחיל. עיכוב קל בין המארח למכשירי האורחים הוא תקין. מומלץ להנמיך את עוצמת הקול במכשיר המארח כדי למנוע הד.',
   'chat.system_audio_stopped_system_message':
@@ -698,10 +698,10 @@ const he: Record<I18nKey, string> = {
   'dialog.continue_using': 'המשך',
   'dialog.leave_session': 'יציאה',
   'dialog.sw_update_title': 'עדכון',
-  'dialog.sw_update_msg': 'גרסה חדשה מוכנה. יש לרענן כדי לעדכן.',
+  'dialog.sw_update_msg': 'גרסה חדשה מוכנה.\nיש לרענן כדי לעדכן.',
   'dialog.feature_refresh_title': 'נדרש רענון',
   'dialog.feature_refresh_msg':
-    'בוצע עדכון ל-MUSIXQUARE. כדי להמשיך להשתמש בו כרגיל, יש לרענן את הדף.',
+    'בוצע עדכון ל-MUSIXQUARE.\nכדי להמשיך להשתמש בו כרגיל, יש לרענן את הדף.',
   'dialog.reconnect_ask': 'להתחבר מחדש?',
   'dialog.reconnect': 'חיבור מחדש',
   'dialog.go_back': 'חזרה',

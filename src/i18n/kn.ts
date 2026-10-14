@@ -433,9 +433,9 @@ const kn: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'ಈ ಸಾಧನವು ಪ್ರಸ್ತುತ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಪ್ಲೇ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ. ಅನ್ವಯಿಸಲು ಪುಟವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ.\nಅನ್ವಯಿಸಲು ಪುಟವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ. ಅನ್ವಯಿಸಲು ಆ್ಯಪ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆಯಿರಿ.',
+    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ.\nಅನ್ವಯಿಸಲು ಆ್ಯಪ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆಯಿರಿ.',
   'chat.system_audio_started_system_message':
     'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಪ್ರಾರಂಭವಾಗಿದೆ. ಹೋಸ್ಟ್ ಮತ್ತು ಅತಿಥಿ ಸಾಧನಗಳ ನಡುವೆ ಸ್ವಲ್ಪ ವಿಳಂಬ ಸಹಜ. ಪ್ರತಿಧ್ವನಿ ತಪ್ಪಿಸಲು ಹೋಸ್ಟ್ ಸಾಧನದ ಧ್ವನಿಮಟ್ಟ ಕಡಿಮೆ ಮಾಡುವಂತೆ ಶಿಫಾರಸು ಮಾಡುತ್ತೇವೆ.',
   'chat.system_audio_stopped_system_message':
@@ -725,10 +725,10 @@ const kn: Record<I18nKey, string> = {
   'dialog.continue_using': 'ಮುಂದುವರಿಸಿ',
   'dialog.leave_session': 'ಹೊರಡಿ',
   'dialog.sw_update_title': 'ನವೀಕರಿಸಿ',
-  'dialog.sw_update_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ. ನವೀಕರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+  'dialog.sw_update_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nನವೀಕರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
   'dialog.feature_refresh_title': 'ರಿಫ್ರೆಶ್ ಮಾಡಬೇಕಾಗಿದೆ',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE ನವೀಕರಿಸಲಾಗಿದೆ. ಎಂದಿನಂತೆ ಬಳಸುವುದನ್ನು ಮುಂದುವರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+    'MUSIXQUARE ನವೀಕರಿಸಲಾಗಿದೆ.\nಎಂದಿನಂತೆ ಬಳಸುವುದನ್ನು ಮುಂದುವರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
   'dialog.reconnect_ask': 'ಮರುಸಂಪರ್ಕಿಸಬೇಕೆ?',
   'dialog.reconnect': 'ಮರುಸಂಪರ್ಕಿಸಿ',
   'dialog.go_back': 'ಹಿಂದೆ ಹೋಗಿ',

@@ -431,9 +431,9 @@ const sv: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Den här enheten kan inte spela det aktuella spåret.',
   'chat.update_available_tab_system_message':
-    'Det finns en ny version av MUSIXQUARE. Uppdatera sidan för att börja använda den.',
+    'Det finns en ny version av MUSIXQUARE.\nUppdatera sidan för att börja använda den.',
   'chat.update_available_app_system_message':
-    'Det finns en ny version av MUSIXQUARE. Öppna appen igen för att börja använda den.',
+    'Det finns en ny version av MUSIXQUARE.\nÖppna appen igen för att börja använda den.',
   'chat.system_audio_started_system_message':
     'Delning av systemljud har startat. En liten fördröjning mellan värd- och gästenheter är normal. Vi rekommenderar att du sänker värdenhetens volym för att undvika eko.',
   'chat.system_audio_stopped_system_message':
@@ -726,10 +726,10 @@ const sv: Record<I18nKey, string> = {
   'dialog.continue_using': 'Fortsätt',
   'dialog.leave_session': 'Lämna',
   'dialog.sw_update_title': 'Uppdatering',
-  'dialog.sw_update_msg': 'En ny version är klar. Uppdatera sidan för att installera den.',
+  'dialog.sw_update_msg': 'En ny version är klar.\nUppdatera sidan för att installera den.',
   'dialog.feature_refresh_title': 'Sidan behöver uppdateras',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE har uppdaterats. Uppdatera sidan för att fortsätta använda det som vanligt.',
+    'MUSIXQUARE har uppdaterats.\nUppdatera sidan för att fortsätta använda det som vanligt.',
   'dialog.reconnect_ask': 'Vill du ansluta igen?',
   'dialog.reconnect': 'Anslut igen',
   'dialog.go_back': 'Gå tillbaka',

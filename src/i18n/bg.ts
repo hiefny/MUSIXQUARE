@@ -430,9 +430,9 @@ const bg: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Това устройство не може да възпроизведе текущата песен.',
   'chat.update_available_tab_system_message':
-    'Има нова версия на MUSIXQUARE. Ще се приложи, когато опресниш страницата.',
+    'Има нова версия на MUSIXQUARE.\nЩе се приложи, когато опресниш страницата.',
   'chat.update_available_app_system_message':
-    'Има нова версия на MUSIXQUARE. Ще се приложи, когато отвориш приложението отново.',
+    'Има нова версия на MUSIXQUARE.\nЩе се приложи, когато отвориш приложението отново.',
   'chat.system_audio_started_system_message':
     'Споделянето на системен звук започна. Леко закъснение между устройствата на хоста и гостите е нормално. Препоръчваме да намалиш звука на устройството на хоста, за да избегнеш ехо.',
   'chat.system_audio_stopped_system_message':
@@ -725,10 +725,10 @@ const bg: Record<I18nKey, string> = {
   'dialog.continue_using': 'Продължаване',
   'dialog.leave_session': 'Напускане',
   'dialog.sw_update_title': 'Актуализация',
-  'dialog.sw_update_msg': 'Нова версия е готова. Опресни, за да актуализираш.',
+  'dialog.sw_update_msg': 'Нова версия е готова.\nОпресни, за да актуализираш.',
   'dialog.feature_refresh_title': 'Нужно е опресняване',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE се обнови. Опресни страницата, за да продължиш да го използваш нормално.',
+    'MUSIXQUARE се обнови.\nОпресни страницата, за да продължиш да го използваш нормално.',
   'dialog.reconnect_ask': 'Искаш ли да се свържеш отново?',
   'dialog.reconnect': 'Свържи отново',
   'dialog.go_back': 'Назад',

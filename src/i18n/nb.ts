@@ -428,9 +428,9 @@ const nb: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Denne enheten kan ikke spille av gjeldende spor.',
   'chat.update_available_tab_system_message':
-    'Det finnes en ny versjon av MUSIXQUARE. Oppdater siden for å ta den i bruk.',
+    'Det finnes en ny versjon av MUSIXQUARE.\nOppdater siden for å ta den i bruk.',
   'chat.update_available_app_system_message':
-    'Det finnes en ny versjon av MUSIXQUARE. Åpne appen på nytt for å ta den i bruk.',
+    'Det finnes en ny versjon av MUSIXQUARE.\nÅpne appen på nytt for å ta den i bruk.',
   'chat.system_audio_started_system_message':
     'Deling av systemlyd er startet. En liten forsinkelse mellom vertens og gjestenes enheter er normal. Vi anbefaler å senke volumet på vertsenheten for å unngå ekko.',
   'chat.system_audio_stopped_system_message':
@@ -720,10 +720,10 @@ const nb: Record<I18nKey, string> = {
   'dialog.continue_using': 'Fortsett',
   'dialog.leave_session': 'Forlat',
   'dialog.sw_update_title': 'Oppdatering',
-  'dialog.sw_update_msg': 'En ny versjon er klar. Oppdater siden for å ta den i bruk.',
+  'dialog.sw_update_msg': 'En ny versjon er klar.\nOppdater siden for å ta den i bruk.',
   'dialog.feature_refresh_title': 'Siden må oppdateres',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE er oppdatert. Oppdater siden for å fortsette å bruke det som vanlig.',
+    'MUSIXQUARE er oppdatert.\nOppdater siden for å fortsette å bruke det som vanlig.',
   'dialog.reconnect_ask': 'Vil du koble til på nytt?',
   'dialog.reconnect': 'Tilkoble igjen',
   'dialog.go_back': 'Gå tilbake',

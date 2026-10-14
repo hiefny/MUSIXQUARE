@@ -435,9 +435,9 @@ const el: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Αυτή η συσκευή δεν μπορεί να αναπαραγάγει το τρέχον κομμάτι.',
   'chat.update_available_tab_system_message':
-    'Υπάρχει νέα έκδοση του MUSIXQUARE. Ανανεώστε τη σελίδα για να ενεργοποιηθεί.',
+    'Υπάρχει νέα έκδοση του MUSIXQUARE.\nΑνανεώστε τη σελίδα για να ενεργοποιηθεί.',
   'chat.update_available_app_system_message':
-    'Υπάρχει νέα έκδοση του MUSIXQUARE. Ανοίξτε ξανά την εφαρμογή για να ενεργοποιηθεί.',
+    'Υπάρχει νέα έκδοση του MUSIXQUARE.\nΑνοίξτε ξανά την εφαρμογή για να ενεργοποιηθεί.',
   'chat.system_audio_started_system_message':
     'Η κοινοποίηση ήχου συστήματος ξεκίνησε. Μια μικρή καθυστέρηση μεταξύ της συσκευής του οικοδεσπότη και των συσκευών των μελών είναι φυσιολογική. Συνιστάται να μειώσετε την ένταση της συσκευής του οικοδεσπότη για να αποφύγετε την ηχώ.',
   'chat.system_audio_stopped_system_message':
@@ -738,10 +738,10 @@ const el: Record<I18nKey, string> = {
   'dialog.continue_using': 'Συνέχεια',
   'dialog.leave_session': 'Αποχώρηση',
   'dialog.sw_update_title': 'Ενημέρωση',
-  'dialog.sw_update_msg': 'Μια νέα έκδοση είναι έτοιμη. Ανανεώστε για ενημέρωση.',
+  'dialog.sw_update_msg': 'Μια νέα έκδοση είναι έτοιμη.\nΑνανεώστε για ενημέρωση.',
   'dialog.feature_refresh_title': 'Απαιτείται ανανέωση',
   'dialog.feature_refresh_msg':
-    'Το MUSIXQUARE ενημερώθηκε. Ανανεώστε τη σελίδα για να συνεχίσετε να το χρησιμοποιείτε κανονικά.',
+    'Το MUSIXQUARE ενημερώθηκε.\nΑνανεώστε τη σελίδα για να συνεχίσετε να το χρησιμοποιείτε κανονικά.',
   'dialog.reconnect_ask': 'Θέλετε να συνδεθείτε ξανά;',
   'dialog.reconnect': 'Επανασύνδεση',
   'dialog.go_back': 'Επιστροφή',

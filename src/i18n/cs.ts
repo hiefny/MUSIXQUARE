@@ -428,9 +428,9 @@ const cs: Record<I18nKey, string> = {
     'Soubor této skladby je velmi velký a na některých zařízeních se nemusí přehrát.',
   'chat.device_track_unavailable_system_message': 'Toto zařízení nemůže přehrát aktuální skladbu.',
   'chat.update_available_tab_system_message':
-    'Je k dispozici nová verze MUSIXQUARE. Projeví se po opětovném načtení stránky.',
+    'Je k dispozici nová verze MUSIXQUARE.\nProjeví se po opětovném načtení stránky.',
   'chat.update_available_app_system_message':
-    'Je k dispozici nová verze MUSIXQUARE. Projeví se po opětovném otevření aplikace.',
+    'Je k dispozici nová verze MUSIXQUARE.\nProjeví se po opětovném otevření aplikace.',
   'chat.system_audio_started_system_message':
     'Sdílení systémového zvuku bylo spuštěno. Mírné zpoždění mezi zařízením hostitele a zařízeními účastníků je běžné. Doporučujeme snížit hlasitost zařízení hostitele, aby nevznikala ozvěna.',
   'chat.system_audio_stopped_system_message':
@@ -724,10 +724,10 @@ const cs: Record<I18nKey, string> = {
   'dialog.continue_using': 'Pokračovat',
   'dialog.leave_session': 'Odejít',
   'dialog.sw_update_title': 'Aktualizace',
-  'dialog.sw_update_msg': 'Je připravena nová verze. Pro aktualizaci načtěte stránku znovu.',
+  'dialog.sw_update_msg': 'Je připravena nová verze.\nPro aktualizaci načtěte stránku znovu.',
   'dialog.feature_refresh_title': 'Je potřeba načíst stránku znovu',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE byl aktualizován. Chcete-li ho dál normálně používat, načtěte stránku znovu.',
+    'MUSIXQUARE byl aktualizován.\nChcete-li ho dál normálně používat, načtěte stránku znovu.',
   'dialog.reconnect_ask': 'Chcete se znovu připojit?',
   'dialog.reconnect': 'Připojit znovu',
   'dialog.go_back': 'Zpět',

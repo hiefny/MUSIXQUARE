@@ -438,9 +438,9 @@ const ta: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'இந்தச் சாதனத்தால் தற்போதைய டிராக்கை இயக்க முடியாது.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்தப் பக்கத்தை மீண்டும் ஏற்றவும்.',
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது.\nஅதைச் செயல்படுத்தப் பக்கத்தை மீண்டும் ஏற்றவும்.',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது. அதைச் செயல்படுத்தப் பயன்பாட்டை மீண்டும் திறக்கவும்.',
+    'MUSIXQUARE-இன் புதிய பதிப்பு கிடைக்கிறது.\nசெயல்படுத்தப் பயன்பாட்டை மீண்டும் திறக்கவும்.',
   'chat.system_audio_started_system_message':
     'சிஸ்டம் ஆடியோ பகிர்வு தொடங்கியது. ஹோஸ்ட் மற்றும் விருந்தினர் சாதனங்களுக்கு இடையிலான சிறிய தாமதம் இயல்பானது. எதிரொலியைத் தவிர்க்க ஹோஸ்ட் சாதனத்தின் ஒலியளவைக் குறைக்கப் பரிந்துரைக்கிறோம்.',
   'chat.system_audio_stopped_system_message':
@@ -737,10 +737,10 @@ const ta: Record<I18nKey, string> = {
   'dialog.continue_using': 'தொடர்',
   'dialog.leave_session': 'வெளியேறு',
   'dialog.sw_update_title': 'புதுப்பிப்பு',
-  'dialog.sw_update_msg': 'புதிய பதிப்பு தயாராக உள்ளது. புதுப்பிக்க மீண்டும் ஏற்றவும்.',
+  'dialog.sw_update_msg': 'புதிய பதிப்பு தயாராக உள்ளது.\nபுதுப்பிக்க மீண்டும் ஏற்றவும்.',
   'dialog.feature_refresh_title': 'மீண்டும் ஏற்ற வேண்டும்',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE புதுப்பிக்கப்பட்டுள்ளது. வழக்கம்போல் தொடர்ந்து பயன்படுத்தப் பக்கத்தை மீண்டும் ஏற்றவும்.',
+    'MUSIXQUARE புதுப்பிக்கப்பட்டுள்ளது.\nவழக்கம்போல் தொடர்ந்து பயன்படுத்தப் பக்கத்தை மீண்டும் ஏற்றவும்.',
   'dialog.reconnect_ask': 'மீண்டும் இணைக்க விரும்புகிறீர்களா?',
   'dialog.reconnect': 'மீண்டும் இணை',
   'dialog.go_back': 'திரும்பிச் செல்',

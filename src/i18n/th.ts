@@ -416,9 +416,9 @@ const th: Record<I18nKey, string> = {
     'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
   'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นรายการปัจจุบันไม่ได้',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE มีเวอร์ชันใหม่ โหลดหน้าใหม่เพื่อใช้งานเวอร์ชันนี้',
+    'MUSIXQUARE มีเวอร์ชันใหม่\nโหลดหน้าใหม่เพื่อใช้งานเวอร์ชันนี้',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE มีเวอร์ชันใหม่ เปิดแอปอีกครั้งเพื่อใช้งานเวอร์ชันนี้',
+    'MUSIXQUARE มีเวอร์ชันใหม่\nเปิดแอปอีกครั้งเพื่อใช้งานเวอร์ชันนี้',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างอุปกรณ์ของเจ้าของห้องกับผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์เจ้าของห้องเพื่อเลี่ยงเสียงสะท้อน',
   'chat.system_audio_stopped_system_message':
@@ -701,9 +701,9 @@ const th: Record<I18nKey, string> = {
   'dialog.continue_using': 'ใช้ต่อ',
   'dialog.leave_session': 'ออก',
   'dialog.sw_update_title': 'อัปเดต',
-  'dialog.sw_update_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว โหลดหน้าใหม่เพื่ออัปเดต',
+  'dialog.sw_update_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nโหลดหน้าใหม่เพื่ออัปเดต',
   'dialog.feature_refresh_title': 'จำเป็นต้องรีเฟรช',
-  'dialog.feature_refresh_msg': 'MUSIXQUARE อัปเดตแล้ว รีเฟรชเพื่อใช้งานต่อได้ตามปกติ',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE อัปเดตแล้ว\nรีเฟรชเพื่อใช้งานต่อได้ตามปกติ',
   'dialog.reconnect_ask': 'ต้องการเชื่อมต่อใหม่ไหม?',
   'dialog.reconnect': 'เชื่อมต่อใหม่',
   'dialog.go_back': 'ย้อนกลับ',

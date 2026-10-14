@@ -433,9 +433,9 @@ const ms: Record<I18nKey, string> = {
     'Saiz fail trek ini sangat besar dan mungkin tidak dapat dimainkan pada sesetengah peranti.',
   'chat.device_track_unavailable_system_message': 'Peranti ini tidak dapat memainkan trek semasa.',
   'chat.update_available_tab_system_message':
-    'Versi baharu MUSIXQUARE tersedia. Muat semula halaman untuk menggunakannya.',
+    'Versi baharu MUSIXQUARE tersedia.\nMuat semula halaman untuk menggunakannya.',
   'chat.update_available_app_system_message':
-    'Versi baharu MUSIXQUARE tersedia. Buka semula aplikasi untuk menggunakannya.',
+    'Versi baharu MUSIXQUARE tersedia.\nBuka semula aplikasi untuk menggunakannya.',
   'chat.system_audio_started_system_message':
     'Perkongsian audio sistem telah bermula. Sedikit kependaman antara peranti hos dan tetamu adalah perkara biasa. Kami mengesyorkan agar kelantangan peranti hos dikecilkan untuk mengelakkan gema.',
   'chat.system_audio_stopped_system_message':
@@ -731,10 +731,10 @@ const ms: Record<I18nKey, string> = {
   'dialog.continue_using': 'Teruskan',
   'dialog.leave_session': 'Keluar',
   'dialog.sw_update_title': 'Kemas Kini',
-  'dialog.sw_update_msg': 'Versi baharu sudah sedia. Muat semula untuk mengemas kini.',
+  'dialog.sw_update_msg': 'Versi baharu sudah sedia.\nMuat semula untuk mengemas kini.',
   'dialog.feature_refresh_title': 'Perlu dimuat semula',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE telah dikemas kini. Muat semula untuk terus menggunakannya seperti biasa.',
+    'MUSIXQUARE telah dikemas kini.\nMuat semula untuk terus menggunakannya seperti biasa.',
   'dialog.reconnect_ask': 'Adakah anda mahu menyambung semula?',
   'dialog.reconnect': 'Sambung semula',
   'dialog.go_back': 'Kembali',

@@ -112,6 +112,10 @@ let _proPlaybackControlLoading = false;
 let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
 let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
+// What the transport button currently shows (true = Pause icon). A press acts
+// on this, not on the room state, so a silent endpoint showing Play never
+// sends a room-wide Pause.
+let _playIconShowsPlaying = false;
 let _mediaSourcePreviousFocus: HTMLElement | null = null;
 let _youtubePopupPreviousFocus: HTMLElement | null = null;
 let _playButtonMediaEnabled = false;
@@ -1214,6 +1218,7 @@ export function initPlayerControls(): void {
   _proPlaybackTransitionLoading = false;
   _proPlaybackControlToken = null;
   _proPlaybackControlKind = null;
+  _playIconShowsPlaying = false;
   _playButtonMediaEnabled = getUiElement('play-btn')?.getAttribute('aria-disabled') === 'false';
   // Re-initialization must never inherit an interaction shield owned by a
   // disposed subscription scope.
@@ -1780,6 +1785,7 @@ export function initPlayerControls(): void {
     if (_proPlaybackControlKind === 'pause') {
       playing = false;
     }
+    _playIconShowsPlaying = playing;
     const btn = getUiElement('play-btn');
     const icon = btn?.querySelector('path');
     if (icon) {
@@ -1943,7 +1949,10 @@ export function initPlayerControls(): void {
 
   // Player actions
   _busScope.on('player:toggle-play', () => {
-    togglePlay();
+    // A PRO endpoint that is still preparing shows a spinner the pointer cannot
+    // press; keep the keyboard path equally inert until media is ready.
+    if (_proPlaybackTransitionLoading && getRoomContext().kind === 'pro') return;
+    togglePlay({ displayedPlaying: _playIconShowsPlaying });
   });
 
   // Playlist actions

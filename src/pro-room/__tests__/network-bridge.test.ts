@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import {
   getProStartObservations,
@@ -881,6 +882,48 @@ describe('coordinator-free PRO server channel', () => {
       bridge.disconnect();
     }
   });
+
+  it.each([
+    ['released', 'ready'],
+    ['failed twice', 'failed'],
+  ] as const)(
+    'shows the loading state while a YouTube restore prepares until it is %s',
+    async (_label, outcome) => {
+      const { bridge, controller, current, prepare, unregister } =
+        await calibratedSnapshotRestore();
+      const loading: boolean[] = [];
+      const stopListening = bus.on('pro-playback:transition-loading', (value) => {
+        loading.push(value);
+      });
+      const duringPrepare: boolean[][] = [];
+      prepare.mockImplementation(async (request) => {
+        duringPrepare.push([...loading]);
+        return outcome === 'ready'
+          ? readyFor(request)
+          : {
+              status: 'failed' as const,
+              authority: request.authority,
+              queueItemId: request.queueItemId,
+              reason: 'timeout' as const,
+            };
+      });
+      try {
+        await controller.restorePersistedPlayback(current);
+        await vi.advanceTimersByTimeAsync(0);
+
+        // The silent iframe shows a spinner, never a pressable room control,
+        // and the spinner ends so a failed endpoint can be rejoined by Play.
+        expect(duringPrepare.length).toBeGreaterThan(0);
+        for (const seen of duringPrepare) expect(seen).toEqual([true]);
+        expect(loading).toEqual([true, false]);
+      } finally {
+        stopListening();
+        controller.resetPlaylistRuntime();
+        unregister();
+        bridge.disconnect();
+      }
+    },
+  );
 
   it('restores an exact paused snapshot immediately while the device clock is behind', async () => {
     vi.setSystemTime(1_000);

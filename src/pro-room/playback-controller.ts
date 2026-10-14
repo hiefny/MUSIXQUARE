@@ -2491,6 +2491,27 @@ function createImplementation(
         }
         if (prepared.status !== 'ready' || !isCurrent()) {
           cancelProPlaybackPreparation(attemptAuthority);
+          // The arm paused this endpoint while preparing. A YouTube rejoin that
+          // only timed out on a present player must not leave a running room
+          // silent here until the next server transition; rejoin directly
+          // (late, but audible) instead. A missing or locked player cannot.
+          if (
+            planYouTubeRelease &&
+            prepared.status === 'failed' &&
+            prepared.reason === 'timeout' &&
+            clock &&
+            isCurrent()
+          ) {
+            return reconcileDirectly(
+              createProPlaybackAuthorityToken({
+                roomId: roomCode,
+                roomEpoch,
+                basePlaybackRevision: playback.revision - 1,
+                transitionId: null,
+              }),
+              positionAtServerTime(playback, Date.now() + clock.offsetMs),
+            );
+          }
           return false;
         }
         if (plannedExecuteAtMs !== null) {
@@ -2548,20 +2569,27 @@ function createImplementation(
       }
     }
 
-    if (!isCurrent()) return false;
-    const result = await reconcileCurrentProPlaybackAuthority({
-      authority,
-      committedPlaybackRevision: playback.revision,
-      queueItemId: playback.queueItemId,
-      state: playback.state,
-      positionSeconds: canonicalPositionNow,
-      scheduleDelayMs: 0,
-      timingMode: 'scheduled-control',
-      youtubeSubIndex: playback.youtubeSubIndex,
-      youtubeVideoId: playback.youtubeVideoId,
-      isCurrent,
-    });
-    return result.status === 'applied' && isCurrent();
+    return reconcileDirectly(authority, canonicalPositionNow);
+
+    async function reconcileDirectly(
+      directAuthority: ProPlaybackAuthorityToken,
+      positionSeconds: number,
+    ): Promise<boolean> {
+      if (!isCurrent()) return false;
+      const result = await reconcileCurrentProPlaybackAuthority({
+        authority: directAuthority,
+        committedPlaybackRevision: playback.revision,
+        queueItemId: playback.queueItemId,
+        state: playback.state,
+        positionSeconds,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+        youtubeSubIndex: playback.youtubeSubIndex,
+        youtubeVideoId: playback.youtubeVideoId,
+        isCurrent,
+      });
+      return result.status === 'applied' && isCurrent();
+    }
   }
 
   function reconciliationOptionsCover(

@@ -3305,6 +3305,36 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       expect(committed.scheduleDelayMs).toBeGreaterThanOrEqual(1_400);
     });
 
+    it('rejoins directly instead of staying silent when preparation fails', async () => {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
+        ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
+        revision: 2,
+      });
+      prepareMedia.mockClear();
+      commitMedia.mockClear();
+      prepareMedia.mockImplementationOnce(async (request) => ({
+        status: 'failed',
+        authority: request.authority,
+        queueItemId: request.queueItemId,
+        reason: 'timeout',
+      }));
+
+      await expect(requestActiveProRoomPlaybackReconciliation()).resolves.toBe(true);
+
+      // The arm paused the endpoint while preparing; a direct rejoin keeps the
+      // running room audible here instead of waiting for a server transition.
+      expect(prepareMedia).toHaveBeenCalledOnce();
+      expect(commitMedia).toHaveBeenCalledOnce();
+      const direct = commitMedia.mock.calls[0]![0];
+      expect(direct.authority.transitionId).toBeNull();
+      expect(direct.scheduleDelayMs).toBe(0);
+      expect(direct.positionSeconds).toBeCloseTo(23, 0);
+    });
+
     it('keeps the established rebased release after a second overrun', async () => {
       await overrunningRendezvous(2);
 

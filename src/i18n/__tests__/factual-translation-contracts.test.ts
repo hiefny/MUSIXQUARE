@@ -27,7 +27,7 @@ const completedLanguageContracts = {
   es: [
     'navegador compatible',
     'navegadores compatibles',
-    'ordenadores',
+    'computadoras',
     'dispositivo emisor',
     'volumen',
     /fotograma|precis/i,

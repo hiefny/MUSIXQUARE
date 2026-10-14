@@ -34,7 +34,7 @@ const da: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Sæt det automatiske billedskift på pause',
   'common.message': 'Besked',
   'common.mix': 'Mix',
-  'common.wait': 'Vent…',
+  'common.wait': 'Et øjeblik…',
   'common.guest': 'Gæst',
   'common.help': 'Hjælp',
   'common.increase': 'Forøg',
@@ -53,7 +53,7 @@ const da: Record<I18nKey, string> = {
     'Log ind med Google for at beholde dit kaldenavn på tværs af rum. Du kan fortsætte uden at logge ind.',
   'account.google_continue': 'Fortsæt med Google',
   'account.terms': 'Vilkår',
-  'account.privacy': 'Privatliv',
+  'account.privacy': 'Privatlivspolitik',
   'account.unavailable': 'Login er midlertidigt utilgængeligt. Du kan fortsætte uden det.',
   'account.account_title': 'Konto',
   'account.stats_sessions_label': 'Sessioner, du har deltaget i',
@@ -87,7 +87,7 @@ const da: Record<I18nKey, string> = {
   'common.original': 'Original',
   'common.left': 'Venstre',
   'common.right': 'Højre',
-  'common.woofer': 'Basenhed',
+  'common.woofer': 'Woofer',
   'common.connected': 'Forbundet',
   'common.disconnected': 'Afbrudt',
   'common.revoke': 'Tilbagekald',
@@ -244,7 +244,7 @@ const da: Record<I18nKey, string> = {
   'settings.invite_code': 'Invitationskode',
   'settings.leave_session': 'Forlad sessionen',
   'connect.rename_reserved': 'Dette kaldenavn er reserveret.',
-  'connect.rename_profanity': 'Der blev registreret upassende ord.',
+  'connect.rename_profanity': 'Kaldenavnet indeholder upassende ord.',
   'settings.devices_title': 'Forbundne enheder',
   'settings.invite_share': 'Inviter og del',
   'settings.subtab.general': 'Generelt',
@@ -372,7 +372,7 @@ const da: Record<I18nKey, string> = {
   'setup.connect_devices': 'Forbind dine andre enheder for at begynde.',
   'setup.enter_code_connect': 'Invitationskode',
   'setup.last_step': 'Lad os komme i gang!',
-  'setup.joining': 'Deltager…',
+  'setup.joining': 'Deltager i rummet…',
   'setup.six_digit_enter': 'Indtast det 6-cifrede tal',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -405,8 +405,8 @@ const da: Record<I18nKey, string> = {
   'chat.cmd_muted': '{{name}} kan ikke længere sende chatbeskeder',
   'chat.cmd_unmuted': '{{name}} kan sende chatbeskeder igen',
   'chat.cmd_clear': 'Chatten er blevet ryddet',
-  'chat.cmd_filter_on': 'Bandeordsfilter er slået til',
-  'chat.cmd_filter_off': 'Bandeordsfilter er slået fra',
+  'chat.cmd_filter_on': 'Bandeordsfilteret er slået til',
+  'chat.cmd_filter_off': 'Bandeordsfilteret er slået fra',
   'chat.cmd_slowmode_on': 'Langsom tilstand: {{sec}} sekunder mellem beskeder',
   'chat.cmd_slowmode_off': 'Langsom tilstand er slået fra',
   'chat.cmd_slowmode_wait': 'Vent {{sec}} sekunder, før du sender',
@@ -422,7 +422,7 @@ const da: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'Springer nummeret over: Formatet understøttes ikke på nogle enheder.',
   'chat.large_track_playback_system_message':
-    'Dette nummer er meget stort, så der kan opstå forsinkelser under brug.',
+    'Filen til dette nummer er meget stor, så der kan opstå forsinkelser under brug.',
   'chat.large_local_track_system_message':
     'Filen til dette nummer er meget stor og kan muligvis ikke afspilles på nogle enheder.',
   'chat.device_track_unavailable_system_message':
@@ -444,7 +444,7 @@ const da: Record<I18nKey, string> = {
   'chat.pinned_close': 'Luk meddelelsen',
   'chat.cmd_whisper_from': 'Privat besked fra {{name}}',
   'chat.cmd_whisper_to': 'Privat besked til {{name}}',
-  'chat.cmd_target_not_found': 'Modtageren blev ikke fundet: {{target}}',
+  'chat.cmd_target_not_found': 'Enheden blev ikke fundet: {{target}}',
   'chat.cmd_no_permission': 'Du har ikke tilladelse',
   'chat.cmd_nick_changed': 'Navnet er ændret til {{name}}',
   'chat.cmd_already_op': '{{name}} er allerede administrator',
@@ -606,12 +606,13 @@ const da: Record<I18nKey, string> = {
   'toast.sync_not_ready': 'Ikke klar endnu.\nPrøv igen om lidt',
   'toast.sync_no_media':
     'Der er ingen medier at synkronisere.\nVælg først noget, der skal afspilles',
-  'toast.host_ad': 'Værten ser ud til at se en annonce',
+  'toast.host_ad': 'Værten ser vist en annonce',
   'toast.yt_sync_start': 'Synkroniserer…',
   'toast.yt_sync_done': 'Synkroniseringen er fuldført',
   'toast.yt_rendezvous_start': 'Justerer efter værten…',
   'toast.yt_rendezvous_done': 'Synkroniseringen er fuldført',
-  'toast.yt_rendezvous_host_paused': 'Værten har sat på pause; kun placeringen blev justeret',
+  'toast.yt_rendezvous_host_paused':
+    'Værten har sat afspilningen på pause; kun positionen blev justeret',
   'toast.yt_rendezvous_no_data': 'Der er endnu ingen afspilningsdata fra værten. Prøv igen om lidt',
   'toast.yt_rendezvous_timeout': 'Synkroniseringen mislykkedes. Prøv igen om lidt',
   'toast.yt_host_sync_sent': 'Signalet til automatisk synkronisering er sendt til deltagerne',
@@ -631,7 +632,7 @@ const da: Record<I18nKey, string> = {
   'transfer.demo_loading_short': 'Indlæser demonummer…',
   'transfer.file_requesting': 'Anmoder om filen…',
   'transfer.file_sending': 'Sender filen…',
-  'transfer.file_wait': 'Venter på filen…\nVent venligst',
+  'transfer.file_wait': 'Venter på filen…\nVent et øjeblik',
   'transfer.preload_done': 'Bruger den forudindlæste fil!',
   'transfer.preload_waiting': 'Venter på, at forudindlæsningen fuldføres…',
   // Remote file sharing (R2-backed transfer)
@@ -661,7 +662,7 @@ const da: Record<I18nKey, string> = {
   'transfer.recovery_failed': 'Filgenoprettelsen mislykkedes.\nPrøv igen.',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'HTTPS er påkrævet: Virker kun via en sikker forbindelse.',
+  'error.https_required': 'HTTPS er påkrævet: Appen virker kun via en sikker forbindelse.',
   'error.browser_update': 'Opdater din browser til en nyere version.',
   'error.load_failed': 'Indlæsningen mislykkedes: {{msg}}',
   'error.audio_decode_fail': 'Lydafkodningen mislykkedes!',
@@ -746,15 +747,13 @@ const da: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktivér PRO-rum',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
-  'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+  'pro.activation_account_title': 'Vælg en konto til dette PRO-rum',
+  'pro.activation_account_message': 'Vil du registrere dette rum på kontoen ”{{name}}”?',
+  'pro.activation_account_login_message': 'Log ind med den konto, du vil registrere dette rum på.',
+  'pro.activation_account_continue': 'Fortsæt',
+  'pro.activation_account_switch': 'Anden konto',
+  'pro.activation_account_unavailable': 'Kunne ikke bekræfte din konto. Prøv igen om lidt.',
+  'pro.activation_complete': 'Fuldfør registreringen',
   'pro.activation_message': 'Angiv en ny 8-cifret adgangskode til dette rum.',
   'pro.activation_pin_same': 'Vælg en anden adgangskode end den midlertidige.',
   'pro.claim_retry_title': 'Prøv PRO-linket igen?',
@@ -853,7 +852,7 @@ const da: Record<I18nKey, string> = {
     'Værten har 3 muligheder.<ul class="help-list"><li><strong>Indlæs lokal fil:</strong> Vælg musik på din enhed. Præcis synkronisering understøttes</li><li><strong>YouTube sammen:</strong> Videoer og afspilningslister understøttes. Kanaladskillelse og lydeffekter understøttes ikke</li><li><strong>Deling af systemlyd:</strong> Tilgængelig, når værten bruger en Chromium-baseret browser på en computer</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Du indtastede koden, men kan ikke oprette forbindelse:</strong> Kontrollér koden, og prøv igen om lidt. Virksomheds-, skole- eller VPN-netværk kan begrænse forbindelsen.</li><li><strong>Ustabil forbindelse:</strong> Lokale deltagere bør prøve at være tættere på routeren, og fjerndeltagere bør bruge en stabil internetforbindelse.</li><li><strong>Andre problemer:</strong> Kontrollér netværksstatussen, og genstart appen på alle enheder. Hvis du har spørgsmål, kan du se vores <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> eller kontakte os via e-mailadressen nederst.</li></ul>',
-  'chat.peer_connected': '{{name}} deltog',
+  'chat.peer_connected': '{{name}} sluttede sig til sessionen',
   'chat.tracks_added': '{{name}} tilføjede {{count}} numre',
   'chat.track_added_named': '{{name}} tilføjede 1 nummer: {{title}}',
   'chat.tracks_added_named': '{{name}} tilføjede {{count}} numre, herunder {{title}}',
@@ -867,7 +866,7 @@ const da: Record<I18nKey, string> = {
   'setup.invite_share_desc_html':
     'Forbind flere enheder trådløst<br>for at skabe et kraftfuldt lydsystem.<br>Brug en 6-cifret invitationskode til at oprette forbindelse.',
   'setup.play_together_desc_html':
-    'Når værten afspiller medier,<br>afspiller alle forbundne enheder synkroniseret.<br>Tryk på synkroniseringsknappen for at samordne afspilningen.',
+    'Når værten afspiller medier,<br>afspiller alle forbundne enheder synkroniseret.<br>Tryk på synkroniseringsknappen for at bringe enhederne i takt.',
   'setup.spatial_audio_desc_html':
     'Angiv en rolle for hver enhed.<br>Afspil venstre og højre lyd separat,<br>og mærk den dybe bas fra subwooferen.',
   'setup.advanced_audio_desc_html':

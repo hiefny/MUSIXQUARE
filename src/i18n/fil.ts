@@ -32,7 +32,7 @@ const fil: Record<I18nKey, string> = {
   'common.pause': 'I-pause',
   'setup.carousel_pause': 'I-pause ang awtomatikong paglipat ng slide',
   'common.message': 'Mensahe',
-  'common.mix': 'Halo',
+  'common.mix': 'Mix',
   'common.wait': 'Pakihintay...',
   'common.guest': 'Bisita',
   'common.help': 'Tulong',
@@ -52,7 +52,7 @@ const fil: Record<I18nKey, string> = {
     'Mag-sign in gamit ang Google para magamit ang parehong palayaw sa iba’t ibang kuwarto. Maaari kang magpatuloy nang hindi nagsa-sign in.',
   'account.google_continue': 'Magpatuloy gamit ang Google',
   'account.terms': 'Mga Tuntunin',
-  'account.privacy': 'Privacy',
+  'account.privacy': 'Patakaran sa Privacy',
   'account.unavailable':
     'Pansamantalang hindi available ang pag-sign in. Maaari kang magpatuloy nang wala ito.',
   'account.account_title': 'Account',
@@ -81,9 +81,9 @@ const fil: Record<I18nKey, string> = {
     'Made-delete ang palayaw mo, mga session sa pag-sign in, at mga pahintulot sa kuwarto na naka-link sa account. Ang content na ibinahagi sa isang kuwarto ay sumusunod sa patakaran sa pagpapanatili ng kuwartong iyon.',
   'account.delete_pending':
     'Dine-delete na ang account mo. Ligtas na nililinis ang mga pahintulot sa PRO at awtomatikong matatapos ang pag-delete.',
-  'common.previous': 'Nauna',
+  'common.previous': 'Nakaraan',
   'common.next_desc': 'Susunod',
-  'common.volume_percent': 'Lakas: {{val}}%',
+  'common.volume_percent': 'Volume: {{val}}%',
   'common.muted': 'Naka-mute',
   'common.original': 'Orihinal',
   'common.left': 'Kaliwa',
@@ -117,10 +117,10 @@ const fil: Record<I18nKey, string> = {
   'player.seek': 'Ilipat ang posisyon ng playback',
   'player.seek_unavailable_system_audio':
     'Hindi mababago ang posisyon ng playback habang ibinabahagi ang system audio',
-  'player.volume': 'Ayusin ang lakas',
+  'player.volume': 'Ayusin ang volume',
   'player.toggle_mute': 'I-on o i-off ang mute',
   'player.fullscreen': 'I-on o i-off ang full screen',
-  'player.prev_track': 'Naunang track',
+  'player.prev_track': 'Nakaraang track',
   'player.next_track': 'Susunod na track',
   'player.repeat_mode': 'Palitan ang repeat mode',
   'player.shuffle_mode': 'Palitan ang shuffle mode',
@@ -140,7 +140,7 @@ const fil: Record<I18nKey, string> = {
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Palawakin/isara ang playlist',
   'playlist.jump_to_current': 'Pumunta sa track na kasalukuyang nagpe-play',
-  'playlist.reorder_handle': 'Ayusin ang {{title}}, posisyon {{position}}',
+  'playlist.reorder_handle': 'Ilipat ang {{title}}, posisyon {{position}}',
   'playlist.reorder_position': '{{title}}, posisyon {{position}} sa {{total}}',
   'playlist.repeat_all': 'Naka-on ang pag-repeat sa lahat ng track',
   'playlist.repeat_one': 'Naka-on ang pag-repeat sa kasalukuyang track',
@@ -179,7 +179,7 @@ const fil: Record<I18nKey, string> = {
   'settings.ui_sounds': 'Mga Tunog ng UI',
   'settings.sync_settings': 'Pag-sync ng mga setting',
   'settings.sync_settings_desc':
-    'Sini-sync ng mga device na naka-on ito ang kanilang lakas at mga audio effect.',
+    'Sini-sync ng mga device na naka-on ito ang kanilang volume at mga audio effect.',
   'settings.virtual_effects_title': 'Mga virtual na effect',
   'settings.virtual_effects_desc':
     'Maglagay ng mga synthesized effect sa audio. Maaari itong magdulot ng matinding distortion.',
@@ -208,7 +208,7 @@ const fil: Record<I18nKey, string> = {
   'settings.light': 'Maliwanag',
   'player.visualizer_circular': 'Pabilog',
   'player.visualizer_spectrum': 'Spectrum',
-  'settings.language': 'Mga Setting ng Wika',
+  'settings.language': 'Wika · Language',
   'settings.language_select': 'Piliin',
   'settings.language_system': 'System',
   'settings.language_dialog_title': 'Pumili ng Wika',
@@ -222,7 +222,7 @@ const fil: Record<I18nKey, string> = {
   'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Advanced',
   'settings.rvb_off': 'Naka-off',
-  'settings.reverb_mix': 'Halo ng reverb',
+  'settings.reverb_mix': 'Mix ng reverb',
   'settings.reverb_decay': 'Decay ng reverb',
   'settings.reverb_predelay': 'Pre-delay ng reverb',
   'settings.reverb_lowcut': 'Low-cut ng reverb',
@@ -231,7 +231,7 @@ const fil: Record<I18nKey, string> = {
   'settings.predelay': 'Pre-delay',
 
   'settings.eq_title': 'Equalizer',
-  'settings.eq_bright': 'Maliwanag',
+  'settings.eq_bright': 'Malinaw',
   'settings.eq_warm': 'Mainit',
   'settings.eq_advanced': 'Advanced',
   'settings.eq_off': 'Naka-off',
@@ -261,9 +261,9 @@ const fil: Record<I18nKey, string> = {
   // ─── Koneksyon ───────────────────────────────────────────────────
   'connect.qr_title': 'Mag-imbita gamit ang QR o Link',
   'connect.device_list': '{{count}} Nakakonektang Device',
-  'connect.administrator_list': '{{count}} Admin',
+  'connect.administrator_list': '{{count}} Administrator',
   'connect.room_owner_role': 'May-ari ng kuwarto',
-  'connect.administrator_role': 'Admin',
+  'connect.administrator_role': 'Administrator',
   'connect.administrator_settings_aria':
     'I-edit ang mga pahintulot ng administrator para kay {{name}}',
   'connect.administrator_revoke_aria': 'Bawiin ang mga pahintulot ng administrator kay {{name}}',
@@ -565,10 +565,10 @@ const fil: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Dine-decode ang audio...',
   'toast.preparing_next': 'Inihahanda ang susunod na track... ({{name}})',
   'toast.preparing_next_pct': 'Inihahanda ang susunod na track... {{pct}}%',
-  'toast.op_status': '{{status}} ang pahintulot na {{label}}',
+  'toast.op_status': 'Pahintulot na {{label}}: {{status}}',
   'toast.file_read_error': 'Hindi mabasa ang file: {{name}}',
   'toast.host_ended_connection': 'Tinapos ng host ang koneksyon',
-  'toast.announcement_available': 'May bagong anunsyo.\nTingnan ang chat panel.',
+  'toast.announcement_available': 'May bagong abiso.\nTingnan ang chat panel.',
 
   // ─── Static na notification ──────────────────────────────────────
   'toast.copy_failed': 'Hindi makopya',
@@ -591,7 +591,7 @@ const fil: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Kailangan ang pahintulot na mag-post ng mga abiso sa chat.',
   'toast.room_owner_required': 'May-ari lang ng kuwarto ang makakapagbago nito.',
   'toast.system_audio_owner_required':
-    'Maaari mo lamang ibahagi ang audio mula sa tab na nagbukas ng kwarto.',
+    'Maaari mo lang ibahagi ang audio mula sa tab na nagbukas ng kuwarto.',
   'toast.host_only_youtube': 'Host lang ang makakapagdagdag ng mga link sa YouTube.',
   'toast.host_only_control': 'Host lang ang makakakontrol nito',
   'toast.host_setting_required': 'Host lang ang makakapagbago ng setting na ito',
@@ -763,15 +763,15 @@ const fil: Record<I18nKey, string> = {
   // ─── Mga PRO Room ────────────────────────────────────────────────
   'pro.activation_title': 'I-activate ang PRO room',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Pumili ng account para sa PRO room na ito',
+  'pro.activation_account_message': 'Irehistro ang kuwartong ito sa account na “{{name}}”?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Mag-sign in gamit ang account kung saan mo gustong irehistro ang kuwartong ito.',
+  'pro.activation_account_continue': 'Magpatuloy',
+  'pro.activation_account_switch': 'Ibang account',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Hindi namin ma-verify ang account mo. Pakisubukan muli maya-maya.',
+  'pro.activation_complete': 'Tapusin ang pagpaparehistro',
   'pro.activation_message': 'Magtakda ng bagong 8-digit na password para sa kuwartong ito.',
   'pro.activation_pin_same': 'Pumili ng password na iba sa pansamantalang password.',
   'pro.claim_retry_title': 'Subukan muli ang PRO link?',
@@ -781,7 +781,7 @@ const fil: Record<I18nKey, string> = {
   'pro.claim_login_title': 'Mag-sign in muna',
   'pro.claim_login_button': 'Mag-sign in',
   'pro.claim_login_message':
-    'Mag-sign in gamit ang account na magmamay-ari ng PRO room na ito at tapusin ang pagtakda ng palayaw ng account. Sa memory lang ng tab na ito mananatili ang link habang nagpapatuloy ka.',
+    'Mag-sign in gamit ang account na magmamay-ari ng PRO room na ito at tapusin ang pagtatakda ng palayaw ng account. Sa memory lang ng tab na ito mananatili ang link habang nagpapatuloy ka.',
   'pro.claim_popup_blocked_message':
     'Hinarangan ng browser mo ang window sa pag-sign in. Payagan ang mga pop-up para sa MUSIXQUARE, saka subukan muli.',
   'pro.claim_existing_account_title': 'Mag-sign in gamit ang naka-link na account',
@@ -833,9 +833,10 @@ const fil: Record<I18nKey, string> = {
   'pro.pin_changed_removed_message':
     'Pinalitan ng may-ari ng kuwarto ang password nito. Ilagay ang bagong password para makasali muli.',
   'pro.removed_title': 'Inalis ka sa kuwartong ito',
-  'pro.removed_message': 'Inalis ka sa kuwartong ito ng may-ari ng kuwarto o ng isang admin.',
+  'pro.removed_message':
+    'Inalis ka sa kuwartong ito ng may-ari ng kuwarto o ng isang administrator.',
   'pro.device_removed_message':
-    'Dinisconnect ng isa pang device na naka-sign in sa account mo ang device na ito mula sa kuwarto.',
+    'Diniskonekta ng isa pang device na naka-sign in sa account mo ang device na ito mula sa kuwarto.',
   'pro.owner_only': 'May-ari lang ng kuwarto ang makakagawa nito.',
   'pro.connect_failed': 'Hindi makakonekta sa PRO room.',
   'pro.room_full': 'Puno na ang PRO room na ito',
@@ -866,9 +867,9 @@ const fil: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Ilagay ang <strong>6-digit na code</strong> mula sa host para kumonekta.<ul class="help-list"><li><strong>Host:</strong> “Gumawa ng Kuwarto” → tingnan ang code</li><li><strong>Kalahok:</strong> “Sumali sa Kuwarto” → ilagay ang code</li><li>Hanggang <strong>100 device, kasama ang host</strong>, ang maaaring kumonekta.</li></ul>',
   'player.play_speakers_html':
-    'Pumipili ang bawat kalahok ng <strong>gampanin (output channel)</strong>.<ul class="help-list"><li><strong>Gitna:</strong> Stereo (default) na output</li><li><strong>Kaliwa:</strong> Output ng <bdi dir="ltr">L</bdi> channel</li><li><strong>Kanan:</strong> Output ng <bdi dir="ltr">R</bdi> channel</li><li><strong>Subwoofer:</strong> Output ng low-frequency mix</li></ul>Maaari mong palitan ang mga gampanin anumang oras sa <strong>Mga Setting</strong>.',
+    'Pumipili ang bawat kalahok ng <strong>gampanin (output channel)</strong>.<ul class="help-list"><li><strong>Gitnang Speaker:</strong> Stereo (default) na output</li><li><strong>Kaliwang Speaker:</strong> Output ng <bdi dir="ltr">L</bdi> channel</li><li><strong>Kanang Speaker:</strong> Output ng <bdi dir="ltr">R</bdi> channel</li><li><strong>Subwoofer:</strong> Output ng low-frequency mix</li></ul>Maaari mong palitan ang mga gampanin anumang oras sa <strong>Mga Setting</strong>.',
   'player.play_media_action_html':
-    'May 3 opsyon ang host.<ul class="help-list"><li><strong>Mag-load ng lokal na file:</strong> Pumili ng musika mula sa device mo. Sinusuportahan ang tumpak na pag-sync</li><li><strong>YouTube Together:</strong> Sinusuportahan ang mga video at playlist. Walang channel split o audio effect</li><li><strong>Pagbabahagi ng System Audio:</strong> Available kapag gumagamit ang host ng Chromium-based na browser sa computer</li></ul>',
+    'May 3 opsyon ang host.<ul class="help-list"><li><strong>Mag-load ng lokal na file:</strong> Pumili ng musika mula sa device mo. Sinusuportahan ang tumpak na pag-sync</li><li><strong>Sabay-sabay na manood sa YouTube:</strong> Sinusuportahan ang mga video at playlist. Walang channel split o audio effect</li><li><strong>Pagbabahagi ng System Audio:</strong> Available kapag gumagamit ang host ng Chromium-based na browser sa computer</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Inilagay ang code pero hindi makakonekta:</strong> Suriin ang code at subukan muli maya-maya. Maaaring paghigpitan ng network sa kumpanya, paaralan, o VPN ang koneksyon.</li><li><strong>Hindi stable ang koneksyon:</strong> Dapat lumapit sa router ang mga lokal na kalahok, at gumamit ng stable na internet ang mga kalahok na nakakonekta sa malayo.</li><li><strong>Iba pang problema:</strong> Suriin ang status ng network at i-restart ang app sa lahat ng device. Kung mayroon kang tanong, tingnan ang <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o makipag-ugnayan sa amin gamit ang email sa pinakailalim.</li></ul>',
   'chat.peer_connected': 'Sumali si {{name}}',
@@ -890,7 +891,7 @@ const fil: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Magtakda ng gampanin para sa bawat device.<br>I-play nang magkahiwalay ang kaliwa at kanang audio<br>at damhin ang malalim na bass mula sa subwoofer.',
   'setup.advanced_audio_desc_html':
-    'Itugma ang mga setting ng host<br>gamit ang reverb, EQ, mga virtual effect,<br>at iba pa sa buong system.',
+    'Ilapat sa buong system ang reverb, EQ,<br>mga virtual effect, at iba pa<br>ayon sa mga setting ng host.',
   'youtube.enter_link_desc_html': 'Mga pampublikong video o playlist lang ang maaaring i-play.',
 
   // ─── Pagbabahagi ng System Audio ─────────────────────────────────
@@ -915,7 +916,7 @@ const fil: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Hindi mapapalitan ang mga gampanin habang ibinabahagi ang system audio.',
   'system_audio.effects_guest_only':
-    'Aktibo ang system audio.\nSa mga bisitang device lang nalalapat ang mga sound effect.',
+    'Aktibo ang system audio.\nSa mga bisitang device lang nalalapat ang mga audio effect.',
   'system_audio.desktop_only':
     'Available lang sa mga computer na gumagamit ng Chromium-based na browser (Chrome, Edge, atbp.).',
   'system_audio.receive_failed':

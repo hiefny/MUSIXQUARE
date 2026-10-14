@@ -132,7 +132,7 @@ const hi: Record<I18nKey, string> = {
   'player.play_start': 'कतार में जोड़ें',
   'player.select_media': 'चलाने के लिए मीडिया चुनें',
   'player.play_together': 'सिंक में चलाएँ',
-  'player.play_speakers': 'स्पीकर की तरह इस्तेमाल करें',
+  'player.play_speakers': 'स्पीकर के रूप में इस्तेमाल करें',
   'player.auto_sync_label': 'ऑटो (ms)',
   'player.manual_sync_label': 'मैन्युअल सिंक (ms)',
 
@@ -140,7 +140,7 @@ const hi: Record<I18nKey, string> = {
   'playlist.toggle': 'प्लेलिस्ट फैलाएँ/समेटें',
   'playlist.jump_to_current': 'अभी चल रहे ट्रैक पर जाएँ',
   'playlist.reorder_handle': '{{title}} का क्रम बदलें, स्थान {{position}}',
-  'playlist.reorder_position': '{{title}}, {{total}} में स्थान {{position}}',
+  'playlist.reorder_position': '{{title}}, {{total}} में से स्थान {{position}}',
   'playlist.repeat_all': 'सभी ट्रैक दोहराना चालू है',
   'playlist.repeat_one': 'मौजूदा ट्रैक दोहराना चालू है',
   'playlist.repeat_off': 'दोहराना बंद है',
@@ -397,8 +397,8 @@ const hi: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'चैट फ़्रीज़ कर दी गई है',
   'chat.cmd_unfrozen': 'चैट से फ़्रीज़ हटा दिया गया है',
   'chat.cmd_frozen_blocked': 'चैट अभी फ़्रीज़ है',
-  'chat.cmd_muted': '{{name}} अब चैट संदेश नहीं भेज सकता',
-  'chat.cmd_unmuted': '{{name}} फिर से चैट संदेश भेज सकता है',
+  'chat.cmd_muted': '{{name}} अब चैट संदेश नहीं भेज सकते',
+  'chat.cmd_unmuted': '{{name}} फिर से चैट संदेश भेज सकते हैं',
   'chat.cmd_clear': 'चैट साफ़ कर दी गई है',
   'chat.cmd_filter_on': 'अनुचित शब्दों का फ़िल्टर चालू है',
   'chat.cmd_filter_off': 'अनुचित शब्दों का फ़िल्टर बंद है',
@@ -409,7 +409,7 @@ const hi: Record<I18nKey, string> = {
   'chat.system_sender': 'सिस्टम',
   'chat.bot_unavailable': 'BOT केवल PRO रूम में उपलब्ध है',
   'chat.bot_processing': 'BOT इस पर काम कर रहा है...',
-  'chat.bot_completed': 'BOT का अनुरोध पूरा हुआ',
+  'chat.bot_completed': 'BOT ने अनुरोध पूरा कर दिया',
   'chat.bot_failed': 'BOT अनुरोध पूरा नहीं कर सका',
   'chat.bot_added_tracks': 'BOT ने ट्रैक जोड़े: {{count}}',
   'chat.bot_added_and_playing': 'BOT ने {{count}} ट्रैक जोड़े। प्लेबैक शुरू हो गया',
@@ -439,7 +439,7 @@ const hi: Record<I18nKey, string> = {
   'chat.pinned_close': 'सूचना हटाएँ',
   'chat.cmd_whisper_from': '{{name}} से निजी संदेश',
   'chat.cmd_whisper_to': '{{name}} को निजी संदेश',
-  'chat.cmd_target_not_found': 'लक्ष्य नहीं मिला: {{target}}',
+  'chat.cmd_target_not_found': 'डिवाइस नहीं मिला: {{target}}',
   'chat.cmd_no_permission': 'आपके पास अनुमति नहीं है',
   'chat.cmd_nick_changed': 'नाम बदलकर {{name}} कर दिया गया',
   'chat.cmd_already_op': '{{name}} पहले से एडमिन है',
@@ -496,7 +496,7 @@ const hi: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'YouTube लिंक या खोजने के लिए शब्द दर्ज करें',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'साथ में YouTube देखें',
-  'youtube.ready': 'YouTube तैयार है!\nचलाएँ दबाएँ।',
+  'youtube.ready': 'YouTube तैयार है!\nप्ले बटन दबाएँ।',
   'youtube.thumbnail': 'YouTube प्रीव्यू थंबनेल',
   'youtube.load_fail': 'YouTube API लोड नहीं हो सका।\nअपना कनेक्शन जाँचें!',
   'youtube.video_unavailable': 'वीडियो उपलब्ध नहीं है, अगला ट्रैक चलाया जा रहा है',
@@ -549,7 +549,7 @@ const hi: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} अनुमति {{status}}',
   'toast.file_read_error': 'फ़ाइल पढ़ने में गड़बड़ी: {{name}}',
   'toast.host_ended_connection': 'होस्ट ने कनेक्शन समाप्त कर दिया है',
-  'toast.announcement_available': 'नई घोषणा आई है।\nचैट पैनल देखें।',
+  'toast.announcement_available': 'नई सूचना आई है।\nचैट पैनल देखें।',
 
   // ─── Toast (static) ──────────────────────────────────────────────
   'toast.copy_failed': 'कॉपी नहीं हो सका',
@@ -572,7 +572,7 @@ const hi: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'चैट सूचना पोस्ट करने की अनुमति चाहिए।',
   'toast.room_owner_required': 'इसे केवल रूम का मालिक बदल सकता है।',
   'toast.system_audio_owner_required':
-    'आप केवल उसी टैब से ऑडियो साझा कर सकते हैं जिसने कमरा खोला था।',
+    'आप केवल उसी टैब से ऑडियो साझा कर सकते हैं, जिसमें रूम खोला गया था।',
   'toast.host_only_youtube': 'YouTube लिंक केवल होस्ट जोड़ सकता है।',
   'toast.host_only_control': 'इसे केवल होस्ट नियंत्रित कर सकता है',
   'toast.host_setting_required': 'यह सेटिंग केवल होस्ट बदल सकता है',
@@ -591,8 +591,8 @@ const hi: Record<I18nKey, string> = {
   'dialog.continue': 'जारी रखें',
   'toast.sync_reset': 'सिंक ऑफ़सेट रीसेट हो गया',
   'toast.stop_sent': 'रोकने का अनुरोध भेज दिया गया',
-  'toast.hprecision_sync': 'हाई-प्रिसीज़न सिंक: ऑडियो तैयार हो रहा है\u2026',
-  'toast.file_ready': 'आपकी फ़ाइल तैयार है!\nचलाएँ दबाएँ।',
+  'toast.hprecision_sync': 'अति-सटीक सिंक: ऑडियो तैयार हो रहा है…',
+  'toast.file_ready': 'आपकी फ़ाइल तैयार है!\nप्ले बटन दबाएँ।',
   'toast.host_sync_not_recommended': 'किसी अतिथि डिवाइस पर सिंक समायोजित करें',
   'toast.host_sync_requested':
     'सटीक सिंक का अनुरोध भेजा गया।\nकिसी अतिथि डिवाइस पर मैन्युअल सिंक समायोजित करें।',
@@ -604,7 +604,8 @@ const hi: Record<I18nKey, string> = {
   'toast.yt_sync_done': 'सिंक पूरा हुआ',
   'toast.yt_rendezvous_start': 'होस्ट के साथ मिलान हो रहा है...',
   'toast.yt_rendezvous_done': 'सिंक पूरा हुआ',
-  'toast.yt_rendezvous_host_paused': 'होस्ट रुका हुआ है, केवल प्लेबैक स्थिति का मिलान किया गया',
+  'toast.yt_rendezvous_host_paused':
+    'होस्ट का प्लेबैक पॉज़ है, केवल प्लेबैक स्थिति का मिलान किया गया',
   'toast.yt_rendezvous_no_data': 'होस्ट का प्लेबैक डेटा अभी नहीं मिला, कुछ देर बाद फिर कोशिश करें',
   'toast.yt_rendezvous_timeout': 'सिंक विफल रहा, कुछ देर बाद फिर कोशिश करें',
   'toast.yt_host_sync_sent': 'प्रतिभागियों को ऑटो-सिंक सिग्नल भेज दिया गया',
@@ -665,7 +666,7 @@ const hi: Record<I18nKey, string> = {
   'error.session_create_fail': 'सेशन नहीं बनाया जा सका',
   'error.network_generic': 'नेटवर्क में गड़बड़ी हुई',
   'error.peer_app_version_mismatch':
-    'ऐप के वर्ज़न मेल न खाने के कारण {{name}} शामिल नहीं हो सकता। दोनों डिवाइस रीफ़्रेश करें।',
+    'ऐप के वर्ज़न मेल न खाने के कारण {{name}} शामिल नहीं हो सकते। दोनों डिवाइस रीफ़्रेश करें।',
   'error.app_version_mismatch':
     'ऐप के वर्ज़न मेल नहीं खाते। दोनों डिवाइस रीफ़्रेश करके फिर कोशिश करें।',
   'error.session_handshake_failed':
@@ -703,13 +704,13 @@ const hi: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'ऐप कुछ देर के लिए बैकग्राउंड में चला गया था',
   'dialog.audio_recovery_title': 'ऑडियो अचानक रुक गया',
   'dialog.audio_recovery_message':
-    'बैकग्राउंड से वापस आने के बाद इस डिवाइस का ऑडियो बहाल नहीं हुआ। MUSIXQUARE इस डिवाइस की ध्वनि फिर से मिला रहा है; इस दौरान आपका रूम कनेक्टेड रहेगा।',
+    'बैकग्राउंड से वापस आने के बाद इस डिवाइस का ऑडियो बहाल नहीं हुआ। MUSIXQUARE इस डिवाइस की ध्वनि फिर से मिलाएगा; इस दौरान आपका रूम कनेक्टेड रहेगा।',
   'dialog.audio_recovery_action': 'ऑडियो बहाल करें',
   'dialog.background_resume_message':
     'अगर सिंक बिगड़ जाए या ऑडियो न चले, तो ऐप को पूरी तरह बंद करके फिर खोलें।',
   'dialog.background_resume_sync_fallback_message':
     'अगर सिंक बिगड़ जाए या ऑडियो न चले, तो ऐप को पूरी तरह बंद करके फिर खोलें।',
-  'dialog.got_it': 'समझ गया',
+  'dialog.got_it': 'समझ आ गया',
   'dialog.continue_using': 'जारी रखें',
   'dialog.leave_session': 'छोड़ें',
   'dialog.sw_update_title': 'अपडेट',
@@ -739,15 +740,15 @@ const hi: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO रूम सक्रिय करें',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'इस PRO रूम के लिए अकाउंट चुनें',
+  'pro.activation_account_message': 'इस रूम को “{{name}}” अकाउंट में रजिस्टर करना है?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'जिस अकाउंट में यह रूम रजिस्टर करना है, उससे साइन इन करें।',
+  'pro.activation_account_continue': 'जारी रखें',
+  'pro.activation_account_switch': 'दूसरा अकाउंट',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'आपके अकाउंट की जानकारी जाँची नहीं जा सकी। कृपया थोड़ी देर बाद फिर कोशिश करें।',
+  'pro.activation_complete': 'रजिस्ट्रेशन पूरा करें',
   'pro.activation_message': 'इस रूम के लिए 8 अंकों का नया पासवर्ड सेट करें।',
   'pro.activation_pin_same': 'ऐसा पासवर्ड चुनें जो अस्थायी पासवर्ड से अलग हो।',
   'pro.claim_retry_title': 'PRO लिंक से फिर कोशिश करें?',
@@ -796,7 +797,7 @@ const hi: Record<I18nKey, string> = {
   'pro.pin_members_title': 'मौजूदा प्रतिभागियों का क्या करें?',
   'pro.pin_members_keep': 'सभी को रहने दें',
   'pro.pin_members_keep_detail':
-    'सिर्फ़ फिर से या पहली बार शामिल होने वाले डिवाइस को पासवर्ड डालना होगा।',
+    'सिर्फ़ फिर से या पहली बार शामिल होने वाले डिवाइस को पासवर्ड दर्ज करना होगा।',
   'pro.pin_members_reenter': 'सभी फिर से शामिल हों',
   'pro.pin_members_reenter_detail':
     'सभी को फिर से शामिल होना होगा। अनजान लोगों को एक साथ हटाने के लिए हम यह तरीका सुझाते हैं।',
@@ -811,7 +812,7 @@ const hi: Record<I18nKey, string> = {
   'pro.removed_title': 'आपको इस रूम से हटा दिया गया',
   'pro.removed_message': 'रूम के मालिक या किसी एडमिन ने आपको इस रूम से हटा दिया है।',
   'pro.device_removed_message':
-    'आपके अकाउंट में साइन इन किसी दूसरे डिवाइस ने इस डिवाइस को रूम से डिस्कनेक्ट कर दिया है।',
+    'आपके अकाउंट से साइन इन किए गए किसी दूसरे डिवाइस ने इस डिवाइस को रूम से डिस्कनेक्ट कर दिया है।',
   'pro.owner_only': 'यह केवल रूम का मालिक कर सकता है।',
   'pro.connect_failed': 'PRO रूम से कनेक्ट नहीं हो सका।',
   'pro.room_full': 'यह PRO रूम भर चुका है',
@@ -843,12 +844,12 @@ const hi: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'कनेक्ट करने के लिए होस्ट से मिला <strong>6 अंकों का कोड</strong> दर्ज करें।<ul class="help-list"><li><strong>होस्ट:</strong> “रूम बनाएँ” → कोड देखें</li><li><strong>प्रतिभागी:</strong> “रूम में शामिल हों” → कोड दर्ज करें</li><li>होस्ट समेत अधिकतम <strong>100 डिवाइस</strong> कनेक्ट हो सकते हैं।</li></ul>',
   'player.play_speakers_html':
-    'हर प्रतिभागी एक <strong>भूमिका (आउटपुट चैनल)</strong> चुनता है।<ul class="help-list"><li><strong>सेंटर:</strong> स्टीरियो (डिफ़ॉल्ट) आउटपुट</li><li><strong>बायाँ (Left):</strong> <bdi dir="ltr">L</bdi> चैनल आउटपुट</li><li><strong>दायाँ (Right):</strong> <bdi dir="ltr">R</bdi> चैनल आउटपुट</li><li><strong>सबवूफ़र:</strong> कम फ़्रीक्वेंसी वाले मिक्स का आउटपुट</li></ul>आप <strong>सेटिंग्स</strong> में भूमिका कभी भी बदल सकते हैं।',
+    'हर प्रतिभागी एक <strong>भूमिका (आउटपुट चैनल)</strong> चुनता है।<ul class="help-list"><li><strong>सेंटर स्पीकर:</strong> स्टीरियो (डिफ़ॉल्ट) आउटपुट</li><li><strong>बायाँ स्पीकर:</strong> <bdi dir="ltr">L</bdi> चैनल आउटपुट</li><li><strong>दायाँ स्पीकर:</strong> <bdi dir="ltr">R</bdi> चैनल आउटपुट</li><li><strong>सबवूफ़र:</strong> कम फ़्रीक्वेंसी वाले मिक्स का आउटपुट</li></ul>आप <strong>सेटिंग्स</strong> में भूमिका कभी भी बदल सकते हैं।',
   'player.play_media_action_html':
     'होस्ट के पास 3 विकल्प हैं।<ul class="help-list"><li><strong>लोकल फ़ाइल लोड करें:</strong> अपने डिवाइस से संगीत चुनें। सटीक सिंक समर्थित है</li><li><strong>साथ में YouTube:</strong> वीडियो और प्लेलिस्ट समर्थित हैं। चैनल अलग करना और ऑडियो इफ़ेक्ट उपलब्ध नहीं हैं</li><li><strong>सिस्टम ऑडियो शेयरिंग:</strong> होस्ट के कंप्यूटर पर Chromium आधारित ब्राउज़र इस्तेमाल करने पर उपलब्ध है</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>कोड दर्ज किया, लेकिन कनेक्ट नहीं हो रहा:</strong> कोड जाँचकर कुछ देर बाद फिर कोशिश करें। कंपनी, स्कूल या VPN नेटवर्क कनेक्शन पर रोक लगा सकते हैं।</li><li><strong>कनेक्शन अस्थिर है:</strong> लोकल प्रतिभागी राउटर के पास रहने की कोशिश करें और दूर से जुड़े प्रतिभागी स्थिर इंटरनेट कनेक्शन इस्तेमाल करें।</li><li><strong>अन्य समस्याएँ:</strong> नेटवर्क की स्थिति जाँचें और सभी डिवाइसों पर ऐप फिर शुरू करें। कोई सवाल हो, तो <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> देखें या सबसे नीचे दिए ईमेल पर हमसे संपर्क करें।</li></ul>',
-  'chat.peer_connected': '{{name}} शामिल हुआ',
+  'chat.peer_connected': '{{name}} शामिल हुए',
   'chat.tracks_added': '{{name}} ने {{count}} ट्रैक जोड़े',
   'chat.track_added_named': '{{name}} ने 1 ट्रैक जोड़ा: {{title}}',
   'chat.tracks_added_named': '{{name}} ने {{title}} समेत {{count}} ट्रैक जोड़े',
@@ -873,8 +874,8 @@ const hi: Record<I18nKey, string> = {
   'system_audio.button': 'सिस्टम ऑडियो',
   'system_audio.sharing': 'सिस्टम ऑडियो साझा हो रहा है',
   'system_audio.receiving': 'सिस्टम ऑडियो मिल रहा है',
-  'system_audio.owner_active': '{{name}} सिस्टम ऑडियो साझा कर रहा है।',
-  'system_audio.owner_preparing': '{{name}} सिस्टम ऑडियो साझा करने की तैयारी कर रहा है।',
+  'system_audio.owner_active': '{{name}} सिस्टम ऑडियो साझा कर रहे हैं।',
+  'system_audio.owner_preparing': '{{name}} सिस्टम ऑडियो साझा करने की तैयारी कर रहे हैं।',
   'system_audio.pro_preparing': 'सिस्टम ऑडियो साझा करने की तैयारी हो रही है।',
   'system_audio.pro_publish_failed': 'सिस्टम ऑडियो शेयरिंग शुरू नहीं हो सकी।',
   'system_audio.coordinator_update_required':
@@ -906,12 +907,13 @@ const hi: Record<I18nKey, string> = {
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'सेवा संबंधी जानकारी',
   'legal.content_html':
-    '<strong>गोपनीयता नीति</strong><br><span data-legal-standard-storage>एक ही नेटवर्क पर, सेशन का अधिकतर कॉन्टेंट सीधे डिवाइसों के बीच जाता है। सिग्नलिंग सर्वर रूम के संचालन, प्रमाणीकरण और दोबारा कनेक्शन के डेटा को केवल थोड़ी देर के लिए प्रोसेस करता है; कुछ रिमोट या बड़े सेशन का डेटा Cloudflare के ज़रिए जाता है। रिमोट फ़ाइलें निजी Cloudflare स्टोरेज में अधिकतम 24 घंटे रखी जाती हैं; केवल रूम के प्रतिभागियों को डाउनलोड की अस्थायी पहुँच मिलती है। MUSIXQUARE केवल सेवा देने, चलाने और सुरक्षित रखने के लिए डेटा को ऐक्सेस, विश्लेषित या सुरक्षित रखता है।</span><span data-legal-pro-storage>PRO रूम के संचालन के लिए ज़रूरी सेशन, सदस्य, प्लेलिस्ट, प्लेबैक और अपलोड की स्थिति Cloudflare पर रखी जाती है। प्लेलिस्ट की मूल फ़ाइलें निजी Cloudflare स्टोरेज में रहती हैं; केवल रूम के प्रतिभागी कम समय के लिए मान्य URL से उन्हें डाउनलोड कर सकते हैं। रूम एडमिन के उन्हें प्लेलिस्ट से हटाते ही या ऑपरेटर के रूम डेटा मिटाते ही फ़ाइलें मिटा दी जाती हैं। MUSIXQUARE केवल सेवा देने, चलाने और सुरक्षित रखने के लिए डेटा को ऐक्सेस, विश्लेषित या सुरक्षित रखता है।</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">और जानें</a><br><br><strong>कॉपीराइट सूचना</strong><br>MUSIXQUARE के ज़रिए साझा किए गए कॉन्टेंट के अधिकार संबंधित अधिकार-धारकों के पास रहते हैं। सिस्टम ऑडियो शेयरिंग और फ़ाइल शेयरिंग निजी इस्तेमाल के लिए हैं। कॉपीराइट वाले कॉन्टेंट के बिना अनुमति वितरण या सार्वजनिक प्रसारण की ज़िम्मेदारी उपयोगकर्ताओं की है। YouTube शेयरिंग आधिकारिक प्लेबैक तरीके का इस्तेमाल करती है और व्यू तथा अधिकारों का प्रबंधन उस सेवा की नीतियों व अधिकार-धारक की सेटिंग्स के अनुसार होता है। <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">और जानें</a><br><br><strong>अस्वीकरण</strong><br>MUSIXQUARE निःशुल्क उपलब्ध कराया जाता है। कुछ फ़ीचर YouTube या Cloudflare जैसी बाहरी सेवाओं पर निर्भर हैं, इसलिए उन सेवाओं में बदलाव होने या उनके ऑफ़लाइन होने पर अस्थायी सीमाएँ आ सकती हैं। रियल-टाइम ऑडियो सिंक और रिमोट शेयरिंग की गुणवत्ता नेटवर्क, ब्राउज़र नीति और डिवाइस की क्षमता के अनुसार काफ़ी बदल सकती है। Wi-Fi इस्तेमाल न करने पर मोबाइल डेटा शुल्क लग सकता है। <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">और जानें</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">परिचय</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">इतिहास</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">डिज़ाइन</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">अनुवाद</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>गोपनीयता नीति</strong><br><span data-legal-standard-storage>एक ही नेटवर्क पर, सेशन का अधिकतर कॉन्टेंट सीधे डिवाइसों के बीच जाता है। सिग्नलिंग सर्वर रूम के संचालन, प्रमाणीकरण और दोबारा कनेक्शन के डेटा को केवल थोड़ी देर के लिए प्रोसेस करता है; कुछ रिमोट या बड़े सेशन का डेटा Cloudflare के ज़रिए जाता है। रिमोट फ़ाइलें निजी Cloudflare स्टोरेज में अधिकतम 24 घंटे रखी जाती हैं; केवल रूम के प्रतिभागियों को डाउनलोड की अस्थायी पहुँच मिलती है। MUSIXQUARE केवल सेवा देने, चलाने और सुरक्षित रखने के लिए डेटा को ऐक्सेस करता है, उसका विश्लेषण करता है या उसे अपने पास रखता है।</span><span data-legal-pro-storage>PRO रूम के संचालन के लिए ज़रूरी सेशन, सदस्य, प्लेलिस्ट, प्लेबैक और अपलोड की स्थिति Cloudflare पर रखी जाती है। प्लेलिस्ट की मूल फ़ाइलें निजी Cloudflare स्टोरेज में रहती हैं; केवल रूम के प्रतिभागी कम समय के लिए मान्य URL से उन्हें डाउनलोड कर सकते हैं। रूम एडमिन के उन्हें प्लेलिस्ट से हटाते ही या ऑपरेटर के रूम डेटा मिटाते ही फ़ाइलें मिटा दी जाती हैं। MUSIXQUARE केवल सेवा देने, चलाने और सुरक्षित रखने के लिए डेटा को ऐक्सेस करता है, उसका विश्लेषण करता है या उसे अपने पास रखता है।</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">और जानें</a><br><br><strong>कॉपीराइट सूचना</strong><br>MUSIXQUARE के ज़रिए साझा किए गए कॉन्टेंट के अधिकार संबंधित अधिकार-धारकों के पास रहते हैं। सिस्टम ऑडियो शेयरिंग और फ़ाइल शेयरिंग निजी इस्तेमाल के लिए हैं। कॉपीराइट वाले कॉन्टेंट के बिना अनुमति वितरण या सार्वजनिक प्रसारण की ज़िम्मेदारी उपयोगकर्ताओं की है। YouTube शेयरिंग आधिकारिक प्लेबैक तरीके का इस्तेमाल करती है और व्यू तथा अधिकारों का प्रबंधन उस सेवा की नीतियों व अधिकार-धारक की सेटिंग्स के अनुसार होता है। <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">और जानें</a><br><br><strong>अस्वीकरण</strong><br>MUSIXQUARE निःशुल्क उपलब्ध कराया जाता है। कुछ फ़ीचर YouTube या Cloudflare जैसी बाहरी सेवाओं पर निर्भर हैं, इसलिए उन सेवाओं में बदलाव होने या उनके ऑफ़लाइन होने पर अस्थायी सीमाएँ आ सकती हैं। रियल-टाइम ऑडियो सिंक और रिमोट शेयरिंग की गुणवत्ता नेटवर्क, ब्राउज़र नीति और डिवाइस की क्षमता के अनुसार काफ़ी बदल सकती है। Wi-Fi इस्तेमाल न करने पर मोबाइल डेटा शुल्क लग सकता है। <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">और जानें</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">परिचय</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">इतिहास</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">डिज़ाइन</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">अनुवाद</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default hi;
 
 export const pluralMessages = {
+  'toast.unsupported_files_excluded': { one: 'असमर्थित फ़ाइल छोड़ दी गई: {{count}}' },
   'playlist.delete_selected': {
     one: 'चयनित ट्रैक मिटाएँ ({{count}})',
   },
@@ -919,21 +921,21 @@ export const pluralMessages = {
     one: 'कनेक्टेड डिवाइस की संख्या: {{count}}',
   },
   'demo.session_body_connected': {
-    one: 'अभी कनेक्टेड डिवाइस की संख्या: {{count}}।\nहर कनेक्टेड डिवाइस के लिए भूमिका सेट करें।',
+    one: 'अभी {{count}} डिवाइस कनेक्ट है।\nइस डिवाइस के लिए एक भूमिका सेट करें।',
   },
   'chat.tracks_added': {
-    one: '{{name}} द्वारा जोड़े गए ट्रैक: {{count}}',
+    one: '{{name}} ने {{count}} ट्रैक जोड़ा',
   },
   'chat.tracks_added_named': {
-    one: '{{name}} द्वारा जोड़े गए ट्रैक: {{count}}, जिनमें {{title}} शामिल है',
+    one: '{{name}} ने {{title}} समेत {{count}} ट्रैक जोड़ा',
   },
   'toast.added_tracks': {
-    one: 'जोड़े गए ट्रैक: {{count}}',
+    one: '{{count}} ट्रैक जोड़ा गया',
   },
   'dialog.file_drop.message': {
-    one: 'जोड़ने के लिए फ़ाइलें: {{count}}। आगे बढ़ें?',
+    one: '{{count}} फ़ाइल जोड़नी है?',
   },
   'dialog.file_drop.unsupported_notice': {
-    one: 'नहीं जोड़ी जाने वाली असमर्थित फ़ाइलें: {{count}}।',
+    one: '{{count}} असमर्थित फ़ाइल नहीं जोड़ी जाएगी।',
   },
 } satisfies LocalePluralMessages;

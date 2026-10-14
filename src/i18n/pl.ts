@@ -23,10 +23,10 @@ const pl: Record<I18nKey, string> = {
   'common.later': 'Później',
   'common.next': 'Dalej',
   'common.start': 'Rozpocznij',
-  'common.info': 'Info',
+  'common.info': 'Informacja',
   'common.stay': 'Zostań',
   'common.leave': 'Wyjdź',
-  'common.granted': 'przyznane',
+  'common.granted': 'nadane',
   'common.revoked': 'odebrane',
   'common.stop': 'Zatrzymaj',
   'common.pause': 'Pauza',
@@ -34,7 +34,7 @@ const pl: Record<I18nKey, string> = {
   'common.message': 'Wiadomość',
   'common.mix': 'Miks',
   'common.wait': 'Chwileczkę…',
-  'common.guest': 'Gość',
+  'common.guest': 'Uczestnik',
   'common.help': 'Pomoc',
   'common.increase': 'Zwiększ',
   'common.decrease': 'Zmniejsz',
@@ -53,7 +53,7 @@ const pl: Record<I18nKey, string> = {
   'account.privacy': 'Prywatność',
   'account.unavailable': 'Logowanie jest chwilowo niedostępne. Możesz kontynuować bez konta.',
   'account.account_title': 'Konto',
-  'account.stats_sessions_label': 'Dołączone pokoje',
+  'account.stats_sessions_label': 'Odwiedzone pokoje',
   'account.stats_listening_label': 'Czas słuchania',
   'account.stats_tracks_label': 'Odtworzone media',
   'account.stats_count_value': '{{count}}',
@@ -64,7 +64,7 @@ const pl: Record<I18nKey, string> = {
   'account.logout': 'Wyloguj się',
   'account.delete_account': 'Usuń konto',
   'account.nickname_title': 'Ustaw pseudonim',
-  'account.nickname_message': 'Wybierz pseudonim używany w MUSIXQUARE.',
+  'account.nickname_message': 'Wybierz pseudonim, którego będziesz używać w MUSIXQUARE.',
   'account.nickname_placeholder': 'Pseudonim',
   'account.nickname_hint': 'Maksymalnie 12 znaków.',
   'account.nickname_required': 'Wpisz pseudonim.',
@@ -76,7 +76,7 @@ const pl: Record<I18nKey, string> = {
   'account.delete_confirm_message':
     'Twój pseudonim, sesje logowania i powiązane z kontem uprawnienia w pokojach zostaną usunięte. Treści udostępnione w pokoju podlegają zasadom przechowywania tego pokoju.',
   'account.delete_pending':
-    'Twoje konto jest usuwane. Uprawnienia PRO są bezpiecznie usuwane, a cały proces zakończy się automatycznie.',
+    'Twoje konto jest usuwane. Uprawnienia PRO są bezpiecznie porządkowane, a cały proces zakończy się automatycznie.',
   'common.previous': 'Poprzedni',
   'common.next_desc': 'Następny',
   'common.volume_percent': 'Głośność: {{val}}%',
@@ -126,7 +126,7 @@ const pl: Record<I18nKey, string> = {
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Odtwórz materiał',
   'player.add_media': 'Dodaj materiał',
-  'player.play_start': 'Dodaj do kolejki',
+  'player.play_start': 'Dodaj do playlisty',
   'player.select_media': 'Wybierz materiał do odtworzenia',
   'player.play_together': 'Synchronizuj odtwarzanie',
   'player.play_speakers': 'Użyj jako głośnika',
@@ -237,7 +237,7 @@ const pl: Record<I18nKey, string> = {
   'settings.bass_title': 'Wirtualny bas',
   'settings.exciter_title': 'Wirtualne wysokie tony',
   'settings.subwoofer_adjust': 'Odcięcie subwoofera',
-  'settings.subwoofer_cutoff': 'Częstotliwość odcięcia',
+  'settings.subwoofer_cutoff': 'Częstotliwość odcięcia subwoofera',
   'settings.default_0pct': 'Domyślnie: 0%',
   'settings.default_01s': 'Domyślnie: 0,1 s',
   'settings.default_20khz': 'Domyślnie: 20,0 kHz',
@@ -247,7 +247,7 @@ const pl: Record<I18nKey, string> = {
   'settings.leave_session': 'Wyjdź z pokoju',
   'connect.rename_reserved': 'Ten pseudonim jest zarezerwowany.',
   'connect.rename_profanity': 'Wykryto niedozwolone słowa.',
-  'settings.devices_title': 'Podłączone urządzenia',
+  'settings.devices_title': 'Połączone urządzenia',
   'settings.invite_share': 'Zaproszenia i udostępnianie',
   'settings.subtab.general': 'Ogólne',
   'settings.subtab.audio': 'Dźwięk',
@@ -270,7 +270,7 @@ const pl: Record<I18nKey, string> = {
   'connect.permission_playback_control': 'Sterowanie odtwarzaniem',
   'connect.permission_members_kick': 'Wyrzucanie uczestników',
   'connect.permission_chat_notice': 'Ogłoszenia na czacie',
-  'connect.permission_inherited': 'Uwzględnione',
+  'connect.permission_inherited': 'Domyślne',
   'connect.kick_member_message': 'Wyrzucić wszystkie urządzenia użytkownika {{name}}?',
   'connect.device_toggle': 'Pokaż/ukryj urządzenia użytkownika {{name}}',
   'connect.device_label': 'Urządzenie {{platform}} ({{code}})',
@@ -328,10 +328,10 @@ const pl: Record<I18nKey, string> = {
   'demo.effects_title': 'Wypróbuj efekty dźwiękowe',
   'demo.reverb': 'Pogłos',
   'demo.bass_boost': 'Wzmocnienie basów',
-  'demo.treble_boost': 'Wzmocnienie sopranów',
-  'demo.surround': 'Surround',
+  'demo.treble_boost': 'Wzmocnienie wysokich tonów',
+  'demo.surround': 'Dźwięk przestrzenny',
   'demo.role_bass_short': 'Basy',
-  'demo.role_center_short': 'Centrum',
+  'demo.role_center_short': 'Centralny',
   'demo.step_nav_label': 'Etapy przewodnika',
   'demo.step_connect': '1. Połącz',
   'demo.step_role': '2. Ustaw rolę',
@@ -369,8 +369,8 @@ const pl: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Nie znaleziono dostępnej kamery',
   'setup.camera_unavailable': 'Nie można uruchomić kamery',
   'setup.camera_stream_stalled':
-    'Podgląd aparatu nie uruchomił się.\nOtwórz w przeglądarce lub wpisz kod.',
-  'setup.connect_devices': 'Teraz podłącz inne urządzenia.',
+    'Podgląd kamery nie uruchomił się.\nOtwórz w przeglądarce lub wpisz kod.',
+  'setup.connect_devices': 'Teraz połącz pozostałe urządzenia.',
   'setup.enter_code_connect': 'Kod zaproszenia',
   'setup.last_step': 'Zaczynamy!',
   'setup.joining': 'Dołączanie…',
@@ -426,7 +426,7 @@ const pl: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'Pomijanie materiału: ten format nie jest obsługiwany na niektórych urządzeniach.',
   'chat.large_track_playback_system_message':
-    'Ten utwór jest bardzo duży, więc podczas korzystania z niego mogą występować opóźnienia.',
+    'Ten materiał jest bardzo duży, więc podczas korzystania z niego mogą występować opóźnienia.',
   'chat.large_local_track_system_message':
     'Plik tego materiału jest bardzo duży i może nie zostać odtworzony na niektórych urządzeniach.',
   'chat.device_track_unavailable_system_message':
@@ -529,7 +529,7 @@ const pl: Record<I18nKey, string> = {
   'youtube.searching': 'Wyszukiwanie w YouTube…',
   'youtube.search_no_results': 'Brak wyników wyszukiwania',
   'youtube.search_failed': 'Wyszukiwanie w YouTube jest obecnie niedostępne',
-  'youtube.search_selected': 'Wybrane wideo gotowe do dodania do kolejki',
+  'youtube.search_selected': 'Wybrane wideo gotowe do dodania do playlisty',
   'youtube.search_results': 'Wyniki wyszukiwania w YouTube',
   'youtube.live_sync_warning': 'Precyzyjna synchronizacja transmisji na żywo jest trudna.',
 
@@ -539,8 +539,8 @@ const pl: Record<I18nKey, string> = {
   'network.session_full': 'Pokój jest pełny',
   'network.session_full_detail':
     'Ten pokój osiągnął limit 100 połączonych urządzeń, wliczając hosta.',
-  'network.op_granted': 'Nadano ci uprawnienia administratora.',
-  'network.op_revoked': 'Odebrano ci uprawnienia administratora.',
+  'network.op_granted': 'Nadano Ci uprawnienia administratora.',
+  'network.op_revoked': 'Odebrano Ci uprawnienia administratora.',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_connected': 'Połączono: {{name}}',
@@ -639,7 +639,7 @@ const pl: Record<I18nKey, string> = {
   'transfer.demo_loading_short': 'Wczytywanie utworu demo…',
   'transfer.file_requesting': 'Pobieranie pliku…',
   'transfer.file_sending': 'Wysyłanie pliku…',
-  'transfer.file_wait': 'Oczekiwanie na plik…\nProszę czekać',
+  'transfer.file_wait': 'Oczekiwanie na plik…\nPoczekaj chwilę',
   'transfer.preload_done': 'Użyto wstępnie wczytanego pliku!',
   'transfer.preload_waiting': 'Oczekiwanie na zakończenie wstępnego wczytywania…',
   // Remote file sharing (R2-backed transfer)
@@ -756,15 +756,15 @@ const pl: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktywuj pokój PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Wybierz konto dla tego pokoju PRO',
+  'pro.activation_account_message': 'Zarejestrować ten pokój na koncie „{{name}}”?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Zaloguj się na konto, na którym chcesz zarejestrować ten pokój.',
+  'pro.activation_account_continue': 'Kontynuuj',
+  'pro.activation_account_switch': 'Inne konto',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Nie udało się zweryfikować konta. Spróbuj ponownie za chwilę.',
+  'pro.activation_complete': 'Zakończ rejestrację',
   'pro.activation_message': 'Ustaw nowe 8-cyfrowe hasło dla tego pokoju.',
   'pro.activation_pin_same': 'Wybierz hasło inne niż hasło tymczasowe.',
   'pro.claim_retry_title': 'Spróbować ponownie użyć linku PRO?',
@@ -825,10 +825,10 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_changed_removed_title': 'Hasło pokoju się zmieniło',
   'pro.pin_changed_removed_message':
     'Właściciel pokoju zmienił hasło. Wpisz nowe hasło, aby dołączyć ponownie.',
-  'pro.removed_title': 'Usunięto cię z pokoju',
-  'pro.removed_message': 'Właściciel pokoju lub administrator usunął cię z tego pokoju.',
+  'pro.removed_title': 'Usunięto Cię z pokoju',
+  'pro.removed_message': 'Właściciel pokoju lub administrator usunął Cię z tego pokoju.',
   'pro.device_removed_message':
-    'Inne urządzenie zalogowane na twoje konto odłączyło to urządzenie od pokoju.',
+    'Inne urządzenie zalogowane na Twoje konto odłączyło to urządzenie od pokoju.',
   'pro.owner_only': 'Tylko właściciel pokoju może to zrobić.',
   'pro.connect_failed': 'Nie udało się połączyć z pokojem PRO.',
   'pro.room_full': 'Ten pokój PRO jest pełny',
@@ -860,7 +860,7 @@ const pl: Record<I18nKey, string> = {
   'player.play_speakers_html':
     'Każdy uczestnik wybiera <strong>rolę (kanał wyjściowy)</strong>.<ul class="help-list"><li><strong>Głośnik centralny:</strong> wyjście stereo (domyślne)</li><li><strong>Głośnik lewy:</strong> wyjście kanału <bdi dir="ltr">L</bdi></li><li><strong>Głośnik prawy:</strong> wyjście kanału <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> wyjście miksu niskich częstotliwości</li></ul>Role możesz zmienić w dowolnym momencie w <strong>Ustawieniach</strong>.',
   'player.play_media_action_html':
-    'Host ma 3 opcje odtwarzania.<ul class="help-list"><li><strong>Załaduj plik lokalny:</strong> wybierz utwory ze swojego urządzenia. Obsługiwana jest precyzyjna synchronizacja</li><li><strong>YouTube razem:</strong> obsługiwane są filmy i playlisty. Brak rozdziału kanałów i efektów dźwiękowych</li><li><strong>Udostępnianie dźwięku systemowego:</strong> dostępne, gdy host korzysta na komputerze z przeglądarki opartej na Chromium</li></ul>',
+    'Host ma 3 opcje odtwarzania.<ul class="help-list"><li><strong>Załaduj plik lokalny:</strong> wybierz utwory ze swojego urządzenia. Obsługiwana jest precyzyjna synchronizacja</li><li><strong>Wspólne oglądanie YouTube:</strong> obsługiwane są filmy i playlisty. Brak rozdziału kanałów i efektów dźwiękowych</li><li><strong>Udostępnianie dźwięku systemowego:</strong> dostępne, gdy host korzysta na komputerze z przeglądarki opartej na Chromium</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Nie można połączyć się po wpisaniu kodu:</strong> sprawdź kod i spróbuj ponownie za chwilę. Sieci firmowe, szkolne lub VPN mogą ograniczać połączenie.</li><li><strong>Niestabilne połączenie:</strong> uczestnicy lokalni powinni znajdować się bliżej routera, a zdalni uczestnicy korzystać ze stabilnego połączenia internetowego.</li><li><strong>Inne problemy:</strong> sprawdź stan sieci i uruchom ponownie aplikację na wszystkich urządzeniach. W razie pytań zajrzyj do <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> lub napisz na adres e-mail podany na samym dole.</li></ul>',
   'chat.peer_connected': 'Do pokoju dołącza {{name}}',

@@ -31,27 +31,28 @@
 
       'array.h2': 'Surround, without<br>surround speakers.',
       'array.lead':
-        'Each device plays one role: left, right, subwoofer, or full stereo. The room itself becomes the system.',
+        'Each device plays one role: left, right, subwoofer, or full stereo. The space itself becomes the system.',
       'array.aria': 'Left phone, center laptop, right phone. Three-device surround setup.',
 
       'code.h2': 'Six digits.<br>Nothing else.',
       'code.lead':
-        'Start a session and share the six-digit code. Anyone with a supported browser can join in seconds.',
+        'Open a room and share the six-digit code. Anyone with a supported browser can join in seconds.',
       'code.aria_code': 'Example room code',
       'code.aria_qr': 'QR code for musixquare.com',
       'code.copy_btn': 'Copy invite link',
       'code.toast_success': 'Invite link copied',
       'code.toast_fail': 'Copy failed',
 
-      'remote.h2': 'Not in the room?<br>No problem.',
-      'remote.lead': 'Chat, listen to music, or watch YouTube together, even from across town.',
+      'remote.h2': 'Not in the same place?<br>No problem.',
+      'remote.lead':
+        "Chat, listen to music, or watch YouTube together, even when you're far apart.",
       'remote.chat_label': 'Chat',
       'remote.chat_value': 'Real-time chat',
       'remote.whisper_label': 'Whisper',
       'remote.whisper_value': 'Private 1:1 messages',
       'remote.cowatch_label': 'Co-watch',
       'remote.cowatch_value': 'YouTube together, in sync',
-      'remote.reach_label': 'Reach',
+      'remote.reach_label': 'Availability',
       'remote.reach_value': 'Supported browsers, across networks',
       'remote.caveat': "Note: channel separation and audio effects aren't available for YouTube.",
       'remote.pin_label': 'NOTICE · HOST',
@@ -91,7 +92,7 @@
       'standin.platform_label': 'Platform',
       'standin.platform_value': 'Chromium-based browsers on computers',
       'standin.caveat':
-        'Beta: desktop Chromium only, up to 4 devices including the sharing device. Direct sharing on the same network has no time limit; remote or relayed sharing ends automatically after 2 hours. Live audio has unavoidable delay, so lower the sharing device’s volume.',
+        'Beta: Chromium browsers on computers only, up to 4 devices including the sharing device. Direct sharing on the same network has no time limit; remote or relayed sharing ends automatically after 2 hours. Live audio has unavoidable delay, so lower the sharing device’s volume.',
 
       'cta.h2': 'Start a session.',
       'cta.btn': 'Launch MUSIXQUARE',
@@ -177,7 +178,7 @@
       'standin.desktop_label': '데스크톱',
       'standin.desktop_value': '책상 위 폰이나 태블릿으로 스피커 셋업',
       'standin.laptop_label': '노트북',
-      'standin.laptop_value': '빈약한 노트북 스피커 대신 여러 개의 디바이스',
+      'standin.laptop_value': '빈약한 노트북 스피커 대신 여러 대의 기기',
       'standin.feature_label': '기능',
       'standin.feature_value': '시스템 오디오 공유 (Beta)',
       'standin.platform_label': '플랫폼',
@@ -282,7 +283,7 @@
     'hero.lead':
       'MUSIXQUAREは、複数のスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストール不要。コードをひとつ共有するだけです。',
     'hero.btn_ghost': 'しくみを見る',
-    'hero.rooms_opened': 'これまでに{{count}}のルームが開かれました。',
+    'hero.rooms_opened': 'これまでに{{count}}件のルームが開かれました。',
     'array.h2': 'サラウンドスピーカーなしで<br>サラウンドを',
     'array.lead':
       '各デバイスが左、右、サブウーファー、ステレオの役割を担います。部屋全体をサラウンドシステムにできます。',
@@ -347,7 +348,7 @@
     'cta.h2': '今すぐ始めましょう',
     'cta.btn': 'MUSIXQUAREを始める',
     'footer.app': 'アプリ',
-    'footer.history': '履歴',
+    'footer.history': '更新履歴',
     'footer.designsystem': 'デザインシステム',
   });
 
@@ -373,7 +374,7 @@
       '每台设备都可以用作左音箱、右音箱、低音炮或完整的立体声音箱。整个房间就是一套音响系统。',
     'array.aria': '由左侧手机、中间的笔记本电脑和右侧手机组成的环绕系统。',
     'code.h2': '只要六位数字<br>就能加入',
-    'code.lead': '创建房间后会生成六位代码。使用受支持浏览器的设备都能快速加入。',
+    'code.lead': '创建房间，分享六位数字。使用受支持浏览器的任何人都能在几秒内加入。',
     'code.aria_code': '房间代码示例',
     'code.aria_qr': 'musixquare.com 的二维码',
     'code.copy_btn': '复制邀请链接',
@@ -390,15 +391,15 @@
     'remote.reach_label': '适用范围',
     'remote.reach_value': '受支持的浏览器，可跨网络连接',
     'remote.caveat': '注意：YouTube 模式不支持声道分离和音效。',
-    'remote.pin_label': '公告 · 房主',
+    'remote.pin_label': '公告 · HOST',
     'remote.pin_text': '求歌单推荐',
-    'remote.host_name': '房主',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': '在哪儿？',
     'remote.peer_name': '参与者 1',
     'remote.peer_msg1': '在咖啡店干活呢哈哈',
     'remote.peer_ts_msg': '这首好像不错',
     'remote.host_msg2': '待会儿放给你听',
-    'remote.whisper_sender': '私聊房主',
+    'remote.whisper_sender': '私聊 HOST',
     'remote.whisper_msg': '发个公告求歌单推荐吧',
     'sync.h2': '跨越网络<br>同步播放',
     'sync.lead': '每台设备都会测量延迟，把播放时间准确对齐。',
@@ -410,13 +411,13 @@
     'sync.effects_value': '5 段 EQ · 混响 · 虚拟环绕',
     'sync.platforms_label': '平台',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
-    'sync.host_label': '房主',
+    'sync.host_label': 'HOST',
     'sync.meta': '60 个样本的 NTP 方式同步',
     'standin.h2': '电脑没有<br>扬声器？',
     'standin.lead': 'MUSIXQUARE 可以临时充当音箱。随手拿出手机和平板就能开始。',
-    'standin.aria': '静音电脑下方有两部手机，分别作为左右扬声器工作',
+    'standin.aria': '静音电脑下方有两部手机，分别作为左右音箱工作',
     'standin.desktop_label': '台式机',
-    'standin.desktop_value': '桌上的手机或平板就能成为扬声器',
+    'standin.desktop_value': '桌上的手机或平板就能成为音箱',
     'standin.laptop_label': '笔记本',
     'standin.laptop_value': '用多台设备替代音质单薄的内置扬声器',
     'standin.feature_label': '功能',
@@ -424,7 +425,7 @@
     'standin.platform_label': '平台',
     'standin.platform_value': '电脑上的 Chromium 内核浏览器',
     'standin.caveat':
-      'Beta：仅支持电脑端 Chromium 浏览器，最多4台设备（含发起共享的设备）。同一网络内直接共享不限时；远程或经中继共享会在2小时后自动结束。实时音频无法避免延迟，请调低发起共享的设备音量。',
+      'Beta：仅支持电脑端 Chromium 浏览器，最多 4 台设备（含发起共享的设备）。同一网络内直接共享不限时；远程或经中继共享会在 2 小时后自动结束。实时音频无法避免延迟，请调低发起共享的设备音量。',
     'cta.h2': '现在就开始',
     'cta.btn': '打开 MUSIXQUARE',
     'footer.app': '应用',
@@ -451,7 +452,7 @@
     'hero.rooms_opened': '至今已開啟 {{count}} 個房間。',
     'array.h2': '不用環繞喇叭<br>也能做出環繞音效',
     'array.lead':
-      '每台裝置各自扮演一種角色：左喇叭、右喇叭、重低音或完整立體聲。整個房間就是一套音響系統。',
+      '每台裝置各自扮演一種角色：左喇叭、右喇叭、重低音喇叭或完整立體聲。整個房間就是一套音響系統。',
     'array.aria': '左側手機、中央筆電、右側手機。由三台裝置組成的環繞音效配置。',
     'code.h2': '只要六位數字<br>就能加入',
     'code.lead': '建立房間並分享六位數邀請碼。使用支援瀏覽器的裝置都能在幾秒內加入。',
@@ -471,15 +472,15 @@
     'remote.reach_label': '支援範圍',
     'remote.reach_value': '支援的瀏覽器皆可跨網路連線',
     'remote.caveat': '注意：YouTube 模式不支援聲道分離與音效。',
-    'remote.pin_label': '公告 · 房主',
+    'remote.pin_label': '公告 · HOST',
     'remote.pin_text': '求推薦歌單',
-    'remote.host_name': '房主',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': '在哪？',
     'remote.peer_name': '參與者 1',
     'remote.peer_msg1': '在咖啡廳工作中哈哈',
     'remote.peer_ts_msg': '這首不錯欸',
     'remote.host_msg2': '晚點播給你聽',
-    'remote.whisper_sender': '私訊房主',
+    'remote.whisper_sender': '私訊 HOST',
     'remote.whisper_msg': '發個公告問大家有沒有推薦歌單',
     'sync.h2': '跨越不同網路<br>也能同步播放',
     'sync.lead': '每台裝置都會測量延遲，把播放時間精準對齊。',
@@ -488,10 +489,10 @@
     'sync.transport_label': '傳輸',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': '效果',
-    'sync.effects_value': '5 段 EQ · 殘響 · 虛擬環繞',
+    'sync.effects_value': '5 段 EQ · 殘響 · 虛擬效果',
     'sync.platforms_label': '平台',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
-    'sync.host_label': '房主',
+    'sync.host_label': 'HOST',
     'sync.meta': 'NTP 式同步（60 次取樣）',
     'standin.h2': '電腦沒有<br>喇叭嗎？',
     'standin.lead': 'MUSIXQUARE 可以暫時充當喇叭。只要拿出包包裡的手機和平板，就能開始使用。',
@@ -505,18 +506,18 @@
     'standin.platform_label': '平台',
     'standin.platform_value': '電腦上以 Chromium 為核心的瀏覽器',
     'standin.caveat':
-      'Beta：僅支援電腦版 Chromium 瀏覽器，最多4台裝置（含發起分享的裝置）。同一網路內直接分享不限時；遠端或經中繼分享會在2小時後自動結束。即時音訊無法避免延遲，請調低發起分享的裝置音量。',
+      'Beta：僅支援電腦版 Chromium 瀏覽器，最多 4 台裝置（含發起分享的裝置）。同一網路內直接分享不限時；遠端或經中繼分享會在 2 小時後自動結束。即時音訊無法避免延遲，請調低發起分享的裝置音量。',
     'cta.h2': '現在就開始',
     'cta.btn': '啟動 MUSIXQUARE',
     'footer.app': 'App',
-    'footer.history': '歷史',
-    'footer.designsystem': '設計系統',
+    'footer.history': 'History',
+    'footer.designsystem': 'Design System',
   });
 
   addLang('es', {
     'meta.title': 'Acerca de MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE convierte varios teléfonos, tabletas y portátiles en un único sistema de sonido sincronizado. Funciona en el navegador, sin instalar nada.',
+      'MUSIXQUARE convierte varios teléfonos, tabletas y laptops en un único sistema de sonido sincronizado. Funciona en el navegador, sin instalar nada.',
     'meta.og_title': 'Acerca de MUSIXQUARE',
     'meta.og_description':
       'Todos los dispositivos, un solo sistema. Audio sincronizado entre varios dispositivos, sin instalación.',
@@ -526,16 +527,16 @@
     'header.logo_aria': 'Volver arriba',
     'header.try': 'Probar ahora',
     'header.try_aria': 'Probar MUSIXQUARE ahora',
-    'hero.h1': 'Todos los dispositivos<br>un solo sistema',
+    'hero.h1': 'Todos los dispositivos,<br>un solo sistema',
     'hero.lead':
-      'MUSIXQUARE reúne teléfonos, tabletas y portátiles en un solo sistema de sonido. Sin instalación: solo comparte un código.',
+      'MUSIXQUARE reúne teléfonos, tabletas y laptops en un solo sistema de sonido. Sin instalación: solo comparte un código.',
     'hero.btn_ghost': 'Ver cómo funciona',
-    'hero.rooms_opened': 'Ya se han abierto {{count}} salas.',
+    'hero.rooms_opened': 'Ya se abrieron {{count}} salas.',
     'array.h2': 'Sonido envolvente<br>sin altavoces envolventes',
     'array.lead':
-      'Cada dispositivo puede asumir el papel de izquierda, derecha, subwoofer o estéreo completo. Toda la sala se convierte en el sistema.',
+      'Cada dispositivo puede asumir el rol de izquierda, derecha, subwoofer o estéreo completo. Toda la sala se convierte en el sistema.',
     'array.aria':
-      'Teléfono izquierdo, portátil en el centro y teléfono derecho. Configuración envolvente de tres dispositivos.',
+      'Teléfono izquierdo, laptop en el centro y teléfono derecho. Configuración envolvente de tres dispositivos.',
     'code.h2': 'Solo seis dígitos<br>y listo',
     'code.lead':
       'Abre una sala y comparte el código de seis dígitos. Cualquier dispositivo con un navegador compatible puede conectarse en segundos.',
@@ -544,26 +545,26 @@
     'code.copy_btn': 'Copiar enlace de invitación',
     'code.toast_success': 'Enlace de invitación copiado',
     'code.toast_fail': 'No se pudo copiar',
-    'remote.h2': 'Aunque no estén juntos<br>no hay problema',
+    'remote.h2': 'Aunque no estén juntos,<br>no hay problema',
     'remote.lead': 'Pueden chatear, escuchar música o ver YouTube juntos incluso a distancia.',
     'remote.chat_label': 'Chat',
     'remote.chat_value': 'Chat en tiempo real',
     'remote.whisper_label': 'Privado',
-    'remote.whisper_value': 'Mensajes 1:1 privados',
+    'remote.whisper_value': 'Mensajes privados 1:1',
     'remote.cowatch_label': 'Ver juntos',
     'remote.cowatch_value': 'YouTube sincronizado',
     'remote.reach_label': 'Alcance',
     'remote.reach_value': 'Navegadores compatibles, entre distintas redes',
     'remote.caveat': 'Nota: el modo YouTube no permite separación de canales ni efectos de audio.',
-    'remote.pin_label': 'AVISO · ANFITRIÓN',
+    'remote.pin_label': 'AVISO · HOST',
     'remote.pin_text': '¿Alguna playlist para recomendar?',
-    'remote.host_name': 'ANFITRIÓN',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': '¿dónde estás?',
     'remote.peer_name': 'Participante 1',
     'remote.peer_msg1': 'trabajando en una cafetería jaja',
     'remote.peer_ts_msg': 'este tema suena bien',
     'remote.host_msg2': 'lo pongo luego',
-    'remote.whisper_sender': 'privado para ANFITRIÓN',
+    'remote.whisper_sender': 'privado para HOST',
     'remote.whisper_msg': 'pide recomendaciones de playlists en el aviso',
     'sync.h2': 'Reproducción sincronizada<br>entre distintas redes',
     'sync.lead': 'Cada dispositivo mide el retraso y ajusta la reproducción con precisión.',
@@ -575,14 +576,14 @@
     'sync.effects_value': 'EQ de 5 bandas · Reverberación · Virtualizador',
     'sync.platforms_label': 'Plataformas',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
-    'sync.host_label': 'Anfitrión',
+    'sync.host_label': 'HOST',
     'sync.meta': 'Sincronización tipo NTP con 60 muestras',
-    'standin.h2': '¿Tu ordenador<br>no tiene altavoces?',
+    'standin.h2': '¿Tu computadora<br>no tiene altavoces?',
     'standin.lead':
       'MUSIXQUARE puede sacarte del apuro. Basta con un teléfono y una tableta de la mochila para empezar.',
     'standin.aria':
       'Ordenador silenciado sobre dos teléfonos activos que funcionan como altavoces izquierdo y derecho',
-    'standin.desktop_label': 'Ordenador de sobremesa',
+    'standin.desktop_label': 'Computadora de escritorio',
     'standin.desktop_value':
       'Los teléfonos o las tabletas del escritorio se convierten en altavoces',
     'standin.laptop_label': 'Portátil',
@@ -590,9 +591,9 @@
     'standin.feature_label': 'Función',
     'standin.feature_value': 'Compartir audio del sistema (Beta)',
     'standin.platform_label': 'Plataforma',
-    'standin.platform_value': 'Navegadores basados en Chromium en ordenadores',
+    'standin.platform_value': 'Navegadores basados en Chromium en computadoras',
     'standin.caveat':
-      'Beta: solo Chromium en ordenadores, hasta 4 dispositivos incluido el emisor. La transmisión directa en la misma red no tiene límite de tiempo; las transmisiones remotas o retransmitidas terminan automáticamente tras 2 horas. El audio en vivo tiene un retraso inevitable; baja el volumen del dispositivo emisor.',
+      'Beta: solo Chromium en computadoras, hasta 4 dispositivos incluido el emisor. La transmisión directa en la misma red no tiene límite de tiempo; las transmisiones remotas o retransmitidas terminan automáticamente tras 2 horas. El audio en vivo tiene un retraso inevitable; baja el volumen del dispositivo emisor.',
     'cta.h2': 'Abre una sala.',
     'cta.btn': 'Abrir MUSIXQUARE',
     'footer.app': 'App',
@@ -631,7 +632,7 @@
     'code.copy_btn': 'Copiar link de convite',
     'code.toast_success': 'Link de convite copiado',
     'code.toast_fail': 'Não foi possível copiar',
-    'remote.h2': 'Mesmo longe<br>tudo bem',
+    'remote.h2': 'Não está no mesmo lugar?<br>Sem problema.',
     'remote.lead':
       'Dá para conversar, ouvir música ou assistir ao YouTube juntos mesmo à distância.',
     'remote.chat_label': 'Chat',
@@ -702,7 +703,7 @@
     'header.logo_aria': 'Retour en haut de la page',
     'header.try': 'Essayer maintenant',
     'header.try_aria': 'Essayer MUSIXQUARE maintenant',
-    'hero.h1': 'Tous les appareils<br>un seul système',
+    'hero.h1': 'Tous les appareils,<br>un seul système.',
     'hero.lead':
       'MUSIXQUARE réunit plusieurs téléphones, tablettes et ordinateurs portables en un seul système audio. Aucune installation : il suffit de partager un code.',
     'hero.btn_ghost': 'Voir comment ça marche',
@@ -720,7 +721,7 @@
     'code.copy_btn': 'Copier le lien d’invitation',
     'code.toast_success': 'Lien d’invitation copié',
     'code.toast_fail': 'Impossible de copier',
-    'remote.h2': 'Pas dans le salon ?<br>Aucun souci',
+    'remote.h2': 'Pas dans la même pièce ?<br>Aucun souci',
     'remote.lead':
       'Vous pouvez discuter, écouter de la musique ou regarder YouTube ensemble, même à distance.',
     'remote.chat_label': 'Chat',
@@ -733,15 +734,15 @@
     'remote.reach_value': 'Navigateurs compatibles, même sur des réseaux différents',
     'remote.caveat':
       'Remarque : le mode YouTube ne permet pas la séparation des canaux ni les effets audio.',
-    'remote.pin_label': 'ANNONCE · HÔTE',
+    'remote.pin_label': 'ANNONCE · HOST',
     'remote.pin_text': 'Des playlists à conseiller ?',
-    'remote.host_name': 'HÔTE',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': 't’es où ?',
     'remote.peer_name': 'Participant 1',
     'remote.peer_msg1': 'je bosse dans un café mdr',
     'remote.peer_ts_msg': 'ce morceau est pas mal',
     'remote.host_msg2': 'je le passe plus tard',
-    'remote.whisper_sender': 'message privé à l’HÔTE',
+    'remote.whisper_sender': 'message privé à HOST',
     'remote.whisper_msg': 'demande des recos de playlists dans l’annonce',
     'sync.h2': 'Lecture synchronisée<br>d’un réseau à l’autre',
     'sync.lead': 'Chaque appareil mesure le décalage et aligne précisément la lecture.',
@@ -770,7 +771,7 @@
     'standin.platform_label': 'Plateforme',
     'standin.platform_value': 'Navigateurs pour ordinateur basés sur Chromium',
     'standin.caveat':
-      'Beta : Chromium sur ordinateur uniquement, jusqu’à 4 appareils, émetteur compris. Le partage direct sur le même réseau n’a pas de limite de durée ; le partage à distance ou relayé s’arrête automatiquement après 2 heures. L’audio en direct a un décalage inévitable ; baissez le volume de l’appareil émetteur.',
+      'Beta : Chromium sur ordinateur uniquement, jusqu’à 4 appareils, émetteur compris. Le partage direct sur le même réseau n’a pas de limite de durée ; le partage à distance ou relayé s’arrête automatiquement après 2 heures. L’audio en direct a un décalage inévitable ; baissez le volume de l’appareil émetteur.',
     'cta.h2': 'Créez un salon.',
     'cta.btn': 'Lancer MUSIXQUARE',
     'footer.app': 'Application',
@@ -791,7 +792,7 @@
     'header.logo_aria': 'Nach oben',
     'header.try': 'Jetzt ausprobieren',
     'header.try_aria': 'MUSIXQUARE jetzt ausprobieren',
-    'hero.h1': 'Alle Geräte<br>ein System',
+    'hero.h1': 'Alle Geräte,<br>ein System',
     'hero.lead':
       'MUSIXQUARE verbindet mehrere Smartphones, Tablets und Laptops zu einem Soundsystem. Keine Installation, einfach einen Code teilen.',
     'hero.btn_ghost': 'So funktioniert es',
@@ -834,12 +835,12 @@
     'remote.whisper_msg': 'frag in der Ankündigung nach Playlist-Tipps',
     'sync.h2': 'Synchrone Wiedergabe<br>über Netzwerke hinweg',
     'sync.lead': 'Jedes Gerät misst die Verzögerung und richtet die Wiedergabe präzise aus.',
-    'sync.video_label': 'Medien',
+    'sync.video_label': 'MEDIEN',
     'sync.video_value': 'Synchrone Medienwiedergabe',
     'sync.transport_label': 'Transport',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': 'Effekte',
-    'sync.effects_value': '5-Band-EQ · Hall · Virtualisierung',
+    'sync.effects_value': '5-Band-EQ · Hall · Virtueller Surround',
     'sync.platforms_label': 'Plattformen',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
@@ -885,7 +886,7 @@
       'MUSIXQUARE maakt van meerdere telefoons, tablets en laptops één geluidssysteem. Geen installatie: deel gewoon één code.',
     'hero.btn_ghost': 'Zo werkt het',
     'hero.rooms_opened': 'Tot nu toe zijn {{count}} kamers geopend.',
-    'array.h2': 'Surroundgeluid<br>zonder surroundspeakers',
+    'array.h2': 'Surroundgeluid<br>zonder surroundluidsprekers',
     'array.lead':
       'Elk apparaat krijgt één rol: links, rechts, subwoofer of volledig stereogeluid. De ruimte zelf wordt het systeem.',
     'array.aria':
@@ -903,7 +904,7 @@
       'Chat, luister naar muziek of kijk samen naar YouTube, zelfs als je niet op dezelfde plek bent.',
     'remote.chat_label': 'Chat',
     'remote.chat_value': 'Realtimechat',
-    'remote.whisper_label': 'Fluisterbericht',
+    'remote.whisper_label': 'Privébericht',
     'remote.whisper_value': 'Privéberichten één-op-één',
     'remote.cowatch_label': 'Samen kijken',
     'remote.cowatch_value': 'Samen synchroon YouTube kijken',
@@ -911,7 +912,7 @@
     'remote.reach_value': 'Ondersteunde browsers, ook over verschillende netwerken',
     'remote.caveat':
       'Let op: kanaalsplitsing en audio-effecten zijn niet beschikbaar in de YouTube-modus.',
-    'remote.pin_label': 'MEDEDELING · HOST',
+    'remote.pin_label': 'AANKONDIGING · HOST',
     'remote.pin_text': 'Playlisttips gezocht',
     'remote.host_name': 'HOST',
     'remote.host_msg1': 'waar ben je?',
@@ -919,8 +920,8 @@
     'remote.peer_msg1': 'aan het werk in een café haha',
     'remote.peer_ts_msg': 'dit nummer is best goed',
     'remote.host_msg2': 'ik zet ’m straks op',
-    'remote.whisper_sender': 'fluisterbericht aan HOST',
-    'remote.whisper_msg': 'vraag in de mededeling om playlisttips',
+    'remote.whisper_sender': 'privébericht aan HOST',
+    'remote.whisper_msg': 'vraag in de aankondiging om playlisttips',
     'sync.h2': 'Synchroon afspelen<br>over verschillende netwerken',
     'sync.lead': 'Elk apparaat meet de vertraging en laat het afspelen precies gelijklopen.',
     'sync.video_label': 'MEDIA',
@@ -943,7 +944,7 @@
     'standin.laptop_label': 'Laptop',
     'standin.laptop_value': 'Meerdere apparaten in plaats van zwakke ingebouwde luidsprekers',
     'standin.feature_label': 'Functie',
-    'standin.feature_value': 'Systeem-audio delen (Beta)',
+    'standin.feature_value': 'Systeemaudio delen (Beta)',
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Chromium-browsers op computers',
     'standin.caveat':
@@ -968,12 +969,12 @@
     'header.logo_aria': 'Torna in cima',
     'header.try': 'Provalo ora',
     'header.try_aria': 'Prova MUSIXQUARE ora',
-    'hero.h1': 'Ogni dispositivo<br>un solo sistema',
+    'hero.h1': 'Ogni dispositivo,<br>un solo sistema.',
     'hero.lead':
       'MUSIXQUARE collega più telefoni, tablet e laptop in un unico sistema audio. Nessuna installazione: basta condividere un codice.',
     'hero.btn_ghost': 'Scopri come funziona',
     'hero.rooms_opened': 'Finora sono state aperte {{count}} stanze.',
-    'array.h2': 'Surround<br>senza casse surround',
+    'array.h2': 'Surround<br>senza altoparlanti surround',
     'array.lead':
       'Ogni dispositivo può fungere da canale sinistro, canale destro, subwoofer o stereo completo. L’intera stanza diventa il sistema.',
     'array.aria':
@@ -983,18 +984,18 @@
       'Apri una stanza e condividi il codice a sei cifre. Qualsiasi dispositivo con un browser supportato può entrare in pochi secondi.',
     'code.aria_code': 'Esempio di codice stanza',
     'code.aria_qr': 'Codice QR per musixquare.com',
-    'code.copy_btn': 'Copia link di invito',
-    'code.toast_success': 'Link di invito copiato',
+    'code.copy_btn': 'Copia link d’invito',
+    'code.toast_success': 'Link d’invito copiato',
     'code.toast_fail': 'Copia non riuscita',
-    'remote.h2': 'Non siete nello stesso posto?<br>Nessun problema',
-    'remote.lead': 'Potete chattare, ascoltare musica o guardare YouTube insieme anche a distanza.',
+    'remote.h2': 'Non sei nello stesso posto?<br>Nessun problema',
+    'remote.lead': 'Chatta, ascolta musica o guarda YouTube insieme agli altri, anche a distanza.',
     'remote.chat_label': 'Chat',
     'remote.chat_value': 'Chat in tempo reale',
     'remote.whisper_label': 'Privato',
     'remote.whisper_value': 'Messaggi privati 1:1',
     'remote.cowatch_label': 'Guarda insieme',
     'remote.cowatch_value': 'YouTube sincronizzato',
-    'remote.reach_label': 'Accesso',
+    'remote.reach_label': 'Compatibilità',
     'remote.reach_value': 'Browser supportati, anche su reti diverse',
     'remote.caveat':
       'Nota: in modalità YouTube la separazione dei canali e gli effetti audio non sono disponibili.',
@@ -1010,19 +1011,19 @@
     'remote.whisper_msg': 'chiedi nell’avviso se hanno playlist da consigliare',
     'sync.h2': 'Riproduzione sincronizzata<br>anche tra reti diverse',
     'sync.lead': 'Ogni dispositivo misura il ritardo e allinea con precisione la riproduzione.',
-    'sync.video_label': 'Contenuti',
+    'sync.video_label': 'MEDIA',
     'sync.video_value': 'Riproduzione multimediale sincronizzata',
     'sync.transport_label': 'Trasporto',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': 'Effetti',
-    'sync.effects_value': 'EQ a 5 bande · Riverbero · Virtualizzazione',
+    'sync.effects_value': 'EQ a 5 bande · Riverbero · Effetti virtuali',
     'sync.platforms_label': 'Piattaforme',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
     'sync.meta': 'Sincronizzazione tipo NTP con 60 campioni',
     'standin.h2': 'Il computer<br>non ha altoparlanti?',
     'standin.lead':
-      'MUSIXQUARE può essere una soluzione veloce. Bastano un telefono e un tablet nella borsa.',
+      'MUSIXQUARE è un ottimo sostituto al volo. Bastano un telefono e un tablet presi dalla borsa.',
     'standin.aria':
       'Computer silenziato sopra due telefoni attivi usati come altoparlanti sinistro e destro',
     'standin.desktop_label': 'Desktop',
@@ -1032,9 +1033,9 @@
     'standin.feature_label': 'Funzione',
     'standin.feature_value': 'Condivisione audio di sistema (Beta)',
     'standin.platform_label': 'Piattaforma',
-    'standin.platform_value': 'Browser basati su Chromium sui computer',
+    'standin.platform_value': 'Browser basati su Chromium su computer',
     'standin.caveat':
-      'Beta: solo Chromium su computer, fino a 4 dispositivi incluso quello che condivide. La condivisione diretta sulla stessa rete non ha limiti di tempo; quella remota o tramite un intermediario termina automaticamente dopo 2 ore. L’audio in diretta ha un ritardo inevitabile; abbassa il volume del dispositivo che condivide.',
+      'Beta: solo Chromium su computer, fino a 4 dispositivi incluso quello che condivide. La condivisione diretta sulla stessa rete non ha limiti di tempo; quella remota o tramite relay termina automaticamente dopo 2 ore. L’audio in diretta ha un ritardo inevitabile; abbassa il volume del dispositivo che condivide.',
     'cta.h2': 'Inizia ora',
     'cta.btn': 'Avvia MUSIXQUARE',
     'footer.app': 'App',
@@ -1070,10 +1071,10 @@
       'Utwórz pokój i udostępnij sześciocyfrowy kod. Każdy, kto korzysta z obsługiwanej przeglądarki, może dołączyć w kilka sekund.',
     'code.aria_code': 'Przykładowy kod pokoju',
     'code.aria_qr': 'Kod QR dla musixquare.com',
-    'code.copy_btn': 'Skopiuj link z zaproszeniem',
-    'code.toast_success': 'Skopiowano link z zaproszeniem',
+    'code.copy_btn': 'Skopiuj link zaproszenia',
+    'code.toast_success': 'Skopiowano link zaproszenia',
     'code.toast_fail': 'Nie udało się skopiować',
-    'remote.h2': 'Nie jesteś w pokoju?<br>Żaden problem',
+    'remote.h2': 'Daleko od siebie?<br>Żaden problem',
     'remote.lead':
       'Możesz czatować, słuchać muzyki albo oglądać YouTube razem z innymi, nawet z daleka.',
     'remote.chat_label': 'Czat',
@@ -1142,11 +1143,11 @@
     'header.logo_aria': 'Вернуться наверх',
     'header.try': 'Попробовать',
     'header.try_aria': 'Попробовать MUSIXQUARE',
-    'hero.h1': 'Все устройства<br>одна система',
+    'hero.h1': 'Все устройства,<br>одна система.',
     'hero.lead':
       'MUSIXQUARE объединяет несколько телефонов, планшетов и ноутбуков в единую аудиосистему. Без установки: просто поделитесь одним кодом.',
     'hero.btn_ghost': 'Как это работает',
-    'hero.rooms_opened': 'Уже открыто {{count}} комнат.',
+    'hero.rooms_opened': 'Уже открыто комнат: {{count}}.',
     'array.h2': 'Объёмный звук<br>без специальных колонок',
     'array.lead':
       'Каждое устройство может взять на себя одну роль: левый, правый, сабвуфер или полноценное стерео. Вся комната становится системой.',
@@ -1258,19 +1259,19 @@
     'remote.reach_label': 'Erişim',
     'remote.reach_value': 'Desteklenen tarayıcılar, farklı ağlar arasında',
     'remote.caveat': 'Not: YouTube modunda kanal ayırma ve ses efektleri kullanılamaz.',
-    'remote.pin_label': 'DUYURU · ODA SAHİBİ',
+    'remote.pin_label': 'DUYURU · HOST',
     'remote.pin_text': 'Playlist önerisi alayım',
-    'remote.host_name': 'ODA SAHİBİ',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': 'neredesin?',
     'remote.peer_name': 'Katılımcı 1',
     'remote.peer_msg1': 'kafede çalışıyorum haha',
     'remote.peer_ts_msg': 'bu şarkı iyi gibi',
     'remote.host_msg2': 'sonra açarım',
-    'remote.whisper_sender': 'ODA SAHİBİNE özel mesaj',
+    'remote.whisper_sender': 'HOST’a özel mesaj',
     'remote.whisper_msg': 'duyuruda playlist önerisi istesene',
     'sync.h2': 'Ağlar arasında<br>senkronize oynatma',
     'sync.lead': 'Her cihaz gecikmeyi ölçer ve oynatmayı hassas biçimde hizalar.',
-    'sync.video_label': 'Medya',
+    'sync.video_label': 'MEDYA',
     'sync.video_value': 'Senkronize medya oynatma',
     'sync.transport_label': 'Aktarım',
     'sync.transport_value': 'P2P · WebRTC',
@@ -1278,7 +1279,7 @@
     'sync.effects_value': '5 bant EQ · Yankı · Sanallaştırıcı',
     'sync.platforms_label': 'Platformlar',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
-    'sync.host_label': 'ODA SAHİBİ',
+    'sync.host_label': 'HOST',
     'sync.meta': '60 örnekli NTP tarzı senkronizasyon',
     'standin.h2': 'Bilgisayarında<br>hoparlör yok mu?',
     'standin.lead':
@@ -1294,7 +1295,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Bilgisayarlardaki Chromium tabanlı tarayıcılar',
     'standin.caveat':
-      'Beta: yalnızca bilgisayarda Chromium, paylaşan cihaz dahil en fazla 4 cihaz. Aynı ağda doğrudan paylaşımda süre sınırı yoktur; uzaktan veya aracı üzerinden yapılan paylaşım 2 saat sonra otomatik olarak sona erer. Canlı seste gecikme kaçınılmazdır; paylaşan cihazın sesini kısın.',
+      'Beta: yalnızca bilgisayarda Chromium, paylaşan cihaz dahil en fazla 4 cihaz. Aynı ağda doğrudan paylaşımda süre sınırı yoktur; uzaktan veya aracı üzerinden yapılan paylaşım 2 saat sonra otomatik olarak sona erer. Canlı seste gecikme kaçınılmazdır; paylaşan cihazın sesini kıs.',
     'cta.h2': 'Şimdi başla',
     'cta.btn': 'MUSIXQUARE’i aç',
     'footer.app': 'Uygulama',
@@ -1383,7 +1384,7 @@
     'standin.platform_value': 'Browser berbasis Chromium di komputer',
     'standin.caveat':
       'Beta: hanya Chromium di komputer, maksimal 4 perangkat termasuk perangkat pengirim. Berbagi langsung di jaringan yang sama tidak dibatasi waktu; berbagi jarak jauh atau melalui relai berakhir otomatis setelah 2 jam. Audio langsung memiliki jeda yang tak terhindarkan; kecilkan volume perangkat pengirim.',
-    'cta.h2': 'Mulai sesi.',
+    'cta.h2': 'Mulai sekarang.',
     'cta.btn': 'Buka MUSIXQUARE',
     'footer.app': 'Aplikasi',
     'footer.history': 'Riwayat',
@@ -1421,7 +1422,7 @@
     'code.copy_btn': 'Sao chép liên kết mời',
     'code.toast_success': 'Đã sao chép liên kết mời',
     'code.toast_fail': 'Không thể sao chép',
-    'remote.h2': 'Không ở cùng một phòng?<br>Không sao cả.',
+    'remote.h2': 'Không ở cùng một nơi?<br>Không sao cả.',
     'remote.lead': 'Bạn vẫn có thể trò chuyện, nghe nhạc hoặc xem YouTube cùng nhau dù đang ở xa.',
     'remote.chat_label': 'Trò chuyện',
     'remote.chat_value': 'Trò chuyện thời gian thực',
@@ -1432,15 +1433,15 @@
     'remote.reach_label': 'Phạm vi',
     'remote.reach_value': 'Trình duyệt được hỗ trợ, kể cả khi khác mạng',
     'remote.caveat': 'Lưu ý: chế độ YouTube không hỗ trợ tách kênh và hiệu ứng âm thanh.',
-    'remote.pin_label': 'THÔNG BÁO · CHỦ PHÒNG',
+    'remote.pin_label': 'THÔNG BÁO · HOST',
     'remote.pin_text': 'Xin vài playlist hay',
-    'remote.host_name': 'CHỦ PHÒNG',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': 'đang ở đâu?',
     'remote.peer_name': 'Người tham gia 1',
     'remote.peer_msg1': 'đang ngồi làm ở quán cà phê haha',
     'remote.peer_ts_msg': 'bài này nghe hay đấy',
     'remote.host_msg2': 'lát mở cho nghe',
-    'remote.whisper_sender': 'nhắn riêng cho CHỦ PHÒNG',
+    'remote.whisper_sender': 'nhắn riêng cho HOST',
     'remote.whisper_msg': 'đăng thông báo xin gợi ý playlist đi',
     'sync.h2': 'Phát đồng bộ.<br>Dù khác mạng.',
     'sync.lead': 'Mỗi thiết bị đo độ trễ rồi căn chỉnh phát thật chính xác.',
@@ -1452,7 +1453,7 @@
     'sync.effects_value': 'EQ 5 băng tần · Độ vang · Hiệu ứng ảo',
     'sync.platforms_label': 'Nền tảng',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
-    'sync.host_label': 'Chủ phòng',
+    'sync.host_label': 'HOST',
     'sync.meta': 'Đồng bộ kiểu NTP với 60 mẫu',
     'standin.h2': 'Máy tính của bạn<br>không có loa?',
     'standin.lead':
@@ -1490,7 +1491,7 @@
     'header.try_aria': 'ลองใช้ MUSIXQUARE เลย',
     'hero.h1': 'ทุกอุปกรณ์<br>เป็นระบบเดียวกัน',
     'hero.lead':
-      'MUSIXQUARE เชื่อมอุปกรณ์หลายเครื่อง ทั้งโทรศัพท์ แท็บเล็ต และแล็ปท็อป ให้เป็นระบบเสียงเดียว ไม่ต้องติดตั้ง แค่แชร์โค้ดเดียว',
+      'MUSIXQUARE เชื่อมอุปกรณ์หลายเครื่อง ทั้งโทรศัพท์ แท็บเล็ต และแล็ปท็อป ให้เป็นระบบเสียงเดียว ไม่ต้องติดตั้ง แค่แชร์รหัสเดียว',
     'hero.btn_ghost': 'ดูวิธีทำงาน',
     'hero.rooms_opened': 'เปิดห้องไปแล้ว {{count}} ห้อง',
     'array.h2': 'เสียงรอบทิศทาง<br>โดยไม่ต้องมีลำโพงรอบทิศทาง',
@@ -1500,8 +1501,8 @@
       'โทรศัพท์ด้านซ้าย แล็ปท็อปตรงกลาง และโทรศัพท์ด้านขวา ชุดเสียงรอบทิศทางจากสามอุปกรณ์',
     'code.h2': 'แค่เลขหกหลัก<br>ก็พอ',
     'code.lead':
-      'เปิดห้องแล้วแชร์โค้ดหกหลัก อุปกรณ์ที่ใช้เบราว์เซอร์ที่รองรับก็เข้าร่วมได้ในไม่กี่วินาที',
-    'code.aria_code': 'ตัวอย่างโค้ดห้อง',
+      'เปิดห้องแล้วแชร์รหัสหกหลัก อุปกรณ์ที่ใช้เบราว์เซอร์ที่รองรับก็เข้าร่วมได้ในไม่กี่วินาที',
+    'code.aria_code': 'ตัวอย่างรหัสห้อง',
     'code.aria_qr': 'คิวอาร์โค้ดสำหรับ musixquare.com',
     'code.copy_btn': 'คัดลอกลิงก์เชิญ',
     'code.toast_success': 'คัดลอกลิงก์เชิญแล้ว',
@@ -1510,22 +1511,22 @@
     'remote.lead': 'คุยกัน ฟังเพลง หรือดู YouTube พร้อมกันได้ แม้อยู่คนละที่',
     'remote.chat_label': 'แชต',
     'remote.chat_value': 'แชตแบบเรียลไทม์',
-    'remote.whisper_label': 'ส่วนตัว',
+    'remote.whisper_label': 'กระซิบ',
     'remote.whisper_value': 'ข้อความส่วนตัว 1:1',
     'remote.cowatch_label': 'ดูด้วยกัน',
     'remote.cowatch_value': 'YouTube ที่ซิงก์กัน',
     'remote.reach_label': 'รองรับ',
     'remote.reach_value': 'เบราว์เซอร์ที่รองรับ เชื่อมต่อข้ามเครือข่ายได้',
     'remote.caveat': 'หมายเหตุ: โหมด YouTube ไม่รองรับการแยกช่องเสียงและเอฟเฟกต์เสียง',
-    'remote.pin_label': 'ประกาศ · เจ้าของห้อง',
+    'remote.pin_label': 'ประกาศ · HOST',
     'remote.pin_text': 'แนะนำเพลย์ลิสต์หน่อย',
-    'remote.host_name': 'เจ้าของห้อง',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': 'อยู่ไหน?',
     'remote.peer_name': 'ผู้เข้าร่วม 1',
     'remote.peer_msg1': 'ทำงานอยู่คาเฟ่ 555',
     'remote.peer_ts_msg': 'เพลงนี้ดีแฮะ',
     'remote.host_msg2': 'เดี๋ยวเปิดให้',
-    'remote.whisper_sender': 'ข้อความส่วนตัวถึงเจ้าของห้อง',
+    'remote.whisper_sender': 'กระซิบถึง HOST',
     'remote.whisper_msg': 'ประกาศขอเพลย์ลิสต์แนะนำหน่อย',
     'sync.h2': 'เล่นแบบซิงก์กัน<br>ข้ามเครือข่าย',
     'sync.lead': 'แต่ละอุปกรณ์วัดความหน่วง แล้วจัดเวลาเล่นให้ตรงกันอย่างแม่นยำ',
@@ -1537,7 +1538,7 @@
     'sync.effects_value': 'EQ 5 ย่าน · เสียงก้อง · เอฟเฟกต์เสมือน',
     'sync.platforms_label': 'แพลตฟอร์ม',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
-    'sync.host_label': 'เจ้าของห้อง',
+    'sync.host_label': 'HOST',
     'sync.meta': 'ซิงก์แบบ NTP ด้วย 60 ตัวอย่าง',
     'standin.h2': 'คอมพิวเตอร์<br>ไม่มีลำโพง?',
     'standin.lead': 'MUSIXQUARE ใช้แทนได้ทันที แค่มีโทรศัพท์กับแท็บเล็ตในกระเป๋าก็เริ่มได้',
@@ -1563,10 +1564,10 @@
   addLang('ms', {
     'meta.title': 'Perihal · MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE mengubah beberapa telefon, tablet dan komputer riba menjadi satu sistem bunyi terselaras. Terus dalam pelayar. Tanpa pemasangan.',
+      'MUSIXQUARE mengubah beberapa telefon, tablet dan komputer riba menjadi satu sistem bunyi yang disegerakkan. Terus dalam pelayar. Tanpa pemasangan.',
     'meta.og_title': 'Perihal · MUSIXQUARE',
     'meta.og_description':
-      'Setiap peranti, satu sistem. Audio terselaras merentas berbilang peranti, tanpa pemasangan.',
+      'Setiap peranti, satu sistem. Audio disegerakkan merentas berbilang peranti, tanpa pemasangan.',
     'meta.og_image_alt': 'MUSIXQUARE: Setiap peranti, satu sistem.',
     'meta.tw_title': 'Perihal · MUSIXQUARE',
     'meta.tw_description': 'Setiap peranti, satu sistem.',
@@ -1581,11 +1582,11 @@
     'hero.btn_ghost': 'Cara ia berfungsi',
     'hero.rooms_opened': 'Bilik dibuka setakat ini: {{count}}.',
 
-    'array.h2': 'Bunyi surround, tanpa<br>pembesar suara surround.',
+    'array.h2': 'Bunyi keliling, tanpa<br>pembesar suara keliling.',
     'array.lead':
       'Setiap peranti memainkan satu peranan: kiri, kanan, subwufer atau stereo penuh. Ruang itu sendiri menjadi sistem bunyi.',
     'array.aria':
-      'Telefon di kiri, komputer riba di tengah dan telefon di kanan. Susunan surround tiga peranti.',
+      'Telefon di kiri, komputer riba di tengah dan telefon di kanan. Susunan bunyi keliling tiga peranti.',
 
     'code.h2': 'Enam digit.<br>Itu sahaja.',
     'code.lead':
@@ -1596,15 +1597,15 @@
     'code.toast_success': 'Pautan jemputan disalin',
     'code.toast_fail': 'Gagal menyalin',
 
-    'remote.h2': 'Tidak berada di bilik yang sama?<br>Tiada masalah.',
+    'remote.h2': 'Tidak berada di tempat yang sama?<br>Tiada masalah.',
     'remote.lead':
       'Berbual, dengar muzik atau tonton YouTube bersama-sama walaupun berada di seberang bandar.',
     'remote.chat_label': 'Sembang',
     'remote.chat_value': 'Sembang masa nyata',
-    'remote.whisper_label': 'Mesej peribadi',
+    'remote.whisper_label': 'Bisikan',
     'remote.whisper_value': 'Mesej peribadi 1:1',
     'remote.cowatch_label': 'Tonton bersama',
-    'remote.cowatch_value': 'YouTube bersama-sama, secara selaras',
+    'remote.cowatch_value': 'YouTube bersama-sama, secara segerak',
     'remote.reach_label': 'Jangkauan',
     'remote.reach_value': 'Pelayar yang disokong, merentas rangkaian',
     'remote.caveat': 'Nota: pemisahan saluran dan kesan audio tidak tersedia untuk YouTube.',
@@ -1616,22 +1617,22 @@
     'remote.peer_msg1': 'tengah kerja di kafe haha',
     'remote.peer_ts_msg': 'sedap juga lagu ni',
     'remote.host_msg2': 'nanti saya mainkan',
-    'remote.whisper_sender': 'mesej peribadi kepada HOST',
+    'remote.whisper_sender': 'bisikan kepada HOST',
     'remote.whisper_msg': 'minta cadangan senarai main dalam notis',
 
-    'sync.h2': 'Main balik terselaras.<br>Merentas rangkaian.',
+    'sync.h2': 'Main balik disegerakkan.<br>Merentas rangkaian.',
     'sync.lead':
       'Setiap peranti mengukur kelewatan dan memastikan main balik kekal selaras dengan tepat.',
     'sync.video_label': 'MEDIA',
-    'sync.video_value': 'Main balik media terselaras',
+    'sync.video_value': 'Main balik media disegerakkan',
     'sync.transport_label': 'Penghantaran',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': 'Kesan',
-    'sync.effects_value': 'EQ 5 jalur · Gema · Virtualizer',
+    'sync.effects_value': 'EQ 5 jalur · Gema · Kesan maya',
     'sync.platforms_label': 'Platform',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'Host',
-    'sync.meta': 'Penyelarasan gaya NTP dengan 60 sampel',
+    'sync.meta': 'Penyegerakan gaya NTP dengan 60 sampel',
 
     'standin.h2': 'Komputer anda<br>tiada pembesar suara?',
     'standin.lead':
@@ -1674,26 +1675,26 @@
 
     'hero.h1': 'Bawat device,<br>iisang system.',
     'hero.lead':
-      'Pinagsasama ng MUSIXQUARE ang maraming phone, tablet, at laptop bilang iisang sound system. Walang installation. Mag-share lang ng isang code.',
+      'Pinagsasama ng MUSIXQUARE ang maraming phone, tablet, at laptop bilang iisang sound system. Walang kailangang i-install. Magbahagi lang ng isang code.',
     'hero.btn_ghost': 'Paano ito gumagana',
-    'hero.rooms_opened': 'Mga room na nabuksan hanggang ngayon: {{count}}.',
+    'hero.rooms_opened': 'Mga kuwartong nabuksan hanggang ngayon: {{count}}.',
 
     'array.h2': 'Surround sound, kahit walang<br>surround speaker.',
     'array.lead':
-      'May isang papel ang bawat device: kaliwa, kanan, subwoofer, o full stereo. Ang mismong room ang nagiging system.',
+      'May isang gampanin ang bawat device: kaliwa, kanan, subwoofer, o full stereo. Ang mismong kuwarto ang nagiging system.',
     'array.aria':
       'Phone sa kaliwa, laptop sa gitna, at phone sa kanan. Tatlong-device na surround setup.',
 
     'code.h2': 'Anim na digit.<br>Iyon lang.',
     'code.lead':
-      'Magsimula ng session at i-share ang anim na digit na code. Makakasali sa loob ng ilang segundo ang sinumang may suportadong browser.',
-    'code.aria_code': 'Halimbawang room code',
+      'Magsimula ng session at ibahagi ang anim na digit na code. Makakasali sa loob ng ilang segundo ang sinumang may suportadong browser.',
+    'code.aria_code': 'Halimbawang code ng kuwarto',
     'code.aria_qr': 'QR code para sa musixquare.com',
-    'code.copy_btn': 'Kopyahin ang invite link',
-    'code.toast_success': 'Nakopya ang invite link',
+    'code.copy_btn': 'Kopyahin ang link ng imbitasyon',
+    'code.toast_success': 'Nakopya ang link ng imbitasyon',
     'code.toast_fail': 'Hindi nakopya',
 
-    'remote.h2': 'Wala sa iisang room?<br>Walang problema.',
+    'remote.h2': 'Wala sa iisang lugar?<br>Walang problema.',
     'remote.lead':
       'Mag-chat, makinig ng musika, o manood ng YouTube nang sabay kahit nasa magkabilang panig ng bayan.',
     'remote.chat_label': 'Chat',
@@ -1704,17 +1705,18 @@
     'remote.cowatch_value': 'Sabay at naka-sync na YouTube',
     'remote.reach_label': 'Abot',
     'remote.reach_value': 'Mga suportadong browser, kahit magkaibang network',
-    'remote.caveat': 'Tandaan: hindi available ang channel separation at audio effects sa YouTube.',
-    'remote.pin_label': 'PAALALA · HOST',
+    'remote.caveat':
+      'Tandaan: hindi available ang channel separation at mga audio effect sa YouTube.',
+    'remote.pin_label': 'ABISO · HOST',
     'remote.pin_text': 'Tumatanggap ng playlist recs',
     'remote.host_name': 'HOST',
     'remote.host_msg1': 'nasaan ka?',
     'remote.peer_name': 'Kalahok 1',
     'remote.peer_msg1': 'nagtatrabaho sa café haha',
     'remote.peer_ts_msg': 'ang ganda pala ng kantang ito',
-    'remote.host_msg2': 'ipatugtog ko mamaya',
+    'remote.host_msg2': 'ipapatugtog ko mamaya',
     'remote.whisper_sender': 'pribadong mensahe sa HOST',
-    'remote.whisper_msg': 'humingi ka ng playlist recs sa paalala',
+    'remote.whisper_msg': 'humingi ka ng playlist recs sa abiso',
 
     'sync.h2': 'Naka-sync na playback.<br>Kahit magkaibang network.',
     'sync.lead':
@@ -1740,7 +1742,7 @@
     'standin.laptop_label': 'Laptop',
     'standin.laptop_value': 'Maraming device kapalit ng mahihinang built-in speaker',
     'standin.feature_label': 'Feature',
-    'standin.feature_value': 'System Audio Sharing (Beta)',
+    'standin.feature_value': 'Pagbabahagi ng System Audio (Beta)',
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Mga Chromium-based browser sa computer',
     'standin.caveat':
@@ -1775,7 +1777,7 @@
     'hero.btn_ghost': 'Як це працює',
     'hero.rooms_opened': 'Кімнат відкрито: {{count}}.',
 
-    'array.h2': 'Об’ємний звук<br>без surround-акустики.',
+    'array.h2': 'Об’ємний звук<br>без багатоканальної акустики.',
     'array.lead':
       'Кожен пристрій виконує одну роль: лівий, правий, сабвуфер або повне стерео. Сама кімната стає звуковою системою.',
     'array.aria':
@@ -1803,7 +1805,7 @@
     'remote.reach_value': 'Підтримувані браузери в різних мережах',
     'remote.caveat': 'Примітка: для YouTube недоступні розділення каналів і звукові ефекти.',
     'remote.pin_label': 'ОГОЛОШЕННЯ · HOST',
-    'remote.pin_text': 'Приймаю поради для списку відтворення',
+    'remote.pin_text': 'Приймаю рекомендації для плейліста',
     'remote.host_name': 'HOST',
     'remote.host_msg1': 'ти де?',
     'remote.peer_name': 'Учасник 1',
@@ -1811,7 +1813,7 @@
     'remote.peer_ts_msg': 'непогана пісня',
     'remote.host_msg2': 'увімкну її пізніше',
     'remote.whisper_sender': 'приватне повідомлення для HOST',
-    'remote.whisper_msg': 'попроси поради для списку в оголошенні',
+    'remote.whisper_msg': 'попроси в оголошенні рекомендації для плейліста',
 
     'sync.h2': 'Синхронне відтворення.<br>У різних мережах.',
     'sync.lead': 'Кожен пристрій вимірює затримку й підтримує точне узгодження відтворення.',
@@ -1823,7 +1825,7 @@
     'sync.effects_value': '5-смуговий EQ · Реверберація · Віртуалізатор',
     'sync.platforms_label': 'Платформи',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
-    'sync.host_label': 'Host',
+    'sync.host_label': 'HOST',
     'sync.meta': 'NTP-подібна синхронізація за 60 вимірами',
 
     'standin.h2': 'На комп’ютері<br>немає динаміків?',
@@ -1836,7 +1838,7 @@
     'standin.laptop_label': 'Ноутбук',
     'standin.laptop_value': 'Кілька пристроїв замість слабких вбудованих динаміків',
     'standin.feature_label': 'Функція',
-    'standin.feature_value': 'Трансляція системного звуку (Beta)',
+    'standin.feature_value': 'Трансляція системного аудіо (Beta)',
     'standin.platform_label': 'Платформа',
     'standin.platform_value': 'Браузери на основі Chromium для комп’ютерів',
     'standin.caveat':
@@ -1847,7 +1849,7 @@
 
     'footer.app': 'Застосунок',
     'footer.history': 'Історія',
-    'footer.designsystem': 'Система дизайну',
+    'footer.designsystem': 'Дизайн-система',
   });
 
   addLang('ro', {
@@ -1891,7 +1893,7 @@
       'Discută, ascultă muzică sau urmărește YouTube împreună cu ceilalți, chiar și din locuri diferite ale orașului.',
     'remote.chat_label': 'Chat',
     'remote.chat_value': 'Chat în timp real',
-    'remote.whisper_label': 'Mesaj privat',
+    'remote.whisper_label': 'Șoaptă',
     'remote.whisper_value': 'Mesaje private unu-la-unu',
     'remote.cowatch_label': 'Vizionare împreună',
     'remote.cowatch_value': 'YouTube împreună, sincronizat',
@@ -1907,7 +1909,7 @@
     'remote.peer_msg1': 'lucrez dintr-o cafenea :))',
     'remote.peer_ts_msg': 'piesa asta chiar e bună',
     'remote.host_msg2': 'o pun mai târziu',
-    'remote.whisper_sender': 'mesaj privat către HOST',
+    'remote.whisper_sender': 'șoaptă către HOST',
     'remote.whisper_msg': 'cere recomandări pentru listă în anunț',
 
     'sync.h2': 'Redare sincronizată.<br>Între rețele.',
@@ -1937,7 +1939,7 @@
     'standin.platform_label': 'Platformă',
     'standin.platform_value': 'Browsere bazate pe Chromium pe computere',
     'standin.caveat':
-      'Beta: numai Chromium pe computere, maximum 4 dispozitive, inclusiv dispozitivul care transmite. Partajarea directă în aceeași rețea nu are limită de timp; partajarea la distanță sau printr-un server intermediar se încheie automat după 2 ore. Sunetul live are o întârziere inevitabilă, așa că reduceți volumul dispozitivului care transmite.',
+      'Beta: numai Chromium pe computere, maximum 4 dispozitive, inclusiv dispozitivul care transmite. Partajarea directă în aceeași rețea nu are limită de timp; partajarea la distanță sau printr-un server intermediar se încheie automat după 2 ore. Sunetul live are o întârziere inevitabilă, așa că redu volumul dispozitivului care transmite.',
 
     'cta.h2': 'Pornește o sesiune.',
     'cta.btn': 'Deschide MUSIXQUARE',
@@ -2112,7 +2114,7 @@
     'sync.transport_label': 'Μετάδοση',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': 'Εφέ',
-    'sync.effects_value': 'EQ 5 ζωνών · Αντήχηση · Virtualizer',
+    'sync.effects_value': 'EQ 5 ζωνών · Αντήχηση · Εικονικά εφέ',
     'sync.platforms_label': 'Πλατφόρμες',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'Οικοδεσπότης',
@@ -2120,7 +2122,7 @@
 
     'standin.h2': 'Ο υπολογιστής δεν έχει<br>ηχεία;',
     'standin.lead':
-      'Το MUSIXQUARE τα αντικαθιστά άμεσα. Ένα τηλέφωνο και ένα tablet από την τσάντα σας αρκούν για να ξεκινήσετε.',
+      'Το MUSIXQUARE λειτουργεί ως γρήγορη προσωρινή λύση. Ένα τηλέφωνο και ένα tablet από την τσάντα σας αρκούν για να ξεκινήσετε.',
     'standin.aria':
       'Υπολογιστής χωρίς ήχο πάνω από δύο ενεργά τηλέφωνα που λειτουργούν ως αριστερό και δεξί ηχείο',
     'standin.desktop_label': 'Επιτραπέζιος υπολογιστής',
@@ -2197,7 +2199,7 @@
     'remote.peer_msg1': 'أعمل من مقهى ههه',
     'remote.peer_ts_msg': 'هذه الأغنية جميلة',
     'remote.host_msg2': 'سأشغّلها لاحقًا',
-    'remote.whisper_sender': 'همس إلى HOST',
+    'remote.whisper_sender': 'رسالة خاصة إلى HOST',
     'remote.whisper_msg': 'اطلب اقتراحات لقائمة التشغيل في الإشعار',
 
     'sync.h2': 'تشغيل متزامن.<br>عبر الشبكات.',
@@ -2317,7 +2319,7 @@
     'standin.platform_label': 'پلتفرم',
     'standin.platform_value': 'مرورگرهای مبتنی بر Chromium در کامپیوتر',
     'standin.caveat':
-      'Beta: فقط Chromium روی رایانه، حداکثر 4 دستگاه با احتساب دستگاه فرستنده. اشتراک‌گذاری مستقیم در یک شبکهٔ مشترک محدودیت زمانی ندارد؛ اشتراک‌گذاری از راه دور یا از طریق واسطه پس از 2 ساعت خودکار پایان می‌یابد. تأخیر صدای زنده اجتناب‌ناپذیر است، پس صدای دستگاه فرستنده را کم کنید.',
+      'Beta: فقط Chromium روی کامپیوتر، حداکثر 4 دستگاه با احتساب دستگاه فرستنده. اشتراک‌گذاری مستقیم در یک شبکهٔ مشترک محدودیت زمانی ندارد؛ اشتراک‌گذاری از راه دور یا از طریق واسطه پس از 2 ساعت خودکار پایان می‌یابد. تأخیر صدای زنده اجتناب‌ناپذیر است، پس صدای دستگاه فرستنده را کم کنید.',
 
     'cta.h2': 'یک جلسه آغاز کنید.',
     'cta.btn': 'اجرای MUSIXQUARE',
@@ -2345,7 +2347,7 @@
     'hero.lead':
       'MUSIXQUARE متعدد فونز، ٹیبلٹس اور لیپ ٹاپس کو ایک ساؤنڈ سسٹم میں بدل دیتا ہے۔ کسی انسٹالیشن کی ضرورت نہیں؛ بس ایک کوڈ شیئر کریں۔',
     'hero.btn_ghost': 'یہ کیسے کام کرتا ہے',
-    'hero.rooms_opened': 'اب تک کھولے گئے رومز: {{count}}۔',
+    'hero.rooms_opened': 'اب تک کھولے گئے کمرے: {{count}}۔',
 
     'array.h2': 'سراؤنڈ اسپیکرز کے بغیر<br>سراؤنڈ ساؤنڈ۔',
     'array.lead':
@@ -2356,24 +2358,24 @@
     'code.h2': 'چھ ہندسے۔<br>بس اتنا ہی۔',
     'code.lead':
       'ایک سیشن شروع کریں اور چھ ہندسوں کا کوڈ شیئر کریں۔ مطابقت رکھنے والا براؤزر استعمال کرنے والا کوئی بھی شخص چند سیکنڈ میں شامل ہو سکتا ہے۔',
-    'code.aria_code': 'روم کوڈ کی مثال',
+    'code.aria_code': 'کمرے کے کوڈ کی مثال',
     'code.aria_qr': 'musixquare.com کے لیے QR کوڈ',
     'code.copy_btn': 'دعوتی لنک کاپی کریں',
     'code.toast_success': 'دعوتی لنک کاپی ہو گیا',
     'code.toast_fail': 'کاپی نہیں ہو سکی',
 
-    'remote.h2': 'روم میں موجود نہیں؟<br>کوئی مسئلہ نہیں۔',
+    'remote.h2': 'ایک ہی جگہ پر نہیں؟<br>کوئی مسئلہ نہیں۔',
     'remote.lead': 'شہر کے دوسرے حصے سے بھی چیٹ کریں، موسیقی سنیں یا مل کر YouTube دیکھیں۔',
     'remote.chat_label': 'چیٹ',
     'remote.chat_value': 'ریئل ٹائم چیٹ',
-    'remote.whisper_label': 'سرگوشی',
+    'remote.whisper_label': 'نجی پیغام',
     'remote.whisper_value': 'نجی 1:1 پیغامات',
     'remote.cowatch_label': 'مل کر دیکھیں',
     'remote.cowatch_value': 'YouTube ساتھ اور ہم وقت دیکھیں',
     'remote.reach_label': 'رسائی',
     'remote.reach_value': 'مطابقت رکھنے والے براؤزرز، مختلف نیٹ ورکس پر',
     'remote.caveat': 'نوٹ: YouTube کے ساتھ چینل کی علیحدگی اور آڈیو ایفیکٹس دستیاب نہیں ہیں۔',
-    'remote.pin_label': 'نوٹس · HOST',
+    'remote.pin_label': 'اطلاع · HOST',
     'remote.pin_text': 'پلے لسٹ کے لیے تجاویز دیں',
     'remote.host_name': 'HOST',
     'remote.host_msg1': 'کہاں ہو؟',
@@ -2381,8 +2383,8 @@
     'remote.peer_msg1': 'کیفے سے کام کر رہا ہوں ہاہا',
     'remote.peer_ts_msg': 'یہ گانا کافی اچھا ہے',
     'remote.host_msg2': 'بعد میں چلا دوں گا',
-    'remote.whisper_sender': 'HOST کو سرگوشی',
-    'remote.whisper_msg': 'نوٹس میں پلے لسٹ کی تجاویز مانگو',
+    'remote.whisper_sender': 'HOST کو نجی پیغام',
+    'remote.whisper_msg': 'اطلاع میں پلے لسٹ کی تجاویز مانگو',
 
     'sync.h2': 'ہم وقت پلے بیک۔<br>مختلف نیٹ ورکس پر۔',
     'sync.lead': 'ہر ڈیوائس تاخیر کی پیمائش کرتی ہے اور پلے بیک کو درست طور پر ہم آہنگ رکھتی ہے۔',
@@ -2395,7 +2397,7 @@
     'sync.platforms_label': 'پلیٹ فارمز',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'میزبان',
-    'sync.meta': 'NTP طرز کی ہم زمانی، 60 نمونوں کے ساتھ',
+    'sync.meta': 'NTP طرز کا سنک، 60 نمونوں کے ساتھ',
 
     'standin.h2': 'آپ کے کمپیوٹر میں<br>اسپیکرز نہیں ہیں؟',
     'standin.lead':
@@ -2455,7 +2457,7 @@
     'code.toast_success': 'קישור ההזמנה הועתק',
     'code.toast_fail': 'ההעתקה נכשלה',
 
-    'remote.h2': 'לא נמצאים בחדר?<br>אין בעיה.',
+    'remote.h2': 'לא באותו מקום?<br>אין בעיה.',
     'remote.lead': 'אפשר להתכתב, להאזין למוזיקה או לצפות יחד ב-YouTube, גם מהצד השני של העיר.',
     'remote.chat_label': 'צ׳אט',
     'remote.chat_value': 'צ׳אט בזמן אמת',
@@ -2465,8 +2467,8 @@
     'remote.cowatch_value': 'YouTube יחד ובסנכרון',
     'remote.reach_label': 'טווח',
     'remote.reach_value': 'דפדפנים נתמכים, בין רשתות שונות',
-    'remote.caveat': 'הערה: אין תמיכה בהפרדת ערוצים או באפקטים קוליים ב-YouTube.',
-    'remote.pin_label': 'הודעה · HOST',
+    'remote.caveat': 'הערה: אין תמיכה בהפרדת ערוצים או באפקטי שמע ב-YouTube.',
+    'remote.pin_label': 'הכרזה · HOST',
     'remote.pin_text': 'מחפש המלצות לפלייליסט',
     'remote.host_name': 'HOST',
     'remote.host_msg1': 'איפה אתה?',
@@ -2474,7 +2476,7 @@
     'remote.peer_msg1': 'עובד מבית קפה חח',
     'remote.peer_ts_msg': 'השיר הזה די טוב',
     'remote.host_msg2': 'אנגן אותו אחר כך',
-    'remote.whisper_sender': 'לחישה אל HOST',
+    'remote.whisper_sender': 'הודעה פרטית אל HOST',
     'remote.whisper_msg': 'בקש המלצות לפלייליסט בהודעה',
 
     'sync.h2': 'הפעלה מסונכרנת.<br>בין רשתות.',
@@ -2484,7 +2486,7 @@
     'sync.transport_label': 'תעבורה',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': 'אפקטים',
-    'sync.effects_value': 'EQ ב-5 תחומים · הדהוד · וירטואלייזר',
+    'sync.effects_value': 'אקולייזר ב-5 תחומים · הדהוד · וירטואלייזר',
     'sync.platforms_label': 'פלטפורמות',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'מארח',
@@ -2507,7 +2509,7 @@
     'cta.h2': 'פותחים חדר.',
     'cta.btn': 'פתיחת MUSIXQUARE',
 
-    'footer.app': 'יישום',
+    'footer.app': 'אפליקציה',
     'footer.history': 'היסטוריה',
     'footer.designsystem': 'מערכת עיצוב',
   });
@@ -2531,7 +2533,7 @@
     'hero.lead':
       'MUSIXQUARE förvandlar flera telefoner, surfplattor och bärbara datorer till ett ljudsystem. Ingen installation. Dela bara en kod.',
     'hero.btn_ghost': 'Så fungerar det',
-    'hero.rooms_opened': 'Antal öppnade rum hittills: {{count}}.',
+    'hero.rooms_opened': '{{count}} rum har öppnats hittills.',
 
     'array.h2': 'Surroundljud utan<br>surroundhögtalare.',
     'array.lead':
@@ -2578,7 +2580,7 @@
     'sync.transport_label': 'Överföring',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': 'Effekter',
-    'sync.effects_value': '5-bands-EQ · Efterklang · Virtualisering',
+    'sync.effects_value': '5-bands-EQ · Efterklang · Virtuella effekter',
     'sync.platforms_label': 'Plattformar',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'Värd',
@@ -2625,7 +2627,7 @@
 
     'hero.h1': 'हर डिवाइस,<br>एक सिस्टम।',
     'hero.lead':
-      'MUSIXQUARE कई फ़ोन, टैबलेट और लैपटॉप को एक साउंड सिस्टम में बदलता है। कुछ इंस्टॉल नहीं करना। बस एक कोड साझा करें।',
+      'MUSIXQUARE कई फ़ोन, टैबलेट और लैपटॉप को एक साउंड सिस्टम में बदलता है। कुछ भी इंस्टॉल करने की ज़रूरत नहीं। बस एक कोड साझा करें।',
     'hero.btn_ghost': 'यह कैसे काम करता है',
     'hero.rooms_opened': 'अब तक {{count}} रूम खोले गए हैं।',
 
@@ -2666,11 +2668,11 @@
     'remote.whisper_msg': 'सूचना में प्लेलिस्ट के सुझाव माँगो',
 
     'sync.h2': 'सिंक किया हुआ प्लेबैक।<br>अलग-अलग नेटवर्क पर।',
-    'sync.lead': 'हर डिवाइस देरी जाँचता है और प्लेबैक को सटीक रूप से मिला कर रखता है।',
+    'sync.lead': 'हर डिवाइस देरी जाँचता है और प्लेबैक को सटीक रूप से मिलाकर रखता है।',
     'sync.video_label': 'मीडिया',
     'sync.video_value': 'सिंक किया हुआ मीडिया प्लेबैक',
     'sync.transport_label': 'ट्रांसपोर्ट',
-    'sync.transport_value': 'Peer-to-peer, WebRTC',
+    'sync.transport_value': 'पीयर-टू-पीयर, WebRTC',
     'sync.effects_label': 'इफ़ेक्ट',
     'sync.effects_value': '5-बैंड EQ · रीवर्ब · वर्चुअलाइज़र',
     'sync.platforms_label': 'प्लेटफ़ॉर्म',
@@ -2736,7 +2738,7 @@
     'code.toast_success': 'আমন্ত্রণ লিংক কপি হয়েছে',
     'code.toast_fail': 'কপি করা যায়নি',
 
-    'remote.h2': 'রুমে নেই?<br>কোনো সমস্যা নেই।',
+    'remote.h2': 'একই জায়গায় নেই?<br>কোনো সমস্যা নেই।',
     'remote.lead': 'শহরের অন্য প্রান্তে থেকেও চ্যাট করুন, গান শুনুন অথবা একসঙ্গে YouTube দেখুন।',
     'remote.chat_label': 'চ্যাট',
     'remote.chat_value': 'রিয়েল-টাইম চ্যাট',
@@ -2756,14 +2758,14 @@
     'remote.peer_ts_msg': 'গানটা বেশ ভালো',
     'remote.host_msg2': 'পরে চালাব',
     'remote.whisper_sender': 'হোস্টকে ব্যক্তিগত বার্তা',
-    'remote.whisper_msg': 'নোটিশে প্লেলিস্টের পরামর্শ চাইতে বলো',
+    'remote.whisper_msg': 'নোটিশ দিয়ে প্লেলিস্টের পরামর্শ চেয়ে নাও',
 
     'sync.h2': 'সিঙ্ক করা প্লেব্যাক।<br>আলাদা নেটওয়ার্কেও।',
     'sync.lead': 'প্রতিটি ডিভাইস বিলম্ব পরীক্ষা করে এবং প্লেব্যাক সুনির্দিষ্টভাবে মিলিয়ে রাখে।',
     'sync.video_label': 'মিডিয়া',
     'sync.video_value': 'সিঙ্ক করা মিডিয়া প্লেব্যাক',
     'sync.transport_label': 'ট্রান্সপোর্ট',
-    'sync.transport_value': 'Peer-to-peer, WebRTC',
+    'sync.transport_value': 'পিয়ার-টু-পিয়ার, WebRTC',
     'sync.effects_label': 'ইফেক্ট',
     'sync.effects_value': '5-ব্যান্ড EQ · রিভার্ব · ভার্চুয়ালাইজার',
     'sync.platforms_label': 'প্ল্যাটফর্ম',
@@ -2927,7 +2929,7 @@
     'code.toast_success': 'ఆహ్వాన లింక్ కాపీ అయింది',
     'code.toast_fail': 'కాపీ చేయడం సాధ్యపడలేదు',
 
-    'remote.h2': 'గదిలో లేరా?<br>సమస్య లేదు.',
+    'remote.h2': 'ఒకే చోట లేరా?<br>సమస్య లేదు.',
     'remote.lead':
       'పట్టణానికి అవతలి వైపు నుంచైనా చాట్ చేయండి, సంగీతం వినండి లేదా కలిసి YouTube చూడండి.',
     'remote.chat_label': 'చాట్',
@@ -2951,11 +2953,11 @@
     'remote.whisper_msg': 'నోటీస్‌లో ప్లేలిస్ట్ సూచనలు అడుగు',
 
     'sync.h2': 'సింక్ చేసిన ప్లేబ్యాక్.<br>వేర్వేరు నెట్‌వర్క్‌లలో.',
-    'sync.lead': 'ప్రతి పరికరం ఆలస్యాన్ని తనిఖీ చేసి ప్లేబ్యాక్‌ను ఖచ్చితంగా సరిపోల్చి ఉంచుతుంది.',
+    'sync.lead': 'ప్రతి పరికరం ఆలస్యాన్ని తనిఖీ చేసి ప్లేబ్యాక్‌ను ఖచ్చితంగా సింక్‌లో ఉంచుతుంది.',
     'sync.video_label': 'మీడియా',
     'sync.video_value': 'సింక్ చేసిన మీడియా ప్లేబ్యాక్',
     'sync.transport_label': 'డేటా ప్రసారం',
-    'sync.transport_value': 'Peer-to-peer, WebRTC',
+    'sync.transport_value': 'P2P, WebRTC',
     'sync.effects_label': 'ఎఫెక్ట్‌లు',
     'sync.effects_value': '5-బ్యాండ్ EQ · రీవర్బ్ · వర్చువలైజర్',
     'sync.platforms_label': 'ప్లాట్‌ఫారమ్‌లు',
@@ -2977,7 +2979,7 @@
     'standin.platform_label': 'ప్లాట్‌ఫారమ్',
     'standin.platform_value': 'కంప్యూటర్లలో Chromium ఆధారిత బ్రౌజర్‌లు',
     'standin.caveat':
-      'Beta: కంప్యూటర్‌లో Chromium మాత్రమే, ఆడియో పంచుకునే పరికరంతో సహా గరిష్ఠంగా 4 పరికరాలు. ఒకే నెట్‌వర్క్‌లో నేరుగా పంచుకోవడానికి సమయ పరిమితి లేదు; దూరం నుంచి లేదా మధ్యవర్తి ద్వారా పంచుకోవడం 2 గంటల తర్వాత స్వయంచాలకంగా ముగుస్తుంది. లైవ్ ఆడియోలో ఆలస్యం తప్పదు, కాబట్టి ఆడియో పంచుకునే పరికరం వాల్యూమ్ తగ్గించండి.',
+      'Beta: కంప్యూటర్‌లో Chromium మాత్రమే, ఆడియో షేర్ చేసే పరికరంతో సహా గరిష్ఠంగా 4 పరికరాలు. ఒకే నెట్‌వర్క్‌లో నేరుగా షేర్ చేయడానికి సమయ పరిమితి లేదు; రిమోట్ లేదా మధ్యవర్తి ద్వారా షేరింగ్ 2 గంటల తర్వాత ఆటోమేటిక్‌గా ముగుస్తుంది. లైవ్ ఆడియోలో ఆలస్యం తప్పదు, కాబట్టి ఆడియో షేర్ చేసే పరికరం వాల్యూమ్ తగ్గించండి.',
 
     'cta.h2': 'ప్రారంభిద్దాం.',
     'cta.btn': 'MUSIXQUAREను ప్రారంభించు',
@@ -3016,7 +3018,7 @@
 
     'code.h2': 'Hat számjegy.<br>Semmi más.',
     'code.lead':
-      'Indíts munkamenetet, és oszd meg a hatjegyű kódot. Támogatott böngészővel bárki másodpercek alatt csatlakozhat.',
+      'Nyiss egy szobát, és oszd meg a hatjegyű kódot. Támogatott böngészővel bárki másodpercek alatt csatlakozhat.',
     'code.aria_code': 'Példa szobakód',
     'code.aria_qr': 'A musixquare.com QR-kódja',
     'code.copy_btn': 'Meghívóhivatkozás másolása',
@@ -3053,7 +3055,7 @@
     'sync.video_value': 'Szinkronizált médialejátszás',
     'sync.transport_label': 'Adatátvitel',
     'sync.transport_value': 'P2P · WebRTC',
-    'sync.effects_label': 'Effektek',
+    'sync.effects_label': 'Effektusok',
     'sync.effects_value': '5 sávos EQ · Zengetés · Virtualizáló',
     'sync.platforms_label': 'Platformok',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
@@ -3074,7 +3076,7 @@
     'standin.platform_label': 'Platform',
     'standin.platform_value': 'Chromium-alapú böngészők számítógépen',
     'standin.caveat':
-      'Beta: csak számítógépen futó Chromium böngészőben, legfeljebb 4 eszközzel, a hangot megosztó eszközt is beleértve. Az azonos hálózaton történő közvetlen megosztásnak nincs időkorlátja; a távoli vagy közvetített megosztás 2 óra után automatikusan véget ér. Az élő hang elkerülhetetlenül késik, ezért csökkentse a hangot megosztó eszköz hangerejét.',
+      'Beta: csak számítógépen futó Chromium-alapú böngészőben, legfeljebb 4 eszközzel, a hangot megosztó eszközt is beleértve. Az azonos hálózaton történő közvetlen megosztásnak nincs időkorlátja; a távoli vagy közvetített megosztás 2 óra után automatikusan véget ér. Az élő hang elkerülhetetlenül késik, ezért csökkentsd a hangot megosztó eszköz hangerejét.',
 
     'cta.h2': 'Hozz létre egy szobát.',
     'cta.btn': 'A MUSIXQUARE indítása',
@@ -3099,13 +3101,13 @@
     'header.try': 'Изпробвай сега',
     'header.try_aria': 'Изпробвай MUSIXQUARE сега',
 
-    'hero.h1': 'Всички устройства,<br>една система.',
+    'hero.h1': 'Всяко устройство,<br>една система.',
     'hero.lead':
       'MUSIXQUARE свързва няколко телефона, таблета и лаптопа в една озвучителна система. Без инсталиране. Нужно е само да споделиш един код.',
     'hero.btn_ghost': 'Как работи',
     'hero.rooms_opened': 'Отворени стаи досега: {{count}}.',
 
-    'array.h2': 'Съраунд звук<br>без отделна система от говорители.',
+    'array.h2': 'Съраунд звук<br>без отделна система от тонколони.',
     'array.lead':
       'Всяко устройство поема една роля: ляво, дясно, субуфер или пълно стерео. Самата стая се превръща в системата.',
     'array.aria':
@@ -3132,15 +3134,15 @@
     'remote.reach_label': 'Обхват',
     'remote.reach_value': 'Поддържани браузъри в различни мрежи',
     'remote.caveat': 'Бележка: разделянето по канали и звуковите ефекти не са достъпни за YouTube.',
-    'remote.pin_label': 'ИЗВЕСТИЕ · ХОСТ',
+    'remote.pin_label': 'ИЗВЕСТИЕ · HOST',
     'remote.pin_text': 'Приемам предложения за плейлиста',
-    'remote.host_name': 'ХОСТ',
+    'remote.host_name': 'HOST',
     'remote.host_msg1': 'къде си?',
     'remote.peer_name': 'Участник 1',
     'remote.peer_msg1': 'работя от едно кафене, хаха',
     'remote.peer_ts_msg': 'тази песен е доста добра',
     'remote.host_msg2': 'ще я пусна по-късно',
-    'remote.whisper_sender': 'лично съобщение до ХОСТ',
+    'remote.whisper_sender': 'лично съобщение до HOST',
     'remote.whisper_msg': 'поискай предложения за плейлиста в известието',
 
     'sync.h2': 'Синхронно възпроизвеждане.<br>През различни мрежи.',
@@ -3157,21 +3159,21 @@
     'sync.host_label': 'Хост',
     'sync.meta': 'Синхронизиране в стил NTP с 60 проби',
 
-    'standin.h2': 'Компютърът ти<br>няма говорители?',
+    'standin.h2': 'Компютърът ти<br>няма тонколони?',
     'standin.lead':
       'MUSIXQUARE може бързо да ги замести. Един телефон и един таблет от чантата ти са достатъчни, за да започнеш.',
     'standin.aria':
-      'Компютър без звук над два активни телефона, които служат като ляв и десен говорител',
+      'Компютър без звук над два активни телефона, които служат като лява и дясна тонколона',
     'standin.desktop_label': 'Настолен компютър',
-    'standin.desktop_value': 'Телефоните или таблетите на бюрото се превръщат в говорители',
+    'standin.desktop_value': 'Телефоните или таблетите на бюрото се превръщат в тонколони',
     'standin.laptop_label': 'Лаптоп',
-    'standin.laptop_value': 'Няколко устройства вместо слабите вградени говорители',
+    'standin.laptop_value': 'Няколко устройства вместо слабите вградени тонколони',
     'standin.feature_label': 'Функция',
     'standin.feature_value': 'Споделяне на системен звук (Beta)',
     'standin.platform_label': 'Платформа',
     'standin.platform_value': 'Браузъри, базирани на Chromium, на компютър',
     'standin.caveat':
-      'Beta: само Chromium на компютър, до 4 устройства, включително споделящото устройство. Директното споделяне в една и съща мрежа няма времево ограничение; отдалеченото или препредаваното споделяне приключва автоматично след 2 часа. Звукът на живо неизбежно има закъснение, затова намалете силата на звука на споделящото устройство.',
+      'Beta: само Chromium на компютър, до 4 устройства, включително споделящото устройство. Директното споделяне в една и съща мрежа няма времево ограничение; отдалеченото или препредаваното споделяне приключва автоматично след 2 часа. Звукът на живо неизбежно има закъснение, затова намали силата на звука на споделящото устройство.',
 
     'cta.h2': 'Стартирай сесия.',
     'cta.btn': 'Стартиране на MUSIXQUARE',
@@ -3227,8 +3229,8 @@
     'remote.cowatch_value': 'YouTube sammen og synkroniseret',
     'remote.reach_label': 'Rækkevidde',
     'remote.reach_value': 'Understøttede browsere på tværs af netværk',
-    'remote.caveat': 'Bemærk: Kanalseparation og lydeffekter er ikke tilgængelige for YouTube.',
-    'remote.pin_label': 'OPSLAG · HOST',
+    'remote.caveat': 'Bemærk: Kanaladskillelse og lydeffekter er ikke tilgængelige for YouTube.',
+    'remote.pin_label': 'MEDDELELSE · HOST',
     'remote.pin_text': 'Modtager gerne forslag til afspilningslisten',
     'remote.host_name': 'HOST',
     'remote.host_msg1': 'hvor er du?',
@@ -3237,11 +3239,11 @@
     'remote.peer_ts_msg': 'den her sang er ret god',
     'remote.host_msg2': 'jeg spiller den senere',
     'remote.whisper_sender': 'privat besked til HOST',
-    'remote.whisper_msg': 'bed om forslag til afspilningslisten i opslaget',
+    'remote.whisper_msg': 'bed om forslag til afspilningslisten i meddelelsen',
 
     'sync.h2': 'Synkroniseret afspilning.<br>På tværs af netværk.',
     'sync.lead': 'Hver enhed måler forsinkelsen og holder afspilningen præcist justeret.',
-    'sync.video_label': 'MEDIA',
+    'sync.video_label': 'MEDIER',
     'sync.video_value': 'Synkroniseret medieafspilning',
     'sync.transport_label': 'Overførsel',
     'sync.transport_value': 'P2P · WebRTC',
@@ -3295,7 +3297,7 @@
     'hero.lead':
       'MUSIXQUARE gjør flere telefoner, nettbrett og bærbare datamaskiner om til ett lydsystem. Ingen installasjon. Bare del én kode.',
     'hero.btn_ghost': 'Slik fungerer det',
-    'hero.rooms_opened': 'Antall rom som er åpnet hittil: {{count}}.',
+    'hero.rooms_opened': '{{count}} rom er åpnet hittil.',
 
     'array.h2': 'Surroundlyd uten<br>surroundhøyttalere.',
     'array.lead':
@@ -3427,7 +3429,7 @@
     'remote.peer_name': 'Osallistuja 1',
     'remote.peer_msg1': 'teen töitä kahvilassa lol',
     'remote.peer_ts_msg': 'tämä kappale on aika hyvä',
-    'remote.host_msg2': 'toistan sen myöhemmin',
+    'remote.host_msg2': 'soitan sen myöhemmin',
     'remote.whisper_sender': 'yksityisviesti HOSTille',
     'remote.whisper_msg': 'pyydä ilmoituksessa vinkkejä soittolistalle',
 
@@ -3438,7 +3440,7 @@
     'sync.transport_label': 'Siirtotapa',
     'sync.transport_value': 'P2P · WebRTC',
     'sync.effects_label': 'Tehosteet',
-    'sync.effects_value': '5-kaistainen EQ · Kaiku · Virtualisointi',
+    'sync.effects_value': '5-kaistainen taajuuskorjain · Kaiku · Virtuaalitehosteet',
     'sync.platforms_label': 'Alustat',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'Isäntä',
@@ -3491,19 +3493,19 @@
 
     'array.h2': 'सराउंड स्पीकरशिवाय<br>सराउंड साउंड.',
     'array.lead':
-      'प्रत्येक डिव्हाइस एक भूमिका बजावते: डावा, उजवा, सबवूफर किंवा पूर्ण स्टिरिओ. रूमच संपूर्ण सिस्टम बनते.',
+      'प्रत्येक डिव्हाइस एक भूमिका बजावते: डावा, उजवा, सबवूफर किंवा पूर्ण स्टिरिओ. खोलीच संपूर्ण सिस्टम बनते.',
     'array.aria': 'डावीकडे फोन, मध्यभागी लॅपटॉप, उजवीकडे फोन. तीन डिव्हाइसचा सराउंड सेटअप.',
 
     'code.h2': 'सहा अंक.<br>बस इतकेच.',
     'code.lead':
-      'सेशन सुरू करा आणि सहा अंकी कोड शेअर करा. समर्थित ब्राउझर असलेला कोणीही काही सेकंदांत सहभागी होऊ शकतो.',
+      'रूम सुरू करा आणि सहा अंकी कोड शेअर करा. समर्थित ब्राउझर असलेला कोणीही काही सेकंदांत सहभागी होऊ शकतो.',
     'code.aria_code': 'रूम कोडचे उदाहरण',
     'code.aria_qr': 'musixquare.com साठी QR कोड',
     'code.copy_btn': 'आमंत्रण लिंक कॉपी करा',
     'code.toast_success': 'आमंत्रण लिंक कॉपी झाली',
     'code.toast_fail': 'कॉपी करता आली नाही',
 
-    'remote.h2': 'रूममध्ये नाही?<br>काही हरकत नाही.',
+    'remote.h2': 'एकाच ठिकाणी नाही?<br>काही हरकत नाही.',
     'remote.lead': 'शहराच्या दुसऱ्या टोकावरूनही चॅट करा, संगीत ऐका किंवा YouTube वर एकत्र पाहा.',
     'remote.chat_label': 'चॅट',
     'remote.chat_value': 'रिअल-टाइम चॅट',
@@ -3513,7 +3515,7 @@
     'remote.cowatch_value': 'YouTube एकत्र, सिंकमध्ये',
     'remote.reach_label': 'पोहोच',
     'remote.reach_value': 'समर्थित ब्राउझर, वेगवेगळ्या नेटवर्कवर',
-    'remote.caveat': 'टीप: YouTube वापरताना चॅनेल विभाजन आणि ऑडिओ इफेक्ट उपलब्ध नसतात.',
+    'remote.caveat': 'टीप: YouTube वापरताना चॅनल विभाजन आणि ऑडिओ इफेक्ट उपलब्ध नसतात.',
     'remote.pin_label': 'सूचना · होस्ट',
     'remote.pin_text': 'प्लेलिस्टसाठी शिफारसी हव्यात',
     'remote.host_name': 'होस्ट',
@@ -3538,11 +3540,11 @@
     'sync.host_label': 'होस्ट',
     'sync.meta': '60 नमुन्यांचा NTP-शैलीतील सिंक',
 
-    'standin.h2': 'कंप्युटरला<br>स्पीकर नाहीत?',
+    'standin.h2': 'संगणकाला<br>स्पीकर नाहीत?',
     'standin.lead':
       'MUSIXQUARE तात्पुरत्या स्पीकर सिस्टमचे काम करते. सुरुवात करण्यासाठी तुमच्या बॅगेतील एक फोन आणि एक टॅबलेट पुरेसे आहेत.',
     'standin.aria':
-      'वर आवाज नसलेला कंप्युटर आणि खाली डावा व उजवा स्पीकर म्हणून काम करणारे दोन सक्रिय फोन',
+      'वर आवाज नसलेला संगणक आणि खाली डावा व उजवा स्पीकर म्हणून काम करणारे दोन सक्रिय फोन',
     'standin.desktop_label': 'डेस्कटॉप',
     'standin.desktop_value': 'डेस्कवरील फोन किंवा टॅबलेट स्पीकर बनतात',
     'standin.laptop_label': 'लॅपटॉप',
@@ -3550,11 +3552,11 @@
     'standin.feature_label': 'वैशिष्ट्य',
     'standin.feature_value': 'सिस्टम ऑडिओ शेअरिंग (Beta)',
     'standin.platform_label': 'प्लॅटफॉर्म',
-    'standin.platform_value': 'कंप्युटरवरील Chromium-आधारित ब्राउझर',
+    'standin.platform_value': 'संगणकावरील Chromium-आधारित ब्राउझर',
     'standin.caveat':
       'Beta: संगणकावरील Chromium साठीच, ऑडिओ शेअर करणाऱ्या डिव्हाइससह जास्तीत जास्त 4 डिव्हाइस. एकाच नेटवर्कवर थेट शेअरिंगला वेळेची मर्यादा नाही; दूरस्थ किंवा मध्यस्थामार्फत केलेले शेअरिंग 2 तासांनंतर आपोआप बंद होते. लाइव्ह ऑडिओमध्ये विलंब टाळता येत नाही, म्हणून ऑडिओ शेअर करणाऱ्या डिव्हाइसचा आवाज कमी करा.',
 
-    'cta.h2': 'सेशन सुरू करा.',
+    'cta.h2': 'रूम सुरू करा.',
     'cta.btn': 'MUSIXQUARE सुरू करा',
 
     'footer.app': 'अ‍ॅप',
@@ -3598,9 +3600,9 @@
     'code.toast_fail': 'કૉપિ થઈ શકી નહીં',
 
     'remote.h2': 'રૂમમાં નથી?<br>કોઈ વાંધો નહીં.',
-    'remote.lead': 'શહેરના બીજા છેડેથી પણ ચેટ કરો, સંગીત સાંભળો અથવા YouTube પર સાથે જુઓ.',
-    'remote.chat_label': 'ચેટ',
-    'remote.chat_value': 'રિયલ-ટાઇમ ચેટ',
+    'remote.lead': 'શહેરના બીજા છેડેથી પણ ચૅટ કરો, સંગીત સાંભળો અથવા YouTube પર સાથે જુઓ.',
+    'remote.chat_label': 'ચૅટ',
+    'remote.chat_value': 'રિઅલ-ટાઇમ ચૅટ',
     'remote.whisper_label': 'ખાનગી વાત',
     'remote.whisper_value': 'ખાનગી 1:1 સંદેશા',
     'remote.cowatch_label': 'સાથે જુઓ',
@@ -3624,7 +3626,7 @@
     'sync.video_label': 'મીડિયા',
     'sync.video_value': 'સિંક થયેલું મીડિયા પ્લેબૅક',
     'sync.transport_label': 'ટ્રાન્સપોર્ટ',
-    'sync.transport_value': 'Peer-to-peer, WebRTC',
+    'sync.transport_value': 'પીઅર-ટુ-પીઅર, WebRTC',
     'sync.effects_label': 'ઇફેક્ટ',
     'sync.effects_value': '5-બૅન્ડ EQ · રિવર્બ · વર્ચ્યુઅલાઇઝર',
     'sync.platforms_label': 'પ્લૅટફોર્મ',
@@ -3646,7 +3648,7 @@
     'standin.platform_label': 'પ્લૅટફોર્મ',
     'standin.platform_value': 'કમ્પ્યુટર પર Chromium-આધારિત બ્રાઉઝર',
     'standin.caveat':
-      'Beta: માત્ર કમ્પ્યુટર પર Chromium માટે, ઑડિયો શેર કરનાર ઉપકરણ સહિત વધુમાં વધુ 4 ઉપકરણો. એક જ નેટવર્ક પર સીધા શેરિંગ માટે સમય મર્યાદા નથી; દૂરથી અથવા મધ્યસ્થી મારફતે થતું શેરિંગ 2 કલાક પછી આપમેળે બંધ થાય છે. લાઇવ ઑડિયોમાં વિલંબ ટાળી શકાતો નથી, તેથી ઑડિયો શેર કરનાર ઉપકરણનો અવાજ ઓછો કરો.',
+      'Beta: માત્ર કમ્પ્યુટર પર Chromium માટે, ઑડિયો શેર કરનાર ડિવાઇસ સહિત વધુમાં વધુ 4 ડિવાઇસ. એક જ નેટવર્ક પર સીધા શેરિંગ માટે સમય મર્યાદા નથી; દૂરથી અથવા મધ્યસ્થી મારફતે થતું શેરિંગ 2 કલાક પછી આપમેળે બંધ થાય છે. લાઇવ ઑડિયોમાં વિલંબ ટાળી શકાતો નથી, તેથી ઑડિયો શેર કરનાર ડિવાઇસનો અવાજ ઓછો કરો.',
 
     'cta.h2': 'સત્ર શરૂ કરો.',
     'cta.btn': 'MUSIXQUARE શરૂ કરો',
@@ -3679,7 +3681,7 @@
 
     'array.h2': 'ಸರೌಂಡ್ ಸ್ಪೀಕರ್‌ಗಳಿಲ್ಲದೆ<br>ಸರೌಂಡ್ ಸೌಂಡ್.',
     'array.lead':
-      'ಪ್ರತಿ ಸಾಧನವು ಒಂದು ಪಾತ್ರ ವಹಿಸುತ್ತದೆ: ಎಡ, ಬಲ, ಸಬ್‌ವೂಫರ್ ಅಥವಾ ಪೂರ್ಣ ಸ್ಟೀರಿಯೊ. ರೂಮ್‌ವೇ ಸಿಸ್ಟಮ್ ಆಗುತ್ತದೆ.',
+      'ಪ್ರತಿ ಸಾಧನವು ಒಂದು ಪಾತ್ರ ವಹಿಸುತ್ತದೆ: ಎಡ, ಬಲ, ಸಬ್‌ವೂಫರ್ ಅಥವಾ ಪೂರ್ಣ ಸ್ಟೀರಿಯೊ. ಕೋಣೆಯೇ ಸಿಸ್ಟಮ್ ಆಗುತ್ತದೆ.',
     'array.aria': 'ಎಡಕ್ಕೆ ಫೋನ್, ಮಧ್ಯದಲ್ಲಿ ಲ್ಯಾಪ್‌ಟಾಪ್, ಬಲಕ್ಕೆ ಫೋನ್. ಮೂರು ಸಾಧನಗಳ ಸರೌಂಡ್ ಸೆಟಪ್.',
 
     'code.h2': 'ಆರು ಅಂಕಿಗಳು.<br>ಅಷ್ಟೇ.',
@@ -3691,7 +3693,7 @@
     'code.toast_success': 'ಆಮಂತ್ರಣ ಲಿಂಕ್ ನಕಲಿಸಲಾಗಿದೆ',
     'code.toast_fail': 'ನಕಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ',
 
-    'remote.h2': 'ರೂಮ್‌ನಲ್ಲಿ ಇಲ್ಲವೇ?<br>ಪರವಾಗಿಲ್ಲ.',
+    'remote.h2': 'ಒಂದೇ ಕೋಣೆಯಲ್ಲಿ ಇಲ್ಲವೇ?<br>ಪರವಾಗಿಲ್ಲ.',
     'remote.lead':
       'ನಗರದ ಇನ್ನೊಂದು ತುದಿಯಿಂದಲೂ ಚಾಟ್ ಮಾಡಿ, ಸಂಗೀತ ಆಲಿಸಿ ಅಥವಾ YouTube ಅನ್ನು ಒಟ್ಟಿಗೆ ವೀಕ್ಷಿಸಿ.',
     'remote.chat_label': 'ಚಾಟ್',
@@ -3702,7 +3704,7 @@
     'remote.cowatch_value': 'YouTube ಒಟ್ಟಿಗೆ, ಸಿಂಕ್‌ನಲ್ಲಿ',
     'remote.reach_label': 'ಲಭ್ಯತೆ',
     'remote.reach_value': 'ಬೆಂಬಲಿತ ಬ್ರೌಸರ್‌ಗಳು, ಬೇರೆ ಬೇರೆ ನೆಟ್‌ವರ್ಕ್‌ಗಳಲ್ಲಿ',
-    'remote.caveat': 'ಗಮನಿಸಿ: YouTube ನಲ್ಲಿ ಚಾನೆಲ್ ವಿಭಜನೆ ಮತ್ತು ಆಡಿಯೊ ಪರಿಣಾಮಗಳು ಲಭ್ಯವಿಲ್ಲ.',
+    'remote.caveat': 'ಗಮನಿಸಿ: YouTube ನಲ್ಲಿ ಚಾನಲ್ ವಿಭಜನೆ ಮತ್ತು ಆಡಿಯೊ ಪರಿಣಾಮಗಳು ಲಭ್ಯವಿಲ್ಲ.',
     'remote.pin_label': 'ಸೂಚನೆ · ಹೋಸ್ಟ್',
     'remote.pin_text': 'ಪ್ಲೇಲಿಸ್ಟ್ ಸಲಹೆಗಳು ಬೇಕು',
     'remote.host_name': 'ಹೋಸ್ಟ್',
@@ -3719,7 +3721,7 @@
     'sync.video_label': 'ಮೀಡಿಯಾ',
     'sync.video_value': 'ಸಿಂಕ್ ಮಾಡಿದ ಮೀಡಿಯಾ ಪ್ಲೇಬ್ಯಾಕ್',
     'sync.transport_label': 'ಟ್ರಾನ್ಸ್‌ಪೋರ್ಟ್',
-    'sync.transport_value': 'Peer-to-peer, WebRTC',
+    'sync.transport_value': 'P2P, WebRTC',
     'sync.effects_label': 'ಪರಿಣಾಮಗಳು',
     'sync.effects_value': '5-ಬ್ಯಾಂಡ್ EQ · ರಿವರ್ಬ್ · ವರ್ಚುವಲೈಜರ್',
     'sync.platforms_label': 'ಪ್ಲಾಟ್‌ಫಾರ್ಮ್‌ಗಳು',
@@ -3774,7 +3776,7 @@
 
     'array.h2': 'സറൗണ്ട് സ്പീക്കറുകളില്ലാതെ<br>സറൗണ്ട് ശബ്ദം.',
     'array.lead':
-      'ഓരോ ഡിവൈസും ഓരോ റോൾ ഏറ്റെടുക്കുന്നു: ഇടത്, വലത്, സബ്‌വൂഫർ അല്ലെങ്കിൽ പൂർണ്ണ സ്റ്റീരിയോ. റൂം തന്നെ സിസ്റ്റമായി മാറുന്നു.',
+      'ഓരോ ഡിവൈസും ഓരോ റോൾ ഏറ്റെടുക്കുന്നു: ഇടത്, വലത്, സബ്‌വൂഫർ അല്ലെങ്കിൽ പൂർണ്ണ സ്റ്റീരിയോ. മുറി തന്നെ സിസ്റ്റമായി മാറുന്നു.',
     'array.aria':
       'ഇടതുവശത്ത് ഫോൺ, മധ്യത്തിൽ ലാപ്‌ടോപ്പ്, വലതുവശത്ത് ഫോൺ. മൂന്ന് ഡിവൈസുകളുള്ള സറൗണ്ട് സജ്ജീകരണം.',
 
@@ -3787,7 +3789,7 @@
     'code.toast_success': 'ക്ഷണ ലിങ്ക് പകർത്തി',
     'code.toast_fail': 'പകർത്താനായില്ല',
 
-    'remote.h2': 'റൂമിലില്ലേ?<br>പ്രശ്നമില്ല.',
+    'remote.h2': 'ഒരേ മുറിയിലല്ലേ?<br>പ്രശ്നമില്ല.',
     'remote.lead':
       'നഗരത്തിന്റെ മറുവശത്തായാലും ചാറ്റ് ചെയ്യൂ, സംഗീതം കേൾക്കൂ, അല്ലെങ്കിൽ ഒരുമിച്ച് YouTube കാണൂ.',
     'remote.chat_label': 'ചാറ്റ്',
@@ -3816,7 +3818,7 @@
     'sync.video_label': 'മീഡിയ',
     'sync.video_value': 'സിങ്ക് ചെയ്ത മീഡിയ പ്ലേബാക്ക്',
     'sync.transport_label': 'ഡാറ്റാ കൈമാറ്റം',
-    'sync.transport_value': 'Peer-to-peer, WebRTC',
+    'sync.transport_value': 'P2P, WebRTC',
     'sync.effects_label': 'ഇഫക്റ്റുകൾ',
     'sync.effects_value': '5-ബാൻഡ് EQ · റീവർബ് · വിർച്വലൈസർ',
     'sync.platforms_label': 'പ്ലാറ്റ്‌ഫോമുകൾ',
@@ -3849,13 +3851,13 @@
   });
 
   addLang('pa', {
-    'meta.title': 'ਬਾਰੇ · MUSIXQUARE',
+    'meta.title': 'MUSIXQUARE ਬਾਰੇ',
     'meta.description':
       'MUSIXQUARE ਕਈ ਫ਼ੋਨਾਂ, ਟੈਬਲੇਟਾਂ ਅਤੇ ਲੈਪਟਾਪਾਂ ਨੂੰ ਇੱਕ ਸਿੰਕ ਕੀਤੇ ਆਡੀਓ ਸਿਸਟਮ ਵਿੱਚ ਬਦਲ ਦਿੰਦਾ ਹੈ। ਸਿੱਧਾ ਬ੍ਰਾਊਜ਼ਰ ਵਿੱਚ। ਕੋਈ ਇੰਸਟਾਲੇਸ਼ਨ ਨਹੀਂ।',
-    'meta.og_title': 'ਬਾਰੇ · MUSIXQUARE',
+    'meta.og_title': 'MUSIXQUARE ਬਾਰੇ',
     'meta.og_description': 'ਹਰ ਡਿਵਾਈਸ, ਇੱਕ ਸਿਸਟਮ। ਕਈ ਡਿਵਾਈਸਾਂ ਦਾ ਸਿੰਕ ਕੀਤਾ ਆਡੀਓ, ਬਿਨਾਂ ਇੰਸਟਾਲੇਸ਼ਨ।',
     'meta.og_image_alt': 'MUSIXQUARE: ਹਰ ਡਿਵਾਈਸ, ਇੱਕ ਸਿਸਟਮ।',
-    'meta.tw_title': 'ਬਾਰੇ · MUSIXQUARE',
+    'meta.tw_title': 'MUSIXQUARE ਬਾਰੇ',
     'meta.tw_description': 'ਹਰ ਡਿਵਾਈਸ, ਇੱਕ ਸਿਸਟਮ।',
     'header.logo_aria': 'ਪੰਨੇ ਦੇ ਸਿਖਰ ਉੱਤੇ ਵਾਪਸ ਜਾਓ',
     'header.try': 'ਹੁਣੇ ਅਜ਼ਮਾਓ',
@@ -3867,7 +3869,7 @@
     'hero.rooms_opened': 'ਹੁਣ ਤੱਕ {{count}} ਰੂਮ ਖੋਲ੍ਹੇ ਗਏ ਹਨ।',
     'array.h2': 'ਸਰਾਊਂਡ ਸਪੀਕਰਾਂ ਤੋਂ ਬਿਨਾਂ<br>ਸਰਾਊਂਡ ਆਵਾਜ਼।',
     'array.lead':
-      'ਹਰ ਡਿਵਾਈਸ ਇੱਕ ਭੂਮਿਕਾ ਨਿਭਾਉਂਦੀ ਹੈ: ਖੱਬਾ, ਸੱਜਾ, ਸਬਵੂਫ਼ਰ ਜਾਂ ਪੂਰਾ ਸਟੀਰੀਓ। ਰੂਮ ਹੀ ਸਿਸਟਮ ਬਣ ਜਾਂਦਾ ਹੈ।',
+      'ਹਰ ਡਿਵਾਈਸ ਇੱਕ ਭੂਮਿਕਾ ਨਿਭਾਉਂਦੀ ਹੈ: ਖੱਬਾ, ਸੱਜਾ, ਸਬਵੂਫ਼ਰ ਜਾਂ ਪੂਰਾ ਸਟੀਰੀਓ। ਕਮਰਾ ਹੀ ਸਿਸਟਮ ਬਣ ਜਾਂਦਾ ਹੈ।',
     'array.aria':
       'ਖੱਬੇ ਪਾਸੇ ਫ਼ੋਨ, ਵਿਚਕਾਰ ਲੈਪਟਾਪ, ਸੱਜੇ ਪਾਸੇ ਫ਼ੋਨ। ਤਿੰਨ ਡਿਵਾਈਸਾਂ ਵਾਲਾ ਸਰਾਊਂਡ ਸੈੱਟਅੱਪ।',
     'code.h2': 'ਛੇ ਅੰਕ।<br>ਹੋਰ ਕੁਝ ਨਹੀਂ।',
@@ -3878,7 +3880,7 @@
     'code.copy_btn': 'ਸੱਦਾ ਲਿੰਕ ਕਾਪੀ ਕਰੋ',
     'code.toast_success': 'ਸੱਦਾ ਲਿੰਕ ਕਾਪੀ ਹੋ ਗਿਆ',
     'code.toast_fail': 'ਕਾਪੀ ਨਹੀਂ ਹੋ ਸਕੀ',
-    'remote.h2': 'ਰੂਮ ਵਿੱਚ ਨਹੀਂ ਹੋ?<br>ਕੋਈ ਗੱਲ ਨਹੀਂ।',
+    'remote.h2': 'ਇੱਕੋ ਕਮਰੇ ਵਿੱਚ ਨਹੀਂ ਹੋ?<br>ਕੋਈ ਗੱਲ ਨਹੀਂ।',
     'remote.lead': 'ਸ਼ਹਿਰ ਦੇ ਦੂਜੇ ਪਾਸੇ ਤੋਂ ਵੀ ਚੈਟ ਕਰੋ, ਸੰਗੀਤ ਸੁਣੋ ਜਾਂ ਇਕੱਠੇ YouTube ਵੇਖੋ।',
     'remote.chat_label': 'ਚੈਟ',
     'remote.chat_value': 'ਰੀਅਲ-ਟਾਈਮ ਚੈਟ',
@@ -3904,16 +3906,16 @@
     'sync.video_label': 'ਮੀਡੀਆ',
     'sync.video_value': 'ਸਿੰਕ ਕੀਤਾ ਮੀਡੀਆ ਪਲੇਬੈਕ',
     'sync.transport_label': 'ਟ੍ਰਾਂਸਪੋਰਟ',
-    'sync.transport_value': 'Peer-to-peer, WebRTC',
+    'sync.transport_value': 'ਪੀਅਰ-ਟੂ-ਪੀਅਰ, WebRTC',
     'sync.effects_label': 'ਪ੍ਰਭਾਵ',
-    'sync.effects_value': '5-band EQ · ਰੀਵਰਬ · ਵਰਚੁਅਲਾਈਜ਼ਰ',
+    'sync.effects_value': '5-ਬੈਂਡ EQ · ਰੀਵਰਬ · ਵਰਚੁਅਲਾਈਜ਼ਰ',
     'sync.platforms_label': 'ਪਲੇਟਫਾਰਮ',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'ਹੋਸਟ',
     'sync.meta': '60-ਸੈਂਪਲ NTP-ਸ਼ੈਲੀ ਸਿੰਕ',
     'standin.h2': 'ਤੁਹਾਡੇ ਕੰਪਿਊਟਰ ਵਿੱਚ<br>ਸਪੀਕਰ ਨਹੀਂ ਹਨ?',
     'standin.lead':
-      'MUSIXQUARE ਤੁਰੰਤ ਬਦਲ ਵਜੋਂ ਕੰਮ ਕਰਦਾ ਹੈ। ਤੁਹਾਡੇ ਬੈਗ ਵਿੱਚਲਾ ਇੱਕ ਫ਼ੋਨ ਅਤੇ ਇੱਕ ਟੈਬਲੇਟ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਕਾਫ਼ੀ ਹਨ।',
+      'MUSIXQUARE ਤੁਰੰਤ ਬਦਲ ਵਜੋਂ ਕੰਮ ਕਰਦਾ ਹੈ। ਤੁਹਾਡੇ ਬੈਗ ਵਿਚਲਾ ਇੱਕ ਫ਼ੋਨ ਅਤੇ ਇੱਕ ਟੈਬਲੇਟ ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਕਾਫ਼ੀ ਹਨ।',
     'standin.aria':
       'ਉੱਪਰ ਬਿਨਾਂ ਆਵਾਜ਼ ਵਾਲਾ ਕੰਪਿਊਟਰ ਅਤੇ ਹੇਠਾਂ ਖੱਬੇ ਤੇ ਸੱਜੇ ਸਪੀਕਰ ਵਜੋਂ ਚੱਲ ਰਹੇ ਦੋ ਫ਼ੋਨ',
     'standin.desktop_label': 'ਡੈਸਕਟਾਪ',
@@ -3925,7 +3927,7 @@
     'standin.platform_label': 'ਪਲੇਟਫਾਰਮ',
     'standin.platform_value': 'ਕੰਪਿਊਟਰਾਂ ਉੱਤੇ Chromium-ਆਧਾਰਿਤ ਬ੍ਰਾਊਜ਼ਰ',
     'standin.caveat':
-      'Beta: ਸਿਰਫ਼ ਕੰਪਿਊਟਰ ਉੱਤੇ Chromium, ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 4 ਡਿਵਾਈਸਾਂ। ਇੱਕੋ ਨੈੱਟਵਰਕ ਉੱਤੇ ਸਿੱਧੇ ਸਾਂਝਾ ਕਰਨ ਦੀ ਕੋਈ ਸਮਾਂ ਸੀਮਾ ਨਹੀਂ; ਰਿਮੋਟ ਜਾਂ ਰੀਲੇ ਰਾਹੀਂ ਸਾਂਝਾ ਕਰਨ ਵਾਲੇ ਸੈਸ਼ਨ 2 ਘੰਟਿਆਂ ਬਾਅਦ ਆਪਣੇ ਆਪ ਖ਼ਤਮ ਹੋ ਜਾਂਦੇ ਹਨ। ਲਾਈਵ ਆਡੀਓ ਵਿੱਚ ਦੇਰੀ ਤੋਂ ਬਚਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ, ਇਸ ਲਈ ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘੱਟ ਰੱਖੋ।',
+      'Beta: ਸਿਰਫ਼ ਕੰਪਿਊਟਰ ਉੱਤੇ Chromium, ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 4 ਡਿਵਾਈਸਾਂ। ਇੱਕੋ ਨੈੱਟਵਰਕ ਉੱਤੇ ਸਿੱਧੇ ਸਾਂਝਾ ਕਰਨ ਦੀ ਕੋਈ ਸਮਾਂ ਸੀਮਾ ਨਹੀਂ; ਦੂਰੋਂ ਜਾਂ ਰੀਲੇ ਰਾਹੀਂ ਸਾਂਝਾ ਕਰਨਾ 2 ਘੰਟਿਆਂ ਬਾਅਦ ਆਪਣੇ ਆਪ ਖ਼ਤਮ ਹੋ ਜਾਂਦਾ ਹੈ। ਲਾਈਵ ਆਡੀਓ ਵਿੱਚ ਦੇਰੀ ਤੋਂ ਬਚਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ, ਇਸ ਲਈ ਸਾਂਝਾ ਕਰਨ ਵਾਲੀ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘੱਟ ਰੱਖੋ।',
     'cta.h2': 'ਸੈਸ਼ਨ ਸ਼ੁਰੂ ਕਰੋ।',
     'cta.btn': 'MUSIXQUARE ਖੋਲ੍ਹੋ',
     'footer.app': 'ਐਪ',

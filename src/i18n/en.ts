@@ -80,8 +80,8 @@ const en: Record<I18nKey, string> = {
     "Your nickname, sign-in sessions, and account-linked room permissions will be deleted. Content shared in a room follows that room's retention policy.",
   'account.delete_pending':
     'Your account is being deleted. PRO permissions are being safely cleaned up, and deletion will finish automatically.',
-  'common.previous': 'Previous',
-  'common.next_desc': 'Next',
+  'common.previous': 'Previous slide',
+  'common.next_desc': 'Next slide',
   'common.volume_percent': 'Volume: {{val}}%',
   'common.muted': 'Muted',
   'common.original': 'Original',
@@ -128,11 +128,11 @@ const en: Record<I18nKey, string> = {
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Play media',
   'player.add_media': 'Add media',
-  'player.play_start': 'Add to Queue',
+  'player.play_start': 'Add to Playlist',
   'player.select_media': 'Select media to play',
-  'player.play_together': 'Play in Sync',
+  'player.play_together': 'Play Together',
   'player.play_speakers': 'Use as Speaker',
-  'player.auto_sync_label': 'Auto (ms)',
+  'player.auto_sync_label': 'Auto sync (ms)',
   'player.manual_sync_label': 'Manual sync (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ const en: Record<I18nKey, string> = {
   'settings.language_desc': 'Choose a language or follow your system language.',
   'settings.theme_desc': 'Choose a light or dark theme.',
   'player.visualizer_mode_hint': 'Choose how sound is visualized.',
-  'settings.ui_sounds_desc': 'Turn notification, join and leave, and touch sounds on or off.',
+  'settings.ui_sounds_desc': 'Turn notice, join and leave, and touch sounds on or off.',
   'settings.reverb_desc': "Adjust the sound's reverb and resonance.",
   'settings.eq_desc': 'Adjust the tone of the sound. Use it together with the volume control.',
   'settings.surround_desc': 'Increase separation for a more immersive sound.',
@@ -267,7 +267,7 @@ const en: Record<I18nKey, string> = {
   'connect.permission_playback_control': 'Playback control',
   'connect.permission_members_kick': 'Kick members',
   'connect.permission_chat_notice': 'Post chat notices',
-  'connect.permission_inherited': 'Included',
+  'connect.permission_inherited': 'Included by default',
   'connect.kick_member_message': 'Remove every device connected as {{name}}?',
   'connect.device_toggle': 'Expand/collapse connected devices for {{name}}',
   'connect.device_label': '{{platform}} device ({{code}})',
@@ -318,9 +318,9 @@ const en: Record<I18nKey, string> = {
   'demo.prompt_later': 'Later',
   'demo.try_later_toast': 'You can try it anytime from the Help tab.',
   'demo.track_info': 'Track info',
-  'demo.exit': 'Exit Demo',
+  'demo.exit': 'Exit Tour',
   'demo.credit': 'Demo track',
-  'demo.role_title': 'Set this device role',
+  'demo.role_title': "Set this device's role",
   'demo.effects_title': 'Try effects',
   'demo.reverb': 'Reverb',
   'demo.bass_boost': 'Bass Boost',
@@ -332,16 +332,16 @@ const en: Record<I18nKey, string> = {
   'demo.step_connect': '1. Connect',
   'demo.step_role': '2. Set role',
   'demo.step_effects': '3. Audio effects',
-  'demo.step_finish': '4. Quit demo',
+  'demo.step_finish': '4. Finish tour',
   'demo.session_title': 'This is room {{code}}.',
   'demo.session_subtitle': 'You can invite another device anytime.',
   'demo.session_body_connected':
     '{{count}} devices are connected right now.\nSet a role for each device.',
   'demo.session_body_alone': 'Only this device is playing right now.\nInvite another device now.',
-  'demo.effects_step_title': 'Craft your premium sound.',
-  'demo.effects_step_subtitle': 'You can fine-tune these advanced acoustics anytime in Settings.',
+  'demo.effects_step_title': 'Craft your sound with advanced audio.',
+  'demo.effects_step_subtitle': 'You can fine-tune these effects anytime in Settings.',
   'demo.finish_step_title': "You're all set!",
-  'demo.finish_step_subtitle': 'Jump right in and start playing together.',
+  'demo.finish_step_subtitle': 'Head back to the app and start playing together.',
   'demo.track_list_label': 'Demo track list',
   'demo.host_only_exit': 'Only the host can press this.',
   'demo.external_playback_stopped':
@@ -351,7 +351,7 @@ const en: Record<I18nKey, string> = {
   'setup.what_sound': 'What should this device play?',
   'setup.change_later': 'You can adjust this anytime in Settings.',
   'setup.welcome_title': 'Welcome',
-  'setup.join_session_subtitle': "You're about to join session {{code}}.",
+  'setup.join_session_subtitle': "You're about to join room {{code}}.",
   'setup.select_role': 'Please select a role',
   'setup.select_role_alt': 'Please select a role',
   'setup.greeting': 'Hello!',
@@ -407,7 +407,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_slowmode_wait': 'Wait {{sec}} seconds before sending',
   'chat.cmd_notice_prefix': 'Notice',
   'chat.system_sender': 'SYSTEM',
-  'chat.bot_unavailable': 'The bot is only available in PRO rooms',
+  'chat.bot_unavailable': 'BOT is only available in PRO rooms',
   'chat.bot_processing': 'BOT is working on it...',
   'chat.bot_completed': 'BOT request completed',
   'chat.bot_failed': 'BOT could not complete the request',
@@ -416,7 +416,7 @@ const en: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT request limit reached. Wait {{duration}} and try again',
   'chat.decode_skip_system_message': 'Skipping track: unsupported format on some devices.',
   'chat.large_track_playback_system_message':
-    'This track is very large, so you may experience delays while using it.',
+    'This track has a very large file size, so you may experience delays while using it.',
   'chat.large_local_track_system_message':
     'This track has a very large file size and may not play on some devices.',
   'chat.device_track_unavailable_system_message': 'This device can’t play the current track.',
@@ -425,9 +425,9 @@ const en: Record<I18nKey, string> = {
   'chat.update_available_app_system_message':
     'A new version of MUSIXQUARE is available. Reopen the app to apply it.',
   'chat.system_audio_started_system_message':
-    'System audio sharing has started. A slight latency between host and guest devices is normal. We recommend lowering the host device volume to avoid echoes.',
+    "System audio sharing has started. A slight latency between host and guest devices is normal. Lower the host device's volume as far as possible to avoid echoes.",
   'chat.system_audio_stopped_system_message':
-    'System audio sharing has ended. Host, feel free to turn your volume back up so this device can act as a speaker again.',
+    'System audio sharing has ended. Host, please turn your volume back up so your device can act as a speaker again.',
   'chat.remote_upload_limited_system_message':
     'File upload limit reached.\nRemote participants should try again later.',
   'chat.remote_storage_quota_system_message':
@@ -440,8 +440,8 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_target_not_found': 'Target not found: {{target}}',
   'chat.cmd_no_permission': 'You do not have permission',
   'chat.cmd_nick_changed': 'Name changed to {{name}}',
-  'chat.cmd_already_op': '{{name}} is already an admin',
-  'chat.cmd_not_op': '{{name}} is not an admin',
+  'chat.cmd_already_op': '{{name}} is already an administrator',
+  'chat.cmd_not_op': '{{name}} is not an administrator',
   'chat.cmd_help_title': 'Available Commands',
   'chat.cmd_help_target_hint': '* [device] is a unique number (e.g. #1)',
   'chat.cmd_unknown': 'Unknown command: /{{cmd}}',
@@ -474,11 +474,11 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_freeze': 'Freeze chat',
   'chat.cmd_d_slowmode': 'Slow mode',
   'chat.cmd_d_w': 'Whisper',
-  'chat.cmd_d_notice': 'Notice',
+  'chat.cmd_d_notice': 'Post a notice',
   'chat.cmd_d_nick': 'Change nickname',
   'chat.cmd_d_kick': 'Kick device',
-  'chat.cmd_d_op': 'Grant admin',
-  'chat.cmd_d_deop': 'Revoke admin',
+  'chat.cmd_d_op': 'Grant administrator',
+  'chat.cmd_d_deop': 'Revoke administrator',
   'chat.cmd_d_mute': 'Restrict device chat',
   'chat.cmd_d_unmute': 'Restore device chat',
   'chat.cmd_u_debug': '/debug',
@@ -496,7 +496,7 @@ const en: Record<I18nKey, string> = {
   'youtube.watch_together': 'Watch YouTube together',
   'youtube.ready': 'YouTube is ready!\nPress Play.',
   'youtube.thumbnail': 'YouTube preview thumbnail',
-  'youtube.load_fail': 'Failed to load the YouTube API.\nCheck your connection!',
+  'youtube.load_fail': "Couldn't load YouTube.\nPlease check your internet connection.",
   'youtube.video_unavailable': 'Video unavailable, skipping to next track',
   'youtube.load_timeout': 'YouTube load timed out.\nPlease try again.',
   'youtube.invalid_link': 'Invalid YouTube link',
@@ -526,8 +526,8 @@ const en: Record<I18nKey, string> = {
   'network.session_full': 'Room is full',
   'network.session_full_detail':
     'This room already has the maximum of 100 connected devices, including the host.',
-  'network.op_granted': 'Admin permission granted.',
-  'network.op_revoked': 'Admin permission revoked.',
+  'network.op_granted': 'Administrator permissions granted.',
+  'network.op_revoked': 'Administrator permissions revoked.',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_connected': '{{name}} connected',
@@ -548,7 +548,7 @@ const en: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} permission {{status}}',
   'toast.file_read_error': 'File read error: {{name}}',
   'toast.host_ended_connection': 'The host has ended the connection',
-  'toast.announcement_available': 'New announcement.\nCheck the chat panel.',
+  'toast.announcement_available': 'New notice posted.\nCheck the chat panel.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': "Couldn't copy",
@@ -602,14 +602,14 @@ const en: Record<I18nKey, string> = {
   'toast.yt_sync_done': 'Sync complete',
   'toast.yt_rendezvous_start': 'Aligning to host...',
   'toast.yt_rendezvous_done': 'Sync complete',
-  'toast.yt_rendezvous_host_paused': 'Host is paused, matched position only',
+  'toast.yt_rendezvous_host_paused': 'Host is paused, so only the position was matched',
   'toast.yt_rendezvous_no_data': 'No host playback data yet, try again in a moment',
   'toast.yt_rendezvous_timeout': 'Sync failed, please try again in a moment',
   'toast.yt_host_sync_sent': 'Auto-sync signal sent to participants',
   'toast.yt_manual_sync_prompt':
     'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
   'toast.playlist_ended': 'The last media item has ended',
-  'toast.operator_required': 'Only admins can change global settings',
+  'toast.operator_required': 'Only administrators can change global settings',
   'toast.connection_closing': 'Connection lost, setting not synced',
   'toast.host_changed_setting': 'Settings were changed',
   'toast.session_mismatch': 'Session mismatch.\nFile transfer will retry.',
@@ -677,12 +677,12 @@ const en: Record<I18nKey, string> = {
   'error.peer_unavailable': "Couldn't find the session.\nPlease check the code again.",
   'error.host_left': 'The host appears to have left the session',
   'error.network_issue': 'There is a network issue.\nPlease check your internet connection.',
-  'error.signal_server_fail': "Can't reach the signaling server.\nPlease try again shortly.",
+  'error.signal_server_fail': "Can't reach the room server.\nPlease try again shortly.",
   'error.server_disconnected': 'Disconnected from the server.',
   'error.session_id_unavailable': 'Session ID is unavailable.\nPlease try again.',
   'error.webrtc_failed': 'WebRTC connection failed.\nCheck your browser settings.',
   'error.browser_unsupported':
-    "This browser can't make real-time connections.\nTry Chrome or Safari.",
+    "This browser can't make real-time connections.\nTry the latest Chrome or Safari.",
   'error.ssl_required': 'A secure connection (HTTPS) is required.',
   'error.room_password_required': 'This room requires a password.',
   'error.room_password_invalid': 'Room password does not match.',
@@ -703,9 +703,9 @@ const en: Record<I18nKey, string> = {
     "This device's audio did not recover after returning from the background. Your room will stay connected while MUSIXQUARE realigns this device's sound.",
   'dialog.audio_recovery_action': 'Restore audio',
   'dialog.background_resume_message':
-    'If sync is off or audio does not play, fully close the app and open it again.',
+    'If playback is out of sync or audio does not play, fully close the app and open it again.',
   'dialog.background_resume_sync_fallback_message':
-    'If sync is off or audio does not play, fully close the app and open it again.',
+    'If playback is out of sync or audio does not play, fully close the app and open it again.',
   'dialog.got_it': 'Got it',
   'dialog.continue_using': 'Continue',
   'dialog.leave_session': 'Leave',
@@ -729,13 +729,13 @@ const en: Record<I18nKey, string> = {
   'dialog.room_password_rate_limited_later':
     'You entered the wrong password too many times. Try again in a little while.',
   'dialog.session_lost_msg':
-    'The app went to sleep or lost connection, so other devices have already dropped. Restart to begin a new session.',
+    'The app went to sleep or lost connection, so this device was disconnected from the others. Restart to begin a new session.',
   'dialog.session_lost_btn': 'Restart',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Activate PRO room',
   'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_message': 'Register this room to the “{{name}}” account?',
   'pro.activation_account_login_message':
     'Sign in to the account you want to register this room to.',
   'pro.activation_account_continue': 'Continue',
@@ -752,7 +752,7 @@ const en: Record<I18nKey, string> = {
   'pro.claim_login_title': 'Sign in first',
   'pro.claim_login_button': 'Sign in',
   'pro.claim_login_message':
-    "Sign in with the account that will own this PRO room and finish setting its nickname. The link is kept only in this tab's memory while you continue.",
+    "Sign in with the account that will own this PRO room and finish setting your nickname. The link is kept only in this tab's memory while you continue.",
   'pro.claim_popup_blocked_message':
     'Your browser blocked the sign-in window. Allow pop-ups for MUSIXQUARE, then try again.',
   'pro.claim_existing_account_title': 'Sign in with the linked account',
@@ -764,7 +764,7 @@ const en: Record<I18nKey, string> = {
     'This room is linked to another account. Ask an administrator to transfer ownership if you need to change it.',
   'pro.claim_account_capacity_title': 'This account cannot link another room',
   'pro.claim_account_capacity_message':
-    'This account has reached its PRO room link limit. Remove an existing link, then request a new one.',
+    'This account has reached its PRO room connection limit. Remove a room connection from this account, then request a new link.',
   'pro.claim_failed_title': 'This request could not be completed',
   'pro.claim_failed_message':
     'For safety, this link was not retried. Ask the room administrator for a new link.',
@@ -834,11 +834,11 @@ const en: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul>',
   'setup.how_to_connect_html':
-    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I\'ll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul>',
+    'Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “Create a Room” → check code</li><li><strong>Participant:</strong> “Join a Room” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul>',
   'player.play_speakers_html':
-    'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
+    'Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center Speaker:</strong> Stereo (default) output</li><li><strong>Left Speaker:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right Speaker:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.',
   'player.play_media_action_html':
-    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul>',
+    'The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>Watch YouTube together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Entered the code but can\'t connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul>',
   'chat.peer_connected': '{{name}} joined',
@@ -859,7 +859,7 @@ const en: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Set the role for each device.<br>Play left and right audio separately<br>and feel deep bass from the woofer.',
   'setup.advanced_audio_desc_html':
-    "Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.",
+    "Following the host's settings,<br>apply reverb, EQ, virtual effects<br>and more across the system.",
   'youtube.enter_link_desc_html': 'Only public videos or playlists can be played.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
@@ -879,11 +879,11 @@ const en: Record<I18nKey, string> = {
   'system_audio.stop': 'Stop Sharing',
   'system_audio.stop_compact': 'Stop',
   'system_audio.started':
-    'System audio may have slight latency.\nLower the source volume if possible.',
+    'System audio may have slight latency.\nLower the source volume as much as possible.',
   'system_audio.stopped': 'System audio sharing ended.\nResuming playlist.',
   'system_audio.host_channel_locked': 'Cannot change roles during system audio sharing.',
   'system_audio.effects_guest_only':
-    'System audio active.\nSound effects apply to guest devices only.',
+    'System audio active.\nAudio effects apply to guest devices only.',
   'system_audio.desktop_only':
     'Only available on computers using a Chromium-based browser (Chrome, Edge, etc.).',
   'system_audio.receive_failed':

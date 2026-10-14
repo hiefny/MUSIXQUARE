@@ -40,8 +40,8 @@ const ar: Record<I18nKey, string> = {
   'common.decrease': 'خفض',
   'common.done': 'تم',
   'common.sync': 'مزامنة',
-  'common.on': 'تشغيل',
-  'common.off': 'إيقاف',
+  'common.on': 'تفعيل',
+  'common.off': 'تعطيل',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'تسجيل الدخول',
@@ -126,10 +126,10 @@ const ar: Record<I18nKey, string> = {
   'player.play_media_compact': 'وسائط',
   'player.play_media_action': 'تشغيل الوسائط',
   'player.add_media': 'إضافة وسائط',
-  'player.play_start': 'إضافة إلى قائمة الانتظار',
+  'player.play_start': 'إضافة إلى قائمة التشغيل',
   'player.select_media': 'اختر وسائط لتشغيلها',
   'player.play_together': 'تشغيل متزامن',
-  'player.play_speakers': 'استخدامه كمكبر صوت',
+  'player.play_speakers': 'استخدام الجهاز كمكبر صوت',
   'player.auto_sync_label': 'تلقائي (ms)',
   'player.manual_sync_label': 'مزامنة يدوية (ms)',
 
@@ -254,9 +254,9 @@ const ar: Record<I18nKey, string> = {
   'connect.room_owner_role': 'مالك الغرفة',
   'connect.administrator_role': 'مسؤول',
   'connect.administrator_settings_aria': 'تعديل أذونات المسؤول {{name}}',
-  'connect.administrator_revoke_aria': 'سحب أذونات المسؤول من {{name}}',
+  'connect.administrator_revoke_aria': 'سحب صلاحية المسؤول من {{name}}',
   'connect.administrator_revoke_title': 'هل تريد سحب صلاحية المسؤول؟',
-  'connect.administrator_revoke_message': 'هل تريد سحب أذونات المسؤول من {{name}}؟',
+  'connect.administrator_revoke_message': 'هل تريد سحب صلاحية المسؤول من {{name}}؟',
   'connect.permissions_title': 'أذونات {{name}}',
   'connect.permission_media_add': 'إدارة الوسائط',
   'connect.permission_playback_control': 'التحكم في التشغيل',
@@ -266,7 +266,7 @@ const ar: Record<I18nKey, string> = {
   'connect.kick_member_message': 'هل تريد إزالة كل جهاز متصل باسم {{name}}؟',
   'connect.device_toggle': 'توسيع أو طي الأجهزة المتصلة باسم {{name}}',
   'connect.device_label': 'جهاز {{platform}} ‏({{code}})',
-  'connect.platform_other': 'أخرى',
+  'connect.platform_other': 'آخر',
   'connect.current_device': 'الجهاز الحالي',
   'connect.no_session': 'ابدأ جلسة أولًا',
   'connect.generating_qr': 'جارٍ إنشاء رمز QR...',
@@ -311,32 +311,32 @@ const ar: Record<I18nKey, string> = {
   'demo.prompt_later': 'لاحقًا',
   'demo.try_later_toast': 'يمكنك تجربتها في أي وقت من تبويب المساعدة.',
   'demo.track_info': 'معلومات المقطع',
-  'demo.exit': 'إنهاء العرض',
+  'demo.exit': 'إنهاء الجولة',
   'demo.credit': 'مقطع العرض',
   'demo.role_title': 'تعيين دور هذا الجهاز',
   'demo.effects_title': 'جرّب المؤثرات',
   'demo.reverb': 'الصدى',
   'demo.bass_boost': 'تعزيز الجهير',
   'demo.treble_boost': 'تعزيز الترددات العالية',
-  'demo.surround': 'محيطي',
+  'demo.surround': 'الصوت المحيطي',
   'demo.role_bass_short': 'جهير',
   'demo.role_center_short': 'وسط',
   'demo.step_nav_label': 'خطوات العرض',
   'demo.step_connect': '1. الاتصال',
   'demo.step_role': '2. تعيين الدور',
   'demo.step_effects': '3. المؤثرات الصوتية',
-  'demo.step_finish': '4. إنهاء العرض',
+  'demo.step_finish': '4. إنهاء الجولة',
   'demo.session_title': 'غرفتك: {{code}}',
   'demo.session_subtitle': 'يمكنك دعوة جهاز آخر في أي وقت.',
   'demo.session_body_connected': 'هناك {{count}} من الأجهزة المتصلة الآن.\nعيّن دورًا لكل جهاز.',
-  'demo.session_body_alone': 'هذا الجهاز وحده يعمل الآن.\nادعُ جهازًا آخر الآن.',
+  'demo.session_body_alone': 'هذا الجهاز وحده يشغّل الصوت الآن.\nادعُ جهازًا آخر الآن.',
   'demo.effects_step_title': 'اصنع صوتك المتميز.',
   'demo.effects_step_subtitle': 'يمكنك ضبط هذه الخصائص الصوتية المتقدمة بدقة في الإعدادات متى شئت.',
   'demo.finish_step_title': 'أصبحت جاهزًا!',
   'demo.finish_step_subtitle': 'ابدأ الآن واستمتع بالتشغيل مع الآخرين.',
   'demo.track_list_label': 'قائمة مقاطع العرض',
   'demo.host_only_exit': 'المضيف وحده يمكنه الضغط على هذا.',
-  'demo.external_playback_stopped': 'أوقف وضع العرض تشغيل YouTube أو صوت النظام الحالي.',
+  'demo.external_playback_stopped': 'أوقفت الجولة التجريبية YouTube أو صوت النظام.',
   'setup.how_to_connect': 'كيفية الاتصال',
   'setup.set_role': 'تعيين دور هذا الجهاز',
   'setup.what_sound': 'ما الذي ينبغي لهذا الجهاز تشغيله؟',
@@ -350,7 +350,7 @@ const ar: Record<I18nKey, string> = {
   'setup.enter_code': 'أدخل رمز الدعوة المؤلف من 6 أرقام',
   'setup.enter_host_code': 'أدخل رمز الدعوة',
   'setup.enter_host_code_alt': 'امسح رمز QR أو أدخل الرمز.',
-  'setup.scan_qr': 'اضغط للمسح',
+  'setup.scan_qr': 'اضغط لمسح الرمز',
   'setup.camera_permission_denied': 'رُفض إذن الكاميرا',
   'setup.camera_not_found': 'لم يُعثر على كاميرا قابلة للاستخدام',
   'setup.camera_unavailable': 'تعذّر تشغيل الكاميرا',
@@ -434,8 +434,8 @@ const ar: Record<I18nKey, string> = {
   'chat.cmd_not_op': '{{name}} ليس مسؤولًا',
   'chat.cmd_help_title': 'الأوامر المتاحة',
   'chat.cmd_help_target_hint': '* [device] رقم فريد للجهاز (مثل #1)',
-  'chat.cmd_unknown': 'أمر غير معروف: /{{cmd}}',
-  'chat.cmd_usage': 'طريقة الاستخدام: {{usage}}',
+  'chat.cmd_unknown': 'أمر غير معروف: ‎/{{cmd}}',
+  'chat.cmd_usage': 'طريقة الاستخدام: ‎{{usage}}',
   'chat.cmd_users_title': 'المستخدمون المتصلون',
   'chat.cmd_users_me': 'أنا',
 
@@ -467,7 +467,7 @@ const ar: Record<I18nKey, string> = {
   'chat.cmd_d_notice': 'إشعار',
   'chat.cmd_d_nick': 'تغيير الاسم المستعار',
   'chat.cmd_d_kick': 'إزالة جهاز',
-  'chat.cmd_d_op': 'منح صلاحية مسؤول',
+  'chat.cmd_d_op': 'منح صلاحية المسؤول',
   'chat.cmd_d_deop': 'سحب صلاحية المسؤول',
   'chat.cmd_d_mute': 'تقييد دردشة الجهاز',
   'chat.cmd_d_unmute': 'السماح للجهاز بالدردشة مجددًا',
@@ -475,7 +475,7 @@ const ar: Record<I18nKey, string> = {
   'chat.cmd_d_debug': 'معلومات تصحيح أخطاء النظام',
   'chat.debug_copied': 'تم نسخ معلومات تصحيح الأخطاء.\nأرسلها إلى المطوّر إذا وجدت خللًا.',
   'chat.seek_to': 'الانتقال إلى {{time}}',
-  'chat.copied': 'تم نسخ الدردشة',
+  'chat.copied': 'تم نسخ الرسالة',
   'chat.copy_hint': 'اضغط Enter لنسخ رسالة الدردشة هذه',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -490,7 +490,7 @@ const ar: Record<I18nKey, string> = {
   'youtube.video_unavailable': 'الفيديو غير متاح، جارٍ تخطيه إلى المقطع التالي',
   'youtube.load_timeout': 'انتهت مهلة تحميل YouTube.\nيرجى المحاولة مرة أخرى.',
   'youtube.invalid_link': 'رابط YouTube غير صالح',
-  'youtube.effects_disabled': 'شاهدوا YouTube معًا.\nالمؤثرات الصوتية المتقدمة معطّلة.',
+  'youtube.effects_disabled': 'مشاهدة YouTube معًا.\nالمؤثرات الصوتية المتقدمة معطّلة.',
   'youtube.enter_link_placeholder': 'أدخل رابط فيديو أو قائمة تشغيل',
   'youtube.enter_source_toast': 'أدخل رابط YouTube أو عبارة بحث',
   'youtube.fetching_info': 'جارٍ تحميل معلومات الفيديو...',
@@ -527,7 +527,7 @@ const ar: Record<I18nKey, string> = {
   'toast.remote_decode_device_wait':
     'تعذّر على أحد الأجهزة فك ترميز هذا المقطع. يستمر التشغيل على بقية الأجهزة.',
   'toast.invite_code': 'رمز الدعوة: {{code}}',
-  'toast.invite_code_info': '{{count}} متصل | الرمز {{code}}',
+  'toast.invite_code_info': 'متصل: {{count}} | الرمز {{code}}',
   'toast.added_tracks': 'تمت إضافة {{count}} من المقاطع',
   'toast.preparing': 'جارٍ التحضير: {{name}}',
   'toast.file_save_error': 'خطأ في حفظ الملف: {{name}}',
@@ -538,7 +538,7 @@ const ar: Record<I18nKey, string> = {
   'toast.op_status': 'إذن {{label}}: {{status}}',
   'toast.file_read_error': 'خطأ في قراءة الملف: {{name}}',
   'toast.host_ended_connection': 'أنهى المضيف الاتصال',
-  'toast.announcement_available': 'هناك إعلان جديد.\nراجعه في لوحة الدردشة.',
+  'toast.announcement_available': 'هناك إشعار جديد.\nراجعه في لوحة الدردشة.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'تعذّر النسخ',
@@ -599,7 +599,7 @@ const ar: Record<I18nKey, string> = {
   'toast.yt_manual_sync_prompt':
     'جرت محاولة مزامنة تلقائية للتو.\nإذا استمر التأخير، فاضبط القيمة الآن',
   'toast.playlist_ended': 'انتهى آخر عنصر وسائط',
-  'toast.operator_required': 'لا يستطيع تغيير الإعدادات العامة إلا المسؤولون',
+  'toast.operator_required': 'لا يستطيع تغيير الإعدادات المشتركة إلا المسؤولون',
   'toast.connection_closing': 'فُقد الاتصال؛ لم تتم مزامنة الإعداد',
   'toast.host_changed_setting': 'تم تغيير الإعدادات',
   'toast.session_mismatch': 'الجلسة غير متطابقة.\nستتم إعادة محاولة نقل الملف.',
@@ -722,15 +722,13 @@ const ar: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'تفعيل غرفة PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
-  'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+  'pro.activation_account_title': 'اختر حسابًا لتسجيل غرفة PRO هذه',
+  'pro.activation_account_message': 'هل تريد تسجيل هذه الغرفة في الحساب «{{name}}»؟',
+  'pro.activation_account_login_message': 'سجّل الدخول بالحساب الذي تريد تسجيل هذه الغرفة فيه.',
+  'pro.activation_account_continue': 'متابعة',
+  'pro.activation_account_switch': 'حساب آخر',
+  'pro.activation_account_unavailable': 'تعذّر التحقق من حسابك. يرجى المحاولة مجددًا بعد قليل.',
+  'pro.activation_complete': 'إكمال تسجيل الغرفة',
   'pro.activation_message': 'عيّن كلمة مرور جديدة من 8 أرقام لهذه الغرفة.',
   'pro.activation_pin_same': 'اختر كلمة مرور مختلفة عن المؤقتة.',
   'pro.claim_retry_title': 'هل تريد تجربة رابط PRO مجددًا؟',
@@ -752,7 +750,7 @@ const ar: Record<I18nKey, string> = {
     'هذه الغرفة مرتبطة بحساب آخر. إذا أردت تغييره، فاطلب من مسؤول نقل الملكية.',
   'pro.claim_account_capacity_title': 'لا يستطيع هذا الحساب ربط غرفة أخرى',
   'pro.claim_account_capacity_message':
-    'بلغ هذا الحساب الحد الأقصى لروابط غرف PRO. أزل رابطًا حاليًا ثم اطلب رابطًا جديدًا.',
+    'بلغ هذا الحساب الحد الأقصى لعدد غرف PRO المرتبطة به. ألغِ ربط إحدى الغرف ثم اطلب رابطًا جديدًا.',
   'pro.claim_failed_title': 'تعذّر إكمال هذا الطلب',
   'pro.claim_failed_message':
     'حرصًا على الأمان، لم تُعَد محاولة استخدام هذا الرابط. اطلب رابطًا جديدًا من مسؤول الغرفة.',
@@ -776,7 +774,7 @@ const ar: Record<I18nKey, string> = {
   'pro.pin_changed': 'تم تغيير كلمة مرور الغرفة.',
   'pro.pin_enable_title': 'تعيين كلمة مرور الغرفة',
   'pro.pin_enabled': 'تم تعيين كلمة مرور الغرفة.',
-  'pro.pin_members_title': 'ماذا تريد أن تفعل بالمشاركين الحاليين؟',
+  'pro.pin_members_title': 'كيف تريد التعامل مع المشاركين الحاليين؟',
   'pro.pin_members_keep': 'إبقاء الجميع',
   'pro.pin_members_keep_detail':
     'لن تحتاج إلى إدخال كلمة المرور إلا الأجهزة التي تعيد الانضمام أو تنضم لأول مرة.',
@@ -823,7 +821,7 @@ const ar: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'أدخل <strong>الرمز المؤلف من 6 أرقام</strong> الذي يظهر لدى المضيف للاتصال.<ul class="help-list"><li><strong>المضيف:</strong> «إنشاء غرفة» ← راجع الرمز</li><li><strong>المشارك:</strong> «الانضمام إلى غرفة» ← أدخل الرمز</li><li>يمكن اتصال ما يصل إلى <strong>100 جهاز، بما فيها جهاز المضيف</strong>.</li></ul>',
   'player.play_speakers_html':
-    'يختار كل مشارك <strong>دورًا (قناة إخراج)</strong>.<ul class="help-list"><li><strong>الوسط:</strong> خرج ستيريو (افتراضي)</li><li><strong>اليسار:</strong> خرج قناة <bdi dir="ltr">L</bdi></li><li><strong>اليمين:</strong> خرج قناة <bdi dir="ltr">R</bdi></li><li><strong>مضخم الصوت:</strong> خرج مزيج الترددات المنخفضة</li></ul>يمكنك تغيير الأدوار في أي وقت من <strong>الإعدادات</strong>.',
+    'يختار كل مشارك <strong>دورًا (قناة إخراج)</strong>.<ul class="help-list"><li><strong>مكبر الصوت المركزي:</strong> خرج ستيريو (افتراضي)</li><li><strong>مكبر الصوت الأيسر:</strong> خرج قناة <bdi dir="ltr">L</bdi></li><li><strong>مكبر الصوت الأيمن:</strong> خرج قناة <bdi dir="ltr">R</bdi></li><li><strong>مضخم الصوت:</strong> خرج مزيج الترددات المنخفضة</li></ul>يمكنك تغيير الأدوار في أي وقت من <strong>الإعدادات</strong>.',
   'player.play_media_action_html':
     'لدى المضيف 3 خيارات.<ul class="help-list"><li><strong>تحميل ملف محلي:</strong> اختر موسيقى من جهازك. يدعم المزامنة الدقيقة</li><li><strong>YouTube معًا:</strong> يدعم الفيديوهات وقوائم التشغيل. لا يدعم فصل القنوات أو المؤثرات الصوتية</li><li><strong>مشاركة صوت النظام:</strong> متاحة عندما يستخدم المضيف متصفحًا مبنيًا على Chromium على جهاز كمبيوتر</li></ul>',
   'help.need_help_html':
@@ -836,9 +834,9 @@ const ar: Record<I18nKey, string> = {
   'chat.participant_connection_unstable_recovering':
     'اتصال {{name}} غير مستقر. جارٍ محاولة استعادته.',
   'chat.empty_html': 'لا توجد رسائل بعد.<br>أرسل الرسالة الأولى!',
-  'chat.msg_truncated': 'اختُصرت الرسالة إلى {{max}} حرفًا',
+  'chat.msg_truncated': 'اختُصرت الرسالة (الحد الأقصى {{max}} حرفًا)',
   'chat.scroll_to_bottom': 'التمرير إلى الأسفل',
-  'setup.brand_tagline_html': 'استمعوا معًا أينما كنتم<br>تجربة صوت مثالية',
+  'setup.brand_tagline_html': 'الاستماع معًا أينما كنت<br>تجربة صوت مثالية',
   'setup.invite_share_desc_html':
     'صِل أجهزة متعددة لاسلكيًا<br>لإنشاء نظام صوتي ضخم.<br>استخدم رمز دعوة من 6 أرقام للاتصال.',
   'setup.play_together_desc_html':
@@ -846,7 +844,7 @@ const ar: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'عيّن دورًا لكل جهاز.<br>شغّل صوت اليسار واليمين كلًا على حدة<br>واشعر بالجهير العميق من مضخم الصوت.',
   'setup.advanced_audio_desc_html':
-    'طابق إعدادات المضيف<br>عبر الصدى ومعادل الصوت والمؤثرات الافتراضية<br>والمزيد على امتداد النظام.',
+    'وفق إعدادات المضيف،<br>يُطبَّق الصدى ومعادل الصوت والمؤثرات الافتراضية<br>وغيرها على النظام بأكمله.',
   'youtube.enter_link_desc_html': 'يمكن تشغيل الفيديوهات أو قوائم التشغيل العامة فقط.',
 
   // ─── System Audio Sharing ───────────────────────────────────────
@@ -878,7 +876,7 @@ const ar: Record<I18nKey, string> = {
   'system_audio.device_limit':
     'يدعم صوت النظام ما يصل إلى {{count}} من الأجهزة.\nويشمل ذلك جهاز المضيف.',
   'system_audio.device_limit_stopped':
-    'توقفت مشاركة صوت النظام.\nهناك أكثر من {{count}} جهاز متصل.',
+    'توقفت مشاركة صوت النظام.\nعدد الأجهزة المتصلة يتجاوز {{count}}.',
   'system_audio.duration_limit_stopped': 'انتهت مشاركة صوت النظام تلقائيًا\nبعد ساعتين.',
 
   // ─── Legal ───────────────────────────────────────────────────────

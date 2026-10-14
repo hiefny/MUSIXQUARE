@@ -26,7 +26,7 @@ const te: Record<I18nKey, string> = {
   'common.start': 'ప్రారంభించు',
   'common.info': 'సమాచారం',
   'common.stay': 'ఇక్కడే ఉండు',
-  'common.leave': 'వెళ్లిపో',
+  'common.leave': 'బయటకు వెళ్లు',
   'common.granted': 'మంజూరు చేయబడింది',
   'common.revoked': 'ఉపసంహరించబడింది',
   'common.stop': 'ఆపు',
@@ -60,9 +60,9 @@ const te: Record<I18nKey, string> = {
   'account.stats_listening_label': 'విన్న సమయం',
   'account.stats_tracks_label': 'ప్లే చేసిన మీడియా',
   'account.stats_count_value': '{{count}}',
-  'account.stats_seconds_value': '{{seconds}} సెకన్లు',
-  'account.stats_minutes_value': '{{minutes}} నిమిషాలు',
-  'account.stats_hours_minutes_value': '{{hours}} గంటలు {{minutes}} నిమిషాలు',
+  'account.stats_seconds_value': '{{seconds}} సె.',
+  'account.stats_minutes_value': '{{minutes}} ని.',
+  'account.stats_hours_minutes_value': '{{hours}} గం. {{minutes}} ని.',
   'account.change_nickname': 'మారుపేరు మార్చు',
   'account.logout': 'సైన్ అవుట్',
   'account.delete_account': 'ఖాతాను తొలగించు',
@@ -117,8 +117,8 @@ const te: Record<I18nKey, string> = {
   'player.seek_unavailable_system_audio':
     'సిస్టమ్ ఆడియో షేర్ చేస్తున్నప్పుడు ప్లేబ్యాక్ స్థానాన్ని మార్చలేరు',
   'player.volume': 'వాల్యూమ్ సర్దుబాటు చేయి',
-  'player.toggle_mute': 'మ్యూట్‌ను మార్చు',
-  'player.fullscreen': 'ఫుల్‌స్క్రీన్‌ను మార్చు',
+  'player.toggle_mute': 'మ్యూట్ ఆన్/ఆఫ్ చేయి',
+  'player.fullscreen': 'ఫుల్‌స్క్రీన్ ఆన్/ఆఫ్ చేయి',
   'player.prev_track': 'మునుపటి ట్రాక్',
   'player.next_track': 'తదుపరి ట్రాక్',
   'player.repeat_mode': 'రిపీట్ మోడ్ మార్చు',
@@ -150,7 +150,7 @@ const te: Record<I18nKey, string> = {
   'playlist.loading_info': 'ట్రాక్ సమాచారం లోడ్ అవుతోంది...',
   'playlist.sub_load_failed': 'వీడియో సమాచారం లోడ్ కాలేదు',
   'playlist.remove_title': 'ప్లేలిస్ట్ నుండి తీసివేయి',
-  'playlist.select_for_deletion': 'తొలగించడానికి {{title}}ను ఎంచుకోండి',
+  'playlist.select_for_deletion': 'తొలగించడానికి {{title}}ను ఎంచుకో',
   'playlist.deselect_for_deletion': '{{title}} ఎంపికను తీసివేయి',
   'playlist.deselect_all': 'అన్ని ఎంపికలను తీసివేయి',
   'playlist.select_all': 'అన్నింటినీ ఎంచుకో',
@@ -191,9 +191,9 @@ const te: Record<I18nKey, string> = {
   'settings.ui_sounds_desc': 'నోటిఫికేషన్, చేరడం, వెళ్లిపోవడం, టచ్ సౌండ్‌లను ఆన్ లేదా ఆఫ్ చేయండి.',
   'settings.reverb_desc': 'సౌండ్ రీవర్బ్, ప్రతిధ్వనిని సర్దుబాటు చేయండి.',
   'settings.eq_desc': 'సౌండ్ టోన్‌ను సర్దుబాటు చేయండి. వాల్యూమ్ నియంత్రణతో కలిపి ఉపయోగించండి.',
-  'settings.surround_desc': 'మరింత లీనమయ్యే సౌండ్ కోసం ఛానెల్‌ల మధ్య విభజనను పెంచండి.',
-  'settings.bass_desc': 'మరింత ప్రభావం కోసం తక్కువ ఫ్రీక్వెన్సీలను కృత్రిమంగా రూపొందించండి.',
-  'settings.exciter_desc': 'మరింత స్పష్టత కోసం అత్యధిక ఫ్రీక్వెన్సీలను రూపొందించండి.',
+  'settings.surround_desc': 'మరింత లీనమయ్యే సౌండ్ కోసం ఛానెల్‌ల మధ్య విభజనను పెంచుతుంది.',
+  'settings.bass_desc': 'మరింత ప్రభావం కోసం తక్కువ ఫ్రీక్వెన్సీలను కృత్రిమంగా రూపొందిస్తుంది.',
+  'settings.exciter_desc': 'మరింత స్పష్టత కోసం అత్యధిక ఫ్రీక్వెన్సీలను రూపొందిస్తుంది.',
   'settings.role_center_desc': 'ఈ పరికరం సెంటర్ స్పీకర్‌గా పనిచేస్తోంది.\nదీన్ని మధ్యలో ఉంచండి.',
   'settings.role_left_desc': 'ఈ పరికరం ఎడమ స్పీకర్‌గా పనిచేస్తోంది.\nదీన్ని ఎడమవైపు ఉంచండి.',
   'settings.role_right_desc': 'ఈ పరికరం కుడి స్పీకర్‌గా పనిచేస్తోంది.\nదీన్ని కుడివైపు ఉంచండి.',
@@ -242,11 +242,11 @@ const te: Record<I18nKey, string> = {
   'settings.default_20hz': 'డిఫాల్ట్ 20Hz',
   'settings.default_5s': 'డిఫాల్ట్ 5.0s',
   'settings.invite_code': 'ఆహ్వాన కోడ్',
-  'settings.leave_session': 'సెషన్ నుండి వెళ్లిపో',
+  'settings.leave_session': 'సెషన్ నుండి బయటకు వెళ్లు',
   'connect.rename_reserved': 'ఈ మారుపేరు రిజర్వ్ చేయబడింది.',
   'connect.rename_profanity': 'అనుచిత పదాలు గుర్తించబడ్డాయి.',
   'settings.devices_title': 'కనెక్ట్ అయిన పరికరాలు',
-  'settings.invite_share': 'ఆహ్వానించి షేర్ చేయి',
+  'settings.invite_share': 'ఆహ్వానం & షేరింగ్',
   'settings.subtab.general': 'సాధారణం',
   'settings.subtab.audio': 'ఆడియో',
   'settings.subtab.connect': 'కనెక్ట్',
@@ -415,7 +415,7 @@ const te: Record<I18nKey, string> = {
   'chat.bot_completed': 'BOT అభ్యర్థన పూర్తయింది',
   'chat.bot_failed': 'BOT అభ్యర్థనను పూర్తి చేయలేకపోయింది',
   'chat.bot_added_tracks': 'BOT జోడించిన ట్రాక్‌లు: {{count}}',
-  'chat.bot_added_and_playing': 'BOT {{count}} ట్రాక్‌లను జోడించింది. ప్లేబ్యాక్ ప్రారంభమైంది',
+  'chat.bot_added_and_playing': 'BOT జోడించిన ట్రాక్‌లు: {{count}}. ప్లేబ్యాక్ ప్రారంభమైంది',
   'chat.bot_rate_limited':
     'BOT అభ్యర్థన పరిమితి చేరుకుంది. {{duration}} వేచి ఉండి మళ్లీ ప్రయత్నించండి',
   'chat.decode_skip_system_message':
@@ -443,7 +443,7 @@ const te: Record<I18nKey, string> = {
   'chat.pinned_close': 'నోటీస్‌ను తీసివేయి',
   'chat.cmd_whisper_from': '{{name}} నుండి ప్రైవేట్ సందేశం',
   'chat.cmd_whisper_to': '{{name}}కు ప్రైవేట్ సందేశం',
-  'chat.cmd_target_not_found': 'లక్ష్యం కనబడలేదు: {{target}}',
+  'chat.cmd_target_not_found': 'పరికరం కనబడలేదు: {{target}}',
   'chat.cmd_no_permission': 'మీకు అనుమతి లేదు',
   'chat.cmd_nick_changed': 'పేరు {{name}}గా మార్చబడింది',
   'chat.cmd_already_op': '{{name}} ఇప్పటికే అడ్మిన్',
@@ -496,7 +496,7 @@ const te: Record<I18nKey, string> = {
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube లింక్‌ను నమోదు చేయి',
-  'youtube.enter_source': 'YouTube లింక్ లేదా సెర్చ్‌ను నమోదు చేయి',
+  'youtube.enter_source': 'YouTube లింక్ లేదా సెర్చ్ పదాన్ని నమోదు చేయి',
   'youtube.enter_link_prompt': 'YouTube లింక్ లేదా సెర్చ్ పదాన్ని నమోదు చేయండి',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'కలిసి YouTube చూడండి',
@@ -554,7 +554,7 @@ const te: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} అనుమతి {{status}}',
   'toast.file_read_error': 'ఫైల్ రీడ్ లోపం: {{name}}',
   'toast.host_ended_connection': 'హోస్ట్ కనెక్షన్‌ను ముగించారు',
-  'toast.announcement_available': 'కొత్త ప్రకటన.\nచాట్ ప్యానెల్‌ను చూడండి.',
+  'toast.announcement_available': 'కొత్త నోటీస్.\nచాట్ ప్యానెల్‌ను చూడండి.',
 
   // ─── Toast (static) ──────────────────────────────────────────────
   'toast.copy_failed': 'కాపీ చేయడం సాధ్యపడలేదు',
@@ -577,7 +577,7 @@ const te: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతి అవసరం.',
   'toast.room_owner_required': 'గది యజమాని మాత్రమే దీన్ని మార్చగలరు.',
   'toast.system_audio_owner_required':
-    'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను భాగస్వామ్యం చేయగలరు.',
+    'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను షేర్ చేయగలరు.',
   'toast.host_only_youtube': 'హోస్ట్ మాత్రమే YouTube లింక్‌లను జోడించగలరు.',
   'toast.host_only_control': 'హోస్ట్ మాత్రమే దీన్ని నియంత్రించగలరు',
   'toast.host_setting_required': 'హోస్ట్ మాత్రమే ఈ సెట్టింగ్‌ను మార్చగలరు',
@@ -609,7 +609,7 @@ const te: Record<I18nKey, string> = {
   'toast.yt_sync_done': 'సింక్ పూర్తయింది',
   'toast.yt_rendezvous_start': 'హోస్ట్‌తో సరిపోలుతోంది...',
   'toast.yt_rendezvous_done': 'సింక్ పూర్తయింది',
-  'toast.yt_rendezvous_host_paused': 'హోస్ట్ పాజ్ చేశారు, ప్లేబ్యాక్ స్థానం మాత్రమే సరిపోల్చబడింది',
+  'toast.yt_rendezvous_host_paused': 'హోస్ట్ పాజ్ చేశారు, ప్లేబ్యాక్ స్థానం మాత్రమే సరిచేయబడింది',
   'toast.yt_rendezvous_no_data': 'హోస్ట్ ప్లేబ్యాక్ డేటా ఇంకా లేదు, కాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'toast.yt_rendezvous_timeout': 'సింక్ విఫలమైంది, కాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'toast.yt_host_sync_sent': 'పాల్గొనేవారికి ఆటో-సింక్ సిగ్నల్ పంపబడింది',
@@ -701,7 +701,7 @@ const te: Record<I18nKey, string> = {
   'dialog.file_drop.title': 'లోకల్ ఫైల్‌లను జోడించు',
   'dialog.file_drop.message': '{{count}} ఫైల్‌లను జోడించాలా?',
   'dialog.file_drop.unsupported_notice': 'మద్దతు లేని {{count}} ఫైల్‌లు జోడించబడవు.',
-  'dialog.return_home_title': 'సెషన్ నుండి వెళ్లిపో',
+  'dialog.return_home_title': 'సెషన్ నుండి బయటకు వెళ్లు',
   'dialog.return_home_msg': 'ప్రారంభ స్క్రీన్‌కు తిరిగి వెళ్లాలా?',
   'dialog.return_home_detail': 'ప్రస్తుత సెషన్ నుండి మీరు డిస్‌కనెక్ట్ అవుతారు.',
   'dialog.leaving_session': 'సెషన్ నుండి వెళ్లిపోతోంది...',
@@ -709,7 +709,7 @@ const te: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'యాప్ కొద్దిసేపు బ్యాక్‌గ్రౌండ్‌కు వెళ్లింది',
   'dialog.audio_recovery_title': 'ఆడియో అనుకోకుండా పాజ్ అయింది',
   'dialog.audio_recovery_message':
-    'బ్యాక్‌గ్రౌండ్ నుండి తిరిగి వచ్చిన తర్వాత ఈ పరికరంలోని ఆడియో పునరుద్ధరించబడలేదు. MUSIXQUARE ఈ పరికరం సౌండ్‌ను మళ్లీ సమకాలీకరిస్తున్నప్పుడు మీ గది కనెక్ట్‌గానే ఉంటుంది.',
+    'బ్యాక్‌గ్రౌండ్ నుండి తిరిగి వచ్చిన తర్వాత ఈ పరికరంలోని ఆడియో పునరుద్ధరించబడలేదు. MUSIXQUARE ఈ పరికరం సౌండ్‌ను మళ్లీ సింక్ చేస్తున్నప్పుడు మీ గది కనెక్ట్‌గానే ఉంటుంది.',
   'dialog.audio_recovery_action': 'ఆడియోను పునరుద్ధరించు',
   'dialog.background_resume_message':
     'సింక్ సరిగా లేకపోతే లేదా ఆడియో ప్లే కాకపోతే యాప్‌ను పూర్తిగా మూసి మళ్లీ తెరవండి.',
@@ -717,7 +717,7 @@ const te: Record<I18nKey, string> = {
     'సింక్ సరిగా లేకపోతే లేదా ఆడియో ప్లే కాకపోతే యాప్‌ను పూర్తిగా మూసి మళ్లీ తెరవండి.',
   'dialog.got_it': 'అర్థమైంది',
   'dialog.continue_using': 'కొనసాగించు',
-  'dialog.leave_session': 'వెళ్లిపో',
+  'dialog.leave_session': 'బయటకు వెళ్లు',
   'dialog.sw_update_title': 'అప్‌డేట్',
   'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది. అప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
   'dialog.feature_refresh_title': 'రిఫ్రెష్ చేయాలి',
@@ -745,15 +745,14 @@ const te: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO గదిని యాక్టివేట్ చేయి',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_title': 'ఈ PRO గది కోసం ఖాతాను ఎంచుకోండి',
+  'pro.activation_account_message': 'ఈ గదిని “{{name}}” ఖాతాకు నమోదు చేయాలా?',
+  'pro.activation_account_login_message': 'ఈ గదిని నమోదు చేసే ఖాతాతో సైన్ ఇన్ చేయండి.',
+  'pro.activation_account_continue': 'కొనసాగించు',
+  'pro.activation_account_switch': 'మరో ఖాతా',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'మీ ఖాతాను ధృవీకరించలేకపోయాం. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',
+  'pro.activation_complete': 'నమోదు పూర్తి చేయి',
   'pro.activation_message': 'ఈ గదికి కొత్త 8 అంకెల పాస్‌వర్డ్‌ను సెట్ చేయండి.',
   'pro.activation_pin_same': 'తాత్కాలిక పాస్‌వర్డ్‌కు భిన్నమైనదాన్ని ఎంచుకోండి.',
   'pro.claim_retry_title': 'PRO లింక్‌ను మళ్లీ ప్రయత్నించాలా?',
@@ -849,7 +848,7 @@ const te: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'కనెక్ట్ కావడానికి హోస్ట్ ఇచ్చిన <strong>6 అంకెల కోడ్‌ను</strong> నమోదు చేయండి.<ul class="help-list"><li><strong>హోస్ట్:</strong> “గదిని సృష్టించు” → కోడ్ చూడండి</li><li><strong>పాల్గొనేవారు:</strong> “గదిలో చేరు” → కోడ్ నమోదు చేయండి</li><li>హోస్ట్‌తో కలిపి గరిష్ఠంగా <strong>100 పరికరాలు</strong> కనెక్ట్ కావచ్చు.</li></ul>',
   'player.play_speakers_html':
-    'ప్రతి ఒక్కరూ ఒక <strong>పాత్రను (అవుట్‌పుట్ ఛానెల్)</strong> ఎంచుకుంటారు.<ul class="help-list"><li><strong>సెంటర్:</strong> స్టీరియో (డిఫాల్ట్) అవుట్‌పుట్</li><li><strong>ఎడమ (Left):</strong> <bdi dir="ltr">L</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>కుడి (Right):</strong> <bdi dir="ltr">R</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>సబ్‌వూఫర్:</strong> తక్కువ ఫ్రీక్వెన్సీ మిక్స్ అవుట్‌పుట్</li></ul><strong>సెట్టింగ్‌లలో</strong> పాత్రలను ఎప్పుడైనా మార్చవచ్చు.',
+    'ప్రతి ఒక్కరూ ఒక <strong>పాత్రను (అవుట్‌పుట్ ఛానెల్)</strong> ఎంచుకుంటారు.<ul class="help-list"><li><strong>సెంటర్ స్పీకర్:</strong> స్టీరియో (డిఫాల్ట్) అవుట్‌పుట్</li><li><strong>ఎడమ స్పీకర్:</strong> <bdi dir="ltr">L</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>కుడి స్పీకర్:</strong> <bdi dir="ltr">R</bdi> ఛానెల్ అవుట్‌పుట్</li><li><strong>సబ్‌వూఫర్:</strong> తక్కువ ఫ్రీక్వెన్సీ మిక్స్ అవుట్‌పుట్</li></ul><strong>సెట్టింగ్‌లలో</strong> పాత్రలను ఎప్పుడైనా మార్చవచ్చు.',
   'player.play_media_action_html':
     'హోస్ట్‌కు 3 ఎంపికలు ఉన్నాయి.<ul class="help-list"><li><strong>లోకల్ ఫైల్ లోడ్:</strong> మీ పరికరం నుండి సంగీతాన్ని ఎంచుకోండి. ఖచ్చితమైన సింక్‌కు మద్దతు ఉంది</li><li><strong>కలిసి YouTube:</strong> వీడియోలు, ప్లేలిస్ట్‌లకు మద్దతు ఉంది. ఛానెల్ విభజన లేదా ఆడియో ఎఫెక్ట్‌లు ఉండవు</li><li><strong>సిస్టమ్ ఆడియో షేరింగ్:</strong> హోస్ట్ కంప్యూటర్‌లో Chromium ఆధారిత బ్రౌజర్‌ను ఉపయోగించినప్పుడు అందుబాటులో ఉంటుంది</li></ul>',
   'help.need_help_html':
@@ -868,11 +867,11 @@ const te: Record<I18nKey, string> = {
   'setup.invite_share_desc_html':
     'అనేక పరికరాలను వైర్‌లెస్‌గా కనెక్ట్ చేసి<br>భారీ ఆడియో సిస్టమ్‌ను రూపొందించండి.<br>కనెక్ట్ కావడానికి 6 అంకెల ఆహ్వాన కోడ్‌ను ఉపయోగించండి.',
   'setup.play_together_desc_html':
-    'హోస్ట్ మీడియాను ప్లే చేసినప్పుడు,<br>కనెక్ట్ అయిన అన్ని పరికరాలు సింక్‌లో ప్లే అవుతాయి.<br>సరిపోల్చడానికి సింక్ బటన్ నొక్కండి.',
+    'హోస్ట్ మీడియాను ప్లే చేసినప్పుడు,<br>కనెక్ట్ అయిన అన్ని పరికరాలు సింక్‌లో ప్లే అవుతాయి.<br>సమయాన్ని సరిచేయడానికి సింక్ బటన్ నొక్కండి.',
   'setup.spatial_audio_desc_html':
     'ప్రతి పరికరానికి పాత్రను సెట్ చేయండి.<br>ఎడమ, కుడి ఆడియోను విడిగా ప్లే చేసి<br>వూఫర్ నుండి లోతైన బేస్‌ను అనుభవించండి.',
   'setup.advanced_audio_desc_html':
-    'రీవర్బ్, EQ, వర్చువల్ ఎఫెక్ట్‌లు మరియు<br>ఇతర సెట్టింగ్‌లను మొత్తం సిస్టమ్‌లో<br>హోస్ట్ సెట్టింగ్‌లతో సరిపోల్చండి.',
+    'రీవర్బ్, EQ, వర్చువల్ ఎఫెక్ట్‌లు మరియు<br>ఇతర సెట్టింగ్‌లను మొత్తం సిస్టమ్‌లో<br>హోస్ట్ సెట్టింగ్‌లకు సరిపోయేలా చేయండి.',
   'youtube.enter_link_desc_html': 'పబ్లిక్ వీడియోలు లేదా ప్లేలిస్ట్‌లను మాత్రమే ప్లే చేయవచ్చు.',
 
   // ─── System Audio Sharing ────────────────────────────────────────
@@ -913,7 +912,7 @@ const te: Record<I18nKey, string> = {
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'సేవా గమనికలు',
   'legal.content_html':
-    '<strong>గోప్యతా విధానం</strong><br><span data-legal-standard-storage>ఒకే నెట్‌వర్క్‌లో సెషన్ కంటెంట్‌లో ఎక్కువ భాగం పరికరాల మధ్య నేరుగా వెళ్తుంది. గది నిర్వహణ, ప్రామాణీకరణ, మళ్లీ కనెక్ట్ కావడానికి అవసరమైన డేటాను సిగ్నలింగ్ సర్వర్ కొద్దిసేపు మాత్రమే ప్రాసెస్ చేస్తుంది; కొన్ని రిమోట్ లేదా పెద్ద సెషన్‌ల డేటా Cloudflare ద్వారా వెళ్తుంది. రిమోట్ ఫైల్‌లు ప్రైవేట్ Cloudflare స్టోరేజ్‌లో గరిష్ఠంగా 24 గంటలు ఉంటాయి; గదిలో చేరినవారికి మాత్రమే తాత్కాలిక డౌన్‌లోడ్ యాక్సెస్ లభిస్తుంది. సేవను అందించడానికి, నిర్వహించడానికి, సురక్షితంగా ఉంచడానికి మాత్రమే MUSIXQUARE డేటాను యాక్సెస్ చేస్తుంది, విశ్లేషిస్తుంది లేదా నిల్వ చేస్తుంది.</span><span data-legal-pro-storage>PRO గదుల నిర్వహణకు అవసరమైన సెషన్, సభ్యులు, ప్లేలిస్ట్, ప్లేబ్యాక్, అప్‌లోడ్ స్థితి Cloudflareలో నిల్వ చేయబడతాయి. అసలు ప్లేలిస్ట్ ఫైల్‌లు ప్రైవేట్ Cloudflare స్టోరేజ్‌లో ఉంటాయి; గదిలో చేరినవారు మాత్రమే తక్కువ కాలం చెల్లే URLల ద్వారా వాటిని డౌన్‌లోడ్ చేయగలరు. గది అడ్మిన్ వాటిని ప్లేలిస్ట్ నుండి తీసివేసినప్పుడు లేదా నిర్వాహకుడు గది డేటాను తొలగించినప్పుడు ఫైల్‌లు తొలగించబడతాయి. సేవను అందించడానికి, నిర్వహించడానికి, సురక్షితంగా ఉంచడానికి మాత్రమే MUSIXQUARE డేటాను యాక్సెస్ చేస్తుంది, విశ్లేషిస్తుంది లేదా నిల్వ చేస్తుంది.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">మరింత తెలుసుకోండి</a><br><br><strong>కాపీరైట్ నోటీస్</strong><br>MUSIXQUARE ద్వారా షేర్ చేసిన కంటెంట్ సంబంధిత హక్కుదారులకు చెందుతుంది. సిస్టమ్ ఆడియో షేరింగ్, ఫైల్ షేరింగ్ వ్యక్తిగత ఉపయోగం కోసం మాత్రమే. కాపీరైట్ ఉన్న కంటెంట్‌ను అనుమతి లేకుండా పంపిణీ చేయడం లేదా బహిరంగంగా ప్రసారం చేయడం వినియోగదారుల బాధ్యత. YouTube షేరింగ్ అధికారిక ప్లేబ్యాక్ పద్ధతిని ఉపయోగిస్తుంది; వ్యూలు, హక్కుల నిర్వహణ ఆ సేవ విధానాలు, హక్కుదారుల సెట్టింగ్‌లకు లోబడి ఉంటాయి. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">మరింత తెలుసుకోండి</a><br><br><strong>నిరాకరణ</strong><br>MUSIXQUARE ఉచితంగా అందించబడుతుంది. కొన్ని ఫీచర్లు YouTube లేదా Cloudflare వంటి బాహ్య సేవలపై ఆధారపడతాయి, కాబట్టి ఆ సేవలు మారినా లేదా ఆఫ్‌లైన్ అయినా తాత్కాలిక పరిమితులు రావచ్చు. రియల్-టైమ్ ఆడియో సింక్, రిమోట్ షేరింగ్ నాణ్యత నెట్‌వర్క్, బ్రౌజర్ విధానం, పరికరం పనితీరును బట్టి బాగా మారవచ్చు. Wi-Fi ఉపయోగించనప్పుడు మొబైల్ డేటా ఛార్జీలు వర్తించవచ్చు. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">మరింత తెలుసుకోండి</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">గురించి</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">చరిత్ర</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">డిజైన్</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">అనువాదం</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>గోప్యతా విధానం</strong><br><span data-legal-standard-storage>ఒకే నెట్‌వర్క్‌లో సెషన్ కంటెంట్‌లో ఎక్కువ భాగం పరికరాల మధ్య నేరుగా వెళ్తుంది. గది నిర్వహణ, ప్రామాణీకరణ, మళ్లీ కనెక్ట్ కావడానికి అవసరమైన డేటాను సిగ్నలింగ్ సర్వర్ కొద్దిసేపు మాత్రమే ప్రాసెస్ చేస్తుంది; కొన్ని రిమోట్ లేదా పెద్ద సెషన్‌ల డేటా Cloudflare ద్వారా వెళ్తుంది. రిమోట్ ఫైల్‌లు ప్రైవేట్ Cloudflare స్టోరేజ్‌లో గరిష్ఠంగా 24 గంటలు ఉంటాయి; గదిలో చేరినవారికి మాత్రమే తాత్కాలిక డౌన్‌లోడ్ యాక్సెస్ లభిస్తుంది. సేవను అందించడానికి, నిర్వహించడానికి, సురక్షితంగా ఉంచడానికి మాత్రమే MUSIXQUARE డేటాను యాక్సెస్ చేస్తుంది, విశ్లేషిస్తుంది లేదా నిల్వ చేస్తుంది.</span><span data-legal-pro-storage>PRO గదుల నిర్వహణకు అవసరమైన సెషన్, సభ్యులు, ప్లేలిస్ట్, ప్లేబ్యాక్, అప్‌లోడ్ స్థితి Cloudflareలో నిల్వ చేయబడతాయి. అసలు ప్లేలిస్ట్ ఫైల్‌లు ప్రైవేట్ Cloudflare స్టోరేజ్‌లో ఉంటాయి; గదిలో చేరినవారు మాత్రమే తక్కువ కాలం చెల్లే URLల ద్వారా వాటిని డౌన్‌లోడ్ చేయగలరు. గది అడ్మిన్ వాటిని ప్లేలిస్ట్ నుండి తీసివేసినప్పుడు లేదా సేవా ఆపరేటర్ గది డేటాను తొలగించినప్పుడు ఫైల్‌లు తొలగించబడతాయి. సేవను అందించడానికి, నిర్వహించడానికి, సురక్షితంగా ఉంచడానికి మాత్రమే MUSIXQUARE డేటాను యాక్సెస్ చేస్తుంది, విశ్లేషిస్తుంది లేదా నిల్వ చేస్తుంది.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">మరింత తెలుసుకోండి</a><br><br><strong>కాపీరైట్ నోటీస్</strong><br>MUSIXQUARE ద్వారా షేర్ చేసిన కంటెంట్ సంబంధిత హక్కుదారులకు చెందుతుంది. సిస్టమ్ ఆడియో షేరింగ్, ఫైల్ షేరింగ్ వ్యక్తిగత ఉపయోగం కోసం మాత్రమే. కాపీరైట్ ఉన్న కంటెంట్‌ను అనుమతి లేకుండా పంపిణీ చేసినా లేదా బహిరంగంగా ప్రసారం చేసినా, దానికి వినియోగదారులే బాధ్యత వహించాలి. YouTube షేరింగ్ అధికారిక ప్లేబ్యాక్ పద్ధతిని ఉపయోగిస్తుంది; వ్యూలు, హక్కుల నిర్వహణ ఆ సేవ విధానాలు, హక్కుదారుల సెట్టింగ్‌లకు లోబడి ఉంటాయి. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">మరింత తెలుసుకోండి</a><br><br><strong>నిరాకరణ</strong><br>MUSIXQUARE ఉచితంగా అందించబడుతుంది. కొన్ని ఫీచర్లు YouTube లేదా Cloudflare వంటి బాహ్య సేవలపై ఆధారపడతాయి, కాబట్టి ఆ సేవలు మారినా లేదా ఆఫ్‌లైన్ అయినా తాత్కాలిక పరిమితులు రావచ్చు. రియల్-టైమ్ ఆడియో సింక్, రిమోట్ షేరింగ్ నాణ్యత నెట్‌వర్క్, బ్రౌజర్ విధానం, పరికరం పనితీరును బట్టి బాగా మారవచ్చు. Wi-Fi ఉపయోగించనప్పుడు మొబైల్ డేటా ఛార్జీలు వర్తించవచ్చు. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">మరింత తెలుసుకోండి</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">మా గురించి</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">చరిత్ర</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">డిజైన్</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">అనువాదం</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default te;

@@ -26,7 +26,7 @@ const ko = {
   'common.stay': '남아있기',
   'common.leave': '나가기',
   'common.granted': '부여됨',
-  'common.revoked': '회수됨',
+  'common.revoked': '해제됨',
   'common.stop': '정지',
   'common.pause': '일시정지',
   'setup.carousel_pause': '슬라이드 자동 전환 일시정지',
@@ -108,7 +108,7 @@ const ko = {
 
   // ─── Player ──────────────────────────────────────────────────────
   'player.no_media': '재생 중인 미디어 없음',
-  'player.select_file_hint': '파일을 선택하거나 플레이리스트를 확인하세요',
+  'player.select_file_hint': '파일을 선택하거나 재생목록을 확인하세요',
   'player.play_pause': '재생/일시정지',
   'player.visualizer': '오디오 비주얼라이저',
   'player.seek': '재생 위치 조절',
@@ -126,7 +126,7 @@ const ko = {
   'player.play_media_compact': '미디어',
   'player.play_media_action': '미디어 재생하기',
   'player.add_media': '미디어 추가',
-  'player.play_start': '대기열에 추가',
+  'player.play_start': '재생목록에 추가',
   'player.select_media': '재생할 미디어를 선택해주세요',
   'player.play_together': '동시에 재생',
   'player.play_speakers': '스피커로 재생하기',
@@ -134,7 +134,7 @@ const ko = {
   'player.manual_sync_label': '수동 싱크 (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
-  'playlist.toggle': '플레이리스트 펼치기/접기',
+  'playlist.toggle': '재생목록 펼치기/접기',
   'playlist.jump_to_current': '현재 재생 중인 트랙으로 이동',
   'playlist.reorder_handle': '{{title}} 순서 변경, 현재 {{position}}번',
   'playlist.reorder_position': '{{title}}, 전체 {{total}}개 중 {{position}}번',
@@ -149,7 +149,7 @@ const ko = {
   'playlist.remove_title': '재생목록에서 삭제',
   'playlist.select_for_deletion': '{{title}} 삭제 대상으로 선택',
   'playlist.deselect_for_deletion': '{{title}} 선택 해제',
-  'playlist.deselect_all': '모든 선택 해제',
+  'playlist.deselect_all': '모두 선택 해제',
   'playlist.select_all': '모두 선택',
   'playlist.delete_selected': '선택한 트랙 {{count}}개 삭제',
   'playlist.video_fallback': '불러오는 중...',
@@ -272,7 +272,7 @@ const ko = {
   'connect.current_device': '현재 기기',
   'connect.no_session': '세션을 먼저 시작하세요',
   'connect.generating_qr': 'QR 코드 생성 중...',
-  'connect.kick_title': '강제퇴장 시키기',
+  'connect.kick_title': '강제퇴장시키기',
   'connect.kick_message': '{{name}}를 내보낼까요?',
   'connect.kick_yes': '내보내기',
   'connect.kick_no': '아니요',
@@ -280,7 +280,7 @@ const ko = {
   'connect.kicked_message': '방장에 의해 세션에서 내보내졌어요.',
   'connect.copy_invite_link': '초대 링크 복사하기',
   'connect.link_copied': '초대 링크가 복사되었어요',
-  'connect.room_password_title': '방 참여시 암호 요구',
+  'connect.room_password_title': '방 참여 시 암호 요구',
   'connect.room_password_toggle_aria': '방 참여 암호 요구 전환',
   'connect.room_password_on': '암호 적용됨',
   'connect.room_password_invalid': '8자리 숫자를 입력해 주세요',
@@ -327,7 +327,7 @@ const ko = {
   'demo.step_nav_label': '데모 단계',
   'demo.step_connect': '1. 기기 연결하기',
   'demo.step_role': '2. 역할 설정하기',
-  'demo.step_effects': '3. 고급음향 효과',
+  'demo.step_effects': '3. 고급 음향 효과',
   'demo.step_finish': '4. 체험 종료하기',
   'demo.session_title': '여기는 {{code}}번 방이에요',
   'demo.session_subtitle': '새 기기를 언제든지 초대할 수 있어요',
@@ -347,7 +347,7 @@ const ko = {
   'setup.what_sound': '이 기기로 어떤 소리를 낼까요?',
   'setup.change_later': '나중에 설정에서 바꿀 수 있어요.',
   'setup.welcome_title': '환영합니다',
-  'setup.join_session_subtitle': '{{code}}번 세션에 입장하려고 해요',
+  'setup.join_session_subtitle': '{{code}}번 방에 입장하려고 해요',
   'setup.select_role': '역할을 선택해주세요',
   'setup.select_role_alt': '역할을 선택해 주세요',
   'setup.greeting': '안녕하세요!',
@@ -364,7 +364,7 @@ const ko = {
   'setup.connect_devices': '이제 다른 기기들과 연결해주세요.',
   'setup.enter_code_connect': '초대 코드',
   'setup.last_step': '시작해볼까요?',
-  'setup.joining': '참가하는 중...',
+  'setup.joining': '참여하는 중...',
   'setup.six_digit_enter': '6자리 숫자를 입력해 주세요',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -373,7 +373,7 @@ const ko = {
   'help.local_recommended': '로컬 네트워크 권장',
   'help.connect_all_wifi': '같은 네트워크에서 가장 안정적이에요',
   'help.local_file': '로컬 파일 선택',
-  'help.load_local': '로컬파일 불러오기',
+  'help.load_local': '로컬 파일 불러오기',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.',
   'help.media_synced_detail': '연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.',
@@ -403,7 +403,7 @@ const ko = {
   'chat.cmd_slowmode_wait': '{{sec}}초 후에 메시지를 보낼 수 있어요',
   'chat.cmd_notice_prefix': '공지',
   'chat.system_sender': '시스템',
-  'chat.bot_unavailable': '봇은 PRO 방에서만 사용할 수 있어요',
+  'chat.bot_unavailable': 'BOT은 PRO 방에서만 사용할 수 있어요',
   'chat.bot_processing': 'BOT이 요청을 처리하고 있어요...',
   'chat.bot_completed': 'BOT 요청을 완료했어요',
   'chat.bot_failed': 'BOT 요청을 처리하지 못했어요',
@@ -412,7 +412,7 @@ const ko = {
   'chat.bot_rate_limited': 'BOT 요청 한도에 도달했어요. {{duration}} 후 다시 시도해 주세요',
   'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 트랙으로 넘어가요.',
   'chat.large_track_playback_system_message':
-    '이 트랙은 매우 커서 사용 중 지연이 발생할 수 있어요.',
+    '이 트랙은 용량이 매우 커서 사용 중 지연이 발생할 수 있어요.',
   'chat.large_local_track_system_message':
     '현재 트랙의 용량이 매우 커 일부 기기에서는 재생되지 않을 수 있어요.',
   'chat.device_track_unavailable_system_message': '이 기기에서는 현재 트랙을 재생할 수 없어요.',
@@ -467,12 +467,12 @@ const ko = {
   'chat.cmd_d_bot': 'AI에게 재생목록 요청',
   'chat.cmd_d_clear': '채팅 내역 삭제',
   'chat.cmd_d_filter': '비속어 필터링',
-  'chat.cmd_d_freeze': '채팅 잠금',
+  'chat.cmd_d_freeze': '채팅 동결',
   'chat.cmd_d_slowmode': '슬로우 모드',
   'chat.cmd_d_w': '귓속말',
   'chat.cmd_d_notice': '공지 메시지',
   'chat.cmd_d_nick': '닉네임 바꾸기',
-  'chat.cmd_d_kick': '퇴장시키기',
+  'chat.cmd_d_kick': '강제퇴장시키기',
   'chat.cmd_d_op': '관리자 부여',
   'chat.cmd_d_deop': '관리자 해제',
   'chat.cmd_d_mute': '채팅 금지',
@@ -496,7 +496,7 @@ const ko = {
   'youtube.video_unavailable': '영상을 재생할 수 없어 다음 트랙으로 넘어가요.',
   'youtube.load_timeout': 'YouTube 로드 시간 초과.\n다시 시도해주세요.',
   'youtube.invalid_link': '유효하지 않은 YouTube 링크',
-  'youtube.effects_disabled': 'YouTube 같이 보기\n고급 오디오 효과가 비활성화돼요',
+  'youtube.effects_disabled': 'YouTube 함께보기\n고급 음향 효과가 비활성화돼요',
   'youtube.enter_link_placeholder': '동영상 또는 플레이리스트 링크를 입력하세요',
   'youtube.enter_source_toast': 'YouTube 링크 또는 검색어를 입력하세요',
   'youtube.fetching_info': '영상 정보 불러오는 중...',
@@ -504,7 +504,7 @@ const ko = {
   'youtube.enter_link_toast': 'YouTube 링크를 입력하세요',
   'youtube.open_link': 'YouTube 링크 열기',
   'youtube.tap_to_play': '탭하여 재생',
-  'youtube.added_to_playlist': '재생 목록에 추가됐어요',
+  'youtube.added_to_playlist': '재생목록에 추가됐어요',
   'youtube.loading_large_playlist': '대형 플레이리스트를 불러오고 있어요',
   'youtube.indexing_playlist': '플레이리스트 목록 분석 중...',
   'youtube.search_button': '검색',
@@ -512,14 +512,14 @@ const ko = {
   'youtube.searching': 'YouTube 검색 중...',
   'youtube.search_no_results': '검색 결과가 없어요',
   'youtube.search_failed': 'YouTube 검색을 사용할 수 없어요',
-  'youtube.search_selected': '선택한 영상을 대기열에 추가할 수 있어요',
+  'youtube.search_selected': '선택한 영상을 재생목록에 추가할 수 있어요',
   'youtube.search_results': 'YouTube 검색 결과',
   'youtube.live_sync_warning': '라이브 스트림은 정밀 동기화가 어려워요',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': '연결이 끊어졌어요',
   'network.cant_join': '세션을 찾을 수 없어요.\n네트워크를 확인해 주세요.',
-  'network.session_full': '세션이 가득 찼어요',
+  'network.session_full': '방이 가득 찼어요',
   'network.session_full_detail': '이 방에는 이미 방장 포함 최대 100대가 연결되어 있어요.',
   'network.op_granted': '관리자 권한이 부여되었어요.',
   'network.op_revoked': '관리자 권한이 해제되었어요.',
@@ -574,7 +574,7 @@ const ko = {
   'toast.add_media_to_play': '미디어를 추가해 주세요',
   'toast.no_invite_code': '초대 코드가 아직 없어요',
   'toast.invite_code_settings': '연결 탭에서 초대 링크를 공유할 수 있어요',
-  'toast.click_copy_invite': '클릭하여 초대코드 복사',
+  'toast.click_copy_invite': '클릭하여 초대 코드 복사',
   'toast.cant_select_file': '파일을 선택할 수 없어요',
   'toast.unsupported_files_excluded': '지원하지 않는 파일 {{count}}개는 제외돼요.',
   'toast.no_supported_audio_files': '추가할 수 있는 오디오 파일이 없어요.',
@@ -671,7 +671,7 @@ const ko = {
   'error.peer_unavailable': '세션을 찾을 수 없어요.\n코드를 다시 확인해 주세요.',
   'error.host_left': '방장이 세션을 종료한 것 같아요',
   'error.network_issue': '네트워크 연결에 문제가 있어요.\n인터넷 연결을 확인해 주세요.',
-  'error.signal_server_fail': '시그널링 서버에 연결할 수 없어요.\n잠시 후 다시 시도해 주세요.',
+  'error.signal_server_fail': '연결 서버에 접속할 수 없어요.\n잠시 후 다시 시도해 주세요.',
   'error.server_disconnected': '서버와의 연결이 끊어졌어요.',
   'error.session_id_unavailable': '세션 ID를 사용할 수 없어요.\n다시 시도해 주세요.',
   'error.webrtc_failed': 'WebRTC 연결에 실패했어요.\n브라우저 설정을 확인해 주세요.',
@@ -683,7 +683,7 @@ const ko = {
   'error.room_password_auth_timeout': '네트워크가 불안정해요.\n암호를 다시 입력해 주세요.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
-  'dialog.file_drop.title': '로컬파일 추가',
+  'dialog.file_drop.title': '로컬 파일 추가',
   'dialog.file_drop.message': '파일 {{count}}개를 추가할까요?',
   'dialog.file_drop.unsupported_notice': '지원하지 않는 파일 {{count}}개는 제외돼요.',
   'dialog.return_home_title': '세션 나가기',
@@ -785,7 +785,7 @@ const ko = {
   'pro.pin_members_keep_detail': '다시 입장하거나, 새로 참여하는 기기만 암호를 입력하면 돼요.',
   'pro.pin_members_reenter': '모두 재입장',
   'pro.pin_members_reenter_detail':
-    '모두가 다시 들어와야 해요. 모르는 사람들을 한번에 내보내려면 이 방식을 추천해요.',
+    '모두가 다시 들어와야 해요. 모르는 사람들을 한 번에 내보내려면 이 방식을 추천해요.',
   'pro.pin_keep_unavailable':
     '암호를 바꾸지 못했어요. 지금은 사람들을 그대로 둔 채 바꿀 수 없어요. 잠시 후 다시 시도하거나 “모두 재입장”을 선택해 주세요.',
   'pro.pin_enabled_removed_title': '방 암호가 설정됐어요',
@@ -824,11 +824,11 @@ const ko = {
   'help.local_recommended_html':
     '같은 네트워크에서 오디오 공유가 가장 안정적이에요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':
-    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> \u201C제가 방장할래요\u201D → 코드 확인</li><li><strong>참여자:</strong> \u201C모임에 참여할래요\u201D → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>최대 100대</strong>예요.</li></ul>',
+    '방장이 알려주는 <strong>6자리 코드</strong>를 입력해 연결해요.<ul class="help-list"><li><strong>방장:</strong> “방 만들기” → 코드 확인</li><li><strong>참여자:</strong> “방 참여하기” → 코드 입력</li><li>연결할 수 있는 기기 수는 <strong>최대 100대</strong>예요.</li></ul>',
   'player.play_speakers_html':
     '참여자가 <strong>역할(출력 채널)</strong>을 선택해요.<ul class="help-list"><li><strong>중앙 스피커:</strong> 스테레오(기본) 출력</li><li><strong>왼쪽 스피커:</strong> <bdi dir="ltr">L</bdi> 채널 출력</li><li><strong>오른쪽 스피커:</strong> <bdi dir="ltr">R</bdi> 채널 출력</li><li><strong>서브우퍼:</strong> 저역 믹스 출력</li></ul>필요하면 <strong>설정</strong>에서 역할을 언제든 바꿀 수 있어요.',
   'player.play_media_action_html':
-    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>YouTube 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장이 컴퓨터에서 Chrome 계열 브라우저를 사용하는 경우 이용 가능</li></ul>',
+    '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬 파일 불러오기:</strong> 기기에서 직접 음악 파일을 선택. 정밀 동기화 가능</li><li><strong>YouTube 함께보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장이 컴퓨터에서 Chrome 계열 브라우저를 사용하는 경우 이용 가능</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 다시 시도해주세요. 회사/학교망이나 VPN에서는 연결이 제한될 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬 참여자는 공유기 가까이에서, 원격 참여자는 안정적인 인터넷 환경에서 시도해주세요.</li><li><strong>기타 문제:</strong> 네트워크 상태를 확인하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>를 참고해주시거나 맨 하단의 이메일로 연락해주세요.</li></ul>',
   'chat.peer_connected': '{{name}}님이 입장했어요',
@@ -850,7 +850,7 @@ const ko = {
     '각 기기의 역할을 설정해 보세요.<br>왼쪽, 오른쪽 소리를 따로 재생하고<br>우퍼 모드로 웅장한 저음을 느껴보세요.',
   'setup.advanced_audio_desc_html':
     '방장의 설정에 맞추어<br>리버브, 이퀄라이저, 가상 효과 등<br>고급 효과를 시스템에 적용할 수 있어요.',
-  'youtube.enter_link_desc_html': '공개된 영상이나 재생목록만 볼 수 있어요',
+  'youtube.enter_link_desc_html': '공개된 영상이나 플레이리스트만 볼 수 있어요',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': '시스템 오디오 공유',
@@ -872,10 +872,11 @@ const ko = {
     '시스템 오디오 공유는 약간 지연될 수 있어요\n방장은 원본 기기 볼륨을 최대한 낮춰주세요',
   'system_audio.stopped': '시스템 오디오 공유가 중단됐어요.\n재생목록 항목이 재생돼요.',
   'system_audio.host_channel_locked': '시스템 오디오 공유 중에는 역할을 변경할 수 없어요.',
-  'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향효과는 참여자에게만 적용돼요',
+  'system_audio.effects_guest_only': '시스템 오디오 공유 중\n음향 효과는 참여자에게만 적용돼요',
   'system_audio.desktop_only':
     '컴퓨터의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
-  'system_audio.receive_failed': '시스템 오디오를 수신하지 못했어요.\n공유를 다시 시작해 주세요.',
+  'system_audio.receive_failed':
+    '시스템 오디오를 수신하지 못했어요.\n방장에게 공유를 다시 시작해 달라고 요청해 주세요.',
   'system_audio.remote_receive_limit':
     '시스템 오디오 수신이 2시간 후 자동 종료되었어요.\n계속 들으려면 방에 다시 입장해주세요.',
   'system_audio.device_limit': '시스템 오디오는 방장 포함 최대 {{count}}대까지\n공유할 수 있어요.',

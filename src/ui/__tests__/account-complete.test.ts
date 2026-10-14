@@ -54,10 +54,10 @@ const localizedCompletionCopy = [
   ['pa', 'pa-IN', 'ਸਾਈਨ ਇਨ ਪੂਰਾ ਹੋ ਗਿਆ ਹੈ। ਹੁਣ ਤੁਸੀਂ ਇਹ ਵਿੰਡੋ ਬੰਦ ਕਰ ਸਕਦੇ ਹੋ।', 'ਬੰਦ ਕਰੋ'],
   ['sv', 'sv-SE', 'Inloggningen är klar. Du kan stänga det här fönstret.', 'Stäng'],
   ['da', 'da-DK', 'Login er gennemført. Du kan lukke dette vindue.', 'Luk'],
-  ['nb', 'nb-NO', 'Påloggingen er fullført. Du kan lukke dette vinduet.', 'Lukk'],
+  ['nb', 'nb-NO', 'Innloggingen er fullført. Du kan lukke dette vinduet.', 'Lukk'],
   ['fi', 'fi-FI', 'Kirjautuminen onnistui. Voit sulkea tämän ikkunan.', 'Sulje'],
   ['hu', 'hu-HU', 'A bejelentkezés befejeződött. Bezárhatod ezt az ablakot.', 'Bezárás'],
-  ['bg', 'bg-BG', 'Влизането е завършено. Можете да затворите този прозорец.', 'Затваряне'],
+  ['bg', 'bg-BG', 'Входът е завършен. Можеш да затвориш този прозорец.', 'Затваряне'],
 ] as const;
 
 async function renderCompletion(language: string, marker = ''): Promise<CompletionDom> {

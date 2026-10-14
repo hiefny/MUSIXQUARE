@@ -11,7 +11,7 @@ import type { LocalePluralMessages } from './plural-contract.ts';
 const mr: Record<I18nKey, string> = {
   'app.search_title': 'MUSIXQUARE',
   'app.search_description':
-    'फोन, टॅबलेट आणि संगणकांना एका सिंक केलेल्या वायरलेस ऑडिओ सिस्टीममध्ये बदला. काहीही इन्स्टॉल न करता ब्राउझरमध्ये संगीत, YouTube आणि सिस्टम ऑडिओ एकत्र प्ले करा.',
+    'फोन, टॅबलेट आणि संगणकांना एका सिंक केलेल्या वायरलेस ऑडिओ सिस्टममध्ये बदला. काहीही इन्स्टॉल न करता ब्राउझरमध्ये संगीत, YouTube आणि सिस्टम ऑडिओ एकत्र प्ले करा.',
 
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ठीक आहे',
@@ -25,7 +25,7 @@ const mr: Record<I18nKey, string> = {
   'common.next': 'पुढे',
   'common.start': 'सुरू करा',
   'common.info': 'माहिती',
-  'common.stay': 'इथेच रहा',
+  'common.stay': 'इथेच राहा',
   'common.leave': 'बाहेर पडा',
   'common.granted': 'मंजूर',
   'common.revoked': 'रद्द',
@@ -46,7 +46,7 @@ const mr: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'साइन इन करा',
-  'account.login_cancelled': 'साइन इन रद्द केले.',
+  'account.login_cancelled': 'साइन इन रद्द झाले.',
   'account.login_failed': 'साइन इन करता आले नाही. पुन्हा प्रयत्न करा.',
   'account.welcome_back': 'पुन्हा स्वागत आहे\n{{name}}',
   'account.login_message':
@@ -61,8 +61,8 @@ const mr: Record<I18nKey, string> = {
   'account.stats_tracks_label': 'प्ले केलेले मीडिया',
   'account.stats_count_value': '{{count}}',
   'account.stats_seconds_value': '{{seconds}} सेकंद',
-  'account.stats_minutes_value': '{{minutes}} मिनिटे',
-  'account.stats_hours_minutes_value': '{{hours}} तास {{minutes}} मिनिटे',
+  'account.stats_minutes_value': '{{minutes}} मि.',
+  'account.stats_hours_minutes_value': '{{hours}} तास {{minutes}} मि.',
   'account.change_nickname': 'टोपणनाव बदला',
   'account.logout': 'साइन आउट करा',
   'account.delete_account': 'खाते हटवा',
@@ -90,12 +90,12 @@ const mr: Record<I18nKey, string> = {
   'common.woofer': 'वूफर',
   'common.connected': 'कनेक्ट झाले',
   'common.disconnected': 'कनेक्शन तुटले',
-  'common.revoke': 'रद्द करा',
-  'common.grant': 'मंजूर करा',
+  'common.revoke': 'अधिकार काढा',
+  'common.grant': 'अधिकार द्या',
   'common.system': 'सिस्टम',
   'common.unknown': 'अज्ञात',
   'common.youtube_video': 'YouTube व्हिडिओ',
-  'common.peer': 'समकक्ष',
+  'common.peer': 'सहभागी',
 
   // ─── Navigation ──────────────────────────────────────────────────
   'nav.home': 'मुख्यपृष्ठ',
@@ -190,7 +190,7 @@ const mr: Record<I18nKey, string> = {
   'settings.ui_sounds_desc':
     'सूचना, सामील होणे व बाहेर पडणे आणि स्पर्शाचे आवाज सुरू किंवा बंद करा.',
   'settings.reverb_desc': 'आवाजाचा प्रतिध्वनी आणि अनुनाद समायोजित करा.',
-  'settings.eq_desc': 'आवाजाचा सूर समायोजित करा. आवाजाच्या पातळीच्या नियंत्रणासोबत वापरा.',
+  'settings.eq_desc': 'आवाजाचा पोत समायोजित करा. आवाजाच्या पातळीच्या नियंत्रणासोबत वापरा.',
   'settings.surround_desc': 'अधिक समृद्ध अनुभवासाठी ध्वनीचे विभाजन वाढवा.',
   'settings.bass_desc': 'अधिक प्रभावासाठी कमी वारंवारतेचे ध्वनी तयार करा.',
   'settings.exciter_desc': 'अधिक स्पष्टतेसाठी अतिउच्च वारंवारतेचे ध्वनी तयार करा.',
@@ -297,7 +297,7 @@ const mr: Record<I18nKey, string> = {
   'connect.signaling_recovering': 'पुन्हा कनेक्ट होत आहे…',
   'connect.signaling_failed': 'सर्व्हर कनेक्शन अयशस्वी',
   'connect.signaling_recover_action': 'पुन्हा कनेक्ट करा',
-  'connect.signaling_recovery_wait': 'रूम सर्व्हर पुन्हा तपासत आहे.',
+  'connect.signaling_recovery_wait': 'रूम सर्व्हरची पुन्हा तपासणी सुरू आहे.',
   'connect.signaling_reconnecting': 'रूम सर्व्हरशी पुन्हा कनेक्ट होत आहे · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'रूम सर्व्हरचे कनेक्शन पूर्ववत झाले.',
   'connect.signaling_exhausted':
@@ -400,7 +400,7 @@ const mr: Record<I18nKey, string> = {
   'chat.cmd_unfrozen': 'चॅट पुन्हा सुरू केले आहे',
   'chat.cmd_frozen_blocked': 'चॅट सध्या गोठवलेले आहे',
   'chat.cmd_muted': '{{name}} आता चॅट संदेश पाठवू शकत नाही',
-  'chat.cmd_unmuted': '{{name}} आता पुन्हा चॅट संदेश पाठवू शकतो',
+  'chat.cmd_unmuted': '{{name}} यांना आता पुन्हा चॅट संदेश पाठवता येतील',
   'chat.cmd_clear': 'चॅट साफ केले आहे',
   'chat.cmd_filter_on': 'अपशब्द फिल्टर सुरू',
   'chat.cmd_filter_off': 'अपशब्द फिल्टर बंद',
@@ -467,7 +467,7 @@ const mr: Record<I18nKey, string> = {
   'chat.cmd_u_mute': '/mute [डिव्हाइस]',
   'chat.cmd_u_unmute': '/unmute [डिव्हाइस]',
   'chat.cmd_d_help': 'कमांडची यादी',
-  'chat.cmd_d_users': 'कनेक्ट केलेले वापरकर्ते पहा',
+  'chat.cmd_d_users': 'कनेक्ट केलेले वापरकर्ते पाहा',
   'chat.cmd_d_bot': 'प्लेलिस्ट व्यवस्थापित करण्यास AI ला सांगा',
   'chat.cmd_d_clear': 'चॅटचा इतिहास साफ करा',
   'chat.cmd_d_filter': 'अपशब्द फिल्टर',
@@ -480,7 +480,7 @@ const mr: Record<I18nKey, string> = {
   'chat.cmd_d_op': 'प्रशासकीय परवानगी द्या',
   'chat.cmd_d_deop': 'प्रशासकीय परवानगी रद्द करा',
   'chat.cmd_d_mute': 'डिव्हाइसच्या चॅटवर निर्बंध घाला',
-  'chat.cmd_d_unmute': 'डिव्हाइसचा चॅट पूर्ववत करा',
+  'chat.cmd_d_unmute': 'डिव्हाइसचे चॅट पूर्ववत करा',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'सिस्टम डीबग माहिती',
   'chat.debug_copied': 'डीबग माहिती कॉपी केली.\nबग आढळल्यास ती विकसकाला पाठवा.',
@@ -530,7 +530,7 @@ const mr: Record<I18nKey, string> = {
 
   // ─── Toasts ──────────────────────────────────────────────────────
   'toast.device_connected': '{{name}} कनेक्ट झाले',
-  'toast.device_disconnected': '{{name}} चे कनेक्शन तुटले',
+  'toast.device_disconnected': '{{name}} यांचे कनेक्शन तुटले',
   'toast.device_conn_error': '{{name}} यांच्या कनेक्शनमध्ये त्रुटी',
   'toast.device_kicked': '{{name}} यांना काढले आहे',
   'toast.remote_decode_device_wait':
@@ -547,7 +547,7 @@ const mr: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} परवानगी {{status}}',
   'toast.file_read_error': 'फाइल वाचताना त्रुटी: {{name}}',
   'toast.host_ended_connection': 'होस्टने कनेक्शन बंद केले आहे',
-  'toast.announcement_available': 'नवीन घोषणा आहे.\nचॅट पॅनेल तपासा.',
+  'toast.announcement_available': 'नवीन सूचना आहे.\nचॅट पॅनेल तपासा.',
   'toast.copy_failed': 'कॉपी करता आले नाही',
   'toast.email_copied': 'ईमेल पत्ता कॉपी केला!',
   'toast.settings_sync_enabled': 'सेटिंग्ज सिंक सुरू आहे',
@@ -668,10 +668,10 @@ const mr: Record<I18nKey, string> = {
   'error.session_handshake_failed':
     'सत्राचे कनेक्शन पूर्ण करता आले नाही. दोन्ही डिव्हाइस रीफ्रेश करून पुन्हा प्रयत्न करा.',
   'error.host_unreachable': 'होस्टने सत्र सोडले असावे',
-  'error.host_disconnected': 'होस्टचे कनेक्शन तुटले',
+  'error.host_disconnected': 'होस्टशी कनेक्शन तुटले',
   'error.host_conn_error': 'होस्टशी कनेक्ट करताना त्रुटी आली',
   'error.connect_failed': 'कनेक्शन अयशस्वी',
-  'error.peer_not_ready': 'समकक्ष कनेक्शन अद्याप तयार नाही',
+  'error.peer_not_ready': 'डिव्हाइसमधील कनेक्शन अद्याप तयार नाही',
   'error.network_init_failed': 'नेटवर्क सुरू करता आले नाही',
   'error.no_host_id': 'होस्ट ID सापडला नाही',
   'error.peer_unavailable': 'सत्र सापडले नाही.\nकोड पुन्हा तपासा.',
@@ -679,7 +679,7 @@ const mr: Record<I18nKey, string> = {
   'error.network_issue': 'नेटवर्कमध्ये समस्या आहे.\nतुमचे इंटरनेट कनेक्शन तपासा.',
   'error.signal_server_fail':
     'सिग्नलिंग सर्व्हरशी संपर्क होऊ शकत नाही.\nथोड्या वेळाने पुन्हा प्रयत्न करा.',
-  'error.server_disconnected': 'सर्व्हरचे कनेक्शन तुटले.',
+  'error.server_disconnected': 'सर्व्हरशी कनेक्शन तुटले.',
   'error.session_id_unavailable': 'सत्र ID उपलब्ध नाही.\nपुन्हा प्रयत्न करा.',
   'error.webrtc_failed': 'WebRTC कनेक्शन अयशस्वी.\nतुमच्या ब्राउझरची सेटिंग्ज तपासा.',
   'error.browser_unsupported':
@@ -737,15 +737,15 @@ const mr: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO रूम सक्रिय करा',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'या PRO रूमसाठी खाते निवडा',
+  'pro.activation_account_message': 'ही रूम “{{name}}” या खात्यावर नोंदवायची?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'ही रूम ज्या खात्यावर नोंदवायची आहे, त्या खात्याने साइन इन करा.',
+  'pro.activation_account_continue': 'पुढे जा',
+  'pro.activation_account_switch': 'दुसरे खाते',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'तुमचे खाते पडताळता आले नाही. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+  'pro.activation_complete': 'नोंदणी पूर्ण करा',
   'pro.activation_message': 'या रूमसाठी नवीन 8-अंकी पासवर्ड ठरवा.',
   'pro.activation_pin_same': 'तात्पुरत्या पासवर्डपेक्षा वेगळा पासवर्ड निवडा.',
   'pro.claim_retry_title': 'PRO लिंकचा पुन्हा प्रयत्न करायचा?',
@@ -800,13 +800,13 @@ const mr: Record<I18nKey, string> = {
     'सर्वांना पुन्हा सामील व्हावे लागेल. अनोळखी लोकांना एकाच वेळी काढण्यासाठी आम्ही ही पद्धत सुचवतो.',
   'pro.pin_keep_unavailable':
     'पासवर्ड बदलला नाही. सध्या लोकांना रूममध्ये ठेवून पासवर्ड बदलता येत नाही. थोड्या वेळाने पुन्हा प्रयत्न करा किंवा “सर्वांनी पुन्हा सामील व्हावे” निवडा.',
-  'pro.pin_enabled_removed_title': 'रूमला पासवर्ड सेट केला गेला',
+  'pro.pin_enabled_removed_title': 'रूमचा पासवर्ड सेट झाला',
   'pro.pin_enabled_removed_message':
     'रूमच्या मालकाने या रूमसाठी पासवर्ड सेट केला आहे. पुन्हा सामील होण्यासाठी तो प्रविष्ट करा.',
-  'pro.pin_changed_removed_title': 'रूमचा पासवर्ड बदलला गेला',
+  'pro.pin_changed_removed_title': 'रूमचा पासवर्ड बदलला',
   'pro.pin_changed_removed_message':
     'रूमच्या मालकाने रूमचा पासवर्ड बदलला आहे. पुन्हा सामील होण्यासाठी नवीन पासवर्ड प्रविष्ट करा.',
-  'pro.removed_title': 'तुम्हाला रूममधून काढले गेले',
+  'pro.removed_title': 'तुम्हाला रूममधून काढण्यात आले',
   'pro.removed_message': 'रूमच्या मालकाने किंवा एखाद्या प्रशासकाने तुम्हाला या रूममधून काढले आहे.',
   'pro.device_removed_message':
     'तुमच्या खात्यात साइन इन केलेल्या दुसऱ्या डिव्हाइसने या डिव्हाइसचे रूमशी असलेले कनेक्शन तोडले आहे.',
@@ -841,11 +841,11 @@ const mr: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'कनेक्ट होण्यासाठी होस्टकडील <strong>6-अंकी कोड</strong> प्रविष्ट करा.<ul class="help-list"><li><strong>होस्ट:</strong> “रूम तयार करा” → कोड तपासा</li><li><strong>सहभागी:</strong> “रूममध्ये सामील व्हा” → कोड प्रविष्ट करा</li><li><strong>होस्टसह जास्तीत जास्त 100 डिव्हाइस</strong> कनेक्ट होऊ शकतात.</li></ul>',
   'player.play_speakers_html':
-    'प्रत्येक सहभागी एक <strong>भूमिका (आउटपुट चॅनल)</strong> निवडतो.<ul class="help-list"><li><strong>मध्य:</strong> स्टिरिओ (डीफॉल्ट) आउटपुट</li><li><strong>डावा:</strong> <bdi dir="ltr">L</bdi> चॅनल आउटपुट</li><li><strong>उजवा:</strong> <bdi dir="ltr">R</bdi> चॅनल आउटपुट</li><li><strong>सबवूफर:</strong> कमी वारंवारतेचे मिश्रित आउटपुट</li></ul><strong>सेटिंग्ज</strong>मध्ये भूमिका कधीही बदलू शकता.',
+    'प्रत्येक सहभागी एक <strong>भूमिका (आउटपुट चॅनल)</strong> निवडतो.<ul class="help-list"><li><strong>मध्य स्पीकर:</strong> स्टिरिओ (डीफॉल्ट) आउटपुट</li><li><strong>डावा स्पीकर:</strong> <bdi dir="ltr">L</bdi> चॅनल आउटपुट</li><li><strong>उजवा स्पीकर:</strong> <bdi dir="ltr">R</bdi> चॅनल आउटपुट</li><li><strong>सबवूफर:</strong> कमी वारंवारतेचे मिश्रित आउटपुट</li></ul><strong>सेटिंग्ज</strong>मध्ये भूमिका कधीही बदलू शकता.',
   'player.play_media_action_html':
     'होस्टकडे 3 पर्याय आहेत.<ul class="help-list"><li><strong>स्थानिक फाइल लोड करा:</strong> तुमच्या डिव्हाइसवरील संगीत निवडा. अचूक सिंक समर्थित</li><li><strong>YouTube एकत्र:</strong> व्हिडिओ आणि प्लेलिस्ट समर्थित. चॅनल विभाजन किंवा ऑडिओ इफेक्ट नाहीत</li><li><strong>सिस्टम ऑडिओ शेअरिंग:</strong> होस्ट संगणकावर Chromium-आधारित ब्राउझर वापरत असल्यास उपलब्ध</li></ul>',
   'help.need_help_html':
-    '<ul class="help-list"><li><strong>कोड प्रविष्ट केला, पण कनेक्ट होत नाही:</strong> कोड तपासा आणि थोड्या वेळाने पुन्हा प्रयत्न करा. कंपनी, शाळा किंवा VPN नेटवर्क कनेक्शनवर निर्बंध घालू शकतात.</li><li><strong>अस्थिर कनेक्शन:</strong> स्थानिक सहभागींनी राउटरजवळ राहण्याचा प्रयत्न करावा आणि दूरस्थ सहभागींनी स्थिर इंटरनेट कनेक्शन वापरावे.</li><li><strong>इतर समस्या:</strong> नेटवर्कची स्थिती तपासा आणि सर्व डिव्हाइसवर अ‍ॅप पुन्हा सुरू करा. प्रश्न असल्यास <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> पहा किंवा अगदी तळाशी दिलेल्या ईमेलद्वारे आमच्याशी संपर्क साधा.</li></ul>',
+    '<ul class="help-list"><li><strong>कोड प्रविष्ट केला, पण कनेक्ट होत नाही:</strong> कोड तपासा आणि थोड्या वेळाने पुन्हा प्रयत्न करा. कंपनी, शाळा किंवा VPN नेटवर्क कनेक्शनवर निर्बंध घालू शकतात.</li><li><strong>अस्थिर कनेक्शन:</strong> स्थानिक सहभागींनी राउटरजवळ राहण्याचा प्रयत्न करावा आणि दूरस्थ सहभागींनी स्थिर इंटरनेट कनेक्शन वापरावे.</li><li><strong>इतर समस्या:</strong> नेटवर्कची स्थिती तपासा आणि सर्व डिव्हाइसवर अ‍ॅप पुन्हा सुरू करा. प्रश्न असल्यास <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> पाहा किंवा अगदी तळाशी दिलेल्या ईमेलद्वारे आमच्याशी संपर्क साधा.</li></ul>',
   'chat.peer_connected': '{{name}} सामील झाले',
   'chat.tracks_added': '{{name}} यांनी {{count}} ट्रॅक जोडले',
   'chat.track_added_named': '{{name}} यांनी 1 ट्रॅक जोडला: {{title}}',
@@ -910,6 +910,7 @@ const mr: Record<I18nKey, string> = {
 export default mr;
 
 export const pluralMessages = {
+  'chat.cmd_slowmode_on': { one: 'स्लो मोड: संदेशांमध्ये {{sec}} सेकंदाचे अंतर' },
   'playlist.delete_selected': {
     one: 'निवडलेला {{count}} ट्रॅक हटवा',
   },

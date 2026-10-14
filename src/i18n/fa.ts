@@ -88,7 +88,7 @@ const fa: Record<I18nKey, string> = {
   'common.woofer': 'ووفر',
   'common.connected': 'متصل',
   'common.disconnected': 'قطع‌شده',
-  'common.revoke': 'لغو',
+  'common.revoke': 'لغو مجوز',
   'common.grant': 'اعطا',
   'common.system': 'سیستم',
   'common.unknown': 'ناشناخته',
@@ -176,7 +176,7 @@ const fa: Record<I18nKey, string> = {
   'settings.ui_sounds': 'صداهای رابط',
   'settings.sync_settings': 'همگام‌سازی تنظیمات',
   'settings.sync_settings_desc':
-    'دستگاه‌هایی که این گزینه در آن‌ها روشن است، صدا و جلوه‌های صوتی را با هم همگام می‌کنند.',
+    'دستگاه‌هایی که این گزینه در آن‌ها روشن است، میزان صدا و جلوه‌های صوتی را با هم همگام می‌کنند.',
   'settings.virtual_effects_title': 'جلوه‌های مجازی',
   'settings.virtual_effects_desc':
     'جلوه‌های ساخته‌شده را روی صدا اعمال کنید. ممکن است صدا به‌شدت دچار اعوجاج شود.',
@@ -190,8 +190,8 @@ const fa: Record<I18nKey, string> = {
   'settings.reverb_desc': 'پژواک و طنین صدا را تنظیم کنید.',
   'settings.eq_desc': 'رنگ صدا را تنظیم کنید. همراه با کنترل صدا به کار ببرید.',
   'settings.surround_desc': 'جداسازی کانال‌ها را برای صدایی فراگیرتر افزایش دهید.',
-  'settings.bass_desc': 'برای اثرگذاری بیشتر، فرکانس‌های پایین بسازید.',
-  'settings.exciter_desc': 'برای شفافیت بیشتر، فرکانس‌های بسیار بالا بسازید.',
+  'settings.bass_desc': 'برای اثرگذاری بیشتر، فرکانس‌های پایین می‌سازد.',
+  'settings.exciter_desc': 'برای شفافیت بیشتر، فرکانس‌های بسیار بالا می‌سازد.',
   'settings.role_center_desc': 'این دستگاه بلندگوی مرکزی است.\nآن را در مرکز بگذارید.',
   'settings.role_left_desc': 'این دستگاه بلندگوی چپ است.\nآن را سمت چپ بگذارید.',
   'settings.role_right_desc': 'این دستگاه بلندگوی راست است.\nآن را سمت راست بگذارید.',
@@ -216,11 +216,11 @@ const fa: Record<I18nKey, string> = {
   'settings.rvb_advanced': 'پیشرفته',
   'settings.rvb_off': 'خاموش',
   'settings.reverb_mix': 'میکس ریورب',
-  'settings.reverb_decay': 'کاهش ریورب',
+  'settings.reverb_decay': 'زمان محو شدن ریورب',
   'settings.reverb_predelay': 'پیش‌تأخیر ریورب',
   'settings.reverb_lowcut': 'برش پایین ریورب',
   'settings.reverb_highcut': 'برش بالای ریورب',
-  'settings.decay_time': 'زمان کاهش',
+  'settings.decay_time': 'زمان محو شدن',
   'settings.predelay': 'پیش‌تأخیر',
   'settings.eq_title': 'اکولایزر',
   'settings.eq_bright': 'شفاف',
@@ -232,7 +232,7 @@ const fa: Record<I18nKey, string> = {
   'settings.surround_title': 'صدای فراگیر مجازی',
   'settings.bass_title': 'بیس مجازی',
   'settings.exciter_title': 'تریبل مجازی',
-  'settings.subwoofer_adjust': 'قطع ساب‌ووفر',
+  'settings.subwoofer_adjust': 'نقطهٔ قطع ساب‌ووفر',
   'settings.subwoofer_cutoff': 'فرکانس قطع ساب‌ووفر',
   'settings.default_0pct': 'پیش‌فرض 0%',
   'settings.default_01s': 'پیش‌فرض 0.1 ثانیه',
@@ -265,7 +265,7 @@ const fa: Record<I18nKey, string> = {
   'connect.permission_playback_control': 'کنترل پخش',
   'connect.permission_members_kick': 'حذف اعضا',
   'connect.permission_chat_notice': 'ارسال اعلان در گفت‌وگو',
-  'connect.permission_inherited': 'شامل',
+  'connect.permission_inherited': 'پیش‌فرض',
   'connect.kick_member_message': 'همهٔ دستگاه‌های متصل با نام {{name}} حذف شوند؟',
   'connect.device_toggle': 'باز یا بسته کردن دستگاه‌های متصل با نام {{name}}',
   'connect.device_label': 'دستگاه {{platform}} ({{code}})',
@@ -308,10 +308,10 @@ const fa: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'ساخت اتاق',
   'setup.guest_button': 'پیوستن به اتاق',
-  'setup.demo_button': 'مشاهدهٔ راهنما',
+  'setup.demo_button': 'امتحان برنامه',
   'demo.prompt_title': 'آشنایی با MUSIXQUARE',
   'demo.prompt_message': 'خوش آمدید! برای یک مرور سریع بر امکانات آماده‌اید؟',
-  'demo.prompt_cta': 'شروع راهنما',
+  'demo.prompt_cta': 'شروع دمو',
   'demo.prompt_later': 'بعداً',
   'demo.try_later_toast': 'هر زمان خواستید می‌توانید از زبانهٔ راهنما آن را امتحان کنید.',
   'demo.track_info': 'اطلاعات قطعه',
@@ -336,7 +336,8 @@ const fa: Record<I18nKey, string> = {
     'اکنون {{count}} دستگاه متصل است.\nبرای هر دستگاه یک نقش تعیین کنید.',
   'demo.session_body_alone': 'اکنون فقط همین دستگاه پخش می‌کند.\nیک دستگاه دیگر دعوت کنید.',
   'demo.effects_step_title': 'صدای دلخواهتان را بسازید.',
-  'demo.effects_step_subtitle': 'این ویژگی‌های صوتی پیشرفته را هر زمان در تنظیمات دقیق‌تر کنید.',
+  'demo.effects_step_subtitle':
+    'هر زمان خواستید می‌توانید این جلوه‌های صوتی پیشرفته را در تنظیمات با دقت بیشتری تنظیم کنید.',
   'demo.finish_step_title': 'همه‌چیز آماده است!',
   'demo.finish_step_subtitle': 'همین حالا شروع کنید و با هم پخش کنید.',
   'demo.track_list_label': 'فهرست قطعه‌های دمو',
@@ -356,7 +357,7 @@ const fa: Record<I18nKey, string> = {
   'setup.enter_host_code': 'کد دعوت را وارد کنید',
   'setup.enter_host_code_alt': 'کد QR را اسکن یا کد را وارد کنید.',
   'setup.scan_qr': 'برای اسکن بزنید',
-  'setup.camera_permission_denied': 'دسترسی دوربین رد شده است',
+  'setup.camera_permission_denied': 'دسترسی به دوربین رد شده است',
   'setup.camera_not_found': 'دوربین قابل استفاده‌ای پیدا نشد',
   'setup.camera_unavailable': 'دوربین راه‌اندازی نشد',
   'setup.camera_stream_stalled':
@@ -434,15 +435,15 @@ const fa: Record<I18nKey, string> = {
   'chat.pinned_close': 'بستن اعلان',
   'chat.cmd_whisper_from': 'پیام خصوصی از {{name}}',
   'chat.cmd_whisper_to': 'پیام خصوصی به {{name}}',
-  'chat.cmd_target_not_found': 'مقصد پیدا نشد: {{target}}',
+  'chat.cmd_target_not_found': 'دستگاه موردنظر پیدا نشد: {{target}}',
   'chat.cmd_no_permission': 'مجوز لازم را ندارید',
   'chat.cmd_nick_changed': 'نام به {{name}} تغییر کرد',
   'chat.cmd_already_op': '{{name}} از قبل مدیر است',
   'chat.cmd_not_op': '{{name}} مدیر نیست',
   'chat.cmd_help_title': 'فرمان‌های موجود',
   'chat.cmd_help_target_hint': '* [device] شمارهٔ یکتای دستگاه است (مثلاً #1)',
-  'chat.cmd_unknown': 'فرمان ناشناخته: /{{cmd}}',
-  'chat.cmd_usage': 'روش استفاده: {{usage}}',
+  'chat.cmd_unknown': 'فرمان ناشناخته: ‎/{{cmd}}',
+  'chat.cmd_usage': 'روش استفاده: ‎{{usage}}‎',
   'chat.cmd_users_title': 'کاربران متصل',
   'chat.cmd_users_me': 'من',
 
@@ -569,7 +570,7 @@ const fa: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'مجوز ارسال اعلان در گفت‌وگو لازم است.',
   'toast.room_owner_required': 'فقط مالک اتاق می‌تواند این مورد را تغییر دهد.',
   'toast.system_audio_owner_required':
-    'فقط می‌توانید صدا را از برگه‌ای که اتاق را باز کرده است به اشتراک بگذارید.',
+    'فقط می‌توانید صدا را از زبانه‌ای که اتاق را باز کرده است به اشتراک بگذارید.',
   'toast.host_only_youtube': 'فقط میزبان می‌تواند پیوندهای YouTube را اضافه کند.',
   'toast.host_only_control': 'فقط میزبان می‌تواند این مورد را کنترل کند',
   'toast.host_setting_required': 'فقط میزبان می‌تواند این تنظیم را تغییر دهد',
@@ -608,7 +609,7 @@ const fa: Record<I18nKey, string> = {
   'toast.yt_manual_sync_prompt':
     'همین حالا همگام‌سازی خودکار امتحان شد.\nاگر هنوز تأخیر حس می‌کنید، مقدار را تنظیم کنید',
   'toast.playlist_ended': 'آخرین رسانه پایان یافت',
-  'toast.operator_required': 'فقط مدیران می‌توانند تنظیمات عمومی را تغییر دهند',
+  'toast.operator_required': 'فقط مدیران می‌توانند تنظیمات سراسری را تغییر دهند',
   'toast.connection_closing': 'اتصال از دست رفت؛ تنظیم همگام نشد',
   'toast.host_changed_setting': 'تنظیمات تغییر کرد',
   'toast.session_mismatch': 'جلسه همخوانی ندارد.\nانتقال فایل دوباره امتحان می‌شود.',
@@ -734,15 +735,13 @@ const fa: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'فعال‌سازی اتاق PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
-  'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+  'pro.activation_account_title': 'انتخاب حساب برای این اتاق PRO',
+  'pro.activation_account_message': 'این اتاق در حساب «{{name}}» ثبت شود؟',
+  'pro.activation_account_login_message': 'با حسابی وارد شوید که می‌خواهید این اتاق در آن ثبت شود.',
+  'pro.activation_account_continue': 'ادامه',
+  'pro.activation_account_switch': 'حساب دیگر',
+  'pro.activation_account_unavailable': 'اطلاعات حساب شما بررسی نشد. کمی بعد دوباره تلاش کنید.',
+  'pro.activation_complete': 'تکمیل ثبت',
   'pro.activation_message': 'یک گذرواژهٔ 8 رقمی جدید برای این اتاق تنظیم کنید.',
   'pro.activation_pin_same': 'گذرواژه‌ای متفاوت از گذرواژهٔ موقت انتخاب کنید.',
   'pro.claim_retry_title': 'پیوند PRO دوباره امتحان شود؟',
@@ -764,7 +763,7 @@ const fa: Record<I18nKey, string> = {
     'این اتاق به حساب دیگری متصل است. اگر می‌خواهید آن را تغییر دهید، از مدیر بخواهید مالکیت را منتقل کند.',
   'pro.claim_account_capacity_title': 'این حساب نمی‌تواند اتاق دیگری متصل کند',
   'pro.claim_account_capacity_message':
-    'این حساب به سقف پیوند اتاق‌های PRO رسیده است. یک پیوند موجود را حذف و پیوند جدیدی درخواست کنید.',
+    'این حساب به سقف اتصال اتاق‌های PRO رسیده است. اتصال یکی از اتاق‌های موجود را حذف کنید و سپس پیوند جدیدی درخواست کنید.',
   'pro.claim_failed_title': 'این درخواست انجام نشد',
   'pro.claim_failed_message':
     'برای حفظ امنیت، این پیوند دوباره امتحان نشد. از مدیر اتاق یک پیوند جدید بخواهید.',
@@ -772,7 +771,7 @@ const fa: Record<I18nKey, string> = {
   'pro.transfer_message':
     'یک گذرواژهٔ 8 رقمی جدید برای این اتاق تنظیم کنید. با پایان کار، دسترسی مالک قبلی لغو می‌شود.',
   'pro.new_link_message':
-    'مهلت پیوند تمام شده یا قبلاً استفاده شده است. در صورت نیاز از مدیر پیوند جدیدی بخواهید.',
+    'مهلت پیوند تمام شده یا پیوند قبلاً استفاده شده است. در صورت نیاز از مدیر پیوند جدیدی بخواهید.',
   'pro.not_ready_title': 'این اتاق PRO هنوز آماده نیست',
   'pro.not_ready_message': 'مالک اتاق باید ابتدا آن را فعال کند.',
   'pro.suspended_title': 'این اتاق PRO در دسترس نیست',
@@ -837,7 +836,7 @@ const fa: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'برای اتصال، <strong>کد 6 رقمی</strong> میزبان را وارد کنید.<ul class="help-list"><li><strong>میزبان:</strong> «ساخت اتاق» ← مشاهدهٔ کد</li><li><strong>شرکت‌کننده:</strong> «پیوستن به اتاق» ← وارد کردن کد</li><li>تا <strong>100 دستگاه، با احتساب میزبان</strong> می‌توانند متصل شوند.</li></ul>',
   'player.play_speakers_html':
-    'هر شرکت‌کننده یک <strong>نقش (کانال خروجی)</strong> انتخاب می‌کند.<ul class="help-list"><li><strong>مرکز:</strong> خروجی استریو (پیش‌فرض)</li><li><strong>چپ:</strong> خروجی کانال <bdi dir="ltr">L</bdi></li><li><strong>راست:</strong> خروجی کانال <bdi dir="ltr">R</bdi></li><li><strong>ساب‌ووفر:</strong> خروجی میکس فرکانس‌های پایین</li></ul>هر زمان خواستید می‌توانید نقش‌ها را در <strong>تنظیمات</strong> تغییر دهید.',
+    'هر شرکت‌کننده یک <strong>نقش (کانال خروجی)</strong> انتخاب می‌کند.<ul class="help-list"><li><strong>بلندگوی مرکزی:</strong> خروجی استریو (پیش‌فرض)</li><li><strong>بلندگوی چپ:</strong> خروجی کانال <bdi dir="ltr">L</bdi></li><li><strong>بلندگوی راست:</strong> خروجی کانال <bdi dir="ltr">R</bdi></li><li><strong>ساب‌ووفر:</strong> خروجی میکس فرکانس‌های پایین</li></ul>هر زمان خواستید می‌توانید نقش‌ها را در <strong>تنظیمات</strong> تغییر دهید.',
   'player.play_media_action_html':
     'میزبان 3 گزینه دارد.<ul class="help-list"><li><strong>بارگیری فایل محلی:</strong> موسیقی را از دستگاه انتخاب کنید. همگام‌سازی دقیق پشتیبانی می‌شود</li><li><strong>YouTube گروهی:</strong> ویدیو و فهرست پخش پشتیبانی می‌شود. جداسازی کانال و جلوهٔ صوتی ندارد</li><li><strong>اشتراک‌گذاری صدای سیستم:</strong> وقتی میزبان با رایانه از مرورگری مبتنی بر Chromium استفاده کند در دسترس است</li></ul>',
   'help.need_help_html':
@@ -901,7 +900,7 @@ const fa: Record<I18nKey, string> = {
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'نکات سرویس',
   'legal.content_html':
-    '<strong>سیاست حریم خصوصی</strong><br><span data-legal-standard-storage>در یک شبکهٔ مشترک، بیشتر محتوای جلسه مستقیم میان دستگاه‌ها جابه‌جا می‌شود. سرور سیگنال فقط برای مدتی کوتاه داده‌های مربوط به کارکرد اتاق، احراز هویت و اتصال دوباره را پردازش می‌کند؛ بخشی از داده‌های کاربران راه دور یا جلسه‌های بزرگ از Cloudflare می‌گذرد. فایل‌های راه دور تا 24 ساعت در فضای خصوصی Cloudflare نگه‌داری می‌شوند و فقط شرکت‌کنندگان اتاق دسترسی موقت برای دریافت آن‌ها دارند. MUSIXQUARE فقط در حد لازم برای ارائه، راه‌اندازی و ایمن‌سازی سرویس به داده‌ها دسترسی پیدا می‌کند، آن‌ها را تحلیل یا نگه‌داری می‌کند.</span><span data-legal-pro-storage>اتاق‌های PRO اطلاعات لازم برای کارکرد اتاق، شامل وضعیت جلسه، اعضا، فهرست پخش، پخش و بارگذاری را در Cloudflare ذخیره می‌کنند. فایل‌های اصلی فهرست پخش در فضای خصوصی Cloudflare می‌مانند و فقط شرکت‌کنندگان اتاق می‌توانند آن‌ها را با پیوندهای کوتاه‌مدت دریافت کنند. فایل‌ها وقتی پاک می‌شوند که مدیر اتاق آن‌ها را از فهرست پخش بردارد یا گردانندهٔ سرویس داده‌های اتاق را حذف کند. MUSIXQUARE فقط در حد لازم برای ارائه، راه‌اندازی و ایمن‌سازی سرویس به داده‌ها دسترسی پیدا می‌کند، آن‌ها را تحلیل یا نگه‌داری می‌کند.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">اطلاعات بیشتر</a><br><br><strong>اطلاعیهٔ حق نشر</strong><br>محتوای به‌اشتراک‌گذاشته‌شده در MUSIXQUARE متعلق به صاحبان حقوق مربوط است. اشتراک صدای سیستم و فایل برای استفادهٔ شخصی در نظر گرفته شده است. مسئولیت توزیع بدون مجوز یا پخش عمومی محتوای دارای حق نشر بر عهدهٔ کاربران است. اشتراک‌گذاری YouTube از روش رسمی پخش استفاده می‌کند و شمارش بازدید و مدیریت حقوق تابع سیاست‌های آن سرویس و تنظیمات صاحبان حقوق است. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">اطلاعات بیشتر</a><br><br><strong>سلب مسئولیت</strong><br>MUSIXQUARE رایگان ارائه می‌شود. برخی امکانات به سرویس‌های بیرونی مانند YouTube یا Cloudflare وابسته‌اند؛ بنابراین در صورت تغییر یا قطع آن سرویس‌ها ممکن است محدودیت موقت پیش بیاید. کیفیت همگام‌سازی بی‌درنگ صدا و اشتراک‌گذاری راه دور بسته به شبکه، سیاست مرورگر و توان دستگاه می‌تواند بسیار متفاوت باشد. هنگام استفاده نکردن از Wi-Fi ممکن است هزینهٔ اینترنت همراه اعمال شود. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">اطلاعات بیشتر</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">درباره</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">تاریخچه</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">طراحی</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ترجمه</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>سیاست حریم خصوصی</strong><br><span data-legal-standard-storage>در یک شبکهٔ مشترک، بیشتر محتوای جلسه مستقیم میان دستگاه‌ها جابه‌جا می‌شود. سرور سیگنال فقط برای مدتی کوتاه داده‌های مربوط به کارکرد اتاق، احراز هویت و اتصال دوباره را پردازش می‌کند؛ بخشی از داده‌های کاربران راه دور یا جلسه‌های بزرگ از Cloudflare می‌گذرد. فایل‌های راه دور تا 24 ساعت در فضای خصوصی Cloudflare نگه‌داری می‌شوند و فقط شرکت‌کنندگان اتاق دسترسی موقت برای دریافت آن‌ها دارند. MUSIXQUARE جز برای ارائه، اداره و ایمن‌سازی سرویس، به داده‌ها دسترسی پیدا نمی‌کند و آن‌ها را تحلیل یا نگه‌داری نمی‌کند.</span><span data-legal-pro-storage>اتاق‌های PRO اطلاعات لازم برای کارکرد اتاق، شامل وضعیت جلسه، اعضا، فهرست پخش، پخش و بارگذاری را در Cloudflare ذخیره می‌کنند. فایل‌های اصلی فهرست پخش در فضای خصوصی Cloudflare می‌مانند و فقط شرکت‌کنندگان اتاق می‌توانند آن‌ها را با پیوندهای کوتاه‌مدت دریافت کنند. فایل‌ها وقتی پاک می‌شوند که مدیر اتاق آن‌ها را از فهرست پخش بردارد یا گردانندهٔ سرویس داده‌های اتاق را حذف کند. MUSIXQUARE جز برای ارائه، اداره و ایمن‌سازی سرویس، به داده‌ها دسترسی پیدا نمی‌کند و آن‌ها را تحلیل یا نگه‌داری نمی‌کند.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">اطلاعات بیشتر</a><br><br><strong>اطلاعیهٔ حق نشر</strong><br>محتوای به‌اشتراک‌گذاشته‌شده در MUSIXQUARE متعلق به صاحبان حقوق مربوط است. اشتراک صدای سیستم و فایل برای استفادهٔ شخصی در نظر گرفته شده است. مسئولیت توزیع بدون مجوز یا پخش عمومی محتوای دارای حق نشر بر عهدهٔ کاربران است. اشتراک‌گذاری YouTube از روش رسمی پخش استفاده می‌کند و شمارش بازدید و مدیریت حقوق تابع سیاست‌های آن سرویس و تنظیمات صاحبان حقوق است. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">اطلاعات بیشتر</a><br><br><strong>سلب مسئولیت</strong><br>MUSIXQUARE رایگان ارائه می‌شود. برخی امکانات به سرویس‌های بیرونی مانند YouTube یا Cloudflare وابسته‌اند؛ بنابراین در صورت تغییر یا قطع آن سرویس‌ها ممکن است محدودیت موقت پیش بیاید. کیفیت همگام‌سازی بی‌درنگ صدا و اشتراک‌گذاری راه دور بسته به شبکه، سیاست مرورگر و توان دستگاه می‌تواند بسیار متفاوت باشد. هنگام استفاده نکردن از Wi-Fi ممکن است هزینهٔ اینترنت همراه اعمال شود. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">اطلاعات بیشتر</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">درباره</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">تاریخچه</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">طراحی</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">ترجمه</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default fa;

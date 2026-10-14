@@ -191,9 +191,9 @@ const uk: Record<I18nKey, string> = {
     'Увімкніть або вимкніть звуки сповіщень, приєднання, виходу й дотиків.',
   'settings.reverb_desc': 'Налаштуйте реверберацію й резонанс звуку.',
   'settings.eq_desc': 'Налаштуйте тембр звуку. Використовуйте разом із регулятором гучності.',
-  'settings.surround_desc': 'Посильте розділення каналів для глибшого занурення.',
-  'settings.bass_desc': 'Синтезуйте низькі частоти для потужнішого звучання.',
-  'settings.exciter_desc': 'Створюйте надвисокі частоти для більшої чіткості.',
+  'settings.surround_desc': 'Посилює розділення каналів для глибшого занурення.',
+  'settings.bass_desc': 'Синтезує низькі частоти для потужнішого звучання.',
+  'settings.exciter_desc': 'Створює надвисокі частоти для більшої чіткості.',
   'settings.role_center_desc':
     'Цей пристрій працює як центральний динамік.\nРозмістіть його по центру.',
   'settings.role_left_desc': 'Цей пристрій працює як лівий динамік.\nРозмістіть його ліворуч.',
@@ -204,7 +204,7 @@ const uk: Record<I18nKey, string> = {
   'settings.light': 'Світла',
   'player.visualizer_circular': 'Коло',
   'player.visualizer_spectrum': 'Спектр',
-  'settings.language': 'Мовні налаштування',
+  'settings.language': 'Мова · Language',
   'settings.language_select': 'Вибрати',
   'settings.language_system': 'Системна',
   'settings.language_dialog_title': 'Вибір мови',
@@ -261,10 +261,9 @@ const uk: Record<I18nKey, string> = {
   'connect.room_owner_role': 'Власник кімнати',
   'connect.administrator_role': 'Адміністратор',
   'connect.administrator_settings_aria': 'Змінити дозволи адміністратора для {{name}}',
-  'connect.administrator_revoke_aria': 'Відкликати дозволи адміністратора в користувача {{name}}',
+  'connect.administrator_revoke_aria': 'Відкликати права адміністратора в користувача {{name}}',
   'connect.administrator_revoke_title': 'Відкликати права адміністратора?',
-  'connect.administrator_revoke_message':
-    'Відкликати дозволи адміністратора в користувача {{name}}?',
+  'connect.administrator_revoke_message': 'Відкликати права адміністратора в користувача {{name}}?',
   'connect.permissions_title': 'Дозволи користувача {{name}}',
   'connect.permission_media_add': 'Керування медіа',
   'connect.permission_playback_control': 'Керування відтворенням',
@@ -293,9 +292,9 @@ const uk: Record<I18nKey, string> = {
   'connect.room_password_disabled': 'Учасникам більше не потрібен пароль кімнати',
   'connect.room_password_apply_pending': 'Новий пароль почне діяти, щойно з’єднання відновиться.',
   'connect.pin_enabled_removed_message':
-    'Хост задав пароль для кімнати. Введіть його, щоб увійти знову.',
+    'Хост задав пароль для кімнати. Введіть його, щоб приєднатися знову.',
   'connect.pin_changed_removed_message':
-    'Хост змінив пароль кімнати. Введіть новий пароль, щоб увійти знову.',
+    'Хост змінив пароль кімнати. Введіть новий пароль, щоб приєднатися знову.',
   'connect.signaling_healthy': 'Сервер кімнати працює',
   'connect.signaling_recovering': 'Повторне підключення…',
   'connect.signaling_failed': 'Не вдалося підключитися до сервера',
@@ -433,7 +432,7 @@ const uk: Record<I18nKey, string> = {
   'chat.system_audio_started_system_message':
     'Розпочато трансляцію системного аудіо. Невелика затримка між пристроями хоста й гостей є нормальною. Щоб уникнути відлуння, радимо зменшити гучність пристрою хоста.',
   'chat.system_audio_stopped_system_message':
-    'Трансляцію системного аудіо завершено. Хост може знову збільшити гучність, щоб цей пристрій знову працював як динамік.',
+    'Трансляцію системного аудіо завершено. Хост може повернути гучність, щоб цей пристрій знову працював як динамік.',
   'chat.remote_upload_limited_system_message':
     'Досягнуто ліміту надсилань файлів.\nВіддаленим учасникам слід повторити спробу пізніше.',
   'chat.remote_storage_quota_system_message':
@@ -493,7 +492,7 @@ const uk: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Діагностичні дані скопійовано.\nЯкщо ви виявили помилку, надішліть їх розробнику.',
   'chat.seek_to': 'Перейти до {{time}}',
-  'chat.copied': 'Чат скопійовано',
+  'chat.copied': 'Повідомлення скопійовано',
   'chat.copy_hint': 'Натисніть Enter, щоб скопіювати це повідомлення',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -616,7 +615,7 @@ const uk: Record<I18nKey, string> = {
   'toast.yt_rendezvous_timeout': 'Не вдалося синхронізувати, спробуйте трохи пізніше',
   'toast.yt_host_sync_sent': 'Учасникам надіслано сигнал автосинхронізації',
   'toast.yt_manual_sync_prompt':
-    'Щойно виконано автоматичну синхронізацію.\nЯкщо затримка відчувається, налаштуйте значення зараз',
+    'Щойно виконано автоматичну синхронізацію.\nЯкщо затримка досі відчувається, налаштуйте значення зараз',
   'toast.playlist_ended': 'Відтворення останнього медіаелемента завершено',
   'toast.operator_required': 'Глобальні параметри можуть змінювати лише адміністратори',
   'toast.connection_closing': 'З’єднання втрачено, параметр не синхронізовано',
@@ -655,7 +654,7 @@ const uk: Record<I18nKey, string> = {
   'transfer.preload_fail':
     'Не вдалося відтворити попередньо завантажений файл, повторне завантаження',
   'transfer.download_finishing': 'Завершення завантаження...',
-  'transfer.preparation_delayed': 'Підготовка затримується...\nЗапит на відновлення від хоста',
+  'transfer.preparation_delayed': 'Підготовка затримується...\nЗапит до хоста на відновлення',
   'transfer.receiving_0pct': 'Отримання... 0%',
   'transfer.check_conn_type': 'Перевірка типу підключення...',
   'transfer.preload_pending': 'Очікування попереднього завантаження: {{name}}',
@@ -749,15 +748,15 @@ const uk: Record<I18nKey, string> = {
   // ─── Кімнати PRO ─────────────────────────────────────────────────
   'pro.activation_title': 'Активувати кімнату PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Виберіть обліковий запис для цієї кімнати PRO',
+  'pro.activation_account_message': 'Зареєструвати цю кімнату на обліковий запис «{{name}}»?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Увійдіть в обліковий запис, на який хочете зареєструвати цю кімнату.',
+  'pro.activation_account_continue': 'Продовжити',
+  'pro.activation_account_switch': 'Інший обліковий запис',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Не вдалося перевірити обліковий запис. Спробуйте ще раз трохи згодом.',
+  'pro.activation_complete': 'Завершити реєстрацію',
   'pro.activation_message': 'Задайте новий 8-значний пароль для цієї кімнати.',
   'pro.activation_pin_same': 'Виберіть пароль, що відрізняється від тимчасового.',
   'pro.claim_retry_title': 'Спробувати посилання PRO ще раз?',
@@ -852,16 +851,16 @@ const uk: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Щоб підключитися, введіть <strong>6-значний код</strong> хоста.<ul class="help-list"><li><strong>Хост:</strong> «Створити кімнату» → переглянути код</li><li><strong>Учасник:</strong> «Приєднатися до кімнати» → ввести код</li><li>Можна підключити до <strong>100 пристроїв разом із хостом</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Кожен учасник вибирає <strong>роль (вихідний канал)</strong>.<ul class="help-list"><li><strong>Центр:</strong> стереовихід (за замовчуванням)</li><li><strong>Лівий:</strong> вихід каналу <bdi dir="ltr">L</bdi></li><li><strong>Правий:</strong> вихід каналу <bdi dir="ltr">R</bdi></li><li><strong>Сабвуфер:</strong> вихід міксу низьких частот</li></ul>Роль можна будь-коли змінити в <strong>налаштуваннях</strong>.',
+    'Кожен учасник вибирає <strong>роль (вихідний канал)</strong>.<ul class="help-list"><li><strong>Центральний динамік:</strong> стереовихід (за замовчуванням)</li><li><strong>Лівий динамік:</strong> вихід каналу <bdi dir="ltr">L</bdi></li><li><strong>Правий динамік:</strong> вихід каналу <bdi dir="ltr">R</bdi></li><li><strong>Сабвуфер:</strong> вихід міксу низьких частот</li></ul>Роль можна будь-коли змінити в <strong>налаштуваннях</strong>.',
   'player.play_media_action_html':
     'Хост має 3 варіанти.<ul class="help-list"><li><strong>Завантажити локальний файл:</strong> вибрати музику на пристрої. Підтримується точна синхронізація</li><li><strong>YouTube разом:</strong> підтримуються відео й плейлісти. Без розділення каналів і звукових ефектів</li><li><strong>Трансляція системного аудіо:</strong> доступна, якщо хост використовує на комп’ютері браузер на основі Chromium</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Ввели код, але не можете підключитися:</strong> перевірте код і спробуйте трохи пізніше. Мережа компанії, навчального закладу або VPN може обмежувати з’єднання.</li><li><strong>Нестабільне з’єднання:</strong> локальним учасникам варто наблизитися до маршрутизатора, а віддаленим варто використовувати стабільне інтернет-з’єднання.</li><li><strong>Інші проблеми:</strong> перевірте стан мережі й перезапустіть застосунок на всіх пристроях. Якщо у вас є запитання, перегляньте <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">поширені запитання</a> або напишіть нам на адресу електронної пошти в самому низу.</li></ul>',
-  'chat.peer_connected': 'До кімнати приєднано: {{name}}',
+  'chat.peer_connected': '{{name}} тепер у кімнаті',
   'chat.tracks_added': '{{name}}: додано треків: {{count}}',
   'chat.track_added_named': '{{name}}: додано 1 трек: {{title}}',
   'chat.tracks_added_named': '{{name}}: додано треків: {{count}}, зокрема {{title}}',
-  'chat.peer_disconnected': 'Відключено від кімнати: {{name}}',
+  'chat.peer_disconnected': '{{name}} більше не в кімнаті',
   'chat.participant_connection_unstable_recovering':
     'З’єднання користувача {{name}} нестабільне. Триває спроба відновлення.',
   'chat.empty_html': 'Повідомлень ще немає.<br>Надішліть перше!',
@@ -875,7 +874,7 @@ const uk: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Задайте роль для кожного пристрою.<br>Відтворюйте лівий і правий канали окремо<br>й відчуйте глибокий бас із сабвуфера.',
   'setup.advanced_audio_desc_html':
-    'Узгодьте налаштування з хостом<br>за допомогою реверберації, еквалайзера,<br>віртуальних ефектів тощо.',
+    'Застосовуйте налаштування хоста<br>до всієї системи: реверберацію, еквалайзер,<br>віртуальні ефекти тощо.',
   'youtube.enter_link_desc_html': 'Можна відтворювати лише загальнодоступні відео й плейлісти.',
 
   // ─── Трансляція системного аудіо ─────────────────────────────────
@@ -896,7 +895,8 @@ const uk: Record<I18nKey, string> = {
   'system_audio.stop_compact': 'Зупинити',
   'system_audio.started':
     'Системне аудіо може мати невелику затримку.\nЯкщо можливо, зменште гучність джерела.',
-  'system_audio.stopped': 'Трансляцію системного аудіо завершено.\nВідновлення плейліста.',
+  'system_audio.stopped':
+    'Трансляцію системного аудіо завершено.\nВідтворення плейліста продовжується.',
   'system_audio.host_channel_locked':
     'Під час трансляції системного аудіо ролі змінювати не можна.',
   'system_audio.effects_guest_only':
@@ -910,7 +910,7 @@ const uk: Record<I18nKey, string> = {
   'system_audio.device_limit':
     'Системне аудіо підтримує до {{count}} пристроїв.\nХост також враховується.',
   'system_audio.device_limit_stopped':
-    'Трансляцію системного аудіо зупинено.\nПідключено понад {{count}} пристроїв.',
+    'Трансляцію системного аудіо зупинено.\nКількість підключених пристроїв перевищує {{count}}.',
   'system_audio.duration_limit_stopped':
     'Трансляцію системного аудіо автоматично завершено\nчерез 2 години.',
 

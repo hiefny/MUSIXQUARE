@@ -33,7 +33,7 @@ const vi: Record<I18nKey, string> = {
   'common.pause': 'Tạm dừng',
   'setup.carousel_pause': 'Tạm dừng chuyển trang chiếu tự động',
   'common.message': 'Tin nhắn',
-  'common.mix': 'Trộn',
+  'common.mix': 'Tỷ lệ trộn',
   'common.wait': 'Vui lòng chờ...',
   'common.guest': 'Khách',
   'common.help': 'Trợ giúp',
@@ -55,7 +55,7 @@ const vi: Record<I18nKey, string> = {
   'account.unavailable':
     'Tạm thời không thể đăng nhập. Bạn vẫn có thể tiếp tục mà không cần tài khoản.',
   'account.account_title': 'Tài khoản',
-  'account.stats_sessions_label': 'Phiên đã tham gia',
+  'account.stats_sessions_label': 'Phòng đã tham gia',
   'account.stats_listening_label': 'Thời gian nghe',
   'account.stats_tracks_label': 'Nội dung đã phát',
   'account.stats_count_value': '{{count}}',
@@ -86,11 +86,11 @@ const vi: Record<I18nKey, string> = {
   'common.original': 'Gốc',
   'common.left': 'Trái',
   'common.right': 'Phải',
-  'common.woofer': 'Loa trầm',
+  'common.woofer': 'Loa siêu trầm',
   'common.connected': 'Đã kết nối',
   'common.disconnected': 'Đã ngắt kết nối',
   'common.revoke': 'Thu hồi',
-  'common.grant': 'Cấp',
+  'common.grant': 'Cấp quyền',
   'common.system': 'Hệ thống',
   'common.unknown': 'Không rõ',
   'common.youtube_video': 'Video trên YouTube',
@@ -159,7 +159,7 @@ const vi: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Âm thanh không gian',
   'settings.reverb_title': 'Độ vang',
   'settings.rvb_studio': 'Phòng thu',
-  'settings.rvb_arena': 'Đấu trường',
+  'settings.rvb_arena': 'Sân vận động',
   'settings.rvb_advanced': 'Nâng cao',
   'settings.rvb_off': 'Tắt',
   'settings.reverb_mix': 'Tỷ lệ âm vang',
@@ -188,7 +188,7 @@ const vi: Record<I18nKey, string> = {
   'settings.default_5s': 'Mặc định 5,0 giây',
   'settings.invite_code': 'Mã mời',
   'settings.leave_session': 'Rời phòng',
-  'connect.rename_reserved': 'Biệt danh này đã được dành riêng.',
+  'connect.rename_reserved': 'Biệt danh này không thể sử dụng.',
   'connect.rename_profanity': 'Đã phát hiện từ ngữ không phù hợp.',
   'settings.devices_title': 'Thiết bị đã kết nối',
   'settings.invite_share': 'Mời & Chia sẻ',
@@ -302,10 +302,10 @@ const vi: Record<I18nKey, string> = {
   'connect.signaling_exhausted':
     'Máy chủ phòng không phản hồi.\nNgười tham gia mới không thể kết nối.',
   'connect.signaling_exhausted_pro':
-    'Máy chủ phòng không phản hồi. Người tham gia mới và cập nhật trực tiếp bị hạn chế.',
+    'Máy chủ phòng không phản hồi. Việc tham gia mới và cập nhật trực tiếp bị hạn chế.',
   'connect.signaling_retry': 'Thử lại',
   'connect.signaling_restart': 'Khởi động lại phòng',
-  'connect.signaling_new_room': 'Bắt đầu phòng mới',
+  'connect.signaling_new_room': 'Tạo phòng mới',
 
   // Setup and demo
   'setup.host_button': 'Tạo phòng',
@@ -326,7 +326,7 @@ const vi: Record<I18nKey, string> = {
   'demo.treble_boost': 'Tăng âm cao',
   'demo.surround': 'Âm thanh vòm',
   'demo.role_bass_short': 'Âm trầm',
-  'demo.role_center_short': 'Trung tâm',
+  'demo.role_center_short': 'Giữa',
   'demo.step_nav_label': 'Các bước demo',
   'demo.step_connect': '1. Kết nối',
   'demo.step_role': '2. Đặt vai trò',
@@ -434,7 +434,7 @@ const vi: Record<I18nKey, string> = {
   'transfer.file_wait': 'Đang chờ tệp...\nVui lòng đợi',
   'transfer.preload_done': 'Dùng tệp đã tải trước!',
   'transfer.preload_waiting': 'Đang chờ tải trước hoàn tất...',
-  'share.remote.uploading': 'Đang tải lên tệp...',
+  'share.remote.uploading': 'Đang tải tệp lên...',
   'share.remote.upload_ready': 'Chia sẻ từ xa đã sẵn sàng',
   'share.remote.waiting': 'Đang chờ tệp từ xa...',
   'share.remote.downloading': 'Đang tải xuống tệp từ xa...',
@@ -509,22 +509,22 @@ const vi: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Đang giải mã âm thanh...',
   'toast.preparing_next': 'Đang chuẩn bị mục tiếp theo... ({{name}})',
   'toast.preparing_next_pct': 'Đang chuẩn bị mục tiếp theo... {{pct}}%',
-  'toast.op_status': 'Quyền của {{label}} {{status}}',
+  'toast.op_status': 'Quyền {{label}} {{status}}',
   'toast.file_read_error': 'Lỗi đọc tệp: {{name}}',
   'toast.host_ended_connection': 'Chủ phòng đã kết thúc kết nối',
   'toast.announcement_available': 'Có thông báo mới.\nHãy kiểm tra khung trò chuyện.',
   'toast.copy_failed': 'Không thể sao chép',
   'toast.email_copied': 'Đã sao chép địa chỉ email!',
-  'toast.settings_sync_enabled': 'Đồng bộ cài đặt đang bật.',
+  'toast.settings_sync_enabled': 'Đồng bộ cài đặt đang bật',
   'toast.settings_sync_admin_required':
     'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng được đổi cài đặt âm thanh.',
-  'toast.virtual_bass_on': 'Âm trầm ảo đang bật.',
-  'toast.virtual_bass_off': 'Âm trầm ảo đang tắt.',
-  'toast.virtual_treble_on': 'Âm cao ảo đang bật.',
-  'toast.virtual_treble_off': 'Âm cao ảo đang tắt.',
-  'toast.virtual_surround_on': 'Âm thanh vòm ảo đang bật.',
-  'toast.virtual_surround_off': 'Âm thanh vòm ảo đang tắt.',
-  'toast.virtual_effects_off': 'Tất cả hiệu ứng ảo đang tắt.',
+  'toast.virtual_bass_on': 'Âm trầm ảo đang bật',
+  'toast.virtual_bass_off': 'Âm trầm ảo đang tắt',
+  'toast.virtual_treble_on': 'Âm cao ảo đang bật',
+  'toast.virtual_treble_off': 'Âm cao ảo đang tắt',
+  'toast.virtual_surround_on': 'Âm thanh vòm ảo đang bật',
+  'toast.virtual_surround_off': 'Âm thanh vòm ảo đang tắt',
+  'toast.virtual_effects_off': 'Tất cả hiệu ứng ảo đang tắt',
   'toast.host_only': 'Chỉ chủ phòng mới có thể làm việc này.',
   'toast.host_only_media': 'Chỉ chủ phòng mới có thể thêm nội dung.',
   'toast.media_management_required': 'Cần quyền quản lý nội dung.',
@@ -540,7 +540,7 @@ const vi: Record<I18nKey, string> = {
   'toast.no_tracks': 'Không có mục nào để phát',
   'toast.add_media_to_play': 'Vui lòng thêm nội dung để phát',
   'toast.no_invite_code': 'Chưa có mã mời',
-  'toast.invite_code_settings': 'Chia sẻ liên kết mời từ tab Kết nối.',
+  'toast.invite_code_settings': 'Chia sẻ liên kết mời từ thẻ Kết nối.',
   'toast.click_copy_invite': 'Nhấp để sao chép mã mời',
   'toast.cant_select_file': 'Không thể chọn tệp',
   'toast.unsupported_files_excluded': 'Đã bỏ qua {{count}} tệp không được hỗ trợ.',
@@ -563,7 +563,7 @@ const vi: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Chủ phòng đang tạm dừng; chỉ căn chỉnh vị trí',
   'toast.yt_rendezvous_no_data': 'Chưa có dữ liệu phát từ chủ phòng; hãy thử lại sau',
   'toast.yt_rendezvous_timeout': 'Đồng bộ thất bại, hãy thử lại sau',
-  'toast.yt_host_sync_sent': 'Đã gửi tín hiệu tự đồng bộ cho người tham gia',
+  'toast.yt_host_sync_sent': 'Đã gửi tín hiệu đồng bộ tự động cho người tham gia',
   'toast.yt_manual_sync_prompt':
     'Vừa thử đồng bộ tự động.\nNếu vẫn thấy trễ, hãy chỉnh giá trị ngay',
   'toast.playlist_ended': 'Nội dung cuối cùng đã kết thúc',
@@ -588,7 +588,7 @@ const vi: Record<I18nKey, string> = {
   'error.app_version_mismatch':
     'Phiên bản ứng dụng không khớp. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
   'error.session_handshake_failed':
-    'Không thể hoàn tất kết nối phiên. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
+    'Không thể hoàn tất kết nối với phòng. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
   'error.host_unreachable': 'Có vẻ chủ phòng đã rời phòng',
   'error.host_disconnected': 'Đã ngắt kết nối với chủ phòng',
   'error.host_conn_error': 'Đã xảy ra lỗi khi kết nối với chủ phòng',
@@ -614,7 +614,7 @@ const vi: Record<I18nKey, string> = {
   // Dialog
   'dialog.large_room_file.title': 'Chia sẻ tệp trong phòng lớn',
   'dialog.large_room_file.message':
-    'Trên cùng một mạng, truyền tệp trực tiếp ổn định với tối đa 8 thiết bị của người tham gia, không tính thiết bị của chủ phòng. Trong phòng nội bộ lớn hơn, tệp có thể được phân phối qua Cloudflare R2.\n\nTiếp tục?',
+    'Trên cùng một mạng, truyền tệp trực tiếp ổn định với tối đa 8 thiết bị của người tham gia, không tính thiết bị của chủ phòng. Trong phòng cùng mạng lớn hơn, tệp có thể được phân phối qua Cloudflare R2.\n\nTiếp tục?',
   'dialog.continue': 'Tiếp tục',
   'dialog.file_drop.title': 'Thêm tệp trên thiết bị',
   'dialog.file_drop.message': 'Thêm {{count}} tệp?',
@@ -656,16 +656,25 @@ const vi: Record<I18nKey, string> = {
   'dialog.room_password_rate_limited_later':
     'Bạn đã nhập sai mật khẩu quá nhiều lần. Hãy thử lại sau một lát.',
   'dialog.session_lost_msg':
-    'Ứng dụng đã ngủ hoặc mất kết nối, nên các thiết bị khác đã rời. Hãy khởi động lại để tạo phòng mới.',
+    'Ứng dụng đã chuyển sang chế độ ngủ hoặc mất kết nối, nên các thiết bị khác đã ngắt kết nối. Hãy khởi động lại để tạo phòng mới.',
   'dialog.session_lost_btn': 'Khởi động lại',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Kích hoạt phòng PRO',
-  'pro.activation_message': 'Đặt mật khẩu số mới gồm 8 chữ số cho phòng này.',
+  'pro.activation_account_title': 'Chọn tài khoản cho phòng PRO này',
+  'pro.activation_account_message': 'Đăng ký phòng này vào tài khoản “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Hãy đăng nhập vào tài khoản mà bạn muốn đăng ký phòng này.',
+  'pro.activation_account_continue': 'Tiếp tục',
+  'pro.activation_account_switch': 'Tài khoản khác',
+  'pro.activation_account_unavailable':
+    'Không thể xác minh tài khoản của bạn. Vui lòng thử lại sau giây lát.',
+  'pro.activation_complete': 'Hoàn tất đăng ký',
+  'pro.activation_message': 'Đặt mật khẩu mới gồm 8 chữ số cho phòng này.',
   'pro.activation_pin_same': 'Chọn mật khẩu khác với mật khẩu tạm thời.',
   'pro.claim_retry_title': 'Thử lại bằng liên kết PRO?',
   'pro.claim_retry_message':
-    'Kết nối đã bị gián đoạn. Liên kết chỉ được giữ an toàn trên màn hình này nên bạn có thể thử lại.',
+    'Kết nối đã bị gián đoạn. Liên kết vẫn được giữ an toàn trên màn hình này nên bạn có thể thử lại.',
   'pro.claim_unavailable_title': 'Liên kết này không còn sử dụng được',
   'pro.claim_login_title': 'Hãy đăng nhập trước',
   'pro.claim_login_button': 'Đăng nhập',
@@ -724,7 +733,7 @@ const vi: Record<I18nKey, string> = {
   'pro.removed_title': 'Bạn đã bị mời ra khỏi phòng',
   'pro.removed_message': 'Chủ phòng hoặc quản trị viên đã mời bạn ra khỏi phòng này.',
   'pro.device_removed_message':
-    'Một thiết bị khác đã đăng nhập tài khoản của bạn đã ngắt kết nối thiết bị này khỏi phòng.',
+    'Một thiết bị khác đang đăng nhập bằng tài khoản của bạn đã ngắt kết nối thiết bị này khỏi phòng.',
   'pro.owner_only': 'Chỉ chủ phòng mới có thể thực hiện.',
   'pro.connect_failed': 'Không thể kết nối với phòng PRO.',
   'pro.room_full': 'Phòng PRO này đã đầy',
@@ -759,7 +768,7 @@ const vi: Record<I18nKey, string> = {
   'chat.cmd_unfrozen': 'Trò chuyện đã được mở khóa',
   'chat.cmd_frozen_blocked': 'Trò chuyện hiện đang bị khóa',
   'chat.cmd_muted': '{{name}} không thể gửi tin nhắn trò chuyện nữa',
-  'chat.cmd_unmuted': '{{name}} có thể gửi lại tin nhắn trò chuyện',
+  'chat.cmd_unmuted': '{{name}} đã có thể gửi tin nhắn trò chuyện trở lại',
   'chat.cmd_clear': 'Nội dung trò chuyện đã được xóa',
   'chat.cmd_filter_on': 'Đã bật bộ lọc ngôn từ thô tục',
   'chat.cmd_filter_off': 'Đã tắt bộ lọc ngôn từ thô tục',
@@ -778,7 +787,7 @@ const vi: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'Đang bỏ qua mục này vì một số thiết bị không hỗ trợ định dạng.',
   'chat.large_track_playback_system_message':
-    'Bản nhạc này rất lớn nên có thể xảy ra độ trễ khi sử dụng.',
+    'Mục này có dung lượng rất lớn nên có thể xảy ra độ trễ khi sử dụng.',
   'chat.large_local_track_system_message':
     'Mục này có dung lượng rất lớn và có thể không phát được trên một số thiết bị.',
   'chat.device_track_unavailable_system_message': 'Thiết bị này không thể phát mục hiện tại.',
@@ -805,7 +814,7 @@ const vi: Record<I18nKey, string> = {
   'chat.cmd_already_op': '{{name}} đã là quản trị viên',
   'chat.cmd_not_op': '{{name}} không phải quản trị viên',
   'chat.cmd_help_title': 'Lệnh khả dụng',
-  'chat.cmd_help_target_hint': '* [thiết bị] là số duy nhất (ví dụ #1)',
+  'chat.cmd_help_target_hint': '* [thiết bị] là số định danh riêng của thiết bị (ví dụ #1)',
   'chat.cmd_unknown': 'Lệnh không xác định: /{{cmd}}',
   'chat.cmd_usage': 'Cách dùng: {{usage}}',
   'chat.cmd_users_title': 'Người tham gia đang kết nối',
@@ -852,7 +861,7 @@ const vi: Record<I18nKey, string> = {
   'chat.tracks_added': '{{name}} đã thêm {{count}} mục',
   'chat.track_added_named': '{{name}} đã thêm 1 mục: {{title}}',
   'chat.tracks_added_named': '{{name}} đã thêm {{count}} mục, gồm {{title}}',
-  'chat.peer_disconnected': '{{name}} đã rời',
+  'chat.peer_disconnected': '{{name}} đã rời phòng',
   'chat.participant_connection_unstable_recovering':
     'Kết nối của {{name}} không ổn định. Đang thử khôi phục.',
   'chat.empty_html': 'Chưa có tin nhắn.<br>Hãy gửi tin nhắn đầu tiên!',
@@ -876,11 +885,11 @@ const vi: Record<I18nKey, string> = {
   'setup.play_together_desc_html':
     'Khi chủ phòng phát nội dung,<br>mọi thiết bị đã kết nối phát đồng bộ.<br>Nhấn nút đồng bộ để căn chỉnh.',
   'setup.spatial_audio_desc_html':
-    'Đặt vai trò cho từng thiết bị.<br>Phát riêng âm thanh trái và phải<br>và cảm nhận âm trầm sâu từ loa trầm.',
+    'Đặt vai trò cho từng thiết bị.<br>Phát riêng âm thanh trái và phải<br>và cảm nhận âm trầm sâu từ loa siêu trầm.',
   'setup.advanced_audio_desc_html':
     'Đồng bộ cài đặt của chủ phòng<br>với độ vang, bộ cân bằng âm thanh, hiệu ứng ảo<br>và nhiều tính năng khác trên toàn hệ thống.',
   'youtube.enter_link_desc_html': 'Chỉ có thể phát video hoặc danh sách phát công khai.',
-  'legal.title': 'Ghi chú dịch vụ',
+  'legal.title': 'Lưu ý về dịch vụ',
   'legal.content_html':
     '<strong>Chính sách quyền riêng tư</strong><br><span data-legal-standard-storage>Trong cùng mạng, phần lớn nội dung phiên truyền thẳng giữa các thiết bị. Máy chủ signaling chỉ tạm xử lý thông tin vận hành phòng, xác thực và kết nối lại; một phần dữ liệu phiên từ xa/quy mô lớn đi qua Cloudflare. Tệp từ xa được lưu tạm tối đa 24 giờ trong kho Cloudflare riêng tư; chỉ người tham gia phòng có quyền tải xuống tạm thời. MUSIXQUARE không truy cập, phân tích hay lưu dữ liệu ngoài mục đích cung cấp, vận hành và bảo mật dịch vụ.</span><span data-legal-pro-storage>Cloudflare lưu trạng thái phiên, thành viên, danh sách phát, phát lại và tải lên cần cho hoạt động của phòng PRO. Tệp gốc của danh sách phát được lưu trong kho Cloudflare riêng tư; chỉ người tham gia phòng được tải xuống qua URL ngắn hạn. Tệp bị xóa khi quản trị viên phòng gỡ khỏi danh sách phát hoặc đơn vị vận hành xóa dữ liệu phòng. MUSIXQUARE không truy cập, phân tích hay lưu dữ liệu ngoài mục đích cung cấp, vận hành và bảo mật dịch vụ.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Thông báo bản quyền</strong><br>Nội dung được chia sẻ qua MUSIXQUARE thuộc về các chủ sở hữu quyền tương ứng. Chia sẻ âm thanh hệ thống và chia sẻ tệp dành cho mục đích sử dụng cá nhân. Người dùng chịu trách nhiệm về việc phân phối trái phép hoặc truyền phát công khai nội dung có bản quyền. Chia sẻ YouTube dùng phương thức phát chính thức, còn lượt xem và xử lý quyền tuân theo chính sách của dịch vụ đó và cài đặt của chủ sở hữu quyền. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>Tuyên bố miễn trừ</strong><br>MUSIXQUARE được cung cấp miễn phí. Một số tính năng phụ thuộc vào dịch vụ bên ngoài như YouTube hoặc Cloudflare, nên có thể xuất hiện giới hạn tạm thời nếu các dịch vụ đó thay đổi hoặc ngừng hoạt động. Đồng bộ âm thanh thời gian thực và chất lượng chia sẻ từ xa có thể thay đổi rất nhiều tùy mạng, chính sách trình duyệt và hiệu năng thiết bị. Có thể phát sinh phí dữ liệu di động khi không dùng Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tìm hiểu thêm</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Giới thiệu</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Lịch sử</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Thiết kế</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Dịch</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };

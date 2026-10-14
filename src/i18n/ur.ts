@@ -16,7 +16,7 @@ const ur: Record<I18nKey, string> = {
   'common.ok': 'ٹھیک ہے',
   'common.cancel': 'منسوخ کریں',
   'common.close': 'بند کریں',
-  'common.reset': 'دوبارہ ترتیب دیں',
+  'common.reset': 'ری سیٹ کریں',
   'common.clear_input': 'اندراج صاف کریں',
   'common.refresh': 'ریفریش کریں',
   'common.retry': 'دوبارہ کوشش کریں',
@@ -115,8 +115,8 @@ const ur: Record<I18nKey, string> = {
   'player.seek': 'پوزیشن بدلیں',
   'player.seek_unavailable_system_audio': 'سسٹم آڈیو شیئر ہوتے وقت آگے پیچھے نہیں جا سکتے',
   'player.volume': 'آواز ایڈجسٹ کریں',
-  'player.toggle_mute': 'خاموشی بدلیں',
-  'player.fullscreen': 'فل اسکرین بدلیں',
+  'player.toggle_mute': 'خاموش کریں/آواز کھولیں',
+  'player.fullscreen': 'فل اسکرین آن/آف کریں',
   'player.prev_track': 'پچھلا ٹریک',
   'player.next_track': 'اگلا ٹریک',
   'player.repeat_mode': 'دہرانے کا موڈ بدلیں',
@@ -131,7 +131,7 @@ const ur: Record<I18nKey, string> = {
   'player.select_media': 'چلانے کے لیے میڈیا منتخب کریں',
   'player.play_together': 'ہم وقت چلائیں',
   'player.play_speakers': 'اسپیکر کے طور پر استعمال کریں',
-  'player.auto_sync_label': 'خودکار (ملی سیکنڈ)',
+  'player.auto_sync_label': 'خودکار سنک (ms)',
   'player.manual_sync_label': 'دستی سنک (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
@@ -242,7 +242,7 @@ const ur: Record<I18nKey, string> = {
   'settings.default_5s': 'ڈیفالٹ 5.0 سیکنڈ',
   'settings.invite_code': 'دعوتی کوڈ',
   'settings.leave_session': 'سیشن چھوڑیں',
-  'connect.rename_reserved': 'یہ عرفی نام محفوظ ہے۔',
+  'connect.rename_reserved': 'یہ عرفی نام استعمال نہیں کیا جا سکتا۔',
   'connect.rename_profanity': 'نامناسب الفاظ ملے ہیں۔',
   'settings.devices_title': 'منسلک آلات',
   'settings.invite_share': 'دعوت اور شیئر',
@@ -282,7 +282,7 @@ const ur: Record<I18nKey, string> = {
   'connect.kicked_message': 'میزبان نے آپ کو سیشن سے نکال دیا ہے۔',
   'connect.copy_invite_link': 'دعوتی لنک کاپی کریں',
   'connect.link_copied': 'دعوتی لنک کاپی ہو گیا',
-  'connect.room_password_title': 'شامل ہونے کے لیے پاس ورڈ درکار کریں',
+  'connect.room_password_title': 'شامل ہونے کے لیے پاس ورڈ لازمی کریں',
   'connect.room_password_toggle_aria': 'کمرے کے پاس ورڈ کی شرط بدلیں',
   'connect.room_password_on': 'پاس ورڈ لاگو ہے',
   'connect.room_password_invalid': '8 ہندسے درج کریں',
@@ -392,7 +392,7 @@ const ur: Record<I18nKey, string> = {
   // ─── Chat Commands ──────────────────────────────────────────────
   'chat.muted_placeholder': 'آپ کی چیٹ محدود ہے',
   'chat.cmd_frozen': 'چیٹ منجمد کر دی گئی ہے',
-  'chat.cmd_unfrozen': 'چیٹ کی پابندی ہٹا دی گئی ہے',
+  'chat.cmd_unfrozen': 'چیٹ کا انجماد ختم کر دیا گیا ہے',
   'chat.cmd_frozen_blocked': 'چیٹ اس وقت منجمد ہے',
   'chat.cmd_muted': '{{name}} اب چیٹ پیغامات نہیں بھیج سکیں گے',
   'chat.cmd_unmuted': '{{name}} دوبارہ چیٹ پیغامات بھیج سکتے ہیں',
@@ -425,7 +425,7 @@ const ur: Record<I18nKey, string> = {
   'chat.system_audio_started_system_message':
     'سسٹم آڈیو شیئر ہونا شروع ہو گیا ہے۔ میزبان اور مہمان آلات کے درمیان معمولی تاخیر عام ہے۔ بازگشت سے بچنے کے لیے میزبان آلے کی آواز کم رکھنے کا مشورہ ہے۔',
   'chat.system_audio_stopped_system_message':
-    'سسٹم آڈیو شیئر ہونا بند ہو گیا ہے۔ میزبان آواز دوبارہ بڑھا سکتا ہے تاکہ یہ آلہ پھر اسپیکر بن سکے۔',
+    'سسٹم آڈیو شیئر ہونا بند ہو گیا ہے۔ میزبان اپنے آلے کی آواز دوبارہ بڑھا سکتا ہے تاکہ وہ پھر اسپیکر بن سکے۔',
   'chat.remote_upload_limited_system_message':
     'فائل اپ لوڈ کی حد پوری ہو گئی۔\nدور کے شرکا کچھ دیر بعد دوبارہ کوشش کریں۔',
   'chat.remote_storage_quota_system_message':
@@ -467,7 +467,7 @@ const ur: Record<I18nKey, string> = {
   'chat.cmd_d_help': 'کمانڈز کی فہرست',
   'chat.cmd_d_users': 'منسلک صارفین دیکھیں',
   'chat.cmd_d_bot': 'مصنوعی ذہانت سے پلے لسٹ کا انتظام کروائیں',
-  'chat.cmd_d_clear': 'چیٹ کی تاریخ صاف کریں',
+  'chat.cmd_d_clear': 'چیٹ کے پیغامات صاف کریں',
   'chat.cmd_d_filter': 'نامناسب الفاظ کا فلٹر',
   'chat.cmd_d_freeze': 'چیٹ منجمد کریں',
   'chat.cmd_d_slowmode': 'سست موڈ',
@@ -492,7 +492,7 @@ const ur: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'YouTube لنک یا تلاش درج کریں',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'YouTube ساتھ دیکھیں',
-  'youtube.ready': 'YouTube تیار ہے!\nچلائیں دبائیں۔',
+  'youtube.ready': 'YouTube تیار ہے!\nچلانے کا بٹن دبائیں۔',
   'youtube.thumbnail': 'YouTube پیش منظر کی تصویر',
   'youtube.load_fail': 'YouTube API لوڈ نہیں ہو سکی۔\nاپنا کنکشن چیک کریں!',
   'youtube.video_unavailable': 'ویڈیو دستیاب نہیں، اگلا ٹریک چلایا جا رہا ہے',
@@ -586,10 +586,10 @@ const ur: Record<I18nKey, string> = {
   'dialog.large_room_file.message':
     'ایک ہی نیٹ ورک پر براہ راست فائل منتقلی میزبان کے علاوہ زیادہ سے زیادہ 8 مہمان آلات تک مستحکم رہتی ہے۔ بڑے مقامی کمروں میں فائلیں Cloudflare R2 کے ذریعے تقسیم ہو سکتی ہیں۔\n\nجاری رکھیں؟',
   'dialog.continue': 'جاری رکھیں',
-  'toast.sync_reset': 'سنک آفسیٹ دوبارہ ترتیب دے دیا گیا',
+  'toast.sync_reset': 'سنک آفسیٹ ری سیٹ ہو گیا',
   'toast.stop_sent': 'روکنے کی درخواست بھیج دی گئی',
   'toast.hprecision_sync': 'انتہائی درست سنک: آڈیو تیار ہو رہی ہے…',
-  'toast.file_ready': 'آپ کی فائل تیار ہے!\nچلائیں دبائیں۔',
+  'toast.file_ready': 'آپ کی فائل تیار ہے!\nچلانے کا بٹن دبائیں۔',
   'toast.host_sync_not_recommended': 'سنک کسی مہمان آلے پر ایڈجسٹ کریں',
   'toast.host_sync_requested':
     'درست سنک کی درخواست کی گئی۔\nکسی مہمان آلے پر دستی سنک ایڈجسٹ کریں۔',
@@ -704,9 +704,9 @@ const ur: Record<I18nKey, string> = {
     'اگر سنک درست نہ ہو یا آڈیو نہ چلے تو ایپ مکمل بند کر کے دوبارہ کھولیں۔',
   'dialog.background_resume_sync_fallback_message':
     'اگر سنک درست نہ ہو یا آڈیو نہ چلے تو ایپ مکمل بند کر کے دوبارہ کھولیں۔',
-  'dialog.got_it': 'سمجھ آگئی',
+  'dialog.got_it': 'سمجھ آ گئی',
   'dialog.continue_using': 'جاری رکھیں',
-  'dialog.leave_session': 'چھوڑیں',
+  'dialog.leave_session': 'سیشن چھوڑیں',
   'dialog.sw_update_title': 'اپ ڈیٹ',
   'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔ اپ ڈیٹ کے لیے ریفریش کریں۔',
   'dialog.feature_refresh_title': 'ریفریش کرنا ضروری ہے',
@@ -734,15 +734,15 @@ const ur: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO کمرہ فعال کریں',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'اس PRO کمرے کے لیے اکاؤنٹ منتخب کریں',
+  'pro.activation_account_message': 'یہ کمرہ ”{{name}}“ اکاؤنٹ میں رجسٹر کریں؟',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'اس اکاؤنٹ سے سائن ان کریں جس میں آپ یہ کمرہ رجسٹر کرنا چاہتے ہیں۔',
+  'pro.activation_account_continue': 'جاری رکھیں',
+  'pro.activation_account_switch': 'دوسرا اکاؤنٹ',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'آپ کے اکاؤنٹ کی تصدیق نہیں ہو سکی۔ کچھ دیر بعد دوبارہ کوشش کریں۔',
+  'pro.activation_complete': 'رجسٹریشن مکمل کریں',
   'pro.activation_message': 'اس کمرے کے لیے 8 ہندسوں کا نیا پاس ورڈ مقرر کریں۔',
   'pro.activation_pin_same': 'عارضی پاس ورڈ سے مختلف پاس ورڈ منتخب کریں۔',
   'pro.claim_retry_title': 'PRO لنک دوبارہ آزمائیں؟',
@@ -788,7 +788,7 @@ const ur: Record<I18nKey, string> = {
   'pro.pin_changed': 'کمرے کا پاس ورڈ بدل گیا۔',
   'pro.pin_enable_title': 'کمرے کا پاس ورڈ مقرر کریں',
   'pro.pin_enabled': 'کمرے کا پاس ورڈ مقرر ہو گیا۔',
-  'pro.pin_members_title': 'موجودہ شرکاء کے ساتھ کیا کیا جائے؟',
+  'pro.pin_members_title': 'موجودہ شرکا کے ساتھ کیا کیا جائے؟',
   'pro.pin_members_keep': 'سب کو رہنے دیں',
   'pro.pin_members_keep_detail':
     'صرف دوبارہ یا پہلی بار شامل ہونے والے آلات کو پاس ورڈ درج کرنا ہوگا۔',
@@ -838,9 +838,9 @@ const ur: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'منسلک ہونے کے لیے میزبان کا <strong>6 ہندسوں کا کوڈ</strong> درج کریں۔<ul class="help-list"><li><strong>میزبان:</strong> ”کمرہ بنائیں“ ← کوڈ دیکھیں</li><li><strong>شریک:</strong> ”کمرے میں شامل ہوں“ ← کوڈ درج کریں</li><li><strong>میزبان سمیت 100 آلات</strong> تک منسلک ہو سکتے ہیں۔</li></ul>',
   'player.play_speakers_html':
-    'ہر شریک ایک <strong>کردار (آؤٹ پٹ چینل)</strong> منتخب کرتا ہے۔<ul class="help-list"><li><strong>مرکز:</strong> اسٹیریو (ڈیفالٹ) آؤٹ پٹ</li><li><strong>بائیں:</strong> <bdi dir="ltr">L</bdi> چینل آؤٹ پٹ</li><li><strong>دائیں:</strong> <bdi dir="ltr">R</bdi> چینل آؤٹ پٹ</li><li><strong>سب ووفر:</strong> کم فریکوئنسی مکس آؤٹ پٹ</li></ul>آپ کسی بھی وقت <strong>ترتیبات</strong> میں کردار بدل سکتے ہیں۔',
+    'ہر شریک ایک <strong>کردار (آؤٹ پٹ چینل)</strong> منتخب کرتا ہے۔<ul class="help-list"><li><strong>مرکزی اسپیکر:</strong> اسٹیریو (ڈیفالٹ) آؤٹ پٹ</li><li><strong>بایاں اسپیکر:</strong> <bdi dir="ltr">L</bdi> چینل آؤٹ پٹ</li><li><strong>دایاں اسپیکر:</strong> <bdi dir="ltr">R</bdi> چینل آؤٹ پٹ</li><li><strong>سب ووفر:</strong> کم فریکوئنسی مکس آؤٹ پٹ</li></ul>آپ کسی بھی وقت <strong>ترتیبات</strong> میں کردار بدل سکتے ہیں۔',
   'player.play_media_action_html':
-    'میزبان کے پاس 3 اختیارات ہیں۔<ul class="help-list"><li><strong>مقامی فائل لوڈ کریں:</strong> اپنے آلے سے موسیقی منتخب کریں۔ درست سنک کی سہولت موجود ہے</li><li><strong>YouTube ساتھ:</strong> ویڈیوز اور پلے لسٹس چلائی جا سکتی ہیں۔ چینل تقسیم اور آڈیو ایفیکٹس دستیاب نہیں</li><li><strong>سسٹم آڈیو شیئرنگ:</strong> اس وقت دستیاب جب میزبان کمپیوٹر پر Chromium پر مبنی براؤزر استعمال کرے</li></ul>',
+    'میزبان کے پاس 3 اختیارات ہیں۔<ul class="help-list"><li><strong>مقامی فائل لوڈ کریں:</strong> اپنے آلے سے موسیقی منتخب کریں۔ درست سنک کی سہولت موجود ہے</li><li><strong>YouTube ساتھ دیکھیں:</strong> ویڈیوز اور پلے لسٹس چلائی جا سکتی ہیں۔ چینل تقسیم اور آڈیو ایفیکٹس دستیاب نہیں</li><li><strong>سسٹم آڈیو شیئرنگ:</strong> اس وقت دستیاب جب میزبان کمپیوٹر پر Chromium پر مبنی براؤزر استعمال کرے</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>کوڈ درج کیا لیکن کنکشن نہیں ہوا:</strong> کوڈ چیک کر کے کچھ دیر بعد دوبارہ کوشش کریں۔ کمپنی، اسکول یا VPN نیٹ ورک کنکشن محدود کر سکتے ہیں۔</li><li><strong>غیر مستحکم کنکشن:</strong> مقامی شرکا راؤٹر کے قریب رہنے کی کوشش کریں، اور دور کے شرکا مستحکم انٹرنیٹ استعمال کریں۔</li><li><strong>دیگر مسائل:</strong> نیٹ ورک کی حالت چیک کر کے تمام آلات پر ایپ دوبارہ شروع کریں۔ سوال ہو تو <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">اکثر پوچھے گئے سوالات</a> دیکھیں یا بالکل نیچے دی گئی ای میل سے رابطہ کریں۔</li></ul>',
   'chat.peer_connected': '{{name}} شامل ہوئے',
@@ -893,10 +893,10 @@ const ur: Record<I18nKey, string> = {
   'system_audio.remote_receive_limit':
     'سسٹم آڈیو کی وصولی 2 گھنٹے بعد ختم ہو گئی۔\nسننا جاری رکھنے کے لیے کمرے میں دوبارہ شامل ہوں۔',
   'system_audio.device_limit':
-    'سسٹم آڈیو زیادہ سے زیادہ {{count}} آلات کے ساتھ استعمال ہو سکتا ہے۔\nاس تعداد میں میزبان بھی شامل ہے۔',
+    'سسٹم آڈیو زیادہ سے زیادہ {{count}} آلات کے ساتھ استعمال ہو سکتی ہے۔\nاس تعداد میں میزبان بھی شامل ہے۔',
   'system_audio.device_limit_stopped':
     'سسٹم آڈیو شیئرنگ رک گئی۔\n{{count}} سے زیادہ آلات منسلک ہیں۔',
-  'system_audio.duration_limit_stopped': 'سسٹم آڈیو شیئرنگ خودکار طور پر ختم ہو گئی\n2 گھنٹے بعد۔',
+  'system_audio.duration_limit_stopped': 'سسٹم آڈیو شیئرنگ 2 گھنٹے بعد\nخودکار طور پر ختم ہو گئی۔',
 
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'سروس سے متعلق معلومات',
@@ -907,6 +907,7 @@ const ur: Record<I18nKey, string> = {
 export default ur;
 
 export const pluralMessages = {
+  'toast.unsupported_files_excluded': { one: 'غیر معاون فائل چھوڑ دی گئی: {{count}}' },
   'playlist.delete_selected': {
     one: 'منتخب کیا گیا {{count}} ٹریک حذف کریں',
   },

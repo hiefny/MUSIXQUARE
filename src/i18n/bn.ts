@@ -25,7 +25,7 @@ const bn: Record<I18nKey, string> = {
   'common.start': 'শুরু করুন',
   'common.info': 'তথ্য',
   'common.stay': 'থাকুন',
-  'common.leave': 'চলে যান',
+  'common.leave': 'ছেড়ে যান',
   'common.granted': 'দেওয়া হয়েছে',
   'common.revoked': 'প্রত্যাহার করা হয়েছে',
   'common.stop': 'থামান',
@@ -120,7 +120,7 @@ const bn: Record<I18nKey, string> = {
   'player.fullscreen': 'ফুলস্ক্রিন চালু বা বন্ধ করুন',
   'player.prev_track': 'আগের ট্র্যাক',
   'player.next_track': 'পরের ট্র্যাক',
-  'player.repeat_mode': 'রিপিট মোড পরিবর্তন করুন',
+  'player.repeat_mode': 'পুনরাবৃত্তি মোড পরিবর্তন করুন',
   'player.shuffle_mode': 'শাফল মোড পরিবর্তন করুন',
   'player.sync_compact': 'সিঙ্ক',
   'player.syncing_compact': 'সিঙ্ক…',
@@ -243,7 +243,7 @@ const bn: Record<I18nKey, string> = {
   'settings.default_5s': 'ডিফল্ট 5.0s',
   'settings.invite_code': 'আমন্ত্রণ কোড',
   'settings.leave_session': 'সেশন ছেড়ে যান',
-  'connect.rename_reserved': 'এই ডাকনামটি সংরক্ষিত।',
+  'connect.rename_reserved': 'এই ডাকনামটি ব্যবহার করা যাবে না।',
   'connect.rename_profanity': 'আপত্তিকর শব্দ পাওয়া গেছে।',
   'settings.devices_title': 'সংযুক্ত ডিভাইস',
   'settings.invite_share': 'আমন্ত্রণ ও শেয়ার',
@@ -427,7 +427,7 @@ const bn: Record<I18nKey, string> = {
   'chat.update_available_app_system_message':
     'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ। প্রয়োগ করতে অ্যাপটি আবার খুলুন।',
   'chat.system_audio_started_system_message':
-    'সিস্টেম অডিও শেয়ার করা শুরু হয়েছে। হোস্ট ও অতিথি ডিভাইসের মাঝে সামান্য বিলম্ব স্বাভাবিক। প্রতিধ্বনি এড়াতে হোস্ট ডিভাইসের ভলিউম কম রাখার পরামর্শ দেওয়া হচ্ছে।',
+    'সিস্টেম অডিও শেয়ার করা শুরু হয়েছে। হোস্ট ও অতিথি ডিভাইসের মাঝে সামান্য বিলম্ব স্বাভাবিক। প্রতিধ্বনি এড়াতে হোস্ট ডিভাইসের ভলিউম কমিয়ে রাখুন।',
   'chat.system_audio_stopped_system_message':
     'সিস্টেম অডিও শেয়ার করা শেষ হয়েছে। এই ডিভাইসটি আবার স্পিকার হিসেবে কাজ করতে হোস্ট এখন ভলিউম বাড়াতে পারেন।',
   'chat.remote_upload_limited_system_message':
@@ -492,11 +492,11 @@ const bn: Record<I18nKey, string> = {
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube লিংক লিখুন',
-  'youtube.enter_source': 'YouTube লিংক বা সার্চ লিখুন',
+  'youtube.enter_source': 'YouTube লিংক বা খোঁজার শব্দ লিখুন',
   'youtube.enter_link_prompt': 'YouTube লিংক বা খোঁজার শব্দ লিখুন',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'একসঙ্গে YouTube দেখুন',
-  'youtube.ready': 'YouTube প্রস্তুত!\nচালান চাপুন।',
+  'youtube.ready': 'YouTube প্রস্তুত!\nচালানোর বোতাম চাপুন।',
   'youtube.thumbnail': 'YouTube প্রিভিউ থাম্বনেইল',
   'youtube.load_fail': 'YouTube API লোড করা যায়নি।\nআপনার সংযোগ পরীক্ষা করুন!',
   'youtube.video_unavailable': 'ভিডিওটি পাওয়া যাচ্ছে না, পরের ট্র্যাকে যাওয়া হচ্ছে',
@@ -514,12 +514,12 @@ const bn: Record<I18nKey, string> = {
   'youtube.loading_large_playlist': 'বড় প্লেলিস্ট লোড হচ্ছে...',
   'youtube.indexing_playlist': 'প্লেলিস্টের আইটেম বিশ্লেষণ করা হচ্ছে...',
   'youtube.search_button': 'খুঁজুন',
-  'youtube.search_prompt': 'ভিডিও খুঁজতে Enter চাপুন বা খুঁজুন বেছে নিন',
+  'youtube.search_prompt': 'ভিডিও খুঁজতে Enter বা “খুঁজুন” চাপুন',
   'youtube.searching': 'YouTube-এ খোঁজা হচ্ছে...',
   'youtube.search_no_results': 'কোনো ভিডিও পাওয়া যায়নি',
-  'youtube.search_failed': 'YouTube সার্চ পাওয়া যাচ্ছে না',
+  'youtube.search_failed': 'YouTube-এ খোঁজা যাচ্ছে না',
   'youtube.search_selected': 'নির্বাচিত ভিডিওটি যোগ করার জন্য প্রস্তুত',
-  'youtube.search_results': 'YouTube সার্চের ফলাফল',
+  'youtube.search_results': 'YouTube-এ খোঁজার ফলাফল',
   'youtube.live_sync_warning': 'লাইভ স্ট্রিম নিখুঁতভাবে সিঙ্ক করা কঠিন।',
 
   // ─── Network ─────────────────────────────────────────────────────
@@ -549,7 +549,7 @@ const bn: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} অনুমতি {{status}}',
   'toast.file_read_error': 'ফাইল পড়তে সমস্যা: {{name}}',
   'toast.host_ended_connection': 'হোস্ট সংযোগটি শেষ করেছেন',
-  'toast.announcement_available': 'নতুন ঘোষণা এসেছে।\nচ্যাট প্যানেল দেখুন।',
+  'toast.announcement_available': 'নতুন নোটিশ এসেছে।\nচ্যাট প্যানেল দেখুন।',
 
   // ─── Toast (static) ──────────────────────────────────────────────
   'toast.copy_failed': 'কপি করা যায়নি',
@@ -572,7 +572,7 @@ const bn: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'চ্যাট নোটিশ পোস্ট করার অনুমতি প্রয়োজন।',
   'toast.room_owner_required': 'শুধু রুমের মালিক এটি পরিবর্তন করতে পারবেন।',
   'toast.system_audio_owner_required':
-    'আপনি কেবল সেই ট্যাব থেকেই অডিও শেয়ার করতে পারবেন যা রুমটি খুলেছিল।',
+    'যে ট্যাবে রুমটি খোলা হয়েছিল, শুধু সেই ট্যাব থেকেই অডিও শেয়ার করতে পারবেন।',
   'toast.host_only_youtube': 'শুধু হোস্ট YouTube লিংক যোগ করতে পারবেন।',
   'toast.host_only_control': 'শুধু হোস্ট এটি নিয়ন্ত্রণ করতে পারবেন',
   'toast.host_setting_required': 'শুধু হোস্ট এই সেটিং পরিবর্তন করতে পারবেন',
@@ -592,7 +592,7 @@ const bn: Record<I18nKey, string> = {
   'toast.sync_reset': 'সিঙ্ক অফসেট রিসেট হয়েছে',
   'toast.stop_sent': 'থামানোর অনুরোধ পাঠানো হয়েছে',
   'toast.hprecision_sync': 'উচ্চ-নির্ভুলতার সিঙ্ক: অডিও প্রস্তুত হচ্ছে\u2026',
-  'toast.file_ready': 'আপনার ফাইল প্রস্তুত!\nচালান চাপুন।',
+  'toast.file_ready': 'আপনার ফাইল প্রস্তুত!\nচালানোর বোতাম চাপুন।',
   'toast.host_sync_not_recommended': 'অতিথি ডিভাইসে সিঙ্ক সামঞ্জস্য করুন',
   'toast.host_sync_requested':
     'নির্ভুল সিঙ্কের অনুরোধ পাঠানো হয়েছে।\nঅতিথি ডিভাইসে ম্যানুয়াল সিঙ্ক সামঞ্জস্য করুন।',
@@ -604,7 +604,7 @@ const bn: Record<I18nKey, string> = {
   'toast.yt_sync_done': 'সিঙ্ক সম্পন্ন হয়েছে',
   'toast.yt_rendezvous_start': 'হোস্টের সঙ্গে মিলিয়ে নেওয়া হচ্ছে...',
   'toast.yt_rendezvous_done': 'সিঙ্ক সম্পন্ন হয়েছে',
-  'toast.yt_rendezvous_host_paused': 'হোস্ট বিরতিতে আছেন, শুধু প্লেব্যাকের অবস্থান মেলানো হয়েছে',
+  'toast.yt_rendezvous_host_paused': 'হোস্টের প্লেব্যাক বিরতিতে আছে, শুধু অবস্থান মেলানো হয়েছে',
   'toast.yt_rendezvous_no_data':
     'হোস্টের প্লেব্যাক তথ্য এখনো পাওয়া যায়নি, একটু পর আবার চেষ্টা করুন',
   'toast.yt_rendezvous_timeout': 'সিঙ্ক ব্যর্থ হয়েছে, একটু পর আবার চেষ্টা করুন',
@@ -638,7 +638,7 @@ const bn: Record<I18nKey, string> = {
   'share.remote.too_large': 'ফাইলটি অনেক বড় (সর্বোচ্চ 200 MB)',
   'share.remote.network_error': 'রিমোট শেয়ারের সময় নেটওয়ার্কে সমস্যা হয়েছে',
   'share.remote.rate_limited':
-    'রিমোট শেয়ারে অনেক বেশি ফাইল আপলোড করা হয়েছে।\nএকটু পর আবার চেষ্টা করুন',
+    'এই মুহূর্তে রিমোট শেয়ারে অনেক বেশি আপলোড হচ্ছে।\nএকটু পর আবার চেষ্টা করুন',
   'share.remote.quota_reached': 'রিমোট শেয়ারিংয়ের স্টোরেজ সীমা শেষ হয়েছে',
   'share.remote.auth_failed':
     'রিমোট শেয়ারের অনুমোদন যাচাই ব্যর্থ হয়েছে।\nWorker সেটিংস পরীক্ষা করুন',
@@ -712,7 +712,7 @@ const bn: Record<I18nKey, string> = {
     'সিঙ্ক ঠিক না থাকলে বা অডিও না চললে অ্যাপটি পুরোপুরি বন্ধ করে আবার খুলুন।',
   'dialog.got_it': 'বুঝেছি',
   'dialog.continue_using': 'চালিয়ে যান',
-  'dialog.leave_session': 'চলে যান',
+  'dialog.leave_session': 'ছেড়ে যান',
   'dialog.sw_update_title': 'আপডেট',
   'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত। আপডেট করতে রিফ্রেশ করুন।',
   'dialog.feature_refresh_title': 'রিফ্রেশ করা প্রয়োজন',
@@ -740,15 +740,15 @@ const bn: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO রুম সক্রিয় করুন',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'এই PRO রুমের জন্য একটি অ্যাকাউন্ট বেছে নিন',
+  'pro.activation_account_message': '“{{name}}” অ্যাকাউন্টে এই রুমটি নিবন্ধন করবেন?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'যে অ্যাকাউন্টে এই রুমটি নিবন্ধন করতে চান, সেটি দিয়ে সাইন ইন করুন।',
+  'pro.activation_account_continue': 'চালিয়ে যান',
+  'pro.activation_account_switch': 'অন্য অ্যাকাউন্ট',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'আপনার অ্যাকাউন্ট যাচাই করা যায়নি। একটু পর আবার চেষ্টা করুন।',
+  'pro.activation_complete': 'নিবন্ধন সম্পন্ন করুন',
   'pro.activation_message': 'এই রুমের জন্য 8 সংখ্যার নতুন পাসওয়ার্ড ঠিক করুন।',
   'pro.activation_pin_same': 'সাময়িক পাসওয়ার্ড থেকে আলাদা একটি পাসওয়ার্ড বেছে নিন।',
   'pro.claim_retry_title': 'PRO লিংক দিয়ে আবার চেষ্টা করবেন?',
@@ -844,7 +844,7 @@ const bn: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'সংযোগ করতে হোস্টের দেওয়া <strong>6 সংখ্যার কোড</strong> লিখুন।<ul class="help-list"><li><strong>হোস্ট:</strong> “রুম তৈরি করুন” → কোড দেখুন</li><li><strong>অংশগ্রহণকারী:</strong> “রুমে যোগ দিন” → কোড লিখুন</li><li>হোস্টসহ সর্বোচ্চ <strong>100টি ডিভাইস</strong> সংযুক্ত হতে পারে।</li></ul>',
   'player.play_speakers_html':
-    'প্রতিটি অংশগ্রহণকারী একটি <strong>ভূমিকা (আউটপুট চ্যানেল)</strong> বেছে নেন।<ul class="help-list"><li><strong>সেন্টার:</strong> স্টেরিও (ডিফল্ট) আউটপুট</li><li><strong>বাম (Left):</strong> <bdi dir="ltr">L</bdi> চ্যানেলের আউটপুট</li><li><strong>ডান (Right):</strong> <bdi dir="ltr">R</bdi> চ্যানেলের আউটপুট</li><li><strong>সাবউফার:</strong> নিম্ন ফ্রিকোয়েন্সির মিক্স আউটপুট</li></ul><strong>সেটিংস</strong> থেকে যেকোনো সময় ভূমিকা পরিবর্তন করতে পারবেন।',
+    'প্রতিটি অংশগ্রহণকারী একটি <strong>ভূমিকা (আউটপুট চ্যানেল)</strong> বেছে নেন।<ul class="help-list"><li><strong>সেন্টার স্পিকার:</strong> স্টেরিও (ডিফল্ট) আউটপুট</li><li><strong>বাম স্পিকার:</strong> <bdi dir="ltr">L</bdi> চ্যানেলের আউটপুট</li><li><strong>ডান স্পিকার:</strong> <bdi dir="ltr">R</bdi> চ্যানেলের আউটপুট</li><li><strong>সাবউফার:</strong> নিম্ন ফ্রিকোয়েন্সির মিক্স আউটপুট</li></ul><strong>সেটিংস</strong> থেকে যেকোনো সময় ভূমিকা পরিবর্তন করতে পারবেন।',
   'player.play_media_action_html':
     'হোস্টের কাছে 3টি বিকল্প আছে।<ul class="help-list"><li><strong>লোকাল ফাইল লোড:</strong> নিজের ডিভাইস থেকে গান বেছে নিন। নির্ভুল সিঙ্ক সমর্থিত</li><li><strong>একসঙ্গে YouTube:</strong> ভিডিও ও প্লেলিস্ট সমর্থিত। চ্যানেল আলাদা করা বা অডিও ইফেক্ট পাওয়া যাবে না</li><li><strong>সিস্টেম অডিও শেয়ারিং:</strong> হোস্ট কম্পিউটারে Chromium-ভিত্তিক ব্রাউজার ব্যবহার করলে পাওয়া যাবে</li></ul>',
   'help.need_help_html':
@@ -891,7 +891,7 @@ const bn: Record<I18nKey, string> = {
   'system_audio.stopped': 'সিস্টেম অডিও শেয়ারিং শেষ হয়েছে।\nপ্লেলিস্ট আবার চালু হচ্ছে।',
   'system_audio.host_channel_locked': 'সিস্টেম অডিও শেয়ারিংয়ের সময় ভূমিকা পরিবর্তন করা যায় না।',
   'system_audio.effects_guest_only':
-    'সিস্টেম অডিও চালু আছে।\nসাউন্ড ইফেক্ট শুধু অতিথি ডিভাইসে প্রয়োগ হবে।',
+    'সিস্টেম অডিও চালু আছে।\nঅডিও ইফেক্ট শুধু অতিথি ডিভাইসে প্রয়োগ হবে।',
   'system_audio.desktop_only':
     'শুধু Chromium-ভিত্তিক ব্রাউজার (Chrome, Edge ইত্যাদি) চালানো কম্পিউটারে পাওয়া যায়।',
   'system_audio.receive_failed':

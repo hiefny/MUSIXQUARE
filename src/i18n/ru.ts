@@ -53,13 +53,13 @@ const ru: Record<I18nKey, string> = {
   'account.privacy': 'Конфиденциальность',
   'account.unavailable': 'Вход временно недоступен. Вы можете продолжить без аккаунта.',
   'account.account_title': 'Аккаунт',
-  'account.stats_sessions_label': 'Сеансы с участием',
+  'account.stats_sessions_label': 'Посещённые сеансы',
   'account.stats_listening_label': 'Время прослушивания',
   'account.stats_tracks_label': 'Воспроизведённые медиа',
   'account.stats_count_value': '{{count}}',
   'account.stats_seconds_value': '{{seconds}} сек.',
   'account.stats_minutes_value': '{{minutes}} мин.',
-  'account.stats_hours_minutes_value': '{{hours}} ч {{minutes}} мин.',
+  'account.stats_hours_minutes_value': '{{hours}} ч {{minutes}} мин',
   'account.change_nickname': 'Изменить псевдоним',
   'account.logout': 'Выйти',
   'account.delete_account': 'Удалить аккаунт',
@@ -130,8 +130,8 @@ const ru: Record<I18nKey, string> = {
   'player.select_media': 'Выберите материал для воспроизведения',
   'player.play_together': 'Синхронное воспроизведение',
   'player.play_speakers': 'Использовать как динамик',
-  'player.auto_sync_label': 'Автосинхронизация (ms)',
-  'player.manual_sync_label': 'Ручная синхронизация (ms)',
+  'player.auto_sync_label': 'Автосинхронизация (мс)',
+  'player.manual_sync_label': 'Ручная синхронизация (мс)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Показать/скрыть плейлист',
@@ -188,7 +188,7 @@ const ru: Record<I18nKey, string> = {
   'settings.theme_desc': 'Выберите светлую или тёмную тему.',
   'player.visualizer_mode_hint': 'Выберите способ визуализации звука.',
   'settings.ui_sounds_desc': 'Включите или выключите звуки уведомлений, входа, выхода и касаний.',
-  'settings.reverb_desc': 'Настройте реверберацию и объём звучания.',
+  'settings.reverb_desc': 'Настройте реверберацию и резонанс звука.',
   'settings.eq_desc': 'Настройте тембр звука. Используйте вместе с регулировкой громкости.',
   'settings.surround_desc': 'Увеличивает разделение каналов для более объёмного звучания.',
   'settings.bass_desc': 'Синтезирует низкие частоты для более мощного звучания.',
@@ -224,10 +224,10 @@ const ru: Record<I18nKey, string> = {
   'settings.reverb_predelay': 'Предварительная задержка реверберации',
   'settings.reverb_lowcut': 'Низкочастотный срез реверберации',
   'settings.reverb_highcut': 'Высокочастотный срез реверберации',
-  'settings.decay_time': 'Время затухания',
+  'settings.decay_time': 'Время реверберации',
   'settings.predelay': 'Предварительная задержка',
   'settings.eq_title': 'Эквалайзер',
-  'settings.eq_bright': 'Четкость',
+  'settings.eq_bright': 'Чёткость',
   'settings.eq_warm': 'Теплота',
   'settings.eq_advanced': 'Расширенный',
   'settings.eq_off': 'Выкл.',
@@ -269,7 +269,7 @@ const ru: Record<I18nKey, string> = {
   'connect.permission_playback_control': 'Управление воспроизведением',
   'connect.permission_members_kick': 'Исключение участников',
   'connect.permission_chat_notice': 'Объявления в чате',
-  'connect.permission_inherited': 'Включено',
+  'connect.permission_inherited': 'Базовое право',
   'connect.kick_member_message': 'Отключить все устройства пользователя {{name}}?',
   'connect.device_toggle': 'Показать/скрыть устройства пользователя {{name}}',
   'connect.device_label': 'Устройство {{platform}} ({{code}})',
@@ -345,7 +345,7 @@ const ru: Record<I18nKey, string> = {
   'demo.effects_step_title': 'Настройте звук по своему вкусу.',
   'demo.effects_step_subtitle': 'Вы можете настроить все детали позже в Настройках.',
   'demo.finish_step_title': 'Всё готово!',
-  'demo.finish_step_subtitle': 'Присоединяйтесь и слушайте вместе!',
+  'demo.finish_step_subtitle': 'Возвращайтесь в приложение и слушайте вместе!',
   'demo.track_list_label': 'Список демо-треков',
   'demo.host_only_exit': 'Только хост комнаты может это сделать.',
   'demo.external_playback_stopped':
@@ -386,7 +386,7 @@ const ru: Record<I18nKey, string> = {
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects': 'В режиме YouTube настройки ролей и звуковые эффекты недоступны.',
   'help.media_synced_detail':
-    'Выбранные медиафайлы одновременно воспроизводятся на всех подключенных устройствах.',
+    'Выбранные медиафайлы одновременно воспроизводятся на всех подключённых устройствах.',
   'help.wifi_hotspot': 'Мобильная точка доступа также может объединить все устройства в одну сеть',
 
   // ─── Chat ────────────────────────────────────────────────────────
@@ -403,7 +403,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'Чат заблокирован',
   'chat.cmd_unfrozen': 'Чат разблокирован',
   'chat.cmd_frozen_blocked': 'Чат сейчас заблокирован',
-  'chat.cmd_muted': 'Пользователь {{name}} заглушён в чате',
+  'chat.cmd_muted': '{{name}} больше не может писать в чат',
   'chat.cmd_unmuted': 'Пользователь {{name}} снова может писать в чат',
   'chat.cmd_clear': 'История чата была очищена',
   'chat.cmd_filter_on': 'Фильтр ненормативной лексики включён',
@@ -423,7 +423,7 @@ const ru: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'Материал пропущен: некоторые устройства не поддерживают этот формат.',
   'chat.large_track_playback_system_message':
-    'Этот трек очень большой, поэтому при его использовании возможны задержки.',
+    'Этот материал очень большой, поэтому при его использовании возможны задержки.',
   'chat.large_local_track_system_message':
     'Этот материал занимает очень много места и может не воспроизводиться на некоторых устройствах.',
   'chat.device_track_unavailable_system_message':
@@ -433,9 +433,9 @@ const ru: Record<I18nKey, string> = {
   'chat.update_available_app_system_message':
     'Доступна новая версия MUSIXQUARE. Откройте приложение заново, чтобы применить её.',
   'chat.system_audio_started_system_message':
-    'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и участниками. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
+    'Трансляция системного звука запущена. Возможна небольшая задержка между хостом и участниками. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
   'chat.system_audio_stopped_system_message':
-    'Общий доступ к системному звуку завершён. Хост может снова прибавить громкость, чтобы это устройство опять работало как динамик.',
+    'Трансляция системного звука завершена. Хост может снова прибавить громкость, чтобы это устройство опять работало как динамик.',
   'chat.remote_upload_limited_system_message':
     'Достигнут лимит загрузки файлов.\nУдалённые участники могут попробовать позже.',
   'chat.remote_storage_quota_system_message':
@@ -475,20 +475,20 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_u_mute': '/mute [устройство]',
   'chat.cmd_u_unmute': '/unmute [устройство]',
   'chat.cmd_d_help': 'Показывает список доступных команд',
-  'chat.cmd_d_users': 'Показывает список подключенных пользователей',
-  'chat.cmd_d_bot': 'Попросить ИИ управлять плейлистом',
+  'chat.cmd_d_users': 'Показывает список подключённых пользователей',
+  'chat.cmd_d_bot': 'Поручает ИИ управление плейлистом',
   'chat.cmd_d_clear': 'Очищает историю чата',
   'chat.cmd_d_filter': 'Включает/выключает фильтр ненормативной лексики',
-  'chat.cmd_d_freeze': 'Заблокировать или разблокировать чат',
+  'chat.cmd_d_freeze': 'Блокирует или разблокирует чат',
   'chat.cmd_d_slowmode': 'Устанавливает интервал между сообщениями',
   'chat.cmd_d_w': 'Отправляет личное сообщение на указанное устройство',
   'chat.cmd_d_notice': 'Отправляет общее объявление для всех',
-  'chat.cmd_d_nick': 'Изменить псевдоним',
+  'chat.cmd_d_nick': 'Меняет псевдоним',
   'chat.cmd_d_kick': 'Исключает указанное устройство из комнаты',
   'chat.cmd_d_op': 'Назначает администратором указанное устройство',
   'chat.cmd_d_deop': 'Снимает полномочия администратора с указанного устройства',
-  'chat.cmd_d_mute': 'Заглушить чат на указанном устройстве',
-  'chat.cmd_d_unmute': 'Снять заглушение чата на указанном устройстве',
+  'chat.cmd_d_mute': 'Запрещает указанному устройству писать в чат',
+  'chat.cmd_d_unmute': 'Снова разрешает указанному устройству писать в чат',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Показывает системную информацию об отладке',
   'chat.debug_copied':
@@ -555,7 +555,7 @@ const ru: Record<I18nKey, string> = {
   'toast.decoding_audio': 'Декодирование аудио...',
   'toast.preparing_next': 'Подготовка следующего материала... ({{name}})',
   'toast.preparing_next_pct': 'Подготовка следующего материала... {{pct}}%',
-  'toast.op_status': 'Права для {{label}} были {{status}}',
+  'toast.op_status': '{{label}}: права {{status}}',
   'toast.file_read_error': 'Ошибка чтения файла: {{name}}',
   'toast.host_ended_connection': 'Хост разорвал соединение',
   'toast.announcement_available': 'Есть новое объявление.\nПроверьте чат.',
@@ -601,13 +601,13 @@ const ru: Record<I18nKey, string> = {
   'dialog.continue': 'Продолжить',
   'toast.sync_reset': 'Смещение синхронизации сброшено',
   'toast.stop_sent': 'Запрос на остановку воспроизведения отправлен',
-  'toast.hprecision_sync': 'Высокоточная синхронизация: подготовка аудио...',
+  'toast.hprecision_sync': 'Высокоточная синхронизация: подготовка аудио…',
   'toast.file_ready': 'Файл готов!\nНажмите кнопку «Воспроизвести».',
   'toast.host_sync_not_recommended': 'Настройте синхронизацию на устройстве участника',
   'toast.host_sync_requested':
     'Запрошена точная синхронизация.\nНастройте ручную синхронизацию на устройстве участника.',
   'toast.sync_not_in_system_audio':
-    'Синхронизация не поддерживается в режиме общего доступа к системному звуку',
+    'Синхронизация не поддерживается в режиме трансляции системного звука',
   'toast.sync_not_ready': 'Ещё не готово.\nПопробуйте ещё раз через минуту',
   'toast.sync_no_media': 'Нет медиафайла для синхронизации.\nСначала выберите, что воспроизвести',
   'toast.host_ad': 'Хост комнаты, похоже, сейчас смотрит рекламу',
@@ -635,7 +635,7 @@ const ru: Record<I18nKey, string> = {
   'transfer.demo_load_fail': 'Не удалось загрузить демо-трек:',
   'transfer.demo_loading_short': 'Загрузка демо-трека...',
   'transfer.file_requesting': 'Запрос файла...',
-  'transfer.file_sending': 'Отправка файла...',
+  'transfer.file_sending': 'Отправка файла…',
   'transfer.file_wait': 'Ожидание файла...\nПожалуйста, подождите',
   'transfer.preload_done': 'Используется предзагруженный файл!',
   'transfer.preload_waiting': 'Ожидание завершения предзагрузки...',
@@ -657,7 +657,7 @@ const ru: Record<I18nKey, string> = {
   'share.remote.expired':
     'Срок действия ссылки на удалённый файл истёк.\nПоделитесь файлом ещё раз.',
   'share.remote.unavailable':
-    'Удалённый обмен файлами недоступен.\nПопробуйте ещё раз через минуту.',
+    'Удалённый обмен файлами не удался.\nПопробуйте ещё раз через минуту.',
   'transfer.preload_fail': 'Предзагрузка не удалась. Повторная загрузка...',
   'transfer.download_finishing': 'Завершение загрузки...',
   'transfer.preparation_delayed': 'Медленная загрузка...\nЗапрос восстановления отправлен хосту.',
@@ -677,7 +677,7 @@ const ru: Record<I18nKey, string> = {
   'error.all_tracks_failed': 'В плейлисте нет материалов, доступных для воспроизведения.',
   'error.audio_engine_prepare': 'Не удалось запустить звуковой движок',
   'error.session_create_fail': 'Не удалось создать комнату',
-  'error.network_generic': 'Обнаружена ошибка сети',
+  'error.network_generic': 'Произошла ошибка сети',
   'error.peer_app_version_mismatch':
     '{{name}} не может войти, потому что версии приложения не совпадают. Обновите страницу на обоих устройствах.',
   'error.app_version_mismatch':
@@ -687,12 +687,12 @@ const ru: Record<I18nKey, string> = {
   'error.host_unreachable': 'Похоже, хост вышел из комнаты',
   'error.host_disconnected': 'Соединение с хостом комнаты прервано',
   'error.host_conn_error': 'Ошибка соединения с хостом комнаты',
-  'error.connect_failed': 'Соединение не удалось',
+  'error.connect_failed': 'Не удалось подключиться',
   'error.peer_not_ready': 'Соединение между устройствами ещё не готово',
   'error.network_init_failed': 'Инициализация сети не удалась',
   'error.no_host_id': 'Идентификатор хоста комнаты не найден',
   'error.peer_unavailable': 'Комната не найдена.\nПроверьте введённый код.',
-  'error.host_left': 'Похоже, хост покинул комнату',
+  'error.host_left': 'Похоже, хост вышел из комнаты',
   'error.network_issue': 'Проблема с сетью.\nПроверьте подключение к интернету.',
   'error.signal_server_fail':
     'Не удалось связаться с сервером сигналинга.\nПопробуйте ещё раз через минуту.',
@@ -718,7 +718,7 @@ const ru: Record<I18nKey, string> = {
   'dialog.background_resume_title': 'Приложение перешло в фоновый режим',
   'dialog.audio_recovery_title': 'Воспроизведение звука приостановилось',
   'dialog.audio_recovery_message':
-    'После возврата из фонового режима звук на этом устройстве не восстановился. Подключение к комнате останется активным, пока мы повторно синхронизируем звук только на этом устройстве.',
+    'После возврата из фонового режима звук на этом устройстве не восстановился. Подключение к комнате сохранится, а MUSIXQUARE заново настроит звук только на этом устройстве.',
   'dialog.audio_recovery_action': 'Восстановить звук',
   'dialog.background_resume_message':
     'Если синхронизация сбилась или звук не воспроизводится, полностью закройте приложение и откройте его снова.',
@@ -732,7 +732,7 @@ const ru: Record<I18nKey, string> = {
   'dialog.feature_refresh_title': 'Нужно обновить страницу',
   'dialog.feature_refresh_msg':
     'Вышло обновление MUSIXQUARE. Чтобы и дальше пользоваться им как обычно, обновите страницу.',
-  'dialog.reconnect_ask': 'Желаете восстановить подключение?',
+  'dialog.reconnect_ask': 'Хотите подключиться заново?',
   'dialog.reconnect': 'Подключить заново',
   'dialog.go_back': 'Назад',
   'dialog.step_next': 'Далее',
@@ -753,15 +753,15 @@ const ru: Record<I18nKey, string> = {
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Активировать PRO-комнату',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
+  'pro.activation_account_title': 'Выберите аккаунт для этой PRO-комнаты',
+  'pro.activation_account_message': 'Зарегистрировать эту комнату на аккаунт «{{name}}»?',
   'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+    'Войдите в аккаунт, на который хотите зарегистрировать эту комнату.',
+  'pro.activation_account_continue': 'Продолжить',
+  'pro.activation_account_switch': 'Другой аккаунт',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'Не удалось проверить аккаунт. Повторите попытку чуть позже.',
+  'pro.activation_complete': 'Завершить регистрацию',
   'pro.activation_message': 'Задайте новый 8-значный цифровой пароль для этой комнаты.',
   'pro.activation_pin_same': 'Выберите пароль, отличный от временного.',
   'pro.claim_retry_title': 'Повторить попытку по PRO-ссылке?',
@@ -819,7 +819,7 @@ const ru: Record<I18nKey, string> = {
   'pro.pin_enabled_removed_title': 'Для комнаты задан пароль',
   'pro.pin_enabled_removed_message':
     'Владелец комнаты задал пароль для этой комнаты. Введите его, чтобы войти снова.',
-  'pro.pin_changed_removed_title': 'Пароль комнаты сменился',
+  'pro.pin_changed_removed_title': 'Пароль комнаты изменён',
   'pro.pin_changed_removed_message':
     'Владелец комнаты изменил пароль. Введите новый пароль, чтобы войти снова.',
   'pro.removed_title': 'Вы удалены из комнаты',
@@ -880,7 +880,7 @@ const ru: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'Установите роль для каждого устройства.<br>Воспроизводите левый и правый каналы раздельно<br>и ощутите глубокий бас с сабвуфером.',
   'setup.advanced_audio_desc_html':
-    'Повторите настройки хоста во всей системе:<br>реверберацию, эквалайзер, виртуальные эффекты<br>и многое другое.',
+    'Примените настройки хоста ко всей системе:<br>реверберацию, эквалайзер, виртуальные эффекты<br>и многое другое.',
   'youtube.enter_link_desc_html': 'Можно воспроизводить только публичные видео и плейлисты.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
@@ -894,7 +894,7 @@ const ru: Record<I18nKey, string> = {
   'system_audio.coordinator_update_required':
     'Обновите устройство, управляющее этой комнатой, чтобы поделиться системным звуком.',
   'system_audio.connection_unstable':
-    'Соединение с системным звуком {{name}} нестабильно.\nПытаемся восстановить его.',
+    'Соединение системного звука участника {{name}} нестабильно.\nПытаемся восстановить его.',
   'system_audio.capture_denied': 'Трансляция звука была отменена.',
   'system_audio.no_audio_track':
     'Опция «Поделиться звуком» не была активирована.\nПопробуйте ещё раз.',

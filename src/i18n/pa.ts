@@ -19,7 +19,7 @@ const pa: Record<I18nKey, string> = {
   'common.close': 'ਬੰਦ ਕਰੋ',
   'common.reset': 'ਮੁੜ ਸੈੱਟ ਕਰੋ',
   'common.clear_input': 'ਲਿਖਤ ਸਾਫ਼ ਕਰੋ',
-  'common.refresh': 'ਮੁੜ ਲੋਡ ਕਰੋ',
+  'common.refresh': 'ਰਿਫ੍ਰੈਸ਼ ਕਰੋ',
   'common.retry': 'ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'common.later': 'ਬਾਅਦ ਵਿੱਚ',
   'common.next': 'ਅੱਗੇ',
@@ -103,7 +103,7 @@ const pa: Record<I18nKey, string> = {
   'nav.playlist': 'ਪਲੇਲਿਸਟ',
   'nav.settings': 'ਸੈਟਿੰਗਾਂ',
   'nav.help': 'ਮਦਦ',
-  'nav.connect': 'ਕਨੈਕਟ ਕਰੋ',
+  'nav.connect': 'ਕਨੈਕਟ',
   'nav.playlist_compact': 'ਪਲੇਲਿਸਟ',
   'nav.connect_compact': 'ਕਨੈਕਟ',
   'nav.settings_compact': 'ਸੈਟਿੰਗਾਂ',
@@ -180,7 +180,7 @@ const pa: Record<I18nKey, string> = {
   'settings.ui_sounds': 'ਇੰਟਰਫੇਸ ਦੀਆਂ ਆਵਾਜ਼ਾਂ',
   'settings.sync_settings': 'ਸੈਟਿੰਗਾਂ ਦਾ ਸਿੰਕ',
   'settings.sync_settings_desc':
-    'ਜਿਨ੍ਹਾਂ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਸੈਟਿੰਗ ਚਾਲੂ ਹੈ, ਉਹ ਆਪਣੀ ਆਵਾਜ਼ ਅਤੇ ਆਡੀਓ ਪ੍ਰਭਾਵਾਂ ਨੂੰ ਸਿੰਕ ਕਰਦੀਆਂ ਹਨ।',
+    'ਜਿਨ੍ਹਾਂ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਸੈਟਿੰਗ ਚਾਲੂ ਹੈ, ਉਹ ਆਪਣੀ ਆਵਾਜ਼ ਦੇ ਪੱਧਰ ਅਤੇ ਆਡੀਓ ਪ੍ਰਭਾਵਾਂ ਨੂੰ ਸਿੰਕ ਕਰਦੀਆਂ ਹਨ।',
   'settings.virtual_effects_title': 'ਵਰਚੁਅਲ ਪ੍ਰਭਾਵ',
   'settings.virtual_effects_desc':
     'ਆਡੀਓ ਉੱਤੇ ਬਣਾਉਟੀ ਪ੍ਰਭਾਵ ਲਗਾਓ। ਇਸ ਨਾਲ ਆਵਾਜ਼ ਬਹੁਤ ਜ਼ਿਆਦਾ ਵਿਗੜ ਸਕਦੀ ਹੈ।',
@@ -270,7 +270,7 @@ const pa: Record<I18nKey, string> = {
   'connect.permission_playback_control': 'ਪਲੇਬੈਕ ਕੰਟਰੋਲ',
   'connect.permission_members_kick': 'ਮੈਂਬਰਾਂ ਨੂੰ ਕੱਢਣਾ',
   'connect.permission_chat_notice': 'ਚੈਟ ਸੂਚਨਾਵਾਂ ਪੋਸਟ ਕਰਨਾ',
-  'connect.permission_inherited': 'ਸ਼ਾਮਲ',
+  'connect.permission_inherited': 'ਪਹਿਲਾਂ ਤੋਂ ਸ਼ਾਮਲ',
   'connect.kick_member_message': '{{name}} ਵਜੋਂ ਜੁੜੀਆਂ ਸਾਰੀਆਂ ਡਿਵਾਈਸਾਂ ਹਟਾਉਣੀਆਂ ਹਨ?',
   'connect.device_toggle': '{{name}} ਦੀਆਂ ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ ਫੈਲਾਓ/ਸਮੇਟੋ',
   'connect.device_label': '{{platform}} ਡਿਵਾਈਸ ({{code}})',
@@ -305,7 +305,7 @@ const pa: Record<I18nKey, string> = {
   'connect.signaling_recovered': 'ਰੂਮ ਸਰਵਰ ਦਾ ਕਨੈਕਸ਼ਨ ਮੁੜ ਬਹਾਲ ਹੋ ਗਿਆ।',
   'connect.signaling_exhausted': 'ਰੂਮ ਸਰਵਰ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਿਹਾ।\nਨਵੇਂ ਭਾਗੀਦਾਰ ਕਨੈਕਟ ਨਹੀਂ ਹੋ ਸਕਦੇ।',
   'connect.signaling_exhausted_pro':
-    'ਰੂਮ ਸਰਵਰ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਿਹਾ। ਨਵੇਂ ਜੁੜਨ ਵਾਲੇ ਅਤੇ ਲਾਈਵ ਅੱਪਡੇਟ ਸੀਮਤ ਹਨ।',
+    'ਰੂਮ ਸਰਵਰ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਿਹਾ। ਨਵੀਆਂ ਡਿਵਾਈਸਾਂ ਦਾ ਸ਼ਾਮਲ ਹੋਣਾ ਅਤੇ ਲਾਈਵ ਅੱਪਡੇਟ ਸੀਮਤ ਹਨ।',
   'connect.signaling_retry': 'ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'connect.signaling_restart': 'ਸੈਸ਼ਨ ਮੁੜ ਸ਼ੁਰੂ ਕਰੋ',
   'connect.signaling_new_room': 'ਨਵਾਂ ਰੂਮ ਸ਼ੁਰੂ ਕਰੋ',
@@ -340,7 +340,7 @@ const pa: Record<I18nKey, string> = {
   'demo.session_body_connected':
     'ਇਸ ਵੇਲੇ {{count}} ਡਿਵਾਈਸਾਂ ਜੁੜੀਆਂ ਹੋਈਆਂ ਹਨ।\nਹਰ ਡਿਵਾਈਸ ਦੀ ਭੂਮਿਕਾ ਸੈੱਟ ਕਰੋ।',
   'demo.session_body_alone':
-    'ਇਸ ਵੇਲੇ ਸਿਰਫ਼ ਇਹ ਡਿਵਾਈਸ ਚੱਲ ਰਹੀ ਹੈ।\nਹੁਣ ਕਿਸੇ ਹੋਰ ਡਿਵਾਈਸ ਨੂੰ ਸੱਦਾ ਦਿਓ।',
+    'ਇਸ ਵੇਲੇ ਸਿਰਫ਼ ਇਹ ਡਿਵਾਈਸ ਆਡੀਓ ਚਲਾ ਰਹੀ ਹੈ।\nਹੁਣ ਕਿਸੇ ਹੋਰ ਡਿਵਾਈਸ ਨੂੰ ਸੱਦਾ ਦਿਓ।',
   'demo.effects_step_title': 'ਆਪਣੀ ਸ਼ਾਨਦਾਰ ਆਵਾਜ਼ ਤਿਆਰ ਕਰੋ।',
   'demo.effects_step_subtitle':
     'ਤੁਸੀਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਇਹਨਾਂ ਉੱਨਤ ਆਵਾਜ਼ ਗੁਣਾਂ ਨੂੰ ਕਦੇ ਵੀ ਬਾਰੀਕੀ ਨਾਲ ਬਦਲ ਸਕਦੇ ਹੋ।',
@@ -404,8 +404,8 @@ const pa: Record<I18nKey, string> = {
   'chat.cmd_muted': 'ਹੁਣ {{name}} ਵੱਲੋਂ ਚੈਟ ਸੁਨੇਹੇ ਨਹੀਂ ਭੇਜੇ ਜਾ ਸਕਦੇ',
   'chat.cmd_unmuted': 'ਹੁਣ {{name}} ਵੱਲੋਂ ਮੁੜ ਚੈਟ ਸੁਨੇਹੇ ਭੇਜੇ ਜਾ ਸਕਦੇ ਹਨ',
   'chat.cmd_clear': 'ਚੈਟ ਸਾਫ਼ ਕਰ ਦਿੱਤੀ ਗਈ ਹੈ',
-  'chat.cmd_filter_on': 'ਗਲਤ ਸ਼ਬਦਾਂ ਦਾ ਫ਼ਿਲਟਰ ਚਾਲੂ ਹੈ',
-  'chat.cmd_filter_off': 'ਗਲਤ ਸ਼ਬਦਾਂ ਦਾ ਫ਼ਿਲਟਰ ਬੰਦ ਹੈ',
+  'chat.cmd_filter_on': 'ਅਣਉਚਿਤ ਸ਼ਬਦਾਂ ਦਾ ਫ਼ਿਲਟਰ ਚਾਲੂ ਹੈ',
+  'chat.cmd_filter_off': 'ਅਣਉਚਿਤ ਸ਼ਬਦਾਂ ਦਾ ਫ਼ਿਲਟਰ ਬੰਦ ਹੈ',
   'chat.cmd_slowmode_on': 'ਹੌਲੀ ਮੋਡ: ਸੁਨੇਹਿਆਂ ਵਿਚਕਾਰ {{sec}} ਸਕਿੰਟ',
   'chat.cmd_slowmode_off': 'ਹੌਲੀ ਮੋਡ ਬੰਦ ਹੈ',
   'chat.cmd_slowmode_wait': 'ਭੇਜਣ ਤੋਂ ਪਹਿਲਾਂ {{sec}} ਸਕਿੰਟ ਉਡੀਕ ਕਰੋ',
@@ -421,7 +421,7 @@ const pa: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'ਟਰੈਕ ਛੱਡਿਆ ਜਾ ਰਿਹਾ ਹੈ: ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਇਹ ਫਾਰਮੈਟ ਨਹੀਂ ਚੱਲਦਾ।',
   'chat.large_track_playback_system_message':
-    'ਇਹ ਟ੍ਰੈਕ ਬਹੁਤ ਵੱਡਾ ਹੈ, ਇਸ ਲਈ ਇਸਨੂੰ ਵਰਤਦੇ ਸਮੇਂ ਦੇਰੀ ਹੋ ਸਕਦੀ ਹੈ।',
+    'ਇਹ ਟਰੈਕ ਬਹੁਤ ਵੱਡਾ ਹੈ, ਇਸ ਲਈ ਇਸ ਨੂੰ ਵਰਤਦੇ ਸਮੇਂ ਦੇਰੀ ਹੋ ਸਕਦੀ ਹੈ।',
   'chat.large_local_track_system_message':
     'ਇਸ ਟਰੈਕ ਦੀ ਫ਼ਾਈਲ ਬਹੁਤ ਵੱਡੀ ਹੈ ਅਤੇ ਕੁਝ ਡਿਵਾਈਸਾਂ ਉੱਤੇ ਸ਼ਾਇਦ ਨਾ ਚੱਲੇ।',
   'chat.device_track_unavailable_system_message': 'ਇਹ ਡਿਵਾਈਸ ਮੌਜੂਦਾ ਟਰੈਕ ਨਹੀਂ ਚਲਾ ਸਕਦੀ।',
@@ -432,7 +432,7 @@ const pa: Record<I18nKey, string> = {
   'chat.system_audio_started_system_message':
     'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਸ਼ੁਰੂ ਹੋ ਗਿਆ ਹੈ। ਹੋਸਟ ਅਤੇ ਮਹਿਮਾਨ ਡਿਵਾਈਸਾਂ ਵਿਚਕਾਰ ਥੋੜ੍ਹੀ ਦੇਰੀ ਆਮ ਗੱਲ ਹੈ। ਗੂੰਜ ਤੋਂ ਬਚਣ ਲਈ ਹੋਸਟ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਘਟਾਉਣ ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕੀਤੀ ਜਾਂਦੀ ਹੈ।',
   'chat.system_audio_stopped_system_message':
-    'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਖ਼ਤਮ ਹੋ ਗਿਆ ਹੈ। ਇਹ ਡਿਵਾਈਸ ਮੁੜ ਸਪੀਕਰ ਵਜੋਂ ਕੰਮ ਕਰ ਸਕੇ, ਇਸ ਲਈ ਹੋਸਟ ਹੁਣ ਆਪਣੀ ਆਵਾਜ਼ ਵਧਾ ਸਕਦਾ ਹੈ।',
+    'ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਖ਼ਤਮ ਹੋ ਗਿਆ ਹੈ। ਹੋਸਟ ਹੁਣ ਆਪਣੀ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਮੁੜ ਵਧਾ ਸਕਦਾ ਹੈ, ਤਾਂ ਜੋ ਉਹ ਡਿਵਾਈਸ ਫਿਰ ਸਪੀਕਰ ਵਜੋਂ ਕੰਮ ਕਰੇ।',
   'chat.remote_upload_limited_system_message':
     'ਫ਼ਾਈਲ ਅੱਪਲੋਡ ਦੀ ਹੱਦ ਪੂਰੀ ਹੋ ਗਈ ਹੈ।\nਦੂਰੋਂ ਜੁੜੇ ਭਾਗੀਦਾਰ ਬਾਅਦ ਵਿੱਚ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰਨ।',
   'chat.remote_storage_quota_system_message':
@@ -442,38 +442,38 @@ const pa: Record<I18nKey, string> = {
   'chat.pinned_close': 'ਸੂਚਨਾ ਬੰਦ ਕਰੋ',
   'chat.cmd_whisper_from': '{{name}} ਵੱਲੋਂ ਨਿੱਜੀ ਸੁਨੇਹਾ',
   'chat.cmd_whisper_to': '{{name}} ਨੂੰ ਨਿੱਜੀ ਸੁਨੇਹਾ',
-  'chat.cmd_target_not_found': 'ਟੀਚਾ ਨਹੀਂ ਮਿਲਿਆ: {{target}}',
+  'chat.cmd_target_not_found': 'ਡਿਵਾਈਸ ਨਹੀਂ ਮਿਲੀ: {{target}}',
   'chat.cmd_no_permission': 'ਤੁਹਾਡੇ ਕੋਲ ਇਜਾਜ਼ਤ ਨਹੀਂ ਹੈ',
   'chat.cmd_nick_changed': 'ਨਾਮ ਬਦਲ ਕੇ {{name}} ਕਰ ਦਿੱਤਾ ਗਿਆ',
   'chat.cmd_already_op': '{{name}} ਪਹਿਲਾਂ ਹੀ ਪ੍ਰਬੰਧਕ ਹੈ',
   'chat.cmd_not_op': '{{name}} ਪ੍ਰਬੰਧਕ ਨਹੀਂ ਹੈ',
   'chat.cmd_help_title': 'ਉਪਲਬਧ ਕਮਾਂਡਾਂ',
-  'chat.cmd_help_target_hint': '* [device] ਹਰ ਡਿਵਾਈਸ ਦਾ ਵਿਲੱਖਣ ਨੰਬਰ ਹੈ (ਜਿਵੇਂ #1)',
+  'chat.cmd_help_target_hint': '* [ਡਿਵਾਈਸ] ਹਰ ਡਿਵਾਈਸ ਦਾ ਵਿਲੱਖਣ ਨੰਬਰ ਹੈ (ਜਿਵੇਂ #1)',
   'chat.cmd_unknown': 'ਅਣਜਾਣ ਕਮਾਂਡ: /{{cmd}}',
   'chat.cmd_usage': 'ਵਰਤੋਂ: {{usage}}',
   'chat.cmd_users_title': 'ਜੁੜੇ ਵਰਤੋਂਕਾਰ',
   'chat.cmd_users_me': 'ਮੈਂ',
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
-  'chat.cmd_u_bot': '/bot [request]',
+  'chat.cmd_u_bot': '/bot [ਬੇਨਤੀ]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
-  'chat.cmd_u_slowmode': '/slowmode [seconds]',
-  'chat.cmd_u_w': '/w [device] [message]',
-  'chat.cmd_u_whisper': '/whisper [device] [message]',
-  'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [new name]',
-  'chat.cmd_u_kick': '/kick [device]',
-  'chat.cmd_u_op': '/op [device]',
-  'chat.cmd_u_deop': '/deop [device]',
-  'chat.cmd_u_mute': '/mute [device]',
-  'chat.cmd_u_unmute': '/unmute [device]',
+  'chat.cmd_u_slowmode': '/slowmode [ਸਕਿੰਟ]',
+  'chat.cmd_u_w': '/w [ਡਿਵਾਈਸ] [ਸੁਨੇਹਾ]',
+  'chat.cmd_u_whisper': '/whisper [ਡਿਵਾਈਸ] [ਸੁਨੇਹਾ]',
+  'chat.cmd_u_notice': '/notice [ਸੁਨੇਹਾ]',
+  'chat.cmd_u_nick': '/nick [ਨਵਾਂ ਨਾਮ]',
+  'chat.cmd_u_kick': '/kick [ਡਿਵਾਈਸ]',
+  'chat.cmd_u_op': '/op [ਡਿਵਾਈਸ]',
+  'chat.cmd_u_deop': '/deop [ਡਿਵਾਈਸ]',
+  'chat.cmd_u_mute': '/mute [ਡਿਵਾਈਸ]',
+  'chat.cmd_u_unmute': '/unmute [ਡਿਵਾਈਸ]',
   'chat.cmd_d_help': 'ਕਮਾਂਡਾਂ ਦੀ ਸੂਚੀ',
   'chat.cmd_d_users': 'ਜੁੜੇ ਵਰਤੋਂਕਾਰ ਵੇਖੋ',
   'chat.cmd_d_bot': 'ਪਲੇਲਿਸਟ ਸੰਭਾਲਣ ਲਈ AI ਨੂੰ ਕਹੋ',
   'chat.cmd_d_clear': 'ਚੈਟ ਦਾ ਇਤਿਹਾਸ ਸਾਫ਼ ਕਰੋ',
-  'chat.cmd_d_filter': 'ਗਲਤ ਸ਼ਬਦਾਂ ਦਾ ਫ਼ਿਲਟਰ',
+  'chat.cmd_d_filter': 'ਅਣਉਚਿਤ ਸ਼ਬਦਾਂ ਦਾ ਫ਼ਿਲਟਰ',
   'chat.cmd_d_freeze': 'ਚੈਟ ਰੋਕੋ',
   'chat.cmd_d_slowmode': 'ਹੌਲੀ ਮੋਡ',
   'chat.cmd_d_w': 'ਨਿੱਜੀ ਸੁਨੇਹਾ',
@@ -541,7 +541,7 @@ const pa: Record<I18nKey, string> = {
   'toast.remote_decode_device_wait':
     'ਇੱਕ ਡਿਵਾਈਸ ਇਸ ਟਰੈਕ ਨੂੰ ਡੀਕੋਡ ਨਹੀਂ ਕਰ ਸਕੀ। ਬਾਕੀ ਸਾਰਿਆਂ ਲਈ ਪਲੇਬੈਕ ਜਾਰੀ ਹੈ।',
   'toast.invite_code': 'ਸੱਦਾ ਕੋਡ: {{code}}',
-  'toast.invite_code_info': '{{count}} ਜੁੜੇ | ਕੋਡ {{code}}',
+  'toast.invite_code_info': 'ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ: {{count}} | ਕੋਡ {{code}}',
   'toast.added_tracks': '{{count}} ਟਰੈਕ ਜੋੜੇ ਗਏ',
   'toast.preparing': 'ਤਿਆਰ ਹੋ ਰਿਹਾ ਹੈ: {{name}}',
   'toast.file_save_error': 'ਫ਼ਾਈਲ ਸੰਭਾਲਣ ਵਿੱਚ ਗੜਬੜ: {{name}}',
@@ -552,7 +552,7 @@ const pa: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} ਇਜਾਜ਼ਤ {{status}}',
   'toast.file_read_error': 'ਫ਼ਾਈਲ ਪੜ੍ਹਨ ਵਿੱਚ ਗੜਬੜ: {{name}}',
   'toast.host_ended_connection': 'ਹੋਸਟ ਨੇ ਕਨੈਕਸ਼ਨ ਖ਼ਤਮ ਕਰ ਦਿੱਤਾ ਹੈ',
-  'toast.announcement_available': 'ਨਵਾਂ ਐਲਾਨ ਹੈ।\nਚੈਟ ਪੈਨਲ ਵੇਖੋ।',
+  'toast.announcement_available': 'ਨਵੀਂ ਸੂਚਨਾ ਹੈ।\nਚੈਟ ਪੈਨਲ ਵੇਖੋ।',
   'toast.copy_failed': 'ਕਾਪੀ ਨਹੀਂ ਹੋ ਸਕੀ',
   'toast.email_copied': 'ਈਮੇਲ ਪਤਾ ਕਾਪੀ ਹੋ ਗਿਆ!',
   'toast.settings_sync_enabled': 'ਸੈਟਿੰਗਾਂ ਦਾ ਸਿੰਕ ਚਾਲੂ ਹੈ',
@@ -741,15 +741,14 @@ const pa: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'PRO ਰੂਮ ਚਾਲੂ ਕਰੋ',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
+  'pro.activation_account_title': 'ਇਸ PRO ਰੂਮ ਲਈ ਖਾਤਾ ਚੁਣੋ',
+  'pro.activation_account_message': 'ਇਹ ਰੂਮ “{{name}}” ਖਾਤੇ ਨਾਲ ਰਜਿਸਟਰ ਕਰਨਾ ਹੈ?',
+  'pro.activation_account_login_message': 'ਜਿਸ ਖਾਤੇ ਨਾਲ ਇਹ ਰੂਮ ਰਜਿਸਟਰ ਕਰਨਾ ਹੈ, ਉਸ ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
+  'pro.activation_account_continue': 'ਅੱਗੇ ਵਧੋ',
+  'pro.activation_account_switch': 'ਹੋਰ ਖਾਤਾ',
   'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+    'ਖਾਤੇ ਦੀ ਜਾਣਕਾਰੀ ਜਾਂਚੀ ਨਹੀਂ ਜਾ ਸਕੀ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'pro.activation_complete': 'ਰਜਿਸਟ੍ਰੇਸ਼ਨ ਪੂਰੀ ਕਰੋ',
   'pro.activation_message': 'ਇਸ ਰੂਮ ਲਈ ਨਵਾਂ 8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ ਸੈੱਟ ਕਰੋ।',
   'pro.activation_pin_same': 'ਆਰਜ਼ੀ ਪਾਸਵਰਡ ਤੋਂ ਵੱਖਰਾ ਪਾਸਵਰਡ ਚੁਣੋ।',
   'pro.claim_retry_title': 'PRO ਲਿੰਕ ਨੂੰ ਦੁਬਾਰਾ ਅਜ਼ਮਾਉਣਾ ਹੈ?',
@@ -798,7 +797,7 @@ const pa: Record<I18nKey, string> = {
   'pro.pin_members_title': 'ਮੌਜੂਦਾ ਭਾਗੀਦਾਰਾਂ ਦਾ ਕੀ ਕਰੀਏ?',
   'pro.pin_members_keep': 'ਸਾਰਿਆਂ ਨੂੰ ਰਹਿਣ ਦਿਓ',
   'pro.pin_members_keep_detail':
-    'ਸਿਰਫ਼ ਦੁਬਾਰਾ ਜਾਂ ਪਹਿਲੀ ਵਾਰ ਸ਼ਾਮਲ ਹੋਣ ਵਾਲੀਆਂ ਡਿਵਾਈਸਾਂ ਨੂੰ ਪਾਸਵਰਡ ਦਰਜ ਕਰਨਾ ਪਵੇਗਾ।',
+    'ਸਿਰਫ਼ ਦੁਬਾਰਾ ਜਾਂ ਪਹਿਲੀ ਵਾਰ ਸ਼ਾਮਲ ਹੋਣ ਵਾਲੀਆਂ ਡਿਵਾਈਸਾਂ ਨੂੰ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰਨਾ ਪਵੇਗਾ।',
   'pro.pin_members_reenter': 'ਸਾਰੇ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ',
   'pro.pin_members_reenter_detail':
     'ਸਾਰਿਆਂ ਨੂੰ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣਾ ਪਵੇਗਾ। ਅਣਜਾਣ ਲੋਕਾਂ ਨੂੰ ਇੱਕੋ ਵਾਰ ਹਟਾਉਣ ਲਈ ਅਸੀਂ ਇਸ ਤਰੀਕੇ ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕਰਦੇ ਹਾਂ।',
@@ -845,7 +844,7 @@ const pa: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ਕਨੈਕਟ ਕਰਨ ਲਈ ਹੋਸਟ ਦਾ <strong>6-ਅੰਕਾਂ ਵਾਲਾ ਕੋਡ</strong> ਦਾਖਲ ਕਰੋ।<ul class="help-list"><li><strong>ਹੋਸਟ:</strong> “ਰੂਮ ਬਣਾਓ” → ਕੋਡ ਵੇਖੋ</li><li><strong>ਭਾਗੀਦਾਰ:</strong> “ਰੂਮ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਵੋ” → ਕੋਡ ਦਾਖਲ ਕਰੋ</li><li><strong>ਹੋਸਟ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ</strong> ਕਨੈਕਟ ਹੋ ਸਕਦੀਆਂ ਹਨ।</li></ul>',
   'player.play_speakers_html':
-    'ਹਰ ਭਾਗੀਦਾਰ ਇੱਕ <strong>ਭੂਮਿਕਾ (ਆਉਟਪੁੱਟ ਚੈਨਲ)</strong> ਚੁਣਦਾ ਹੈ।<ul class="help-list"><li><strong>ਵਿਚਕਾਰ:</strong> ਸਟੀਰੀਓ (ਡਿਫਾਲਟ) ਆਉਟਪੁੱਟ</li><li><strong>ਖੱਬਾ:</strong> <bdi dir="ltr">L</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸੱਜਾ:</strong> <bdi dir="ltr">R</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸਬਵੂਫ਼ਰ:</strong> ਘੱਟ ਫ੍ਰੀਕੁਐਂਸੀ ਦਾ ਮਿਸ਼ਰਤ ਆਉਟਪੁੱਟ</li></ul>ਤੁਸੀਂ <strong>ਸੈਟਿੰਗਾਂ</strong> ਵਿੱਚ ਭੂਮਿਕਾਵਾਂ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ।',
+    'ਹਰ ਭਾਗੀਦਾਰ ਇੱਕ <strong>ਭੂਮਿਕਾ (ਆਉਟਪੁੱਟ ਚੈਨਲ)</strong> ਚੁਣਦਾ ਹੈ।<ul class="help-list"><li><strong>ਵਿਚਕਾਰਲਾ ਸਪੀਕਰ:</strong> ਸਟੀਰੀਓ (ਡਿਫਾਲਟ) ਆਉਟਪੁੱਟ</li><li><strong>ਖੱਬਾ ਸਪੀਕਰ:</strong> <bdi dir="ltr">L</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸੱਜਾ ਸਪੀਕਰ:</strong> <bdi dir="ltr">R</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸਬਵੂਫ਼ਰ:</strong> ਘੱਟ ਫ੍ਰੀਕੁਐਂਸੀ ਦਾ ਮਿਸ਼ਰਤ ਆਉਟਪੁੱਟ</li></ul>ਤੁਸੀਂ <strong>ਸੈਟਿੰਗਾਂ</strong> ਵਿੱਚ ਭੂਮਿਕਾਵਾਂ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ।',
   'player.play_media_action_html':
     'ਹੋਸਟ ਕੋਲ 3 ਚੋਣਾਂ ਹਨ।<ul class="help-list"><li><strong>ਸਥਾਨਕ ਫ਼ਾਈਲ ਲੋਡ ਕਰੋ:</strong> ਆਪਣੀ ਡਿਵਾਈਸ ਵਿੱਚੋਂ ਸੰਗੀਤ ਚੁਣੋ। ਸਟੀਕ ਸਿੰਕ ਉਪਲਬਧ ਹੈ</li><li><strong>ਇਕੱਠੇ YouTube:</strong> ਵੀਡੀਓ ਅਤੇ ਪਲੇਲਿਸਟ ਚੱਲਦੀਆਂ ਹਨ। ਚੈਨਲ ਵੰਡ ਜਾਂ ਆਡੀਓ ਪ੍ਰਭਾਵ ਨਹੀਂ</li><li><strong>ਸਿਸਟਮ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ:</strong> ਜਦੋਂ ਹੋਸਟ ਕੰਪਿਊਟਰ ਉੱਤੇ Chromium-ਆਧਾਰਿਤ ਬ੍ਰਾਊਜ਼ਰ ਵਰਤਦਾ ਹੈ ਤਾਂ ਉਪਲਬਧ</li></ul>',
   'help.need_help_html':
@@ -939,6 +938,6 @@ export const pluralMessages = {
     one: 'ਜੋੜੀਆਂ ਜਾਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਦੀ ਗਿਣਤੀ {{count}} ਹੈ। ਅੱਗੇ ਵਧਣਾ ਹੈ?',
   },
   'dialog.file_drop.unsupported_notice': {
-    one: 'ਨਾ ਜੋੜੀਆਂ ਜਾਣ ਵਾਲੀਆਂ ਨਾ-ਚੱਲਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਦੀ ਗਿਣਤੀ: {{count}}।',
+    one: '{{count}} ਨਾ-ਚੱਲਣ ਵਾਲੀ ਫ਼ਾਈਲ ਨਹੀਂ ਜੋੜੀ ਜਾਵੇਗੀ।',
   },
 } satisfies LocalePluralMessages;

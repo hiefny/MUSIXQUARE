@@ -35,7 +35,7 @@ const id: Record<I18nKey, string> = {
   'common.message': 'Pesan',
   'common.mix': 'Campuran',
   'common.wait': 'Mohon tunggu...',
-  'common.guest': 'Tamu',
+  'common.guest': 'Peserta',
   'common.help': 'Bantuan',
   'common.increase': 'Naikkan',
   'common.decrease': 'Turunkan',
@@ -48,7 +48,7 @@ const id: Record<I18nKey, string> = {
   'account.login_failed': 'Tidak dapat masuk. Coba lagi.',
   'account.welcome_back': 'Senang bertemu lagi\n{{name}}',
   'account.login_message':
-    'Masuk dengan Google agar nama panggilan tetap sama di setiap ruang. Anda tetap dapat menggunakan MUSIXQUARE tanpa masuk.',
+    'Masuk dengan Google agar nama panggilan tetap sama di setiap ruang. Anda tetap dapat melanjutkan tanpa masuk.',
   'account.google_continue': 'Lanjutkan dengan Google',
   'account.terms': 'Ketentuan',
   'account.privacy': 'Privasi',
@@ -168,11 +168,11 @@ const id: Record<I18nKey, string> = {
   'settings.rvb_off': 'Mati',
   'settings.reverb_mix': 'Campuran gema',
   'settings.reverb_decay': 'Peluruhan gema',
-  'settings.reverb_predelay': 'Prajeda gema',
+  'settings.reverb_predelay': 'Pre-delay gema',
   'settings.reverb_lowcut': 'Potong frekuensi rendah pada gema',
   'settings.reverb_highcut': 'Potong frekuensi tinggi pada gema',
   'settings.decay_time': 'Waktu peluruhan',
-  'settings.predelay': 'Prajeda',
+  'settings.predelay': 'Pre-delay',
   'settings.eq_title': 'Ekualiser',
   'settings.eq_bright': 'Cerah',
   'settings.eq_warm': 'Hangat',
@@ -192,8 +192,8 @@ const id: Record<I18nKey, string> = {
   'settings.default_5s': 'Bawaan 5,0 dtk',
   'settings.invite_code': 'Kode undangan',
   'settings.leave_session': 'Keluar ruang',
-  'connect.rename_reserved': 'Nama panggilan ini dicadangkan.',
-  'connect.rename_profanity': 'Nama panggilan tidak pantas terdeteksi.',
+  'connect.rename_reserved': 'Nama panggilan ini tidak dapat digunakan.',
+  'connect.rename_profanity': 'Nama panggilan mengandung kata yang tidak pantas.',
   'settings.devices_title': 'Perangkat tersambung',
   'settings.invite_share': 'Undang & Bagikan',
   'settings.subtab.general': 'Umum',
@@ -224,14 +224,14 @@ const id: Record<I18nKey, string> = {
   'player.add_media': 'Tambah media',
   'player.play_start': 'Tambah ke antrean',
   'player.select_media': 'Pilih media untuk diputar',
-  'player.play_together': 'Sinkronkan pemutaran',
+  'player.play_together': 'Putar serentak',
   'player.play_speakers': 'Gunakan sebagai speaker',
   'player.auto_sync_label': 'Otomatis (ms)',
   'player.manual_sync_label': 'Sinkronisasi manual (ms)',
 
   // Playlist
   'playlist.toggle': 'Perluas/ciutkan daftar putar',
-  'playlist.jump_to_current': 'Buka media yang sedang diputar',
+  'playlist.jump_to_current': 'Lompat ke media yang sedang diputar',
   'playlist.reorder_handle': 'Urutkan ulang {{title}}, posisi {{position}}',
   'playlist.reorder_position': '{{title}}, posisi {{position}} dari {{total}}',
   'playlist.repeat_all': 'Pengulangan semua media diaktifkan',
@@ -259,19 +259,19 @@ const id: Record<I18nKey, string> = {
   // Connect
   'connect.qr_title': 'Undang lewat QR atau tautan',
   'connect.device_list': '{{count}} perangkat tersambung',
-  'connect.administrator_list': '{{count}} administrator',
+  'connect.administrator_list': '{{count}} admin',
   'connect.room_owner_role': 'Pemilik ruang',
-  'connect.administrator_role': 'Administrator',
-  'connect.administrator_settings_aria': 'Edit izin administrator {{name}}',
-  'connect.administrator_revoke_aria': 'Cabut izin administrator dari {{name}}',
-  'connect.administrator_revoke_title': 'Cabut izin administrator?',
-  'connect.administrator_revoke_message': 'Cabut izin administrator dari {{name}}?',
+  'connect.administrator_role': 'Admin',
+  'connect.administrator_settings_aria': 'Edit izin admin {{name}}',
+  'connect.administrator_revoke_aria': 'Cabut izin admin dari {{name}}',
+  'connect.administrator_revoke_title': 'Cabut izin admin?',
+  'connect.administrator_revoke_message': 'Cabut izin admin dari {{name}}?',
   'connect.permissions_title': 'Izin untuk {{name}}',
   'connect.permission_media_add': 'Kelola media',
   'connect.permission_playback_control': 'Kontrol pemutaran',
   'connect.permission_members_kick': 'Keluarkan anggota',
   'connect.permission_chat_notice': 'Kirim pengumuman di chat',
-  'connect.permission_inherited': 'Termasuk',
+  'connect.permission_inherited': 'Izin dasar',
   'connect.kick_member_message': 'Keluarkan semua perangkat yang terhubung sebagai {{name}}?',
   'connect.device_toggle': 'Tampilkan/sembunyikan perangkat {{name}}',
   'connect.device_label': 'Perangkat {{platform}} ({{code}})',
@@ -309,7 +309,7 @@ const id: Record<I18nKey, string> = {
   'connect.signaling_exhausted_pro':
     'Server ruang tidak merespons. Peserta baru dan pembaruan langsung dibatasi.',
   'connect.signaling_retry': 'Coba lagi',
-  'connect.signaling_restart': 'Mulai ulang sesi',
+  'connect.signaling_restart': 'Mulai ulang ruang',
   'connect.signaling_new_room': 'Mulai ruang baru',
 
   // Setup and demo
@@ -365,7 +365,7 @@ const id: Record<I18nKey, string> = {
   'setup.enter_code': 'Masukkan kode undangan 6 digit',
   'setup.enter_host_code': 'Masukkan kode undangan',
   'setup.enter_host_code_alt': 'Pindai kode QR atau masukkan kode.',
-  'setup.scan_qr': 'Ketuk untuk pindai',
+  'setup.scan_qr': 'Ketuk untuk memindai',
   'setup.camera_permission_denied': 'Izin kamera tidak diberikan',
   'setup.camera_not_found': 'Tidak ada kamera yang dapat digunakan',
   'setup.camera_unavailable': 'Kamera tidak dapat dimulai',
@@ -437,7 +437,7 @@ const id: Record<I18nKey, string> = {
   'transfer.demo_load_fail': 'Gagal memuat demo:',
   'transfer.demo_loading_short': 'Memuat media demo...',
   'transfer.file_requesting': 'Meminta file...',
-  'transfer.file_sending': 'Mengirim file...',
+  'transfer.file_sending': 'Mengirim file…',
   'transfer.file_wait': 'Menunggu file...\nMohon tunggu',
   'transfer.preload_done': 'Menggunakan file pramuat!',
   'transfer.preload_waiting': 'Menunggu pramuat selesai...',
@@ -462,7 +462,7 @@ const id: Record<I18nKey, string> = {
   'transfer.receiving_0pct': 'Menerima... 0%',
   'transfer.check_conn_type': 'Memeriksa jenis koneksi...',
   'transfer.preload_pending': 'Menunggu pramuat: {{name}}',
-  'transfer.waiting_recovery': 'Pemulihan tertunda: {{name}}',
+  'transfer.waiting_recovery': 'Menunggu pemulihan: {{name}}',
   'transfer.preparing_name': 'Menyiapkan: {{name}}',
   'transfer.recovery_failed': 'Pemulihan file gagal.\nCoba lagi.',
 
@@ -540,7 +540,7 @@ const id: Record<I18nKey, string> = {
   'toast.chat_notice_required': 'Izin pengumuman chat diperlukan.',
   'toast.room_owner_required': 'Hanya pemilik ruang yang dapat mengubah ini.',
   'toast.system_audio_owner_required':
-    'Anda hanya dapat membagikan audio dari tab yang membuka ruangan.',
+    'Anda hanya dapat membagikan audio dari tab yang membuka ruang.',
   'toast.host_only_youtube': 'Hanya host yang dapat menambahkan tautan YouTube.',
   'toast.host_only_control': 'Hanya host yang dapat mengontrol ini',
   'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',
@@ -555,7 +555,7 @@ const id: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Tidak ada file audio yang dapat ditambahkan.',
   'toast.sync_reset': 'Offset sinkronisasi diatur ulang',
   'toast.stop_sent': 'Permintaan menghentikan pemutaran dikirim',
-  'toast.hprecision_sync': 'Sinkronisasi presisi tinggi: menyiapkan audio...',
+  'toast.hprecision_sync': 'Sinkronisasi presisi tinggi: menyiapkan audio…',
   'toast.file_ready': 'File Anda siap!\nTekan Putar.',
   'toast.host_sync_not_recommended': 'Atur sinkronisasi di perangkat peserta',
   'toast.host_sync_requested':
@@ -633,7 +633,7 @@ const id: Record<I18nKey, string> = {
   'dialog.return_home_msg': 'Kembali ke layar awal?',
   'dialog.return_home_detail': 'Anda akan terputus dari ruang saat ini.',
   'dialog.leaving_session': 'Sedang keluar dari ruang...',
-  'dialog.refreshing_session': 'Memuat ulang sesi...',
+  'dialog.refreshing_session': 'Memuat ulang ruang...',
   'dialog.background_resume_title': 'Aplikasi sempat masuk ke latar belakang',
   'dialog.audio_recovery_title': 'Audio berhenti secara tak terduga',
   'dialog.audio_recovery_message':
@@ -671,6 +671,15 @@ const id: Record<I18nKey, string> = {
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktifkan ruang PRO',
+  'pro.activation_account_title': 'Pilih akun untuk ruang PRO ini',
+  'pro.activation_account_message': 'Daftarkan ruang ini ke akun “{{name}}”?',
+  'pro.activation_account_login_message':
+    'Masuk ke akun yang ingin Anda gunakan untuk mendaftarkan ruang ini.',
+  'pro.activation_account_continue': 'Lanjutkan',
+  'pro.activation_account_switch': 'Akun lain',
+  'pro.activation_account_unavailable':
+    'Akun Anda tidak dapat diverifikasi. Coba lagi sebentar lagi.',
+  'pro.activation_complete': 'Selesaikan pendaftaran',
   'pro.activation_message': 'Buat sandi baru 8 digit untuk ruang ini.',
   'pro.activation_pin_same': 'Pilih sandi yang berbeda dari sandi sementara.',
   'pro.claim_retry_title': 'Coba lagi dengan tautan PRO?',
@@ -687,20 +696,20 @@ const id: Record<I18nKey, string> = {
   'pro.claim_existing_account_message':
     'Tautan ini terikat ke akun MUSIXQUARE yang sudah memiliki nama panggilan. Pilih akun Google yang ditentukan untuk tautan ini.',
   'pro.claim_choose_account_button': 'Pilih akun lain',
-  'pro.claim_account_conflict_title': 'Akun ini tidak dapat menggunakan ruang',
+  'pro.claim_account_conflict_title': 'Akun ini tidak dapat menggunakan ruang ini',
   'pro.claim_account_conflict_message':
-    'Ruang ini terhubung ke akun lain. Minta administrator mentransfer kepemilikan jika Anda perlu mengubahnya.',
+    'Ruang ini terhubung ke akun lain. Minta admin mentransfer kepemilikan jika Anda perlu mengubahnya.',
   'pro.claim_account_capacity_title': 'Akun ini tidak dapat menautkan ruang lain',
   'pro.claim_account_capacity_message':
     'Akun ini telah mencapai batas ruang PRO tertaut. Hapus tautan yang ada, lalu minta tautan baru.',
   'pro.claim_failed_title': 'Permintaan tidak dapat diselesaikan',
   'pro.claim_failed_message':
-    'Demi keamanan, tautan ini tidak dicoba ulang. Minta tautan baru kepada administrator ruang.',
+    'Demi keamanan, tautan ini tidak dicoba ulang. Minta tautan baru kepada admin ruang.',
   'pro.transfer_title': 'Ambil kepemilikan ruang PRO',
   'pro.transfer_message':
     'Tetapkan sandi baru 8 digit. Akses pemilik sebelumnya akan dicabut setelah selesai.',
   'pro.new_link_message':
-    'Tautan telah kedaluwarsa atau sudah digunakan. Jika perlu, minta tautan baru kepada administrator.',
+    'Tautan telah kedaluwarsa atau sudah digunakan. Jika perlu, minta tautan baru kepada admin.',
   'pro.not_ready_title': 'Ruang PRO ini belum siap',
   'pro.not_ready_message': 'Pemilik ruang harus mengaktifkannya terlebih dahulu.',
   'pro.suspended_title': 'Ruang PRO ini sedang tidak tersedia',
@@ -724,7 +733,7 @@ const id: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'Semua orang harus bergabung kembali. Disarankan untuk mengeluarkan orang yang tidak Anda kenal sekaligus.',
   'pro.pin_keep_unavailable':
-    'Sandi tidak diubah. Saat ini orang di ruang tidak bisa dipertahankan. Coba lagi nanti, atau pilih “Semua bergabung kembali”.',
+    'Sandi tidak diubah. Opsi mempertahankan peserta di ruang saat ini tidak tersedia. Coba lagi nanti, atau pilih “Semua bergabung kembali”.',
   'pro.pin_enabled_removed_title': 'Ruang kini memakai sandi',
   'pro.pin_enabled_removed_message':
     'Pemilik ruang telah mengatur sandi untuk ruang ini. Masukkan sandi untuk bergabung kembali.',
@@ -732,7 +741,7 @@ const id: Record<I18nKey, string> = {
   'pro.pin_changed_removed_message':
     'Pemilik ruang telah mengubah sandi ruang. Masukkan sandi baru untuk bergabung kembali.',
   'pro.removed_title': 'Anda dikeluarkan dari ruang ini',
-  'pro.removed_message': 'Pemilik ruang atau administrator telah mengeluarkan Anda dari ruang ini.',
+  'pro.removed_message': 'Pemilik ruang atau admin telah mengeluarkan Anda dari ruang ini.',
   'pro.device_removed_message':
     'Perangkat lain yang masuk dengan akun Anda telah memutus koneksi perangkat ini dari ruang.',
   'pro.owner_only': 'Hanya pemilik ruang yang dapat melakukannya.',
@@ -768,7 +777,7 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_frozen': 'Chat telah dikunci',
   'chat.cmd_unfrozen': 'Chat telah dibuka kembali',
   'chat.cmd_frozen_blocked': 'Chat sedang dikunci',
-  'chat.cmd_muted': '{{name}} telah dibisukan di chat',
+  'chat.cmd_muted': '{{name}} tidak dapat lagi mengirim pesan di chat',
   'chat.cmd_unmuted': '{{name}} dapat mengirim pesan di chat lagi',
   'chat.cmd_clear': 'Chat telah dibersihkan',
   'chat.cmd_filter_on': 'Filter kata kasar diaktifkan',
@@ -776,7 +785,7 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_slowmode_on': 'Mode lambat: jeda {{sec}} dtk antarpesan',
   'chat.cmd_slowmode_off': 'Mode lambat dinonaktifkan',
   'chat.cmd_slowmode_wait': 'Tunggu {{sec}} dtk sebelum mengirim',
-  'chat.cmd_notice_prefix': 'Pemberitahuan',
+  'chat.cmd_notice_prefix': 'Pengumuman',
   'chat.system_sender': 'SISTEM',
   'chat.bot_unavailable': 'BOT hanya tersedia di ruang PRO',
   'chat.bot_processing': 'BOT sedang memproses permintaan...',
@@ -788,7 +797,7 @@ const id: Record<I18nKey, string> = {
   'chat.decode_skip_system_message':
     'Beberapa perangkat tidak dapat memutar media ini. Beralih ke media berikutnya.',
   'chat.large_track_playback_system_message':
-    'Trek ini sangat besar, sehingga mungkin terjadi penundaan saat digunakan.',
+    'Media ini sangat besar, sehingga mungkin terjadi jeda saat digunakan.',
   'chat.large_local_track_system_message':
     'Ukuran media ini sangat besar dan mungkin tidak dapat diputar di sebagian perangkat.',
   'chat.device_track_unavailable_system_message':
@@ -807,7 +816,7 @@ const id: Record<I18nKey, string> = {
     'Batas berbagi jarak jauh tercapai.\nBerbagi file lokal tetap dapat digunakan.',
   'chat.remote_upload_failed_system_message':
     'Unggahan file jarak jauh gagal.\nPeserta jarak jauh sebaiknya mencoba lagi sebentar lagi.',
-  'chat.pinned_close': 'Tutup pemberitahuan',
+  'chat.pinned_close': 'Tutup pengumuman',
   'chat.cmd_whisper_from': 'Pesan pribadi dari {{name}}',
   'chat.cmd_whisper_to': 'Pesan pribadi kepada {{name}}',
   'chat.cmd_target_not_found': 'Perangkat tidak ditemukan: {{target}}',
@@ -845,12 +854,12 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_d_freeze': 'Kunci chat',
   'chat.cmd_d_slowmode': 'Mode lambat',
   'chat.cmd_d_w': 'Pesan pribadi',
-  'chat.cmd_d_notice': 'Pemberitahuan',
+  'chat.cmd_d_notice': 'Pengumuman',
   'chat.cmd_d_nick': 'Ubah nama panggilan',
   'chat.cmd_d_kick': 'Keluarkan perangkat',
   'chat.cmd_d_op': 'Berikan izin admin',
   'chat.cmd_d_deop': 'Cabut izin admin',
-  'chat.cmd_d_mute': 'Bisukan perangkat di chat',
+  'chat.cmd_d_mute': 'Batasi chat perangkat',
   'chat.cmd_d_unmute': 'Buka pembatasan chat perangkat',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Info debug sistem',
@@ -875,7 +884,7 @@ const id: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Buat ruang” → cek kode</li><li><strong>Peserta:</strong> “Gabung ke ruang” → masukkan kode</li><li>Hingga <strong>100 perangkat, termasuk host</strong>, dapat terhubung.</li></ul>',
   'player.play_speakers_html':
-    'Setiap peserta memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (bawaan)</li><li><strong>Kiri:</strong> Keluaran kanal <bdi dir="ltr">L</bdi></li><li><strong>Kanan:</strong> Keluaran kanal <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
+    'Setiap peserta memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Speaker tengah:</strong> Keluaran stereo (bawaan)</li><li><strong>Speaker kiri:</strong> Keluaran kanal <bdi dir="ltr">L</bdi></li><li><strong>Speaker kanan:</strong> Keluaran kanal <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
   'player.play_media_action_html':
     'Host memiliki 3 opsi.<ul class="help-list"><li><strong>Muat file lokal:</strong> Pilih musik dari perangkat Anda. Sinkronisasi presisi didukung</li><li><strong>YouTube Bersama:</strong> Video dan daftar putar didukung. Tidak ada pemisahan kanal atau efek audio</li><li><strong>Berbagi Audio Sistem:</strong> Tersedia saat host menggunakan browser berbasis Chromium di komputer</li></ul>',
   'help.need_help_html':
@@ -892,7 +901,7 @@ const id: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': 'Hanya video atau daftar putar publik yang dapat diputar.',
   'legal.title': 'Catatan layanan',
   'legal.content_html':
-    '<strong>Kebijakan Privasi</strong><br><span data-legal-standard-storage>Di jaringan yang sama, mayoritas konten sesi dikirim langsung antarperangkat. Server pensinyalan hanya memproses sementara data operasi ruang, autentikasi, dan koneksi ulang; sebagian data sesi jarak jauh/besar melewati Cloudflare. File jarak jauh disimpan sementara hingga 24 jam di penyimpanan privat Cloudflare; izin unduh sementara hanya bagi peserta ruang. MUSIXQUARE tidak mengakses, menganalisis, atau menyimpan data selain untuk penyediaan, operasi, dan keamanan layanan.</span><span data-legal-pro-storage>Cloudflare menyimpan status sesi, anggota, daftar putar, pemutaran, dan unggahan untuk operasi ruang PRO. File asli daftar putar disimpan di penyimpanan privat Cloudflare dan hanya dapat diunduh peserta ruang melalui URL sementara. File dihapus saat administrator ruang menghapusnya dari daftar putar atau operator menghapus data ruang. MUSIXQUARE tidak mengakses, menganalisis, atau menyimpan data selain untuk penyediaan, operasi, dan keamanan layanan.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Pemberitahuan Hak Cipta</strong><br>Konten yang dibagikan melalui MUSIXQUARE adalah milik pemegang hak masing-masing. Berbagi audio sistem dan berbagi file ditujukan untuk penggunaan pribadi. Pengguna bertanggung jawab atas distribusi tanpa izin atau transmisi publik atas konten berhak cipta. Berbagi YouTube menggunakan metode pemutaran resmi, dan penayangan serta penanganan hak mengikuti kebijakan layanan tersebut dan pengaturan pemegang hak. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Sanggahan</strong><br>MUSIXQUARE disediakan secara gratis. Beberapa fitur bergantung pada layanan eksternal seperti YouTube atau Cloudflare, sehingga pembatasan sementara dapat terjadi jika layanan tersebut berubah atau tidak aktif. Sinkronisasi audio waktu nyata dan kualitas berbagi jarak jauh dapat sangat bervariasi tergantung jaringan, kebijakan browser, dan performa perangkat. Biaya data seluler dapat berlaku saat tidak memakai Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tentang</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Riwayat</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Desain</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Terjemahkan</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Kebijakan Privasi</strong><br><span data-legal-standard-storage>Di jaringan yang sama, mayoritas konten sesi dikirim langsung antarperangkat. Server pensinyalan hanya memproses sementara data operasi ruang, autentikasi, dan koneksi ulang; sebagian data sesi jarak jauh/besar melewati Cloudflare. File jarak jauh disimpan sementara hingga 24 jam di penyimpanan privat Cloudflare; izin unduh sementara hanya bagi peserta ruang. MUSIXQUARE tidak mengakses, menganalisis, atau menyimpan data selain untuk penyediaan, operasi, dan keamanan layanan.</span><span data-legal-pro-storage>Cloudflare menyimpan status sesi, anggota, daftar putar, pemutaran, dan unggahan untuk operasi ruang PRO. File asli daftar putar disimpan di penyimpanan privat Cloudflare dan hanya dapat diunduh peserta ruang melalui URL sementara. File dihapus saat admin ruang menghapusnya dari daftar putar atau operator menghapus data ruang. MUSIXQUARE tidak mengakses, menganalisis, atau menyimpan data selain untuk penyediaan, operasi, dan keamanan layanan.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Pemberitahuan Hak Cipta</strong><br>Konten yang dibagikan melalui MUSIXQUARE adalah milik pemegang hak masing-masing. Berbagi audio sistem dan berbagi file ditujukan untuk penggunaan pribadi. Pengguna bertanggung jawab atas distribusi tanpa izin atau transmisi publik atas konten berhak cipta. Berbagi YouTube menggunakan metode pemutaran resmi, dan penayangan serta penanganan hak mengikuti kebijakan layanan tersebut dan pengaturan pemegang hak. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>Penafian</strong><br>MUSIXQUARE disediakan secara gratis. Beberapa fitur bergantung pada layanan eksternal seperti YouTube atau Cloudflare, sehingga pembatasan sementara dapat terjadi jika layanan tersebut berubah atau tidak aktif. Sinkronisasi audio waktu nyata dan kualitas berbagi jarak jauh dapat sangat bervariasi tergantung jaringan, kebijakan browser, dan performa perangkat. Biaya data seluler dapat berlaku saat tidak memakai Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Pelajari lebih lanjut</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Tentang</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Riwayat</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Desain</a> · <a href="/translate" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Terjemahkan</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default id;

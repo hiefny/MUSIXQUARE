@@ -89,12 +89,12 @@ const he: Record<I18nKey, string> = {
   'common.woofer': 'וופר',
   'common.connected': 'מחובר',
   'common.disconnected': 'מנותק',
-  'common.revoke': 'ביטול',
+  'common.revoke': 'שלילת ההרשאות',
   'common.grant': 'הענקה',
   'common.system': 'מערכת',
   'common.unknown': 'לא ידוע',
   'common.youtube_video': 'סרטון YouTube',
-  'common.peer': 'עמית',
+  'common.peer': 'משתתף',
 
   // ─── Navigation ──────────────────────────────────────────────────
   'nav.home': 'בית',
@@ -111,12 +111,12 @@ const he: Record<I18nKey, string> = {
   'player.no_media': 'לא מתנגנת מדיה',
   'player.select_file_hint': 'בחרו קובץ או עברו לרשימת ההשמעה',
   'player.play_pause': 'הפעלה/השהיה',
-  'player.visualizer': 'תצוגה חזותית של האודיו',
-  'player.seek': 'מעבר בזמן',
-  'player.seek_unavailable_system_audio': 'אי אפשר לעבור בזמן במהלך שיתוף שמע המערכת',
+  'player.visualizer': 'תצוגה חזותית של השמע',
+  'player.seek': 'שינוי מיקום ההפעלה',
+  'player.seek_unavailable_system_audio': 'אי אפשר לשנות מיקום בזמן שיתוף שמע המערכת',
   'player.volume': 'שינוי עוצמת הקול',
   'player.toggle_mute': 'השתקה או ביטול השתקה',
-  'player.fullscreen': 'מעבר למסך מלא',
+  'player.fullscreen': 'מעבר למסך מלא או יציאה ממנו',
   'player.prev_track': 'הרצועה הקודמת',
   'player.next_track': 'הרצועה הבאה',
   'player.repeat_mode': 'שינוי מצב החזרה',
@@ -200,7 +200,7 @@ const he: Record<I18nKey, string> = {
   'settings.light': 'בהירה',
   'player.visualizer_circular': 'מעגלית',
   'player.visualizer_spectrum': 'ספקטרום',
-  'settings.language': 'הגדרות שפה',
+  'settings.language': 'שפה · Language',
   'settings.language_select': 'בחירה',
   'settings.language_system': 'מערכת',
   'settings.language_dialog_title': 'בחירת שפה',
@@ -263,20 +263,20 @@ const he: Record<I18nKey, string> = {
   'connect.permission_media_add': 'ניהול מדיה',
   'connect.permission_playback_control': 'שליטה בהפעלה',
   'connect.permission_members_kick': 'הסרת חברים',
-  'connect.permission_chat_notice': 'פרסום הודעות בצ׳אט',
+  'connect.permission_chat_notice': 'פרסום הכרזות בצ׳אט',
   'connect.permission_inherited': 'כלולה',
   'connect.kick_member_message': 'להסיר את כל המכשירים שמחוברים בשם {{name}}?',
   'connect.device_toggle': 'פתיחה או סגירה של המכשירים המחוברים בשם {{name}}',
   'connect.device_label': 'מכשיר {{platform}} ({{code}})',
   'connect.platform_other': 'אחר',
   'connect.current_device': 'המכשיר הנוכחי',
-  'connect.no_session': 'יש להתחיל חדר קודם',
+  'connect.no_session': 'יש ליצור חדר קודם',
   'connect.generating_qr': 'קוד QR נוצר...',
   'connect.kick_title': 'הסרת מכשיר',
   'connect.kick_message': 'להסיר את {{name}} מהחדר?',
   'connect.kick_yes': 'הסרה',
   'connect.kick_no': 'לא',
-  'connect.kicked_title': 'הגישה לחדר הוסרה',
+  'connect.kicked_title': 'הוסרת מהחדר',
   'connect.kicked_message': 'המארח הסיר אותך מהחדר.',
   'connect.copy_invite_link': 'העתקת קישור ההזמנה',
   'connect.link_copied': 'קישור ההזמנה הועתק',
@@ -293,7 +293,7 @@ const he: Record<I18nKey, string> = {
   'connect.signaling_recovering': 'מתבצע חיבור מחדש…',
   'connect.signaling_failed': 'החיבור לשרת נכשל',
   'connect.signaling_recover_action': 'חיבור מחדש',
-  'connect.signaling_recovery_wait': 'שרת החדר נבדק שוב.',
+  'connect.signaling_recovery_wait': 'בודקים שוב את שרת החדר.',
   'connect.signaling_reconnecting': 'מתבצע חיבור מחדש לשרת החדר · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'החיבור לשרת החדר שוחזר.',
   'connect.signaling_exhausted': 'שרת החדר אינו מגיב.\nמשתתפים חדשים לא יכולים להתחבר.',
@@ -398,7 +398,7 @@ const he: Record<I18nKey, string> = {
   'chat.cmd_slowmode_on': 'מצב איטי: {{sec}} שניות בין הודעות',
   'chat.cmd_slowmode_off': 'מצב איטי כבוי',
   'chat.cmd_slowmode_wait': 'יש להמתין {{sec}} שניות לפני השליחה',
-  'chat.cmd_notice_prefix': 'הודעה',
+  'chat.cmd_notice_prefix': 'הכרזה',
   'chat.system_sender': 'מערכת',
   'chat.bot_unavailable': 'BOT זמין רק בחדרי PRO',
   'chat.bot_processing': 'BOT מטפל בבקשה...',
@@ -407,7 +407,7 @@ const he: Record<I18nKey, string> = {
   'chat.bot_added_tracks': 'רצועות שנוספו על ידי BOT: {{count}}',
   'chat.bot_added_and_playing': 'רצועות שנוספו על ידי BOT: {{count}}. ההפעלה התחילה',
   'chat.bot_rate_limited': 'הגעתם למגבלת הבקשות של BOT. יש להמתין {{duration}} ולנסות שוב',
-  'chat.decode_skip_system_message': 'הרצועה תידלג: הפורמט אינו נתמך בחלק מהמכשירים.',
+  'chat.decode_skip_system_message': 'מדלגים על הרצועה: הפורמט אינו נתמך בחלק מהמכשירים.',
   'chat.large_track_playback_system_message':
     'הרצועה הזו גדולה מאוד, ולכן ייתכנו עיכובים במהלך השימוש בה.',
   'chat.large_local_track_system_message':
@@ -418,7 +418,7 @@ const he: Record<I18nKey, string> = {
   'chat.update_available_app_system_message':
     'זמינה גרסה חדשה של MUSIXQUARE. יש לפתוח מחדש את האפליקציה כדי להחיל אותה.',
   'chat.system_audio_started_system_message':
-    'שיתוף שמע המערכת התחיל. השהיה קלה בין המארח למכשירי האורחים היא תקינה. מומלץ להנמיך את עוצמת הקול במכשיר המארח כדי למנוע הד.',
+    'שיתוף שמע המערכת התחיל. עיכוב קל בין המארח למכשירי האורחים הוא תקין. מומלץ להנמיך את עוצמת הקול במכשיר המארח כדי למנוע הד.',
   'chat.system_audio_stopped_system_message':
     'שיתוף שמע המערכת הסתיים. אפשר להגביר שוב את עוצמת הקול במכשיר המארח כדי שישמש כרמקול.',
   'chat.remote_upload_limited_system_message':
@@ -427,7 +427,7 @@ const he: Record<I18nKey, string> = {
     'הגעתם למגבלת האחסון לשיתוף מרחוק.\nשיתוף קבצים מקומי עדיין זמין.',
   'chat.remote_upload_failed_system_message':
     'העלאת הקובץ לשיתוף מרחוק נכשלה.\nמשתתפים מרוחקים יוכלו לנסות שוב בעוד רגע.',
-  'chat.pinned_close': 'סגירת ההודעה',
+  'chat.pinned_close': 'סגירת ההכרזה',
   'chat.cmd_whisper_from': 'הודעה פרטית מאת {{name}}',
   'chat.cmd_whisper_to': 'הודעה פרטית אל {{name}}',
   'chat.cmd_target_not_found': 'היעד לא נמצא: {{target}}',
@@ -437,8 +437,8 @@ const he: Record<I18nKey, string> = {
   'chat.cmd_not_op': 'ל-{{name}} אין הרשאת מנהל',
   'chat.cmd_help_title': 'פקודות זמינות',
   'chat.cmd_help_target_hint': '* [device] הוא מספר ייחודי של מכשיר (למשל #1)',
-  'chat.cmd_unknown': 'פקודה לא מוכרת: /{{cmd}}',
-  'chat.cmd_usage': 'שימוש: {{usage}}',
+  'chat.cmd_unknown': 'פקודה לא מוכרת: ‎/{{cmd}}',
+  'chat.cmd_usage': 'שימוש: ‎{{usage}}',
   'chat.cmd_users_title': 'משתמשים מחוברים',
   'chat.cmd_users_me': 'אני',
 
@@ -467,7 +467,7 @@ const he: Record<I18nKey, string> = {
   'chat.cmd_d_freeze': 'הקפאת הצ׳אט',
   'chat.cmd_d_slowmode': 'מצב איטי',
   'chat.cmd_d_w': 'הודעה פרטית',
-  'chat.cmd_d_notice': 'הודעה',
+  'chat.cmd_d_notice': 'הכרזה',
   'chat.cmd_d_nick': 'שינוי כינוי',
   'chat.cmd_d_kick': 'הסרת מכשיר',
   'chat.cmd_d_op': 'הענקת הרשאת מנהל',
@@ -478,7 +478,7 @@ const he: Record<I18nKey, string> = {
   'chat.cmd_d_debug': 'פרטי ניפוי הבאגים של המערכת',
   'chat.debug_copied': 'פרטי ניפוי הבאגים הועתקו.\nאם מצאתם תקלה, שלחו אותם למפתח.',
   'chat.seek_to': 'מעבר אל {{time}}',
-  'chat.copied': 'הצ׳אט הועתק',
+  'chat.copied': 'ההודעה הועתקה',
   'chat.copy_hint': 'לחצו על Enter כדי להעתיק את הודעת הצ׳אט',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -529,7 +529,7 @@ const he: Record<I18nKey, string> = {
   'toast.remote_decode_device_wait':
     'אחד המכשירים לא הצליח לפענח את הרצועה. ההפעלה נמשכת בשאר המכשירים.',
   'toast.invite_code': 'קוד הזמנה: {{code}}',
-  'toast.invite_code_info': '{{count}} מחוברים | קוד {{code}}',
+  'toast.invite_code_info': 'מחוברים: {{count}} | קוד {{code}}',
   'toast.added_tracks': 'נוספו {{count}} רצועות',
   'toast.preparing': 'בהכנה: {{name}}',
   'toast.file_save_error': 'שגיאה בשמירת הקובץ: {{name}}',
@@ -540,7 +540,7 @@ const he: Record<I18nKey, string> = {
   'toast.op_status': 'הרשאת {{label}} {{status}}',
   'toast.file_read_error': 'שגיאה בקריאת הקובץ: {{name}}',
   'toast.host_ended_connection': 'המארח סיים את החיבור',
-  'toast.announcement_available': 'יש הודעה חדשה.\nאפשר לצפות בה בחלונית הצ׳אט.',
+  'toast.announcement_available': 'יש הכרזה חדשה.\nאפשר לצפות בה בחלונית הצ׳אט.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'ההעתקה נכשלה',
@@ -560,7 +560,7 @@ const he: Record<I18nKey, string> = {
   'toast.media_management_required': 'נדרשת הרשאה לניהול מדיה.',
   'toast.playback_control_required': 'נדרשת הרשאה לשליטה בהפעלה.',
   'toast.member_management_required': 'נדרשת הרשאה להסרת חברים.',
-  'toast.chat_notice_required': 'נדרשת הרשאה לפרסום הודעות בצ׳אט.',
+  'toast.chat_notice_required': 'נדרשת הרשאה לפרסום הכרזות בצ׳אט.',
   'toast.room_owner_required': 'רק בעל החדר יכול לשנות זאת.',
   'toast.system_audio_owner_required': 'ניתן לשתף שמע רק מהכרטיסייה שפתחה את החדר.',
   'toast.host_only_youtube': 'רק המארח יכול להוסיף קישורי YouTube.',
@@ -600,7 +600,7 @@ const he: Record<I18nKey, string> = {
   'toast.yt_manual_sync_prompt':
     'זה עתה בוצע ניסיון סנכרון אוטומטי.\nאם עדיין מורגש עיכוב, אפשר לכוונן את הערך עכשיו',
   'toast.playlist_ended': 'פריט המדיה האחרון הסתיים',
-  'toast.operator_required': 'רק מנהלים יכולים לשנות הגדרות כלליות',
+  'toast.operator_required': 'רק מנהלים יכולים לשנות הגדרות גלובליות',
   'toast.connection_closing': 'החיבור אבד, ההגדרה לא סונכרנה',
   'toast.host_changed_setting': 'ההגדרות שונו',
   'toast.session_mismatch': 'החדר אינו תואם.\nהעברת הקובץ תתבצע שוב.',
@@ -612,7 +612,7 @@ const he: Record<I18nKey, string> = {
   'transfer.demo_load_fail': 'טעינת ההדגמה נכשלה:',
   'transfer.demo_loading_short': 'רצועת ההדגמה נטענת...',
   'transfer.file_requesting': 'מתבצעת בקשה לקובץ...',
-  'transfer.file_sending': 'הקובץ נשלח…',
+  'transfer.file_sending': 'הקובץ בשליחה…',
   'transfer.file_wait': 'ממתינים לקובץ...\nנא להמתין',
   'transfer.preload_done': 'נעשה שימוש בקובץ שנטען מראש!',
   'transfer.preload_waiting': 'ממתינים להשלמת הטעינה מראש...',
@@ -722,15 +722,13 @@ const he: Record<I18nKey, string> = {
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'הפעלת חדר PRO',
   // English fallback for the new PRO account confirmation copy.
-  'pro.activation_account_title': 'Choose an account for this PRO room',
-  'pro.activation_account_message': 'Register this room to “{{name}}”?',
-  'pro.activation_account_login_message':
-    'Sign in to the account you want to register this room to.',
-  'pro.activation_account_continue': 'Continue',
-  'pro.activation_account_switch': 'Another account',
-  'pro.activation_account_unavailable':
-    'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
+  'pro.activation_account_title': 'בחירת חשבון לחדר ה-PRO',
+  'pro.activation_account_message': 'לרשום את החדר הזה בחשבון „{{name}}”?',
+  'pro.activation_account_login_message': 'יש להתחבר לחשבון שבו רוצים לרשום את החדר הזה.',
+  'pro.activation_account_continue': 'המשך',
+  'pro.activation_account_switch': 'חשבון אחר',
+  'pro.activation_account_unavailable': 'לא הצלחנו לאמת את פרטי החשבון. כדאי לנסות שוב בעוד רגע.',
+  'pro.activation_complete': 'השלמת הרישום',
   'pro.activation_message': 'יש להגדיר לחדר סיסמה חדשה בת 8 ספרות.',
   'pro.activation_pin_same': 'יש לבחור סיסמה שונה מהסיסמה הזמנית.',
   'pro.claim_retry_title': 'לנסות שוב את קישור ה-PRO?',
@@ -781,7 +779,7 @@ const he: Record<I18nKey, string> = {
   'pro.pin_members_reenter_detail':
     'כולם יצטרכו להצטרף מחדש. מומלץ כדי להסיר בבת אחת אנשים לא מוכרים.',
   'pro.pin_keep_unavailable':
-    'הסיסמה לא שונתה. כרגע אי אפשר להשאיר אנשים בחדר. אפשר לנסות שוב מאוחר יותר או לבחור „כולם מצטרפים מחדש”.',
+    'הסיסמה לא שונתה. כרגע אי אפשר לשנות אותה ולהשאיר את כולם בחדר. אפשר לנסות שוב מאוחר יותר או לבחור „כולם מצטרפים מחדש”.',
   'pro.pin_enabled_removed_title': 'הוגדרה סיסמה לחדר',
   'pro.pin_enabled_removed_message':
     'בעל החדר הגדיר סיסמה לחדר הזה. אפשר להזין אותה כדי להצטרף מחדש.',
@@ -819,7 +817,7 @@ const he: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'כדי להתחבר, יש להזין את <strong>הקוד בן 6 הספרות</strong> שמופיע אצל המארח.<ul class="help-list"><li><strong>מארח:</strong> „יצירת חדר” ← הצגת הקוד</li><li><strong>משתתף:</strong> „הצטרפות לחדר” ← הזנת הקוד</li><li>אפשר לחבר עד <strong>100 מכשירים, כולל המארח</strong>.</li></ul>',
   'player.play_speakers_html':
-    'כל משתתף בוחר <strong>תפקיד (ערוץ פלט)</strong>.<ul class="help-list"><li><strong>מרכז:</strong> פלט סטריאו (ברירת מחדל)</li><li><strong>שמאל:</strong> פלט ערוץ <bdi dir="ltr">L</bdi></li><li><strong>ימין:</strong> פלט ערוץ <bdi dir="ltr">R</bdi></li><li><strong>סאב-וופר:</strong> פלט מיקס של תדרים נמוכים</li></ul>אפשר לשנות תפקידים בכל זמן דרך <strong>הגדרות</strong>.',
+    'כל משתתף בוחר <strong>תפקיד (ערוץ פלט)</strong>.<ul class="help-list"><li><strong>רמקול מרכזי:</strong> פלט סטריאו (ברירת מחדל)</li><li><strong>רמקול שמאלי:</strong> פלט ערוץ <bdi dir="ltr">L</bdi></li><li><strong>רמקול ימני:</strong> פלט ערוץ <bdi dir="ltr">R</bdi></li><li><strong>סאב-וופר:</strong> פלט מיקס של תדרים נמוכים</li></ul>אפשר לשנות תפקידים בכל זמן דרך <strong>הגדרות</strong>.',
   'player.play_media_action_html':
     'למארח יש 3 אפשרויות.<ul class="help-list"><li><strong>טעינת קובץ מקומי:</strong> בחירת מוזיקה מהמכשיר. כולל סנכרון מדויק</li><li><strong>YouTube יחד:</strong> תמיכה בסרטונים וברשימות השמעה. ללא פיצול ערוצים או אפקטי שמע</li><li><strong>שיתוף שמע המערכת:</strong> זמין כשהמארח משתמש במחשב עם דפדפן המבוסס על Chromium</li></ul>',
   'help.need_help_html':
@@ -842,7 +840,7 @@ const he: Record<I18nKey, string> = {
   'setup.spatial_audio_desc_html':
     'הגדירו תפקיד לכל מכשיר.<br>נגנו שמע שמאלי וימני בנפרד<br>והרגישו את הבס העמוק מהסאב-וופר.',
   'setup.advanced_audio_desc_html':
-    'התאימו את הגדרות המארח<br>עם הדהוד, אקולייזר, אפקטים וירטואליים<br>ועוד בכל המערכת.',
+    'בהתאם להגדרות המארח<br>אפשר להחיל הדהוד, אקולייזר, אפקטים וירטואליים<br>ועוד על כל המערכת.',
   'youtube.enter_link_desc_html': 'אפשר להפעיל רק סרטונים או רשימות השמעה ציבוריים.',
 
   // ─── System Audio Sharing ───────────────────────────────────────

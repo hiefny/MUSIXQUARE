@@ -2375,7 +2375,9 @@ describe('shared service-maintenance control', () => {
     expect(body).toContain('</svg><span>is</span></span> temporarily unavailable.</span>');
     expect(body.match(/class="wordmark"/gu)).toHaveLength(1);
     expect(body).not.toContain('role="img" aria-label="MUSIXQUARE"');
-    expect(body).toContain('안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.');
+    expect(body).toContain(
+      '안전한 서비스를 위해 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.',
+    );
     expect(body).not.toMatch(/(?:class="[^"]*\b(?:card|dot|pulse)\b|[.#](?:card|dot|pulse)\b)/u);
     expect(body).not.toMatch(/@keyframes|\banimation(?:-name)?\s*:/u);
   });
@@ -2456,7 +2458,9 @@ describe('shared service-maintenance control', () => {
 
     expect(response.headers.get('Content-Language')).toBe('pt-br');
     expect(body).toContain('<html lang="pt-br" dir="ltr">');
-    expect(body).toContain('Estamos verificando o serviço. Tente novamente em instantes.');
+    expect(body).toContain(
+      'Estamos fazendo uma manutenção no serviço. Tente novamente em instantes.',
+    );
   });
 
   it('maps the generic Norwegian language tag to supported Bokmål copy', async () => {
@@ -2470,7 +2474,7 @@ describe('shared service-maintenance control', () => {
 
     expect(response.headers.get('Content-Language')).toBe('nb');
     expect(body).toContain('<html lang="nb" dir="ltr">');
-    expect(body).toContain('Vi gjennomfører en servicekontroll. Prøv igjen om en liten stund.');
+    expect(body).toContain('Vi utfører vedlikehold på tjenesten. Prøv igjen om en liten stund.');
   });
 
   it('falls back to English for English, unsupported, wildcard, and missing language headers', () => {

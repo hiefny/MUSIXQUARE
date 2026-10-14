@@ -128,6 +128,20 @@ describe('body class sink (playback.mode matrix)', () => {
     expect(container.style.opacity).toBe('0');
   });
 
+  it('makes the parked wrapper inert so its fullscreen button cannot take keyboard focus outside YouTube mode', () => {
+    document.body.innerHTML =
+      '<div class="video-wrapper"><div id="youtube-player-container"><iframe></iframe></div><button id="btn-fullscreen"></button></div>';
+    setState('playback.mode', 'youtube');
+    const wrapper = document.querySelector('.video-wrapper') as HTMLElement;
+    expect(wrapper.hasAttribute('inert')).toBe(false);
+
+    setState('playback.mode', 'file');
+    expect(wrapper.hasAttribute('inert')).toBe(true);
+
+    setState('playback.mode', 'youtube');
+    expect(wrapper.hasAttribute('inert')).toBe(false);
+  });
+
   it('clears fake fullscreen before parking a retained iframe for local-file playback', () => {
     document.body.innerHTML =
       '<div class="video-wrapper"><div id="youtube-player-container"><iframe></iframe></div></div>';

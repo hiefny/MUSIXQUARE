@@ -4287,6 +4287,11 @@ describe('setup prime readiness observation', () => {
     const { getYouTubePlayer } = await import('../_state.ts');
     const player = createMockYtPlayer();
     precreateYouTubePlayer();
+    // The pre-created player parks before any playback mode exists, so the
+    // parking helper itself must apply the accessibility state.
+    const parkedWrapper = document.querySelector('.video-wrapper') as HTMLElement;
+    expect(parkedWrapper.style.left).toBe('-9999px');
+    expect(parkedWrapper.hasAttribute('inert')).toBe(true);
     const settled = vi.fn();
     const wait = waitForYouTubePrimeReady().then(settled);
     const script = document.querySelector<HTMLScriptElement>(

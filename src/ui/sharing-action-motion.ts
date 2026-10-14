@@ -10,9 +10,6 @@ export function createSharingActionMotion(
   let pointer: { x: number; y: number } | null = null;
   let movedDuringMorph = false;
   let lockedMediaHover = false;
-  const initialDisabled = syncButton.disabled;
-  const initialInert = syncButton.hasAttribute('inert');
-  const initialAriaHidden = syncButton.getAttribute('aria-hidden');
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   function cancelTimer(): void {
@@ -57,7 +54,8 @@ export function createSharingActionMotion(
   }
 
   function gap(): number {
-    return Number.parseFloat(getComputedStyle(container).columnGap) || 12;
+    const value = Number.parseFloat(getComputedStyle(container).columnGap);
+    return Number.isFinite(value) ? value : 0;
   }
 
   function measure(width: number): void {
@@ -78,21 +76,12 @@ export function createSharingActionMotion(
           if (entry) measure(entry.contentRect.width);
         });
 
-  function restoreSync(): void {
-    syncButton.disabled = initialDisabled;
-    syncButton.toggleAttribute('inert', initialInert);
-    if (initialAriaHidden === null) syncButton.removeAttribute('aria-hidden');
-    else syncButton.setAttribute('aria-hidden', initialAriaHidden);
-  }
-
   function dispose(): void {
     cancelTimer();
     observer?.disconnect();
     delete container.dataset.morphing;
-    delete container.dataset.sharing;
     releaseHover();
     container.style.removeProperty('--play-action-slot-width');
-    restoreSync();
   }
 
   function update(next: boolean): void {
@@ -132,16 +121,7 @@ export function createSharingActionMotion(
       delete container.dataset.morphing;
       releaseHover();
     }
-    if (next) {
-      if (document.activeElement === syncButton) mediaButton.focus({ preventScroll: true });
-      syncButton.disabled = true;
-      syncButton.setAttribute('inert', '');
-      syncButton.setAttribute('aria-hidden', 'true');
-    } else {
-      restoreSync();
-    }
     sharing = next;
-    container.dataset.sharing = String(next);
   }
 
   if (!signal.aborted) {

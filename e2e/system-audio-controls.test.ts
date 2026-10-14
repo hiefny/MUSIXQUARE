@@ -29,6 +29,182 @@ import {
 
 const TRANSPORT_CONTROLS = ['btn-prev', 'play-btn', 'btn-next'] as const;
 
+type MotionFailureWindow = Window & { __sharingMotionObserveFailures?: number };
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 1440, height: 900 },
+]) {
+  test(`sharing controls survive optional motion failure at ${viewport.width}px`, async ({
+    page,
+  }, testInfo) => {
+    // Narrow Chromium checks the mobile layout with a synthetic capture;
+    // it does not emulate an OS picker or mobile system-audio support.
+    await page.setViewportSize(viewport);
+    const motionWarnings: string[] = [];
+    page.on('console', (message) => {
+      if (
+        message.type() === 'warning' &&
+        message.text().includes('[SharingAction] Optional motion failed')
+      ) {
+        motionWarnings.push(message.text());
+      }
+    });
+    await page.addInitScript(() => {
+      const win = window as MotionFailureWindow;
+      win.__sharingMotionObserveFailures = 0;
+      const observe = ResizeObserver.prototype.observe;
+      ResizeObserver.prototype.observe = function (target, options) {
+        if (target.classList.contains('play-action-buttons')) {
+          win.__sharingMotionObserveFailures! += 1;
+          // This runs after the real factory installs listeners and measures
+          // the row, exercising partial-initialization cleanup as well.
+          throw new Error('Injected sharing-action observer failure');
+        }
+        observe.call(this, target, options);
+      };
+    });
+    await injectPeerServer(page);
+    await installSyntheticSystemAudio(page);
+    await useAnonymousAccountSession(page);
+    await setupHostAndStart(page);
+    await navigateToTab(page, 'play');
+    const row = page.locator('.play-action-buttons');
+    const media = page.locator('#btn-media-source');
+    const sync = page.locator('#btn-sync');
+    const stopContent = media.locator('.play-action-stop-content');
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as MotionFailureWindow).__sharingMotionObserveFailures),
+      )
+      .toBeGreaterThan(0);
+    await expect.poll(() => motionWarnings.length).toBeGreaterThan(0);
+    const failures = await page.evaluate(
+      () => (window as MotionFailureWindow).__sharingMotionObserveFailures,
+    );
+    // A non-default gap exposes any remaining hard-coded 12px arithmetic.
+    await row.evaluate((element) =>
+      (element as HTMLElement).style.setProperty('--play-action-gap', '24px'),
+    );
+    await expect(row).toHaveCSS('column-gap', '24px');
+    await expect(row).toHaveCSS('--play-action-slot-width', '');
+    const readGeometry = () =>
+      row.evaluate((element) => {
+        const media = element.querySelector<HTMLButtonElement>('#btn-media-source')!;
+        const sync = element.querySelector<HTMLButtonElement>('#btn-sync')!;
+        const content = media.querySelector<HTMLElement>('.play-action-stop-content')!;
+        const label = content.querySelector<HTMLElement>('.play-action-label')!;
+        const box = (target: Element) => {
+          const { x, y, width, height } = target.getBoundingClientRect();
+          return { x, y, width, height };
+        };
+        return {
+          row: box(element),
+          media: box(media),
+          sync: box(sync),
+          content: box(content),
+          label: box(label),
+          rowLayoutWidth: (element as HTMLElement).offsetWidth,
+          mediaLayoutWidth: media.offsetWidth,
+          syncLayoutWidth: sync.offsetWidth,
+          mediaOverflow: media.scrollHeight - media.clientHeight,
+        };
+      });
+    // Wait for the gap-driven CSS width transition, without relying on motion
+    // metadata from the controller deliberately unavailable in this fixture.
+    await expect
+      .poll(async () => {
+        const { row, media, sync, rowLayoutWidth } = await readGeometry();
+        const scale = row.width / rowLayoutWidth;
+        return Math.abs(row.width - media.width - sync.width - 24 * scale);
+      })
+      .toBeLessThanOrEqual(0.75);
+    const split = await readGeometry();
+    expect(split.row.x).toBeGreaterThanOrEqual(0);
+    expect(split.row.x + split.row.width).toBeLessThanOrEqual(viewport.width);
+    if (viewport.width === 1440) {
+      expect(split.rowLayoutWidth).toBe(344);
+      expect(split.mediaLayoutWidth).toBe(160);
+      expect(split.syncLayoutWidth).toBe(160);
+    }
+
+    await media.click();
+    await page.locator('#btn-system-audio').click();
+    await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
+    await expect(row).toHaveAttribute('data-sharing', 'true');
+    await expect(media).toHaveAccessibleName('Stop Sharing');
+    await expect(stopContent.locator('.play-action-label')).toHaveText('Stop Sharing');
+    await expect(stopContent).toBeVisible();
+    await expect(stopContent).toHaveCSS('opacity', '1');
+    await expect(media.locator('.play-action-media-content')).toHaveCSS('opacity', '0');
+    await expect(sync).toBeDisabled();
+    await expect(sync).toHaveAttribute('inert', '');
+    await expect(sync).toHaveAttribute('aria-hidden', 'true');
+    await media.focus();
+    await sync.focus();
+    await expect(media).toBeFocused();
+    await expect
+      .poll(async () => {
+        const { row, media, content } = await readGeometry();
+        return Math.max(Math.abs(row.width - media.width), Math.abs(row.width - content.width));
+      })
+      .toBeLessThanOrEqual(0.75);
+    const expanded = await readGeometry();
+    expect(expanded.label.x).toBeGreaterThanOrEqual(expanded.row.x);
+    expect(expanded.label.x + expanded.label.width).toBeLessThanOrEqual(
+      expanded.row.x + expanded.row.width,
+    );
+    expect(expanded.label.y).toBeGreaterThanOrEqual(expanded.media.y);
+    expect(expanded.label.y + expanded.label.height).toBeLessThanOrEqual(
+      expanded.media.y + expanded.media.height,
+    );
+    expect(expanded.mediaOverflow).toBeLessThanOrEqual(1);
+    expect(expanded.media.height).toBeLessThanOrEqual(split.media.height + 0.75);
+    await expect(row).toHaveCSS('--play-action-slot-width', '');
+    await expect(row).not.toHaveAttribute('data-hover-locked', 'true');
+    await expect(row).not.toHaveAttribute('data-motion-ready', 'true');
+    await expect(page.locator('#toast')).not.toHaveClass(/\bshow\b/);
+    await page.screenshot({ path: testInfo.outputPath('motion-failure-expanded.png') });
+
+    // The rendered Stop action must terminate the real synthetic capture.
+    await media.click();
+    await expect.poll(async () => (await readSyntheticSystemAudio(page)).activeCaptures).toBe(0);
+    await expect(row).toHaveAttribute('data-sharing', 'false');
+    await expect(media).not.toHaveAccessibleName('Stop Sharing');
+    await expect(media.locator('.play-action-media-content')).toHaveCSS('opacity', '1');
+    await expect(stopContent).toHaveCSS('opacity', '0');
+    await expect(sync).toHaveJSProperty('disabled', false);
+    await expect(sync).not.toHaveAttribute('inert', '');
+    await expect(sync).not.toHaveAttribute('aria-hidden', 'true');
+    await expect
+      .poll(async () => {
+        const { media, sync } = await readGeometry();
+        return Math.max(
+          Math.abs(media.width - split.media.width),
+          Math.abs(sync.width - split.sync.width),
+        );
+      })
+      .toBeLessThanOrEqual(0.75);
+    await sync.focus();
+    await expect(sync).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(media).toBeFocused();
+    await expect(row).toHaveCSS('--play-action-slot-width', '');
+    expect(
+      await page.evaluate(() => (window as MotionFailureWindow).__sharingMotionObserveFailures),
+    ).toBe(failures);
+    await page.screenshot({ path: testInfo.outputPath('motion-failure-restored.png') });
+    await testInfo.attach('motion-failure-evidence', {
+      body: JSON.stringify(
+        { viewport, failures, motionWarnings, split, expanded, restored: await readGeometry() },
+        null,
+        2,
+      ),
+      contentType: 'application/json',
+    });
+  });
+}
+
 test('sharing surfaces do not acquire hover merely by expanding under a stationary pointer', async ({
   page,
 }, testInfo) => {

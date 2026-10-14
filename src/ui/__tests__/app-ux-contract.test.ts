@@ -237,9 +237,26 @@ describe('app UX markup contract', () => {
       /\.play-action-buttons :is\(#btn-sync, #btn-media-source\)\s*\{[^}]*min-height:\s*56px;[^}]*height:\s*auto;[^}]*padding:\s*0;/u,
     );
     expect(playbackActionsStylesheet).toMatch(
-      /\.play-actions-row\s*\{[^}]*--play-action-padding-x:\s*14px;[^}]*--play-action-icon-size:\s*20px;/u,
+      /\.play-actions-row\s*\{[^}]*--play-action-gap:\s*12px;[^}]*--play-action-padding-x:\s*14px;[^}]*--play-action-icon-size:\s*20px;[^}]*gap:\s*var\(--play-action-gap\);/u,
     );
-    expect(desktopStylesheet).toMatch(/\.play-action-buttons\s*\{[^}]*width:\s*332px;/u);
+    expect(playbackActionsStylesheet).toContain(
+      'width: calc((100% - var(--play-action-gap)) / 2);',
+    );
+    expect(playbackActionsStylesheet).toContain(
+      'width: calc(var(--play-action-slot-width, 100%) * 2 + var(--play-action-gap));',
+    );
+    expect(playbackActionsStylesheet).toMatch(
+      /\.play-action-buttons\[data-sharing='true'\] \.play-action-stop-content\s*\{[^}]*width:\s*calc\(var\(--play-action-slot-width, 0px\) \* 2 \+ var\(--play-action-gap\)\);[^}]*min-width:\s*100%;/u,
+    );
+    expect(playbackActionsStylesheet).toMatch(
+      /\.play-action-buttons:not\(\[data-motion-ready\]\)\[data-sharing='true'\] #btn-sync\s*\{\s*display:\s*none;/u,
+    );
+    expect(playbackActionsStylesheet).toMatch(
+      /\.play-action-buttons:not\(\[data-motion-ready\]\) :is\(#btn-sync, #btn-media-source\),\s*\.play-action-buttons:not\(\[data-motion-ready\]\) :is\(#btn-sync, #btn-media-source\) > span\s*\{\s*transition:\s*none;/u,
+    );
+    expect(desktopStylesheet).toMatch(
+      /\.play-action-buttons\s*\{[^}]*width:\s*calc\(160px \* 2 \+ var\(--play-action-gap\)\);[^}]*gap:\s*var\(--play-action-gap\);/u,
+    );
     expect(playbackActionsStylesheet).toMatch(
       /\.play-action-buttons\s*\{[^}]*--play-action-padding-x:\s*16px;[^}]*--play-action-icon-size:\s*22px;/u,
     );

@@ -1899,6 +1899,133 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
+  function setSharingSender(roomKind: 'standard' | 'pro'): void {
+    if (roomKind === 'standard') {
+      setActiveStandardHost();
+      return;
+    }
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['media.add', 'system-audio.publish'],
+    });
+    Object.assign(proSystemAudio.view, {
+      phase: 'live',
+      isLocalOwner: true,
+      canStop: true,
+    });
+  }
+
+  function expectSharingActionState(sharing: boolean): void {
+    const actions = document.querySelector('.play-action-buttons')!;
+    const sync = document.getElementById('btn-sync') as HTMLButtonElement;
+    const media = document.getElementById('btn-media-source') as HTMLButtonElement;
+    expect(actions.getAttribute('data-sharing')).toBe(String(sharing));
+    expect(sync.disabled).toBe(sharing);
+    expect(sync.hasAttribute('inert')).toBe(sharing);
+    expect(sync.getAttribute('aria-hidden')).toBe(sharing ? 'true' : null);
+    expect(media.getAttribute('aria-label')).toBe(
+      t(sharing ? 'system_audio.stop' : 'player.play_media'),
+    );
+    expect(media.getAttribute('data-i18n-aria-label')).toBe(
+      sharing ? 'system_audio.stop' : 'player.play_media',
+    );
+    if (sharing) expect(media.getAttribute('aria-disabled')).toBe('false');
+  }
+
+  it.each(['standard', 'pro'] as const)(
+    'keeps %s sender semantics, focus and stop clicks when the optional motion factory throws',
+    (roomKind) => {
+      renderPlaybackControls();
+      setSharingSender(roomKind);
+      const create = vi.fn<typeof createSharingActionMotion>(() => {
+        throw new Error('Optional sharing motion could not initialize');
+      });
+      registerSharingActionMotion(create);
+      expect(() => initPlayerControls()).not.toThrow();
+      expect(create).toHaveBeenCalled();
+      const sync = document.getElementById('btn-sync') as HTMLButtonElement;
+      const media = document.getElementById('btn-media-source') as HTMLButtonElement;
+      const stop = vi.fn();
+      bus.on('system-audio:stop', stop);
+      sync.focus();
+
+      expect(() => setPlaybackSystemAudioPlaying()).not.toThrow();
+
+      expectSharingActionState(true);
+      expect(document.activeElement).toBe(media);
+      sync.click();
+      expect(showToast).not.toHaveBeenCalled();
+      media.click();
+      expect(stop).toHaveBeenCalledTimes(1);
+
+      // Rebinding while still sharing must not capture the hidden/disabled
+      // Sync state as its restoration baseline or duplicate the Stop handler.
+      expect(() => initPlayerControls()).not.toThrow();
+      expectSharingActionState(true);
+      media.click();
+      expect(stop).toHaveBeenCalledTimes(2);
+      setPlaybackIdle();
+      expectSharingActionState(false);
+      sync.focus();
+      expect(document.activeElement).toBe(sync);
+    },
+  );
+
+  it.each(['standard', 'pro'] as const)(
+    'keeps %s ownership and receiver controls correct when optional motion update throws',
+    (roomKind) => {
+      renderPlaybackControls();
+      setSharingSender(roomKind);
+      const update = vi.fn((sharing: boolean) => {
+        if (sharing) throw new Error('Optional sharing motion failed during merge');
+      });
+      registerSharingActionMotion(() => ({ update }));
+      initPlayerControls();
+      expect(update).toHaveBeenCalledWith(false);
+      const sync = document.getElementById('btn-sync') as HTMLButtonElement;
+      const media = document.getElementById('btn-media-source') as HTMLButtonElement;
+      const stop = vi.fn();
+      bus.on('system-audio:stop', stop);
+      sync.focus();
+
+      expect(() => setPlaybackSystemAudioPlaying()).not.toThrow();
+
+      expect(update).toHaveBeenCalledWith(true);
+      expectSharingActionState(true);
+      expect(document.activeElement).toBe(media);
+      media.click();
+      expect(stop).toHaveBeenCalledTimes(1);
+
+      if (roomKind === 'standard') {
+        setState('network.appRole', 'guest');
+        setState('network.hostConn', makeConnection('host-1'));
+      } else {
+        proSystemAudio.view.isLocalOwner = false;
+        proSystemAudio.view.canStop = false;
+        bus.emit('pro-system-audio:state-changed', { ...proSystemAudio.view }, null);
+      }
+
+      expectSharingActionState(false);
+      expect(media.classList.contains('sys-audio-guest')).toBe(true);
+      expect(media.getAttribute('aria-disabled')).toBe('true');
+      expect(sync.getAttribute('aria-disabled')).toBe('true');
+      sync.click();
+      expect(showToast).toHaveBeenLastCalledWith(t('toast.sync_not_in_system_audio'));
+      media.click();
+      expect(stop).toHaveBeenCalledTimes(1);
+      // Reinitialization must retain the receiver authority boundary too.
+      initPlayerControls();
+      expectSharingActionState(false);
+      media.click();
+      expect(stop).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it('refreshes the full stop copy without destroying either content layer or restarting the morph', async () => {
     renderPlaybackControls();
     setActiveStandardHost();

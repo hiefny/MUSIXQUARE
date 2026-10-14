@@ -308,6 +308,7 @@ function createImplementation(
   // Recent participant-local YouTube preparation durations. They only size the
   // planned rejoin lead; media timing itself is never learned from them.
   const localYouTubePreparationSamples: number[] = [];
+  let localRejoinUiSequence = 0;
 
   function localYouTubeRejoinLeadMs(minimumMs = LOCAL_YOUTUBE_REJOIN_MIN_LEAD_MS): number {
     const observedMs =
@@ -1749,6 +1750,18 @@ function createImplementation(
       state.activeTransition.event.target.revision <= event.playback.revision
         ? state.activeTransition.event.transitionId
         : event.transitionId;
+    // A running YouTube checkpoint this endpoint never saw PREPARE for (a late
+    // join, a missed COMMIT, a retry) keeps the iframe silent while it prepares.
+    // Show the shared transition loading state meanwhile, so the transport is a
+    // spinner rather than a button that would act on the room.
+    if (
+      event.transitionId &&
+      event.playback.state === 'playing' &&
+      event.playback.youtubeVideoId !== null &&
+      !(pendingUiTransitionId && state.transitionUiIds.has(pendingUiTransitionId))
+    ) {
+      beginPlaybackTransitionUi(event.transitionId);
+    }
     state.highestKnownRevision = Math.max(state.highestKnownRevision, event.playback.revision);
     state.cancelledCheckpointRecovery = null;
     const generation = ++state.commitGeneration;
@@ -2461,111 +2474,120 @@ function createImplementation(
       // keep the post-preparation projection; their scheduled start never seeks.
       const planYouTubeRelease =
         runningRendezvous && clock !== null && playback.youtubeVideoId !== null;
-      let attemptAuthority = authority;
-      for (let attempt = 1; ; attempt += 1) {
-        const plannedExecuteAtMs =
-          planYouTubeRelease && clock
-            ? Date.now() + clock.offsetMs + localYouTubeRejoinLeadMs()
-            : null;
-        const preparationStartedAtMs = performance.now();
-        let prepared: ProPlaybackPrepareResult;
-        try {
-          prepared = await prepareWithDurationReport(
-            {
+      // The arm pauses this iframe while it prepares. Show the shared loading
+      // state meanwhile, so the transport is a spinner rather than a Play button
+      // over a silent endpoint (foreground recovery, Sync, a rejoining Play).
+      const rejoinUiId = planYouTubeRelease ? `local_rejoin_${++localRejoinUiSequence}` : null;
+      if (rejoinUiId) beginPlaybackTransitionUi(rejoinUiId);
+      try {
+        let attemptAuthority = authority;
+        for (let attempt = 1; ; attempt += 1) {
+          const plannedExecuteAtMs =
+            planYouTubeRelease && clock
+              ? Date.now() + clock.offsetMs + localYouTubeRejoinLeadMs()
+              : null;
+          const preparationStartedAtMs = performance.now();
+          let prepared: ProPlaybackPrepareResult;
+          try {
+            prepared = await prepareWithDurationReport(
+              {
+                authority: attemptAuthority,
+                queueItemId: playback.queueItemId,
+                positionSeconds:
+                  plannedExecuteAtMs === null
+                    ? canonicalPositionNow
+                    : positionAtServerTime(playback, plannedExecuteAtMs),
+                youtubeSubIndex: playback.youtubeSubIndex,
+                youtubeVideoId: playback.youtubeVideoId,
+                isCurrent,
+              },
+              isCurrent,
+              prepareCurrentProPlaybackRendezvousAuthority,
+            );
+          } catch (error) {
+            cancelProPlaybackPreparation(attemptAuthority);
+            throw error;
+          }
+          if (prepared.status !== 'ready' || !isCurrent()) {
+            cancelProPlaybackPreparation(attemptAuthority);
+            // The arm paused this endpoint while preparing. A YouTube rejoin that
+            // only timed out on a present player must not leave a running room
+            // silent here until the next server transition; rejoin directly
+            // (late, but audible) instead. A missing or locked player cannot.
+            if (
+              planYouTubeRelease &&
+              prepared.status === 'failed' &&
+              prepared.reason === 'timeout' &&
+              clock &&
+              isCurrent()
+            ) {
+              return await reconcileDirectly(
+                createProPlaybackAuthorityToken({
+                  roomId: roomCode,
+                  roomEpoch,
+                  basePlaybackRevision: playback.revision - 1,
+                  transitionId: null,
+                }),
+                positionAtServerTime(playback, Date.now() + clock.offsetMs),
+              );
+            }
+            return false;
+          }
+          if (plannedExecuteAtMs !== null) {
+            recordLocalYouTubePreparation(performance.now() - preparationStartedAtMs);
+          }
+
+          const releaseNowMs = clock ? Date.now() + clock.offsetMs : observedServerTimeMs;
+          let executeAtMs: number;
+          if (
+            plannedExecuteAtMs !== null &&
+            plannedExecuteAtMs - releaseNowMs >= LOCAL_YOUTUBE_REJOIN_MIN_RELEASE_MS
+          ) {
+            executeAtMs = plannedExecuteAtMs;
+          } else if (plannedExecuteAtMs !== null && attempt === 1) {
+            // Preparation overran its planned instant. The iframe is warm now, so
+            // re-arm once at a fresh (re-measured) instant instead of seeking
+            // during release.
+            cancelProPlaybackPreparation(attemptAuthority);
+            if (!isCurrent()) return false;
+            attemptAuthority = createAuthority();
+            continue;
+          } else {
+            // Files, paused renderers, and a second YouTube overrun: rebase the
+            // target after preparation, then release at one future server instant
+            // so this endpoint rejoins the running timeline rather than
+            // hard-seeking at an arbitrary response-arrival time.
+            executeAtMs =
+              releaseNowMs + (runningRendezvous ? PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS : 0);
+          }
+          const rendezvousPosition = positionAtServerTime(playback, executeAtMs);
+          if (!isCurrent()) {
+            cancelProPlaybackPreparation(attemptAuthority);
+            return false;
+          }
+          let result: ProPlaybackCommitResult;
+          try {
+            result = await rendezvousCurrentProPlaybackAuthority({
               authority: attemptAuthority,
+              committedPlaybackRevision: playback.revision,
               queueItemId: playback.queueItemId,
-              positionSeconds:
-                plannedExecuteAtMs === null
-                  ? canonicalPositionNow
-                  : positionAtServerTime(playback, plannedExecuteAtMs),
+              state: playback.state,
+              positionSeconds: rendezvousPosition,
+              scheduleDelayMs: Math.max(0, executeAtMs - releaseNowMs),
+              timingMode: 'scheduled-control',
               youtubeSubIndex: playback.youtubeSubIndex,
               youtubeVideoId: playback.youtubeVideoId,
               isCurrent,
-            },
-            isCurrent,
-            prepareCurrentProPlaybackRendezvousAuthority,
-          );
-        } catch (error) {
-          cancelProPlaybackPreparation(attemptAuthority);
-          throw error;
-        }
-        if (prepared.status !== 'ready' || !isCurrent()) {
-          cancelProPlaybackPreparation(attemptAuthority);
-          // The arm paused this endpoint while preparing. A YouTube rejoin that
-          // only timed out on a present player must not leave a running room
-          // silent here until the next server transition; rejoin directly
-          // (late, but audible) instead. A missing or locked player cannot.
-          if (
-            planYouTubeRelease &&
-            prepared.status === 'failed' &&
-            prepared.reason === 'timeout' &&
-            clock &&
-            isCurrent()
-          ) {
-            return reconcileDirectly(
-              createProPlaybackAuthorityToken({
-                roomId: roomCode,
-                roomEpoch,
-                basePlaybackRevision: playback.revision - 1,
-                transitionId: null,
-              }),
-              positionAtServerTime(playback, Date.now() + clock.offsetMs),
-            );
+            });
+          } catch (error) {
+            cancelProPlaybackPreparation(attemptAuthority);
+            throw error;
           }
-          return false;
+          if (result.status !== 'applied') cancelProPlaybackPreparation(attemptAuthority);
+          return result.status === 'applied' && isCurrent();
         }
-        if (plannedExecuteAtMs !== null) {
-          recordLocalYouTubePreparation(performance.now() - preparationStartedAtMs);
-        }
-
-        const releaseNowMs = clock ? Date.now() + clock.offsetMs : observedServerTimeMs;
-        let executeAtMs: number;
-        if (
-          plannedExecuteAtMs !== null &&
-          plannedExecuteAtMs - releaseNowMs >= LOCAL_YOUTUBE_REJOIN_MIN_RELEASE_MS
-        ) {
-          executeAtMs = plannedExecuteAtMs;
-        } else if (plannedExecuteAtMs !== null && attempt === 1) {
-          // Preparation overran its planned instant. The iframe is warm now, so
-          // re-arm once at a fresh (re-measured) instant instead of seeking
-          // during release.
-          cancelProPlaybackPreparation(attemptAuthority);
-          if (!isCurrent()) return false;
-          attemptAuthority = createAuthority();
-          continue;
-        } else {
-          // Files, paused renderers, and a second YouTube overrun: rebase the
-          // target after preparation, then release at one future server instant
-          // so this endpoint rejoins the running timeline rather than
-          // hard-seeking at an arbitrary response-arrival time.
-          executeAtMs =
-            releaseNowMs + (runningRendezvous ? PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS : 0);
-        }
-        const rendezvousPosition = positionAtServerTime(playback, executeAtMs);
-        if (!isCurrent()) {
-          cancelProPlaybackPreparation(attemptAuthority);
-          return false;
-        }
-        let result: ProPlaybackCommitResult;
-        try {
-          result = await rendezvousCurrentProPlaybackAuthority({
-            authority: attemptAuthority,
-            committedPlaybackRevision: playback.revision,
-            queueItemId: playback.queueItemId,
-            state: playback.state,
-            positionSeconds: rendezvousPosition,
-            scheduleDelayMs: Math.max(0, executeAtMs - releaseNowMs),
-            timingMode: 'scheduled-control',
-            youtubeSubIndex: playback.youtubeSubIndex,
-            youtubeVideoId: playback.youtubeVideoId,
-            isCurrent,
-          });
-        } catch (error) {
-          cancelProPlaybackPreparation(attemptAuthority);
-          throw error;
-        }
-        if (result.status !== 'applied') cancelProPlaybackPreparation(attemptAuthority);
-        return result.status === 'applied' && isCurrent();
+      } finally {
+        if (rejoinUiId) settlePlaybackTransitionUi(rejoinUiId);
       }
     }
 

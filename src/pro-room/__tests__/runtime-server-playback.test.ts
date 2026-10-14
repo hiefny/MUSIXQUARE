@@ -3439,6 +3439,42 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalled();
   });
 
+  it('shows the loading state while a foreground YouTube rejoin prepares', async () => {
+    const current = {
+      ...snapshot(playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' })),
+      revision: 2,
+    };
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ ...commitEvent(null, 1), playback: current.playback } as unknown as Record<
+        string,
+        unknown
+      >),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    commitMedia.mockClear();
+    const loading: boolean[] = [];
+    const duringPrepare: boolean[][] = [];
+    const prepareImplementation = prepareMedia.getMockImplementation()!;
+    prepareMedia.mockImplementation(async (request) => {
+      duringPrepare.push([...loading]);
+      return prepareImplementation(request);
+    });
+    const off = bus.on('pro-playback:transition-loading', (value) => loading.push(value));
+    try {
+      setDocumentVisibility('hidden');
+      setDocumentVisibility('visible');
+
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(loading).toEqual([true, false]));
+      // The arm pauses the iframe while it prepares; the transport shows a
+      // spinner meanwhile instead of a Play button over a silent endpoint.
+      expect(duringPrepare).toEqual([[true]]);
+    } finally {
+      off();
+    }
+  });
+
   it('runs a stronger manual rendezvous after an overlapping visibility repair', async () => {
     const current = {
       ...snapshot(playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' })),

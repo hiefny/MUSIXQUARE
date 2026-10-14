@@ -300,7 +300,7 @@
       bottom: auto;
       left: auto;
       right: auto;
-      width: 100%;
+      width: 332px;
       max-width: calc(100% - 80px);
       margin-inline-start: auto;
       margin-inline-end: auto;
@@ -309,10 +309,6 @@
       padding-bottom: 0px;
       flex-shrink: 0;
       justify-content: center;
-    }
-
-    .play-action-buttons .file-select-btn-large {
-      font-size: 15px;
     }
 
     .playback-stage {
@@ -916,33 +912,6 @@
     .chat-drawer-input {
       background: transparent;
     }
-
-    /* Keep the action buttons consistently sized on all desktop viewports rather than full-width */
-    .play-action-buttons {
-      justify-content: center;
-    }
-
-    .play-action-buttons .file-select-btn {
-      min-height: 56px;
-      height: auto;
-      padding: 10px 16px;
-      border-radius: var(--radius-pill);
-      justify-content: center;
-      align-items: center;
-    }
-
-    /* Desktop action buttons show labels beside their icons. */
-    .play-action-buttons span {
-      display: block;
-      font-size: 15px;
-      font-weight: 600;
-    }
-
-    .play-action-buttons .file-select-btn svg {
-      width: 22px;
-      height: 22px;
-      margin: 0;
-    }
   }
 } /* end @layer desktop */
 
@@ -950,13 +919,6 @@
 
 @layer components {
   @media (min-width: 1280px) {
-    /* The action width shares the components layer with .flex-1, so this component selector owns its desktop flex behavior without important. */
-    .play-action-buttons .file-select-btn {
-      width: 160px;
-      min-width: 160px;
-      flex: none;
-    }
-
     .dialog.account-dialog,
     .dialog.administrator-permissions-dialog {
       max-height: calc(var(--desktop-viewport-height) - 48px);

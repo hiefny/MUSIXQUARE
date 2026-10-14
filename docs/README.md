@@ -90,9 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [System audio sender action surface — 2026-10-14](design/system-audio-sharing-actions-2026-10-14.md) —
+  Sender-only merged Stop Sharing control, stable hover motion, room/demo CSS
+  readiness, accessibility and 42-locale layout verification. App 8.10.14/v680.
 - [입장 대기·장황 버튼 라벨 축약 — 2026-10-14](design/short-wait-labels-2026-10-14.md) —
   `common.wait`·`setup.joining` 28건과 2026-10-13 길이 조사의 장황 버튼 25키 222건을 칩·2버튼 행
-  ≤14자, 전폭 ≤22자 관용구로 축약(31키·250건). 8.10.13/v679,
+  ≤14자, 전폭 ≤22자 관용구로 축약(31키·250건). 8.10.15/v681,
   Production Release `target=app`.
 - [점검 안내 번역 14건·숨은 YouTube 패널 접근성 수정 — 2026-10-14](design/maintenance-copy-and-a11y-release-2026-10-14.md) —
   Worker 6종 공유 점검 안내 문구 14개 로케일 관용구 수정, 화면 밖에 주차된 YouTube 래퍼

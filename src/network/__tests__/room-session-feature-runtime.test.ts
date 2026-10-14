@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   pro: vi.fn(),
   prepareMediaSession: vi.fn(() => Promise.resolve()),
   localOutputRejoin: vi.fn(),
+  sharingActionMotion: vi.fn(),
   warn: vi.fn(),
 }));
 
@@ -29,6 +30,9 @@ vi.mock('../../player/media-session-loader.ts', () => ({
 vi.mock('../../player/local-output-rejoin.ts', () => ({
   initLocalOutputRejoin: mocks.localOutputRejoin,
 }));
+vi.mock('../../ui/sharing-action-motion-port.ts', () => ({
+  registerSharingActionMotion: mocks.sharingActionMotion,
+}));
 
 beforeEach(() => {
   vi.resetModules();
@@ -49,8 +53,26 @@ describe('room session feature runtime initialization policy', () => {
     expect(mocks.pro).toHaveBeenCalledOnce();
     expect(mocks.prepareMediaSession).toHaveBeenCalledOnce();
     expect(mocks.localOutputRejoin).toHaveBeenCalledOnce();
+    expect(mocks.sharingActionMotion).toHaveBeenCalledOnce();
     expect(mocks.warn).toHaveBeenCalledWith(
       '[RoomSession] Optional LocalOutputRejoin initialization failed',
+      expect.any(Error),
+    );
+  });
+
+  it('keeps room entry available if the optional sharing action UI cannot initialize', async () => {
+    mocks.sharingActionMotion.mockImplementationOnce(() => {
+      throw new Error('presentation initialization failed');
+    });
+
+    await expect(import('../room-session-feature-runtime.ts')).resolves.toBeDefined();
+
+    expect(mocks.host).toHaveBeenCalledOnce();
+    expect(mocks.guest).toHaveBeenCalledOnce();
+    expect(mocks.sfu).toHaveBeenCalledOnce();
+    expect(mocks.pro).toHaveBeenCalledOnce();
+    expect(mocks.warn).toHaveBeenCalledWith(
+      '[RoomSession] Optional SharingActionMotion initialization failed',
       expect.any(Error),
     );
   });

@@ -1,0 +1,5234 @@
+{
+  "measuredAt": "2026-10-14T04:50:21.855Z",
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "node": "v24.13.1",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13800H"
+  },
+  "baselineArtifact": {
+    "name": "browser-production-candidate-46b7c7cd5f358bf6e733880dc5d09327d215c0eb-38512631265",
+    "sourceSha": "46b7c7cd5f358bf6e733880dc5d09327d215c0eb",
+    "ciRun": "38512631265"
+  },
+  "candidate": {
+    "sourceHead": "afb4ee3c5b0607dfbd9639c32aa634d8e96eea1b",
+    "uncommittedChanges": ["?? docs/performance/system-audio-sharing-startup-2026-10-14.json"]
+  },
+  "settings": {
+    "cpuSlowdown": 4,
+    "latencyMs": 150,
+    "downloadBitsPerSecond": 1600000,
+    "uploadBitsPerSecond": 750000,
+    "trialsPerVariant": 5,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "serving": "Vite preview with configFile:false for both artifact directories; default gzip compression; same local API 503 middleware.",
+  "isolation": "Fresh browser context per trial; serviceWorkers:block; CDP cache disabled; all non-selected-origin requests aborted; no room entered.",
+  "limitations": [
+    "Local Chromium CDP simulation on one Windows PC, not physical low-end hardware or a field SLO.",
+    "API requests return 503 and external requests are blocked; this isolates startup and does not measure successful authentication, network room entry, sharing startup, or playback.",
+    "Vite preview gzip uses zlib default compression; transfer graph comparison uses the repository helper with deterministic level-9 gzip.",
+    "Bootstrap ready is recorded by MutationObserver when the 51-step dataset reaches ready. LCP is a snapshot shortly after the first paint, not final session LCP.",
+    "Five trials per variant do not establish statistical significance or prove future budget growth is neutral."
+  ],
+  "transfer": {
+    "baseline": {
+      "entryScriptUrl": "/assets/main-BTpFiXPI.js",
+      "entryScriptRawBytes": 426765,
+      "entryScriptGzipBytes": 126104,
+      "eagerJavaScriptGzipBytes": 467876,
+      "eagerTotalRawBytes": 2034430,
+      "eagerTotalGzipBytes": 543361,
+      "eagerFontBytes": 0,
+      "entries": [
+        {
+          "url": "/index.html",
+          "rawBytes": 140075,
+          "gzipBytes": 32086
+        },
+        {
+          "url": "/bootstrap.js?cache=v679",
+          "rawBytes": 10196,
+          "gzipBytes": 3814
+        },
+        {
+          "url": "/noscript.css",
+          "rawBytes": 146,
+          "gzipBytes": 103
+        },
+        {
+          "url": "/fouc-cleanup.js",
+          "rawBytes": 1133,
+          "gzipBytes": 592
+        },
+        {
+          "url": "/wordmark-anim.js",
+          "rawBytes": 5233,
+          "gzipBytes": 2281
+        },
+        {
+          "url": "/assets/main-DuLzNRbT.css",
+          "rawBytes": 314673,
+          "gzipBytes": 43053
+        },
+        {
+          "url": "/assets/main-BTpFiXPI.js",
+          "rawBytes": 426765,
+          "gzipBytes": 126104
+        },
+        {
+          "url": "/assets/rolldown-runtime-hePW80VL.js",
+          "rawBytes": 716,
+          "gzipBytes": 428
+        },
+        {
+          "url": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "rawBytes": 670,
+          "gzipBytes": 389
+        },
+        {
+          "url": "/assets/log-Dqj63-a7.js",
+          "rawBytes": 860,
+          "gzipBytes": 452
+        },
+        {
+          "url": "/assets/api-D5oSt4sE.js",
+          "rawBytes": 8144,
+          "gzipBytes": 3017
+        },
+        {
+          "url": "/assets/timers-CfOuWQHl.js",
+          "rawBytes": 808,
+          "gzipBytes": 442
+        },
+        {
+          "url": "/assets/en-D2tY60q2.js",
+          "rawBytes": 48763,
+          "gzipBytes": 14294
+        },
+        {
+          "url": "/assets/preload-helper-t6vPaeH_.js",
+          "rawBytes": 1599,
+          "gzipBytes": 856
+        },
+        {
+          "url": "/assets/locales-xChvy8T2.js",
+          "rawBytes": 3862,
+          "gzipBytes": 1523
+        },
+        {
+          "url": "/assets/localized-app-document-DSYrv8kf.js",
+          "rawBytes": 1179,
+          "gzipBytes": 570
+        },
+        {
+          "url": "/assets/ui-sounds-Bame9r_f.js",
+          "rawBytes": 105052,
+          "gzipBytes": 34070
+        },
+        {
+          "url": "/assets/peer-DHgArqc7.js",
+          "rawBytes": 360275,
+          "gzipBytes": 101527
+        },
+        {
+          "url": "/assets/output-error-C6YoyYUI.js",
+          "rawBytes": 671,
+          "gzipBytes": 343
+        },
+        {
+          "url": "/assets/transport-Dcku6zFU.js",
+          "rawBytes": 104064,
+          "gzipBytes": 30865
+        },
+        {
+          "url": "/assets/system-capture-DDUuJQwc.js",
+          "rawBytes": 134923,
+          "gzipBytes": 39366
+        },
+        {
+          "url": "/assets/play-latency-DoFYixza.js",
+          "rawBytes": 316,
+          "gzipBytes": 234
+        },
+        {
+          "url": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "rawBytes": 540,
+          "gzipBytes": 232
+        },
+        {
+          "url": "/assets/native-control-authority-B6Ury7ep.js",
+          "rawBytes": 10947,
+          "gzipBytes": 4038
+        },
+        {
+          "url": "/assets/sync-TZ2cKtxW.js",
+          "rawBytes": 76087,
+          "gzipBytes": 21428
+        },
+        {
+          "url": "/assets/preload-CQxiCTcJ.js",
+          "rawBytes": 31772,
+          "gzipBytes": 10115
+        },
+        {
+          "url": "/assets/pro-start-observations-BQwPuwAn.js",
+          "rawBytes": 3241,
+          "gzipBytes": 1496
+        },
+        {
+          "url": "/assets/playlist-eFwAZ_Hc.js",
+          "rawBytes": 239309,
+          "gzipBytes": 69400
+        },
+        {
+          "url": "/dummy_audio.mp3",
+          "rawBytes": 2411,
+          "gzipBytes": 243
+        }
+      ]
+    },
+    "candidate": {
+      "entryScriptUrl": "/assets/main-5Lpnqlzl.js",
+      "entryScriptRawBytes": 427322,
+      "entryScriptGzipBytes": 126320,
+      "eagerJavaScriptGzipBytes": 468087,
+      "eagerTotalRawBytes": 2042992,
+      "eagerTotalGzipBytes": 544507,
+      "eagerFontBytes": 0,
+      "entries": [
+        {
+          "url": "/index.html",
+          "rawBytes": 140514,
+          "gzipBytes": 32144
+        },
+        {
+          "url": "/bootstrap.js?cache=v680",
+          "rawBytes": 10196,
+          "gzipBytes": 3814
+        },
+        {
+          "url": "/noscript.css",
+          "rawBytes": 146,
+          "gzipBytes": 103
+        },
+        {
+          "url": "/fouc-cleanup.js",
+          "rawBytes": 1133,
+          "gzipBytes": 592
+        },
+        {
+          "url": "/wordmark-anim.js",
+          "rawBytes": 5233,
+          "gzipBytes": 2281
+        },
+        {
+          "url": "/assets/main-CPNpOFqt.css",
+          "rawBytes": 322232,
+          "gzipBytes": 43930
+        },
+        {
+          "url": "/assets/main-5Lpnqlzl.js",
+          "rawBytes": 427322,
+          "gzipBytes": 126320
+        },
+        {
+          "url": "/assets/rolldown-runtime-hePW80VL.js",
+          "rawBytes": 716,
+          "gzipBytes": 428
+        },
+        {
+          "url": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "rawBytes": 670,
+          "gzipBytes": 389
+        },
+        {
+          "url": "/assets/log-Dqj63-a7.js",
+          "rawBytes": 860,
+          "gzipBytes": 452
+        },
+        {
+          "url": "/assets/api-D5oSt4sE.js",
+          "rawBytes": 8144,
+          "gzipBytes": 3017
+        },
+        {
+          "url": "/assets/timers-CfOuWQHl.js",
+          "rawBytes": 808,
+          "gzipBytes": 442
+        },
+        {
+          "url": "/assets/en-n_isWAkl.js",
+          "rawBytes": 48770,
+          "gzipBytes": 14297
+        },
+        {
+          "url": "/assets/preload-helper-t6vPaeH_.js",
+          "rawBytes": 1599,
+          "gzipBytes": 856
+        },
+        {
+          "url": "/assets/locales-xChvy8T2.js",
+          "rawBytes": 3862,
+          "gzipBytes": 1523
+        },
+        {
+          "url": "/assets/localized-app-document-DSYrv8kf.js",
+          "rawBytes": 1179,
+          "gzipBytes": 570
+        },
+        {
+          "url": "/assets/ui-sounds-Cwy44bWr.js",
+          "rawBytes": 105052,
+          "gzipBytes": 34062
+        },
+        {
+          "url": "/assets/peer-Di1Pgrwe.js",
+          "rawBytes": 360275,
+          "gzipBytes": 101527
+        },
+        {
+          "url": "/assets/output-error-C6YoyYUI.js",
+          "rawBytes": 671,
+          "gzipBytes": 343
+        },
+        {
+          "url": "/assets/transport-Ceb57Gx_.js",
+          "rawBytes": 104064,
+          "gzipBytes": 30867
+        },
+        {
+          "url": "/assets/system-capture-mJwviClj.js",
+          "rawBytes": 134923,
+          "gzipBytes": 39366
+        },
+        {
+          "url": "/assets/play-latency-CtP9sfDx.js",
+          "rawBytes": 316,
+          "gzipBytes": 234
+        },
+        {
+          "url": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "rawBytes": 540,
+          "gzipBytes": 232
+        },
+        {
+          "url": "/assets/native-control-authority-C12k82df.js",
+          "rawBytes": 10947,
+          "gzipBytes": 4038
+        },
+        {
+          "url": "/assets/sync-1f3AMe5M.js",
+          "rawBytes": 76087,
+          "gzipBytes": 21428
+        },
+        {
+          "url": "/assets/preload-CnObZAtl.js",
+          "rawBytes": 31772,
+          "gzipBytes": 10113
+        },
+        {
+          "url": "/assets/pro-start-observations-BQwPuwAn.js",
+          "rawBytes": 3241,
+          "gzipBytes": 1496
+        },
+        {
+          "url": "/assets/playlist-Dll-990v.js",
+          "rawBytes": 239309,
+          "gzipBytes": 69400
+        },
+        {
+          "url": "/dummy_audio.mp3",
+          "rawBytes": 2411,
+          "gzipBytes": 243
+        }
+      ]
+    }
+  },
+  "artifactFingerprints": {
+    "baseline": [
+      {
+        "file": "index.html",
+        "sha256": "c7ee298c682ef7890db1c1f47e36f0eb4296dd493293213eb7b2ad89311cc695"
+      },
+      {
+        "file": "assets/main-BTpFiXPI.js",
+        "sha256": "1cf02cf7a00d0bf1bbd2756d382dbcebada38d4b77346fee66c4b501a084ec9c"
+      },
+      {
+        "file": "noscript.css",
+        "sha256": "caa986966bf80dc9e65ed3bffbbdec727a483b48b2f9bed001585d0d84a4ecb8"
+      },
+      {
+        "file": "assets/main-DuLzNRbT.css",
+        "sha256": "83311fb78d6062043974355e537d6a30808679f06df477d0adc0c95c4859b74e"
+      }
+    ],
+    "candidate": [
+      {
+        "file": "index.html",
+        "sha256": "b0a2ae5280dfc22810e71eb7a08f302c44c2c92ab633f7d088915056cd65a88a"
+      },
+      {
+        "file": "assets/main-5Lpnqlzl.js",
+        "sha256": "9164df2d1d0023a35012f482a0c34333165d9d1e5aa4d5c116be854fcc56815a"
+      },
+      {
+        "file": "noscript.css",
+        "sha256": "caa986966bf80dc9e65ed3bffbbdec727a483b48b2f9bed001585d0d84a4ecb8"
+      },
+      {
+        "file": "assets/main-CPNpOFqt.css",
+        "sha256": "dc8587da7a4d3a5d30d65de1af4e0b53249688e0200a955f4dc97adac7339122"
+      }
+    ]
+  },
+  "rows": [
+    {
+      "variant": "baseline",
+      "trial": 1,
+      "sequence": 1,
+      "startedAt": "2026-10-14T04:50:22.423Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3983.599999964237,
+      "lcpMs": 4264,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4264,
+      "domContentLoadedMs": 4092.699999988079,
+      "observedAtMs": 4564.300000011921,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 197,
+          "durationMs": 272.30000001192093,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 198.39999997615814,
+          "durationMs": 226.80000001192093,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 198.80000001192093,
+          "durationMs": 2222.599999964237,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "initiatorType": "link",
+          "startTimeMs": 199.19999998807907,
+          "durationMs": 938.8000000119209,
+          "transferSize": 43920,
+          "encodedBodySize": 43620,
+          "decodedBodySize": 314673
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "initiatorType": "script",
+          "startTimeMs": 199.5999999642372,
+          "durationMs": 2683,
+          "transferSize": 126598,
+          "encodedBodySize": 126298,
+          "decodedBodySize": 426765
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.0999999642372,
+          "durationMs": 225.60000002384186,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.30000001192093,
+          "durationMs": 297.69999998807907,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.5999999642372,
+          "durationMs": 396.30000001192093,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.89999997615814,
+          "durationMs": 456.10000002384186,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.0999999642372,
+          "durationMs": 440.4000000357628,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.5,
+          "durationMs": 703.8999999761581,
+          "transferSize": 14601,
+          "encodedBodySize": 14301,
+          "decodedBodySize": 48763
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.89999997615814,
+          "durationMs": 564.4000000357628,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.0999999642372,
+          "durationMs": 642.6000000238419,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.5,
+          "durationMs": 642.3000000119209,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.89999997615814,
+          "durationMs": 1524.6000000238419,
+          "transferSize": 34376,
+          "encodedBodySize": 34076,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.5999999642372,
+          "durationMs": 2816.600000023842,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.89999997615814,
+          "durationMs": 812.8000000119209,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.5,
+          "durationMs": 1662.5,
+          "transferSize": 31205,
+          "encodedBodySize": 30905,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.89999997615814,
+          "durationMs": 1984.800000011921,
+          "transferSize": 39720,
+          "encodedBodySize": 39420,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.0999999642372,
+          "durationMs": 1119.5,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.30000001192093,
+          "durationMs": 1307.199999988079,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "initiatorType": "other",
+          "startTimeMs": 206,
+          "durationMs": 1568.699999988079,
+          "transferSize": 4340,
+          "encodedBodySize": 4040,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.19999998807907,
+          "durationMs": 2169.800000011921,
+          "transferSize": 21779,
+          "encodedBodySize": 21479,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.39999997615814,
+          "durationMs": 1995,
+          "transferSize": 10423,
+          "encodedBodySize": 10123,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.5999999642372,
+          "durationMs": 1890.800000011921,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "initiatorType": "other",
+          "startTimeMs": 207,
+          "durationMs": 2906,
+          "transferSize": 69816,
+          "encodedBodySize": 69516,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 527.1999999880791,
+          "durationMs": 1909.8999999761581,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3373.699999988079,
+          "durationMs": 907.6999999880791,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 4124.300000011921,
+          "durationMs": 172.19999998807907,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4358.300000011921,
+          "durationMs": -778,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "candidate",
+      "trial": 1,
+      "sequence": 2,
+      "startedAt": "2026-10-14T04:50:27.118Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3842.899999976158,
+      "lcpMs": 4128,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4128,
+      "domContentLoadedMs": 3967.800000011921,
+      "observedAtMs": 4438.199999988079,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 197.89999997615814,
+          "durationMs": 260.10000002384186,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 199.69999998807907,
+          "durationMs": 212.9000000357628,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 200.10000002384186,
+          "durationMs": 2181.899999976158,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "initiatorType": "link",
+          "startTimeMs": 200.30000001192093,
+          "durationMs": 940.1999999880791,
+          "transferSize": 44814,
+          "encodedBodySize": 44514,
+          "decodedBodySize": 322232
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "initiatorType": "script",
+          "startTimeMs": 200.69999998807907,
+          "durationMs": 2662.400000035763,
+          "transferSize": 126814,
+          "encodedBodySize": 126514,
+          "decodedBodySize": 427322
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.10000002384186,
+          "durationMs": 210.89999997615814,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.30000001192093,
+          "durationMs": 305.69999998807907,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.5,
+          "durationMs": 382.5,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.89999997615814,
+          "durationMs": 442.2000000476837,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.30000001192093,
+          "durationMs": 427.30000001192093,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.5,
+          "durationMs": 703.3000000119209,
+          "transferSize": 14604,
+          "encodedBodySize": 14304,
+          "decodedBodySize": 48770
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.89999997615814,
+          "durationMs": 564.3000000119209,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.10000002384186,
+          "durationMs": 641.7999999523163,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.5,
+          "durationMs": 611.1000000238419,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "initiatorType": "other",
+          "startTimeMs": 205,
+          "durationMs": 1539.3999999761581,
+          "transferSize": 34369,
+          "encodedBodySize": 34069,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.69999998807907,
+          "durationMs": 2796.400000035763,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 207.39999997615814,
+          "durationMs": 809.9000000357628,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "initiatorType": "other",
+          "startTimeMs": 208,
+          "durationMs": 1662.800000011921,
+          "transferSize": 31207,
+          "encodedBodySize": 30907,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "initiatorType": "other",
+          "startTimeMs": 208.60000002384186,
+          "durationMs": 1958.8999999761581,
+          "transferSize": 39719,
+          "encodedBodySize": 39419,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "initiatorType": "other",
+          "startTimeMs": 208.80000001192093,
+          "durationMs": 1118.300000011921,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 209.30000001192093,
+          "durationMs": 1306.3999999761581,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "initiatorType": "other",
+          "startTimeMs": 209.60000002384186,
+          "durationMs": 1580.8999999761581,
+          "transferSize": 4341,
+          "encodedBodySize": 4041,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "initiatorType": "other",
+          "startTimeMs": 209.89999997615814,
+          "durationMs": 2203.600000023842,
+          "transferSize": 21780,
+          "encodedBodySize": 21480,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "initiatorType": "other",
+          "startTimeMs": 210.19999998807907,
+          "durationMs": 2002.5,
+          "transferSize": 10420,
+          "encodedBodySize": 10120,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 210.39999997615814,
+          "durationMs": 1897,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "initiatorType": "other",
+          "startTimeMs": 210.60000002384186,
+          "durationMs": 2902.099999964237,
+          "transferSize": 69817,
+          "encodedBodySize": 69517,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 505.69999998807907,
+          "durationMs": 1937.800000011921,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3293.300000011921,
+          "durationMs": 851.5999999642372,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3989,
+          "durationMs": 187.39999997615814,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4210.100000023842,
+          "durationMs": -725.9000000357628,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "candidate",
+      "trial": 2,
+      "sequence": 3,
+      "startedAt": "2026-10-14T04:50:31.669Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3865.199999988079,
+      "lcpMs": 4108,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4108,
+      "domContentLoadedMs": 3961.699999988079,
+      "observedAtMs": 4375.800000011921,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 187.89999997615814,
+          "durationMs": 266.60000002384186,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 188.89999997615814,
+          "durationMs": 220.69999998807907,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 189.0999999642372,
+          "durationMs": 2194.2000000476837,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "initiatorType": "link",
+          "startTimeMs": 189.30000001192093,
+          "durationMs": 944.3999999761581,
+          "transferSize": 44814,
+          "encodedBodySize": 44514,
+          "decodedBodySize": 322232
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "initiatorType": "script",
+          "startTimeMs": 189.69999998807907,
+          "durationMs": 2688.699999988079,
+          "transferSize": 126814,
+          "encodedBodySize": 126514,
+          "decodedBodySize": 427322
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 189.89999997615814,
+          "durationMs": 222.10000002384186,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.0999999642372,
+          "durationMs": 312.60000002384186,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.30000001192093,
+          "durationMs": 389.19999998807907,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.5999999642372,
+          "durationMs": 439,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.69999998807907,
+          "durationMs": 435.5,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.89999997615814,
+          "durationMs": 710.3000000119209,
+          "transferSize": 14604,
+          "encodedBodySize": 14304,
+          "decodedBodySize": 48770
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.0999999642372,
+          "durationMs": 557.4000000357628,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.30000001192093,
+          "durationMs": 640,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.5,
+          "durationMs": 634.5,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.69999998807907,
+          "durationMs": 1510.6000000238419,
+          "transferSize": 34369,
+          "encodedBodySize": 34069,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.80000001192093,
+          "durationMs": 2808.5,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.89999997615814,
+          "durationMs": 821.4000000357628,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.19999998807907,
+          "durationMs": 1651.699999988079,
+          "transferSize": 31207,
+          "encodedBodySize": 30907,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.30000001192093,
+          "durationMs": 1976.3999999761581,
+          "transferSize": 39719,
+          "encodedBodySize": 39419,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.5,
+          "durationMs": 1127.3999999761581,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.69999998807907,
+          "durationMs": 1312.6000000238419,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.89999997615814,
+          "durationMs": 1587.199999988079,
+          "transferSize": 4341,
+          "encodedBodySize": 4041,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.89999997615814,
+          "durationMs": 2161,
+          "transferSize": 21780,
+          "encodedBodySize": 21480,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "initiatorType": "other",
+          "startTimeMs": 193.0999999642372,
+          "durationMs": 2006.4000000357628,
+          "transferSize": 10420,
+          "encodedBodySize": 10120,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 193.30000001192093,
+          "durationMs": 1883,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "initiatorType": "other",
+          "startTimeMs": 193.69999998807907,
+          "durationMs": 2914.199999988079,
+          "transferSize": 69817,
+          "encodedBodySize": 69517,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 500.5,
+          "durationMs": 1913.199999988079,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3327,
+          "durationMs": 814.3999999761581,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3982.399999976158,
+          "durationMs": 174.69999998807907,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4188.800000011921,
+          "durationMs": -664.8000000119209,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "baseline",
+      "trial": 2,
+      "sequence": 4,
+      "startedAt": "2026-10-14T04:50:36.152Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3690.2000000476837,
+      "lcpMs": 3920,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 3920,
+      "domContentLoadedMs": 3794.400000035763,
+      "observedAtMs": 4175.100000023842,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 194.5,
+          "durationMs": 239.5,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 195.4000000357628,
+          "durationMs": 224.5999999642372,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 195.70000004768372,
+          "durationMs": 2196.2999999523163,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "initiatorType": "link",
+          "startTimeMs": 195.9000000357628,
+          "durationMs": 915.3999999761581,
+          "transferSize": 43920,
+          "encodedBodySize": 43620,
+          "decodedBodySize": 314673
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "initiatorType": "script",
+          "startTimeMs": 196.30000001192093,
+          "durationMs": 2643.199999988079,
+          "transferSize": 126598,
+          "encodedBodySize": 126298,
+          "decodedBodySize": 426765
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 196.5,
+          "durationMs": 220.60000002384186,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 196.70000004768372,
+          "durationMs": 313.89999997615814,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 197,
+          "durationMs": 391.60000002384186,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 197.30000001192093,
+          "durationMs": 451.10000002384186,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 197.60000002384186,
+          "durationMs": 421.80000001192093,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "initiatorType": "other",
+          "startTimeMs": 197.70000004768372,
+          "durationMs": 713.0999999642372,
+          "transferSize": 14601,
+          "encodedBodySize": 14301,
+          "decodedBodySize": 48763
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 198,
+          "durationMs": 560.5,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 198.60000002384186,
+          "durationMs": 621.1999999880791,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 199,
+          "durationMs": 625.3000000119209,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.4000000357628,
+          "durationMs": 1525.5999999642372,
+          "transferSize": 34376,
+          "encodedBodySize": 34076,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.80000001192093,
+          "durationMs": 2796.400000035763,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.20000004768372,
+          "durationMs": 805.1999999880791,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "initiatorType": "other",
+          "startTimeMs": 201,
+          "durationMs": 1664.4000000357628,
+          "transferSize": 31205,
+          "encodedBodySize": 30905,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.60000002384186,
+          "durationMs": 1957.199999988079,
+          "transferSize": 39720,
+          "encodedBodySize": 39420,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.30000001192093,
+          "durationMs": 1094.1000000238419,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.9000000357628,
+          "durationMs": 1279.800000011921,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.5,
+          "durationMs": 1552.6000000238419,
+          "transferSize": 4340,
+          "encodedBodySize": 4040,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.9000000357628,
+          "durationMs": 2173.199999988079,
+          "transferSize": 21779,
+          "encodedBodySize": 21479,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.20000004768372,
+          "durationMs": 1986,
+          "transferSize": 10423,
+          "encodedBodySize": 10123,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.4000000357628,
+          "durationMs": 1891.800000011921,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.70000004768372,
+          "durationMs": 2886.099999964237,
+          "transferSize": 69816,
+          "encodedBodySize": 69516,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 488.30000001192093,
+          "durationMs": 1933.9000000357628,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3281.400000035763,
+          "durationMs": 694.6999999880791,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3814.600000023842,
+          "durationMs": 177.89999997615814,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 3985.5,
+          "durationMs": -506.39999997615814,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "baseline",
+      "trial": 3,
+      "sequence": 5,
+      "startedAt": "2026-10-14T04:50:40.474Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3771.5,
+      "lcpMs": 3992,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 3992,
+      "domContentLoadedMs": 3853.699999988079,
+      "observedAtMs": 4277.5,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 197.0999999642372,
+          "durationMs": 263.30000001192093,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 198.0999999642372,
+          "durationMs": 201.9000000357628,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 198.39999997615814,
+          "durationMs": 2177.5,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "initiatorType": "link",
+          "startTimeMs": 198.5,
+          "durationMs": 901.5999999642372,
+          "transferSize": 43920,
+          "encodedBodySize": 43620,
+          "decodedBodySize": 314673
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "initiatorType": "script",
+          "startTimeMs": 198.69999998807907,
+          "durationMs": 2647.800000011921,
+          "transferSize": 126598,
+          "encodedBodySize": 126298,
+          "decodedBodySize": 426765
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 199,
+          "durationMs": 216.89999997615814,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.30000001192093,
+          "durationMs": 310.2999999523163,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.5,
+          "durationMs": 370.0999999642372,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.80000001192093,
+          "durationMs": 446.0999999642372,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 200,
+          "durationMs": 432.19999998807907,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.19999998807907,
+          "durationMs": 725.8999999761581,
+          "transferSize": 14601,
+          "encodedBodySize": 14301,
+          "decodedBodySize": 48763
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.39999997615814,
+          "durationMs": 540,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.5999999642372,
+          "durationMs": 647.9000000357628,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.80000001192093,
+          "durationMs": 632.3999999761581,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "initiatorType": "other",
+          "startTimeMs": 201,
+          "durationMs": 1489.5,
+          "transferSize": 34376,
+          "encodedBodySize": 34076,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.0999999642372,
+          "durationMs": 2802.800000011921,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.39999997615814,
+          "durationMs": 836.9000000357628,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.5999999642372,
+          "durationMs": 1644.2000000476837,
+          "transferSize": 31205,
+          "encodedBodySize": 30905,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.89999997615814,
+          "durationMs": 2003.5,
+          "transferSize": 39720,
+          "encodedBodySize": 39420,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.0999999642372,
+          "durationMs": 1085.1000000238419,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.39999997615814,
+          "durationMs": 1273,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.5999999642372,
+          "durationMs": 1536.2000000476837,
+          "transferSize": 4340,
+          "encodedBodySize": 4040,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.19999998807907,
+          "durationMs": 2158.5,
+          "transferSize": 21779,
+          "encodedBodySize": 21479,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.80000001192093,
+          "durationMs": 1954.5999999642372,
+          "transferSize": 10423,
+          "encodedBodySize": 10123,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 204,
+          "durationMs": 1876.8999999761581,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.5,
+          "durationMs": 2892.199999988079,
+          "transferSize": 69816,
+          "encodedBodySize": 69516,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 515.3000000119209,
+          "durationMs": 1907.3999999761581,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3304,
+          "durationMs": 724.0999999642372,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3868.199999988079,
+          "durationMs": 175.89999997615814,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4070.5,
+          "durationMs": -552.4000000357628,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "candidate",
+      "trial": 3,
+      "sequence": 6,
+      "startedAt": "2026-10-14T04:50:44.864Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3789.899999976158,
+      "lcpMs": 4056,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4056,
+      "domContentLoadedMs": 3900.600000023842,
+      "observedAtMs": 4315,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 187.60000002384186,
+          "durationMs": 250.19999998807907,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 188.30000001192093,
+          "durationMs": 203.80000001192093,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 188.80000001192093,
+          "durationMs": 2222.300000011921,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "initiatorType": "link",
+          "startTimeMs": 188.89999997615814,
+          "durationMs": 947.2000000476837,
+          "transferSize": 44814,
+          "encodedBodySize": 44514,
+          "decodedBodySize": 322232
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "initiatorType": "script",
+          "startTimeMs": 189.30000001192093,
+          "durationMs": 2658.099999964237,
+          "transferSize": 126814,
+          "encodedBodySize": 126514,
+          "decodedBodySize": 427322
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 189.69999998807907,
+          "durationMs": 217.10000002384186,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 189.89999997615814,
+          "durationMs": 311.5,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.10000002384186,
+          "durationMs": 373.2999999523163,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.30000001192093,
+          "durationMs": 449.5,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.5,
+          "durationMs": 419.89999997615814,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.69999998807907,
+          "durationMs": 544.1999999880791,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "initiatorType": "other",
+          "startTimeMs": 190.69999998807907,
+          "durationMs": 728.1999999880791,
+          "transferSize": 14604,
+          "encodedBodySize": 14304,
+          "decodedBodySize": 48770
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 191,
+          "durationMs": 621.5,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.19999998807907,
+          "durationMs": 625.5,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.30000001192093,
+          "durationMs": 1488.5999999642372,
+          "transferSize": 34369,
+          "encodedBodySize": 34069,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.5,
+          "durationMs": 2795.5,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 191.80000001192093,
+          "durationMs": 821.8999999761581,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "initiatorType": "other",
+          "startTimeMs": 192,
+          "durationMs": 1660.199999988079,
+          "transferSize": 31207,
+          "encodedBodySize": 30907,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.19999998807907,
+          "durationMs": 1986.6000000238419,
+          "transferSize": 39719,
+          "encodedBodySize": 39419,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.30000001192093,
+          "durationMs": 1131.300000011921,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.60000002384186,
+          "durationMs": 1316.7999999523163,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.69999998807907,
+          "durationMs": 1580.300000011921,
+          "transferSize": 4341,
+          "encodedBodySize": 4041,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "initiatorType": "other",
+          "startTimeMs": 192.89999997615814,
+          "durationMs": 2157.5,
+          "transferSize": 21780,
+          "encodedBodySize": 21480,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 193.10000002384186,
+          "durationMs": 1891.7999999523163,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "initiatorType": "other",
+          "startTimeMs": 193.10000002384186,
+          "durationMs": 2015.3999999761581,
+          "transferSize": 10420,
+          "encodedBodySize": 10120,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "initiatorType": "other",
+          "startTimeMs": 193.5,
+          "durationMs": 2888.399999976158,
+          "transferSize": 69817,
+          "encodedBodySize": 69517,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 477.80000001192093,
+          "durationMs": 1964.0999999642372,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3276.800000011921,
+          "durationMs": 797.0999999642372,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3924.100000023842,
+          "durationMs": 181,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4116.399999976158,
+          "durationMs": -644,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "candidate",
+      "trial": 4,
+      "sequence": 7,
+      "startedAt": "2026-10-14T04:50:49.312Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3769.399999976158,
+      "lcpMs": 4016,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4016,
+      "domContentLoadedMs": 3877,
+      "observedAtMs": 4333.300000011921,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 204.30000001192093,
+          "durationMs": 260.69999998807907,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 205.5,
+          "durationMs": 213.89999997615814,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 205.89999997615814,
+          "durationMs": 2199.5,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "initiatorType": "link",
+          "startTimeMs": 206.30000001192093,
+          "durationMs": 924,
+          "transferSize": 44814,
+          "encodedBodySize": 44514,
+          "decodedBodySize": 322232
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "initiatorType": "script",
+          "startTimeMs": 206.69999998807907,
+          "durationMs": 2664.699999988079,
+          "transferSize": 126814,
+          "encodedBodySize": 126514,
+          "decodedBodySize": 427322
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.89999997615814,
+          "durationMs": 213,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 207.10000002384186,
+          "durationMs": 306,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 207.5,
+          "durationMs": 383.5,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 207.80000001192093,
+          "durationMs": 442.89999997615814,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 207.89999997615814,
+          "durationMs": 428.4000000357628,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "initiatorType": "other",
+          "startTimeMs": 208.5,
+          "durationMs": 705,
+          "transferSize": 14604,
+          "encodedBodySize": 14304,
+          "decodedBodySize": 48770
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 209.10000002384186,
+          "durationMs": 550.7999999523163,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 209.89999997615814,
+          "durationMs": 628,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 210.80000001192093,
+          "durationMs": 626.5999999642372,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "initiatorType": "other",
+          "startTimeMs": 211.60000002384186,
+          "durationMs": 1510,
+          "transferSize": 34369,
+          "encodedBodySize": 34069,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "initiatorType": "other",
+          "startTimeMs": 212.19999998807907,
+          "durationMs": 2795.699999988079,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 212.60000002384186,
+          "durationMs": 796.1999999880791,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "initiatorType": "other",
+          "startTimeMs": 213,
+          "durationMs": 1648.699999988079,
+          "transferSize": 31207,
+          "encodedBodySize": 30907,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "initiatorType": "other",
+          "startTimeMs": 213.5,
+          "durationMs": 1958.1000000238419,
+          "transferSize": 39719,
+          "encodedBodySize": 39419,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "initiatorType": "other",
+          "startTimeMs": 213.80000001192093,
+          "durationMs": 1104.5,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 214,
+          "durationMs": 1290.6000000238419,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "initiatorType": "other",
+          "startTimeMs": 214.39999997615814,
+          "durationMs": 1553.7000000476837,
+          "transferSize": 4341,
+          "encodedBodySize": 4041,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "initiatorType": "other",
+          "startTimeMs": 214.69999998807907,
+          "durationMs": 2160.900000035763,
+          "transferSize": 21780,
+          "encodedBodySize": 21480,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "initiatorType": "other",
+          "startTimeMs": 214.80000001192093,
+          "durationMs": 1988.699999988079,
+          "transferSize": 10420,
+          "encodedBodySize": 10120,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 215,
+          "durationMs": 1878,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "initiatorType": "other",
+          "startTimeMs": 215.10000002384186,
+          "durationMs": 2888.899999976158,
+          "transferSize": 69817,
+          "encodedBodySize": 69517,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 519.8000000119209,
+          "durationMs": 1916.699999988079,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3319.199999988079,
+          "durationMs": 742.5,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3899.800000011921,
+          "durationMs": 178.19999998807907,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4105.899999976158,
+          "durationMs": -587.2999999523163,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "baseline",
+      "trial": 4,
+      "sequence": 8,
+      "startedAt": "2026-10-14T04:50:53.776Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3884.899999976158,
+      "lcpMs": 4156,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4156,
+      "domContentLoadedMs": 3989.399999976158,
+      "observedAtMs": 4457.699999988079,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 198.5999999642372,
+          "durationMs": 273,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 199.5999999642372,
+          "durationMs": 227.10000002384186,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 200.30000001192093,
+          "durationMs": 2223.699999988079,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "initiatorType": "link",
+          "startTimeMs": 200.69999998807907,
+          "durationMs": 948.6999999880791,
+          "transferSize": 43920,
+          "encodedBodySize": 43620,
+          "decodedBodySize": 314673
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "initiatorType": "script",
+          "startTimeMs": 201.19999998807907,
+          "durationMs": 2688.699999988079,
+          "transferSize": 126598,
+          "encodedBodySize": 126298,
+          "decodedBodySize": 426765
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.5999999642372,
+          "durationMs": 240.70000004768372,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.89999997615814,
+          "durationMs": 291.9000000357628,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.0999999642372,
+          "durationMs": 380.7000000476837,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.30000001192093,
+          "durationMs": 473.19999998807907,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.5,
+          "durationMs": 442.80000001192093,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.69999998807907,
+          "durationMs": 702.3000000119209,
+          "transferSize": 14601,
+          "encodedBodySize": 14301,
+          "decodedBodySize": 48763
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.89999997615814,
+          "durationMs": 550,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.0999999642372,
+          "durationMs": 640,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.39999997615814,
+          "durationMs": 656.9000000357628,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.69999998807907,
+          "durationMs": 1505.199999988079,
+          "transferSize": 34376,
+          "encodedBodySize": 34076,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.89999997615814,
+          "durationMs": 2810.5,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.0999999642372,
+          "durationMs": 838.1000000238419,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.39999997615814,
+          "durationMs": 1643.800000011921,
+          "transferSize": 31205,
+          "encodedBodySize": 30905,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.69999998807907,
+          "durationMs": 1985.699999988079,
+          "transferSize": 39720,
+          "encodedBodySize": 39420,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.89999997615814,
+          "durationMs": 1132.300000011921,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.19999998807907,
+          "durationMs": 1316.5,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.39999997615814,
+          "durationMs": 1581,
+          "transferSize": 4340,
+          "encodedBodySize": 4040,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.80000001192093,
+          "durationMs": 2156.099999964237,
+          "transferSize": 21779,
+          "encodedBodySize": 21479,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.0999999642372,
+          "durationMs": 2015.6000000238419,
+          "transferSize": 10423,
+          "encodedBodySize": 10123,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.30000001192093,
+          "durationMs": 1876.5999999642372,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "initiatorType": "other",
+          "startTimeMs": 206.5999999642372,
+          "durationMs": 2916.100000023842,
+          "transferSize": 69816,
+          "encodedBodySize": 69516,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 530.0999999642372,
+          "durationMs": 1925.2000000476837,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3352,
+          "durationMs": 814.5999999642372,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 4014.699999988079,
+          "durationMs": 182.80000001192093,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4233.399999976158,
+          "durationMs": -675,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "baseline",
+      "trial": 5,
+      "sequence": 9,
+      "startedAt": "2026-10-14T04:50:58.357Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3844.199999988079,
+      "lcpMs": 4092,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4092,
+      "domContentLoadedMs": 3954.099999964237,
+      "observedAtMs": 4392.800000011921,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 198.39999997615814,
+          "durationMs": 228.30000001192093,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 199.39999997615814,
+          "durationMs": 198.69999998807907,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 199.89999997615814,
+          "durationMs": 2200.699999988079,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-DuLzNRbT.css",
+          "initiatorType": "link",
+          "startTimeMs": 200,
+          "durationMs": 893.5999999642372,
+          "transferSize": 43920,
+          "encodedBodySize": 43620,
+          "decodedBodySize": 314673
+        },
+        {
+          "path": "/assets/main-BTpFiXPI.js",
+          "initiatorType": "script",
+          "startTimeMs": 200.30000001192093,
+          "durationMs": 2636.099999964237,
+          "transferSize": 126598,
+          "encodedBodySize": 126298,
+          "decodedBodySize": 426765
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.5999999642372,
+          "durationMs": 212.30000001192093,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.89999997615814,
+          "durationMs": 303,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.5,
+          "durationMs": 364.69999998807907,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.30000001192093,
+          "durationMs": 440.5999999642372,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.5999999642372,
+          "durationMs": 410.30000001192093,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-D2tY60q2.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.89999997615814,
+          "durationMs": 721.6999999880791,
+          "transferSize": 14601,
+          "encodedBodySize": 14301,
+          "decodedBodySize": 48763
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.0999999642372,
+          "durationMs": 534.8000000119209,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.30000001192093,
+          "durationMs": 610.5999999642372,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.5,
+          "durationMs": 615.0999999642372,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Bame9r_f.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.69999998807907,
+          "durationMs": 1513.8999999761581,
+          "transferSize": 34376,
+          "encodedBodySize": 34076,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.89999997615814,
+          "durationMs": 796.1999999880791,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/peer-DHgArqc7.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.89999997615814,
+          "durationMs": 2772.900000035763,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/transport-Dcku6zFU.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.0999999642372,
+          "durationMs": 1652,
+          "transferSize": 31205,
+          "encodedBodySize": 30905,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-DDUuJQwc.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.39999997615814,
+          "durationMs": 1964.1000000238419,
+          "transferSize": 39720,
+          "encodedBodySize": 39420,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-DoFYixza.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.5,
+          "durationMs": 1078.5,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.69999998807907,
+          "durationMs": 1263.5,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-B6Ury7ep.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.89999997615814,
+          "durationMs": 1543.4000000357628,
+          "transferSize": 4340,
+          "encodedBodySize": 4040,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-TZ2cKtxW.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.0999999642372,
+          "durationMs": 2179.900000035763,
+          "transferSize": 21779,
+          "encodedBodySize": 21479,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.30000001192093,
+          "durationMs": 1885.699999988079,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/preload-CQxiCTcJ.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.30000001192093,
+          "durationMs": 1978.3999999761581,
+          "transferSize": 10423,
+          "encodedBodySize": 10123,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/playlist-eFwAZ_Hc.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.5,
+          "durationMs": 2878.699999988079,
+          "transferSize": 69816,
+          "encodedBodySize": 69516,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 469.0999999642372,
+          "durationMs": 1946.7000000476837,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3303.300000011921,
+          "durationMs": 838.2999999523163,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3974.5,
+          "durationMs": 182.5,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4179.199999988079,
+          "durationMs": -676.8999999761581,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    },
+    {
+      "variant": "candidate",
+      "trial": 5,
+      "sequence": 10,
+      "startedAt": "2026-10-14T04:51:02.871Z",
+      "pageErrors": [],
+      "externalBlocked": [],
+      "responses": [
+        {
+          "path": "/",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/bootstrap.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "status": 200,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "status": 206,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/api/auth/session",
+          "status": 503,
+          "contentEncoding": null,
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "status": 200,
+          "contentEncoding": "gzip",
+          "fromServiceWorker": false
+        }
+      ],
+      "readyMs": 3871.400000035763,
+      "lcpMs": 4112,
+      "state": "ready",
+      "steps": "51",
+      "failures": "0",
+      "fallbacks": "0",
+      "fcpMs": 4112,
+      "domContentLoadedMs": 3966.800000011921,
+      "observedAtMs": 4402,
+      "serviceWorkerControlled": false,
+      "resources": [
+        {
+          "path": "/bootstrap.js",
+          "initiatorType": "script",
+          "startTimeMs": 194.80000001192093,
+          "durationMs": 269.30000001192093,
+          "transferSize": 4115,
+          "encodedBodySize": 3815,
+          "decodedBodySize": 10196
+        },
+        {
+          "path": "/fouc-cleanup.js",
+          "initiatorType": "script",
+          "startTimeMs": 195.60000002384186,
+          "durationMs": 205.89999997615814,
+          "transferSize": 892,
+          "encodedBodySize": 592,
+          "decodedBodySize": 1133
+        },
+        {
+          "path": "/wordmark-anim.js",
+          "initiatorType": "script",
+          "startTimeMs": 196.10000002384186,
+          "durationMs": 2195.099999964237,
+          "transferSize": 2587,
+          "encodedBodySize": 2287,
+          "decodedBodySize": 5233
+        },
+        {
+          "path": "/assets/main-CPNpOFqt.css",
+          "initiatorType": "link",
+          "startTimeMs": 196.80000001192093,
+          "durationMs": 918.3999999761581,
+          "transferSize": 44814,
+          "encodedBodySize": 44514,
+          "decodedBodySize": 322232
+        },
+        {
+          "path": "/assets/main-5Lpnqlzl.js",
+          "initiatorType": "script",
+          "startTimeMs": 197.5,
+          "durationMs": 2661.199999988079,
+          "transferSize": 126814,
+          "encodedBodySize": 126514,
+          "decodedBodySize": 427322
+        },
+        {
+          "path": "/assets/rolldown-runtime-hePW80VL.js",
+          "initiatorType": "other",
+          "startTimeMs": 198.19999998807907,
+          "durationMs": 202.5,
+          "transferSize": 1016,
+          "encodedBodySize": 716,
+          "decodedBodySize": 716
+        },
+        {
+          "path": "/assets/modulepreload-polyfill-P2Xu9kJm.js",
+          "initiatorType": "other",
+          "startTimeMs": 198.80000001192093,
+          "durationMs": 311.10000002384186,
+          "transferSize": 970,
+          "encodedBodySize": 670,
+          "decodedBodySize": 670
+        },
+        {
+          "path": "/assets/log-Dqj63-a7.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.19999998807907,
+          "durationMs": 372,
+          "transferSize": 1160,
+          "encodedBodySize": 860,
+          "decodedBodySize": 860
+        },
+        {
+          "path": "/assets/api-D5oSt4sE.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.60000002384186,
+          "durationMs": 415.5999999642372,
+          "transferSize": 3318,
+          "encodedBodySize": 3018,
+          "decodedBodySize": 8144
+        },
+        {
+          "path": "/assets/timers-CfOuWQHl.js",
+          "initiatorType": "other",
+          "startTimeMs": 199.80000001192093,
+          "durationMs": 431.19999998807907,
+          "transferSize": 1108,
+          "encodedBodySize": 808,
+          "decodedBodySize": 808
+        },
+        {
+          "path": "/assets/en-n_isWAkl.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.19999998807907,
+          "durationMs": 713.6000000238419,
+          "transferSize": 14604,
+          "encodedBodySize": 14304,
+          "decodedBodySize": 48770
+        },
+        {
+          "path": "/assets/preload-helper-t6vPaeH_.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.69999998807907,
+          "durationMs": 541.7000000476837,
+          "transferSize": 1156,
+          "encodedBodySize": 856,
+          "decodedBodySize": 1599
+        },
+        {
+          "path": "/assets/locales-xChvy8T2.js",
+          "initiatorType": "other",
+          "startTimeMs": 200.9000000357628,
+          "durationMs": 625.0999999642372,
+          "transferSize": 1823,
+          "encodedBodySize": 1523,
+          "decodedBodySize": 3862
+        },
+        {
+          "path": "/assets/localized-app-document-DSYrv8kf.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.19999998807907,
+          "durationMs": 619.6000000238419,
+          "transferSize": 870,
+          "encodedBodySize": 570,
+          "decodedBodySize": 1179
+        },
+        {
+          "path": "/assets/ui-sounds-Cwy44bWr.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.4000000357628,
+          "durationMs": 1488.8999999761581,
+          "transferSize": 34369,
+          "encodedBodySize": 34069,
+          "decodedBodySize": 105052
+        },
+        {
+          "path": "/assets/peer-Di1Pgrwe.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.60000002384186,
+          "durationMs": 2795.699999988079,
+          "transferSize": 102078,
+          "encodedBodySize": 101778,
+          "decodedBodySize": 360275
+        },
+        {
+          "path": "/assets/output-error-C6YoyYUI.js",
+          "initiatorType": "other",
+          "startTimeMs": 201.9000000357628,
+          "durationMs": 807.5,
+          "transferSize": 971,
+          "encodedBodySize": 671,
+          "decodedBodySize": 671
+        },
+        {
+          "path": "/assets/transport-Ceb57Gx_.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.19999998807907,
+          "durationMs": 1658.9000000357628,
+          "transferSize": 31207,
+          "encodedBodySize": 30907,
+          "decodedBodySize": 104064
+        },
+        {
+          "path": "/assets/system-capture-mJwviClj.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.60000002384186,
+          "durationMs": 1968.699999988079,
+          "transferSize": 39719,
+          "encodedBodySize": 39419,
+          "decodedBodySize": 134923
+        },
+        {
+          "path": "/assets/play-latency-CtP9sfDx.js",
+          "initiatorType": "other",
+          "startTimeMs": 202.80000001192093,
+          "durationMs": 1099.1000000238419,
+          "transferSize": 616,
+          "encodedBodySize": 316,
+          "decodedBodySize": 316
+        },
+        {
+          "path": "/assets/player-runtime-bridge-DVruwQ_s.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.10000002384186,
+          "durationMs": 1287.5,
+          "transferSize": 840,
+          "encodedBodySize": 540,
+          "decodedBodySize": 540
+        },
+        {
+          "path": "/assets/native-control-authority-C12k82df.js",
+          "initiatorType": "other",
+          "startTimeMs": 203.30000001192093,
+          "durationMs": 1563.6000000238419,
+          "transferSize": 4341,
+          "encodedBodySize": 4041,
+          "decodedBodySize": 10947
+        },
+        {
+          "path": "/assets/sync-1f3AMe5M.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.10000002384186,
+          "durationMs": 2138.099999964237,
+          "transferSize": 21780,
+          "encodedBodySize": 21480,
+          "decodedBodySize": 76087
+        },
+        {
+          "path": "/assets/preload-CnObZAtl.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.5,
+          "durationMs": 1998,
+          "transferSize": 10420,
+          "encodedBodySize": 10120,
+          "decodedBodySize": 31772
+        },
+        {
+          "path": "/assets/pro-start-observations-BQwPuwAn.js",
+          "initiatorType": "other",
+          "startTimeMs": 204.9000000357628,
+          "durationMs": 1888.5,
+          "transferSize": 1796,
+          "encodedBodySize": 1496,
+          "decodedBodySize": 3241
+        },
+        {
+          "path": "/assets/playlist-Dll-990v.js",
+          "initiatorType": "other",
+          "startTimeMs": 205.10000002384186,
+          "durationMs": 2900.300000011921,
+          "transferSize": 69817,
+          "encodedBodySize": 69517,
+          "decodedBodySize": 239309
+        },
+        {
+          "path": "/dummy_audio.mp3",
+          "initiatorType": "audio",
+          "startTimeMs": 500.9000000357628,
+          "durationMs": 1920.5,
+          "transferSize": 2711,
+          "encodedBodySize": 2411,
+          "decodedBodySize": 2411
+        },
+        {
+          "path": "/api/auth/session",
+          "initiatorType": "fetch",
+          "startTimeMs": 3305.100000023842,
+          "durationMs": 838.8999999761581,
+          "transferSize": 337,
+          "encodedBodySize": 37,
+          "decodedBodySize": 37
+        },
+        {
+          "path": "/primary-font-loader.js",
+          "initiatorType": "script",
+          "startTimeMs": 3989.600000023842,
+          "durationMs": 185.30000001192093,
+          "transferSize": 1989,
+          "encodedBodySize": 1689,
+          "decodedBodySize": 5202
+        },
+        {
+          "path": "/assets/sync.worker-BKdDLwFi.js",
+          "initiatorType": "other",
+          "startTimeMs": 4180.100000023842,
+          "durationMs": -668.9000000357628,
+          "transferSize": 916,
+          "encodedBodySize": 616,
+          "decodedBodySize": 1376
+        }
+      ],
+      "gzipVerified": true
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "readyMs": {
+        "min": 3690.2000000476837,
+        "median": 3844.199999988079,
+        "max": 3983.599999964237,
+        "mean": 3834.8799999952316
+      },
+      "fcpMs": {
+        "min": 3920,
+        "median": 4092,
+        "max": 4264,
+        "mean": 4084.8
+      },
+      "lcpMs": {
+        "min": 3920,
+        "median": 4092,
+        "max": 4264,
+        "mean": 4084.8
+      }
+    },
+    "candidate": {
+      "readyMs": {
+        "min": 3769.399999976158,
+        "median": 3842.899999976158,
+        "max": 3871.400000035763,
+        "mean": 3827.7599999904633
+      },
+      "fcpMs": {
+        "min": 4016,
+        "median": 4108,
+        "max": 4128,
+        "mean": 4084
+      },
+      "lcpMs": {
+        "min": 4016,
+        "median": 4108,
+        "max": 4128,
+        "mean": 4084
+      }
+    }
+  },
+  "completedAt": "2026-10-14T04:51:07.318Z",
+  "testExecution": {
+    "result": "1 passed",
+    "temporaryHarnessSha256": "49005fce6c9335d6323e926668f169d0aeb1da20717fb296c4f157616b8d7bcb",
+    "durationSeconds": 46.6,
+    "command": "npx playwright test --config .tmp-sharing-startup-benchmark/playwright.config.ts",
+    "assertionScope": "10 cold navigations: ready, exactly 51 steps, zero failures/fallbacks/pageErrors, real gzip JS and CSS response headers, no Service Worker controller"
+  },
+  "harnessPreparation": "An optional Network.setAcceptedEncodings CDP command was unsupported by this Chromium and removed before any measured navigation. Both previews use Vite default gzip and every recorded trial verifies actual JS/CSS Content-Encoding response headers."
+}

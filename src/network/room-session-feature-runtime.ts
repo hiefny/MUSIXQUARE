@@ -10,6 +10,8 @@ import { registerSystemAudioSfuListeners } from './system-audio-sfu.ts';
 import { registerProSystemAudioServiceListeners } from '../pro-room/system-audio-service.ts';
 import { prepareMediaSession } from '../player/media-session-loader.ts';
 import { initLocalOutputRejoin } from '../player/local-output-rejoin.ts';
+import { createSharingActionMotion } from '../ui/sharing-action-motion.ts';
+import { registerSharingActionMotion } from '../ui/sharing-action-motion-port.ts';
 
 registerSystemAudioHostListeners();
 registerSystemAudioGuestListeners();
@@ -23,7 +25,10 @@ prepareMediaSession().catch((error: unknown) => {
 // OS media controls and participant-local output recovery are optional
 // enhancements. A browser-specific exception in either one must not reject
 // this module after the protocol-critical room listeners are already bound.
-for (const [name, initialize] of [['LocalOutputRejoin', initLocalOutputRejoin]] as const) {
+for (const [name, initialize] of [
+  ['LocalOutputRejoin', initLocalOutputRejoin],
+  ['SharingActionMotion', () => registerSharingActionMotion(createSharingActionMotion)],
+] as const) {
   try {
     initialize();
   } catch (error) {

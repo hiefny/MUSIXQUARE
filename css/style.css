@@ -1470,64 +1470,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 0.6;
   }
 
-  /* =============================================
-       System Audio Sharing Mode
-       ============================================= */
-
-  /* Disable prev/next/play buttons + seekbar */
-  body.mode-system-audio #btn-prev,
-  body.mode-system-audio #btn-next,
-  body.mode-system-audio #play-btn,
-  body.mode-system-audio #seek-slider {
-    opacity: 0.3 !important;
-    pointer-events: none !important;
-  }
-
-  body.mode-system-audio #play-btn.is-loading {
-    opacity: 1 !important;
-  }
-
   #seek-slider[aria-disabled='true'] {
     opacity: 0.38;
     cursor: not-allowed;
   }
 
-  /* Host: media source button → red "stop sharing" style */
-
-  /* Playlist: blur + overlay */
-  body.mode-system-audio #tab-playlist .playlist-list {
-    filter: blur(7px) saturate(0.95);
-    opacity: 0.5;
-    pointer-events: none;
-    transform: translateZ(0);
-  }
-
-  html[data-theme='light'] body.mode-system-audio #tab-playlist .playlist-list {
-    filter: blur(6px) saturate(0.95);
-    opacity: 0.6;
-  }
-
-  /* Playlist note overlay */
   .system-audio-playlist-note {
     display: none;
-    position: sticky;
-    top: 50%;
-    transform: translateY(-50%);
-    z-index: 10;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-sub);
-    font-size: 14px;
-    font-weight: 600;
-    text-align: center;
-    padding: 0 32px;
-    pointer-events: none;
-    height: 0;
-    overflow: visible;
-  }
-
-  body.mode-system-audio .system-audio-playlist-note {
-    display: flex;
   }
 
   .invite-code-value {
@@ -9863,29 +9812,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 0.5;
   }
 
-  #btn-system-audio:disabled {
-    cursor: wait;
-    opacity: 0.72;
-    transform: none;
-  }
-
-  #btn-system-audio[aria-busy='true'] .btn-icon-bg > svg {
-    visibility: hidden;
-  }
-
-  #btn-system-audio[aria-busy='true'] .btn-icon-bg {
-    position: relative;
-  }
-
   .system-audio-loading-spinner {
-    --material-elastic-size: 16px;
-    --material-elastic-stroke: 4.75;
     display: none;
-  }
-
-  #btn-system-audio[aria-busy='true'] .system-audio-loading-spinner {
-    display: block;
-    position: absolute;
   }
 
   .file-select-btn span {
@@ -9990,18 +9918,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
-  /* Smaller Sync/Media Buttons for Main Screen (Match Chat Button) */
+  /* Sync/Media typography. The play-action component below owns layout. */
   #btn-sync,
   #btn-media-source {
-    min-height: 56px;
-    height: auto;
-    padding: 10px 14px;
     border: none;
     font-size: 15px;
-    gap: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
     /* currentColor keeps icon and label colors synchronized across themes. */
     color: var(--text-sub);
   }
@@ -10618,10 +10539,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     gap: 8px;
   }
 
-  /* play-action-buttons row */
-  .play-actions-row {
-    display: flex;
-    gap: 12px;
+  /* The playback feature owns display once loaded, regardless of CSS order. */
+  .play-action-stop-content {
+    display: none;
   }
 
   .flex-1 {
@@ -12238,31 +12158,6 @@ Safety is declared first because important layer precedence is reversed; its acc
   header.loading .header-loading-text {
     transform: translateY(0);
     opacity: 1;
-  }
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) {
-    background: rgba(255, 59, 48, 0.08);
-    color: #ff3b30;
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) svg {
-    fill: #ff3b30;
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) span {
-    color: #ff3b30;
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest):hover {
-    background: rgba(255, 59, 48, 0.12);
-  }
-
-  body.mode-system-audio #btn-media-source:not(.sys-audio-guest):active {
-    background: rgba(255, 59, 48, 0.18);
-  }
-  @media (hover: none), (pointer: coarse) {
-    body.mode-system-audio #btn-media-source:not(.sys-audio-guest):hover:not(:active) {
-      background: rgba(255, 59, 48, 0.08);
-    }
   }
   /* Entrance motion owns opacity/transform while the class is present. Sidebar layout supplies centering tokens; the boot guard explicitly excludes these deliberate entrance targets, and reduced motion disables them in safety. */
   .app-entrance {

@@ -91,16 +91,45 @@ or standalone gesture recognizer and must not close the physical-device item.
 
 ## Release and recovery
 
-Prepared product `8.10.16`, service-worker cache `v682`, target `app`, Developer
-API D1 application `false`. No new dependencies, schema, secret, binding,
-protocol, storage, or admission changes. Production deployment is authorized
-by the owner; exact-main CI is still required. Existing clients must apply the
-normal app update before this CSS takes effect; no forced update is introduced.
+Deployed 2026-10-14 15:46:50 KST: product `8.10.16`, service-worker cache `v682`,
+target `app`, Developer API D1 application `false`. No new dependencies, schema,
+secret, binding, protocol, storage, admission or recovery-floor changes.
 
-Before deployment, capture the workflow's verified live baseline. An app-only
-rollback must follow the standard ownership and compatibility checks. A prior
-baseline restores the old touch behavior and therefore does not fix the reported
-symptom. Release IDs, actual baseline, smoke and final ownership are pending.
+- Code PR [#334](https://github.com/hiefny/MUSIXQUARE/pull/334), final PR
+  [CI 38522571598](https://github.com/hiefny/MUSIXQUARE/actions/runs/38522571598)
+  succeeded. Merge/deployed SHA `244866b8e8c13fd6285f0586ca89d5ac248dafd5`.
+- Exact-main [CI 38523313737](https://github.com/hiefny/MUSIXQUARE/actions/runs/38523313737)
+  succeeded before dispatch: 11 jobs; unit 12,660 pass / 1 platform skip;
+  candidate browser 17 and critical browser 29 pass; all coverage/static/build
+  gates green. The Linux skip is the Windows-only cross-drive artifact-path
+  rejection test in `pro-grant-campaign-cli.test.ts`; it passed locally.
+- [Production Release 38523982016](https://github.com/hiefny/MUSIXQUARE/actions/runs/38523982016)
+  attempt 1 succeeded. Immutable exact-main artifact; app generation, anonymous
+  account boundary, PRO public boundary and Standard HTTPS signaling smoke all
+  passed. Unselected Worker smokes were scope skips, not pass claims.
+- App version `b00ff5b4-3e1c-43b7-a672-d3beb95ef623`, deployment
+  `8d63ceda-3a63-476d-a6a6-9175ca253aea`, 100% ownership verified at
+  15:46:43.441 KST; coherent-production marker matches exact SHA and app target.
+  Five unselected Workers retain `d9364cd9`; compatibility recheck completed
+  15:46:17.088 KST with all five compatible.
+- Recovery checkpoint completed 15:45:38.757 KST: previous App `19f1d27b`
+  (8.10.15/v681), version `c22ff67d-ce85-4e45-b879-e45133be11b8`, deployment
+  `87ae8fff-3a04-4b98-9b76-319c84c927e1`. No rollback needed; recovery job skipped
+  on success. Restoring this compatible baseline restores the old touch policy;
+  it is not a fix for the report. Ownership/floor checks remain required and this
+  checkpoint is not a user-data backup.
+- Public read at 15:47:27 KST: `/`, entry CSS and `service-worker.js` HTTP 200;
+  bootstrap/SW `v682`, `/assets/main-NXj9qV7n.css` includes the shared
+  `box-sizing:border-box;touch-action:manipulation;` reset.
+- Post-release [Operations Drift 38524300563](https://github.com/hiefny/MUSIXQUARE/actions/runs/38524300563)
+  succeeded, report 15:48:00.186 KST: 31 pass / 0 fail / 5 manual-only.
+
+Existing clients must apply the normal app update before this CSS takes effect;
+no forced update is introduced. An already-open physical iOS PWA update and the
+reported keyboard displacement remain manual verification, not inferred from
+the public asset read or Linux candidate Service Worker checks. Release record
+and history are updated in a documentation-only follow-up; that PR does not
+trigger an additional production release.
 
 ## Physical device follow-up
 

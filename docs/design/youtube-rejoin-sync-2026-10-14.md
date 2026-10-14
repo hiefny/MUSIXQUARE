@@ -130,34 +130,83 @@ Method: Claude's built-in Chromium, app volume 0 (muted), video `dQw4w9WgXcQ`.
 Each value is the median of 25 samples over 1 s of
 `getCurrentTime() * 1000 - Date.now()`; tabs share one wall clock and the
 sampling spread was 1–3 ms. Standard values are guest minus host (negative is
-behind).
+behind). The 8.10.17 run used three tabs (host, guest, late joiner). The 8.10.18
+run in room 674415 used two; each late join reloaded the guest tab and rejoined
+while the host played. No 8.10.18 measurement window contained a hidden period.
 
-| Scenario | 8.10.17 (before) | After release |
+| Scenario | 8.10.17 (before) | 8.10.18 (after) |
 | --- | --- | --- |
-| Standard: host seek, guest after Stage 2 | −8.5 ms | pending |
-| Standard: guest manual Sync | −19.7 ms | pending |
-| Standard: late join | −386 ms, −877 ms (persisted 29 s) | pending |
+| Standard: host seek, guest after Stage 2 | −8.5 ms | −8.1 ms |
+| Standard: guest manual Sync | −19.7 ms | −7.8 ms |
+| Standard: late join, 13 s / 29 s after joining | −386 ms (20 s); −877 / −878 ms | −4.9 / −5.2 ms; −11.6 / −11.9 ms |
+
+While the 8.10.18 guest tab was being opened, the muted host video paused (the
+hidden-tab artifact also noted in the 8.10.17 run) and paused the room. After the
+host resumed, the guest re-aligned at −28.5 ms.
 
 PRO values come from the flight recorder (`/debug sync`) of one participant in
-the owner's room: `youtube-sample` `timelineDriftMs` at 800 and 2000 ms, the
-media position against the server timeline (negative is behind).
+the owner's room 020924 (YouTube `GKC1P0mCt4o`, room volume): `youtube-sample`
+`timelineDriftMs` at 800 and 2000 ms, the media position against the server
+timeline (negative is behind). Each session's clock estimate carries its own
+error, so compare the paths rather than single values. After release this
+member had no playback permission, so no server transition was measured.
 
-| PRO scenario | 8.10.17 (before) | After release |
+| PRO scenario | 8.10.17 (before) | 8.10.18 (after) |
 | --- | --- | --- |
-| Server seek (prepared, no release seek) | −71 ms | pending |
-| Manual Sync / local rendezvous (2.23 s release seek, ACK 1252 ms) | −1062 ms | pending |
-| Resume COMMIT after an overrun preparation (18.5 s release seek, ACK 1220 ms) | −1003 ms | pending |
-| Foreground recovery (direct seek and play) | −149, −343 ms; several not playing | pending |
-| Late join | 9 restore attempts in 2 min, no release (silent) | pending |
-| Manual Sync failure | "not ready" toast, endpoint left paused | pending |
+| Server seek (prepared, no release seek) | −71 ms | not measured (no playback permission) |
+| Manual Sync / local rendezvous | −1062 ms (2.23 s release seek, ACK 1252 ms) | −62, −64 ms (no release seek, ACK 271–280 ms) |
+| Resume COMMIT after an overrun preparation | −1003 ms (18.5 s release seek, ACK 1220 ms) | not reproduced (needs a server transition) |
+| Foreground recovery | −149, −343 ms (direct seek and play); several not playing | −84 ms (no release seek; hidden→visible simulated with `visibilitychange`) |
+| Late join | 9 restore attempts in 2 min, no release (silent) | −75, −66 ms (no release seek); audible 5.6 s and 4.8 s after `session-start` |
+| Manual Sync failure | "not ready" toast, endpoint left paused | not observed (2 of 2 succeeded) |
 
-Pressing the transport button on that silent late-joined endpoint paused the
+After release every measured PRO YouTube rejoin started without a release seek at
+−62 to −84 ms, the range of the 8.10.17 server-seek reference (−71 ms) that
+shares the play-only release. These are single-browser desktop measurements.
+This release does not change the join handshake before `session-start`, which
+took 11.1 s and 6.6 s after the join tap here.
+
+Pressing the transport button on the silent 8.10.17 late-joined endpoint paused the
 whole room: the button follows the participant's local playback state, which
 had stayed "playing" while the iframe was not. This is recorded as a follow-up;
 the rejoin fixes remove the silent state that exposed it.
 
 ## Release and recovery
 
-App-only release (`target=app`); mixed versions are safe because every change
-is participant-local. Recovery is the ordinary Production Release rollback to
-the 8.10.17 checkpoint, which restores the previous rejoin behavior.
+App **8.10.18/v684** shipped through
+[Production Release 38566206816](https://github.com/hiefny/MUSIXQUARE/actions/runs/38566206816),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-14 21:47:35 KST** using the immutable candidate
+from exact-main CI `38565478458` for `cb81a89c6728a94fd8ae63253189888bc45d13ac`.
+No rollback was needed; the recovery job was skipped.
+
+- App version `92b9d320-5a02-453e-ad91-76d4773fb3b4` became
+  `71aa66e3-3154-451f-86bb-2f4558bc863e`. Final deployment ownership was verified
+  at 21:47:29.887 KST, and the coherent production marker records the exact SHA
+  and target `app`.
+- The partial-release compatibility recheck at 21:46:49.660 KST was compatible.
+  The five unselected Workers were not deployed and keep the `d9364cd9`
+  identities recorded for 8.10.17 (signaling, pro-room `8d5d44c0`, remote-share,
+  Developer API and its facade; full IDs in `docs/release-record.md` §1). The new
+  App deployment identity and the recheck source are in the 90-day run artifact
+  `production-deployments-cb81a89c6728a94fd8ae63253189888bc45d13ac-38566206816-1`.
+- App generation (`main-Ct34UoSY.js`, 27 assets converged), anonymous App account
+  boundary, current PRO public boundary (pro-room
+  `8d5d44c0-c925-4495-86d7-29bf11a0958e`) and Standard HTTPS signaling smokes
+  passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 22:01:02 KST returned HTTP 200 for `/`, the v684 service
+  worker, `bootstrap.js?cache=v684`, `main-Ct34UoSY.js` and `main-BNiplmKU.css`.
+  A tab open before deployment reloaded into the new bundle and showed the normal
+  update dialog for the waiting service worker; Refresh activated it.
+- [Operations Drift Audit 38566627830](https://github.com/hiefny/MUSIXQUARE/actions/runs/38566627830)
+  succeeded. Its 21:48:40.861 KST report records **31 pass / 0 fail / 5 manual-only**;
+  manual checks are not treated as completed.
+
+The immutable recovery checkpoint captured at 21:46:09.984 KST
+(`production-recovery-checkpoint-cb81a89c6728a94fd8ae63253189888bc45d13ac-38566206816-1`)
+preserves the previous App `75fceac17615abf1dbff2a64ef513300ae3450d7`, 8.10.17/v683,
+version `92b9d320-5a02-453e-ad91-76d4773fb3b4`. Rolling back to it restores the
+release seeks, the silent restores and the late Standard starts measured above.
+Mixed versions are safe because every change is participant-local. The
+checkpoint is not a user-data backup; no data migration is needed and existing
+recovery floors remain binding.

@@ -184,9 +184,11 @@ No rollback was needed; the recovery job was skipped.
   `71aa66e3-3154-451f-86bb-2f4558bc863e`. Final deployment ownership was verified
   at 21:47:29.887 KST, and the coherent production marker records the exact SHA
   and target `app`.
-- The partial-release compatibility recheck at 21:46:49.660 KST was compatible,
-  and the five unselected Workers were not changed. Per-Worker deployment
-  identities are in the run artifact
+- The partial-release compatibility recheck at 21:46:49.660 KST was compatible.
+  The five unselected Workers were not deployed and keep the `d9364cd9`
+  identities recorded for 8.10.17 (signaling, pro-room `8d5d44c0`, remote-share,
+  Developer API and its facade; full IDs in `docs/release-record.md` §1). The new
+  App deployment identity and the recheck source are in the 90-day run artifact
   `production-deployments-cb81a89c6728a94fd8ae63253189888bc45d13ac-38566206816-1`.
 - App generation (`main-Ct34UoSY.js`, 27 assets converged), anonymous App account
   boundary, current PRO public boundary (pro-room

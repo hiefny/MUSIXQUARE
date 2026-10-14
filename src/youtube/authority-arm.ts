@@ -561,7 +561,11 @@ export class YouTubeAuthorityArmController {
           return;
         }
         // Establish a fresh state-event boundary without replacing resident media.
+        // Warm the exact release region: a paused iframe reports a settled
+        // target before that region is buffered, so warming wherever playback
+        // last was would leave the release waiting on the network.
         run.player.pauseVideo();
+        run.player.seekTo(run.targetSeconds, true);
         run.player.playVideo();
       }
       // Some IFrame implementations expose PLAYING synchronously without a

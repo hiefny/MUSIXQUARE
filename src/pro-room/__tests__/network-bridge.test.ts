@@ -783,11 +783,14 @@ describe('coordinator-free PRO server channel', () => {
         await vi.advanceTimersByTimeAsync(220);
         await restoring;
         expect(commit).toHaveBeenCalledOnce();
+        // The running YouTube checkpoint is already past its instant, so the
+        // restore settles at a planned participant-local instant three seconds
+        // ahead (25s now -> 28s then) instead of seeking during release.
         expect(commit.mock.calls[0]?.[0]).toEqual(
           expect.objectContaining({
             committedPlaybackRevision: 1,
-            positionSeconds: expect.closeTo(25, 0),
-            scheduleDelayMs: 0,
+            positionSeconds: expect.closeTo(28, 0),
+            scheduleDelayMs: expect.closeTo(3_000, -2),
           }),
         );
         // Late joining is participant-local; it must not rendezvous the room.
@@ -800,6 +803,84 @@ describe('coordinator-free PRO server channel', () => {
       }
     },
   );
+
+  async function calibratedSnapshotRestore() {
+    vi.setSystemTime(1_000);
+    resetProPlaybackAuthorityHooks();
+    const bridge = proRoomServerBridge;
+    const socket = await openBridge(bridge);
+    const harness = createSnapshotPlaybackController();
+    await vi.advanceTimersByTimeAsync(100);
+    for (const request of clockRequests(socket)) answerClockRequest(socket, request, 12_000);
+    expect(bridge.clockCalibrated).toBe(true);
+    return { bridge, ...harness };
+  }
+
+  function readyFor(request: Parameters<ProPlaybackMediaEndpoint['prepare']>[0]) {
+    return {
+      status: 'ready' as const,
+      authority: request.authority,
+      queueItemId: request.queueItemId,
+      mediaKind: 'youtube' as const,
+      durationSeconds: 180,
+      youtubeSubIndex: 0,
+      youtubeVideoId: 'dQw4w9WgXcQ',
+    };
+  }
+
+  it('re-arms an overrun YouTube restore at a fresh planned instant instead of seeking', async () => {
+    const { bridge, controller, current, prepare, commit, unregister } =
+      await calibratedSnapshotRestore();
+    try {
+      // A cold first player load outlasts the whole planned lead.
+      prepare.mockImplementationOnce(async (request) => {
+        vi.setSystemTime(Date.now() + 5_000);
+        return readyFor(request);
+      });
+      await controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(commit).toHaveBeenCalledOnce();
+      const [first, second] = prepare.mock.calls.map(([request]) => request);
+      const committed = commit.mock.calls[0]![0];
+      // The re-arm settles at its own plan, so release only presses play.
+      expect(committed.positionSeconds).toBe(second!.positionSeconds);
+      expect(committed.positionSeconds).toBeGreaterThan(first!.positionSeconds + 4.9);
+      expect(committed.scheduleDelayMs).toBeCloseTo(3_000, -2);
+    } finally {
+      controller.resetPlaylistRuntime();
+      unregister();
+      bridge.disconnect();
+    }
+  });
+
+  it('genuinely retries a failed YouTube restore preparation before the next heartbeat', async () => {
+    const { bridge, controller, current, prepare, commit, unregister } =
+      await calibratedSnapshotRestore();
+    try {
+      prepare.mockImplementationOnce(async (request) => ({
+        status: 'failed',
+        authority: request.authority,
+        queueItemId: request.queueItemId,
+        reason: 'timeout',
+      }));
+      await controller.restorePersistedPlayback(current);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The catch-up shares the snapshot authority; it must not merely observe
+      // the settled failure and leave the participant silent for 15 seconds.
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(commit).toHaveBeenCalledOnce();
+      expect(commit.mock.calls[0]![0].positionSeconds).toBe(
+        prepare.mock.calls[1]![0].positionSeconds,
+      );
+    } finally {
+      controller.resetPlaylistRuntime();
+      unregister();
+      bridge.disconnect();
+    }
+  });
 
   it('restores an exact paused snapshot immediately while the device clock is behind', async () => {
     vi.setSystemTime(1_000);
@@ -860,8 +941,10 @@ describe('coordinator-free PRO server channel', () => {
         answerClockRequest(socket, request, 12_000 - (Date.now() - sentAt) / 2);
       }
       await vi.advanceTimersByTimeAsync(0);
+      // The overdue running YouTube checkpoint joins at a planned instant
+      // three seconds ahead rather than seeking during an immediate release.
       expect(commit).toHaveBeenCalledExactlyOnceWith(
-        expect.objectContaining({ positionSeconds: 25, scheduleDelayMs: 0 }),
+        expect.objectContaining({ positionSeconds: 28, scheduleDelayMs: 3_000 }),
       );
       await vi.advanceTimersByTimeAsync(220);
       await restoring;
@@ -971,7 +1054,9 @@ describe('coordinator-free PRO server channel', () => {
       await controller.restorePersistedPlayback(current);
       await vi.advanceTimersByTimeAsync(0);
       expect(commit).toHaveBeenCalledOnce();
-      expect(commit.mock.calls[0]?.[0].positionSeconds).toBeCloseTo(25, 0);
+      // Restored at the planned participant-local instant three seconds ahead.
+      expect(commit.mock.calls[0]?.[0].positionSeconds).toBeCloseTo(28, 0);
+      expect(commit.mock.calls[0]?.[0].scheduleDelayMs).toBeCloseTo(3_000, -2);
     } finally {
       controller.resetPlaylistRuntime();
       unregister();

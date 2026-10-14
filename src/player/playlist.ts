@@ -79,6 +79,7 @@ import {
 import {
   cancelYouTubeAuthorityPreparation,
   handoffSameVideoOccurrenceRestart,
+  PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
   prepareYouTubeAuthorityOccurrence,
   prepareSameVideoOccurrenceRestart,
   waitForPendingYouTubePrimeBounce,
@@ -2681,6 +2682,12 @@ async function prepareAuthoritativePlayback(
         videoId: resolvedVideoId,
         subIndex,
         positionSeconds,
+        // Only a server PREPARE carries a READY budget. A restore, catch-up, or
+        // participant-local rejoin may wait for a first player load instead of
+        // failing and leaving the participant silent until the next heartbeat.
+        ...(request.prepareBudgetMs === undefined
+          ? { timeoutMs: PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS }
+          : {}),
       });
       if (!prepared.ready) return failedAuthorityPrepare(request, prepared.reason);
       return {

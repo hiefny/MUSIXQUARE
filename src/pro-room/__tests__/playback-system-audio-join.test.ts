@@ -205,7 +205,8 @@ describe('native YouTube adapter during PRO live-share join restoration', () => 
       controller.startLifecycle();
       const restoring = controller.restorePersistedPlayback(snapshot);
       if (!delayedClock) {
-        await vi.advanceTimersByTimeAsync(1_000);
+        // A late join releases at its planned instant three seconds ahead.
+        await vi.advanceTimersByTimeAsync(3_500);
         expect(getYouTubePlayer()?.getPlayerState()).toBe(1);
       }
       await refreshProSystemAudioState();

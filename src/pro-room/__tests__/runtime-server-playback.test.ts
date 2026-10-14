@@ -3206,17 +3206,21 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     expect(heartbeat).toHaveBeenCalledOnce();
     expect(prepareMedia).toHaveBeenCalledOnce();
     expect(commitMedia).toHaveBeenCalledTimes(2);
-    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
+    const localCommit = commitMedia.mock.calls[1]![0];
+    expect(localCommit).toEqual(
       expect.objectContaining({
         committedPlaybackRevision: 1,
         queueItemId: QUEUE_ITEM_ID,
         state: 'playing',
         timingMode: 'scheduled-control',
-        scheduleDelayMs: 700,
-        positionSeconds: expect.closeTo(23.7, 1),
       }),
     );
-    expect(commitMedia.mock.calls[1]?.[0].authority.transitionId).toMatch(/^local_sync_1_/);
+    // YouTube picks its release instant before preparing and settles exactly
+    // there, so the release only plays: prepared and committed positions match.
+    expect(localCommit.positionSeconds).toBe(prepareMedia.mock.calls[0]![0].positionSeconds);
+    expect(localCommit.scheduleDelayMs).toBeGreaterThanOrEqual(1_400);
+    expect(localCommit.positionSeconds).toBeCloseTo(23 + localCommit.scheduleDelayMs / 1_000, 1);
+    expect(localCommit.authority.transitionId).toMatch(/^local_sync_1_/);
     expect(loading).toEqual([true, false]);
   });
 
@@ -3246,13 +3250,74 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       fallbackTimeoutMs: 1_000,
       signal: expect.any(AbortSignal),
     });
-    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({
-        committedPlaybackRevision: 1,
-        scheduleDelayMs: 700,
-        positionSeconds: expect.closeTo(25.7, 3),
-      }),
-    );
+    // The server clock reads 25s now; the planned release lands that far ahead.
+    const localCommit = commitMedia.mock.calls[1]![0];
+    expect(localCommit).toEqual(expect.objectContaining({ committedPlaybackRevision: 1 }));
+    expect(localCommit.scheduleDelayMs).toBeGreaterThanOrEqual(1_400);
+    expect(localCommit.positionSeconds).toBeCloseTo(25 + localCommit.scheduleDelayMs / 1_000, 3);
+  });
+
+  describe('when a manual YouTube rendezvous overruns its planned instant', () => {
+    let localNowMs = 0;
+
+    async function overrunningRendezvous(overruns: number) {
+      acceptProRoomRealtimeFrameForTests(
+        serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
+      );
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      localNowMs = 9_000_000;
+      const localNow = vi.spyOn(Date, 'now').mockImplementation(() => localNowMs);
+      // Server time stays 8,988s behind local time: 12s at the request.
+      const serverNow = vi
+        .spyOn(ServerProRoomNetworkBridge.prototype, 'serverNowMs', 'get')
+        .mockImplementation(() => localNowMs - 8_988_000);
+      restoreSpies.push(serverNow, localNow);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
+        ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: 10_000 })),
+        revision: 2,
+      });
+      prepareMedia.mockClear();
+      commitMedia.mockClear();
+      cancelMedia.mockClear();
+      const prepareInstantly = prepareMedia.getMockImplementation()!;
+      for (let index = 0; index < overruns; index += 1) {
+        prepareMedia.mockImplementationOnce(async (request) => {
+          localNowMs += 5_000;
+          return prepareInstantly(request);
+        });
+      }
+      await expect(requestActiveProRoomPlaybackReconciliation()).resolves.toBe(true);
+      return prepareMedia.mock.calls.map(([request]) => request);
+    }
+
+    it('re-arms once at a fresh instant so release still only plays', async () => {
+      const [first, second] = await overrunningRendezvous(1);
+
+      expect(prepareMedia).toHaveBeenCalledTimes(2);
+      expect(second!.authority.transitionId).not.toBe(first!.authority.transitionId);
+      expect(cancelMedia).toHaveBeenCalledWith(first!.authority);
+      expect(commitMedia).toHaveBeenCalledOnce();
+      const committed = commitMedia.mock.calls[0]![0];
+      expect(committed.authority.transitionId).toBe(second!.authority.transitionId);
+      expect(committed.positionSeconds).toBe(second!.positionSeconds);
+      // Server time advanced five seconds (25s -> 30s) during the overrun.
+      expect(committed.positionSeconds).toBeCloseTo(30 + committed.scheduleDelayMs / 1_000, 3);
+      expect(committed.scheduleDelayMs).toBeGreaterThanOrEqual(1_400);
+    });
+
+    it('keeps the established rebased release after a second overrun', async () => {
+      await overrunningRendezvous(2);
+
+      expect(prepareMedia).toHaveBeenCalledTimes(2);
+      expect(commitMedia).toHaveBeenCalledOnce();
+      // 35s at release preparation plus the 700ms rebased lead.
+      expect(commitMedia.mock.calls[0]![0]).toEqual(
+        expect.objectContaining({
+          scheduleDelayMs: 700,
+          positionSeconds: expect.closeTo(35.7, 3),
+        }),
+      );
+    });
   });
 
   it('lets a newer server PREPARE supersede an in-flight local manual rendezvous', async () => {
@@ -3375,23 +3440,23 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     setDocumentVisibility('visible');
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
 
-    // The foreground repair is YouTube-only and deliberately skips a local
-    // rendezvous. A manual Sync arriving during that request is stronger and
-    // must not silently inherit the weaker in-flight promise.
+    // The foreground repair is YouTube-only. A manual Sync arriving during that
+    // request covers all media, so it is stronger and must not silently
+    // inherit the narrower in-flight promise.
     const manualSync = requestActiveProRoomPlaybackReconciliation();
     resolveVisibilityHeartbeat(current);
 
     await expect(manualSync).resolves.toBe(true);
     expect(heartbeat).toHaveBeenCalledTimes(2);
-    expect(prepareMedia).toHaveBeenCalledOnce();
+    // Both now rejoin through a planned local rendezvous of their own.
+    expect(prepareMedia).toHaveBeenCalledTimes(2);
     expect(commitMedia).toHaveBeenCalledTimes(2);
-    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({
-        state: 'playing',
-        timingMode: 'scheduled-control',
-        scheduleDelayMs: 700,
-      }),
+    const manualCommit = commitMedia.mock.calls[1]![0];
+    expect(manualCommit).toEqual(
+      expect.objectContaining({ state: 'playing', timingMode: 'scheduled-control' }),
     );
+    expect(manualCommit.positionSeconds).toBe(prepareMedia.mock.calls[1]![0].positionSeconds);
+    expect(manualCommit.scheduleDelayMs).toBeGreaterThanOrEqual(1_400);
   });
 
   it('does not share A heartbeat with B and runs the live B follow-up', async () => {
@@ -3918,12 +3983,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       off();
     }
 
-    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({
-        committedPlaybackRevision: 1,
-        positionSeconds: expect.closeTo(31, 1),
-      }),
-    );
+    // A frozen YouTube endpoint rejoins through a planned local rendezvous,
+    // landing at the room position of its release instant without a seek.
+    const rejoinCommit = commitMedia.mock.calls[1]![0];
+    expect(rejoinCommit).toEqual(expect.objectContaining({ committedPlaybackRevision: 1 }));
+    expect(rejoinCommit.positionSeconds).toBe(prepareMedia.mock.calls.at(-1)![0].positionSeconds);
+    expect(rejoinCommit.positionSeconds).toBeCloseTo(31 + rejoinCommit.scheduleDelayMs / 1_000, 1);
   });
 
   it('maps a native YouTube sub-video boundary to one exact-revision server next', async () => {

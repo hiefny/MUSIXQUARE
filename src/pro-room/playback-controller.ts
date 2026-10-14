@@ -56,6 +56,23 @@ const PLAYLIST_HYDRATION_PREPARE_RESERVE_MS = 500;
 const PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS = 1_000;
 const PLAYBACK_COMMIT_CLOCK_WAIT_MS = 700;
 const PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS = 700;
+// A YouTube iframe starts late by its seek latency whenever it seeks at the
+// release instant. Participant-local rejoins therefore pick their release
+// instant before preparing, like a server PREPARE/COMMIT, and settle there.
+const LOCAL_YOUTUBE_REJOIN_DEFAULT_LEAD_MS = 2_000;
+const LOCAL_YOUTUBE_REJOIN_MIN_LEAD_MS = 1_500;
+const LOCAL_YOUTUBE_REJOIN_MAX_LEAD_MS = 4_000;
+const LOCAL_YOUTUBE_REJOIN_LEAD_MARGIN_MS = 500;
+const LOCAL_YOUTUBE_REJOIN_SAMPLE_LIMIT = 4;
+// Below this remaining lead the arm can no longer release without a seek
+// (the Android fixed output lead alone is 250ms).
+const LOCAL_YOUTUBE_REJOIN_MIN_RELEASE_MS = 400;
+// A restore or delayed COMMIT whose instant is this close (or already past)
+// cannot prepare in time and joins at a later participant-local instant.
+const LATE_YOUTUBE_COMMIT_THRESHOLD_MS = 1_500;
+const LATE_YOUTUBE_COMMIT_LEAD_MS = 3_000;
+// Mirrors the arm's catch-up tolerance: smaller lateness releases without a seek.
+const LATE_YOUTUBE_RELEASE_TOLERANCE_MS = 40;
 const MEDIA_DURATION_REPORT_TIMEOUT_MS = 6_000;
 const MEDIA_DURATION_REPORT_RETRY_MS = 30_000;
 const MEDIA_DURATION_REPORT_CACHE_SIZE = 128;
@@ -127,6 +144,8 @@ interface PlaybackCommitFlight {
 interface PlaybackCommitFollowUp {
   event: ProRoomPlaybackCommitEvent;
   owner: PlaybackCommitOwner;
+  /** The requester's clock lease, so the follower can plan its release too. */
+  clock: ProRoomClockSnapshot | null;
 }
 
 interface PlaybackReconciliationOptions {
@@ -286,6 +305,70 @@ function createImplementation(
   const clockRequests = new Map<AbortController, number>();
   let clockRecoveryTimer: string | null = null;
   let clockRecoveryRevision = -1;
+  // Recent participant-local YouTube preparation durations. They only size the
+  // planned rejoin lead; media timing itself is never learned from them.
+  const localYouTubePreparationSamples: number[] = [];
+
+  function localYouTubeRejoinLeadMs(minimumMs = LOCAL_YOUTUBE_REJOIN_MIN_LEAD_MS): number {
+    const observedMs =
+      localYouTubePreparationSamples.length > 0
+        ? Math.max(...localYouTubePreparationSamples) + LOCAL_YOUTUBE_REJOIN_LEAD_MARGIN_MS
+        : LOCAL_YOUTUBE_REJOIN_DEFAULT_LEAD_MS;
+    return Math.min(LOCAL_YOUTUBE_REJOIN_MAX_LEAD_MS, Math.max(minimumMs, observedMs));
+  }
+
+  function recordLocalYouTubePreparation(durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs < 0) return;
+    localYouTubePreparationSamples.push(durationMs);
+    if (localYouTubePreparationSamples.length > LOCAL_YOUTUBE_REJOIN_SAMPLE_LIMIT) {
+      localYouTubePreparationSamples.shift();
+    }
+  }
+
+  function positionAtServerTime(playback: ProRoomPlaybackCheckpoint, serverTimeMs: number): number {
+    return playback.state === 'playing'
+      ? playback.positionSeconds + Math.max(0, serverTimeMs - playback.updatedAtMs) / 1_000
+      : playback.positionSeconds;
+  }
+
+  /**
+   * A running YouTube checkpoint whose instant is already (nearly) past would
+   * otherwise prepare its stale anchor and seek far ahead while releasing at
+   * once. Plan a participant-local instant instead and settle at its position.
+   */
+  function planLateYouTubeRelease(
+    event: ProRoomPlaybackCommitEvent,
+    clock: ProRoomClockSnapshot | null,
+  ): { executeAtMs: number } | null {
+    const playback = event.playback;
+    if (
+      playback.state !== 'playing' ||
+      playback.youtubeVideoId === null ||
+      !clock ||
+      !isProRoomClockSnapshotCurrent(clock)
+    ) {
+      return null;
+    }
+    const nowMs = Date.now() + clock.offsetMs;
+    if (event.executeAtMs - nowMs >= LATE_YOUTUBE_COMMIT_THRESHOLD_MS) return null;
+    return { executeAtMs: nowMs + localYouTubeRejoinLeadMs(LATE_YOUTUBE_COMMIT_LEAD_MS) };
+  }
+
+  /** Commit timing for a planned late release, or null once the plan has overrun. */
+  function plannedLateYouTubeTiming(
+    playback: ProRoomPlaybackCheckpoint,
+    plan: { executeAtMs: number },
+    clock: ProRoomClockSnapshot,
+  ): ReturnType<typeof playbackCommitTiming> | null {
+    const remainingMs = plan.executeAtMs - (Date.now() + clock.offsetMs);
+    if (remainingMs < LOCAL_YOUTUBE_REJOIN_MIN_RELEASE_MS) return null;
+    return {
+      positionSeconds: positionAtServerTime(playback, plan.executeAtMs),
+      scheduleDelayMs: remainingMs,
+      signedDelayMs: remainingMs,
+      timingMode: 'scheduled-control',
+    };
+  }
 
   function cancelClockRequests(beforeRevision = Number.POSITIVE_INFINITY): void {
     for (const [controller, revision] of clockRequests) {
@@ -809,12 +892,15 @@ function createImplementation(
   function playbackPrepareRequest(
     authority: ProPlaybackAuthorityToken,
     playback: ProRoomPlaybackCheckpoint,
+    latePlan: { executeAtMs: number } | null = null,
   ) {
     if (!playback.queueItemId) return null;
     return {
       authority,
       queueItemId: playback.queueItemId,
-      positionSeconds: playback.positionSeconds,
+      positionSeconds: latePlan
+        ? positionAtServerTime(playback, latePlan.executeAtMs)
+        : playback.positionSeconds,
       state: playback.state === 'paused' ? ('paused' as const) : ('playing' as const),
       youtubeSubIndex: playback.youtubeSubIndex,
       youtubeVideoId: playback.youtubeVideoId,
@@ -1198,7 +1284,8 @@ function createImplementation(
       playback.revision,
       `snapshot_${playback.revision}`,
     );
-    const request = playbackPrepareRequest(authority, playback);
+    const latePlan = planLateYouTubeRelease(event, clock);
+    const request = playbackPrepareRequest(authority, playback, latePlan);
     if (!request) return null;
     const current = () =>
       playbackCommitStillCurrent(event, generation, isRequestCurrent) &&
@@ -1248,7 +1335,11 @@ function createImplementation(
       }
       return null;
     }
-    const timing = playbackCommitTiming(event, receivedAtMs, clock);
+    // This is the final attempt: if preparation overran its planned instant,
+    // keep the established immediate catch-up rather than waiting again.
+    const timing =
+      (latePlan && clock ? plannedLateYouTubeTiming(playback, latePlan, clock) : null) ??
+      playbackCommitTiming(event, receivedAtMs, clock);
     try {
       const result = await commitProPlaybackAuthority({
         authority,
@@ -1333,6 +1424,7 @@ function createImplementation(
     let preparation: Promise<PlaybackPreparation> | null = null;
     let clock: ProRoomClockSnapshot | null = initialClock;
     let preparedFromMatchingTransition = false;
+    let latePlan: { executeAtMs: number } | null = null;
     let activeTransition = state.activeTransition;
     const matchesActiveTransition = !!(
       event.transitionId !== null &&
@@ -1369,7 +1461,8 @@ function createImplementation(
         playback.revision,
         event.transitionId,
       );
-      const request = playbackPrepareRequest(authority, playback);
+      latePlan = planLateYouTubeRelease(event, clock);
+      const request = playbackPrepareRequest(authority, playback, latePlan);
       preparation = request
         ? prepareWithDurationReport(
             {
@@ -1435,6 +1528,11 @@ function createImplementation(
       if (!(await ensureClock())) return;
       if (prepared.status !== 'ready') {
         if (activeTransition) clearServerPlaybackTransition(activeTransition);
+        // A YouTube restore and its catch-up share the snapshot authority.
+        // Release the settled failure first, or the catch-up merely observes it
+        // again and the participant stays silent until the next heartbeat. File
+        // failures keep their single download/decode attempt per request.
+        if (playback.youtubeVideoId !== null) cancelProPlaybackPreparation(authority);
         const catchup =
           prepared.reason === 'device-unavailable'
             ? null
@@ -1483,7 +1581,19 @@ function createImplementation(
     }
 
     if (!(await ensureClock()) || !currentWithClock()) return;
-    const timing = playbackCommitTiming(event, receivedAtMs, clock);
+    const plannedTiming =
+      latePlan && clock ? plannedLateYouTubeTiming(playback, latePlan, clock) : null;
+    const timing = plannedTiming ?? playbackCommitTiming(event, receivedAtMs, clock);
+    // A prepared YouTube iframe released after its instant would seek during
+    // release and start late by its seek latency. Re-arm through the catch-up
+    // path at a fresh participant-local instant instead. Lateness within the
+    // arm's no-seek tolerance still releases normally.
+    const youtubeReleaseOverran =
+      preparation !== null &&
+      playback.state === 'playing' &&
+      playback.youtubeVideoId !== null &&
+      plannedTiming === null &&
+      (latePlan !== null || timing.signedDelayMs < -LATE_YOUTUBE_RELEASE_TOLERANCE_MS);
     recordProStartObservation('playback-clock', {
       purpose: 'commit',
       revision: playback.revision,
@@ -1497,26 +1607,31 @@ function createImplementation(
       state: playback.state,
     });
     let result: ProPlaybackCommitResult;
-    try {
-      result = await commitProPlaybackAuthority({
-        authority,
-        committedPlaybackRevision: playback.revision,
-        queueItemId: playback.queueItemId,
-        state: playback.state,
-        positionSeconds: timing.positionSeconds,
-        scheduleDelayMs: timing.scheduleDelayMs,
-        timingMode: preparedFromMatchingTransition ? timing.timingMode : 'scheduled-control',
-        youtubeSubIndex: playback.youtubeSubIndex,
-        youtubeVideoId: playback.youtubeVideoId,
-        isCurrent: currentWithClock,
-      });
-    } catch (error) {
+    if (youtubeReleaseOverran) {
       cancelProPlaybackPreparation(authority);
-      throw error;
-    }
-    if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) {
-      cancelProPlaybackPreparation(authority);
-      return;
+      result = { status: 'failed', authority, reason: 'timeout' };
+    } else {
+      try {
+        result = await commitProPlaybackAuthority({
+          authority,
+          committedPlaybackRevision: playback.revision,
+          queueItemId: playback.queueItemId,
+          state: playback.state,
+          positionSeconds: timing.positionSeconds,
+          scheduleDelayMs: timing.scheduleDelayMs,
+          timingMode: preparedFromMatchingTransition ? timing.timingMode : 'scheduled-control',
+          youtubeSubIndex: playback.youtubeSubIndex,
+          youtubeVideoId: playback.youtubeVideoId,
+          isCurrent: currentWithClock,
+        });
+      } catch (error) {
+        cancelProPlaybackPreparation(authority);
+        throw error;
+      }
+      if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) {
+        cancelProPlaybackPreparation(authority);
+        return;
+      }
     }
 
     // A direct pause/seek or a canonical transition whose resident media was
@@ -1623,6 +1738,7 @@ function createImplementation(
         state.commitFollowUps.set(event.playback.revision, {
           event,
           owner: isRequestCurrent,
+          clock,
         });
       }
       return;
@@ -1685,7 +1801,7 @@ function createImplementation(
         ) {
           // Consume before starting the retry. A permanent endpoint failure gets
           // one exact follower, never a self-replenishing retry loop.
-          acceptPlaybackCommit(followUp.event, followUp.owner);
+          acceptPlaybackCommit(followUp.event, followUp.owner, followUp.clock);
         }
       });
     state.commitTail = operation.catch(() => undefined);
@@ -1874,12 +1990,14 @@ function createImplementation(
           // The room can already be playing while a foregrounded WebKit iframe
           // is locally frozen. `unchanged` is correct server semantics, but the
           // initiating participant still needs the exact checkpoint re-applied.
+          // YouTube rejoins through the planned local rendezvous; a direct
+          // seek-and-play would start late by the iframe's seek latency.
           const reconciled = await reapplyCurrentPlaybackCheckpoint(
             result.playback,
             intent.roomId,
             intent.roomEpoch,
             result.serverTimeMs,
-            false,
+            result.playback.youtubeVideoId !== null,
           );
           if (!commandIsCurrent()) return;
           settleLocalPlaybackUiControl(
@@ -2307,18 +2425,20 @@ function createImplementation(
     const generation = state.commitGeneration;
     const runningRendezvous = rendezvous && playback.state === 'playing';
     const prepareRenderer = runningRendezvous || (preparePaused && playback.state === 'paused');
-    const authority = createProPlaybackAuthorityToken({
-      roomId: roomCode,
-      roomEpoch,
-      basePlaybackRevision: playback.revision - 1,
-      // A running manual sync uses a participant-local arm/release cycle. The
-      // opaque ID never leaves this browser and cannot create a room revision.
-      // A paused renderer destroyed by system audio also needs preparation;
-      // its exact checkpoint is committed without a running timeline/lead.
-      transitionId: prepareRenderer
-        ? `local_sync_${playback.revision}_${++state.reconciliationSequence}`
-        : null,
-    });
+    const createAuthority = () =>
+      createProPlaybackAuthorityToken({
+        roomId: roomCode,
+        roomEpoch,
+        basePlaybackRevision: playback.revision - 1,
+        // A running manual sync uses a participant-local arm/release cycle. The
+        // opaque ID never leaves this browser and cannot create a room revision.
+        // A paused renderer destroyed by system audio also needs preparation;
+        // its exact checkpoint is committed without a running timeline/lead.
+        transitionId: prepareRenderer
+          ? `local_sync_${playback.revision}_${++state.reconciliationSequence}`
+          : null,
+      });
+    const authority = createAuthority();
     // `observedServerTimeMs` is either a timestamp carried by the command
     // response or a clock value read only after fresh calibration. Never mix an
     // uncalibrated local wall clock into this server-timeline calculation: a
@@ -2335,63 +2455,97 @@ function createImplementation(
     if (!isCurrent()) return false;
 
     if (prepareRenderer) {
-      let prepared: ProPlaybackPrepareResult;
-      try {
-        prepared = await prepareWithDurationReport(
-          {
-            authority,
+      // A YouTube iframe that seeks at the release instant starts late by its
+      // seek latency. Like a server PREPARE/COMMIT, choose the release instant
+      // first and settle at that exact position so release only plays. Files
+      // keep the post-preparation projection; their scheduled start never seeks.
+      const planYouTubeRelease =
+        runningRendezvous && clock !== null && playback.youtubeVideoId !== null;
+      let attemptAuthority = authority;
+      for (let attempt = 1; ; attempt += 1) {
+        const plannedExecuteAtMs =
+          planYouTubeRelease && clock
+            ? Date.now() + clock.offsetMs + localYouTubeRejoinLeadMs()
+            : null;
+        const preparationStartedAtMs = performance.now();
+        let prepared: ProPlaybackPrepareResult;
+        try {
+          prepared = await prepareWithDurationReport(
+            {
+              authority: attemptAuthority,
+              queueItemId: playback.queueItemId,
+              positionSeconds:
+                plannedExecuteAtMs === null
+                  ? canonicalPositionNow
+                  : positionAtServerTime(playback, plannedExecuteAtMs),
+              youtubeSubIndex: playback.youtubeSubIndex,
+              youtubeVideoId: playback.youtubeVideoId,
+              isCurrent,
+            },
+            isCurrent,
+            prepareCurrentProPlaybackRendezvousAuthority,
+          );
+        } catch (error) {
+          cancelProPlaybackPreparation(attemptAuthority);
+          throw error;
+        }
+        if (prepared.status !== 'ready' || !isCurrent()) {
+          cancelProPlaybackPreparation(attemptAuthority);
+          return false;
+        }
+        if (plannedExecuteAtMs !== null) {
+          recordLocalYouTubePreparation(performance.now() - preparationStartedAtMs);
+        }
+
+        const releaseNowMs = clock ? Date.now() + clock.offsetMs : observedServerTimeMs;
+        let executeAtMs: number;
+        if (
+          plannedExecuteAtMs !== null &&
+          plannedExecuteAtMs - releaseNowMs >= LOCAL_YOUTUBE_REJOIN_MIN_RELEASE_MS
+        ) {
+          executeAtMs = plannedExecuteAtMs;
+        } else if (plannedExecuteAtMs !== null && attempt === 1) {
+          // Preparation overran its planned instant. The iframe is warm now, so
+          // re-arm once at a fresh (re-measured) instant instead of seeking
+          // during release.
+          cancelProPlaybackPreparation(attemptAuthority);
+          if (!isCurrent()) return false;
+          attemptAuthority = createAuthority();
+          continue;
+        } else {
+          // Files, paused renderers, and a second YouTube overrun: rebase the
+          // target after preparation, then release at one future server instant
+          // so this endpoint rejoins the running timeline rather than
+          // hard-seeking at an arbitrary response-arrival time.
+          executeAtMs =
+            releaseNowMs + (runningRendezvous ? PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS : 0);
+        }
+        const rendezvousPosition = positionAtServerTime(playback, executeAtMs);
+        if (!isCurrent()) {
+          cancelProPlaybackPreparation(attemptAuthority);
+          return false;
+        }
+        let result: ProPlaybackCommitResult;
+        try {
+          result = await rendezvousCurrentProPlaybackAuthority({
+            authority: attemptAuthority,
+            committedPlaybackRevision: playback.revision,
             queueItemId: playback.queueItemId,
-            positionSeconds: canonicalPositionNow,
+            state: playback.state,
+            positionSeconds: rendezvousPosition,
+            scheduleDelayMs: Math.max(0, executeAtMs - releaseNowMs),
+            timingMode: 'scheduled-control',
             youtubeSubIndex: playback.youtubeSubIndex,
             youtubeVideoId: playback.youtubeVideoId,
             isCurrent,
-          },
-          isCurrent,
-          prepareCurrentProPlaybackRendezvousAuthority,
-        );
-      } catch (error) {
-        cancelProPlaybackPreparation(authority);
-        throw error;
+          });
+        } catch (error) {
+          cancelProPlaybackPreparation(attemptAuthority);
+          throw error;
+        }
+        if (result.status !== 'applied') cancelProPlaybackPreparation(attemptAuthority);
+        return result.status === 'applied' && isCurrent();
       }
-      if (prepared.status !== 'ready' || !isCurrent()) {
-        cancelProPlaybackPreparation(authority);
-        return false;
-      }
-
-      // Preparation can take hundreds of milliseconds on an iframe. Rebase the
-      // target after it is ready, then release at one future server instant so
-      // this endpoint rejoins the running timeline rather than hard-seeking at
-      // an arbitrary response-arrival time.
-      const leadMs = runningRendezvous ? PLAYBACK_RECONCILIATION_RENDEZVOUS_LEAD_MS : 0;
-      const executeAtMs = (clock ? Date.now() + clock.offsetMs : observedServerTimeMs) + leadMs;
-      const rendezvousPosition =
-        playback.state === 'playing'
-          ? playback.positionSeconds + Math.max(0, executeAtMs - playback.updatedAtMs) / 1_000
-          : playback.positionSeconds;
-      if (!isCurrent()) {
-        cancelProPlaybackPreparation(authority);
-        return false;
-      }
-      let result: ProPlaybackCommitResult;
-      try {
-        result = await rendezvousCurrentProPlaybackAuthority({
-          authority,
-          committedPlaybackRevision: playback.revision,
-          queueItemId: playback.queueItemId,
-          state: playback.state,
-          positionSeconds: rendezvousPosition,
-          scheduleDelayMs: leadMs,
-          timingMode: 'scheduled-control',
-          youtubeSubIndex: playback.youtubeSubIndex,
-          youtubeVideoId: playback.youtubeVideoId,
-          isCurrent,
-        });
-      } catch (error) {
-        cancelProPlaybackPreparation(authority);
-        throw error;
-      }
-      if (result.status !== 'applied') cancelProPlaybackPreparation(authority);
-      return result.status === 'applied' && isCurrent();
     }
 
     if (!isCurrent()) return false;
@@ -2572,6 +2726,14 @@ function createImplementation(
       }
       if (playback.revision < state.lastAppliedRevision) return false;
       if (!requestStillCurrent()) return false;
+      // A same-revision restore can have applied while its release and
+      // bookkeeping are still settling. Let it finish rather than report this
+      // explicit request as not ready, then re-arm from the settled state.
+      const settling = state.commitInFlight.get(playback.revision);
+      if (settling) {
+        await settling.promise.catch(() => undefined);
+        if (!requestStillCurrent()) return false;
+      }
       return reapplyCurrentPlaybackCheckpoint(
         playback,
         snapshot.roomCode,
@@ -2643,6 +2805,7 @@ function createImplementation(
   function resetPlaylistRuntime(): void {
     cancelClockRequests();
     clockRecoveryRevision = -1;
+    localYouTubePreparationSamples.length = 0;
     resetDurationReports();
     controlChannelGeneration += 1;
     controlChannelRecovering = false;

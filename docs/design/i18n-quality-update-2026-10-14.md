@@ -1,12 +1,12 @@
 # 42개 로케일 번역 품질 업데이트 — 2026-10-14
 
-| 항목 | 값 |
-| --- | --- |
-| 상태 | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.11` / 서비스 워커 캐시 `v675` 예정 |
+| 항목      | 값                                                                                                                                                                                                                                                                                                          |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 상태      | 2026-10-14 11:55 KST 프로덕션 배포 완료. 제품 `8.10.11` / 서비스 워커 캐시 `v675`, Release 38503351026 attempt 1 (§10)                                                                                                                                                                                      |
 | 검증 코드 | 코드 커밋 `818c87bca6c944859efb21bcb46c699d8695d576`(1차, 캐시 v674) → `4580c2024b38f8526eb4b5d7886ef0bcee550016`(compact 라벨 복원, 사전 최종). 그 뒤 마지막 커밋이 캐시를 v675로 올린다(SW 캐시 가드는 마지막 앱 변경 뒤의 bump를 요구). branch `agent/i18n-quality-update-2026-10`, base main `5eb25dc6` |
-| 환경 | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다 |
-| 범위 | App 범위만: `src/i18n/*.ts` 42개, `browser/classic-runtime/landing-i18n.ts`(About), `browser/classic-runtime/account-complete.ts`, `index.html`·`.workshop/landing/landing.html` 영어 폴백, i18n 테스트 3개, 번역 가이드. Worker·D1·스키마·시크릿 변경 없음 |
-| 조사 근거 | 2026-10-13 전수 조사(42로케일 리뷰어 + 영어↔한국어 정합, 내부 폴더 `docs/private/i18n-quality-survey-2026-10-13/`, 저장소 밖 보관) |
+| 환경      | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다                                                                                                                                                                                                         |
+| 범위      | App 범위만: `src/i18n/*.ts` 42개, `browser/classic-runtime/landing-i18n.ts`(About), `browser/classic-runtime/account-complete.ts`, `index.html`·`.workshop/landing/landing.html` 영어 폴백, i18n 테스트 3개, 번역 가이드. Worker·D1·스키마·시크릿 변경 없음                                                 |
+| 조사 근거 | 2026-10-13 전수 조사(42로케일 리뷰어 + 영어↔한국어 정합, 내부 폴더 `docs/private/i18n-quality-survey-2026-10-13/`, 저장소 밖 보관)                                                                                                                                                                          |
 
 ## 1. 무엇을 바꿨나
 
@@ -15,18 +15,19 @@
 70건은 `...en` 스프레드 때문에 영어가 노출되던 PRO 활성화 키의 신규 번역이다. 사전
 밖의 복수형 27건과 계정 완료 페이지 8건은 별도다.
 
-| 경로 | 건수 | 비고 |
-| --- | ---: | --- |
-| `scripts/apply-translation-suggestions.mts`로 적용(app·About) | 1,689 | 2회 실행(1,000 + 689). 이후 승인 문구 고정 테스트와 충돌한 18건을 되돌림(§4) |
-| `pro.activation_account_*` 6키 + `pro.activation_complete` 삽입 | 70 | `...en` 스프레드로 키가 없던 de·es·fr·id·ja·nl·pt-br·vi·zh-hans·zh-hant |
-| 복수형 메시지 수정·추가 | 27 | 22건 교체 + hi·mr·ro·ur에 `one` 형태 5건 추가 |
-| 계정 로그인 완료 페이지 | 8 | `account-complete.ts` 튜플 |
-| `<bdi>` 태그 복구(`player.play_speakers_html`) | 3 | fr·ja·tr. 적용 도구가 마크업 변경을 거부해 AST로 직접 교체 |
-| 토스트 50자 상한 보정(§6) | 14 | 12건 축약 재작성 + 2건 base 복원 |
-| compact 라벨 base 복원(§7) | 24 | `*_compact` 탭·플레이어 라벨 23건(17로케일) + bg `pro.use_this_tab`. CI 레이아웃 게이트 실패 뒤 복원 |
-| 영어 폴백 동기화 | index.html 12곳, landing.html 11곳 | `data-i18n`·`data-i18n-html`·aria-label 폴백이 사전과 같아야 하는 테스트 계약 |
+| 경로                                                            |                               건수 | 비고                                                                                                 |
+| --------------------------------------------------------------- | ---------------------------------: | ---------------------------------------------------------------------------------------------------- |
+| `scripts/apply-translation-suggestions.mts`로 적용(app·About)   |                              1,689 | 2회 실행(1,000 + 689). 이후 승인 문구 고정 테스트와 충돌한 18건을 되돌림(§4)                         |
+| `pro.activation_account_*` 6키 + `pro.activation_complete` 삽입 |                                 70 | `...en` 스프레드로 키가 없던 de·es·fr·id·ja·nl·pt-br·vi·zh-hans·zh-hant                              |
+| 복수형 메시지 수정·추가                                         |                                 27 | 22건 교체 + hi·mr·ro·ur에 `one` 형태 5건 추가                                                        |
+| 계정 로그인 완료 페이지                                         |                                  8 | `account-complete.ts` 튜플                                                                           |
+| `<bdi>` 태그 복구(`player.play_speakers_html`)                  |                                  3 | fr·ja·tr. 적용 도구가 마크업 변경을 거부해 AST로 직접 교체                                           |
+| 토스트 50자 상한 보정(§6)                                       |                                 14 | 12건 축약 재작성 + 2건 base 복원                                                                     |
+| compact 라벨 base 복원(§7)                                      |                                 24 | `*_compact` 탭·플레이어 라벨 23건(17로케일) + bg `pro.use_this_tab`. CI 레이아웃 게이트 실패 뒤 복원 |
+| 영어 폴백 동기화                                                | index.html 12곳, landing.html 11곳 | `data-i18n`·`data-i18n-html`·aria-label 폴백이 사전과 같아야 하는 테스트 계약                        |
 
 주요 결과:
+
 - 40개 로케일 전부에서 영어로 노출되던 PRO 활성화 7키가 번역됐다(280문자열).
 - 영어 원문 49건, 한국어 원문 29건 수정(둘 다 오너가 쓴 원문; 영어는 40개 번역의 피벗이라 애매한 표현을 정리). 대표: `setup.how_to_connect_html`의 옛 버튼 인용을 실제 버튼명("방 만들기"/"방 참여하기", "Create a Room"/"Join a Room")으로, `remote.h2` "Not in the room?"→"Not in the same place?", `standin.caveat`의 "desktop Chromium"→컴퓨터 표현, `system_audio.receive_failed` 한국어 주체 오류.
 - 글로서리 함정 재발 수정: Revoke=Cancel 동일어(he·mr·gu·fa), Peer=사회적 동등자(mr·ta·ms), 채팅 뮤트→오디오 뮤트 동사(ru·fr·id), 스피커=연사(bg 13문자열) 등.
@@ -70,10 +71,10 @@ tooltip(`title`)로만 남긴다. 전체 테스트에서 영어 `transfer.host_b
 `showToast`·`bus.emit('ui:show-toast')`에 직접·간접으로 닿는 키 194개를 모아 42개 로케일
 전부를 base main과 비교했다(자리표시자는 실제 값으로 치환: `{{count}}`=4, `{{max}}`=500).
 
-| 구분 | 건수 | 처리 |
-| --- | ---: | --- |
-| 이번 업데이트로 상한을 새로 넘긴 값 | 15 | 14건 수정(12건 축약 재작성: en 3·fr 2·nl·ms·ar 3·he·el·hu, 2건 base 복원: en `transfer.host_busy`, bg `toast.host_sync_requested`). uk `system_audio.device_limit_stopped` 1건은 자리표시자 치환 후 44자라 유지 |
-| 업데이트 전부터 상한을 넘던 값 | 1,143 → 1,141 | 194키×42로케일 8,148개 중 14%. 설계상 잘림+tooltip으로 동작하며 이번 범위 밖. 축약은 2026-10-13 버튼 길이 조사와 함께 보류 |
+| 구분                                |          건수 | 처리                                                                                                                                                                                                            |
+| ----------------------------------- | ------------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 이번 업데이트로 상한을 새로 넘긴 값 |            15 | 14건 수정(12건 축약 재작성: en 3·fr 2·nl·ms·ar 3·he·el·hu, 2건 base 복원: en `transfer.host_busy`, bg `toast.host_sync_requested`). uk `system_audio.device_limit_stopped` 1건은 자리표시자 치환 후 44자라 유지 |
+| 업데이트 전부터 상한을 넘던 값      | 1,143 → 1,141 | 194키×42로케일 8,148개 중 14%. 설계상 잘림+tooltip으로 동작하며 이번 범위 밖. 축약은 2026-10-13 버튼 길이 조사와 함께 보류                                                                                      |
 
 bg `toast.host_sync_requested` 복원 근거: 리뷰어는 "синхрон"→"синхронизация"를 제안했지만 bg
 사전은 "синхрон" 13회 대 "синхронизация" 3회로 짧은 형이 다수라 상한과 일관성 모두 base가
@@ -98,20 +99,31 @@ bg `toast.host_sync_requested` 복원 근거: 리뷰어는 "синхрон"→"�
 
 ## 8. 검증
 
-| 명령 | 결과 |
-| --- | --- |
-| `npx vitest run src/i18n/__tests__` + 영향받은 UI 테스트 4파일 | 31 files, 581 passed, 0 failed, 0 skipped (토스트 보정·compact 복원 뒤 재실행) |
-| `npm run typecheck` | pass |
-| `npm run format:check` | pass (compact 복원 뒤 재확인) |
-| `npm run lint` | pass |
-| `npm test` | 560 files, 12,637 passed / 2 failed. 실패 2건(`release-deployment-state`, `sw-cache-version-guard`)은 빌드와 동시 실행 중 발생했고 단독 재실행 141/141 통과. 그 전 실행의 `pro-room-burst` workerd `fetch failed` 1건도 단독 재실행 7/7 통과. compact 복원은 main과 같은 값으로 되돌린 것이라 재실행하지 않았다 |
-| `npm run build:checked` | 1차 pass (8.10.11, v674, prod-security·font·sw-app-shell 가드 통과). compact 복원·v675 bump 커밋 뒤 재빌드 pass (8.10.11, v675, 같은 가드 통과) |
-| e2e 레이아웃 스펙 (`dialog-locale-layout`, `about-page-layout`, `rtl-player-layout`, `rtl-settings-layout`), chromium, 1차 빌드 산출물 | 30 passed, 0 failed (24.4s) |
-| e2e `adaptive-actions`(Critical browser gate 재현), chromium, 소스 사전 직접 측정 | 복원 전 2 failed(CI와 동일) → 복원 뒤 5 passed |
-| CI Critical browser gate (1차 커밋) | 24 중 22 passed, 2 failed(§7). 나머지 10개 잡은 전부 pass |
+| 명령                                                                                                                                   | 결과                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx vitest run src/i18n/__tests__` + 영향받은 UI 테스트 4파일                                                                         | 31 files, 581 passed, 0 failed, 0 skipped (토스트 보정·compact 복원 뒤 재실행)                                                                                                                                                                                                                                  |
+| `npm run typecheck`                                                                                                                    | pass                                                                                                                                                                                                                                                                                                            |
+| `npm run format:check`                                                                                                                 | pass (compact 복원 뒤 재확인)                                                                                                                                                                                                                                                                                   |
+| `npm run lint`                                                                                                                         | pass                                                                                                                                                                                                                                                                                                            |
+| `npm test`                                                                                                                             | 560 files, 12,637 passed / 2 failed. 실패 2건(`release-deployment-state`, `sw-cache-version-guard`)은 빌드와 동시 실행 중 발생했고 단독 재실행 141/141 통과. 그 전 실행의 `pro-room-burst` workerd `fetch failed` 1건도 단독 재실행 7/7 통과. compact 복원은 main과 같은 값으로 되돌린 것이라 재실행하지 않았다 |
+| `npm run build:checked`                                                                                                                | 1차 pass (8.10.11, v674, prod-security·font·sw-app-shell 가드 통과). compact 복원·v675 bump 커밋 뒤 재빌드 pass (8.10.11, v675, 같은 가드 통과)                                                                                                                                                                 |
+| e2e 레이아웃 스펙 (`dialog-locale-layout`, `about-page-layout`, `rtl-player-layout`, `rtl-settings-layout`), chromium, 1차 빌드 산출물 | 30 passed, 0 failed (24.4s)                                                                                                                                                                                                                                                                                     |
+| e2e `adaptive-actions`(Critical browser gate 재현), chromium, 소스 사전 직접 측정                                                      | 복원 전 2 failed(CI와 동일) → 복원 뒤 5 passed                                                                                                                                                                                                                                                                  |
+| CI Critical browser gate (1차 커밋)                                                                                                    | 24 중 22 passed, 2 failed(§7). 나머지 10개 잡은 전부 pass                                                                                                                                                                                                                                                       |
 
 한계: 리뷰어는 LLM이며 원어민 인증이 아니다. 2026-09-06 감사 방식의 42언어×4폭 자동 레이아웃 재측정은 하지 않았고, CI 게이트가 측정하는 43키 밖의 라벨은 §7과 같은 렌더 폭 문제가 남아 있을 수 있다. 바뀐 긴 문자열은 대부분 다이얼로그·설명문이며 줄바꿈 가능한 컨테이너에 있다. 배포 뒤 실제 화면 확인 항목을 릴리스 기록에 남겼다.
 
 ## 9. 복구
 
 번역·폴백·테스트와 릴리스 식별자(8.10.11/v675)만 바뀌었고 런타임 로직은 그대로다. 문제가 있으면 이전 App 버전으로 되돌리면 되고, 새 floor는 없다.
+
+<a id="release-and-recovery"></a>
+
+## 10. 배포와 복구
+
+- 병합: PR [#325](https://github.com/hiefny/MUSIXQUARE/pull/325) → main `7be2895165e47eacd0fbacec5ff4f975f374deae`(2026-10-14). exact-main [CI 38502924550](https://github.com/hiefny/MUSIXQUARE/actions/runs/38502924550) attempt 1 성공(11 jobs; unit 560파일 12,638 pass / 1 skip, candidate browser 17 + critical 24 pass).
+- 배포: [Release 38503351026](https://github.com/hiefny/MUSIXQUARE/actions/runs/38503351026) attempt 1, `target=app`, Developer API D1 `false`. 오너 지시(2026-10-14 "CI 통과하면 머지하고 배포도 진행해줘")로 실행. deploy job 11:53:05~11:55:02 KST. App Worker version `3da399a5-07b3-4a45-bf70-a44e23415f6b`, deployment `0eee8df7-b5d2-45e7-ae39-410e6ef15f86`, 단일 version 100%(11:54:40.128 KST). 최종 소유권 `verified` 11:54:59.253 KST, coherent production marker 기록. 미선택 Worker 5종 `08df0606` 호환성 `compatible`(11:54:22.615 KST). 운영 smoke 4 pass(App generation·익명 계정 경계·PRO 공개 경로·Standard HTTPS signaling fallback). App target의 idempotent admin-D1 baseline 7종과 translation-community 테이블 적용·검증 성공.
+- 공개 확인: 11:55:57 KST `/` HTTP 200에 `bootstrap.js?cache=v675`, `service-worker.js` HTTP 200/v675, `/about` HTTP 200. 실기 화면·새 프로필 확인은 하지 않았다.
+- 드리프트 감사: 배포 직후 [38503613336](https://github.com/hiefny/MUSIXQUARE/actions/runs/38503613336) 성공, 31 pass / 0 fail / 5 manual-only, `automated-checks-passed`(11:56:21.724 KST).
+- 복구 기준선: 11:53:51.273 KST checkpoint(App `414ce19d`, version `82ee1552-156e-42cb-b0ce-07beb4bb9d61`, deployment `0f8a39b1-6d67-4163-8087-cae8898ad688`, provenance `verified-release-ancestor`), `app-before.json` SHA-256 `e6d440991f029d3b531500c29a2a503f5458b7df890d4fd194fa34663c2f66db`. 신규 floor 없음. 이 기준선으로 돌아가면 번역이 8.10.10 문구로 돌아가고 PRO 활성화 7키가 40개 로케일에서 다시 영어로 보인다.
+- 남은 확인: 실기 화면 확인(긴 로케일·RTL)과 점검 안내 Worker 번역은 [release-record](../release-record.md) §2 열린 항목.

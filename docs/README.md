@@ -93,8 +93,9 @@ runbooks. Neither belongs in a general setup document.
 - [PRO silent-endpoint transport — 2026-10-14](design/pro-silent-endpoint-transport-2026-10-14.md) —
   The transport acts on the icon it shows, so Play on a silent PRO endpoint
   rejoins only that endpoint instead of pausing the room; YouTube restores and
-  local rejoins show the loading state. Local unit/E2E evidence; production and
-  physical-device checks remain.
+  local rejoins show the loading state. Shipped App 8.10.19/v685 with exact-main
+  CI, production ownership/smoke and Drift Audit evidence; the production
+  reproduction and physical-device checks remain.
 
 - [YouTube rejoin synchronization — 2026-10-14](design/youtube-rejoin-sync-2026-10-14.md) —
   PRO local rejoins and late joins settle at a planned release instant instead of

@@ -41,12 +41,49 @@ preserves ordinary activation and text selection independently of touch-action.
 
 ## Validation
 
-Base: `44b60d18af30c98a0c086b223ca202cde575ac95`. Tested code SHA and completed
-checks are recorded below after execution. Local checks are not the exact-main
+Base: `44b60d18af30c98a0c086b223ca202cde575ac95`; runtime change
+`21936d3c17deae26f110ff1670f02664b4ff18b8`. Local Windows, Node 24.13.1,
+npm 11.8.0, Vitest 5.0.3 and Playwright. Local checks are not the exact-main
 CI release candidate.
 
-Pending: local required checks, focused browser gestures, independent review,
-PR CI and exact-main CI.
+- Full unit run at `1badd995` (runtime same as `21936d3c`): 562 files,
+  12,661 tests passed, 0 fail/skip, 331.54 seconds, `--maxWorkers=4`.
+- Typecheck and lint passed; first format check found only the new source-test
+  assertion wrapping. Prettier corrected it; full format recheck passed.
+- App Worker syntax, Developer API boundaries, D1 migration contract and
+  source-only Operations Drift contract passed.
+- Independent code review found no blocker. It checked the 2024 WebKit
+  action-intersection implementation and preserving `pan-y`/`none` ownership.
+- Initial Chromium at `d3cdda11`: 4 pass / 1 fail. The new raw CDP playlist swipe
+  began while the native tab View Transition still owned input. Saved trace
+  showed the Player snapshot cross-fading beneath Playlist. Hit-test diagnostics
+  confirmed `(195, 670)` initially targeted `HTML`, then `DIV.track-item` when
+  ready. The test now waits for that observable hit target, not an arbitrary
+  longer delay. Corrected new tests: 2 pass (15.8s); actual playlist/chat swipes
+  and range drag pass. Existing reorder/scroll and chat-copy/action tests passed.
+- Initial Windows WebKit: 2 existing chat tests pass, 2 new tests fail before
+  gestures. Both traces explicitly report PeerJS `The current browser does not
+  support WebRTC`, followed by host initialization failure and code timeout.
+  This is the same platform limit handled by the existing WebKit smoke lane.
+  The new WebKit cases use an explicit initialized-app role-state fixture;
+  Chromium retains real host/guest room entry. Neither path catches a failure
+  and silently falls back. The real authority calculation, click and toast
+  handlers remain under test.
+
+Final test code: `4eb1c3fb9412cdd09be5d5098516823c7696621d`. New Chromium
+cases: 2/2 pass (15.7s); new WebKit cases: 2/2 pass (14.1s); no skips. Existing
+Chromium playlist touch reorder/native scroll (1) and chat copy/nested actions
+(2), plus WebKit chat copy/nested actions (2) also passed in their initial
+batches. E2E typecheck, focused ESLint and formatting passed after fixture changes.
+These are focused browser checks, not a new full serial E2E run.
+
+First failures and traces were retained in local `scratch/touch-policy/` before
+reruns. The corrected native-swipe tests retain hit-target diagnostics.
+`npm run build:checked` passed at `4eb1c3fb`, including cache-history, release
+identity, production security, initial-transfer budget and SW app-shell guards.
+Final remote CI and deployment evidence follow the normal release procedure.
+GitHub automated Codex review reported a usage limit; the independent local
+review above is the review evidence, not a claimed GitHub approval.
 
 The focused browser checks validate touch-policy coverage and available-engine
 interaction regressions. They do not reproduce the iOS 17.6.1 native keyboard

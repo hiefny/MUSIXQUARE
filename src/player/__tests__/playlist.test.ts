@@ -500,6 +500,46 @@ describe('coordinator-free PRO playback routing', () => {
     expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
   });
 
+  describe('transport press on a PRO YouTube endpoint the room is playing', () => {
+    function enterPlayingYouTubeRoom(): ReturnType<typeof vi.fn> {
+      const item = youtubeItem('Room video', 'ROOM_VIDEO_0001');
+      setState('playlist.items', [item]);
+      selectIndex(0);
+      setPlaybackYouTubePlaying();
+      enterProRoom(['playback.control']);
+      const handler = vi.fn();
+      registerProPlaybackCommandHandler(handler);
+      return handler;
+    }
+
+    it('rejoins with Play, never a room-wide Pause, when the button shows a silent endpoint', () => {
+      const handler = enterPlayingYouTubeRoom();
+
+      // A failed or locked iframe leaves the room projection "playing" while
+      // the button shows Play. The press must not pause every participant.
+      transport.togglePlay({ displayedPlaying: false });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ kind: 'play' }));
+    });
+
+    it('pauses the room when the button shows this endpoint playing', () => {
+      const handler = enterPlayingYouTubeRoom();
+
+      transport.togglePlay({ displayedPlaying: true });
+
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ kind: 'pause' }));
+    });
+
+    it('keeps the room-state toggle for explicit callers without a displayed state', () => {
+      const handler = enterPlayingYouTubeRoom();
+
+      transport.togglePlay();
+
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ kind: 'pause' }));
+    });
+  });
+
   it('routes a PRO playlist row from its stored selected manifest video', async () => {
     const item = youtubeItem('Server-owned playlist', 'secondVideo', 'playlist-pro');
     setState('playlist.items', [item]);

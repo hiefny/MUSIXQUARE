@@ -2012,7 +2012,17 @@ export function handleEnded(): boolean {
 
 // ─── Toggle Play ───────────────────────────────────────────────────
 
-export function togglePlay(): void {
+export function togglePlay(
+  options: {
+    /**
+     * What the transport button showed when it was pressed. A PRO endpoint can
+     * be silent while the room plays (a failed or locked iframe); its button
+     * then shows Play, and the press must rejoin this endpoint rather than send
+     * a room-wide Pause. Explicit play/pause callers omit it.
+     */
+    readonly displayedPlaying?: boolean;
+  } = {},
+): void {
   if (isGuestBlocked()) return;
 
   const wasPlaying = getState('playback.activity') === 'playing';
@@ -2031,15 +2041,18 @@ export function togglePlay(): void {
     return;
   }
 
+  // A room-wide PRO command follows the button the user saw. Play on a room
+  // that is already playing returns `unchanged` and rejoins only this endpoint.
+  const proWasPlaying = options.displayedPlaying ?? wasPlaying;
   if (
     !isSystemAudioOwner() &&
     routeProPlaybackCommand(
       {
-        kind: wasPlaying ? 'pause' : 'play',
+        kind: proWasPlaying ? 'pause' : 'play',
         queueItemId: getCurrentQueueItemId(),
         positionSeconds: getTrackPosition(),
       },
-      { wasPlaying },
+      { wasPlaying: proWasPlaying },
     )
   ) {
     return;

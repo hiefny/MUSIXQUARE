@@ -2152,6 +2152,51 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(nextTrack).toHaveBeenCalledTimes(1);
   });
 
+  it('acts on what the play button shows, not on the room state behind it', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+    const toggle = vi.spyOn(fileTransport, 'togglePlay').mockImplementation(() => undefined);
+    const icon = document.querySelector('#play-btn path');
+
+    // The room plays but this iframe does not: the button shows Play.
+    bus.emit('ui:update-play-state', false);
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    document.getElementById('play-btn')?.click();
+    expect(toggle).toHaveBeenLastCalledWith({ displayedPlaying: false });
+
+    bus.emit('ui:update-play-state', true);
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+    document.getElementById('play-btn')?.click();
+    expect(toggle).toHaveBeenLastCalledWith({ displayedPlaying: true });
+  });
+
+  it('keeps a keyboard toggle inert while a PRO endpoint shows its loading spinner', () => {
+    renderPlaybackControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+    const toggle = vi.spyOn(fileTransport, 'togglePlay').mockImplementation(() => undefined);
+
+    bus.emit('pro-playback:transition-loading', true);
+    expect(document.getElementById('play-btn')?.classList).toContain('is-loading');
+    bus.emit('player:toggle-play');
+    expect(toggle).not.toHaveBeenCalled();
+
+    bus.emit('pro-playback:transition-loading', false);
+    bus.emit('player:toggle-play');
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
   it.each([false, true])(
     'blocks transport activation during system audio (pending: %s)',
     (pending) => {

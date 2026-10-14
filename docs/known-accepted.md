@@ -288,6 +288,60 @@ Revisit if mixed-version reports recur or a future release requires a guaranteed
 wire-contract boundary. See the
 [preparation and execution record](design/sync-maintenance-release-preparation-2026-10-12.md).
 
+### 14. Standard-Room YouTube Zero-Start Sync Readiness Gap
+
+Accepted by the owner on 2026-10-12 and moved out of the release record on 2026-10-14.
+Right after a Standard-room YouTube zero-start, ownership of the initial protocol is
+released before the first ordinary playback snapshot arrives. Pressing Sync in that window
+shows the "no host playback information" notice and does not retry automatically. This was
+reproduced in real Chromium; eight follow-up presses after a natural heartbeat proceeded
+normally, and it is not a C11 learning-gate rejection or a stalled heartbeat. The owner
+chose not to add an automatic retry so playback is never shaken at an unwanted moment; the
+notice-then-press-again policy stays. See
+[the browser experiment](design/standard-clock-browser-simulation-2026-10-12.md).
+
+### 15. Legacy-Client Transition Limits After The 8.9.0 And 8.10.0 Releases
+
+Accepted on 2026-10-14. These limits exist only while clients that predate the release are
+still running and disappear as they refresh. No version-based admission or forced reload is
+added (see #13).
+
+- 8.9.0 kick reasons: an App older than 8.9.0 does not read the kick reason. It shows the
+  generic "refreshing the session" notice, and in a public room one Start press rejoins.
+  [PRO PIN member choice](design/pro-pin-member-choice-2026-10-11.md)
+- 8.9.0 PRO Worker-only rollback: if only the PRO Worker is rolled back, the default "keep
+  everyone" choice is rejected with 400 and the App shows "could not change the password",
+  while "everyone re-enters" keeps working. No new floor. Same report.
+- 8.10.0 Standard-room owner passwords: cached 8.9.x hosts keep generating random passwords;
+  after a new password is set, remaining participants may send the old one on reconnect and
+  fail into the same address bucket. Older-App participants ejected by "everyone re-enters"
+  see "kicked", and the two new errors render as ordinary join errors (permanent auth errors,
+  so there is no reconnect storm). Devices still running v657-or-older code saw the old update
+  dialog once during that first rollout. Password-lockout monitoring moved to the release
+  record §3 periodic checks. [Owner PIN](design/standard-room-owner-pin-2026-10-11.md),
+  [in-room update prompt](design/in-room-update-prompt-2026-10-11.md),
+  [operations](../cloudflare/standard-room-pin-ops.md), and #12.
+
+### 16. Reverb Decay Values Saved Before The 10-Second Cap
+
+Accepted on 2026-10-14 as a conditional watch rather than an open item. Every validator now
+caps decay at 10 s. A value above 10 s saved through the Developer API before 8.7.0 (30 s
+cap) and still present in PRO storage would make reload validation reset the whole effects
+block to defaults. The owner confirmed the real API users and removed the legacy-value
+migration (`d84323d3`); no ad-hoc correction or bulk data change is reintroduced. If a new
+API-usage report surfaces such a stored value, record the impact and decision in the release
+record.
+
+### 17. Korean Copy Style Decisions
+
+Accepted on 2026-10-14. From the 2026-10-09 style audit (`f05af624`) the owner changed only
+two PRO notices and one YouTube error (shipped in 8.7.6) and kept "환영합니다", the external
+pages, accessibility descriptions and the remaining candidates as written. Do not re-propose
+them without a new owner request. The 2026-10-14 42-locale update kept Korean sentence breaks
+that differ from English on purpose
+([report §2](design/i18n-quality-update-2026-10-14.md)). History:
+[archive](beta-release-readiness-archive-2026-10-10.md#누적-변경-이력).
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be
@@ -307,6 +361,21 @@ carried forward as accepted risks:
 | System-audio entry does not cancel a debounce-parked file broadcast    | Retired 2026-08-30. After `stopAllMediaAsync` succeeds, `startSystemAudioCapture` now calls only `cancelPendingBroadcast()`. A failed teardown preserves the pending broadcast, while already in-flight outgoing transfers remain untouched. Regression tests pin both boundaries. |
 | `/debug memory` retained and rendered every sample forever             | Retired 2026-08-30. Cumulative history now compacts to a bounded min/max envelope while preserving the full time span, endpoints, extrema, exact sample count, and running maximum; polling is single-flight.                                                                      |
 | Loopback browser API clients implicitly retried production             | Retired 2026-08-30. Local PRO, TURN, and Realtime calls now fail closed on the same origin unless the explicit local-production fallback flag or a validated PRO endpoint override is configured.                                                                                  |
+
+## Retired Observations
+
+Rule (owner decision 2026-10-14): an observation with no planned investigation and no
+recurrence report since its last sighting is retired here with its date and evidence. Retired
+is not resolved. If it recurs, reopen it in the release record §2 with the new evidence.
+
+| Observation                                                                                                                                                                                      | Last seen  | Status                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Montpellier PRO 002026 admission failures: cause unconfirmed. Peer numbers are not concurrent counts, three local defects were fixed in 8.10.5, and no stack or headcount exists from the event. | 2026-10-11 | Retired 2026-10-14. Server diagnostics now distinguish failure reason, presence, numbering and the signaling roster but are not a retroactive ledger. [Deep audit](design/pro-event-admission-deep-audit-2026-10-13.md), [repair](design/pro-admission-repair-2026-10-13.md) |
+| Slow or stalled production R2 transfers seen only on the owner's home Wi-Fi (LAX path) and reproduced with native XHR; hotspot and GitHub runners passed.                                        | 2026-10-08 | Retired 2026-10-14. The owner closed the investigation on 2026-10-08. No speculative product change; the 120 s download check and 90 s stall policy are not relaxed. [Record](design/full-verification-8.7.2-2026-10-07.md#최종-코드-심층-검토-및-조사-종료--2026-10-08)     |
+| Legacy service worker (R26): one case where the first Refresh approval did not update within 15 s.                                                                                               | 2026-10-07 | Retired 2026-10-14. On recurrence, log approval → `SKIP_WAITING` → waiting worker → `controllerchange` → new document outside the page, including on an old device. [Record](design/beta-30-round-repair-2026-10-07.md)                                                      |
+| One "claim not held" notice in the first dev Chromium 12-case run of `c3a313c9`; absent in the following dev and production runs.                                                                | 2026-10-09 | Retired 2026-10-14. Not attributed to HMR or the environment. [Record](beta-release-readiness-archive-2026-10-10.md#1-현재-상태)                                                                                                                                             |
+| Signaling Worker exceptions before 2026-10-08 (3 in 24 h, 10 in 7 d) with unknown cause and user impact.                                                                                         | 2026-10-08 | Retired 2026-10-14. Diagnostic logging shipped in `99f9103c`; the runbook stays at [signaling exception investigation](../cloudflare/config-drift-ops.md#signaling-exception-investigation) for the next sighting.                                                           |
+| seed 470021 re-entry left a guest PAUSED once in the first full Windows run of the CSS refactor; 20 isolated, 73 browser-reuse, 640 local and 640 remote cases passed.                           | 2026-10-13 | Retired 2026-10-14. The owner recorded the history and approved the release on 2026-10-14; OS interference is unproven and the limited Media Session, activity and sync diagnostics remain for a recurrence. [Record](design/component-cascade-refactor-2026-10-13.md)       |
 
 ## Rule For Future Audits
 

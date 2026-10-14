@@ -161,7 +161,7 @@ YouTube 주소의 호스트명이 대문자 또는 대소문자 혼합이면 원
 
 ### R17-C01 — 요청 접수 후 키 회수·만료의 적용 시점
 
-기존 실험에서 인증을 통과했지만 본문이 아직 도착하지 않은 요청은 키 회수·만료 뒤에도 완료될 수 있었고, 새 요청은 거부됐다. 이 동작은 관측됐으나, 제품 계약이 인증 시점을 요청 접수로 볼지 실제 변경 직전으로 볼지 명시하지 않는다. QA 가이드의 더 엄격한 기대만으로 확정하지 않았다. root의 별도 변형에는 내부 숫자 enum과 공개 문자열을 비교한 관측기 오류도 있어 깨끗한 독립 검증으로 세지 않는다. Daybreak 제한 확인 뒤 추가 보안 재현은 중단했다.
+기존 실험에서 인증을 통과했지만 본문이 아직 도착하지 않은 요청은 키 회수·만료 뒤에도 완료될 수 있었고, 새 요청은 거부됐다. 이 동작은 관측됐으나, 제품 계약이 인증 시점을 요청 접수로 볼지 실제 변경 직전으로 볼지 명시하지 않는다. QA 가이드의 더 엄격한 기대만으로 확정하지 않았다. root의 별도 변형에는 내부 숫자 enum과 공개 문자열을 비교한 관측기 오류도 있어 깨끗한 독립 검증으로 세지 않는다. 모델 접근 프로그램 제한 확인 뒤 추가 보안 재현은 중단했다.
 
 소스: [cloudflare/developer-api-worker.ts](../../cloudflare/developer-api-worker.ts):2362, [cloudflare/developer-api-worker.ts](../../cloudflare/developer-api-worker.ts):2445, [cloudflare/developer-api-worker.ts](../../cloudflare/developer-api-worker.ts):645, [scripts/developer-api-key.mts](../../scripts/developer-api-key.mts):399, [cloudflare/pro-room-worker.ts](../../cloudflare/pro-room-worker.ts):6430. 근거: [round-17/boundaries-final.json](../../scratch/qa-30round-2026-10-08/round-17/boundaries-final.json), [round-17/boundaries.test.ts](../../scratch/qa-30round-2026-10-08/round-17/boundaries.test.ts), [round-17/report.md](../../scratch/qa-30round-2026-10-08/round-17/report.md).
 
@@ -274,7 +274,7 @@ desktop hover suspension 세 가지다. 검사·빌드 정확한 시각과 인�
   최종 native 실행은 1 pass/1 관측기 fail 그대로이며, 마지막 실패는 앱 pagehide 정리보다 먼저 읽은 snapshot이다.
   새 문서 9개의 파일/프리로드/큐/연결/출력 상태가 비워지고 교체 중 구독 수가 일정함은 별도 원본 분석으로 확인했다.
   이전 문서 메모리 회수와 실제 여러 기기의 다시간 재생은 미검증이다. 이를 모두 통과한 장시간 soak로 표현하지 않는다.
-- 두 차례 중단의 실제 오류는 보안 심화 작업에 필요한 Daybreak 접근 조건이었다. 계정의 Advanced Account
+- 두 차례 중단의 실제 오류는 보안 심화 작업에 필요한 모델 접근 프로그램 조건이었다. 계정의 Advanced Account
   Security와 호환 FIDO2 하드웨어 보안 키 등록이 필요했다. 차단된 보안 재현을 우회·재구성하지 않았고,
   재개 후 해당 범위는 방어적 소스/설정 검토와 명시된 blocked로 남겼다. 따라서 전체 보안 심화 실행 완료를 주장하지 않는다.
 - 과거 authenticated-host 비정상 파일 프레임 실험은 재구성하지 않았다. 일반 유효 전송의 순서·호환성 실험은

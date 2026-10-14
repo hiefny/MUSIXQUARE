@@ -57,11 +57,51 @@ zero eager fonts and secondary chunk limits are unchanged. See the
 [dated capacity decision](initial-bundle-loading-policy.md#2026-10-14-sender-actions-and-aggregate-maintenance-capacity).
 Service-worker closure tests retain the deferred controller for offline entry.
 
+Controlled startup observations compare the prior PR #330 candidate artifact
+(`46b7c7cd`, CI `38512631265`) with this component at `afb4ee3c`. These are
+different version/copy builds, not an isolated animation CPU microbenchmark.
+The same deterministic graph helper measured eager gzip 543,361 → 544,507 B
+(+1,146 B, 0.211%), eager JS 467,876 → 468,087 B, and raw eager bytes
+2,034,430 → 2,042,992 B. Ten alternating fresh Chromium 153 contexts used
+390×844, 4× CPU slowdown, 150ms latency, 1.6Mbps down/750kbps up, gzip responses,
+HTTP cache disabled, SW blocked, identical API 503s and external-request blocks.
+All reached 51 ready steps with zero failures, fallbacks and page errors.
+Ready medians were 3,844.2 → 3,842.9ms; FCP medians 4,092 → 4,108ms.
+Five observations per build are not statistical equivalence or permission to
+spend the entire new capacity without future review. The
+[raw observations and artifact hashes](../performance/system-audio-sharing-startup-2026-10-14.json)
+record the exact environment and limits. Offline behavior is tested separately.
+
 ## Validation
 
-Source SHA and final local/remote results will be recorded after verification.
+Tested source: `afb4ee3c5b0607dfbd9639c32aa634d8e96eea1b`.
 Environment: Windows, Node 24.13.1, npm 11.8.0, Chromium Playwright. The remote
 candidate uses the repository-pinned CI toolchain and remains separate evidence.
+
+The first full-unit development run had 12,656 passes and five failures. Three
+were actionable integration checks: the new legacy authority read was replaced
+with the canonical coordinator API; the deliberate room composition imports
+received the two exact documented layer exceptions above; the bootstrap URL's
+cache mirror was advanced alongside its manifest. Two Git-fixture tests exceeded
+their unchanged 30s/15s deadlines in the parallel local run. Final validation uses
+four workers and retains those original deadlines and assertions.
+
+The final full unit run passed all 562 files / 12,661 tests, with no failures or
+skips (341.31s). `build:checked` passed at the committed source, including the
+legacy Chromium 79 cascade, production-hook exclusion, service-worker shell,
+font and protected-headroom checks. All 17 production-candidate browser checks
+passed without retries (37.2s), including cold bootstrap and service-worker
+fallback navigation. These are local evidence, not the required exact-main CI
+release candidate.
+
+All 36 focused Chromium E2E checks passed without retries (1.3m): system-audio
+controls 3, adaptive actions 10, RTL player layout 13, component cascade 7 and
+demo session layout 3. The built-app regression explicitly verifies visible
+Stop Sharing text, red text/icon, expanded/restored geometry and computed hover
+colors. Expanded and restored desktop screenshots were visually checked.
+Two independent implementation reviews found no remaining concrete blockers.
+Concurrent PR #330 does not change these action labels or component behavior;
+its 8.10.13/v679 identity must precede this release's 8.10.14/v680.
 
 Focused tests cover Standard sender/receiver and disconnected guest authority,
 PRO member-publisher reassignment, focus/abort/resize/reduced-motion lifecycle,

@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Sharing action failure isolation and spacing — 2026-10-14](design/sharing-action-fallback-2026-10-14.md) —
+  Eager visible/accessibility state, optional motion failure cleanup and one gap
+  token. App 8.10.17/v683 preparation; validation and release evidence tracked here.
+
 - [Shared app double-tap policy — 2026-10-14](design/shared-touch-policy-2026-10-14.md) —
   Common touch default preserving existing zoom locks, inner scrolling and
   component gestures. App 8.10.16/v682; affected iOS 17.6.1 PWA displacement and

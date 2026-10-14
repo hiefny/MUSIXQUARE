@@ -87,6 +87,42 @@ release.
 
 ## Release and recovery
 
-App-only release (`target=app`). Mixed versions are safe because every change is
-participant-local. Recovery is the ordinary Production Release rollback to the
-8.10.18 checkpoint, which restores the activity-based toggle.
+App **8.10.19/v685** shipped through
+[Production Release 38580171440](https://github.com/hiefny/MUSIXQUARE/actions/runs/38580171440),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-14 23:26:34 KST** using the immutable candidate
+from exact-main CI `38579109391` for `6afd91871ee0bf6e30a543065799c50e4191028b`.
+No rollback was needed; the recovery job was skipped.
+
+- App version `71aa66e3-3154-451f-86bb-2f4558bc863e` became
+  `8f42c8ee-7ec3-4d25-ae56-0eb9855bf4f4`. Final deployment ownership was verified
+  at 23:26:28.121 KST, and the coherent production marker records the exact SHA
+  and target `app`.
+- The partial-release compatibility recheck at 23:25:56.476 KST was compatible.
+  The five unselected Workers were not deployed and keep the `d9364cd9`
+  identities in `docs/release-record.md` §1; the PRO smoke re-read pro-room
+  `8d5d44c0`. The new App deployment identity is in the 90-day run artifact
+  `production-deployments-6afd91871ee0bf6e30a543065799c50e4191028b-38580171440-1`.
+- App generation (`main-CoRofd7o.js`, 27 assets converged), anonymous App account
+  boundary, current PRO public boundary and Standard HTTPS signaling smokes
+  passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 23:32:31 KST returned HTTP 200 for `/`, the v685 service
+  worker, `bootstrap.js?cache=v685`, `main-CoRofd7o.js` and `main-BNiplmKU.css`.
+  A tab open before deployment showed the normal update dialog; Refresh loaded
+  the new bundle.
+- [Operations Drift Audit 38580892372](https://github.com/hiefny/MUSIXQUARE/actions/runs/38580892372)
+  succeeded. Its 23:29:23.871 KST report records **31 pass / 0 fail / 5 manual-only**;
+  manual checks are not treated as completed.
+- After release, a v685 tab rejoined the owner's PRO room, which was paused at
+  the time, and restored it as paused. The loading state is meant only for a
+  running checkpoint, so none appeared. The spinner over a running restore and
+  the silent-endpoint button were not reproduced in production.
+
+The immutable recovery checkpoint captured at 23:25:17.201 KST
+(`production-recovery-checkpoint-6afd91871ee0bf6e30a543065799c50e4191028b-38580171440-1`)
+preserves the previous App `cb81a89c6728a94fd8ae63253189888bc45d13ac`, 8.10.18/v684,
+version `71aa66e3-3154-451f-86bb-2f4558bc863e`. Rolling back to it restores the
+activity-based toggle, so a silent endpoint could again pause the room, and
+removes the loading state during restores and rejoins. Mixed versions are safe
+because every change is participant-local. The checkpoint is not a user-data
+backup; no data migration is needed and existing recovery floors remain binding.

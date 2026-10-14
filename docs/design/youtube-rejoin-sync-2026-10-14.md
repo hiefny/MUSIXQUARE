@@ -90,18 +90,39 @@ Standard rooms (guest only; no message format change):
 
 ## Verification
 
-- Code under test: branch `agent/youtube-rejoin-sync`, commit recorded in the
-  pull request.
-- Local unit suite, `npm run typecheck`, `npm run lint` and
-  `npm run format:check` pass; counts are recorded in the pull request.
-- New or updated pins: the arm warms at the release target; a manual rendezvous
-  commits its prepared position and re-arms once on overrun; a late restore
-  settles at a planned instant, re-arms on overrun and genuinely retries a failed
-  YouTube preparation; an unbarriered preparation gets the long budget; a
-  never-primed iOS PRO endpoint gets the tap gate and that tap unlocks it;
-  Standard follow-up and automatic realign rules (36 cases).
-- Not verified: physical iOS/Android devices, real speaker output, and the full
-  serial E2E suite. Production before/after measurements are recorded below.
+Environment: Windows 11 Pro local worktree, Node 24.13.1 (the repository pins
+24.20.0, which pull request CI uses), Vitest 5.0.3, Playwright 1.63.0 with
+Chromium. jq was supplied through `MXQR_TEST_JQ_PATH`, so the jq-dependent
+release test ran. Tested source:
+**`75eec3686a52c4e979557e0514913fbf786b7fe7`** (8.10.18, cache epoch v684),
+branch `agent/youtube-rejoin-sync`, clean tree. Later commits on the branch
+change documentation only. These are local and branch results, not the
+exact-main release candidate.
+
+| Check | Result |
+| --- | --- |
+| Full `vitest run` | 563 files, **12,713 passed / 0 failed / 0 skipped**, 157.03 s |
+| `npm run typecheck` | Passed |
+| `npm run lint` | Passed, zero warnings |
+| `npm run format:check` | Passed |
+| `npm run test:e2e:critical` | **29 passed / 0 failed / 0 skipped / 0 flaky**, 1.4 min |
+| YouTube and playback-sync E2E (six files below) | **28 passed / 0 failed / 0 skipped / 0 flaky**, 9.0 min |
+| Pull request CI on this SHA | 11 checks passed |
+
+The browser run used `e2e/youtube-sync.test.ts`, `e2e/playback-sync.test.ts`,
+`e2e/youtube-output-delay.test.ts`, `e2e/youtube-pending-seek.test.ts`,
+`e2e/youtube-manual-zero-start.test.ts` and `e2e/sync-flight-recorder.test.ts`,
+project `chromium`, after `npm run build:e2e`, with no retries.
+
+New or updated pins: the arm warms at the release target; a manual rendezvous
+commits its prepared position and re-arms once on overrun; a late restore
+settles at a planned instant, re-arms on overrun and genuinely retries a failed
+YouTube preparation; an unbarriered preparation gets the long budget; a
+never-primed iOS PRO endpoint gets the tap gate and that tap unlocks it;
+Standard follow-up and automatic realign rules (36 cases).
+
+Not verified: physical iOS/Android devices, real speaker output, WebKit, and the
+full serial E2E suite. Production before/after measurements are recorded below.
 
 ## Production measurements
 

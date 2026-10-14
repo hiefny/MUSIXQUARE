@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-14 (배포 SHA `6afd9187`, Release `38580171440` attempt 1 성공) |
+| Last source review | 2026-10-15 (배포 SHA `27dceedc`, Release `38593965412` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -27,16 +27,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.10.19` / `v685` |
-| 마지막 프로덕션 변경 | 2026-10-14 23:26:34 KST deploy job 완료, Release [38580171440](https://github.com/hiefny/MUSIXQUARE/actions/runs/38580171440) attempt 1 성공, target=app, Developer API D1=false. PRO 재생 버튼이 보여 주는 아이콘대로 동작해, 소리가 안 나는 기기에서 재생을 누르면 방 전체 일시정지 대신 그 기기만 다시 붙는다(서버 `unchanged`). PREPARE 없이 온 재생 중 유튜브 COMMIT(중도참여·재시도)과 기기 단독 유튜브 재합류(앱 복귀·동기화·재생) 중에는 공유 로딩 상태를 보이고 Space도 막는다. 잠금화면·헤드셋 동작과 서버·프로토콜·스키마·권한 변경 없음 |
-| 배포 main SHA | `6afd91871ee0bf6e30a543065799c50e4191028b` (PR [#342](https://github.com/hiefny/MUSIXQUARE/pull/342)). Exact-main CI [38579109391](https://github.com/hiefny/MUSIXQUARE/actions/runs/38579109391) attempt 1 성공 후보를 사용했다. 로컬·PR CI 또는 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
-| Worker | App version `8f42c8ee-7ec3-4d25-ae56-0eb9855bf4f4`(이전 `71aa66e3-3154-451f-86bb-2f4558bc863e`). 23:26:28.121 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker를 기록했다. 미선택 5 Worker는 이번 릴리스에서 배포하지 않아 직전 기록의 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` 식별자를 유지한다: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`, pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`, remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`, developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`, developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 23:25:56.476 KST 부분 릴리스 호환성 recheck compatible, PRO smoke가 pro-room version `8d5d44c0`을 다시 확인했다. 새 App deployment 식별자와 recheck 원본은 run artifact `production-deployments-6afd91871ee0bf6e30a543065799c50e4191028b-38580171440-1`(90일 보존)에 있다. 운영 smoke 4종 pass(App generation `main-CoRofd7o.js`·27 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계, Standard HTTPS signaling), 범위 밖 Worker smoke skip. 23:32:31 KST 공개 /·SW(v685)·`bootstrap.js?cache=v685`·`main-CoRofd7o.js`·`main-BNiplmKU.css` HTTP 200. 배포 전 열린 탭은 업데이트 안내 뒤 새로고침으로 새 bundle을 불러왔다. [증거](design/pro-silent-endpoint-transport-2026-10-14.md#release-and-recovery) |
-| 복구 | 성공 실행으로 rollback 불필요·독립 recovery job skip. 23:25:17.201 KST captured checkpoint(`production-recovery-checkpoint-6afd91871ee0bf6e30a543065799c50e4191028b-38580171440-1`)는 변경 전 App `cb81a89c`(8.10.18/v684), version `71aa66e3-3154-451f-86bb-2f4558bc863e`를 보존한다. 이 기준선으로 복구하면 무음 기기의 재생 버튼이 다시 방 전체를 일시정지시킬 수 있고 복원·재합류 중 로딩 표시가 사라진다. 참여자 로컬 변경이라 혼합 버전이 안전하다. 복구에는 소유권/floor 재검증이 필요하며 checkpoint는 사용자 데이터 백업이 아니다 |
+| App 버전 / SW 캐시 | `8.10.20` / `v686` |
+| 마지막 프로덕션 변경 | 2026-10-15 01:00:12 KST deploy job 완료, Release [38593965412](https://github.com/hiefny/MUSIXQUARE/actions/runs/38593965412) attempt 1 성공, target=app, Developer API D1=false. PRO 재생목록에서 곡을 놓으면 서버 응답 전에 새 순서를 바로 보이고, 이전 순서로 다시 그려지던 깜빡임을 없앴다. 연속 드래그는 가장 최근 순서를 유지하고, 거절되면 서버의 최신 순서로 되돌리며 "트랙 위치를 바꾸지 못했어요" 토스트(42개 언어)를 띄운다. 편집 권한 회수로 취소되면 토스트 없이 되돌린다. 서버·프로토콜·스키마·권한 변경 없음 |
+| 배포 main SHA | `27dceedc79c306142fd0fe78801cf1ca383c56ce` (PR [#344](https://github.com/hiefny/MUSIXQUARE/pull/344)). Exact-main CI [38593021162](https://github.com/hiefny/MUSIXQUARE/actions/runs/38593021162) attempt 1 성공 후보를 사용했다. 로컬·PR CI 또는 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
+| Worker | App version `bd269acb-527b-4cce-9601-af45ba319c75`(이전 `8f42c8ee-7ec3-4d25-ae56-0eb9855bf4f4`). 01:00:04.896 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker를 기록했다. 미선택 5 Worker는 이번 릴리스에서 배포하지 않아 직전 기록의 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` 식별자를 유지한다: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`, pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`, remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`, developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`, developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 00:59:30.152 KST 부분 릴리스 호환성 recheck compatible, PRO smoke가 pro-room version `8d5d44c0`을 다시 확인했다. 새 App deployment 식별자와 recheck 원본은 run artifact `production-deployments-27dceedc79c306142fd0fe78801cf1ca383c56ce-38593965412-1`(90일 보존)에 있다. 운영 smoke 4종 pass(App generation `main-DZrm4G_z.js`·27 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계, Standard HTTPS signaling), 범위 밖 Worker smoke skip. 01:01:14 KST 공개 /·SW(v686)·`bootstrap.js?cache=v686`·`main-DZrm4G_z.js`·`main-BNiplmKU.css` HTTP 200. [증거](design/pro-playlist-reorder-optimistic-2026-10-14.md#release-and-recovery) |
+| 복구 | 성공 실행으로 rollback 불필요·독립 recovery job skip. 00:58:57.678 KST captured checkpoint(`production-recovery-checkpoint-27dceedc79c306142fd0fe78801cf1ca383c56ce-38593965412-1`)는 변경 전 App `6afd9187`(8.10.19/v685), version `8f42c8ee-7ec3-4d25-ae56-0eb9855bf4f4`를 보존한다. 이 기준선으로 복구하면 순서 변경 직후 이전 순서로 다시 그려지는 깜빡임이 돌아온다. 참여자 로컬 변경이라 혼합 버전이 안전하다. 복구에는 소유권/floor 재검증이 필요하며 checkpoint는 사용자 데이터 백업이 아니다 |
 | 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 신규 floor 없음. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs 성공: 원격 unit 563 files / 12,720 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 29 pass, 모든 coverage·정적·빌드 gate 통과. 로컬 `a6a8f07d` 클린 트리 unit 563 files / 12,721 pass / 0 fail / 0 skip, 타입·린트·포맷, critical browser 29 및 YouTube·재생 동기화 E2E 28 pass. 새 핀: 무음 기기 재생=Play 라우팅·아이콘 전달·로딩 중 Space 차단·복원/복귀 로딩. 배포 뒤 운영 PRO 방(일시정지 상태) 재입장으로 v685 적용과 일시정지 복원을 확인했다. 재생 중인 방의 스피너·무음 기기 버튼은 운영에서 아직 재현하지 않았고, 실기·실제 스피커·WebKit·전체 serial E2E도 미검증. [범위·한계](design/pro-silent-endpoint-transport-2026-10-14.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38580892372](https://github.com/hiefny/MUSIXQUARE/actions/runs/38580892372) 성공. 2026-10-14 23:29:23.871 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 관리하며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 이번 재생 버튼·로딩 변경에서 전체 serial suite는 재실행하지 않았다(관련 YouTube·재생 동기화 6파일 28 pass는 로컬 결과). 아래는 이번 소스의 전체 통과를 뜻하지 않는 이전 이력: 원격 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201) Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 제품 입력이 같은 진단 후속 `85414247` 로컬 전체 640 pass / 0 fail / 0 skip(55.6분), WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail은 별도 미확정 이력으로 보존. 운영 R2는 당시 배포를 검사한 결과다 |
-| 의존성 | 이번 8.10.19 신규 의존성·스키마·비밀·바인딩·프로토콜 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. [#297](https://github.com/hiefny/MUSIXQUARE/pull/297) OPEN 및 봇 브랜치 보존, 이번 배포에서 제외. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
+| 검증 범위 | Exact-main CI 11 jobs 성공: 원격 unit 563 files / 12,724 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 29 pass, 모든 coverage·정적·빌드 gate 통과. 로컬 `b5b15579` 클린 트리 unit 563 files / 12,725 pass / 0 fail / 0 skip, 타입·린트·포맷, critical browser 29 및 재생목록 E2E 7 pass. 새 핀: 즉시 반영·거절 복원·연속 드래그·권한 회수 복원(각각 이전 코드에서 실패). 운영 PRO 방에서 순서 변경을 재현한 것은 아니며, 실기·WebKit·전체 serial E2E도 미검증. [범위·한계](design/pro-playlist-reorder-optimistic-2026-10-14.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38594339347](https://github.com/hiefny/MUSIXQUARE/actions/runs/38594339347) 성공. 2026-10-15 01:00:54.943 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 관리하며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 이번 재생목록 순서 변경 수정에서 전체 serial suite는 재실행하지 않았다(재생목록 E2E 3파일 7 pass는 로컬 결과). 아래는 이번 소스의 전체 통과를 뜻하지 않는 이전 이력: 원격 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201) Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 제품 입력이 같은 진단 후속 `85414247` 로컬 전체 640 pass / 0 fail / 0 skip(55.6분), WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail은 별도 미확정 이력으로 보존. 운영 R2는 당시 배포를 검사한 결과다 |
+| 의존성 | 이번 8.10.20 신규 의존성·스키마·비밀·바인딩·프로토콜 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. [#297](https://github.com/hiefny/MUSIXQUARE/pull/297) OPEN 및 봇 브랜치 보존, 이번 배포에서 제외. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -53,18 +53,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
-### PRO 재생목록 순서 변경
-
-- [ ] App 8.10.20/v686 배포 준비: PRO에서 곡을 드래그해 놓으면 서버 응답 전까지
-      이전 순서로 다시 그려졌다가 새 순서로 바뀌던 깜빡임을 고쳤다(오너 제보
-      2026-10-14). 놓는 즉시 새 순서를 보이고, 서버가 받아들이면 그대로 유지된다.
-      거절되면 드래그 전이 아닌 서버의 최신 순서로 되돌리고 "트랙 위치를 바꾸지
-      못했어요" 토스트(42개 언어)를 띄운다. 다른 참가자가 같은 순간 목록을 바꾸면
-      잠깐 내 이동 없이 보일 수 있다. 참여자 로컬 변경이며 서버·프로토콜·스키마
-      변경 없음. exact-main CI와 정식 배포 근거를 확보한 뒤 닫는다.
-      [원인·수정·검증](design/pro-playlist-reorder-optimistic-2026-10-14.md)
-
 ### 최근 해결 근거
+
+App 8.10.20/v686의 PRO 재생목록 순서 변경 깜빡임 수정(오너 제보 2026-10-14)은 PR
+[#344](https://github.com/hiefny/MUSIXQUARE/pull/344), exact-main `27dceedc`의
+[CI 38593021162](https://github.com/hiefny/MUSIXQUARE/actions/runs/38593021162),
+[Release 38593965412](https://github.com/hiefny/MUSIXQUARE/actions/runs/38593965412)의
+운영 smoke 4종·최종 배포 소유권·미선택 5 Worker 호환성·coherent marker와 공개
+v686 확인으로 배포 준비 항목을 닫았다. 운영 PRO 방에서 순서 변경을 재현한 것은
+아니며 실기 확인은 실기기 항목에 남긴다.
+[수정·검증·배포·복구](design/pro-playlist-reorder-optimistic-2026-10-14.md#release-and-recovery).
 
 App 8.10.19/v685의 무음 기기 재생 버튼 수정(오너 결정 2026-10-14)은 PR
 [#342](https://github.com/hiefny/MUSIXQUARE/pull/342), exact-main `6afd9187`의

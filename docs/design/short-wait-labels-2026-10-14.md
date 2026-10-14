@@ -2,7 +2,7 @@
 
 | 항목      | 값                                                                                                                                                                                                                           |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.15` / 서비스 워커 캐시 `v681`, Production Release `target=app` 예정                                                                                                          |
+| 상태      | 2026-10-14 14:53 KST 프로덕션 배포 완료. 제품 `8.10.15` / 서비스 워커 캐시 `v681`, Release 38518475226 attempt 1, `target=app` (§6)                                                                                          |
 | 검증 코드 | 코드 커밋 `3dd5bf81ba7b47128319ae4984bcfee1497a7206` (branch `agent/short-wait-labels-8.10.13`, base main `f4ccf602`; 이후 main의 #331(8.10.14/v680, 공유 액션 모션)을 병합하고 8.10.15/v681로 재bump, 최종 커밋 `a6f6724f`) |
 | 환경      | Windows 11, Node 24.13.1, Vitest 5, Prettier. 로컬 실행이며 exact-main CI 후보가 아니다                                                                                                                                      |
 | 범위      | `src/i18n/*.ts`의 버튼·칩 라벨 값 250건(31키, 40개 로케일)과 릴리스 식별자. 런타임 로직·Worker·D1·시크릿 변경 없음                                                                                                           |
@@ -58,3 +58,13 @@ de "Links"). 칩에는 아이콘이 함께 있고 한국어·영어는 그대로
 
 번역 값과 릴리스 식별자만 바뀌었다. 문제가 있으면 직전 App(8.10.12, `d9364cd9`)으로
 되돌린다. 이 릴리스에는 main에 먼저 병합된 #331(공유 액션 모션, 8.10.14)도 함께 실린다. 새 floor 없음.
+
+<a id="release-and-recovery"></a>
+
+## 6. 배포와 복구
+
+- 병합: PR [#330](https://github.com/hiefny/MUSIXQUARE/pull/330) → main `01051d42`(2026-10-14). 그 직후 다른 세션의 기록 PR #332(문서만)가 병합돼 배포 head는 `19f1d27b409bd50559ce81d907b52745cf011062`이며 App 코드는 `01051d42`와 같다. exact-main [CI 38518466482](https://github.com/hiefny/MUSIXQUARE/actions/runs/38518466482) attempt 1 성공(11 jobs; unit 12,660 pass / 1 skip, candidate browser 17 + critical 29 pass).
+- 배포: [Release 38518475226](https://github.com/hiefny/MUSIXQUARE/actions/runs/38518475226) attempt 1, `target=app`, Developer API D1 `false`. 오너 지시(2026-10-14 "25키도 같이 처리해줘", "고고링"). validate 14:46:56~14:50:53 KST, deploy job 14:50:56~14:53:08 KST. App version `c22ff67d-ce85-4e45-b879-e45133be11b8`, deployment `87ae8fff-3a04-4b98-9b76-319c84c927e1`, 단일 version 100%(14:52:42.765 KST). 최종 소유권 `verified` 14:53:01.629 KST, coherent marker 기록, 미선택 Worker 5종 `d9364cd9` 호환성 `compatible`(14:52:26.035 KST), 운영 smoke 4 pass. 같은 날 14:34 KST에 다른 세션이 배포한 8.10.14(#331, 공유 액션 모션)가 변경 전 기준선이다.
+- 공개 확인: 14:54:17 KST `/` HTTP 200에 `bootstrap.js?cache=v681`, `service-worker.js` HTTP 200/v681. 실기 화면은 확인하지 않았다.
+- 드리프트 감사: 배포 직후 [38519157196](https://github.com/hiefny/MUSIXQUARE/actions/runs/38519157196) 성공, 31 pass / 0 fail / 5 manual-only, `automated-checks-passed`(14:54:51.605 KST).
+- 복구 기준선: 14:51:52.092 KST checkpoint(App `75842130` 8.10.14, version `86c130ab-9ec1-4dba-9a78-76a20c041712`, deployment `d07dd99a-2b83-43b4-894f-a2fe87a6af53`, provenance `verified-release-ancestor`). 신규 floor 없음. 이 기준선으로 돌아가면 라벨만 긴 문구로 돌아간다.

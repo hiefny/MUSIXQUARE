@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO playlist reorder feedback — 2026-10-14](design/pro-playlist-reorder-optimistic-2026-10-14.md) —
+  A dropped PRO reorder shows its order at once instead of redrawing the old one
+  until the server answers; a rejection restores the server order with a toast in
+  42 locales. Local unit/E2E evidence; production and physical-device checks remain.
+
 - [PRO silent-endpoint transport — 2026-10-14](design/pro-silent-endpoint-transport-2026-10-14.md) —
   The transport acts on the icon it shows, so Play on a silent PRO endpoint
   rejoins only that endpoint instead of pausing the room; YouTube restores and

@@ -142,6 +142,7 @@ const fil: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Pumunta sa track na kasalukuyang nagpe-play',
   'playlist.reorder_handle': 'Ilipat ang {{title}}, posisyon {{position}}',
   'playlist.reorder_position': '{{title}}, posisyon {{position}} sa {{total}}',
+  'playlist.reorder_failed': 'Hindi mailipat ang track',
   'playlist.repeat_all': 'Naka-on ang pag-repeat sa lahat ng track',
   'playlist.repeat_one': 'Naka-on ang pag-repeat sa kasalukuyang track',
   'playlist.repeat_off': 'Naka-off ang repeat',

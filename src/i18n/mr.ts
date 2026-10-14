@@ -140,6 +140,7 @@ const mr: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'सध्या प्ले होत असलेल्या ट्रॅकवर जा',
   'playlist.reorder_handle': '{{title}} चा क्रम बदला, स्थान {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}} पैकी स्थान {{position}}',
+  'playlist.reorder_failed': 'ट्रॅक हलवता आला नाही',
   'playlist.repeat_all': 'सर्व ट्रॅकची पुनरावृत्ती सुरू',
   'playlist.repeat_one': 'सध्याच्या ट्रॅकची पुनरावृत्ती सुरू',
   'playlist.repeat_off': 'पुनरावृत्ती बंद',

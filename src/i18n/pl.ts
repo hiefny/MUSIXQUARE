@@ -138,6 +138,7 @@ const pl: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Przejdź do aktualnie odtwarzanego materiału',
   'playlist.reorder_handle': 'Zmień kolejność {{title}}, pozycja {{position}}',
   'playlist.reorder_position': '{{title}}, pozycja {{position}} z {{total}}',
+  'playlist.reorder_failed': 'Przeniesienie materiału nie powiodło się',
   'playlist.repeat_all': 'Powtarzanie wszystkich materiałów włączone',
   'playlist.repeat_one': 'Powtarzanie bieżącego materiału włączone',
   'playlist.repeat_off': 'Powtarzanie wyłączone',

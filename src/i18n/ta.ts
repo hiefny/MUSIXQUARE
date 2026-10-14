@@ -142,6 +142,7 @@ const ta: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'தற்போது இயங்கும் டிராக்குக்குச் செல்',
   'playlist.reorder_handle': '{{title}}-ஐ மறுவரிசைப்படுத்து, இடம் {{position}}',
   'playlist.reorder_position': '{{title}}, மொத்தம் {{total}}-இல் இடம் {{position}}',
+  'playlist.reorder_failed': 'டிராக்கை நகர்த்த முடியவில்லை',
   'playlist.repeat_all': 'அனைத்து டிராக்குகளின் மீளியக்கம் இயக்கப்பட்டுள்ளது',
   'playlist.repeat_one': 'தற்போதைய டிராக்கின் மீளியக்கம் இயக்கப்பட்டுள்ளது',
   'playlist.repeat_off': 'மீளியக்கம் முடக்கப்பட்டுள்ளது',

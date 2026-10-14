@@ -141,6 +141,7 @@ const fi: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Siirry parhaillaan toistettavaan kappaleeseen',
   'playlist.reorder_handle': 'Siirrä kohdetta {{title}}, sijainti {{position}}',
   'playlist.reorder_position': '{{title}}, sijainti {{position}}/{{total}}',
+  'playlist.reorder_failed': 'Kappaleen siirto epäonnistui',
   'playlist.repeat_all': 'Kaikkien kappaleiden uudelleentoisto käytössä',
   'playlist.repeat_one': 'Nykyisen kappaleen uudelleentoisto käytössä',
   'playlist.repeat_off': 'Uudelleentoisto pois käytöstä',

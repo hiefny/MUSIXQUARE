@@ -805,6 +805,27 @@ async function applyProjectedPlaylist(
   attachCachedFiles(snapshot);
 }
 
+/**
+ * Put the local rows back in the server's order after a rejected reorder. Only
+ * the order is restored: when the canonical item set differs, the projection of
+ * that newer snapshot owns the rows instead.
+ */
+function restoreCanonicalPlaylistOrder(snapshot: ProRoomSnapshot | null): void {
+  if (!snapshot) return;
+  const items = getState('playlist.items');
+  if (snapshot.playlist.length !== items.length) return;
+  const itemById = new Map(items.map((item) => [item.queueItemId, item]));
+  const restored: PlaylistItem[] = [];
+  for (const { queueItemId } of snapshot.playlist) {
+    const item = itemById.get(queueItemId);
+    if (!item) return;
+    restored.push(item);
+  }
+  if (restored.every((item, index) => item === items[index])) return;
+  setState('playlist.items', restored);
+  if (getState('playlist.isShuffle')) reconcileShuffleOrderForCurrentPlaylist();
+}
+
 function reportPlaylistError(error: unknown): void {
   log.warn('[PRO] Persistent playlist operation failed', error);
   const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : null;
@@ -1352,12 +1373,25 @@ function installMediaHooks(
       if (baseRevision !== getState('playlist.revision')) return false;
       const reordered = moveQueueItemBefore(queueItemId, beforeQueueItemId);
       if (!reordered) return true;
+      // Show the dropped order at once instead of redrawing the old one until
+      // the server answers. The projection redraws only when the canonical
+      // playlist changes, so same-revision heartbeats keep this order; the
+      // accepted snapshot then projects the same order.
+      setState('playlist.items', reordered);
+      if (getState('playlist.isShuffle')) reconcileShuffleOrderForCurrentPlaylist();
       void manager
         .reorder(
           reordered.map((item) => item.queueItemId),
           { baseRevision, signal },
         )
-        .catch(reportCurrentPlaylistError(signal));
+        .catch((error: unknown) => {
+          if (signal.aborted || !isPlaylistLeaseCurrent(lease)) return;
+          log.warn('[PRO] Playlist reorder failed', error);
+          // Restore the server's latest order, not the pre-drag one: another
+          // participant may have changed the queue meanwhile.
+          restoreCanonicalPlaylistOrder(manager.snapshot);
+          bus.emit('ui:show-toast', t('playlist.reorder_failed'));
+        });
       return true;
     },
     handlesPersistentFile(queueItemId) {

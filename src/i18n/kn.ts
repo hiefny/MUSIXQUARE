@@ -141,6 +141,7 @@ const kn: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'ಈಗ ಪ್ಲೇ ಆಗುತ್ತಿರುವ ಟ್ರ್ಯಾಕ್‌ಗೆ ಹೋಗಿ',
   'playlist.reorder_handle': '{{title}} ಕ್ರಮ ಬದಲಿಸಿ, ಸ್ಥಾನ {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}} ರಲ್ಲಿ {{position}} ನೇ ಸ್ಥಾನ',
+  'playlist.reorder_failed': 'ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಸರಿಸಲಾಗಲಿಲ್ಲ',
   'playlist.repeat_all': 'ಎಲ್ಲಾ ಟ್ರ್ಯಾಕ್‌ಗಳ ಪುನರಾವರ್ತನೆ ಆನ್ ಆಗಿದೆ',
   'playlist.repeat_one': 'ಪ್ರಸ್ತುತ ಟ್ರ್ಯಾಕ್‌ನ ಪುನರಾವರ್ತನೆ ಆನ್ ಆಗಿದೆ',
   'playlist.repeat_off': 'ಪುನರಾವರ್ತನೆ ಆಫ್ ಆಗಿದೆ',

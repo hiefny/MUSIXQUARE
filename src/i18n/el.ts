@@ -141,6 +141,7 @@ const el: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Μετάβαση στο κομμάτι που αναπαράγεται',
   'playlist.reorder_handle': 'Αλλαγή σειράς για {{title}}, θέση {{position}}',
   'playlist.reorder_position': '{{title}}, θέση {{position}} από {{total}}',
+  'playlist.reorder_failed': 'Η μετακίνηση του κομματιού απέτυχε',
   'playlist.repeat_all': 'Η επανάληψη όλων των κομματιών είναι ενεργή',
   'playlist.repeat_one': 'Η επανάληψη του τρέχοντος κομματιού είναι ενεργή',
   'playlist.repeat_off': 'Η επανάληψη είναι ανενεργή',

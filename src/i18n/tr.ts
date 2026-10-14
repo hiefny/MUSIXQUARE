@@ -137,6 +137,7 @@ const tr: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Oynatılan medyaya git',
   'playlist.reorder_handle': '{{title}} sırasını değiştir, konum {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}} öğe içinde {{position}}. sırada',
+  'playlist.reorder_failed': 'Medya taşınamadı',
   'playlist.repeat_all': 'Tümünü tekrarlama açık',
   'playlist.repeat_one': 'Mevcut medyayı tekrarlama açık',
   'playlist.repeat_off': 'Tekrarlama kapalı',

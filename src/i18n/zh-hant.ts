@@ -222,6 +222,7 @@ const zhHant: Record<I18nKey, string> = {
   'playlist.jump_to_current': '跳至目前播放的項目',
   'playlist.reorder_handle': '調整 {{title}} 的順序，目前位置 {{position}}',
   'playlist.reorder_position': '{{title}}，第 {{position}} 項，共 {{total}} 項',
+  'playlist.reorder_failed': '無法移動項目',
   'playlist.repeat_all': '已啟用全部循環',
   'playlist.repeat_one': '已啟用循環播放目前項目',
   'playlist.repeat_off': '已關閉循環',

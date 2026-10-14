@@ -138,6 +138,7 @@ const ar: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'الانتقال إلى المقطع قيد التشغيل',
   'playlist.reorder_handle': 'إعادة ترتيب {{title}}، الموضع {{position}}',
   'playlist.reorder_position': '{{title}}، الموضع {{position}} من {{total}}',
+  'playlist.reorder_failed': 'تعذّر نقل المقطع',
   'playlist.repeat_all': 'تم تفعيل تكرار جميع المقاطع',
   'playlist.repeat_one': 'تم تفعيل تكرار المقطع الحالي',
   'playlist.repeat_off': 'التكرار متوقف',

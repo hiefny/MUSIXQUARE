@@ -232,6 +232,7 @@ const ja: Record<I18nKey, string> = {
   'playlist.jump_to_current': '再生中のトラックへ移動',
   'playlist.reorder_handle': '{{title}}の順序を変更、現在{{position}}番目',
   'playlist.reorder_position': '{{title}}、全{{total}}件中{{position}}番目',
+  'playlist.reorder_failed': 'トラックを移動できませんでした',
   'playlist.repeat_all': '全トラックのリピートが有効です',
   'playlist.repeat_one': '現在のトラックのリピートが有効です',
   'playlist.repeat_off': 'リピートは無効です',

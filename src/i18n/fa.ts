@@ -139,6 +139,7 @@ const fa: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'رفتن به قطعهٔ در حال پخش',
   'playlist.reorder_handle': 'تغییر جای {{title}}، موقعیت {{position}}',
   'playlist.reorder_position': '{{title}}، موقعیت {{position}} از {{total}}',
+  'playlist.reorder_failed': 'جابه‌جایی قطعه انجام نشد',
   'playlist.repeat_all': 'تکرار همهٔ قطعه‌ها روشن است',
   'playlist.repeat_one': 'تکرار قطعهٔ فعلی روشن است',
   'playlist.repeat_off': 'تکرار خاموش است',

@@ -139,6 +139,7 @@ const it: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Vai alla traccia in riproduzione',
   'playlist.reorder_handle': 'Riordina {{title}}, posizione {{position}}',
   'playlist.reorder_position': '{{title}}, posizione {{position}} di {{total}}',
+  'playlist.reorder_failed': 'Spostamento della traccia non riuscito',
   'playlist.repeat_all': 'Ripetizione di tutte le tracce attivata',
   'playlist.repeat_one': 'Ripetizione della traccia corrente attivata',
   'playlist.repeat_off': 'Ripetizione disattivata',

@@ -223,6 +223,7 @@ const zhHans: Record<I18nKey, string> = {
   'playlist.jump_to_current': '跳转到当前播放项',
   'playlist.reorder_handle': '调整 {{title}} 的顺序，当前位置 {{position}}',
   'playlist.reorder_position': '{{title}}，第 {{position}} 项，共 {{total}} 项',
+  'playlist.reorder_failed': '无法移动媒体',
   'playlist.repeat_all': '已开启全部循环',
   'playlist.repeat_one': '已开启循环播放当前媒体',
   'playlist.repeat_off': '已关闭循环',

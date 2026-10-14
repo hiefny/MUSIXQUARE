@@ -141,6 +141,7 @@ const ml: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'ഇപ്പോൾ പ്ലേ ചെയ്യുന്ന ട്രാക്കിലേക്ക് പോകുക',
   'playlist.reorder_handle': '{{title}} പുനഃക്രമീകരിക്കുക, സ്ഥാനം {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}}-ൽ സ്ഥാനം {{position}}',
+  'playlist.reorder_failed': 'ട്രാക്ക് നീക്കാനായില്ല',
   'playlist.repeat_all': 'എല്ലാ ട്രാക്കുകളും ആവർത്തിക്കുന്നത് പ്രവർത്തനക്ഷമമാക്കി',
   'playlist.repeat_one': 'നിലവിലെ ട്രാക്ക് ആവർത്തിക്കുന്നത് പ്രവർത്തനക്ഷമമാക്കി',
   'playlist.repeat_off': 'ആവർത്തനം പ്രവർത്തനരഹിതമാക്കി',

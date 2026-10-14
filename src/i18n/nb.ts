@@ -141,6 +141,7 @@ const nb: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Gå til sporet som spilles av nå',
   'playlist.reorder_handle': 'Flytt {{title}}, posisjon {{position}}',
   'playlist.reorder_position': '{{title}}, posisjon {{position}} av {{total}}',
+  'playlist.reorder_failed': 'Kunne ikke flytte sporet',
   'playlist.repeat_all': 'Gjentakelse av alle spor er slått på',
   'playlist.repeat_one': 'Gjentakelse av gjeldende spor er slått på',
   'playlist.repeat_off': 'Gjentakelse er slått av',

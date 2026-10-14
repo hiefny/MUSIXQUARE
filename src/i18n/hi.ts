@@ -141,6 +141,7 @@ const hi: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'अभी चल रहे ट्रैक पर जाएँ',
   'playlist.reorder_handle': '{{title}} का क्रम बदलें, स्थान {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}} में से स्थान {{position}}',
+  'playlist.reorder_failed': 'ट्रैक की जगह नहीं बदली जा सकी',
   'playlist.repeat_all': 'सभी ट्रैक दोहराना चालू है',
   'playlist.repeat_one': 'मौजूदा ट्रैक दोहराना चालू है',
   'playlist.repeat_off': 'दोहराना बंद है',

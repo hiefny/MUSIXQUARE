@@ -233,6 +233,7 @@ const es: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Ir a la pista en reproducción',
   'playlist.reorder_handle': 'Reordenar {{title}}, posición {{position}}',
   'playlist.reorder_position': '{{title}}, posición {{position}} de {{total}}',
+  'playlist.reorder_failed': 'No se pudo mover la pista',
   'playlist.repeat_all': 'Repetición de todas las pistas activada',
   'playlist.repeat_one': 'Repetición de la pista actual activada',
   'playlist.repeat_off': 'Repetición desactivada',

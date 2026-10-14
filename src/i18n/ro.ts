@@ -141,6 +141,7 @@ const ro: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Mergi la pista redată acum',
   'playlist.reorder_handle': 'Reordonează {{title}}, poziția {{position}}',
   'playlist.reorder_position': '{{title}}, poziția {{position}} din {{total}}',
+  'playlist.reorder_failed': 'Nu s-a putut muta piesa',
   'playlist.repeat_all': 'Repetarea tuturor pistelor este activată',
   'playlist.repeat_one': 'Repetarea pistei curente este activată',
   'playlist.repeat_off': 'Repetarea este dezactivată',

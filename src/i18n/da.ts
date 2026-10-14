@@ -140,6 +140,7 @@ const da: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Gå til det nummer, der afspilles nu',
   'playlist.reorder_handle': 'Flyt {{title}}, placering {{position}}',
   'playlist.reorder_position': '{{title}}, placering {{position}} af {{total}}',
+  'playlist.reorder_failed': 'Kunne ikke flytte nummeret',
   'playlist.repeat_all': 'Gentagelse af alle numre er slået til',
   'playlist.repeat_one': 'Gentagelse af det aktuelle nummer er slået til',
   'playlist.repeat_off': 'Gentagelse er slået fra',

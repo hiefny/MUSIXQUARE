@@ -139,6 +139,7 @@ const he: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'מעבר לרצועה שמתנגנת כעת',
   'playlist.reorder_handle': 'שינוי המיקום של {{title}}, מיקום {{position}}',
   'playlist.reorder_position': '{{title}}, מיקום {{position}} מתוך {{total}}',
+  'playlist.reorder_failed': 'העברת הרצועה נכשלה',
   'playlist.repeat_all': 'חזרה על כל הרצועות מופעלת',
   'playlist.repeat_one': 'חזרה על הרצועה הנוכחית מופעלת',
   'playlist.repeat_off': 'החזרה כבויה',

@@ -139,6 +139,7 @@ const bg: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Към текущата песен',
   'playlist.reorder_handle': 'Преместване на {{title}}, позиция {{position}}',
   'playlist.reorder_position': '{{title}}, позиция {{position}} от {{total}}',
+  'playlist.reorder_failed': 'Преместването на песента е неуспешно',
   'playlist.repeat_all': 'Повторението на всички песни е включено',
   'playlist.repeat_one': 'Повторението на текущата песен е включено',
   'playlist.repeat_off': 'Повторението е изключено',

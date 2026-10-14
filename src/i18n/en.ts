@@ -140,6 +140,7 @@ const en: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Jump to currently playing track',
   'playlist.reorder_handle': 'Reorder {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} of {{total}}',
+  'playlist.reorder_failed': "Couldn't move the track",
   'playlist.repeat_all': 'Repeat all tracks enabled',
   'playlist.repeat_one': 'Repeat current track enabled',
   'playlist.repeat_off': 'Repeat disabled',

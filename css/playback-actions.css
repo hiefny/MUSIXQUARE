@@ -1,0 +1,323 @@
+/* Shared room/demo playback controls. Import through app.css so legacy layer
+   lowering sees the same complete cascade as the shell and desktop rules. */
+
+@layer base {
+  /* =============================================
+       System Audio Sharing Mode
+       ============================================= */
+
+  /* Disable prev/next/play buttons + seekbar */
+  body.mode-system-audio #btn-prev,
+  body.mode-system-audio #btn-next,
+  body.mode-system-audio #play-btn,
+  body.mode-system-audio #seek-slider {
+    opacity: 0.3 !important;
+    pointer-events: none !important;
+  }
+
+  body.mode-system-audio #play-btn.is-loading {
+    opacity: 1 !important;
+  }
+
+  /* Playlist: blur + overlay */
+  body.mode-system-audio #tab-playlist .playlist-list {
+    filter: blur(7px) saturate(0.95);
+    opacity: 0.5;
+    pointer-events: none;
+    transform: translateZ(0);
+  }
+
+  html[data-theme='light'] body.mode-system-audio #tab-playlist .playlist-list {
+    filter: blur(6px) saturate(0.95);
+    opacity: 0.6;
+  }
+
+  /* Playlist note overlay */
+  .system-audio-playlist-note {
+    display: none;
+    position: sticky;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-sub);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    padding: 0 32px;
+    pointer-events: none;
+    height: 0;
+    overflow: visible;
+  }
+
+  body.mode-system-audio .system-audio-playlist-note {
+    display: flex;
+  }
+
+  #btn-system-audio:disabled {
+    cursor: wait;
+    opacity: 0.72;
+    transform: none;
+  }
+
+  #btn-system-audio[aria-busy='true'] .btn-icon-bg > svg {
+    visibility: hidden;
+  }
+
+  #btn-system-audio[aria-busy='true'] .btn-icon-bg {
+    position: relative;
+  }
+
+  .system-audio-loading-spinner {
+    --material-elastic-size: 16px;
+    --material-elastic-stroke: 4.75;
+    display: none;
+  }
+
+  #btn-system-audio[aria-busy='true'] .system-audio-loading-spinner {
+    display: block;
+    position: absolute;
+  }
+}
+
+@layer components {
+  /* play-action-buttons row */
+  .play-actions-row {
+    --play-action-padding-x: 14px;
+    --play-action-icon-size: 20px;
+    --play-action-label-color: var(--text-sub);
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  [data-theme='light'] .play-actions-row {
+    --play-action-label-color: #444444;
+  }
+
+  /* Both buttons remain in flow in the same grid cell. The stable content
+     widths preserve wrapping and row height while the surfaces merge. */
+  .play-action-buttons :is(#btn-sync, #btn-media-source) {
+    grid-area: 1 / 1;
+    position: relative;
+    width: calc((100% - 12px) / 2);
+    min-width: 0;
+    min-height: 56px;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 0;
+    overflow: hidden;
+    color: var(--play-action-label-color);
+    background: var(--play-action-surface);
+    border-radius: var(--radius-pill);
+  }
+
+  .play-action-buttons #btn-sync {
+    justify-self: start;
+    z-index: 1;
+  }
+
+  .play-action-buttons #btn-media-source {
+    justify-self: end;
+    z-index: 2;
+  }
+
+  .play-action-buttons :is(#btn-sync, #btn-media-source) > span {
+    grid-area: 1 / 1;
+    width: var(--play-action-slot-width, 100%);
+    min-width: 0;
+    padding: 10px var(--play-action-padding-x);
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .play-action-buttons .play-action-label {
+    flex: 1;
+    text-align: start;
+    color: inherit;
+  }
+
+  .play-action-buttons :is(#btn-sync, #btn-media-source) svg {
+    width: var(--play-action-icon-size);
+    height: var(--play-action-icon-size);
+    flex: 0 0 auto;
+    fill: currentColor;
+  }
+
+  /* Moving hit areas must not introduce a separate pressed/hover geometry. */
+  .play-action-buttons :is(#btn-sync, #btn-media-source):is(:hover, :active) {
+    background: var(--surface-3);
+    transform: none;
+    box-shadow: none;
+  }
+
+  .play-action-buttons :is(#btn-sync, #btn-media-source)[aria-disabled='true']:is(:hover, :active) {
+    background: var(--play-action-surface);
+  }
+
+  @media (hover: none), (pointer: coarse) {
+    .play-action-buttons :is(#btn-sync, #btn-media-source):hover:not(:active) {
+      background: var(--play-action-surface);
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .play-action-buttons {
+      --play-action-padding-x: 16px;
+      --play-action-icon-size: 22px;
+    }
+  }
+
+  .play-actions-row {
+    --play-action-stop-foreground: #ff3b30;
+    /* Opaque 8% / 12% danger-over-background fallbacks for legacy TVs. */
+    --play-action-stop-surface: #251514;
+    --play-action-stop-hover: #2e1716;
+    --play-action-shape-duration: 300ms;
+    --play-action-fade-duration: 180ms;
+    --play-action-label-delay: 75ms;
+    --play-action-geometry: cubic-bezier(0.4, 0, 0.2, 1);
+    --play-action-fade: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --play-action-motion-direction: 1;
+  }
+
+  [data-theme='light'] .play-actions-row {
+    --play-action-stop-surface: #f9eaea;
+    --play-action-stop-hover: #f9e2e2;
+  }
+
+  @supports (color: color-mix(in srgb, red, white)) {
+    .play-actions-row,
+    [data-theme='light'] .play-actions-row {
+      --play-action-stop-surface: color-mix(
+        in srgb,
+        var(--play-action-stop-foreground) 8%,
+        var(--bg)
+      );
+      --play-action-stop-hover: color-mix(
+        in srgb,
+        var(--play-action-stop-foreground) 12%,
+        var(--bg)
+      );
+    }
+  }
+
+  [dir='rtl'] .play-actions-row {
+    --play-action-motion-direction: -1;
+  }
+
+  .play-action-buttons :is(#btn-sync, #btn-media-source) {
+    transition:
+      width var(--play-action-shape-duration) var(--play-action-geometry),
+      opacity var(--play-action-fade-duration) var(--play-action-fade),
+      background-color var(--play-action-shape-duration) var(--play-action-geometry);
+  }
+
+  .play-action-buttons :is(#btn-sync, #btn-media-source) > span {
+    transition:
+      opacity var(--play-action-fade-duration) var(--play-action-fade),
+      transform var(--play-action-shape-duration) var(--play-action-geometry);
+  }
+
+  .play-action-buttons #btn-media-source > .play-action-media-content {
+    color: var(--play-action-label-color);
+    opacity: 1;
+    transform: translateX(0);
+    transition-delay: var(--play-action-label-delay);
+  }
+
+  /* Measure the full stop label at the final row width even while hidden.
+     This reserves its natural height in all languages without a fixed cap. */
+  .play-action-buttons #btn-media-source > .play-action-stop-content {
+    display: flex;
+    width: calc(var(--play-action-slot-width, 100%) * 2 + 12px);
+    justify-self: center;
+    justify-content: center;
+    color: var(--play-action-stop-foreground);
+    opacity: 0;
+    transform: translateX(calc(16px * var(--play-action-motion-direction)));
+  }
+
+  .play-action-buttons .play-action-stop-content > .play-action-label {
+    flex: 0 1 auto;
+    text-align: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .play-actions-row {
+      --play-action-shape-duration: 0ms;
+      --play-action-fade-duration: 0ms;
+      --play-action-label-delay: 0ms;
+    }
+  }
+}
+
+@layer states {
+  .play-action-buttons[data-sharing='true'] #btn-sync {
+    width: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .play-action-buttons[data-sharing='true'] .play-action-sync-content {
+    opacity: 0;
+    transform: translateX(calc(-14px * var(--play-action-motion-direction)));
+  }
+
+  .play-action-buttons[data-sharing='true'] #btn-media-source {
+    width: 100%;
+    background: var(--play-action-stop-surface);
+  }
+
+  .play-action-buttons[data-sharing='true']:not([data-hover-locked]) #btn-media-source:hover {
+    background: var(--play-action-stop-hover);
+  }
+
+  .play-action-buttons[data-sharing='true'] .play-action-media-content {
+    opacity: 0;
+    transform: translateX(calc(-12px * var(--play-action-motion-direction)));
+    transition-delay: 0ms;
+  }
+
+  .play-action-buttons[data-sharing='true'] .play-action-stop-content {
+    opacity: 1;
+    transform: translateX(0);
+    transition-delay: var(--play-action-label-delay);
+  }
+
+  @media (hover: none), (pointer: coarse) {
+    .play-action-buttons[data-sharing='true']:not([data-hover-locked])
+      #btn-media-source:hover:not(:active) {
+      background: var(--play-action-stop-surface);
+    }
+  }
+
+  /* Freeze surfaces until the changed hit areas settle. The controller keeps
+     this lock if a new button merely appeared beneath a stationary pointer. */
+  .play-action-buttons[data-hover-locked] #btn-sync {
+    background: var(--play-action-surface);
+  }
+
+  .play-action-buttons[data-hover-locked] #btn-media-source {
+    background: var(--motion-media-bg);
+  }
+}
+
+@media (forced-colors: active) {
+  .play-action-buttons {
+    --play-action-label-color: ButtonText;
+    --play-action-stop-foreground: ButtonText;
+    --play-action-stop-surface: ButtonFace;
+    --play-action-stop-hover: ButtonFace;
+  }
+}

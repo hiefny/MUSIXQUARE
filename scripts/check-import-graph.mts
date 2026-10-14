@@ -84,6 +84,18 @@ interface UiLayeringAllowance {
 
 const UI_LAYERING_ALLOWLIST: readonly UiLayeringAllowance[] = [
   {
+    importer: 'src/network/room-session-feature-runtime.ts',
+    target: 'src/ui/sharing-action-motion.ts',
+    reason:
+      'awaited room composition root installs optional sender presentation after protocol listeners; transport modules do not import the renderer',
+  },
+  {
+    importer: 'src/network/room-session-feature-runtime.ts',
+    target: 'src/ui/sharing-action-motion-port.ts',
+    reason:
+      'same room composition root registers the UI factory synchronously before room entry; aborted DOM bindings cannot initialize',
+  },
+  {
     importer: 'src/player/playlist.ts',
     target: 'src/ui/large-room-warnings.ts',
     reason: 'file-share entry consults the shared large-room warning latch',

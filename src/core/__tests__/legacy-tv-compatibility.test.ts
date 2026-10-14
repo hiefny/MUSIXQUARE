@@ -84,6 +84,7 @@ describe('legacy smart-TV app compatibility', () => {
       "@import './style.css'",
       "@import './desktop.css'",
       "@import './rtl.css'",
+      "@import './playback-actions.css'",
     ]);
 
     const html = readFileSync('index.html', 'utf8');

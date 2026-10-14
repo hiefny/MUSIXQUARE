@@ -291,6 +291,38 @@ must follow the [production recovery procedure](../hotfix-procedure.md) and its
 active compatibility floor. This addendum does not authorize deployment or
 relax release-candidate requirements.
 
+### 2026-10-14 sender actions and aggregate maintenance capacity
+
+The sender motion controller is registered at the awaited room boundary through
+an abort-scoped UI binding port. Setup does not start its import. Its CSS remains
+in `css/app.css`: the legacy cascade-layer transform must see the complete
+ordered stylesheet. A tested split into independently transformed feature CSS
+gave different specificity ranges and hid the Stop label in the built app even
+though authored-CSS probes passed. Keep the complete-cascade regression and
+real built-app visibility/color tests; do not use CSS splitting to hide bytes
+from the eager budget.
+
+The current UI changes require 544,507 B eager gzip, 1,107 B above the previous
+maintenance ceiling. Restore working room by raising the three aggregate
+architectural limits by 5%; keep both entry limits, zero eager fonts, the
+secondary 500 kB chunk ceiling, and the mandatory 5% reserve unchanged. This is
+a reviewed capacity decision, not an exemption from conditional loading.
+
+| Metric | Current B | Prior limit B | Revised limit B | Revised 95% ceiling B |
+| --- | ---: | ---: | ---: | ---: |
+| Entry script raw | 427,322 | 1,677,500 | 1,677,500 | 1,593,625 |
+| Entry script gzip | 126,320 | 486,200 | 486,200 | 461,890 |
+| Eager JavaScript gzip | 468,087 | 492,800 | 517,440 | 491,568 |
+| Eager total raw | 2,042,992 | 2,161,500 | 2,269,575 | 2,156,096.25 |
+| Eager total gzip | 544,507 | 572,000 | 600,600 | 570,570 |
+| Eager fonts | 0 | 0 | 0 | 0 |
+
+The final source measurement, controlled startup observations, cold-cache and
+offline evidence are recorded in the
+[implementation report](system-audio-sharing-actions-2026-10-14.md). These
+measurements are not permission to make room-only work eager or a promise of
+physical low-end-device performance.
+
 ## Consequences
 
 Setup, the lightweight demo protocol bridge, visualizer, file-drop, and

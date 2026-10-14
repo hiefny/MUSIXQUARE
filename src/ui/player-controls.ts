@@ -50,6 +50,7 @@ import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { createFileStartLoadingController } from './file-start-loading.ts';
+import { bindSharingActionMotion } from './sharing-action-motion-port.ts';
 import type {
   ProPlaybackUiControlKind,
   TrackMeta,
@@ -118,6 +119,7 @@ let _mainSyncPending = false;
 let _mainSyncRequestToken = 0;
 let _mediaSourceAttentionButton: HTMLElement | null = null;
 let _mediaSourceAttentionEnd: ((event: AnimationEvent) => void) | null = null;
+let _sharingActionMotion: ReturnType<typeof bindSharingActionMotion> | null = null;
 
 function clearMediaSourceAttentionHint(): void {
   if (_mediaSourceAttentionButton && _mediaSourceAttentionEnd) {
@@ -613,25 +615,35 @@ function syncSystemAudioSourceButton(): void {
   label.setAttribute('data-i18n', key);
 }
 
+function canStopLocalSystemAudio(): boolean {
+  return (
+    isPlaybackModeSystemAudio() &&
+    (getRoomContext().kind === 'pro' ? isLocalProSystemAudioOwner() : isCoordinator())
+  );
+}
+
 function syncMainMediaSourceButtonLabel(): void {
   const button = getUiElement('btn-media-source');
-  const label = button?.querySelector<HTMLElement>('span');
-  if (!button || !label) return;
+  if (!button) return;
   const isSystemAudio = isPlaybackModeSystemAudio();
-  const canStopSystemAudio =
-    isSystemAudio &&
-    (getRoomContext().kind === 'pro'
-      ? isLocalProSystemAudioOwner()
-      : !getState('network.hostConn'));
-  const visibleKey: I18nKey = canStopSystemAudio
-    ? 'system_audio.stop_compact'
-    : 'player.play_media_compact';
+  const canStopSystemAudio = canStopLocalSystemAudio();
   const accessibleKey: I18nKey = canStopSystemAudio ? 'system_audio.stop' : 'player.play_media';
-  label.textContent = t(visibleKey);
-  label.setAttribute('data-i18n', visibleKey);
+  // Keep the two copy layers intact so they can cross-fade without replacing
+  // their icons or briefly showing the compact stop label in the wide button.
+  for (const label of button.querySelectorAll<HTMLElement>('[data-i18n]')) {
+    const key = label.getAttribute('data-i18n');
+    if (key === 'player.play_media_compact' || key === 'system_audio.stop')
+      label.textContent = t(key);
+  }
   button.setAttribute('aria-label', t(accessibleKey));
   button.setAttribute('data-i18n-aria-label', accessibleKey);
   button.classList.toggle('sys-audio-guest', isSystemAudio && !canStopSystemAudio);
+  if (canStopSystemAudio) {
+    clearMediaSourceAttentionHint();
+    // Bootstrap can own the initial hint independently of the helper above.
+    button.classList.remove('attention-hint');
+  }
+  _sharingActionMotion?.update(canStopSystemAudio);
 }
 
 function syncMediaSourceButtonAuthority(): void {
@@ -641,12 +653,7 @@ function syncMediaSourceButtonAuthority(): void {
   for (const id of ['btn-media-source', 'btn-add-media']) {
     const mediaBtn = getUiElement(id);
     if (!mediaBtn) continue;
-    const canStopSystemAudio =
-      id === 'btn-media-source' &&
-      isPlaybackModeSystemAudio() &&
-      (getRoomContext().kind === 'pro'
-        ? isLocalProSystemAudioOwner()
-        : !getState('network.hostConn'));
+    const canStopSystemAudio = id === 'btn-media-source' && canStopLocalSystemAudio();
     const enabled =
       id === 'btn-add-media'
         ? canSelectMedia
@@ -952,7 +959,7 @@ function syncMainSyncButtonState(): void {
     button.removeAttribute('title');
   }
 
-  const label = button.querySelector<HTMLElement>('span');
+  const label = button.querySelector<HTMLElement>('.play-action-label, [data-i18n]');
   if (!label) return;
   const visibleKey: I18nKey = _mainSyncPending ? 'player.syncing_compact' : 'player.sync_compact';
   const accessibleKey: I18nKey = _mainSyncPending ? 'toast.yt_sync_start' : 'common.sync';
@@ -1192,6 +1199,13 @@ export function initPlayerControls(): void {
   clearMediaSourceAttentionHint();
   _domAbort = new AbortController();
   const { signal: domSignal } = _domAbort;
+  const syncAction = getUiElement<HTMLButtonElement>('btn-sync');
+  const mediaAction = getUiElement<HTMLButtonElement>('btn-media-source');
+  const actions = mediaAction?.closest<HTMLElement>('.play-action-buttons');
+  _sharingActionMotion =
+    actions && syncAction && mediaAction
+      ? bindSharingActionMotion(actions, syncAction, mediaAction, domSignal)
+      : null;
   _ytSyncLoadingOwners.clear();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
@@ -1391,7 +1405,7 @@ export function initPlayerControls(): void {
           showProSystemAudioOwnerToast();
           return;
         }
-      } else if (getState('network.hostConn')) {
+      } else if (!canStopLocalSystemAudio()) {
         showRoomCapabilityRequired('system-audio.publish');
         return;
       }

@@ -668,8 +668,9 @@ describe('playlist queue identity rendering and actions', () => {
   });
 
   it('uses Material Elastic for every remaining indeterminate spinner and keeps the header text-only', async () => {
-    const [stylesheet, markup] = await Promise.all([
+    const [stylesheet, systemAudioStylesheet, markup] = await Promise.all([
       readFile('css/style.css', 'utf8'),
+      readFile('css/playback-actions.css', 'utf8'),
       readFile('index.html', 'utf8'),
     ]);
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
@@ -705,7 +706,7 @@ describe('playlist queue identity rendering and actions', () => {
       /\.material-elastic-spinner\s*\{[^}]*animation:\s*material-elastic-spin/s,
     );
     expect(stylesheet).toMatch(/\.play-loading-spinner\s*\{[^}]*--material-elastic-size:\s*26px;/);
-    expect(stylesheet).toMatch(
+    expect(systemAudioStylesheet).toMatch(
       /body\.mode-system-audio #play-btn\.is-loading\s*\{[^}]*opacity:\s*1\s*!important;/,
     );
     expect(stylesheet).toMatch(

@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-14 (배포 SHA `cb81a89c`, Release `38566206816` attempt 1 성공) |
+| Last source review | 2026-10-14 (배포 SHA `6afd9187`, Release `38580171440` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -27,16 +27,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.10.18` / `v684` |
-| 마지막 프로덕션 변경 | 2026-10-14 21:47:35 KST deploy job 완료, Release [38566206816](https://github.com/hiefny/MUSIXQUARE/actions/runs/38566206816) attempt 1 성공, target=app, Developer API D1=false. PRO YouTube의 참여자 단독 재합류(동기화 버튼·탭 재생·포그라운드 복귀·재생 중 Play·중도참여 복원·지연 COMMIT)가 실행 시각을 먼저 정하고 그 위치에 안착한 뒤 play만 하도록 바꿨다. 실패한 YouTube 복원 준비의 실제 재시도, 재합류 timeout 시 직접 재합류, 미프라임 iOS의 TAP TO PLAY, 일반방 게스트의 늦은 시작 뒤 자동 정밀 랑데부를 더했다. 서버·프로토콜·스키마·권한 변경 없음 |
-| 배포 main SHA | `cb81a89c6728a94fd8ae63253189888bc45d13ac` (PR [#339](https://github.com/hiefny/MUSIXQUARE/pull/339)). Exact-main CI [38565478458](https://github.com/hiefny/MUSIXQUARE/actions/runs/38565478458) attempt 1 성공 후보를 사용했다. 로컬·PR CI 또는 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
-| Worker | App version `71aa66e3-3154-451f-86bb-2f4558bc863e`(이전 `92b9d320-5a02-453e-ad91-76d4773fb3b4`). 21:47:29.887 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker를 기록했다. 미선택 5 Worker는 이번 릴리스에서 배포하지 않아 직전 기록의 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` 식별자를 유지한다: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`, pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`, remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`, developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`, developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 21:46:49.660 KST 부분 릴리스 호환성 recheck compatible, PRO smoke가 pro-room version `8d5d44c0`을 다시 확인했다. 새 App deployment 식별자와 recheck 원본은 run artifact `production-deployments-cb81a89c6728a94fd8ae63253189888bc45d13ac-38566206816-1`(90일 보존)에 있다. 운영 smoke 4종 pass(App generation `main-Ct34UoSY.js`·27 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계 pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e`, Standard HTTPS signaling), 범위 밖 Worker smoke skip. 22:01:02 KST 공개 /·SW(v684)·`bootstrap.js?cache=v684`·`main-Ct34UoSY.js`·`main-BNiplmKU.css` HTTP 200. 배포 전 열린 탭은 업데이트 안내 뒤 새로고침으로 새 bundle을 불러왔다. [증거](design/youtube-rejoin-sync-2026-10-14.md#release-and-recovery) |
-| 복구 | 성공 실행으로 rollback 불필요·독립 recovery job skip. 21:46:09.984 KST captured checkpoint(`production-recovery-checkpoint-cb81a89c6728a94fd8ae63253189888bc45d13ac-38566206816-1`)는 변경 전 App `75fceac1`(8.10.17/v683), version `92b9d320-5a02-453e-ad91-76d4773fb3b4`를 보존한다. 이 기준선으로 복구하면 PRO 재합류의 release 순간 seek·복원 무음과 일반방 늦은 시작 오차가 돌아온다. 참여자 로컬 변경이라 혼합 버전이 안전하다. 복구에는 소유권/floor 재검증이 필요하며 checkpoint는 사용자 데이터 백업이 아니다 |
+| App 버전 / SW 캐시 | `8.10.19` / `v685` |
+| 마지막 프로덕션 변경 | 2026-10-14 23:26:34 KST deploy job 완료, Release [38580171440](https://github.com/hiefny/MUSIXQUARE/actions/runs/38580171440) attempt 1 성공, target=app, Developer API D1=false. PRO 재생 버튼이 보여 주는 아이콘대로 동작해, 소리가 안 나는 기기에서 재생을 누르면 방 전체 일시정지 대신 그 기기만 다시 붙는다(서버 `unchanged`). PREPARE 없이 온 재생 중 유튜브 COMMIT(중도참여·재시도)과 기기 단독 유튜브 재합류(앱 복귀·동기화·재생) 중에는 공유 로딩 상태를 보이고 Space도 막는다. 잠금화면·헤드셋 동작과 서버·프로토콜·스키마·권한 변경 없음 |
+| 배포 main SHA | `6afd91871ee0bf6e30a543065799c50e4191028b` (PR [#342](https://github.com/hiefny/MUSIXQUARE/pull/342)). Exact-main CI [38579109391](https://github.com/hiefny/MUSIXQUARE/actions/runs/38579109391) attempt 1 성공 후보를 사용했다. 로컬·PR CI 또는 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
+| Worker | App version `8f42c8ee-7ec3-4d25-ae56-0eb9855bf4f4`(이전 `71aa66e3-3154-451f-86bb-2f4558bc863e`). 23:26:28.121 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker를 기록했다. 미선택 5 Worker는 이번 릴리스에서 배포하지 않아 직전 기록의 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` 식별자를 유지한다: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`, pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`, remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`, developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`, developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 23:25:56.476 KST 부분 릴리스 호환성 recheck compatible, PRO smoke가 pro-room version `8d5d44c0`을 다시 확인했다. 새 App deployment 식별자와 recheck 원본은 run artifact `production-deployments-6afd91871ee0bf6e30a543065799c50e4191028b-38580171440-1`(90일 보존)에 있다. 운영 smoke 4종 pass(App generation `main-CoRofd7o.js`·27 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계, Standard HTTPS signaling), 범위 밖 Worker smoke skip. 23:32:31 KST 공개 /·SW(v685)·`bootstrap.js?cache=v685`·`main-CoRofd7o.js`·`main-BNiplmKU.css` HTTP 200. 배포 전 열린 탭은 업데이트 안내 뒤 새로고침으로 새 bundle을 불러왔다. [증거](design/pro-silent-endpoint-transport-2026-10-14.md#release-and-recovery) |
+| 복구 | 성공 실행으로 rollback 불필요·독립 recovery job skip. 23:25:17.201 KST captured checkpoint(`production-recovery-checkpoint-6afd91871ee0bf6e30a543065799c50e4191028b-38580171440-1`)는 변경 전 App `cb81a89c`(8.10.18/v684), version `71aa66e3-3154-451f-86bb-2f4558bc863e`를 보존한다. 이 기준선으로 복구하면 무음 기기의 재생 버튼이 다시 방 전체를 일시정지시킬 수 있고 복원·재합류 중 로딩 표시가 사라진다. 참여자 로컬 변경이라 혼합 버전이 안전하다. 복구에는 소유권/floor 재검증이 필요하며 checkpoint는 사용자 데이터 백업이 아니다 |
 | 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 신규 floor 없음. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs 성공: 원격 unit 563 files / 12,712 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 29 pass, 모든 coverage·정적·빌드 gate 통과. 로컬 `75eec368` 클린 트리 unit 563 files / 12,713 pass / 0 fail / 0 skip, 타입·린트·포맷, critical browser 29 및 YouTube·재생 동기화 E2E 28 pass. 배포 후 같은 방법의 운영 측정(내장 Chromium): 일반방 중도참여 −4.9→−5.2ms·−11.6→−11.9ms(배포 전 −386ms, −877ms 지속), 호스트 seek −8.1ms, 게스트 동기화 −7.8ms. PRO(오너 방) 중도참여 −75·−66·−71ms(배포 전 2분 넘게 무음), 동기화 −62·−64ms(배포 전 −1062ms), 포그라운드 복귀(visibilitychange 재현) −84ms, 오너가 재생 권한을 준 세션의 서버 seek −64·−68ms(배포 전 −71ms)와 seek 직후 한 기기 동기화 −74ms(배포 전 seek 뒤 로컬 재합류 −1062ms), 모두 release 순간 seek 없음. 실기·실제 스피커·WebKit·전체 serial E2E는 미검증. [측정·한계](design/youtube-rejoin-sync-2026-10-14.md#production-measurements) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38566627830](https://github.com/hiefny/MUSIXQUARE/actions/runs/38566627830) 성공. 2026-10-14 21:48:40.861 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 관리하며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 이번 YouTube 재합류 변경에서 전체 serial suite는 재실행하지 않았다(관련 YouTube·재생 동기화 6파일 28 pass는 로컬 결과). 아래는 이번 소스의 전체 통과를 뜻하지 않는 이전 이력: 원격 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201) Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 제품 입력이 같은 진단 후속 `85414247` 로컬 전체 640 pass / 0 fail / 0 skip(55.6분), WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail은 별도 미확정 이력으로 보존. 운영 R2는 당시 배포를 검사한 결과다 |
-| 의존성 | 이번 8.10.18 신규 의존성·스키마·비밀·바인딩·프로토콜 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. [#297](https://github.com/hiefny/MUSIXQUARE/pull/297) OPEN 및 봇 브랜치 보존, 이번 배포에서 제외. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
+| 검증 범위 | Exact-main CI 11 jobs 성공: 원격 unit 563 files / 12,720 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 29 pass, 모든 coverage·정적·빌드 gate 통과. 로컬 `a6a8f07d` 클린 트리 unit 563 files / 12,721 pass / 0 fail / 0 skip, 타입·린트·포맷, critical browser 29 및 YouTube·재생 동기화 E2E 28 pass. 새 핀: 무음 기기 재생=Play 라우팅·아이콘 전달·로딩 중 Space 차단·복원/복귀 로딩. 배포 뒤 운영 PRO 방(일시정지 상태) 재입장으로 v685 적용과 일시정지 복원을 확인했다. 재생 중인 방의 스피너·무음 기기 버튼은 운영에서 아직 재현하지 않았고, 실기·실제 스피커·WebKit·전체 serial E2E도 미검증. [범위·한계](design/pro-silent-endpoint-transport-2026-10-14.md) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38580892372](https://github.com/hiefny/MUSIXQUARE/actions/runs/38580892372) 성공. 2026-10-14 23:29:23.871 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 관리하며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 이번 재생 버튼·로딩 변경에서 전체 serial suite는 재실행하지 않았다(관련 YouTube·재생 동기화 6파일 28 pass는 로컬 결과). 아래는 이번 소스의 전체 통과를 뜻하지 않는 이전 이력: 원격 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201) Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 제품 입력이 같은 진단 후속 `85414247` 로컬 전체 640 pass / 0 fail / 0 skip(55.6분), WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail은 별도 미확정 이력으로 보존. 운영 R2는 당시 배포를 검사한 결과다 |
+| 의존성 | 이번 8.10.19 신규 의존성·스키마·비밀·바인딩·프로토콜 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. [#297](https://github.com/hiefny/MUSIXQUARE/pull/297) OPEN 및 봇 브랜치 보존, 이번 배포에서 제외. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -53,20 +53,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
-### YouTube 재합류 동기화
-
-- [ ] App 8.10.19/v685 배포 준비(무음 기기 재생 버튼, 오너 결정 2026-10-14로 수정):
-      재생 버튼이 보여 주는 아이콘대로 동작한다. 소리가 안 나는 PRO 기기의 버튼은
-      재생으로 보이고, 누르면 방은 그대로 두고 그 기기만 다시 붙는다(서버
-      `unchanged` 경로). 일시정지는 버튼이 일시정지로 보일 때만 보낸다. 중도참여
-      복원·재시도와 기기 단독 유튜브 재합류(앱 복귀·동기화·재생) 중에는 공유 로딩
-      상태(버튼 스피너·유튜브 로더)를 보여 누를 수 없고, 실패하면 스피너가 꺼져
-      재생으로 다시 붙을 수 있다. 잠금화면·헤드셋 재생/일시정지는 그대로다. 참여자
-      로컬 변경이며 서버·프로토콜·스키마 변경 없음. exact-main CI와 정식 배포 근거를
-      확보한 뒤 닫는다.
-      [원인·수정·검증](design/pro-silent-endpoint-transport-2026-10-14.md)
-
 ### 최근 해결 근거
+
+App 8.10.19/v685의 무음 기기 재생 버튼 수정(오너 결정 2026-10-14)은 PR
+[#342](https://github.com/hiefny/MUSIXQUARE/pull/342), exact-main `6afd9187`의
+[CI 38579109391](https://github.com/hiefny/MUSIXQUARE/actions/runs/38579109391),
+[Release 38580171440](https://github.com/hiefny/MUSIXQUARE/actions/runs/38580171440)의
+운영 smoke 4종·최종 배포 소유권·미선택 5 Worker 호환성·coherent marker와 공개
+v685 확인으로 배포 준비 항목을 닫았다. 재생 중인 방에서 무음 기기 버튼과 로딩
+스피너를 운영에서 재현한 것은 아니며 실기 확인은 실기기 항목에 남긴다.
+[수정·검증·배포·복구](design/pro-silent-endpoint-transport-2026-10-14.md#release-and-recovery).
 
 App 8.10.18/v684의 YouTube 재합류 동기화는 PR
 [#339](https://github.com/hiefny/MUSIXQUARE/pull/339), exact-main `cb81a89c`의

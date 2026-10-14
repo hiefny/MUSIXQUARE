@@ -99,9 +99,13 @@ controls 3, adaptive actions 10, RTL player layout 13, component cascade 7 and
 demo session layout 3. The built-app regression explicitly verifies visible
 Stop Sharing text, red text/icon, expanded/restored geometry and computed hover
 colors. Expanded and restored desktop screenshots were visually checked.
-Two independent implementation reviews found no remaining concrete blockers.
-Concurrent PR #330 does not change these action labels or component behavior;
-its 8.10.13/v679 identity must precede this release's 8.10.14/v680.
+The full local typecheck, lint and formatting checks also passed. Two independent
+implementation reviews found no remaining concrete blockers. GitHub review
+identified an outdated version in the documentation evidence index; it was
+corrected to 8.10.14/v680 without changing runtime inputs.
+Concurrent PR #330 does not change these action labels or component behavior.
+If it lands before this release, preserve its copy while retaining 8.10.14/v680;
+if it lands later, that separate release must advance the identifiers again.
 
 Focused tests cover Standard sender/receiver and disconnected guest authority,
 PRO member-publisher reassignment, focus/abort/resize/reduced-motion lifecycle,

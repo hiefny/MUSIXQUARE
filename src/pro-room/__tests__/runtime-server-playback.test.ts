@@ -1481,9 +1481,11 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     restoreSpies.push(reorder, update);
 
     handleProRoomTrackReorder(ADDED_QUEUE_ITEM_ID, QUEUE_ITEM_ID, getState('playlist.revision'));
-    await vi.waitFor(() =>
-      expect(getState('playlist.items')[0]?.queueItemId).toBe(ADDED_QUEUE_ITEM_ID),
-    );
+    // The dropped order shows at once; wait for the server to accept it and
+    // for that snapshot to project before the next gesture.
+    expect(getState('playlist.items')[0]?.queueItemId).toBe(ADDED_QUEUE_ITEM_ID);
+    await vi.waitFor(() => expect(reorder).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(getState('playlist.revision')).toBe(canonical.revision));
     let resolveRead!: (value: typeof mode) => void;
     read.mockImplementationOnce(() => new Promise((resolve) => (resolveRead = resolve)));
     setState('playlist.repeatMode', 1);
@@ -1492,7 +1494,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     // The same participant reorders again while the checkpoint refresh is
     // awaiting HTTP. Its response already describes this newest playlist.
     handleProRoomTrackReorder(QUEUE_ITEM_ID, ADDED_QUEUE_ITEM_ID, getState('playlist.revision'));
-    await vi.waitFor(() => expect(getState('playlist.items')[0]?.queueItemId).toBe(QUEUE_ITEM_ID));
+    expect(getState('playlist.items')[0]?.queueItemId).toBe(QUEUE_ITEM_ID);
+    await vi.waitFor(() => expect(reorder).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getState('playlist.revision')).toBe(canonical.revision));
     resolveRead(mode);
     await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
     await new Promise((resolve) => setTimeout(resolve, 0));

@@ -50,7 +50,7 @@ import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { createFileStartLoadingController } from './file-start-loading.ts';
-import { bindSharingActionMotion } from './sharing-action-motion-port.ts';
+import { bindSharingActionControls } from './sharing-action-motion-port.ts';
 import type {
   ProPlaybackUiControlKind,
   TrackMeta,
@@ -119,7 +119,7 @@ let _mainSyncPending = false;
 let _mainSyncRequestToken = 0;
 let _mediaSourceAttentionButton: HTMLElement | null = null;
 let _mediaSourceAttentionEnd: ((event: AnimationEvent) => void) | null = null;
-let _sharingActionMotion: ReturnType<typeof bindSharingActionMotion> | null = null;
+let _sharingActionControls: ReturnType<typeof bindSharingActionControls> | null = null;
 
 function clearMediaSourceAttentionHint(): void {
   if (_mediaSourceAttentionButton && _mediaSourceAttentionEnd) {
@@ -643,7 +643,7 @@ function syncMainMediaSourceButtonLabel(): void {
     // Bootstrap can own the initial hint independently of the helper above.
     button.classList.remove('attention-hint');
   }
-  _sharingActionMotion?.update(canStopSystemAudio);
+  _sharingActionControls?.update(canStopSystemAudio);
 }
 
 function syncMediaSourceButtonAuthority(): void {
@@ -1202,9 +1202,9 @@ export function initPlayerControls(): void {
   const syncAction = getUiElement<HTMLButtonElement>('btn-sync');
   const mediaAction = getUiElement<HTMLButtonElement>('btn-media-source');
   const actions = mediaAction?.closest<HTMLElement>('.play-action-buttons');
-  _sharingActionMotion =
+  _sharingActionControls =
     actions && syncAction && mediaAction
-      ? bindSharingActionMotion(actions, syncAction, mediaAction, domSignal)
+      ? bindSharingActionControls(actions, syncAction, mediaAction, domSignal)
       : null;
   _ytSyncLoadingOwners.clear();
   _ytPlayButtonLoading = false;

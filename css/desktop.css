@@ -300,11 +300,11 @@
       bottom: auto;
       left: auto;
       right: auto;
-      width: 332px;
+      width: calc(160px * 2 + var(--play-action-gap));
       max-width: calc(100% - 80px);
       margin-inline-start: auto;
       margin-inline-end: auto;
-      gap: 12px;
+      gap: var(--play-action-gap);
       margin-top: auto;
       padding-bottom: 0px;
       flex-shrink: 0;

@@ -66,7 +66,14 @@ describe('sharing action motion lifecycle', () => {
       const rtl = container.style.direction === 'rtl';
       return new DOMRect(full || rtl ? 0 : 177, 0, full ? 342 : 165, 56);
     });
-    const motion = createSharingActionMotion(container, sync, media, abort.signal);
+    const decoration = createSharingActionMotion(container, sync, media, abort.signal);
+    // The eager controller commits semantic state after motion reads geometry.
+    const motion = {
+      update(next: boolean) {
+        decoration.update(next);
+        if (!abort.signal.aborted) container.dataset.sharing = String(next);
+      },
+    };
     return { container, sync, media, hover, motion };
   }
 
@@ -92,25 +99,22 @@ describe('sharing action motion lifecycle', () => {
     };
   }
 
-  it('moves focus before hiding Sync and restores its accessible state when sharing stops', () => {
-    const { container, sync, media, motion } = setup();
+  it('does not own visible state, focus or accessibility, even when disposed', () => {
+    const { container, sync, media } = setup();
+    const child = new AbortController();
+    const motion = createSharingActionMotion(container, sync, media, child.signal);
+    container.dataset.sharing = 'true';
+    sync.setAttribute('aria-hidden', 'true');
+    sync.setAttribute('inert', '');
+    sync.disabled = true;
+    const focus = vi.spyOn(media, 'focus');
     motion.update(false);
-    sync.focus();
-    const focus = vi.spyOn(media, 'focus').mockImplementation(() => {
-      expect(sync.disabled).toBe(false);
-      expect(sync.hasAttribute('inert')).toBe(false);
-    });
-    motion.update(true);
-    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    child.abort();
     expect(container.dataset.sharing).toBe('true');
     expect(sync.disabled).toBe(true);
     expect(sync.hasAttribute('inert')).toBe(true);
     expect(sync.getAttribute('aria-hidden')).toBe('true');
-    motion.update(false);
-    expect(container.dataset.sharing).toBe('false');
-    expect(sync.disabled).toBe(false);
-    expect(sync.hasAttribute('inert')).toBe(false);
-    expect(sync.hasAttribute('aria-hidden')).toBe(false);
+    expect(focus).not.toHaveBeenCalled();
   });
 
   it('does not restart the morph when an unrelated state or translation refresh repeats its state', () => {
@@ -245,16 +249,16 @@ describe('sharing action motion lifecycle', () => {
     abort.abort();
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
-    expect(container.dataset.sharing).toBeUndefined();
+    expect(container.dataset.sharing).toBe('true');
     expect(container.dataset.hoverLocked).toBeUndefined();
     expect(container.style.getPropertyValue('--play-action-slot-width')).toBe('');
     resize([resizeEntry(container, 400)], {} as ResizeObserver);
     motion.update(true);
     expect(container.style.getPropertyValue('--play-action-slot-width')).toBe('');
-    expect(container.dataset.sharing).toBeUndefined();
+    expect(container.dataset.sharing).toBe('true');
   });
 
-  it('restores native disabled policy and removes the old pointer handlers before reinitializing', () => {
+  it('removes old pointer handlers before reinitializing', () => {
     const { container, sync, media, motion } = setup();
     motion.update(true);
     abort.abort();
@@ -275,10 +279,20 @@ describe('sharing action motion lifecycle', () => {
     const { container, sync, motion } = setup();
     motion.update(false);
     motion.update(true);
-    expect(sync.disabled).toBe(true);
+    expect(sync.disabled).toBe(false);
     expect(container.dataset.sharing).toBe('true');
     expect(container.dataset.morphing).toBeUndefined();
     expect(container.dataset.hoverLocked).toBeUndefined();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('uses the computed gap including zero instead of a duplicated spacing fallback', () => {
+    const { container } = setup();
+    container.style.columnGap = '24px';
+    resize([resizeEntry(container, 344)], {} as ResizeObserver);
+    expect(container.style.getPropertyValue('--play-action-slot-width')).toBe('160px');
+    container.style.columnGap = '0px';
+    resize([resizeEntry(container, 320)], {} as ResizeObserver);
+    expect(container.style.getPropertyValue('--play-action-slot-width')).toBe('160px');
   });
 });

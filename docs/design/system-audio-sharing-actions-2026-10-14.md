@@ -199,3 +199,31 @@ browser tests. No additional release is needed for the documentation follow-up.
 An App rollback to the verified checkpoint restores the separate sender buttons
 without a data migration. Existing recovery floors remain binding, and the
 checkpoint is deployment evidence, not a backup of user data.
+
+## Post-release review follow-up — 2026-10-14
+
+Read-only source review at `10a815a0d49ee8f9855d4662a68c02192d16d049`
+(App behavior unchanged from deployed `244866b8`, 8.10.16/v682) confirms two
+follow-ups. No tests were rerun and no runtime changes were made in this review.
+
+- Optional motion failure: `player-controls.ts` updates the accessible Stop
+  sharing name and its click handler uses current ownership, but
+  `sharing-action-motion.ts` alone writes `data-sharing` and manages Sync's
+  disabled/inert/aria-hidden state and focus transfer. If the factory throws,
+  the port catches it and leaves Media visible although its action stops local
+  sharing. The existing failure test only asserts no throw and a warning;
+  player-controls tests always register the working factory. This is a confirmed
+  exceptional-path presentation/accessibility defect, not an observed production
+  failure or an authorization bypass.
+- Layout maintenance: the 12px action gap is repeated in the row, half-width,
+  Stop label width and desktop geometry (332px = 160px * 2 + 12px); JavaScript
+  measures columnGap. Values currently agree. A shared CSS gap token would avoid
+  future inconsistent edits; this is not evidence of a current geometry jump.
+
+Recommended follow-up: the always-available controls layer owns visible state,
+accessibility and focus, while optional motion owns measurements, hover and
+timers. Prepare motion against the previous geometry before committing semantic
+DOM state, and isolate both factory and update exceptions. Pin absent/throwing
+factory, update failure, late registration and teardown/ownership changes before
+shipping; preserve existing pointer/hover behavior. No deployment is requested
+or performed by this documentation follow-up.

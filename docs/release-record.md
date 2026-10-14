@@ -33,7 +33,7 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 | Worker | App version `b00ff5b4-3e1c-43b7-a672-d3beb95ef623`, deployment `8d63ceda-3a63-476d-a6a6-9175ca253aea`, 단일 version 100%. 15:46:43.441 KST 최종 소유권 verified와 exact SHA/app coherent marker 확인. 미선택 5 Worker는 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` 유지: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`, pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`, remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`, developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`, developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 15:46:17.088 KST 호환성 recheck 5종 compatible. 운영 smoke 4종 pass, 범위 밖 Worker smoke skip. 15:47:27 KST 공개 /·entry CSS·SW HTTP 200, bootstrap/SW v682 및 공통 touch CSS 확인. [증거](design/shared-touch-policy-2026-10-14.md#release-and-recovery) |
 | 복구 | 성공 실행으로 rollback 불필요·독립 recovery job skip. 15:45:38.757 KST captured checkpoint는 변경 전 App `19f1d27b`(8.10.15/v681), version `c22ff67d-ce85-4e45-b879-e45133be11b8`, deployment `87ae8fff-3a04-4b98-9b76-319c84c927e1`을 보존한다. 이 기준선 복구는 기존 touch policy로 돌아가므로 제보 증상 해결을 의미하지 않는다. 복구에는 소유권/floor 재검증이 필요하며 checkpoint는 사용자 데이터 백업이 아니다 |
 | 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 신규 floor 없음(Release summary Recovery compatibility floor: none). PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs 성공: 원격 unit 12,660 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 29 pass, 모든 coverage·정적·빌드 gate 통과. 로컬 unit 562 files / 12,661 pass, 타입·린트·포맷·checked build 통과. 집중 브라우저 신규 2 Chromium + 2 WebKit pass, 기존 Chromium 재정렬/scroll 1·chat 2 및 WebKit chat 2 pass. 새 fixture 초기 실패는 View Transition hit target과 Windows WebKit WebRTC 미지원으로 원인 확인·수정했다. WebKit은 역할 UI fixture이며 실제 연결은 Chromium에서 확인. iOS 17.6.1 PWA 키보드·더블탭 실기 증상과 기존 열린 PWA의 업데이트 적용은 미검증. [범위·첫 실패·한계](design/shared-touch-policy-2026-10-14.md) |
+| 검증 범위 | Exact-main CI 11 jobs 성공: 원격 unit 12,660 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 29 pass, 모든 coverage·정적·빌드 gate 통과. 로컬 unit 562 files / 12,661 pass, 타입·린트·포맷·checked build 통과. 집중 브라우저 신규 2 Chromium + 2 WebKit pass, 기존 Chromium 재정렬/scroll 1·chat 2 및 WebKit chat 2 pass. 새 fixture 초기 실패는 View Transition hit target과 Windows WebKit WebRTC 미지원으로 원인 확인·수정했다. WebKit은 역할 UI fixture이며 실제 연결은 Chromium에서 확인. 배포 당시 미검증이던 iOS 17.6.1 PWA 화면 밀림·목록 스크롤·볼륨 드래그·재정렬은 같은 날 오너 실기 보고로 확인(§2). 기존 열린 모든 PWA의 업데이트 적용은 미검증. [범위·첫 실패·한계](design/shared-touch-policy-2026-10-14.md) |
 | Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [38524300563](https://github.com/hiefny/MUSIXQUARE/actions/runs/38524300563) 성공. 2026-10-14 15:48:00.186 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 관리하며 통과로 간주하지 않는다 |
 | Full E2E | 매주 월 18:17 UTC. 이번 CSS 변경에서 전체 serial suite는 재실행하지 않았다. 아래는 이번 소스의 전체 통과를 뜻하지 않는 이전 이력: 원격 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201) Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 제품 입력이 같은 진단 후속 `85414247` 로컬 전체 640 pass / 0 fail / 0 skip(55.6분), WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail은 별도 미확정 이력으로 보존. 운영 R2는 당시 배포를 검사한 결과다 |
 | 의존성 | 이번 8.10.16 신규 의존성·스키마·비밀·바인딩·프로토콜 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. [#297](https://github.com/hiefny/MUSIXQUARE/pull/297) OPEN 및 봇 브랜치 보존, 이번 배포에서 제외. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
@@ -53,7 +53,22 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### 공유 버튼 모션 실패 후속
+
+- [ ] 선택적 모션 factory 실패 시 표시가 Media로 남지만 실제 클릭은 공유 중지인
+      예외 경로를 확인했다. Sync의 비활성·접근성·포커스 처리도 모션에 묶여 있다.
+      의미 상태를 항상 사용 가능한 컨트롤 계층으로 분리하는 소규모 후속 수정과
+      실패 경로 회귀 검사가 필요하다. 실제 운영 발생이나 권한 우회가 확인된 것은
+      아니다. 12px 간격 중복도 함께 정리할 후보이며 현재 값은 서로 일치한다.
+      [읽기 전용 검토·수정 경계](design/system-audio-sharing-actions-2026-10-14.md#post-release-review-follow-up--2026-10-14).
+
 ### 최근 해결 근거
+
+2026-10-14 오너가 8.10.16/v682 적용 후 iOS 17.6.1 설치 PWA의 기존 화면 밀림이
+사라졌고, 추가 확인한 목록 스크롤·볼륨 드래그·재생목록 재정렬도 정상이라고
+직접 보고하여 해당 실기 확인 항목을 닫았다. 자동화 결과로 대체한 판정이 아니며
+다른 OS·모든 권한 조합·열려 있던 모든 PWA의 갱신까지 검증한 것은 아니다.
+[실기 보고·범위](design/shared-touch-policy-2026-10-14.md#owner-verification--2026-10-14).
 
 App 8.10.15/v681의 입장 대기·장황 버튼 라벨 축약은 PR [#330](https://github.com/hiefny/MUSIXQUARE/pull/330),
 exact-main `19f1d27b`의 [CI 38518466482](https://github.com/hiefny/MUSIXQUARE/actions/runs/38518466482),
@@ -152,12 +167,6 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 ### 실기기 확인
 
 사용자의 실제 기기가 필요하다. 브라우저 자동화 결과로 대신하지 않는다.
-
-- [ ] iOS 17.6.1 PWA: 방 코드 키보드 사용 후 비활성 이전·재생·다음 더블탭 시
-      키보드 높이만큼 화면이 이동하는 제보. 8.10.16/v682 공통 touch policy 배포는
-      기존 확대 차단·목록 스크롤·컴포넌트 제스처를 유지하며, 실제 증상 해소는
-      해당 기기로 확인해야 한다. 자동화 통과로 닫지 않는다.
-      [수정·검증·실기 절차](design/shared-touch-policy-2026-10-14.md).
 
 - [ ] 8.10.4 공지: 새 클라이언트가 적용된 운영 일반방·PRO에서 게시 후 철회와 5분/
       foreground 반영, 실제 iPhone Safari/PWA·VoiceOver 및 Android/TalkBack의 전체보기/

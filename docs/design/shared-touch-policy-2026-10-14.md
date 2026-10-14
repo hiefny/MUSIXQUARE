@@ -125,9 +125,10 @@ secret, binding, protocol, storage, admission or recovery-floor changes.
   succeeded, report 15:48:00.186 KST: 31 pass / 0 fail / 5 manual-only.
 
 Existing clients must apply the normal app update before this CSS takes effect;
-no forced update is introduced. An already-open physical iOS PWA update and the
-reported keyboard displacement remain manual verification, not inferred from
-the public asset read or Linux candidate Service Worker checks. Release record
+no forced update is introduced. At release verification, an already-open physical
+iOS PWA update and the reported keyboard displacement were not verified; the
+owner's later physical check is recorded below, separately from public asset
+reads and Linux candidate Service Worker checks. Release record
 and history are updated in a documentation-only follow-up; that PR does not
 trigger an additional production release.
 
@@ -140,3 +141,17 @@ then check playlist/chat swipes, range drag and playlist reorder. Compare an
 invite-link entry without keyboard use. If displacement remains, collect
 visualViewport scale/offset/page values, root/window scroll and active element
 without reopening the keyboard before changing viewport recovery logic.
+
+### Owner verification — 2026-10-14
+
+After the 8.10.16/v682 deployment, the owner reported that the original viewport
+displacement no longer occurs on the affected iOS 17.6.1 installed PWA. Asked
+separately about list scrolling, volume dragging and playlist reordering, the
+owner first said they would test those controls, then confirmed that they work.
+This closes the reported displacement and its three interaction follow-ups in
+the release record.
+
+Evidence is the owner's direct report in this task, not an automated result or
+a captured device trace. It does not independently establish every host/guest
+state, the invite-link comparison, other iOS releases or the update behavior of
+all already-open PWAs. No runtime or production change accompanies this record.

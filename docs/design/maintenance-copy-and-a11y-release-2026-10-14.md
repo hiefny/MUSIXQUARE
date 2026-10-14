@@ -1,12 +1,12 @@
 # 점검 안내 번역 14건·숨은 YouTube 패널 접근성 수정 — 2026-10-14
 
-| 항목      | 값                                                                                                                                                                                                                                       |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v678`, Production Release `target=all` 예정                                                                                                                      |
-| 검증 코드 | 코드 커밋 `3d2d206fa75713d140afba183e23a1c886b86405` (branch `agent/maintenance-copy-a11y-8.10.12`, base main `14f72b77`)                                                                                                                |
-| 환경      | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다                                                                                                                                      |
-| 범위      | `cloudflare/service-maintenance.ts`(Worker 6종 공유 모듈) 점검 안내 14개 로케일 문구, `src/player/video.ts` 주차된 YouTube 래퍼 `inert`, 테스트 핀 4곳과 단위 테스트 1개 추가, 릴리스 식별자. D1·스키마·시크릿·바인딩·프로토콜 변경 없음 |
-| 근거      | 2026-10-13 번역 전수 조사의 점검 안내 제안 14건([보고서 §3](i18n-quality-update-2026-10-14.md)), release-record §2 접근성 항목(8.7.8 이전부터 존재)                                                                                      |
+| 항목      | 값                                                                                                                                                                                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v678`, Production Release `target=all` 예정                                                                                                                                     |
+| 검증 코드 | 코드 커밋 `3d2d206fa75713d140afba183e23a1c886b86405`(1차, v676) → `65a28e09`(리뷰 반영, v677) → `125628f93b447b3c62afad62e72269bebee77db4`(aria-hidden 제거·예산 통과, v678, 최종) (branch `agent/maintenance-copy-a11y-8.10.12`, base main `14f72b77`) |
+| 환경      | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다                                                                                                                                                     |
+| 범위      | `cloudflare/service-maintenance.ts`(Worker 6종 공유 모듈) 점검 안내 14개 로케일 문구, `src/player/video.ts` 주차된 YouTube 래퍼 `inert`, 테스트 핀 4곳과 단위 테스트 1개 추가, 릴리스 식별자. D1·스키마·시크릿·바인딩·프로토콜 변경 없음                |
+| 근거      | 2026-10-13 번역 전수 조사의 점검 안내 제안 14건([보고서 §3](i18n-quality-update-2026-10-14.md)), release-record §2 접근성 항목(8.7.8 이전부터 존재)                                                                                                     |
 
 ## 1. 점검 안내 문구
 
@@ -58,7 +58,7 @@ Codex 리뷰(P2) 반영: iOS에서는 `precreateYouTubePlayer`가 재생 모드�
 | `npm run lint`                                                                                                                                        | pass                                                                                                                                                                 |
 | `npm run format:check`                                                                                                                                | pass                                                                                                                                                                 |
 | `npm test`                                                                                                                                            | 560 files, 12,638 passed / 2 failed. 실패 2건(`release-deployment-state`, `tooling-eslint-config`)은 typecheck·lint와 동시 실행 중 발생했고 단독 재실행 119/119 통과 |
-| `npm run build:checked`                                                                                                                               | pass (8.10.12, v676→v677 재bump 전 1차, prod-security·font·sw-app-shell 가드 통과)                                                                                   |
+| `npm run build:checked`                                                                                                                               | 1차 pass(v676) → 리뷰 반영 뒤 초기 전송 예산 1 B 초과로 fail(v677) → 최종 pass(8.10.12, v678, eager gzip 합계 530.6 KiB, prod-security·font·sw-app-shell 가드 통과)  |
 | e2e `maintenance-inline-logo` + `adaptive-actions` (chromium, 새 빌드)                                                                                | 8 passed, 0 failed (19.0s)                                                                                                                                           |
 
 한계: 역방향 포커스는 jsdom 단위 테스트로 속성만 핀했고 실제 브라우저의 Tab 순서는 e2e

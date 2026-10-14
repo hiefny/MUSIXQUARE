@@ -76,6 +76,18 @@ do not replace successful exact-main CI before deployment.
 - Final full typecheck, lint and format checks pass. Independent review of the
   readiness delta found no concrete regression in late setup, hover or abort
   ordering. The serial full E2E suite was not rerun for this bounded change.
+- PR [#337](https://github.com/hiefny/MUSIXQUARE/pull/337) merged as main
+  `75fceac17615abf1dbff2a64ef513300ae3450d7`. Independent automatic PR review
+  reported no findings. [PR CI 38549015197](https://github.com/hiefny/MUSIXQUARE/actions/runs/38549015197)
+  and [exact-main CI 38549772729](https://github.com/hiefny/MUSIXQUARE/actions/runs/38549772729)
+  both passed all 11 jobs on attempt 1. The exact-main run verified 562 unit
+  files / 12,668 passed / 0 failed / 1 Linux-platform skip: the existing
+  Windows-only other-drive path check. Production-candidate browser checks
+  passed 17 cases and critical browser checks passed 29 cases. Static, build
+  and coverage gates also passed. Local full logs are preserved in
+  `scratch/sharing-fallback/main-ci.log`; overlapping coverage suites are not
+  added to the unit total. This is the successful exact-main candidate; the
+  earlier local and PR runs remain separate evidence.
 
 Browser checks use actual application controllers and synthetic media capture.
 The failure fixture injects an exception only when ResizeObserver observes the
@@ -87,13 +99,49 @@ iOS 17.6.1 owner verification remains in the
 
 ## Release and recovery
 
-Prepared App 8.10.17/v683, target `app`, Developer API D1 application `false`.
-Production deployment is authorized; exact-main CI and the standard immutable
-candidate, recovery checkpoint, compatibility and ownership checks are required.
-No production deployment has yet been performed for this change.
+App **8.10.17/v683** shipped through
+[Production Release 38550430599](https://github.com/hiefny/MUSIXQUARE/actions/runs/38550430599),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-14 19:36:02 KST** using the immutable candidate
+from exact-main CI `38549772729` for `75fceac17615abf1dbff2a64ef513300ae3450d7`.
+No rollback was needed; the recovery job was skipped.
 
-An App-only rollback to a verified compatible baseline restores the previous
-motion-dependent fallback and duplicated spacing; it does not repair the
-exceptional path. No data migration is needed and existing recovery floors
-remain binding. Actual run IDs, live smoke and ownership evidence follow after
-the authorized release; documentation-only follow-ups need no further release.
+- Final App version `92b9d320-5a02-453e-ad91-76d4773fb3b4`, deployment
+  `d2e0eece-825c-4f0e-ad60-47108dc74850`, 100% traffic. Final verification at
+  19:35:55.494 KST matched deployment, version and exact candidate git message.
+  The coherent production marker records the same full SHA and target `app`.
+- App generation, anonymous App account boundary, current PRO public path and
+  Standard HTTPS signaling smokes all passed. Out-of-scope smokes were skipped,
+  not counted as passes. The five unselected Workers remained at `d9364cd9`;
+  their live deployment identities and compatibility were rechecked at
+  19:35:29.457 KST.
+- Public checks at 19:36:37.183 KST returned HTTP 200 for `/`, the v683 service
+  worker, `main-BNiplmKU.css` and `main-B60ytYt1.js`. The live CSS contains the
+  shared gap token and static fallback rules.
+- A tab opened before deployment loaded `main-JeRIt5Je.js`, then displayed the
+  normal update dialog after deployment. Accepting Refresh loaded
+  `main-B60ytYt1.js` and the normal home screen. A fresh tab also loaded the new
+  bundle and normal home screen; temporary verification tabs were closed. This
+  checks those browser tabs, not an active room, every PWA update path or
+  physical system-audio capture.
+- [Operations Drift Audit 38550777866](https://github.com/hiefny/MUSIXQUARE/actions/runs/38550777866)
+  succeeded. Its 19:37:00.483 KST report records **31 pass / 0 fail / 5 manual-only**;
+  manual checks are not treated as completed.
+
+The immutable recovery checkpoint at 19:34:52.089 KST preserves the previous
+App `244866b8e8c13fd6285f0586ca89d5ac248dafd5`, 8.10.16/v682, version
+`b00ff5b4-3e1c-43b7-a672-d3beb95ef623`, deployment
+`8d63ceda-3a63-476d-a6a6-9175ca253aea`, together with the paired Worker/R2
+baseline. Rolling back to that verified compatible App restores the previous
+motion-dependent fallback and duplicated spacing; the exceptional path returns.
+The checkpoint is not a user-data backup. No data migration is needed and
+existing recovery floors remain binding.
+
+Release artifacts are preserved locally under
+`scratch/sharing-fallback/release-artifacts/`, including the run's
+`production-deployments-75fceac17615abf1dbff2a64ef513300ae3450d7-38550430599-1`,
+recovery-checkpoint and production-commit artifacts. Public response evidence is
+`scratch/sharing-fallback/live-public.json`; the Drift Audit report is under
+`scratch/sharing-fallback/drift-artifacts/`. This documentation-only follow-up
+does not require another production release. The full serial E2E and physical
+capture limits recorded above remain unchanged.

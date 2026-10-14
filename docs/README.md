@@ -92,7 +92,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [Sharing action failure isolation and spacing — 2026-10-14](design/sharing-action-fallback-2026-10-14.md) —
   Eager visible/accessibility state, optional motion failure cleanup and one gap
-  token. App 8.10.17/v683 preparation; validation and release evidence tracked here.
+  token. Shipped App 8.10.17/v683 with exact-main CI, production ownership/smoke,
+  browser update and Drift Audit evidence; full E2E and physical-capture limits remain.
 
 - [Shared app double-tap policy — 2026-10-14](design/shared-touch-policy-2026-10-14.md) —
   Common touch default preserving existing zoom locks, inner scrolling and

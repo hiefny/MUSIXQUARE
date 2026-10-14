@@ -2,7 +2,7 @@
 
 | 항목      | 값                                                                                                                                                                                                                                       |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v676`, Production Release `target=all` 예정                                                                                                                      |
+| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v677`, Production Release `target=all` 예정                                                                                                                      |
 | 검증 코드 | 코드 커밋 `3d2d206fa75713d140afba183e23a1c886b86405` (branch `agent/maintenance-copy-a11y-8.10.12`, base main `14f72b77`)                                                                                                                |
 | 환경      | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다                                                                                                                                      |
 | 범위      | `cloudflare/service-maintenance.ts`(Worker 6종 공유 모듈) 점검 안내 14개 로케일 문구, `src/player/video.ts` 주차된 YouTube 래퍼 `inert`, 테스트 핀 4곳과 단위 테스트 1개 추가, 릴리스 식별자. D1·스키마·시크릿·바인딩·프로토콜 변경 없음 |
@@ -41,6 +41,12 @@ YouTube 모드를 벗어나면 `updateBodyModeClass`가 iframe이 남은 `.video
 
 단위 테스트 `video.test.ts`에 "주차된 래퍼는 inert, YouTube 모드 복귀 시 해제"를 핀했다.
 
+Codex 리뷰(P2) 반영: iOS에서는 `precreateYouTubePlayer`가 재생 모드가 `null`인 설정 단계에서
+`hideYouTubeContainerResident`로 래퍼를 주차하므로 모드 리스너만으로는 그 래퍼에 속성이
+붙지 않았다. 속성 적용을 `setYouTubeWrapperParked` 헬퍼로 빼서 주차 헬퍼에서도 호출하고,
+`stale-async-guards.test.ts`의 사전 생성 테스트에 `inert`·`aria-hidden`을 핀했다. 캐시
+v677로 재bump.
+
 ## 3. 검증
 
 | 명령                                                                                                                                                  | 결과                                                                                                                                                                 |
@@ -50,7 +56,7 @@ YouTube 모드를 벗어나면 `updateBodyModeClass`가 iframe이 남은 `.video
 | `npm run lint`                                                                                                                                        | pass                                                                                                                                                                 |
 | `npm run format:check`                                                                                                                                | pass                                                                                                                                                                 |
 | `npm test`                                                                                                                                            | 560 files, 12,638 passed / 2 failed. 실패 2건(`release-deployment-state`, `tooling-eslint-config`)은 typecheck·lint와 동시 실행 중 발생했고 단독 재실행 119/119 통과 |
-| `npm run build:checked`                                                                                                                               | pass (8.10.12, v676, prod-security·font·sw-app-shell 가드 통과)                                                                                                      |
+| `npm run build:checked`                                                                                                                               | pass (8.10.12, v676→v677 재bump 전 1차, prod-security·font·sw-app-shell 가드 통과)                                                                                   |
 | e2e `maintenance-inline-logo` + `adaptive-actions` (chromium, 새 빌드)                                                                                | 8 passed, 0 failed (19.0s)                                                                                                                                           |
 
 한계: 역방향 포커스는 jsdom 단위 테스트로 속성만 핀했고 실제 브라우저의 Tab 순서는 e2e

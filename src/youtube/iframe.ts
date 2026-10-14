@@ -16,7 +16,7 @@ import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import { fmtTime } from '../player/transport.ts';
-import { setEngineMode } from '../player/video.ts';
+import { setEngineMode, setYouTubeWrapperParked } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import { getRoomContext, hasRoomCapability, isStandardRoomMember } from '../rooms/authority.ts';
 import { handleProRoomTrackMetadata } from '../pro-room/media-hooks.ts';
@@ -1038,6 +1038,9 @@ function hideYouTubeContainerResident(container: HTMLElement): void {
     wrapper.style.visibility = 'visible';
     wrapper.style.pointerEvents = 'none';
     wrapper.style.overflow = 'hidden';
+    // The iOS pre-created player parks here while playback.mode is still
+    // null, before the mode listener in player/video.ts can run.
+    setYouTubeWrapperParked(wrapper, true);
   }
 
   container.style.display = 'block';

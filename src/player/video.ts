@@ -98,6 +98,20 @@ export function exitYouTubeFullscreen(): void {
   }
 }
 
+/**
+ * Accessibility state of the `.video-wrapper` that hosts the YouTube iframe.
+ * A parked wrapper (retained iframe outside YouTube mode, or the iOS
+ * pre-created player before any playback) stays rendered offscreen, so its
+ * fullscreen button would otherwise take reverse keyboard focus. `inert`
+ * keeps the iframe rendered and does not block the player's postMessage
+ * API, so the retained player and the iOS prime flow are unaffected.
+ */
+export function setYouTubeWrapperParked(wrapper: HTMLElement, parked: boolean): void {
+  wrapper.toggleAttribute('inert', parked);
+  if (parked) wrapper.setAttribute('aria-hidden', 'true');
+  else wrapper.removeAttribute('aria-hidden');
+}
+
 function updateBodyModeClass(mode: PlaybackModeValue): void {
   const body = document.body;
 
@@ -106,17 +120,9 @@ function updateBodyModeClass(mode: PlaybackModeValue): void {
   const ytWrapper = ytContainer?.closest('.video-wrapper') as HTMLElement | null;
   if (!wantYouTube) exitYouTubeFullscreen();
 
-  // Outside YouTube mode the wrapper is parked offscreen (a retained iframe
-  // must stay rendered), so its fullscreen button would still take reverse
-  // keyboard focus. Make the whole wrapper inert and hidden from assistive
-  // technology until YouTube mode owns it again. Inert does not detach the
-  // iframe or block the player's postMessage API, so the retained player and
-  // the iOS prime flow are unaffected.
-  if (ytWrapper) {
-    ytWrapper.toggleAttribute('inert', !wantYouTube);
-    if (wantYouTube) ytWrapper.removeAttribute('aria-hidden');
-    else ytWrapper.setAttribute('aria-hidden', 'true');
-  }
+  // Outside YouTube mode the wrapper is parked offscreen; keep it inert and
+  // hidden from assistive technology until YouTube mode owns it again.
+  if (ytWrapper) setYouTubeWrapperParked(ytWrapper, !wantYouTube);
 
   if (body.classList.contains('mode-youtube') !== wantYouTube) {
     body.classList.toggle('mode-youtube', wantYouTube);

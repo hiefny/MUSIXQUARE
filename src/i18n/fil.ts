@@ -50,7 +50,7 @@ const fil: Record<I18nKey, string> = {
   'account.welcome_back': 'Maligayang pagbabalik\n{{name}}',
   'account.login_message':
     'Mag-sign in gamit ang Google para magamit ang parehong palayaw sa iba’t ibang kuwarto. Maaari kang magpatuloy nang hindi nagsa-sign in.',
-  'account.google_continue': 'Magpatuloy gamit ang Google',
+  'account.google_continue': 'Magpatuloy sa Google',
   'account.terms': 'Mga Tuntunin',
   'account.privacy': 'Patakaran sa Privacy',
   'account.unavailable':
@@ -165,8 +165,8 @@ const fil: Record<I18nKey, string> = {
   'transfer.host_busy': 'May ibang file na pinoproseso ang host. Subukan muli maya-maya.',
 
   // ─── Gampanin ────────────────────────────────────────────────────
-  'role.center': 'Gitnang Speaker',
-  'role.left': 'Kaliwang Speaker',
+  'role.center': 'Gitna',
+  'role.left': 'Kaliwa',
   'role.right': 'Kanang Speaker',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Ilagay ang device sa gitna',
@@ -289,7 +289,7 @@ const fil: Record<I18nKey, string> = {
   'connect.kick_no': 'Hindi',
   'connect.kicked_title': 'Inalis',
   'connect.kicked_message': 'Inalis ka ng host sa session.',
-  'connect.copy_invite_link': 'Kopyahin ang link ng imbitasyon',
+  'connect.copy_invite_link': 'Kopyahin ang link',
   'connect.link_copied': 'Nakopya ang link ng imbitasyon',
   'connect.room_password_title': 'Kailangan ng password para sumali',
   'connect.room_password_toggle_aria': 'I-on o i-off ang password ng kuwarto',
@@ -332,8 +332,8 @@ const fil: Record<I18nKey, string> = {
   'demo.role_title': 'Itakda ang gampanin ng device na ito',
   'demo.effects_title': 'Subukan ang mga effect',
   'demo.reverb': 'Reverb',
-  'demo.bass_boost': 'Pagpapalakas ng Bass',
-  'demo.treble_boost': 'Pagpapalakas ng Treble',
+  'demo.bass_boost': 'Bass boost',
+  'demo.treble_boost': 'Treble boost',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Gitna',
@@ -388,7 +388,7 @@ const fil: Record<I18nKey, string> = {
   'help.local_recommended': 'Inirerekomenda ang lokal na network',
   'help.connect_all_wifi': 'Pinakamaaasahan ang mga koneksyon sa iisang network',
   'help.local_file': 'Pumili ng lokal na file',
-  'help.load_local': 'Mag-load ng lokal na file',
+  'help.load_local': 'Mag-load ng local file',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'Sa YouTube mode, hindi available ang mga setting ng gampanin at audio effect.',
@@ -728,7 +728,7 @@ const fil: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Hindi inaasahang na-pause ang audio',
   'dialog.audio_recovery_message':
     'Hindi bumalik ang audio ng device na ito matapos bumalik mula sa background. Mananatiling nakakonekta ang kuwarto mo habang muling inaayos ng MUSIXQUARE ang tunog ng device na ito.',
-  'dialog.audio_recovery_action': 'Ibalik ang audio',
+  'dialog.audio_recovery_action': 'Ibalik audio',
   'dialog.background_resume_message':
     'Kung hindi naka-sync o walang audio, ganap na isara ang app at buksan itong muli.',
   'dialog.background_resume_sync_fallback_message':
@@ -787,7 +787,7 @@ const fil: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Mag-sign in gamit ang naka-link na account',
   'pro.claim_existing_account_message':
     'Nakatali ang link na ito sa isang MUSIXQUARE account na mayroon nang palayaw. Piliin ang Google account na nakatalaga sa link na ito.',
-  'pro.claim_choose_account_button': 'Pumili ng ibang account',
+  'pro.claim_choose_account_button': 'Ibang account',
   'pro.claim_account_conflict_title': 'Hindi magagamit ng account na ito ang kuwarto',
   'pro.claim_account_conflict_message':
     'Naka-link ang kuwartong ito sa ibang account. Hilingin sa administrator na ilipat ang pagmamay-ari kung kailangan mo itong baguhin.',
@@ -848,7 +848,7 @@ const fil: Record<I18nKey, string> = {
   'pro.active_tab_title': 'May natitirang naunang koneksyon',
   'pro.active_tab_message': 'Kapag nagpatuloy ka rito, mapuputol ang naunang koneksyon.',
   'pro.active_tab_replaced': 'Bukas na sa ibang tab ang PRO room na ito',
-  'pro.use_this_tab': 'Magpatuloy rito',
+  'pro.use_this_tab': 'Ituloy rito',
   'pro.upload.batch_progress': 'Ina-upload ang mga track {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Hindi na-upload ang ilang track',
   'pro.upload.batch_failed_message':

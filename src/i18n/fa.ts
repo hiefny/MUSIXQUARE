@@ -32,7 +32,7 @@ const fa: Record<I18nKey, string> = {
   'setup.carousel_pause': 'توقف موقت جابه‌جایی خودکار اسلایدها',
   'common.message': 'پیام',
   'common.mix': 'میکس',
-  'common.wait': 'لطفاً صبر کنید...',
+  'common.wait': 'صبر کنید...',
   'common.guest': 'مهمان',
   'common.help': 'راهنما',
   'common.increase': 'افزایش',
@@ -365,7 +365,7 @@ const fa: Record<I18nKey, string> = {
   'setup.connect_devices': 'برای شروع، دستگاه‌های دیگر خود را متصل کنید.',
   'setup.enter_code_connect': 'کد دعوت',
   'setup.last_step': 'شروع کنیم!',
-  'setup.joining': 'در حال پیوستن...',
+  'setup.joining': 'پیوستن...',
   'setup.six_digit_enter': 'عدد 6 رقمی را وارد کنید',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -730,7 +730,7 @@ const fa: Record<I18nKey, string> = {
     'گذرواژه را بیش از حد اشتباه وارد کرده‌اید. کمی بعد دوباره تلاش کنید.',
   'dialog.session_lost_msg':
     'برنامه به خواب رفت یا اتصال را از دست داد و دستگاه‌های دیگر جدا شده‌اند. برای شروع جلسهٔ جدید، برنامه را دوباره راه‌اندازی کنید.',
-  'dialog.session_lost_btn': 'راه‌اندازی دوباره',
+  'dialog.session_lost_btn': 'شروع دوباره',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
   'pro.activation_title': 'فعال‌سازی اتاق PRO',
@@ -757,7 +757,7 @@ const fa: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'ورود با حساب پیوندشده',
   'pro.claim_existing_account_message':
     'این پیوند به حساب MUSIXQUARE دارای نام مستعار متصل است. حساب Google مشخص‌شده برای این پیوند را انتخاب کنید.',
-  'pro.claim_choose_account_button': 'انتخاب حساب دیگر',
+  'pro.claim_choose_account_button': 'حساب دیگر',
   'pro.claim_account_conflict_title': 'این حساب نمی‌تواند از اتاق استفاده کند',
   'pro.claim_account_conflict_message':
     'این اتاق به حساب دیگری متصل است. اگر می‌خواهید آن را تغییر دهید، از مدیر بخواهید مالکیت را منتقل کند.',

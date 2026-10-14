@@ -33,7 +33,7 @@ const hu: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Automatikus diaváltás szüneteltetése',
   'common.message': 'Üzenet',
   'common.mix': 'Keverés',
-  'common.wait': 'Egy pillanat...',
+  'common.wait': 'Pillanat...',
   'common.guest': 'Résztvevő',
   'common.help': 'Súgó',
   'common.increase': 'Növelés',
@@ -50,7 +50,7 @@ const hu: Record<I18nKey, string> = {
   'account.welcome_back': 'Üdv újra,\n{{name}}',
   'account.login_message':
     'Jelentkezz be Google-fiókkal, hogy minden szobában megtartsd a becenevedet. Bejelentkezés nélkül is folytathatod.',
-  'account.google_continue': 'Folytatás Google-fiókkal',
+  'account.google_continue': 'Folytatás Google-lal',
   'account.terms': 'Feltételek',
   'account.privacy': 'Adatvédelem',
   'account.unavailable': 'A bejelentkezés átmenetileg nem érhető el. Nélküle is folytathatod.',
@@ -163,7 +163,7 @@ const hu: Record<I18nKey, string> = {
   'transfer.host_busy': 'A házigazda másik fájlt dolgoz fel. Próbáld újra hamarosan.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Középső hangszóró',
+  'role.center': 'Középső',
   'role.left': 'Bal hangszóró',
   'role.right': 'Jobb hangszóró',
   'role.subwoofer': 'Mélynyomó',
@@ -243,7 +243,7 @@ const hu: Record<I18nKey, string> = {
   'settings.default_20hz': 'Alapérték: 20 Hz',
   'settings.default_5s': 'Alapérték: 5,0 mp',
   'settings.invite_code': 'Meghívókód',
-  'settings.leave_session': 'Kilépés a munkamenetből',
+  'settings.leave_session': 'Munkamenet elhagyása',
   'connect.rename_reserved': 'Ez a becenév foglalt.',
   'connect.rename_profanity': 'Nem megfelelő szavakat észleltünk.',
   'settings.devices_title': 'Csatlakoztatott eszközök',
@@ -282,7 +282,7 @@ const hu: Record<I18nKey, string> = {
   'connect.kick_no': 'Nem',
   'connect.kicked_title': 'Eltávolítva',
   'connect.kicked_message': 'A házigazda eltávolított a munkamenetből.',
-  'connect.copy_invite_link': 'Meghívóhivatkozás másolása',
+  'connect.copy_invite_link': 'Meghívó másolása',
   'connect.link_copied': 'Meghívóhivatkozás kimásolva',
   'connect.room_password_title': 'Jelszó kérése csatlakozáskor',
   'connect.room_password_toggle_aria': 'Szobajelszó követelményének be- vagy kikapcsolása',
@@ -297,7 +297,7 @@ const hu: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'A szobakiszolgáló elérhető',
   'connect.signaling_recovering': 'Újracsatlakozás…',
   'connect.signaling_failed': 'Nem sikerült csatlakozni a kiszolgálóhoz',
-  'connect.signaling_recover_action': 'Újracsatlakozás',
+  'connect.signaling_recover_action': 'Újrakapcsolás',
   'connect.signaling_recovery_wait': 'A szobakiszolgáló ismételt ellenőrzése folyamatban.',
   'connect.signaling_reconnecting': 'Újracsatlakozás a szobakiszolgálóhoz · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'A szobakiszolgáló kapcsolata helyreállt.',
@@ -324,8 +324,8 @@ const hu: Record<I18nKey, string> = {
   'demo.role_title': 'Állítsd be az eszköz szerepét',
   'demo.effects_title': 'Próbáld ki az effektusokat',
   'demo.reverb': 'Zengetés',
-  'demo.bass_boost': 'Mélyhangkiemelés',
-  'demo.treble_boost': 'Magashangkiemelés',
+  'demo.bass_boost': 'Több mély',
+  'demo.treble_boost': 'Több magas',
   'demo.surround': 'Térhangzás',
   'demo.role_bass_short': 'Mélyhang',
   'demo.role_center_short': 'Közép',
@@ -715,7 +715,7 @@ const hu: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'A hang váratlanul leállt',
   'dialog.audio_recovery_message':
     'Az eszköz hangja nem állt helyre a háttérből való visszatérés után. A szoba kapcsolata megmarad, miközben a MUSIXQUARE újra összehangolja az eszköz hangját.',
-  'dialog.audio_recovery_action': 'Hang helyreállítása',
+  'dialog.audio_recovery_action': 'Hang vissza',
   'dialog.background_resume_message':
     'Ha a szinkronizálás pontatlan, vagy nincs hang, zárd be teljesen az alkalmazást, majd nyisd meg újra.',
   'dialog.background_resume_sync_fallback_message':
@@ -729,7 +729,7 @@ const hu: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'A MUSIXQUARE frissült. A zavartalan használathoz töltsd újra az oldalt.',
   'dialog.reconnect_ask': 'Újracsatlakozol?',
-  'dialog.reconnect': 'Újracsatlakozás',
+  'dialog.reconnect': 'Újrakapcsolás',
   'dialog.go_back': 'Vissza',
   'dialog.step_next': 'Tovább',
   'dialog.step_back': 'Vissza',
@@ -774,7 +774,7 @@ const hu: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Jelentkezz be a társított fiókkal',
   'pro.claim_existing_account_message':
     'Ez a hivatkozás egy már becenévvel rendelkező MUSIXQUARE-fiókhoz tartozik. Válaszd a hivatkozáshoz megadott Google-fiókot.',
-  'pro.claim_choose_account_button': 'Másik fiók választása',
+  'pro.claim_choose_account_button': 'Másik fiók',
   'pro.claim_account_conflict_title': 'Ez a fiók nem használhatja a szobát',
   'pro.claim_account_conflict_message':
     'Ez a szoba másik fiókhoz tartozik. Ha módosítanod kell, kérj tulajdonjog-átruházást egy adminisztrátortól.',

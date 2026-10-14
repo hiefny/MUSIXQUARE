@@ -35,7 +35,7 @@ const ja: Record<I18nKey, string> = {
   'setup.carousel_pause': 'スライドの自動切り替えを一時停止',
   'common.message': 'メッセージ',
   'common.mix': 'ミックス',
-  'common.wait': 'しばらくお待ちください...',
+  'common.wait': 'お待ちください...',
   'common.guest': '参加者',
   'common.help': 'ヘルプ',
   'common.increase': '増やす',

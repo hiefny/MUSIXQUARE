@@ -32,7 +32,7 @@ const tr: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Otomatik slayt geçişini duraklat',
   'common.message': 'Mesaj',
   'common.mix': 'Karışım',
-  'common.wait': 'Lütfen bekle...',
+  'common.wait': 'Bekle...',
   'common.guest': 'Katılımcı',
   'common.help': 'Yardım',
   'common.increase': 'Artır',
@@ -160,7 +160,7 @@ const tr: Record<I18nKey, string> = {
   'transfer.host_busy': 'Oda sahibi başka bir dosyayı işliyor. Biraz sonra tekrar dene.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Merkez Hoparlör',
+  'role.center': 'Merkez',
   'role.left': 'Sol Hoparlör',
   'role.right': 'Sağ Hoparlör',
   'role.subwoofer': 'Subwoofer',
@@ -279,7 +279,7 @@ const tr: Record<I18nKey, string> = {
   'connect.kick_no': 'Hayır',
   'connect.kicked_title': 'Odadan çıkarıldın',
   'connect.kicked_message': 'Oda sahibi seni odadan çıkardı.',
-  'connect.copy_invite_link': 'Davet bağlantısını kopyala',
+  'connect.copy_invite_link': 'Daveti kopyala',
   'connect.link_copied': 'Davet bağlantısı kopyalandı',
   'connect.room_password_title': 'Odaya Girişte Şifre İste',
   'connect.room_password_toggle_aria': 'Oda şifresi gereksinimini aç/kapat',
@@ -320,8 +320,8 @@ const tr: Record<I18nKey, string> = {
   'demo.role_title': 'Bu Cihazın Rolünü Ayarla',
   'demo.effects_title': 'Ses Efektlerini Dene',
   'demo.reverb': 'Yankı',
-  'demo.bass_boost': 'Bas Güçlendirici',
-  'demo.treble_boost': 'Tiz Güçlendirici',
+  'demo.bass_boost': 'Bas artırma',
+  'demo.treble_boost': 'Tiz artırma',
   'demo.surround': 'Çevresel ses',
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Merkez',
@@ -702,7 +702,7 @@ const tr: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Ses kısa süreliğine durdu',
   'dialog.audio_recovery_message':
     'Arka plandan döndükten sonra bu cihazın sesi geri yüklenemedi. Yalnızca bu cihazın sesini yeniden hizalarken oda bağlantısı açık kalacak.',
-  'dialog.audio_recovery_action': 'Sesi geri yükle',
+  'dialog.audio_recovery_action': 'Sesi geri al',
   'dialog.background_resume_message':
     'Senkronizasyon bozulursa veya ses gelmezse uygulamayı tamamen kapatıp yeniden aç.',
   'dialog.background_resume_sync_fallback_message':
@@ -818,7 +818,7 @@ const tr: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Önceki bir bağlantı hâlâ mevcut',
   'pro.active_tab_message': 'Burada devam edersen önceki bağlantı sonlandırılır.',
   'pro.active_tab_replaced': 'Bu PRO odası başka bir sekmede zaten açık',
-  'pro.use_this_tab': 'Burada devam et',
+  'pro.use_this_tab': 'Buradan devam',
   'pro.upload.batch_progress': 'Parçalar yükleniyor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Bazı parçalar yüklenemedi',
   'pro.upload.batch_failed_message': 'İstenen {{total}} parçanın {{failed}} tanesi yüklenemedi.',

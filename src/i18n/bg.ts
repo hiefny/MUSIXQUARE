@@ -33,7 +33,7 @@ const bg: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Пауза на автоматичната смяна на слайдовете',
   'common.message': 'Съобщение',
   'common.mix': 'Микс',
-  'common.wait': 'Моля, изчакай...',
+  'common.wait': 'Изчакай...',
   'common.guest': 'Гост',
   'common.help': 'Помощ',
   'common.increase': 'Увеличаване',
@@ -162,9 +162,9 @@ const bg: Record<I18nKey, string> = {
   'transfer.host_busy': 'Хостът обработва друг файл. Опитай отново след малко.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Централна тонколона',
+  'role.center': 'Централна',
   'role.left': 'Лява тонколона',
-  'role.right': 'Дясна тонколона',
+  'role.right': 'Дясна',
   'role.subwoofer': 'Субуфер',
   'role.center_placement': 'Постави устройството в центъра',
   'role.left_placement': 'Постави устройството отляво',
@@ -281,7 +281,7 @@ const bg: Record<I18nKey, string> = {
   'connect.kick_no': 'Не',
   'connect.kicked_title': 'Премахване от сесията',
   'connect.kicked_message': 'Хостът те премахна от сесията.',
-  'connect.copy_invite_link': 'Копиране на връзката за покана',
+  'connect.copy_invite_link': 'Копирай поканата',
   'connect.link_copied': 'Връзката за покана е копирана',
   'connect.room_password_title': 'Изискване на парола за присъединяване',
   'connect.room_password_toggle_aria': 'Включване/изключване на изискването за парола',
@@ -296,7 +296,7 @@ const bg: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Сървърът на стаята е онлайн',
   'connect.signaling_recovering': 'Повторно свързване…',
   'connect.signaling_failed': 'Връзката със сървъра е неуспешна',
-  'connect.signaling_recover_action': 'Повторно свързване',
+  'connect.signaling_recover_action': 'Свържи отново',
   'connect.signaling_recovery_wait': 'Сървърът на стаята се проверява отново.',
   'connect.signaling_reconnecting':
     'Повторно свързване със сървъра на стаята · {{attempt}}/{{max}}',
@@ -319,13 +319,13 @@ const bg: Record<I18nKey, string> = {
   'demo.prompt_later': 'По-късно',
   'demo.try_later_toast': 'Можеш да я стартираш по всяко време от раздела „Помощ“.',
   'demo.track_info': 'Информация за песента',
-  'demo.exit': 'Изход от демонстрацията',
+  'demo.exit': 'Изход от демото',
   'demo.credit': 'Демонстрационна песен',
   'demo.role_title': 'Задай роля на това устройство',
   'demo.effects_title': 'Изпробвай ефектите',
   'demo.reverb': 'Реверберация',
-  'demo.bass_boost': 'Усилване на баса',
-  'demo.treble_boost': 'Усилване на високите честоти',
+  'demo.bass_boost': 'Повече бас',
+  'demo.treble_boost': 'Повече високи',
   'demo.surround': 'Съраунд',
   'demo.role_bass_short': 'Бас',
   'demo.role_center_short': 'Център',
@@ -333,7 +333,7 @@ const bg: Record<I18nKey, string> = {
   'demo.step_connect': '1. Свързване',
   'demo.step_role': '2. Задаване на роля',
   'demo.step_effects': '3. Звукови ефекти',
-  'demo.step_finish': '4. Край на демонстрацията',
+  'demo.step_finish': '4. Край на демото',
   'demo.session_title': 'Твоята стая: {{code}}',
   'demo.session_subtitle': 'Можеш да поканиш друго устройство по всяко време.',
   'demo.session_body_connected':
@@ -371,7 +371,7 @@ const bg: Record<I18nKey, string> = {
   'setup.connect_devices': 'Свържи останалите си устройства, за да започнеш.',
   'setup.enter_code_connect': 'Код за покана',
   'setup.last_step': 'Да започваме!',
-  'setup.joining': 'Присъединяване...',
+  'setup.joining': 'Влизане...',
   'setup.six_digit_enter': 'Въведи 6-цифреното число',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -380,7 +380,7 @@ const bg: Record<I18nKey, string> = {
   'help.local_recommended': 'Препоръчва се локална мрежа',
   'help.connect_all_wifi': 'Връзките в една и съща мрежа са най-надеждни',
   'help.local_file': 'Избор на локален файл',
-  'help.load_local': 'Зареждане на локален файл',
+  'help.load_local': 'Локален файл',
   'help.youtube_compat': 'YouTube',
   'help.youtube_no_effects':
     'В режим YouTube настройките за роля и звуковите ефекти не са достъпни.',
@@ -715,7 +715,7 @@ const bg: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Звукът спря неочаквано',
   'dialog.audio_recovery_message':
     'Звукът на това устройство не се възстанови след връщане от фонов режим. Стаята остава свързана, а MUSIXQUARE ще подравни отново звука на устройството.',
-  'dialog.audio_recovery_action': 'Възстановяване на звука',
+  'dialog.audio_recovery_action': 'Включи звука',
   'dialog.background_resume_message':
     'Ако синхронът е нарушен или няма звук, затвори напълно приложението и го отвори отново.',
   'dialog.background_resume_sync_fallback_message':
@@ -729,7 +729,7 @@ const bg: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE се обнови. Опресни страницата, за да продължиш да го използваш нормално.',
   'dialog.reconnect_ask': 'Искаш ли да се свържеш отново?',
-  'dialog.reconnect': 'Повторно свързване',
+  'dialog.reconnect': 'Свържи отново',
   'dialog.go_back': 'Назад',
   'dialog.step_next': 'Напред',
   'dialog.step_back': 'Назад',
@@ -774,7 +774,7 @@ const bg: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Влез със свързания профил',
   'pro.claim_existing_account_message':
     'Тази връзка е обвързана с профил в MUSIXQUARE, който вече има псевдоним. Избери профила в Google, посочен за тази връзка.',
-  'pro.claim_choose_account_button': 'Избор на друг профил',
+  'pro.claim_choose_account_button': 'Друг профил',
   'pro.claim_account_conflict_title': 'Този профил не може да използва стаята',
   'pro.claim_account_conflict_message':
     'Тази стая е свързана с друг профил. Ако трябва да го промениш, помоли администратор да прехвърли собствеността.',

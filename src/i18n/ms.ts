@@ -16,7 +16,7 @@ const ms: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Batal',
   'common.close': 'Tutup',
-  'common.reset': 'Tetapkan semula',
+  'common.reset': 'Set semula',
   'common.clear_input': 'Kosongkan input',
   'common.refresh': 'Muat semula',
   'common.retry': 'Cuba lagi',
@@ -165,9 +165,9 @@ const ms: Record<I18nKey, string> = {
   'transfer.host_busy': 'Hos sedang memproses fail lain. Cuba lagi sebentar nanti.',
 
   // ─── Peranan ─────────────────────────────────────────────────────
-  'role.center': 'Pembesar Suara Tengah',
-  'role.left': 'Pembesar Suara Kiri',
-  'role.right': 'Pembesar Suara Kanan',
+  'role.center': 'Tengah',
+  'role.left': 'Kiri',
+  'role.right': 'Kanan',
   'role.subwoofer': 'Subwufer',
   'role.center_placement': 'Letakkan peranti di tengah',
   'role.left_placement': 'Letakkan peranti di sebelah kiri',
@@ -331,7 +331,7 @@ const ms: Record<I18nKey, string> = {
   'demo.effects_title': 'Cuba kesan audio',
   'demo.reverb': 'Gema',
   'demo.bass_boost': 'Penguatan Bass',
-  'demo.treble_boost': 'Penguatan Trebel',
+  'demo.treble_boost': 'Tingkat trebel',
   'demo.surround': 'Keliling',
   'demo.role_bass_short': 'Bass',
   'demo.role_center_short': 'Tengah',
@@ -377,7 +377,7 @@ const ms: Record<I18nKey, string> = {
   'setup.connect_devices': 'Sambungkan peranti anda yang lain untuk bermula.',
   'setup.enter_code_connect': 'Kod jemputan',
   'setup.last_step': 'Mari kita mulakan!',
-  'setup.joining': 'Sedang menyertai...',
+  'setup.joining': 'Menyertai...',
   'setup.six_digit_enter': 'Masukkan nombor 6 digit',
 
   // ─── Bantuan ─────────────────────────────────────────────────────
@@ -780,7 +780,7 @@ const ms: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Log masuk dengan akaun yang dipautkan',
   'pro.claim_existing_account_message':
     'Pautan ini terikat pada akaun MUSIXQUARE yang sudah mempunyai nama panggilan. Pilih akaun Google yang ditetapkan untuk pautan ini.',
-  'pro.claim_choose_account_button': 'Pilih akaun lain',
+  'pro.claim_choose_account_button': 'Akaun lain',
   'pro.claim_account_conflict_title': 'Akaun ini tidak boleh menggunakan bilik ini',
   'pro.claim_account_conflict_message':
     'Bilik ini dipautkan kepada akaun lain. Minta pentadbir memindahkan pemilikan jika anda perlu mengubahnya.',
@@ -841,7 +841,7 @@ const ms: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Sambungan sebelumnya masih ada',
   'pro.active_tab_message': 'Jika anda meneruskan di sini, sambungan sebelumnya akan diputuskan.',
   'pro.active_tab_replaced': 'Bilik PRO ini sudah dibuka dalam tab lain',
-  'pro.use_this_tab': 'Teruskan di sini',
+  'pro.use_this_tab': 'Terus di sini',
   'pro.upload.batch_progress': 'Memuat naik trek {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sesetengah trek tidak dapat dimuat naik',
   'pro.upload.batch_failed_message':

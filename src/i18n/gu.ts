@@ -34,7 +34,7 @@ const gu: Record<I18nKey, string> = {
   'setup.carousel_pause': 'સ્લાઇડનું આપમેળે ફરવાનું થોભાવો',
   'common.message': 'સંદેશ',
   'common.mix': 'મિશ્રણ',
-  'common.wait': 'કૃપા કરીને રાહ જુઓ...',
+  'common.wait': 'રાહ જુઓ...',
   'common.guest': 'મહેમાન',
   'common.help': 'મદદ',
   'common.increase': 'વધારો',

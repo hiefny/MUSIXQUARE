@@ -19,7 +19,7 @@ const pl: Record<I18nKey, string> = {
   'common.reset': 'Resetuj',
   'common.clear_input': 'Wyczyść pole',
   'common.refresh': 'Odśwież',
-  'common.retry': 'Spróbuj ponownie',
+  'common.retry': 'Ponów próbę',
   'common.later': 'Później',
   'common.next': 'Dalej',
   'common.start': 'Rozpocznij',
@@ -162,7 +162,7 @@ const pl: Record<I18nKey, string> = {
   'transfer.host_busy': 'Host przetwarza inny plik. Spróbuj ponownie za chwilę.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Głośnik centralny',
+  'role.center': 'Środkowy',
   'role.left': 'Głośnik lewy',
   'role.right': 'Głośnik prawy',
   'role.subwoofer': 'Subwoofer',
@@ -182,7 +182,7 @@ const pl: Record<I18nKey, string> = {
     'Zastosuj syntetyczne efekty dźwiękowe. Może to powodować silne zniekształcenia.',
   'settings.virtual_effect_bass': 'Bas',
   'settings.virtual_effect_treble': 'Wysokie tony',
-  'settings.virtual_effect_surround': 'Dźwięk przestrzenny',
+  'settings.virtual_effect_surround': 'Surround',
   'settings.language_desc': 'Wybierz język lub używaj języka systemu.',
   'settings.theme_desc': 'Wybierz jasny lub ciemny motyw.',
   'player.visualizer_mode_hint': 'Wybierz sposób wizualizacji dźwięku.',
@@ -216,7 +216,7 @@ const pl: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Dźwięk przestrzenny',
   'settings.reverb_title': 'Pogłos',
   'settings.rvb_studio': 'Studio',
-  'settings.rvb_arena': 'Hala koncertowa',
+  'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Zaawansowane',
   'settings.rvb_off': 'Wył.',
   'settings.reverb_mix': 'Poziom pogłosu',
@@ -284,7 +284,7 @@ const pl: Record<I18nKey, string> = {
   'connect.kick_no': 'Nie',
   'connect.kicked_title': 'Wyrzucono z pokoju',
   'connect.kicked_message': 'Host wyrzucił to urządzenie z pokoju.',
-  'connect.copy_invite_link': 'Skopiuj link zaproszenia',
+  'connect.copy_invite_link': 'Kopiuj zaproszenie',
   'connect.link_copied': 'Link zaproszenia skopiowany',
   'connect.room_password_title': 'Wymagaj hasła przy wejściu do pokoju',
   'connect.room_password_toggle_aria': 'Przełącz wymaganie hasła do pokoju',
@@ -300,7 +300,7 @@ const pl: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Serwer pokoju jest dostępny',
   'connect.signaling_recovering': 'Ponowne łączenie…',
   'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',
-  'connect.signaling_recover_action': 'Połącz ponownie',
+  'connect.signaling_recover_action': 'Połącz znów',
   'connect.signaling_recovery_wait': 'Ponowne sprawdzanie serwera pokoju.',
   'connect.signaling_reconnecting': 'Ponowne łączenie z serwerem pokoju · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Połączenie z serwerem pokoju zostało przywrócone.',
@@ -308,7 +308,7 @@ const pl: Record<I18nKey, string> = {
     'Serwer pokoju nie odpowiada.\nNowi uczestnicy nie mogą się połączyć.',
   'connect.signaling_exhausted_pro':
     'Serwer pokoju nie odpowiada. Nowe dołączenia i aktualizacje na żywo są ograniczone.',
-  'connect.signaling_retry': 'Spróbuj ponownie',
+  'connect.signaling_retry': 'Ponów próbę',
   'connect.signaling_restart': 'Uruchom pokój ponownie',
   'connect.signaling_new_room': 'Utwórz nowy pokój',
 
@@ -327,8 +327,8 @@ const pl: Record<I18nKey, string> = {
   'demo.role_title': 'Ustaw rolę tego urządzenia',
   'demo.effects_title': 'Wypróbuj efekty dźwiękowe',
   'demo.reverb': 'Pogłos',
-  'demo.bass_boost': 'Wzmocnienie basów',
-  'demo.treble_boost': 'Wzmocnienie wysokich tonów',
+  'demo.bass_boost': 'Mocny bas',
+  'demo.treble_boost': 'Mocne soprany',
   'demo.surround': 'Dźwięk przestrzenny',
   'demo.role_bass_short': 'Basy',
   'demo.role_center_short': 'Centralny',
@@ -722,7 +722,7 @@ const pl: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'Dźwięk na chwilę się zatrzymał',
   'dialog.audio_recovery_message':
     'Po powrocie z tła nie udało się przywrócić dźwięku na tym urządzeniu. Połączenie z pokojem pozostanie aktywne, a my ponownie zsynchronizujemy tylko dźwięk tego urządzenia.',
-  'dialog.audio_recovery_action': 'Przywróć dźwięk',
+  'dialog.audio_recovery_action': 'Włącz dźwięk',
   'dialog.background_resume_message':
     'Jeśli synchronizacja jest nieprawidłowa lub nie słychać dźwięku, całkowicie zamknij aplikację i otwórz ją ponownie.',
   'dialog.background_resume_sync_fallback_message':
@@ -736,7 +736,7 @@ const pl: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE został zaktualizowany. Odśwież stronę, aby dalej normalnie z niego korzystać.',
   'dialog.reconnect_ask': 'Czy chcesz spróbować połączyć się ponownie?',
-  'dialog.reconnect': 'Połącz się ponownie',
+  'dialog.reconnect': 'Połącz znów',
   'dialog.go_back': 'Wróć',
   'dialog.step_next': 'Dalej',
   'dialog.step_back': 'Wstecz',
@@ -751,7 +751,7 @@ const pl: Record<I18nKey, string> = {
     'Zbyt wiele razy wpisano nieprawidłowe hasło. Spróbuj ponownie za chwilę.',
   'dialog.session_lost_msg':
     'Aplikacja przeszła w stan uśpienia lub straciła połączenie, dlatego pozostałe urządzenia zostały już rozłączone. Uruchom aplikację ponownie, aby utworzyć nowy pokój.',
-  'dialog.session_lost_btn': 'Uruchom ponownie',
+  'dialog.session_lost_btn': 'Restartuj',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Aktywuj pokój PRO',
@@ -780,7 +780,7 @@ const pl: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Zaloguj się na powiązane konto',
   'pro.claim_existing_account_message':
     'Ten link jest przypisany do konta MUSIXQUARE, które ma już pseudonim. Wybierz konto Google wskazane dla tego linku.',
-  'pro.claim_choose_account_button': 'Wybierz inne konto',
+  'pro.claim_choose_account_button': 'Inne konto',
   'pro.claim_account_conflict_title': 'To konto nie może korzystać z tego pokoju',
   'pro.claim_account_conflict_message':
     'Ten pokój jest powiązany z innym kontem. Jeśli chcesz zmienić właściciela, poproś administratora o przeniesienie własności.',
@@ -839,7 +839,7 @@ const pl: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Poprzednie połączenie nadal istnieje',
   'pro.active_tab_message': 'Kontynuowanie tutaj zakończy poprzednie połączenie.',
   'pro.active_tab_replaced': 'Ten pokój PRO jest już otwarty w innej karcie',
-  'pro.use_this_tab': 'Kontynuuj tutaj',
+  'pro.use_this_tab': 'Kontynuuj tu',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',
   'pro.upload.batch_failed_message':

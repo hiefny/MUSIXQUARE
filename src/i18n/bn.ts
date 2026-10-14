@@ -33,7 +33,7 @@ const bn: Record<I18nKey, string> = {
   'setup.carousel_pause': 'স্লাইডের স্বয়ংক্রিয় পরিবর্তন থামান',
   'common.message': 'বার্তা',
   'common.mix': 'মিক্স',
-  'common.wait': 'অনুগ্রহ করে অপেক্ষা করুন...',
+  'common.wait': 'অপেক্ষা করুন...',
   'common.guest': 'অতিথি',
   'common.help': 'সহায়তা',
   'common.increase': 'বাড়ান',

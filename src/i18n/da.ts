@@ -163,9 +163,9 @@ const da: Record<I18nKey, string> = {
   'transfer.host_busy': 'Værten behandler en anden fil. Prøv igen om lidt.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Centerhøjttaler',
-  'role.left': 'Venstre højttaler',
-  'role.right': 'Højre højttaler',
+  'role.center': 'Center',
+  'role.left': 'Venstre',
+  'role.right': 'Højre',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Placer enheden i midten',
   'role.left_placement': 'Placer enheden til venstre',
@@ -298,7 +298,7 @@ const da: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Rummets server er online',
   'connect.signaling_recovering': 'Opretter forbindelse igen…',
   'connect.signaling_failed': 'Forbindelsen til serveren mislykkedes',
-  'connect.signaling_recover_action': 'Opret forbindelse igen',
+  'connect.signaling_recover_action': 'Forbind igen',
   'connect.signaling_recovery_wait': 'Kontrollerer rummets server igen.',
   'connect.signaling_reconnecting':
     'Opretter forbindelse til rummets server igen · {{attempt}}/{{max}}',
@@ -320,14 +320,14 @@ const da: Record<I18nKey, string> = {
   'demo.prompt_cta': 'Start rundvisningen',
   'demo.prompt_later': 'Senere',
   'demo.try_later_toast': 'Du kan altid prøve den fra fanen Hjælp.',
-  'demo.track_info': 'Oplysninger om nummeret',
+  'demo.track_info': 'Nummerinfo',
   'demo.exit': 'Afslut demo',
   'demo.credit': 'Demonummer',
   'demo.role_title': 'Angiv denne enheds rolle',
   'demo.effects_title': 'Prøv effekter',
   'demo.reverb': 'Efterklang',
-  'demo.bass_boost': 'Basforstærkning',
-  'demo.treble_boost': 'Diskantforstærkning',
+  'demo.bass_boost': 'Mere bas',
+  'demo.treble_boost': 'Mere diskant',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Bas',
   'demo.role_center_short': 'Center',
@@ -372,7 +372,7 @@ const da: Record<I18nKey, string> = {
   'setup.connect_devices': 'Forbind dine andre enheder for at begynde.',
   'setup.enter_code_connect': 'Invitationskode',
   'setup.last_step': 'Lad os komme i gang!',
-  'setup.joining': 'Deltager i rummet…',
+  'setup.joining': 'Deltager…',
   'setup.six_digit_enter': 'Indtast det 6-cifrede tal',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -726,7 +726,7 @@ const da: Record<I18nKey, string> = {
   'dialog.feature_refresh_msg':
     'MUSIXQUARE er blevet opdateret. Opdater siden for at fortsætte med at bruge det som normalt.',
   'dialog.reconnect_ask': 'Vil du oprette forbindelse igen?',
-  'dialog.reconnect': 'Opret forbindelse igen',
+  'dialog.reconnect': 'Forbind igen',
   'dialog.go_back': 'Gå tilbage',
   'dialog.step_next': 'Næste',
   'dialog.step_back': 'Tilbage',
@@ -769,7 +769,7 @@ const da: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Log ind med den tilknyttede konto',
   'pro.claim_existing_account_message':
     'Dette link er bundet til en MUSIXQUARE-konto, der allerede har et kaldenavn. Vælg den Google-konto, der er angivet for linket.',
-  'pro.claim_choose_account_button': 'Vælg en anden konto',
+  'pro.claim_choose_account_button': 'Anden konto',
   'pro.claim_account_conflict_title': 'Denne konto kan ikke bruge dette rum',
   'pro.claim_account_conflict_message':
     'Dette rum er knyttet til en anden konto. Bed en administrator om at overføre ejerskabet, hvis det skal ændres.',

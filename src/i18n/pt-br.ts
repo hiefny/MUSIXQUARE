@@ -21,7 +21,7 @@ const ptBr: Record<I18nKey, string> = {
   'common.reset': 'Redefinir',
   'common.clear_input': 'Limpar campo',
   'common.refresh': 'Atualizar',
-  'common.retry': 'Tentar novamente',
+  'common.retry': 'Tentar de novo',
   'common.later': 'Mais tarde',
   'common.next': 'Avançar',
   'common.start': 'Começar',
@@ -35,7 +35,7 @@ const ptBr: Record<I18nKey, string> = {
   'setup.carousel_pause': 'Pausar a rotação automática dos slides',
   'common.message': 'Mensagem',
   'common.mix': 'Mixagem',
-  'common.wait': 'Só um momento...',
+  'common.wait': 'Um momento...',
   'common.guest': 'Participante',
   'common.help': 'Ajuda',
   'common.increase': 'Aumentar',
@@ -109,9 +109,9 @@ const ptBr: Record<I18nKey, string> = {
   'nav.go_home': 'Ir para o início',
 
   // Role
-  'role.center': 'Alto-falante central',
-  'role.left': 'Alto-falante esquerdo',
-  'role.right': 'Alto-falante direito',
+  'role.center': 'Central',
+  'role.left': 'Esquerdo',
+  'role.right': 'Direito',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Coloque o dispositivo no centro',
   'role.left_placement': 'Coloque o dispositivo à esquerda',
@@ -307,7 +307,7 @@ const ptBr: Record<I18nKey, string> = {
     'O servidor da sala não está respondendo.\nNovos participantes não podem se conectar.',
   'connect.signaling_exhausted_pro':
     'O servidor da sala não está respondendo. Novas entradas e atualizações em tempo real estão limitadas.',
-  'connect.signaling_retry': 'Tentar novamente',
+  'connect.signaling_retry': 'Tentar de novo',
   'connect.signaling_restart': 'Reiniciar sala',
   'connect.signaling_new_room': 'Iniciar uma nova sala',
 
@@ -326,8 +326,8 @@ const ptBr: Record<I18nKey, string> = {
   'demo.role_title': 'Função do dispositivo',
   'demo.effects_title': 'Experimentar efeitos',
   'demo.reverb': 'Reverberação',
-  'demo.bass_boost': 'Reforço de graves',
-  'demo.treble_boost': 'Reforço de agudos',
+  'demo.bass_boost': 'Mais graves',
+  'demo.treble_boost': 'Mais agudos',
   'demo.surround': 'Surround',
   'demo.role_bass_short': 'Graves',
   'demo.role_center_short': 'Centro',
@@ -647,7 +647,7 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'O áudio foi pausado inesperadamente',
   'dialog.audio_recovery_message':
     'O áudio deste dispositivo não se recuperou após voltar do segundo plano. A sala continuará conectada enquanto o MUSIXQUARE realinha o som deste dispositivo.',
-  'dialog.audio_recovery_action': 'Restaurar áudio',
+  'dialog.audio_recovery_action': 'Ativar áudio',
   'dialog.background_resume_message':
     'Se a sincronização falhar ou o áudio não tocar, feche o app completamente e abra de novo.',
   'dialog.background_resume_sync_fallback_message':
@@ -703,7 +703,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Entre com a conta vinculada',
   'pro.claim_existing_account_message':
     'Este link está vinculado a uma conta do MUSIXQUARE que já tem apelido. Escolha a conta do Google indicada para este link.',
-  'pro.claim_choose_account_button': 'Escolher outra conta',
+  'pro.claim_choose_account_button': 'Outra conta',
   'pro.claim_account_conflict_title': 'Esta conta não pode usar esta sala',
   'pro.claim_account_conflict_message':
     'Esta sala está vinculada a outra conta. Se precisar mudar, peça a um administrador para transferir a propriedade.',

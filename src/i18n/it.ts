@@ -163,9 +163,9 @@ const it: Record<I18nKey, string> = {
   'transfer.host_busy': 'L’host sta elaborando un altro file. Riprova tra poco.',
 
   // ─── Role ────────────────────────────────────────────────────────
-  'role.center': 'Altoparlante centrale',
-  'role.left': 'Altoparlante sinistro',
-  'role.right': 'Altoparlante destro',
+  'role.center': 'Centrale',
+  'role.left': 'Sinistro',
+  'role.right': 'Destro',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Posiziona il dispositivo al centro',
   'role.left_placement': 'Posiziona il dispositivo a sinistra',
@@ -374,7 +374,7 @@ const it: Record<I18nKey, string> = {
   'setup.connect_devices': 'Ora connetti altri dispositivi.',
   'setup.enter_code_connect': 'Codice d’invito',
   'setup.last_step': 'Iniziamo!',
-  'setup.joining': 'Accesso in corso...',
+  'setup.joining': 'Accesso...',
   'setup.six_digit_enter': 'Inserisci il numero di 6 cifre',
 
   // ─── Help ────────────────────────────────────────────────────────
@@ -726,7 +726,7 @@ const it: Record<I18nKey, string> = {
   'dialog.audio_recovery_title': 'L’audio si è interrotto inaspettatamente',
   'dialog.audio_recovery_message':
     'Dopo il ritorno dal background, l’audio di questo dispositivo non è stato ripristinato. La stanza resterà connessa mentre riallineiamo solo il suono di questo dispositivo.',
-  'dialog.audio_recovery_action': 'Ripristina audio',
+  'dialog.audio_recovery_action': 'Riattiva audio',
   'dialog.background_resume_message':
     'Se la sincronizzazione non è corretta o non senti l’audio, chiudi completamente l’app e riaprila.',
   'dialog.background_resume_sync_fallback_message':
@@ -785,7 +785,7 @@ const it: Record<I18nKey, string> = {
   'pro.claim_existing_account_title': 'Accedi con l’account collegato',
   'pro.claim_existing_account_message':
     'Questo link è associato a un account MUSIXQUARE che ha già un nickname. Scegli l’account Google indicato per questo link.',
-  'pro.claim_choose_account_button': 'Scegli un altro account',
+  'pro.claim_choose_account_button': 'Altro account',
   'pro.claim_account_conflict_title': 'Questo account non può usare la stanza',
   'pro.claim_account_conflict_message':
     'Questa stanza è collegata a un altro account. Se vuoi cambiarlo, chiedi a un amministratore di trasferire la proprietà.',

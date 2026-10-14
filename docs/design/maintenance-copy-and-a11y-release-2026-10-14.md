@@ -2,7 +2,7 @@
 
 | 항목      | 값                                                                                                                                                                                                                                                      |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v678`, Production Release `target=all` 예정                                                                                                                                     |
+| 상태      | 2026-10-14 13:01 KST 프로덕션 배포 완료. 제품 `8.10.12` / 서비스 워커 캐시 `v678`, Release 38508866905 attempt 1, `target=all` (§5)                                                                                                                     |
 | 검증 코드 | 코드 커밋 `3d2d206fa75713d140afba183e23a1c886b86405`(1차, v676) → `65a28e09`(리뷰 반영, v677) → `125628f93b447b3c62afad62e72269bebee77db4`(aria-hidden 제거·예산 통과, v678, 최종) (branch `agent/maintenance-copy-a11y-8.10.12`, base main `14f72b77`) |
 | 환경      | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다                                                                                                                                                     |
 | 범위      | `cloudflare/service-maintenance.ts`(Worker 6종 공유 모듈) 점검 안내 14개 로케일 문구, `src/player/video.ts` 주차된 YouTube 래퍼 `inert`, 테스트 핀 4곳과 단위 테스트 1개 추가, 릴리스 식별자. D1·스키마·시크릿·바인딩·프로토콜 변경 없음                |
@@ -69,3 +69,24 @@ prime 흐름에 영향이 없는지는 기존 iOS 실기 항목과 함께 본다
 
 번역 문구·접근성 속성·릴리스 식별자만 바뀌었다. Worker 6종이 같은 SHA로 배포되며 새 floor는
 없다. 문제가 있으면 직전 App·Worker(8.10.11, `7be28951`)로 되돌린다.
+
+<a id="release-and-recovery"></a>
+
+## 5. 배포와 복구
+
+- 병합: PR [#328](https://github.com/hiefny/MUSIXQUARE/pull/328) → main `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`(2026-10-14). exact-main [CI 38508327514](https://github.com/hiefny/MUSIXQUARE/actions/runs/38508327514) attempt 1 성공(11 jobs; unit 560파일 12,639 pass / 1 skip, candidate browser 17 + critical 24 pass).
+- 배포: [Release 38508866905](https://github.com/hiefny/MUSIXQUARE/actions/runs/38508866905) attempt 1, `target=all`, Developer API D1 `false`. 오너 지시(2026-10-14 "접근성 수정 릴리스까지 가자", "고고링"). deploy job 12:57:09~13:01:38 KST. 최종 소유권 6종 `verified` 13:01:30.156 KST, coherent marker 기록, PRO generation readiness 복원 `success`, signaling Custom Domain 후보 검증 `success`, 운영 smoke 전부 pass. App target의 idempotent admin-D1 baseline과 translation-community·Developer API authority 계약 적용·검증 성공.
+
+| Worker               | 배포된 version / deployment                                                     | 변경 전 version / deployment (복구 기준선)                                                   |
+| -------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| app                  | `1ad37fdb-54bb-44a0-8b45-c2e711345ea4` / `7cdfb7db-b3e6-42e0-a007-e72cb7144dd5` | `3da399a5-07b3-4a45-bf70-a44e23415f6b` / `0eee8df7-b5d2-45e7-ae39-410e6ef15f86` (`7be28951`) |
+| signaling            | `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760` | `abfebf5b-27a6-416e-bf29-abb54b03431e` / `d205704e-f1f5-42d2-8621-45ad4053cfe7` (`08df0606`) |
+| pro-room             | `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf` | `a3f34507-2e66-445d-b9d5-847ab68ba979` / `ef1cd595-f9a1-4ab7-b084-56e441afaaf1` (`08df0606`) |
+| remote-share         | `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a` | `33007f96-4fa4-4e85-8e77-866a433bc6ba` / `7963ec0d-b3ac-46f2-8906-e8138c2b6e26` (`08df0606`) |
+| developer-api        | `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d` | `6ea4cd0f-9cf2-4fa2-959e-a7b6f5d82d1b` / `81e30396-f1c8-4709-acdc-3f6c749df12e` (`08df0606`) |
+| developer-api-facade | `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037` | `4ac20f8b-0806-4f97-8bdd-0cbe02dc8b6a` / `deb8f91c-3aea-4ff0-b473-d3b27edcaf7a` (`08df0606`) |
+
+- 공개 확인: 13:02:40 KST `/` HTTP 200에 `bootstrap.js?cache=v678`, `service-worker.js` HTTP 200/v678. 실제 점검 모드 표시와 실기 화면·새 프로필은 확인하지 않았다.
+- 드리프트 감사: 배포 직후 [38509366820](https://github.com/hiefny/MUSIXQUARE/actions/runs/38509366820) 성공, 31 pass / 0 fail / 5 manual-only, `automated-checks-passed`(13:03:19.824 KST).
+- 복구 기준선: 12:57:44.497 KST checkpoint(위 표의 변경 전 값, provenance 전부 `verified-release-ancestor`), R2 정책 checkpoint 12:57:44.578 KST. 신규 floor 없음. 이 기준선으로 돌아가면 점검 안내가 이전 직역 문구로, 주차된 래퍼의 포커스 결함이 돌아간다.
+- 남은 확인: 초기 전송 예산 여유 66 B는 [release-record](../release-record.md) §2 열린 항목.

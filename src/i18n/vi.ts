@@ -229,6 +229,7 @@ const vi: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Đi tới mục đang phát',
   'playlist.reorder_handle': 'Sắp xếp lại {{title}}, vị trí {{position}}',
   'playlist.reorder_position': '{{title}}, vị trí {{position}} trên {{total}}',
+  'playlist.reorder_failed': 'Không thể di chuyển mục',
   'playlist.repeat_all': 'Đã bật lặp tất cả các mục',
   'playlist.repeat_one': 'Đã bật lặp mục hiện tại',
   'playlist.repeat_off': 'Đã tắt lặp',

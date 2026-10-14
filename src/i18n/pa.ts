@@ -142,6 +142,7 @@ const pa: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'ਇਸ ਵੇਲੇ ਚੱਲ ਰਹੇ ਟਰੈਕ ਉੱਤੇ ਜਾਓ',
   'playlist.reorder_handle': '{{title}} ਦਾ ਕ੍ਰਮ ਬਦਲੋ, ਥਾਂ {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}} ਵਿੱਚੋਂ ਥਾਂ {{position}}',
+  'playlist.reorder_failed': 'ਟਰੈਕ ਨੂੰ ਹਿਲਾਇਆ ਨਹੀਂ ਜਾ ਸਕਿਆ',
   'playlist.repeat_all': 'ਸਾਰੇ ਟਰੈਕਾਂ ਦਾ ਦੁਹਰਾਓ ਚਾਲੂ ਹੈ',
   'playlist.repeat_one': 'ਮੌਜੂਦਾ ਟਰੈਕ ਦਾ ਦੁਹਰਾਓ ਚਾਲੂ ਹੈ',
   'playlist.repeat_off': 'ਦੁਹਰਾਓ ਬੰਦ ਹੈ',

@@ -142,6 +142,7 @@ const ms: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Lompat ke trek yang sedang dimainkan',
   'playlist.reorder_handle': 'Susun semula {{title}}, kedudukan {{position}}',
   'playlist.reorder_position': '{{title}}, kedudukan {{position}} daripada {{total}}',
+  'playlist.reorder_failed': 'Tidak dapat mengalihkan trek',
   'playlist.repeat_all': 'Ulang semua trek dihidupkan',
   'playlist.repeat_one': 'Ulang trek semasa dihidupkan',
   'playlist.repeat_off': 'Ulang dimatikan',

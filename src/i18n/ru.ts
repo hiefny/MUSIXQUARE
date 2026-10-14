@@ -138,6 +138,7 @@ const ru: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Перейти к воспроизводимому материалу',
   'playlist.reorder_handle': 'Изменить порядок {{title}}, позиция {{position}}',
   'playlist.reorder_position': '{{title}}, позиция {{position}} из {{total}}',
+  'playlist.reorder_failed': 'Не удалось переместить материал',
   'playlist.repeat_all': 'Повтор всех материалов включён',
   'playlist.repeat_one': 'Повтор текущего материала включён',
   'playlist.repeat_off': 'Повтор отключён',

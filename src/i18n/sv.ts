@@ -141,6 +141,7 @@ const sv: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Gå till spåret som spelas',
   'playlist.reorder_handle': 'Flytta {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} av {{total}}',
+  'playlist.reorder_failed': 'Det gick inte att flytta spåret',
   'playlist.repeat_all': 'Upprepning av alla spår är aktiverad',
   'playlist.repeat_one': 'Upprepning av aktuellt spår är aktiverad',
   'playlist.repeat_off': 'Upprepning är avstängd',

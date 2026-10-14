@@ -136,6 +136,7 @@ const th: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'ไปยังรายการที่กำลังเล่น',
   'playlist.reorder_handle': 'จัดลำดับ {{title}} ใหม่ ตำแหน่ง {{position}}',
   'playlist.reorder_position': '{{title}} ตำแหน่ง {{position}} จาก {{total}}',
+  'playlist.reorder_failed': 'ย้ายรายการไม่ได้',
   'playlist.repeat_all': 'เปิดเล่นซ้ำทุกรายการแล้ว',
   'playlist.repeat_one': 'เปิดเล่นซ้ำรายการนี้แล้ว',
   'playlist.repeat_off': 'ปิดเล่นซ้ำแล้ว',

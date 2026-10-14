@@ -233,6 +233,7 @@ const de: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Zum aktuell gespielten Titel springen',
   'playlist.reorder_handle': '{{title}} neu anordnen, Position {{position}}',
   'playlist.reorder_position': '{{title}}, Position {{position}} von {{total}}',
+  'playlist.reorder_failed': 'Verschieben des Titels fehlgeschlagen',
   'playlist.repeat_all': 'Wiederholung aller Titel aktiviert',
   'playlist.repeat_one': 'Wiederholung des aktuellen Titels aktiviert',
   'playlist.repeat_off': 'Wiederholung deaktiviert',

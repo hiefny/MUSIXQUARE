@@ -140,6 +140,7 @@ const nl: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Naar de track die nu speelt',
   'playlist.reorder_handle': '{{title}} verplaatsen, positie {{position}}',
   'playlist.reorder_position': '{{title}}, positie {{position}} van {{total}}',
+  'playlist.reorder_failed': 'Track verplaatsen mislukt',
   'playlist.repeat_all': 'Alle tracks herhalen aan',
   'playlist.repeat_one': 'Huidige track herhalen aan',
   'playlist.repeat_off': 'Herhalen uit',

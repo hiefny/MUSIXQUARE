@@ -139,6 +139,7 @@ const ur: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'چلتے ہوئے ٹریک پر جائیں',
   'playlist.reorder_handle': '{{title}} کو دوبارہ ترتیب دیں، مقام {{position}}',
   'playlist.reorder_position': '{{title}}، {{total}} میں سے مقام {{position}}',
+  'playlist.reorder_failed': 'ٹریک منتقل نہیں ہو سکا',
   'playlist.repeat_all': 'تمام ٹریک دہرانا فعال ہے',
   'playlist.repeat_one': 'موجودہ ٹریک دہرانا فعال ہے',
   'playlist.repeat_off': 'دہرانا بند ہے',

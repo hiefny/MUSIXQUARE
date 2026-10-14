@@ -235,6 +235,9 @@ let playlistProjection: ProRoomPlaylistProjection | null = null;
 let mediaTransfer: ProRoomMediaTransfer | null = null;
 let playlistRoomCode: string | null = null;
 let playlistSignature = '';
+// The newest dropped reorder still awaiting its server answer. Projecting an
+// earlier accepted reorder must not redraw over this order.
+let pendingReorderOverlay: { readonly order: readonly QueueItemId[] } | null = null;
 let playlistRuntimeAbort: AbortController | null = null;
 type PlaylistRuntimeLease = ProRoomPlaybackPlaylistLease;
 let playlistRuntimeGeneration = 0;
@@ -776,6 +779,8 @@ async function applyProjectedPlaylist(
       throw new Error(`PRO_ROOM_PLAYLIST_PROJECTION_${outcome.toUpperCase()}`);
     }
     if (getState('playlist.isShuffle')) reconcileShuffleOrderForCurrentPlaylist();
+    // A newer drop is still in flight: keep its order over this earlier one.
+    if (pendingReorderOverlay) applyLocalQueueOrder(pendingReorderOverlay.order);
     reconcileRemovedProRoomQueueState(removedQueueItemIds);
     playlistSignature = nextSignature;
     attachCachedFiles(snapshot);
@@ -803,6 +808,26 @@ async function applyProjectedPlaylist(
     return;
   }
   attachCachedFiles(snapshot);
+}
+
+/**
+ * Re-sort the local rows into `order`. Only the order changes: when `order`
+ * names a different set of rows, the projection of the newer snapshot owns
+ * them instead.
+ */
+function applyLocalQueueOrder(order: readonly QueueItemId[]): void {
+  const items = getState('playlist.items');
+  if (order.length !== items.length) return;
+  const itemById = new Map(items.map((item) => [item.queueItemId, item]));
+  const ordered: PlaylistItem[] = [];
+  for (const queueItemId of order) {
+    const item = itemById.get(queueItemId);
+    if (!item) return;
+    ordered.push(item);
+  }
+  if (ordered.every((item, index) => item === items[index])) return;
+  setState('playlist.items', ordered);
+  if (getState('playlist.isShuffle')) reconcileShuffleOrderForCurrentPlaylist();
 }
 
 function reportPlaylistError(error: unknown): void {
@@ -1352,12 +1377,32 @@ function installMediaHooks(
       if (baseRevision !== getState('playlist.revision')) return false;
       const reordered = moveQueueItemBefore(queueItemId, beforeQueueItemId);
       if (!reordered) return true;
-      void manager
-        .reorder(
-          reordered.map((item) => item.queueItemId),
-          { baseRevision, signal },
-        )
-        .catch(reportCurrentPlaylistError(signal));
+      const order = reordered.map((item) => item.queueItemId);
+      // Show the dropped order at once instead of redrawing the old one until
+      // the server answers. The projection redraws only when the canonical
+      // playlist changes, so same-revision heartbeats keep this order, and it
+      // re-applies the newest pending drop over an earlier accepted reorder.
+      const overlay = { order };
+      pendingReorderOverlay = overlay;
+      applyLocalQueueOrder(order);
+      const settle = (): boolean => {
+        const newest = pendingReorderOverlay === overlay;
+        if (newest) pendingReorderOverlay = null;
+        return newest;
+      };
+      void manager.reorder(order, { baseRevision, signal }).then(settle, (error: unknown) => {
+        // A newer drop sends its full order, which carries this move, and
+        // decides the outcome; only the newest one restores or reports.
+        if (!settle() || !isPlaylistLeaseCurrent(lease)) return;
+        // Restore the server's latest order, not the pre-drag one: another
+        // participant may have changed the queue meanwhile.
+        const canonical = manager.snapshot;
+        if (canonical) applyLocalQueueOrder(canonical.playlist.map((item) => item.queueItemId));
+        // Revoked queue authority aborts the request; restore without a toast.
+        if (signal.aborted) return;
+        log.warn('[PRO] Playlist reorder failed', error);
+        bus.emit('ui:show-toast', t('playlist.reorder_failed'));
+      });
       return true;
     },
     handlesPersistentFile(queueItemId) {
@@ -1510,6 +1555,7 @@ function resetPlaylistRuntime(): void {
   mediaTransfer = null;
   playlistRoomCode = null;
   playlistSignature = '';
+  pendingReorderOverlay = null;
   seenQueueAdditionEventIds.clear();
   pendingQueueAdditions.clear();
   lastAnnouncedQueueAdditionOrder = 0;

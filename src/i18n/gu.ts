@@ -141,6 +141,7 @@ const gu: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'હમણાં ચાલી રહેલા ટ્રૅક પર જાઓ',
   'playlist.reorder_handle': '{{title}} નો ક્રમ બદલો, સ્થાન {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}} માંથી સ્થાન {{position}}',
+  'playlist.reorder_failed': 'ટ્રૅક ખસેડી શકાયો નથી',
   'playlist.repeat_all': 'બધા ટ્રૅકનું પુનરાવર્તન ચાલુ',
   'playlist.repeat_one': 'હાલના ટ્રૅકનું પુનરાવર્તન ચાલુ',
   'playlist.repeat_off': 'પુનરાવર્તન બંધ',

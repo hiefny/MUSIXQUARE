@@ -140,6 +140,7 @@ const cs: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Přejít na právě přehrávanou skladbu',
   'playlist.reorder_handle': 'Změnit pořadí {{title}}, pozice {{position}}',
   'playlist.reorder_position': '{{title}}, pozice {{position}} z {{total}}',
+  'playlist.reorder_failed': 'Přesunutí skladby se nezdařilo',
   'playlist.repeat_all': 'Opakování všech skladeb je zapnuto',
   'playlist.repeat_one': 'Opakování aktuální skladby je zapnuto',
   'playlist.repeat_off': 'Opakování je vypnuto',

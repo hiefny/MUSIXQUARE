@@ -140,6 +140,7 @@ const hu: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Ugrás az aktuális számhoz',
   'playlist.reorder_handle': '{{title}} átrendezése, {{position}}. hely',
   'playlist.reorder_position': '{{title}}, {{position}}. hely, összesen {{total}}',
+  'playlist.reorder_failed': 'Nem sikerült áthelyezni a számot',
   'playlist.repeat_all': 'Az összes szám ismétlése bekapcsolva',
   'playlist.repeat_one': 'Az aktuális szám ismétlése bekapcsolva',
   'playlist.repeat_off': 'Ismétlés kikapcsolva',

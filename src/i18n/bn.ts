@@ -140,6 +140,7 @@ const bn: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'এখন যে ট্র্যাকটি চলছে সেখানে যান',
   'playlist.reorder_handle': '{{title}}-এর ক্রম বদলান, অবস্থান {{position}}',
   'playlist.reorder_position': '{{title}}, মোট {{total}}টির মধ্যে অবস্থান {{position}}',
+  'playlist.reorder_failed': 'ট্র্যাকটি সরানো যায়নি',
   'playlist.repeat_all': 'সব ট্র্যাক পুনরাবৃত্তি চালু আছে',
   'playlist.repeat_one': 'বর্তমান ট্র্যাক পুনরাবৃত্তি চালু আছে',
   'playlist.repeat_off': 'পুনরাবৃত্তি বন্ধ আছে',

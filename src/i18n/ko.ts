@@ -138,6 +138,7 @@ const ko = {
   'playlist.jump_to_current': '현재 재생 중인 트랙으로 이동',
   'playlist.reorder_handle': '{{title}} 순서 변경, 현재 {{position}}번',
   'playlist.reorder_position': '{{title}}, 전체 {{total}}개 중 {{position}}번',
+  'playlist.reorder_failed': '트랙 위치를 바꾸지 못했어요',
   'playlist.repeat_all': '전체 반복 재생이 켜졌어요',
   'playlist.repeat_one': '현재 트랙 반복 재생이 켜졌어요',
   'playlist.repeat_off': '반복 재생이 꺼졌어요',

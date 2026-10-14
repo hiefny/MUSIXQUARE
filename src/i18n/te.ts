@@ -141,6 +141,7 @@ const te: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'ప్రస్తుతం ప్లే అవుతున్న ట్రాక్‌కు వెళ్లు',
   'playlist.reorder_handle': '{{title}} క్రమాన్ని మార్చు, స్థానం {{position}}',
   'playlist.reorder_position': '{{title}}, మొత్తం {{total}}లో స్థానం {{position}}',
+  'playlist.reorder_failed': 'ట్రాక్‌ను తరలించడం సాధ్యపడలేదు',
   'playlist.repeat_all': 'అన్ని ట్రాక్‌ల రిపీట్ ఆన్‌లో ఉంది',
   'playlist.repeat_one': 'ప్రస్తుత ట్రాక్ రిపీట్ ఆన్‌లో ఉంది',
   'playlist.repeat_off': 'రిపీట్ ఆఫ్‌లో ఉంది',

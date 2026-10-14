@@ -232,6 +232,7 @@ const fr: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Aller à la piste en cours de lecture',
   'playlist.reorder_handle': 'Réorganiser {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} sur {{total}}',
+  'playlist.reorder_failed': 'Impossible de déplacer la piste',
   'playlist.repeat_all': 'Répétition de toutes les pistes activée',
   'playlist.repeat_one': 'Répétition de la piste actuelle activée',
   'playlist.repeat_off': 'Répétition désactivée',

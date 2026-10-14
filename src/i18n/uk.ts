@@ -140,6 +140,7 @@ const uk: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Перейти до поточного треку',
   'playlist.reorder_handle': 'Перемістити {{title}}, позиція {{position}}',
   'playlist.reorder_position': '{{title}}, позиція {{position}} з {{total}}',
+  'playlist.reorder_failed': 'Не вдалося перемістити трек',
   'playlist.repeat_all': 'Повтор усіх треків увімкнено',
   'playlist.repeat_one': 'Повтор поточного треку увімкнено',
   'playlist.repeat_off': 'Повтор вимкнено',

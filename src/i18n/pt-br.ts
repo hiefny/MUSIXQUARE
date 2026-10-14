@@ -233,6 +233,7 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Ir para a faixa em reprodução',
   'playlist.reorder_handle': 'Reordenar {{title}}, posição {{position}}',
   'playlist.reorder_position': '{{title}}, posição {{position}} de {{total}}',
+  'playlist.reorder_failed': 'Não foi possível mover a faixa',
   'playlist.repeat_all': 'Repetição de todas as faixas ativada',
   'playlist.repeat_one': 'Repetição da faixa atual ativada',
   'playlist.repeat_off': 'Repetição desativada',

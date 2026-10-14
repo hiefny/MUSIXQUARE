@@ -234,6 +234,7 @@ const id: Record<I18nKey, string> = {
   'playlist.jump_to_current': 'Lompat ke media yang sedang diputar',
   'playlist.reorder_handle': 'Urutkan ulang {{title}}, posisi {{position}}',
   'playlist.reorder_position': '{{title}}, posisi {{position}} dari {{total}}',
+  'playlist.reorder_failed': 'Tidak dapat memindahkan media',
   'playlist.repeat_all': 'Pengulangan semua media diaktifkan',
   'playlist.repeat_one': 'Pengulangan media saat ini diaktifkan',
   'playlist.repeat_off': 'Pengulangan dinonaktifkan',

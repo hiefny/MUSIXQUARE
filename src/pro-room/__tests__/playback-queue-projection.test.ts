@@ -4,7 +4,7 @@ import * as audioContext from '../../audio/context.ts';
 import * as audioEngine from '../../audio/engine.ts';
 import { bus } from '../../core/events.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
-import { getState } from '../../core/state.ts';
+import { getState, setState } from '../../core/state.ts';
 import { clearManagedTimer } from '../../core/timers.ts';
 import { t } from '../../i18n/index.ts';
 import { initPlaylist } from '../../player/playlist.ts';
@@ -436,6 +436,78 @@ describe('PRO queue projection during persistent media preparation', { concurren
         await vi.waitFor(() => expect(toasts).toContain(t('playlist.reorder_failed')));
         expect(getState('playlist.items').map((item) => item.queueItemId)).toEqual([A, B, C]);
         expect(canonical.playlist.map((item) => item.queueItemId)).toEqual([A, B, C]);
+      } finally {
+        stopListening();
+      }
+    });
+
+    it('keeps the newest of two quick drops over the first accepted snapshot', async () => {
+      await joinIdleRoom();
+      const order = () => getState('playlist.items').map((item) => item.queueItemId);
+      const update = vi.mocked(ProRoomApiClient.prototype.updateCompactSnapshot);
+      const serverAnswer = update.getMockImplementation()!;
+      const answers: Array<() => void> = [];
+      update.mockImplementation(
+        (input, ...rest) =>
+          new Promise((resolve, reject) => {
+            answers.push(() => {
+              void serverAnswer(input, ...rest).then(resolve, reject);
+            });
+          }),
+      );
+
+      expect(handleProRoomTrackReorder(C, A, getState('playlist.revision'))).toBe(true);
+      expect(handleProRoomTrackReorder(B, A, getState('playlist.revision'))).toBe(true);
+      expect(order()).toEqual([C, B, A]);
+
+      // The first request is accepted while the second still waits its turn.
+      await vi.waitFor(() => expect(answers).toHaveLength(1));
+      answers[0]!();
+      await vi.waitFor(() => expect(getState('playlist.revision')).toBe(canonical.revision));
+      expect(canonical.playlist.map((item) => item.queueItemId)).toEqual([C, A, B]);
+      expect(order()).toEqual([C, B, A]);
+
+      await vi.waitFor(() => expect(answers).toHaveLength(2));
+      answers[1]!();
+      await vi.waitFor(() =>
+        expect(canonical.playlist.map((item) => item.queueItemId)).toEqual([C, B, A]),
+      );
+      await vi.waitFor(() => expect(getState('playlist.revision')).toBe(canonical.revision));
+      expect(order()).toEqual([C, B, A]);
+    });
+
+    it('restores the server order without a toast when queue authority is revoked mid-flight', async () => {
+      await joinIdleRoom();
+      const toasts: string[] = [];
+      const stopListening = bus.on('ui:show-toast', (message) => {
+        toasts.push(String(message));
+      });
+      const update = vi.mocked(ProRoomApiClient.prototype.updateCompactSnapshot);
+      update.mockImplementationOnce(
+        (_input, signal) =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true },
+            );
+          }),
+      );
+      try {
+        expect(handleProRoomTrackReorder(C, A, getState('playlist.revision'))).toBe(true);
+        await vi.waitFor(() => expect(update).toHaveBeenCalled());
+
+        const context = getState('room.context');
+        if (context.kind !== 'pro') throw new Error('expected a PRO room');
+        setState('room.context', {
+          ...context,
+          capabilities: context.capabilities.filter((capability) => capability !== 'queue.mutate'),
+        });
+
+        await vi.waitFor(() =>
+          expect(getState('playlist.items').map((item) => item.queueItemId)).toEqual([A, B, C]),
+        );
+        expect(toasts).not.toContain(t('playlist.reorder_failed'));
       } finally {
         stopListening();
       }

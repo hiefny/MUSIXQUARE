@@ -134,15 +134,12 @@ describe('body class sink (playback.mode matrix)', () => {
     setState('playback.mode', 'youtube');
     const wrapper = document.querySelector('.video-wrapper') as HTMLElement;
     expect(wrapper.hasAttribute('inert')).toBe(false);
-    expect(wrapper.hasAttribute('aria-hidden')).toBe(false);
 
     setState('playback.mode', 'file');
     expect(wrapper.hasAttribute('inert')).toBe(true);
-    expect(wrapper.getAttribute('aria-hidden')).toBe('true');
 
     setState('playback.mode', 'youtube');
     expect(wrapper.hasAttribute('inert')).toBe(false);
-    expect(wrapper.hasAttribute('aria-hidden')).toBe(false);
   });
 
   it('clears fake fullscreen before parking a retained iframe for local-file playback', () => {

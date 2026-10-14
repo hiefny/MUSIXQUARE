@@ -102,14 +102,14 @@ export function exitYouTubeFullscreen(): void {
  * Accessibility state of the `.video-wrapper` that hosts the YouTube iframe.
  * A parked wrapper (retained iframe outside YouTube mode, or the iOS
  * pre-created player before any playback) stays rendered offscreen, so its
- * fullscreen button would otherwise take reverse keyboard focus. `inert`
- * keeps the iframe rendered and does not block the player's postMessage
- * API, so the retained player and the iOS prime flow are unaffected.
+ * fullscreen button would otherwise take reverse keyboard focus. `inert` also
+ * removes the subtree from accessibility APIs, so no separate aria-hidden is
+ * needed. It keeps the iframe rendered and does not block the player's
+ * postMessage API, so the retained player and the iOS prime flow are
+ * unaffected.
  */
 export function setYouTubeWrapperParked(wrapper: HTMLElement, parked: boolean): void {
   wrapper.toggleAttribute('inert', parked);
-  if (parked) wrapper.setAttribute('aria-hidden', 'true');
-  else wrapper.removeAttribute('aria-hidden');
 }
 
 function updateBodyModeClass(mode: PlaybackModeValue): void {

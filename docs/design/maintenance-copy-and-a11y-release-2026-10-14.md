@@ -2,7 +2,7 @@
 
 | 항목      | 값                                                                                                                                                                                                                                       |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v677`, Production Release `target=all` 예정                                                                                                                      |
+| 상태      | 구현·로컬 검증 완료, 병합·배포 대기. 제품 `8.10.12` / 서비스 워커 캐시 `v678`, Production Release `target=all` 예정                                                                                                                      |
 | 검증 코드 | 코드 커밋 `3d2d206fa75713d140afba183e23a1c886b86405` (branch `agent/maintenance-copy-a11y-8.10.12`, base main `14f72b77`)                                                                                                                |
 | 환경      | Windows 11, Node 24.13.1, Vitest 5, Prettier, TypeScript. 로컬 실행이며 exact-main CI 후보가 아니다                                                                                                                                      |
 | 범위      | `cloudflare/service-maintenance.ts`(Worker 6종 공유 모듈) 점검 안내 14개 로케일 문구, `src/player/video.ts` 주차된 YouTube 래퍼 `inert`, 테스트 핀 4곳과 단위 테스트 1개 추가, 릴리스 식별자. D1·스키마·시크릿·바인딩·프로토콜 변경 없음 |
@@ -33,8 +33,9 @@
 YouTube 모드를 벗어나면 `updateBodyModeClass`가 iframe이 남은 `.video-wrapper`를
 `display:flex` + `position:fixed; left:-9999px`로 화면 밖에 주차한다(iframe을 `display:none`으로
 떼면 iOS 제스처 unlock이 풀리기 때문에 의도된 설계). 그 결과 래퍼 안의 전체화면 버튼이 DOM에
-남아 Shift+Tab 역방향 포커스를 받았다. 수정: 모드가 YouTube가 아니면 래퍼에 `inert`와
-`aria-hidden="true"`를 주고, YouTube 모드가 되면 둘 다 제거한다. `inert`는 렌더링을 유지하고
+남아 Shift+Tab 역방향 포커스를 받았다. 수정: 모드가 YouTube가 아니면 래퍼에 `inert`를 주고 YouTube 모드가
+되면 제거한다. `inert`는 HTML 규격상 하위 트리를 접근성 API에서도 제외하므로 별도
+`aria-hidden`은 두지 않았다(초기 전송 예산 여유가 수십 바이트라 중복 속성도 뺐다). `inert`는 렌더링을 유지하고
 플레이어 postMessage API를 막지 않으므로 보존된 iframe과 iOS prime 흐름에는 영향이 없다고
 판단한다. 로딩 오버레이가 `#youtube-player-container`에 거는 `inert`와는 다른 요소라 충돌하지
 않는다.
@@ -44,8 +45,9 @@ YouTube 모드를 벗어나면 `updateBodyModeClass`가 iframe이 남은 `.video
 Codex 리뷰(P2) 반영: iOS에서는 `precreateYouTubePlayer`가 재생 모드가 `null`인 설정 단계에서
 `hideYouTubeContainerResident`로 래퍼를 주차하므로 모드 리스너만으로는 그 래퍼에 속성이
 붙지 않았다. 속성 적용을 `setYouTubeWrapperParked` 헬퍼로 빼서 주차 헬퍼에서도 호출하고,
-`stale-async-guards.test.ts`의 사전 생성 테스트에 `inert`·`aria-hidden`을 핀했다. 캐시
-v677로 재bump.
+`stale-async-guards.test.ts`의 사전 생성 테스트에 `inert`를 핀했다. 캐시 v677 재bump 뒤
+초기 전송 예산 가드가 eager gzip 합계 543,401 B > 543,400 B(유지 상한, 1 B 초과)로 실패해
+중복 `aria-hidden`을 제거하고 v678로 다시 bump했다. 예산 한도를 넓히지 않았다.
 
 ## 3. 검증
 

@@ -4292,7 +4292,6 @@ describe('setup prime readiness observation', () => {
     const parkedWrapper = document.querySelector('.video-wrapper') as HTMLElement;
     expect(parkedWrapper.style.left).toBe('-9999px');
     expect(parkedWrapper.hasAttribute('inert')).toBe(true);
-    expect(parkedWrapper.getAttribute('aria-hidden')).toBe('true');
     const settled = vi.fn();
     const wait = waitForYouTubePrimeReady().then(settled);
     const script = document.querySelector<HTMLScriptElement>(

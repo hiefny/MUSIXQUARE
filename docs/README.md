@@ -92,7 +92,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [점검 안내 번역 14건·숨은 YouTube 패널 접근성 수정 — 2026-10-14](design/maintenance-copy-and-a11y-release-2026-10-14.md) —
   Worker 6종 공유 점검 안내 문구 14개 로케일 관용구 수정, 화면 밖에 주차된 YouTube 래퍼
-  `inert`로 역방향 키보드 포커스 차단. 8.10.12/v677, Production Release `target=all`.
+  `inert`로 역방향 키보드 포커스 차단. 8.10.12/v678, Production Release `target=all`.
 - [42개 로케일 번역 품질 업데이트 — 2026-10-14](design/i18n-quality-update-2026-10-14.md) —
   전수 조사 제안을 오너 결정으로 걸러 사전 값 1,718건 변경(PRO 활성화 7키 신규 번역
   70건 포함), 복수형·계정 페이지·`<bdi>` 복구, 토스트 50자 상한 보정, compact 라벨은

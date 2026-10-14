@@ -99,6 +99,28 @@ describe('YouTubeAuthorityArmController', () => {
     expect(player.__volume).toBe(37);
   });
 
+  it('warms a resident occurrence at its exact release target, not its old position', async () => {
+    const { controller, player } = makeHarness();
+    player.__currentTime = 140;
+
+    const pending = controller.prepare({ ...identity, strategy: 'resident', targetSeconds: 42 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // A paused iframe can report a settled target before that region is
+    // buffered. The muted warm-up therefore plays from the target itself, so
+    // PLAYING proves the release region is loaded before READY.
+    const order = ops(player);
+    const warmSeek = order.indexOf('seekTo');
+    const warmPlay = order.indexOf('playVideo');
+    expect(warmSeek).toBeGreaterThan(order.indexOf('mute'));
+    expect(warmSeek).toBeLessThan(warmPlay);
+    expect(player.__log.find((call) => call.op === 'seekTo')?.args).toEqual([42, true]);
+
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toMatchObject({ status: 'ready' });
+    expect(player.__currentTime).toBe(42);
+  });
+
   it('loads a non-resident target exactly once before marking it ready', async () => {
     const { controller, player } = makeHarness({ videoId: 'outgoing-video' });
 

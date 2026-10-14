@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [YouTube rejoin synchronization — 2026-10-14](design/youtube-rejoin-sync-2026-10-14.md) —
+  PRO local rejoins and late joins settle at a planned release instant instead of
+  seeking during release; Standard guests re-align after late starts. Desktop
+  Chromium seek-latency evidence and production before/after measurements;
+  physical-device and full E2E limits remain.
+
 - [Sharing action failure isolation and spacing — 2026-10-14](design/sharing-action-fallback-2026-10-14.md) —
   Eager visible/accessibility state, optional motion failure cleanup and one gap
   token. Shipped App 8.10.17/v683 with exact-main CI, production ownership/smoke,

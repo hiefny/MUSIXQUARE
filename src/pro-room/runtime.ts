@@ -3343,10 +3343,12 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
   }
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   try {
+    // Rejoin through the planned local rendezvous: a direct seek-and-play
+    // would start this iframe late by its seek latency for the whole track.
     const reconciled = await playbackController.reconcile({
       showLoading: false,
       youtubeOnly: true,
-      rendezvous: false,
+      rendezvous: true,
     });
     if (!active || document.visibilityState !== 'visible') return;
     if (reconciled || !activeSnapshotNeedsYouTubeVisibilityRecovery()) {

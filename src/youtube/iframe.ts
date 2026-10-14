@@ -1979,6 +1979,20 @@ type YouTubeAuthorityPreparationResult =
     };
 
 let proAuthorityPreparationGeneration = 0;
+/** A server PREPARE must still report READY inside its three-second barrier. */
+const PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS = 2_300;
+/**
+ * Restores, catch-ups, and participant-local rejoins have no server barrier.
+ * Their wait can include the first IFrame API/player load, which routinely
+ * exceeds the barriered budget on a phone; let that load finish instead.
+ */
+export const PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS = 10_000;
+/**
+ * The exact iOS iframe whose TAP TO PLAY gesture was spent on PRO playback.
+ * That tap unlocks scripted audible starts even when WebKit never reported the
+ * PLAYING that marks a prime bounce, so preparation may proceed on it.
+ */
+let proGestureUnlockedPlayer: YouTubePlayerInstance | null = null;
 
 /** Participant-local fence for detached post-COMMIT timing observations. */
 export function getProYouTubeAuthorityPreparationGeneration(): number {
@@ -2080,7 +2094,13 @@ export async function prepareYouTubeAuthorityOccurrence(
 ): Promise<YouTubeAuthorityPreparationResult> {
   proAuthorityArm.cancel();
   const generation = ++proAuthorityPreparationGeneration;
-  const timeoutMs = Math.max(500, Math.min(2_300, request.timeoutMs ?? 2_300));
+  const timeoutMs = Math.max(
+    500,
+    Math.min(
+      PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
+      request.timeoutMs ?? PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS,
+    ),
+  );
   const startedAt = Date.now();
   let sawDifferentIdentity = false;
 
@@ -2099,7 +2119,11 @@ export async function prepareYouTubeAuthorityOccurrence(
         if (liveVideoId && liveVideoId !== request.videoId) {
           sawDifferentIdentity = true;
         } else if (liveVideoId === request.videoId && !isYtLoadInProgress()) {
-          if (IS_IOS && !isYtPrimed()) {
+          if (IS_IOS && !isYtPrimed() && proGestureUnlockedPlayer !== player) {
+            // No scripted audible start is possible on this iframe yet, and no
+            // other prompt covers a PRO endpoint. Ask for the one explicit tap;
+            // it rejoins the canonical timeline once this player is unlocked.
+            showYouTubeSyncOverlay(true);
             return { ready: false, reason: 'audio-locked' };
           }
 
@@ -3870,6 +3894,9 @@ function showYouTubeSyncOverlay(show: boolean): void {
         // the server, so rejoin its canonical timeline instead of manufacturing
         // a direct local play command.
         if (getState('room.context').kind === 'pro') {
+          // PRO preparation refuses a never-primed iOS iframe. This tap's
+          // play() is the unlock proof for this exact player instance.
+          if (IS_IOS) proGestureUnlockedPlayer = player;
           bus.emit('playback:local-output-rejoin', {
             reason: 'media-session-play',
             mode: 'youtube',

@@ -77,6 +77,13 @@ import {
   RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS,
   RENDEZVOUS_CALIBRATE_DELAY_MS,
   RENDEZVOUS_DRIFT_SUPPRESS_MS,
+  STANDARD_RENDEZVOUS_FOLLOW_UP_DELAY_MS,
+  STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS,
+  STANDARD_AUTO_REALIGN_CONFIRMATIONS,
+  STANDARD_AUTO_REALIGN_COOLDOWN_MS,
+  STANDARD_AUTO_REALIGN_MAX_PER_OCCURRENCE,
+  STANDARD_AUTO_REALIGN_MIN_POSITION_SEC,
+  STANDARD_AUTO_REALIGN_MIN_REMAINING_SEC,
 } from './constants.ts';
 import {
   getEffectiveYouTubePlayLatencyMs,
@@ -525,6 +532,26 @@ interface PendingManualRendezvous {
   subIndex: number | undefined;
 }
 
+/** One silent precision retry owed to a buffer-gate fallback start. */
+interface PendingRendezvousFollowUp {
+  /** The fallback attempt's identity; the retry belongs to that occurrence only. */
+  occurrence: GuestRendezvousAttempt;
+  until: number;
+}
+
+/** Comparable heartbeats whose small projected drift kept one sign. */
+interface SmallDriftStreak {
+  occurrenceKey: string;
+  sign: 1 | -1;
+  count: number;
+}
+
+/** A heartbeat drift measurement that an automatic realign may act on. */
+interface SmallDriftSample {
+  occurrenceKey: string;
+  driftMs: number;
+}
+
 interface GuestRendezvousAttempt {
   player: YouTubePlayerInstance;
   hostConn: DataConnection;
@@ -590,6 +617,14 @@ interface GuestSyncRuntime {
   lastRendezvousAt: number;
   /** Latest host precision request waiting on iframe readiness or the cooldown. */
   pendingManualRendezvous: PendingManualRendezvous | null;
+  /** Single silent re-alignment owed to a buffer-gate fallback start. */
+  rendezvousFollowUp: PendingRendezvousFollowUp | null;
+  /** Consecutive heartbeats confirming one small drift (automatic realign). */
+  smallDriftStreak: SmallDriftStreak | null;
+  /** Automatic realigns already spent on one occurrence. */
+  autoRealignBudget: { occurrenceKey: string; count: number } | null;
+  /** performance.now() of the last automatic realign (its cooldown anchor). */
+  lastAutoRealignAt: number;
 }
 
 const _rt: GuestSyncRuntime = {
@@ -601,7 +636,13 @@ const _rt: GuestSyncRuntime = {
   rendezvous: null,
   lastRendezvousAt: -Infinity,
   pendingManualRendezvous: null,
+  rendezvousFollowUp: null,
+  smallDriftStreak: null,
+  autoRealignBudget: null,
+  lastAutoRealignAt: -Infinity,
 };
+
+const RENDEZVOUS_FOLLOW_UP_TIMER = 'yt-rendezvous-follow-up';
 
 const MANUAL_OFFSET_APPLY_RETRY_MS = 250;
 
@@ -625,11 +666,11 @@ export function isGuestYouTubeTransitionPending(): boolean {
   );
 }
 
-function isCurrentRendezvous(attempt: GuestRendezvousAttempt): boolean {
-  if (_rt.rendezvous !== attempt) return false;
+/** Same iframe, connection, queue occurrence, video and sub-index as `attempt`. */
+function matchesRendezvousOccurrence(attempt: GuestRendezvousAttempt): boolean {
   const player = attempt.player;
   try {
-    if (
+    return (
       getYouTubePlayer() === player &&
       getCurrentSessionId() === attempt.sessionId &&
       getState('network.hostConn') === attempt.hostConn &&
@@ -639,14 +680,36 @@ function isCurrentRendezvous(attempt: GuestRendezvousAttempt): boolean {
       (player.getVideoData?.()?.video_id || '') === attempt.videoId &&
       isPlaybackModeYouTube() &&
       !isYouTubeZeroStartSyncOwned()
-    ) {
-      return true;
-    }
+    );
   } catch {
     // A replaced/rebuilding iframe no longer owns this delayed command.
+    return false;
   }
+}
+
+function isCurrentRendezvous(attempt: GuestRendezvousAttempt): boolean {
+  if (_rt.rendezvous !== attempt) return false;
+  if (matchesRendezvousOccurrence(attempt)) return true;
   finishRendezvous(attempt);
   return false;
+}
+
+/** A host snapshot describes the same video/sub-index as the guest occurrence. */
+function snapshotMatchesOccurrence(
+  snapshot: HostPositionSnapshot,
+  videoId: string,
+  subIndex: number | null,
+): boolean {
+  return (
+    !(snapshot._videoId && videoId && snapshot._videoId !== videoId) &&
+    !(
+      snapshot._subIndex != null &&
+      snapshot._subIndex >= 0 &&
+      subIndex != null &&
+      subIndex >= 0 &&
+      snapshot._subIndex !== subIndex
+    )
+  );
 }
 
 export function resetAdDetection(): void {
@@ -774,6 +837,112 @@ function deferManualRendezvousUntilReady(
   };
   log.debug(`[YouTube Sync] Deferring manual rendezvous (${reason})`);
   setManagedTimer('yt-manual-rendezvous-retry', runPendingManualRendezvous, retryAfterMs);
+}
+
+// Self-started re-alignment helpers (fallback follow-up, small-drift realign).
+/**
+ * A newly admitted precision attempt re-anchors this guest: it fulfils or
+ * supersedes an owed follow-up, and drift sampled before it no longer counts.
+ */
+function noteRendezvousAdmitted(): void {
+  clearRendezvousFollowUp();
+  _rt.smallDriftStreak = null;
+}
+
+/** Keeps a self-started realign's brief pause inside the occurrence on both timelines. */
+function hasAutoRealignRunway(hostTime: number, localTime: number, duration: number): boolean {
+  return (
+    Number.isFinite(duration) &&
+    duration > 0 &&
+    Math.min(hostTime, localTime) > STANDARD_AUTO_REALIGN_MIN_POSITION_SEC &&
+    duration - Math.max(hostTime, localTime) > STANDARD_AUTO_REALIGN_MIN_REMAINING_SEC
+  );
+}
+
+function clearRendezvousFollowUp(): void {
+  _rt.rendezvousFollowUp = null;
+  clearManagedTimer(RENDEZVOUS_FOLLOW_UP_TIMER);
+}
+
+/**
+ * A buffer-gate fallback joins the live position with a plain seek+play,
+ * which starts late by YouTube's own seek->play latency. Owe that occurrence
+ * one silent precision rendezvous once the live position has buffered. Unlike
+ * a retained host request it is not a pending transition: host frames keep
+ * their usual handling, and any rendezvous cancellation, explicit host command,
+ * newer precision attempt or occurrence change retires it.
+ */
+function scheduleRendezvousFollowUp(
+  occurrence: GuestRendezvousAttempt,
+  liveHostTime: number,
+  duration: number,
+): void {
+  // Standard rooms only. A retained host precision request already re-aligns
+  // after the cooldown, so a follow-up would only repeat it.
+  if (getState('room.context').kind === 'pro' || _rt.pendingManualRendezvous) return;
+  const hostTimeAtFollowUp = liveHostTime + STANDARD_RENDEZVOUS_FOLLOW_UP_DELAY_MS / 1000;
+  if (
+    !hasAutoRealignRunway(
+      hostTimeAtFollowUp,
+      hostTimeAtFollowUp + getYouTubeManualOffsetSec(),
+      duration,
+    )
+  ) {
+    log.debug('[Rendezvous] Fallback too close to a media edge for a follow-up');
+    return;
+  }
+  _rt.rendezvousFollowUp = {
+    occurrence,
+    until:
+      performance.now() + STANDARD_RENDEZVOUS_FOLLOW_UP_DELAY_MS + MANUAL_RENDEZVOUS_RETRY_MAX_MS,
+  };
+  log.debug('[Rendezvous] Buffer fallback started late; scheduling one follow-up');
+  setManagedTimer(
+    RENDEZVOUS_FOLLOW_UP_TIMER,
+    runRendezvousFollowUp,
+    STANDARD_RENDEZVOUS_FOLLOW_UP_DELAY_MS,
+  );
+}
+
+function runRendezvousFollowUp(): void {
+  const followUp = _rt.rendezvousFollowUp;
+  if (!followUp) return;
+  const { occurrence } = followUp;
+  const snapshot = _rt.lastHostSnapshot;
+  // The retry belongs to one host timeline on one occurrence. A host ad keeps
+  // the host clock frozen, so extrapolating it would fight the ad pause.
+  if (
+    performance.now() > followUp.until ||
+    isLocalYouTubePaused() ||
+    _rt.hostAdPauseActive ||
+    !matchesRendezvousOccurrence(occurrence) ||
+    !snapshot ||
+    getHostNow() - snapshot.hostClockAt > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS ||
+    !snapshotMatchesOccurrence(snapshot, occurrence.videoId, occurrence.subIndex) ||
+    (snapshot.hostState !== 1 && snapshot.hostState !== 3 && snapshot.hostState !== 5)
+  ) {
+    clearRendezvousFollowUp();
+    log.debug('[Rendezvous] Follow-up dropped: its occurrence or host timeline moved on');
+    return;
+  }
+
+  let retryAfterMs = MANUAL_RENDEZVOUS_RETRY_MS;
+  // Host BUFFERING/CUED feedback is not a new timeline; wait for it to settle.
+  if (snapshot.hostState === 1) {
+    const result = guestRendezvousSync({
+      silent: true,
+      suppressProgressToast: true,
+      realign: 'follow-up',
+    });
+    // Admission retires the follow-up, and so may a reentrant player command.
+    if (_rt.rendezvousFollowUp !== followUp) return;
+    if (result.status !== 'busy') {
+      clearRendezvousFollowUp();
+      return;
+    }
+    retryAfterMs = result.retryAfterMs ?? retryAfterMs;
+  }
+  setManagedTimer(RENDEZVOUS_FOLLOW_UP_TIMER, runRendezvousFollowUp, retryAfterMs);
 }
 
 function clearPendingManualOffsetApply(): void {
@@ -905,6 +1074,132 @@ function isHostBroadcast(conn: DataConnection | undefined): boolean {
   return !!hostConn?.open && conn === hostConn;
 }
 
+// ─── Automatic Small-Drift Realign (Guest) ────────────────────────
+// The heartbeat seek only fixes drift above DRIFT_SEEK_THRESHOLD_SEC, so a
+// few hundred ms (e.g. a late fallback start) otherwise persists until someone
+// presses Sync. A confirmed, stable offset earns one silent precision
+// rendezvous. Each one briefly pauses the iframe, so a cooldown and a
+// per-occurrence budget keep the cure rarer than the drift.
+
+// Timer-level cross-check of the ownership records consulted below: an
+// automatic realign must never land on a scheduled or in-flight action.
+const SMALL_DRIFT_BUSY_TIMERS = [
+  'yt-clock-action',
+  'yt-seek-play',
+  'yt-rendezvous-buffer',
+  'yt-rendezvous-play',
+  'yt-rendezvous-calibrate',
+  RENDEZVOUS_FOLLOW_UP_TIMER,
+] as const;
+
+/**
+ * Projects a PLAYING host heartbeat to now and measures this playing guest
+ * against it. Returns a sample only when an automatic realign may act on it.
+ */
+function sampleSmallHeartbeatDrift(
+  player: YouTubePlayerInstance,
+  hostTime: number,
+  hostState: number,
+  hostClock: number | undefined,
+  duration: number,
+): SmallDriftSample | null {
+  const now = performance.now();
+  // A frozen host clock (ad onset) reads as growing guest lead before the ad
+  // detector confirms it, so any stale-frame suspicion disqualifies a sample.
+  if (
+    hostState !== 1 ||
+    hostClock === undefined ||
+    !Number.isFinite(hostClock) ||
+    !isClockCalibrated() ||
+    getState('room.context').kind === 'pro' ||
+    _rt.hostAdPauseActive ||
+    _rt.hostTimeStaleCount > 0 ||
+    isLocalYouTubePaused() ||
+    isYouTubeZeroStartInFlight() ||
+    isYouTubeZeroStartExternalFallbackPending() ||
+    isGuestYouTubeTransitionPending() ||
+    _rt.rendezvousFollowUp ||
+    SMALL_DRIFT_BUSY_TIMERS.some((name) => getManagedTimer(name) !== null) ||
+    now < _rt.autoSyncUntil ||
+    now - _rt.lastAutoRealignAt < STANDARD_AUTO_REALIGN_COOLDOWN_MS
+  ) {
+    return null;
+  }
+
+  let guestState: number | undefined;
+  let currentTime: number;
+  let videoId: string;
+  try {
+    guestState = player.getPlayerState?.();
+    currentTime = player.getCurrentTime();
+    videoId = player.getVideoData?.()?.video_id || '';
+  } catch {
+    return null;
+  }
+  if (guestState !== 1 || !Number.isFinite(currentTime)) return null;
+
+  const subIndex = getState('youtube.currentSubIndex') ?? -1;
+  const occurrenceKey = `${getCurrentQueueItemId() ?? ''}|${videoId}|${subIndex}`;
+  const budget = _rt.autoRealignBudget;
+  if (
+    budget?.occurrenceKey === occurrenceKey &&
+    budget.count >= STANDARD_AUTO_REALIGN_MAX_PER_OCCURRENCE
+  ) {
+    return null;
+  }
+
+  // hostTime was read at hostClock. Projecting it to now keeps the frame's
+  // delivery delay from reading as guest lead.
+  const expectedHostTime = hostTime + Math.max(0, getHostNow() - hostClock) / 1000;
+  const expectedManualTime = expectedHostTime + getYouTubeManualOffsetSec();
+  const expectedLocalTime =
+    expectedManualTime + guestAudibleLeadAtTargetMs(expectedManualTime, duration) / 1000;
+  if (!hasAutoRealignRunway(expectedHostTime, expectedLocalTime, duration)) return null;
+
+  const driftMs = (currentTime - expectedLocalTime) * 1000;
+  const magnitudeMs = Math.abs(driftMs);
+  if (
+    !Number.isFinite(driftMs) ||
+    magnitudeMs < STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS ||
+    magnitudeMs >= DRIFT_SEEK_THRESHOLD_SEC * 1000
+  ) {
+    return null;
+  }
+  return { occurrenceKey, driftMs };
+}
+
+/** Extends the same-sign streak and acts once it is confirmed. */
+function confirmSmallHeartbeatDrift(
+  sample: SmallDriftSample,
+  prior: SmallDriftStreak | null,
+): void {
+  const sign = sample.driftMs > 0 ? 1 : -1;
+  const count =
+    prior?.occurrenceKey === sample.occurrenceKey && prior.sign === sign ? prior.count + 1 : 1;
+  if (count < STANDARD_AUTO_REALIGN_CONFIRMATIONS) {
+    _rt.smallDriftStreak = { occurrenceKey: sample.occurrenceKey, sign, count };
+    return;
+  }
+
+  log.debug(
+    `[YouTube Sync] Drift ${sample.driftMs.toFixed(0)}ms held for ${count} heartbeats. Automatic precision rendezvous`,
+  );
+  // Admission resets the streak. A buffer-gate fallback here owes no follow-up;
+  // fresh heartbeats must confirm any remaining drift again.
+  const result = guestRendezvousSync({
+    silent: true,
+    suppressProgressToast: true,
+    realign: 'automatic',
+  });
+  if (result.status !== 'started') return;
+  _rt.lastAutoRealignAt = performance.now();
+  const budget = _rt.autoRealignBudget;
+  _rt.autoRealignBudget = {
+    occurrenceKey: sample.occurrenceKey,
+    count: budget?.occurrenceKey === sample.occurrenceKey ? budget.count + 1 : 1,
+  };
+}
+
 // ─── Handle YouTube Sync (Guest) ──────────────────────────────────
 
 function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection): void {
@@ -918,6 +1213,12 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   // trust-boundary guard to both YOUTUBE_SYNC and YOUTUBE_STATE.
   if (!isHostBroadcast(conn)) return;
   if (data.queueItemId !== getCurrentQueueItemId()) return;
+
+  // Small-drift confirmation needs consecutive comparable heartbeats. Only a
+  // heartbeat that reaches the drift sample below can extend the streak, so
+  // every early return in between resets it.
+  const priorSmallDriftStreak = _rt.smallDriftStreak;
+  _rt.smallDriftStreak = null;
 
   const player = getYouTubePlayer();
   const sessionId = getCurrentSessionId();
@@ -1150,6 +1451,11 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       // host. Wait for its next occurrence instead of replaying the tail.
       return;
     }
+    // Sampled before either correction below touches the iframe.
+    const smallDrift = resumeAfterHostAd
+      ? null
+      : sampleSmallHeartbeatDrift(player, hostTime, hostState, hostClock, duration);
+    let seekCorrected = false;
     if (duration > 0) {
       const compensatedTime = Math.max(0, Math.min(rawCompensatedTime, duration));
       const currentTime = player.getCurrentTime();
@@ -1164,6 +1470,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           `[YouTube Sync] Drift ${drift.toFixed(1)}s, seeking to ${compensatedTime.toFixed(1)}s`,
         );
         player.seekTo(compensatedTime, true);
+        seekCorrected = true;
       }
     }
 
@@ -1181,6 +1488,10 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         }
       } else if (hostState === 2 && ytState !== 2) player.pauseVideo();
     }
+
+    // A sample implies both sides were already PLAYING, so the state sync above
+    // left the iframe alone. The coarse seek owns anything it just corrected.
+    if (smallDrift && !seekCorrected) confirmSmallHeartbeatDrift(smallDrift, priorSmallDriftStreak);
   } catch (e) {
     log.error('[YouTube Sync] Error:', e);
   }
@@ -1214,6 +1525,11 @@ interface GuestRendezvousOptions {
   suppressProgressToast?: boolean;
   /** A bounded manual-apply owner may wait for the next ordinary heartbeat. */
   deferMissingHostSnapshot?: boolean;
+  /**
+   * Marks a re-alignment this module started on its own. Such an attempt never
+   * owes a follow-up after a buffer-gate fallback, so each chain stays bounded.
+   */
+  realign?: 'follow-up' | 'automatic';
   onComplete?: () => void;
 }
 
@@ -1289,14 +1605,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
     return { status: 'not-ready' };
   }
   const subIndex = getState('youtube.currentSubIndex');
-  if (
-    (snapshot._videoId && videoId && snapshot._videoId !== videoId) ||
-    (snapshot._subIndex != null &&
-      snapshot._subIndex >= 0 &&
-      subIndex != null &&
-      subIndex >= 0 &&
-      snapshot._subIndex !== subIndex)
-  ) {
+  if (!snapshotMatchesOccurrence(snapshot, videoId, subIndex)) {
     return { status: 'busy', retryAfterMs: MANUAL_RENDEZVOUS_RETRY_MS };
   }
   const attempt: GuestRendezvousAttempt = {
@@ -1311,6 +1620,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   // If host is paused, there's no playback to rendezvous with — just align position
   if (snapshot.hostState === 2) {
     _rt.rendezvous = attempt;
+    noteRendezvousAdmitted();
     cancelClockAction();
     clearManagedTimer('yt-seek-play');
     if (!isCurrentRendezvous(attempt)) return { status: 'not-ready' };
@@ -1378,6 +1688,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   );
 
   _rt.rendezvous = attempt;
+  noteRendezvousAdmitted();
   // Precision owns the physical pause/seek/release only after admission. An
   // earlier rough STATE countdown must not wake its newly prepared iframe.
   cancelClockAction();
@@ -1450,7 +1761,15 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
           // the old future seek would lose both elapsed time and output lead.
           const liveHostTime = snapshot.hostPosition + (getHostNow() - snapshot.hostClockAt) / 1000;
           finishRendezvous(attempt);
-          executeImmediate(p, 1, liveHostTime, duration, makeGuestStateAction(p));
+          const fallback = makeGuestStateAction(p);
+          executeImmediate(p, 1, liveHostTime, duration, fallback);
+          // That start is late by YouTube's own seek->play latency, and drift
+          // correction ignores anything under DRIFT_SEEK_THRESHOLD_SEC. Owe one
+          // silent precision retry once the live position has buffered. A
+          // module-started re-alignment never owes another (one per chain).
+          if (!opts.realign && isCurrentStateAction(fallback)) {
+            scheduleRendezvousFollowUp(attempt, liveHostTime, duration);
+          }
           return;
         } catch (e) {
           log.warn('[Rendezvous] fallback playVideo threw:', e);
@@ -1653,6 +1972,7 @@ export function cancelGuestRendezvous(): void {
   // before that work has entered the active rendezvous phase.
   clearPendingManualRendezvous();
   clearPendingManualOffsetApply();
+  clearRendezvousFollowUp();
   const attempt = _rt.rendezvous;
   if (!attempt) return;
   log.debug('[Rendezvous] Cancelled');
@@ -1667,6 +1987,9 @@ export function invalidateGuestYouTubeTimeline(): void {
   cancelGuestRendezvous();
   cancelGuestEndedFallbackFromSync();
   _rt.lastHostSnapshot = null;
+  // A new run of the same occurrence (repeat-one) gets a fresh realign budget.
+  _rt.smallDriftStreak = null;
+  _rt.autoRealignBudget = null;
   resetAdDetection();
 }
 
@@ -1682,7 +2005,8 @@ export function invalidateGuestYouTubeTimeline(): void {
  *   - _rt.autoSyncUntil → 0 (re-enables drift correction immediately on next load)
  *   - _rt.lastHostSnapshot → null (next rendezvous must wait for a fresh host pong)
  *   - resetAdDetection() for host-ad pause tracking
- *   - all yt-rendezvous-* timers cleared (buffer / play / calibrate)
+ *   - all yt-rendezvous-* timers cleared (buffer / play / calibrate / follow-up)
+ *   - automatic-realign streak, budget and cooldown
  *   - youtube:sync-loading overlay hidden
  */
 export function resetYouTubeSyncState(): void {
@@ -1693,6 +2017,10 @@ export function resetYouTubeSyncState(): void {
   _rt.autoSyncUntil = 0;
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvous = null;
+  clearRendezvousFollowUp();
+  _rt.smallDriftStreak = null;
+  _rt.autoRealignBudget = null;
+  _rt.lastAutoRealignAt = -Infinity;
   clearPendingManualOffsetApply();
   resetStandardHostManualOffsetTransaction();
   setState('sync.youtubeCoordinatorAppliedOffset', 0);
@@ -1722,6 +2050,10 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
 
   const player = getYouTubePlayer();
 
+  // Any host state frame can move either timeline, so heartbeats on either
+  // side of it are not comparable small-drift confirmations.
+  _rt.smallDriftStreak = null;
+
   // Validate state first so the pre-guard snapshot update below has a
   // finite value. Number(undefined) → NaN, and `NaN === 1/2/0/-1` is
   // always false, so a malformed message is dropped entirely here.
@@ -1739,6 +2071,8 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   if (isExplicitTransportAction) {
     clearPendingManualRendezvous();
     clearPendingManualOffsetApply();
+    // The command (and its own Stage 2) replaces the late fallback start.
+    clearRendezvousFollowUp();
     if (isYouTubeZeroStartSyncOwned()) {
       // The host can have retired its own zero-start barrier while this
       // speaker still waits. Its new command then arrives without ABORT.
@@ -2263,6 +2597,8 @@ function handleYouTubeStop(data: Record<string, unknown>, conn?: DataConnection)
 
   _rt.autoSyncUntil = 0;
   clearPendingManualRendezvous();
+  clearRendezvousFollowUp();
+  _rt.smallDriftStreak = null;
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
   cancelClockAction();

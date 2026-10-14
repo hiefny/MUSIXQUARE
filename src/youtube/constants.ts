@@ -122,6 +122,33 @@ export const RENDEZVOUS_CALIBRATE_DELAY_MS = 800;
 /** Drift suppression cushion on top of MARGIN for the rendezvous's own play. */
 export const RENDEZVOUS_DRIFT_SUPPRESS_MS = 2000;
 
+// ─── Standard Guest Automatic Re-alignment ───────────────────────────
+// Silent precision rendezvous a Standard-room guest starts on its own. Each
+// one briefly pauses the iframe, so every trigger below is deliberately rare.
+
+/** Delay before the single follow-up rendezvous after a buffer-gate fallback.
+ *  Lands just past the rendezvous cooldown, once the live position has buffered. */
+export const STANDARD_RENDEZVOUS_FOLLOW_UP_DELAY_MS = RENDEZVOUS_COOLDOWN_MS + 250;
+
+/** Smallest projected heartbeat drift that counts toward an automatic realign.
+ *  Drift at or above DRIFT_SEEK_THRESHOLD_SEC stays with the corrective seek. */
+export const STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS = 150;
+
+/** Consecutive same-sign heartbeats above the threshold required to act. */
+export const STANDARD_AUTO_REALIGN_CONFIRMATIONS = 2;
+
+/** Minimum gap between two automatic realigns. */
+export const STANDARD_AUTO_REALIGN_COOLDOWN_MS = 30_000;
+
+/** Automatic realign budget per queue occurrence (queue item + video + sub-index). */
+export const STANDARD_AUTO_REALIGN_MAX_PER_OCCURRENCE = 3;
+
+/** Automatic re-alignment keeps its brief pause away from the media start... */
+export const STANDARD_AUTO_REALIGN_MIN_POSITION_SEC = 1;
+
+/** ...and leaves at least this much media after the projected position. */
+export const STANDARD_AUTO_REALIGN_MIN_REMAINING_SEC = 5;
+
 // ─── Latency EMA Calibration ─────────────────────────────────────────
 // Self-calibration of the guest's playVideo → audible-start latency using
 // drift measurements from successful rendezvous.

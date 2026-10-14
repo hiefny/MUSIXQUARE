@@ -765,6 +765,67 @@ describe('autoplay-policy recovery', () => {
     });
     expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
   });
+
+  it('asks a never-primed PRO iOS endpoint for one tap, then lets that iframe prepare', async () => {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState!).mockReturnValue(5);
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'proVideo001' });
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo, prepareYouTubeAuthorityOccurrence } = await import('../iframe.ts');
+    const { isYtPrimed } = await import('../_state.ts');
+
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'PRO late join',
+        videoId: 'proVideo001',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('proVideo001', null, false, 0);
+    handle.fireReady();
+    expect(isYtPrimed()).toBe(false);
+
+    const request = {
+      authorityKey: 'snapshot-restore',
+      queueItemId: QUEUE_ITEM_ID as never,
+      videoId: 'proVideo001',
+      subIndex: 0,
+      positionSeconds: 42,
+    };
+    // A refused scripted start used to fail silently; the participant now
+    // gets the explicit tap gate that can unlock this exact iframe.
+    await expect(prepareYouTubeAuthorityOccurrence(request)).resolves.toEqual({
+      ready: false,
+      reason: 'audio-locked',
+    });
+    expect(document.getElementById('youtube-ios-sync-overlay')).not.toBeNull();
+
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    document.getElementById('youtube-ios-sync-overlay')?.click();
+    expect(rejoin).toHaveBeenCalledOnce();
+
+    // The tap is the unlock proof even though WebKit never reported a prime
+    // PLAYING, so the canonical rejoin can arm this iframe.
+    expect(isYtPrimed()).toBe(false);
+    await expect(prepareYouTubeAuthorityOccurrence(request)).resolves.not.toEqual(
+      expect.objectContaining({ reason: 'audio-locked' }),
+    );
+    expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
+  });
 });
 
 describe('scrape poll supersession (F-2401)', () => {

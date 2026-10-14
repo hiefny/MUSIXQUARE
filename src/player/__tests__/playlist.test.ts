@@ -558,6 +558,8 @@ describe('coordinator-free PRO playback routing', () => {
         authority,
         queueItemId: item.queueItemId,
         positionSeconds: 42,
+        // A server PREPARE carries its READY budget; the barriered default stays.
+        prepareBudgetMs: 2_000,
         youtubeSubIndex: 0,
         youtubeVideoId: 'RESIDENT_VIDEO_01',
       }),
@@ -571,6 +573,48 @@ describe('coordinator-free PRO playback routing', () => {
       subIndex: 0,
       positionSeconds: 42,
     });
+  });
+
+  it('lets an unbarriered YouTube restore wait for a first player load', async () => {
+    const item = youtubeItem('Resident video', 'RESIDENT_VIDEO_01');
+    setState('playlist.items', [item]);
+    selectIndex(0);
+    setPlaybackYouTubePlaying();
+    enterProRoom(['playback.control']);
+    const player = {
+      getVideoData: () => ({ video_id: 'RESIDENT_VIDEO_01' }),
+    };
+    setYouTubePlayer(player as never);
+    markYtPlayerReady(player as never);
+    vi.spyOn(youtubeIframe, 'prepareYouTubeAuthorityOccurrence').mockResolvedValue({
+      ready: true,
+      durationSeconds: 120,
+      videoId: 'RESIDENT_VIDEO_01',
+      subIndex: 0,
+    });
+    initPlaylist();
+
+    await expect(
+      prepareProPlaybackAuthority({
+        authority: createProPlaybackAuthorityToken({
+          roomId: '000001',
+          roomEpoch: 1,
+          basePlaybackRevision: 4,
+          transitionId: 'snapshot_5',
+        }),
+        queueItemId: item.queueItemId,
+        positionSeconds: 42,
+        youtubeSubIndex: 0,
+        youtubeVideoId: 'RESIDENT_VIDEO_01',
+      }),
+    ).resolves.toMatchObject({ status: 'ready', mediaKind: 'youtube' });
+
+    // No server READY barrier exists, so a first IFrame API load may finish.
+    expect(youtubeIframe.prepareYouTubeAuthorityOccurrence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutMs: youtubeIframe.PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS,
+      }),
+    );
   });
 
   it('loads a different YouTube identity exactly once during server preparation', async () => {

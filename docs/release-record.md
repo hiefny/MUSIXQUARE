@@ -53,6 +53,23 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### YouTube 재합류 동기화
+
+- [ ] App 8.10.18/v684 배포 준비: PRO YouTube의 동기화 버튼·탭 재생·포그라운드
+      복귀·재생 중 Play가 실행 시각을 먼저 정하고 그 위치에 안착한 뒤 play만 한다.
+      늦은 복원·지연 COMMIT은 3초 이상 앞의 시각을 준비하고, 실패한 복원 준비는
+      해제해 catch-up이 실제로 재시도하며, 재합류 준비 timeout은 멈춘 채 두지 않고
+      직접 재합류한다. 일반방 게스트는 버퍼 대기 fallback 뒤 1회, 시계 보정 드리프트
+      150ms–3초가 같은 부호로 2회 연속이면 자동으로 정밀 랑데부한다. 참여자 로컬
+      변경만이며 서버·프로토콜·스키마 변경 없음. exact-main CI와 정식 배포 근거를
+      확보한 뒤 닫는다.
+      [원인·수정·검증·운영 측정](design/youtube-rejoin-sync-2026-10-14.md)
+- [ ] 무음 중도참여 기기의 재생 버튼: 배포 전 운영 측정에서 복원에 실패해 소리가
+      나지 않던 PRO 참여자의 버튼이 로컬 재생 상태(재생 중)를 따라 방 전체를
+      일시정지시켰다. 이번 수정은 무음 상태를 줄일 뿐 버튼 동작은 바꾸지 않는다.
+      후속 수정 여부는 오너가 정한다.
+      [관측](design/youtube-rejoin-sync-2026-10-14.md#production-measurements)
+
 ### 최근 해결 근거
 
 App 8.10.17/v683의 공유 모션 실패 후속과 간격 중복은 PR
@@ -191,6 +208,12 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       다음 곡·반복·중간 참가·취소, 실제 YouTube, iPhone Safari/PWA, Bluetooth.
       [S01–S02](design/youtube-manual-zero-start-audit-2026-09-27.md#repair-addendum--2026-09-27),
       [XS01–XS04](design/extreme-manual-sync-repair-2026-09-27.md)
+- [ ] YouTube 재합류 동기화(8.10.18 배포 뒤): iPhone Safari/PWA와 Android에서 PRO
+      동기화 버튼·중도참여·잠금 복귀가 release 순간 seek 없이 시작하는지
+      (`/debug sync`의 youtube-release·youtube-sample), 한 번도 재생하지 않은
+      iPhone에 TAP TO PLAY가 뜨고 탭 뒤 준비되는지, 일반방 자동 재랑데부가 과하게
+      반복되지 않는지와 실제 스피커의 가청 싱크를 확인한다.
+      [상세](design/youtube-rejoin-sync-2026-10-14.md)
 - [ ] D01 PRO 공유 중 참가: 실제 SFU와 실기.
 - [ ] 계정: 기존 로그인 유지, 다른 탭의 새 로그인과 늦게 도착한 로그아웃·탈퇴
       응답, 익명·로그인 입장, 계정 API. 실제 Google OAuth와 운영 HTTPS 쿠키로 확인한다.

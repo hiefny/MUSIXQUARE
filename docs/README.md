@@ -94,8 +94,8 @@ runbooks. Neither belongs in a general setup document.
   PRO local rejoins and late joins settle at a planned release instant instead of
   seeking during release; Standard guests re-align after late starts. Shipped App
   8.10.18/v684 with exact-main CI, production ownership/smoke and Drift Audit
-  evidence, plus production before/after measurements; physical-device,
-  server-seek and full E2E limits remain.
+  evidence, plus production before/after measurements including server seeks;
+  physical-device and full E2E limits remain.
 
 - [Sharing action failure isolation and spacing — 2026-10-14](design/sharing-action-fallback-2026-10-14.md) —
   Eager visible/accessibility state, optional motion failure cleanup and one gap

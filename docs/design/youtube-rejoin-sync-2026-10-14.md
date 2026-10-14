@@ -148,21 +148,25 @@ PRO values come from the flight recorder (`/debug sync`) of one participant in
 the owner's room 020924 (YouTube `GKC1P0mCt4o`, room volume): `youtube-sample`
 `timelineDriftMs` at 800 and 2000 ms, the media position against the server
 timeline (negative is behind). Each session's clock estimate carries its own
-error, so compare the paths rather than single values. After release this
-member had no playback permission, so no server transition was measured.
+error, so compare the paths rather than single values. The first post-release
+session had no playback permission. The owner granted it to a later session
+(13:17 UTC), which measured the server seeks and the Sync right after one.
 
 | PRO scenario | 8.10.17 (before) | 8.10.18 (after) |
 | --- | --- | --- |
-| Server seek (prepared, no release seek) | −71 ms | not measured (no playback permission) |
+| Server seek (prepared, no release seek) | −71 ms | −64 ms (40 s forward), −68 ms (90 s back) |
 | Manual Sync / local rendezvous | −1062 ms (2.23 s release seek, ACK 1252 ms) | −62, −64 ms (no release seek, ACK 271–280 ms) |
+| One endpoint rejoins locally right after a server seek (the reported symptom) | seek −71 ms, then that endpoint's local rendezvous −1062 ms | seek −68 ms, then Sync on that endpoint −74 ms |
 | Resume COMMIT after an overrun preparation | −1003 ms (18.5 s release seek, ACK 1220 ms) | not reproduced (needs a server transition) |
 | Foreground recovery | −149, −343 ms (direct seek and play); several not playing | −84 ms (no release seek; hidden→visible simulated with `visibilitychange`) |
-| Late join | 9 restore attempts in 2 min, no release (silent) | −75, −66 ms (no release seek); audible 5.6 s and 4.8 s after `session-start` |
+| Late join | 9 restore attempts in 2 min, no release (silent) | −75, −66, −71 ms (no release seek); audible 4.8–7.4 s after `session-start` |
 | Manual Sync failure | "not ready" toast, endpoint left paused | not observed (2 of 2 succeeded) |
 
 After release every measured PRO YouTube rejoin started without a release seek at
-−62 to −84 ms, the range of the 8.10.17 server-seek reference (−71 ms) that
-shares the play-only release. These are single-browser desktop measurements.
+−62 to −84 ms, the range of the server seeks (−71 ms before, −64 and −68 ms
+after) that share the play-only release. A local rejoin on one endpoint right
+after a seek now moves it by 6 ms instead of about one second. These are
+single-browser desktop measurements.
 This release does not change the join handshake before `session-start`, which
 took 11.1 s and 6.6 s after the join tap here.
 

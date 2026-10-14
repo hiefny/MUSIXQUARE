@@ -93,7 +93,9 @@ runbooks. Neither belongs in a general setup document.
 - [PRO playlist reorder feedback — 2026-10-14](design/pro-playlist-reorder-optimistic-2026-10-14.md) —
   A dropped PRO reorder shows its order at once instead of redrawing the old one
   until the server answers; a rejection restores the server order with a toast in
-  42 locales. Local unit/E2E evidence; production and physical-device checks remain.
+  42 locales. Shipped App 8.10.20/v686 with exact-main CI, production
+  ownership/smoke and Drift Audit evidence; the production reproduction and
+  physical-device checks remain.
 
 - [PRO silent-endpoint transport — 2026-10-14](design/pro-silent-endpoint-transport-2026-10-14.md) —
   The transport acts on the icon it shows, so Play on a silent PRO endpoint

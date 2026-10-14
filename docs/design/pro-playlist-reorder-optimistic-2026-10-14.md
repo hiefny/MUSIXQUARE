@@ -88,6 +88,36 @@ not exercised against a real room before release.
 
 ## Release and recovery
 
-App-only release (`target=app`). Mixed versions are safe because the change is
-participant-local. Recovery is the ordinary Production Release rollback to the
-8.10.19 checkpoint, which restores the delayed redraw.
+App **8.10.20/v686** shipped through
+[Production Release 38593965412](https://github.com/hiefny/MUSIXQUARE/actions/runs/38593965412),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-15 01:00:12 KST** using the immutable candidate
+from exact-main CI `38593021162` for `27dceedc79c306142fd0fe78801cf1ca383c56ce`.
+No rollback was needed; the recovery job was skipped.
+
+- App version `8f42c8ee-7ec3-4d25-ae56-0eb9855bf4f4` became
+  `bd269acb-527b-4cce-9601-af45ba319c75`. Final deployment ownership was verified
+  at 01:00:04.896 KST, and the coherent production marker records the exact SHA
+  and target `app`.
+- The partial-release compatibility recheck at 00:59:30.152 KST was compatible.
+  The five unselected Workers were not deployed and keep the `d9364cd9`
+  identities in `docs/release-record.md` §1; the PRO smoke re-read pro-room
+  `8d5d44c0`. The new App deployment identity is in the 90-day run artifact
+  `production-deployments-27dceedc79c306142fd0fe78801cf1ca383c56ce-38593965412-1`.
+- App generation (`main-DZrm4G_z.js`, 27 assets converged), anonymous App account
+  boundary, current PRO public boundary and Standard HTTPS signaling smokes
+  passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 01:01:14 KST returned HTTP 200 for `/`, the v686 service
+  worker, `bootstrap.js?cache=v686`, `main-DZrm4G_z.js` and `main-BNiplmKU.css`.
+- [Operations Drift Audit 38594339347](https://github.com/hiefny/MUSIXQUARE/actions/runs/38594339347)
+  succeeded. Its 01:00:54.943 KST report records **31 pass / 0 fail / 5 manual-only**;
+  manual checks are not treated as completed.
+- The reorder was not reproduced in a production PRO room after release.
+
+The immutable recovery checkpoint captured at 00:58:57.678 KST
+(`production-recovery-checkpoint-27dceedc79c306142fd0fe78801cf1ca383c56ce-38593965412-1`)
+preserves the previous App `6afd91871ee0bf6e30a543065799c50e4191028b`, 8.10.19/v685,
+version `8f42c8ee-7ec3-4d25-ae56-0eb9855bf4f4`. Rolling back to it restores the
+redraw of the old order after a drop. Mixed versions are safe because the change
+is participant-local. The checkpoint is not a user-data backup; no data
+migration is needed and existing recovery floors remain binding.

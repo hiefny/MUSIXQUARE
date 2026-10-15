@@ -139,7 +139,37 @@ browser test checks that the setup-link failure toast renders on two lines.
 
 ## Verification
 
-Pending.
+Environment: Windows 11 Pro local worktree, Node 24.13.1 (the repository pins
+24.20.0, which pull request CI uses), Vitest 5.0.3, Playwright 1.63.0 with
+Chromium.
+
+Tested source: **`f3ddaa9a7d1c7c6261072626ae8ec01cc53fd2bc`** (8.10.22, cache
+epoch v688), branch `agent/toast-punctuation-policy`, clean tree before and
+after the run. The next commit, `23d9da10`, changes one browser-test assertion
+(below); later commits change documentation only. These are local and branch
+results, not the exact-main release candidate.
+
+| Check | Result |
+| --- | --- |
+| Full `vitest run` | 564 files, **12,729 passed / 0 failed / 0 skipped**, 183.93 s |
+| `npm run test:e2e:critical` | **29 passed / 0 failed / 0 skipped / 0 flaky**, 1.4 min |
+| Browser tests for the touched files (`asamo-event`, `audio-effects`, `chat-commands`, `demo-track`, `pro-entry-retry`) | 58 passed / 1 failed, 5.6 min. The failure was a stale assertion; see below |
+| `demo-track` after the fix, at `23d9da10` | **6 passed / 0 failed** |
+| `npm run typecheck`, `npm run lint`, `npm run format:check` at `23d9da10` | Passed, zero lint warnings |
+| `guard:sw-cache-version`, `guard:release-identity` | Passed (v688 covers every runtime change) |
+
+The browser-test failure had nothing to do with this change. The final demo
+step has read "4. Finish tour" since the 8.10.11 translation update
+(`818c87bc`), but `e2e/demo-track.test.ts` still expected "4. Quit demo". The
+weekly full browser suite would fail on it as well. `23d9da10` updates the
+assertion.
+
+Not verified:
+
+- the rendered toasts on physical devices or in WebKit;
+- right-to-left layout of the two-line toasts in a real browser;
+- the full serial browser suite;
+- production behavior.
 
 ## Follow-ups
 

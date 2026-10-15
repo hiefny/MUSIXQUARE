@@ -699,6 +699,8 @@ const ar: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'أبقِ التطبيق مفتوحًا',
   'dialog.keep_open_message':
     'قد يتوقف الصوت أو تختل المزامنة عند التبديل إلى تطبيق آخر أو إطفاء الشاشة.\nإذا انتقل جهاز المضيف إلى الخلفية، فقد تتوقف الغرفة بأكملها.',
+  'dialog.keep_open_message_pro':
+    'قد يتوقف الصوت أو تختل المزامنة عند التبديل إلى تطبيق آخر أو إطفاء الشاشة.',
   'dialog.sw_update_title': 'تحديث',
   'dialog.sw_update_msg': 'يتوفر إصدار جديد.\nحدّث الصفحة لتثبيته.',
   'dialog.feature_refresh_title': 'يلزم تحديث الصفحة',

@@ -657,6 +657,8 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Mantenha o app aberto',
   'dialog.keep_open_message':
     'Se você trocar de app ou a tela apagar, o som pode ser interrompido ou perder a sincronização.\nSe o dispositivo do anfitrião for para segundo plano, a sala inteira pode parar.',
+  'dialog.keep_open_message_pro':
+    'Se você trocar de app ou a tela apagar, o som pode ser interrompido ou perder a sincronização.',
   'dialog.sw_update_title': 'Atualização',
   'dialog.sw_update_msg': 'Uma nova versão está pronta.\nAtualize a página para aplicar.',
   'dialog.feature_refresh_title': 'É preciso atualizar a página',

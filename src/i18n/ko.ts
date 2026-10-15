@@ -703,6 +703,8 @@ const ko = {
   'dialog.keep_open_title': '앱을 켜 둔 채로 사용해 주세요',
   'dialog.keep_open_message':
     '다른 앱으로 넘어가거나 화면이 꺼지면 소리가 멈추거나 싱크가 어긋날 수 있어요.\n방장 기기가 백그라운드로 가면 방 전체가 멈출 수 있어요.',
+  'dialog.keep_open_message_pro':
+    '다른 앱으로 넘어가거나 화면이 꺼지면 소리가 멈추거나 싱크가 어긋날 수 있어요.',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었어요.\n새로고침하면 업데이트가 적용돼요.',
   'dialog.feature_refresh_title': '새로고침이 필요해요',

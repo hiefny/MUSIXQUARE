@@ -732,6 +732,8 @@ const it: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Tieni l’app aperta',
   'dialog.keep_open_message':
     'Se passi a un’altra app o lo schermo si spegne, l’audio può interrompersi o perdere la sincronizzazione.\nSe il dispositivo dell’host passa in background, l’intera stanza può fermarsi.',
+  'dialog.keep_open_message_pro':
+    'Se passi a un’altra app o lo schermo si spegne, l’audio può interrompersi o perdere la sincronizzazione.',
   'dialog.sw_update_title': 'Nuovo aggiornamento',
   'dialog.sw_update_msg': 'È disponibile una nuova versione.\nAggiorna la pagina per applicarla.',
   'dialog.feature_refresh_title': 'È necessario aggiornare la pagina',

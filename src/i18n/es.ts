@@ -659,6 +659,8 @@ const es: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Mantén la app abierta',
   'dialog.keep_open_message':
     'Si cambias de app o se apaga la pantalla, el sonido puede cortarse o perder la sincronización.\nSi el dispositivo del anfitrión pasa a segundo plano, toda la sala puede detenerse.',
+  'dialog.keep_open_message_pro':
+    'Si cambias de app o se apaga la pantalla, el sonido puede cortarse o perder la sincronización.',
   'dialog.sw_update_title': 'Actualización',
   'dialog.sw_update_msg': 'Hay una nueva versión lista.\nActualiza para aplicarla.',
   'dialog.feature_refresh_title': 'Es necesario actualizar la página',

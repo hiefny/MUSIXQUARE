@@ -659,6 +659,8 @@ const de: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Lass die App geöffnet',
   'dialog.keep_open_message':
     'Wenn du zu einer anderen App wechselst oder der Bildschirm ausgeht, kann der Ton aussetzen oder der Sync nicht mehr stimmen.\nGeht das Host-Gerät in den Hintergrund, kann der ganze Raum stoppen.',
+  'dialog.keep_open_message_pro':
+    'Wenn du zu einer anderen App wechselst oder der Bildschirm ausgeht, kann der Ton aussetzen oder der Sync nicht mehr stimmen.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Eine neue Version ist bereit.\nLade die Seite neu, um sie anzuwenden.',
   'dialog.feature_refresh_title': 'Neu laden erforderlich',

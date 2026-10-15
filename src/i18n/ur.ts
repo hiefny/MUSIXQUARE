@@ -708,6 +708,8 @@ const ur: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'ایپ کھلی رکھیں',
   'dialog.keep_open_message':
     'دوسری ایپ پر جانے یا اسکرین بند کرنے سے آواز رک سکتی ہے یا سنک بگڑ سکتا ہے۔\nاگر میزبان کا آلہ پس منظر میں چلا جائے تو پورا کمرہ رک سکتا ہے۔',
+  'dialog.keep_open_message_pro':
+    'دوسری ایپ پر جانے یا اسکرین بند کرنے سے آواز رک سکتی ہے یا سنک بگڑ سکتا ہے۔',
   'dialog.sw_update_title': 'اپ ڈیٹ',
   'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔\nاپ ڈیٹ کے لیے ریفریش کریں۔',
   'dialog.feature_refresh_title': 'ریفریش کرنا ضروری ہے',

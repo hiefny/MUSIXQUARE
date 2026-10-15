@@ -719,6 +719,8 @@ const nb: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Hold appen åpen',
   'dialog.keep_open_message':
     'Hvis du bytter app eller skjermen slukkes, kan lyden stoppe eller synkroniseringen svikte.\nHvis vertsenheten går i bakgrunnen, kan hele rommet stoppe.',
+  'dialog.keep_open_message_pro':
+    'Hvis du bytter app eller skjermen slukkes, kan lyden stoppe eller synkroniseringen svikte.',
   'dialog.sw_update_title': 'Oppdatering',
   'dialog.sw_update_msg': 'En ny versjon er klar.\nOppdater siden for å ta den i bruk.',
   'dialog.feature_refresh_title': 'Siden må oppdateres',

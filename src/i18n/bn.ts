@@ -714,6 +714,8 @@ const bn: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'অ্যাপটি খোলা রাখুন',
   'dialog.keep_open_message':
     'অন্য অ্যাপে গেলে বা স্ক্রিন বন্ধ করলে অডিও থেমে যেতে পারে বা সিঙ্ক বিগড়ে যেতে পারে।\nহোস্ট ডিভাইস ব্যাকগ্রাউন্ডে গেলে পুরো রুম থেমে যেতে পারে।',
+  'dialog.keep_open_message_pro':
+    'অন্য অ্যাপে গেলে বা স্ক্রিন বন্ধ করলে অডিও থেমে যেতে পারে বা সিঙ্ক বিগড়ে যেতে পারে।',
   'dialog.sw_update_title': 'আপডেট',
   'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত।\nআপডেট করতে রিফ্রেশ করুন।',
   'dialog.feature_refresh_title': 'রিফ্রেশ করা প্রয়োজন',

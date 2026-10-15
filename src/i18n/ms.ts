@@ -731,6 +731,8 @@ const ms: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Biarkan aplikasi kekal terbuka',
   'dialog.keep_open_message':
     'Beralih ke aplikasi lain atau mematikan skrin boleh menyebabkan bunyi terhenti atau penyegerakan terganggu.\nJika peranti hos beralih ke latar belakang, seluruh bilik boleh terhenti.',
+  'dialog.keep_open_message_pro':
+    'Beralih ke aplikasi lain atau mematikan skrin boleh menyebabkan bunyi terhenti atau penyegerakan terganggu.',
   'dialog.sw_update_title': 'Kemas Kini',
   'dialog.sw_update_msg': 'Versi baharu sudah sedia.\nMuat semula untuk mengemas kini.',
   'dialog.feature_refresh_title': 'Perlu dimuat semula',

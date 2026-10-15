@@ -724,6 +724,8 @@ const cs: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Nechte aplikaci otevřenou',
   'dialog.keep_open_message':
     'Pokud přepnete do jiné aplikace nebo zhasne obrazovka, může se zastavit zvuk nebo narušit synchronizace.\nPokud zařízení hostitele přejde do pozadí, může se zastavit celá místnost.',
+  'dialog.keep_open_message_pro':
+    'Pokud přepnete do jiné aplikace nebo zhasne obrazovka, může se zastavit zvuk nebo narušit synchronizace.',
   'dialog.sw_update_title': 'Aktualizace',
   'dialog.sw_update_msg': 'Je připravena nová verze.\nPro aktualizaci načtěte stránku znovu.',
   'dialog.feature_refresh_title': 'Je potřeba načíst stránku znovu',

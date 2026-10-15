@@ -642,6 +642,8 @@ const ja: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'アプリを開いたままお使いください',
   'dialog.keep_open_message':
     '他のアプリに切り替えたり画面がオフになったりすると、音が止まったり同期がずれたりすることがあります。\nホストデバイスがバックグラウンドに移動すると、ルーム全体が止まることがあります。',
+  'dialog.keep_open_message_pro':
+    '他のアプリに切り替えたり画面がオフになったりすると、音が止まったり同期がずれたりすることがあります。',
   'dialog.sw_update_title': 'アップデート',
   'dialog.sw_update_msg':
     '新しいバージョンの準備ができました。\nページを再読み込みするとアップデートが適用されます。',

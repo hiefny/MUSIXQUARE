@@ -703,6 +703,8 @@ const gu: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'ઍપ ખુલ્લી રાખો',
   'dialog.keep_open_message':
     'બીજી ઍપ પર જવાથી કે સ્ક્રીન બંધ થવાથી અવાજ અટકી શકે છે અથવા સિંક બગડી શકે છે.\nહોસ્ટ ડિવાઇસ પૃષ્ઠભૂમિમાં જાય તો આખો રૂમ અટકી શકે છે.',
+  'dialog.keep_open_message_pro':
+    'બીજી ઍપ પર જવાથી કે સ્ક્રીન બંધ થવાથી અવાજ અટકી શકે છે અથવા સિંક બગડી શકે છે.',
   'dialog.sw_update_title': 'અપડેટ',
   'dialog.sw_update_msg': 'નવી આવૃત્તિ તૈયાર છે.\nઅપડેટ કરવા રિફ્રેશ કરો.',
   'dialog.feature_refresh_title': 'રિફ્રેશ કરવું જરૂરી છે',

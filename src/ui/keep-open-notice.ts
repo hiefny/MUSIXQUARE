@@ -1,11 +1,12 @@
 /**
- * Keep-the-app-open guidance for Standard rooms.
+ * Keep-the-app-open guidance.
  *
- * A hidden tab stops its own audio, and a hidden or frozen host stops the
- * whole room. First-time visitors get one dialog saying so when the room's
- * first media appears. Guests then see the header loader while the host is in
- * the background or not answering, a toast when it returns, and an offer to
- * leave after a long silence.
+ * A hidden tab stops its own audio, and in a Standard room a hidden or frozen
+ * host stops the whole room. First-time visitors get one dialog saying so when
+ * the room's first media appears; in a PRO room, where the server keeps the
+ * room, it leaves out the host sentence. Standard-room guests then see the
+ * header loader while the host is in the background or not answering, a toast
+ * when it returns, and an offer to leave after a long silence.
  */
 
 import { log } from '../core/log.ts';
@@ -34,12 +35,14 @@ let keepOpenOffered = false;
 
 function offerKeepOpenOnFirstMedia(): void {
   if (!firstVisit || keepOpenOffered) return;
-  if (!getState('setup.sessionStarted') || getRoomContext().kind === 'pro') return;
+  if (!getState('setup.sessionStarted')) return;
   if (getState('demo.active') || getState('playlist.items').length === 0) return;
   keepOpenOffered = true;
   showDialog({
     title: t('dialog.keep_open_title'),
-    message: t('dialog.keep_open_message'),
+    message: t(
+      getRoomContext().kind === 'pro' ? 'dialog.keep_open_message_pro' : 'dialog.keep_open_message',
+    ),
     buttonText: t('dialog.got_it'),
   }).catch((error: unknown) => log.warn('[KeepOpen] First-media notice failed', error));
 }

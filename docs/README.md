@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Update notice line breaks — 2026-10-15](design/update-notice-line-breaks-2026-10-15.md) —
+  The four update notices put each sentence on its own line in 42 locales,
+  which also ends toast truncation for 102 of 126 values. Local unit/E2E
+  evidence; device rendering and production checks remain.
+
 - [PRO playlist reorder feedback — 2026-10-14](design/pro-playlist-reorder-optimistic-2026-10-14.md) —
   A dropped PRO reorder shows its order at once instead of redrawing the old one
   until the server answers; a rejection restores the server order with a toast in

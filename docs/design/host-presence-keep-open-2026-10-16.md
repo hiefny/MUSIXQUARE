@@ -161,7 +161,63 @@ release. The capture script was temporary and is not committed.
 
 ## Release and recovery
 
-App-only release (`target=app`). Recovery is the ordinary Production Release
-rollback to the 8.10.24 checkpoint, which removes the loader, toasts, dialogs
-and the new protocol fields together. Mixed versions stay compatible in both
-directions.
+App **8.10.25/v691** shipped through
+[Production Release 38799143891](https://github.com/hiefny/MUSIXQUARE/actions/runs/38799143891),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-16 05:07:36 KST** using the immutable
+candidate from exact-main CI `38797375114` for
+`45850f44f74a4ab3a4094d22bd22dc3637e30fec`. No rollback was needed; the recovery job was skipped.
+
+The first attempt, [Production Release 38798391865](https://github.com/hiefny/MUSIXQUARE/actions/runs/38798391865),
+used the same candidate and failed after the App deploy:
+
+- App version `a6827c11-21e2-4305-bd79-a671e058abd1` became
+  `35166e15-3836-497b-b62d-4cb50a7d9a26`. The App generation
+  (`main-VNF0XWyE.js`, 27 assets), anonymous account boundary and PRO public
+  boundary smokes passed.
+- The Standard HTTPS signaling smoke failed: the bridge `open` request returned
+  HTTP 503.
+- The release rolled the App back to `a6827c11` at 05:02:40.436 KST. The
+  rollback report succeeded, and the R2/Worker recovery boundary and the
+  compatibility floors were verified again. No coherent marker was written.
+- Afterwards the public `/` served v690, and the same HTTPS signaling smoke,
+  run again against production, passed (host and guest admitted, offer and
+  answer relayed).
+- The only server-side change in this release is the admin asset version
+  constant in the App Worker, so the 503 is not attributed to this change. Its
+  exact cause is unknown.
+
+The successful attempt:
+
+- Exact-main CI ran 11 jobs: 567 unit files, 12,767 passed / 0 failed / 1
+  skipped (the Windows-only cross-drive path check on Linux), 17 candidate
+  browser and 29 critical browser tests passed, and every coverage, static and
+  build gate passed.
+- App version `a6827c11-21e2-4305-bd79-a671e058abd1` became
+  `b85d4314-a21e-4614-83e0-16d2f2443b29`. Final deployment ownership was
+  verified at 05:07:30.674 KST, and the coherent production marker records the
+  exact SHA and target `app`.
+- The partial-release compatibility recheck at 05:06:55.117 KST was
+  compatible. The five unselected Workers were not deployed and keep the
+  `d9364cd9` identities in `docs/release-record.md` §1; the PRO smoke re-read
+  pro-room `8d5d44c0`. The new App deployment identity is in the 90-day run
+  artifact `production-deployments-45850f44f74a4ab3a4094d22bd22dc3637e30fec-38799143891-1`.
+- App generation (`main-VNF0XWyE.js`, 27 assets converged), anonymous App
+  account boundary, current PRO public boundary and Standard HTTPS signaling
+  smokes passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 05:08 KST returned HTTP 200 for `/`, the v691 service worker,
+  `bootstrap.js?cache=v691`, `main-VNF0XWyE.js` and `main-B0bF4u0B.css`. The
+  public chunks carry `hostHidden` and `host-command-rejected`, and the CSS
+  carries `--header-actions-inset`.
+- [Operations Drift Audit 38799616043](https://github.com/hiefny/MUSIXQUARE/actions/runs/38799616043)
+  succeeded. Its 05:09:33.106 KST report records **31 pass / 0 fail / 5
+  manual-only**; manual checks are not treated as completed.
+
+The immutable recovery checkpoint captured at 05:06:24.661 KST
+(`production-recovery-checkpoint-45850f44f74a4ab3a4094d22bd22dc3637e30fec-38799143891-1`)
+preserves the previous App `31c3b19c6f792185ba24ca0138dc1c5836430fbf`,
+8.10.24/v690, version `a6827c11-21e2-4305-bd79-a671e058abd1`. Rolling back to
+it removes the waiting loader, the toasts, both dialogs and the new protocol
+fields together. Mixed versions stay compatible in both directions. The
+checkpoint is not a user-data backup; no data migration is needed and existing
+recovery floors remain binding.

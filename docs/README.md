@@ -94,8 +94,9 @@ runbooks. Neither belongs in a general setup document.
   Standard-room guests see a waiting loader, refusal and hold toasts, and an
   offer to leave when the host's app is in the background or frozen.
   First-time visitors get a one-time keep-open dialog, and the account pill
-  stays visible while any loader shows. Local unit/E2E evidence; production
-  checks remain.
+  stays visible while any loader shows. Shipped App 8.10.25/v691 with
+  exact-main CI, production ownership/smoke and Drift Audit evidence; the first
+  release attempt rolled back automatically after a signaling smoke 503.
 
 - [Unused toast keys — 2026-10-15](design/unused-toast-keys-2026-10-15.md) —
   Twelve toast keys that no code referenced are removed from all 42 locales.

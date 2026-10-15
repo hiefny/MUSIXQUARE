@@ -268,14 +268,13 @@ describe('completed translation factual contracts', () => {
         // placeholders, markup, or numbers.
         expect(text, `${language}.${key}`).toContain('MUSIXQUARE');
         expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
-        // Owner decision 2026-10-15: one sentence per line, so a toast never
-        // truncates the notice at its per-line limit.
+        // Owner decision 2026-10-15: one sentence per line.
         expect(text.split('\n'), `${language}.${key} lines`).toHaveLength(2);
         for (const line of text.split('\n')) {
           expect(line.trim(), `${language}.${key} line`).toBe(line);
           expect(line, `${language}.${key} line`).not.toBe('');
-          // Outside a room the notice is a toast, which truncates a line
-          // beyond 50 characters.
+          // Outside a room the notice is a toast. Short lines keep it compact
+          // on a phone, where a longer line wraps.
           expect(Array.from(line).length, `${language}.${key} line length`).toBeLessThanOrEqual(50);
         }
       }

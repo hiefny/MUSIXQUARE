@@ -8,8 +8,20 @@ import { hasRoomCapability } from '../rooms/authority.ts';
 import type { StandardOperatorFileUplinkProgress } from '../types/index.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 
-const TOAST_MAX_LINE_CHARS = 50;
+// Authored toast copy is shown in full: a long line wraps instead of being cut
+// (owner decision 2026-10-15). Only dynamic values are shortened: a quoted
+// value such as a track or file name, the value after a colon such as a file
+// name or a backend message, and, as a last resort, a line past the line limit.
+// A guard test keeps every authored line, colon value and quoted value within
+// these limits.
+const TOAST_MAX_LINE_CHARS = 120;
 const TOAST_DYNAMIC_VALUE_CHARS = 28;
+const TOAST_COLON_VALUE_CHARS = 64;
+// A toast stays up long enough to read: 50 ms per character, at least the
+// requested or default 2 s and at most 7 s.
+const TOAST_DEFAULT_DURATION_MS = 2000;
+const TOAST_MAX_DURATION_MS = 7000;
+const TOAST_READING_MS_PER_CHAR = 50;
 const ELLIPSIS = '…';
 
 // ─── Loader (Header Progress Bar) ────────────────────────────────
@@ -358,17 +370,12 @@ function truncateQuotedValues(line: string): string {
 }
 
 function truncateColonValue(line: string): string {
-  if (charCount(line) <= TOAST_MAX_LINE_CHARS) return line;
-
   const colonIndex = line.indexOf(': ');
   if (colonIndex < 0) return line;
 
   const prefix = line.slice(0, colonIndex + 2);
   const value = line.slice(colonIndex + 2);
-  const remaining = TOAST_MAX_LINE_CHARS - charCount(prefix);
-  if (remaining < 8) return line;
-
-  return `${prefix}${truncateValue(value, remaining)}`;
+  return `${prefix}${truncateValue(value, TOAST_COLON_VALUE_CHARS)}`;
 }
 
 function formatToastLine(line: string): string {
@@ -381,6 +388,12 @@ function formatToastLine(line: string): string {
 
 function formatToastText(text: string): string {
   return text.replace(/\r\n?/g, '\n').split('\n').map(formatToastLine).join('\n');
+}
+
+function toastDurationMs(displayText: string, requestedMs: number | undefined): number {
+  const readingMs = charCount(displayText.replace(/\n/g, '')) * TOAST_READING_MS_PER_CHAR;
+  const minimumMs = Math.max(1000, requestedMs || TOAST_DEFAULT_DURATION_MS);
+  return Math.max(minimumMs, Math.min(TOAST_MAX_DURATION_MS, readingMs));
 }
 
 export function showToast(msg: unknown, options: { durationMs?: number } = {}): void {
@@ -417,7 +430,7 @@ export function showToast(msg: unknown, options: { durationMs?: number } = {}): 
           /* noop */
         }
       },
-      Math.max(1000, options.durationMs || 2000),
+      toastDurationMs(displayText, options.durationMs),
     );
   } catch {
     console.info('[Toast fallback]', msg);

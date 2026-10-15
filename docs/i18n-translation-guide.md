@@ -63,14 +63,23 @@ is missing** — so a complete file must define every key.
 6. **Keep ALL-CAPS** only where the target script has letter case (Latin,
    Cyrillic). Caseless scripts (CJK, Thai) ignore it. Caps source values:
    `youtube.tap_to_play` = "TAP TO PLAY", `chat.system_sender` = "SYSTEM".
-7. **Keep toast lines within 50 characters.** `src/ui/toast.ts` cuts each
-   line of a toast at 50 code points and appends `…`; the full text survives
-   only as a tooltip. This applies to every `toast.*` key and to any other key
-   that reaches `showToast` or `bus.emit('ui:show-toast')` (for example
-   `transfer.*`, `system_audio.*`, `error.*`, `share.remote.*`, and the
-   `player.seek_unavailable_*` family). Count a `{{placeholder}}` at its
-   realistic rendered width, not at the template's width. Do not lengthen a
-   toast that already fits; shorten the wording instead (decided 2026-10-14).
+7. **Keep toast lines short; the toast never cuts authored copy.** Since
+   2026-10-15, `src/ui/toast.ts` shows authored toast copy in full. A long line
+   wraps, and the toast stays up longer (50 ms per character, up to 7 s). It
+   still shortens dynamic values with `…`:
+   - a line over 120 characters;
+   - the text after the first `: ` when over 64 characters, such as a file
+     name or an error message;
+   - quoted text over 28 characters.
+
+   This applies to every `toast.*` key and to any other key that reaches
+   `showToast` or `bus.emit('ui:show-toast')` (for example `transfer.*`,
+   `system_audio.*`, `error.*`, `share.remote.*`, and the
+   `player.seek_unavailable_*` family). Authored text must stay within those
+   three limits, or the toast would cut it; the toast copy guard test enforces
+   this. Aim for about 50 characters per line anyway: on a phone a longer line
+   wraps, and a long toast grows tall. Do not lengthen a toast that already
+   fits.
 8. **Do not end a toast sentence with a period** (decided 2026-10-15). This
    covers `.`, `。`, `।` and `۔`. When a toast has two sentences, put the second
    on its own line with `\n` instead of a period and a space. A question or

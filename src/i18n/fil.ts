@@ -734,6 +734,8 @@ const fil: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Panatilihing bukas ang app',
   'dialog.keep_open_message':
     'Kapag lumipat ka sa ibang app o nag-off ang screen, maaaring huminto ang tunog o mawala sa sync.\nKapag napunta sa background ang host device, maaaring huminto ang buong kuwarto.',
+  'dialog.keep_open_message_pro':
+    'Kapag lumipat ka sa ibang app o nag-off ang screen, maaaring huminto ang tunog o mawala sa sync.',
   'dialog.sw_update_title': 'I-update',
   'dialog.sw_update_msg': 'Handa na ang bagong bersyon.\nI-refresh para mag-update.',
   'dialog.feature_refresh_title': 'Kailangang mag-refresh',

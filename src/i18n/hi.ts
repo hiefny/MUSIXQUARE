@@ -714,6 +714,8 @@ const hi: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'ऐप को खुला रखें',
   'dialog.keep_open_message':
     'दूसरे ऐप पर जाने या स्क्रीन बंद होने से आवाज़ रुक सकती है या सिंक बिगड़ सकता है।\nअगर होस्ट डिवाइस बैकग्राउंड में चला जाए, तो पूरा रूम रुक सकता है।',
+  'dialog.keep_open_message_pro':
+    'दूसरे ऐप पर जाने या स्क्रीन बंद होने से आवाज़ रुक सकती है या सिंक बिगड़ सकता है।',
   'dialog.sw_update_title': 'अपडेट',
   'dialog.sw_update_msg': 'नया वर्ज़न तैयार है।\nअपडेट करने के लिए रीफ़्रेश करें।',
   'dialog.feature_refresh_title': 'रीफ़्रेश करना ज़रूरी है',

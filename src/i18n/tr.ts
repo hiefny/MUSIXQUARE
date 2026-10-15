@@ -710,6 +710,8 @@ const tr: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Uygulamayı açık tut',
   'dialog.keep_open_message':
     'Başka bir uygulamaya geçersen veya ekranı kapatırsan ses durabilir ya da senkronizasyon bozulabilir.\nOda sahibinin cihazı arka plana geçerse tüm oda durabilir.',
+  'dialog.keep_open_message_pro':
+    'Başka bir uygulamaya geçersen veya ekranı kapatırsan ses durabilir ya da senkronizasyon bozulabilir.',
   'dialog.sw_update_title': 'Yeni Güncelleme',
   'dialog.sw_update_msg': 'Yeni bir sürüm hazır.\nGüncellemek için sayfayı yenile.',
   'dialog.feature_refresh_title': 'Yenileme gerekli',

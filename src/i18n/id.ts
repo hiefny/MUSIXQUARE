@@ -647,6 +647,8 @@ const id: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Biarkan aplikasi tetap terbuka',
   'dialog.keep_open_message':
     'Beralih ke aplikasi lain atau mematikan layar bisa membuat suara berhenti atau sinkronisasi meleset.\nJika perangkat host masuk ke latar belakang, seluruh ruang bisa berhenti.',
+  'dialog.keep_open_message_pro':
+    'Beralih ke aplikasi lain atau mematikan layar bisa membuat suara berhenti atau sinkronisasi meleset.',
   'dialog.sw_update_title': 'Pembaruan',
   'dialog.sw_update_msg': 'Versi baru siap.\nMuat ulang untuk memperbarui.',
   'dialog.feature_refresh_title': 'Perlu dimuat ulang',

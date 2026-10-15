@@ -725,6 +725,8 @@ const hu: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Tartsd nyitva az alkalmazást',
   'dialog.keep_open_message':
     'Ha másik alkalmazásra váltasz, vagy kikapcsol a képernyő, leállhat a hang, vagy elcsúszhat a szinkronizálás.\nHa a házigazda eszköze háttérbe kerül, az egész szoba leállhat.',
+  'dialog.keep_open_message_pro':
+    'Ha másik alkalmazásra váltasz, vagy kikapcsol a képernyő, leállhat a hang, vagy elcsúszhat a szinkronizálás.',
   'dialog.sw_update_title': 'Frissítés',
   'dialog.sw_update_msg': 'Új verzió érhető el.\nA frissítéshez töltsd újra az oldalt.',
   'dialog.feature_refresh_title': 'Újratöltés szükséges',

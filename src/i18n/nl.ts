@@ -730,6 +730,8 @@ const nl: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Houd de app open',
   'dialog.keep_open_message':
     'Als je naar een andere app overschakelt of het scherm uitgaat, kan het geluid stoppen of de synchronisatie niet meer kloppen.\nAls het hostapparaat naar de achtergrond gaat, kan de hele kamer stilvallen.',
+  'dialog.keep_open_message_pro':
+    'Als je naar een andere app overschakelt of het scherm uitgaat, kan het geluid stoppen of de synchronisatie niet meer kloppen.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Er staat een nieuwe versie klaar.\nVernieuw om deze bij te werken.',
   'dialog.feature_refresh_title': 'Vernieuwen nodig',

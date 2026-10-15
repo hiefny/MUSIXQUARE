@@ -653,6 +653,8 @@ const fr: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Gardez l’application ouverte',
   'dialog.keep_open_message':
     'Si vous changez d’application ou si l’écran s’éteint, le son risque de se couper ou de se désynchroniser.\nSi l’appareil de l’hôte passe en arrière-plan, tout le salon peut s’arrêter.',
+  'dialog.keep_open_message_pro':
+    'Si vous changez d’application ou si l’écran s’éteint, le son risque de se couper ou de se désynchroniser.',
   'dialog.sw_update_title': 'Mise à jour',
   'dialog.sw_update_msg': 'Une nouvelle version est prête.\nActualisez pour mettre à jour.',
   'dialog.feature_refresh_title': 'Actualisation nécessaire',

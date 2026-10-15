@@ -719,6 +719,8 @@ const fi: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Pidä sovellus auki',
   'dialog.keep_open_message':
     'Jos vaihdat toiseen sovellukseen tai näyttö sammuu, ääni voi katketa tai synkronointi voi mennä sekaisin.\nJos isäntälaite siirtyy taustalle, koko huone voi pysähtyä.',
+  'dialog.keep_open_message_pro':
+    'Jos vaihdat toiseen sovellukseen tai näyttö sammuu, ääni voi katketa tai synkronointi voi mennä sekaisin.',
   'dialog.sw_update_title': 'Päivitys',
   'dialog.sw_update_msg': 'Uusi versio on valmis.\nPäivitä sivu ottaaksesi sen käyttöön.',
   'dialog.feature_refresh_title': 'Sivu on päivitettävä',

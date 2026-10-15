@@ -126,8 +126,8 @@ describe('first-media keep-open notice', () => {
     expect(mocks.showDialog).toHaveBeenCalledTimes(1);
   });
 
-  it('leaves PRO rooms alone', async () => {
-    const { setState } = await boot(true);
+  it('tells a first-time PRO participant without the host sentence', async () => {
+    const { setState, t } = await boot(true);
     setState('room.context', {
       kind: 'pro',
       roomId: 'room-1',
@@ -140,7 +140,11 @@ describe('first-media keep-open notice', () => {
 
     addMedia(setState);
 
-    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: t('dialog.keep_open_title'),
+      message: t('dialog.keep_open_message_pro'),
+      buttonText: t('dialog.got_it'),
+    });
   });
 });
 

@@ -708,6 +708,8 @@ const en: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Please keep the app open',
   'dialog.keep_open_message':
     'Switching apps or turning off the screen can stop the sound or break the sync.\nIf the host device goes to the background, the whole room can stop.',
+  'dialog.keep_open_message_pro':
+    'Switching apps or turning off the screen can stop the sound or break the sync.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready.\nRefresh to update.',
   'dialog.feature_refresh_title': 'Refresh needed',

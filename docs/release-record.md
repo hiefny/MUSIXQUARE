@@ -53,6 +53,14 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### PRO 첫 미디어 안내
+
+- [ ] App 8.10.26/v692 배포 준비: 처음 쓰는 사람에게 띄우는 "앱을 켜 둔 채로 사용해
+      주세요" 모달을 PRO 방에도 띄운다. PRO는 서버가 방을 유지하므로 방장 문장을 뺀
+      본문(각 언어의 기존 본문 첫 문장)을 쓴다(오너 결정 2026-10-16). 체험하기 모달은
+      PRO 방에 뜨지 않아 PRO 게스트가 받는 유일한 첫 안내다. exact-main CI와 정식
+      배포 근거를 확보한 뒤 닫는다. [범위·검증](design/keep-open-pro-2026-10-16.md)
+
 ### 최근 해결 근거
 
 App 8.10.25/v691의 방장 기기 상태 안내(오너 결정 2026-10-16)는 PR

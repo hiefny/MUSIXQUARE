@@ -732,6 +732,8 @@ const ro: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Ține aplicația deschisă',
   'dialog.keep_open_message':
     'Dacă treci la altă aplicație sau ecranul se stinge, sunetul se poate întrerupe sau poate pierde sincronizarea.\nDacă dispozitivul gazdă trece în fundal, întreaga cameră se poate opri.',
+  'dialog.keep_open_message_pro':
+    'Dacă treci la altă aplicație sau ecranul se stinge, sunetul se poate întrerupe sau poate pierde sincronizarea.',
   'dialog.sw_update_title': 'Actualizare',
   'dialog.sw_update_msg': 'Este disponibilă o versiune nouă.\nReîncarcă pentru actualizare.',
   'dialog.feature_refresh_title': 'Este necesară reîncărcarea',

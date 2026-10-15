@@ -698,6 +698,8 @@ const he: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'כדאי להשאיר את האפליקציה פתוחה',
   'dialog.keep_open_message':
     'מעבר לאפליקציה אחרת או כיבוי המסך עלולים לעצור את השמע או לשבש את הסנכרון.\nאם מכשיר המארח יעבור לרקע, כל החדר עלול להיעצר.',
+  'dialog.keep_open_message_pro':
+    'מעבר לאפליקציה אחרת או כיבוי המסך עלולים לעצור את השמע או לשבש את הסנכרון.',
   'dialog.sw_update_title': 'עדכון',
   'dialog.sw_update_msg': 'גרסה חדשה מוכנה.\nיש לרענן כדי לעדכן.',
   'dialog.feature_refresh_title': 'נדרש רענון',

@@ -722,6 +722,8 @@ const sv: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Håll appen öppen',
   'dialog.keep_open_message':
     'Om du byter app eller skärmen släcks kan ljudet tystna eller synkroniseringen störas.\nOm värdenheten hamnar i bakgrunden kan hela rummet stanna.',
+  'dialog.keep_open_message_pro':
+    'Om du byter app eller skärmen släcks kan ljudet tystna eller synkroniseringen störas.',
   'dialog.sw_update_title': 'Uppdatering',
   'dialog.sw_update_msg': 'En ny version är klar.\nUppdatera sidan för att installera den.',
   'dialog.feature_refresh_title': 'Sidan behöver uppdateras',

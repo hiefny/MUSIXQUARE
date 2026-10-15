@@ -714,6 +714,8 @@ const pa: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'ਐਪ ਖੁੱਲ੍ਹੀ ਰੱਖੋ',
   'dialog.keep_open_message':
     'ਕਿਸੇ ਹੋਰ ਐਪ ਉੱਤੇ ਜਾਣ ਜਾਂ ਸਕ੍ਰੀਨ ਬੰਦ ਹੋਣ ਨਾਲ ਆਵਾਜ਼ ਰੁਕ ਸਕਦੀ ਹੈ ਜਾਂ ਸਿੰਕ ਵਿਗੜ ਸਕਦਾ ਹੈ।\nਜੇ ਹੋਸਟ ਡਿਵਾਈਸ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਚਲੀ ਜਾਵੇ ਤਾਂ ਪੂਰਾ ਰੂਮ ਰੁਕ ਸਕਦਾ ਹੈ।',
+  'dialog.keep_open_message_pro':
+    'ਕਿਸੇ ਹੋਰ ਐਪ ਉੱਤੇ ਜਾਣ ਜਾਂ ਸਕ੍ਰੀਨ ਬੰਦ ਹੋਣ ਨਾਲ ਆਵਾਜ਼ ਰੁਕ ਸਕਦੀ ਹੈ ਜਾਂ ਸਿੰਕ ਵਿਗੜ ਸਕਦਾ ਹੈ।',
   'dialog.sw_update_title': 'ਅੱਪਡੇਟ',
   'dialog.sw_update_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਅੱਪਡੇਟ ਕਰਨ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
   'dialog.feature_refresh_title': 'ਰਿਫ੍ਰੈਸ਼ ਕਰਨਾ ਜ਼ਰੂਰੀ ਹੈ',

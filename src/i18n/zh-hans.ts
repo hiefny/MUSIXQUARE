@@ -603,6 +603,7 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.keep_open_title': '使用时请保持应用打开',
   'dialog.keep_open_message':
     '切换到其他应用或关闭屏幕后，声音可能会中断或同步不准。\n如果房主设备进入后台，整个房间都可能停止运行。',
+  'dialog.keep_open_message_pro': '切换到其他应用或关闭屏幕后，声音可能会中断或同步不准。',
   'dialog.sw_update_title': '更新',
   'dialog.sw_update_msg': '新版本已准备好。\n刷新即可更新。',
   'dialog.feature_refresh_title': '需要刷新',

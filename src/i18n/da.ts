@@ -721,6 +721,8 @@ const da: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Hold appen åben',
   'dialog.keep_open_message':
     'Hvis du skifter app, eller skærmen slukker, kan lyden stoppe, eller synkroniseringen kan svigte.\nHvis værtens enhed går i baggrunden, kan hele rummet stoppe.',
+  'dialog.keep_open_message_pro':
+    'Hvis du skifter app, eller skærmen slukker, kan lyden stoppe, eller synkroniseringen kan svigte.',
   'dialog.sw_update_title': 'Opdatering',
   'dialog.sw_update_msg': 'En ny version er klar.\nOpdater siden for at installere den.',
   'dialog.feature_refresh_title': 'Siden skal opdateres',

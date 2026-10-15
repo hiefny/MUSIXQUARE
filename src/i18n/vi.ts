@@ -637,6 +637,8 @@ const vi: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Hãy giữ ứng dụng luôn mở',
   'dialog.keep_open_message':
     'Chuyển sang ứng dụng khác hoặc tắt màn hình có thể khiến âm thanh bị dừng hoặc đồng bộ bị lệch.\nNếu thiết bị của chủ phòng chuyển sang nền, cả phòng có thể dừng lại.',
+  'dialog.keep_open_message_pro':
+    'Chuyển sang ứng dụng khác hoặc tắt màn hình có thể khiến âm thanh bị dừng hoặc đồng bộ bị lệch.',
   'dialog.sw_update_title': 'Cập nhật',
   'dialog.sw_update_msg': 'Phiên bản mới đã sẵn sàng.\nLàm mới để cập nhật.',
   'dialog.feature_refresh_title': 'Cần làm mới',

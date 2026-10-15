@@ -730,6 +730,8 @@ const pl: Record<I18nKey, string> = {
   'dialog.keep_open_title': 'Pozostaw aplikację otwartą',
   'dialog.keep_open_message':
     'Jeśli przełączysz się na inną aplikację lub ekran zgaśnie, dźwięk może zostać przerwany lub stracić synchronizację.\nJeśli urządzenie hosta przejdzie w tło, cały pokój może się zatrzymać.',
+  'dialog.keep_open_message_pro':
+    'Jeśli przełączysz się na inną aplikację lub ekran zgaśnie, dźwięk może zostać przerwany lub stracić synchronizację.',
   'dialog.sw_update_title': 'Aktualizacja',
   'dialog.sw_update_msg': 'Dostępna jest nowa wersja.\nOdśwież stronę, aby ją zastosować.',
   'dialog.feature_refresh_title': 'Wymagane odświeżenie',

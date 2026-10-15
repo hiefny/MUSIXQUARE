@@ -602,6 +602,7 @@ const zhHant: Record<I18nKey, string> = {
   'dialog.keep_open_title': '使用時請保持應用程式開啟',
   'dialog.keep_open_message':
     '切換到其他應用程式或關閉螢幕後，聲音可能會中斷或同步不準。\n如果房主裝置進入背景，整個房間都可能停止運作。',
+  'dialog.keep_open_message_pro': '切換到其他應用程式或關閉螢幕後，聲音可能會中斷或同步不準。',
   'dialog.sw_update_title': '更新',
   'dialog.sw_update_msg': '新版本已準備好。\n重新整理即可更新。',
   'dialog.feature_refresh_title': '需要重新整理',

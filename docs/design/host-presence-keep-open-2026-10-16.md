@@ -101,23 +101,39 @@ Environment: Windows 11 Pro local worktree, Node 24.13.1 (the repository pins
 24.20.0, which pull request CI uses), Vitest 5.0.3, Playwright 1.63.0 with
 Chromium.
 
-Tested source: **`cd92242a`** (8.10.25, cache epoch v691), branch
-`agent/host-liveness`, clean tree. These are local and branch results, not the
-exact-main release candidate.
+Tested source: **`a8aa4132`** (8.10.25, cache epoch v691), branch
+`agent/host-liveness`, clean tree. It includes the two Codex review fixes
+below. These are local and branch results, not the exact-main release
+candidate.
 
 | Check | Result |
 | --- | --- |
-| Full `vitest run` | 566 files, **12,766 passed / 0 failed / 0 skipped**, 197.71 s |
+| Full `vitest run` | 567 files, **12,768 passed / 0 failed / 0 skipped**, 191.36 s |
 | `npm run typecheck`, `npm run lint`, `npm run format:check` | Passed |
 | `guard:dead-exports`, `guard:room-authority-boundaries`, `guard:import-graph`, `guard:bus-pairing`, `guard:lifecycle-writes`, `guard:source-complexity` | Passed |
 | `guard:sw-cache-version`, `guard:release-identity` | Passed (v691 covers every runtime change) |
-| `npm run test:e2e:critical` | **29 passed / 0 failed / 0 skipped / 0 flaky**, 1.3 min |
+| `npm run test:e2e:critical` | **29 passed / 0 failed / 0 skipped / 0 flaky**, 1.2 min |
 
 New unit coverage: `src/network/__tests__/host-presence.test.ts` (silence and
 hidden states, held commands, the host's refusal through `handleData`, ping
-reply marking, PRO isolation) and `src/ui/__tests__/keep-open-notice.test.ts`
-(first-media dialog rules, loader timing, return toast, leave offer). Loader
-priority and the pill inset are pinned in `src/ui/__tests__/toast.test.ts`.
+reply marking, PRO isolation), `src/ui/__tests__/keep-open-notice.test.ts`
+(first-media dialog rules including a guest joining a room with media, loader
+timing, return toast, leave offer) and
+`src/player/__tests__/transport-guest-stop.test.ts` (Stop sends the pause
+before the seek). Loader priority and the pill inset are pinned in
+`src/ui/__tests__/toast.test.ts`.
+
+Codex review fixes (P2, both confirmed in code):
+
+- A guest's Stop sent the seek to zero before the pause. A hidden host refused
+  the seek while its file played and applied the pause, so the stop ended at
+  the old position with a rejection toast. Stop now pauses first; the seek then
+  lands on paused audio, which a hidden host applies, and a visible host no
+  longer restarts the track just to stop it.
+- A first-time guest joining a room that already had media missed the
+  first-media dialog, because the join bootstrap applies the playlist before
+  the session counts as started. The check now also runs when the session
+  starts.
 
 Two-browser scenario (Korean UI; mobile dark, mobile light and desktop): a
 first-time host and guest, the long-text loader beside the pill, the

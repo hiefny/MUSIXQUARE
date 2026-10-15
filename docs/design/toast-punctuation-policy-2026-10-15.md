@@ -181,6 +181,50 @@ Not verified:
 
 ## Release and recovery
 
-App-only release (`target=app`). The change is copy, one CSS declaration and
-two tooltip assignments. Recovery is the ordinary Production Release rollback
-to the 8.10.21 checkpoint, which restores the periods.
+App **8.10.22/v688** shipped through
+[Production Release 38701766660](https://github.com/hiefny/MUSIXQUARE/actions/runs/38701766660),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-15 16:55:23 KST** using the immutable candidate
+from exact-main CI `38701042285` for `2e05b070fec91c19b3ebbe40e902a7f18dba0e7b`.
+No rollback was needed; the recovery job was skipped.
+
+- Exact-main CI ran 11 jobs: 564 unit files, 12,728 passed / 0 failed / 1 skipped
+  (the Windows-only cross-drive path check on Linux), 17 candidate browser and
+  29 critical browser tests passed, and every coverage, static and build gate
+  passed. The Codex review of pull request #348 completed with no findings.
+- App version `9195f720-54de-4b17-b362-300b594b0259` became
+  `603d3285-365b-46f1-b64a-a9c3faa0c1df`. Final deployment ownership was verified
+  at 16:55:17.229 KST, and the coherent production marker records the exact SHA
+  and target `app`.
+- The partial-release compatibility recheck at 16:54:42.162 KST was compatible.
+  The five unselected Workers were not deployed and keep the `d9364cd9`
+  identities in `docs/release-record.md` §1; the PRO smoke re-read pro-room
+  `8d5d44c0`. The new App deployment identity is in the 90-day run artifact
+  `production-deployments-2e05b070fec91c19b3ebbe40e902a7f18dba0e7b-38701766660-1`.
+- App generation (`main-DM_zcfwH.js`, 27 assets converged), anonymous App account
+  boundary, current PRO public boundary and Standard HTTPS signaling smokes
+  passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 16:56 KST returned HTTP 200 for `/`, the v688 service worker,
+  `bootstrap.js?cache=v688`, `main-DM_zcfwH.js` and `main-BNiplmKU.css`. The
+  public English bundle carries the new copy (for example "Could not update your
+  account" and "Please try again" on separate lines, and "No media yet" without a
+  period). The events page serves the `pre-line` toast style and the two-line
+  setup-link failure.
+- On the production Korean page, the deployed `toast.sync_no_media` copy was
+  placed in the app's toast element. It rendered as two lines without periods
+  ("동기화할 미디어가 없어요" / "먼저 재생할 미디어를 선택해주세요"). This checks
+  rendering only; no toast was raised through a real user flow, which would have
+  meant creating a production room.
+- [Operations Drift Audit 38702089960](https://github.com/hiefny/MUSIXQUARE/actions/runs/38702089960)
+  succeeded. Its 16:56:12.462 KST report records **31 pass / 0 fail / 5 manual-only**;
+  manual checks are not treated as completed.
+- The toasts were not checked on physical devices after release.
+
+The immutable recovery checkpoint captured at 16:54:10.024 KST
+(`production-recovery-checkpoint-2e05b070fec91c19b3ebbe40e902a7f18dba0e7b-38701766660-1`)
+preserves the previous App `a1d52c994a18657afb805693fc3a53eaf24f79aa`, 8.10.21/v687,
+version `9195f720-54de-4b17-b362-300b594b0259`. Rolling back to it restores the
+periods in toasts and the single-line tooltips. Mixed versions are safe because
+only copy, one CSS declaration and two tooltips changed. The checkpoint is not a
+user-data backup; no data migration is needed and existing recovery floors remain
+binding.

@@ -121,6 +121,10 @@ describe('service worker cache policy', () => {
     expect(APP_SHELL_SOURCE).not.toContain('PretendardVariable.woff2');
   });
 
+  it('does not download the screensaver document or renderer during installation', () => {
+    expect(APP_SHELL_SOURCE).not.toContain('screensaver');
+  });
+
   it('spreads the build-injected app entry closure into the install shell', () => {
     expect(SERVICE_WORKER_SOURCE).toContain('const BUILD_ENTRY_ASSETS = [');
     expect(APP_SHELL_SOURCE).toContain('...BUILD_ENTRY_ASSETS');
@@ -1674,6 +1678,21 @@ describe('service worker cache policy', () => {
     }
   });
 
+  it('does not pair a new screensaver document with a cached older renderer', async () => {
+    cacheMatch.mockImplementation(async (request: RequestInfo) => {
+      const url = typeof request === 'string' ? request : request.url;
+      return /\/(?:screensaver\.js|screensaver-runtime-11111111\.js)$/u.test(url)
+        ? new Response('old screensaver renderer')
+        : undefined;
+    });
+    fetchMock.mockResolvedValue(new Response('new matching screensaver renderer'));
+    const request = new Request('https://musixquare.com/assets/screensaver-runtime-22222222.js');
+    const response = await dispatch(request);
+    expect(await response.text()).toBe('new matching screensaver renderer');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(cachePut).toHaveBeenCalledWith(request, expect.any(Response));
+  });
+
   it('serves an immutable hashed asset without re-fetching or rewriting it', async () => {
     cacheMatch.mockImplementation(async (_request: Request, options?: { cacheName?: string }) => {
       return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}`
@@ -1741,6 +1760,9 @@ describe('service worker cache policy', () => {
     '/sitemap/',
     '/sitemap.html',
     '/SITEMAP.HTML',
+    '/screensaver',
+    '/screensaver.html',
+    '/screensaver.html?v=1',
   ])(
     'does not replace the public document %s with the room shell when offline',
     async (pathname) => {
@@ -1764,7 +1786,7 @@ describe('service worker cache policy', () => {
     },
   );
 
-  it.each(['translate', 'sitemap'])(
+  it.each(['translate', 'sitemap', 'screensaver.html'])(
     'reopens the previously visited %s document offline without using the room shell',
     async (page) => {
       fetchMock.mockRejectedValue(new Error('offline'));

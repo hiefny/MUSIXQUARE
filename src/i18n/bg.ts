@@ -43,6 +43,9 @@ const bg: Record<I18nKey, string> = {
   'common.on': 'Вкл.',
   'common.off': 'Изкл.',
 
+  'screensaver.back': 'Обратно към MUSIXQUARE',
+  'screensaver.show_music': 'Показване на информация за песента',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Вход',
   'account.login_cancelled': 'Входът бе отменен',
@@ -463,6 +466,7 @@ const bg: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [заявка]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [секунди]',
@@ -479,6 +483,7 @@ const bg: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Преглед на свързаните потребители',
   'chat.cmd_d_bot': 'Заявка към AI за управление на плейлиста',
   'chat.cmd_d_clear': 'Изчистване на историята на чата',
+  'chat.cmd_d_screensaver': 'Отваряне на скрийнсейвъра',
   'chat.cmd_d_filter': 'Филтър за нецензурни думи',
   'chat.cmd_d_freeze': 'Замразяване на чата',
   'chat.cmd_d_slowmode': 'Бавен режим',
@@ -541,6 +546,8 @@ const bg: Record<I18nKey, string> = {
   'network.host_waiting': 'Изчакване на хоста...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube':
+    'Скрийнсейвърът не е достъпен по време на възпроизвеждане от YouTube',
   'toast.device_disconnected': '{{name}} прекъсна връзката',
   'toast.device_conn_error': 'Грешка във връзката с {{name}}',
   'toast.device_kicked': '{{name}} е премахнат',

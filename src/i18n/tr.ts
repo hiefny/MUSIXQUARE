@@ -41,6 +41,9 @@ const tr: Record<I18nKey, string> = {
   'common.sync': 'Senkronize Et',
   'common.on': 'Açık',
   'common.off': 'Kapalı',
+
+  'screensaver.back': 'MUSIXQUARE’a dön',
+  'screensaver.show_music': 'Müzik bilgilerini göster',
   'account.login_title': 'Oturum aç',
   'account.login_cancelled': 'Oturum açma iptal edildi',
   'account.login_failed': 'Oturum açılamadı\nLütfen tekrar dene',
@@ -453,6 +456,7 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [istek]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [saniye]',
@@ -469,6 +473,7 @@ const tr: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Bağlı katılımcıları göster',
   'chat.cmd_d_bot': 'Yapay zekâdan çalma listesini yönetmesini iste',
   'chat.cmd_d_clear': 'Sohbet geçmişini temizle',
+  'chat.cmd_d_screensaver': 'Ekran koruyucuyu aç',
   'chat.cmd_d_filter': 'Uygunsuz kelime filtresi',
   'chat.cmd_d_freeze': 'Sohbeti kilitle',
   'chat.cmd_d_slowmode': 'Yavaş mod',
@@ -530,6 +535,7 @@ const tr: Record<I18nKey, string> = {
   'network.host_waiting': 'Oda sahibi bekleniyor...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube oynatılırken ekran koruyucu kullanılamaz',
   'toast.device_disconnected': '{{name}} bağlantısı koptu',
   'toast.device_conn_error': '{{name}} bağlantı hatası',
   'toast.device_kicked': '{{name}} odadan çıkarıldı',

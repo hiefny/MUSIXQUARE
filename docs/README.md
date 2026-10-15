@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Lazy ambient screensaver — 2026-10-16](design/screensaver-integration-2026-10-16.md) —
+  local command, YouTube exclusion, music scene, scoped permissions, and release evidence.
+
 - [Desktop action button width — 2026-10-16](design/desktop-action-width-2026-10-16.md) —
   Sync and Media retain their existing maximum width from the 1280px desktop
   breakpoint. Shipped App 8.10.27/v693 with exact-main CI, production

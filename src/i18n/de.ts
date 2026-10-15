@@ -44,6 +44,9 @@ const de: Record<I18nKey, string> = {
   'common.sync': 'Sync',
   'common.on': 'Ein',
   'common.off': 'Aus',
+
+  'screensaver.back': 'Zurück zu MUSIXQUARE',
+  'screensaver.show_music': 'Musikinfo anzeigen',
   'account.login_title': 'Anmelden',
   'account.login_cancelled': 'Die Anmeldung wurde abgebrochen',
   'account.login_failed': 'Anmeldung fehlgeschlagen\nVersuche es erneut',
@@ -510,6 +513,8 @@ const de: Record<I18nKey, string> = {
     'Systemaudio-Freigabe wurde nach 2 Stunden\nautomatisch beendet',
 
   // Toast
+  'toast.screensaver_youtube':
+    'Während der YouTube-Wiedergabe ist der Bildschirmschoner nicht verfügbar',
   'toast.device_disconnected': '{{name}} getrennt',
   'toast.device_conn_error': 'Verbindungsfehler bei {{name}}',
   'toast.device_kicked': '{{name}} wurde entfernt',
@@ -851,6 +856,7 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [Anfrage]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [Sekunden]',
@@ -867,6 +873,7 @@ const de: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Verbundene Teilnehmer anzeigen',
   'chat.cmd_d_bot': 'KI um Playlist-Verwaltung bitten',
   'chat.cmd_d_clear': 'Chatverlauf löschen',
+  'chat.cmd_d_screensaver': 'Bildschirmschoner öffnen',
   'chat.cmd_d_filter': 'Schimpfwortfilter',
   'chat.cmd_d_freeze': 'Chat sperren',
   'chat.cmd_d_slowmode': 'Langsammodus',

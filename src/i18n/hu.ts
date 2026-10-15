@@ -43,6 +43,9 @@ const hu: Record<I18nKey, string> = {
   'common.on': 'Be',
   'common.off': 'Ki',
 
+  'screensaver.back': 'Vissza a MUSIXQUARE-hez',
+  'screensaver.show_music': 'Számadatok megjelenítése',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Bejelentkezés',
   'account.login_cancelled': 'A bejelentkezés megszakadt',
@@ -463,6 +466,7 @@ const hu: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [kérés]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [másodperc]',
@@ -479,6 +483,7 @@ const hu: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Csatlakoztatott felhasználók megtekintése',
   'chat.cmd_d_bot': 'A lejátszási lista kezelése AI segítségével',
   'chat.cmd_d_clear': 'Csevegési előzmények törlése',
+  'chat.cmd_d_screensaver': 'Képernyőkímélő megnyitása',
   'chat.cmd_d_filter': 'Trágárságszűrő',
   'chat.cmd_d_freeze': 'Csevegés zárolása',
   'chat.cmd_d_slowmode': 'Lassú mód',
@@ -541,6 +546,7 @@ const hu: Record<I18nKey, string> = {
   'network.host_waiting': 'Várakozás a házigazdára...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'A képernyőkímélő YouTube-lejátszás közben nem használható',
   'toast.device_disconnected': '{{name}} leválasztva',
   'toast.device_conn_error': '{{name}} kapcsolati hibája',
   'toast.device_kicked': '{{name}} eltávolítva',

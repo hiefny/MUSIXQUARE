@@ -44,6 +44,9 @@ const kn: Record<I18nKey, string> = {
   'common.on': 'ಆನ್',
   'common.off': 'ಆಫ್',
 
+  'screensaver.back': 'MUSIXQUAREಗೆ ಹಿಂತಿರುಗಿ',
+  'screensaver.show_music': 'ಹಾಡಿನ ಮಾಹಿತಿ ತೋರಿಸಿ',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ಸೈನ್ ಇನ್ ಮಾಡಿ',
   'account.login_cancelled': 'ಸೈನ್ ಇನ್ ರದ್ದಾಗಿದೆ',
@@ -464,6 +467,7 @@ const kn: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [ವಿನಂತಿ]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [ಸೆಕೆಂಡುಗಳು]',
@@ -480,6 +484,7 @@ const kn: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'ಸಂಪರ್ಕಗೊಂಡ ಬಳಕೆದಾರರನ್ನು ನೋಡಿ',
   'chat.cmd_d_bot': 'ಪ್ಲೇಲಿಸ್ಟ್ ನಿರ್ವಹಿಸಲು AI ಅನ್ನು ಕೇಳಿ',
   'chat.cmd_d_clear': 'ಚಾಟ್ ಇತಿಹಾಸ ತೆರವುಗೊಳಿಸಿ',
+  'chat.cmd_d_screensaver': 'ಸ್ಕ್ರೀನ್‌ಸೇವರ್ ತೆರೆಯಿರಿ',
   'chat.cmd_d_filter': 'ಅಸಭ್ಯ ಪದಗಳ ಫಿಲ್ಟರ್',
   'chat.cmd_d_freeze': 'ಚಾಟ್ ಸ್ಥಗಿತಗೊಳಿಸಿ',
   'chat.cmd_d_slowmode': 'ನಿಧಾನ ಮೋಡ್',
@@ -541,6 +546,7 @@ const kn: Record<I18nKey, string> = {
   'network.host_waiting': 'ಹೋಸ್ಟ್‌ಗಾಗಿ ನಿರೀಕ್ಷಿಸಲಾಗುತ್ತಿದೆ...',
 
   // ─── Toasts ──────────────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube ಪ್ಲೇ ಆಗುತ್ತಿರುವಾಗ ಸ್ಕ್ರೀನ್‌ಸೇವರ್ ಲಭ್ಯವಿಲ್ಲ',
   'toast.device_disconnected': '{{name}} ಅವರ ಸಂಪರ್ಕ ಕಡಿತಗೊಂಡಿದೆ',
   'toast.device_conn_error': '{{name}} ಅವರ ಸಂಪರ್ಕದಲ್ಲಿ ದೋಷ',
   'toast.device_kicked': '{{name}} ಅವರನ್ನು ಹೊರಹಾಕಲಾಗಿದೆ',

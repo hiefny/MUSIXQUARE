@@ -44,6 +44,9 @@ const ro: Record<I18nKey, string> = {
   'common.on': 'Pornit',
   'common.off': 'Oprit',
 
+  'screensaver.back': 'Înapoi la MUSIXQUARE',
+  'screensaver.show_music': 'Arată informațiile piesei',
+
   // ─── Cont ────────────────────────────────────────────────────────
   'account.login_title': 'Autentifică-te',
   'account.login_cancelled': 'Autentificarea a fost anulată',
@@ -464,6 +467,7 @@ const ro: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [cerere]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [secunde]',
@@ -480,6 +484,7 @@ const ro: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Vezi utilizatorii conectați',
   'chat.cmd_d_bot': 'Cere AI-ului să gestioneze lista de redare',
   'chat.cmd_d_clear': 'Șterge istoricul chatului',
+  'chat.cmd_d_screensaver': 'Deschide economizorul de ecran',
   'chat.cmd_d_filter': 'Filtru de limbaj nepotrivit',
   'chat.cmd_d_freeze': 'Blochează chatul',
   'chat.cmd_d_slowmode': 'Mod lent',
@@ -543,6 +548,7 @@ const ro: Record<I18nKey, string> = {
   'network.host_waiting': 'Se așteaptă gazda...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Economizorul de ecran nu este disponibil în timpul redării YouTube',
   'toast.device_disconnected': '{{name}} s-a deconectat',
   'toast.device_conn_error': 'Eroare de conexiune pentru {{name}}',
   'toast.device_kicked': '{{name}} a fost eliminat',

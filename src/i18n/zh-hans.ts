@@ -43,6 +43,9 @@ const zhHans: Record<I18nKey, string> = {
   'common.sync': '同步',
   'common.on': '开启',
   'common.off': '关闭',
+
+  'screensaver.back': '返回 MUSIXQUARE',
+  'screensaver.show_music': '显示音乐信息',
   'account.login_title': '登录',
   'account.login_cancelled': '已取消登录',
   'account.login_failed': '登录失败\n请重试',
@@ -471,6 +474,7 @@ const zhHans: Record<I18nKey, string> = {
   'system_audio.duration_limit_stopped': '系统音频共享已在 2 小时后\n自动结束',
 
   // Toast
+  'toast.screensaver_youtube': '播放 YouTube 时无法使用屏幕保护程序',
   'toast.device_disconnected': '{{name}} 已断开连接',
   'toast.device_conn_error': '{{name}} 连接错误',
   'toast.device_kicked': '{{name}} 已被移除',
@@ -766,6 +770,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [请求]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [秒数]',
@@ -782,6 +787,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.cmd_d_users': '查看已连接成员',
   'chat.cmd_d_bot': '让 AI 管理播放列表',
   'chat.cmd_d_clear': '清空聊天记录',
+  'chat.cmd_d_screensaver': '打开屏幕保护程序',
   'chat.cmd_d_filter': '不当用语过滤',
   'chat.cmd_d_freeze': '冻结聊天',
   'chat.cmd_d_slowmode': '慢速模式',

@@ -44,6 +44,9 @@ const en: Record<I18nKey, string> = {
   'common.on': 'On',
   'common.off': 'Off',
 
+  'screensaver.back': 'Back to MUSIXQUARE',
+  'screensaver.show_music': 'Show music info',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Sign in',
   'account.login_cancelled': 'Sign-in was cancelled',
@@ -454,6 +457,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [request]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [seconds]',
@@ -470,6 +474,7 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'View connected users',
   'chat.cmd_d_bot': 'Ask AI to manage the playlist',
   'chat.cmd_d_clear': 'Clear chat history',
+  'chat.cmd_d_screensaver': 'Open screensaver',
   'chat.cmd_d_filter': 'Profanity filter',
   'chat.cmd_d_freeze': 'Freeze chat',
   'chat.cmd_d_slowmode': 'Slow mode',
@@ -531,6 +536,7 @@ const en: Record<I18nKey, string> = {
   'network.host_waiting': 'Waiting for the host...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Screensaver is unavailable during YouTube playback',
   'toast.device_disconnected': '{{name}} disconnected',
   'toast.device_conn_error': '{{name}} connection error',
   'toast.device_kicked': '{{name}} has been kicked',

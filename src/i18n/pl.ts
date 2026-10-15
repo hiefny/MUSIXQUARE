@@ -42,6 +42,9 @@ const pl: Record<I18nKey, string> = {
   'common.sync': 'Synchronizuj',
   'common.on': 'Wł.',
   'common.off': 'Wył.',
+
+  'screensaver.back': 'Wróć do MUSIXQUARE',
+  'screensaver.show_music': 'Pokaż informacje o utworze',
   'account.login_title': 'Zaloguj się',
   'account.login_cancelled': 'Logowanie anulowano',
   'account.login_failed': 'Nie udało się zalogować\nSpróbuj ponownie',
@@ -466,6 +469,7 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [polecenie]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [sekundy]',
@@ -482,6 +486,7 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Wyświetl połączonych uczestników',
   'chat.cmd_d_bot': 'Poproś sztuczną inteligencję o zarządzanie playlistą',
   'chat.cmd_d_clear': 'Wyczyść historię czatu',
+  'chat.cmd_d_screensaver': 'Otwórz wygaszacz ekranu',
   'chat.cmd_d_filter': 'Włącz lub wyłącz filtr słów niecenzuralnych',
   'chat.cmd_d_freeze': 'Zablokuj lub odblokuj czat',
   'chat.cmd_d_slowmode': 'Ustaw odstęp między wiadomościami',
@@ -545,6 +550,7 @@ const pl: Record<I18nKey, string> = {
   'network.host_waiting': 'Oczekiwanie na hosta…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Wygaszacz ekranu jest niedostępny podczas odtwarzania YouTube',
   'toast.device_disconnected': 'Rozłączono: {{name}}',
   'toast.device_conn_error': 'Błąd połączenia z {{name}}',
   'toast.device_kicked': 'Wyrzucono z pokoju: {{name}}',

@@ -44,6 +44,9 @@ const da: Record<I18nKey, string> = {
   'common.on': 'Til',
   'common.off': 'Fra',
 
+  'screensaver.back': 'Tilbage til MUSIXQUARE',
+  'screensaver.show_music': 'Vis musikinfo',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Log ind',
   'account.login_cancelled': 'Login blev annulleret',
@@ -462,6 +465,7 @@ const da: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [anmodning]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [sekunder]',
@@ -478,6 +482,7 @@ const da: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Vis forbundne brugere',
   'chat.cmd_d_bot': 'Bed AI om at administrere afspilningslisten',
   'chat.cmd_d_clear': 'Ryd chathistorikken',
+  'chat.cmd_d_screensaver': 'Åbn pauseskærm',
   'chat.cmd_d_filter': 'Bandeordsfilter',
   'chat.cmd_d_freeze': 'Frys chatten',
   'chat.cmd_d_slowmode': 'Langsom tilstand',
@@ -540,6 +545,7 @@ const da: Record<I18nKey, string> = {
   'network.host_waiting': 'Venter på værten…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Pauseskærmen er ikke tilgængelig under afspilning af YouTube',
   'toast.device_disconnected': '{{name}} blev afbrudt',
   'toast.device_conn_error': 'Forbindelsesfejl for {{name}}',
   'toast.device_kicked': '{{name}} er blevet fjernet',

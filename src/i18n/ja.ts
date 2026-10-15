@@ -44,6 +44,9 @@ const ja: Record<I18nKey, string> = {
   'common.sync': '同期',
   'common.on': 'オン',
   'common.off': 'オフ',
+
+  'screensaver.back': 'MUSIXQUAREに戻る',
+  'screensaver.show_music': '曲情報を表示',
   'account.login_title': 'ログイン',
   'account.login_cancelled': 'ログインがキャンセルされました',
   'account.login_failed': 'ログインできませんでした\nもう一度お試しください',
@@ -498,6 +501,7 @@ const ja: Record<I18nKey, string> = {
   'system_audio.duration_limit_stopped': 'システムオーディオ共有は2時間後に\n自動終了しました',
 
   // Toast
+  'toast.screensaver_youtube': 'YouTubeの再生中はスクリーンセーバーを使用できません',
   'toast.device_disconnected': '{{name}}が切断されました',
   'toast.device_conn_error': '{{name}}の接続エラー',
   'toast.device_kicked': '{{name}}を退出させました',
@@ -835,6 +839,7 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [リクエスト]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [秒]',
@@ -851,6 +856,7 @@ const ja: Record<I18nKey, string> = {
   'chat.cmd_d_users': '接続中ユーザーを表示',
   'chat.cmd_d_bot': 'AIにプレイリスト操作を依頼',
   'chat.cmd_d_clear': 'チャット履歴を消去',
+  'chat.cmd_d_screensaver': 'スクリーンセーバーを開く',
   'chat.cmd_d_filter': '不適切表現フィルター',
   'chat.cmd_d_freeze': 'チャットをロック',
   'chat.cmd_d_slowmode': 'スローモード',

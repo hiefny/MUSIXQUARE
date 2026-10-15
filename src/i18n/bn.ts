@@ -43,6 +43,9 @@ const bn: Record<I18nKey, string> = {
   'common.on': 'চালু',
   'common.off': 'বন্ধ',
 
+  'screensaver.back': 'MUSIXQUARE-এ ফিরে যান',
+  'screensaver.show_music': 'গানের তথ্য দেখান',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'সাইন ইন করুন',
   'account.login_cancelled': 'সাইন-ইন বাতিল করা হয়েছে',
@@ -457,6 +460,7 @@ const bn: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [অনুরোধ]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [সেকেন্ড]',
@@ -473,6 +477,7 @@ const bn: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'সংযুক্ত ব্যবহারকারীদের দেখুন',
   'chat.cmd_d_bot': 'AI-কে প্লেলিস্ট পরিচালনা করতে বলুন',
   'chat.cmd_d_clear': 'চ্যাটের ইতিহাস মুছুন',
+  'chat.cmd_d_screensaver': 'স্ক্রিনসেভার খুলুন',
   'chat.cmd_d_filter': 'আপত্তিকর শব্দের ফিল্টার',
   'chat.cmd_d_freeze': 'চ্যাট স্থগিত করুন',
   'chat.cmd_d_slowmode': 'স্লো মোড',
@@ -533,6 +538,7 @@ const bn: Record<I18nKey, string> = {
   'network.host_waiting': 'হোস্টের অপেক্ষায়...',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube চলার সময় স্ক্রিনসেভার ব্যবহার করা যায় না',
   'toast.device_disconnected': '{{name}}-এর সংযোগ বিচ্ছিন্ন হয়েছে',
   'toast.device_conn_error': '{{name}}-এর সংযোগে সমস্যা',
   'toast.device_kicked': '{{name}}-কে সরিয়ে দেওয়া হয়েছে',

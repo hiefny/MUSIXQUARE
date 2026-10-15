@@ -43,6 +43,9 @@ const vi: Record<I18nKey, string> = {
   'common.sync': 'Đồng bộ',
   'common.on': 'Bật',
   'common.off': 'Tắt',
+
+  'screensaver.back': 'Quay lại MUSIXQUARE',
+  'screensaver.show_music': 'Hiện thông tin nhạc',
   'account.login_title': 'Đăng nhập',
   'account.login_cancelled': 'Đã hủy đăng nhập',
   'account.login_failed': 'Không thể đăng nhập\nVui lòng thử lại',
@@ -496,6 +499,7 @@ const vi: Record<I18nKey, string> = {
   'system_audio.duration_limit_stopped': 'Chia sẻ âm thanh hệ thống tự động kết thúc\nsau 2 giờ',
 
   // Toast
+  'toast.screensaver_youtube': 'Không thể dùng trình bảo vệ màn hình khi đang phát YouTube',
   'toast.device_disconnected': '{{name}} đã ngắt kết nối',
   'toast.device_conn_error': 'Lỗi kết nối {{name}}',
   'toast.device_kicked': '{{name}} đã bị mời ra',
@@ -826,6 +830,7 @@ const vi: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [yêu cầu]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [giây]',
@@ -842,6 +847,7 @@ const vi: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Xem người tham gia đang kết nối',
   'chat.cmd_d_bot': 'Yêu cầu AI quản lý danh sách phát',
   'chat.cmd_d_clear': 'Xóa lịch sử trò chuyện',
+  'chat.cmd_d_screensaver': 'Mở trình bảo vệ màn hình',
   'chat.cmd_d_filter': 'Bộ lọc ngôn từ thô tục',
   'chat.cmd_d_freeze': 'Khóa trò chuyện',
   'chat.cmd_d_slowmode': 'Chế độ chậm',

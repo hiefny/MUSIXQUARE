@@ -44,6 +44,9 @@ const fr: Record<I18nKey, string> = {
   'common.sync': 'Synchroniser',
   'common.on': 'Activé',
   'common.off': 'Désactivé',
+
+  'screensaver.back': 'Retour à MUSIXQUARE',
+  'screensaver.show_music': 'Afficher les infos du morceau',
   'account.login_title': 'Se connecter',
   'account.login_cancelled': 'La connexion a été annulée',
   'account.login_failed': 'Connexion impossible\nRéessayez',
@@ -505,6 +508,8 @@ const fr: Record<I18nKey, string> = {
   'system_audio.duration_limit_stopped': 'Le partage a pris fin automatiquement\naprès 2 heures',
 
   // Toast
+  'toast.screensaver_youtube':
+    'L’économiseur d’écran est indisponible pendant la lecture sur YouTube',
   'toast.device_disconnected': 'Déconnexion de {{name}}',
   'toast.device_conn_error': 'Erreur de connexion de {{name}}',
   'toast.device_kicked': 'L’appareil {{name}} a été expulsé',
@@ -847,6 +852,7 @@ const fr: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [demande]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [secondes]',
@@ -863,6 +869,7 @@ const fr: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Voir les participants connectés',
   'chat.cmd_d_bot': 'Demander à l’IA de gérer la playlist',
   'chat.cmd_d_clear': 'Effacer l’historique du chat',
+  'chat.cmd_d_screensaver': 'Ouvrir l’économiseur d’écran',
   'chat.cmd_d_filter': 'Filtre des propos grossiers',
   'chat.cmd_d_freeze': 'Verrouiller le chat',
   'chat.cmd_d_slowmode': 'Mode lent',

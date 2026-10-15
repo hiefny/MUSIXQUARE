@@ -1,8 +1,10 @@
-import { readFile, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { request as requestHttp } from 'node:http';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 import { JSDOM } from 'jsdom';
+import { build as buildVite } from 'vite';
 import { describe, expect, it } from 'vitest';
 
 import { countExecutableInlineScripts } from '../../../scripts/check-authored-inline-js-inventory.mts';
@@ -12,6 +14,8 @@ import {
   assertAuxiliaryBrowserSourceCompleteness,
   auxiliaryBrowserAssetForRequestUrl,
   auxiliaryBrowserAssets,
+  auxiliaryBrowserProductionPath,
+  bindAuxiliaryBrowserProductionHtml,
   compileAuxiliaryBrowserAsset,
   compileAuxiliaryBrowserAssets,
   materializeFileUrlAuxiliaryAssets,
@@ -114,10 +118,11 @@ async function executeReportViewer(report: Record<string, unknown>): Promise<JSD
 }
 
 describe('strict TypeScript auxiliary browser assets', () => {
-  it('owns the report viewer script and leaves no executable inline blocks', async () => {
+  it('owns the report viewer and lazy screensaver without executable inline blocks', async () => {
     await expect(assertAuxiliaryBrowserSourceCompleteness(REPOSITORY)).resolves.toBeUndefined();
     expect(AUXILIARY_BROWSER_ASSETS.map((asset) => asset.outputPath)).toEqual([
       'e2e/report-viewer.js',
+      'screensaver.js',
     ]);
 
     for (const asset of AUXILIARY_BROWSER_ASSETS) {
@@ -125,6 +130,96 @@ describe('strict TypeScript auxiliary browser assets', () => {
       expect(countExecutableInlineScripts(html), asset.htmlPath).toBe(0);
       expect(() => assertAuxiliaryBrowserHtmlContract(asset, html)).not.toThrow();
       expect(auxiliaryBrowserAssetForRequestUrl(`/${asset.outputPath}?v=1`)).toBe(asset);
+    }
+  });
+
+  it('emits only production-owned auxiliary scripts without adding them to the app entry graph', async () => {
+    const descriptor = AUXILIARY_BROWSER_ASSETS.find(
+      (asset) => asset.outputPath === 'screensaver.js',
+    );
+    if (!descriptor) throw new Error('Missing screensaver descriptor.');
+    const compiled = await compileAuxiliaryBrowserAsset(REPOSITORY, descriptor);
+    const runtimePath = auxiliaryBrowserProductionPath(compiled);
+    const result = await buildVite({
+      configFile: false,
+      root: REPOSITORY,
+      publicDir: false,
+      logLevel: 'silent',
+      plugins: [auxiliaryBrowserAssets()],
+      build: {
+        write: false,
+        rolldownOptions: { input: 'public/favicon.svg' },
+      },
+    });
+    if (Array.isArray(result) || !('output' in result)) throw new Error('Expected one Vite build.');
+    const renderer = result.output.find((asset) => asset.fileName === runtimePath);
+    expect(renderer?.type).toBe('asset');
+    if (renderer?.type !== 'asset') throw new Error('Missing screensaver output.');
+    expect(renderer.source).toBe(compiled.code);
+    expect(runtimePath).toMatch(/^assets\/screensaver-runtime-[a-f0-9]{8}\.js$/u);
+    expect(result.output.some((asset) => asset.fileName === 'screensaver.js')).toBe(false);
+    expect(result.output.some((asset) => asset.fileName === 'e2e/report-viewer.js')).toBe(false);
+    expect(
+      result.output
+        .filter((asset) => asset.type === 'chunk')
+        .every(
+          (chunk) =>
+            !chunk.imports.includes(runtimePath) && !chunk.dynamicImports.includes(runtimePath),
+        ),
+    ).toBe(true);
+  });
+
+  it('binds the public HTML copy to the exact renderer bytes in a written production build', async () => {
+    const outputDirectory = await mkdtemp(resolve(tmpdir(), 'musixquare-auxiliary-build-'));
+    try {
+      await buildVite({
+        configFile: false,
+        root: REPOSITORY,
+        publicDir: 'public',
+        logLevel: 'silent',
+        plugins: [auxiliaryBrowserAssets()],
+        build: {
+          outDir: outputDirectory,
+          emptyOutDir: false,
+          rolldownOptions: { input: 'public/favicon.svg' },
+        },
+      });
+      const descriptor = AUXILIARY_BROWSER_ASSETS.find(
+        (asset) => asset.outputPath === 'screensaver.js',
+      );
+      if (!descriptor) throw new Error('Missing screensaver descriptor.');
+      const compiled = await compileAuxiliaryBrowserAsset(REPOSITORY, descriptor);
+      const runtimePath = auxiliaryBrowserProductionPath(compiled);
+      const html = await readFile(resolve(outputDirectory, 'screensaver.html'), 'utf8');
+      expect(html).toContain(`src="/${runtimePath}"`);
+      expect(html).not.toContain('src="./screensaver.js"');
+      expect(await readFile(resolve(outputDirectory, runtimePath), 'utf8')).toBe(compiled.code);
+      await expect(stat(resolve(outputDirectory, 'screensaver.js'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    } finally {
+      expect(outputDirectory.startsWith(resolve(tmpdir(), 'musixquare-auxiliary-build-'))).toBe(
+        true,
+      );
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('changes the renderer URL with its content and preserves quoted script attributes', async () => {
+    const descriptor = AUXILIARY_BROWSER_ASSETS.find(
+      (asset) => asset.outputPath === 'screensaver.js',
+    );
+    if (!descriptor) throw new Error('Missing screensaver descriptor.');
+    const compiled = await compileAuxiliaryBrowserAsset(REPOSITORY, descriptor);
+    const newer = { ...compiled, code: `${compiled.code}\nvoid 0;` };
+    expect(auxiliaryBrowserProductionPath(newer)).not.toBe(
+      auxiliaryBrowserProductionPath(compiled),
+    );
+    for (const quote of ['"', "'"]) {
+      const html = `<script defer src=${quote}./screensaver.js${quote}></script>`;
+      expect(bindAuxiliaryBrowserProductionHtml(compiled, html)).toBe(
+        `<script defer src=${quote}/${auxiliaryBrowserProductionPath(compiled)}${quote}></script>`,
+      );
     }
   });
 

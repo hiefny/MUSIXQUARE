@@ -43,6 +43,9 @@ const ms: Record<I18nKey, string> = {
   'common.on': 'Hidup',
   'common.off': 'Mati',
 
+  'screensaver.back': 'Kembali ke MUSIXQUARE',
+  'screensaver.show_music': 'Tunjukkan maklumat muzik',
+
   // ─── Akaun ───────────────────────────────────────────────────────
   'account.login_title': 'Log masuk',
   'account.login_cancelled': 'Log masuk dibatalkan',
@@ -467,6 +470,7 @@ const ms: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [permintaan]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [saat]',
@@ -483,6 +487,7 @@ const ms: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Lihat pengguna yang disambungkan',
   'chat.cmd_d_bot': 'Minta AI menguruskan senarai main',
   'chat.cmd_d_clear': 'Kosongkan sejarah sembang',
+  'chat.cmd_d_screensaver': 'Buka penyelamat skrin',
   'chat.cmd_d_filter': 'Penapis kata kesat',
   'chat.cmd_d_freeze': 'Bekukan sembang',
   'chat.cmd_d_slowmode': 'Mod perlahan',
@@ -545,6 +550,7 @@ const ms: Record<I18nKey, string> = {
   'network.host_waiting': 'Menunggu respons hos...',
 
   // ─── Pemberitahuan dinamik ───────────────────────────────────────
+  'toast.screensaver_youtube': 'Penyelamat skrin tidak tersedia semasa YouTube dimainkan',
   'toast.device_disconnected': '{{name}} terputus',
   'toast.device_conn_error': 'Ralat sambungan {{name}}',
   'toast.device_kicked': '{{name}} telah dikeluarkan',

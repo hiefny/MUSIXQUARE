@@ -43,6 +43,9 @@ const ur: Record<I18nKey, string> = {
   'common.on': 'آن',
   'common.off': 'آف',
 
+  'screensaver.back': 'MUSIXQUARE پر واپس جائیں',
+  'screensaver.show_music': 'موسیقی کی معلومات دکھائیں',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'سائن ان',
   'account.login_cancelled': 'سائن ان منسوخ کر دیا گیا',
@@ -453,6 +456,7 @@ const ur: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [request]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [seconds]',
@@ -469,6 +473,7 @@ const ur: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'منسلک صارفین دیکھیں',
   'chat.cmd_d_bot': 'مصنوعی ذہانت سے پلے لسٹ کا انتظام کروائیں',
   'chat.cmd_d_clear': 'چیٹ کے پیغامات صاف کریں',
+  'chat.cmd_d_screensaver': 'اسکرین سیور کھولیں',
   'chat.cmd_d_filter': 'نامناسب الفاظ کا فلٹر',
   'chat.cmd_d_freeze': 'چیٹ منجمد کریں',
   'chat.cmd_d_slowmode': 'سست موڈ',
@@ -530,6 +535,7 @@ const ur: Record<I18nKey, string> = {
   'network.host_waiting': 'میزبان کا انتظار ہے...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube چلنے کے دوران اسکرین سیور دستیاب نہیں ہے',
   'toast.device_disconnected': '{{name}} منقطع ہو گیا',
   'toast.device_conn_error': '{{name}} کے کنکشن میں خرابی',
   'toast.device_kicked': '{{name}} کو نکال دیا گیا',

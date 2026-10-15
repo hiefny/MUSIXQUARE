@@ -381,6 +381,18 @@ describe('showToast', () => {
     expect(msg.title).toBe(`File read error: ${filename}`);
   });
 
+  it('truncates a long value after a full-width colon as well', () => {
+    // Chinese and Japanese templates such as "文件读取错误：{{name}}".
+    const filename = `${'一段很长的排练录音文件名称'.repeat(8)}.m4a`;
+    showToast(`文件读取错误：${filename}`);
+    const msg = document.getElementById('toast-msg')!;
+
+    const [prefix, value] = msg.innerText.split('：');
+    expect(prefix).toBe('文件读取错误');
+    expect(Array.from(value ?? '')).toHaveLength(64);
+    expect(value?.endsWith('….m4a')).toBe(true);
+  });
+
   it('truncates long quoted values per line', () => {
     showToast('Decoding "This is a very very very long song filename.mp3" took too long');
     const msg = document.getElementById('toast-msg')!;

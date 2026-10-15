@@ -212,6 +212,14 @@ function toastLimit(name: string): number {
   return Number(value);
 }
 
+/** The colon pattern src/ui/toast.ts uses to find a dynamic value. */
+function toastColonPattern(): RegExp {
+  const source = readFileSync(resolve('src/ui/toast.ts'), 'utf8');
+  const pattern = source.match(/const TOAST_COLON_RE = \/(.+)\/u;/u)?.[1];
+  if (pattern === undefined) throw new Error('TOAST_COLON_RE is missing from src/ui/toast.ts');
+  return new RegExp(pattern, 'u');
+}
+
 const charCount = (value: string): number => Array.from(value).length;
 
 function collectSourceFiles(root: string): string[] {
@@ -300,6 +308,14 @@ describe('toast copy policy', () => {
     const colonLimit = toastLimit('TOAST_COLON_VALUE_CHARS');
     const quotedLimit = toastLimit('TOAST_DYNAMIC_VALUE_CHARS');
     expect([lineLimit, colonLimit, quotedLimit]).toEqual([120, 64, 28]);
+    // A Latin colon with a space, or a full-width colon (Chinese, Japanese).
+    const colonPattern = toastColonPattern();
+    expect(['a: b', 'a：b', 'a： b'].map((line) => colonPattern.exec(line)?.[0])).toEqual([
+      ': ',
+      '：',
+      '： ',
+    ]);
+    expect(colonPattern.exec('12:34')).toBeNull();
 
     const violations: string[] = [];
     let lines = 0;
@@ -309,10 +325,10 @@ describe('toast copy policy', () => {
         if (charCount(line.replace(/\{\{\w+\}\}/gu, '')) > lineLimit) {
           violations.push(`${where}: line over ${lineLimit}: ${line}`);
         }
-        const colon = line.indexOf(': ');
-        const afterColon = colon < 0 ? '' : line.slice(colon + 2);
+        const colon = colonPattern.exec(line);
+        const afterColon = colon ? line.slice(colon.index + colon[0].length) : '';
         if (!afterColon.includes('{{') && charCount(afterColon) > colonLimit) {
-          violations.push(`${where}: text after ": " over ${colonLimit}: ${line}`);
+          violations.push(`${where}: text after a colon over ${colonLimit}: ${line}`);
         }
         for (const match of line.matchAll(/"([^"]+)"/gu)) {
           const quoted = match[1] ?? '';

@@ -17,6 +17,9 @@ import { applyUserTextFontFallback } from './user-text-font.ts';
 const TOAST_MAX_LINE_CHARS = 120;
 const TOAST_DYNAMIC_VALUE_CHARS = 28;
 const TOAST_COLON_VALUE_CHARS = 64;
+// The first colon that introduces a value: a Latin colon and a space, or the
+// full-width colon Chinese and Japanese templates use, with or without a space.
+const TOAST_COLON_RE = /: |：\s?/u;
 // A toast stays up long enough to read: 50 ms per character, at least the
 // requested or default 2 s and at most 7 s.
 const TOAST_DEFAULT_DURATION_MS = 2000;
@@ -370,11 +373,12 @@ function truncateQuotedValues(line: string): string {
 }
 
 function truncateColonValue(line: string): string {
-  const colonIndex = line.indexOf(': ');
-  if (colonIndex < 0) return line;
+  const colon = TOAST_COLON_RE.exec(line);
+  if (!colon) return line;
 
-  const prefix = line.slice(0, colonIndex + 2);
-  const value = line.slice(colonIndex + 2);
+  const valueStart = colon.index + colon[0].length;
+  const prefix = line.slice(0, valueStart);
+  const value = line.slice(valueStart);
   return `${prefix}${truncateValue(value, TOAST_COLON_VALUE_CHARS)}`;
 }
 

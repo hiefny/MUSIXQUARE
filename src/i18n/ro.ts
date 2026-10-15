@@ -540,6 +540,7 @@ const ro: Record<I18nKey, string> = {
     'Această cameră a atins deja limita de 100 de dispozitive conectate, inclusiv gazda.',
   'network.op_granted': 'Drepturile de administrator au fost acordate',
   'network.op_revoked': 'Drepturile de administrator au fost retrase',
+  'network.host_waiting': 'Se așteaptă gazda...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} s-a deconectat',
@@ -557,6 +558,12 @@ const ro: Record<I18nKey, string> = {
   'toast.op_status': 'Permisiunea {{label}}: {{status}}',
   'toast.file_read_error': 'Eroare la citirea fișierului: {{name}}',
   'toast.host_ended_connection': 'Gazda a încheiat conexiunea',
+  'toast.host_background_blocked':
+    'Dispozitivul gazdă este în fundal\nÎncearcă din nou după ce gazda redeschide aplicația',
+  'toast.host_unresponsive_chat': 'Mesajul nu a putut fi trimis\nDispozitivul gazdă nu răspunde',
+  'toast.host_unresponsive_blocked':
+    'Cererea nu a putut fi trimisă\nDispozitivul gazdă nu răspunde',
+  'toast.host_back': 'Dispozitivul gazdă a revenit',
   'toast.announcement_available': 'Anunț nou\nVerifică panoul de chat',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -718,6 +725,13 @@ const ro: Record<I18nKey, string> = {
   'dialog.got_it': 'Am înțeles',
   'dialog.continue_using': 'Continuă',
   'dialog.leave_session': 'Părăsește',
+  'dialog.host_unresponsive_title': 'Niciun răspuns de la dispozitivul gazdă',
+  'dialog.host_unresponsive_message':
+    'Verifică dacă MUSIXQUARE este deschis pe dispozitivul gazdă.\nPoți să aștepți în continuare sau să părăsești sesiunea.',
+  'dialog.keep_waiting': 'Așteaptă în continuare',
+  'dialog.keep_open_title': 'Ține aplicația deschisă',
+  'dialog.keep_open_message':
+    'Dacă treci la altă aplicație sau ecranul se stinge, sunetul se poate întrerupe sau poate pierde sincronizarea.\nDacă dispozitivul gazdă trece în fundal, întreaga cameră se poate opri.',
   'dialog.sw_update_title': 'Actualizare',
   'dialog.sw_update_msg': 'Este disponibilă o versiune nouă.\nReîncarcă pentru actualizare.',
   'dialog.feature_refresh_title': 'Este necesară reîncărcarea',

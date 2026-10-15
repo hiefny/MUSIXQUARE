@@ -432,6 +432,7 @@ const de: Record<I18nKey, string> = {
     'In diesem Raum sind bereits 100 Geräte verbunden, einschließlich des Hosts.',
   'network.op_granted': 'Administratorrechte erteilt',
   'network.op_revoked': 'Administratorrechte entzogen',
+  'network.host_waiting': 'Warten auf den Host...',
 
   // Transfer
   'transfer.demo_loading': 'Demo-Titel wird vom Server geladen...',
@@ -524,6 +525,13 @@ const de: Record<I18nKey, string> = {
   'toast.op_status': 'Berechtigung für {{label}} {{status}}',
   'toast.file_read_error': 'Dateilesefehler: {{name}}',
   'toast.host_ended_connection': 'Der Host hat die Verbindung beendet',
+  'toast.host_background_blocked':
+    'Das Host-Gerät ist im Hintergrund\nDu kannst wieder steuern, sobald der Host die App öffnet',
+  'toast.host_unresponsive_chat':
+    'Nachricht konnte nicht gesendet werden\nDas Host-Gerät antwortet nicht',
+  'toast.host_unresponsive_blocked':
+    'Anfrage konnte nicht gesendet werden\nDas Host-Gerät antwortet nicht',
+  'toast.host_back': 'Das Host-Gerät ist wieder da',
   'toast.announcement_available': 'Neue Ankündigung\nBitte Chatfenster prüfen',
   'toast.copy_failed': 'Kopieren fehlgeschlagen',
   'toast.email_copied': 'E-Mail-Adresse kopiert!',
@@ -644,6 +652,13 @@ const de: Record<I18nKey, string> = {
   'dialog.got_it': 'Verstanden',
   'dialog.continue_using': 'Weiter',
   'dialog.leave_session': 'Verlassen',
+  'dialog.host_unresponsive_title': 'Keine Antwort vom Host-Gerät',
+  'dialog.host_unresponsive_message':
+    'Prüfe, ob MUSIXQUARE auf dem Host-Gerät geöffnet ist.\nDu kannst weiter warten oder den Raum verlassen.',
+  'dialog.keep_waiting': 'Weiter warten',
+  'dialog.keep_open_title': 'Lass die App geöffnet',
+  'dialog.keep_open_message':
+    'Wenn du zu einer anderen App wechselst oder der Bildschirm ausgeht, kann der Ton aussetzen oder der Sync nicht mehr stimmen.\nGeht das Host-Gerät in den Hintergrund, kann der ganze Raum stoppen.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Eine neue Version ist bereit.\nLade die Seite neu, um sie anzuwenden.',
   'dialog.feature_refresh_title': 'Neu laden erforderlich',

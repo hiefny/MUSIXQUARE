@@ -545,6 +545,7 @@ const nl: Record<I18nKey, string> = {
     'Deze kamer heeft al het maximum van 100 verbonden apparaten, inclusief de host.',
   'network.op_granted': 'Beheerdersrechten toegekend',
   'network.op_revoked': 'Beheerdersrechten ingetrokken',
+  'network.host_waiting': 'Wachten op de host...',
 
   // Toast
   'toast.device_disconnected': 'Verbinding met {{name}} verbroken',
@@ -562,6 +563,13 @@ const nl: Record<I18nKey, string> = {
   'toast.op_status': 'Toestemming voor {{label}}: {{status}}',
   'toast.file_read_error': 'Bestand lezen mislukt: {{name}}',
   'toast.host_ended_connection': 'De host heeft de verbinding beëindigd',
+  'toast.host_background_blocked':
+    'Het hostapparaat staat op de achtergrond\nDe bediening werkt weer zodra de host de app opent',
+  'toast.host_unresponsive_chat':
+    'Bericht kon niet worden verzonden\nHet hostapparaat reageert niet',
+  'toast.host_unresponsive_blocked':
+    'Verzoek kon niet worden verzonden\nHet hostapparaat reageert niet',
+  'toast.host_back': 'Het hostapparaat is terug',
   'toast.announcement_available': 'Nieuwe aankondiging\nBekijk het chatvenster',
   'toast.copy_failed': 'Kopiëren mislukt',
   'toast.email_copied': 'E-mailadres gekopieerd!',
@@ -715,6 +723,13 @@ const nl: Record<I18nKey, string> = {
   'dialog.got_it': 'Begrepen',
   'dialog.continue_using': 'Doorgaan',
   'dialog.leave_session': 'Verlaten',
+  'dialog.host_unresponsive_title': 'Geen reactie van het hostapparaat',
+  'dialog.host_unresponsive_message':
+    'Controleer of MUSIXQUARE op het hostapparaat geopend is.\nJe kunt blijven wachten of de kamer verlaten.',
+  'dialog.keep_waiting': 'Blijven wachten',
+  'dialog.keep_open_title': 'Houd de app open',
+  'dialog.keep_open_message':
+    'Als je naar een andere app overschakelt of het scherm uitgaat, kan het geluid stoppen of de synchronisatie niet meer kloppen.\nAls het hostapparaat naar de achtergrond gaat, kan de hele kamer stilvallen.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Er staat een nieuwe versie klaar.\nVernieuw om deze bij te werken.',
   'dialog.feature_refresh_title': 'Vernieuwen nodig',

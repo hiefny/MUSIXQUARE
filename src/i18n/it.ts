@@ -543,6 +543,7 @@ const it: Record<I18nKey, string> = {
     'Questa stanza ha già raggiunto il massimo di 100 dispositivi connessi, incluso quello dell’host.',
   'network.op_granted': 'Ti sono stati concessi i permessi di amministratore',
   'network.op_revoked': 'I permessi di amministratore sono stati revocati',
+  'network.host_waiting': 'In attesa dell’host...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} si è disconnesso',
@@ -560,6 +561,13 @@ const it: Record<I18nKey, string> = {
   'toast.op_status': 'Permessi di {{label}} {{status}}',
   'toast.file_read_error': 'Errore di lettura del file: {{name}}',
   'toast.host_ended_connection': 'L’host ha chiuso la connessione',
+  'toast.host_background_blocked':
+    'Il dispositivo dell’host è in background\nRiprova quando l’host avrà riaperto l’app',
+  'toast.host_unresponsive_chat':
+    'Impossibile inviare il messaggio\nIl dispositivo dell’host non risponde',
+  'toast.host_unresponsive_blocked':
+    'Impossibile inviare la richiesta\nIl dispositivo dell’host non risponde',
+  'toast.host_back': 'Il dispositivo dell’host è di nuovo attivo',
   'toast.announcement_available': 'Nuovo avviso\nControlla la chat',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -717,6 +725,13 @@ const it: Record<I18nKey, string> = {
   'dialog.got_it': 'Ho capito',
   'dialog.continue_using': 'Continua',
   'dialog.leave_session': 'Esci',
+  'dialog.host_unresponsive_title': 'Nessuna risposta dal dispositivo dell’host',
+  'dialog.host_unresponsive_message':
+    'Verifica che MUSIXQUARE sia aperto sul dispositivo dell’host.\nPuoi continuare ad aspettare o uscire dalla stanza.',
+  'dialog.keep_waiting': 'Continua ad aspettare',
+  'dialog.keep_open_title': 'Tieni l’app aperta',
+  'dialog.keep_open_message':
+    'Se passi a un’altra app o lo schermo si spegne, l’audio può interrompersi o perdere la sincronizzazione.\nSe il dispositivo dell’host passa in background, l’intera stanza può fermarsi.',
   'dialog.sw_update_title': 'Nuovo aggiornamento',
   'dialog.sw_update_msg': 'È disponibile una nuova versione.\nAggiorna la pagina per applicarla.',
   'dialog.feature_refresh_title': 'È necessario aggiornare la pagina',

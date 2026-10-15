@@ -537,6 +537,7 @@ const da: Record<I18nKey, string> = {
     'Rummet har allerede det maksimale antal på 100 forbundne enheder inklusive værten.',
   'network.op_granted': 'Administratorrettigheder er tildelt',
   'network.op_revoked': 'Administratorrettigheder er tilbagekaldt',
+  'network.host_waiting': 'Venter på værten…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} blev afbrudt',
@@ -554,6 +555,11 @@ const da: Record<I18nKey, string> = {
   'toast.op_status': 'Tilladelse {{label}}: {{status}}',
   'toast.file_read_error': 'Kunne ikke læse filen: {{name}}',
   'toast.host_ended_connection': 'Værten har afsluttet forbindelsen',
+  'toast.host_background_blocked':
+    'Værtens enhed er i baggrunden\nNår værten åbner appen igen, kan du styre afspilningen',
+  'toast.host_unresponsive_chat': 'Kunne ikke sende beskeden\nVærtens enhed svarer ikke',
+  'toast.host_unresponsive_blocked': 'Kunne ikke sende anmodningen\nVærtens enhed svarer ikke',
+  'toast.host_back': 'Værtens enhed er tilbage',
   'toast.announcement_available': 'Ny meddelelse\nSe chatpanelet',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -708,6 +714,13 @@ const da: Record<I18nKey, string> = {
   'dialog.got_it': 'Forstået',
   'dialog.continue_using': 'Fortsæt',
   'dialog.leave_session': 'Forlad',
+  'dialog.host_unresponsive_title': 'Intet svar fra værtens enhed',
+  'dialog.host_unresponsive_message':
+    'Kontrollér, at MUSIXQUARE er åbent på værtens enhed.\nDu kan vente videre eller forlade sessionen.',
+  'dialog.keep_waiting': 'Vent videre',
+  'dialog.keep_open_title': 'Hold appen åben',
+  'dialog.keep_open_message':
+    'Hvis du skifter app, eller skærmen slukker, kan lyden stoppe, eller synkroniseringen kan svigte.\nHvis værtens enhed går i baggrunden, kan hele rummet stoppe.',
   'dialog.sw_update_title': 'Opdatering',
   'dialog.sw_update_msg': 'En ny version er klar.\nOpdater siden for at installere den.',
   'dialog.feature_refresh_title': 'Siden skal opdateres',

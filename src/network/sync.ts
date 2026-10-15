@@ -66,6 +66,7 @@ import {
   type RequestedKickScope,
 } from './room-control.ts';
 import { initHeartbeatMonitor, recordPeerHeartbeat } from './heartbeat-monitor.ts';
+import { syncPongHostPresence } from './host-presence.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -363,6 +364,7 @@ function createSyncPongPayload({
     activity: playbackState.activity,
     queueItemId: isDemo ? null : getState('playlist.currentQueueItemId'),
     ...(isDemo ? { demoTrackIndex: getState('demo.currentTrackIndex') } : {}),
+    ...syncPongHostPresence(),
   };
 
   return payload;

@@ -528,6 +528,7 @@ const mr: Record<I18nKey, string> = {
   'network.session_full_detail': 'या रूममध्ये होस्टसह कमाल 100 डिव्हाइस आधीच कनेक्ट आहेत.',
   'network.op_granted': 'प्रशासकीय परवानगी मंजूर केली',
   'network.op_revoked': 'प्रशासकीय परवानगी रद्द केली',
+  'network.host_waiting': 'होस्टची प्रतीक्षा आहे...',
 
   // ─── Toasts ──────────────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} यांचे कनेक्शन तुटले',
@@ -545,6 +546,11 @@ const mr: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} परवानगी {{status}}',
   'toast.file_read_error': 'फाइल वाचताना त्रुटी: {{name}}',
   'toast.host_ended_connection': 'होस्टने कनेक्शन बंद केले आहे',
+  'toast.host_background_blocked':
+    'होस्ट डिव्हाइस पार्श्वभूमीत आहे\nहोस्टने अ‍ॅप पुन्हा उघडल्यावर नियंत्रण करता येईल',
+  'toast.host_unresponsive_chat': 'संदेश पाठवता आला नाही\nहोस्ट डिव्हाइस प्रतिसाद देत नाही',
+  'toast.host_unresponsive_blocked': 'विनंती पाठवता आली नाही\nहोस्ट डिव्हाइस प्रतिसाद देत नाही',
+  'toast.host_back': 'होस्ट डिव्हाइस परत आले आहे',
   'toast.announcement_available': 'नवीन सूचना आहे\nचॅट पॅनेल तपासा',
   'toast.copy_failed': 'कॉपी करता आले नाही',
   'toast.email_copied': 'ईमेल पत्ता कॉपी केला!',
@@ -698,6 +704,13 @@ const mr: Record<I18nKey, string> = {
   'dialog.got_it': 'समजले',
   'dialog.continue_using': 'पुढे जा',
   'dialog.leave_session': 'बाहेर पडा',
+  'dialog.host_unresponsive_title': 'होस्ट डिव्हाइसकडून प्रतिसाद मिळत नाही',
+  'dialog.host_unresponsive_message':
+    'होस्ट डिव्हाइसवर MUSIXQUARE उघडे आहे का ते तपासा.\nतुम्ही प्रतीक्षा करत राहू शकता किंवा सत्रातून बाहेर पडू शकता.',
+  'dialog.keep_waiting': 'प्रतीक्षा करत राहा',
+  'dialog.keep_open_title': 'अ‍ॅप उघडे ठेवा',
+  'dialog.keep_open_message':
+    'दुसऱ्या अ‍ॅपवर गेल्यास किंवा स्क्रीन बंद झाल्यास आवाज थांबू शकतो किंवा सिंक बिघडू शकते.\nहोस्ट डिव्हाइस पार्श्वभूमीत गेल्यास संपूर्ण रूम थांबू शकते.',
   'dialog.sw_update_title': 'अद्ययावत करा',
   'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे.\nअद्ययावत करण्यासाठी रीफ्रेश करा.',
   'dialog.feature_refresh_title': 'रीफ्रेश करणे आवश्यक आहे',

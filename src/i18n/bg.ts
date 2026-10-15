@@ -538,6 +538,7 @@ const bg: Record<I18nKey, string> = {
     'Към тази стая вече са свързани 100 устройства: максималният разрешен брой заедно с хоста.',
   'network.op_granted': 'Предоставени са администраторски права',
   'network.op_revoked': 'Администраторските права са отнети',
+  'network.host_waiting': 'Изчакване на хоста...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} прекъсна връзката',
@@ -555,6 +556,11 @@ const bg: Record<I18nKey, string> = {
   'toast.op_status': 'Разрешението „{{label}}“ е {{status}}',
   'toast.file_read_error': 'Грешка при четенето на файла: {{name}}',
   'toast.host_ended_connection': 'Хостът прекрати връзката',
+  'toast.host_background_blocked':
+    'Устройството на хоста е във фонов режим\nЩе можеш да управляваш, щом хостът отвори приложението',
+  'toast.host_unresponsive_chat': 'Съобщението не бе изпратено\nУстройството на хоста не отговаря',
+  'toast.host_unresponsive_blocked': 'Заявката не бе изпратена\nУстройството на хоста не отговаря',
+  'toast.host_back': 'Устройството на хоста се върна',
   'toast.announcement_available': 'Ново известие\nПровери панела за чат',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -710,6 +716,13 @@ const bg: Record<I18nKey, string> = {
   'dialog.got_it': 'Разбрах',
   'dialog.continue_using': 'Продължаване',
   'dialog.leave_session': 'Напускане',
+  'dialog.host_unresponsive_title': 'Няма отговор от устройството на хоста',
+  'dialog.host_unresponsive_message':
+    'Провери дали приложението MUSIXQUARE е отворено на устройството на хоста.\nМожеш да продължиш да чакаш или да напуснеш сесията.',
+  'dialog.keep_waiting': 'Изчакване',
+  'dialog.keep_open_title': 'Дръж приложението отворено',
+  'dialog.keep_open_message':
+    'Ако превключиш към друго приложение или екранът изгасне, звукът може да спре или синхронът да се наруши.\nАко устройството на хоста премине във фонов режим, цялата стая може да спре.',
   'dialog.sw_update_title': 'Актуализация',
   'dialog.sw_update_msg': 'Нова версия е готова.\nОпресни, за да актуализираш.',
   'dialog.feature_refresh_title': 'Нужно е опресняване',

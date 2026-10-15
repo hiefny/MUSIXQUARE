@@ -527,6 +527,7 @@ const fa: Record<I18nKey, string> = {
     'این اتاق هم‌اکنون به سقف 100 دستگاه متصل، با احتساب میزبان، رسیده است.',
   'network.op_granted': 'مجوز مدیریت اعطا شد',
   'network.op_revoked': 'مجوز مدیریت لغو شد',
+  'network.host_waiting': 'در انتظار میزبان...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': 'اتصال {{name}} قطع شد',
@@ -544,6 +545,11 @@ const fa: Record<I18nKey, string> = {
   'toast.op_status': 'مجوز {{label}} {{status}}',
   'toast.file_read_error': 'خطای خواندن فایل: {{name}}',
   'toast.host_ended_connection': 'میزبان اتصال را پایان داد',
+  'toast.host_background_blocked':
+    'دستگاه میزبان در پس‌زمینه است\nوقتی میزبان به برنامه برگردد، کنترل‌ها فعال می‌شوند',
+  'toast.host_unresponsive_chat': 'پیام ارسال نشد\nدستگاه میزبان پاسخ نمی‌دهد',
+  'toast.host_unresponsive_blocked': 'درخواست ارسال نشد\nدستگاه میزبان پاسخ نمی‌دهد',
+  'toast.host_back': 'دستگاه میزبان برگشت',
   'toast.announcement_available': 'اعلان تازه‌ای دارید\nپنل گفت‌وگو را ببینید',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -696,6 +702,13 @@ const fa: Record<I18nKey, string> = {
   'dialog.got_it': 'متوجه شدم',
   'dialog.continue_using': 'ادامه',
   'dialog.leave_session': 'خروج',
+  'dialog.host_unresponsive_title': 'دستگاه میزبان پاسخ نمی‌دهد',
+  'dialog.host_unresponsive_message':
+    'بررسی کنید که MUSIXQUARE روی دستگاه میزبان باز باشد.\nمی‌توانید همچنان منتظر بمانید یا از جلسه خارج شوید.',
+  'dialog.keep_waiting': 'ادامهٔ انتظار',
+  'dialog.keep_open_title': 'برنامه را باز نگه دارید',
+  'dialog.keep_open_message':
+    'اگر به برنامهٔ دیگری بروید یا صفحه‌نمایش را خاموش کنید، ممکن است صدا قطع یا ناهمگام شود.\nاگر دستگاه میزبان به پس‌زمینه برود، ممکن است کل اتاق متوقف شود.',
   'dialog.sw_update_title': 'به‌روزرسانی',
   'dialog.sw_update_msg': 'نسخهٔ جدید آماده است.\nبرای به‌روزرسانی، تازه‌سازی کنید.',
   'dialog.feature_refresh_title': 'تازه‌سازی صفحه لازم است',

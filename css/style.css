@@ -1225,7 +1225,8 @@ Safety is declared first because important layer precedence is reversed; its acc
        horizontal header rail. */
     top: var(--safe-top);
     left: calc(24px + var(--safe-left));
-    right: calc(24px + var(--safe-right));
+    /* The account pill stays in place while loading; JS publishes its width. */
+    right: calc(24px + var(--safe-right) + var(--header-actions-inset, 0px));
     width: auto;
     height: calc(100% - var(--safe-top));
     display: flex;
@@ -1267,7 +1268,9 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* --- Loading Active State (Applied to <header>) --- */
-  header.loading .header-default-content {
+  /* Only the logo yields to the loader. The account pill and help button stay
+     usable, and the progress fill runs behind them. */
+  header.loading .app-logo.header-default-content {
     transform: translateY(-150%);
     opacity: 0;
   }

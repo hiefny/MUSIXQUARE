@@ -521,6 +521,7 @@ const he: Record<I18nKey, string> = {
   'network.session_full_detail': 'בחדר כבר מחובר המספר המרבי של 100 מכשירים, כולל המארח.',
   'network.op_granted': 'הרשאת מנהל הוענקה',
   'network.op_revoked': 'הרשאת מנהל בוטלה',
+  'network.host_waiting': 'ממתינים למארח...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': 'ניתוק: {{name}}',
@@ -538,6 +539,11 @@ const he: Record<I18nKey, string> = {
   'toast.op_status': 'הרשאת {{label}} {{status}}',
   'toast.file_read_error': 'שגיאה בקריאת הקובץ: {{name}}',
   'toast.host_ended_connection': 'המארח סיים את החיבור',
+  'toast.host_background_blocked':
+    'מכשיר המארח נמצא ברקע\nהשליטה תחזור כשהמארח יפתח שוב את האפליקציה',
+  'toast.host_unresponsive_chat': 'שליחת ההודעה נכשלה\nמכשיר המארח אינו מגיב',
+  'toast.host_unresponsive_blocked': 'שליחת הבקשה נכשלה\nמכשיר המארח אינו מגיב',
+  'toast.host_back': 'מכשיר המארח חזר',
   'toast.announcement_available': 'יש הכרזה חדשה\nאפשר לצפות בה בחלונית הצ׳אט',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -685,6 +691,13 @@ const he: Record<I18nKey, string> = {
   'dialog.got_it': 'הבנתי',
   'dialog.continue_using': 'המשך',
   'dialog.leave_session': 'יציאה',
+  'dialog.host_unresponsive_title': 'אין תגובה ממכשיר המארח',
+  'dialog.host_unresponsive_message':
+    'יש לבדוק ש-MUSIXQUARE פתוח במכשיר המארח.\nאפשר להמשיך להמתין או לצאת מהחדר.',
+  'dialog.keep_waiting': 'המשך המתנה',
+  'dialog.keep_open_title': 'כדאי להשאיר את האפליקציה פתוחה',
+  'dialog.keep_open_message':
+    'מעבר לאפליקציה אחרת או כיבוי המסך עלולים לעצור את השמע או לשבש את הסנכרון.\nאם מכשיר המארח יעבור לרקע, כל החדר עלול להיעצר.',
   'dialog.sw_update_title': 'עדכון',
   'dialog.sw_update_msg': 'גרסה חדשה מוכנה.\nיש לרענן כדי לעדכן.',
   'dialog.feature_refresh_title': 'נדרש רענון',

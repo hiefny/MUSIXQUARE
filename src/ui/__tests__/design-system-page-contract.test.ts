@@ -576,10 +576,12 @@ describe('public design-system page contract', () => {
       designStylesheet.match(
         /app-header-(?:default|loading)-rail-cycle 6s cubic-bezier\(0\.08, 0\.82, 0\.17, 1\) infinite,/gu,
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     expect(
       designStylesheet.match(/app-header-(?:default|loading)-opacity-cycle 6s ease infinite;/gu),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
+    // The account pill stays in place while the logo and status trade places.
+    expect(designStylesheet).not.toMatch(/\.app-loading-header-badge\s*\{[^}]*animation/su);
     expect(designStylesheet).toMatch(
       /66\.6667%\s*\{[^}]*transform:\s*scaleX\(1\);[^}]*opacity:\s*0;/su,
     );

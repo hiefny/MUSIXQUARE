@@ -44,8 +44,8 @@ function target(selector: string): EntranceTarget | undefined {
 describe('app entrance choreography contract', () => {
   it('keeps the E2E bootstrap count aligned with eager initializers after deferring diagnostics', () => {
     const initializers = [...appSource.matchAll(/safeInit\('([^']+)'/gu)].map((match) => match[1]);
-    expect(initializers).toHaveLength(49);
-    expect(new Set(initializers).size).toBe(49);
+    expect(initializers).toHaveLength(51);
+    expect(new Set(initializers).size).toBe(51);
     expect(initializers).not.toContain('SyncFlightRecorder');
     expect(appSource).toContain("runBootstrapStepAsync(bootstrapReadiness, 'I18n'");
     expect(appSource).toContain("bootstrapReadiness.recordSuccess('SyncWorker', 'worker')");

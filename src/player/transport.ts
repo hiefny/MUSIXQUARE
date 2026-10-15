@@ -30,6 +30,7 @@ import {
   isPlaybackPlayingSystemAudio,
 } from './ownership.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
+import { refuseHostCommand } from '../network/host-presence.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
 import { LEGACY_FILE_SCHEDULE_AHEAD_MS, LOCAL_FILE_START_LEAD_MS } from './file-play-timing.ts';
@@ -2192,6 +2193,8 @@ export function stopPlayback(): void {
   if (hostConn && canControlPlayback) {
     const queueItemId = getCurrentQueueItemId();
     if (!queueItemId) return;
+    // Stop is a seek and a pause; hold both while the host is not answering.
+    if (refuseHostCommand(hostConn, { type: MSG.REQUEST_PAUSE })) return;
     try {
       hostConn.send({ type: MSG.REQUEST_SEEK, time: 0, queueItemId });
     } catch (e) {

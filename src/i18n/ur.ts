@@ -527,6 +527,7 @@ const ur: Record<I18nKey, string> = {
     'اس کمرے میں میزبان سمیت زیادہ سے زیادہ 100 آلات پہلے ہی منسلک ہیں۔',
   'network.op_granted': 'منتظم کی اجازت دے دی گئی',
   'network.op_revoked': 'منتظم کی اجازت واپس لے لی گئی',
+  'network.host_waiting': 'میزبان کا انتظار ہے...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} منقطع ہو گیا',
@@ -544,6 +545,11 @@ const ur: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} کی اجازت: {{status}}',
   'toast.file_read_error': 'فائل پڑھنے میں خرابی: {{name}}',
   'toast.host_ended_connection': 'میزبان نے کنکشن ختم کر دیا',
+  'toast.host_background_blocked':
+    'میزبان کا آلہ پس منظر میں ہے\nمیزبان ایپ دوبارہ کھولے تو آپ کنٹرول کر سکیں گے',
+  'toast.host_unresponsive_chat': 'پیغام نہیں بھیجا جا سکا\nمیزبان کا آلہ جواب نہیں دے رہا',
+  'toast.host_unresponsive_blocked': 'درخواست نہیں بھیجی جا سکی\nمیزبان کا آلہ جواب نہیں دے رہا',
+  'toast.host_back': 'میزبان کا آلہ واپس آ گیا',
   'toast.announcement_available': 'نئی اطلاع موجود ہے\nچیٹ پینل دیکھیں',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -695,6 +701,13 @@ const ur: Record<I18nKey, string> = {
   'dialog.got_it': 'سمجھ آ گئی',
   'dialog.continue_using': 'جاری رکھیں',
   'dialog.leave_session': 'سیشن چھوڑیں',
+  'dialog.host_unresponsive_title': 'میزبان کے آلے سے کوئی جواب نہیں',
+  'dialog.host_unresponsive_message':
+    'چیک کریں کہ میزبان کے آلے پر MUSIXQUARE کھلا ہے۔\nآپ انتظار جاری رکھ سکتے ہیں یا سیشن چھوڑ سکتے ہیں۔',
+  'dialog.keep_waiting': 'انتظار جاری رکھیں',
+  'dialog.keep_open_title': 'ایپ کھلی رکھیں',
+  'dialog.keep_open_message':
+    'دوسری ایپ پر جانے یا اسکرین بند کرنے سے آواز رک سکتی ہے یا سنک بگڑ سکتا ہے۔\nاگر میزبان کا آلہ پس منظر میں چلا جائے تو پورا کمرہ رک سکتا ہے۔',
   'dialog.sw_update_title': 'اپ ڈیٹ',
   'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔\nاپ ڈیٹ کے لیے ریفریش کریں۔',
   'dialog.feature_refresh_title': 'ریفریش کرنا ضروری ہے',

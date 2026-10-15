@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const id of ['loader-a', 'loader-b', 'remote-upload', 'removed-loader']) {
+  for (const id of ['loader-a', 'loader-b', 'loader-p', 'remote-upload', 'removed-loader']) {
     showLoader(false, undefined, id);
   }
   showLoader(false);
@@ -560,6 +560,33 @@ describe('showLoader', () => {
     expect(headerLoaderText()).toBe('Upload A 50%');
     expectHeaderProgress(50);
   });
+
+  it('keeps a priority holder in front of newer ordinary holders', () => {
+    showLoader(true, 'Upload A', 'loader-a');
+    showLoader(true, 'Waiting for the host...', 'loader-p', { priority: true });
+    updateLoader(100, 'loader-p');
+    showLoader(true, 'Download B', 'loader-b');
+    updateLoader(30, 'loader-b');
+
+    expect(headerLoaderText()).toBe('Waiting for the host...');
+    expectHeaderProgress(100);
+
+    showLoader(false, undefined, 'loader-p');
+    expect(headerLoaderText()).toBe('Download B');
+    expectHeaderProgress(30);
+  });
+
+  it('reserves the account pill width so long loader text ends before it', () => {
+    const header = document.getElementById('main-header')!;
+    const actions = document.createElement('div');
+    actions.className = 'header-right';
+    Object.defineProperty(actions, 'offsetWidth', { configurable: true, value: 88 });
+    header.appendChild(actions);
+
+    showLoader(true, 'A long transfer label that would otherwise run under the pill');
+
+    expect(header.style.getPropertyValue('--header-actions-inset')).toBe('100px');
+  });
 });
 
 describe('header loader layout contract', () => {
@@ -616,7 +643,9 @@ describe('header loader layout contract', () => {
       compactStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(baseLoaderRules).toMatch(/left:\s*calc\(24px \+ var\(--safe-left\)\);/);
-    expect(baseLoaderRules).toMatch(/right:\s*calc\(24px \+ var\(--safe-right\)\);/);
+    expect(baseLoaderRules).toMatch(
+      /right:\s*calc\(24px \+ var\(--safe-right\) \+ var\(--header-actions-inset, 0px\)\);/,
+    );
     expect(baseLoaderRules).toMatch(/width:\s*auto;/);
     expect(compactLoaderRules).toMatch(/top:\s*calc\(10px \+ var\(--safe-top\)\)\s*;/);
     expect(compactLoaderRules).toMatch(/left:\s*29px\s*;/);
@@ -655,6 +684,15 @@ describe('header loader layout contract', () => {
     expect(contentRules).toMatch(/text-overflow:\s*ellipsis;/);
     expect(loaderRuleBodies.some((rules) => /white-space:\s*normal;/.test(rules))).toBe(false);
     expect(loaderRuleBodies.some((rules) => /overflow-wrap:\s*anywhere;/.test(rules))).toBe(false);
+  });
+
+  it('keeps the account pill in place while only the logo yields to the loader', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+
+    expect(stylesheet).toMatch(
+      /header\.loading \.app-logo\.header-default-content\s*\{[^}]*transform:\s*translateY\(-150%\);[^}]*opacity:\s*0;/su,
+    );
+    expect(stylesheet).not.toMatch(/header\.loading \.header-default-content\s*\{/);
   });
 
   it('uses a full-width compositor fill without a width transition', async () => {

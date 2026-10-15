@@ -435,6 +435,7 @@ const es: Record<I18nKey, string> = {
     'Esta sala ya tiene el máximo de 100 dispositivos conectados, incluido el anfitrión.',
   'network.op_granted': 'Permiso de administrador concedido',
   'network.op_revoked': 'Permiso de administrador revocado',
+  'network.host_waiting': 'Esperando al anfitrión...',
 
   // Transfer
   'transfer.demo_loading': 'Cargando pista demo desde el servidor...',
@@ -526,6 +527,13 @@ const es: Record<I18nKey, string> = {
   'toast.op_status': 'Permiso de {{label}} {{status}}',
   'toast.file_read_error': 'Error al leer archivo: {{name}}',
   'toast.host_ended_connection': 'El anfitrión finalizó la conexión',
+  'toast.host_background_blocked':
+    'El dispositivo del anfitrión está en segundo plano\nInténtalo de nuevo cuando el anfitrión vuelva a la app',
+  'toast.host_unresponsive_chat':
+    'No se pudo enviar el mensaje\nEl dispositivo del anfitrión no responde',
+  'toast.host_unresponsive_blocked':
+    'No se pudo enviar la solicitud\nEl dispositivo del anfitrión no responde',
+  'toast.host_back': 'El dispositivo del anfitrión está de vuelta',
   'toast.announcement_available': 'Hay un nuevo aviso\nRevisa el chat',
   'toast.copy_failed': 'No se pudo copiar',
   'toast.email_copied': '¡Dirección de correo copiada!',
@@ -644,6 +652,13 @@ const es: Record<I18nKey, string> = {
   'dialog.got_it': 'De acuerdo',
   'dialog.continue_using': 'Continuar',
   'dialog.leave_session': 'Salir',
+  'dialog.host_unresponsive_title': 'El dispositivo del anfitrión no responde',
+  'dialog.host_unresponsive_message':
+    'Revisa que MUSIXQUARE esté abierto en el dispositivo del anfitrión.\nPuedes seguir esperando o salir de la sala.',
+  'dialog.keep_waiting': 'Seguir esperando',
+  'dialog.keep_open_title': 'Mantén la app abierta',
+  'dialog.keep_open_message':
+    'Si cambias de app o se apaga la pantalla, el sonido puede cortarse o perder la sincronización.\nSi el dispositivo del anfitrión pasa a segundo plano, toda la sala puede detenerse.',
   'dialog.sw_update_title': 'Actualización',
   'dialog.sw_update_msg': 'Hay una nueva versión lista.\nActualiza para aplicarla.',
   'dialog.feature_refresh_title': 'Es necesario actualizar la página',

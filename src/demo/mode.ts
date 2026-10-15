@@ -1604,8 +1604,8 @@ function requestDemoExit(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     if (hasRoomCapability('room.configure') && hostConn.open) {
-      safeSend(hostConn, { type: MSG.REQUEST_DEMO_EXIT });
-      showToast(t('demo.try_later_toast'));
+      // A held request already explained itself with a toast.
+      if (safeSend(hostConn, { type: MSG.REQUEST_DEMO_EXIT })) showToast(t('demo.try_later_toast'));
       return;
     }
     showToast(t('demo.host_only_exit'));

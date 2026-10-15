@@ -212,6 +212,8 @@ export const MSG = {
   SYNC_PONG: 'sync-pong',
   KICK_DEVICE: 'kick-device',
   OPERATOR_TOAST: 'operator-toast',
+  // ── Host Presence (Standard rooms) ─────────────────────────────
+  HOST_COMMAND_REJECTED: 'host-command-rejected',
 
   // ── System Audio Sharing ────────────────────────────────────────
   SYSTEM_AUDIO_START: 'system-audio-start',

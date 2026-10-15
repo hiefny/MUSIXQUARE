@@ -535,6 +535,7 @@ const fi: Record<I18nKey, string> = {
     'Huoneeseen on jo yhdistetty enimmäismäärä eli 100 laitetta isäntä mukaan lukien.',
   'network.op_granted': 'Ylläpitäjäoikeudet myönnettiin',
   'network.op_revoked': 'Ylläpitäjäoikeudet peruttiin',
+  'network.host_waiting': 'Odotetaan isäntää…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': 'Laitteen {{name}} yhteys katkesi',
@@ -552,6 +553,11 @@ const fi: Record<I18nKey, string> = {
   'toast.op_status': 'Oikeus ”{{label}}” {{status}}',
   'toast.file_read_error': 'Tiedoston lukuvirhe: {{name}}',
   'toast.host_ended_connection': 'Isäntä päätti yhteyden',
+  'toast.host_background_blocked':
+    'Isäntälaite on taustalla\nVoit hallita toistoa, kun isäntä palaa sovellukseen',
+  'toast.host_unresponsive_chat': 'Viestiä ei voitu lähettää\nIsäntälaite ei vastaa',
+  'toast.host_unresponsive_blocked': 'Pyyntöä ei voitu lähettää\nIsäntälaite ei vastaa',
+  'toast.host_back': 'Isäntälaite palasi',
   'toast.announcement_available': 'Uusi ilmoitus\nTarkista chat-paneeli',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -706,6 +712,13 @@ const fi: Record<I18nKey, string> = {
   'dialog.got_it': 'Selvä',
   'dialog.continue_using': 'Jatka',
   'dialog.leave_session': 'Poistu',
+  'dialog.host_unresponsive_title': 'Isäntälaite ei vastaa',
+  'dialog.host_unresponsive_message':
+    'Tarkista, että MUSIXQUARE on auki isäntälaitteella.\nVoit odottaa vielä tai poistua istunnosta.',
+  'dialog.keep_waiting': 'Odota vielä',
+  'dialog.keep_open_title': 'Pidä sovellus auki',
+  'dialog.keep_open_message':
+    'Jos vaihdat toiseen sovellukseen tai näyttö sammuu, ääni voi katketa tai synkronointi voi mennä sekaisin.\nJos isäntälaite siirtyy taustalle, koko huone voi pysähtyä.',
   'dialog.sw_update_title': 'Päivitys',
   'dialog.sw_update_msg': 'Uusi versio on valmis.\nPäivitä sivu ottaaksesi sen käyttöön.',
   'dialog.feature_refresh_title': 'Sivu on päivitettävä',

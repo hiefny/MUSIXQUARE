@@ -424,6 +424,7 @@ const vi: Record<I18nKey, string> = {
     'Phòng này đã có tối đa 100 thiết bị kết nối, bao gồm cả thiết bị của chủ phòng.',
   'network.op_granted': 'Đã cấp quyền quản trị',
   'network.op_revoked': 'Đã thu hồi quyền quản trị',
+  'network.host_waiting': 'Đang chờ chủ phòng phản hồi...',
 
   // Transfer
   'transfer.demo_loading': 'Đang tải bài demo từ máy chủ...',
@@ -510,6 +511,11 @@ const vi: Record<I18nKey, string> = {
   'toast.op_status': 'Quyền {{label}} {{status}}',
   'toast.file_read_error': 'Lỗi đọc tệp: {{name}}',
   'toast.host_ended_connection': 'Chủ phòng đã kết thúc kết nối',
+  'toast.host_background_blocked':
+    'Thiết bị của chủ phòng đã chuyển sang nền\nCó thể điều khiển khi chủ phòng mở lại ứng dụng',
+  'toast.host_unresponsive_chat': 'Không thể gửi tin nhắn\nThiết bị của chủ phòng không phản hồi',
+  'toast.host_unresponsive_blocked': 'Không thể gửi yêu cầu\nThiết bị của chủ phòng không phản hồi',
+  'toast.host_back': 'Thiết bị của chủ phòng đã quay lại',
   'toast.announcement_available': 'Có thông báo mới\nHãy kiểm tra khung trò chuyện',
   'toast.copy_failed': 'Không thể sao chép',
   'toast.email_copied': 'Đã sao chép địa chỉ email!',
@@ -624,6 +630,13 @@ const vi: Record<I18nKey, string> = {
   'dialog.got_it': 'Đã hiểu',
   'dialog.continue_using': 'Tiếp tục',
   'dialog.leave_session': 'Rời đi',
+  'dialog.host_unresponsive_title': 'Không có phản hồi từ thiết bị của chủ phòng',
+  'dialog.host_unresponsive_message':
+    'Hãy kiểm tra xem MUSIXQUARE có đang mở trên thiết bị của chủ phòng không.\nBạn có thể tiếp tục chờ hoặc rời phòng.',
+  'dialog.keep_waiting': 'Tiếp tục chờ',
+  'dialog.keep_open_title': 'Hãy giữ ứng dụng luôn mở',
+  'dialog.keep_open_message':
+    'Chuyển sang ứng dụng khác hoặc tắt màn hình có thể khiến âm thanh bị dừng hoặc đồng bộ bị lệch.\nNếu thiết bị của chủ phòng chuyển sang nền, cả phòng có thể dừng lại.',
   'dialog.sw_update_title': 'Cập nhật',
   'dialog.sw_update_msg': 'Phiên bản mới đã sẵn sàng.\nLàm mới để cập nhật.',
   'dialog.feature_refresh_title': 'Cần làm mới',

@@ -547,6 +547,7 @@ const ta: Record<I18nKey, string> = {
     'ஹோஸ்ட் உட்பட அதிகபட்சம் 100 சாதனங்கள் ஏற்கனவே இந்த அறையில் இணைந்துள்ளன.',
   'network.op_granted': 'நிர்வாகி அனுமதி வழங்கப்பட்டது',
   'network.op_revoked': 'நிர்வாகி அனுமதி திரும்பப் பெறப்பட்டது',
+  'network.host_waiting': 'ஹோஸ்டுக்காகக் காத்திருக்கிறது...',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
   'toast.device_disconnected': '{{name}}-இன் இணைப்பு துண்டிக்கப்பட்டது',
@@ -564,6 +565,11 @@ const ta: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} அனுமதி {{status}}',
   'toast.file_read_error': 'கோப்பைப் படிப்பதில் பிழை: {{name}}',
   'toast.host_ended_connection': 'ஹோஸ்ட் இணைப்பை முடித்தார்',
+  'toast.host_background_blocked':
+    'ஹோஸ்ட் சாதனம் பின்னணியில் உள்ளது\nஹோஸ்ட் பயன்பாட்டை மீண்டும் திறந்ததும் கட்டுப்படுத்தலாம்',
+  'toast.host_unresponsive_chat': 'செய்தியை அனுப்ப முடியவில்லை\nஹோஸ்ட் சாதனம் பதிலளிக்கவில்லை',
+  'toast.host_unresponsive_blocked': 'கோரிக்கையை அனுப்ப முடியவில்லை\nஹோஸ்ட் சாதனம் பதிலளிக்கவில்லை',
+  'toast.host_back': 'ஹோஸ்ட் சாதனம் திரும்பி வந்துவிட்டது',
   'toast.announcement_available': 'புதிய அறிவிப்பு\nஅரட்டைப் பலகையைப் பார்க்கவும்',
 
   // ─── Toast (static) ──────────────────────────────────────────────
@@ -721,6 +727,13 @@ const ta: Record<I18nKey, string> = {
   'dialog.got_it': 'புரிந்தது',
   'dialog.continue_using': 'தொடர்',
   'dialog.leave_session': 'வெளியேறு',
+  'dialog.host_unresponsive_title': 'ஹோஸ்ட் சாதனத்திலிருந்து பதில் இல்லை',
+  'dialog.host_unresponsive_message':
+    'ஹோஸ்ட் சாதனத்தில் MUSIXQUARE திறந்துள்ளதா எனச் சரிபார்க்கவும்.\nநீங்கள் தொடர்ந்து காத்திருக்கலாம் அல்லது அமர்விலிருந்து வெளியேறலாம்.',
+  'dialog.keep_waiting': 'தொடர்ந்து காத்திரு',
+  'dialog.keep_open_title': 'பயன்பாட்டைத் திறந்தே வைத்திருக்கவும்',
+  'dialog.keep_open_message':
+    'வேறு பயன்பாட்டுக்கு மாறினால் அல்லது திரை அணைந்தால் ஒலி நின்றுவிடலாம் அல்லது ஒத்திசைவு தவறலாம்.\nஹோஸ்ட் சாதனம் பின்னணிக்குச் சென்றால் முழு அறையும் நின்றுவிடலாம்.',
   'dialog.sw_update_title': 'புதுப்பிப்பு',
   'dialog.sw_update_msg': 'புதிய பதிப்பு தயாராக உள்ளது.\nபுதுப்பிக்க மீண்டும் ஏற்றவும்.',
   'dialog.feature_refresh_title': 'மீண்டும் ஏற்ற வேண்டும்',

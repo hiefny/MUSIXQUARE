@@ -24,6 +24,7 @@ import type { DataConnection, DeviceInfo, RoomCapability } from '../types/index.
 import { getPeer, detectConnectionType, safeSend } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
 import { hasQueueAuthority } from './queue-authority.ts';
+import { handleHostCommandRejectedMessage } from './host-presence.ts';
 import {
   JOIN_BOOTSTRAP_TIMEOUT_MS,
   createJoinBootstrapId,
@@ -1031,6 +1032,7 @@ export function initGuestProtocolHandlers(): void {
     [MSG.OPERATOR_REVOKE]: handleOperatorRevoke,
     [MSG.OPERATOR_TOAST]: handleOperatorToast,
     [MSG.KICK_DEVICE]: handleKickDeviceMsg,
+    [MSG.HOST_COMMAND_REJECTED]: handleHostCommandRejectedMessage,
   });
 
   bus.on('network:request-kick-standard-room-member', ({ memberId }) => {

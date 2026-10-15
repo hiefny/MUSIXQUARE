@@ -541,6 +541,7 @@ const ml: Record<I18nKey, string> = {
     'ഹോസ്റ്റ് ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾ ഇതിനകം ഈ റൂമിൽ ബന്ധിപ്പിച്ചിട്ടുണ്ട്.',
   'network.op_granted': 'അഡ്മിൻ അനുമതി നൽകി',
   'network.op_revoked': 'അഡ്മിൻ അനുമതി പിൻവലിച്ചു',
+  'network.host_waiting': 'ഹോസ്റ്റിനായി കാത്തിരിക്കുന്നു...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}}-ന്റെ ബന്ധം വിച്ഛേദിച്ചു',
@@ -558,6 +559,12 @@ const ml: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} അനുമതി {{status}}',
   'toast.file_read_error': 'ഫയൽ വായിക്കുന്നതിൽ പിശക്: {{name}}',
   'toast.host_ended_connection': 'ഹോസ്റ്റ് ബന്ധം അവസാനിപ്പിച്ചു',
+  'toast.host_background_blocked':
+    'ഹോസ്റ്റ് ഡിവൈസ് പശ്ചാത്തലത്തിലാണ്\nഹോസ്റ്റ് ആപ്പ് വീണ്ടും തുറന്നാൽ നിയന്ത്രിക്കാം',
+  'toast.host_unresponsive_chat': 'സന്ദേശം അയയ്ക്കാനായില്ല\nഹോസ്റ്റ് ഡിവൈസ് പ്രതികരിക്കുന്നില്ല',
+  'toast.host_unresponsive_blocked':
+    'അഭ്യർത്ഥന അയയ്ക്കാനായില്ല\nഹോസ്റ്റ് ഡിവൈസ് പ്രതികരിക്കുന്നില്ല',
+  'toast.host_back': 'ഹോസ്റ്റ് ഡിവൈസ് തിരിച്ചെത്തി',
   'toast.announcement_available': 'പുതിയ അറിയിപ്പ്\nചാറ്റ് പാനൽ പരിശോധിക്കുക',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -716,6 +723,13 @@ const ml: Record<I18nKey, string> = {
   'dialog.got_it': 'മനസ്സിലായി',
   'dialog.continue_using': 'തുടരുക',
   'dialog.leave_session': 'പുറത്തുകടക്കുക',
+  'dialog.host_unresponsive_title': 'ഹോസ്റ്റ് ഡിവൈസിൽ നിന്ന് പ്രതികരണമില്ല',
+  'dialog.host_unresponsive_message':
+    'ഹോസ്റ്റ് ഡിവൈസിൽ MUSIXQUARE തുറന്നിട്ടുണ്ടോ എന്ന് പരിശോധിക്കുക.\nനിങ്ങൾക്ക് കാത്തിരിപ്പ് തുടരാം അല്ലെങ്കിൽ സെഷനിൽ നിന്ന് പുറത്തുകടക്കാം.',
+  'dialog.keep_waiting': 'കാത്തിരിപ്പ് തുടരുക',
+  'dialog.keep_open_title': 'ആപ്പ് തുറന്നുവയ്ക്കുക',
+  'dialog.keep_open_message':
+    'മറ്റൊരു ആപ്പിലേക്ക് മാറുകയോ സ്ക്രീൻ ഓഫാകുകയോ ചെയ്താൽ ശബ്ദം നിലയ്ക്കുകയോ സിങ്ക് തെറ്റുകയോ ചെയ്യാം.\nഹോസ്റ്റ് ഡിവൈസ് പശ്ചാത്തലത്തിലേക്ക് പോയാൽ റൂം മുഴുവൻ നിലച്ചേക്കാം.',
   'dialog.sw_update_title': 'അപ്‌ഡേറ്റ്',
   'dialog.sw_update_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nഅപ്‌ഡേറ്റ് ചെയ്യാൻ പുതുക്കുക.',
   'dialog.feature_refresh_title': 'പുതുക്കേണ്ടതുണ്ട്',

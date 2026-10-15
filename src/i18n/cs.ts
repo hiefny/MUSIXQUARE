@@ -537,6 +537,7 @@ const cs: Record<I18nKey, string> = {
     'V této místnosti už je připojen maximální počet 100 zařízení včetně hostitele.',
   'network.op_granted': 'Oprávnění správce bylo uděleno',
   'network.op_revoked': 'Oprávnění správce bylo odebráno',
+  'network.host_waiting': 'Čeká se na hostitele...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': 'Odpojeno: {{name}}',
@@ -554,6 +555,12 @@ const cs: Record<I18nKey, string> = {
   'toast.op_status': 'Oprávnění {{label}}: {{status}}',
   'toast.file_read_error': 'Chyba při čtení souboru: {{name}}',
   'toast.host_ended_connection': 'Hostitel ukončil připojení',
+  'toast.host_background_blocked':
+    'Zařízení hostitele je na pozadí\nOvládání se obnoví, až hostitel aplikaci znovu otevře',
+  'toast.host_unresponsive_chat': 'Zprávu se nepodařilo odeslat\nZařízení hostitele neodpovídá',
+  'toast.host_unresponsive_blocked':
+    'Požadavek se nepodařilo odeslat\nZařízení hostitele neodpovídá',
+  'toast.host_back': 'Zařízení hostitele je zpět',
   'toast.announcement_available': 'Nové oznámení\nPodívejte se do panelu chatu',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -710,6 +717,13 @@ const cs: Record<I18nKey, string> = {
   'dialog.got_it': 'Rozumím',
   'dialog.continue_using': 'Pokračovat',
   'dialog.leave_session': 'Odejít',
+  'dialog.host_unresponsive_title': 'Zařízení hostitele neodpovídá',
+  'dialog.host_unresponsive_message':
+    'Zkontrolujte, zda je na zařízení hostitele otevřená aplikace MUSIXQUARE.\nMůžete čekat dál nebo relaci opustit.',
+  'dialog.keep_waiting': 'Čekat dál',
+  'dialog.keep_open_title': 'Nechte aplikaci otevřenou',
+  'dialog.keep_open_message':
+    'Pokud přepnete do jiné aplikace nebo zhasne obrazovka, může se zastavit zvuk nebo narušit synchronizace.\nPokud zařízení hostitele přejde do pozadí, může se zastavit celá místnost.',
   'dialog.sw_update_title': 'Aktualizace',
   'dialog.sw_update_msg': 'Je připravena nová verze.\nPro aktualizaci načtěte stránku znovu.',
   'dialog.feature_refresh_title': 'Je potřeba načíst stránku znovu',

@@ -5,6 +5,7 @@ import { createBusScope } from '../core/events.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
+import { isHostSilentFor } from '../network/host-presence.ts';
 import type { StandardOperatorFileUplinkProgress } from '../types/index.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 
@@ -43,6 +44,12 @@ interface LoaderHolder {
   text: string;
   percent: number;
   order: number;
+  /** A priority holder stays in front of every ordinary operation. */
+  priority: boolean;
+}
+
+interface LoaderOptions {
+  priority?: boolean;
 }
 
 // A holder owns the full visual state, not only a visibility hold. This lets a
@@ -229,9 +236,37 @@ function removeHeaderLoadingIndicators(): void {
 function foregroundLoader(): [string, LoaderHolder] | null {
   let foreground: [string, LoaderHolder] | null = null;
   for (const entry of _loaderHolders) {
-    if (!foreground || entry[1].order > foreground[1].order) foreground = entry;
+    if (
+      !foreground ||
+      (entry[1].priority && !foreground[1].priority) ||
+      (entry[1].priority === foreground[1].priority && entry[1].order > foreground[1].order)
+    ) {
+      foreground = entry;
+    }
   }
   return foreground;
+}
+
+/**
+ * The account pill stays usable while the header shows a loader. Publish its
+ * width so the loader text ends, with an ellipsis, before the pill begins.
+ */
+function syncHeaderActionsInset(): void {
+  const header = document.getElementById('main-header');
+  const actions = header?.querySelector<HTMLElement>('.header-right');
+  if (!header || !actions) return;
+  const width = actions.offsetWidth;
+  header.style.setProperty('--header-actions-inset', width > 0 ? `${width + 12}px` : '0px');
+}
+
+let _headerActionsObserved = false;
+
+function observeHeaderActions(): void {
+  if (_headerActionsObserved || typeof ResizeObserver === 'undefined') return;
+  const actions = document.querySelector<HTMLElement>('#main-header .header-right');
+  if (!actions) return;
+  _headerActionsObserved = true;
+  new ResizeObserver(() => syncHeaderActionsInset()).observe(actions);
 }
 
 function getLoadingTextContent(loadingText: HTMLElement | null): HTMLElement | null {
@@ -291,7 +326,12 @@ export function updateLoader(percent: number, id?: string): void {
   }
 }
 
-export function showLoader(show: boolean, txt?: string, id?: string): void {
+export function showLoader(
+  show: boolean,
+  txt?: string,
+  id?: string,
+  options: LoaderOptions = {},
+): void {
   removeHeaderLoadingIndicators();
   const key = id ?? DEFAULT_LOADER_ID;
   const header = document.getElementById('main-header');
@@ -313,9 +353,11 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
           // initial 0 tick.
           percent: key === DEFAULT_LOADER_ID ? displayedProgress(progressBg) : 0,
           order: ++_loaderOrder,
+          priority: options.priority === true,
         };
     _loaderHolders.set(key, holder);
     clearManagedTimer('loader-reset');
+    syncHeaderActionsInset();
     header?.classList.add('loading');
     // Repeated progress/text updates for an existing background holder must
     // not promote it over a newer foreground operation.
@@ -487,16 +529,29 @@ function operatorUplinkLoaderText(progress: StandardOperatorFileUplinkProgress):
   return `${t('transfer.file_sending')} ${index + 1}/${count} · ${fileName}`;
 }
 
+/**
+ * A request that timed out while the host also stopped answering pings failed
+ * because the host is asleep, not because of the network or its version.
+ */
+const HOST_SILENT_FAILURE_MS = 2_000;
+
 function operatorUplinkErrorMessage(code: string | undefined): string {
   if (code === 'operator-revoked') return t('toast.media_management_required');
   if (code === 'file-too-large') return t('share.remote.too_large');
   if (code === 'invalid-file') return t('toast.no_supported_audio_files');
   if (code === 'host-busy') return t('transfer.host_busy');
   if (code === 'queue-full') return t('playlist.queue_full');
+  if (isHostSilentFor(HOST_SILENT_FAILURE_MS)) return t('toast.host_unresponsive_blocked');
   return t('error.network_generic');
 }
 
 function standardQueueMutationErrorMessage(reason: string, code: string | null): string {
+  if (
+    (reason === 'accept-timeout' || reason === 'settle-timeout') &&
+    isHostSilentFor(HOST_SILENT_FAILURE_MS)
+  ) {
+    return t('toast.host_unresponsive_blocked');
+  }
   if (reason === 'accept-timeout') return t('playlist.host_update_required');
   if (code === 'queue-full') return t('playlist.queue_full');
   if (code === 'invalid-source') return t('youtube.invalid_link');
@@ -554,6 +609,7 @@ function handleOperatorFileUplinkProgress(progress: StandardOperatorFileUplinkPr
 
 export function initToast(): void {
   removeHeaderLoadingIndicators();
+  observeHeaderActions();
   if (!_headerProgressVisibilityBound) {
     document.addEventListener('visibilitychange', handleHeaderProgressVisibility);
     _headerProgressVisibilityBound = true;

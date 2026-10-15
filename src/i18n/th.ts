@@ -523,6 +523,7 @@ const th: Record<I18nKey, string> = {
     'ห้องนี้มีอุปกรณ์เชื่อมต่อครบสูงสุด 100 เครื่องแล้ว รวมเจ้าของห้อง',
   'network.op_granted': 'ให้สิทธิ์ผู้ดูแลแล้ว',
   'network.op_revoked': 'ถอนสิทธิ์ผู้ดูแลแล้ว',
+  'network.host_waiting': 'กำลังรอเจ้าของห้อง...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} ตัดการเชื่อมต่อแล้ว',
@@ -540,6 +541,11 @@ const th: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} {{status}}',
   'toast.file_read_error': 'ข้อผิดพลาดอ่านไฟล์: {{name}}',
   'toast.host_ended_connection': 'เจ้าของห้องสิ้นสุดการเชื่อมต่อแล้ว',
+  'toast.host_background_blocked':
+    'อุปกรณ์ของเจ้าของห้องไปอยู่เบื้องหลัง\nควบคุมได้เมื่อเจ้าของห้องเปิดแอปอีกครั้ง',
+  'toast.host_unresponsive_chat': 'ส่งข้อความไม่ได้\nอุปกรณ์ของเจ้าของห้องไม่ตอบสนอง',
+  'toast.host_unresponsive_blocked': 'ส่งคำขอไม่ได้\nอุปกรณ์ของเจ้าของห้องไม่ตอบสนอง',
+  'toast.host_back': 'อุปกรณ์ของเจ้าของห้องกลับมาแล้ว',
   'toast.announcement_available': 'มีประกาศใหม่\nตรวจสอบแชต',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -688,6 +694,13 @@ const th: Record<I18nKey, string> = {
   'dialog.got_it': 'เข้าใจแล้ว',
   'dialog.continue_using': 'ใช้ต่อ',
   'dialog.leave_session': 'ออก',
+  'dialog.host_unresponsive_title': 'อุปกรณ์ของเจ้าของห้องไม่ตอบสนอง',
+  'dialog.host_unresponsive_message':
+    'ตรวจสอบว่าเปิด MUSIXQUARE อยู่บนอุปกรณ์ของเจ้าของห้อง\nคุณจะรอต่อหรือออกจากห้องก็ได้',
+  'dialog.keep_waiting': 'รอต่อ',
+  'dialog.keep_open_title': 'เปิดแอปค้างไว้ระหว่างใช้งาน',
+  'dialog.keep_open_message':
+    'การสลับไปใช้แอปอื่นหรือปิดหน้าจออาจทำให้เสียงหยุดหรือซิงก์ไม่ตรง\nถ้าอุปกรณ์ของเจ้าของห้องไปอยู่เบื้องหลัง ทั้งห้องอาจหยุดทำงาน',
   'dialog.sw_update_title': 'อัปเดต',
   'dialog.sw_update_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nโหลดหน้าใหม่เพื่ออัปเดต',
   'dialog.feature_refresh_title': 'จำเป็นต้องรีเฟรช',

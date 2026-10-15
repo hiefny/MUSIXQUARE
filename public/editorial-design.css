@@ -2117,9 +2117,7 @@
   font-size: 11px;
   font-weight: 700;
   line-height: normal;
-  animation:
-    app-header-default-rail-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite,
-    app-header-default-opacity-cycle 6s ease infinite;
+  /* Like the app header, the account pill stays usable while loading. */
 }
 
 @keyframes app-header-loading-progress {
@@ -2955,7 +2953,6 @@
   .app-loading-header-progress,
   .app-loading-header-logo,
   .app-loading-header-status,
-  .app-loading-header-badge,
   .design-range-volume,
   .volume-cycle-demo .volume-wave,
   .volume-cycle-demo .volume-muted-backdrop,
@@ -2982,11 +2979,6 @@
   }
 
   .app-loading-header-logo {
-    opacity: 0;
-  }
-
-  .app-loading-header-badge {
-    transform: translateY(-150%);
     opacity: 0;
   }
 

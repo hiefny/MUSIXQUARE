@@ -538,6 +538,7 @@ const hu: Record<I18nKey, string> = {
     'A szobához már a maximális 100 eszköz csatlakozik, a házigazdával együtt.',
   'network.op_granted': 'Adminisztrátori jogosultság megadva',
   'network.op_revoked': 'Adminisztrátori jogosultság visszavonva',
+  'network.host_waiting': 'Várakozás a házigazdára...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} leválasztva',
@@ -555,6 +556,13 @@ const hu: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} jogosultság: {{status}}',
   'toast.file_read_error': 'Fájlolvasási hiba: {{name}}',
   'toast.host_ended_connection': 'A házigazda megszakította a kapcsolatot',
+  'toast.host_background_blocked':
+    'A házigazda eszköze háttérbe került\nÚjra vezérelhetsz, ha a házigazda megnyitja az alkalmazást',
+  'toast.host_unresponsive_chat':
+    'Nem sikerült elküldeni az üzenetet\nA házigazda eszköze nem válaszol',
+  'toast.host_unresponsive_blocked':
+    'Nem sikerült elküldeni a kérést\nA házigazda eszköze nem válaszol',
+  'toast.host_back': 'A házigazda eszköze visszatért',
   'toast.announcement_available': 'Új közlemény\nNézd meg a csevegőpanelt',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -710,6 +718,13 @@ const hu: Record<I18nKey, string> = {
   'dialog.got_it': 'Értem',
   'dialog.continue_using': 'Folytatás',
   'dialog.leave_session': 'Kilépés',
+  'dialog.host_unresponsive_title': 'Nincs válasz a házigazda eszközétől',
+  'dialog.host_unresponsive_message':
+    'Ellenőrizd, hogy a házigazda eszközén nyitva van-e a MUSIXQUARE.\nVárhatsz tovább, vagy kiléphetsz a munkamenetből.',
+  'dialog.keep_waiting': 'Tovább várok',
+  'dialog.keep_open_title': 'Tartsd nyitva az alkalmazást',
+  'dialog.keep_open_message':
+    'Ha másik alkalmazásra váltasz, vagy kikapcsol a képernyő, leállhat a hang, vagy elcsúszhat a szinkronizálás.\nHa a házigazda eszköze háttérbe kerül, az egész szoba leállhat.',
   'dialog.sw_update_title': 'Frissítés',
   'dialog.sw_update_msg': 'Új verzió érhető el.\nA frissítéshez töltsd újra az oldalt.',
   'dialog.feature_refresh_title': 'Újratöltés szükséges',

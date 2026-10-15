@@ -76,6 +76,7 @@ import {
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
+import { initHostPresence } from './network/host-presence.ts';
 import { initStandardQueueMutationAuthority } from './network/queue-mutation-authority.ts';
 import { initPeerHandlers, leaveSession, recoverPeerAfterBackground } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
@@ -132,6 +133,7 @@ import { initVisualizer } from './ui/visualizer.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
 import { initPlayerControls } from './ui/player-controls.ts';
+import { initKeepOpenNotice } from './ui/keep-open-notice.ts';
 import { initGlobalFileDrop } from './ui/file-drop.ts';
 import { initClearableEditors } from './ui/clearable-editors.ts';
 import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
@@ -1123,6 +1125,7 @@ async function bootstrap(): Promise<void> {
   safeInit('Protocol', initProtocol);
   safeInit('StandardQueueMutationAuthority', initStandardQueueMutationAuthority);
   safeInit('PeerHandlers', initPeerHandlers);
+  safeInit('HostPresence', initHostPresence);
   safeInit('Sync', initSync);
   safeInit('Orchestrator', initOrchestrator);
   safeInit('SystemAudioCapture', registerSystemCaptureListeners);
@@ -1165,6 +1168,7 @@ async function bootstrap(): Promise<void> {
   safeInit('Chat', initChat);
   safeInit('PlaylistView', initPlaylistView);
   safeInit('PlayerControls', initPlayerControls);
+  safeInit('KeepOpenNotice', initKeepOpenNotice);
   safeInit('GlobalFileDrop', initGlobalFileDrop);
   safeInit('ClearableEditors', initClearableEditors);
   safeInit('Settings', initSettings);

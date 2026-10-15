@@ -33,6 +33,7 @@ import type {
   StandardOperatorFileUplinkProgress,
 } from '../types/index.ts';
 import { safeSend } from './peer-state.ts';
+import { refuseHostCommand } from './host-presence.ts';
 import {
   isArrayBufferLike,
   isOperatorUploadMime as isValidMime,
@@ -1165,6 +1166,8 @@ export async function uploadStandardOperatorFiles(files: readonly File[]): Promi
   }
   const conn = getState('network.hostConn');
   if (!conn || !isCurrentOutgoingAuthority(conn)) return;
+  // A host that cannot answer would only time each file out; say why now.
+  if (refuseHostCommand(conn, { type: MSG.OPERATOR_FILE_UPLOAD_BATCH_START })) return;
 
   const requestId = createId();
   const hasUploadCandidate = files.some((file) => {

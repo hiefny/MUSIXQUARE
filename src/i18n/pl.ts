@@ -542,6 +542,7 @@ const pl: Record<I18nKey, string> = {
     'Ten pokój osiągnął limit 100 połączonych urządzeń, wliczając hosta.',
   'network.op_granted': 'Nadano Ci uprawnienia administratora',
   'network.op_revoked': 'Odebrano Ci uprawnienia administratora',
+  'network.host_waiting': 'Oczekiwanie na hosta…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': 'Rozłączono: {{name}}',
@@ -559,6 +560,12 @@ const pl: Record<I18nKey, string> = {
   'toast.op_status': 'Uprawnienia dla {{label}} zostały {{status}}',
   'toast.file_read_error': 'Błąd odczytu pliku: {{name}}',
   'toast.host_ended_connection': 'Host zamknął połączenie',
+  'toast.host_background_blocked':
+    'Urządzenie hosta działa w tle\nSterowanie znów zadziała, gdy host wróci do aplikacji',
+  'toast.host_unresponsive_chat': 'Nie udało się wysłać wiadomości\nUrządzenie hosta nie odpowiada',
+  'toast.host_unresponsive_blocked':
+    'Nie udało się wysłać polecenia\nUrządzenie hosta nie odpowiada',
+  'toast.host_back': 'Urządzenie hosta znów jest dostępne',
   'toast.announcement_available': 'Nowe ogłoszenie\nSprawdź panel czatu',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -716,6 +723,13 @@ const pl: Record<I18nKey, string> = {
   'dialog.got_it': 'Rozumiem',
   'dialog.continue_using': 'Kontynuuj',
   'dialog.leave_session': 'Wyjdź',
+  'dialog.host_unresponsive_title': 'Brak odpowiedzi od urządzenia hosta',
+  'dialog.host_unresponsive_message':
+    'Sprawdź, czy aplikacja MUSIXQUARE jest otwarta na urządzeniu hosta.\nMożesz dalej czekać lub wyjść z pokoju.',
+  'dialog.keep_waiting': 'Czekaj dalej',
+  'dialog.keep_open_title': 'Pozostaw aplikację otwartą',
+  'dialog.keep_open_message':
+    'Jeśli przełączysz się na inną aplikację lub ekran zgaśnie, dźwięk może zostać przerwany lub stracić synchronizację.\nJeśli urządzenie hosta przejdzie w tło, cały pokój może się zatrzymać.',
   'dialog.sw_update_title': 'Aktualizacja',
   'dialog.sw_update_msg': 'Dostępna jest nowa wersja.\nOdśwież stronę, aby ją zastosować.',
   'dialog.feature_refresh_title': 'Wymagane odświeżenie',

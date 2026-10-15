@@ -11,6 +11,7 @@ import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX, BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
 import { sendToHost } from '../network/peer.ts';
+import { refuseHostCommand } from '../network/host-presence.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { roomCapabilityRequiredMessage } from '../rooms/permission-feedback.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
@@ -534,6 +535,7 @@ function cmdWhisper(args: string[], rawArgs: string): CommandResult {
     if (conn) conn.send(payload);
   } else {
     // Guest sends to host, host forwards to target
+    if (refuseHostCommand(getState('network.hostConn'), payload)) return false;
     if (sendToHost(payload) === false) {
       addSystemChatMessage(t('error.connect_failed'));
       return false;

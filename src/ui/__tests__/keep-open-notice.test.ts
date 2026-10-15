@@ -95,6 +95,18 @@ describe('first-media keep-open notice', () => {
     });
   });
 
+  it('tells a first-time guest who joins a room that already has media', async () => {
+    const { setState } = await boot(true);
+    // The join bootstrap applies the playlist before the session counts as started.
+    setState('setup.sessionStarted', false);
+    addMedia(setState);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+
+    setState('setup.sessionStarted', true);
+
+    expect(mocks.showDialog).toHaveBeenCalledTimes(1);
+  });
+
   it('stays quiet for someone who has used MUSIXQUARE before', async () => {
     const { setState } = await boot(false);
 

@@ -2193,17 +2193,19 @@ export function stopPlayback(): void {
   if (hostConn && canControlPlayback) {
     const queueItemId = getCurrentQueueItemId();
     if (!queueItemId) return;
-    // Stop is a seek and a pause; hold both while the host is not answering.
+    // Stop is a pause and a seek; hold both while the host is not answering.
     if (refuseHostCommand(hostConn, { type: MSG.REQUEST_PAUSE })) return;
-    try {
-      hostConn.send({ type: MSG.REQUEST_SEEK, time: 0, queueItemId });
-    } catch (e) {
-      log.debug('[Transport] send REQUEST_SEEK:', e);
-    }
+    // Pause first: the seek then lands on paused audio, which a hidden host can
+    // still apply, and a visible host never restarts the track just to stop it.
     try {
       hostConn.send({ type: MSG.REQUEST_PAUSE, queueItemId });
     } catch (e) {
       log.debug('[Transport] send REQUEST_PAUSE:', e);
+    }
+    try {
+      hostConn.send({ type: MSG.REQUEST_SEEK, time: 0, queueItemId });
+    } catch (e) {
+      log.debug('[Transport] send REQUEST_SEEK:', e);
     }
     showToast(t('toast.stop_sent'));
     return;

@@ -129,6 +129,9 @@ export function initKeepOpenNotice(): void {
   firstVisit = !hasAppUseRecord();
   bus.on('state:playlist.items', offerKeepOpenOnFirstMedia);
   bus.on('state:demo.active', offerKeepOpenOnFirstMedia);
+  // A guest joining a room with media gets the playlist before its session
+  // counts as started, so check again once it does.
+  bus.on('state:setup.sessionStarted', offerKeepOpenOnFirstMedia);
   bus.on('host-presence:changed', handlePresenceChanged);
   bus.on('host-presence:long-unresponsive', offerToLeave);
   bus.on('i18n:changed', () => {

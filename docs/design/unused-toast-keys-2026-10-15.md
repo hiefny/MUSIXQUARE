@@ -76,5 +76,41 @@ typed by `I18nKey`.
 
 ## Release and recovery
 
-App-only release (`target=app`). Recovery is the ordinary Production Release
-rollback to the 8.10.23 checkpoint, which brings the unused keys back.
+App **8.10.24/v690** shipped through
+[Production Release 38727700806](https://github.com/hiefny/MUSIXQUARE/actions/runs/38727700806),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-15 20:32:04 KST** using the immutable candidate
+from exact-main CI `38726918203` for `31c3b19c6f792185ba24ca0138dc1c5836430fbf`.
+No rollback was needed; the recovery job was skipped.
+
+- Exact-main CI ran 11 jobs: 564 unit files, 12,733 passed / 0 failed / 1 skipped
+  (the Windows-only cross-drive path check on Linux), 17 candidate browser and
+  29 critical browser tests passed, and every coverage, static and build gate
+  passed. The Codex review of pull request #352 completed with no findings.
+- App version `62e7e692-4ad6-4b6d-8992-4b079285c161` became
+  `a6827c11-21e2-4305-bd79-a671e058abd1`. Final deployment ownership was verified
+  at 20:31:57.252 KST, and the coherent production marker records the exact SHA
+  and target `app`.
+- The partial-release compatibility recheck at 20:31:25.835 KST was compatible.
+  The five unselected Workers were not deployed and keep the `d9364cd9`
+  identities in `docs/release-record.md` §1; the PRO smoke re-read pro-room
+  `8d5d44c0`. The new App deployment identity is in the 90-day run artifact
+  `production-deployments-31c3b19c6f792185ba24ca0138dc1c5836430fbf-38727700806-1`.
+- App generation (`main-C_faCbku.js`, 27 assets converged), anonymous App account
+  boundary, current PRO public boundary and Standard HTTPS signaling smokes
+  passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 20:32 KST returned HTTP 200 for `/`, the v690 service worker,
+  `bootstrap.js?cache=v690`, `main-C_faCbku.js` and `main-BNiplmKU.css`. The
+  public English bundle has none of the removed keys and still has
+  `toast.device_disconnected`.
+- [Operations Drift Audit 38728043443](https://github.com/hiefny/MUSIXQUARE/actions/runs/38728043443)
+  succeeded. Its 20:32:45.085 KST report records **31 pass / 0 fail / 5 manual-only**;
+  manual checks are not treated as completed.
+
+The immutable recovery checkpoint captured at 20:30:44.543 KST
+(`production-recovery-checkpoint-31c3b19c6f792185ba24ca0138dc1c5836430fbf-38727700806-1`)
+preserves the previous App `5903ed41205e2a165c4bcbce5f7c2d6590abf0b5`, 8.10.23/v689,
+version `62e7e692-4ad6-4b6d-8992-4b079285c161`. Rolling back to it only brings the
+unused keys back into the dictionaries; what users see does not change. Mixed
+versions are safe. The checkpoint is not a user-data backup; no data migration
+is needed and existing recovery floors remain binding.

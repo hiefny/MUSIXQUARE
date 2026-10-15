@@ -92,8 +92,9 @@ runbooks. Neither belongs in a general setup document.
 
 - [Keep-open dialog in PRO rooms — 2026-10-16](design/keep-open-pro-2026-10-16.md) —
   First-time PRO participants also get the one-time keep-open dialog when the
-  room's first media appears, without the host sentence. Local unit/E2E
-  evidence; production checks remain.
+  room's first media appears, without the host sentence. Shipped App
+  8.10.26/v692 with exact-main CI, production ownership/smoke and Drift Audit
+  evidence.
 
 - [Host presence and keep-open guidance — 2026-10-16](design/host-presence-keep-open-2026-10-16.md) —
   Standard-room guests see a waiting loader, refusal and hold toasts, and an

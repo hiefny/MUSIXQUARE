@@ -229,6 +229,60 @@ test('shows music before the clock, hides idle chrome, and restores persisted mu
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });
 
+test('keeps denied-location controls separate in a 160×160 weather scene', async ({
+  page,
+}, testInfo) => {
+  const requests = await openHost(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition: (_success: PositionCallback, failure?: PositionErrorCallback | null) =>
+          failure?.({
+            code: 1,
+            message: 'Location permission denied for this browser test',
+            PERMISSION_DENIED: 1,
+            POSITION_UNAVAILABLE: 2,
+            TIMEOUT: 3,
+          }),
+      },
+    });
+  });
+  await page.evaluate(() => localStorage.setItem('mxqr:screensaver:music', 'off'));
+  await page.clock.install();
+  const child = await openScreensaver(page);
+  await page.setViewportSize({ width: 160, height: 160 });
+  await expect(child.locator('#displayMusicToggle')).toHaveAttribute('aria-checked', 'false');
+  await expect(child.locator('#opticalClockCanvas')).toHaveAttribute('aria-hidden', 'false');
+  await page.clock.fastForward(22_000);
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
+  await page.mouse.move(80, 158);
+  await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
+  const retry = child.locator('#weatherRetry');
+  await expect(retry).toBeVisible();
+  await expect(retry).toHaveText('Use current location');
+
+  const boxes = await Promise.all(
+    ['displayBack', 'weatherRetry', 'displayMusicToggle'].map((id) =>
+      child.locator(`#${id}`).boundingBox(),
+    ),
+  );
+  for (const box of boxes) {
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(161);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(161);
+  }
+  const [back, location, music] = boxes;
+  expect(back!.y + back!.height).toBeLessThanOrEqual(location!.y);
+  expect(location!.y + location!.height).toBeLessThanOrEqual(music!.y);
+  expect(requests.some((url) => url.includes('open-meteo.com'))).toBe(false);
+  await page.screenshot({ path: testInfo.outputPath('screensaver-weather-160x160.png') });
+  await child.locator('#displayBack').click();
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+});
+
 for (const viewport of [
   { width: 160, height: 160 },
   { width: 320, height: 240 },

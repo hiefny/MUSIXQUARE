@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implementation and local verification; production evidence pending |
 | Source baseline | `60148998acca59295963764a5286a155e0aa4256`, temporary branch `agent/screensaver` |
-| Product / cache | `8.11.0` / `v694` |
+| Product / cache | `8.11.0` / `v695` |
 | Release scope | App only; Developer API D1 application disabled |
 | Authorization | Owner requested implementation and production deployment on 2026-10-16 |
 
@@ -88,7 +88,30 @@ privacy date/sitemap alignment (two), import layering (one), and Worker coverage
 inventory (one). Fixed by preserving existing command order, updating the dated
 sitemap, routing the command through a typed UI intent, and including the Worker
 security suite in its coverage profile. Corrective host/chat/graph/CI checks:
-228 pass; privacy 11 pass. These early failures remain distinct from final gates.
+228 pass; privacy 11 pass. The diagnostic whole-suite totals were 12,808 pass /
+7 fail, followed by 12,818 pass / 2 fail. The latter identified the separate
+sitemap-locale date fixture and a release-gate expectation collected before its
+concurrent edit; both were corrected (15 sitemap/privacy and 118 release-gate
+checks passed). These early failures remain distinct from final gates.
+
+Committed `7385be7217ce4eac438dbc8129555451411ef339` passed `build:checked`,
+including production security/hooks, initial transfer, font, and SW app-shell
+guards. The full TypeScript, lint and formatting checks passed. The combined
+Chromium run passed 35/35 (six screensaver plus 29 existing critical cases), with
+no page errors. Connected local-file host/guest playback continued, and a
+synthetic native capture used a real MediaStream. A later real-Google-Fonts
+component harness confirmed 500/700 faces loaded (CSS/WOFF2 HTTP 200) and visually
+checked clock/music at 320×240 and 1920×1080. It exposed a 160×160 location CTA
+overlap; the final CSS reduces the compact button height and prevents wrapping,
+leaving a measured 10.41px gap above the toggle. A seventh blocking browser case
+covers that path. The final CSS advances the cache epoch to v695.
+
+The real-font harness used a local same-origin parent and the production renderer
+`/assets/screensaver-runtime-ec660970.js` (SHA-256
+`ec660970ef2fcaaafcf1edb301637f1d50924a201a6af0ab8865dce13627cdf4`). It made no
+weather API requests and verified no page errors or CSP violations. The app's
+integrated browser tests intentionally mock providers. This is component font
+evidence, not a live-room or live-weather claim.
 
 Full gate and browser evidence will be recorded after completion. Real phone
 hardware, live YouTube playback, live system capture, and all 42 locales' visual

@@ -49,9 +49,10 @@ Owner decisions (2026-10-15):
 - `TOAST_MAX_LINE_CHARS` goes from 50 to 120. It now only stops a runaway line.
   The longest authored line is 106 code points (Malayalam
   `system_audio.desktop_only`).
-- The text after the first `: ` is shortened to 64 characters, keeping a file
-  extension, whenever it is longer. Before, it was shortened only to fit the
-  whole line into 50. File names and error messages follow a colon
+- The text after the first colon is shortened to 64 characters, keeping a file
+  extension, whenever it is longer. The colon is a Latin `: ` or the full-width
+  `：` that Chinese and Japanese templates use. Before, the value was shortened
+  only to fit the whole line into 50. File names and error messages follow a colon
   (`toast.file_read_error`, `error.load_failed`, `share.remote.*_failed`). The
   longest authored text after a colon is 54 (French and Turkish
   `error.https_required`).
@@ -65,12 +66,13 @@ Owner decisions (2026-10-15):
 
 Guard and tests:
 
-- `src/i18n/__tests__/toast-copy-policy.test.ts` reads the three limits from
-  `toast.ts` and pins them at 120, 64 and 28. It checks that every authored
+- `src/i18n/__tests__/toast-copy-policy.test.ts` reads the three limits and the
+  colon pattern from `toast.ts`, and pins the limits at 120, 64 and 28. It checks that every authored
   toast line, text after a colon and quoted text in every locale stays within
   them, plural forms included, so the toast never cuts authored copy.
 - `src/ui/__tests__/toast.test.ts` covers:
-  - a colon value cut at 64 characters with its extension kept;
+  - a colon value cut at 64 characters with its extension kept, after a Latin
+    or a full-width colon;
   - a quoted value cut at 28;
   - a long authored sentence shown in full;
   - a runaway line cut at 120;
@@ -93,8 +95,8 @@ placeholders filled. That gave 109 candidates.
     structure. Examples:
     - Italian "we recommend adjusting … directly";
     - Polish and Russian "copied to the clipboard";
-    - "playback of the preloaded file failed" in 17 locales, now "preload
-      failed";
+    - "playback of the preloaded file failed" in 17 locales, now "preloaded
+      playback failed";
     - Filipino "participants connected remotely".
   - 7 followed the source closely but had a sentence structure that could be
     shortened:
@@ -120,7 +122,7 @@ policy. Examples:
 | --- | --- | --- | --- |
 | `toast.yt_rendezvous_host_paused` | it | La riproduzione dell’host è in pausa: è stata allineata solo la posizione corrente (82) | L’host è in pausa, allineata solo la posizione (46) |
 | `player.seek_unavailable_system_audio` | el | Η μετακίνηση της θέσης αναπαραγωγής δεν είναι διαθέσιμη κατά την κοινοποίηση ήχου συστήματος (92) | Δεν μπορείτε να αλλάξετε θέση όσο κοινοποιείται ο ήχος συστήματος (64) |
-| `transfer.preload_fail` | de | Wiedergabe der vorgeladenen Datei fehlgeschlagen, wird neu geladen... (69) | Vorladen fehlgeschlagen, wird neu geladen... (44) |
+| `transfer.preload_fail` | de | Wiedergabe der vorgeladenen Datei fehlgeschlagen, wird neu geladen... (69) | Vorgeladene Wiedergabe fehlgeschlagen, wird neu geladen... (57) |
 | `chat.debug_copied` | pl | Informacje diagnostyczne zostały skopiowane do schowka / Jeśli wystąpił błąd, prześlij te informacje deweloperowi | Skopiowano informacje diagnostyczne / Jeśli wystąpił błąd, wyślij je deweloperowi |
 
 The pinned seek copy in `translations.test.ts` now uses the new Spanish,
@@ -128,11 +130,28 @@ French, Italian and Brazilian Portuguese wording. Its contract still holds:
 the message names the playback position, differs from the sync notice, and
 stays on one line.
 
-After both changes:
+### Review fixes
 
-- Toast values with a line over 50 code points went from 921 to 864. Those
+The Codex review of pull request #350 found two problems, both fixed before
+merge:
+
+- The 64-character cap looked only for a Latin `: `. Chinese and Japanese
+  templates put file names and error messages after a full-width `：`, so a
+  long value there could reach the 120-character line cap. The toast and the
+  guard now recognise both colons, and a unit test covers the full-width case.
+- The first trim of `transfer.preload_fail` in 17 locales said "preloading
+  failed". The toast shows when playing an already preloaded track fails
+  (`src/player/decode.ts`), so the translations now say "preloaded playback
+  failed". They remain shorter than before the trim.
+
+### Result
+
+- Toast values with a line over 50 code points went from 921 to 875. Those
   lines are shown in full.
-- Translations at least 1.6 times the English length went from 109 to 33.
+- Translations at least 1.6 times the English length went from 109 to 40:
+  - the 33 unchanged candidates;
+  - 7 `transfer.preload_fail` translations that need the longer "preloaded
+    playback" wording. The English source is unusually terse (34 characters).
 
 ## Verification
 
@@ -140,21 +159,21 @@ Environment: Windows 11 Pro local worktree, Node 24.13.1 (the repository pins
 24.20.0, which pull request CI uses), Vitest 5.0.3, Playwright 1.63.0 with
 Chromium.
 
-Tested source: **`e6b3b48a81ef60c997544cea5201bcb8d42c0a65`** (8.10.23, cache
+Tested source: **`aeffc1a63b38299f103d0112870827d54e0bd1ba`** (8.10.23, cache
 epoch v689), branch `agent/toast-line-length`, clean tree before and after the
-run. Later commits change documentation only. These are local and branch
-results, not the exact-main release candidate.
+run. It includes both review fixes. Later commits change documentation only.
+These are local and branch results, not the exact-main release candidate.
 
 | Check | Result |
 | --- | --- |
-| Full `vitest run` | 564 files, **12,733 passed / 0 failed / 0 skipped**, 177.13 s |
+| Full `vitest run` | 564 files, **12,734 passed / 0 failed / 0 skipped**, 162.74 s |
 | `npm run typecheck`, `npm run lint`, `npm run format:check` | Passed, zero lint warnings |
 | `npm run test:e2e:critical` | **29 passed / 0 failed / 0 skipped / 0 flaky**, 1.2 min |
-| Browser tests that wait on toasts (`audio-effects`, `settings-descriptions`) | **24 passed / 0 failed**, 2.2 min |
+| Browser tests that wait on toasts (`audio-effects`, `settings-descriptions`) | **24 passed / 0 failed**, 2.1 min |
 | `guard:sw-cache-version`, `guard:release-identity` | Passed (v689 covers every runtime change) |
 
-The toast rendering change alone (`49fdac40` with its bump) had passed the same
-unit, static and browser checks before the translation trims were added.
+The same checks had passed at `e6b3b48a`, before the review fixes, with 12,733
+unit tests. The fixes add the full-width colon test.
 
 Not verified:
 

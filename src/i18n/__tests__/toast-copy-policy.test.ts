@@ -234,8 +234,9 @@ describe('toast copy policy', () => {
     expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
     const violations: string[] = [];
     for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      const byKey: Readonly<Record<string, string | undefined>> = dictionary;
       for (const key of toastKeys()) {
-        const text = dictionary[key];
+        const text = byKey[key];
         expect(text, `${language}.${key}`).toBeTypeOf('string');
         for (const violation of policyViolations(text ?? '')) {
           violations.push(`${language}.${key}: ${violation}`);

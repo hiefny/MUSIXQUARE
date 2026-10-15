@@ -283,6 +283,36 @@ test.describe('ASAMO PRO grant event', () => {
     expect(claimStored).toBe(false);
   });
 
+  test('puts each sentence of a failed setup-link toast on its own line', async ({ page }) => {
+    await page.route(SESSION_URL, (route) =>
+      fulfillJson(
+        route,
+        activeSession({
+          redemption: {
+            status: 'redeemed',
+            roomCode: '000122',
+            roomGeneration: 0,
+            setupRequired: true,
+          },
+        }),
+      ),
+    );
+    await page.route(SETUP_LINK_URL, (route) =>
+      fulfillJson(route, { error: 'INTERNAL_ERROR' }, 500),
+    );
+
+    await openEvent(page);
+    await page.getByRole('button', { name: '방 설정 시작하기' }).click();
+
+    // Toast copy drops the period and breaks the line between sentences
+    // (owner decision 2026-10-15). innerText follows the rendered layout, so
+    // it keeps the break only while the toast honours it.
+    const toast = page.locator('#toast');
+    await expect(toast).toHaveClass(/is-visible/);
+    const lines = await toast.evaluate((element) => (element as HTMLElement).innerText.split('\n'));
+    expect(lines).toEqual(['방 설정 링크를 불러오지 못했어요', '다시 시도해 주세요']);
+  });
+
   test('keeps used-code failure single-purpose and lets the user try another code', async ({
     page,
   }) => {

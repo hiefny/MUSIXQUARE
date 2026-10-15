@@ -71,6 +71,13 @@ is missing** — so a complete file must define every key.
    `player.seek_unavailable_*` family). Count a `{{placeholder}}` at its
    realistic rendered width, not at the template's width. Do not lengthen a
    toast that already fits; shorten the wording instead (decided 2026-10-14).
+8. **Do not end a toast sentence with a period** (decided 2026-10-15). This
+   covers `.`, `。`, `।` and `۔`. When a toast has two sentences, put the second
+   on its own line with `\n` instead of a period and a space. A question or
+   exclamation mark may stay. Abbreviation periods (`etc.`, `maks.`) and
+   ellipses stay. Line breaks still follow the English reference (rule 2).
+   `src/i18n/__tests__/toast-copy-policy.test.ts` lists the toast keys and
+   fails on a violation.
 
 ---
 

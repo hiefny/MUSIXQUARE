@@ -113,7 +113,16 @@ weather API requests and verified no page errors or CSP violations. The app's
 integrated browser tests intentionally mock providers. This is component font
 evidence, not a live-room or live-weather claim.
 
-Full gate and browser evidence will be recorded after completion. Real phone
+Final frozen source `5a8e028f1bab6b6f1035a914752cb588670fd3e0` passed all 570 unit
+files / 12,820 tests / zero failures or skips (340.28 seconds). The seven
+screensaver Chromium cases passed, including the denied-location 160px layout,
+with no page errors. The earlier PR CI `38825523032` at `7385be72` failed only
+the old sitemap privacy-date expectation; that fixture is corrected in this
+final source. Its passing jobs are not substituted for the final CI run.
+Committed `build:checked` also passed on `5a8e028f`, including the production
+security, no-test-hook, initial-transfer, font, and service-worker asset gates.
+
+Real phone
 hardware, live YouTube playback, live system capture, and all 42 locales' visual
 layout have not been tested by these synthetic checks.
 

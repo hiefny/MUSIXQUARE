@@ -549,6 +549,7 @@ const fil: Record<I18nKey, string> = {
     'Nasa maximum na 100 nakakonektang device na ang kuwartong ito, kasama ang host.',
   'network.op_granted': 'Ibinigay ang pahintulot ng administrator',
   'network.op_revoked': 'Binawi ang pahintulot ng administrator',
+  'network.host_waiting': 'Hinihintay ang host...',
 
   // ─── Dynamic na notification ─────────────────────────────────────
   'toast.device_disconnected': 'Nadiskonekta si {{name}}',
@@ -566,6 +567,11 @@ const fil: Record<I18nKey, string> = {
   'toast.op_status': 'Pahintulot na {{label}}: {{status}}',
   'toast.file_read_error': 'Hindi mabasa ang file: {{name}}',
   'toast.host_ended_connection': 'Tinapos ng host ang koneksyon',
+  'toast.host_background_blocked':
+    'Nasa background ang host device\nGagana ulit ang kontrol kapag binuksan ng host ang app',
+  'toast.host_unresponsive_chat': 'Hindi maipadala ang mensahe\nHindi tumutugon ang host device',
+  'toast.host_unresponsive_blocked': 'Hindi maipadala ang hiling\nHindi tumutugon ang host device',
+  'toast.host_back': 'Bumalik na ang host device',
   'toast.announcement_available': 'May bagong abiso\nTingnan ang chat panel',
 
   // ─── Static na notification ──────────────────────────────────────
@@ -721,6 +727,13 @@ const fil: Record<I18nKey, string> = {
   'dialog.got_it': 'Naintindihan ko',
   'dialog.continue_using': 'Magpatuloy',
   'dialog.leave_session': 'Umalis',
+  'dialog.host_unresponsive_title': 'Walang tugon mula sa host device',
+  'dialog.host_unresponsive_message':
+    'Tiyaking bukas ang MUSIXQUARE sa host device.\nMaaari kang maghintay pa o umalis sa session.',
+  'dialog.keep_waiting': 'Maghintay pa',
+  'dialog.keep_open_title': 'Panatilihing bukas ang app',
+  'dialog.keep_open_message':
+    'Kapag lumipat ka sa ibang app o nag-off ang screen, maaaring huminto ang tunog o mawala sa sync.\nKapag napunta sa background ang host device, maaaring huminto ang buong kuwarto.',
   'dialog.sw_update_title': 'I-update',
   'dialog.sw_update_msg': 'Handa na ang bagong bersyon.\nI-refresh para mag-update.',
   'dialog.feature_refresh_title': 'Kailangang mag-refresh',

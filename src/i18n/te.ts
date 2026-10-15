@@ -535,6 +535,7 @@ const te: Record<I18nKey, string> = {
     'హోస్ట్‌తో కలిపి గరిష్ఠంగా 100 పరికరాలు ఇప్పటికే ఈ గదిలో కనెక్ట్ అయ్యాయి.',
   'network.op_granted': 'అడ్మిన్ అనుమతి మంజూరు చేయబడింది',
   'network.op_revoked': 'అడ్మిన్ అనుమతి ఉపసంహరించబడింది',
+  'network.host_waiting': 'హోస్ట్ కోసం వేచి ఉంది...',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} డిస్‌కనెక్ట్ అయ్యారు',
@@ -552,6 +553,11 @@ const te: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} అనుమతి {{status}}',
   'toast.file_read_error': 'ఫైల్ రీడ్ లోపం: {{name}}',
   'toast.host_ended_connection': 'హోస్ట్ కనెక్షన్‌ను ముగించారు',
+  'toast.host_background_blocked':
+    'హోస్ట్ పరికరం బ్యాక్‌గ్రౌండ్‌లో ఉంది\nహోస్ట్ యాప్‌ను మళ్లీ తెరిచాక నియంత్రించవచ్చు',
+  'toast.host_unresponsive_chat': 'సందేశాన్ని పంపడం సాధ్యపడలేదు\nహోస్ట్ పరికరం స్పందించడం లేదు',
+  'toast.host_unresponsive_blocked': 'అభ్యర్థనను పంపడం సాధ్యపడలేదు\nహోస్ట్ పరికరం స్పందించడం లేదు',
+  'toast.host_back': 'హోస్ట్ పరికరం తిరిగి వచ్చింది',
   'toast.announcement_available': 'కొత్త నోటీస్\nచాట్ ప్యానెల్‌ను చూడండి',
 
   // ─── Toast (static) ──────────────────────────────────────────────
@@ -704,6 +710,13 @@ const te: Record<I18nKey, string> = {
   'dialog.got_it': 'అర్థమైంది',
   'dialog.continue_using': 'కొనసాగించు',
   'dialog.leave_session': 'బయటకు వెళ్లు',
+  'dialog.host_unresponsive_title': 'హోస్ట్ పరికరం నుండి స్పందన లేదు',
+  'dialog.host_unresponsive_message':
+    'హోస్ట్ పరికరంలో MUSIXQUARE తెరిచి ఉందో లేదో తనిఖీ చేయండి.\nమీరు ఇంకా వేచి ఉండవచ్చు లేదా సెషన్ నుండి బయటకు వెళ్లవచ్చు.',
+  'dialog.keep_waiting': 'ఇంకా వేచి ఉండు',
+  'dialog.keep_open_title': 'యాప్‌ను తెరిచే ఉంచండి',
+  'dialog.keep_open_message':
+    'వేరే యాప్‌కు మారినా లేదా స్క్రీన్ ఆఫ్ అయినా సౌండ్ ఆగిపోవచ్చు లేదా సింక్ తప్పవచ్చు.\nహోస్ట్ పరికరం బ్యాక్‌గ్రౌండ్‌కు వెళ్తే గది మొత్తం ఆగిపోవచ్చు.',
   'dialog.sw_update_title': 'అప్‌డేట్',
   'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nఅప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
   'dialog.feature_refresh_title': 'రిఫ్రెష్ చేయాలి',

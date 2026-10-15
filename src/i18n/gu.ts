@@ -525,6 +525,7 @@ const gu: Record<I18nKey, string> = {
   'network.session_full_detail': 'આ રૂમમાં હોસ્ટ સહિત વધુમાં વધુ 100 ડિવાઇસ પહેલેથી જોડાયેલા છે.',
   'network.op_granted': 'સંચાલક પરવાનગી આપવામાં આવી',
   'network.op_revoked': 'સંચાલક પરવાનગી રદ કરવામાં આવી',
+  'network.host_waiting': 'હોસ્ટની રાહ જોવાઈ રહી છે...',
 
   // ─── Toasts ──────────────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} નું જોડાણ તૂટ્યું',
@@ -542,6 +543,11 @@ const gu: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} પરવાનગી {{status}}',
   'toast.file_read_error': 'ફાઇલ વાંચવામાં ભૂલ: {{name}}',
   'toast.host_ended_connection': 'હોસ્ટે જોડાણ બંધ કર્યું છે',
+  'toast.host_background_blocked':
+    'હોસ્ટ ડિવાઇસ પૃષ્ઠભૂમિમાં છે\nહોસ્ટ ઍપ ફરી ખોલશે ત્યારે નિયંત્રણ કરી શકાશે',
+  'toast.host_unresponsive_chat': 'સંદેશ મોકલી શકાયો નથી\nહોસ્ટ ડિવાઇસ પ્રતિસાદ આપતું નથી',
+  'toast.host_unresponsive_blocked': 'વિનંતી મોકલી શકાઈ નથી\nહોસ્ટ ડિવાઇસ પ્રતિસાદ આપતું નથી',
+  'toast.host_back': 'હોસ્ટ ડિવાઇસ પાછું આવી ગયું છે',
   'toast.announcement_available': 'નવી સૂચના છે\nચૅટ પૅનલ તપાસો',
   'toast.copy_failed': 'કૉપિ થઈ શક્યું નથી',
   'toast.email_copied': 'ઈમેલ સરનામું કૉપિ થયું!',
@@ -690,6 +696,13 @@ const gu: Record<I18nKey, string> = {
   'dialog.got_it': 'સમજાયું',
   'dialog.continue_using': 'વાપરવાનું ચાલુ રાખો',
   'dialog.leave_session': 'બહાર નીકળો',
+  'dialog.host_unresponsive_title': 'હોસ્ટ ડિવાઇસ તરફથી કોઈ પ્રતિસાદ નથી',
+  'dialog.host_unresponsive_message':
+    'હોસ્ટ ડિવાઇસ પર MUSIXQUARE ખુલ્લું છે કે નહીં તે તપાસો.\nતમે રાહ જોતા રહી શકો છો અથવા સત્રમાંથી બહાર નીકળી શકો છો.',
+  'dialog.keep_waiting': 'રાહ જોતા રહો',
+  'dialog.keep_open_title': 'ઍપ ખુલ્લી રાખો',
+  'dialog.keep_open_message':
+    'બીજી ઍપ પર જવાથી કે સ્ક્રીન બંધ થવાથી અવાજ અટકી શકે છે અથવા સિંક બગડી શકે છે.\nહોસ્ટ ડિવાઇસ પૃષ્ઠભૂમિમાં જાય તો આખો રૂમ અટકી શકે છે.',
   'dialog.sw_update_title': 'અપડેટ',
   'dialog.sw_update_msg': 'નવી આવૃત્તિ તૈયાર છે.\nઅપડેટ કરવા રિફ્રેશ કરો.',
   'dialog.feature_refresh_title': 'રિફ્રેશ કરવું જરૂરી છે',

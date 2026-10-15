@@ -536,6 +536,7 @@ const uk: Record<I18nKey, string> = {
     'У цій кімнаті вже підключено максимальну кількість пристроїв: 100 разом із хостом.',
   'network.op_granted': 'Права адміністратора надано',
   'network.op_revoked': 'Права адміністратора відкликано',
+  'network.host_waiting': 'Очікування хоста...',
 
   // ─── Динамічні сповіщення ────────────────────────────────────────
   'toast.device_disconnected': 'Відключено: {{name}}',
@@ -553,6 +554,11 @@ const uk: Record<I18nKey, string> = {
   'toast.op_status': 'Дозвіл «{{label}}» {{status}}',
   'toast.file_read_error': 'Помилка читання файла: {{name}}',
   'toast.host_ended_connection': 'Хост завершив підключення',
+  'toast.host_background_blocked':
+    'Пристрій хоста у фоновому режимі\nКерування запрацює, коли хост повернеться до застосунку',
+  'toast.host_unresponsive_chat': 'Не вдалося надіслати повідомлення\nПристрій хоста не відповідає',
+  'toast.host_unresponsive_blocked': 'Не вдалося надіслати запит\nПристрій хоста не відповідає',
+  'toast.host_back': 'Пристрій хоста знову на зв’язку',
   'toast.announcement_available': 'Нове оголошення\nПерегляньте панель чату',
 
   // ─── Статичні сповіщення ─────────────────────────────────────────
@@ -706,6 +712,13 @@ const uk: Record<I18nKey, string> = {
   'dialog.got_it': 'Зрозуміло',
   'dialog.continue_using': 'Продовжити',
   'dialog.leave_session': 'Вийти',
+  'dialog.host_unresponsive_title': 'Пристрій хоста не відповідає',
+  'dialog.host_unresponsive_message':
+    'Перевірте, чи відкрито MUSIXQUARE на пристрої хоста.\nМожна чекати далі або вийти із сеансу.',
+  'dialog.keep_waiting': 'Чекати далі',
+  'dialog.keep_open_title': 'Тримайте застосунок відкритим',
+  'dialog.keep_open_message':
+    'Якщо перейти до іншого застосунку або вимкнути екран, може перерватися звук або порушитися синхронізація.\nЯкщо пристрій хоста перейде у фоновий режим, уся кімната може перестати працювати.',
   'dialog.sw_update_title': 'Оновлення',
   'dialog.sw_update_msg': 'Нова версія готова.\nОновіть сторінку, щоб застосувати її.',
   'dialog.feature_refresh_title': 'Потрібно оновити сторінку',

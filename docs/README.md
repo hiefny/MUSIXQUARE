@@ -90,6 +90,13 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Host presence and keep-open guidance — 2026-10-16](design/host-presence-keep-open-2026-10-16.md) —
+  Standard-room guests see a waiting loader, refusal and hold toasts, and an
+  offer to leave when the host's app is in the background or frozen.
+  First-time visitors get a one-time keep-open dialog, and the account pill
+  stays visible while any loader shows. Local unit/E2E evidence; production
+  checks remain.
+
 - [Unused toast keys — 2026-10-15](design/unused-toast-keys-2026-10-15.md) —
   Twelve toast keys that no code referenced are removed from all 42 locales.
   Shipped App 8.10.24/v690 with exact-main CI, production ownership/smoke and

@@ -20,6 +20,7 @@ import type {
   ConnectedPeer,
 } from '../types/index.ts';
 import { getDirectFilePeers, shouldConnectionUseDirect } from '../share/file-delivery-policy.ts';
+import { refuseHostCommand } from './host-presence.ts';
 
 // ─── Module-scoped state ────────────────────────────────────────────
 let peer: PeerInstance | null = null;
@@ -504,6 +505,8 @@ export function broadcastDeviceList(): void {
  */
 export function safeSend(conn: DataConnection | null | undefined, msg: AnyProtocolMsg): boolean {
   if (!conn || !conn.open) return false;
+  // A guest holds room commands while the Standard host cannot act on them.
+  if (refuseHostCommand(conn, msg)) return false;
   try {
     conn.send(msg);
     return true;

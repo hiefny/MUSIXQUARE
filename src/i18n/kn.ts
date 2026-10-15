@@ -538,6 +538,7 @@ const kn: Record<I18nKey, string> = {
     'ಈ ರೂಮ್‌ನಲ್ಲಿ ಹೋಸ್ಟ್ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು ಈಗಾಗಲೇ ಸಂಪರ್ಕಗೊಂಡಿವೆ.',
   'network.op_granted': 'ನಿರ್ವಾಹಕ ಅನುಮತಿ ನೀಡಲಾಗಿದೆ',
   'network.op_revoked': 'ನಿರ್ವಾಹಕ ಅನುಮತಿ ಹಿಂಪಡೆಯಲಾಗಿದೆ',
+  'network.host_waiting': 'ಹೋಸ್ಟ್‌ಗಾಗಿ ನಿರೀಕ್ಷಿಸಲಾಗುತ್ತಿದೆ...',
 
   // ─── Toasts ──────────────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} ಅವರ ಸಂಪರ್ಕ ಕಡಿತಗೊಂಡಿದೆ',
@@ -555,6 +556,11 @@ const kn: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} ಅನುಮತಿ {{status}}',
   'toast.file_read_error': 'ಫೈಲ್ ಓದುವಲ್ಲಿ ದೋಷ: {{name}}',
   'toast.host_ended_connection': 'ಹೋಸ್ಟ್ ಸಂಪರ್ಕವನ್ನು ಕೊನೆಗೊಳಿಸಿದ್ದಾರೆ',
+  'toast.host_background_blocked':
+    'ಹೋಸ್ಟ್ ಸಾಧನ ಹಿನ್ನೆಲೆಯಲ್ಲಿದೆ\nಹೋಸ್ಟ್ ಆ್ಯಪ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆದ ನಂತರ ನಿಯಂತ್ರಿಸಬಹುದು',
+  'toast.host_unresponsive_chat': 'ಸಂದೇಶ ಕಳುಹಿಸಲಾಗಲಿಲ್ಲ\nಹೋಸ್ಟ್ ಸಾಧನ ಪ್ರತಿಕ್ರಿಯಿಸುತ್ತಿಲ್ಲ',
+  'toast.host_unresponsive_blocked': 'ವಿನಂತಿ ಕಳುಹಿಸಲಾಗಲಿಲ್ಲ\nಹೋಸ್ಟ್ ಸಾಧನ ಪ್ರತಿಕ್ರಿಯಿಸುತ್ತಿಲ್ಲ',
+  'toast.host_back': 'ಹೋಸ್ಟ್ ಸಾಧನ ಮರಳಿ ಬಂದಿದೆ',
   'toast.announcement_available': 'ಹೊಸ ಸೂಚನೆ ಇದೆ\nಚಾಟ್ ಫಲಕ ಪರಿಶೀಲಿಸಿ',
   'toast.copy_failed': 'ನಕಲಿಸಲಾಗಲಿಲ್ಲ',
   'toast.email_copied': 'ಇಮೇಲ್ ವಿಳಾಸ ನಕಲಿಸಲಾಗಿದೆ!',
@@ -710,6 +716,13 @@ const kn: Record<I18nKey, string> = {
   'dialog.got_it': 'ಅರ್ಥವಾಯಿತು',
   'dialog.continue_using': 'ಮುಂದುವರಿಸಿ',
   'dialog.leave_session': 'ಹೊರಡಿ',
+  'dialog.host_unresponsive_title': 'ಹೋಸ್ಟ್ ಸಾಧನದಿಂದ ಪ್ರತಿಕ್ರಿಯೆ ಇಲ್ಲ',
+  'dialog.host_unresponsive_message':
+    'ಹೋಸ್ಟ್ ಸಾಧನದಲ್ಲಿ MUSIXQUARE ತೆರೆದಿದೆಯೇ ಎಂದು ಪರಿಶೀಲಿಸಿ.\nನೀವು ಕಾಯುವುದನ್ನು ಮುಂದುವರಿಸಬಹುದು ಅಥವಾ ಸೆಷನ್‌ನಿಂದ ಹೊರಡಬಹುದು.',
+  'dialog.keep_waiting': 'ಕಾಯುತ್ತಿರಿ',
+  'dialog.keep_open_title': 'ಆ್ಯಪ್ ಅನ್ನು ತೆರೆದೇ ಇಡಿ',
+  'dialog.keep_open_message':
+    'ಬೇರೆ ಆ್ಯಪ್‌ಗೆ ಬದಲಾಯಿಸಿದರೆ ಅಥವಾ ಪರದೆ ಆಫ್ ಆದರೆ ಧ್ವನಿ ನಿಲ್ಲಬಹುದು ಅಥವಾ ಸಿಂಕ್ ತಪ್ಪಬಹುದು.\nಹೋಸ್ಟ್ ಸಾಧನ ಹಿನ್ನೆಲೆಗೆ ಹೋದರೆ ಇಡೀ ರೂಮ್ ನಿಲ್ಲಬಹುದು.',
   'dialog.sw_update_title': 'ನವೀಕರಿಸಿ',
   'dialog.sw_update_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nನವೀಕರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
   'dialog.feature_refresh_title': 'ರಿಫ್ರೆಶ್ ಮಾಡಬೇಕಾಗಿದೆ',

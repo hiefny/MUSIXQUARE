@@ -539,6 +539,7 @@ const ru: Record<I18nKey, string> = {
     'В этой комнате уже подключено максимальное число устройств: 100, включая хоста.',
   'network.op_granted': 'Вам предоставлены права администратора',
   'network.op_revoked': 'Права администратора были отозваны',
+  'network.host_waiting': 'Ожидание хоста...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} отключился',
@@ -556,6 +557,11 @@ const ru: Record<I18nKey, string> = {
   'toast.op_status': '{{label}}: права {{status}}',
   'toast.file_read_error': 'Ошибка чтения файла: {{name}}',
   'toast.host_ended_connection': 'Хост разорвал соединение',
+  'toast.host_background_blocked':
+    'Устройство хоста в фоновом режиме\nУправление заработает, когда хост вернётся в приложение',
+  'toast.host_unresponsive_chat': 'Не удалось отправить сообщение\nУстройство хоста не отвечает',
+  'toast.host_unresponsive_blocked': 'Не удалось отправить запрос\nУстройство хоста не отвечает',
+  'toast.host_back': 'Устройство хоста снова на связи',
   'toast.announcement_available': 'Есть новое объявление\nПроверьте чат',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -712,6 +718,13 @@ const ru: Record<I18nKey, string> = {
   'dialog.got_it': 'Понятно',
   'dialog.continue_using': 'Продолжить',
   'dialog.leave_session': 'Выйти',
+  'dialog.host_unresponsive_title': 'Устройство хоста не отвечает',
+  'dialog.host_unresponsive_message':
+    'Проверьте, открыт ли MUSIXQUARE на устройстве хоста.\nМожно ждать дальше или выйти из комнаты.',
+  'dialog.keep_waiting': 'Ждать дальше',
+  'dialog.keep_open_title': 'Держите приложение открытым',
+  'dialog.keep_open_message':
+    'Если переключиться на другое приложение или выключить экран, может прерваться звук или сбиться синхронизация.\nЕсли устройство хоста перейдёт в фоновый режим, может перестать работать вся комната.',
   'dialog.sw_update_title': 'Новое обновление',
   'dialog.sw_update_msg': 'Доступна новая версия.\nОбновите страницу для применения.',
   'dialog.feature_refresh_title': 'Нужно обновить страницу',

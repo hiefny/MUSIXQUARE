@@ -46,7 +46,8 @@ const mocks = vi.hoisted(() => ({
   isLocalFileStartPending: vi.fn(() => false),
   getHostNow: vi.fn(() => 10_000),
   broadcast: vi.fn(),
-  safeSend: vi.fn(),
+  // Like the real helper, report a send that left this endpoint.
+  safeSend: vi.fn(() => true),
   loadDemoFile: vi.fn(),
   prepareMediaSession: vi.fn(() => Promise.resolve()),
   showLoader: vi.fn(),

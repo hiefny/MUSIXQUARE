@@ -594,6 +594,8 @@ export interface ProtocolMap {
     i18nKey?: string;
     i18nParams?: Record<string, string | number>;
   };
+  /** A hidden Standard host refuses a command that would start or move playback. */
+  'host-command-rejected': { reason: 'host-hidden'; command: string };
   'operator-grant': { capabilities?: RoomCapability[]; silent?: boolean };
   'operator-revoke': { silent?: boolean };
 
@@ -786,6 +788,8 @@ export interface ProtocolMap {
     activity: PlaybackActivityValue;
     queueItemId: QueueItemId | null;
     demoTrackIndex?: number;
+    /** Present only while the Standard host's tab is hidden. */
+    hostHidden?: true;
   };
 
   // ── Chat ─────────────────────────────────────────────────────────
@@ -871,6 +875,9 @@ export interface ProtocolMap {
 
 /** Full protocol message = { type: T } & payload */
 export type ProtocolMsg<T extends MsgType> = { type: T } & ProtocolMap[T];
+
+/** How a Standard-room guest sees the host device. */
+export type HostPresence = 'ok' | 'background' | 'unresponsive';
 
 /** Union of all possible protocol messages */
 export type AnyProtocolMsg = { [T in MsgType]: ProtocolMsg<T> }[MsgType];
@@ -1334,6 +1341,13 @@ interface BaseEventMap {
   'ui:sync-vbass': [on: boolean];
   'ui:sync-exciter': [on: boolean];
   'ui:show-toast': [message: string];
+  /**
+   * Standard-room guest view of the host device: answering, hidden, or silent.
+   * `reset` marks a new or closed host connection rather than a host change.
+   */
+  'host-presence:changed': [next: HostPresence, previous: HostPresence, cause: 'host' | 'reset'];
+  /** The host has been silent long enough to offer leaving the room. */
+  'host-presence:long-unresponsive': [];
   /** Reveal and emphasize the main player media-source action. */
   'ui:reveal-media-source': [];
   'ui:play-btn-state': [enabled: boolean];

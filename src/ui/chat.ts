@@ -14,6 +14,7 @@ import { getState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX, MAX_MSG_LENGTH } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { sendToHost } from '../network/peer.ts';
+import { refuseHostCommand } from '../network/host-presence.ts';
 import { t } from '../i18n/index.ts';
 import { getRoleLabelByChannelMode } from './player-controls.ts';
 import {
@@ -1261,6 +1262,8 @@ export function sendChatMessage(): void {
   if (!isProRoom && !hostConn) {
     bus.emit('network:broadcast', chatMsg);
   } else if (!isProRoom) {
+    // A host that cannot answer gets a toast; the draft stays for a retry.
+    if (refuseHostCommand(hostConn, chatMsg)) return;
     if (sendToHost(chatMsg) === false) {
       addSystemChatMessage(t('error.connect_failed'));
       return;

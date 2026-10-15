@@ -530,6 +530,7 @@ const hi: Record<I18nKey, string> = {
   'network.session_full_detail': 'होस्ट समेत अधिकतम 100 डिवाइस पहले ही इस रूम से कनेक्ट हैं।',
   'network.op_granted': 'एडमिन अनुमति दे दी गई',
   'network.op_revoked': 'एडमिन अनुमति वापस ले ली गई',
+  'network.host_waiting': 'होस्ट का इंतज़ार है...',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} डिस्कनेक्ट हुआ',
@@ -547,6 +548,11 @@ const hi: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} अनुमति {{status}}',
   'toast.file_read_error': 'फ़ाइल पढ़ने में गड़बड़ी: {{name}}',
   'toast.host_ended_connection': 'होस्ट ने कनेक्शन समाप्त कर दिया है',
+  'toast.host_background_blocked':
+    'होस्ट डिवाइस बैकग्राउंड में है\nहोस्ट के ऐप फिर से खोलने पर कंट्रोल काम करने लगेंगे',
+  'toast.host_unresponsive_chat': 'संदेश नहीं भेजा जा सका\nहोस्ट डिवाइस जवाब नहीं दे रहा है',
+  'toast.host_unresponsive_blocked': 'अनुरोध नहीं भेजा जा सका\nहोस्ट डिवाइस जवाब नहीं दे रहा है',
+  'toast.host_back': 'होस्ट डिवाइस वापस आ गया है',
   'toast.announcement_available': 'नई सूचना आई है\nचैट पैनल देखें',
 
   // ─── Toast (static) ──────────────────────────────────────────────
@@ -701,6 +707,13 @@ const hi: Record<I18nKey, string> = {
   'dialog.got_it': 'समझ आ गया',
   'dialog.continue_using': 'जारी रखें',
   'dialog.leave_session': 'छोड़ें',
+  'dialog.host_unresponsive_title': 'होस्ट डिवाइस से कोई जवाब नहीं मिल रहा',
+  'dialog.host_unresponsive_message':
+    'जाँच लें कि होस्ट डिवाइस पर MUSIXQUARE खुला है या नहीं।\nआप इंतज़ार करते रह सकते हैं या सेशन छोड़ सकते हैं।',
+  'dialog.keep_waiting': 'इंतज़ार करते रहें',
+  'dialog.keep_open_title': 'ऐप को खुला रखें',
+  'dialog.keep_open_message':
+    'दूसरे ऐप पर जाने या स्क्रीन बंद होने से आवाज़ रुक सकती है या सिंक बिगड़ सकता है।\nअगर होस्ट डिवाइस बैकग्राउंड में चला जाए, तो पूरा रूम रुक सकता है।',
   'dialog.sw_update_title': 'अपडेट',
   'dialog.sw_update_msg': 'नया वर्ज़न तैयार है।\nअपडेट करने के लिए रीफ़्रेश करें।',
   'dialog.feature_refresh_title': 'रीफ़्रेश करना ज़रूरी है',

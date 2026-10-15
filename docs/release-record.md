@@ -53,6 +53,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### 방장 기기 상태 안내
+
+- [ ] App 8.10.25/v691 배포 준비: 일반 방에서 방장 앱이 백그라운드로 가거나 멈추면
+      게스트에게 "방장 응답 대기 중..." 로더, 거절·보류 토스트, 1분 무응답 모달로
+      알리고, 처음 쓰는 사람에게는 첫 미디어가 들어올 때 앱을 켜 두라는 모달을 한 번
+      띄운다. 모든 로더에서 계정 필을 유지한다(오너 결정 2026-10-16). 프로토콜에
+      선택 필드(`sync-pong.hostHidden`)와 메시지(`host-command-rejected`)를 더했고
+      혼합 버전은 양방향 호환이다. exact-main CI와 정식 배포 근거를 확보한 뒤 닫는다.
+      [범위·검증](design/host-presence-keep-open-2026-10-16.md)
+
 ### 최근 해결 근거
 
 App 8.10.24/v690의 사용하지 않는 토스트 키 정리(오너 결정 2026-10-15)는 PR
@@ -243,6 +253,11 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 
 - [ ] 8.7.9 헤더 크로스페이드: iPhone Safari/PWA에서 로딩 시작·종료, 시크 직후
       탭 왕복. [상세](design/header-crossfade-2026-10-09.md)
+- [ ] 8.10.25 방장 기기 상태 안내: 일반 방 방장을 iPhone Safari/PWA·Android에서
+      백그라운드로 보내거나 화면을 잠갔을 때 게스트 로더가 뜨고 복귀하면 풀리는지,
+      관리자 재생이 거절 토스트로 끝나는지, 좁은 화면에서 계정 필 앞 말줄임.
+      브라우저에서 숨김·정지를 흉내 낸 결과만 있다.
+      [범위·한계](design/host-presence-keep-open-2026-10-16.md)
 - [ ] 8.8.0: 실제 고객방의 소유권·암호 지정·변경·해제, 기존 열린 탭·설치 PWA의
       새 코드 적용. [상세](design/pro-optional-entry-password-2026-10-10.md)
 - [ ] 혼합 방(iPhone Safari/PWA + Android + Windows): 작은 곡 → 큰 MP3/FLAC/AAC

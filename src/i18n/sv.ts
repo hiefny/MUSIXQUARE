@@ -538,6 +538,7 @@ const sv: Record<I18nKey, string> = {
     'Rummet har redan det högsta tillåtna antalet, 100 anslutna enheter inklusive värden.',
   'network.op_granted': 'Administratörsbehörighet har beviljats',
   'network.op_revoked': 'Administratörsbehörighet har återkallats',
+  'network.host_waiting': 'Väntar på värden…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} kopplades från',
@@ -555,6 +556,11 @@ const sv: Record<I18nKey, string> = {
   'toast.op_status': 'Behörighet {{label}}: {{status}}',
   'toast.file_read_error': 'Det gick inte att läsa filen: {{name}}',
   'toast.host_ended_connection': 'Värden har avslutat anslutningen',
+  'toast.host_background_blocked':
+    'Värdenheten är i bakgrunden\nNär värden öppnar appen igen kan du styra uppspelningen',
+  'toast.host_unresponsive_chat': 'Det gick inte att skicka meddelandet\nVärdenheten svarar inte',
+  'toast.host_unresponsive_blocked': 'Det gick inte att skicka begäran\nVärdenheten svarar inte',
+  'toast.host_back': 'Värdenheten är tillbaka',
   'toast.announcement_available': 'Nytt anslag\nKontrollera chattpanelen',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -709,6 +715,13 @@ const sv: Record<I18nKey, string> = {
   'dialog.got_it': 'Jag förstår',
   'dialog.continue_using': 'Fortsätt',
   'dialog.leave_session': 'Lämna',
+  'dialog.host_unresponsive_title': 'Inget svar från värdenheten',
+  'dialog.host_unresponsive_message':
+    'Kontrollera att MUSIXQUARE är öppet på värdenheten.\nDu kan fortsätta vänta eller lämna sessionen.',
+  'dialog.keep_waiting': 'Fortsätt vänta',
+  'dialog.keep_open_title': 'Håll appen öppen',
+  'dialog.keep_open_message':
+    'Om du byter app eller skärmen släcks kan ljudet tystna eller synkroniseringen störas.\nOm värdenheten hamnar i bakgrunden kan hela rummet stanna.',
   'dialog.sw_update_title': 'Uppdatering',
   'dialog.sw_update_msg': 'En ny version är klar.\nUppdatera sidan för att installera den.',
   'dialog.feature_refresh_title': 'Sidan behöver uppdateras',

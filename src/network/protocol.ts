@@ -29,6 +29,7 @@ import { verifyPeerCapability } from '../rooms/authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
 import { parseRoomEffectsState } from '../core/room-effects.ts';
 import { isJoinBootstrapApplied, isJoinBootstrapHello } from './join-bootstrap.ts';
+import { noteHostFrame, refuseWhileHostHidden } from './host-presence.ts';
 import type { StandardRoomPinKickReason } from '../types/index.ts';
 
 // ─── Kick Reasons ───────────────────────────────────────────────────
@@ -1072,7 +1073,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
       d.activity === 'playing' ||
       d.activity === 'pending') &&
     (d.queueItemId === null || isQueueItemId(d.queueItemId)) &&
-    (d.demoTrackIndex === undefined || isNonNegSafeInt(d.demoTrackIndex)),
+    (d.demoTrackIndex === undefined || isNonNegSafeInt(d.demoTrackIndex)) &&
+    (d.hostHidden === undefined || d.hostHidden === true),
 
   // Chat — validate text field exists and cap length. This validator ceiling
   // (4000) is deliberately above the shared 500-character message cap; its job
@@ -1109,6 +1111,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.senderId === 'string' &&
     PRO_PEER_ID_RE.test(d.senderId) &&
     isBotChatResult(d.result),
+  [MSG.HOST_COMMAND_REJECTED]: (d) =>
+    d.reason === 'host-hidden' && isBoundedWireString(d.command, 64),
   [MSG.OPERATOR_TOAST]: (d) =>
     typeof d.text === 'string' &&
     d.text.length <= 300 &&
@@ -1338,6 +1342,8 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
     log.debug(`[Protocol] Ignored frame from stale host connection: ${msgType}`);
     return;
   }
+  // Any frame from the live host, even one dropped below, proves it is awake.
+  noteHostFrame(conn, msg);
 
   // A reconnect can replace a guest DataConnection while frames from the old
   // ordered channel are still queued. Peer IDs are intentionally stable, so
@@ -1380,6 +1386,10 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
     log.warn(`[Protocol] Invalid payload for ${msgType}`, Object.keys(msg));
     return;
   }
+
+  // A hidden Standard host cannot restart local-file audio. It refuses commands
+  // that would start or move it out loud, instead of failing silently.
+  if (refuseWhileHostHidden(msgType, msg, conn)) return;
 
   // Dispatch to registered handler
   const handler = _handlers.get(msgType);

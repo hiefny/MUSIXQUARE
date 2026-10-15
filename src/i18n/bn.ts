@@ -530,6 +530,7 @@ const bn: Record<I18nKey, string> = {
   'network.session_full_detail': 'হোস্টসহ সর্বোচ্চ 100টি ডিভাইস ইতিমধ্যে এই রুমে সংযুক্ত আছে।',
   'network.op_granted': 'অ্যাডমিন অনুমতি দেওয়া হয়েছে',
   'network.op_revoked': 'অ্যাডমিন অনুমতি প্রত্যাহার করা হয়েছে',
+  'network.host_waiting': 'হোস্টের অপেক্ষায়...',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
   'toast.device_disconnected': '{{name}}-এর সংযোগ বিচ্ছিন্ন হয়েছে',
@@ -547,6 +548,11 @@ const bn: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} অনুমতি {{status}}',
   'toast.file_read_error': 'ফাইল পড়তে সমস্যা: {{name}}',
   'toast.host_ended_connection': 'হোস্ট সংযোগটি শেষ করেছেন',
+  'toast.host_background_blocked':
+    'হোস্ট ডিভাইস ব্যাকগ্রাউন্ডে আছে\nহোস্ট অ্যাপটি আবার খুললে নিয়ন্ত্রণ করা যাবে',
+  'toast.host_unresponsive_chat': 'বার্তা পাঠানো যায়নি\nহোস্ট ডিভাইস সাড়া দিচ্ছে না',
+  'toast.host_unresponsive_blocked': 'অনুরোধ পাঠানো যায়নি\nহোস্ট ডিভাইস সাড়া দিচ্ছে না',
+  'toast.host_back': 'হোস্ট ডিভাইস ফিরে এসেছে',
   'toast.announcement_available': 'নতুন নোটিশ এসেছে\nচ্যাট প্যানেল দেখুন',
 
   // ─── Toast (static) ──────────────────────────────────────────────
@@ -701,6 +707,13 @@ const bn: Record<I18nKey, string> = {
   'dialog.got_it': 'বুঝেছি',
   'dialog.continue_using': 'চালিয়ে যান',
   'dialog.leave_session': 'ছেড়ে যান',
+  'dialog.host_unresponsive_title': 'হোস্ট ডিভাইস থেকে কোনো সাড়া নেই',
+  'dialog.host_unresponsive_message':
+    'হোস্ট ডিভাইসে MUSIXQUARE খোলা আছে কি না পরীক্ষা করুন।\nআপনি অপেক্ষা চালিয়ে যেতে পারেন বা সেশন ছেড়ে যেতে পারেন।',
+  'dialog.keep_waiting': 'অপেক্ষা চালিয়ে যান',
+  'dialog.keep_open_title': 'অ্যাপটি খোলা রাখুন',
+  'dialog.keep_open_message':
+    'অন্য অ্যাপে গেলে বা স্ক্রিন বন্ধ করলে অডিও থেমে যেতে পারে বা সিঙ্ক বিগড়ে যেতে পারে।\nহোস্ট ডিভাইস ব্যাকগ্রাউন্ডে গেলে পুরো রুম থেমে যেতে পারে।',
   'dialog.sw_update_title': 'আপডেট',
   'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত।\nআপডেট করতে রিফ্রেশ করুন।',
   'dialog.feature_refresh_title': 'রিফ্রেশ করা প্রয়োজন',

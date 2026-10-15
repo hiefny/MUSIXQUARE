@@ -431,6 +431,7 @@ const fr: Record<I18nKey, string> = {
     'Ce salon compte déjà le maximum de 100 appareils connectés, hôte compris.',
   'network.op_granted': 'Droits d’administrateur accordés',
   'network.op_revoked': 'Droits d’administrateur retirés',
+  'network.host_waiting': 'En attente de l’hôte…',
 
   // Transfer
   'transfer.demo_loading': 'Chargement de la piste de démo depuis le serveur…',
@@ -519,6 +520,13 @@ const fr: Record<I18nKey, string> = {
   'toast.op_status': 'Droit « {{label}} » {{status}}',
   'toast.file_read_error': 'Erreur de lecture du fichier : {{name}}',
   'toast.host_ended_connection': 'L’hôte a mis fin à la connexion',
+  'toast.host_background_blocked':
+    'L’appareil de l’hôte est en arrière-plan\nRéessayez quand l’hôte aura rouvert l’application',
+  'toast.host_unresponsive_chat':
+    'Impossible d’envoyer le message\nL’appareil de l’hôte ne répond pas',
+  'toast.host_unresponsive_blocked':
+    'Impossible d’envoyer la demande\nL’appareil de l’hôte ne répond pas',
+  'toast.host_back': 'L’appareil de l’hôte est de retour',
   'toast.announcement_available': 'Nouvelle annonce\nConsultez le chat',
   'toast.copy_failed': 'Impossible de copier',
   'toast.email_copied': 'Adresse e-mail copiée !',
@@ -638,6 +646,13 @@ const fr: Record<I18nKey, string> = {
   'dialog.got_it': 'Compris',
   'dialog.continue_using': 'Continuer',
   'dialog.leave_session': 'Quitter',
+  'dialog.host_unresponsive_title': 'Aucune réponse de l’appareil de l’hôte',
+  'dialog.host_unresponsive_message':
+    'Vérifiez que MUSIXQUARE est ouvert sur l’appareil de l’hôte.\nVous pouvez continuer à attendre ou quitter le salon.',
+  'dialog.keep_waiting': 'Continuer à attendre',
+  'dialog.keep_open_title': 'Gardez l’application ouverte',
+  'dialog.keep_open_message':
+    'Si vous changez d’application ou si l’écran s’éteint, le son risque de se couper ou de se désynchroniser.\nSi l’appareil de l’hôte passe en arrière-plan, tout le salon peut s’arrêter.',
   'dialog.sw_update_title': 'Mise à jour',
   'dialog.sw_update_msg': 'Une nouvelle version est prête.\nActualisez pour mettre à jour.',
   'dialog.feature_refresh_title': 'Actualisation nécessaire',

@@ -431,6 +431,7 @@ const id: Record<I18nKey, string> = {
     'Ruang ini sudah mencapai batas 100 perangkat yang terhubung, termasuk host.',
   'network.op_granted': 'Izin admin diberikan',
   'network.op_revoked': 'Izin admin dicabut',
+  'network.host_waiting': 'Menunggu respons host...',
 
   // Transfer
   'transfer.demo_loading': 'Memuat media demo dari server...',
@@ -517,6 +518,12 @@ const id: Record<I18nKey, string> = {
   'toast.op_status': 'Izin {{label}} {{status}}',
   'toast.file_read_error': 'Kesalahan membaca file: {{name}}',
   'toast.host_ended_connection': 'Host telah mengakhiri koneksi',
+  'toast.host_background_blocked':
+    'Perangkat host sedang berada di latar belakang\nKontrol aktif lagi saat host membuka ulang aplikasi',
+  'toast.host_unresponsive_chat': 'Tidak dapat mengirim pesan\nPerangkat host tidak merespons',
+  'toast.host_unresponsive_blocked':
+    'Tidak dapat mengirim permintaan\nPerangkat host tidak merespons',
+  'toast.host_back': 'Perangkat host sudah kembali',
   'toast.announcement_available': 'Ada pengumuman baru\nPeriksa panel chat',
   'toast.copy_failed': 'Tidak dapat menyalin',
   'toast.email_copied': 'Alamat email disalin!',
@@ -633,6 +640,13 @@ const id: Record<I18nKey, string> = {
   'dialog.got_it': 'Mengerti',
   'dialog.continue_using': 'Lanjut',
   'dialog.leave_session': 'Keluar',
+  'dialog.host_unresponsive_title': 'Tidak ada respons dari perangkat host',
+  'dialog.host_unresponsive_message':
+    'Pastikan MUSIXQUARE terbuka di perangkat host.\nAnda bisa tetap menunggu atau keluar dari ruang.',
+  'dialog.keep_waiting': 'Tetap menunggu',
+  'dialog.keep_open_title': 'Biarkan aplikasi tetap terbuka',
+  'dialog.keep_open_message':
+    'Beralih ke aplikasi lain atau mematikan layar bisa membuat suara berhenti atau sinkronisasi meleset.\nJika perangkat host masuk ke latar belakang, seluruh ruang bisa berhenti.',
   'dialog.sw_update_title': 'Pembaruan',
   'dialog.sw_update_msg': 'Versi baru siap.\nMuat ulang untuk memperbarui.',
   'dialog.feature_refresh_title': 'Perlu dimuat ulang',

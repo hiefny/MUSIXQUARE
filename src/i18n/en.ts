@@ -528,6 +528,7 @@ const en: Record<I18nKey, string> = {
     'This room already has the maximum of 100 connected devices, including the host.',
   'network.op_granted': 'Administrator permissions granted',
   'network.op_revoked': 'Administrator permissions revoked',
+  'network.host_waiting': 'Waiting for the host...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} disconnected',
@@ -545,6 +546,11 @@ const en: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} permission {{status}}',
   'toast.file_read_error': 'File read error: {{name}}',
   'toast.host_ended_connection': 'The host has ended the connection',
+  'toast.host_background_blocked':
+    'The host device is in the background\nControls work again once the host reopens the app',
+  'toast.host_unresponsive_chat': "Couldn't send the message\nThe host device isn't responding",
+  'toast.host_unresponsive_blocked': "Couldn't send the request\nThe host device isn't responding",
+  'toast.host_back': 'The host device is back',
   'toast.announcement_available': 'New notice posted\nCheck the chat panel',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -695,6 +701,13 @@ const en: Record<I18nKey, string> = {
   'dialog.got_it': 'Got it',
   'dialog.continue_using': 'Continue',
   'dialog.leave_session': 'Leave',
+  'dialog.host_unresponsive_title': 'No response from the host device',
+  'dialog.host_unresponsive_message':
+    'Check that MUSIXQUARE is open on the host device.\nYou can keep waiting or leave the session.',
+  'dialog.keep_waiting': 'Keep waiting',
+  'dialog.keep_open_title': 'Please keep the app open',
+  'dialog.keep_open_message':
+    'Switching apps or turning off the screen can stop the sound or break the sync.\nIf the host device goes to the background, the whole room can stop.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready.\nRefresh to update.',
   'dialog.feature_refresh_title': 'Refresh needed',

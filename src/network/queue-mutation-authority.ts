@@ -16,6 +16,7 @@ import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../room
 import type { DataConnection, ProtocolMsg, RoomCapability } from '../types/index.ts';
 import { YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS } from '../youtube/constants.ts';
 import { safeSend } from './peer-state.ts';
+import { refuseHostCommand } from './host-presence.ts';
 import { registerHandler } from './protocol.ts';
 
 const MAX_REQUESTS_PER_CONNECTION = 256;
@@ -310,6 +311,11 @@ export function sendStandardQueueMutationRequest(message: StandardQueueMutationR
   if (pendingGuestMutations.size >= MAX_PENDING_GUEST_REQUESTS) {
     bus.emit('playlist:refresh-requested');
     bus.emit('standard-room:queue-mutation-failed', 'rejected', 'internal-error');
+    return false;
+  }
+  // A host that cannot answer would only time the request out; say why now.
+  if (refuseHostCommand(conn, message)) {
+    bus.emit('playlist:refresh-requested');
     return false;
   }
 

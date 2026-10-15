@@ -542,6 +542,7 @@ const ms: Record<I18nKey, string> = {
     'Bilik ini sudah mencapai had maksimum 100 peranti yang disambungkan, termasuk hos.',
   'network.op_granted': 'Kebenaran pentadbir diberikan',
   'network.op_revoked': 'Kebenaran pentadbir ditarik balik',
+  'network.host_waiting': 'Menunggu respons hos...',
 
   // ─── Pemberitahuan dinamik ───────────────────────────────────────
   'toast.device_disconnected': '{{name}} terputus',
@@ -559,6 +560,13 @@ const ms: Record<I18nKey, string> = {
   'toast.op_status': 'Kebenaran {{label}} {{status}}',
   'toast.file_read_error': 'Ralat membaca fail: {{name}}',
   'toast.host_ended_connection': 'Hos telah menamatkan sambungan',
+  'toast.host_background_blocked':
+    'Peranti hos berada di latar belakang\nKawalan berfungsi apabila hos membuka semula aplikasi',
+  'toast.host_unresponsive_chat':
+    'Tidak dapat menghantar mesej\nPeranti hos tidak memberikan respons',
+  'toast.host_unresponsive_blocked':
+    'Tidak dapat menghantar permintaan\nPeranti hos tidak memberikan respons',
+  'toast.host_back': 'Peranti hos telah kembali',
   'toast.announcement_available': 'Notis baharu\nSemak panel sembang',
 
   // ─── Pemberitahuan statik ────────────────────────────────────────
@@ -716,6 +724,13 @@ const ms: Record<I18nKey, string> = {
   'dialog.got_it': 'Faham',
   'dialog.continue_using': 'Teruskan',
   'dialog.leave_session': 'Keluar',
+  'dialog.host_unresponsive_title': 'Tiada respons daripada peranti hos',
+  'dialog.host_unresponsive_message':
+    'Pastikan MUSIXQUARE terbuka pada peranti hos.\nAnda boleh terus menunggu atau keluar daripada sesi.',
+  'dialog.keep_waiting': 'Terus menunggu',
+  'dialog.keep_open_title': 'Biarkan aplikasi kekal terbuka',
+  'dialog.keep_open_message':
+    'Beralih ke aplikasi lain atau mematikan skrin boleh menyebabkan bunyi terhenti atau penyegerakan terganggu.\nJika peranti hos beralih ke latar belakang, seluruh bilik boleh terhenti.',
   'dialog.sw_update_title': 'Kemas Kini',
   'dialog.sw_update_msg': 'Versi baharu sudah sedia.\nMuat semula untuk mengemas kini.',
   'dialog.feature_refresh_title': 'Perlu dimuat semula',

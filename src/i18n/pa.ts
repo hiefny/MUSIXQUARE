@@ -531,6 +531,7 @@ const pa: Record<I18nKey, string> = {
     'ਇਸ ਰੂਮ ਵਿੱਚ ਹੋਸਟ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ ਪਹਿਲਾਂ ਹੀ ਜੁੜੀਆਂ ਹੋਈਆਂ ਹਨ।',
   'network.op_granted': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦਿੱਤੀ ਗਈ',
   'network.op_revoked': 'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਵਾਪਸ ਲਈ ਗਈ',
+  'network.host_waiting': 'ਹੋਸਟ ਦੀ ਉਡੀਕ ਹੈ...',
 
   // ─── Toasts ──────────────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} ਦਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ',
@@ -548,6 +549,11 @@ const pa: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} ਇਜਾਜ਼ਤ {{status}}',
   'toast.file_read_error': 'ਫ਼ਾਈਲ ਪੜ੍ਹਨ ਵਿੱਚ ਗੜਬੜ: {{name}}',
   'toast.host_ended_connection': 'ਹੋਸਟ ਨੇ ਕਨੈਕਸ਼ਨ ਖ਼ਤਮ ਕਰ ਦਿੱਤਾ ਹੈ',
+  'toast.host_background_blocked':
+    'ਹੋਸਟ ਡਿਵਾਈਸ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਹੈ\nਹੋਸਟ ਐਪ ਦੁਬਾਰਾ ਖੋਲ੍ਹੇ ਤਾਂ ਕੰਟਰੋਲ ਫਿਰ ਕੰਮ ਕਰਨਗੇ',
+  'toast.host_unresponsive_chat': 'ਸੁਨੇਹਾ ਨਹੀਂ ਭੇਜਿਆ ਜਾ ਸਕਿਆ\nਹੋਸਟ ਡਿਵਾਈਸ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਹੀ',
+  'toast.host_unresponsive_blocked': 'ਬੇਨਤੀ ਨਹੀਂ ਭੇਜੀ ਜਾ ਸਕੀ\nਹੋਸਟ ਡਿਵਾਈਸ ਜਵਾਬ ਨਹੀਂ ਦੇ ਰਹੀ',
+  'toast.host_back': 'ਹੋਸਟ ਡਿਵਾਈਸ ਵਾਪਸ ਆ ਗਈ ਹੈ',
   'toast.announcement_available': 'ਨਵੀਂ ਸੂਚਨਾ ਹੈ\nਚੈਟ ਪੈਨਲ ਵੇਖੋ',
   'toast.copy_failed': 'ਕਾਪੀ ਨਹੀਂ ਹੋ ਸਕੀ',
   'toast.email_copied': 'ਈਮੇਲ ਪਤਾ ਕਾਪੀ ਹੋ ਗਿਆ!',
@@ -701,6 +707,13 @@ const pa: Record<I18nKey, string> = {
   'dialog.got_it': 'ਸਮਝ ਆ ਗਈ',
   'dialog.continue_using': 'ਅੱਗੇ ਵਧੋ',
   'dialog.leave_session': 'ਬਾਹਰ ਜਾਓ',
+  'dialog.host_unresponsive_title': 'ਹੋਸਟ ਡਿਵਾਈਸ ਤੋਂ ਕੋਈ ਜਵਾਬ ਨਹੀਂ ਮਿਲ ਰਿਹਾ',
+  'dialog.host_unresponsive_message':
+    'ਵੇਖੋ ਕਿ ਹੋਸਟ ਡਿਵਾਈਸ ਉੱਤੇ MUSIXQUARE ਖੁੱਲ੍ਹਾ ਹੈ ਜਾਂ ਨਹੀਂ।\nਤੁਸੀਂ ਉਡੀਕ ਕਰਦੇ ਰਹਿ ਸਕਦੇ ਹੋ ਜਾਂ ਸੈਸ਼ਨ ਵਿੱਚੋਂ ਬਾਹਰ ਜਾ ਸਕਦੇ ਹੋ।',
+  'dialog.keep_waiting': 'ਉਡੀਕ ਕਰਦੇ ਰਹੋ',
+  'dialog.keep_open_title': 'ਐਪ ਖੁੱਲ੍ਹੀ ਰੱਖੋ',
+  'dialog.keep_open_message':
+    'ਕਿਸੇ ਹੋਰ ਐਪ ਉੱਤੇ ਜਾਣ ਜਾਂ ਸਕ੍ਰੀਨ ਬੰਦ ਹੋਣ ਨਾਲ ਆਵਾਜ਼ ਰੁਕ ਸਕਦੀ ਹੈ ਜਾਂ ਸਿੰਕ ਵਿਗੜ ਸਕਦਾ ਹੈ।\nਜੇ ਹੋਸਟ ਡਿਵਾਈਸ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਚਲੀ ਜਾਵੇ ਤਾਂ ਪੂਰਾ ਰੂਮ ਰੁਕ ਸਕਦਾ ਹੈ।',
   'dialog.sw_update_title': 'ਅੱਪਡੇਟ',
   'dialog.sw_update_msg': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ।\nਅੱਪਡੇਟ ਕਰਨ ਲਈ ਰਿਫ੍ਰੈਸ਼ ਕਰੋ।',
   'dialog.feature_refresh_title': 'ਰਿਫ੍ਰੈਸ਼ ਕਰਨਾ ਜ਼ਰੂਰੀ ਹੈ',

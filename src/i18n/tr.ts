@@ -527,6 +527,7 @@ const tr: Record<I18nKey, string> = {
   'network.session_full_detail': 'Bu odada oda sahibi dâhil en fazla 100 cihaz zaten bağlı.',
   'network.op_granted': 'Yönetici yetkisi verildi',
   'network.op_revoked': 'Yönetici yetkisi geri alındı',
+  'network.host_waiting': 'Oda sahibi bekleniyor...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} bağlantısı koptu',
@@ -544,6 +545,11 @@ const tr: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} yetkisi {{status}}',
   'toast.file_read_error': 'Dosya okuma hatası: {{name}}',
   'toast.host_ended_connection': 'Oda sahibi bağlantıyı kapattı',
+  'toast.host_background_blocked':
+    'Oda sahibinin cihazı arka planda\nOda sahibi uygulamaya dönünce kontroller yeniden çalışır',
+  'toast.host_unresponsive_chat': 'Mesaj gönderilemedi\nOda sahibinin cihazı yanıt vermiyor',
+  'toast.host_unresponsive_blocked': 'İstek gönderilemedi\nOda sahibinin cihazı yanıt vermiyor',
+  'toast.host_back': 'Oda sahibinin cihazı geri döndü',
   'toast.announcement_available': 'Yeni bir duyuru var\nSohbet panelini kontrol et',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -697,6 +703,13 @@ const tr: Record<I18nKey, string> = {
   'dialog.got_it': 'Anladım',
   'dialog.continue_using': 'Devam et',
   'dialog.leave_session': 'Ayrıl',
+  'dialog.host_unresponsive_title': 'Oda sahibinin cihazı yanıt vermiyor',
+  'dialog.host_unresponsive_message':
+    'Oda sahibinin cihazında MUSIXQUARE’in açık olduğunu kontrol et.\nBeklemeye devam edebilir ya da odadan ayrılabilirsin.',
+  'dialog.keep_waiting': 'Beklemeye devam et',
+  'dialog.keep_open_title': 'Uygulamayı açık tut',
+  'dialog.keep_open_message':
+    'Başka bir uygulamaya geçersen veya ekranı kapatırsan ses durabilir ya da senkronizasyon bozulabilir.\nOda sahibinin cihazı arka plana geçerse tüm oda durabilir.',
   'dialog.sw_update_title': 'Yeni Güncelleme',
   'dialog.sw_update_msg': 'Yeni bir sürüm hazır.\nGüncellemek için sayfayı yenile.',
   'dialog.feature_refresh_title': 'Yenileme gerekli',

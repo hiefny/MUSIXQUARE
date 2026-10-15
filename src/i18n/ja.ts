@@ -427,6 +427,7 @@ const ja: Record<I18nKey, string> = {
     'このルームには、ホストを含め最大100台のデバイスがすでに接続されています。',
   'network.op_granted': '管理者権限が付与されました',
   'network.op_revoked': '管理者権限が解除されました',
+  'network.host_waiting': 'ホストの応答を待っています...',
 
   // Transfer
   'transfer.demo_loading': 'サーバーからデモトラックを読み込み中...',
@@ -512,6 +513,13 @@ const ja: Record<I18nKey, string> = {
   'toast.op_status': '{{label}}の管理者権限：{{status}}',
   'toast.file_read_error': 'ファイル読み込みエラー: {{name}}',
   'toast.host_ended_connection': 'ホストが接続を終了しました',
+  'toast.host_background_blocked':
+    'ホストデバイスがバックグラウンドにあります\nホストがアプリを開き直すと再び操作できます',
+  'toast.host_unresponsive_chat':
+    'メッセージを送信できませんでした\nホストデバイスが応答していません',
+  'toast.host_unresponsive_blocked':
+    'リクエストを送信できませんでした\nホストデバイスが応答していません',
+  'toast.host_back': 'ホストデバイスが復帰しました',
   'toast.announcement_available': '新しいお知らせがあります\nチャット欄を確認してください',
   'toast.copy_failed': 'コピーできませんでした',
   'toast.email_copied': 'メールアドレスをコピーしました！',
@@ -627,6 +635,13 @@ const ja: Record<I18nKey, string> = {
   'dialog.got_it': 'わかりました',
   'dialog.continue_using': '続ける',
   'dialog.leave_session': '退出',
+  'dialog.host_unresponsive_title': 'ホストデバイスから応答がありません',
+  'dialog.host_unresponsive_message':
+    'ホストデバイスでMUSIXQUAREが開いているか確認してください。\n待ち続けるか、ルームを退出できます。',
+  'dialog.keep_waiting': '待ち続ける',
+  'dialog.keep_open_title': 'アプリを開いたままお使いください',
+  'dialog.keep_open_message':
+    '他のアプリに切り替えたり画面がオフになったりすると、音が止まったり同期がずれたりすることがあります。\nホストデバイスがバックグラウンドに移動すると、ルーム全体が止まることがあります。',
   'dialog.sw_update_title': 'アップデート',
   'dialog.sw_update_msg':
     '新しいバージョンの準備ができました。\nページを再読み込みするとアップデートが適用されます。',

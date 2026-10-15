@@ -536,6 +536,7 @@ const nb: Record<I18nKey, string> = {
     'Rommet har allerede maksimalt 100 tilkoblede enheter, inkludert verten.',
   'network.op_granted': 'Administratorrettigheter er gitt',
   'network.op_revoked': 'Administratorrettigheter er trukket tilbake',
+  'network.host_waiting': 'Venter på verten…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} ble frakoblet',
@@ -553,6 +554,11 @@ const nb: Record<I18nKey, string> = {
   'toast.op_status': 'Tillatelse {{label}}: {{status}}',
   'toast.file_read_error': 'Kunne ikke lese filen: {{name}}',
   'toast.host_ended_connection': 'Verten har avsluttet tilkoblingen',
+  'toast.host_background_blocked':
+    'Vertsenheten er i bakgrunnen\nNår verten åpner appen igjen, kan du styre avspillingen',
+  'toast.host_unresponsive_chat': 'Kunne ikke sende meldingen\nVertsenheten svarer ikke',
+  'toast.host_unresponsive_blocked': 'Kunne ikke sende forespørselen\nVertsenheten svarer ikke',
+  'toast.host_back': 'Vertsenheten er tilbake',
   'toast.announcement_available': 'Nytt varsel\nSe chatpanelet',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -706,6 +712,13 @@ const nb: Record<I18nKey, string> = {
   'dialog.got_it': 'Skjønner',
   'dialog.continue_using': 'Fortsett',
   'dialog.leave_session': 'Forlat',
+  'dialog.host_unresponsive_title': 'Ingen svar fra vertsenheten',
+  'dialog.host_unresponsive_message':
+    'Sjekk at MUSIXQUARE er åpent på vertsenheten.\nDu kan fortsette å vente eller forlate økten.',
+  'dialog.keep_waiting': 'Fortsett å vente',
+  'dialog.keep_open_title': 'Hold appen åpen',
+  'dialog.keep_open_message':
+    'Hvis du bytter app eller skjermen slukkes, kan lyden stoppe eller synkroniseringen svikte.\nHvis vertsenheten går i bakgrunnen, kan hele rommet stoppe.',
   'dialog.sw_update_title': 'Oppdatering',
   'dialog.sw_update_msg': 'En ny versjon er klar.\nOppdater siden for å ta den i bruk.',
   'dialog.feature_refresh_title': 'Siden må oppdateres',

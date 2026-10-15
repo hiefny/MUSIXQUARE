@@ -523,6 +523,7 @@ const ko = {
   'network.session_full_detail': '이 방에는 이미 방장 포함 최대 100대가 연결되어 있어요.',
   'network.op_granted': '관리자 권한이 부여되었어요',
   'network.op_revoked': '관리자 권한이 해제되었어요',
+  'network.host_waiting': '방장 응답 대기 중...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_disconnected': '{{name}} 연결이 끊겼어요',
@@ -540,6 +541,11 @@ const ko = {
   'toast.op_status': '{{label}} 권한 {{status}}',
   'toast.file_read_error': '파일 읽기 오류: {{name}}',
   'toast.host_ended_connection': '방장이 연결을 종료했어요',
+  'toast.host_background_blocked':
+    '방장 기기가 백그라운드에 있어요\n방장이 앱을 다시 열면 조작할 수 있어요',
+  'toast.host_unresponsive_chat': '메시지를 보낼 수 없었어요\n방장 기기가 응답하지 않아요',
+  'toast.host_unresponsive_blocked': '요청을 보낼 수 없었어요\n방장 기기가 응답하지 않아요',
+  'toast.host_back': '방장 기기가 돌아왔어요',
   'toast.announcement_available': '새로운 공지가 있어요\n채팅창을 확인해주세요',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -690,6 +696,13 @@ const ko = {
   'dialog.got_it': '알겠어요',
   'dialog.continue_using': '계속 사용',
   'dialog.leave_session': '세션 나가기',
+  'dialog.host_unresponsive_title': '방장 기기의 응답이 없어요',
+  'dialog.host_unresponsive_message':
+    '방장 기기에서 MUSIXQUARE가 켜져 있는지 확인해 주세요.\n계속 기다리거나 세션에서 나갈 수 있어요.',
+  'dialog.keep_waiting': '계속 기다리기',
+  'dialog.keep_open_title': '앱을 켜 둔 채로 사용해 주세요',
+  'dialog.keep_open_message':
+    '다른 앱으로 넘어가거나 화면이 꺼지면 소리가 멈추거나 싱크가 어긋날 수 있어요.\n방장 기기가 백그라운드로 가면 방 전체가 멈출 수 있어요.',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었어요.\n새로고침하면 업데이트가 적용돼요.',
   'dialog.feature_refresh_title': '새로고침이 필요해요',

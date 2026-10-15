@@ -408,6 +408,7 @@ const zhHant: Record<I18nKey, string> = {
   'network.session_full_detail': '此房間已達連線上限，共 100 台裝置（包含房主）。',
   'network.op_granted': '已授予管理員權限',
   'network.op_revoked': '已撤銷管理員權限',
+  'network.host_waiting': '正在等待房主回應…',
 
   // Transfer
   'transfer.demo_loading': '正在從伺服器載入體驗曲目…',
@@ -483,6 +484,10 @@ const zhHant: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} 的管理員權限：{{status}}',
   'toast.file_read_error': '檔案讀取錯誤：{{name}}',
   'toast.host_ended_connection': '房主已結束連線',
+  'toast.host_background_blocked': '房主裝置已進入背景\n房主重新開啟應用程式後即可恢復操作',
+  'toast.host_unresponsive_chat': '無法傳送訊息\n房主裝置沒有回應',
+  'toast.host_unresponsive_blocked': '無法送出請求\n房主裝置沒有回應',
+  'toast.host_back': '房主裝置已恢復回應',
   'toast.announcement_available': '有新的公告\n請查看聊天視窗',
   'toast.copy_failed': '無法複製',
   'toast.email_copied': '電子郵件地址已複製！',
@@ -590,6 +595,13 @@ const zhHant: Record<I18nKey, string> = {
   'dialog.got_it': '知道了',
   'dialog.continue_using': '繼續',
   'dialog.leave_session': '離開',
+  'dialog.host_unresponsive_title': '房主裝置沒有回應',
+  'dialog.host_unresponsive_message':
+    '請確認房主裝置上已開啟 MUSIXQUARE。\n你可以繼續等待，或離開房間。',
+  'dialog.keep_waiting': '繼續等待',
+  'dialog.keep_open_title': '使用時請保持應用程式開啟',
+  'dialog.keep_open_message':
+    '切換到其他應用程式或關閉螢幕後，聲音可能會中斷或同步不準。\n如果房主裝置進入背景，整個房間都可能停止運作。',
   'dialog.sw_update_title': '更新',
   'dialog.sw_update_msg': '新版本已準備好。\n重新整理即可更新。',
   'dialog.feature_refresh_title': '需要重新整理',

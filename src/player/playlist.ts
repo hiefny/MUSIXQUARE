@@ -66,6 +66,7 @@ import {
   sendFilePrepareByDelivery,
 } from '../storage/transfer.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
+import { refuseHostCommand } from '../network/host-presence.ts';
 import {
   cancelYtAutoSync,
   getYouTubePlayer,
@@ -548,6 +549,7 @@ export function toggleRepeat(): void {
     return;
   }
   const hostConn = getState('network.hostConn');
+  if (refuseHostCommand(hostConn, { type: MSG.REQUEST_SETTING })) return;
   const repeatMode = getState('playlist.repeatMode') || 0;
   const nextMode = (repeatMode + 1) % 3;
   setRepeatMode(nextMode);
@@ -614,6 +616,7 @@ export function toggleShuffle(): void {
     return;
   }
   const hostConn = getState('network.hostConn');
+  if (refuseHostCommand(hostConn, { type: MSG.REQUEST_SETTING })) return;
   const isShuffle = getState('playlist.isShuffle');
   const nextShuffle = !isShuffle;
   setShuffle(nextShuffle);

@@ -661,7 +661,7 @@ const it: Record<I18nKey, string> = {
     'Autorizzazione della condivisione remota non riuscita\nVerifica le impostazioni del Worker',
   'share.remote.expired': 'Il link del file remoto è scaduto\nCondividilo di nuovo',
   'share.remote.unavailable': 'Condivisione remota non riuscita\nRiprova tra qualche istante',
-  'transfer.preload_fail': 'Precaricamento non riuscito, ricaricamento...',
+  'transfer.preload_fail': 'Riproduzione precaricata non riuscita, ricaricamento...',
   'transfer.download_finishing': 'Completamento del download...',
   'transfer.preparation_delayed':
     'La preparazione sta richiedendo più tempo...\nRichiesta di ripristino all’host',

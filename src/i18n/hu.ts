@@ -654,7 +654,7 @@ const hu: Record<I18nKey, string> = {
     'A távoli megosztás engedélyezése sikertelen\nEllenőrizd a Worker beállításait',
   'share.remote.expired': 'A távoli fájl hivatkozása lejárt\nOszd meg újra',
   'share.remote.unavailable': 'A távoli megosztás sikertelen\nPróbáld újra egy pillanat múlva',
-  'transfer.preload_fail': 'Az előtöltés sikertelen, újratöltés',
+  'transfer.preload_fail': 'Az előtöltött fájl lejátszása sikertelen, újratöltés',
   'transfer.download_finishing': 'Letöltés befejezése...',
   'transfer.preparation_delayed': 'Az előkészítés késik...\nHelyreállítás kérése a házigazdától',
   'transfer.receiving_0pct': 'Fogadás... 0%',

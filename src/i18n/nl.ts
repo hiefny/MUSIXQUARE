@@ -655,7 +655,7 @@ const nl: Record<I18nKey, string> = {
     'Autorisatie voor delen op afstand mislukt\nControleer de Worker-instellingen',
   'share.remote.expired': 'De link naar het gedeelde bestand is verlopen\nDeel het opnieuw',
   'share.remote.unavailable': 'Delen op afstand mislukt\nProbeer het zo opnieuw',
-  'transfer.preload_fail': 'Vooraf laden mislukt; opnieuw laden',
+  'transfer.preload_fail': 'Vooraf geladen afspelen mislukt; opnieuw laden',
   'transfer.download_finishing': 'Download afronden...',
   'transfer.preparation_delayed': 'De voorbereiding duurt langer...\nHerstel aanvragen bij de host',
   'transfer.receiving_0pct': 'Ontvangen... 0%',

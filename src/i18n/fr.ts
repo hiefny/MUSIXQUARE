@@ -458,7 +458,7 @@ const fr: Record<I18nKey, string> = {
     'Échec de l’autorisation du partage à distance\nVérifiez la configuration du Worker Cloudflare',
   'share.remote.expired': 'Le lien du fichier partagé à distance a expiré\nPartagez-le à nouveau',
   'share.remote.unavailable': 'Échec du partage à distance\nVeuillez réessayer dans un instant',
-  'transfer.preload_fail': 'Échec du préchargement, nouveau chargement',
+  'transfer.preload_fail': 'Échec de la lecture préchargée, nouveau chargement',
   'transfer.download_finishing': 'Finalisation du téléchargement…',
   'transfer.preparation_delayed': 'Préparation retardée…\nDemande de récupération à l’hôte',
   'transfer.receiving_0pct': 'Réception… 0 %',

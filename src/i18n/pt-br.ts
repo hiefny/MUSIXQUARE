@@ -459,7 +459,7 @@ const ptBr: Record<I18nKey, string> = {
     'Falha na autorização do compartilhamento remoto\nVerifique as configurações do Worker',
   'share.remote.expired': 'O link do arquivo remoto expirou\nCompartilhe novamente',
   'share.remote.unavailable': 'Falha no compartilhamento remoto\nTente novamente em instantes',
-  'transfer.preload_fail': 'Falha no pré-carregamento, recarregando...',
+  'transfer.preload_fail': 'Falha na reprodução pré-carregada, recarregando...',
   'transfer.download_finishing': 'Concluindo o download...',
   'transfer.preparation_delayed':
     'A preparação está demorando...\nSolicitando recuperação ao anfitrião',

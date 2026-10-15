@@ -652,7 +652,7 @@ const da: Record<I18nKey, string> = {
     'Autorisationen til fjerndeling mislykkedes\nKontrollér Worker-indstillingerne',
   'share.remote.expired': 'Linket til fjernfilen er udløbet\nDel filen igen',
   'share.remote.unavailable': 'Fjerndeling mislykkedes\nPrøv igen om et øjeblik',
-  'transfer.preload_fail': 'Forudindlæsning mislykkedes; indlæser igen',
+  'transfer.preload_fail': 'Forudindlæst afspilning mislykkedes; indlæser igen',
   'transfer.download_finishing': 'Afslutter downloaden…',
   'transfer.preparation_delayed': 'Forberedelsen er forsinket…\nAnmoder værten om genoprettelse',
   'transfer.receiving_0pct': 'Modtager… 0 %',

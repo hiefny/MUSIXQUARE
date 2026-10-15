@@ -660,7 +660,7 @@ const pl: Record<I18nKey, string> = {
     'Autoryzacja udostępniania zdalnego nie powiodła się\nSprawdź ustawienia usługi Worker',
   'share.remote.expired': 'Link do pliku zdalnego wygasł\nUdostępnij go ponownie',
   'share.remote.unavailable': 'Udostępnianie zdalne niedostępne\nSpróbuj ponownie za chwilę',
-  'transfer.preload_fail': 'Błąd wstępnego wczytania, ponowne wczytywanie…',
+  'transfer.preload_fail': 'Błąd odtwarzania wstępnie wczytanego pliku, ponowne wczytywanie…',
   'transfer.download_finishing': 'Kończenie pobierania…',
   'transfer.preparation_delayed':
     'Przygotowanie się opóźnia…\nWysłano do hosta prośbę o przywrócenie',

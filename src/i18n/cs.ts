@@ -653,7 +653,7 @@ const cs: Record<I18nKey, string> = {
     'Autorizace vzdáleného sdílení se nezdařila\nZkontrolujte nastavení Worker',
   'share.remote.expired': 'Odkaz na vzdálený soubor vypršel\nSdílejte soubor znovu',
   'share.remote.unavailable': 'Vzdálené sdílení se nezdařilo\nZkuste to za chvíli',
-  'transfer.preload_fail': 'Předběžné načtení selhalo, načítá se znovu',
+  'transfer.preload_fail': 'Předem načtený soubor nelze přehrát, načítá se znovu',
   'transfer.download_finishing': 'Dokončuje se stahování...',
   'transfer.preparation_delayed':
     'Příprava se zpozdila...\nHostiteli byl odeslán požadavek na obnovení',

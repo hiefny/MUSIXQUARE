@@ -651,7 +651,7 @@ const nb: Record<I18nKey, string> = {
     'Autorisasjonen for fjerndeling mislyktes\nSjekk Worker-innstillingene',
   'share.remote.expired': 'Lenken til fjernfilen er utløpt\nDel filen på nytt',
   'share.remote.unavailable': 'Fjerndeling mislyktes\nPrøv igjen om et øyeblikk',
-  'transfer.preload_fail': 'Forhåndslasting mislyktes, laster inn på nytt',
+  'transfer.preload_fail': 'Forhåndslastet avspilling mislyktes; laster inn på nytt',
   'transfer.download_finishing': 'Fullfører nedlastingen…',
   'transfer.preparation_delayed': 'Forberedelsen er forsinket…\nBer verten om gjenoppretting',
   'transfer.receiving_0pct': 'Mottar… 0 %',

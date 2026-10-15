@@ -664,7 +664,7 @@ const fil: Record<I18nKey, string> = {
     'Hindi napahintulutan ang malayuang pagbabahagi\nPakisuri ang mga setting ng Worker',
   'share.remote.expired': 'Nag-expire na ang link ng malayuang file\nPakibahagi itong muli',
   'share.remote.unavailable': 'Hindi gumana ang malayuang pagbabahagi\nPakisubukan muli maya-maya',
-  'transfer.preload_fail': 'Nabigo ang preload, nilo-load muli',
+  'transfer.preload_fail': 'Hindi nag-play ang na-preload, nilo-load muli',
   'transfer.download_finishing': 'Tinatapos ang pag-download...',
   'transfer.preparation_delayed': 'Naantala ang paghahanda...\nHumihiling ng recovery mula sa host',
   'transfer.receiving_0pct': 'Tumatanggap... 0%',

@@ -652,7 +652,7 @@ const sv: Record<I18nKey, string> = {
     'Behörighetskontrollen för fjärrdelning misslyckades\nKontrollera Worker-inställningarna',
   'share.remote.expired': 'Länken till fjärrfilen har gått ut\nDela filen igen',
   'share.remote.unavailable': 'Fjärrdelningen misslyckades\nFörsök igen om en stund',
-  'transfer.preload_fail': 'Förinläsningen misslyckades, läser in igen',
+  'transfer.preload_fail': 'Förinläst uppspelning misslyckades, läser in igen',
   'transfer.download_finishing': 'Slutför nedladdningen…',
   'transfer.preparation_delayed': 'Förberedelsen är fördröjd…\nBegär återställning från värden',
   'transfer.receiving_0pct': 'Tar emot… 0 %',

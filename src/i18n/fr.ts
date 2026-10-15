@@ -206,7 +206,7 @@ const fr: Record<I18nKey, string> = {
   'player.visualizer': 'Visualiseur audio',
   'player.seek': 'Régler la position de lecture',
   'player.seek_unavailable_system_audio':
-    'Impossible de modifier la position de lecture pendant le partage de l’audio système',
+    'Impossible de changer la position pendant le partage de l’audio système',
   'player.volume': 'Régler le volume',
   'player.toggle_mute': 'Activer/désactiver le son',
   'player.fullscreen': 'Activer/désactiver le plein écran',
@@ -320,8 +320,7 @@ const fr: Record<I18nKey, string> = {
   'demo.prompt_message': 'Bienvenue ! Envie d’un aperçu rapide de nos fonctionnalités ?',
   'demo.prompt_cta': 'Commencer la visite',
   'demo.prompt_later': 'Plus tard',
-  'demo.try_later_toast':
-    'Vous pouvez commencer la visite quand vous le souhaitez depuis l’onglet Aide',
+  'demo.try_later_toast': 'Lancez la visite à tout moment depuis l’onglet Aide',
   'demo.track_info': 'Infos sur la piste',
   'demo.exit': 'Terminer la visite',
   'demo.credit': 'Piste de démo',
@@ -459,7 +458,7 @@ const fr: Record<I18nKey, string> = {
     'Échec de l’autorisation du partage à distance\nVérifiez la configuration du Worker Cloudflare',
   'share.remote.expired': 'Le lien du fichier partagé à distance a expiré\nPartagez-le à nouveau',
   'share.remote.unavailable': 'Échec du partage à distance\nVeuillez réessayer dans un instant',
-  'transfer.preload_fail': 'La lecture du fichier préchargé a échoué, nouveau chargement',
+  'transfer.preload_fail': 'Échec de la lecture préchargée, nouveau chargement',
   'transfer.download_finishing': 'Finalisation du téléchargement…',
   'transfer.preparation_delayed': 'Préparation retardée…\nDemande de récupération à l’hôte',
   'transfer.receiving_0pct': 'Réception… 0 %',
@@ -542,7 +541,7 @@ const fr: Record<I18nKey, string> = {
   'toast.playback_control_required': 'L’autorisation de contrôler la lecture est requise',
   'toast.member_management_required': 'L’autorisation d’expulser des membres est requise',
   'toast.chat_notice_required': 'L’autorisation de publier des annonces dans le chat est requise',
-  'toast.room_owner_required': 'Seul le propriétaire du salon peut effectuer cette modification',
+  'toast.room_owner_required': 'Seul le propriétaire du salon peut modifier ceci',
   'toast.system_audio_owner_required':
     'Vous ne pouvez partager l’audio que depuis l’onglet qui a ouvert le salon',
   'toast.host_only_youtube': 'Seul l’hôte peut ajouter des liens YouTube',
@@ -565,7 +564,7 @@ const fr: Record<I18nKey, string> = {
   'toast.host_sync_requested':
     'Synchronisation précise demandée\nRéglez la synchronisation manuelle sur l’appareil d’un participant',
   'toast.sync_not_in_system_audio':
-    'La synchronisation n’est pas disponible en mode de partage de l’audio système',
+    'Synchronisation indisponible pendant le partage de l’audio système',
   'toast.sync_not_ready': 'La synchronisation n’est pas encore prête\nRéessayez dans un instant',
   'toast.sync_no_media': 'Aucun média à synchroniser\nSélectionnez d’abord un média à lire',
   'toast.host_ad': 'L’hôte semble regarder une publicité',

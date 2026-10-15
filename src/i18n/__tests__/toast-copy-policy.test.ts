@@ -183,6 +183,45 @@ function toastKeys(): string[] {
   return [...toastNamespace, ...SHARED_TOAST_KEYS];
 }
 
+/** Every toast text in every locale, plural forms included. */
+function toastTexts(): Array<{ readonly where: string; readonly text: string }> {
+  const texts: Array<{ readonly where: string; readonly text: string }> = [];
+  for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+    const byKey: Readonly<Record<string, string | undefined>> = dictionary;
+    for (const key of toastKeys()) {
+      const text = byKey[key];
+      if (text !== undefined) texts.push({ where: `${language}.${key}`, text });
+    }
+  }
+  for (const [language, messages] of Object.entries(pluralMessagesForTests)) {
+    const byKey = messages as Readonly<Record<string, Readonly<Record<string, string>>>>;
+    for (const key of toastKeys()) {
+      for (const [category, text] of Object.entries(byKey[key] ?? {})) {
+        texts.push({ where: `${language}.${key}.${category}`, text });
+      }
+    }
+  }
+  return texts;
+}
+
+/** A length limit from src/ui/toast.ts, so this guard follows the renderer. */
+function toastLimit(name: string): number {
+  const source = readFileSync(resolve('src/ui/toast.ts'), 'utf8');
+  const value = source.match(new RegExp(`const ${name} = (\\d+);`, 'u'))?.[1];
+  if (value === undefined) throw new Error(`${name} is missing from src/ui/toast.ts`);
+  return Number(value);
+}
+
+/** The colon pattern src/ui/toast.ts uses to find a dynamic value. */
+function toastColonPattern(): RegExp {
+  const source = readFileSync(resolve('src/ui/toast.ts'), 'utf8');
+  const pattern = source.match(/const TOAST_COLON_RE = \/(.+)\/u;/u)?.[1];
+  if (pattern === undefined) throw new Error('TOAST_COLON_RE is missing from src/ui/toast.ts');
+  return new RegExp(pattern, 'u');
+}
+
+const charCount = (value: string): number => Array.from(value).length;
+
 function collectSourceFiles(root: string): string[] {
   if (!existsSync(root)) return [];
   const files: string[] = [];
@@ -257,6 +296,49 @@ describe('toast copy policy', () => {
       }
     }
     expect(pluralForms).toBeGreaterThan(0);
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps authored copy within the limits the toast applies to dynamic values', () => {
+    // The toast shows authored copy in full (owner decision 2026-10-15) and
+    // shortens only values that can run long: a line past the line limit, the
+    // text after a colon, and quoted text. Authored copy must stay inside all
+    // three so the toast never cuts it. Placeholders are dynamic and not counted.
+    const lineLimit = toastLimit('TOAST_MAX_LINE_CHARS');
+    const colonLimit = toastLimit('TOAST_COLON_VALUE_CHARS');
+    const quotedLimit = toastLimit('TOAST_DYNAMIC_VALUE_CHARS');
+    expect([lineLimit, colonLimit, quotedLimit]).toEqual([120, 64, 28]);
+    // A Latin colon with a space, or a full-width colon (Chinese, Japanese).
+    const colonPattern = toastColonPattern();
+    expect(['a: b', 'a：b', 'a： b'].map((line) => colonPattern.exec(line)?.[0])).toEqual([
+      ': ',
+      '：',
+      '： ',
+    ]);
+    expect(colonPattern.exec('12:34')).toBeNull();
+
+    const violations: string[] = [];
+    let lines = 0;
+    for (const { where, text } of toastTexts()) {
+      for (const line of text.split('\n')) {
+        lines += 1;
+        if (charCount(line.replace(/\{\{\w+\}\}/gu, '')) > lineLimit) {
+          violations.push(`${where}: line over ${lineLimit}: ${line}`);
+        }
+        const colon = colonPattern.exec(line);
+        const afterColon = colon ? line.slice(colon.index + colon[0].length) : '';
+        if (!afterColon.includes('{{') && charCount(afterColon) > colonLimit) {
+          violations.push(`${where}: text after a colon over ${colonLimit}: ${line}`);
+        }
+        for (const match of line.matchAll(/"([^"]+)"/gu)) {
+          const quoted = match[1] ?? '';
+          if (!quoted.includes('{{') && charCount(quoted) > quotedLimit) {
+            violations.push(`${where}: quoted text over ${quotedLimit}: ${line}`);
+          }
+        }
+      }
+    }
+    expect(lines).toBeGreaterThan(8000);
     expect(violations).toEqual([]);
   });
 

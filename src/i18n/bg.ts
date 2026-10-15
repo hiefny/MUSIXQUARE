@@ -565,7 +565,7 @@ const bg: Record<I18nKey, string> = {
   'toast.email_copied': 'Имейл адресът е копиран!',
   'toast.settings_sync_enabled': 'Синхронизирането на настройките е включено',
   'toast.settings_sync_admin_required':
-    'Синхронизирането на настройките е включено\nСамо администраторите на стаята могат да променят звуковите настройки',
+    'Синхронизирането на настройките е включено\nСамо администратори на стаята могат да променят звука',
   'toast.virtual_bass_on': 'Виртуалният бас е включен',
   'toast.virtual_bass_off': 'Виртуалният бас е изключен',
   'toast.virtual_treble_on': 'Виртуалните високи честоти са включени',
@@ -649,13 +649,12 @@ const bg: Record<I18nKey, string> = {
   'share.remote.network_error': 'Мрежова грешка при отдалеченото споделяне',
   'share.remote.rate_limited':
     'Твърде много качвания за отдалечено споделяне\nОпитай отново след малко',
-  'share.remote.quota_reached': 'Лимитът за съхранение при отдалечено споделяне е достигнат',
+  'share.remote.quota_reached': 'Хранилището за отдалечено споделяне е пълно',
   'share.remote.auth_failed':
     'Удостоверяването за отдалечено споделяне е неуспешно\nПровери настройките на Worker',
   'share.remote.expired': 'Връзката към отдалечения файл е изтекла\nСподели го отново',
   'share.remote.unavailable': 'Отдалеченото споделяне е неуспешно\nОпитай отново след малко',
-  'transfer.preload_fail':
-    'Възпроизвеждането от предварително заредения файл е неуспешно; презареждане',
+  'transfer.preload_fail': 'Предварително зареденото не се възпроизведе; презареждане',
   'transfer.download_finishing': 'Завършване на изтеглянето...',
   'transfer.preparation_delayed': 'Подготовката се забавя...\nЗаявяване на възстановяване от хоста',
   'transfer.receiving_0pct': 'Получаване... 0%',
@@ -671,7 +670,7 @@ const bg: Record<I18nKey, string> = {
   'error.load_failed': 'Зареждането е неуспешно: {{msg}}',
   'error.audio_decode_fail': 'Декодирането на звука е неуспешно!',
   'error.audio_memory': 'Зареждане на звука в паметта...',
-  'error.all_tracks_failed': 'В плейлиста няма песни, които могат да се възпроизведат',
+  'error.all_tracks_failed': 'Няма песни за възпроизвеждане в плейлиста',
   'error.audio_engine_prepare': 'Звуковият модул не може да бъде подготвен',
   'error.session_create_fail': 'Сесията не може да бъде създадена',
   'error.network_generic': 'Възникна мрежова грешка',

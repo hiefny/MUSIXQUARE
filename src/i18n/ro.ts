@@ -516,7 +516,7 @@ const ro: Record<I18nKey, string> = {
   'youtube.enter_link_placeholder': 'Introdu linkul unui videoclip sau al unei liste de redare',
   'youtube.enter_source_toast': 'Introdu un link YouTube sau un termen de căutare',
   'youtube.fetching_info': 'Se încarcă informațiile videoclipului...',
-  'youtube.fetch_failed': 'Informațiile videoclipului nu au putut fi încărcate',
+  'youtube.fetch_failed': 'Nu s-au putut încărca informațiile video',
   'youtube.enter_link_toast': 'Introdu un link YouTube',
   'youtube.open_link': 'Deschide linkul YouTube',
   'youtube.tap_to_play': 'APASĂ PENTRU REDARE',
@@ -577,11 +577,11 @@ const ro: Record<I18nKey, string> = {
   'toast.virtual_effects_off': 'Toate efectele virtuale sunt dezactivate',
   'toast.host_only': 'Numai gazda poate face acest lucru',
   'toast.host_only_media': 'Numai gazda poate adăuga conținut media',
-  'toast.media_management_required': 'Este necesară permisiunea de gestionare a conținutului media',
+  'toast.media_management_required': 'Este necesară permisiunea de gestionare media',
   'toast.playback_control_required': 'Este necesară permisiunea de control al redării',
   'toast.member_management_required': 'Este necesară permisiunea de eliminare a membrilor',
   'toast.chat_notice_required': 'Este necesară permisiunea de publicare a anunțurilor în chat',
-  'toast.room_owner_required': 'Numai proprietarul camerei poate modifica această opțiune',
+  'toast.room_owner_required': 'Doar proprietarul camerei poate modifica asta',
   'toast.system_audio_owner_required':
     'Poți partaja conținut audio doar din fila care a deschis camera',
   'toast.host_only_youtube': 'Numai gazda poate adăuga linkuri YouTube',
@@ -608,7 +608,7 @@ const ro: Record<I18nKey, string> = {
   'toast.host_sync_requested':
     'S-a solicitat sincronizarea de precizie\nReglează sincronizarea manuală pe un dispozitiv invitat',
   'toast.sync_not_in_system_audio':
-    'Sincronizarea nu este disponibilă în modul de partajare a sunetului sistemului',
+    'Sincronizarea nu e disponibilă la partajarea sunetului sistemului',
   'toast.sync_not_ready': 'Încă nu este gata\nÎncearcă din nou peste câteva momente',
   'toast.sync_no_media':
     'Nu există conținut media de sincronizat\nSelectează mai întâi ceva de redat',
@@ -654,7 +654,7 @@ const ro: Record<I18nKey, string> = {
   'share.remote.network_error': 'Eroare de rețea în timpul partajării la distanță',
   'share.remote.rate_limited':
     'Prea multe încărcări pentru partajare la distanță\nÎncearcă din nou peste câteva momente',
-  'share.remote.quota_reached': 'Limita de stocare pentru partajare la distanță a fost atinsă',
+  'share.remote.quota_reached': 'Spațiul pentru partajare la distanță este plin',
   'share.remote.auth_failed':
     'Autorizarea partajării la distanță a eșuat\nVerifică setările Worker',
   'share.remote.expired': 'Linkul fișierului la distanță a expirat\nPartajează-l din nou',

@@ -447,11 +447,11 @@ const fil: Record<I18nKey, string> = {
   'chat.system_audio_stopped_system_message':
     'Natapos na ang pagbabahagi ng system audio. Host, maaari mo nang lakasan ulit ang volume para magamit muli ang device na ito bilang speaker.',
   'chat.remote_upload_limited_system_message':
-    'Naabot ang limitasyon sa pag-upload ng file\nDapat subukan muli mamaya ng mga kalahok na nakakonekta sa malayo',
+    'Naabot ang limitasyon sa pag-upload ng file\nSubukan muli mamaya ng mga kalahok sa malayo',
   'chat.remote_storage_quota_system_message':
     'Naabot ang limitasyon sa malayuang pagbabahagi.\nAvailable pa rin ang lokal na pagbabahagi ng file.',
   'chat.remote_upload_failed_system_message':
-    'Hindi na-upload ang file para sa malayuang pagbabahagi\nDapat subukan muli maya-maya ng mga kalahok na nakakonekta sa malayo',
+    'Nabigo ang malayuang pag-upload ng file\nSubukan muli maya-maya ng mga kalahok sa malayo',
   'chat.pinned_close': 'Isara ang abiso',
   'chat.cmd_whisper_from': 'Pribadong mensahe mula kay {{name}}',
   'chat.cmd_whisper_to': 'Pribadong mensahe para kay {{name}}',
@@ -576,7 +576,7 @@ const fil: Record<I18nKey, string> = {
   'toast.email_copied': 'Nakopya ang email address!',
   'toast.settings_sync_enabled': 'Naka-on ang pag-sync ng mga setting',
   'toast.settings_sync_admin_required':
-    'Naka-on ang pag-sync ng mga setting\nMga administrator lang ng kuwarto ang makakapagbago ng mga audio setting',
+    'Naka-on ang pag-sync ng mga setting\nMga admin lang ng kuwarto ang makakapagbago ng audio',
   'toast.virtual_bass_on': 'Naka-on ang virtual bass',
   'toast.virtual_bass_off': 'Naka-off ang virtual bass',
   'toast.virtual_treble_on': 'Naka-on ang virtual treble',
@@ -657,15 +657,14 @@ const fil: Record<I18nKey, string> = {
   'share.remote.download_failed': 'Hindi ma-download ang malayuang file: {{msg}}',
   'share.remote.timeout': 'Nag-timeout ang malayuang pagbabahagi ng file',
   'share.remote.too_large': 'Masyadong malaki ang file (maximum na 200 MB)',
-  'share.remote.network_error': 'Nagkaroon ng network error habang nagbabahagi sa malayo',
-  'share.remote.rate_limited':
-    'Masyadong maraming file ang ina-upload para sa malayuang pagbabahagi\nPakisubukan muli maya-maya',
+  'share.remote.network_error': 'Network error sa malayuang pagbabahagi',
+  'share.remote.rate_limited': 'Masyadong maraming malayuang upload\nPakisubukan muli maya-maya',
   'share.remote.quota_reached': 'Naabot ang limitasyon sa storage ng malayuang pagbabahagi',
   'share.remote.auth_failed':
     'Hindi napahintulutan ang malayuang pagbabahagi\nPakisuri ang mga setting ng Worker',
   'share.remote.expired': 'Nag-expire na ang link ng malayuang file\nPakibahagi itong muli',
   'share.remote.unavailable': 'Hindi gumana ang malayuang pagbabahagi\nPakisubukan muli maya-maya',
-  'transfer.preload_fail': 'Hindi nag-play ang na-preload na file, kaya muli itong nilo-load',
+  'transfer.preload_fail': 'Hindi nag-play ang na-preload, nilo-load muli',
   'transfer.download_finishing': 'Tinatapos ang pag-download...',
   'transfer.preparation_delayed': 'Naantala ang paghahanda...\nHumihiling ng recovery mula sa host',
   'transfer.receiving_0pct': 'Tumatanggap... 0%',

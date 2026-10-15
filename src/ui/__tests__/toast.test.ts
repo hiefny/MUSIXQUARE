@@ -368,34 +368,92 @@ describe('showToast', () => {
     expect(msg.innerText).toBe('42');
   });
 
-  it('truncates long colon values and preserves file extensions', () => {
-    showToast('File read error: This is a very very very long song filename.m4a');
+  it('truncates a long value after a colon and preserves its file extension', () => {
+    const filename = `${'A very long recording of the rehearsal '.repeat(3)}take 7.m4a`;
+    showToast(`File read error: ${filename}`);
     const msg = document.getElementById('toast-msg')!;
 
-    expect(msg.innerText.length).toBeLessThanOrEqual(50);
-    expect(msg.innerText).toMatch(/^File read error: /);
-    expect(msg.innerText).toContain('…');
-    expect(msg.innerText.endsWith('.m4a')).toBe(true);
+    const [prefix, value] = msg.innerText.split(': ');
+    expect(prefix).toBe('File read error');
+    expect(Array.from(value ?? '')).toHaveLength(64);
+    expect(value).toContain('…');
+    expect(value?.endsWith('.m4a')).toBe(true);
+    expect(msg.title).toBe(`File read error: ${filename}`);
+  });
+
+  it('truncates a long value after a full-width colon as well', () => {
+    // Chinese and Japanese templates such as "文件读取错误：{{name}}".
+    const filename = `${'一段很长的排练录音文件名称'.repeat(8)}.m4a`;
+    showToast(`文件读取错误：${filename}`);
+    const msg = document.getElementById('toast-msg')!;
+
+    const [prefix, value] = msg.innerText.split('：');
+    expect(prefix).toBe('文件读取错误');
+    expect(Array.from(value ?? '')).toHaveLength(64);
+    expect(value?.endsWith('….m4a')).toBe(true);
   });
 
   it('truncates long quoted values per line', () => {
-    showToast('Decoding "This is a very very very long song filename.mp3" took too long.');
+    showToast('Decoding "This is a very very very long song filename.mp3" took too long');
     const msg = document.getElementById('toast-msg')!;
 
-    expect(msg.innerText.length).toBeLessThanOrEqual(50);
-    expect(msg.innerText).toContain('…');
-    expect(msg.innerText).toContain('.mp3');
-    expect(msg.innerText).toContain('took too long.');
+    const quoted = msg.innerText.match(/"([^"]+)"/)?.[1] ?? '';
+    expect(Array.from(quoted)).toHaveLength(28);
+    expect(quoted).toContain('…');
+    expect(quoted.endsWith('.mp3')).toBe(true);
+    expect(msg.innerText).toMatch(/^Decoding ".+" took too long$/);
     expect(msg.title).toContain('This is a very very very long song filename.mp3');
   });
 
-  it('keeps manual toast line breaks while enforcing line length', () => {
-    showToast('Remote file share failed:\nFailed because this backend error message is very long');
+  it('shows long authored copy in full instead of cutting it', () => {
+    // Owner decision 2026-10-15: a long sentence wraps in the toast.
+    const copy =
+      'Tu cuenta se está eliminando\n' +
+      'Los permisos PRO se están retirando de forma segura y la eliminación finalizará automáticamente';
+    showToast(copy);
+    const msg = document.getElementById('toast-msg')!;
+
+    expect(msg.innerText).toBe(copy);
+    expect(msg.innerText).not.toContain('…');
+    expect(msg.title).toBe('');
+  });
+
+  it('keeps manual line breaks and cuts only a runaway line', () => {
+    const runaway = 'x'.repeat(200);
+    showToast(`Remote file share failed\n${runaway}`);
     const msg = document.getElementById('toast-msg')!;
 
     const lines = msg.innerText.split('\n');
     expect(lines).toHaveLength(2);
-    expect(lines.every((line) => line.length <= 50)).toBe(true);
+    expect(lines[0]).toBe('Remote file share failed');
+    expect(Array.from(lines[1] ?? '')).toHaveLength(120);
+    expect(lines[1]?.endsWith('…')).toBe(true);
+  });
+
+  it('keeps a long toast up long enough to read, up to 7 seconds', () => {
+    const toast = document.getElementById('toast')!;
+    // 95 characters at 50 ms each.
+    showToast('y'.repeat(95));
+    vi.advanceTimersByTime(4700);
+    expect(toast.classList.contains('show')).toBe(true);
+    vi.advanceTimersByTime(50);
+    expect(toast.classList.contains('show')).toBe(false);
+
+    // 200 characters would take 10 seconds; the cap keeps it at 7.
+    showToast(`${'z'.repeat(100)}\n${'z'.repeat(100)}`);
+    vi.advanceTimersByTime(6999);
+    expect(toast.classList.contains('show')).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(toast.classList.contains('show')).toBe(false);
+  });
+
+  it('never shortens a requested display time', () => {
+    const toast = document.getElementById('toast')!;
+    showToast('Camera preview did not start', { durationMs: 6000 });
+    vi.advanceTimersByTime(5999);
+    expect(toast.classList.contains('show')).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(toast.classList.contains('show')).toBe(false);
   });
 
   it('falls back to console.info when DOM elements missing', () => {

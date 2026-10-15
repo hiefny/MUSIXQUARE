@@ -461,7 +461,7 @@ const de: Record<I18nKey, string> = {
     'Der Link zur freigegebenen Datei ist abgelaufen\nBitte teile die Datei erneut',
   'share.remote.unavailable':
     'Netzwerkübergreifende Freigabe fehlgeschlagen\nBitte gleich erneut versuchen',
-  'transfer.preload_fail': 'Wiedergabe der vorgeladenen Datei fehlgeschlagen, wird neu geladen...',
+  'transfer.preload_fail': 'Vorgeladene Wiedergabe fehlgeschlagen, wird neu geladen...',
   'transfer.download_finishing': 'Download wird abgeschlossen...',
   'transfer.preparation_delayed':
     'Die Vorbereitung dauert länger...\nWiederherstellung beim Host wird angefordert',

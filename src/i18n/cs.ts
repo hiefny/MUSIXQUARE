@@ -591,7 +591,7 @@ const cs: Record<I18nKey, string> = {
   'toast.click_copy_invite': 'Kliknutím zkopírujete zvací kód',
   'toast.cant_select_file': 'Soubor nelze vybrat',
   'toast.unsupported_files_excluded': 'Přeskočeno nepodporovaných souborů: {{count}}',
-  'toast.no_supported_audio_files': 'Nebyly nalezeny podporované zvukové soubory k přidání',
+  'toast.no_supported_audio_files': 'Žádné podporované zvukové soubory k přidání',
   'dialog.large_room_file.title': 'Sdílení souborů ve velké místnosti',
   'dialog.large_room_file.message':
     'Ve stejné síti je přímý přenos souborů stabilní až pro 8 zařízení účastníků bez započtení hostitele. Ve větších místních místnostech mohou být soubory distribuovány přes Cloudflare R2.\n\nPokračovat?',
@@ -653,7 +653,7 @@ const cs: Record<I18nKey, string> = {
     'Autorizace vzdáleného sdílení se nezdařila\nZkontrolujte nastavení Worker',
   'share.remote.expired': 'Odkaz na vzdálený soubor vypršel\nSdílejte soubor znovu',
   'share.remote.unavailable': 'Vzdálené sdílení se nezdařilo\nZkuste to za chvíli',
-  'transfer.preload_fail': 'Přehrání předem načteného souboru se nezdařilo, načítá se znovu',
+  'transfer.preload_fail': 'Předem načtený soubor nelze přehrát, načítá se znovu',
   'transfer.download_finishing': 'Dokončuje se stahování...',
   'transfer.preparation_delayed':
     'Příprava se zpozdila...\nHostiteli byl odeslán požadavek na obnovení',

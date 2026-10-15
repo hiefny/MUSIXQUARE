@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Toast line length — 2026-10-15](design/toast-line-length-2026-10-15.md) —
+  Toasts stop cutting authored copy at 50 characters (921 values in 38 locales
+  ended in an ellipsis), stay up longer for longer text, and 77 verbose
+  translations in 20 locales are trimmed. Local unit/E2E evidence; device
+  rendering and production checks remain.
+
 - [Toast punctuation policy — 2026-10-15](design/toast-punctuation-policy-2026-10-15.md) —
   Toasts drop sentence-final periods and put each sentence on its own line in
   42 locales, with a guard test. Shipped App 8.10.22/v688 with exact-main CI,

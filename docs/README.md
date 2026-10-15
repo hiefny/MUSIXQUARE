@@ -92,8 +92,9 @@ runbooks. Neither belongs in a general setup document.
 
 - [Toast punctuation policy — 2026-10-15](design/toast-punctuation-policy-2026-10-15.md) —
   Toasts drop sentence-final periods and put each sentence on its own line in
-  42 locales, with a guard test. Local unit/E2E evidence; device rendering and
-  production checks remain.
+  42 locales, with a guard test. Shipped App 8.10.22/v688 with exact-main CI,
+  production ownership/smoke and Drift Audit evidence; device rendering checks
+  remain.
 
 - [Update notice line breaks — 2026-10-15](design/update-notice-line-breaks-2026-10-15.md) —
   The four update notices put each sentence on its own line in 42 locales,

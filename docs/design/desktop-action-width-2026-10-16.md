@@ -84,4 +84,88 @@ directory `mxqr-desktop-width-release-20261016`; they are not production logs.
 
 ## Release and recovery
 
-Pending the reviewed PR, successful exact-main CI candidate and App release.
+[PR #358](https://github.com/hiefny/MUSIXQUARE/pull/358) merged as
+`0d08447cb1447edb3a32a49fb872da450db793bf`. The
+[PR CI](https://github.com/hiefny/MUSIXQUARE/actions/runs/38813961353) passed all
+11 jobs, and Codex review completed without findings. The separate
+[exact-main CI 38814552948](https://github.com/hiefny/MUSIXQUARE/actions/runs/38814552948)
+attempt 1 passed all 11 jobs: 567 unit files, 12,767 passed / 0 failed / 1
+skipped (the Windows-only different-drive path check on Linux), production
+candidate browser/Service Worker 17 passed, critical browser 29 passed, and
+all coverage, static and build gates passed. The broad coverage report merges
+the two unit shards; it is not an additional test execution.
+
+[Production Release 38815146392](https://github.com/hiefny/MUSIXQUARE/actions/runs/38815146392)
+attempt 1 used that exact-main candidate with `target=app` and Developer API
+D1 application disabled. The deploy job completed successfully at
+**2026-10-16 07:11:59 KST** (`2026-10-15T22:11:59Z`). The App target still
+applied and verified its ordinary idempotent App D1 baselines.
+
+| Evidence | Recorded result |
+| --- | --- |
+| App deployment | `106ea65b-12c6-4800-bac0-926be3d6965b` |
+| App version | `66b01d9f-4fa2-4441-9fd7-60c1b032aab0` |
+| Previous deployment / version | `98c9ee44-0aaf-42d2-b338-31d0af8d65ec` / `a4b4004f-5be3-47fd-a048-836085fb177b` |
+| Final ownership | `verified` at 07:11:52.258 KST; deployment, version and `git:0d08447cb1447edb3a32a49fb872da450db793bf` matched |
+| Coherent marker | `production-committed.json`, schema 1, exact deployed SHA, `target=app` |
+| Partial-release recheck | `compatible` at 07:11:15.065 KST; all five unselected Workers retained their recorded deployment/version and `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance |
+
+The unselected Worker identities below are explicitly **version ID / deployment
+ID**, as recorded by `partial-release-compatibility-recheck.json`:
+
+| Worker | Version ID | Deployment ID |
+| --- | --- | --- |
+| signaling | `c25e8be3-bb42-465f-a66b-77360b3a5f1a` | `052c9597-cc96-44ea-91cb-40469840d760` |
+| pro-room | `8d5d44c0-c925-4495-86d7-29bf11a0958e` | `e5049949-cbcf-4210-b736-92541dfadddf` |
+| remote-share | `b7150b48-2e77-4db0-a908-718fe341bd5f` | `8b306664-f898-463a-aeb3-f4a083ae0d5a` |
+| developer-api | `c4069dcd-524d-4752-baa0-364aba94679a` | `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d` |
+| developer-api-facade | `d4b348cd-3323-4f48-8bbb-4f49a3680110` | `44f54bd6-1af9-4da3-9829-48d28d4c7037` |
+
+All four selected live smokes passed: App generation convergence on
+`/assets/main-V_6oR3WG.js` with 27 verified assets and three consecutive reads,
+anonymous App account boundary, current PRO public boundary, and Standard
+HTTPS signaling host/guest admission with offer/answer relay. PRO smoke
+confirmed the existing `8d5d44c0` version. Smokes for unselected deployment
+scopes were skipped.
+
+After deployment, the canonical public `/`, `/service-worker.js` (v693),
+`/bootstrap.js?cache=v693`, `/assets/main-V_6oR3WG.js` and
+`/assets/main-DmP57Ip4.css` all returned HTTP 200. A fresh Chromium browser
+entered a real Standard host room at `https://musixquare.com/`, without a CSS
+override. At 1280×800, 1360×800 and 1440×800, both buttons measured 160×56px;
+the row measured 332px with `max-width: 100%` and a 12px gap. The 1280px
+production screenshot was visually inspected. These production checks did not
+exercise sharing capture or physical devices; those limits remain separate
+from the local synthetic sharing results above.
+
+[Operations Drift Audit 38815569546](https://github.com/hiefny/MUSIXQUARE/actions/runs/38815569546)
+attempt 1 passed on the deployed SHA. Its report generated at
+07:13:27.343 KST (`2026-10-15T22:13:27.343Z`) records
+`automated-checks-passed`: 31 pass / 0 fail / 5 manual-only. Manual-only checks
+are not counted as passes.
+
+Recovery was not needed and the independent recovery job was skipped. The
+immutable checkpoint captured at 07:10:36.286 KST preserves the previous App
+deployment/version above and SHA `476e42b11aa504a935b38e318e9c0ea328cd4345`
+(`8.10.26/v692`). Restoring that baseline restores the narrower desktop
+buttons. Mixed client versions remain compatible; recovery still requires
+fresh ownership and floor verification. The checkpoint is release recovery
+evidence, not a user-data backup. The captured generation floor remains
+`4c5612d5fc4c5548781eb7d5b26d6904969c051c`, with entitlement and Developer API
+authority awareness verified for the previous App; no new floor was added.
+
+The release run retains these artifacts for 90 days:
+
+- `production-deployments-0d08447cb1447edb3a32a49fb872da450db793bf-38815146392-1`
+  contains App before/after state, final ownership verification and the
+  partial-release compatibility recheck.
+- `production-recovery-checkpoint-0d08447cb1447edb3a32a49fb872da450db793bf-38815146392-1`
+  contains the immutable pre-mutation App and floor checkpoint.
+- `production-commit-0d08447cb1447edb3a32a49fb872da450db793bf-38815146392-1`
+  contains the coherent commit marker.
+
+Task-local `public-assets.json`, `production-geometry.json` and
+`production-1280.png` retain the public HTTP, measurement and screenshot
+evidence in `mxqr-desktop-width-release-20261016`. The current state and this
+release's one history row link here. The follow-up documentation commit does
+not change the deployed code SHA and requires no App release.

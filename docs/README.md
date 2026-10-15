@@ -92,7 +92,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [Desktop action button width — 2026-10-16](design/desktop-action-width-2026-10-16.md) —
   Sync and Media retain their existing maximum width from the 1280px desktop
-  breakpoint. Verification and release evidence are recorded in the report.
+  breakpoint. Shipped App 8.10.27/v693 with exact-main CI, production
+  ownership/smoke, live 1280/1360/1440px geometry and Drift Audit evidence.
 
 - [Keep-open dialog in PRO rooms — 2026-10-16](design/keep-open-pro-2026-10-16.md) —
   First-time PRO participants also get the one-time keep-open dialog when the

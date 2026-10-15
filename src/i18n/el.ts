@@ -547,18 +547,15 @@ const el: Record<I18nKey, string> = {
   'network.op_revoked': 'Τα δικαιώματα διαχειριστή ανακλήθηκαν',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': 'Συνδέθηκε: {{name}}',
   'toast.device_disconnected': 'Αποσυνδέθηκε: {{name}}',
   'toast.device_conn_error': 'Σφάλμα σύνδεσης για {{name}}',
   'toast.device_kicked': 'Αφαιρέθηκε: {{name}}',
   'toast.remote_decode_device_wait':
     'Μια συσκευή δεν μπόρεσε να αποκωδικοποιήσει αυτό το κομμάτι\nΗ αναπαραγωγή συνεχίζεται στις υπόλοιπες',
-  'toast.invite_code': 'Κωδικός πρόσκλησης: {{code}}',
   'toast.invite_code_info': 'Συνδεδεμένες συσκευές: {{count}} | Κωδικός {{code}}',
   'toast.added_tracks': 'Κομμάτια που προστέθηκαν: {{count}}',
   'toast.preparing': 'Προετοιμασία: {{name}}',
   'toast.file_save_error': 'Σφάλμα αποθήκευσης αρχείου: {{name}}',
-  'toast.distortion_warn': 'Ενδέχεται να προκαλέσει παραμόρφωση',
   'toast.decoding_audio': 'Αποκωδικοποίηση ήχου...',
   'toast.preparing_next': 'Προετοιμασία επόμενου κομματιού... ({{name}})',
   'toast.preparing_next_pct': 'Προετοιμασία επόμενου κομματιού... {{pct}}%',
@@ -580,8 +577,6 @@ const el: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Το εικονικό surround είναι ενεργό',
   'toast.virtual_surround_off': 'Το εικονικό surround είναι ανενεργό',
   'toast.virtual_effects_off': 'Όλα τα εικονικά εφέ είναι ανενεργά',
-  'toast.host_only': 'Αυτή η ενέργεια είναι διαθέσιμη μόνο στον οικοδεσπότη',
-  'toast.host_only_media': 'Μόνο ο οικοδεσπότης μπορεί να προσθέσει πολυμέσα',
   'toast.media_management_required': 'Απαιτείται δικαίωμα διαχείρισης πολυμέσων',
   'toast.playback_control_required': 'Απαιτείται δικαίωμα ελέγχου αναπαραγωγής',
   'toast.member_management_required': 'Απαιτείται δικαίωμα αφαίρεσης μελών',
@@ -589,10 +584,7 @@ const el: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Μόνο ο κάτοχος του δωματίου μπορεί να το αλλάξει',
   'toast.system_audio_owner_required':
     'Μπορείτε να κοινοποιήσετε ήχο μόνο από την καρτέλα που άνοιξε το δωμάτιο',
-  'toast.host_only_youtube': 'Μόνο ο οικοδεσπότης μπορεί να προσθέσει συνδέσμους YouTube',
-  'toast.host_only_control': 'Μόνο ο οικοδεσπότης μπορεί να το χειριστεί',
   'toast.host_setting_required': 'Μόνο ο οικοδεσπότης μπορεί να αλλάξει αυτή τη ρύθμιση',
-  'toast.host_only_file': 'Μόνο ο οικοδεσπότης μπορεί να προσθέσει αρχεία',
   'toast.no_tracks': 'Δεν υπάρχουν κομμάτια για αναπαραγωγή',
   'toast.add_media_to_play': 'Προσθέστε πολυμέσα',
   'toast.no_invite_code': 'Δεν υπάρχει ακόμα κωδικός πρόσκλησης',
@@ -609,9 +601,6 @@ const el: Record<I18nKey, string> = {
   'toast.stop_sent': 'Το αίτημα διακοπής στάλθηκε',
   'toast.hprecision_sync': 'Συγχρονισμός υψηλής ακρίβειας: προετοιμασία ήχου…',
   'toast.file_ready': 'Το αρχείο είναι έτοιμο!\nΠατήστε Αναπαραγωγή',
-  'toast.host_sync_not_recommended': 'Ρυθμίστε τον συγχρονισμό σε συσκευή μέλους',
-  'toast.host_sync_requested':
-    'Ζητήθηκε συγχρονισμός ακριβείας\nΡυθμίστε τον χειροκίνητο συγχρονισμό σε συσκευή μέλους',
   'toast.sync_not_in_system_audio':
     'Ο συγχρονισμός δεν είναι διαθέσιμος κατά την κοινοποίηση ήχου συστήματος',
   'toast.sync_not_ready': 'Δεν είναι ακόμα έτοιμο\nΔοκιμάστε ξανά σε λίγο',
@@ -627,11 +616,9 @@ const el: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Δεν υπάρχουν ακόμα δεδομένα αναπαραγωγής οικοδεσπότη\nΔοκιμάστε ξανά σε λίγο',
   'toast.yt_rendezvous_timeout': 'Ο συγχρονισμός απέτυχε\nΔοκιμάστε ξανά σε λίγο',
-  'toast.yt_host_sync_sent': 'Το σήμα αυτόματου συγχρονισμού στάλθηκε στα μέλη',
   'toast.yt_manual_sync_prompt':
     'Μόλις έγινε προσπάθεια αυτόματου συγχρονισμού\nΑν εξακολουθεί να υπάρχει καθυστέρηση, ρυθμίστε τώρα την τιμή',
   'toast.playlist_ended': 'Το τελευταίο στοιχείο πολυμέσων ολοκληρώθηκε',
-  'toast.operator_required': 'Μόνο οι διαχειριστές μπορούν να αλλάξουν τις καθολικές ρυθμίσεις',
   'toast.connection_closing': 'Η σύνδεση χάθηκε και η ρύθμιση δεν συγχρονίστηκε',
   'toast.host_changed_setting': 'Οι ρυθμίσεις άλλαξαν',
   'toast.session_mismatch': 'Οι συνεδρίες δεν αντιστοιχούν\nΗ μεταφορά αρχείου θα επαναληφθεί',

@@ -504,18 +504,15 @@ const fr: Record<I18nKey, string> = {
   'system_audio.duration_limit_stopped': 'Le partage a pris fin automatiquement\naprès 2 heures',
 
   // Toast
-  'toast.device_connected': 'Connexion de {{name}}',
   'toast.device_disconnected': 'Déconnexion de {{name}}',
   'toast.device_conn_error': 'Erreur de connexion de {{name}}',
   'toast.device_kicked': 'L’appareil {{name}} a été expulsé',
   'toast.remote_decode_device_wait':
     'Un appareil n’a pas pu décoder cette piste\nLa lecture continue pour les autres',
-  'toast.invite_code': 'Code d’invitation : {{code}}',
   'toast.invite_code_info': '{{count}} connectés | Code {{code}}',
   'toast.added_tracks': '{{count}} pistes ajoutées',
   'toast.preparing': 'Préparation : {{name}}',
   'toast.file_save_error': 'Erreur d’enregistrement du fichier : {{name}}',
-  'toast.distortion_warn': 'Peut provoquer de la distorsion',
   'toast.decoding_audio': 'Décodage audio…',
   'toast.preparing_next': 'Préparation de la piste suivante… ({{name}})',
   'toast.preparing_next_pct': 'Préparation de la piste suivante… {{pct}} %',
@@ -535,8 +532,6 @@ const fr: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Le surround virtuel est activé',
   'toast.virtual_surround_off': 'Le surround virtuel est désactivé',
   'toast.virtual_effects_off': 'Tous les effets virtuels sont désactivés',
-  'toast.host_only': 'Seul l’hôte peut effectuer cette action',
-  'toast.host_only_media': 'Seul l’hôte peut ajouter des médias',
   'toast.media_management_required': 'L’autorisation de gérer les médias est requise',
   'toast.playback_control_required': 'L’autorisation de contrôler la lecture est requise',
   'toast.member_management_required': 'L’autorisation d’expulser des membres est requise',
@@ -544,10 +539,7 @@ const fr: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Seul le propriétaire du salon peut modifier ceci',
   'toast.system_audio_owner_required':
     'Vous ne pouvez partager l’audio que depuis l’onglet qui a ouvert le salon',
-  'toast.host_only_youtube': 'Seul l’hôte peut ajouter des liens YouTube',
-  'toast.host_only_control': 'Seul l’hôte peut utiliser cette commande',
   'toast.host_setting_required': 'Seul l’hôte peut modifier ce réglage',
-  'toast.host_only_file': 'Seul l’hôte peut ajouter des fichiers',
   'toast.no_tracks': 'Aucune piste à lire',
   'toast.add_media_to_play': 'Veuillez ajouter des médias',
   'toast.no_invite_code': 'Aucun code d’invitation pour l’instant',
@@ -560,9 +552,6 @@ const fr: Record<I18nKey, string> = {
   'toast.stop_sent': 'Demande d’arrêt envoyée',
   'toast.hprecision_sync': 'Synchronisation haute précision : préparation audio…',
   'toast.file_ready': 'Votre fichier est prêt !\nAppuyez sur Lecture',
-  'toast.host_sync_not_recommended': 'Réglez la synchronisation sur l’appareil d’un participant',
-  'toast.host_sync_requested':
-    'Synchronisation précise demandée\nRéglez la synchronisation manuelle sur l’appareil d’un participant',
   'toast.sync_not_in_system_audio':
     'Synchronisation indisponible pendant le partage de l’audio système',
   'toast.sync_not_ready': 'La synchronisation n’est pas encore prête\nRéessayez dans un instant',
@@ -576,11 +565,9 @@ const fr: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Aucune donnée de lecture de l’hôte pour le moment\nRéessayez dans un instant',
   'toast.yt_rendezvous_timeout': 'Échec de la synchronisation\nRéessayez dans un instant',
-  'toast.yt_host_sync_sent': 'Signal de synchronisation automatique envoyé aux participants',
   'toast.yt_manual_sync_prompt':
     'La synchronisation automatique vient d’être tentée\nSi le décalage persiste, ajustez la valeur maintenant',
   'toast.playlist_ended': 'La lecture du dernier média est terminée',
-  'toast.operator_required': 'Seuls les administrateurs peuvent modifier les réglages globaux',
   'toast.connection_closing': 'Connexion perdue : le réglage n’a pas été synchronisé',
   'toast.host_changed_setting': 'Les réglages ont changé',
   'toast.session_mismatch': 'Le salon ne correspond pas\nLe transfert du fichier va être relancé',

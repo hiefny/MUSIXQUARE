@@ -53,6 +53,14 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### 사용하지 않는 토스트 키
+
+- [ ] App 8.10.24/v690 배포 준비: 코드에서 참조하지 않는 토스트 키 12개를 42개 언어에서
+      지웠다(504항목, 오너 결정 2026-10-15). 저장소 전체 검색과 동적 키 조합 검색으로
+      쓰임이 없음을 확인했고, 테스트가 예시로 빌려 쓰던 키는 실제로 쓰이는 키로 바꿨다.
+      exact-main CI와 정식 배포 근거를 확보한 뒤 닫는다.
+      [범위·검증](design/unused-toast-keys-2026-10-15.md)
+
 ### 최근 해결 근거
 
 App 8.10.23/v689의 토스트 전체 표시·장황한 번역 다듬기(오너 결정 2026-10-15)는 PR

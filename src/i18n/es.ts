@@ -511,18 +511,15 @@ const es: Record<I18nKey, string> = {
     'Se dejó de compartir el audio del sistema automáticamente\ndespués de 2 horas',
 
   // Toast
-  'toast.device_connected': '{{name}} se conectó',
   'toast.device_disconnected': '{{name}} se desconectó',
   'toast.device_conn_error': 'Error de conexión de {{name}}',
   'toast.device_kicked': 'Se expulsó a {{name}}',
   'toast.remote_decode_device_wait':
     'Un dispositivo no pudo decodificar esta pista\nLa reproducción continúa para los demás',
-  'toast.invite_code': 'Código de invitación: {{code}}',
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
   'toast.added_tracks': '{{count}} pistas añadidas',
   'toast.preparing': 'Preparando: {{name}}',
   'toast.file_save_error': 'Error al guardar archivo: {{name}}',
-  'toast.distortion_warn': 'Puede causar distorsión',
   'toast.decoding_audio': 'Decodificando audio...',
   'toast.preparing_next': 'Preparando siguiente pista... ({{name}})',
   'toast.preparing_next_pct': 'Preparando siguiente pista... {{pct}}%',
@@ -542,8 +539,6 @@ const es: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'El sonido envolvente virtual está activado',
   'toast.virtual_surround_off': 'El sonido envolvente virtual está desactivado',
   'toast.virtual_effects_off': 'Todos los efectos virtuales están desactivados',
-  'toast.host_only': 'Solo el anfitrión puede hacer esto',
-  'toast.host_only_media': 'Solo el anfitrión puede añadir contenido',
   'toast.media_management_required': 'Se necesita permiso para gestionar contenido',
   'toast.playback_control_required': 'Se necesita permiso para controlar la reproducción',
   'toast.member_management_required': 'Se necesita permiso para expulsar miembros',
@@ -551,10 +546,7 @@ const es: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Solo el propietario de la sala puede cambiar esto',
   'toast.system_audio_owner_required':
     'Solo puedes compartir audio desde la pestaña que abrió la sala',
-  'toast.host_only_youtube': 'Solo el anfitrión puede añadir enlaces de YouTube',
-  'toast.host_only_control': 'Solo el anfitrión puede controlar esto',
   'toast.host_setting_required': 'Solo el anfitrión puede cambiar este ajuste',
-  'toast.host_only_file': 'Solo el anfitrión puede añadir archivos',
   'toast.no_tracks': 'No hay pistas para reproducir',
   'toast.add_media_to_play': 'Añade contenido para reproducir',
   'toast.no_invite_code': 'Aún no hay código de invitación',
@@ -567,9 +559,6 @@ const es: Record<I18nKey, string> = {
   'toast.stop_sent': 'Solicitud de detención enviada',
   'toast.hprecision_sync': 'Sincronización de alta precisión: preparando audio...',
   'toast.file_ready': '¡Tu archivo está listo!\nToca Reproducir',
-  'toast.host_sync_not_recommended': 'Ajusta la sincronización en un dispositivo participante',
-  'toast.host_sync_requested':
-    'Sincronización precisa solicitada\nAjusta la sincronización manual en un dispositivo participante',
   'toast.sync_not_in_system_audio':
     'La sincronización no está disponible en modo de audio del sistema',
   'toast.sync_not_ready': 'Aún no está listo\nInténtalo de nuevo en un momento',
@@ -584,11 +573,9 @@ const es: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Aún no hay datos de reproducción del anfitrión\nInténtalo en un momento',
   'toast.yt_rendezvous_timeout': 'Falló la sincronización\nInténtalo en un momento',
-  'toast.yt_host_sync_sent': 'Señal de sincronización automática enviada a los participantes',
   'toast.yt_manual_sync_prompt':
     'Se acaba de intentar la sincronización automática\nSi aún notas retraso, ajusta el valor ahora',
   'toast.playlist_ended': 'Terminó la reproducción del último contenido',
-  'toast.operator_required': 'Solo los administradores pueden cambiar los ajustes globales',
   'toast.connection_closing': 'Conexión perdida, ajuste no sincronizado',
   'toast.host_changed_setting': 'Los ajustes cambiaron',
   'toast.session_mismatch': 'La sesión no coincide\nSe reintentará la transferencia de archivo',

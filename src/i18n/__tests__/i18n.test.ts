@@ -29,7 +29,7 @@ describe('t() translation function', () => {
   );
 
   it('interpolates {{name}} parameter', () => {
-    const result = t('toast.device_connected', { name: 'iPhone' });
+    const result = t('toast.device_disconnected', { name: 'iPhone' });
     expect(result).toContain('iPhone');
     expect(result).not.toContain('{{name}}');
   });
@@ -41,12 +41,12 @@ describe('t() translation function', () => {
   });
 
   it('handles missing params gracefully (keeps placeholder)', () => {
-    const result = t('toast.device_connected');
+    const result = t('toast.device_disconnected');
     expect(result).toContain('{{name}}');
   });
 
   it('interpolates multiple parameters', () => {
-    const result = t('toast.device_connected', { name: 'Test' });
+    const result = t('toast.device_disconnected', { name: 'Test' });
     expect(result).toContain('Test');
   });
 

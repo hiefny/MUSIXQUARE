@@ -576,7 +576,6 @@ describe('Translation key integrity', () => {
   });
 
   it('uses one consistent Korean honorific form for presence messages', () => {
-    expect(ko['toast.device_connected']).toBe('{{name}}님이 연결됐어요');
     expect(ko['chat.peer_connected']).toBe('{{name}}님이 입장했어요');
     expect(ko['chat.peer_disconnected']).toBe('{{name}}님이 퇴장했어요');
   });

@@ -540,18 +540,15 @@ const bg: Record<I18nKey, string> = {
   'network.op_revoked': 'Администраторските права са отнети',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': '{{name}} се свърза',
   'toast.device_disconnected': '{{name}} прекъсна връзката',
   'toast.device_conn_error': 'Грешка във връзката с {{name}}',
   'toast.device_kicked': '{{name}} е премахнат',
   'toast.remote_decode_device_wait':
     'Едно устройство не успя да декодира песента\nВъзпроизвеждането продължава за останалите',
-  'toast.invite_code': 'Код за покана: {{code}}',
   'toast.invite_code_info': 'Свързани: {{count}} | Код {{code}}',
   'toast.added_tracks': 'Добавени песни: {{count}}',
   'toast.preparing': 'Подготовка: {{name}}',
   'toast.file_save_error': 'Грешка при записването на файла: {{name}}',
-  'toast.distortion_warn': 'Възможно е изкривяване',
   'toast.decoding_audio': 'Декодиране на звука...',
   'toast.preparing_next': 'Подготовка на следващата песен... ({{name}})',
   'toast.preparing_next_pct': 'Подготовка на следващата песен... {{pct}}%',
@@ -573,8 +570,6 @@ const bg: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Виртуалният съраунд е включен',
   'toast.virtual_surround_off': 'Виртуалният съраунд е изключен',
   'toast.virtual_effects_off': 'Всички виртуални ефекти са изключени',
-  'toast.host_only': 'Само хостът може да извърши това',
-  'toast.host_only_media': 'Само хостът може да добавя медия',
   'toast.media_management_required': 'Необходимо е разрешение за управление на медията',
   'toast.playback_control_required': 'Необходимо е разрешение за управление на възпроизвеждането',
   'toast.member_management_required': 'Необходимо е разрешение за премахване на участници',
@@ -582,10 +577,7 @@ const bg: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Само собственикът на стаята може да промени това',
   'toast.system_audio_owner_required':
     'Можеш да споделяш звук само от раздела, в който е отворена стаята',
-  'toast.host_only_youtube': 'Само хостът може да добавя връзки към YouTube',
-  'toast.host_only_control': 'Само хостът може да управлява това',
   'toast.host_setting_required': 'Само хостът може да промени тази настройка',
-  'toast.host_only_file': 'Само хостът може да добавя файлове',
   'toast.no_tracks': 'Няма песни за възпроизвеждане',
   'toast.add_media_to_play': 'Добави медия',
   'toast.no_invite_code': 'Все още няма код за покана',
@@ -602,9 +594,6 @@ const bg: Record<I18nKey, string> = {
   'toast.stop_sent': 'Заявката за спиране е изпратена',
   'toast.hprecision_sync': 'Високоточен синхрон: подготовка на звука…',
   'toast.file_ready': 'Файлът е готов!\nНатисни „Пускане“',
-  'toast.host_sync_not_recommended': 'Настрой синхрона на устройство на гост',
-  'toast.host_sync_requested':
-    'Заявен е прецизен синхрон\nНастрой ръчния синхрон на устройство на гост',
   'toast.sync_not_in_system_audio': 'Синхронизирането не е достъпно при споделяне на системен звук',
   'toast.sync_not_ready': 'Все още не е готово\nОпитай след малко',
   'toast.sync_no_media': 'Няма медия за синхронизиране\nПърво избери какво да се възпроизведе',
@@ -617,11 +606,9 @@ const bg: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Все още няма данни за възпроизвеждането от хоста\nОпитай след малко',
   'toast.yt_rendezvous_timeout': 'Синхронизирането е неуспешно\nОпитай отново след малко',
-  'toast.yt_host_sync_sent': 'Сигналът за автоматичен синхрон е изпратен до участниците',
   'toast.yt_manual_sync_prompt':
     'Току-що бе направен опит за автоматичен синхрон\nАко все още усещаш закъснение, настрой стойността сега',
   'toast.playlist_ended': 'Последният медиен елемент приключи',
-  'toast.operator_required': 'Само администраторите могат да променят глобалните настройки',
   'toast.connection_closing': 'Връзката е прекъсната; настройката не е синхронизирана',
   'toast.host_changed_setting': 'Настройките бяха променени',
   'toast.session_mismatch': 'Сесиите не съвпадат\nПрехвърлянето на файла ще се повтори',

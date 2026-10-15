@@ -549,18 +549,15 @@ const ta: Record<I18nKey, string> = {
   'network.op_revoked': 'நிர்வாகி அனுமதி திரும்பப் பெறப்பட்டது',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
-  'toast.device_connected': '{{name}} இணைந்தார்',
   'toast.device_disconnected': '{{name}}-இன் இணைப்பு துண்டிக்கப்பட்டது',
   'toast.device_conn_error': '{{name}} இணைப்பில் பிழை',
   'toast.device_kicked': '{{name}} நீக்கப்பட்டார்',
   'toast.remote_decode_device_wait':
     'ஒரு சாதனத்தால் இந்த டிராக்கை டிகோட் செய்ய முடியவில்லை\nமற்றவர்களுக்கு பிளேபேக் தொடர்கிறது',
-  'toast.invite_code': 'அழைப்புக் குறியீடு: {{code}}',
   'toast.invite_code_info': 'இணைந்த சாதனங்கள்: {{count}} | குறியீடு {{code}}',
   'toast.added_tracks': '{{count}} டிராக்குகள் சேர்க்கப்பட்டன',
   'toast.preparing': 'தயாராகிறது: {{name}}',
   'toast.file_save_error': 'கோப்பைச் சேமிப்பதில் பிழை: {{name}}',
-  'toast.distortion_warn': 'ஒலி சிதையக்கூடும்',
   'toast.decoding_audio': 'ஆடியோ டிகோட் செய்யப்படுகிறது...',
   'toast.preparing_next': 'அடுத்த டிராக் தயாராகிறது... ({{name}})',
   'toast.preparing_next_pct': 'அடுத்த டிராக் தயாராகிறது... {{pct}}%',
@@ -582,8 +579,6 @@ const ta: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'விர்ச்சுவல் சரவுண்ட் இயக்கப்பட்டுள்ளது',
   'toast.virtual_surround_off': 'விர்ச்சுவல் சரவுண்ட் முடக்கப்பட்டுள்ளது',
   'toast.virtual_effects_off': 'அனைத்து விர்ச்சுவல் விளைவுகளும் முடக்கப்பட்டுள்ளன',
-  'toast.host_only': 'ஹோஸ்ட் மட்டுமே இதை இயக்க முடியும்',
-  'toast.host_only_media': 'ஹோஸ்ட் மட்டுமே மீடியாவைச் சேர்க்க முடியும்',
   'toast.media_management_required': 'மீடியா நிர்வாக அனுமதி தேவை',
   'toast.playback_control_required': 'பிளேபேக் கட்டுப்பாட்டு அனுமதி தேவை',
   'toast.member_management_required': 'உறுப்பினர்களை நீக்கும் அனுமதி தேவை',
@@ -591,10 +586,7 @@ const ta: Record<I18nKey, string> = {
   'toast.room_owner_required': 'அறை உரிமையாளர் மட்டுமே இதை மாற்ற முடியும்',
   'toast.system_audio_owner_required':
     'அறையைத் திறந்த தாவலில் இருந்து மட்டுமே ஆடியோவைப் பகிர முடியும்',
-  'toast.host_only_youtube': 'ஹோஸ்ட் மட்டுமே YouTube இணைப்புகளைச் சேர்க்க முடியும்',
-  'toast.host_only_control': 'ஹோஸ்ட் மட்டுமே இதைக் கட்டுப்படுத்த முடியும்',
   'toast.host_setting_required': 'ஹோஸ்ட் மட்டுமே இந்த அமைப்பை மாற்ற முடியும்',
-  'toast.host_only_file': 'ஹோஸ்ட் மட்டுமே கோப்புகளைச் சேர்க்க முடியும்',
   'toast.no_tracks': 'இயக்க டிராக்குகள் இல்லை',
   'toast.add_media_to_play': 'மீடியாவைச் சேர்க்கவும்',
   'toast.no_invite_code': 'இன்னும் அழைப்புக் குறியீடு இல்லை',
@@ -611,9 +603,6 @@ const ta: Record<I18nKey, string> = {
   'toast.stop_sent': 'நிறுத்தும் கோரிக்கை அனுப்பப்பட்டது',
   'toast.hprecision_sync': 'உயர் துல்லிய ஒத்திசைவு: ஆடியோ தயாராகிறது\u2026',
   'toast.file_ready': 'உங்கள் கோப்பு தயாராக உள்ளது!\nஇயக்கு என்பதை அழுத்தவும்',
-  'toast.host_sync_not_recommended': 'விருந்தினர் சாதனத்தில் ஒத்திசைவைச் சரிசெய்யவும்',
-  'toast.host_sync_requested':
-    'துல்லிய ஒத்திசைவு கோரப்பட்டது\nவிருந்தினர் சாதனத்தில் கைமுறை ஒத்திசைவைச் சரிசெய்யவும்',
   'toast.sync_not_in_system_audio': 'சிஸ்டம் ஆடியோ பகிர்வு பயன்முறையில் ஒத்திசைவு கிடைக்காது',
   'toast.sync_not_ready': 'இன்னும் தயாராகவில்லை\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
   'toast.sync_no_media': 'ஒத்திசைக்க மீடியா இல்லை\nமுதலில் இயக்க ஏதேனும் ஒன்றைத் தேர்ந்தெடுக்கவும்',
@@ -627,12 +616,9 @@ const ta: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'ஹோஸ்ட் பிளேபேக் தரவு இன்னும் இல்லை\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
   'toast.yt_rendezvous_timeout': 'ஒத்திசைவு தோல்வியடைந்தது\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
-  'toast.yt_host_sync_sent': 'பங்கேற்பாளர்களுக்குத் தானியங்கி ஒத்திசைவுச் சிக்னல் அனுப்பப்பட்டது',
   'toast.yt_manual_sync_prompt':
     'தானியங்கி ஒத்திசைவு இப்போது முயற்சிக்கப்பட்டது\nஇன்னும் தாமதமாகத் தெரிந்தால் மதிப்பைச் சரிசெய்யவும்',
   'toast.playlist_ended': 'கடைசி மீடியா உருப்படி முடிந்தது',
-  'toast.operator_required':
-    'நிர்வாகிகள் மட்டுமே அனைவருக்கும் பொருந்தும் அமைப்புகளை மாற்ற முடியும்',
   'toast.connection_closing': 'இணைப்பு துண்டிக்கப்பட்டது; அமைப்பு ஒத்திசைக்கப்படவில்லை',
   'toast.host_changed_setting': 'அமைப்புகள் மாற்றப்பட்டன',
   'toast.session_mismatch': 'அமர்வு பொருந்தவில்லை\nகோப்புப் பரிமாற்றம் மீண்டும் முயலும்',

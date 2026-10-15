@@ -540,18 +540,15 @@ const hu: Record<I18nKey, string> = {
   'network.op_revoked': 'Adminisztrátori jogosultság visszavonva',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': '{{name}} csatlakozott',
   'toast.device_disconnected': '{{name}} leválasztva',
   'toast.device_conn_error': '{{name}} kapcsolati hibája',
   'toast.device_kicked': '{{name}} eltávolítva',
   'toast.remote_decode_device_wait':
     'Egy eszköz nem tudta dekódolni ezt a számot\nA többi eszközön folytatódik a lejátszás',
-  'toast.invite_code': 'Meghívókód: {{code}}',
   'toast.invite_code_info': '{{count}} csatlakoztatott eszköz | Kód: {{code}}',
   'toast.added_tracks': '{{count}} szám hozzáadva',
   'toast.preparing': 'Előkészítés: {{name}}',
   'toast.file_save_error': 'Fájlmentési hiba: {{name}}',
-  'toast.distortion_warn': 'Torzítást okozhat',
   'toast.decoding_audio': 'Hang dekódolása...',
   'toast.preparing_next': 'Következő szám előkészítése... ({{name}})',
   'toast.preparing_next_pct': 'Következő szám előkészítése... {{pct}}%',
@@ -573,8 +570,6 @@ const hu: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Virtuális térhangzás bekapcsolva',
   'toast.virtual_surround_off': 'Virtuális térhangzás kikapcsolva',
   'toast.virtual_effects_off': 'Minden virtuális effektus kikapcsolva',
-  'toast.host_only': 'Ezt csak a házigazda teheti meg',
-  'toast.host_only_media': 'Médiát csak a házigazda adhat hozzá',
   'toast.media_management_required': 'Médiakezelési jogosultság szükséges',
   'toast.playback_control_required': 'Lejátszásvezérlési jogosultság szükséges',
   'toast.member_management_required': 'Résztvevő-eltávolítási jogosultság szükséges',
@@ -582,10 +577,7 @@ const hu: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Ezt csak a szobatulajdonos módosíthatja',
   'toast.system_audio_owner_required':
     'Csak arról a lapról oszthatsz meg hangot, amelyik megnyitotta a szobát',
-  'toast.host_only_youtube': 'YouTube-hivatkozást csak a házigazda adhat hozzá',
-  'toast.host_only_control': 'Ezt csak a házigazda vezérelheti',
   'toast.host_setting_required': 'Ezt a beállítást csak a házigazda módosíthatja',
-  'toast.host_only_file': 'Fájlt csak a házigazda adhat hozzá',
   'toast.no_tracks': 'Nincs lejátszható szám',
   'toast.add_media_to_play': 'Adj hozzá médiát',
   'toast.no_invite_code': 'Még nincs meghívókód',
@@ -602,9 +594,6 @@ const hu: Record<I18nKey, string> = {
   'toast.stop_sent': 'Leállítási kérés elküldve',
   'toast.hprecision_sync': 'Nagy pontosságú szinkronizálás: hang előkészítése…',
   'toast.file_ready': 'A fájl készen áll!\nNyomd meg a Lejátszás gombot',
-  'toast.host_sync_not_recommended': 'A szinkronizálást résztvevői eszközön állítsd be',
-  'toast.host_sync_requested':
-    'Pontos szinkronizálás kérve\nA kézi szinkronizálást résztvevői eszközön állítsd be',
   'toast.sync_not_in_system_audio': 'Rendszerhang megosztásakor a szinkronizálás nem érhető el',
   'toast.sync_not_ready': 'Még nincs kész\nPróbáld újra egy pillanat múlva',
   'toast.sync_no_media': 'Nincs szinkronizálható média\nElőbb válassz lejátszandó tartalmat',
@@ -618,11 +607,9 @@ const hu: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Még nincs lejátszási adat a házigazdától\nPróbáld újra egy pillanat múlva',
   'toast.yt_rendezvous_timeout': 'Nem sikerült szinkronizálni\nPróbáld újra egy pillanat múlva',
-  'toast.yt_host_sync_sent': 'Automatikus szinkronizálási jel elküldve a résztvevőknek',
   'toast.yt_manual_sync_prompt':
     'Az automatikus szinkronizálás most futott le\nHa továbbra is késést észlelsz, állítsd be most az értéket',
   'toast.playlist_ended': 'A lejátszási lista utolsó médiaeleme véget ért',
-  'toast.operator_required': 'A globális beállításokat csak adminisztrátorok módosíthatják',
   'toast.connection_closing': 'A kapcsolat megszakadt, a beállítás nem szinkronizálódott',
   'toast.host_changed_setting': 'A beállítások módosultak',
   'toast.session_mismatch': 'A munkamenetek nem egyeznek\nA fájlátvitel újraindul',

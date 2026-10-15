@@ -167,7 +167,7 @@ function _interpolate(str: string, params?: TranslationParams): string {
  *
  * @example
  *   t('common.ok')                                   // "확인" or "OK"
- *   t('toast.device_connected', { name: 'iPhone' })  // "iPhone님이 연결됐어요"
+ *   t('toast.device_disconnected', { name: 'iPhone' }) // "iPhone 연결이 끊겼어요"
  *   t('toast.added_tracks', { count: 1 })             // "1 track added"
  */
 export function t(key: I18nKey, params?: TranslationParams): string {

@@ -551,18 +551,15 @@ const fil: Record<I18nKey, string> = {
   'network.op_revoked': 'Binawi ang pahintulot ng administrator',
 
   // ─── Dynamic na notification ─────────────────────────────────────
-  'toast.device_connected': 'Nakakonekta si {{name}}',
   'toast.device_disconnected': 'Nadiskonekta si {{name}}',
   'toast.device_conn_error': 'May error sa koneksyon ni {{name}}',
   'toast.device_kicked': 'Inalis si {{name}}',
   'toast.remote_decode_device_wait':
     'Hindi na-decode ng isang device ang track na ito\nNagpapatuloy ang pag-play sa lahat ng iba pang device',
-  'toast.invite_code': 'Code ng imbitasyon: {{code}}',
   'toast.invite_code_info': '{{count}} nakakonekta | Code {{code}}',
   'toast.added_tracks': '{{count}} track ang idinagdag',
   'toast.preparing': 'Inihahanda: {{name}}',
   'toast.file_save_error': 'Hindi ma-save ang file: {{name}}',
-  'toast.distortion_warn': 'Maaaring magdulot ng distortion',
   'toast.decoding_audio': 'Dine-decode ang audio...',
   'toast.preparing_next': 'Inihahanda ang susunod na track... ({{name}})',
   'toast.preparing_next_pct': 'Inihahanda ang susunod na track... {{pct}}%',
@@ -584,8 +581,6 @@ const fil: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Naka-on ang virtual surround',
   'toast.virtual_surround_off': 'Naka-off ang virtual surround',
   'toast.virtual_effects_off': 'Naka-off ang lahat ng virtual effect',
-  'toast.host_only': 'Host lang ang makakagawa nito',
-  'toast.host_only_media': 'Host lang ang makakapagdagdag ng media',
   'toast.media_management_required': 'Kailangan ang pahintulot na mamahala ng media',
   'toast.playback_control_required': 'Kailangan ang pahintulot na kontrolin ang pag-play',
   'toast.member_management_required': 'Kailangan ang pahintulot na mag-alis ng mga miyembro',
@@ -593,10 +588,7 @@ const fil: Record<I18nKey, string> = {
   'toast.room_owner_required': 'May-ari lang ng kuwarto ang makakapagbago nito',
   'toast.system_audio_owner_required':
     'Maaari mo lang ibahagi ang audio mula sa tab na nagbukas ng kuwarto',
-  'toast.host_only_youtube': 'Host lang ang makakapagdagdag ng mga link sa YouTube',
-  'toast.host_only_control': 'Host lang ang makakakontrol nito',
   'toast.host_setting_required': 'Host lang ang makakapagbago ng setting na ito',
-  'toast.host_only_file': 'Host lang ang makakapagdagdag ng mga file',
   'toast.no_tracks': 'Walang track na ipe-play',
   'toast.add_media_to_play': 'Magdagdag ng media',
   'toast.no_invite_code': 'Wala pang code ng imbitasyon',
@@ -613,9 +605,6 @@ const fil: Record<I18nKey, string> = {
   'toast.stop_sent': 'Ipinadala ang hiling na huminto',
   'toast.hprecision_sync': 'High-precision sync: inihahanda ang audio…',
   'toast.file_ready': 'Handa na ang file mo!\nPindutin ang I-play',
-  'toast.host_sync_not_recommended': 'Ayusin ang sync sa bisitang device',
-  'toast.host_sync_requested':
-    'Hiniling ang precision sync\nAyusin ang manual sync sa bisitang device',
   'toast.sync_not_in_system_audio':
     'Hindi available ang sync sa mode ng pagbabahagi ng system audio',
   'toast.sync_not_ready': 'Hindi pa handa\nSubukan muli maya-maya',
@@ -628,11 +617,9 @@ const fil: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Naka-pause ang host, kaya posisyon lang ang itinugma',
   'toast.yt_rendezvous_no_data': 'Wala pang data ng pag-play mula sa host\nSubukan muli maya-maya',
   'toast.yt_rendezvous_timeout': 'Hindi na-sync\nPakisubukan muli maya-maya',
-  'toast.yt_host_sync_sent': 'Ipinadala sa mga kalahok ang signal ng auto-sync',
   'toast.yt_manual_sync_prompt':
     'Kakasubok lang ng awtomatikong pag-sync\nKung may delay pa rin, ayusin ang value ngayon',
   'toast.playlist_ended': 'Natapos na ang huling media item',
-  'toast.operator_required': 'Mga administrator lang ang makakapagbago ng global settings',
   'toast.connection_closing': 'Nawala ang koneksyon, hindi na-sync ang setting',
   'toast.host_changed_setting': 'Binago ang mga setting',
   'toast.session_mismatch': 'Hindi tugma ang session\nSusubukan muli ang paglilipat ng file',

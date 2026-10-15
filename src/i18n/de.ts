@@ -509,18 +509,15 @@ const de: Record<I18nKey, string> = {
     'Systemaudio-Freigabe wurde nach 2 Stunden\nautomatisch beendet',
 
   // Toast
-  'toast.device_connected': '{{name}} verbunden',
   'toast.device_disconnected': '{{name}} getrennt',
   'toast.device_conn_error': 'Verbindungsfehler bei {{name}}',
   'toast.device_kicked': '{{name}} wurde entfernt',
   'toast.remote_decode_device_wait':
     'Ein Gerät konnte diesen Titel nicht dekodieren\nDie Wiedergabe läuft für die anderen weiter',
-  'toast.invite_code': 'Einladungscode: {{code}}',
   'toast.invite_code_info': '{{count}} verbunden | Code {{code}}',
   'toast.added_tracks': '{{count}} Titel hinzugefügt',
   'toast.preparing': 'Wird vorbereitet: {{name}}',
   'toast.file_save_error': 'Fehler beim Speichern der Datei: {{name}}',
-  'toast.distortion_warn': 'Kann Verzerrung verursachen',
   'toast.decoding_audio': 'Audio wird dekodiert...',
   'toast.preparing_next': 'Nächster Titel wird vorbereitet... ({{name}})',
   'toast.preparing_next_pct': 'Nächster Titel wird vorbereitet... {{pct}}%',
@@ -540,8 +537,6 @@ const de: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Virtueller Surround ist aktiviert',
   'toast.virtual_surround_off': 'Virtueller Surround ist deaktiviert',
   'toast.virtual_effects_off': 'Alle virtuellen Effekte sind deaktiviert',
-  'toast.host_only': 'Nur der Host kann das ausführen',
-  'toast.host_only_media': 'Nur der Host kann Medien hinzufügen',
   'toast.media_management_required': 'Berechtigung zur Medienverwaltung erforderlich',
   'toast.playback_control_required': 'Berechtigung zur Wiedergabesteuerung erforderlich',
   'toast.member_management_required': 'Berechtigung zum Entfernen von Mitgliedern erforderlich',
@@ -549,10 +544,7 @@ const de: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Nur der Raumbesitzer kann dies ändern',
   'toast.system_audio_owner_required':
     'Audio kann nur über den Tab freigegeben werden, der den Raum geöffnet hat',
-  'toast.host_only_youtube': 'Nur der Host kann YouTube-Links hinzufügen',
-  'toast.host_only_control': 'Nur der Host kann dies steuern',
   'toast.host_setting_required': 'Nur der Host kann diese Einstellung ändern',
-  'toast.host_only_file': 'Nur der Host kann Dateien hinzufügen',
   'toast.no_tracks': 'Keine Titel zum Abspielen',
   'toast.add_media_to_play': 'Bitte Medien hinzufügen',
   'toast.no_invite_code': 'Noch kein Einladungscode',
@@ -565,9 +557,6 @@ const de: Record<I18nKey, string> = {
   'toast.stop_sent': 'Stoppanfrage gesendet',
   'toast.hprecision_sync': 'Präzisionssynchronisierung: Audio wird vorbereitet…',
   'toast.file_ready': 'Deine Datei ist bereit!\nDrücke auf Wiedergabe',
-  'toast.host_sync_not_recommended': 'Sync auf einem Teilnehmergerät anpassen',
-  'toast.host_sync_requested':
-    'Präzise Synchronisierung angefordert\nManuellen Sync auf einem Teilnehmergerät anpassen',
   'toast.sync_not_in_system_audio': 'Sync ist im Systemaudio-Freigabemodus nicht verfügbar',
   'toast.sync_not_ready': 'Noch nicht bereit\nVersuche es gleich erneut',
   'toast.sync_no_media':
@@ -581,11 +570,9 @@ const de: Record<I18nKey, string> = {
     'Die Wiedergabe des Hosts ist pausiert; nur die Position wurde angeglichen',
   'toast.yt_rendezvous_no_data': 'Noch keine Wiedergabedaten vom Host\nVersuche es gleich erneut',
   'toast.yt_rendezvous_timeout': 'Synchronisierung fehlgeschlagen\nGleich erneut versuchen',
-  'toast.yt_host_sync_sent': 'Auto-Sync-Signal an Teilnehmer gesendet',
   'toast.yt_manual_sync_prompt':
     'Automatische Synchronisierung wurde gerade versucht\nWenn es noch verzögert wirkt, passe den Wert jetzt an',
   'toast.playlist_ended': 'Das letzte Medium ist zu Ende',
-  'toast.operator_required': 'Nur Administratoren können globale Einstellungen ändern',
   'toast.connection_closing': 'Verbindung verloren, Einstellung nicht synchronisiert',
   'toast.host_changed_setting': 'Einstellungen wurden geändert',
   'toast.session_mismatch':

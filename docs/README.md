@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Desktop action button width — 2026-10-16](design/desktop-action-width-2026-10-16.md) —
+  Sync and Media retain their existing maximum width from the 1280px desktop
+  breakpoint. Verification and release evidence are recorded in the report.
+
 - [Keep-open dialog in PRO rooms — 2026-10-16](design/keep-open-pro-2026-10-16.md) —
   First-time PRO participants also get the one-time keep-open dialog when the
   room's first media appears, without the host sentence. Shipped App

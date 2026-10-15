@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Unused toast keys — 2026-10-15](design/unused-toast-keys-2026-10-15.md) —
+  Twelve toast keys that no code referenced are removed from all 42 locales.
+  Local unit/E2E evidence; production checks remain.
+
 - [Toast line length — 2026-10-15](design/toast-line-length-2026-10-15.md) —
   Toasts stop cutting authored copy at 50 characters (921 values in 38 locales
   ended in an ellipsis), stay up longer for longer text, and 77 verbose

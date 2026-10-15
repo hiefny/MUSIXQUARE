@@ -180,7 +180,9 @@ Not verified:
 - long toasts on physical devices or in WebKit;
 - right-to-left layout of long toasts in a real browser;
 - the full serial browser suite;
-- production behavior.
+- production behavior through a real user flow. After release, the deployed
+  toast function was checked directly on the production page (see Release and
+  recovery), not through an in-app action.
 
 ## Limits
 
